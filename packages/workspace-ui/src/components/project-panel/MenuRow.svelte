@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  import type { Component } from "svelte";
+  import type { Component, Snippet } from "svelte";
 
   export type ActionRowPhase = "idle" | "loading" | "success" | "error";
   /** Every Phosphor glyph satisfies this, and so does a brand logo that renders
@@ -16,6 +16,9 @@
     disabled?: boolean;
     /** Quiet tabular metric or qualifier in the trailing slot ("28", "Ghostty"). */
     badge?: string;
+    /** Added and removed line counts, tinted, before the badge. A zero count
+     *  is left out. */
+    diffStat?: { insertions: number; deletions: number };
     /** Tints the glyph alone, for a state the row *reports* (a PR's checks are
      *  failing) rather than what activating it does — recolouring the label too
      *  would read as the action itself being destructive. */
@@ -40,11 +43,14 @@
     split?: boolean;
     /** Whether this disclosure row's menu is currently open. */
     menuOpen?: boolean;
+    /** Renders the idle icon in place of `item.icon`, for an icon that needs
+     *  more than a size — a project's favicon needs its root and host. */
+    iconSnippet?: Snippet;
     onActivate: (
       event: MouseEvent & { currentTarget: HTMLButtonElement },
     ) => void;
   }
-  let { item, split = false, menuOpen = false, onActivate }: Props = $props();
+  let { item, split = false, menuOpen = false, iconSnippet, onActivate }: Props = $props();
 </script>
 
 <TooltipUI.Root>
@@ -70,6 +76,8 @@
               <span class="glyph-spin"><SpinnerGapIcon size={16} /></span>
             {:else if item.phase === "success"}
               <span class="glyph-pop"><CheckIcon size={16} weight="bold" /></span>
+            {:else if iconSnippet}
+              {@render iconSnippet()}
             {:else}
               {@const Icon = item.icon}
               <Icon size={16} />
@@ -78,6 +86,12 @@
           <span class="menu-label">{item.label}</span>
         </span>
         <span class="menu-right">
+          {#if item.diffStat?.insertions}<span class="menu-trail stat-add"
+              >+{item.diffStat.insertions}</span
+            >{/if}
+          {#if item.diffStat?.deletions}<span class="menu-trail stat-del"
+              >−{item.diffStat.deletions}</span
+            >{/if}
           {#if item.badge}<span class="menu-trail">{item.badge}</span>{/if}
           {#if item.hint && !item.disclosure}<Kbd variant="inline"
               >{item.hint}</Kbd
@@ -191,6 +205,12 @@
     font-size: var(--text-chrome-dense);
     font-weight: 400;
     font-variant-numeric: tabular-nums;
+  }
+  .menu-trail.stat-add {
+    color: var(--solus-status-complete);
+  }
+  .menu-trail.stat-del {
+    color: var(--solus-status-error);
   }
   /* Disclosure caret closes the row. It points at where the menu opens — the
      menus flank the column rather than dropping into it. */

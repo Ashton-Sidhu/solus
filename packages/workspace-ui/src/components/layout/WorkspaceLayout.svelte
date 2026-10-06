@@ -15,16 +15,6 @@
   let { onAttachFile, onScreenshot, onDesignMode }: Props = $props();
 
   const session = getWorkspaceContext();
-  const router = session.router;
-
-  let prevActiveTabId: string | undefined;
-  $effect(() => {
-    const current = session.activeTabId;
-    if (prevActiveTabId !== undefined && prevActiveTabId !== current) {
-      if (router.overlay?.name === "review") router.closeOverlay();
-    }
-    prevActiveTabId = current;
-  });
 
   $effect(() => {
     const handler = () => {

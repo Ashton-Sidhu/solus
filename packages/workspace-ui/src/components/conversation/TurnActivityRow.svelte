@@ -92,11 +92,6 @@
   const runningTool = $derived(
     turn.tools.find((t) => t.toolStatus === "running" && !t.subMessages),
   );
-  // Steps that have actually landed — a tool still in flight is the row's
-  // subject, not something folded away behind it.
-  const steps = $derived(
-    turn.tools.filter((t) => t.toolStatus !== "running").length,
-  );
   // A request in flight with nothing back yet is waiting, not working — §12's
   // distinction survives the merge into this row: dots, not a spinner, and the
   // label holds still because nothing is happening.
@@ -226,17 +221,13 @@
     {/if}
   {/snippet}
 
-  <!-- §16 — the rail counts, it never narrates: steps, then time. The count is
-       the only thing that says how much is folded behind the row. -->
+  <!-- §16 — the rail counts, it never narrates. -->
   {#snippet rail()}
     {#if workingFor}
       <span data-testid="turn-working-for">for <UserChip user={workingFor} short /></span>
     {/if}
     {#if attempt > 1}
       <span>attempt {attempt}</span>
-    {/if}
-    {#if steps > 0}
-      <span>{steps} step{steps === 1 ? "" : "s"}</span>
     {/if}
     {#if state !== "done"}
       <span class="activity-rail-time">{duration}</span>

@@ -6,7 +6,7 @@
   import { sharesStore, serversStore } from '@solus/workspace-ui/contexts';
   import { presenceStore } from '@solus/workspace-ui/contexts/presence/presence.store.svelte';
   import { setPopoverLayer } from '@solus/workspace-ui/components/popoverLayer.svelte';
-  import { visibleRef } from '@solus/workspace-ui/contexts/workspace/routing/location';
+  import { activeSurface } from '@solus/workspace-ui/contexts/workspace/routing/location';
   import * as Tooltip from '@solus/workspace-ui/components/ui/tooltip';
   import * as Empty from '@solus/workspace-ui/components/ui/empty';
   import PresenceStack from '@solus/workspace-ui/components/presence/PresenceStack.svelte';
@@ -35,7 +35,7 @@
   const role = $derived(list?.callerRole === 'editor' || list?.callerRole === 'commenter' || list?.callerRole === 'viewer' ? list.callerRole : share.role);
   const activeWork = $derived.by(() => {
     for (const pane of session.router.panes) {
-      const ref = visibleRef(pane);
+      const ref = activeSurface(pane);
       if (ref?.name === 'work') return { params: ref.params, paneId: pane.id };
     }
     return null;

@@ -1,45 +1,35 @@
-import type { PlanDescriptor } from '@solus/contracts/types'
 import type { WorkListing } from '../../../contexts/works/works.store.svelte'
 import type { DocProviderId } from '@solus/contracts/docs'
 import type { WorkReviewerSummary, WorkReviewState, WorkReviewStateEntry } from '@solus/contracts/work-review'
-import { planKey } from '@solus/contracts/types'
-import { hostKey } from '@solus/client-core/host-key'
 import { matchesOpenProjects } from '../../../lib/sessionUtils'
 
 /** Facet type of a ledger item. Slides works fold into `doc` — the Workspace
- *  ledger only distinguishes the three glyphs the spec names. */
-export type WorkspaceItemType = 'plan' | 'doc' | 'diagram'
-
-export type PlanStatus = 'pending' | 'accepted' | 'rejected'
+ *  ledger distinguishes docs, diagrams, and HTML artifacts. */
+export type WorkspaceItemType = 'doc' | 'diagram' | 'artifact'
 
 /**
  * The row's leading mark. Type keys the facet; the glyph keys the artifact's
- * own identity, so the two are separate fields. A plan wears the logo of the
- * agent that wrote it — a person scanning the ledger is usually looking for
- * "the plan Codex made", not "a plan" — and falls back to the generic plan mark
- * when the provider is unknown. Works keep the icons Solus already uses for
- * them in the project panel, slides included, even though slides file under the
- * Docs facet.
+ * own identity, so the two are separate fields. Works keep the icons Solus
+ * already uses for them in the project panel, slides included, even though
+ * slides file under the Docs facet.
  */
-export type WorkspaceGlyph = 'claude' | 'codex' | 'plan' | 'doc' | 'slides' | 'diagram' | 'artifact' | 'insights-report'
+export type WorkspaceGlyph = 'doc' | 'slides' | 'diagram' | 'artifact' | 'insights-report'
 
-/** One row of the Workspace ledger — a plan descriptor or a work, normalized
- *  to a single shape so grouping, filtering, and keyboard nav treat every
- *  artifact identically. */
+/** One row of the Workspace ledger — a work, normalized to a single shape so
+ *  grouping, filtering, and keyboard nav treat every artifact identically.
+ *  Plans are session artifacts and stay out of the Workspace. */
 export type WorkspaceItem = {
-  /** Plan: `planKey(sessionId, planToolUseId)`. Work: the work id. */
+  /** The work id. */
   id: string
-  /** Renderer identity. Plan ids are only unique within a host, and the type
-   *  prefix prevents a work id from colliding with a plan id. */
+  /** Renderer identity. */
   rowKey: string
   type: WorkspaceItemType
   glyph: WorkspaceGlyph
   title: string
   snippet: string
-  /** Last-activity epoch ms (plan timestamp / work updatedAt). */
+  /** Last-activity epoch ms (work updatedAt). */
   timestamp: number
-  /** When the artifact was first written, epoch ms. Equal to `timestamp` for a
-   *  plan, which is generated once and never edited in place. */
+  /** When the artifact was first written, epoch ms. */
   createdAt: number
   /** The session that generated it — the row links back to it. Null on a work
    *  that was created by hand rather than by an agent. */
@@ -48,88 +38,22 @@ export type WorkspaceItem = {
   /** Sort key inside the Pinned group (newest pin first). */
   pinnedAt: number
   cwd: string
-  /** The open project this artifact belongs to — its `OpenProject.key`. */
+  /** The project this artifact belongs to: a known project's key, or the
+   *  work's own directory when no known project claims it. */
   projectKey: string
   projectLabel: string
-  /** Plans only; docs and diagrams leave the status column blank. */
-  status: PlanStatus | null
-  /** Works only: the review state, when the work has reviewers. */
+  /** The review state, when the work has reviewers. */
   reviewState: WorkReviewState | null
-  /** Works only: who reviews it and what they decided. */
+  /** Who reviews it and what they decided. */
   reviewers: WorkReviewerSummary[]
-  /** Works only: a review request waits for the reader. */
+  /** A review request waits for the reader. */
   awaitingMyReview: boolean
-  source:
-    | { kind: 'plan'; descriptor: PlanDescriptor }
-    | { kind: 'work'; work: WorkListing }
+  work: WorkListing
 }
 
 /** Structural shape of `OpenProject` — the ledger only needs identity, a label,
  *  and the path roots that attribute an artifact to it. */
 export type WorkspaceProject = { key: string; label: string; roots: string[] }
-
-interface WorkspaceProjectRun {
-  serverId: string
-  workingDirectory: string
-  gitContext: { repoRoot?: string | null } | null
-}
-
-/** Choose the project once, when Workspace opens. A started session has first
- *  claim; without one, the run behind the input bar supplies the project. The
- *  default input-bar directory is the final fallback. */
-export function initialWorkspaceProject(
-  activeSessionRun: WorkspaceProjectRun | undefined,
-  inputBarRun: WorkspaceProjectRun | undefined,
-  inputBarDefault: Pick<WorkspaceProjectRun, 'workingDirectory' | 'gitContext'>,
-  defaultServerId: string | null,
-): { serverId: string; projectRoot: string } | null {
-  const run = activeSessionRun ?? inputBarRun
-  const projectRoot = run?.gitContext?.repoRoot
-    ?? run?.workingDirectory
-    ?? inputBarDefault.gitContext?.repoRoot
-    ?? inputBarDefault.workingDirectory
-  const serverId = run?.serverId ?? defaultServerId
-  if (!serverId || !projectRoot || projectRoot === '~') return null
-  return { serverId, projectRoot }
-}
-
-/** A selected project still has to participate in attribution before the
- *  catalog update reaches derived page state, or its freshly loaded artifacts
- *  are discarded before rendering. */
-export function projectsForWorkspaceScope(
-  projects: WorkspaceProject[],
-  scopedProject: Pick<WorkspaceProject, 'key' | 'label'> | null,
-): WorkspaceProject[] {
-  if (!scopedProject || projects.some((project) => project.key === scopedProject.key)) {
-    return projects
-  }
-  return [...projects, { ...scopedProject, roots: [scopedProject.key] }]
-}
-
-export function planItem(d: PlanDescriptor, project: WorkspaceProject): WorkspaceItem {
-  const id = planKey(d.sessionId, d.planToolUseId)
-  return {
-    projectKey: project.key,
-    projectLabel: project.label,
-    id,
-    rowKey: `plan:${d.serverId ? hostKey(d.serverId, id) : id}`,
-    type: 'plan',
-    glyph: d.provider === 'claude-code' ? 'claude' : d.provider === 'codex' ? 'codex' : 'plan',
-    title: d.title || 'Untitled plan',
-    snippet: d.excerpt,
-    timestamp: d.timestamp,
-    createdAt: d.timestamp,
-    sessionId: d.sessionId,
-    pinned: d.bookmarked,
-    pinnedAt: d.bookmarkedAt ?? d.timestamp,
-    cwd: d.cwd,
-    status: d.status,
-    reviewState: null,
-    reviewers: [],
-    awaitingMyReview: false,
-    source: { kind: 'plan', descriptor: d },
-  }
-}
 
 /** What the ledger knows about each work's review, from the review store. */
 export interface WorkReviewLookup {
@@ -139,7 +63,7 @@ export interface WorkReviewLookup {
 
 const NO_REVIEWS: WorkReviewLookup = { summaryOf: () => undefined, awaitsMe: () => false }
 
-export function workItem(w: WorkListing, project: WorkspaceProject, reviews: WorkReviewLookup = NO_REVIEWS): WorkspaceItem {
+export function workItem(w: WorkListing, project: Pick<WorkspaceProject, 'key' | 'label'>, reviews: WorkReviewLookup = NO_REVIEWS): WorkspaceItem {
   const updated = new Date(w.updatedAt).getTime() || 0
   // The newest collaborator is the session a reader wants to land in; the
   // legacy single `sessionId` covers works written before that list existed.
@@ -150,7 +74,7 @@ export function workItem(w: WorkListing, project: WorkspaceProject, reviews: Wor
     projectLabel: project.label,
     id: w.id,
     rowKey: `work:${w.id}`,
-    type: w.type === 'diagram' ? 'diagram' : 'doc',
+    type: w.type === 'diagram' || w.type === 'artifact' ? w.type : 'doc',
     glyph: w.type === 'doc' ? 'doc' : w.type,
     title: w.title || 'Untitled document',
     snippet: w.type === 'diagram' ? '' : w.preview,
@@ -160,27 +84,21 @@ export function workItem(w: WorkListing, project: WorkspaceProject, reviews: Wor
     pinned: !!w.pinned,
     pinnedAt: updated,
     cwd: w.cwd,
-    status: null,
     reviewState: review?.state ?? null,
     reviewers: review?.reviewers ?? [],
     awaitingMyReview: reviews.awaitsMe(w.id),
-    source: { kind: 'work', work: w },
+    work: w,
   }
 }
 
 /** What the status icon shows. */
-export type RowStatusKind = 'approved' | 'rejected' | 'changes_requested' | 'in_review' | 'review_requested'
+export type RowStatusKind = 'approved' | 'changes_requested' | 'in_review' | 'review_requested'
 
 /**
- * The status column: a plan's decision, or a work's review state, as an icon
- * with its word for hover and screen readers. A pending plan shows nothing: it
- * is the usual state, so marking it would only add noise. A work the reader
- * must review says so first.
+ * The status column: a work's review state, as an icon with its word for hover
+ * and screen readers. A work the reader must review says so first.
  */
-export function rowStatus(item: Pick<WorkspaceItem, 'status' | 'reviewState' | 'awaitingMyReview'>): { kind: RowStatusKind; label: string } | null {
-  if (item.status === 'accepted') return { kind: 'approved', label: 'Accepted' }
-  if (item.status === 'rejected') return { kind: 'rejected', label: 'Rejected' }
-  if (item.status) return null
+export function rowStatus(item: Pick<WorkspaceItem, 'reviewState' | 'awaitingMyReview'>): { kind: RowStatusKind; label: string } | null {
   if (item.awaitingMyReview) return { kind: 'review_requested', label: 'Your review is requested' }
   switch (item.reviewState) {
     case 'in_review': return { kind: 'in_review', label: 'In review' }
@@ -193,42 +111,35 @@ export function rowStatus(item: Pick<WorkspaceItem, 'status' | 'reviewState' | '
 /** HTML artifacts render their own interface, so a source-text peek has no
  * useful mobile representation. */
 export function isHtmlArtifact(item: WorkspaceItem): boolean {
-  return item.source.kind === 'work' && item.source.work.type === 'artifact'
+  return item.work.type === 'artifact'
 }
 
 /** The external product whose mark belongs in the Workspace upstream column. */
 export function upstreamProviderFor(item: WorkspaceItem): DocProviderId | null {
-  return item.source.kind === 'work' ? item.source.work.mirroredDoc?.provider ?? null : null
+  return item.work.mirroredDoc?.provider ?? null
 }
 
-/** The open project an artifact belongs to, or null when it sits outside every
- *  one of them (worktrees and subfolders count as their project). */
-function projectFor(cwd: string | undefined, projects: WorkspaceProject[]): WorkspaceProject | null {
-  return projects.find((p) => matchesOpenProjects(cwd, p.roots)) ?? null
+/** The project an artifact belongs to (worktrees and subfolders count as
+ *  their project). A work outside every known project files under its own
+ *  directory, so the global ledger never drops it. */
+function projectFor(cwd: string, projects: WorkspaceProject[]): Pick<WorkspaceProject, 'key' | 'label'> {
+  const known = projects.find((p) => matchesOpenProjects(cwd, p.roots))
+  if (known) return known
+  const label = cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop()
+  return { key: cwd, label: label || 'No project' }
 }
 
-/** Merge plans + works scoped to the open projects, newest first. Each item
- *  carries the project it came from so the ledger can scope to one. */
+/** Every work on every host, newest first. The Workspace is global: it spans
+ *  all projects, and each item names the project it came from. */
 export function buildWorkspaceItems(
-  descriptors: PlanDescriptor[],
   works: WorkListing[],
   projects: WorkspaceProject[],
   reviews: WorkReviewLookup = NO_REVIEWS,
 ): WorkspaceItem[] {
   const items: WorkspaceItem[] = []
   const seenRowKeys = new Set<string>()
-  for (const d of descriptors) {
-    const project = projectFor(d.cwd, projects)
-    if (!project) continue
-    const item = planItem(d, project)
-    if (seenRowKeys.has(item.rowKey)) continue
-    seenRowKeys.add(item.rowKey)
-    items.push(item)
-  }
   for (const w of works) {
-    const project = projectFor(w.cwd, projects)
-    if (!project) continue
-    const item = workItem(w, project, reviews)
+    const item = workItem(w, projectFor(w.cwd, projects), reviews)
     if (seenRowKeys.has(item.rowKey)) continue
     seenRowKeys.add(item.rowKey)
     items.push(item)
@@ -309,50 +220,46 @@ export function sortItems(items: WorkspaceItem[], order: SortOrder): WorkspaceIt
 // ─── Filtering + search tokens ───
 
 export type TypeFilter = 'all' | WorkspaceItemType
-export type StatusFilter = 'any' | PlanStatus
 export type TimeFilter = 'all' | 'today' | 'yesterday' | 'week' | 'older'
 
 export type WorkspaceFilter = {
   type: TypeFilter
-  status: StatusFilter
   pinnedOnly: boolean
   /** Only works whose review request waits for the reader. */
   awaitingMyReview: boolean
   time: TimeFilter
+  /** A project key, or empty for every project. Page-local: it never moves
+   *  the scope Tasks, Pull requests, or Automations share. */
+  project: string
   /** Free text — matched against title + snippet, case-insensitive. */
   text: string
 }
 
 export const DEFAULT_FILTER: WorkspaceFilter = {
   type: 'all',
-  status: 'any',
   pinnedOnly: false,
   awaitingMyReview: false,
   time: 'all',
+  project: '',
   text: '',
 }
 
 export function isDefaultFilter(f: WorkspaceFilter): boolean {
-  return f.type === 'all' && f.status === 'any' && !f.pinnedOnly && !f.awaitingMyReview && f.time === 'all' && !f.text.trim()
+  return f.type === 'all' && !f.pinnedOnly && !f.awaitingMyReview && f.time === 'all' && !f.project && !f.text.trim()
 }
 
-const TYPE_TOKENS = new Map<string, TypeFilter>([['plan', 'plan'], ['doc', 'doc'], ['diagram', 'diagram']])
-const STATUS_TOKENS = new Map<string, StatusFilter>([['pending', 'pending'], ['accepted', 'accepted'], ['rejected', 'rejected']])
+const TYPE_TOKENS = new Map<string, TypeFilter>([['doc', 'doc'], ['diagram', 'diagram'], ['artifact', 'artifact']])
 const TIME_TOKENS = new Map<string, TimeFilter>([['today', 'today'], ['yesterday', 'yesterday'], ['week', 'week'], ['older', 'older']])
 
 /** Parse one `key:value` word into a filter patch, or null when it isn't a
  *  recognized token (it stays free text). */
 export function parseToken(word: string): Partial<WorkspaceFilter> | null {
-  const match = /^(type|status|is|time):(\S+)$/i.exec(word)
+  const match = /^(type|is|time):(\S+)$/i.exec(word)
   if (!match) return null
   const key = match[1].toLowerCase()
   const value = match[2].toLowerCase()
   const type = TYPE_TOKENS.get(value)
   if (key === 'type' && type) return { type }
-  // `status:` implies plans — the only artifact carrying one — so the filter
-  // predicate already excludes docs and diagrams; no explicit type: needed.
-  const status = STATUS_TOKENS.get(value)
-  if (key === 'status' && status) return { status }
   if (key === 'is' && value === 'pinned') return { pinnedOnly: true }
   if (key === 'is' && value === 'review-requested') return { awaitingMyReview: true }
   const time = TIME_TOKENS.get(value)
@@ -372,22 +279,33 @@ export function applyFilter(items: WorkspaceItem[], filter: WorkspaceFilter): Wo
   const now = new Date()
   return items.filter((item) => {
     if (filter.type !== 'all' && item.type !== filter.type) return false
-    if (filter.status !== 'any' && item.status !== filter.status) return false
     if (filter.pinnedOnly && !item.pinned) return false
     if (filter.awaitingMyReview && !item.awaitingMyReview) return false
     if (!inTimeBucket(item.timestamp, filter.time, now)) return false
+    if (filter.project && item.projectKey !== filter.project) return false
     if (!q) return true
     return item.title.toLowerCase().includes(q) || item.snippet.toLowerCase().includes(q)
   })
 }
 
-export type FilterChip = { key: 'type' | 'status' | 'pinned' | 'review' | 'time'; token: string }
+/** The Project filter's options: every project that holds a work, by name,
+ *  each with its count. */
+export function projectOptions(items: WorkspaceItem[]): { value: string; label: string; count: number }[] {
+  const byKey = new Map<string, { value: string; label: string; count: number }>()
+  for (const item of items) {
+    const option = byKey.get(item.projectKey)
+    if (option) option.count++
+    else byKey.set(item.projectKey, { value: item.projectKey, label: item.projectLabel, count: 1 })
+  }
+  return [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label))
+}
+
+export type FilterChip = { key: 'type' | 'pinned' | 'review' | 'time'; token: string }
 
 /** The active non-default filter axes, as removable `key:value` chips. */
 export function filterChips(filter: WorkspaceFilter): FilterChip[] {
   const chips: FilterChip[] = []
   if (filter.type !== 'all') chips.push({ key: 'type', token: `type:${filter.type}` })
-  if (filter.status !== 'any') chips.push({ key: 'status', token: `status:${filter.status}` })
   if (filter.pinnedOnly) chips.push({ key: 'pinned', token: 'is:pinned' })
   if (filter.awaitingMyReview) chips.push({ key: 'review', token: 'is:review-requested' })
   if (filter.time !== 'all') chips.push({ key: 'time', token: `time:${filter.time}` })
@@ -396,7 +314,6 @@ export function filterChips(filter: WorkspaceFilter): FilterChip[] {
 
 export function clearChip(filter: WorkspaceFilter, key: FilterChip['key']): void {
   if (key === 'type') filter.type = 'all'
-  if (key === 'status') filter.status = 'any'
   if (key === 'pinned') filter.pinnedOnly = false
   if (key === 'review') filter.awaitingMyReview = false
   if (key === 'time') filter.time = 'all'

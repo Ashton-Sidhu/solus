@@ -15,7 +15,8 @@ import { HostConnections, type HostTransport } from '../features/hosts/host-conn
 import { KeyboardCommands } from '../features/keyboard/keyboard-commands'
 import { HostRegistry, type NativeHost } from '../features/hosts/host-registry'
 import { previewHost, type HostPreview, type PreviewResult } from '../features/hosts/lib/pair-input'
-import { SessionDirectory } from '../features/sessions/session-directory'
+import { ThreadDirectory } from '../features/threads/thread-directory'
+import { ThreadListState } from '../features/threads/thread-list-state'
 import { NativeNotificationHub } from '../features/notifications/notification-hub'
 import { AppearancePreference, type AppearanceMode } from '../features/settings/appearance'
 import { HostSettings } from '../features/settings/host-settings'
@@ -81,7 +82,10 @@ export class SolusApp {
   readonly registry: HostRegistry
   readonly connections: HostConnections
   readonly account: AccountSession
-  readonly sessions: SessionDirectory
+  /** Every session on every host, as T3 Code's home list reads it. */
+  readonly threads: ThreadDirectory
+  /** Each host's shelf (settled, snoozed), live status, and PR links, as T3 Code's list shows them. */
+  readonly threadList: ThreadListState
   readonly outbox: SendOutbox
   /** Notifications addressed to the person, from every host this device knows (plan 015). */
   readonly notifications: NativeNotificationHub
@@ -124,11 +128,12 @@ export class SolusApp {
     this.connections = new HostConnections({
       registry: this.registry,
       createTransport: platform.createTransport,
-      acquireHostAccessToken: (host) => this.account.acquireHostAccessToken(host),
+      acquireHostAccessToken: (host, options) => this.account.acquireHostAccessToken(host, options),
       organizationId: () => this.account.organizationId,
       fetch: platform.fetch,
     })
-    this.sessions = new SessionDirectory((hostId) => this.connections.connection(hostId))
+    this.threads = new ThreadDirectory(this.registry, (hostId) => this.connections.connection(hostId))
+    this.threadList = new ThreadListState((hostId) => this.connections.connection(hostId), storage)
     this.personal = new PersonalSettingsStore(storage)
     this.appearance = new AppearancePreference(this.personal, (mode) => platform.applyAppearance?.(mode))
     this.personalSync = new PersonalSync(this.personal, {
@@ -223,6 +228,7 @@ export class SolusApp {
       runSettings: () => this.settingsFor(hostId),
       executionPreferences: () => this.personal.executionPreferences(),
       saveModelOptions: (provider, model, options) => { this.personal.saveModelOptions(provider, model, options) },
+      autoRenameSessions: () => this.personal.current().autoRenameSessions,
       organizationId: () => this.account.organizationId,
       uuid: this.platform.uuid,
       attachmentIo: this.platform.attachmentIo,
@@ -230,6 +236,11 @@ export class SolusApp {
     this.conversations.set(key, store)
     void store.controller.load()
     return store
+  }
+
+  /** The conversation already open under this id, for a sheet presented over its thread. */
+  openConversation(hostId: string, conversationId: string): ConversationStore | null {
+    return this.conversations.get(conversationKey(hostId, conversationId)) ?? null
   }
 
   closeConversation(store: ConversationStore): void {
@@ -284,7 +295,8 @@ export class SolusApp {
       this.conversations.delete(key)
       store.close()
     }
-    this.sessions.forgetHost(hostId)
+    this.threads.forgetHost(hostId)
+    this.threadList.forgetHost(hostId)
     this.hostSettings.forgetHost(hostId)
     this.pullRequests.forgetHost(hostId)
     this.files.forgetHost(hostId)

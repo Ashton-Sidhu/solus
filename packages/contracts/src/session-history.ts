@@ -1,4 +1,4 @@
-import type { AgentId, ContextCompaction, QuestionAnswer } from './types'
+import type { AgentId, ContextCompaction, ExchangeProgress, QuestionAnswer } from './types'
 import type { SessionReport } from './session-exchange'
 import type { Activity } from './activity'
 
@@ -70,6 +70,9 @@ export interface AgentConversationResultProjection {
   /** The report a waiting tool call returned: the exchange settled inside the
    *  call, so no report turn follows in the transcript. */
   report?: SessionReport
+  /** The host's word on the exchange as of this read. Absent when the host no
+   *  longer carries it: a restart ended it, or its receipt expired. */
+  progress?: ExchangeProgress
 }
 
 /** History row shape allowed across the host-to-client boundary. */

@@ -62,7 +62,7 @@ export type CodexSkillsListResponse = SkillsListResponse
 export type CodexThreadGoalResponse = ThreadGoalGetResponse | ThreadGoalSetResponse
 export type CodexThreadGoalClearResponse = ThreadGoalClearResponse
 
-export type CodexDynamicTool = Omit<Extract<DynamicToolSpec, { type: 'function' }>, 'type'>
+export type CodexDynamicTool = Extract<DynamicToolSpec, { type: 'namespace' }>
 
 export type CodexThreadConfigExtras = {
   dynamicTools?: CodexDynamicTool[]

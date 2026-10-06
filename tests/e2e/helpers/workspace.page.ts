@@ -2,7 +2,7 @@ import type { Page, Locator } from '@playwright/test'
 
 const WORKSPACE = '[role="dialog"][aria-label="Workspace"]'
 
-/** Interactions with the Workspace page (the unified plans + docs + diagrams ledger). */
+/** Interactions with the Workspace page (the global docs + diagrams ledger). */
 export class WorkspacePage {
   constructor(readonly page: Page) {}
 
@@ -38,7 +38,7 @@ export class WorkspacePage {
     return this.dialog.locator('[data-slot="empty-title"]')
   }
 
-  /** Every ledger row — plans, docs and diagrams share the same row shape. */
+  /** Every ledger row — docs and diagrams share the same row shape. */
   items(): Locator {
     return this.dialog.locator('[role="option"]')
   }
@@ -64,16 +64,6 @@ export class WorkspacePage {
 
   filtersMenu(): Locator {
     return this.dialog.getByRole('button', { name: /^Filters/ })
-  }
-
-  /** The Filters menu's project scope group — every ledger count is relative
-   *  to it. The menu is portalled, so it is found on the page. */
-  projectFilter(): Locator {
-    return this.page.getByTestId('project-filter')
-  }
-
-  statusMenu(): Locator {
-    return this.dialog.getByRole('button', { name: 'Filter by status' })
   }
 
   /** The hover peek — a transient card anchored to a row, portalled to the body

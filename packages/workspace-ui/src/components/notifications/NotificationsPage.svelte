@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import type { NotificationView } from "@solus/contracts/notification-hub";
   import type { HubRow } from "@solus/client-core/notifications/merge";
   import { hubRowKey } from "@solus/client-core/notifications/merge";
@@ -7,9 +8,10 @@
   import { PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
   import { ListEmpty, ListFilterBar, ListFilterGroup, ListPage, ListSkeleton } from "../ui/list-page";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
-  import type { InlinePageProps } from "../ui/lib/pane-surface";
+  import type { PaneSurfaceProps } from "../ui/lib/pane-surface";
   import NotificationRow from "./NotificationRow.svelte";
-  import { notificationDestination } from "./lib/notification-actions";
+  import { notificationDestination, resolveNotificationDestination } from "./lib/notification-actions";
+  import { serverConnections } from "@solus/client-core/server-connections";
   import {
     kindsForGroups,
     matchesNotificationQuery,
@@ -18,12 +20,16 @@
     type NotificationKindGroup,
   } from "@solus/client-core/notifications/presentation";
 
-  let { paneId }: InlinePageProps = $props();
+  let { paneId, surfaceVisible = true }: Partial<PaneSurfaceProps> = $props();
 
   const session = getWorkspaceContext();
   const pane = paneActions(() => paneId);
   const shell = getClientShellContext();
   const open = $derived(session.router.at("notifications"));
+
+  $effect(() => {
+    if (surfaceVisible) return untrack(() => store.showHistory());
+  });
 
   let query = $state("");
   let searchEl = $state<HTMLInputElement | null>(null);
@@ -54,9 +60,12 @@
   }
 
   /** Open the row's resource on its own source; opening an unread row marks it read. */
-  function openRow(row: HubRow): void {
+  async function openRow(row: HubRow): Promise<void> {
     const key = hubRowKey(row.sourceId, row.notification.id);
-    const destination = notificationDestination(row.notification, serverIdOf(row));
+    const serverId = serverIdOf(row);
+    const destination = await resolveNotificationDestination(row.notification, serverId, (automationId, runId) =>
+      serverConnections.apiFor(serverId).automationReadRun(automationId, runId),
+    );
     if (!shell.canOpenResource(destination.route.kind)) {
       toasts.error("This window cannot open that item.");
       return;
@@ -109,8 +118,6 @@
       page="notifications"
       onRefresh={() => void store.refresh()}
       refreshing={store.isLoading}
-      onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
-      isLeading={pane.isLeading}
       onClose={() => session.router.close("notifications")}
       toolbarFilters
       filters={filterBar}
@@ -153,7 +160,7 @@
                 canChange={store.canChange(key)}
                 disabledReason={disabledReason(row)}
                 {now}
-                onOpen={() => openRow(row)}
+                onOpen={() => void openRow(row)}
                 onSetRead={(read) => void choose(row, (rowKey) => store.setRead(rowKey, read))}
                 onSetArchived={(archived) => void choose(row, (rowKey) => store.setArchived(rowKey, archived))}
               />

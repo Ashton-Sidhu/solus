@@ -72,15 +72,16 @@ function runIn(workingDirectory: string): RunConfig {
 
 /** One pane, and the workspace members the drafts controller reads. */
 function draftsInOnePane(modelOptionsByProvider: import('@solus/contracts/host-config').ModelOptionsByProvider = {}) {
-  type Base = { name: string; params: { draftId: string } } | null
-  const pane = { id: 'lead', base: null as Base }
+  type Surface = { name: string; params: { draftId: string } }
+  const pane = { id: 'lead', surfaces: [] as Surface[], activeSurfaceIndex: 0 }
   let drafts: InstanceType<typeof SessionDrafts>
   const workspace = {
     settings: { modelOptionsByProvider },
     activeTabId: '',
     defaultRunConfig: runIn(NEW_CHAT.directory),
     get focusedSourceId() {
-      return pane.base?.name === 'draft' ? pane.base.params.draftId : null
+      const shown = pane.surfaces[0]
+      return shown?.name === 'draft' ? shown.params.draftId : null
     },
     runFor: (sourceId: string) => drafts.sessionDrafts.get(sourceId)?.run,
     rootTaskIdFor: () => null,
@@ -88,8 +89,11 @@ function draftsInOnePane(modelOptionsByProvider: import('@solus/contracts/host-c
     router: {
       focusedPaneId: pane.id,
       panes: [pane],
+      leadingPane: pane,
+      storedSurfaces: [],
       pane: () => pane,
-      navigate: (ref: Base) => { pane.base = ref },
+      navigate: (ref: Surface) => { pane.surfaces = [ref] },
+      dropStrip: () => {},
     },
   }
   drafts = new SessionDrafts(workspace as never)

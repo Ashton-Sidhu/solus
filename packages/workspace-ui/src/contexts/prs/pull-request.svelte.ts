@@ -526,6 +526,15 @@ export class PullRequest implements Contracts.PullRequest {
     )
   }
 
+  /** Bring the base into the head on the host. Nothing is shown before the
+   *  host answers: the new head and its merge state are the host's to say. */
+  async updateBranch(): Promise<PullRequest> {
+    const expectedHeadSha = this.headSha
+    if (!expectedHeadSha) throw new Error('The pull request is not loaded.')
+    const updated = await this.api.prUpdateBranch(detached(this.ctx), this.number, expectedHeadSha)
+    return this.store.applyPullRequest(updated)
+  }
+
   /** Open a pull request that reverses this merged one. */
   revert(): Promise<PrRevertResult> {
     return this.api.prRevert(detached(this.ctx), this.number)

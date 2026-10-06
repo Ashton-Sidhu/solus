@@ -23,7 +23,7 @@
     const nextParams: RouteParams["review"] = { ...params, view: next };
     session.router.navigate(
       { name: "review", params: nextParams },
-      { target: paneId, replace: true },
+      { replace: true },
     );
   }
 
@@ -33,7 +33,7 @@
     const nextParams: RouteParams["review"] = next ? { ...rest, scope: next } : rest;
     session.router.navigate(
       { name: "review", params: nextParams },
-      { target: paneId, replace: true },
+      { replace: true },
     );
   }
 
@@ -58,7 +58,7 @@
   filePath={params.filePath}
   {navigationRequestId}
   initialSkeletonVisible
-  onClose={pane.closeOverlay}
+  onClose={pane.close}
   onToggleMaximize={pane.toggleMaximize}
   maximized={pane.maximized}
 />

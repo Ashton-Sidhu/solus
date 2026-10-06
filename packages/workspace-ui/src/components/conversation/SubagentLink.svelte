@@ -18,7 +18,7 @@
 
   const status = $derived(subagentLinkStatus(row.state));
   const isOpen = $derived(
-    router.overlay?.name === "subagent" && router.overlay.params.messageId === row.id,
+    router.companionSurface?.name === "subagent" && router.companionSurface.params.messageId === row.id,
   );
 </script>
 

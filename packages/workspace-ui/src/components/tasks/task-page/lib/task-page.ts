@@ -12,10 +12,12 @@ import type {
   TaskStatus,
 } from '@solus/contracts/task-types'
 import type { DocProviderId } from '@solus/contracts/docs'
-import type { Work } from '@solus/contracts/types'
+import type { HostOperatingSystem, Work } from '@solus/contracts/types'
 import type { Activity } from '@solus/contracts/activity'
 import { sameUser, type UserId } from '@solus/contracts/user'
 import { sessionDisplayName } from '../../../../lib/sessionUtils'
+import { attributionName } from '../../../presence/lib/actor-name'
+import { providerMark, type ProviderMarkId } from '../../../insights/lib/provider'
 import { dueDateMeta, PRIORITY_META, STATUS_META } from '../../lib/tasks-api'
 import { linkedPrTitle } from './task-prs'
 
@@ -84,7 +86,10 @@ export function statusTextColor(status: TaskStatus): string {
 /** The machine an attempt ran on, already resolved against the saved hosts. */
 export interface TaskSessionHost {
   label: string
-  isRemote: boolean
+  /** Drawn as the host's logo. Unknown for a host that never reported it. */
+  os?: HostOperatingSystem
+  /** A host Solus cloud runs: drawn as a cloud, whatever its OS. */
+  managed: boolean
 }
 
 export interface TaskSessionRow {
@@ -93,10 +98,16 @@ export interface TaskSessionRow {
   /** Which agent ran the attempt — the one fact that tells two attempts of the
    *  same task apart at a glance. Empty when the session is not indexed yet. */
   agent: string
+  /** The agent's logo, drawn in place of its name. Null for an agent Solus
+   *  has no mark for, which keeps its name. */
+  agentMark: ProviderMarkId
   /** Which machine ran it. Null only when the host cannot be named at all —
    *  a link that predates the recorded host, on a task whose own host this
    *  client has not placed. The column says so rather than guessing "here". */
   host: TaskSessionHost | null
+  /** Who started it, as the reader reads it ("you", "Alice", "an agent"). Null
+   *  when nobody recorded it. */
+  startedBy: string | null
   /** When the attempt started, absolute: attempts are a history, and "3d ago"
    *  is worse than a date for lining them up against the activity feed. */
   date: string
@@ -148,6 +159,8 @@ export function taskSessionRow(
   now: number,
   taskTitle?: string | null,
   host?: TaskSessionHost | null,
+  /** The reader on the task's host, so their own sessions read "you". */
+  self: UserId | null = null,
 ): TaskSessionRow {
   // The link is written when the session is first bound to the task, so its
   // timestamp is when the attempt started.
@@ -158,7 +171,9 @@ export function taskSessionRow(
     sessionId: link.sessionId,
     title: sessionDisplayName({ link, liveTitle, taskTitle }),
     agent: provider ? (AGENT_LABELS.get(provider) ?? provider) : '',
+    agentMark: providerMark(provider),
     host: host ?? null,
+    startedBy: link.startedBy ? attributionName(link.startedBy, self) : null,
     date: (thisYear ? DAY : DAY_WITH_YEAR).format(started),
     dateFull: FULL.format(started),
     running,
@@ -405,14 +420,26 @@ export function linkedArtifactForActivity(activity: Activity, links: TaskLink[])
   return link && isArtifactLink(link) ? link : null
 }
 
+/** The task's link to the session that authored an agent comment. A comment
+ * keeps the id the agent knew itself by, which is the provider thread when the
+ * link holds the stable Solus id, so either id finds the link. */
+export function commentSessionLink(
+  comment: Pick<TaskComment, 'originSessionId'>,
+  sessions: TaskSessionLink[],
+): TaskSessionLink | null {
+  const origin = comment.originSessionId
+  if (!origin) return null
+  return sessions.find((candidate) => candidate.sessionId === origin || candidate.agentSessionId === origin) ?? null
+}
+
 /** Name the session that authored an agent comment. The durable task-session
- * link carries the indexed title; comments keep only the stable session id. */
+ * link carries the indexed title; with no link, only the id is known. */
 export function commentSessionName(
   comment: Pick<TaskComment, 'originSessionId'>,
   sessions: TaskSessionLink[],
 ): string | null {
   if (!comment.originSessionId) return null
-  const link = sessions.find((candidate) => candidate.sessionId === comment.originSessionId)
+  const link = commentSessionLink(comment, sessions)
   return link
     ? sessionDisplayName({ link })
     : comment.originSessionId.slice(0, 8)

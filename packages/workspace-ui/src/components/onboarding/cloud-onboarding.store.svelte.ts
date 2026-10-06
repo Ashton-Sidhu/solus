@@ -367,7 +367,7 @@ class CloudOnboardingStore {
       // Skipped while it cloned: the person is already working elsewhere.
       if (!this.isOpen) return false
     }
-    workspace.drafts.openSessionDraft({ serverId: choice.serverId, target: workspace.router.leadingPane.id }, path)
+    workspace.drafts.openSessionDraft({ serverId: choice.serverId, target: 'leading' }, path)
     return true
   }
 
@@ -378,7 +378,7 @@ class CloudOnboardingStore {
   landInChat(workspace: Pick<WorkspaceContext, 'drafts' | 'router'>): void {
     const serverId = this.chosenServerId
     if (!serverId) return
-    workspace.drafts.openSessionDraft({ serverId, target: workspace.router.leadingPane.id }, NEW_CHAT_DIRECTORY)
+    workspace.drafts.openSessionDraft({ serverId, target: 'leading' }, NEW_CHAT_DIRECTORY)
   }
 
   /** Finishing and skipping both end onboarding for the account, on every

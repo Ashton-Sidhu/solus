@@ -29,7 +29,7 @@ test.describe('Workspace page', () => {
     expect(await workspace.isOpen()).toBe(false)
   })
 
-  test('names the open project in the Filters menu and lists it in the project group', async ({ page }) => {
+  test('is global: project is a filter that starts on All projects', async ({ page }) => {
     const app = new AppPage(page)
     const workspace = new WorkspacePage(page)
     await app.waitForAppReady()
@@ -37,12 +37,26 @@ test.describe('Workspace page', () => {
     await workspace.open()
     await workspace.waitForOpen()
 
-    // Every ledger count is relative to the project scope, so the scope has to
-    // be named — and reachable — from the Filters menu, not just implied.
+    // The Workspace spans every project; one project is only a filter.
     await workspace.filtersMenu().click()
-    await expect(workspace.projectFilter()).toBeVisible()
-    await workspace.projectFilter().click()
-    await expect(page.getByRole('menuitem', { name: 'All projects' })).toBeVisible()
+    await page.getByRole('menuitem', { name: /^Project/ }).click()
+    await expect(page.getByRole('menuitemradio', { name: /All projects/ })).toBeVisible()
+  })
+
+  test('leaves plans with their sessions', async ({ page }) => {
+    const app = new AppPage(page)
+    const conversation = new ConversationPage(page)
+    const workspace = new WorkspacePage(page)
+    await app.waitForAppReady()
+
+    await conversation.typeAndSend('__MOCK_DOCUMENT__ write a project brief')
+    await page.getByTestId('document-card').first().waitFor({ state: 'visible', timeout: 10_000 })
+    await conversation.typeAndSend('__MOCK_PLAN__ create a migration plan')
+    await page.getByTestId('plan-card').first().waitFor({ state: 'visible', timeout: 10_000 })
+
+    await workspace.open()
+    await workspace.waitForOpen()
+    await expect(workspace.items()).toHaveCount(1)
   })
 
   test('previews the artifact the pointer rests on, and nothing before it rests', async ({ page, electronApp }) => {
@@ -92,8 +106,8 @@ test.describe('Workspace page', () => {
 
     await conversation.typeAndSend('__MOCK_DOCUMENT__ write a project brief')
     await page.getByTestId('document-card').first().waitFor({ state: 'visible', timeout: 10_000 })
-    await conversation.typeAndSend('__MOCK_PLAN__ create a migration plan')
-    await page.getByTestId('plan-card').first().waitFor({ state: 'visible', timeout: 10_000 })
+    await conversation.typeAndSend('__MOCK_DOCUMENT__ write a second brief')
+    await expect(page.getByTestId('document-card')).toHaveCount(2, { timeout: 10_000 })
 
     await workspace.open()
     await workspace.waitForOpen()

@@ -242,7 +242,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
   data-solus-ui
-  class="fixed inset-0 z-[10020] flex items-start justify-center pt-[12vh] pointer-events-auto bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] motion-safe:animate-[backdrop-fade_140ms_ease-out]"
+  class="fixed inset-0 z-[10020] flex items-start justify-center pt-[12vh] pointer-events-auto picker-backdrop motion-safe:animate-[backdrop-fade_140ms_ease-out]"
   class:hidden={!open}
   aria-hidden={!open}
   inert={!open}

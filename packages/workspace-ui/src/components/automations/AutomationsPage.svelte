@@ -569,8 +569,6 @@
         primaryAction={showEmpty
           ? undefined
           : { label: "New automation", shortcut: "⌘N", run: startCreate }}
-        onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
-        isLeading={pane.isLeading}
         onClose={close}
         toolbarFilters
         filters={showEmpty && projectOptions.length === 0 ? undefined : filterBar}

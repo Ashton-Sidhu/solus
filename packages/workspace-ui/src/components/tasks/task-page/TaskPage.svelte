@@ -123,6 +123,11 @@
     ) ?? null,
   );
   const sessions = $derived(store.get(taskId).sessions);
+  // Title repair is housekeeping: it waits for the page's own detail read, so
+  // its calls never queue ahead of what the reader opened the page to see.
+  $effect(() => {
+    if (surfaceVisible && detailsSettled && sessions.length) void store.repairWorkerTitles(taskId, sessions);
+  });
   const projectCwd = $derived(
     task?.projectKey ?? session.tasksProjectCwd ?? undefined,
   );
@@ -292,6 +297,7 @@
     }
     return stopWatching;
   });
+  const detailsSettled = $derived(loadedId === taskId && loadingTaskId !== taskId);
 
   // ── Prev/next follow the Tasks page's own ordering, so "next" is the row the
   // user actually saw underneath this one. ──
@@ -466,21 +472,16 @@
           kind: "work",
           workId: link.targetKey,
           title: link.liveTitle || link.title,
-          secondary: true,
           via: "click",
         });
         break;
       // A plan and an automation live on the machine that holds them; only the
       // workspace can open one.
       case "plan":
-        void session.workspace?.openPlanModal(
-          `${link.targetScope}__${link.targetKey}`,
-          undefined,
-          { secondary: true },
-        );
+        void session.workspace?.openPlanModal(`${link.targetScope}__${link.targetKey}`);
         break;
       case "automation":
-        session.workspace?.openAutomationBuilder(link.targetKey, "aside");
+        session.workspace?.openAutomationBuilder(link.targetKey);
         break;
       case "pr": {
         const number = Number(link.targetKey);
@@ -495,9 +496,6 @@
             target: { number, title: link.title, url: link.url },
             projectDirectory: target.projectDirectory ?? undefined,
             serverId: target.serverId ?? undefined,
-            navTarget: paneId && session.workspace
-              ? session.workspace.router.targetAcrossFrom(paneId)
-              : "aside",
           });
         }
         break;
@@ -532,12 +530,15 @@
     return workspace.revealSession(sessionId, serverConnections.resolveId(serverId), { background });
   }
 
+  /** A session opened from the task is a new surface beside it, so the task
+   *  stays on screen (docs/plans/companion-surfaces.md, rule 6). A client with
+   *  one pane shows the conversation in place of the page. */
   async function openSession(sessionId: string) {
     if (onOpenSession) { onOpenSession(sessionId); return; }
+    if (session.workspace?.hasCompanionPanes) return openSessionSplit(sessionId);
     try {
       const tabId = await reveal(sessionId, false);
       if (!tabId) return notifySessionUnavailable();
-      session.workspace?.router.closeGroup("page");
     } catch (err) {
       toastError("open this session", err);
     }
@@ -545,13 +546,12 @@
 
   async function openSessionSplit(sessionId: string) {
     try {
-      // A split resume stays in the background. A foreground resume would
-      // replace this task page before trying to place that same conversation
-      // beside itself.
+      // A split resume stays in the background. A foreground resume would make
+      // the conversation the destination and put this task's strip away.
       const tabId = await reveal(sessionId, true);
       if (!tabId) return notifySessionUnavailable();
       const revealed = session.workspace?.sessionFor(tabId);
-      if (revealed) session.workspace?.openSplitChat(revealed.id);
+      if (revealed) session.workspace?.openChatSurface(revealed.id);
     } catch (err) {
       toastError("open this session in a split", err);
     }
@@ -626,6 +626,14 @@
   /** Sections are hidden, never unmounted: a tab that unmounts loses its
    *  expanded threads and re-fetches its artifact previews on every switch. */
   const hiddenTab = (id: TaskTabId) => stacked && tab !== id;
+
+  // Wait for the measured layout before mounting a hidden Activity tab. Once
+  // opened, keep its expanded comments and artifact state across tab switches.
+  let activityMountedFor = $state<string | null>(null);
+  const activityVisible = $derived(surfaceVisible && paneWidth > 0 && !hiddenTab("activity"));
+  $effect(() => {
+    if (activityVisible) activityMountedFor = taskId;
+  });
 
   // ── The bottom bar belongs to the tab, not to the page ──
   // Where the four sections scroll past each other there is one thing to do at
@@ -879,8 +887,6 @@
         onPrevious={chromePrevious}
         onNext={chromeNext}
         onOpenSource={chromeOpenSource}
-        onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
-        isLeading={pane.isLeading}
         onOpenPage={embedded ? onOpenRoute : undefined}
         onCopyLink={canCopyLink ? () => copyLink(task) : null}
         onOpenList={chromeOpenList}
@@ -966,7 +972,7 @@
                empty sections, and they arrive together with the composer below
                them, so nothing already on screen is pushed down. A failed read
                ends the wait and shows the sections as they are. -->
-          {#if details || (loadedId === taskId && loadingTaskId !== taskId)}
+          {#if details || detailsSettled}
           <div class="flex flex-col" class:hidden={hiddenTab("linked")}>
           {#if pinnedArtifact}
             <TaskPinnedArtifact
@@ -1010,20 +1016,24 @@
           </div>
 
           <div class="flex flex-col" class:hidden={hiddenTab("activity")}>
-            <TaskActivityFeed
-              {stacked}
-              comments={details?.comments ?? []}
-              activity={details?.activity ?? []}
-              {links}
-              enabled={surfaceVisible && !hiddenTab("activity")}
-              {sessions}
-              onOpenSession={(sessionId) => void openSession(sessionId)}
-              currentUserId={taskServerId ? presenceStore.currentUserId(taskServerId) : null}
-              provider={upstream?.canSync ? upstream.provider : null}
-              onPublish={(commentId) => publishComments([commentId])}
-              canModerate={canModerateComments}
-              onDelete={deleteComment}
-            />
+            {#if activityVisible || activityMountedFor === taskId}
+              {#key taskId}
+              <TaskActivityFeed
+                {stacked}
+                comments={details?.comments ?? []}
+                activity={details?.activity ?? []}
+                {links}
+                enabled={surfaceVisible && !hiddenTab("activity")}
+                {sessions}
+                onOpenSession={(sessionId) => void openSession(sessionId)}
+                currentUserId={taskServerId ? presenceStore.currentUserId(taskServerId) : null}
+                provider={upstream?.canSync ? upstream.provider : null}
+                onPublish={(commentId) => publishComments([commentId])}
+                canModerate={canModerateComments}
+                onDelete={deleteComment}
+              />
+              {/key}
+            {/if}
           </div>
 
           <!-- The composer is outside the tabs on purpose: a comment is about
@@ -1077,4 +1087,3 @@
     onClose={() => (picking = false)}
   />
 {/if}
-

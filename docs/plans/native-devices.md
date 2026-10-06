@@ -15,7 +15,7 @@ file is the implemented decision.
 | Device host (`deviceHostId`) | `local`, or an SSH device host configured on one Solus host. |
 | Device (`deviceId`) | A simulator UDID, an emulator serial, or an AVD name while it is stopped. Unique only inside its device host. |
 | Preview (`devicePreviewId`) | One session showing one device. A device can have previews in several sessions. |
-| Control lease | The right to change a device through Solus. One holder at a time, with a generation. |
+| Control lease | The right to change a device through Solus. One holder at a time. |
 | Device hub | `expo-device-hub`, the pinned helper that streams screens. |
 | Agent tools | `agent-device`, the pinned CLI agents drive devices with. |
 | Bridge | The Solus loopback proxy between an agent's CLI and the agent-device daemon. |
@@ -34,27 +34,40 @@ Devices are a feature domain beside the browser, not a browser target.
 - The browser contract keeps its reserved `{ kind: 'device' }` target for wire
   compatibility. `browserOpen` refuses it and names the Devices pane.
 
-## D2 — Video over the existing host connection
+## D2 — Clients reach the hub through a signed pass-through proxy
 
-The host reads the hub's streams on loopback and forwards whole packets to
-subscribed clients on a binary `device-frame` Socket.IO event, beside
-`browser-frame`. Desktop, web and mobile use the same path; there is no
-separate desktop IPC frame path.
+Changed 2026-10-05. The first implementation relayed video: the host demuxed
+one hub stream per device and fanned packets out over the Socket.IO
+connection, and input went as typed RPC mapped on the host. That relay
+needed keyframe-group replay, per-client congestion control, a screen
+generation on every input and its own frame channel, and each difference
+from T3 Code's client caused bugs T3 Code did not have. Solus now does what
+T3 Code does (`apps/server/src/device/DeviceHubProxy.ts`): each client speaks
+the hub protocols itself, through a proxy that passes bytes through.
 
-- iOS: the `stream.avcc` body is demuxed into `config` (avcC), `key`,
-  `delta` and `jpeg` (seed) packets. `stream.mjpeg` is split into `jpeg`
-  packets for clients without WebCodecs. Input and screen config use the
-  helper WebSocket.
-- Android: the SEMU WebSocket carries video and input. Packets are tagged
-  `annexb`; there is no MJPEG, so a client without WebCodecs sees an explicit
-  unsupported state.
-- The host never decodes or re-encodes video. One upstream serves every
-  watcher and recorder. A joiner gets the config and the current keyframe
-  group, never a bare delta. A congested client skips to the next keyframe.
-  The upstream stops when no watcher, recorder or held touch remains.
-- Clients never receive the hub origin, its exec token or the daemon token.
-  Input and actions are typed RPC, validated with zod and checked against the
-  control lease.
+- A client asks `deviceStreamUrl` for one device. The host answers with a
+  short-lived signed path, `/api/device-hub/<token>`, naming the device host,
+  the device and the client. Guests get no URL (D3).
+- The proxy (`device-hub-proxy.ts`) serves only that device's stream routes:
+  `helper/<device>/stream.avcc` and `stream.mjpeg` over HTTP, and the iOS
+  `helper/ws` and Android `ws` sockets. Anything else is refused, so the hub's
+  exec and action routes stay unreachable. The token is checked when a
+  request or socket opens.
+- Hub to client, bytes pass unchanged. Client to hub, the proxy drops input
+  unless that client holds the control lease when the message arrives; a
+  keyframe request and the iOS hardware-keyboard setting always pass, because
+  a viewer needs them.
+- The client (`client-core/src/devices/device-hub-stream.ts`) demuxes iOS AVCC
+  and MJPEG and Android SEMU itself, and maps each touch against the newest
+  screen the helper reported. A screen change ends a held touch.
+- Each viewer opens its own hub stream. The hub never receives Solus
+  credentials, and clients never receive the hub origin or its tokens.
+- The route exists on the tunnel listener too, so remote clients use it
+  unchanged. A client's proxied sockets close when its Solus connection
+  expires.
+
+**Not done:** releasing a touch held by a client whose proxied socket drops
+mid-gesture. The helper decides what happens then, as in T3 Code.
 
 ## D3 — Admission
 
@@ -70,14 +83,13 @@ separate desktop IPC frame path.
 ## Control (S01)
 
 `device-control.ts` holds one lease per device. Watching never takes control.
-Every mutation names its lease generation, and an older generation is refused.
-Generations are seeded from the clock, so a restarted host never accepts one
-issued before the restart.
+A mutation is allowed only for the current holder; commands do not name a
+lease. A person's first touch or action takes a free device, or one another
+person holds. The lease generation only tells a client which lease is its own.
 
-A person taking control from an agent pauses agent device actions at once. If
-an agent mutation is in flight, the grant waits until it ends, and the UI says
-so. The agent stays paused until someone selects Resume agent. Releasing,
-expiry and disconnect never resume an agent or grant it control.
+A person taking control from an agent pauses agent device actions and gets
+control at once. The agent stays paused until someone selects Resume agent.
+Releasing, expiry and disconnect never resume an agent or grant it control.
 
 Agents reach the daemon only through the bridge (`device-agent-bridge.ts`).
 The CLI config written for an agent holds the bridge URL and a per-binding
@@ -126,6 +138,10 @@ stores it as a host asset.
 
 Protocol handling, actions, toolchain, local and SSH host logic and the agent
 guidance are adapted from T3 Code at `pingdotgg/t3code@43bd667` (MIT). Each
-adapted file names its source. No T3 or Apple 3D model assets are included.
+adapted file names its source. The 3D device view ports T3's procedural body,
+motion, framing and input (`components/devices/lib/phone-viewer/`, from
+`pingdotgg/t3code@77823bd102`), with three.js 0.180.0. No T3 or Apple 3D model
+assets are included: T3's `.glb` files are converted from Apple's AR assets and
+are not under T3's licence, so Solus draws only the body built in code.
 `expo-device-hub` (MIT) vendors serve-sim and serve-emu (Apache-2.0); they are
 installed on the host at runtime, not bundled with Solus.

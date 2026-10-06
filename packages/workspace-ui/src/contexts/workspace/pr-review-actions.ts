@@ -6,7 +6,7 @@ import { buildPrCheckoutCard } from '../../lib/pr-checkout-card'
 import type { PrReviewTab } from '../prs/pr-view.svelte'
 import { prSurfaceError } from '../../components/prs/lib/pr-surface-error'
 import { toasts } from '../../lib/toasts'
-import { type NavTarget } from './routing/location'
+import { type OpenTarget } from './routing/location'
 import { type RouteRef } from './routing/route-registry'
 import { SessionDraft } from './session-draft.svelte'
 import { nextMsgId } from './session.utils'
@@ -148,15 +148,11 @@ export class PrReviewActions {
   }
 
   /**
-   * Open a PR review as the page. The route is entered before the (slow)
+   * Open a PR review as a surface. The route is entered before the (slow)
    * host detail request so the click gets a real surface rather than a blank pane;
    * the descriptor's `resolve` fills that same mounted surface in place when the
    * host target lands. Re-entering a PR already in the router's payload cache
    * skips the request entirely. Checkout is a later, action-specific operation.
-   *
-   * List selection replaces the list in the leading pane. A transcript link can
-   * explicitly target the companion pane instead, so reading the conversation
-   * remains uninterrupted. The review's own chrome owns later pane changes.
    */
   private async openPrReviewRoute(
     number: number,
@@ -166,7 +162,6 @@ export class PrReviewActions {
       tab?: PrReviewTab
       via?: Via
       serverId?: string
-      target?: NavTarget
       expectedRepo?: RouteRef<'prReview'>['params']['expectedRepo']
       externalFallbackUrl?: string
       preflight?: boolean
@@ -199,10 +194,7 @@ export class PrReviewActions {
         return null
       }
     }
-    const pane = this.workspace.router.navigate(ref, {
-      target: opts.target ?? this.workspace.router.leadingPane.id,
-      via: opts.via,
-    })
+    this.workspace.router.navigate(ref, { via: opts.via })
     track('surface_viewed', { surface: 'pr_review', via: opts.via })
     this.workspace.pullRequests.projects.get(api, serverId, ctx).get(number).prefetch()
     try {
@@ -212,10 +204,7 @@ export class PrReviewActions {
       if (prSurfaceError(err).kind === 'github-auth') return null
       // Tear down the pending surface so a failed open doesn't strand the user.
       this.workspace.router.dropResolved(ref)
-      if (this.workspace.router.params('prReview')?.number === number) {
-        if (pane.id === this.workspace.router.leadingPane.id) this.exitPrReview()
-        else this.workspace.router.closePane(pane.id)
-      }
+      this.workspace.router.closeSurfacesWhere((surface) => surface.name === 'prReview' && surface.params.number === number)
       // The provider can refuse a PR this client can otherwise see — an
       // organization that never granted the OAuth app, for one. The host still
       // has it, so send the user there instead of reporting a dead end.
@@ -239,7 +228,6 @@ export class PrReviewActions {
       ctx?: IpcContext
       via?: Via
       serverId?: string
-      target?: NavTarget
       tab?: PrReviewTab
       preflight?: boolean
     } = {},
@@ -260,7 +248,6 @@ export class PrReviewActions {
       tab: opts.tab,
       via: opts.via,
       serverId: opts.serverId,
-      target: opts.target,
       expectedRepo,
       externalFallbackUrl,
       preflight: opts.preflight,
@@ -284,7 +271,7 @@ export class PrReviewActions {
     opts: {
       prompt?: string
       serverId?: string
-      target?: NavTarget
+      target?: OpenTarget
       task: 'new' | 'none'
     },
   ): SessionDraft {
@@ -373,28 +360,25 @@ export class PrReviewActions {
   /** Pop the open review's diff out beside it, so the activity feed and the
    *  change read together. Closing it returns the review to Activity. */
   openPrDiff(number: number, ctx: IpcContext = this.workspace.ctx): void {
-    const pane = this.workspace.router.navigate(
-      {
-        name: 'prDiff',
-        params: {
-          number,
-          cwd: projectScopeOf(ctx.session) || undefined,
-          serverId: this.workspace.sessions.byId[ctx.session.sessionId]?.run.serverId,
-        },
+    this.workspace.router.navigate({
+      name: 'prDiff',
+      params: {
+        number,
+        cwd: projectScopeOf(ctx.session) || undefined,
+        serverId: this.workspace.sessions.byId[ctx.session.sessionId]?.run.serverId,
       },
-      { target: 'aside' },
-    )
-    pane.defaultSize = 50
+    })
   }
 
   closePrDiff(): void {
     this.workspace.router.close('prDiff')
   }
 
-  /** Leave the review for the list it was opened from. Any session already
-   *  started from its composer remains an ordinary workspace tab. */
+  /** Close the review and its diff. The destination it was opened beside —
+   *  the list or a conversation — is still there. Any session already started
+   *  from its composer remains an ordinary workspace tab. */
   exitPrReview(): void {
     this.workspace.router.close('prDiff')
-    this.workspace.openPrs(this.workspace.router.params('prReview')?.cwd ?? null)
+    this.workspace.router.close('prReview')
   }
 }

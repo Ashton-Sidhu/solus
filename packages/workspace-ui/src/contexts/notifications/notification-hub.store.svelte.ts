@@ -1,4 +1,5 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+import { untrack } from 'svelte'
 import type { NotificationKind, NotificationView } from '@solus/contracts/notification-hub'
 import { NotificationHubClient, type HubSourceState } from '@solus/client-core/notifications/hub-client'
 import type { HubRow } from '@solus/client-core/notifications/merge'
@@ -29,6 +30,7 @@ class NotificationHubStore {
   conflicts = $state<string[]>([])
   private client: NotificationHubClient | null = null
   private stopTracking: (() => void) | null = null
+  private historyReaders = 0
 
   /** The identity a feed is read for: a signed-in account, or this device's own hosts. */
   private get identity(): string {
@@ -52,22 +54,23 @@ class NotificationHubStore {
       // The engine is outside Svelte; the identity and the source list are synced into it.
       $effect(() => {
         const identity = this.identity
-        if (this.client?.identity === identity) return
-        this.client?.signOut()
-        this.client = new NotificationHubClient({
-          identity,
-          connect: (source) => serverNotificationLink(source),
-          rows: this.rows,
-          sources: this.sources,
-          pending: this.pending,
-        })
-        this.client.setFilter(this.filter)
-        this.client.setSources(this.sourceList.sources)
-      })
-      $effect(() => {
         const list = this.sourceList
         this.conflicts = list.conflicts
-        this.client?.setSources(list.sources)
+        untrack(() => {
+          if (this.client?.identity !== identity) {
+            this.client?.signOut()
+            this.client = new NotificationHubClient({
+              identity,
+              connect: (source) => serverNotificationLink(source),
+              rows: this.rows,
+              sources: this.sources,
+              pending: this.pending,
+            })
+            this.client.setFilter(this.filter)
+            this.client.setHistoryVisible(this.historyReaders > 0)
+          }
+          this.client.setSources(list.sources)
+        })
       })
     })
     this.stopTracking = () => {
@@ -82,6 +85,18 @@ class NotificationHubStore {
 
   private get filter() {
     return this.kinds.length ? { view: this.view, kinds: [...this.kinds] } : { view: this.view }
+  }
+
+  /** A visible page owns history; the shell owns counts and subscriptions. */
+  showHistory(): () => void {
+    this.historyReaders++
+    this.client?.setHistoryVisible(true)
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      if (--this.historyReaders === 0) this.client?.setHistoryVisible(false)
+    }
   }
 
   setView(view: NotificationView): void {

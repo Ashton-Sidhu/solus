@@ -5,26 +5,15 @@ type Route = { [Name in keyof RootStackParamList]: { name: Name; params?: RootSt
 
 /**
  * The stack a launch opens on, decided after the load barrier. With nothing
- * saved, the two ways in; on a returning launch, the last conversation, with
- * the way back to its sessions and hosts beneath it.
+ * saved, the two ways in; on a returning launch, T3 Code's home (every
+ * session on every host), with the last session on top when there was one.
+ * Home stays beneath it in both layouts: the iPad sidebar lists the same
+ * sessions, and a compact window keeps a way back.
  */
-export function initialRoutes(input: { hasHosts: boolean; isSignedIn: boolean; lastRoute: LastRoute | null; compact: boolean }): Route[] {
+export function initialRoutes(input: { hasHosts: boolean; isSignedIn: boolean; lastRoute: LastRoute | null }): Route[] {
   if (!input.hasHosts && !input.isSignedIn) return [{ name: 'Welcome' }]
   if (!input.hasHosts) return [{ name: 'Hosts' }, { name: 'CloudHosts' }]
   const last = input.lastRoute
-  if (!last) return [{ name: 'Hosts' }]
-  const base: Route[] = [
-    { name: 'Hosts' },
-    { name: 'Projects', params: { hostId: last.hostId } },
-  ]
-  if (!last.record) return [...base, { name: 'Workspace', params: { hostId: last.hostId, projectPath: last.projectPath } }]
-  const selected = { record: last.record }
-  if (input.compact) {
-    return [
-      ...base,
-      { name: 'Workspace', params: { hostId: last.hostId, projectPath: last.projectPath } },
-      { name: 'Conversation', params: { hostId: last.hostId, projectPath: last.projectPath, selected } },
-    ]
-  }
-  return [...base, { name: 'Workspace', params: { hostId: last.hostId, projectPath: last.projectPath, selected } }]
+  if (!last?.record) return [{ name: 'Home' }]
+  return [{ name: 'Home' }, { name: 'Thread', params: { hostId: last.hostId, sessionId: last.record.sessionId } }]
 }

@@ -77,7 +77,7 @@
   }
 
   function openWorkSecondary() {
-    if (ref.id) session.openWork(ref.id, "aside");
+    if (ref.id) session.openWork(ref.id);
   }
 
   function openPlan() {
@@ -86,7 +86,7 @@
 
   function openPlanSecondary() {
     if (ref.id)
-      void session.openPlanModal(ref.id, undefined, { secondary: true });
+      void session.openPlanModal(ref.id);
   }
 
   function formatDate(value: string | number): string {

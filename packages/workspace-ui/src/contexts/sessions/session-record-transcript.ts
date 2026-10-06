@@ -47,7 +47,7 @@ export async function readSessionRecordPage(workspace: SurfaceContext, serverId:
     before: request.before,
     pendingMessages: request.pendingMessages,
     serverId,
-  }, page, await loadArtifactFileBodies((workId, version) => workspace.worksStore.history.bodyAtVersion(workId, version), history))
+  }, page, await loadArtifactFileBodies((workId, version) => workspace.worksStore.history.bodyAtVersion(workId, version, serverId), history))
   return { messages: result.messages, before: result.before ?? null, pendingMessages: result.pendingMessages }
 }
 

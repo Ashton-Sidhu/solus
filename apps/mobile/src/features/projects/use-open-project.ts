@@ -37,17 +37,16 @@ export function useProjectsFolder(hostId: string): string | null {
 }
 
 /**
- * Shows a project the host now has: the projects list refreshes and the
- * workspace replaces the Open project screens, so Back returns to Projects.
+ * Shows a project the host now has: the project list refreshes and the new
+ * task sheet takes the project, replacing the Open project screens.
  */
 export function useShowProject(hostId: string, navigation: NativeStackNavigationProp<RootStackParamList>) {
   const app = useApp()
   const mounted = useMounted()
   return useCallback((projectPath: string) => {
-    void app.sessions.loadProjects(hostId)
+    void app.threads.load(hostId)
     if (!mounted.current) return
-    navigation.popTo('Projects', { hostId })
-    navigation.navigate('Workspace', { hostId, projectPath })
+    navigation.popTo('NewTask', { hostId, projectPath })
   }, [app, hostId, mounted, navigation])
 }
 

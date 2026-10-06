@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import type { SolusAPI } from '@solus/contracts/host-api'
+import type { ConnectionsServerInfo, SolusAPI } from '@solus/contracts/host-api'
 import { createSolusConnection, savedServerTarget, type SolusServerTarget } from './server-connection'
 import {
   awaitsManagedCompute,
@@ -17,7 +17,6 @@ import { solusApiId } from '@solus/contracts/uplink'
 import type { WsTransport, ConnectionStatus } from './ws-transport'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import type { BrowserFrameSubscriber } from './browser-frame-subscriber'
-import type { DeviceFrameSubscriber } from './device-frame-subscriber'
 import { HostSupervisor, type HostPhase } from './host-supervisor'
 import { onWakeSignal } from './wake-signals'
 import { asHostApi, type HostApi } from './host-api'
@@ -89,6 +88,8 @@ export class ServerConnections {
   private readonly phaseListeners = new Set<PhaseListener>()
   private readonly healthCache = new Map<string, CacheEntry<ServerHealth | null>>()
   private readonly identityCache = new Map<string, CacheEntry<Awaited<ReturnType<SolusAPI['listProjectIdentities']>>>>()
+  private readonly identityReads = new Map<string, Promise<Awaited<ReturnType<SolusAPI['listProjectIdentities']>>>>()
+  private readonly serverInfoReads = new Map<string, { promise: Promise<ConnectionsServerInfo>; settled: boolean }>()
   private readonly retainedServerIds = new Set<string>()
   /** Connections made but not dialed: a managed host the directory does not call ready yet. */
   private readonly undialedServerIds = new Set<string>()
@@ -125,11 +126,13 @@ export class ServerConnections {
       displaced?.supervisor.destroy()
       displaced?.transport.destroy()
       this.connections.delete(previousPrimaryId)
+      this.clearConnectionReads(previousPrimaryId)
     }
     // Re-selecting the same saved host creates a fresh transport. Destroy the
     // displaced socket before replacing the map entry or it dials forever
     // with no remaining owner.
     if (existing && existing.transport !== transport) {
+      this.clearConnectionReads(serverId)
       existing.supervisor.destroy()
       existing.transport.destroy()
     }
@@ -292,10 +295,17 @@ export class ServerConnections {
 
   /** Identity since the web `local` alias died (dispatch-client step 5):
    *  `LOCAL_SERVER_ID` names only the desktop's registered local target, and
-   *  a web client asks for hosts by their real ids. Kept as the one seam
-   *  where an id-space translation could ever live again. */
+   *  a web client asks for hosts by their real ids. The one other id space is
+   *  a host's installation id, which a record in an organization uses to name
+   *  the machine that runs a session (cloud-sharing.md §3a): every client of
+   *  that machine knows it, so it resolves to this client's id for it. An id
+   *  this client has no host for comes back unchanged. */
   resolveId(serverId: string): string {
-    return serverId
+    if (this.targets.has(serverId) || this.connections.has(serverId)) return serverId
+    for (const target of this.targets.values()) {
+      if (target.installationId === serverId) return target.id
+    }
+    return loadServers().find((server) => server.installationId === serverId)?.id ?? serverId
   }
 
   ensure(serverId: string): ManagedConnection {
@@ -388,12 +398,6 @@ export class ServerConnections {
     return this.ensure(serverId).transport.frames
   }
 
-  /** This host's native device video. A visible device surface subscribes
-   *  here and calls `deviceSubscribeFrames` so the host starts sending. */
-  deviceFramesFor(serverId: string): DeviceFrameSubscriber {
-    return this.ensure(serverId).transport.deviceFrames
-  }
-
   eventsForApi(api: SolusAPI): HostEventSubscriber {
     for (const connection of this.connections.values()) {
       if (connection.api === api) return connection.events
@@ -461,6 +465,7 @@ export class ServerConnections {
   updateStatus(serverId: string, status: ConnectionStatus, attempt = 0): void {
     const connection = this.connections.get(serverId)
     if (connection) {
+      if (connection.status === 'connected' && status !== 'connected') this.clearConnectionReads(serverId)
       connection.status = status
       connection.attempt = attempt
     }
@@ -494,6 +499,7 @@ export class ServerConnections {
     const connection = this.connections.get(serverId)
     if (!connection) return
     this.connections.delete(serverId)
+    this.clearConnectionReads(serverId)
     this.undialedServerIds.delete(serverId)
     connection.supervisor.destroy()
     connection.transport.destroy()
@@ -501,6 +507,34 @@ export class ServerConnections {
 
   statusFor(serverId: string): ConnectionStatus {
     return this.connections.get(this.resolveId(serverId))?.status ?? 'disconnected'
+  }
+
+  /** One identity/role read per connection. Settings may explicitly refresh it
+   * after a host configuration change; concurrent consumers share that read. */
+  serverInfoFor(serverId: string, refresh = false): Promise<ConnectionsServerInfo> {
+    const connection = this.ensure(serverId)
+    serverId = connection.serverId
+    const existing = this.serverInfoReads.get(serverId)
+    if (existing && (!refresh || !existing.settled)) return existing.promise
+    const read = {
+      settled: false,
+      promise: Promise.resolve().then(() => connection.api.connectionsGetServerInfo()),
+    }
+    read.promise = read.promise.then((info) => {
+      read.settled = true
+      return info
+    }, (error) => {
+      if (this.serverInfoReads.get(serverId) === read) this.serverInfoReads.delete(serverId)
+      throw error
+    })
+    this.serverInfoReads.set(serverId, read)
+    return read.promise
+  }
+
+  private clearConnectionReads(serverId: string): void {
+    this.serverInfoReads.delete(serverId)
+    this.identityReads.delete(serverId)
+    this.identityCache.delete(serverId)
   }
 
   /** One host's authenticated feature advertisement for its current server
@@ -567,10 +601,18 @@ export class ServerConnections {
     serverId = this.resolveId(serverId)
     const cached = this.identityCache.get(serverId)
     if (!force && cached && cached.expiresAt > Date.now()) return cached.value
-
-    const value = await this.apiFor(serverId).listProjectIdentities()
-    this.identityCache.set(serverId, { value, expiresAt: Date.now() + CACHE_TTL_MS })
-    return value
+    const pending = this.identityReads.get(serverId)
+    if (pending) return pending
+    const read = Promise.resolve().then(() => this.apiFor(serverId).listProjectIdentities()).then((value) => {
+      if (this.identityReads.get(serverId) === read) {
+        this.identityCache.set(serverId, { value, expiresAt: Date.now() + CACHE_TTL_MS })
+      }
+      return value
+    }).finally(() => {
+      if (this.identityReads.get(serverId) === read) this.identityReads.delete(serverId)
+    })
+    this.identityReads.set(serverId, read)
+    return read
   }
 
   /**

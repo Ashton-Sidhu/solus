@@ -24,6 +24,7 @@ import {
   deleteSessionRecord,
   setSessionRecordBranch,
   setSessionRecordTitle,
+  setSessionRecordGeneratedTitle,
   upsertOwnSessionRecord,
 } from '../data/sessions/session-records'
 import { getDb, withTx } from '.'
@@ -943,6 +944,14 @@ export function setSessionBranch(sessionId: string, branch: string): void {
 export async function setSessionCustomTitle(sessionId: string, title: string | null): Promise<void> {
   getDb().prepare('UPDATE sessions SET custom_title = ? WHERE session_id = ?').run(title, sessionId)
   await setSessionRecordTitle(ANY_ORGANIZATION, sessionId, title)
+}
+
+/** Set a generated name only while the indexed session has no custom name. */
+export async function setSessionGeneratedTitle(sessionId: string, title: string): Promise<boolean> {
+  const result = getDb().prepare('UPDATE sessions SET custom_title = ? WHERE session_id = ? AND custom_title IS NULL').run(title, sessionId)
+  if (result.changes === 0) return false
+  await setSessionRecordGeneratedTitle(sessionId, title)
+  return true
 }
 
 export async function cacheIndexedSessions(sessions: SessionMeta[]): Promise<void> {

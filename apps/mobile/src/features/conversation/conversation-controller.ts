@@ -1,6 +1,7 @@
 import type { SendOutbox } from '@solus/client-core/send-outbox'
 import { INITIAL_HISTORY_TURNS, OLDER_HISTORY_TURNS } from '@solus/client-core/session-history-page'
-import type { AgentId, PermissionMode, ReasoningEffort, SessionRecord, WatchSessionResult, WireNormalizedEvent } from '@solus/contracts/types'
+import type { AgentId, AgentMetadata, PermissionMode, ReasoningEffort, SessionRecord, WatchSessionResult, WireNormalizedEvent } from '@solus/contracts/types'
+import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import type { ExecutionPreferences } from '@solus/contracts/settings'
 import type { ModelOptions } from '@solus/contracts/settings'
 import { isSessionBusyStatus, REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText } from '@solus/contracts/types'
@@ -15,12 +16,16 @@ import {
   type ConversationRun,
   type RunSettings,
 } from './lib/ipc-context'
-import { newSessionModel, savedSessionModel, selectModel } from './lib/run-settings'
+import { hostAgents } from './lib/host-agents'
+import { queuedMessageAttachments, uploadedMessageAttachments } from './lib/message-attachments'
+import { canRouteAuto, newSessionModel, rememberedFastMode, savedSessionModel, selectModel, supportedPermissionMode, supportsFastMode, type AgentCapabilities } from './lib/run-settings'
 import { attachmentLimitProblem, composePrompt, uploadAttachment, type AttachmentIo, type PickedFile, type UploadedAttachment } from './lib/attachments'
 import { hasHostCapability } from '@solus/client-core/host-capabilities'
 import type { AgentPlanAwaiting } from './lib/agent-plans'
 import { TranscriptModel, type TranscriptItem } from './lib/transcript-model'
 import type { QueueAttachment, SessionQueueMutation, SessionQueueSnapshot } from '@solus/contracts/session-queue'
+import { parseAgentAuthCommand } from '@solus/contracts/agent-auth'
+import { AgentAuthFlow } from './agent-auth-flow'
 
 /**
  * One open conversation on one host (plan 017 stage 3). It owns the watch,
@@ -57,6 +62,8 @@ export interface ConversationDeps {
   executionPreferences(): ExecutionPreferences
   /** Keeps a model's chosen options as the person's own for next time. */
   saveModelOptions?(provider: AgentId, model: string, options: ModelOptions): void
+  /** The person's "name new sessions" setting; absent never names one. */
+  autoRenameSessions?(): boolean
   organizationId(): string | null
   uuid(): string
   /** Reads and sends picked files; absent where attaching is not offered. */
@@ -83,6 +90,15 @@ export class ConversationController {
   attachments: readonly UploadedAttachment[] = []
   uploading = 0
   queue: SessionQueueSnapshot = { held: false, entries: [] }
+  /** `/login`, `/design-login`, and `/mcp login|logout`, run here instead of by the agent. */
+  readonly auth: AgentAuthFlow
+  /** The host's agents, whether each is installed, and what each can do.
+   *  Null until the host answers: unknown, not unavailable. */
+  agents: readonly AgentMetadata[] | null = null
+  /** The host reported no TypeSafe key, so Auto cannot route a first prompt. */
+  autoNeedsKey = false
+  /** Settles when the host has answered what its agents offer; history does not wait on it. */
+  runOptionsLoaded: Promise<void> = Promise.resolve()
   /** True once the host knows the session; before that uploads name a draft. */
   private started: boolean
   private projectPath: string
@@ -90,6 +106,8 @@ export class ConversationController {
   /** Bumps on each (re)load; an answer for an older load is dropped. */
   private loadGeneration = 0
   private held: WireNormalizedEvent[] | null = null
+  /** The prompt that started a new session, until the host names the session from it. */
+  private openingPrompt: string | null = null
   private watching = false
   private closed = false
   private readonly cleanups: Array<() => void> = []
@@ -100,6 +118,11 @@ export class ConversationController {
     this.started = !!target.record
     this.model = new TranscriptModel(this.run.sessionId)
     const { connection } = deps
+    this.auth = new AgentAuthFlow({ connection, notice: (text, tone) => {
+      this.model.addNotice(text, tone)
+      this.flush()
+    } })
+    this.cleanups.push(() => this.auth.close())
     this.cleanups.push(connection.events.subscribe('session.eventReceived', (payload) => {
       if (payload.sessionId === this.run.sessionId) this.receive(payload.event)
     }))
@@ -113,12 +136,34 @@ export class ConversationController {
       this.model.setStatus(payload.status)
       this.flush()
     }))
+    // A session name set anywhere (generated here or on desktop, or typed) is
+    // the session's: the header shows it, and a hand rename stops naming.
+    this.cleanups.push(connection.events.subscribe('session.titleChanged', (payload) => {
+      if (payload.sessionId !== this.run.sessionId && payload.sessionId !== this.run.agentSessionId) return
+      this.run.title = payload.title
+      this.openingPrompt = null
+      this.flush(true)
+    }))
+    this.cleanups.push(connection.events.subscribe('config.changed', (snapshot) => {
+      this.autoNeedsKey = snapshot.typeSafe?.source === null
+      this.settleRun()
+      this.flush(true)
+    }))
     this.cleanups.push(connection.onReset(() => { void this.load() }))
     this.cleanups.push(connection.onAccepted(() => { void this.drainOutbox() }))
   }
 
   get hostId(): string {
     return this.target.hostId
+  }
+
+  /** Auto can pick this session's model: nothing has started it yet. */
+  get canRoute(): boolean {
+    return canRouteAuto({ started: this.started, agentSessionId: this.run.agentSessionId })
+  }
+
+  capabilitiesOf(provider: AgentId): AgentCapabilities {
+    return this.agents?.find((agent) => agent.id === provider)?.capabilities
   }
 
   /** First load, and the rebuild after a reset. */
@@ -130,12 +175,13 @@ export class ConversationController {
     this.setPhase({ kind: 'loading' })
     try {
       await this.applyRunSettingsOnce()
+      this.runOptionsLoaded = this.loadRunOptions(generation)
       const model = await this.readHistory(generation)
       if (!model) return
       model.agentSessionId = this.run.agentSessionId
       // Prompts not yet confirmed stay visible across the rebuild.
       for (const record of this.deps.outbox.entriesFor(this.outboxKey)) {
-        model.addOptimisticUser(record.clientPromptId, record.text, record.lastError ? 'failed' : 'queued')
+        model.addOptimisticUser(record.clientPromptId, record.text, record.lastError ? 'failed' : 'queued', queuedMessageAttachments(record.payload))
         if (record.lastError) model.markDelivery(record.clientPromptId, 'failed', record.lastError)
       }
       this.model = model
@@ -164,6 +210,43 @@ export class ConversationController {
     this.settings = await this.deps.runSettings()
     this.run.permissionMode = this.settings.defaultPermissionMode
     if (!this.target.record) Object.assign(this.run, newSessionModel(this.run.provider, this.settings))
+    else this.run.fastMode = rememberedFastMode(this.run.provider, this.run.preferredModel, this.settings)
+    this.settleRun()
+  }
+
+  /** What the host's agents offer, and whether Auto can route here. A host
+   *  that cannot answer leaves every choice open, as the desktop does. */
+  private async loadRunOptions(generation: number): Promise<void> {
+    const [agents, config] = await Promise.all([
+      hostAgents(this.deps.connection),
+      this.canRoute ? this.deps.connection.api.configGet().catch(() => null) : null,
+    ])
+    if (generation !== this.loadGeneration || this.closed) return
+    if (agents) this.agents = agents
+    // An older host does not report the key; unknown is not missing, as on desktop.
+    if (config) this.autoNeedsKey = config.typeSafe?.source === null
+    this.settleRun()
+    this.flush(true)
+  }
+
+  /**
+   * Keeps the next run inside what the agent and host offer: a permission mode
+   * the agent lacks, Auto on a host that cannot route, and fast mode on a model
+   * without it each fall back. A started Auto run stays: the host chose it.
+   */
+  private settleRun(): void {
+    const defaultMode = this.settings?.defaultPermissionMode ?? 'supervised'
+    this.run.permissionMode = supportedPermissionMode(this.run.permissionMode, this.capabilitiesOf(this.run.provider), defaultMode)
+    if (this.run.preferredModel === AUTO_MODEL_ID && this.canRoute && this.autoNeedsKey) {
+      Object.assign(this.run, newSessionModel(this.run.provider, this.defaultsWithoutAuto(this.run.provider)))
+    }
+    if (!supportsFastMode(this.run.provider, this.run.preferredModel)) this.run.fastMode = false
+  }
+
+  /** The person's defaults with Auto left out for one agent. */
+  private defaultsWithoutAuto(provider: AgentId): RunSettings | null {
+    return this.settings?.defaultModels?.[provider] === AUTO_MODEL_ID
+      ? { ...this.settings, defaultModels: { ...this.settings.defaultModels, [provider]: '' } } : this.settings
   }
 
   /** The first history page as a fresh model, or null when a newer load began.
@@ -213,16 +296,21 @@ export class ConversationController {
   }
 
   /** Sends one prompt. Its id is made once and kept in the outbox until the
-   *  host confirms it, so any retry is the same message to the host. */
-  async send(text: string, options: { permissionMode?: PermissionMode } = {}): Promise<void> {
+   *  host confirms it, so any retry is the same message to the host. While a
+   *  turn runs, `delivery` chooses queue or steer; a waiting queue always queues.
+   *  A sign-in command never reaches the agent: it runs here. */
+  async send(text: string, options: { permissionMode?: PermissionMode; delivery?: 'queue' | 'steer' } = {}): Promise<void> {
     const prompt = text.trim()
+    const authCommand = parseAgentAuthCommand(prompt, this.run.provider)
+    if (authCommand) return this.auth.run(authCommand, this.run.workingDirectory)
     const attachments = this.attachments
     if (!prompt && attachments.length === 0) return
     const clientPromptId = this.deps.uuid()
     const busy = isSessionBusyStatus(this.model.status)
     if (options.permissionMode) this.run.permissionMode = options.permissionMode
     this.attachments = []
-    this.model.addOptimisticUser(clientPromptId, prompt, 'sending', attachments.length)
+    if (!this.started && !this.run.agentSessionId && prompt && this.openingPrompt === null) this.openingPrompt = prompt
+    this.model.addOptimisticUser(clientPromptId, prompt, 'sending', uploadedMessageAttachments(attachments))
     if (!busy && !this.queue.entries.length && !this.queue.held) this.model.setStatus('connecting')
     this.flush(true)
     const hostReadsImageRefs = attachments.some((attachment) => attachment.kind === 'image')
@@ -233,7 +321,7 @@ export class ConversationController {
       sessionId: this.run.sessionId,
       text: prompt,
       enqueuedAt: Date.now(),
-      payload: { ...composed, displayPrompt: prompt, delivery: this.queue.entries.length ? 'queue' : busy ? 'steer' : undefined,
+      payload: { ...composed, displayPrompt: prompt, delivery: this.queue.entries.length ? 'queue' : busy ? options.delivery ?? 'steer' : undefined,
         queueAttachments: attachments.map((attachment) => ({ id: attachment.id, type: attachment.kind, name: attachment.name,
           hostPath: attachment.hostPath, mimeType: attachment.mimeType, size: attachment.size })),
         queueAttachmentContext: attachments.filter((attachment) => attachment.kind === 'file').map((attachment) => `[Attached file: ${attachment.hostPath}]`).join('\n'),
@@ -297,11 +385,13 @@ export class ConversationController {
   /**
    * The run settings for the next prompt. The current turn keeps its options.
    */
-  updateRun(change: { model?: string; reasoningEffort?: ReasoningEffort; permissionMode?: PermissionMode }): boolean {
+  updateRun(change: { model?: string; reasoningEffort?: ReasoningEffort; permissionMode?: PermissionMode; fastMode?: boolean }): boolean {
     if (change.model !== undefined) Object.assign(this.run, selectModel(this.run.provider, change.model, this.settings))
     if (change.reasoningEffort !== undefined) this.run.reasoningEffort = change.reasoningEffort
     if (change.permissionMode !== undefined) this.run.permissionMode = change.permissionMode
-    if (change.model !== undefined || change.reasoningEffort !== undefined) this.rememberModelOptions()
+    if (change.fastMode !== undefined) this.run.fastMode = change.fastMode
+    this.settleRun()
+    if (change.model !== undefined || change.reasoningEffort !== undefined || change.fastMode !== undefined) this.rememberModelOptions()
     this.flush(true)
     return true
   }
@@ -310,7 +400,7 @@ export class ConversationController {
     const provider = this.run.provider
     const model = this.run.preferredModel
     if (!this.settings || !model || model === 'auto') return
-    const options = { reasoningEffort: this.run.reasoningEffort, contextWindow: this.run.contextWindow, fastMode: false }
+    const options = { reasoningEffort: this.run.reasoningEffort, contextWindow: this.run.contextWindow, fastMode: this.run.fastMode }
     this.settings.modelOptionsByProvider ??= {}
     this.settings.modelOptionsByProvider[provider] = { ...this.settings.modelOptionsByProvider[provider], [model]: options }
     this.deps.saveModelOptions?.(provider, model, options)
@@ -330,12 +420,11 @@ export class ConversationController {
 
   async switchProvider(provider: 'claude-code' | 'codex'): Promise<void> {
     if (provider === this.run.provider && !this.queue.entries.some((entry) => entry.kind === 'provider_switch')) return
-    const defaults = this.settings?.defaultModels?.[provider] === 'auto'
-      ? { ...this.settings, defaultModels: { ...this.settings.defaultModels, [provider]: '' } } : this.settings
-    const choice = newSessionModel(provider, defaults)
+    const choice = newSessionModel(provider, this.defaultsWithoutAuto(provider))
     if (!this.started) {
       this.run.provider = provider
       Object.assign(this.run, choice)
+      this.settleRun()
       this.flush(true)
       return
     }
@@ -461,6 +550,14 @@ export class ConversationController {
     return accepted === true
   }
 
+  /** Answer the offer to move this session into the agent's worktree. The
+   *  card shows the host's answer; a refusal leaves a notice. */
+  async decideWorktreeOffer(offerId: string, decision: 'switch' | 'keep'): Promise<void> {
+    const resolution = await this.callWithContext((ctx) => this.deps.connection.api.decideWorktreeOffer(ctx, offerId, decision))
+    if (resolution) this.model.setWorktreeOfferResolution(offerId, resolution)
+    this.flush()
+  }
+
   async rateLimitDecision(action: 'send_now' | 'stop' | 'wait'): Promise<void> {
     await this.callWithContext((ctx) => this.deps.connection.api.rateLimitDecision(ctx, action))
   }
@@ -480,7 +577,10 @@ export class ConversationController {
       this.held.push(event)
       return
     }
-    if (event.type === 'session_init') this.run.agentSessionId = event.sessionId
+    if (event.type === 'session_init') {
+      this.run.agentSessionId = event.sessionId
+      void this.nameSession(event.sessionId)
+    }
     // The provider changed its own mode (Claude leaving plan mode): the next prompt keeps it.
     if (event.type === 'permission_mode_changed') this.run.permissionMode = event.permissionMode
     if (event.type === 'session_queue') {
@@ -527,6 +627,7 @@ export class ConversationController {
         this.run.preferredModel = runtime.modelConfig.modelId
         this.run.reasoningEffort = runtime.modelConfig.reasoningEffort
         this.run.contextWindow = runtime.modelConfig.contextWindow ?? this.run.contextWindow
+        this.run.fastMode = runtime.modelConfig.fastMode
       }
       if (runtime.permissionMode) this.run.permissionMode = runtime.permissionMode
     } else if (this.run.agentSessionId) {
@@ -626,6 +727,29 @@ export class ConversationController {
     this.deps.onChange({ items: [], order: false, meta: true })
   }
 
+  /**
+   * Names a session this device started from its opening prompt, as desktop
+   * does (`session-metadata.svelte.ts`): the host writes the name, and the
+   * session's provider id must exist to hang it on. Once only, and never over
+   * a name the session already has. Silent on failure: the prompt-derived
+   * title stays.
+   */
+  private async nameSession(agentSessionId: string): Promise<void> {
+    const prompt = this.openingPrompt
+    this.openingPrompt = null
+    if (!prompt || this.run.title || !this.deps.autoRenameSessions?.()) return
+    const { api } = this.deps.connection
+    const metadata = await api.generateSessionMetadata(prompt, this.run.workingDirectory, {
+      sessionId: agentSessionId,
+      executionPreferences: this.deps.executionPreferences(),
+    }).catch(() => null)
+    // Renamed by hand, or resumed into another provider thread, meanwhile.
+    if (!metadata || this.run.title || this.run.agentSessionId !== agentSessionId) return
+    this.run.title = metadata.title
+    this.flush(true)
+    await api.setSessionTitle(agentSessionId, metadata.title, 'generated', metadata.description).catch(() => undefined)
+  }
+
   private flush(meta = false): void {
     const changes = this.model.takeChanges()
     if (meta) changes.meta = true
@@ -658,6 +782,7 @@ function initialRun(target: ConversationTarget, organizationId: string | null, u
     preferredModel: null,
     reasoningEffort: 'high',
     contextWindow: null,
+    fastMode: false,
     title: null,
   }
 }

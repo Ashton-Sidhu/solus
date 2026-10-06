@@ -15,9 +15,6 @@ import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { prIndex } from '../../prs/pr-index'
 import { pullRequestForBranch } from '../../prs/code-host'
 import type { SolusServer } from '../server'
-import { userKey } from '@solus/contracts/user'
-import type { ActivityKind } from '@solus/contracts/activity'
-import { WorkingTreeBusyError } from '../../execution/sessions/working-tree-busy'
 import { attributionOf, seatFor } from '../../admission/actor'
 import type { GitIdentityManager } from '../../git/git-identity-manager'
 import type { HostEventPublisher } from '../events/host-event-publisher'
@@ -25,27 +22,17 @@ import { resolveSourceControlWritingPolicy } from '../../git/source-control-writ
 import { resolveSourceControlWriterModel, sourceControlWritingFor } from '../../host/settings'
 import { contextPreferences } from '../../execution/agents/run-input'
 import { writingBackendFor, type WritingBackend } from '../../execution/agents/writing-backend'
+import type { WorktreeMover } from '../../execution/sessions/worktree-move'
+import type { WorktreeOffers } from '../../execution/sessions/worktree-offers'
 
 const log = createLogger('main', 'worktree-handlers')
-
-/**
- * `continueInWorktree` setups in flight, per session. A superseding request
- * aborts the worktree creation it replaces, since a worktree for a superseded
- * request is one the user never asked for. Branch naming runs after the
- * worktree exists and is not part of the setup.
- *
- * Known gap: this is a second registry beside `SessionRuntime.pendingSetupControllers`,
- * which is what `stopSession` aborts. Stopping a session therefore does not
- * cancel a setup started here. Closing that means moving worktree provisioning
- * onto the SessionRuntime, which owns session lifecycle — deliberately out of
- * scope for a review fix.
- */
-const pendingWorktreeSetups = new Map<string, AbortController>()
 
 export interface WorktreeDeps {
   sessionRuntime: SessionRuntime
   events: HostEventPublisher
   gitIdentities: GitIdentityManager
+  worktreeMover: WorktreeMover
+  worktreeOffers: WorktreeOffers
 }
 
 /**
@@ -181,17 +168,6 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const gitContext = await resolveGitCheckout(ctx)
     if (!gitContext) throw new Error('No active git branch for this session.')
     const cwd = gitContext.worktreePath || ctx.session.workingDirectory
-    if (!request.allowBusyWorkingTree) {
-      const busy = sessionRuntime.busyWorkingTree(cwd, {
-        sessionId: ctx.session.sessionId,
-        clientId: handlerCtx.clientId,
-        userId: handlerCtx.actor.user ? userKey(handlerCtx.actor.user.id) : null,
-      })
-      if (busy) {
-        log.info('git_action_working_tree_busy', { sessionId: ctx.session.sessionId, runningSessionId: busy.sessionId })
-        throw new WorkingTreeBusyError(busy.authorName)
-      }
-    }
     // The caller's own writing preferences (plans/018 §3.3), on their own provider seat.
     const preferences = contextPreferences(ctx)
     const policy = await resolveSourceControlWritingPolicy(cwd, sourceControlWritingFor(preferences))
@@ -235,12 +211,12 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
         : undefined,
       publish: (event) => {
         // With no caller to answer, the session's watchers see the progress, not every member (plan 004 item 5).
-        deps.events.publish(handlerCtx.clientId ?? sessionRuntime.clientsWatching(ctx.session.sessionId), 'git.actionProgressed', event)
+        deps.events.publish(handlerCtx.clientId ?? sessionRuntime.watchers.clientsWatching(ctx.session.sessionId), 'git.actionProgressed', event)
       },
     })
     if (result.branch.status === 'created') {
       const nextGitContext = { ...gitContext, branch: result.branch.name }
-      sessionRuntime.setSessionGitEnvironment(
+      sessionRuntime.sessionCheckouts.setSessionGitEnvironment(
         ctx.session.sessionId,
         nextGitContext.worktreePath ?? ctx.session.workingDirectory,
         nextGitContext,
@@ -293,7 +269,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
       await runAsync('git', ['checkout', branch], cwd)
       const gitContext = (await sessionRuntime.checkouts.refresh(cwd)).checkout
       if (!gitContext) return { success: false, error: 'Checkout succeeded but branch status could not be resolved' }
-      sessionRuntime.setSessionGitEnvironment(ctx.session.sessionId, cwd, gitContext)
+      sessionRuntime.sessionCheckouts.setSessionGitEnvironment(ctx.session.sessionId, cwd, gitContext)
       return { success: true, gitContext }
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : 'Checkout failed' }
@@ -315,48 +291,35 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const [ctx, worktreePath] = args
     log.info('rpc_worktree_restore', { sessionId: ctx.session.sessionId })
     const state = await sessionRuntime.checkouts.refresh(worktreePath)
-    if (state.checkout) sessionRuntime.setSessionGitEnvironment(ctx.session.sessionId, worktreePath, state.checkout)
+    if (state.checkout) sessionRuntime.sessionCheckouts.setSessionGitEnvironment(ctx.session.sessionId, worktreePath, state.checkout)
     return state.checkout
   })
 
   // Create a fresh worktree for a live session so it can "continue" there. The
-  // renderer then flags the session to fork on its next prompt, re-homing the
-  // conversation under the worktree. Eager creation (vs. the lazy worktree path)
-  // gives us the branch name up front for the UI + git panel.
+  // next turn forks the conversation into the worktree (`WorktreeMover`). Eager
+  // creation (vs. the lazy worktree path) gives the branch name up front for
+  // the UI and the git panel. Stop cancels the setup; moves of one session run
+  // one after another.
   server.register('continueInWorktree', async (args, handlerCtx) => {
     const [ctx, namePrompt] = args
     log.info('rpc_continue_in_worktree', { sessionId: ctx.session.sessionId })
-    const cwd = ctx.session.workingDirectory
-    if (!cwd || cwd === '~') return { success: false, error: 'No active git repository for this tab' }
     if (ctx.session.gitContext?.worktreePath) return { success: false, error: 'Session is already in a worktree' }
-    const repoRoot = await resolveRepoRoot(cwd)
-    if (!repoRoot) return { success: false, error: 'Not a git repository' }
-    const sessionId = ctx.session.sessionId
-    const setup = new AbortController()
-    pendingWorktreeSetups.get(sessionId)?.abort(new Error('Superseded'))
-    pendingWorktreeSetups.set(sessionId, setup)
-    try {
-      const preferences = contextPreferences(ctx)
-      const gitContext = await sessionRuntime.checkouts.create(repoRoot, ctx.session.gitContext?.targetBranch, {
-        signal: setup.signal,
-        naming: preferences?.worktreeBranchNaming,
-      })
-      sessionRuntime.setSessionGitEnvironment(sessionId, gitContext.worktreePath ?? cwd, gitContext)
-      // Recorded before the branch is named: a reader resolves the checkout's current branch by its path.
-      if (gitContext.worktreePath) {
-        const moved: Extract<ActivityKind, { kind: 'moved_to_worktree' }> = { kind: 'moved_to_worktree', path: gitContext.worktreePath }
-        const branch = gitContext.branch ?? gitContext.detachedHeadSha
-        if (branch) moved.branch = branch
-        await sessionRuntime.recordActivity({ kind: 'session', id: sessionId }, handlerCtx.actor, moved)
-      }
-      if (namePrompt) void sessionRuntime.nameWorktreeBranch(sessionId, gitContext, namePrompt, handlerCtx.actor, preferences)
-      return { success: true, gitContext }
-    } catch (err) {
-      log.error('continue_in_worktree_failed', { error: err instanceof Error ? err.message : String(err) })
-      return { success: false, error: err instanceof Error ? err.message : 'Failed to create worktree' }
-    } finally {
-      if (pendingWorktreeSetups.get(sessionId) === setup) pendingWorktreeSetups.delete(sessionId)
-    }
+    return deps.worktreeMover.move({
+      sessionId: ctx.session.sessionId,
+      cwd: ctx.session.workingDirectory,
+      target: { kind: 'new', baseBranch: ctx.session.gitContext?.targetBranch, namePrompt: namePrompt || undefined },
+      actor: handlerCtx.actor,
+      preferences: contextPreferences(ctx),
+    })
+  })
+
+  server.register('decideWorktreeOffer', async (args, handlerCtx) => {
+    const [ctx, offerId, decision] = args
+    log.info('rpc_decide_worktree_offer', { sessionId: ctx.session.sessionId, offerId, decision })
+    return deps.worktreeOffers.decide(ctx.session.sessionId, offerId, decision, handlerCtx.actor, {
+      cwd: ctx.session.workingDirectory,
+      preferences: contextPreferences(ctx),
+    })
   })
 
   server.register('gitRefreshState', async (args) => {
@@ -381,7 +344,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
 
   server.register('gitRegisterEnvironment', (args) => {
     const [ctx, cwd, gitContext] = args
-    sessionRuntime.setSessionGitEnvironment(ctx.session.sessionId, cwd, gitContext)
+    sessionRuntime.sessionCheckouts.setSessionGitEnvironment(ctx.session.sessionId, cwd, gitContext)
   })
 
   server.register('writePlanFile', async (args) => {

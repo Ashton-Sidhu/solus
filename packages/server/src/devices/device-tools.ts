@@ -224,13 +224,8 @@ export const deviceCloseAgentTool = deviceTool({
     if (!input.shutdown) return { ok: true, text: `Closed ${closing.length} device${closing.length === 1 ? '' : 's'}. They keep running.` }
     const holder = { kind: 'agent' as const, sessionId, label: `${context.provider === 'codex' ? 'Codex' : 'Claude'} agent` }
     for (const preview of closing) {
-      const lease = manager.control.acquireForAgent(preview, holder)
-      const end = manager.control.begin(preview, lease.generation, holder)
-      try {
-        await manager.shutdown(preview)
-      } finally {
-        end()
-      }
+      manager.control.acquireForAgent(preview, holder)
+      await manager.shutdown(preview)
     }
     return { ok: true, text: `Closed and powered off ${closing.length} device${closing.length === 1 ? '' : 's'}.` }
   },
@@ -251,39 +246,23 @@ export const deviceInstallAgentTool = deviceTool({
     const expanded = resolveHomePath(input.path)
     const path = isAbsolute(expanded) ? expanded : resolve(resolveHomePath(context.cwd), expanded)
     const build = await manager.addBuild(path, sessionId, input.appId)
-    // The build is published to the conversation here, not left to the
-    // agent's reply: the person who asked for it gets its install buttons at
-    // once, even when the install below fails.
-    const announce = (installedOn: string | null) => context.emit({
-      type: 'device_build_ready',
-      build: { buildId: build.buildId, name: build.name, platform: build.platform, appId: build.appId, installedOn },
-    })
     const recorded = `Recorded ${build.name} (${build.platform}${build.runsOn === 'any' ? '' : `, ${build.runsOn} build`}${build.appId ? `, ${build.appId}` : ''}) as ${build.buildId}. The user can find it under Devices → Builds${build.platform === 'android' ? ' and download it to an Android phone there' : ''}.`
     if (!input.deviceId) {
-      announce(null)
       const state = await manager.list()
       const fits = state.devices.filter((device) => deviceBuildFits(build, device.physical ? device : { ...device, booted: true }).fits)
       return { ok: true, text: [recorded, fits.length ? `Devices that can run it: ${fits.map((device) => `${device.name} (${device.deviceId}${device.physical || device.booted ? '' : ', stopped'})`).join(', ')}. Pass one as deviceId to install and show it.` : 'No device on this host can run it.'].join('\n') }
     }
     let target = { deviceHostId: input.deviceHostId ?? LOCAL_DEVICE_HOST_ID, deviceId: input.deviceId }
     const holder = { kind: 'agent' as const, sessionId, label: `${context.provider === 'codex' ? 'Codex' : 'Claude'} agent` }
-    let installed: Awaited<ReturnType<typeof manager.installBuild>>
-    try {
-      // A simulator or emulator opens beside the conversation (booting if it
-      // is stopped), so the person sees the app the moment it launches.
-      const chosen = (await manager.resolveDevice(target.deviceHostId, target.deviceId)).device
-      if (!chosen.physical) {
-        const preview = await manager.open({ sessionId, deviceHostId: chosen.deviceHostId, deviceId: chosen.deviceId, platform: chosen.platform }, 'agent')
-        target = { deviceHostId: preview.deviceHostId, deviceId: preview.deviceId }
-      }
-      const lease = manager.control.acquireForAgent(target, holder)
-      installed = await manager.installBuild(target, build.buildId, lease.generation, holder, input.launch ?? true)
-    } catch (error) {
-      announce(null)
-      throw error
+    // A simulator or emulator opens beside the conversation (booting if it
+    // is stopped), so the person sees the app the moment it launches.
+    const chosen = (await manager.resolveDevice(target.deviceHostId, target.deviceId)).device
+    if (!chosen.physical) {
+      const preview = await manager.open({ sessionId, deviceHostId: chosen.deviceHostId, deviceId: chosen.deviceId, platform: chosen.platform }, 'agent')
+      target = { deviceHostId: preview.deviceHostId, deviceId: preview.deviceId }
     }
-    const { device, launched } = installed
-    announce(device.name)
+    manager.control.acquireForAgent(target, holder)
+    const { device, launched } = await manager.installBuild(target, build.buildId, holder, input.launch ?? true)
     const opened = launched ? ' and opened it' : build.appId ? '' : '. Pass appId to open it after install'
     return { ok: true, text: `${recorded}\nInstalled it on ${device.name}${opened}.` }
   },

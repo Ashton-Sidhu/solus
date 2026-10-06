@@ -5,6 +5,7 @@ import { z } from 'zod'
 import type { ProjectConfig } from '@solus/contracts/types'
 import { worktreeProjectRoot } from '@solus/contracts/types'
 import { worktreeBranchNamingSchema } from '@solus/contracts/worktree-branch-naming'
+import { MAX_DEVICE_RUN_PROFILES, deviceRunProfileSchema } from '@solus/contracts/device-types'
 import { git } from '../git/exec'
 
 /**
@@ -39,6 +40,7 @@ const projectConfigInputSchema = z.object({
   taskDoneOnMerge: z.boolean().optional(),
   // A malformed override is dropped, not fatal: the rest of the file still applies.
   worktreeBranchNaming: worktreeBranchNamingSchema.optional().catch(undefined),
+  deviceRuns: z.array(deviceRunProfileSchema).max(MAX_DEVICE_RUN_PROFILES).optional().catch(undefined),
 })
 
 type ProjectConfigInput = z.infer<typeof projectConfigInputSchema>
@@ -98,6 +100,7 @@ function normalizeConfig(raw: ProjectConfigInput): ProjectConfig {
   if (raw.worktreeBranchNaming !== undefined) {
     config.worktreeBranchNaming = raw.worktreeBranchNaming
   }
+  if (raw.deviceRuns?.length) config.deviceRuns = raw.deviceRuns
   return config
 }
 

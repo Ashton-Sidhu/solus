@@ -15,7 +15,6 @@ import { closeDatabase, getDatabase } from './db/database'
 import { closeDb } from './db'
 import { ShareManager } from './sharing/share-manager'
 import { eventVisibleTo } from './sharing/event-audience'
-import { taskShareContents, tasksContaining } from './data/tasks/task-sharing'
 import { onTasksChanged, taskOrganizationId } from './data/tasks/task-store'
 import { workOrganizationId } from './data/works/works'
 import { onWorkDeleted, onWorksChanged } from './data/works/work-events'
@@ -77,7 +76,7 @@ export async function createSolusApiService(options: SolusApiServiceOptions): Pr
     await closeDatabase(); closeDb(); throw error
   }
   const shares = new ShareManager({
-    db, taskContents: taskShareContents, containingTasks: tasksContaining,
+    db,
     organizationOfResource: async resource => {
       if (resource.kind === 'task') return taskOrganizationId(resource.id)
       if (resource.kind === 'work') return workOrganizationId(resource.id)

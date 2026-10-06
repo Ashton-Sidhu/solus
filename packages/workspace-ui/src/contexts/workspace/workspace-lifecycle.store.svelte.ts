@@ -39,7 +39,7 @@ export interface WorkspaceLifecycleStoreDeps {
    *  open draft. What the agent demotion retargets: nothing has happened in
    *  them yet to disturb. */
   unstartedRuns(): RunConfig[]
-  refreshGitState(opts?: { sourceId?: string; cwd?: string }): Promise<GitRefreshResult>
+  refreshGitState(opts?: { sourceId?: string; cwd?: string; force?: boolean }): Promise<GitRefreshResult>
   ctxFor(tabId: string): IpcContext
   apiFor(tabId: string): HostApi
   /** The host `apiFor` answers with, by name: plugin commands are read only from a machine. */
@@ -191,18 +191,14 @@ export class WorkspaceLifecycleStore {
     const initialization = (async () => {
       // Paint from cache first (safety net if setup didn't already), then reconcile.
       this.hydrateStaticInfoFromCache()
-      // Same reading as the reconcile above: a workspace holding nothing but
-      // composers is a cold load, and is the case worth pre-warming Git for.
+      // Resolve startup defaults first, then read the selected checkout once.
+      // Other startup consumers may already have registered its live watcher.
       const coldLoad = this.unstartedTabIds().length === this.deps.registry.tabOrder.length
-      const optimisticEnvironmentRefresh = coldLoad
-        ? this.deps.refreshGitState().catch(() => null)
-        : null
       const result = await serverConnections.apiFor(serverId).start()
       this.applyStartInfo(result, { fresh: true })
       saveCachedStart(result)
       if (coldLoad) {
-        await optimisticEnvironmentRefresh
-        await this.deps.refreshGitState()
+        await this.deps.refreshGitState({ force: false })
       }
       const commandDirectory = this.deps.registry.activeSession?.run.workingDirectory
         ?? this.deps.defaultRunConfig().workingDirectory

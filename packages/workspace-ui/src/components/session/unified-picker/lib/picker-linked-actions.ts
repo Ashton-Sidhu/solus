@@ -15,18 +15,14 @@ export function openPickerLinkedItem(
       void session.openWorkModal(
         link.targetKey,
         link.liveTitle || link.title,
-        { secondary: true, via: "click" },
+        { via: "click" },
       );
       break;
     case "plan":
-      void session.openPlanModal(
-        `${link.targetScope}__${link.targetKey}`,
-        undefined,
-        { secondary: true },
-      );
+      void session.openPlanModal(`${link.targetScope}__${link.targetKey}`);
       break;
     case "automation":
-      session.openAutomationBuilder(link.targetKey, "aside");
+      session.openAutomationBuilder(link.targetKey);
       break;
     case "pr": {
       const number = Number(link.targetKey);

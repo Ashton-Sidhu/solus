@@ -19,7 +19,7 @@ function detectSource(): UplinkAccountSource | null {
   if (!native) return null
   return {
     listDirectory: () => native.uplinkListDirectory(),
-    acquireHostAccessToken: (hostId, organizationId) => native.uplinkAcquireHostAccessToken(hostId, organizationId),
+    acquireHostAccessToken: (hostId, organizationId, options) => native.uplinkAcquireHostAccessToken(hostId, organizationId, options),
     issueEnrollmentTicket: () => native.uplinkIssueEnrollmentTicket(),
     loadOrganizationDirectory: (organizationId) => native.uplinkOrganizationDirectory(organizationId),
     startManagedHost: (hostId) => native.uplinkStartManagedHost(hostId),

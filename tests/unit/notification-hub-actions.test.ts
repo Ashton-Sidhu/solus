@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { HubNotification, NotificationResource } from '@solus/contracts/notification-hub'
-import { notificationDestination } from '@solus/workspace-ui/components/notifications/lib/notification-actions'
+import { notificationDestination, resolveNotificationDestination } from '@solus/workspace-ui/components/notifications/lib/notification-actions'
 import { NotificationHubClient } from '@solus/client-core/notifications/hub-client'
 import { FakeNotificationSource } from './helpers/fake-notification-source'
 
@@ -41,6 +41,24 @@ describe('notification destinations', () => {
     expect(destination.route).toEqual({ kind: 'pull-request', serverId: 'host:laptop', target: { number: 7, url: pr.url, expectedRepo: { host: 'github.com', owner: 'acme', repo: 'api' } } })
     expect(notificationDestination(row({ kind: 'review_job', job: 'guide', pr }), 'host:laptop').label).toBe('Open guide')
   })
+
+  test('a finished automation run opens the conversation it ran in, on its own host', () => {
+    const destination = notificationDestination(row({ kind: 'automation', automationId: 'a1', runId: 'r1', sessionId: 's1' }), 'host:mini')
+    expect(destination).toEqual({ label: 'Open conversation', route: { kind: 'session', sessionId: 's1', serverId: 'host:mini' } })
+  })
+
+  test('a run row from an older host finds its conversation on the run record, and opens the automation when it cannot', async () => {
+    const resource: NotificationResource = { kind: 'automation', automationId: 'a1', runId: 'r1' }
+    const asked: string[] = []
+    const found = await resolveNotificationDestination(row(resource), 'host:mini', async (automationId, runId) => {
+      asked.push(`${automationId}/${runId}`)
+      return { id: runId, automationId, startedAt: '', status: 'succeeded', agentSessionId: 's1' }
+    })
+    expect(asked).toEqual(['a1/r1'])
+    expect(found.route).toEqual({ kind: 'session', sessionId: 's1', serverId: 'host:mini' })
+    const unreachable = await resolveNotificationDestination(row(resource), 'host:mini', () => Promise.reject(new Error('offline')))
+    expect(unreachable.route).toEqual({ kind: 'automation', automationId: 'a1', serverId: 'host:mini' })
+  })
 })
 
 describe('choices from the hub', () => {
@@ -50,6 +68,7 @@ describe('choices from the hub', () => {
     const fake = new FakeNotificationSource()
     fake.add({ id: 'n', createdAt: 1 })
     const client = new NotificationHubClient({ identity: 'me', connect: () => fake.link() })
+    client.setHistoryVisible(true)
     client.setSources([source])
     await client.idle()
     const key = 'host:x\u0000n'
@@ -65,6 +84,7 @@ describe('choices from the hub', () => {
     const fake = new FakeNotificationSource()
     fake.add({ id: 'n', createdAt: 1 })
     const client = new NotificationHubClient({ identity: 'me', connect: () => fake.link() })
+    client.setHistoryVisible(true)
     client.setSources([source])
     await client.idle()
     fake.items.delete('n')

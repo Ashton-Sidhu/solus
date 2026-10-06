@@ -6,7 +6,7 @@ import type { GitIdentity, GitState, WorktreeEntry } from './git-types'
 import type { TaskProviderId, TaskSnapshot } from './task-types'
 import type { PrReviewTarget, PullRequest } from './providers'
 import type { BrowserRecordingRef, BrowserSnapshotRef } from './browser-types'
-import type { DeviceBuildRef } from './device-types'
+import type { DeviceRunProfile } from './device-types'
 import type { WorkExternalLink } from './docs'
 import type { Attribution, User } from './user'
 import type { TurnFlagKind } from './observability-types'
@@ -1358,8 +1358,6 @@ export interface Message {
   browserSnapshot?: BrowserSnapshotRef
   /** A recording the agent made of a browser page, rendered as a player. */
   browserRecording?: BrowserRecordingRef
-  /** An app build the agent handed to Solus, rendered as a card that installs it. */
-  deviceBuild?: DeviceBuildRef
   /** Agent-conversation card for another agent this thread is driving
    *  (start_session / send_session). One message per
    *  agent per turn, mutated in place as `agent_conversation_update` events land;
@@ -1726,9 +1724,6 @@ export interface AgentExchange {
   delivery?: PromptDelivery
   dispatchedAt: number
   status: AgentExchangeStatus
-  /** Rebuilt from the transcript rather than observed live; the host says
-   *  whether it still carries it. */
-  restored?: boolean
   /** What the other agent's turn is waiting on a person for. Kept after it is
    *  answered so the card still shows what was asked. */
   request?: ExchangeRequest
@@ -1776,9 +1771,9 @@ export interface AgentConversationRef {
  * Stored host receipts keep queued work, pending reports, and final outcomes
  * visible after a restart. Closed receipts are retained for safe retries.
  */
-export interface SentSessionMessage {
-  messageId: string
-  targetAgentSessionId: string
+/** Where the host says one exchange stands when a transcript is read. The
+ *  transcript keeps what was sent; only the host knows what happened since. */
+export interface ExchangeProgress {
   state: 'queued' | 'running' | 'awaiting_input' | 'rate_limited' | 'waiting_for_children' | 'reply_queued' | 'settled'
   outcome?: ExchangeOutcome
   request?: ExchangeRequest
@@ -1894,7 +1889,6 @@ export type NormalizedEvent =
   | { type: 'task_created'; taskId: string; title: string; url: string | null }
   | { type: 'browser_snapshot_captured'; snapshot: BrowserSnapshotRef }
   | { type: 'browser_recording_captured'; recording: BrowserRecordingRef }
-  | { type: 'device_build_ready'; build: DeviceBuildRef }
   | { type: 'agent_conversation_update'; update: AgentConversationUpdate }
 
 type ToolCallEvent = Extract<NormalizedEvent, { type: 'tool_call' }>
@@ -1954,9 +1948,6 @@ export interface PromptOptions {
    *  hydrates the ticket into the run's system prompt, so the agent works from
    *  the task's live state without it entering the transcript. */
   taskId?: string
-  /** The first prompt of a new session: the person saw that another session
-   *  runs in this working tree and chose to continue (`WORKING_TREE_BUSY_CODE`). */
-  allowBusyWorkingTree?: boolean
   /** The task's live state, shipped by the client when `taskId` names a task on
    *  a different host than the one executing this prompt (a dispatch). The
    *  execution host renders the system-prompt packet from it and serves
@@ -2744,6 +2735,8 @@ export interface ProjectConfig {
   /** Overrides the host's worktree branch naming for this project. Absent =
    *  the host setting. */
   worktreeBranchNaming?: WorktreeBranchNaming
+  /** How to build the app for Build & run on a device (plan 016, S02). */
+  deviceRuns?: DeviceRunProfile[]
 }
 
 // ─── Editor / Terminal Types ───

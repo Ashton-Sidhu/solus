@@ -348,7 +348,7 @@ describe('settings navigation', () => {
     const settingsDir = join(mobile, 'features/settings')
     const targets = new Set<string>()
     for (const file of readdirSync(settingsDir).filter((name) => name.endsWith('.tsx'))) {
-      for (const match of readFileSync(join(settingsDir, file), 'utf8').matchAll(/navigate\('([A-Za-z]+)'/g)) targets.add(match[1]!)
+      for (const match of readFileSync(join(settingsDir, file), 'utf8').matchAll(/navigate\(\s*["']([A-Za-z]+)["']/g)) targets.add(match[1]!)
     }
     expect([...targets]).toContain('PersonalSettings')
     expect([...targets]).toContain('OrganizationSettings')

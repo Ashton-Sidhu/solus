@@ -1,3 +1,4 @@
+import type { DirectoryEntry } from '@solus/contracts/types'
 import { deviceBuildFits, type DeviceBuild, type DeviceControlState, type DeviceState, type DeviceSummary, type DeviceTarget } from '@solus/contracts/device-types'
 import { notificationAge } from './notifications/presentation'
 import type { HostApi } from './host-api'
@@ -22,6 +23,11 @@ export function deviceBuildTargets(state: DeviceState | undefined, build: Device
     .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
 }
 
+/** A build output a folder browser offers: an iOS `.app` bundle (a folder) or an Android `.apk` file. */
+export function isBuildOutput(entry: Pick<DirectoryEntry, 'name' | 'isDir'>): boolean {
+  return entry.isDir ? entry.name.endsWith('.app') : entry.name.endsWith('.apk')
+}
+
 /** Builds an Android phone can download and install itself. */
 export function downloadableBuilds(state: DeviceState | undefined): DeviceBuild[] {
   return (state?.builds ?? []).filter((build) => build.assetId !== null)
@@ -41,30 +47,48 @@ export async function installDeviceBuild(
   target: DeviceTarget & { deviceHostId: string },
   build: DeviceBuild,
   control: DeviceControlState,
-  heldGeneration: number | null,
+  isHeld: boolean,
 ): Promise<DeviceBuild> {
-  if (heldGeneration !== null) return api.deviceInstall({ ...target, buildId: build.buildId, controlGeneration: heldGeneration })
-  if (control.lease && !(control.lease.holder.kind === 'agent' && control.agentPaused)) {
+  if (isHeld) return api.deviceInstall({ ...target, buildId: build.buildId })
+  if (control.lease?.holder.kind === 'agent' && !control.agentPaused) {
     throw new Error(`${control.lease.holder.label} is using this device. Try again when it is free.`)
   }
-  const granted = await api.deviceControlAcquire(target)
-  if (granted.status !== 'granted') throw new Error('Someone else took control of this device first.')
+  await api.deviceControlAcquire(target)
   try {
-    return await api.deviceInstall({ ...target, buildId: build.buildId, controlGeneration: granted.lease.generation })
+    return await api.deviceInstall({ ...target, buildId: build.buildId })
   } finally {
     await api.deviceControlRelease(target).catch(() => {})
   }
 }
 
-/** One line about a build: kind, app id, size and age. */
-export function buildSummary(build: DeviceBuild, now: number): string {
-  const kind = build.platform === 'android' ? 'Android' : build.runsOn === 'device' ? 'iOS device build' : build.runsOn === 'simulator' ? 'iOS simulator build' : 'iOS'
+/**
+ * What a build's menu says about it, as label and value rows. The name, kind
+ * and age are on the build's row already, so they are left out. A project
+ * and a conversation are listed only when the client knows them.
+ */
+export function buildDetails(
+  build: DeviceBuild,
+  now: number,
+  origin: { projectPath?: string | null; conversationTitle?: string | null } = {},
+): { label: string; value: string }[] {
   const megabytes = build.sizeBytes / (1024 * 1024)
   const size = megabytes >= 10 ? `${Math.round(megabytes)} MB` : `${megabytes.toFixed(1)} MB`
-  return [kind, build.appId, size, notificationAge(build.createdAt, now)].filter(Boolean).join(' · ')
+  const rows = [{ label: 'App ID', value: build.appId ?? 'Unknown' }, { label: 'Size', value: size }]
+  const project = origin.projectPath?.split(/[\\/]/).filter(Boolean).at(-1)
+  if (project) rows.push({ label: 'Project', value: project })
+  if (origin.conversationTitle) rows.push({ label: 'Conversation', value: origin.conversationTitle })
+  if (build.lastInstall) rows.push({ label: 'Installed', value: `${build.lastInstall.deviceName} · ${notificationAge(build.lastInstall.installedAt, now)}` })
+  return rows
 }
 
-/** Where the build last went, or null before its first install. */
-export function lastInstallLabel(build: DeviceBuild, now: number): string | null {
-  return build.lastInstall ? `Installed on ${build.lastInstall.deviceName} · ${notificationAge(build.lastInstall.installedAt, now)}` : null
+/** The short line under a build's name: what it runs on and how old it is. */
+export function buildCardSummary(build: DeviceBuild, now: number): string {
+  const kind = build.platform === 'android' ? 'Android' : build.runsOn === 'device' ? 'iPhone or iPad' : build.runsOn === 'simulator' ? 'iOS Simulator' : 'iOS'
+  return `${kind} · ${notificationAge(build.createdAt, now)}`
+}
+
+/** Builds the device on screen can run, newest first: what its Run button offers. */
+export function buildsForDevice(state: DeviceState | undefined, device: DeviceSummary): DeviceBuild[] {
+  // A device on screen is running; a stopped one boots when its build runs.
+  return (state?.builds ?? []).filter((build) => deviceBuildFits(build, { ...device, booted: true }).fits)
 }

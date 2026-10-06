@@ -8,6 +8,7 @@ import postgres from 'postgres'
 import { getDb, withAsyncTx } from '.'
 import { resolveEngine, type DatabaseEngine } from './engine'
 import { migrationsFolder } from './migration-files'
+import { assertTestDatabase } from './test-safety'
 
 /**
  * The one database handle a ported domain uses (docs/plans/cloud-service-model.md).
@@ -39,6 +40,31 @@ interface RootDb extends Db {
 const activeTransaction = new AsyncLocalStorage<Db>()
 const commitCallbacks = new AsyncLocalStorage<(() => Promise<void>)[]>()
 
+/** The queries one operation sent and the time it waited for them, summed. */
+export interface QueryTally {
+  queries: number
+  queryMs: number
+}
+
+const queryTally = new AsyncLocalStorage<QueryTally>()
+
+/** Runs `operation` and adds every query it sends to `tally`, so a slow call shows whether the database is why. */
+export function tallyQueries<T>(tally: QueryTally, operation: () => Promise<T>): Promise<T> {
+  return queryTally.run(tally, operation)
+}
+
+async function tallied<T>(query: () => Promise<T>): Promise<T> {
+  const tally = queryTally.getStore()
+  if (!tally) return query()
+  const startedAt = performance.now()
+  try {
+    return await query()
+  } finally {
+    tally.queries += 1
+    tally.queryMs += performance.now() - startedAt
+  }
+}
+
 /** Notifications must not escape an outer transaction that can still roll back. */
 export async function afterDatabaseCommit(callback: () => Promise<void>): Promise<void> {
   const callbacks = commitCallbacks.getStore()
@@ -68,7 +94,7 @@ class SqliteDb implements RootDb {
   private readonly drizzle: SqliteRemoteDatabase
 
   constructor() {
-    this.drizzle = drizzleSqliteProxy(async (query, params, method) => {
+    this.drizzle = drizzleSqliteProxy((query, params, method) => tallied(async () => {
       const statement = getDb().prepare(query)
       const bound = nullForUndefined(params)
       switch (method) {
@@ -83,7 +109,7 @@ class SqliteDb implements RootDb {
         case 'values':
           return { rows: statement.all(...bound).map((row) => Object.values(row)) }
       }
-    })
+    }))
   }
 
   all<T>(query: SQL): Promise<T[]> {
@@ -146,7 +172,7 @@ class PostgresTransaction implements Db {
   constructor(private readonly executor: PgExecutor) {}
 
   async all<T>(query: SQL): Promise<T[]> {
-    const result = await this.executor.execute(query)
+    const result = await tallied(() => this.executor.execute(query))
     // SAFETY: the caller's row schema validates the shape; the driver returns plain objects.
     return [...result] as T[]
   }
@@ -157,7 +183,7 @@ class PostgresTransaction implements Db {
   }
 
   async run(query: SQL): Promise<{ changes: number }> {
-    const result = await this.executor.execute(query)
+    const result = await tallied(() => this.executor.execute(query))
     return { changes: result.count }
   }
 
@@ -229,6 +255,7 @@ let database: RootDb | null = null
 export function getDatabase(): Db {
   if (database) return database
   const engine = resolveEngine()
+  assertTestDatabase(engine)
   database = engine.kind === 'postgres' ? new PostgresDb(engine.url) : new SqliteDb()
   return database
 }

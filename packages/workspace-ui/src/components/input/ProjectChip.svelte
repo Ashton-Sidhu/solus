@@ -46,6 +46,9 @@
     open?: boolean;
     /** When set, drop the open list from this external project control. */
     anchor?: HTMLElement | null;
+    /** Which side of `anchor` the list opens on: below the draft headline,
+     *  above the composer's + button. */
+    anchorSide?: "top" | "bottom";
   }
   let {
     run,
@@ -57,14 +60,15 @@
     onDismiss,
     open = $bindable(false),
     anchor = null,
+    anchorSide = "bottom",
   }: Props = $props();
 
   // The host the project lives on, and the host the run is headed for. They
   // differ for a dispatch, whose project stays home while the agent moves.
   const hostId = $derived(projectHostId(run));
   const selectedHostId = $derived(run.pendingHostDispatch?.serverId ?? run.serverId);
-  // A chat has no project: the chip offers to add one, and a project offers
-  // the way back to a chat.
+  // A chat draws no chip (its list opens from the + menu); a project's list
+  // offers the way back to a chat.
   const inChat = $derived(isChat(projectDir));
   const currentKey = $derived(projectsStore.projectKeyFor(hostId, projectDir));
   // One row per project across every host. The current folder is offered even
@@ -162,30 +166,20 @@
  : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
               style="max-width:12rem"
             >
-              {#if inChat}
-                <PlusIcon
-                  size={16}
-                  class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
+              <ProjectFavicon
+                projectRoot={projectDir}
+                serverId={hostId}
+                class="size-4 shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
  ? 'opacity-100'
  : 'opacity-70'}"
-                />
-                <span class="truncate">Add project</span>
-              {:else}
-                <ProjectFavicon
-                  projectRoot={projectDir}
-                  serverId={hostId}
-                  class="size-4 shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
- ? 'opacity-100'
- : 'opacity-70'}"
-                />
-                <span class="truncate">{label}</span>
-              {/if}
+              />
+              <span class="truncate">{label}</span>
             </Button>
           {/snippet}
         </TooltipUI.Trigger>
         <TooltipUI.Content
           value={{
-            label: inChat ? "Add a project to this chat" : "Change the project for this chat",
+            label: "Change the project for this chat",
             shortcut: comboHint("global.select-project"),
           }}
         />
@@ -200,7 +194,7 @@
   <Popover.Content
     data-solus-ui
     customAnchor={anchor ?? triggerEl}
-    side={anchor ? "bottom" : "top"}
+    side={anchor ? anchorSide : "top"}
     align="start"
     sideOffset={6}
     collisionPadding={8}

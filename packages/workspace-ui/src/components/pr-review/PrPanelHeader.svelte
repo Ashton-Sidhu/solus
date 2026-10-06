@@ -9,7 +9,6 @@
   } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import type { GuideHeaderActions } from "../diff/lib/review-header";
-  import PaneSwapButton from "../ui/PaneSwapButton.svelte";
   import PrPanelOverflowMenu from "./PrPanelOverflowMenu.svelte";
 
   /**
@@ -23,10 +22,10 @@
    * the overflow's contents follow it. The band does not spend a slot saying
    * where in the list's order you are.
    *
-   * The band states which pull request you are in, not what is true of it. The
-   * refs and the check state are facts about the change, so they are read on
-   * Activity — beside the title and in its rail — rather than repeated in
-   * chrome that every tab has to carry.
+   * The number is the one fact the band states about the pull request: as its
+   * one move, in the colour of its state. The refs and the check detail are
+   * read on Activity — beside the title and in its rail — rather than repeated
+   * in chrome that every tab has to carry.
    *
    * There is no breadcrumb here: the list it came out of is still on screen to
    * the left, so the way back is the panel's own close control.
@@ -40,14 +39,13 @@
     fullScreen,
     onToggleFullScreen,
     onOpenPage,
-    onMoveAcross,
-    isLeading = true,
     onClose,
     onRefresh,
     refreshing = false,
     guide,
     headRef,
     tabs,
+    numberAction,
     actions,
   }: {
     number: number;
@@ -63,9 +61,6 @@
     /** Move the review between the leading pane and the companion beside it.
      *  Absent when this band belongs to the list's own detail panel, which has
      *  no pane of its own. */
-    onMoveAcross?: () => void;
-    /** Which way `onMoveAcross` sends it. */
-    isLeading?: boolean;
     onClose: () => void;
     onRefresh: () => void;
     refreshing?: boolean;
@@ -75,6 +70,9 @@
     headRef?: string;
     /** Map · Guide · Diff, pinned left. */
     tabs?: Snippet;
+    /** The number as the pull request's one move (PrPrimaryAction). In its
+     *  place the band names the number only. */
+    numberAction?: Snippet;
     /** The surface's own actions — Review and Check out. */
     actions?: Snippet;
   } = $props();
@@ -143,15 +141,25 @@
 
   <span class="flex-1 @max-[30rem]/band:hidden"></span>
 
-  <!-- Identity, and only identity: the number, which never gives. On a record
-       it takes the slack instead of the spacer above, so the number sits in the
-       middle of the band the way every other phone title does. -->
-  <span
-    class="mr-1.5 flex shrink-0 items-center gap-1.5 text-workspace-chrome tabular-nums text-muted-foreground @max-[30rem]/band:mr-0 @max-[30rem]/band:min-w-0 @max-[30rem]/band:flex-1 @max-[30rem]/band:justify-center"
-  >
-    <GitPullRequestIcon size={12} aria-hidden="true" />
-    <span>#{number}</span>
-  </span>
+  <!-- Identity: the number, which never gives. It is also the pull request's
+       one move — merge, update the branch, resolve conflicts — coloured by its
+       state; its label drops before the number does. On a record it takes the
+       slack instead of the spacer above, so the number sits in the middle of
+       the band the way every other phone title does. -->
+  {#if numberAction}
+    <span
+      class="mr-1.5 flex min-w-0 shrink items-center @max-[30rem]/band:mr-0 @max-[30rem]/band:flex-1 @max-[30rem]/band:justify-center"
+    >
+      {@render numberAction()}
+    </span>
+  {:else}
+    <span
+      class="mr-1.5 flex shrink-0 items-center gap-1.5 text-workspace-chrome tabular-nums text-muted-foreground @max-[30rem]/band:mr-0 @max-[30rem]/band:min-w-0 @max-[30rem]/band:flex-1 @max-[30rem]/band:justify-center"
+    >
+      <GitPullRequestIcon size={12} aria-hidden="true" />
+      <span>#{number}</span>
+    </span>
+  {/if}
 
   {#if actions}{@render actions()}{/if}
 
@@ -172,16 +180,6 @@
   <div
     class="flex shrink-0 items-center gap-1.5 @max-[30rem]/band:hidden"
   >
-    {#if onMoveAcross}
-      <PaneSwapButton
-        {isLeading}
-        onMove={onMoveAcross}
-        iconSize={15}
-        iconStroke={1.5}
-        class={PAGE_SOFT_ICON_BTN}
-      />
-    {/if}
-
     {#if onToggleFullScreen}
       <button
         type="button"

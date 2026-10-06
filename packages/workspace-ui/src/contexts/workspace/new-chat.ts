@@ -10,7 +10,7 @@ import type { WorkspaceContext } from './workspace.context.svelte'
  */
 export function openChatDraft(workspace: Pick<WorkspaceContext, 'drafts' | 'router'>, via: Via = 'palette'): void {
   workspace.drafts.openSessionDraft(
-    { freshTask: true, target: workspace.router.leadingPane.id, via },
+    { freshTask: true, target: 'leading', via },
     NEW_CHAT_DIRECTORY,
   )
   requestInputFocus()

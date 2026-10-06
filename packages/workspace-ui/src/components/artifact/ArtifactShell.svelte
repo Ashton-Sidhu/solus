@@ -298,9 +298,11 @@
     <!-- A pinned width centres the render so the pane reads as a device
          frame rather than a left-aligned column with dead space. The box is
          as tall as the render, so the comment layer over it covers every
-         point a pin can be dropped on. -->
+         point a pin can be dropped on. A flex column, so a short render
+         grows to the pane's height: a percentage height cannot resolve
+         against a min-height. -->
     <div
-      class="relative mx-auto min-h-full"
+      class="relative mx-auto flex min-h-full flex-col"
       style:width={pinnedWidth ? `${pinnedWidth}px` : undefined}
     >
       <ArtifactView {artifact} {reloadKey} fillAvailable skipMotion />

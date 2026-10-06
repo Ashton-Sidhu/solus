@@ -1,25 +1,17 @@
 import { bigint, defineTable, text } from '../db/schema/define-table'
 
 /**
- * The sharing domain's tables, declared once for both engines
- * (docs/plans/cloud-service-model.md; docs/plans/multiplayer-sharing.md §3.4).
- * The owner of each resource and its share list; nothing else joins them.
- * The hand-made SQLite tables carried CHECK constraints on the enumerations;
- * the row schemas in `share-manager.ts` validate those on read instead, which
- * is the one form both engines and the builder share.
+ * The sharing domain's one table, declared once for both engines
+ * (docs/plans/cloud-service-model.md; docs/plans/cloud-sharing.md §4c).
+ * Every row of access to a resource: the owner (a `user` row with role `owner`,
+ * at most one per resource), a person, a team, the organization, or everyone
+ * with the link. Nothing else joins it. The hand-made SQLite tables carried
+ * CHECK constraints on the enumerations; the row schemas in `share-manager.ts`
+ * validate those on read instead, which is the one form both engines and the
+ * builder share.
  */
 
 const ORGANIZATION = text({ notNull: true, default: 'local' })
-
-export const resourceOwner = defineTable('resource_owner', {
-  resource_kind: text({ notNull: true }),
-  resource_id: text({ notNull: true }),
-  owner_user_id: text({ notNull: true }),
-  created_at: bigint({ notNull: true }),
-  organization_id: ORGANIZATION,
-}, {
-  primaryKey: ['resource_kind', 'resource_id'],
-})
 
 export const shareGrant = defineTable('share_grant', {
   id: text({ primaryKey: true }),
@@ -37,8 +29,10 @@ export const shareGrant = defineTable('share_grant', {
 }, {
   indexes: [
     { name: 'share_grant_subject', columns: ['resource_kind', 'resource_id', 'subject_kind', 'subject_id'], unique: true },
+    // One owner per resource.
+    { name: 'share_grant_owner', columns: ['resource_kind', 'resource_id'], unique: true, where: "role = 'owner'" },
     { name: 'share_grant_secret_idx', columns: ['link_secret_hash'], where: 'link_secret_hash IS NOT NULL' },
   ],
 })
 
-export const SHARING_TABLES = [resourceOwner, shareGrant]
+export const SHARING_TABLES = [shareGrant]

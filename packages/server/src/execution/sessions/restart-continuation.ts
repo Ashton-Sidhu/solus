@@ -1,5 +1,5 @@
 import type { Actor } from '../../admission/actor'
-import type { RestartRun } from '../../data/sessions/session-restart-store'
+import type { RestartRun } from '../../data/sessions/run-ledger'
 import type { SessionLineageMember } from '@solus/contracts/types'
 import { sameUser, type User } from '@solus/contracts/user'
 import { hostCategory } from '../../host/host-category'
@@ -25,9 +25,4 @@ export function restartContinuationError(saved: RestartRun, owner: User | null,
   if (saved.author && (!owner || !sameUser(owner.id, saved.author.id))) return 'The host owner changed. The original author must review this recovery.'
 }
 
-export function restartContinuationPrompt(saved: RestartRun): string {
-  const background = saved.backgroundTools.length
-    ? `\nThe host lost tracking for these active tools or child agents: ${saved.backgroundTools.map((tool) => tool.name).join(', ')}. Check whether detached processes are still running before restarting them.` : ''
-  const source = saved.input.agentSessionId ? '' : `\nPrevious task: ${saved.prompt}`
-  return `The Solus host restarted. Continue where you left off. Inspect the workspace and history before repeating actions; the last run may have made changes.${background}${source}`
-}
+export const RESTART_CONTINUATION_PROMPT = 'Continue where you left off'

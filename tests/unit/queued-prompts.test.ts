@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { formatClock, formatLimitWindow, formatWaited, queuedCaption } from '@solus/workspace-ui/components/conversation/lib/queued-prompts'
+import { formatClock, formatLimitWindow, formatWaited, queuedCaption, queuedEntryModel } from '@solus/workspace-ui/components/conversation/lib/queued-prompts'
 import type { OutboundPrompt } from '@solus/contracts/types'
 
 const NOW = 1_700_000_000_000
@@ -173,5 +173,23 @@ describe('formatWaited', () => {
     expect(formatWaited(64 * 60_000)).toBe('1h 4m')
     expect(formatWaited(120 * 60_000)).toBe('2h')
     expect(formatWaited(5_000)).toBe('<1m')
+  })
+})
+
+describe('queuedEntryModel', () => {
+  const config = (modelId: string | null) => ({ modelId, reasoningEffort: 'medium' as const, contextWindow: null, fastMode: false })
+
+  it('names the model as the picker does, not by its runtime id', () => {
+    // A queued entry must not print backend syntax such as Claude's `[1m]` suffix.
+    expect(queuedEntryModel({ provider: 'claude-code', modelConfig: config('claude-opus-5-5[1m]') }))
+      .toEqual({ mark: 'claude', label: 'Opus 5.5' })
+  })
+
+  it('falls back to the product name when the entry names no model', () => {
+    expect(queuedEntryModel({ provider: 'codex', modelConfig: config(null) })).toEqual({ mark: 'codex', label: 'Codex' })
+  })
+
+  it('shows nothing when the entry names no backend or model', () => {
+    expect(queuedEntryModel({})).toBeNull()
   })
 })

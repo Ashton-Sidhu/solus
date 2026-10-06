@@ -1,3 +1,8 @@
+<script module lang="ts">
+  /** Search words, read by the settings page to find this page from any other. */
+  export const searchWords = ["account", "sync", "personal", "cloud", "sign", "devices", "conflict", "clear"];
+</script>
+
 <script lang="ts">
   /** Personal: who is signed in and whether this device syncs their settings.
    *  It needs no host: the profile lives on this device and in the account. */
@@ -41,8 +46,7 @@
     requestInputFocus();
   }
 
-  const keywords = ["account", "sync", "personal", "cloud", "sign", "devices", "conflict", "clear"];
-  const isVisible = $derived(!searchQuery || keywords.some((keyword) => keyword.includes(searchQuery.toLowerCase())));
+  const isVisible = $derived(!searchQuery || searchWords.some((keyword) => keyword.includes(searchQuery.toLowerCase())));
 </script>
 
 <SettingsSection label="Account" visible={isVisible}>

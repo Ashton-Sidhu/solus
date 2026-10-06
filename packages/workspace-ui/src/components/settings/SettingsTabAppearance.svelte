@@ -1,47 +1,11 @@
-<script lang="ts">
-  /** Theme and type are personal: no host frame, and they follow the person to
-   *  every host (and every client, with sync on). An installed font is this
-   *  device's override; This device shows it and turns it back. */
-  import {
-    APP_FONT_FAMILIES,
-    APP_CODE_FONT_FAMILIES,
-    DOCUMENT_FONT_FAMILIES,
-    PROMPT_FONT_FAMILIES,
-    IS_MAC_OS,
-  } from "../../contexts/app/settings-display";
-  import { getSettingsContext } from "../../contexts";
-  import { MIN_ASSISTANT_TEXT_OPACITY } from "@solus/contracts/settings";
-  import { Switch } from "../ui/switch";
-  import FontFamilyPicker from "./FontFamilyPicker.svelte";
-  import SettingsSection from "./SettingsSection.svelte";
-  import ThemeModeTiles from "./ThemeModeTiles.svelte";
-  import SettingsRow from "./SettingsRow.svelte";
-  // Each font pair (family, then size) closes with the surface it changes, so
-  // a choice is judged on the real thing rather than on the picker's label.
-  import InterfaceFontPreview from "./InterfaceFontPreview.svelte";
-  import PromptFontPreview from "./PromptFontPreview.svelte";
-  import DocumentFontPreview from "./DocumentFontPreview.svelte";
-  import CodeFontPreview from "./CodeFontPreview.svelte";
-  import FontSizeSelect from "./FontSizeSelect.svelte";
-
-  interface Props {
-    searchQuery?: string;
-  }
-
-  let { searchQuery = "" }: Props = $props();
-
-  const theme = getSettingsContext();
-
-  // Presets only; the picker adds every installed family behind them.
-  const appFontPresets = APP_FONT_FAMILIES.map(({ id, label }) => ({ id, label }));
-  const codeFontPresets = APP_CODE_FONT_FAMILIES.map(({ id, label }) => ({ id, label }));
-
-  interface SettingItem {
+<script module lang="ts">
+  /** Search words, read by the settings page to find this page from any other. */
+  export interface SettingItem {
     id: string;
     keywords: string[];
   }
 
-  const settingItems: SettingItem[] = [
+  export const settingItems: SettingItem[] = [
     {
       id: "theme",
       keywords: ["dark", "theme", "light", "appearance", "mode", "system"],
@@ -131,7 +95,54 @@
       id: "code-font-size",
       keywords: ["code", "font", "size", "mono", "diff"],
     },
+    {
+      id: "installed-fonts",
+      keywords: ["font", "installed", "typeface", "override", "synced", "device", "local"],
+    },
   ];
+</script>
+
+<script lang="ts">
+  /** Theme and type are personal: no host frame, and they follow the person to
+   *  every host (and every client, with sync on). An installed font is this
+   *  device's override; Installed fonts shows it and turns it back. */
+  import { FONT_PREFERENCE_KEYS, type FontPreferenceKey } from "@solus/contracts/settings";
+  import {
+    APP_FONT_FAMILIES,
+    APP_CODE_FONT_FAMILIES,
+    DOCUMENT_FONT_FAMILIES,
+    PROMPT_FONT_FAMILIES,
+    IS_MAC_OS,
+  } from "../../contexts/app/settings-display";
+  import { getSettingsContext } from "../../contexts";
+  import { MIN_ASSISTANT_TEXT_OPACITY } from "@solus/contracts/settings";
+  import { requestInputFocus } from "../../lib/inputFocus";
+  import { Button } from "../ui/button";
+  import { Switch } from "../ui/switch";
+  import FontFamilyPicker from "./FontFamilyPicker.svelte";
+  import SettingsSection from "./SettingsSection.svelte";
+  import ThemeModeTiles from "./ThemeModeTiles.svelte";
+  import SettingsRow from "./SettingsRow.svelte";
+  // Each font pair (family, then size) closes with the surface it changes, so
+  // a choice is judged on the real thing rather than on the picker's label.
+  import InterfaceFontPreview from "./InterfaceFontPreview.svelte";
+  import PromptFontPreview from "./PromptFontPreview.svelte";
+  import DocumentFontPreview from "./DocumentFontPreview.svelte";
+  import CodeFontPreview from "./CodeFontPreview.svelte";
+  import FontSizeSelect from "./FontSizeSelect.svelte";
+
+  interface Props {
+    searchQuery?: string;
+  }
+
+  let { searchQuery = "" }: Props = $props();
+
+  const theme = getSettingsContext();
+
+  // Presets only; the picker adds every installed family behind them.
+  const appFontPresets = APP_FONT_FAMILIES.map(({ id, label }) => ({ id, label }));
+  const codeFontPresets = APP_CODE_FONT_FAMILIES.map(({ id, label }) => ({ id, label }));
+
 
   function isVisible(id: string): boolean {
     if (!searchQuery) return true;
@@ -141,7 +152,35 @@
     return item.keywords.some((k) => k.includes(q));
   }
 
-  const anyVisible = $derived(settingItems.some((s) => isVisible(s.id)));
+  const FONT_LABELS = {
+    fontFamily: "Interface font",
+    codeFontFamily: "Code font",
+    documentFontFamily: "Document font",
+    promptFontFamily: "Prompt font",
+  } as const satisfies Record<FontPreferenceKey, string>;
+  const fontPresets: Array<{ id: string; label: string }> = [
+    ...APP_FONT_FAMILIES,
+    ...APP_CODE_FONT_FAMILIES,
+    ...DOCUMENT_FONT_FAMILIES,
+    ...PROMPT_FONT_FAMILIES,
+  ];
+  const presetLabel = (id: string) => fontPresets.find((preset) => preset.id === id)?.label ?? id;
+  const fontOverrides = $derived(
+    FONT_PREFERENCE_KEYS.flatMap((key) => {
+      const family = theme.fontOverrideOf(key);
+      return family ? [{ key, family, synced: theme.syncedFontOf(key) }] : [];
+    }),
+  );
+
+  function useSyncedFont(key: FontPreferenceKey) {
+    theme.useSyncedFont(key);
+    requestInputFocus();
+  }
+
+  const anyVisible = $derived(
+    settingItems.some((s) => s.id !== "installed-fonts" && isVisible(s.id)) ||
+      (fontOverrides.length > 0 && isVisible("installed-fonts")),
+  );
 
   // The two-font view by default; Advanced reveals the per-surface overrides.
   // A search reveals them too, so a hit on "prompt" has a row to land on.
@@ -322,6 +361,24 @@
       />
     {/snippet}
   </SettingsRow>
+</SettingsSection>
+
+<!-- Only when a font installed on this device masks a synced choice. -->
+<SettingsSection
+  label="Installed fonts"
+  description="A font installed on this device stays here. Other devices keep your synced choice."
+  visible={fontOverrides.length > 0 && isVisible("installed-fonts")}
+>
+  {#each fontOverrides as override (override.key)}
+    <SettingsRow
+      label={FONT_LABELS[override.key]}
+      description="{override.family} on this device. Your synced choice is {presetLabel(override.synced)}."
+    >
+      {#snippet control()}
+        <Button variant="outline" size="sm" onclick={() => useSyncedFont(override.key)}>Use synced font</Button>
+      {/snippet}
+    </SettingsRow>
+  {/each}
 </SettingsSection>
 
 {#if !anyVisible}

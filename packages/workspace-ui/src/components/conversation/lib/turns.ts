@@ -25,7 +25,6 @@ export type GroupedItem =
   | { kind: 'task'; message: Message }
   | { kind: 'browser-snapshot'; messages: Message[] }
   | { kind: 'browser-recording'; message: Message }
-  | { kind: 'device-build'; message: Message }
   | { kind: 'agent-conversation-group'; messages: Message[] }
   | { kind: 'artifact'; message: Message }
   | { kind: 'review-guide'; message: Message }
@@ -110,7 +109,6 @@ export function groupMessages(messages: Message[]): GroupedItem[] {
       else if (msg.watchRef) result.push({ kind: 'watch', message: msg })
       else if (msg.taskRef) result.push({ kind: 'task', message: msg })
       else if (msg.browserRecording) result.push({ kind: 'browser-recording', message: msg })
-      else if (msg.deviceBuild) result.push({ kind: 'device-build', message: msg })
       else if (msg.artifact) result.push({ kind: 'artifact', message: msg })
       else if (msg.reviewGuideRef) result.push({ kind: 'review-guide', message: msg })
       else if (msg.role === 'assistant') result.push({ kind: 'assistant', message: msg })
@@ -127,7 +125,7 @@ export function groupMessages(messages: Message[]): GroupedItem[] {
 function isBlankAssistant(msg: Message): boolean {
   if (msg.role !== 'assistant' || msg.content.trim()) return false
   return !(msg.automationRef || msg.watchRef || msg.taskRef || msg.browserRecording || msg.browserSnapshot
-    || msg.deviceBuild || msg.artifact || msg.workRef || msg.reviewGuideRef)
+    || msg.artifact || msg.workRef || msg.reviewGuideRef)
 }
 
 /** The messages `buildTurns` cuts a new turn at: a prompt, or a divider. */
@@ -299,8 +297,6 @@ const COLLAPSE_EXCLUDED_KINDS = new Set<GroupedItem['kind']>([
   'browser-snapshot',
   // A recording is the same kind of result, in motion.
   'browser-recording',
-  // A build is what the person asked for; its card is how they install it.
-  'device-build',
   // A plan is what the turn produced, not a step it took to get there — and it
   // is the one card the reader still has to act on after the turn ends.
   'plan',

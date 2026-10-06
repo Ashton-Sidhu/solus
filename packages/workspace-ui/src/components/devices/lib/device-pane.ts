@@ -25,9 +25,23 @@ export function selectedPreview(previews: DevicePreview[], remembered: string | 
   return previews.find((preview) => preview.devicePreviewId === remembered) ?? previews.at(-1) ?? null
 }
 
+/** Open previews grouped under the device host that runs them, in the order they were opened, like browser pages under their branch. */
+export function previewGroups(state: DeviceState | undefined, previews: DevicePreview[]): { deviceHostId: string; label: string; previews: DevicePreview[] }[] {
+  const groups = new Map<string, { deviceHostId: string; label: string; previews: DevicePreview[] }>()
+  for (const preview of previews) {
+    let group = groups.get(preview.deviceHostId)
+    if (!group) {
+      const label = state?.hosts.find((host) => host.deviceHostId === preview.deviceHostId)?.label ?? preview.deviceHostId
+      group = { deviceHostId: preview.deviceHostId, label, previews: [] }
+      groups.set(preview.deviceHostId, group)
+    }
+    group.previews.push(preview)
+  }
+  return [...groups.values()]
+}
+
 /** Who controls the device, in one short phrase. */
 export function controlLabel(control: DeviceControlState, holdsControl: boolean): string {
-  if (control.pendingTakeover) return `Taking control after the agent's current action…`
   if (holdsControl) return 'You have control'
   if (control.lease) return `${control.lease.holder.label} has control`
   if (control.agentPaused) return 'Agent actions paused'

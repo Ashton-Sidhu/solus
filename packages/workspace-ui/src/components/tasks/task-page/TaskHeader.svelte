@@ -163,10 +163,13 @@
   {/if}
 
   <!-- No rule before Details: the row wraps in a narrow pane, and a rule
-       there is left dangling at the end of the first line. Its avatar or its
-       chevron already sets it apart. -->
+       there is left dangling at the end of the first line. It sits at the
+       row's end edge instead, where the folded rail would be, so it does not
+       read as part of the "opened" text before it. -->
   {#if detailsTrigger}
-    {@render detailsTrigger()}
+    <span class="ml-auto flex min-w-0">
+      {@render detailsTrigger()}
+    </span>
   {/if}
 </div>
 

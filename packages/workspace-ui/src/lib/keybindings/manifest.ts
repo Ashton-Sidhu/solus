@@ -38,7 +38,7 @@ export const KEYBINDINGS = {
   // gives Files one collision-free default on desktop and web without making
   // the shortcut depend on a numbered key.
   'global.toggle-files':         { combo: { alt: true, shift: true, code: 'Semicolon' },   scope: 'global',             label: 'Open files',               group: 'View' },
-  'global.open-in-split': { combo: { alt: true, shift: true, code: 'Backslash' }, scope: 'global',             label: 'Open artifact in split',   group: 'View' },
+  'global.open-in-split': { combo: { alt: true, shift: true, code: 'Backslash' }, scope: 'global',             label: 'Open in split or show side pane', group: 'View' },
   // ⌥M is the pane's key wherever a pane is: `reserved` carries it through an
   // exclusive scope (for example, a standalone document modal), and no other
   // scope may bind it. It is declared before the project panel so it takes the
@@ -84,8 +84,8 @@ export const KEYBINDINGS = {
   'voice.toggle-mode':        { combo: { alt: true, shift: true, code: 'KeyV' },          scope: 'global',             label: 'Toggle voice mode',        group: 'Voice' },
   'voice.toggle-recorder':    { combo: { alt: true, shift: true, code: 'Space' },         scope: 'global',             label: 'Start / finish voice recording', group: 'Voice' },
 
-  // ── Action orb (global, gated by active tab) ───────────────────────────────
-  'orb.toggle':               { combo: { alt: true, shift: true, code: 'KeyQ' },          scope: 'global',             label: 'Toggle quick actions',     group: 'General' },
+  // ── Session actions (global, gated by active tab) ──────────────────────────
+  'orb.toggle':               { combo: { alt: true, shift: true, code: 'KeyQ' },          scope: 'global',             label: 'Open session actions',     group: 'General' },
   'orb.open-terminal':        { combo: { alt: true, shift: true, code: 'Backquote' },     scope: 'global',             label: 'Open terminal',            group: 'General' },
   'orb.commit-push':          { combo: { alt: true, shift: true, code: 'KeyC' },          scope: 'global',             label: 'Commit and push',          group: 'General' },
   'orb.sync':                 { combo: { alt: true, shift: true, code: 'Period' },        scope: 'global',             label: 'Sync (pull)',              group: 'General' },
@@ -145,7 +145,6 @@ export const KEYBINDINGS = {
   'workspace.next':               { combo: { code: 'ArrowDown' }, repeatable: true,        scope: 'workspace',          label: 'Next',                     group: 'Navigate' },
   'workspace.prev':               { combo: { code: 'ArrowUp' }, repeatable: true,          scope: 'workspace',          label: 'Previous',                 group: 'Navigate' },
   'workspace.toggle-pin':         { combo: { alt: true, code: 'KeyP' },                    scope: 'workspace',          label: 'Pin / unpin',              group: 'Workspace' },
-  'workspace.current-project':    { combo: { alt: true, code: 'KeyC' },                    scope: 'workspace',          label: 'Current project',          group: 'Workspace' },
   // The peek is a pointer affordance, so the keyboard gets its own: the same
   // card, pinned, on the focused row. No hover state is ever required to reach
   // information.

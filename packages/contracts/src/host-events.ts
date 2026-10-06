@@ -28,6 +28,7 @@ import type { InsightPullState } from './observability-types'
 import type { HostUpdateStatus } from './host-update-types'
 import type { ShareChangedEvent } from './sharing'
 import type { SeatChangedEvent } from './seats'
+import type { AgentAuthFinishedEvent } from './agent-auth'
 import type { HostPresenceSnapshot, SessionPresenceSnapshot, WorkPresenceSnapshot } from './presence'
 import type { HostOrganizationsStatus, Publication } from './organization-scope'
 import type { UplinkStatus } from './uplink'
@@ -74,6 +75,9 @@ export interface HostEventMap {
   /** A task changed. `taskId` names it; no id means many tasks changed at
    *  once (a bulk sync, an import, a delete), so clients read everything. */
   'tasks.invalidated': { taskId?: string }
+  /** The caller's own task snoozes changed. Delivered only to that person's
+   *  connections; they read `tasksSnoozes` again. Names nothing. */
+  'tasks.snoozesChanged': Record<string, never>
   'workspaceProjects.changed': Record<string, never>
   /** This host's outbox gained, lost, or failed an op. Connected clients react
    *  by draining (`outboxList` → apply on the owner host → `outboxAck`). */
@@ -147,6 +151,8 @@ export interface HostEventMap {
   /** One member's seat for one provider changed state. Delivered to that member's
    *  clients only; the list is re-read with `seatList`. */
   'host.seatChanged': SeatChangedEvent
+  /** A Claude Design or MCP server sign-in ended. Delivered to the clients of the seat that started it. */
+  'host.agentAuthFinished': AgentAuthFinishedEvent
   /** Who is watching one session, and whose turn is running. The whole room each
    *  time: a handful of rows, and two clients disagreeing about who is present is
    *  the failure to avoid. Delivered to the session's watchers. */
@@ -206,6 +212,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'review.guideStatusChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'A review guide changed status.' },
   'review.lensChanged': { owner: 'review', category: 'delta', recovery: 'reload', description: 'A review lens, its comments, or its job changed.' },
   'tasks.invalidated': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: 'The local task store changed.' },
+  'tasks.snoozesChanged': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: "The recipient's own task snoozes changed; read them again." },
   'workspaceProjects.changed': { owner: 'projects', category: 'invalidation', recovery: 'reload', description: "The organization's project directory changed." },
   'outbox.changed': { owner: 'outbox', category: 'invalidation', recovery: 'reload', description: 'The host outbox changed; connected clients should drain it.' },
   'pr.changed': { owner: 'prs', category: 'delta', recovery: 'reload', description: 'PR sync saw pull requests, checks, or review requests change in one repository.' },
@@ -235,6 +242,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'host.modelProfilesChanged': { owner: 'model-profiles', category: 'snapshot', recovery: 'reload', description: "This host's model list or its GitHub check changed state." },
   'share.changed': { owner: 'sharing', category: 'delta', recovery: 'reload', description: "A session's or work's owner or share list changed." },
   'host.seatChanged': { owner: 'seats', category: 'delta', recovery: 'reload', description: "A member's provider seat on this host changed state." },
+  'host.agentAuthFinished': { owner: 'seats', category: 'targeted', recovery: 'reset', description: 'A Claude Design or MCP server sign-in in one seat ended.' },
   'session.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people watching a session, or its active turn, changed.' },
   'work.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people who have one work open, or what they do there, changed.' },
   'host.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people connected to this host, or what they have focused, changed.' },

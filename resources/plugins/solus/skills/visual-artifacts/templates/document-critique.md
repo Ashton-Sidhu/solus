@@ -24,7 +24,7 @@ Use normal flow — no fixed positioning. Outer body transparent.
 ### Document panel (left)
 - Display the full document with line numbers.
 - Highlight lines that have suggestions with a coloured left border.
-- Colour-code by status: pending (`--solus-art-2` amber), approved (`--solus-art-positive`), rejected (`--solus-art-negative`, reduced opacity).
+- Colour-code by status: pending (`--warning`), approved (`--success`), rejected (`--destructive`, reduced opacity).
 - Click a suggestion card to scroll to the relevant line.
 
 ### Suggestions panel (right)
@@ -92,12 +92,12 @@ function updatePrompt() {
 }
 ```
 
-## Styling highlights (Solus variables)
+## Styling highlights (Solus theme tokens)
 
 ```css
-.doc-line.has-suggestion { border-left: 3px solid var(--solus-art-2); background: var(--solus-art-raised); }
-.doc-line.approved       { border-left-color: var(--solus-art-positive); }
-.doc-line.rejected       { border-left-color: var(--solus-art-negative); opacity: 0.6; }
+.doc-line.has-suggestion { border-left: 3px solid var(--warning); background: var(--muted); }
+.doc-line.approved       { border-left-color: var(--success); }
+.doc-line.rejected       { border-left-color: var(--destructive); opacity: 0.6; }
 ```
 
 No raw grey, no gradients, thin borders, sentence case, nothing below 11px, no emoji.

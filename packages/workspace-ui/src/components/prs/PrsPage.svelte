@@ -24,6 +24,7 @@
     ListEmpty,
     ListPage,
     ListProjectFilter,
+    ListSkeleton,
     syncStamp,
     virtualGroupItems,
     type ListGroupSpec,
@@ -307,7 +308,7 @@
   }
   const { searched, filtered, sectioned, sections } = $derived(arranged);
   const showPageSkeleton = $derived(
-    showsPrPageSkeleton(scopeSwitch, activeLoading, filtered.length),
+    showsPrPageSkeleton(scopeSwitch, activeLoading, filtered.length, listView.query.trim() !== ""),
   );
 
   const rowKeyOf = $derived(pageScope.allProjects ? aggregateKeyFor : undefined);
@@ -953,8 +954,6 @@
       onRefresh={() => readList(true)}
       refreshing={activeRefreshing}
       syncedAt={synced.at}
-      onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
-      isLeading={pane.isLeading}
       onClose={workspace ? close : undefined}
       actions={splitList ? undefined : pageActions}
       filters={filterBar}
@@ -980,7 +979,11 @@
           onRetry={() => readList(true)}
           onShowAll={() => session.setProjectPageScope({ kind: "all" })}
         >
-        {#if groups.length === 0}
+        {#if groups.length === 0 && activeLoading}
+          <!-- A search read with nothing to show yet. The page keeps its
+               toolbar, so the search field keeps focus. -->
+          <ListSkeleton identWidth={44} />
+        {:else if groups.length === 0}
           <ListEmpty title="Nothing matches">
             Clear the filters or widen the search.
             {#snippet actions()}

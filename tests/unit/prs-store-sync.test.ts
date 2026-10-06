@@ -66,6 +66,52 @@ async function newStore() {
 }
 
 describe('interest', () => {
+  test('closing a surface during registration still clears its interest after the answer', async () => {
+    const { api } = host('host-a')
+    const sent: PrInterest[][] = []
+    let finish!: (change: PrSyncChange) => void
+    let started!: () => void
+    const registering = new Promise<void>((resolve) => { started = resolve })
+    let cleared!: () => void
+    const clearing = new Promise<void>((resolve) => { cleared = resolve })
+    api.prSetInterest = async (_ctx, interests) => {
+      sent.push(interests)
+      if (interests.length) {
+        started()
+        return new Promise<PrSyncChange>((resolve) => { finish = resolve })
+      }
+      cleared()
+      return emptyChange()
+    }
+    const store = await newStore()
+    const release = store.want(api, 'host-a', ctx, [{ kind: 'needs-review' }])
+    await registering
+    release()
+    finish(emptyChange())
+    await clearing
+    expect(sent).toEqual([[{ kind: 'needs-review' }], []])
+  })
+
+  test('repeated surface registration sends nothing until the combined interest changes', async () => {
+    const { api, sent } = host('host-a')
+    const store = await newStore()
+    const release = store.want(api, 'host-a', ctx, [{ kind: 'needs-review' }])
+    await settle()
+    const releaseSecond = store.want(api, 'host-a', ctx, [{ kind: 'needs-review' }])
+    await settle()
+    release()
+    await settle()
+    expect(sent).toEqual([[{ kind: 'needs-review' }]])
+    releaseSecond()
+    // A reactive surface reattaching within one task leaves the interest unchanged.
+    const releaseReplacement = store.want(api, 'host-a', ctx, [{ kind: 'needs-review' }])
+    await settle()
+    expect(sent).toHaveLength(1)
+    releaseReplacement()
+    await settle()
+    expect(sent).toEqual([[{ kind: 'needs-review' }], []])
+  })
+
   test('surfaces of one project cost one request, and releasing the last sends an empty set', async () => {
     const { api, sent } = host('host-a')
     const store = await newStore()

@@ -46,9 +46,9 @@ function renderPreview() {
 ```
 
 ```css
-.kw  { color: var(--solus-art-1); }  /* keywords — one consistent colour */
-.tbl { color: var(--solus-art-4); }  /* identifiers */
-.str { color: var(--solus-art-3); }  /* literals */
+.kw  { color: var(--chart-1); }  /* keywords — one consistent colour */
+.tbl { color: var(--chart-4); }  /* identifiers */
+.str { color: var(--chart-3); }  /* literals */
 ```
 
 For pipeline-style playgrounds, render a horizontal or vertical flow using positioned divs with arrow connectors; colour each stage type consistently from the palette.
@@ -63,7 +63,7 @@ Include the schema context (table names, column types) so the prompt is self-con
 
 ## Solus styling notes
 
-- Surfaces `--solus-art-surface`/`--solus-art-raised`; hairlines `--solus-art-border`; text `--solus-text-*`; accent for primary actions.
+- Surfaces `--card`/`--muted`; hairlines `--border`; text `--foreground` and `--muted-foreground`; accent for primary actions.
 - Monospace for code/values, system font for UI chrome. No raw grey, no gradients, 1px borders, sentence case, nothing below 11px, no emoji.
 - Animate row add/remove and output updates subtly; honour `prefers-reduced-motion`.
 

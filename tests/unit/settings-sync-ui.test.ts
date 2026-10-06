@@ -7,6 +7,7 @@ import {
   type PersonalSettingsDocument,
 } from '@solus/contracts/settings'
 import type { HostConfigSnapshot } from '@solus/contracts/host-config'
+import { DEFAULT_PERSONAL_SETTINGS } from '@solus/contracts/settings'
 import { DEFAULT_HOST_CONFIG } from '@solus/contracts/host-config'
 import type { SettingsCloudRequests } from '@solus/client-core/settings-requests'
 import type { OrganizationSettingsClient } from '@solus/client-core/settings-sync'
@@ -188,7 +189,7 @@ describe('account isolation', () => {
     expect(profileOf(storage, 'https://solus.test|user-a').leadInstructions).toBe('Account only.')
 
     sync.setAccount(null)
-    expect(settings.leadInstructions).toBe('')
+    expect(settings.leadInstructions).toBe(DEFAULT_PERSONAL_SETTINGS.leadInstructions)
     expect(profileOf(storage).leadInstructions).toBeUndefined()
     expect(storage.getItem('solus.personal-settings.v1:https://solus.test|user-a')).toBeNull()
   })

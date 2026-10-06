@@ -41,7 +41,7 @@
   }
 
   function openInSplit(entry: DocumentStackEntry) {
-    session.openWork(entry.workId, "aside");
+    session.openWork(entry.workId);
   }
 </script>
 

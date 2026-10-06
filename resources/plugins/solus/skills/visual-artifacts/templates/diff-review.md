@@ -43,16 +43,16 @@ const diffData = [
 ];
 ```
 
-## Line type styling (Solus variables)
+## Line type styling (Solus theme tokens)
 
 | Type | Background | Text | Prefix |
 |---|---|---|---|
-| `context` | transparent | `--solus-text-primary` | ` ` (space) |
-| `addition` | `--solus-art-positive` at low opacity | `--solus-art-positive` | `+` |
-| `deletion` | `--solus-art-negative` at low opacity | `--solus-art-negative` | `−` |
-| `hunk-header` | `--solus-art-raised` | `--solus-text-secondary` | `@@` |
+| `context` | transparent | `--foreground` | ` ` (space) |
+| `addition` | `--success` at low opacity | `--success` | `+` |
+| `deletion` | `--destructive` at low opacity | `--destructive` | `−` |
+| `hunk-header` | `--muted` | `--muted-foreground` | `@@` |
 
-Solus supplies the active `color-scheme`, so these variables already resolve correctly in light and dark — no separate hardcoded colour sets. Use `color-mix(in srgb, var(--solus-art-positive) 15%, transparent)` for the tinted row backgrounds.
+Solus supplies the active `color-scheme`, so these variables already resolve correctly in light and dark — no separate hardcoded colour sets. Use `color-mix(in srgb, var(--success) 15%, transparent)` for the tinted row backgrounds.
 
 ## Comment system
 

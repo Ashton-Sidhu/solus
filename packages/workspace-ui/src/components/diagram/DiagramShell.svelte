@@ -330,7 +330,7 @@
     return label || `${canvas.nodeLabel(edge.source) ?? edge.source} → ${canvas.nodeLabel(edge.target) ?? edge.target}`;
   }
 
-  const exportBgColor = $derived(theme.isDark ? "#1a1916" : "#fefefc");
+  const exportBgColor = $derived(theme.isDark ? "#1a1916" : "#fffffd");
   let fullDiagramExports = $state(0);
 
   function imageOptions() {

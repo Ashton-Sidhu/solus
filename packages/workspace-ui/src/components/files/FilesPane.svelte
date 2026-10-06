@@ -70,6 +70,7 @@
   import { toasts } from "../../lib/toasts";
   import { runtime } from "../../contexts";
   import { isStackedPane } from "../../lib/pane-width";
+  import { underStrip } from "../ui/lib/pane-strip";
   import * as Resizable from "../ui/resizable";
   import {
     paneBoundsPercent,
@@ -90,6 +91,8 @@
   }
 
   let { serverId, api, ctx, cwd, isDark, requestedFile, bordered = true, onClose }: Props = $props();
+  // Under the companion strip there is no floating cluster to reserve room for.
+  const isUnderStrip = underStrip();
   // Register the small offline icon subset used by file-type badges.
   ensureIconCollections();
 
@@ -690,7 +693,7 @@
 <!-- The raised pane cluster here is two 1.625rem pills (maximize, close),
      0.375rem apart, plus the 0.625rem right inset and one more gap. -->
 <div
-  class={`flex h-full min-h-0 min-w-0 flex-col bg-(--solus-container-bg) pointer-fine:[--solus-pane-chrome-inset:4.625rem] ${bordered ? "border-l border-(--solus-container-border)" : ""}`}
+  class={`flex h-full min-h-0 min-w-0 flex-col bg-(--solus-container-bg) ${isUnderStrip() ? "" : "pointer-fine:[--solus-pane-chrome-inset:4.625rem]"} ${bordered ? "border-l border-(--solus-container-border)" : ""}`}
   bind:clientWidth={panelWidth}
 >
   <!-- In-content path line on the shared chrome centreline: the tree/refresh

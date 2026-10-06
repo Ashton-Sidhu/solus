@@ -26,9 +26,10 @@ export type MergeReadinessKey =
   | 'open'
 
 /**
- * The move that changes the state. Host actions run against the code host on
- * one click; agent actions open a new session for the head branch — a draft
- * composer with the prompt filled in, or the conflict resolver's own session.
+ * The move that changes the state. Host actions — merge, auto-merge, mark
+ * ready, update branch — run against the code host on one click; agent actions
+ * open a new session for the head branch — a draft composer with the prompt
+ * filled in, or the conflict resolver's own session.
  */
 export type MergeAction =
   | { kind: 'merge'; label: string; method: MergeMethod }
@@ -126,7 +127,7 @@ function viewerMayUpdateHead(detail: PullRequest): boolean {
 
 function mergeAction(detail: PullRequest): MergeAction | null {
   if (!viewerMayMerge(detail)) return null
-  const method = defaultMergeMethod(detail.capabilities.mergeMethods)
+  const method = defaultMergeMethod(detail.capabilities)
   const label =
     MERGE_METHOD_OPTIONS.find((option) => option.value === method)?.action ?? 'Merge pull request'
   return { kind: 'merge', label, method }
@@ -160,7 +161,7 @@ export function armedAutoMergeLabel(detail: PullRequest): string | null {
 
 function autoMergeAction(detail: PullRequest): MergeAction | null {
   if (!viewerMayAutoMerge(detail)) return null
-  const method = defaultMergeMethod(detail.capabilities.mergeMethods)
+  const method = defaultMergeMethod(detail.capabilities)
   return { kind: 'enable-auto-merge', label: autoMergeLabel(method), method }
 }
 
@@ -190,7 +191,7 @@ export function prMenuHostActions(detail: PullRequest, primary: MergeAction | nu
       ? primary.method
       : detail.autoMergeMethod && methods.includes(detail.autoMergeMethod)
         ? detail.autoMergeMethod
-        : defaultMergeMethod(methods)
+        : defaultMergeMethod(detail.capabilities)
   return {
     enableAutoMerge: landable && !armed && primary?.kind !== 'enable-auto-merge' && viewerMayAutoMerge(detail),
     disableAutoMerge: open && armed && may('disable-auto-merge'),
@@ -202,7 +203,7 @@ export function prMenuHostActions(detail: PullRequest, primary: MergeAction | nu
 
 function agentAction(
   detail: PullRequest,
-  action: Exclude<MergeAction, { kind: 'merge' | 'mark-ready' }>,
+  action: Extract<MergeAction, { kind: 'resolve-conflicts' | 'fix-checks' }>,
 ): MergeAction | null {
   return viewerMayUpdateHead(detail) ? action : null
 }
@@ -246,7 +247,8 @@ function branchBlockers(
       headline: 'Branch is out of date',
       note: `Update this branch with ${base}`,
       blocked: true,
-      action: agentAction(detail, { kind: 'update-branch', label: 'Update branch with agent' }),
+      // The host brings the base in itself; no session is needed for it.
+      action: viewerMayUpdateHead(detail) ? { kind: 'update-branch', label: 'Update branch' } : null,
     })
   }
   return blockers

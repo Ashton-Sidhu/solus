@@ -56,7 +56,7 @@
   rail={via ? viaRail : undefined}
   skipMotion
   onOpen={onToggle}
-  onOpenSecondary={() => session.openWork(workId, "aside")}
+  onOpenSecondary={() => session.openWork(workId)}
 >
   {#snippet glyph()}<ArtifactIcon />{/snippet}
 </TranscriptCard>

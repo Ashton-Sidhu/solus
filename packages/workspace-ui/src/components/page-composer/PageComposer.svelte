@@ -94,10 +94,7 @@
     draft = null;
     const started = session.sessionFor(tabId);
     if (besidePage) {
-      // `aside` is relative to the focused pane: the page's, not wherever the
-      // focus sat before the composer took it.
-      session.router.focusPane(paneId);
-      if (started) session.openSplitChat(started.id);
+      if (started) session.openChatSurface(started.id);
       requestInputFocus({ tabId });
     } else {
       session.router.closePane(paneId);

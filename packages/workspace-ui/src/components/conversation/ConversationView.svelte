@@ -21,6 +21,7 @@
     runtime,
     connectRequestStore,
     seatsStore,
+    agentAuthStore,
   } from "../../contexts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
@@ -32,6 +33,7 @@
   import TurnRefusalCard from "../connections/TurnRefusalCard.svelte";
   import { turnRefusalStore } from "../../contexts/connections/turn-refusal.store.svelte";
   import SeatNeededNotice from "../seats/SeatNeededNotice.svelte";
+  import AgentAuthCard from "../seats/AgentAuthCard.svelte";
   import ComposingLine from "../presence/ComposingLine.svelte";
   import QueuedPromptGroup from "./queued/QueuedPromptGroup.svelte";
   import StatusCard from "./StatusCard.svelte";
@@ -60,7 +62,7 @@
   import { TranscriptTurns } from "./lib/transcript-turns.svelte";
   import { ConversationViewState } from "./lib/conversation-view-state.svelte";
   import { provideConversationVisibility } from "./lib/conversation-visibility";
-  import ActionOrb from "../layout/ActionOrb.svelte";
+  import SessionActionRow from "../layout/SessionActionRow.svelte";
   import ConversationSkeleton from "./ConversationSkeleton.svelte";
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -428,7 +430,7 @@
   // Running, stopped and failed are all reported by the turn's own activity row
   // (§16, §17) — the strip only carries what no turn can express.
   const showActivityStrip = $derived(!!sess && isAwaitingPlan);
-  const showActionOrb = $derived(!!tab && showActions);
+  const showSessionActions = $derived(!!tab && showActions);
   let activityReservedWidth = $state(0);
 
   const turns = $derived(transcript.turns);
@@ -847,6 +849,10 @@
             <!-- Before they send: the reader's seat for this agent on this host. -->
             <SeatNeededNotice serverId={sess.run.serverId} provider={sess.run.provider} turnRunning={isTurnLive} />
           {/if}
+          <!-- A sign-in this conversation asked for with /design-login or /mcp login. -->
+          {#if agentAuthStore.visibleFor(sess.run.serverId, sess.id)}
+            <AgentAuthCard />
+          {/if}
           <QueuedPromptGroup tabId={tab.id} />
           <!-- Someone else's prompt is on its way: it lands here, so the notice does too. -->
           <ComposingLine serverId={sess.run.serverId} sessionId={sess.id} />
@@ -866,7 +872,7 @@
             </div>
           {/if}
 
-          {#if showActionOrb}
+          {#if showSessionActions}
             <div class="min-h-16"></div>
           {/if}
         </div>
@@ -884,10 +890,9 @@
         />
       {/if}
 
-      {#if showActionOrb}
-        <ActionOrb
+      {#if showSessionActions}
+        <SessionActionRow
           {tabId}
-          observeLayout={isVisible}
           leftReservedWidth={showActivityStrip ? activityReservedWidth : 0}
         />
       {/if}
@@ -953,8 +958,8 @@
     transform: translateX(-50%);
   }
 
-  /* The strip is the left half of the orb's row, so it rides the composer's
-     top edge on the fold's curve exactly as the orb does. The fade under them
+  /* The strip sits left of the session action row, so it rides the composer's
+     top edge on the fold's curve exactly as the row does. The fade under them
      rides the same edge. */
   .activity-strip,
   .transcript-fade {

@@ -2,7 +2,8 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 import { findOpenTabForSession } from '@solus/workspace-ui/lib/sessionUtils'
-import { visibleRef, type PaneEntry } from '@solus/workspace-ui/contexts/workspace/routing/location'
+import { activeSurface, makePane, type PaneEntry } from '@solus/workspace-ui/contexts/workspace/routing/location'
+import type { RouteRef } from '@solus/workspace-ui/contexts/workspace/routing/route-registry'
 import { RouterStore } from '@solus/workspace-ui/contexts/workspace/routing/router.store.svelte'
 import type { ClientShellContext } from '@solus/workspace-ui/contexts/app/client-shell.svelte'
 
@@ -27,8 +28,9 @@ interface VisibilityFixture {
   tabOrder: string[]
   activeTabId: string
   router: {
-    leadingPane: PaneEntry
-    asidePanes: PaneEntry[]
+    destination: RouteRef
+    companionPane: PaneEntry | null
+    readonly companionSurface: RouteRef | null
     pane(paneId: string): PaneEntry | null
     chatSessionIn(paneId: string): string | null
   }
@@ -37,7 +39,7 @@ interface VisibilityFixture {
   isSessionVisibleOnHost(serverId: string, sessionId: string): boolean
 }
 
-const Visibility: new () => VisibilityFixture = new Function('findOpenTabForSession', 'visibleRef', `${fixtureCode}; return Visibility`)(findOpenTabForSession, visibleRef)
+const Visibility: new () => VisibilityFixture = new Function('findOpenTabForSession', `${fixtureCode}; return Visibility`)(findOpenTabForSession)
 
 function fixture(hasCompanionPanes = false): VisibilityFixture {
   const view = new Visibility()
@@ -50,9 +52,10 @@ function fixture(hasCompanionPanes = false): VisibilityFixture {
   view.tabOrder = ['primary', 'companion']
   view.activeTabId = 'primary'
   view.router = {
-    leadingPane: { id: 'lead', base: { name: 'chat', params: {} }, overlay: null },
-    asidePanes: [{ id: 'aside', base: { name: 'chat', params: { sessionId: 'second', serverId: 'host-b' } }, overlay: null }],
-    pane(paneId) { return this.asidePanes.find((pane) => pane.id === paneId) ?? null },
+    destination: { name: 'chat', params: {} },
+    companionPane: makePane([{ name: 'chat', params: { sessionId: 'second', serverId: 'host-b' } }]),
+    get companionSurface() { return this.companionPane ? activeSurface(this.companionPane) : null },
+    pane(paneId) { return this.companionPane?.id === paneId ? this.companionPane : null },
     chatSessionIn: RouterStore.prototype.chatSessionIn,
   }
   view.chatTabIn = () => 'companion'
@@ -68,13 +71,9 @@ describe('which mounted conversations are visible', () => {
     expect(view.isSessionVisibleOnHost('host-b', 'second')).toBe(false)
   })
 
-  test('a page or overlay hides the active conversation', () => {
+  test('a page in the leading pane hides the active conversation', () => {
     const view = fixture()
-    view.router.leadingPane.base = { name: 'tasks', params: {} }
-    expect(view.visibleSession('first')).toBe(false)
-    expect(view.isSessionVisibleOnHost('host-a', 'first')).toBe(false)
-    view.router.leadingPane.base = { name: 'chat', params: {} }
-    view.router.leadingPane.overlay = { name: 'tasks', params: {} }
+    view.router.destination = { name: 'tasks', params: {} }
     expect(view.visibleSession('first')).toBe(false)
     expect(view.isSessionVisibleOnHost('host-a', 'first')).toBe(false)
   })
@@ -84,7 +83,10 @@ describe('which mounted conversations are visible', () => {
     expect(view.visibleSession('second')).toBe(true)
     expect(view.isSessionVisibleOnHost('host-b', 'second')).toBe(true)
     expect(view.isSessionVisibleOnHost('host-a', 'second')).toBe(false)
-    view.router.asidePanes[0].overlay = { name: 'tasks', params: {} }
+    // Another surface of the strip showing hides the chat surface behind it.
+    const companion = view.router.companionPane!
+    companion.surfaces.push({ name: 'task', params: { taskId: 't_1' } })
+    companion.activeSurfaceIndex = 1
     expect(view.visibleSession('second')).toBe(false)
     expect(view.isSessionVisibleOnHost('host-b', 'second')).toBe(false)
   })

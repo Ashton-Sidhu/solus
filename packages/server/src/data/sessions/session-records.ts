@@ -135,6 +135,17 @@ export async function getSessionRecords(scope: RecordScope, sessionIds: readonly
   return records
 }
 
+/** The sessions the given exchanges started, by exchange id. A start that never got a session is absent. */
+export async function sessionIdsStartedBy(scope: RecordScope, exchangeIds: readonly string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(exchangeIds)]
+  if (!unique.length) return new Map()
+  const rows = z.object({ session_id: z.string(), delegation_message_id: z.string() }).array().parse(await getDatabase().all(sql`
+    SELECT session_id, delegation_message_id FROM ${sessionRecords}
+    WHERE ${scopeClause(scope)} AND delegation_message_id IN (${sql.join(unique.map((id) => sql`${id}`), sql`, `)})
+  `))
+  return new Map(rows.map((row) => [row.delegation_message_id, row.session_id]))
+}
+
 /** Scoped, authorized seek predicate is applied before LIMIT. */
 export async function readSessionMetadataPage(where: SQL, limit: number): Promise<SessionRecord[]> {
   const rows = recordRowSchema.array().parse(await getDatabase().all(sql`
@@ -438,6 +449,18 @@ export function setSessionRecordTitle(scope: RecordScope, sessionId: string, cus
       WHERE ${scopeClause(scope)} AND session_id = ${sessionId}
     `)
     if (result.changes > 0) await emitStored(sessionId)
+  })
+}
+
+/** A generated name cannot replace a name the person set while generation ran. */
+export function setSessionRecordGeneratedTitle(sessionId: string, title: string): Promise<boolean> {
+  return serialized(sessionId, async () => {
+    const result = await getDatabase().run(sql`
+      UPDATE ${sessionRecords} SET custom_title = ${title}
+      WHERE session_id = ${sessionId} AND custom_title IS NULL
+    `)
+    if (result.changes > 0) await emitStored(sessionId)
+    return result.changes > 0
   })
 }
 

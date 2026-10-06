@@ -210,7 +210,7 @@
   }
 
   function openTask(taskId: string): void {
-    workspace.goToTask(taskId, "click", "secondary");
+    workspace.goToTask(taskId, "click");
   }
 
   async function openSessionTask(): Promise<void> {

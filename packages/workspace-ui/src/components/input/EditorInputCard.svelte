@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { cn } from "../../lib/utils";
+  import { isChat } from "@solus/contracts/chat";
   import { getWorkspaceContext } from "../../contexts";
   import { hasSessionStarted } from "../../lib/sessionUtils";
   import InputBar from "./InputBar.svelte";
@@ -57,7 +58,7 @@
   // hidden dock — must own app focus and the shared mic. Two primaries would
   // both auto-claim voice, and whichever won left the visible composer mute.
   const isPrimary = $derived(
-    tabId === undefined && session.router.leadingPane.base?.name !== "draft",
+    tabId === undefined && session.router.destination.name !== "draft",
   );
 
   let focused = $state(false);
@@ -121,6 +122,7 @@
           {onScreenshot}
           {onDesignMode}
           {trailingActions}
+          chatSourceId={!started && isChat(sess?.run.workingDirectory) ? targetTabId : null}
         />
       {/snippet}
     </InputBar>

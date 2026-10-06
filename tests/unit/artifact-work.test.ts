@@ -259,7 +259,7 @@ describe('an artifact Share moved to an organization', () => {
     const emitted: Array<{ workId: string }> = []
     await artifactTools.executeArtifactTool({ html: HTML }, { ctx: { sessionId: SESSION_ID, agentProvider: 'claude-code', cwd: '~' }, onArtifact: (artifact) => emitted.push(artifact) })
     const workId = emitted[0].workId
-    await works.removePushedWork('local', workId, (await works.exportWorkForCloud('local', workId)).fingerprint, 'org-1')
+    await works.markWorkMoved('local', workId, (await works.exportWorkForCloud('local', workId)).fingerprint, 'org-1')
 
     const read = await workTools.executeWorkTool('read_work', { work_id: workId }, { ctx: { sessionId: SESSION_ID, agentProvider: 'claude-code', cwd: '~' } })
     expect(read).toEqual({ ok: false, text: expect.stringContaining('moved to organization org-1') })

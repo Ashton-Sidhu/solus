@@ -1,4 +1,3 @@
-import { SessionExchangeStore } from '../../data/sessions/session-exchange-store'
 import type { SessionRuntime } from '../session-runtime'
 import { HOST_ACTOR } from '../../admission/actor'
 import { getIndexedSession } from '../../db/session-indexer'
@@ -13,26 +12,26 @@ export function orchestrateSessions(sessionRuntime: SessionRuntime): SessionOrch
   const orchestrator = new SessionOrchestrator({
     sessionIdFor: (id) => sessionRuntime.sessionIdFor(id),
     activeExchangeIdsFor: (sessionId) => sessionRuntime.activeExchangeIdsFor(sessionId),
-    queuedExchanges: () => sessionRuntime.queuedExchanges(),
+    queuedExchanges: () => sessionRuntime.scheduler.queuedExchanges(),
     agentSessionIdFor: (sessionId) => sessionRuntime.agentSessionIdFor(sessionId),
     sessionMeta: (agentSessionId) => getIndexedSession(agentSessionId),
-    createSession: (order) => sessionRuntime.createSession(order),
-    promptSession: (agentSessionId, prompt, delivery, order) => sessionRuntime.promptSession(agentSessionId, prompt, delivery, order),
+    createSession: (order) => sessionRuntime.dispatch.createSession(order),
+    promptSession: (agentSessionId, prompt, delivery, order) => sessionRuntime.dispatch.promptSession(agentSessionId, prompt, delivery, order),
     // The orchestrator acts as the host until P7 names whose turn it is (plans/012 §4).
     stopSession: (id) => sessionRuntime.stopSession(id, HOST_ACTOR),
-    respondToPermission: (askingSessionId, questionId, optionId, updatedPlan) => sessionRuntime.respondToPermission(askingSessionId, questionId, optionId, updatedPlan, HOST_ACTOR),
-    pendingInputEvents: (agentSessionId) => sessionRuntime.pendingInputEventsForSession(agentSessionId),
-    replaceQueuedPrompt: (sessionId, queueId, text, reportExchangeIds, exchangeIds) => sessionRuntime.replaceQueuedPrompt(sessionId, queueId, text, reportExchangeIds, exchangeIds),
-    hasQueuedPrompt: (sessionId, queueId) => sessionRuntime.hasQueuedPrompt(sessionId, queueId),
-    cancelQueuedPrompt: (agentSessionId, queueId) => sessionRuntime.cancelQueuedPromptForSession(agentSessionId, queueId),
+    respondToPermission: (askingSessionId, questionId, optionId, updatedPlan) => sessionRuntime.inputRequests.respondToPermission(askingSessionId, questionId, optionId, updatedPlan, HOST_ACTOR),
+    pendingInputEvents: (agentSessionId) => sessionRuntime.inputRequests.pendingInputEventsForSession(agentSessionId),
+    replaceQueuedPrompt: (sessionId, queueId, text, reportExchangeIds, exchangeIds) => sessionRuntime.scheduler.replaceQueuedPrompt(sessionId, queueId, text, reportExchangeIds, exchangeIds),
+    hasQueuedPrompt: (sessionId, queueId) => sessionRuntime.scheduler.hasQueuedPrompt(sessionId, queueId),
+    cancelQueuedPrompt: (agentSessionId, queueId) => sessionRuntime.scheduler.cancelQueuedPromptForSession(agentSessionId, queueId),
     turnEnding: async (provider, agentSessionId, projectScope) => {
-      const messages = await sessionRuntime.loadSession(provider, agentSessionId, projectScope)
+      const messages = await sessionRuntime.history.loadSession(provider, agentSessionId, projectScope)
       return turnEnding(messages)
     },
     taskIdFor: async (sessionId) => (await taskIdForSession(ANY_ORGANIZATION, sessionId)) ?? undefined,
     isLead: (sessionId) => sessionIsLead(ANY_ORGANIZATION, sessionId),
     emit: (sessionId, event) => sessionRuntime.publish(sessionId, event),
-    invalidatePlanCaches: (agentSessionId) => sessionRuntime.invalidatePlanCaches(agentSessionId),
+    invalidatePlanCaches: (agentSessionId) => sessionRuntime.history.invalidatePlanCaches(agentSessionId),
     recordActivity: (subject, actor, kind) => sessionRuntime.recordActivity(subject, actor, kind),
     trackWork: (work) => sessionRuntime.trackUpdateWork(work),
   }, {
@@ -42,7 +41,7 @@ export function orchestrateSessions(sessionRuntime: SessionRuntime): SessionOrch
       const pullRequest = host ? await pullRequestForBranch(host, checkout.branch) : undefined
       return pullRequest ? { number: pullRequest.number, url: pullRequest.url } : null
     },
-  }, sessionRuntime.orchestrationDirectory ? new SessionExchangeStore(sessionRuntime.orchestrationDirectory) : undefined)
+  }, sessionRuntime.runLedger)
   sessionRuntime.useOrchestration(orchestrator)
   return orchestrator
 }

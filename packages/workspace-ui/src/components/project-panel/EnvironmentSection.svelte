@@ -1,11 +1,7 @@
 <script lang="ts">
   import {
-    ChevronRight as CaretRightIcon,
-    Copy as CopyIcon,
     Eraser as EraserIcon,
     Folder as FolderIcon,
-    GitBranch as GitBranchIcon,
-    GitFork as GitForkIcon,
     Globe as GlobeIcon,
     Smartphone as SmartphoneIcon,
     X as XIcon,
@@ -23,12 +19,10 @@
   import { gitActionsFor } from "../../lib/git-actions.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { worktreeDisplayName } from "../../lib/git-context";
-  import { copyText, toasts } from "../../lib/toasts";
-  import GitDropdown from "../GitDropdown.svelte";
-  import { MiddleTruncate } from "../ui/middle-truncate";
-  import { withSelectedWorktree } from "../input/lib/worktree-destination";
+  import { projectDirLabel } from "../../lib/paths";
+  import { toasts } from "../../lib/toasts";
   import TerminalAppLogo from "../settings/TerminalAppLogo.svelte";
+  import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import MenuRow, { type ActionRowItem } from "./MenuRow.svelte";
   import UsageMeters from "./UsageMeters.svelte";
   import {
@@ -38,10 +32,8 @@
     isClearBrowserArmed,
     browserProfileProject,
   } from "./lib/browser-row";
-  import {
-    worktreeProjectRoot,
-    type WorktreeEntry,
-  } from "@solus/contracts/types";
+  import { isChat } from "@solus/contracts/chat";
+  import { worktreeProjectRoot } from "@solus/contracts/types";
   import { browserPartition } from "@solus/contracts/browser-types";
   import { serverConnections } from "@solus/client-core/server-connections";
 
@@ -62,39 +54,11 @@
   const detailServerId = $derived(
     serverConnections.serverIdForApi(session.apiFor(sourceId)),
   );
-  const status = $derived(env.status);
-  const uncommittedFileCount = $derived(
-    status?.uncommittedChanges.files.length ?? 0,
-  );
-  const insertions = $derived(status?.uncommittedChanges.insertions ?? 0);
-  const deletions = $derived(status?.uncommittedChanges.deletions ?? 0);
   const actions = $derived(gitActionsFor(sourceId, session, environmentStore, pullRequests.projects));
-  const currentBranch = $derived(
-    status === undefined ? env.branch : (status?.branch ?? null),
-  );
-  const pendingDispatch = $derived(
-    sectionRun?.pendingHostDispatch?.intent === "dispatch"
-      ? sectionRun.pendingHostDispatch
-      : null,
-  );
-  const selectedDispatchWorktree = $derived(pendingDispatch?.worktree ?? null);
-  const selectedDispatchBaseBranch = $derived(pendingDispatch?.baseBranch ?? null);
-  const isWorktree = $derived(env.isolated);
-  const dispatchStartLabel = $derived(sectionRun?.worktree ? "New worktree" : "Checkout");
-  const displayedBranch = $derived.by(() => {
-    const branch = selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ??
-      (pendingDispatch ? dispatchStartLabel : env.pending ? env.name : (currentBranch ?? "detached HEAD"));
-    return selectedDispatchWorktree || isWorktree ? worktreeDisplayName(branch) : branch;
-  });
-  const copyableBranch = $derived(
-    selectedDispatchWorktree?.branch ??
-      selectedDispatchBaseBranch ??
-      (pendingDispatch ? null : currentBranch),
-  );
-  const branchRepoRoot = $derived(
+  const projectRoot = $derived(
     env.checkout?.repoRoot ??
       sectionRun?.workingDirectory ??
-      status?.repoRoot ??
+      env.status?.repoRoot ??
       worktreeProjectRoot(env.cwd),
   );
 
@@ -112,7 +76,7 @@
   // The Devices row is for projects that build a mobile app (at the root or
   // in a subfolder), or a conversation already showing a device. It counts
   // the host's app builds, so a build is one click away.
-  const deviceProject = $derived(active && branchRepoRoot ? devicesStore.project(detailServerId, branchRepoRoot) : undefined);
+  const deviceProject = $derived(active && projectRoot ? devicesStore.project(detailServerId, projectRoot) : undefined);
   const sessionShowsDevice = $derived(devicesStore.previewsFor(detailServerId, session.sessionFor(sourceId)?.id).length > 0);
   const showsDevices = $derived(!!deviceProject?.isMobileApp || sessionShowsDevice);
   const buildCount = $derived(devicesStore.state(detailServerId)?.builds.length ?? 0);
@@ -126,23 +90,12 @@
   // click, and the caret beside it is the way back out.
   let clearBrowserArmedFor = $state<string | null>(null);
   const confirmingClearBrowser = $derived(
-    isClearBrowserArmed(clearBrowserArmedFor, branchRepoRoot),
+    isClearBrowserArmed(clearBrowserArmedFor, projectRoot),
   );
-  const browserProject = $derived(browserProfileProject(branchRepoRoot));
+  const browserProject = $derived(browserProfileProject(projectRoot));
 
   const actionRows = $derived.by<(ActionRowItem & { run: () => void })[]>(
     () => [
-      {
-        key: "files",
-        label: "Files",
-        icon: FolderIcon,
-        hint: comboHint("global.toggle-files"),
-        phase: "idle",
-        disabled: !onOpenFiles,
-        run: () => {
-          onOpenFiles?.();
-        },
-      },
       {
         key: "terminal",
         label: "Terminal",
@@ -198,74 +151,13 @@
     ],
   );
 
-  let branchPickerOpen = $state(false);
-  let branchTriggerEl: HTMLButtonElement | null = $state(null);
-
-  const worktrees = $derived(
-    environmentStore.refsFor(sectionRun?.serverId ?? session.fallbackServerId, branchRepoRoot).worktrees,
-  );
-
-  // Both pickers edit a pre-flight destination. A panel on a session first
-  // opens a draft from that source, preserving its project and host.
-  function destinationDraft() {
-    return session.drafts.sessionDrafts.get(sourceId) ??
-      session.drafts.openSessionDraft({ sourceId });
-  }
-
-  async function selectBranch(branch: string) {
-    if (pendingDispatch) return;
-    const entry = worktrees.find((worktree) => worktree.branch === branch);
-    if (entry) {
-      selectWorktree(entry);
-      return;
-    }
-    const draft = destinationDraft();
-    const ok = await session.switchToBranch(branch, draft.id);
-    if (ok) settleOnDestination(draft.id);
-    else requestInputFocus();
-  }
-
-  function selectWorktree(worktree: WorktreeEntry) {
-    const projectRoot = branchRepoRoot;
-    const targetBranch = env.targetBranch;
-    const draft = destinationDraft();
-    if (pendingDispatch) {
-      session.config.setDispatchWorktree(worktree, draft.id);
-      requestInputFocus();
-      return;
-    }
-    draft.run = withSelectedWorktree(
-      draft.run, projectRoot, worktree, targetBranch,
-    );
-    settleOnDestination(draft.id);
-  }
-
-  function selectNewDispatchWorktree(baseBranch?: string) {
-    const draft = destinationDraft();
-    if (baseBranch) session.config.setDispatchBaseBranch(baseBranch, draft.id);
-    else session.config.setDispatchWorktree(null, draft.id);
-    requestInputFocus();
-  }
-
-  function selectDispatchCheckout() {
-    session.config.setDispatchCheckout(destinationDraft().id);
-    requestInputFocus();
-  }
-
-  async function copyBranchName() {
-    if (!copyableBranch) return;
-    await copyText(copyableBranch);
-    toasts.success("Branch name copied");
-    requestInputFocus();
-  }
-
   async function clearBrowserData() {
     clearBrowserArmedFor = null;
     const project = browserProject;
     try {
       await browserStore.clearProfile(
         detailServerId,
-        browserPartition(branchRepoRoot ?? undefined),
+        browserPartition(projectRoot ?? undefined),
       );
       toasts.success(clearedBrowserDataLabel(project));
     } catch (error) {
@@ -275,84 +167,27 @@
     }
     requestInputFocus();
   }
-
-  function settleOnDestination(draftId: string) {
-    const run = session.runFor(draftId) ?? session.defaultRunConfig;
-    const nextCwd = run.gitContext?.worktreePath ?? run.workingDirectory;
-    if (nextCwd) void environmentStore.refresh(run.serverId, nextCwd, { force: true });
-    requestInputFocus();
-  }
 </script>
 
 <div class="env">
-  <!-- Git availability governs only the branch switcher. Files and Terminal
-       belong to the environment itself and remain useful outside a repository. -->
-  {#if env.branch && status}
-    <div class="branch-control">
-      <button
-        class="branch-row"
-        type="button"
-        title={copyableBranch ? `Copy branch name: ${copyableBranch}` : undefined}
-        disabled={!copyableBranch}
-        onclick={copyBranchName}
-      >
-        <span class="branch-row-icon"
-          >{#if isWorktree || env.pending || pendingDispatch}<GitForkIcon
-              size={16}
-            />{:else}<GitBranchIcon size={16} />{/if}</span
-        >
-        <!-- The branch is the section's anchor — a constant half-step heavier
-             than the action rows beneath it. -->
-        <MiddleTruncate value={displayedBranch} class="flex-1" />
-        {#if copyableBranch}
-          <span class="branch-copy-indicator" aria-hidden="true">
-            <CopyIcon size={11} />
-          </span>
-        {/if}
-      </button>
-      <!-- The branch value copies directly. The disclosure remains a separate
-           keyboard target for switching branches or worktrees. -->
-      <button
-        bind:this={branchTriggerEl}
-        class="branch-picker-trigger"
-        type="button"
-        aria-label={pendingDispatch ? "Select a remote worktree" : "Switch branch or worktree"}
-        title={pendingDispatch ? "Select a remote worktree" : "Switch branch or worktree"}
-        disabled={!currentBranch}
-        onclick={() => (branchPickerOpen = !branchPickerOpen)}
-      >
-        <CaretRightIcon size={11} />
-      </button>
-    </div>
-    <!-- The diff stats sit on their own line beneath the branch, indented to
-         the branch label. -->
-    {#if uncommittedFileCount > 0}
-      <div class="branch-stats-line">
-        <span class="menu-trail"
-          >{uncommittedFileCount}{status?.uncommittedChanges.hasMoreFiles
-            ? "+"
-            : ""} files</span
-        >
-        {#if insertions > 0}<span class="stat-add">+{insertions}</span>{/if}
-        {#if deletions > 0}<span class="stat-del">−{deletions}</span>{/if}
-      </div>
-    {/if}
-    {#if currentBranch}
-      <GitDropdown
-        bind:open={branchPickerOpen}
-        side="left"
-        triggerEl={branchTriggerEl}
-        displayBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? (pendingDispatch ? dispatchStartLabel : currentBranch)}
-        selectedBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? sectionRun?.worktree?.baseBranch ?? currentBranch}
-        workingDirectory={branchRepoRoot}
-        run={sectionRun}
-        onSelectBranch={selectBranch}
-        onSelectWorktree={selectWorktree}
-        onSelectNewWorktree={selectNewDispatchWorktree}
-        onSelectDispatchCheckout={selectDispatchCheckout}
-      />
-    {/if}
-    <div class="branch-divider" aria-hidden="true"></div>
+  <!-- The project anchors the card and opens its files; the branch and its
+       changes live in the Git card below. -->
+  {#if projectRoot && !isChat(projectRoot)}
+    <MenuRow
+      item={{
+        key: "project",
+        label: projectDirLabel(projectRoot),
+        icon: FolderIcon,
+        hint: comboHint("global.toggle-files"),
+        phase: "idle",
+        disabled: !onOpenFiles,
+      }}
+      onActivate={() => onOpenFiles?.()}
+    >
+      {#snippet iconSnippet()}
+        <ProjectFavicon {projectRoot} serverId={detailServerId} class="size-4" />
+      {/snippet}
+    </MenuRow>
   {/if}
   <div class="menu-list">
     {#each actionRows as row (row.key)}
@@ -377,7 +212,7 @@
             onclick={() =>
               (clearBrowserArmedFor = confirmingClearBrowser
                 ? null
-                : branchRepoRoot)}
+                : projectRoot)}
           >
             {#if confirmingClearBrowser}<XIcon size={11} />{:else}<EraserIcon
                 size={11}
@@ -402,132 +237,6 @@
     margin-bottom: 0.5rem;
   }
 
-  .menu-trail {
-    flex-shrink: 0;
-    color: var(--solus-text-tertiary);
-    font-size: var(--text-chrome-dense);
-    font-weight: 400;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .branch-row {
-    min-width: 0;
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    min-height: 2rem;
-    padding: 0.3125rem 0.5rem;
-    border: none;
-    border-radius: 0.4375rem;
-    background: transparent;
-    color: var(--solus-text-secondary);
-    /* Match MenuRow by inheriting the project rail's type rung. */
-    font-size: inherit;
-    font-weight: 400;
-    text-align: left;
-    cursor: pointer;
-    transition:
-      background-color 0.15s ease,
-      color 0.15s ease;
-  }
-  .branch-row:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-  .branch-row:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 0.125rem
-      color-mix(in srgb, var(--solus-accent) 35%, transparent);
-  }
-  .branch-row:disabled {
-    cursor: default;
-  }
-  .branch-row-icon {
-    flex-shrink: 0;
-    color: var(--solus-text-secondary);
-    transition: color 0.15s ease;
-  }
-  .branch-row:hover .branch-row-icon {
-    color: var(--solus-text-primary);
-  }
-  .branch-copy-indicator {
-    flex-shrink: 0;
-    display: inline-flex;
-    color: var(--solus-text-tertiary);
-    opacity: 0.55;
-    transition: opacity 0.15s ease;
-  }
-  .branch-row:hover .branch-copy-indicator,
-  .branch-row:focus-visible .branch-copy-indicator {
-    opacity: 1;
-  }
-  .branch-control {
-    display: flex;
-    align-items: stretch;
-    gap: 0.0625rem;
-  }
-  .branch-picker-trigger {
-    flex-shrink: 0;
-    width: 1.625rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    border-radius: 0.4375rem;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    cursor: pointer;
-    opacity: 0.55;
-    transition:
-      background-color 0.15s ease,
-      color 0.15s ease,
-      opacity 0.15s ease;
-  }
-  .branch-picker-trigger:hover,
-  .branch-picker-trigger:focus-visible {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-    opacity: 1;
-  }
-  .branch-picker-trigger:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 0.125rem
-      color-mix(in srgb, var(--solus-accent) 35%, transparent);
-  }
-  .branch-picker-trigger:disabled {
-    cursor: not-allowed;
-    opacity: 0.4;
-  }
-  /* Stats line beneath the branch, indented past the branch icon (16px glyph +
-     0.5rem gap) so it hangs under the branch name. */
-  .branch-stats-line {
-    display: flex;
-    align-items: center;
-    gap: 0.5625rem;
-    padding: 0.0625rem 0.5rem 0 2rem;
-    font-variant-numeric: tabular-nums;
-  }
-  .branch-divider {
-    height: 1px;
-    margin: 0.5rem 0.5rem 0.375rem;
-    background: color-mix(
-      in srgb,
-      var(--solus-container-border) 55%,
-      transparent
-    );
-  }
-  .stat-add,
-  .stat-del {
-    font-size: var(--text-chrome-dense);
-    font-weight: 400;
-  }
-  .stat-add {
-    color: var(--solus-status-complete);
-  }
-  .stat-del {
-    color: var(--solus-status-error);
-  }
   .menu-list {
     display: flex;
     flex-direction: column;

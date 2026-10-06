@@ -1,3 +1,8 @@
+<script module lang="ts">
+  /** Search words, read by the settings page to find this page from any other. */
+  export const searchWords = ["organization", "owner", "member", "insights", "sync"];
+</script>
+
 <script lang="ts">
   /** Organization: the settings an organization enforces on its work, read from
    *  the account. Today that is only Sync all Insights. Owners edit a draft and
@@ -53,7 +58,7 @@
     requestInputFocus();
   }
 
-  const matches = $derived(!searchQuery || ["organization", "owner", "member", "insights", "sync"].some((word) => word.includes(searchQuery.toLowerCase())));
+  const matches = $derived(!searchQuery || searchWords.some((word) => word.includes(searchQuery.toLowerCase())));
 </script>
 
 {#if matches}

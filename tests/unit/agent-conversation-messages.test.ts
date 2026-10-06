@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { AgentConversationRef, AgentExchange, Message, SentSessionMessage, Session } from '@solus/contracts/types'
+import type { AgentConversationRef, AgentExchange, ExchangeProgress, Message, Session } from '@solus/contracts/types'
 import { formatParentPrompt, formatSessionNotice } from '@solus/contracts/session-exchange'
 import {
   agentConversationCardState,
@@ -16,8 +16,8 @@ import { AgentConversationCards, TranscriptAgentConversations } from '@solus/wor
 // host's orchestrator and on reload from the transcript. A card rebuilt from
 // history must be the card that was shown live: each reply paired with the
 // exact message it answers, what a person answered and what the turn produced
-// kept with it, and the host — not a timer — deciding whether a message the
-// transcript opened is still alive.
+// kept with it, and the host — not a timer, not a second lookup — saying where
+// a message the transcript opened stands, on the page it serves.
 
 const child = '11111111-1111-4111-8111-111111111111'
 const first = '22222222-2222-4222-8222-222222222222'
@@ -27,14 +27,14 @@ function session(): Session {
   return { messages: [] as Message[] } as Session
 }
 
-function restoredRef(exchange: Partial<AgentExchange>): AgentConversationRef {
+function cardRef(exchange: Partial<AgentExchange>): AgentConversationRef {
   return {
     agentSessionId: child,
     provider: 'codex',
     title: 't',
     cwd: '',
     origin: 'prompted',
-    exchanges: [{ messageId: 'm1', index: 1, prompt: 'p', dispatchedAt: 0, status: 'dispatched', restored: true, ...exchange }],
+    exchanges: [{ messageId: 'm1', index: 1, prompt: 'p', dispatchedAt: 0, status: 'dispatched', ...exchange }],
   }
 }
 
@@ -47,21 +47,21 @@ describe('a card, live', () => {
       provider: 'codex', title: 'Ship', cwd: '/repo', dispatchedAt: 1,
     }).newCard).toBe(true)
     const ref = () => tab.messages[0]!.agentConversationRef!
-    expect(agentConversationCardState(ref(), undefined)).toBe('dispatching')
+    expect(agentConversationCardState(ref())).toBe('dispatching')
 
     cards.apply(tab, { phase: 'accepted', agentSessionId: child, messageId: first, state: 'queued' })
-    expect(agentConversationCardState(ref(), undefined)).toBe('dispatching')
+    expect(agentConversationCardState(ref())).toBe('dispatching')
     cards.apply(tab, { phase: 'accepted', agentSessionId: child, messageId: first, state: 'running' })
-    expect(agentConversationCardState(ref(), undefined)).toBe('replying')
+    expect(agentConversationCardState(ref())).toBe('replying')
 
     const request = { kind: 'question' as const, question: { questionId: 'q1', questions: [{ id: 'branch', question: 'Which branch?', options: [], multiSelect: false }] } }
     expect(cards.apply(tab, { phase: 'awaiting_input', agentSessionId: child, messageId: first, request }).needsAttention).toBe(true)
-    expect(agentConversationCardState(ref(), undefined)).toBe('waiting')
-    expect(pendingRequest(ref(), undefined)).toEqual(request)
+    expect(agentConversationCardState(ref())).toBe('waiting')
+    expect(pendingRequest(ref())).toEqual(request)
 
     cards.apply(tab, { phase: 'answered', agentSessionId: child, messageId: first, answerText: 'Which branch? → main' })
-    expect(agentConversationCardState(ref(), undefined)).toBe('replying')
-    expect(pendingRequest(ref(), undefined)).toBeNull()
+    expect(agentConversationCardState(ref())).toBe('replying')
+    expect(pendingRequest(ref())).toBeNull()
 
     cards.apply(tab, {
       phase: 'settled', agentSessionId: child, messageId: first, status: 'completed', replyText: 'shipped',
@@ -71,7 +71,7 @@ describe('a card, live', () => {
       ],
       taskId: 'task-1', settledAt: 2,
     })
-    expect(agentConversationCardState(ref(), undefined)).toBe('replied')
+    expect(agentConversationCardState(ref())).toBe('replied')
     // Question, answer and reply are one exchange.
     expect(agentMessages(ref()).map((message) => [message.from, message.text])).toEqual([
       ['you', 'ship it'], ['agent', 'Which branch?'], ['you', 'Which branch? → main'], ['agent', 'shipped'],
@@ -116,29 +116,23 @@ describe('a card whose other session is rate limited', () => {
     cards.apply(tab, { phase: 'accepted', agentSessionId: child, messageId: first, state: 'running' })
     const ref = () => tab.messages[0]!.agentConversationRef!
     expect(cards.apply(tab, { phase: 'rate_limited', agentSessionId: child, messageId: first, resetsAt: 5_000, limitType: 'Codex 5h' }).needsAttention).toBe(true)
-    expect(agentConversationCardState(ref(), undefined)).toBe('limited')
-    expect(rateLimitedUntil(ref(), undefined)).toBe(5_000)
+    expect(agentConversationCardState(ref())).toBe('limited')
+    expect(rateLimitedUntil(ref())).toBe(5_000)
 
     cards.apply(tab, { phase: 'accepted', agentSessionId: child, messageId: first, state: 'running' })
-    expect(agentConversationCardState(ref(), undefined)).toBe('replying')
-    expect(rateLimitedUntil(ref(), undefined)).toBeUndefined()
+    expect(agentConversationCardState(ref())).toBe('replying')
+    expect(rateLimitedUntil(ref())).toBeUndefined()
   })
 
-  test('rebuilt from the transcript, the host says it is parked and until when', () => {
-    const ref = restoredRef({})
-    const carried: SentSessionMessage = { messageId: 'm1', targetAgentSessionId: child, state: 'rate_limited', resetsAt: 9_000 }
-    expect(agentConversationCardState(ref, carried)).toBe('limited')
-    expect(rateLimitedUntil(ref, carried)).toBe(9_000)
-  })
 })
 
 describe("a card's link to the other session's task", () => {
   test('comes from the latest report that named one', () => {
-    const ref = restoredRef({ status: 'done', restored: false, taskId: 'task-old' })
+    const ref = cardRef({ status: 'done', taskId: 'task-old' })
     ref.exchanges.push({ messageId: 'm2', index: 2, prompt: 'next', dispatchedAt: 1, status: 'done', taskId: 'task-new' })
     ref.exchanges.push({ messageId: 'm3', index: 3, prompt: 'again', dispatchedAt: 2, status: 'running' })
     expect(cardTaskId(ref)).toBe('task-new')
-    expect(cardTaskId(restoredRef({}))).toBeUndefined()
+    expect(cardTaskId(cardRef({}))).toBeUndefined()
   })
 })
 
@@ -161,7 +155,7 @@ describe('a card rebuilt from its transcript', () => {
     const ref = messages[0]!.agentConversationRef!
     expect(ref.provider).toBe('codex')
     expect(ref.exchanges.map((exchange) => [exchange.messageId, exchange.status, exchange.reply])).toEqual([
-      [first, 'dispatched', undefined],
+      [first, 'lost', undefined],
       [second, 'done', 'two done'],
     ])
     expect(ref.exchanges[1]).toMatchObject({ answers: ['Which branch? → main'], taskId: 'task-1', durationMs: 4_200, outputs: [{ kind: 'question' }, { kind: 'work', workId: 'w1' }] })
@@ -176,8 +170,6 @@ describe('a card rebuilt from its transcript', () => {
     }, 1)
     const exchange = messages[0]!.agentConversationRef!.exchanges[0]!
     expect(exchange).toMatchObject({ status: 'done', reply: 'checked' })
-    // Settled in the transcript: nothing left to ask the host.
-    expect(exchange.restored).toBeUndefined()
   })
 
   test('one prompt that carried several reports settles every message it names', () => {
@@ -209,14 +201,15 @@ describe('a card rebuilt from its transcript', () => {
     ])
   })
 
-  test('a notice is consumed without a bubble and leaves the message open for the host to describe', () => {
+  test('a notice is consumed without a bubble and leaves the message where the host said it stands', () => {
     const messages: Message[] = []
     const transcript = new TranscriptAgentConversations(messages)
-    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), { messageId: first }, 1)
+    const request = { kind: 'question' as const, question: { questionId: 'q1', questions: [] } }
+    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), { messageId: first, progress: { state: 'awaiting_input', request } }, 1)
     const notice = formatSessionNotice({ messageId: first, agentSessionId: child, kind: 'question', questionId: 'q1', questions: [{ question: 'Which branch?', options: [] }] })
     expect(transcript.applyUserRow(notice, 2)).toBe(true)
     expect(messages).toHaveLength(1)
-    expect(messages[0]!.agentConversationRef!.exchanges[0]).toMatchObject({ status: 'dispatched', restored: true })
+    expect(messages[0]!.agentConversationRef!.exchanges[0]).toMatchObject({ status: 'awaiting_input', request })
   })
 
   test('ordinary user text is not a report', () => {
@@ -224,28 +217,61 @@ describe('a card rebuilt from its transcript', () => {
     expect(transcript.applyUserRow('please ship the parser', 1)).toBe(false)
   })
 
-  test('the host, not a timer, decides whether a rebuilt message is still live', () => {
-    const ref = restoredRef({})
-    expect(agentConversationCardState(ref, undefined)).toBe('dispatching')
-    // The host no longer carries it and the transcript has no reply: a restart took it.
-    expect(agentConversationCardState(ref, null)).toBe('lost')
-    const carried = (state: SentSessionMessage['state'], extra: Partial<SentSessionMessage> = {}): SentSessionMessage =>
-      ({ messageId: 'm1', targetAgentSessionId: child, state, ...extra })
-    expect(agentConversationCardState(ref, carried('queued'))).toBe('dispatching')
-    expect(agentConversationCardState(ref, carried('running'))).toBe('replying')
+  test("the host's word on the page decides where a rebuilt message stands", () => {
+    const rebuilt = (progress: ExchangeProgress | undefined) => {
+      const messages: Message[] = []
+      new TranscriptAgentConversations(messages)
+        .applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), { messageId: first, progress }, 1)
+      return messages[0]!.agentConversationRef!
+    }
+    expect(agentConversationCardState(rebuilt({ state: 'queued' }))).toBe('dispatching')
+    // The bug this guards: a message the host was running read as queued.
+    expect(agentConversationCardState(rebuilt({ state: 'running' }))).toBe('replying')
+    // A finished reply still on its way to the sender is not yet a reply here.
+    expect(agentConversationCardState(rebuilt({ state: 'reply_queued' }))).toBe('replying')
+    expect(agentConversationCardState(rebuilt({ state: 'waiting_for_children' }))).toBe('children')
     const request = { kind: 'permission' as const, permission: { questionId: 'p1', toolTitle: 'Bash', options: [] } }
-    expect(agentConversationCardState(ref, carried('awaiting_input', { request }))).toBe('waiting')
+    const waiting = rebuilt({ state: 'awaiting_input', request })
+    expect(agentConversationCardState(waiting)).toBe('waiting')
     // The transcript never recorded the request; the host still has it.
-    expect(pendingRequest(ref, carried('awaiting_input', { request }))).toEqual(request)
-    // A live message is never aged out, however old.
-    expect(agentConversationCardState(restoredRef({ restored: false }), null)).toBe('dispatching')
+    expect(pendingRequest(waiting)).toEqual(request)
+    const parked = rebuilt({ state: 'rate_limited', resetsAt: 9_000 })
+    expect(agentConversationCardState(parked)).toBe('limited')
+    expect(rateLimitedUntil(parked)).toBe(9_000)
+    expect(agentConversationCardState(rebuilt({ state: 'settled', outcome: 'completed' }))).toBe('replied')
+    expect(agentConversationCardState(rebuilt({ state: 'settled', outcome: 'failed' }))).toBe('failed')
+    // The host no longer carries it and the transcript has no reply: a restart took it.
+    expect(agentConversationCardState(rebuilt(undefined))).toBe('lost')
+  })
+
+  test('a rebuilt card follows the live feed like a card that was shown live', () => {
+    const tab = session()
+    new TranscriptAgentConversations(tab.messages)
+      .applyToolRow('start_session', JSON.stringify({ prompt: 'snooze tasks' }), { agentSessionId: child, messageId: first, progress: { state: 'queued' } }, 1)
+    const cards = new AgentConversationCards()
+    cards.rebuild(tab)
+    const ref = () => tab.messages[0]!.agentConversationRef!
+    expect(agentConversationCardState(ref())).toBe('dispatching')
+    cards.apply(tab, { phase: 'accepted', agentSessionId: child, messageId: first, state: 'running' })
+    expect(agentConversationCardState(ref())).toBe('replying')
+    cards.apply(tab, { phase: 'settled', agentSessionId: child, messageId: first, status: 'completed', replyText: 'done', settledAt: 2 })
+    expect(agentConversationCardState(ref())).toBe('replied')
+  })
+
+  test('a report older than message ids still settles a message the host no longer carries', () => {
+    const messages: Message[] = []
+    const transcript = new TranscriptAgentConversations(messages)
+    transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), undefined, 1)
+    const report = formatParentPrompt([{ type: 'report', report: { agentSessionId: child, status: 'completed', outputs: [], reply: 'done' } }])
+    expect(transcript.applyUserRow(report, 2)).toBe(true)
+    expect(messages[0]!.agentConversationRef!.exchanges.map((exchange) => [exchange.status, exchange.reply])).toEqual([['done', 'done']])
   })
 })
 
 describe('a plan the other agent brought back', () => {
   test('waits on a decision until another message opens', () => {
     const plan = { kind: 'plan' as const, sessionId: child, planToolUseId: 'tool-1', title: 'Ship the parser' }
-    const ref = restoredRef({ status: 'done', restored: false, outputs: [plan] })
+    const ref = cardRef({ status: 'done', outputs: [plan] })
     expect(planAwaitingDecision(ref)).toEqual(plan)
     ref.exchanges.push({ messageId: 'm2', index: 2, prompt: 'next', dispatchedAt: 1, status: 'running' })
     expect(planAwaitingDecision(ref)).toBeNull()
@@ -257,30 +283,17 @@ describe("a card's status line", () => {
   // the other session stands; a session that never started must not read as
   // one that broke, and a reply shows its first words.
   test('names the live state, tells a launch failure from a stop, and shows the reply', () => {
-    const live = restoredRef({ status: 'running' })
+    const live = cardRef({ status: 'running' })
     expect(agentConversationLink(live, 'replying', false)).toEqual({ tone: 'live', label: 'Running', detail: '' })
     expect(agentConversationLink(live, 'dispatching', true)).toMatchObject({ tone: 'live', label: 'Starting' })
     expect(agentConversationLink(live, 'failed', true)).toMatchObject({ tone: 'failed', detail: 'Never started' })
     expect(agentConversationLink(live, 'failed', false)).toMatchObject({ detail: 'Stopped replying' })
 
-    const replied = restoredRef({ status: 'answered', reply: '- Moved the `diff` panel' })
+    const replied = cardRef({ status: 'answered', reply: '- Moved the `diff` panel' })
     expect(agentConversationLink(replied, 'replied', false)).toEqual({
       tone: 'done',
       label: 'Completed',
       detail: 'Moved the diff panel',
     })
   })
-})
-
-
-test('all clients show nested waiting and recover a saved final outcome', () => {
-  const ref = restoredRef({})
-  const carried: SentSessionMessage = { messageId: 'm1', targetAgentSessionId: child, state: 'waiting_for_children' }
-  expect(agentConversationCardState(ref, carried)).toBe('children')
-  expect(agentConversationLink(ref, 'children', false)).toEqual({ tone: 'live', label: 'Waiting', detail: 'Waiting on agents' })
-  carried.state = 'settled'
-  carried.outcome = 'completed'
-  expect(agentConversationCardState(ref, carried)).toBe('replied')
-  carried.outcome = 'failed'
-  expect(agentConversationCardState(ref, carried)).toBe('failed')
 })

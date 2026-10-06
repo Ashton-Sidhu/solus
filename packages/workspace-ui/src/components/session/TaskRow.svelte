@@ -64,12 +64,12 @@
     onRename: (session: SidebarSessionChild | null, next: string) => void;
     onRenameCancel: () => void;
     onMore: (event: MouseEvent | PointerEvent) => void;
-    /** Whether the row can be snoozed: a session's row can, a task's cannot
-     *  (docs/plans/session-pull-requests.md). */
+    /** Whether the row can be snoozed: a session's row snoozes the session, a
+     *  Solus task's row the task (docs/task-snooze.md). */
     canSnooze: boolean;
     /** The snooze menu drops from the button that opened it. */
     onSnooze: (anchor: HTMLElement) => void;
-    /** Return a snoozed session to the Sessions section immediately. */
+    /** Return a snoozed row to its section immediately. */
     onWake: () => void;
     onComplete: () => void;
     onClose: () => void;
@@ -342,14 +342,13 @@
              the three a narrow column can drop: it is a move you make on a row
              you are leaving alone, and it stays on the context menu with the
              rest of the session's lifecycle. Wake is not — it is a snoozed
-             row's only way back, so it holds at every width. A task's row has
-             neither: only a session is snoozed. -->
+             row's only way back, so it holds at every width. -->
         {#if canSnooze && task.status !== "done" && task.status !== "dropped"}
           {#if task.lifecycle === "snoozed"}
             <button
               class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
               title="Wake now"
-              aria-label="Wake session now"
+              aria-label={task.taskId ? "Wake task now" : "Wake session now"}
               onclick={(event) => {
                 event.stopPropagation();
                 onWake();
@@ -361,7 +360,7 @@
             <button
               class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground @max-[15rem]:hidden"
               title="Snooze"
-              aria-label="Snooze session"
+              aria-label={task.taskId ? "Snooze task" : "Snooze session"}
               onclick={(event) => {
                 event.stopPropagation();
                 onSnooze(event.currentTarget);

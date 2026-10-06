@@ -19,6 +19,8 @@ export interface ConversationRun {
   reasoningEffort: ReasoningEffort
   /** Always the model's window: a resume without it drops to the provider default. */
   contextWindow: number | null
+  /** Codex fast mode; always false for a model without it. */
+  fastMode: boolean
   permissionMode: PermissionMode
   title: string | null
   /** The organization this device works in; the host assigns an unassigned session to it once. */
@@ -48,7 +50,7 @@ export function conversationContext(run: ConversationRun, settings: RunSettings,
       preferredModel: run.preferredModel,
       reasoningEffort: run.reasoningEffort,
       contextWindow: run.contextWindow,
-      fastMode: false,
+      fastMode: run.fastMode,
       permissionMode: run.permissionMode,
       gitContext: null,
       worktreeBaseBranch: null,
@@ -76,7 +78,7 @@ export function conversationContext(run: ConversationRun, settings: RunSettings,
       defaultReasoningEffort: run.reasoningEffort,
       reasoningLevels: [],
       supportsFastMode: false,
-      fastMode: false,
+      fastMode: run.fastMode,
       contextWindows: run.contextWindow ? [run.contextWindow] : [],
     },
   }
@@ -97,6 +99,7 @@ export function projectContext(projectPath: string, organizationId: string | nul
     preferredModel: null,
     reasoningEffort: 'medium',
     contextWindow: null,
+    fastMode: false,
     permissionMode: 'supervised',
     title: null,
     organizationId,

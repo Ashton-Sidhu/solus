@@ -89,7 +89,7 @@ describe('seats at dispatch', () => {
     const { plane, started } = harness()
     let refusal: unknown
     try {
-      await plane.submitPrompt(ctx('s1'), { prompt: 'hello' }, { clientId: 'c1', actor: memberActor('bob', 'Bob') })
+      await plane.dispatch.submitPrompt(ctx('s1'), { prompt: 'hello' }, { clientId: 'c1', actor: memberActor('bob', 'Bob') })
     } catch (error) { refusal = error }
     expect((refusal as { code?: string }).code).toBe('SEAT_REQUIRED')
     expect(started).toHaveLength(0)
@@ -97,12 +97,12 @@ describe('seats at dispatch', () => {
 
   test('the host owner runs on the host login; a connected member\'s seat rides the run request', async () => {
     const { plane, seats, started } = harness()
-    await plane.submitPrompt(ctx('s-owner'), { prompt: 'hello' }, { clientId: 'c1', actor: actorFor({ kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }) })
+    await plane.dispatch.submitPrompt(ctx('s-owner'), { prompt: 'hello' }, { clientId: 'c1', actor: actorFor({ kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }) })
     expect(started[0]?.seat).toMatchObject({ seat: { kind: 'host-login' } })
     expect(started[0]?.seat?.envToken).toBeUndefined()
 
     seats.storeToken({ kind: 'user', userId: { kind: 'account', accountId: 'bob' } }, 'claude-code', 'bob-token')
-    await plane.submitPrompt(ctx('s-guest'), { prompt: 'hi from a guest', clientPromptId: 'p-guest' }, { clientId: 'c2', actor: actorFor({ kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1', share: { resource: { kind: 'session', id: 's-guest' }, role: 'editor', sharedByUserId: 'bob', linkSecretHash: 'h' }, expiresAt: 0, deviceLabel: 'Guest link' }) })
+    await plane.dispatch.submitPrompt(ctx('s-guest'), { prompt: 'hi from a guest', clientPromptId: 'p-guest' }, { clientId: 'c2', actor: actorFor({ kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1', share: { resource: { kind: 'session', id: 's-guest' }, role: 'editor', sharedByUserId: 'bob', linkSecretHash: 'h' }, expiresAt: 0, deviceLabel: 'Guest link' }) })
     expect(started[1]?.seat).toMatchObject({ seat: { kind: 'user', userId: { kind: 'account', accountId: 'bob' } }, provider: 'claude-code', envToken: 'bob-token' })
   })
 
@@ -112,10 +112,10 @@ describe('seats at dispatch', () => {
     // alone against past turns dropped a new session's first prompt as a replay.
     const { plane, started } = harness()
     const owner = { clientId: 'c1', actor: actorFor({ kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }) }
-    expect(await plane.submitPrompt(ctx('s-first'), { prompt: 'first', clientPromptId: 'msg-1' }, owner)).toMatchObject({ disposition: 'started' })
+    expect(await plane.dispatch.submitPrompt(ctx('s-first'), { prompt: 'first', clientPromptId: 'msg-1' }, owner)).toMatchObject({ disposition: 'started' })
 
-    expect(await plane.submitPrompt(ctx('s-second'), { prompt: 'second', clientPromptId: 'msg-1' }, owner)).toMatchObject({ disposition: 'started' })
-    expect(await plane.submitPrompt(ctx('s-first'), { prompt: 'first', clientPromptId: 'msg-1' }, owner)).toEqual({ disposition: 'duplicate' })
+    expect(await plane.dispatch.submitPrompt(ctx('s-second'), { prompt: 'second', clientPromptId: 'msg-1' }, owner)).toMatchObject({ disposition: 'started' })
+    expect(await plane.dispatch.submitPrompt(ctx('s-first'), { prompt: 'first', clientPromptId: 'msg-1' }, owner)).toEqual({ disposition: 'duplicate' })
     expect(started).toHaveLength(2)
   })
 })

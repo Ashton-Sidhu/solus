@@ -647,8 +647,6 @@
       page="insights"
       trailingCrumb={listLabel}
       actions={resetAction}
-      onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
-      isLeading={pane.isLeading}
       onClose={closePage}
     />
   </header>
@@ -827,8 +825,6 @@
         page="insights"
         onRefresh={() => void store.refresh()}
         refreshing={store.running}
-        onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
-        isLeading={pane.isLeading}
         onClose={closePage}
         filters={listsTurns ? railFilters : undefined}
         toolbarFilters

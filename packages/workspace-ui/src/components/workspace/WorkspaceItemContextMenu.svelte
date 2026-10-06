@@ -82,7 +82,7 @@
   <ContextMenu.Content class="min-w-48">
     <ContextMenu.Item onSelect={() => select(onOpen)}>
       <FolderOpenIcon />
-      Open {item.type === "plan" ? "plan" : item.type === "diagram" ? "diagram" : "document"}
+      Open {item.type === "diagram" ? "diagram" : item.type === "artifact" ? "artifact" : "document"}
     </ContextMenu.Item>
     {#if onOpenSplit}
       <ContextMenu.Item onSelect={() => select(onOpenSplit)}>
@@ -135,7 +135,7 @@
     {#if onDelete}
       <ContextMenu.Item variant="destructive" onSelect={() => select(onDelete)}>
         <TrashIcon />
-        Delete {item.type === "diagram" ? "diagram" : "document"}
+        Delete {item.type === "diagram" ? "diagram" : item.type === "artifact" ? "artifact" : "document"}
       </ContextMenu.Item>
     {/if}
   </ContextMenu.Content>

@@ -72,8 +72,14 @@
     /**
      * `chip` is the standalone "Run on: X" pill the compact status row uses.
      * `header` is the input bar's destination strip chip, which names the host.
+     * `menu` draws no button: a chat opens this list from its composer's + menu,
+     * anchored to `anchor`.
      */
-    variant?: "chip" | "header";
+    variant?: "chip" | "header" | "menu";
+    /** Open state, bound by the `menu` variant's owner. */
+    open?: boolean;
+    /** Where the `menu` variant's list opens from. */
+    anchor?: HTMLElement | null;
     /** The pane whose composer this picker belongs to — `undefined` for the
      *  workspace dock, which has none. The open shortcut names a pane, so this
      *  is how the right picker knows the keystroke was meant for it. */
@@ -89,6 +95,8 @@
     onDismiss,
     variant = "chip",
     paneId,
+    open = $bindable(false),
+    anchor = null,
   }: Props = $props();
 
   const selectedHostId = $derived(
@@ -148,7 +156,6 @@
     ),
   );
 
-  let open = $state(false);
   let triggerEl = $state<HTMLElement | null>(null);
   let triggerTooltipOpen = $state(false);
   let sourceRepoKey = $state<string | null>(null);
@@ -397,7 +404,9 @@
     <DropdownMenu.Root bind:open onOpenChange={handleOpenChange}>
       <DropdownMenu.Trigger bind:ref={triggerEl}>
         {#snippet child({ props })}
-          {#if variant === "header"}
+          {#if variant === "menu"}
+            <span {...props} class="hidden"></span>
+          {:else if variant === "header"}
             <TooltipUI.Root
               bind:open={getTriggerTooltipOpen, setTriggerTooltipOpen}
               disabled={open}
@@ -496,6 +505,7 @@
         sideOffset={6}
         collisionPadding={8}
         onCloseAutoFocus={handleCloseAutoFocus}
+        customAnchor={anchor ?? undefined}
         class="w-[300px] p-0 text-workspace-chrome [&_.menu-row]:text-workspace-chrome"
       >
         <!-- The footer spans the surface, so the rows scroll inside their own

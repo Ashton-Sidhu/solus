@@ -34,6 +34,16 @@ type MoveScope = 'all' | 'local'
 async function moveUserRows(db: Db, fromKey: string, toKey: string, scope: MoveScope): Promise<number> {
   const inScope = (column: SQL): SQL => (scope === 'local' ? sql` AND ${column} = ${LOCAL_ORGANIZATION_ID}` : sql``)
   let moved = 0
+  // The owner row wins over a named row: the target's named row gives way where the source owns.
+  moved += (await db.run(sql`
+    DELETE FROM share_grant
+    WHERE subject_kind = 'user' AND subject_id = ${toKey} AND role <> 'owner'${inScope(sql`organization_id`)}
+      AND EXISTS (
+        SELECT 1 FROM share_grant AS owner
+        WHERE owner.resource_kind = share_grant.resource_kind AND owner.resource_id = share_grant.resource_id
+          AND owner.subject_kind = 'user' AND owner.subject_id = ${fromKey} AND owner.role = 'owner'
+      )
+  `)).changes
   moved += (await db.run(sql`
     DELETE FROM share_grant
     WHERE subject_kind = 'user' AND subject_id = ${fromKey}${inScope(sql`organization_id`)}
@@ -45,7 +55,6 @@ async function moveUserRows(db: Db, fromKey: string, toKey: string, scope: MoveS
   `)).changes
   moved += (await db.run(sql`UPDATE share_grant SET subject_id = ${toKey} WHERE subject_kind = 'user' AND subject_id = ${fromKey}${inScope(sql`organization_id`)}`)).changes
   moved += (await db.run(sql`UPDATE share_grant SET granted_by_user_id = ${toKey} WHERE granted_by_user_id = ${fromKey}${inScope(sql`organization_id`)}`)).changes
-  moved += (await db.run(sql`UPDATE resource_owner SET owner_user_id = ${toKey} WHERE owner_user_id = ${fromKey}${inScope(sql`organization_id`)}`)).changes
   moved += (await db.run(sql`UPDATE session_records SET owner_user_id = ${toKey} WHERE owner_user_id = ${fromKey}${inScope(sql`organization_id`)}`)).changes
   moved += (await db.run(sql`UPDATE session_admissions SET owner_user_id = ${toKey} WHERE owner_user_id = ${fromKey}${inScope(sql`organization_id`)}`)).changes
   // The person's notifications and their read state go with them (plans/015-notifications-hub.md);

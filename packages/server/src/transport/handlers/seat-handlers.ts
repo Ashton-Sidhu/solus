@@ -1,6 +1,8 @@
+import { agentAuthFlowRequestSchema, agentAuthMcpTargetSchema, agentAuthSubmitRequestSchema, agentAuthTargetSchema } from '@solus/contracts/agent-auth'
 import { agentProfileBundleSchema } from '@solus/contracts/agent-profile'
 import { seatConnectCodeRequestSchema, seatConnectTokenRequestSchema, seatProviderRequestSchema, seatRemoveRequestSchema } from '@solus/contracts/seats'
 import { parseUserKey } from '@solus/contracts/user'
+import type { AgentAuthFlows } from '../../execution/seats/agent-auth'
 import type { AgentProfileManager, AgentProfileTarget } from '../../execution/seats/agent-profile'
 import type { SeatConnector } from '../../execution/seats/seat-connect'
 import { isHostOwner, type Principal } from '../../admission/principal'
@@ -15,7 +17,7 @@ import type { SolusServer } from '../server'
  * by the access policy. Removal is the administrator's. The workspace service
  * refuses these execution-plane methods.
  */
-export function registerSeatHandlers(server: SolusServer, deps: { seats: SeatStore; connector: SeatConnector; profiles: AgentProfileManager }): void {
+export function registerSeatHandlers(server: SolusServer, deps: { seats: SeatStore; connector: SeatConnector; profiles: AgentProfileManager; agentAuth: AgentAuthFlows }): void {
   server.register('seatList', (_args, ctx) => deps.seats.list(seatFor(ctx.actor)))
 
   server.register('seatConnectStart', (args, ctx) => {
@@ -55,6 +57,22 @@ export function registerSeatHandlers(server: SolusServer, deps: { seats: SeatSto
     for (const each of provider ? [provider] : (['claude-code', 'codex'] as const)) await deps.connector.cancel({ kind: 'user', userId }, each)
     return { removed: await deps.seats.remove(userId, provider) }
   })
+
+  // Claude Design and MCP server sign-ins run in the caller's seat, like the connect above.
+  server.register('agentAuthStart', (args, ctx) => deps.agentAuth.start(seatFor(ctx.actor), agentAuthTargetSchema.parse(args[0])))
+
+  server.register('agentAuthSubmit', async (args, ctx) => {
+    const { flowId, value } = agentAuthSubmitRequestSchema.parse(args[0])
+    await deps.agentAuth.submit(seatFor(ctx.actor), flowId, value)
+    return { submitted: true as const }
+  })
+
+  server.register('agentAuthCancel', (args, ctx) => {
+    const { flowId } = agentAuthFlowRequestSchema.parse(args[0])
+    return { cancelled: deps.agentAuth.cancel(seatFor(ctx.actor), flowId) }
+  })
+
+  server.register('agentAuthSignOut', (args, ctx) => deps.agentAuth.signOut(seatFor(ctx.actor), agentAuthMcpTargetSchema.parse(args[0])))
 
   // An agent profile (docs/agent-profile.md) is read on the machine a person
   // works on, which the access policy leaves to its administrator, and written

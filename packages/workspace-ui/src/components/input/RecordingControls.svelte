@@ -214,8 +214,8 @@
     align-items: center;
     gap: 0.375rem;
     width: 100%;
-    padding: 0 0.375rem 0 0.5rem;
-    overflow: hidden;
+    /* The waveform stops 6px short of the mic's strip. */
+    padding: 0 calc(var(--rc-mic-right, 0.25rem) + 2.125rem) 0 0.5rem;
     border-radius: inherit;
     color: var(--solus-text-secondary);
     cursor: pointer;
@@ -227,9 +227,18 @@
     align-items: center;
   }
 
+  /* The stop takes the idle mic's place and shape, so starting a recording
+     neither moves the mic nor clips it: the row can be shorter than the mic
+     (a one-line textarea is 24px), and the mic may sit in the host's gutter
+     past the row's edge (`--rc-mic-right`). */
   .recording-stop--field {
+    position: absolute;
+    right: var(--rc-mic-right, 0.25rem);
+    top: 50%;
+    transform: translateY(-50%);
     width: 1.75rem;
     height: 1.75rem;
+    border-radius: 50%;
   }
 
   /* field idle / transcribing mic button */

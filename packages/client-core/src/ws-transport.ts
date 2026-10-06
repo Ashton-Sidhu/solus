@@ -8,7 +8,6 @@ import type { SolusAPI } from '@solus/contracts/host-api'
 import { HostEventSubscriber } from './host-event-subscriber'
 import { HostRpcError, TransportDisconnectedError } from './rpc-error'
 import { BrowserFrameSubscriber } from './browser-frame-subscriber'
-import { DeviceFrameSubscriber } from './device-frame-subscriber'
 import { isHostEvent, type HostEvent } from '@solus/contracts/host-events'
 import {
   encodePcm16Wav,
@@ -125,7 +124,6 @@ export class WsTransport {
    *  `events`: binary bytes, not a typed-event envelope. */
   readonly frames = new BrowserFrameSubscriber()
   /** Native device video for this host, routed by device host and device. */
-  readonly deviceFrames = new DeviceFrameSubscriber()
   private socket: Socket
   private readonly clientInstanceId = createClientInstanceId()
   private nextId = 1
@@ -374,9 +372,6 @@ export class WsTransport {
     // needs a live connection, so frames arrive only once accepted.
     this.socket.on('browser-frame', (header, data) => {
       if (this.isAcceptedConnection) this.frames.receive(header, data)
-    })
-    this.socket.on('device-frame', (header, data) => {
-      if (this.isAcceptedConnection) this.deviceFrames.receive(header, data)
     })
   }
 

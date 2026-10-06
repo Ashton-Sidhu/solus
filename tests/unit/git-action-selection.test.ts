@@ -20,8 +20,7 @@ function status(overrides: Partial<GitState> = {}): GitState {
     uncommittedChanges: {
       files: [],
       hasMoreFiles: false,
-      insertions: 0,
-      deletions: 0,
+      fileCount: 0,
       mergeInProgress: false,
     },
     ...overrides,
@@ -32,8 +31,7 @@ function dirty(): GitState['uncommittedChanges'] {
   return {
     files: [{ path: 'src/git.ts', conflicted: false }],
     hasMoreFiles: false,
-    insertions: 4,
-    deletions: 0,
+    fileCount: 1,
     mergeInProgress: false,
   }
 }

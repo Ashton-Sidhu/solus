@@ -5,7 +5,7 @@ import {
   TIMELINE_WINDOW_PAGE,
   TIMELINE_WINDOW_THRESHOLD,
   windowTimeline,
-} from '@solus/workspace-ui/components/pr-review/lib/timeline-window'
+} from '@solus/workspace-ui/lib/timeline-window'
 import { threadStartsFolded } from '@solus/workspace-ui/components/pr-review/lib/activity-data'
 
 // A pull request with hundreds of reviews froze the Activity tab: every card

@@ -14,10 +14,10 @@ import type { RouteRef } from '@solus/workspace-ui/contexts/workspace/routing/ro
  */
 
 function pane(id: string, name: RouteRef['name']) {
-  return { id, base: { name, params: {} } as RouteRef }
+  return { id, surfaces: [{ name, params: {} } as RouteRef], activeSurfaceIndex: 0 }
 }
 
-describe('which pane Escape closes', () => {
+describe('which pane Escape hides', () => {
   test('the companion the user is working in', () => {
     // WHY: Escape dismisses the thing you are in. A pane the user has not
     // focused is not that thing.

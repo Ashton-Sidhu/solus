@@ -137,10 +137,10 @@ describe.serial('SessionRuntime watchSession runtime attach', () => {
         type: 'question_request', questionId: 'codex-async:thread-1:steer-question', responseMode: 'message',
         questions: [{ id: '0', question: 'Which package?', options: [], multiSelect: false }],
       } satisfies NormalizedEvent)
-      expect(await plane.respondToQuestion('async-steer-session', 'codex-async:thread-1:steer-question', { '0': 'pnpm' }, HOST_ACTOR)).toBe(true)
+      expect(await plane.inputRequests.respondToQuestion('async-steer-session', 'codex-async:thread-1:steer-question', { '0': 'pnpm' }, HOST_ACTOR)).toBe(true)
       expect(backend.steeredPrompts).toEqual(['Which package?\npnpm'])
       expect(backend.starts).toBe(1)
-      expect(plane.liveSessionStatus('thread-1')).toBe('running')
+      expect(plane.statuses.liveSessionStatus('thread-1')).toBe('running')
       backend.complete('thread-1')
       await lifecycle.done
     } finally { plane.shutdown() }
@@ -169,19 +169,19 @@ describe.serial('SessionRuntime watchSession runtime attach', () => {
       expect(question?.type).toBe('question_request')
       if (question?.type !== 'question_request') throw new Error('Codex async question was not normalized')
       backend.emit('normalized', 'thread-1', question)
-      expect(plane.liveSessionStatus('thread-1')).toBe('running')
+      expect(plane.statuses.liveSessionStatus('thread-1')).toBe('running')
       expect(plane.attention.get('thread-1')?.kind).toBe('question')
-      expect(plane.watchSession({ sessionId: 'async-question-session', agentSessionId: 'thread-1' }, 'first').pendingQuestions)
+      expect(plane.watchers.watchSession({ sessionId: 'async-question-session', agentSessionId: 'thread-1' }, 'first').pendingQuestions)
         .toEqual([{ questionId: question.questionId, questions: question.questions, responseMode: 'message' }])
 
       backend.complete('thread-1')
       await lifecycle.done
       expect(plane.attention.get('thread-1')?.kind).toBe('question')
-      expect(plane.watchSession({ sessionId: 'async-question-session', agentSessionId: 'thread-1', attachRuntime: true }, 'second'))
+      expect(plane.watchers.watchSession({ sessionId: 'async-question-session', agentSessionId: 'thread-1', attachRuntime: true }, 'second'))
         .toMatchObject({ runtime: null, pendingQuestions: [{ questionId: question.questionId }] })
-      expect(await plane.respondToQuestion('async-question-session', question.questionId, { '0': 'pnpm' }, HOST_ACTOR)).toBe(true)
+      expect(await plane.inputRequests.respondToQuestion('async-question-session', question.questionId, { '0': 'pnpm' }, HOST_ACTOR)).toBe(true)
       expect(backend.starts).toBe(2)
-      expect(plane.watchSession({ sessionId: 'async-question-session', agentSessionId: 'thread-1' }, 'third').pendingQuestions)
+      expect(plane.watchers.watchSession({ sessionId: 'async-question-session', agentSessionId: 'thread-1' }, 'third').pendingQuestions)
         .toBeUndefined()
       expect(events).toContainEqual(expect.objectContaining({
         type: 'question_answered', answer: expect.objectContaining({ questionId: question.questionId }),
@@ -196,7 +196,7 @@ describe.serial('SessionRuntime watchSession runtime attach', () => {
       const questionEventsBeforeReplay = events.filter((event) => event.type === 'question_request').length
       backend.emit('normalized', 'thread-1', question)
       expect(events.filter((event) => event.type === 'question_request')).toHaveLength(questionEventsBeforeReplay)
-      expect(await plane.respondToQuestion('async-question-session', question.questionId, { '0': 'npm' }, HOST_ACTOR)).toBe(false)
+      expect(await plane.inputRequests.respondToQuestion('async-question-session', question.questionId, { '0': 'npm' }, HOST_ACTOR)).toBe(false)
       backend.complete('thread-1')
     } finally { plane.shutdown() }
   })
@@ -234,10 +234,10 @@ describe.serial('SessionRuntime watchSession runtime attach', () => {
     await lifecycle.agentSessionId
     await Promise.resolve()
 
-    const plainWatch = plane.watchSession({ sessionId: 'solus-watch-attach', agentSessionId: 'thread-1' }, 'client-plain')
+    const plainWatch = plane.watchers.watchSession({ sessionId: 'solus-watch-attach', agentSessionId: 'thread-1' }, 'client-plain')
     expect(plainWatch).toEqual({ sessionId: 'solus-watch-attach' })
 
-    const attached = plane.watchSession(
+    const attached = plane.watchers.watchSession(
       { sessionId: 'solus-watch-attach', agentSessionId: 'thread-1', attachRuntime: true },
       'client-attached',
     )
@@ -248,11 +248,11 @@ describe.serial('SessionRuntime watchSession runtime attach', () => {
       modelConfig: { modelId: 'gpt-requested', reasoningEffort: 'medium' },
     })
     // Both clients are watching: the attach did not replace the watch.
-    expect(plane.clientsWatching('solus-watch-attach')).toEqual(expect.arrayContaining(['client-plain', 'client-attached']))
+    expect(plane.watchers.clientsWatching('solus-watch-attach')).toEqual(expect.arrayContaining(['client-plain', 'client-attached']))
 
     backend.complete('thread-1')
     await lifecycle.done
-    const afterExit = plane.watchSession(
+    const afterExit = plane.watchers.watchSession(
       { sessionId: 'solus-watch-attach', agentSessionId: 'thread-1', attachRuntime: true },
       'client-late',
     )
@@ -274,11 +274,11 @@ describe.serial('SessionRuntime watchSession runtime attach', () => {
         options: { prompt: 'inspect it', promptSource: 'typed' },
       })
       await lifecycle.agentSessionId
-      plane.watchSession({ sessionId: 'reconnect-text' }, 'first')
+      plane.watchers.watchSession({ sessionId: 'reconnect-text' }, 'first')
       backend.emit('normalized', 'thread-1', { type: 'text_chunk', text: 'Complete.\n\nPartial' })
-      plane.unwatchSession('reconnect-text', 'first')
+      plane.watchers.unwatchSession('reconnect-text', 'first')
       events.length = 0
-      plane.watchSession({ sessionId: 'reconnect-text', agentSessionId: 'thread-1', attachRuntime: true }, 'second')
+      plane.watchers.watchSession({ sessionId: 'reconnect-text', agentSessionId: 'thread-1', attachRuntime: true }, 'second')
       expect(events.filter(item => item.event.type === 'text_chunk')).toEqual([
         { event: { type: 'text_chunk', text: 'Complete.\n\n', streaming: true }, only: 'second' },
       ])

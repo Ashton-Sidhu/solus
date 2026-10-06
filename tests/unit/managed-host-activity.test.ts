@@ -43,15 +43,15 @@ describe('what the host reports', () => {
     const runtime = new SessionRuntime(new Map())
     const sessions = (runtime as unknown as { activeSessions: Map<string, { status: SessionStatus }> }).activeSessions
     try {
-      expect(runtime.hasWorkToKeepAwake()).toBe(false)
+      expect(runtime.statuses.hasWorkToKeepAwake()).toBe(false)
       for (const status of ['running', 'connecting', 'awaiting_input', 'awaiting_plan'] as const) {
         sessions.set('s1', { status })
-        expect(runtime.hasWorkToKeepAwake()).toBe(true)
+        expect(runtime.statuses.hasWorkToKeepAwake()).toBe(true)
       }
       // A rate-limit reset can be hours away; holding the machine for it would bill for nothing.
       for (const status of ['idle', 'completed', 'rate_limited'] as const) {
         sessions.set('s1', { status })
-        expect(runtime.hasWorkToKeepAwake()).toBe(false)
+        expect(runtime.statuses.hasWorkToKeepAwake()).toBe(false)
       }
     } finally {
       sessions.clear()

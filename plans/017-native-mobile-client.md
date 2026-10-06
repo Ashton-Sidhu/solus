@@ -95,6 +95,17 @@ Copy the smallest useful pieces, preserving licenses and recording their source 
 
 Do not copy the entire `Stack.tsx`, conversation feed, dependency manifest, or patch set. The inspected feed is 3,189 lines, composer 1,165 lines, and navigation patch 2,232 lines. Each imported patch needs a named behavior, a compatible dependency version, and a regression check. Prefer the supported upstream API where it already satisfies that behavior. Do not assume T3's pinned prerelease runtime is required for Solus.
 
+### §3 amendment (2026-10-04): T3 Code's interface, Solus's theme
+
+The developer asked that the app look exactly like T3 Code's mobile app, except for the theme, and approved porting T3's UI code to get there. This replaces the "smallest useful pieces" rule above for the interface only:
+
+- **Adopted:** T3's screens, components, navigation presets, layout, styling system (uniwind with a 14px rem, T3's type scale, DM Sans), and T3's color-token derivation (`src/lib/mobileTheme.ts`) run on a Solus palette (`src/theme/theme-colors.ts`). Ported files keep T3's paths and code style and start with an attribution line. Patches are taken only where the version matches T3's exactly; the root `package.json` lists them under `patchedDependencies`.
+- **Still not adopted:** T3's state and connection runtime (`src/state/`, Effect atoms, `@t3tools/*`), Clerk, and T3 Connect. Each ported screen reads Solus stores instead.
+- **Runtime (2026-10-04):** the app moved to T3's runtime, Expo SDK 58 with React Native 0.88.0-rc.3 and React 19.3, so that T3's patches apply at their exact versions (`react-native-screens@4.28.0` with the iOS 26 Mail-style search toolbar, `react-native-gesture-handler@3.2.1`, `react-native-keyboard-controller@1.22.6`, `expo-glass-effect`, `expo-blur`, `@legendapp/list`, `@react-navigation/native-stack`, `uniwind`, `@react-native-menu/menu`). React Native 0.88.0-rc.3 is a prerelease, so Expo packages do not accept it as a peer and Bun installs a second React Native for them; the root `package.json` `overrides` pin `react-native` and `react-native-worklets` to keep one copy.
+- **Navigation:** Home (every session on every host) is the root, as in T3. The older per-host Projects → Sessions → Conversation path is removed; the developer said it is not needed. Open project stays, reached from the new-task sheet, and returns its project to that sheet. App builds moved to Host settings.
+- **Keyboard after send (exception to "refocus the active input"):** the composer closes the software keyboard after a message is sent, as T3 does, so the reply is visible on a phone. The developer approved this exception on 2026-10-04. Hardware keyboard focus (⌘L) is unchanged.
+- **Theme:** colors are Solus's in light and dark; every other visual is T3's.
+
 ## 4. Ownership and allowed changes
 
 - `apps/mobile/` owns native navigation, React subscriptions, feature stores, platform adapters, and native modules.

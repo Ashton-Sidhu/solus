@@ -11,7 +11,7 @@ import { HostRpcError } from '@solus/client-core/rpc-error'
 export class FakeNotificationSource {
   readonly items = new Map<string, HubNotification>()
   private readonly changedListeners = new Set<() => void>()
-  private readonly reconnectedListeners = new Set<() => void>()
+  private readonly reconnectedListeners = new Set<(initialConnection?: boolean) => void>()
   /** Every call throws this while it is set: the source is unreachable. */
   failure: Error | null = null
   /** Writes throw this, once applied, while it is set: the answer was lost. */
@@ -44,8 +44,8 @@ export class FakeNotificationSource {
     for (const listener of this.changedListeners) listener()
   }
 
-  emitReconnected(): void {
-    for (const listener of this.reconnectedListeners) listener()
+  emitReconnected(initialConnection = false): void {
+    for (const listener of this.reconnectedListeners) listener(initialConnection)
   }
 
   private guard(method: string): void {

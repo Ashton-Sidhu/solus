@@ -4,6 +4,7 @@
    *  false, so a group whose rows are all filtered out by search disappears
    *  instead of leaving an empty card. */
   import type { Snippet } from "svelte";
+  import { RowCard } from "../ui/row-card";
 
   interface Props {
     label?: string;
@@ -49,11 +50,9 @@
     {#if plain}
       {@render children()}
     {:else}
-      <div
-        class="overflow-hidden rounded-xl border border-border/50 bg-background text-foreground [&>*+*]:relative [&>*+*]:before:absolute [&>*+*]:before:inset-x-4 [&>*+*]:before:top-0 [&>*+*]:before:h-px [&>*+*]:before:bg-border/40"
-      >
+      <RowCard>
         {@render children()}
-      </div>
+      </RowCard>
     {/if}
   </section>
 {/if}

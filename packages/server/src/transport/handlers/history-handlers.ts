@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { SessionRuntime } from '../../execution/session-runtime'
-import type { AgentId, IpcContext, SessionMeta, SessionTitleChangedEvent } from '@solus/contracts/types'
+import type { AgentId, ExchangeProgress, IpcContext, SessionMeta, SessionTitleChangedEvent } from '@solus/contracts/types'
 import { loadAnnotations, saveAnnotations, toggleBookmarkAnnotations } from '../../plans/annotations'
 import { listRecentProjects, trackRecentProject } from '../../recent-projects'
 import { createLogger, isDebugEnabled } from '../../logger'
@@ -17,9 +17,11 @@ import { isApiMode } from '../../host/api-mode'
 import { renamePinnedSession } from '../../data/sessions/pinned-sessions'
 import { projectsVisibleTo } from './setup-handlers'
 import { generateSessionMetadata } from '../../execution/sessions/session-title'
+import { ensureBackgroundSessionTitle } from '../../execution/sessions/background-session-title'
+import { sessionExecutionPreferences } from '../../data/sessions/session-states'
 import { emitSessionTasksChanged } from '../../data/tasks/task-sessions'
 import type { HostEventPublisher } from '../events/host-event-publisher'
-import { projectSessionHistory, serializedBytes } from '../../data/sessions/result-projection'
+import { projectSessionHistory, resolvePendingStarts, serializedBytes, withExchangeProgress } from '../../data/sessions/result-projection'
 import { deferSessionToolInputs, selectSessionToolInputs } from '../../data/sessions/session-tool-inputs'
 import { MAX_SESSION_TOOL_INPUTS, type SessionHistoryPage, type WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { activityFor, mergePageActivity, mergeWindowActivity, readActivityPageCursor } from '../../data/activity/activity'
@@ -30,10 +32,12 @@ export interface HistoryDeps {
   sessionRuntime: SessionRuntime
   events: HostEventPublisher
   agentIdFromContext(ctx?: IpcContext): AgentId
+  /** Where an exchange a transcript names stands now, from the orchestrator. */
+  exchangeProgress(exchangeId: string): ExchangeProgress | undefined
 }
 
 export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps): void {
-  const { sessionRuntime, events, agentIdFromContext } = deps
+  const { sessionRuntime, events, agentIdFromContext, exchangeProgress } = deps
   // On the workspace service the history is the mirrored copy
   // (cloud-service-model.md §6): no provider files live there.
   /**
@@ -44,12 +48,12 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   const historyOf = async (handlerCtx: HandlerCtx, agentId: AgentId, sessionId: string, projectPath?: string, limit?: number): Promise<WireSessionLoadMessage[]> =>
     isApiMode()
       ? readTranscript(recordScopeOf(handlerCtx.principal), sessionId, limit)
-      : projectSessionHistory(await sessionRuntime.loadSession(agentId, sessionId, projectPath, limit))
+      : resolvePendingStarts(recordScopeOf(handlerCtx.principal), projectSessionHistory(await sessionRuntime.history.loadSession(agentId, sessionId, projectPath, limit)))
   /** A session's activity for a history read (plans/012 §5). */
   const sessionActivityOf = (handlerCtx: HandlerCtx, sessionId: string) =>
     activityFor(recordScopeOf(handlerCtx.principal), sessionRuntime.sessionActivitySubject(sessionId))
   const sessionInfoOf = async (handlerCtx: HandlerCtx, sessionId: string): Promise<SessionMeta | null> => {
-    const meta = await sessionRuntime.getSessionInfo(sessionId)
+    const meta = await sessionRuntime.history.getSessionInfo(sessionId)
     if (meta || !isApiMode()) return meta
     const record = await getSessionRecord(recordScopeOf(handlerCtx.principal), sessionId)
     return record ? sessionMetaFromRecord(record) : null
@@ -109,7 +113,8 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
         }
         log.debug('session_load_bytes', { sessionId, bytes: totalBytes, messageCount: messages.length })
       }
-      return options?.deferToolInputs ? deferSessionToolInputs(messages) : messages
+      const current = withExchangeProgress(messages, exchangeProgress)
+      return options?.deferToolInputs ? deferSessionToolInputs(current) : current
     } catch (err) {
       log.error('load_session_failed', { error: String(err), sessionId, projectPath })
       return []
@@ -129,7 +134,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const pageRequest = { ...request, before: cursor.before }
     const page: SessionHistoryPage = isApiMode()
       ? await readTranscriptPage(recordScopeOf(handlerCtx.principal), pageRequest.sessionId, pageRequest.turnLimit, pageRequest.before)
-      : await sessionRuntime.loadSessionPage(pageRequest).then((loaded) => ({ messages: projectSessionHistory(loaded.messages), before: loaded.before }))
+      : await sessionRuntime.history.loadSessionPage(pageRequest).then(async (loaded) => ({ messages: await resolvePendingStarts(recordScopeOf(handlerCtx.principal), projectSessionHistory(loaded.messages)), before: loaded.before }))
     const { messages, before } = mergePageActivity(page, await sessionActivityOf(handlerCtx, request.sessionId), cursor.at)
     recordOtelDuration('load_session_page', Date.now() - startedAt, { provider: request.provider, count: messages.length })
     log.info('session_history_page_loaded', {
@@ -137,7 +142,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       olderPage: !!request.before, hasMore: page.before !== null, durationMs: Date.now() - startedAt,
     })
     return {
-      messages: deferSessionToolInputs(messages),
+      messages: deferSessionToolInputs(withExchangeProgress(messages, exchangeProgress)),
       before,
     }
   })
@@ -156,7 +161,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const agentId = provider ?? agentIdFromContext(ctx)
     log.info('rpc_load_session_preview', { sessionId, projectPath })
     try {
-      return await sessionRuntime.loadSessionPreview(agentId, sessionId, projectPath)
+      return await sessionRuntime.history.loadSessionPreview(agentId, sessionId, projectPath)
     } catch (err) {
       log.error('load_session_preview_failed', { error: String(err), sessionId, projectPath })
       return { head: [], tail: [], totalMessages: 0 }
@@ -198,7 +203,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   server.register('resolveSessionLineage', (args) => {
     const [provider, providerSessionId] = args
     try {
-      return sessionRuntime.resolveSessionLineage(provider, providerSessionId)
+      return sessionRuntime.history.resolveSessionLineage(provider, providerSessionId)
     } catch (err) {
       log.error('resolve_session_handoff_failed', { error: String(err), provider, providerSessionId })
       return null
@@ -208,7 +213,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   server.register('describeSession', async (args, handlerCtx) => {
     const [provider, providerSessionId] = args
     try {
-      const description = await sessionRuntime.describeSession(provider, providerSessionId)
+      const description = await sessionRuntime.history.describeSession(provider, providerSessionId)
       if (description.meta || !isApiMode()) return description
       return { ...description, meta: await sessionInfoOf(handlerCtx, providerSessionId) }
     } catch (err) {
@@ -221,6 +226,15 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const [promptText, cwd, context] = args
     // The run uses the caller's own provider login, as their turns do.
     return generateSessionMetadata(sessionRuntime, promptText, cwd, context, (provider) => sessionRuntime.seatForTurn(ctx.actor, provider))
+  })
+
+  server.register('ensureBackgroundSessionTitle', async (args, ctx) => {
+    const [sessionId, preferences] = args
+    return ensureBackgroundSessionTitle(sessionRuntime, events, {
+      sessionId,
+      preferences: await sessionExecutionPreferences(sessionId) ?? preferences,
+      actor: ctx.actor,
+    })
   })
 
   server.register('setSessionTitle', async (args, ctx) => {
@@ -275,7 +289,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     log.info('rpc_list_plans', { projectPath, allProjects: !!allProjects })
     const t0 = Date.now()
     try {
-      const plans = await sessionRuntime.listPlansForProviders(sessionRuntime.getBackendIds(), projectPath, !!allProjects)
+      const plans = await sessionRuntime.history.listPlansForProviders(sessionRuntime.getBackendIds(), projectPath, !!allProjects)
       recordOtelDuration('list_plans', Date.now() - t0, { count: plans.length, allProjects: !!allProjects })
       return plans
     } catch (err) {
@@ -290,7 +304,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     log.info('rpc_load_plan_content', { sessionId, planToolUseId })
     const t0 = Date.now()
     try {
-      const content = await sessionRuntime.loadPlanContent(agentId, sessionId, projectPath, planToolUseId)
+      const content = await sessionRuntime.history.loadPlanContent(agentId, sessionId, projectPath, planToolUseId)
       recordOtelDuration('load_plan_content', Date.now() - t0, { sessionId, planToolUseId })
       return content
     } catch (err) {
@@ -314,7 +328,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     try {
       // The client sends the whole plan; whatever it wrote and the host has not stamped yet is the caller's.
       await saveAnnotations(recordScopeOf(ctx.principal), { ...annotations, comments: stampComments(annotations.comments, attributionOf(ctx.actor)) })
-      sessionRuntime.invalidatePlanCaches(annotations.sessionId)
+      sessionRuntime.history.invalidatePlanCaches(annotations.sessionId)
       return { ok: true }
     } catch (err) {
       log.error('save_plan_annotations_failed', { error: String(err), sessionId: annotations.sessionId })
@@ -325,7 +339,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   server.register('toggleBookmarkPlan', async (args, ctx) => {
     const [sessionId, projectPath, cwd, planToolUseId, title] = args
     const merged = await toggleBookmarkAnnotations(recordScopeOf(ctx.principal), sessionId, projectPath, cwd, planToolUseId, title)
-    sessionRuntime.invalidatePlanCaches(sessionId)
+    sessionRuntime.history.invalidatePlanCaches(sessionId)
     return merged
   })
 }

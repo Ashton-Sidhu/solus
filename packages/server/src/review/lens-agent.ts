@@ -98,7 +98,7 @@ export function buildLensPrompt(input: Omit<LensAgentInput, 'onWriting' | 'abort
     'Rules for the HTML:',
     '- It runs in a sandbox with NO network access. Inline every style and script. Do not load',
     '  external scripts, stylesheets, fonts, or images, and do not call fetch.',
-    '- Use the `var(--solus-…)` theme variables so the lens works in light and dark mode.',
+    '- Use the injected theme tokens (`--background`, `--foreground`, `--muted-foreground`, `--card`, `--border`, `--primary`, `--success`, `--destructive`, `--chart-1` … `--chart-6`) so the lens works in light and dark mode.',
     '- Keep the design specific to the change. Avoid generic dashboard decoration such as status dots,',
     '  colored accent rails, glowing gradients, and repeated cards that add no information.',
     '- Show status with a meaningful icon instead of a color dot or a status word alone. Give each icon',

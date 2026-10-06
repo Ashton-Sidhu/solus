@@ -14,6 +14,10 @@ interface SessionDeviceView {
 }
 
 const STORAGE_KEY = 'solus:device-view:v1'
+const PRESENTATION_KEY = 'solus:device-presentation:v1'
+
+/** How this client shows a device: on a 3D body the user can turn, or as the flat picture. */
+export type DevicePresentation = 'phone' | 'flat'
 const MAX_SESSIONS = 200
 
 function viewKey(serverId: string, sessionId: string): string {
@@ -39,10 +43,23 @@ function readStorage(): Map<string, SessionDeviceView> {
   }
 }
 
+function readPresentation(): DevicePresentation {
+  try {
+    return globalThis.localStorage?.getItem(PRESENTATION_KEY) === 'flat' ? 'flat' : 'phone'
+  } catch {
+    return 'phone'
+  }
+}
+
 export class DeviceViewState {
+  /** One choice for every device on this client, as in T3 Code. */
+  presentation = $state<DevicePresentation>(readPresentation())
+
   private readonly views = new SvelteMap<string, SessionDeviceView>(readStorage())
   /** Hosts whose Devices pane shows Builds. Not stored: a new window starts on the devices. */
   private readonly buildsShown = new SvelteSet<string>()
+  /** The preview each extra Devices tab shows, by its surface id. Not stored: a reloaded tab offers the picker. */
+  private readonly surfaceSelections = new SvelteMap<string, string>()
 
   isShowingBuilds(serverId: string): boolean {
     return this.buildsShown.has(serverId)
@@ -53,8 +70,25 @@ export class DeviceViewState {
     else this.buildsShown.delete(serverId)
   }
 
+  setPresentation(presentation: DevicePresentation): void {
+    this.presentation = presentation
+    try {
+      globalThis.localStorage?.setItem(PRESENTATION_KEY, presentation)
+    } catch {
+      // Storage unavailable: the choice lasts until the window closes.
+    }
+  }
+
   selected(serverId: string, sessionId: string): string | null {
     return this.views.get(viewKey(serverId, sessionId))?.selectedPreviewId ?? null
+  }
+
+  selectedInSurface(surfaceId: string): string | null {
+    return this.surfaceSelections.get(surfaceId) ?? null
+  }
+
+  selectInSurface(surfaceId: string, devicePreviewId: string): void {
+    this.surfaceSelections.set(surfaceId, devicePreviewId)
   }
 
   name(serverId: string, sessionId: string, devicePreviewId: string): string | undefined {

@@ -11,7 +11,7 @@ import { roleCanDrive } from '../sharing/session-drive'
 import { toasts } from '../../lib/toasts'
 import { notificationsStore } from '../notifications/notifications.store.svelte'
 import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
-import { visibleRef } from '../workspace/routing/location'
+import { activeSurface } from '../workspace/routing/location'
 import { TypingReporter } from './typing-reporter'
 
 /**
@@ -44,7 +44,7 @@ function sessionKey(serverId: string, sessionId: string): string {
 
 /** What the focused pane shows, as the host is told it. */
 function workspaceFocus(workspace: Omit<PresenceWorkspace, 'openRoute'>): FocusReport {
-  const ref = visibleRef(workspace.router.focused)
+  const ref = activeSurface(workspace.router.focused)
   if (ref?.name === 'chat') {
     const tabId = workspace.focusedChatTabId
     const current = tabId ? workspace.sessionFor(tabId) : undefined

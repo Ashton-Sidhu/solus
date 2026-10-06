@@ -17,14 +17,15 @@ class HostRolesStore {
   private readonly inFlight = new Map<string, Promise<void>>()
 
   constructor() {
-    serverConnections.onConnectionCreated((connection) => {
-      void this.load(connection.serverId)
-    })
     serverConnections.onStatusChange((serverId, status) => {
-      if (status === 'connected') void this.load(serverConnections.resolveId(serverId))
+      const resolved = serverConnections.resolveId(serverId)
+      if (status === 'connected') void this.load(resolved)
+      else this.inFlight.delete(resolved)
     })
     queueMicrotask(() => {
-      for (const serverId of serverConnections.connectedServerIds()) void this.load(serverId)
+      for (const serverId of serverConnections.connectedServerIds()) {
+        if (serverConnections.statusFor(serverId) === 'connected') void this.load(serverId)
+      }
     })
   }
 
@@ -61,8 +62,9 @@ class HostRolesStore {
     // Inside the chain, so an older host or a narrower test double without the
     // method is a caught rejection, never a throw out of a status listener.
     const promise = Promise.resolve()
-      .then(() => serverConnections.apiFor(serverId).connectionsGetServerInfo())
+      .then(() => serverConnections.serverInfoFor(serverId))
       .then((info) => {
+        if (this.inFlight.get(serverId) !== promise) return
         this.rolesByServer.set(serverId, hostRolesOf(info, this.assumedRolesFor(serverId)))
       })
       .catch(() => {

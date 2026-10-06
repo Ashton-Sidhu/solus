@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { executionPreferenceSnapshotSchema, type ExecutionPreferences, type ExecutionPreferenceSnapshot } from '@solus/contracts/settings'
 import { getDatabase } from '../../db/database'
 import { taskSessionLinks, tasks } from './schema'
-import { jsonValue } from './task-store'
+import { jsonValue, TASK_HERE } from './task-store'
 
 /**
  * The preferences a task keeps from the person who first led it (plans/018
@@ -26,7 +26,7 @@ function leadPreferencesOf(preferences: ExecutionPreferences): ExecutionPreferen
 /** The task's captured lead preferences; undefined before it was first led, or for a task this host does not hold. */
 export async function taskLeadPreferences(taskId: string): Promise<ExecutionPreferenceSnapshot | undefined> {
   const row = z.object({ lead_preferences: z.string().nullable() }).nullish().parse(await getDatabase().get(sql`
-    SELECT lead_preferences FROM ${tasks} WHERE id = ${taskId}
+    SELECT lead_preferences FROM ${tasks} WHERE id = ${taskId} AND ${TASK_HERE}
   `))
   return row ? jsonValue(row.lead_preferences, executionPreferenceSnapshotSchema) : undefined
 }
@@ -34,9 +34,9 @@ export async function taskLeadPreferences(taskId: string): Promise<ExecutionPref
 /** The captured lead preferences of the task a session leads or works on; a session that only references a task has none. */
 export async function taskLeadPreferencesOfSession(sessionId: string): Promise<ExecutionPreferenceSnapshot | undefined> {
   const row = z.object({ lead_preferences: z.string().nullable() }).nullish().parse(await getDatabase().get(sql`
-    SELECT task.lead_preferences FROM ${taskSessionLinks} link
-    JOIN ${tasks} task ON task.id = link.task_id
-    WHERE link.session_id = ${sessionId} AND link.role <> 'referenced'
+    SELECT tasks.lead_preferences FROM ${taskSessionLinks} link
+    JOIN ${tasks} ON tasks.id = link.task_id
+    WHERE ${TASK_HERE} AND link.session_id = ${sessionId} AND link.role <> 'referenced'
     ORDER BY link.linked_at DESC
     LIMIT 1
   `))

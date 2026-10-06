@@ -1,20 +1,44 @@
-import { afterEach, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { afterAll, afterEach, beforeAll, expect, mock, test } from 'bun:test'
+import { Database } from 'bun:sqlite'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { SessionRunInput } from '@solus/contracts/types'
-import { SessionRequestQueue, type QueuedRequest } from '@solus/server/execution/sessions/session-request-queue'
-import { SessionQueueStore, type SavedQueueEntry } from '@solus/server/data/sessions/session-queue-store'
+import type { QueuedRequest } from '@solus/server/execution/sessions/session-request-queue'
+import type { SavedQueueEntry } from '@solus/server/data/sessions/run-ledger'
 import { SessionPermissionStore } from '@solus/server/data/sessions/session-permission-store'
 import { childPermissionMode } from '@solus/server/execution/sessions/child-permissions'
 import { HandoffCarryStore } from '@solus/server/data/sessions/handoff-carry-store'
 
+mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+const previousDataDir = process.env.SOLUS_DATA_DIR
+let dataDir: string
+let SessionRequestQueue: typeof import('@solus/server/execution/sessions/session-request-queue')['SessionRequestQueue']
+let RunLedger: typeof import('@solus/server/data/sessions/run-ledger')['RunLedger']
+let db: typeof import('@solus/server/db')
+beforeAll(async () => {
+  dataDir = mkdtempSync(join(tmpdir(), 'solus-queue-db-'))
+  process.env.SOLUS_DATA_DIR = dataDir
+  ;({ SessionRequestQueue } = await import('@solus/server/execution/sessions/session-request-queue'))
+  ;({ RunLedger } = await import('@solus/server/data/sessions/run-ledger'))
+  db = await import('@solus/server/db')
+})
+afterAll(() => {
+  db.closeDb()
+  rmSync(dataDir, { recursive: true, force: true })
+  if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
+  else process.env.SOLUS_DATA_DIR = previousDataDir
+})
+
 const roots: string[] = []
-afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  db.getDb().exec('DELETE FROM run_queue')
+})
 function storage() {
   const root = mkdtempSync(join(tmpdir(), 'solus-queue-'))
   roots.push(root)
-  return { root, store: new SessionQueueStore(root) }
+  return { root, store: new RunLedger() }
 }
 const input: SessionRunInput = {
   provider: 'claude-code', agentSessionId: 'native-1', workingDirectory: '/tmp/project', projectPath: '/tmp/project',
@@ -29,7 +53,7 @@ function entry(queueId: string, overrides: Partial<QueuedRequest> = {}): QueuedR
 }
 
 test('restart preserves order, attachments and uncertain receipts, and holds all work', () => {
-  const { store, root } = storage()
+  const { store } = storage()
   const queue = new SessionRequestQueue(store)
   const first = entry('first')
   first.run.options.queueAttachments = [{ id: 'file', name: 'notes.md', type: 'file', hostPath: '/tmp/notes.md' }]
@@ -43,7 +67,8 @@ test('restart preserves order, attachments and uncertain receipts, and holds all
   expect(restored.get('session')?.[0]?.run.options.queueAttachments?.[0]?.name).toBe('notes.md')
   expect(restored.claim('session')).toBeUndefined()
   expect(restored.hasPrompt('session', 'first')).toBe(true)
-  const saved = readFileSync(join(root, readdirSync(root)[0]), 'utf8')
+  const saved = db.getDb().prepare('SELECT payload FROM run_queue').all().map((row) => JSON.stringify(row)).join('\n')
+  expect(saved).toContain('notes.md')
   expect(saved).not.toContain('"tools"')
   expect(saved).not.toContain('"actor"')
   expect(saved).not.toContain('"resolve"')
@@ -85,15 +110,14 @@ test('moving and removing switches changes subsequent prompt providers', () => {
 })
 
 test('a failed disk write cannot consume or silently change an accepted prompt', () => {
-  class FailingStore extends SessionQueueStore {
+  class FailingStore extends RunLedger {
     fail = false
-    override save(sessionId: string, entries: SavedQueueEntry[]): void {
+    override saveQueue(sessionId: string, entries: readonly SavedQueueEntry[]): void {
       if (this.fail) throw new Error('Disk full')
-      super.save(sessionId, entries)
+      super.saveQueue(sessionId, entries)
     }
   }
-  const { root } = storage()
-  const store = new FailingStore(root)
+  const store = new FailingStore()
   const queue = new SessionRequestQueue(store)
   const pending = entry('first')
   queue.enqueue(pending)

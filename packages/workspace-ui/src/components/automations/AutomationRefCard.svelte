@@ -55,7 +55,7 @@
       error = "Schedule history is no longer available. The conversation is kept.";
       return;
     }
-    session.openAutomationBuilder(ref.automationId, "aside");
+    session.openAutomationBuilder(ref.automationId);
   }
 </script>
 

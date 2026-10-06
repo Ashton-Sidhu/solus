@@ -4,11 +4,11 @@
   import { PAGE_ICON_BTN, PAGE_RAISED_ICON_BTN, PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import { comboHint, type BindingId } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
-  import PaneSwapButton from "./PaneSwapButton.svelte";
+  import { underStrip } from "./lib/pane-strip";
 
   /** The pane's only chrome: a floating icon cluster over the top-right of the
    *  content. Every surface below the top rail is content now, so pane-level
-   *  controls (open-in-split, maximize, close) live here instead of in a
+   *  controls (maximize, close) live here instead of in a
    *  per-surface header bar. The room it
    *  occupies is published as `--solus-pane-chrome-inset` by the pane columns so
    *  an in-content top strip can reserve space for it.
@@ -19,11 +19,6 @@
    *  re-covers its no-drag holes and swallows every click as a window move. */
   interface Props {
     onClose: () => void;
-    /** Present when the content can move between panes. */
-    onOpenInSplit?: () => void;
-    /** Whether this pane leads the row — the only positional fact the chrome
-     *  needs, so the move action can name its direction. */
-    isLeading?: boolean;
     /** Present when the pane can be maximized over the window. */
     onToggleMaximize?: (() => void) | null;
     maximized?: boolean;
@@ -43,8 +38,6 @@
 
   let {
     onClose,
-    onOpenInSplit,
-    isLeading = true,
     onToggleMaximize,
     maximized = false,
     maximizeBinding = "pane.maximize",
@@ -62,6 +55,8 @@
         : PAGE_ICON_BTN,
   );
   const iconStroke = $derived(raised ? 1.5 : 2);
+  // The companion strip carries maximize and close for its whole pane.
+  const isUnderStrip = underStrip();
 
   const maximizeHint = $derived(comboHint(maximizeBinding));
   const maximizeTooltip = $derived(
@@ -74,20 +69,11 @@
      strip reserves room for it (the diff toolbar, the tab strip), and those are
      all --solus-chrome-row-h tall. A fixed top-2.5 put the 26px buttons' centre
      at 23px against the row's 20px. -->
+{#if !isUnderStrip()}
 <div
   class="no-drag pointer-events-auto absolute right-2.5 top-0 z-30 flex h-(--solus-chrome-row-h,2.5rem) items-center {raised ? 'gap-1.5' : 'gap-1'}"
 >
   {#if trailing}{@render trailing()}{/if}
-
-  {#if onOpenInSplit}
-    <PaneSwapButton
-      {isLeading}
-      onMove={onOpenInSplit}
-      leadingDestination="pane"
-      iconStroke={iconStroke}
-      class={buttonClass}
-    />
-  {/if}
 
   {#if onToggleMaximize}
     <TooltipUI.Root>
@@ -122,3 +108,4 @@
     <XIcon size={16} strokeWidth={iconStroke} />
   </button>
 </div>
+{/if}

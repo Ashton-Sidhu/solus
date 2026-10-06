@@ -19,7 +19,24 @@ import {
   type ListRowSpec,
 } from '../../ui/list-page/list-page'
 import { PROVIDER_NAMES, ticketRef } from '../task-page/lib/task-upstream'
+import { formatWakeIn } from '../../session/lib/task-list'
 import { visibleLabels } from './tasks-api'
+
+/** A snoozed task is out of the task lists until it wakes. The snooze is
+ *  independent of the status: any task can sleep, and its agents keep working. */
+export function isTaskSnoozed(task: Pick<Task, 'snoozedUntil'>, now: number): boolean {
+  return !!task.snoozedUntil && task.snoozedUntil > now
+}
+
+/** The earliest wake time still ahead, so a list can bring the task back on
+ *  time. Null when nothing is snoozed. */
+export function nextTaskWake(tasks: readonly Pick<Task, 'snoozedUntil'>[], now: number): number | null {
+  let next: number | null = null
+  for (const { snoozedUntil } of tasks) {
+    if (snoozedUntil && snoozedUntil > now && (next === null || snoozedUntil < next)) next = snoozedUntil
+  }
+  return next
+}
 
 /**
  * Lifecycle state is carried by the section a row sits in, so it costs no row
@@ -119,7 +136,11 @@ function chipsFor(task: Task, now: number, homeFor?: TaskHomeLabel): ListChipSpe
     task.dueDate && task.status !== 'done' && task.status !== 'dropped'
       ? Date.parse(`${task.dueDate}T23:59:59`) < now
       : false
-  if (overdue) chips.push({ label: 'overdue', tint: 'failure' })
+  // Only the Snoozed filter shows a sleeping task, so its return time is the
+  // state that matters most there.
+  const wakeAt = task.snoozedUntil ?? 0
+  if (wakeAt > now) chips.push({ label: `wakes in ${formatWakeIn(wakeAt, now)}`, tint: 'info' })
+  else if (overdue) chips.push({ label: 'overdue', tint: 'failure' })
   else if (task.priority === 'urgent') chips.push({ label: 'urgent', tint: 'failure' })
   else if (task.priority === 'high') chips.push({ label: 'high', tint: 'warning' })
 

@@ -1,10 +1,10 @@
 import path from 'path'
-import type { GitIdentity, GitState, GitStateOptions, UncommittedFile } from '@solus/contracts/types'
+import type { BranchChanges, GitIdentity, GitState, GitStateOptions, UncommittedFile } from '@solus/contracts/types'
 import type { RepoRef } from '../providers/types'
 import { createLogger } from '../logger'
 import { runAsync } from './exec'
 import { GitUnavailableError } from './git-availability'
-import { getWorkingTreeStats } from './session-snapshots'
+import { getEpisodeNumstat } from './session-snapshots'
 import { getDefaultBranchLocal, getExistingPR } from './worktree-manager'
 import { isGitOperationInProgress } from './git-operation-state'
 import { z } from 'zod'
@@ -26,6 +26,7 @@ export interface ParsedGitStatus {
   behindCount: number
   files: UncommittedFile[]
   hasMoreFiles: boolean
+  fileCount: number
 }
 
 export function parseStatus(raw: string): ParsedGitStatus {
@@ -35,6 +36,7 @@ export function parseStatus(raw: string): ParsedGitStatus {
   let behindCount = 0
   const files: UncommittedFile[] = []
   let hasMoreFiles = false
+  let fileCount = 0
 
   for (const line of raw.split('\n')) {
     if (!line) continue
@@ -56,6 +58,7 @@ export function parseStatus(raw: string): ParsedGitStatus {
       continue
     }
     if (line.startsWith('#')) continue
+    fileCount += 1
     if (files.length >= 200) {
       hasMoreFiles = true
       continue
@@ -79,7 +82,7 @@ export function parseStatus(raw: string): ParsedGitStatus {
     files.push({ path: filePath, conflicted })
   }
 
-  return { branch, upstreamRef, aheadCount, behindCount, files, hasMoreFiles }
+  return { branch, upstreamRef, aheadCount, behindCount, files, hasMoreFiles, fileCount }
 }
 
 const statusInflight = new Map<string, Promise<GitState | null>>()
@@ -118,8 +121,8 @@ async function computeGitStateUncached(
     // a second status pipeline when the visible panel asks for details.
     const status = await computeGitState(cwd)
     if (!status) return null
-    const [workingTreeStats, prUrl, targetAheadCount] = await Promise.all([
-      getWorkingTreeStats(cwd, status.repoRoot).catch(() => ({ additions: 0, deletions: 0 })),
+    const [branchChanges, prUrl, targetAheadCount] = await Promise.all([
+      getBranchChanges(cwd, status).catch(() => undefined),
       status.branch && status.branch !== status.targetBranch
         ? getExistingPR(status.branch, cwd, options.bypassCache === true)
         : Promise.resolve(null),
@@ -131,11 +134,7 @@ async function computeGitStateUncached(
     ])
     return {
       ...status,
-      uncommittedChanges: {
-        ...status.uncommittedChanges,
-        insertions: workingTreeStats.additions,
-        deletions: workingTreeStats.deletions,
-      },
+      branchChanges,
       targetAheadCount,
       prUrl: prUrl ?? undefined,
     }
@@ -169,11 +168,29 @@ async function computeGitStateUncached(
     uncommittedChanges: {
       files: status.files,
       hasMoreFiles: status.hasMoreFiles,
-      insertions: 0,
-      deletions: 0,
+      fileCount: status.fileCount,
       mergeInProgress,
     },
   }
+}
+
+/** Count the branch review's change without building its patch: the same base
+ *  `resolveReviewContext` gives the review pane, minus the session base it
+ *  falls back to on the target branch, because this status is per checkout. */
+async function getBranchChanges(cwd: string, status: GitState): Promise<BranchChanges> {
+  const base = status.branch && status.branch !== status.targetBranch
+    ? await runAsync('git', ['merge-base', status.targetBranch, 'HEAD'], cwd)
+      .then((sha) => sha.trim() || 'HEAD')
+      .catch(() => 'HEAD')
+    : 'HEAD'
+  const files = await getEpisodeNumstat(cwd, status.repoRoot, base)
+  let insertions = 0
+  let deletions = 0
+  for (const file of files) {
+    insertions += file.additions
+    deletions += file.deletions
+  }
+  return { fileCount: files.length, insertions, deletions }
 }
 
 const identityInflight = new Map<string, Promise<GitIdentity | null>>()

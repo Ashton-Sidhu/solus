@@ -57,7 +57,6 @@
       {
         ctx: session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
         serverId: serverId ?? undefined,
-        target: "aside",
       },
     );
     requestInputFocus();

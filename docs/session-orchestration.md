@@ -162,8 +162,6 @@ a lead: any session that starts another is its parent.
 | `read_task_sessions` | The task view: the task and every session working on it — whoever started it — with its status, what it waits on, its last message and its outputs. It reads durable records, so it works after a restart. |
 | `search_sessions` | Search past conversations by title, branch, pull request and what was said. Every word must be somewhere in the session (docs/plans/unified-search.md). |
 | `list_agent_targets` | Providers and models this host can run. |
-| `read_queue` | Reads the caller's ordered queue, entry revisions, provider choices, and held errors. |
-| `change_queue` | Edits, removes, moves, or promotes a prompt to steering; queues a Claude or Codex provider/model switch. Only a user can resume held work. |
 
 ## Queue and provider changes
 
@@ -221,15 +219,22 @@ of what it did, what it produced and what is still open.
 
 The change uses three focused parts:
 
-- `SessionExchangeStore` saves host-local execution receipts under
-  `session-queues/exchanges/`. A single atomic file contains the result and its
-  pending delivery state. It stores no provider callbacks or permission grants.
+- The run ledger saves host-local execution receipts in the host SQLite file
+  (`run_exchanges`, beside `run_queue` and `runs`; see
+  `docs/plans/orchestration-queue.md`). One row contains the result, its
+  complete reply, the bounded model report, and the delivery state. It stores
+  no provider callbacks or permission grants. `read_session_exchange` pages
+  through the complete reply, also after a restart.
 - `ExchangeLedger` owns request identity, saved state, and child relationships.
-  Active receipts and undelivered reports remain available. Closed receipts are
-  removed after thirty days when the host loads them.
+  It owns every state change: it writes the changed record first and changes
+  memory only when the write succeeds. Active receipts and undelivered reports
+  remain available. Closed receipts are removed after thirty days when the host
+  loads them.
 - `ParentDelivery` merges reports for a busy caller. Queue entries save both the
   report IDs and the incoming request IDs for the completion follow-up. Their
-  text and IDs change in one queue write.
+  text, IDs, and the reports' delivery state change in one transaction. A
+  submission that fails on a known transient error is retried a bounded number
+  of times while the host runs.
 
 The provider adapters still run turns. `SessionRuntime` carries the IDs and
 calls the orchestration hooks when a report is accepted, removed, or settled.
@@ -245,7 +250,7 @@ interval can leave a held, uncertain turn that the author must inspect.
 
 
 - **The control plane runs turns.** A focused session request queue owns ordered
-  entries and crash receipts, backed by atomic host-local files. The runtime keeps provider
+  entries and crash receipts, backed by the run ledger in host SQLite. The runtime keeps provider
   handles, steering, stop and rate-limit parking. A run carries the ids of the
   messages it answers and nothing more about them. It reports what happens to a
   run through hooks: queued, started, parked on a rate limit, a request for

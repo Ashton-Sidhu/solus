@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { ulid } from '@solus/contracts/ulid'
-import { taskComments, taskLinks, taskSessionLinks, tasks } from './schema'
+import { taskComments, taskExternalLinks, taskLinks, taskSessionLinks, tasks } from './schema'
 import { sameUser, type Attribution } from '@solus/contracts/user'
 import { assertTaskAssignee, diffTaskActivity, notifyTaskAssignment, TASK_ACTIVITY_LIMIT } from './task-activity'
 import { activityFor, deleteActivityFor } from '../activity/activity'
@@ -15,7 +15,9 @@ import {
   emitChanged,
   normalizedOptional,
   requireTask,
+  TASK_HERE,
   taskFromRow,
+  type TaskLocation,
   type TaskRow,
 } from './task-store'
 import { deleteSessionLink, taskSessions, writeSessionLink, type SessionLinkDetails } from './task-sessions'
@@ -396,7 +398,7 @@ export class Task implements TaskRecord {
         SELECT tasks.id FROM ${taskSessionLinks}
         JOIN ${tasks} ON tasks.id = task_session_links.task_id
         WHERE task_session_links.session_id = ${sessionId} AND task_session_links.role <> 'referenced'
-          AND tasks.id <> ${this.id} AND tasks.status NOT IN ('done', 'dropped')
+          AND tasks.id <> ${this.id} AND ${TASK_HERE} AND tasks.status NOT IN ('done', 'dropped')
         LIMIT 1
       `))
       if (!heldByLiveTask) await settleSession(sessionId, 'task')
@@ -751,6 +753,28 @@ export class Task implements TaskRecord {
       emitChanged(this.id)
       await this.refresh()
     }
+  }
+
+  /**
+   * Keep only where the task went (cloud-sharing.md §3a): the organization's copy
+   * is now the only copy, so the body, comments, ticket link, history, and
+   * notifications go. The row, its title, and its links stay, so a session or a
+   * work that names the task here is answered with its location.
+   */
+  async moveTo(location: TaskLocation): Promise<void> {
+    await database().transaction(async (db) => {
+      await requireTask(this.#organizationId, this.id, db)
+      for (const table of [taskComments, taskExternalLinks]) {
+        await db.run(sql`DELETE FROM ${table} WHERE task_id = ${this.id}`)
+      }
+      await deleteActivityFor({ kind: 'task', id: this.id }, db)
+      await removeNotificationsFor(db, this.#organizationId, { kind: 'task', taskId: this.id })
+      await db.run(sql`
+        UPDATE ${tasks} SET body = '', location = ${JSON.stringify(location)}
+        WHERE id = ${this.id} AND organization_id = ${this.#organizationId}
+      `)
+    })
+    emitChanged()
   }
 
   async delete(): Promise<boolean> {

@@ -133,8 +133,8 @@ describe('native host connections', () => {
     expect(transports).toHaveLength(2)
   })
 
-  test('a cloud host is dialed with a per-dial grant and falls back from direct to tunnel', async () => {
-    const { registry, connections, transports, timers } = createHostWorld()
+  test('a cloud host forwards forced grant renewal and falls back from direct to tunnel', async () => {
+    const { registry, connections, transports, timers, grantOptions } = createHostWorld()
     await registry.load()
     registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({
       routes: [{ kind: 'direct', url: 'http://10.0.0.20:51234' }, { kind: 'tunnel', url: 'https://build.tunnel.solus.sh' }],
@@ -143,6 +143,8 @@ describe('native host connections', () => {
     const transport = transports[0]
     expect(transport?.options.sessionToken).toBe('')
     expect(await transport?.options.acquireGrant?.()).toBe('grant-for-inst-cloud')
+    expect(await transport?.options.acquireGrant?.({ fresh: true })).toBe('grant-for-inst-cloud')
+    expect(grantOptions).toEqual([undefined, { fresh: true }])
     expect(transport?.serverUrl).toBe('http://10.0.0.20:51234')
     transport?.fail('dial-failed')
     expect(transport?.serverUrl).toBe('https://build.tunnel.solus.sh')

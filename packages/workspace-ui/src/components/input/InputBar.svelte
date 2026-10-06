@@ -35,6 +35,7 @@
     SessionReference,
   } from "@solus/contracts/types";
   import { isSteerableStatus } from "@solus/contracts/types";
+  import { isChat } from "@solus/contracts/chat";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import { isMac } from "../../lib/keybindings/match";
   import { comboHint } from "../../lib/keybindings/manifest";
@@ -157,7 +158,7 @@
     onUnbindWork,
     collapseWhenIdle = true,
     readOnlyReason: suppliedReadOnlyReason = null,
-    idlePlaceholder = "Plan, Build, Automate · @ for context",
+    idlePlaceholder,
     leadingActions,
   }: Props = $props();
 
@@ -203,6 +204,10 @@
   );
   const isConnecting = $derived(sess?.status === "connecting");
   const activeProvider = $derived(run?.provider ?? theme.activeAgent);
+  // A chat is plain conversation; a project is where work gets planned and built.
+  const defaultIdlePlaceholder = $derived(
+    isChat(run?.workingDirectory) ? "Ask anything" : "Plan, Build, Automate · @ for context",
+  );
   // Every provider steers; the turn just has to have actually started.
   const canSteer = $derived(!!sess && isSteerableStatus(sess.status));
   const readOnlyReason = $derived(
@@ -383,13 +388,12 @@
       sessionRefs.length > 0,
   );
   const canSend = $derived(!isConnecting && !isReadOnly && hasContent);
-  // A device with no keyboard has no Escape key, so the only way to stop a run
-  // would be to open a menu. The corner already holds "the next thing you can
-  // do", and with an empty composer during a turn that is stopping it — the
-  // instant anything is typed the button is a Send (or a Steer) again, so
-  // nothing is taken away.
+  // The corner holds "the next thing you can do", and with an empty composer
+  // during a turn that is stopping it — on every device, since the session
+  // action row no longer carries a Stop. The instant anything is typed the
+  // button is a Send (or a Steer) again, so nothing is taken away.
   // A read-only bar offers no way to act on the run, stopping it included.
-  const stopsRun = $derived(!isReadOnly && isTouch && !hasKeyboard && isBusy && !hasContent);
+  const stopsRun = $derived(!isReadOnly && isBusy && !hasContent);
   // Work this session is actively collaborating on — its content is injected
   // into each prompt so the agent revises the live version.
   const boundWork = $derived.by(() => {
@@ -474,7 +478,7 @@
                         ? // Only name the keys where there are keys to name.
                           steerPlaceholder(othersTurn, hasKeyboard)
                         : "Type to queue a message..."
-                    : idlePlaceholder,
+                    : (idlePlaceholder ?? defaultIdlePlaceholder),
   );
 
   // ─── Focus management ───
@@ -856,13 +860,10 @@
             class="pointer-coarse:tap-area flex shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,transform] duration-150 enabled:active:scale-[0.96] {isTouch
               ? 'size-9'
               : 'size-[1.875rem]'} {stopsRun
-              ? ''
+              ? 'bg-(--failure) text-white hover:brightness-110'
               : canSend
                 ? 'bg-(--solus-accent) text-(--solus-text-on-accent) shadow-[0_0.25rem_0.75rem_-0.375rem_var(--solus-send-glow)] hover:shadow-[0_0.3125rem_0.875rem_-0.375rem_var(--solus-send-glow)]'
                 : 'cursor-default bg-(--solus-surface-active) text-(--solus-text-tertiary)'}"
-            style={stopsRun
-              ? "box-shadow:0 0 0 0.03125rem color-mix(in oklch, var(--failure) 45%, transparent);color:color-mix(in oklch, var(--failure) 70%, var(--foreground))"
-              : undefined}
           >
             {#if stopsRun}
               <StopIcon size={12} fill="currentColor" strokeWidth={0} />
@@ -876,7 +877,7 @@
       </TooltipUI.Trigger>
       <TooltipUI.Content
         value={stopsRun
-          ? "Stop this run"
+          ? { label: "Stop this run", shortcut: comboHint("conversation.interrupt") }
           : !canSend
           ? null
           : canSteer

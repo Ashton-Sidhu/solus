@@ -66,24 +66,19 @@ describe('SessionRuntime.runAgent', () => {
     }
 
     const run = plane.runAgent(request)
-    const internals = plane as unknown as {
-      activeAgentRuns: Set<unknown>
-      activeSessions: Map<string, unknown>
-      watches: Map<string, Set<string>>
-      requestQueue: Map<string, unknown>
-    }
+    const internals = plane as unknown as { activeAgentRuns: Set<unknown> }
 
     expect(internals.activeAgentRuns.size).toBe(1)
-    expect(plane.hasActiveWork()).toBe(true)
-    expect(internals.activeSessions.size).toBe(0)
-    expect(internals.watches.size).toBe(0)
-    expect(internals.requestQueue.size).toBe(0)
+    expect(plane.statuses.hasActiveWork()).toBe(true)
+    expect(plane.activeSessions.size).toBe(0)
+    expect(plane.watchers.watches.size).toBe(0)
+    expect(plane.scheduler.requestQueue.size).toBe(0)
 
     fake.complete()
     await run.done
     await Promise.resolve()
     expect(internals.activeAgentRuns.size).toBe(0)
-    expect(plane.hasActiveWork()).toBe(false)
+    expect(plane.statuses.hasActiveWork()).toBe(false)
   })
 
   test('does not hold active work for an interactive run parked outside a running session', async () => {
@@ -102,7 +97,7 @@ describe('SessionRuntime.runAgent', () => {
       persistence: 'session',
     })
 
-    expect(plane.hasActiveWork()).toBe(false)
+    expect(plane.statuses.hasActiveWork()).toBe(false)
     fake.complete()
     await run.done
   })
@@ -115,17 +110,14 @@ describe('SessionRuntime setup cancellation', () => {
     const plane = new SessionRuntime(new Map())
     planes.push(plane)
     const setupController = new AbortController()
-    const internals = plane as unknown as {
-      pendingSetupControllers: Map<string, AbortController>
-    }
-    internals.pendingSetupControllers.set('session-1', setupController)
+    plane.launcher.pendingSetupControllers.set('session-1', setupController)
 
     // A session with setup in flight is addressable before any run exists.
-    plane.watchSession({ sessionId: 'session-1' }, 'ws:a')
+    plane.watchers.watchSession({ sessionId: 'session-1' }, 'ws:a')
     const cancelled = plane.stopSession('session-1', HOST_ACTOR)
 
     expect(cancelled).toBe(true)
     expect(setupController.signal.aborted).toBe(true)
-    expect(internals.pendingSetupControllers.has('session-1')).toBe(false)
+    expect(plane.launcher.pendingSetupControllers.has('session-1')).toBe(false)
   })
 })

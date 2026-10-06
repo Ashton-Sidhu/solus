@@ -1,223 +1,206 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { BrowserRouteHistory } from '@solus/workspace-ui/contexts/workspace/routing/route-history'
 import {
+  activeSurface,
   applyLocation,
-  closeOverlay,
-  closePane,
+  closeSurface,
+  closeSurfacesWhere,
   initialLocation,
   makePane,
-  movePane,
-  place,
-  visibleRef,
-  MAX_PANES,
+  openDestination,
+  openSurface,
+  targetFor,
   type Location,
 } from '@solus/workspace-ui/contexts/workspace/routing/location'
 import { CHAT_ROUTE, chatRoute, type RouteRef } from '@solus/workspace-ui/contexts/workspace/routing/route-registry'
 
-// The placement rules used to be spread across openPage / setArtifact /
-// moveToSecondary / dockPrReview / closeSlot, where none of them could be
-// tested. They are one pure function now, so each rule gets pinned here.
+// The open rules of docs/plans/companion-surfaces.md, one pure function each.
+// A destination owns the leading pane; a surface joins the strip beside it.
 
 const TASKS: RouteRef = { name: 'tasks', params: {} }
 const PRS: RouteRef = { name: 'prs', params: {} }
-const PLAN: RouteRef = { name: 'plan', params: { planId: 'p_1' } }
+const TASK: RouteRef = { name: 'task', params: { taskId: 't_1' } }
 const WORK: RouteRef = { name: 'work', params: { workId: 'w_1' } }
-const PR_REVIEW: RouteRef = { name: 'prReview', params: { number: 4821 } }
-const PR_DIFF: RouteRef = { name: 'prDiff', params: { number: 4821 } }
-const DIFF: RouteRef = { name: 'review', params: { sourceTabId: 'tab_a', view: 'diff' } }
+const PLAN: RouteRef = { name: 'plan', params: { planId: 'p_1' } }
+const SESSION_CHAT = chatRoute('s_2', 'host-a')
 
-function locationWith(...refs: (RouteRef | null)[]): Location {
-  const panes = refs.map((ref) => makePane(ref))
+function locationWith(destination: RouteRef, surfaces: RouteRef[] = [], activeSurfaceIndex = surfaces.length - 1): Location {
+  const panes = [makePane([destination])]
+  if (surfaces.length > 0) panes.push(makePane(surfaces, activeSurfaceIndex))
   return { panes, focusedPaneId: panes[0].id }
 }
 
-describe('placing a route', () => {
-  test('a page replaces the page that is open, wherever it lives', () => {
-    const location = locationWith(CHAT_ROUTE, TASKS)
-    const companion = location.panes[1]
+function stripOf(location: Location): RouteRef[] {
+  return location.panes[1]?.surfaces ?? []
+}
 
-    place(location, PRS, 'focused')
-
-    expect(location.panes).toHaveLength(2)
-    expect(location.panes[1].base).toEqual(PRS)
-    expect(location.panes[0].base).toEqual(CHAT_ROUTE)
-    // Replaced in place, so a split layout stays split rather than migrating
-    // the page back into the leading pane.
-    expect(location.panes[1]).toBe(companion)
-  })
-
-  test('a PR review can open beside the conversation', () => {
-    // WHY: transcript PR links must keep the conversation visible while the
-    // in-app review opens in the companion pane.
-    const location = locationWith(CHAT_ROUTE)
-
-    place(location, PR_REVIEW, 'aside')
-
-    expect(location.panes.map((pane) => pane.base)).toEqual([
-      CHAT_ROUTE,
-      PR_REVIEW,
-    ])
-  })
-
-  test('one artifact across all panes, whichever pane already holds one', () => {
-    const location = locationWith(PLAN, chatRoute('tab_b'))
-
-    place(location, WORK, 'aside')
-
-    expect(location.panes.map((pane) => pane.base)).toEqual([WORK, chatRoute('tab_b')])
-  })
-
-  test("an 'aside' route never takes the leading pane", () => {
-    const location = locationWith(CHAT_ROUTE)
-
-    place(location, PR_DIFF, 'focused')
-
-    expect(location.panes[0].base).toEqual(CHAT_ROUTE)
-    expect(location.panes[1].base).toEqual(PR_DIFF)
-  })
-
-  test("'new' appends until the cap, then replaces the trailing pane", () => {
-    // Written against the cap rather than against two, so raising MAX_PANES is
-    // a constant here too.
-    const location = locationWith(CHAT_ROUTE)
-    for (let i = location.panes.length; i < MAX_PANES; i += 1) {
-      place(location, chatRoute(`tab_${i}`), 'new')
-    }
-    expect(location.panes).toHaveLength(MAX_PANES)
-
-    place(location, PLAN, 'new')
-
-    expect(location.panes).toHaveLength(MAX_PANES)
-    expect(location.panes[MAX_PANES - 1].base).toEqual(PLAN)
-  })
-
-  test('an overlay covers a pane rather than replacing its base', () => {
-    const location = locationWith(CHAT_ROUTE, PLAN)
-
-    place(location, DIFF, 'aside')
-
-    expect(location.panes[1].base).toEqual(PLAN)
-    expect(location.panes[1].overlay).toEqual(DIFF)
-    expect(visibleRef(location.panes[1])).toEqual(DIFF)
-  })
-
-  test('navigating one pane leaves the other pane object identical', () => {
-    // The regression that would silently cost render performance: a new object
-    // reference invalidates every `$derived` reading it, so an untouched pane
-    // must keep its identity across a navigation elsewhere.
-    const location = locationWith(CHAT_ROUTE, TASKS)
-    const leading = location.panes[0]
-    const leadingBase = leading.base
-
-    place(location, PRS, location.panes[1].id)
-
-    expect(location.panes[0]).toBe(leading)
-    expect(location.panes[0].base).toBe(leadingBase)
-  })
-
-  test('re-navigating to the same route does not replace the ref', () => {
-    const location = locationWith(CHAT_ROUTE, TASKS)
-    const base = location.panes[1].base
-
-    place(location, { name: 'tasks', params: {} }, location.panes[1].id)
-
-    expect(location.panes[1].base).toBe(base)
+describe('where a route goes', () => {
+  test('a page is a destination, a record beside it is a surface, a conversation may be either', () => {
+    expect(targetFor(TASKS, 'companion')).toBe('leading')
+    expect(targetFor(TASK, 'leading')).toBe('companion')
+    expect(targetFor(SESSION_CHAT)).toBe('leading')
+    expect(targetFor(SESSION_CHAT, 'companion')).toBe('companion')
   })
 })
 
-describe('closing panes', () => {
-  test('the leading pane falls back to the conversation instead of vanishing', () => {
-    const location = locationWith(PLAN)
+describe('opening a destination', () => {
+  test('replaces what the leading pane holds and takes focus, leaving the strip alone', () => {
+    const location = locationWith(TASKS, [TASK])
+    location.focusedPaneId = location.panes[1].id
+    const companion = location.panes[1]
 
-    closePane(location, location.panes[0].id)
+    openDestination(location, PRS)
 
-    expect(location.panes).toHaveLength(1)
-    expect(location.panes[0].base).toEqual(CHAT_ROUTE)
+    expect(location.panes[0].surfaces).toEqual([PRS])
+    expect(location.focusedPaneId).toBe(location.panes[0].id)
+    // The strip is the router's to swap; the location rule does not touch it.
+    expect(location.panes[1]).toBe(companion)
+  })
+})
+
+describe('opening a surface', () => {
+  test('opens the companion pane with that one surface when there is none', () => {
+    const location = initialLocation()
+
+    const pane = openSurface(location, TASK)
+
+    expect(stripOf(location)).toEqual([TASK])
+    expect(pane.activeSurfaceIndex).toBe(0)
+    expect(location.focusedPaneId).toBe(pane.id)
   })
 
-  test('closing a companion removes it and returns focus to the lead', () => {
-    const location = locationWith(CHAT_ROUTE, PR_REVIEW)
-    location.focusedPaneId = location.panes[1].id
+  test('a different subject opens to the right of the surface the user is in', () => {
+    // WHY: from the task beside the board, its session opens next to the task
+    // and the task stays (rule 4) — it does not replace the task.
+    const location = locationWith(TASKS, [TASK, WORK], 0)
 
-    closePane(location, location.panes[1].id)
+    openSurface(location, SESSION_CHAT)
+
+    expect(stripOf(location)).toEqual([TASK, SESSION_CHAT, WORK])
+    expect(location.panes[1].activeSurfaceIndex).toBe(1)
+  })
+
+  test('the same subject is one surface: it becomes active and takes the new detail', () => {
+    const fileAt = (line: number): RouteRef => ({ name: 'files', params: { serverId: 'h', cwd: '/repo', path: 'a.ts', line } })
+    const location = locationWith(CHAT_ROUTE, [fileAt(3), WORK], 1)
+
+    openSurface(location, fileAt(40))
+
+    expect(stripOf(location)).toEqual([fileAt(40), WORK])
+    expect(location.panes[1].activeSurfaceIndex).toBe(0)
+  })
+
+  test('a review is one surface per conversation, whichever face it shows', () => {
+    const review = (view: 'diff' | 'guide'): RouteRef => ({ name: 'review', params: { sourceTabId: 'tab_a', view } })
+    const location = locationWith(CHAT_ROUTE, [review('diff')])
+
+    openSurface(location, review('guide'))
+
+    expect(stripOf(location)).toEqual([review('guide')])
+  })
+
+  test('a subject that is already the destination focuses the leading pane instead', () => {
+    const record: RouteRef = { name: 'sessionRecord', params: { sessionId: 's_9', serverId: 'host-a' } }
+    const location = locationWith(record)
+
+    openSurface(location, record)
 
     expect(location.panes).toHaveLength(1)
     expect(location.focusedPaneId).toBe(location.panes[0].id)
   })
 
-  test('a pane that exists only for its overlay closes with it', () => {
-    const location = locationWith(CHAT_ROUTE)
-    place(location, DIFF, 'aside')
-    expect(location.panes).toHaveLength(2)
+  test('a background open joins the strip without moving the reader', () => {
+    const location = locationWith(CHAT_ROUTE, [TASK])
+    const focusedBefore = location.focusedPaneId
 
-    closeOverlay(location, location.panes[1].id)
+    openSurface(location, PLAN, { background: true })
 
-    expect(location.panes).toHaveLength(1)
+    expect(stripOf(location)).toEqual([TASK, PLAN])
+    expect(activeSurface(location.panes[1])).toEqual(TASK)
+    expect(location.focusedPaneId).toBe(focusedBefore)
   })
 
-  test('an overlay over real content leaves that content behind', () => {
-    const location = locationWith(CHAT_ROUTE, PLAN)
-    place(location, DIFF, location.panes[1].id)
+  test('in place replaces the active surface: a draft becomes its conversation', () => {
+    const draft: RouteRef = { name: 'draft', params: { draftId: 'd_1' } }
+    const location = locationWith(CHAT_ROUTE, [TASK, draft])
 
-    closeOverlay(location, location.panes[1].id)
+    openSurface(location, SESSION_CHAT, { inPlace: true })
 
-    expect(location.panes).toHaveLength(2)
-    expect(location.panes[1].base).toEqual(PLAN)
+    expect(stripOf(location)).toEqual([TASK, SESSION_CHAT])
   })
 
-  test('the location never reaches zero panes', () => {
-    const location = initialLocation()
-    for (const pane of [...location.panes]) closePane(location, pane.id)
-    expect(location.panes.length).toBeGreaterThan(0)
+  test('the leading pane keeps its object identity when a surface opens', () => {
+    const location = locationWith(CHAT_ROUTE, [TASK])
+    const leading = location.panes[0]
+
+    openSurface(location, WORK)
+
+    expect(location.panes[0]).toBe(leading)
   })
 })
 
-describe('moving a route between panes', () => {
-  test('out of the lead: the conversation returns, the route goes beside it', () => {
-    const location = locationWith(PLAN)
+describe('closing surfaces', () => {
+  test('closing the active surface activates its right neighbour', () => {
+    const location = locationWith(CHAT_ROUTE, [TASK, WORK, PLAN], 1)
 
-    movePane(location, location.panes[0].id, 1)
+    closeSurface(location, 1)
 
-    expect(location.panes.map((pane) => pane.base)).toEqual([CHAT_ROUTE, PLAN])
-    expect(location.focusedPaneId).toBe(location.panes[1].id)
+    expect(stripOf(location)).toEqual([TASK, PLAN])
+    expect(activeSurface(location.panes[1])).toEqual(PLAN)
   })
 
-  test('back into the lead: the companion is gone, not left holding a chat', () => {
-    const location = locationWith(CHAT_ROUTE, PLAN)
+  test('closing the last surface in the row activates its left neighbour', () => {
+    const location = locationWith(CHAT_ROUTE, [TASK, WORK], 1)
 
-    movePane(location, location.panes[1].id, -1)
+    closeSurface(location, 1)
 
-    expect(location.panes).toHaveLength(1)
-    expect(location.panes[0].base).toEqual(PLAN)
+    expect(activeSurface(location.panes[1])).toEqual(TASK)
   })
 
-  test('opening a companion overlay as a page moves it into the lead', () => {
-    const location = locationWith(CHAT_ROUTE)
-    place(location, DIFF, 'aside')
+  test('closing a surface to the left keeps the reader on the same surface', () => {
+    const location = locationWith(CHAT_ROUTE, [TASK, WORK, PLAN], 2)
 
-    movePane(location, location.panes[1].id, -1)
+    closeSurface(location, 0)
+
+    expect(activeSurface(location.panes[1])).toEqual(PLAN)
+  })
+
+  test('closing the only surface closes the companion pane and returns focus to the lead', () => {
+    const location = locationWith(CHAT_ROUTE, [TASK])
+    location.focusedPaneId = location.panes[1].id
+
+    closeSurface(location, 0)
 
     expect(location.panes).toHaveLength(1)
-    expect(location.panes[0].base).toBeNull()
-    expect(location.panes[0].overlay).toEqual(DIFF)
+    expect(location.focusedPaneId).toBe(location.panes[0].id)
+  })
+
+  test('closing by predicate closes only what it names', () => {
+    const location = locationWith(CHAT_ROUTE, [TASK, WORK, PLAN], 0)
+
+    closeSurfacesWhere(location, (ref) => ref.name === 'work')
+
+    expect(stripOf(location)).toEqual([TASK, PLAN])
+    expect(activeSurface(location.panes[1])).toEqual(TASK)
   })
 })
 
 describe('applying a location', () => {
   test('reuses panes by position so geometry and DOM survive back/forward', () => {
-    const location = locationWith(CHAT_ROUTE, TASKS)
+    const location = locationWith(CHAT_ROUTE, [TASK])
     const leading = location.panes[0]
     const companion = location.panes[1]
 
-    applyLocation(location, locationWith(CHAT_ROUTE, PRS))
+    applyLocation(location, locationWith(CHAT_ROUTE, [TASK, WORK], 0))
 
     expect(location.panes[0]).toBe(leading)
     expect(location.panes[1]).toBe(companion)
-    expect(location.panes[1].base).toEqual(PRS)
+    expect(location.panes[1].surfaces).toEqual([TASK, WORK])
+    expect(location.panes[1].activeSurfaceIndex).toBe(0)
   })
 
-  test('drops panes the incoming location does not have', () => {
-    const location = locationWith(CHAT_ROUTE, TASKS)
+  test('drops the companion pane the incoming location does not have', () => {
+    const location = locationWith(CHAT_ROUTE, [TASK])
 
     applyLocation(location, locationWith(CHAT_ROUTE))
 
@@ -353,7 +336,7 @@ describe('web address bar', () => {
     const router = bind(browser)
     expect(router.at('settings')).toBe(true)
     expect(router.at('work')).toBe(true)
-    expect(router.focused.base?.name).toBe('work')
+    expect(activeSurface(router.focused)?.name).toBe('work')
     expect(browser.location.hash).toBe('')
     const reloaded = bind(new FakeBrowserWindow(browser.location.pathname + browser.location.search))
     expect(reloaded.serialized).toBe(router.serialized)

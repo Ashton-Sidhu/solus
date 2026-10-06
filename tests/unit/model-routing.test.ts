@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { DEFAULT_MODEL_ROUTING, modelRoutingSchema } from '@solus/contracts/model-routing'
-import { executionPreferencesSchema } from '@solus/contracts/settings'
+import { DEFAULT_MODEL_ROUTING, defaultLeadInstructions, modelRoutingSchema } from '@solus/contracts/model-routing'
+import { DEFAULT_PERSONAL_SETTINGS, executionPreferencesSchema } from '@solus/contracts/settings'
 import { FIVE_HOUR_WINDOW_MINS, MODEL_PROFILES, WEEKLY_WINDOW_MINS, type AgentMetadata } from '@solus/contracts/types'
 import { routeModelPrompt, selectModelRoute } from '@solus/server/execution/agents/model-routing'
 import { UsageLimitsStore } from '@solus/server/usage/usage-store'
@@ -113,5 +113,31 @@ describe('one-time model routing', () => {
     expect(executionPreferencesSchema.parse({ modelRouting: config }).modelRouting).toEqual(config)
     expect(modelRoutingSchema.safeParse({ ...config, ui: 'auto' }).success).toBe(false)
     expect(executionPreferencesSchema.safeParse({ modelRouting: { ...config, ui: 'auto' } }).success).toBe(false)
+  })
+})
+
+describe('default lead instructions', () => {
+  // WHY: a task lead routes its workers the way Auto routes a new session, by
+  // the same categories and models. The rules are the field's default, so the
+  // user sees and edits the exact text the lead gets.
+  test('the default lead instructions route each category to its routing model', () => {
+    const instructions = DEFAULT_PERSONAL_SETTINGS.leadInstructions
+    expect(instructions).toBe(defaultLeadInstructions(DEFAULT_MODEL_ROUTING))
+    expect(instructions).toContain("User interface (Design or implement a user interface, visual layout, styling, or user interaction.): agent_provider 'claude-code', model_id 'claude-opus-5-5'.")
+    expect(instructions).toContain("General use (General assistance, explanation, routine work, or no clear specialist category.): agent_provider 'codex', model_id 'gpt-6-sol'.")
+  })
+
+  // WHY: a lead that waits inside start_session holds its turn and the user's
+  // attention; a lead that reuses old workers pays for their long threads.
+  test('the default lead instructions start workers async and fresh', () => {
+    const instructions = DEFAULT_PERSONAL_SETTINGS.leadInstructions
+    expect(instructions).toContain('Always start workers async: wait_seconds=0')
+    expect(instructions).toContain('For new work, start a new worker.')
+  })
+
+  test('a routed model no profile lists falls back to the general model', () => {
+    const instructions = defaultLeadInstructions({ ...DEFAULT_MODEL_ROUTING, ui: 'not-a-model' })
+    expect(instructions).toContain("User interface (Design or implement a user interface, visual layout, styling, or user interaction.): agent_provider 'codex', model_id 'gpt-6-sol'.")
+    expect(instructions).not.toContain('not-a-model')
   })
 })

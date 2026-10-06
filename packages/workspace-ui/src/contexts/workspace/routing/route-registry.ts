@@ -10,8 +10,8 @@ import { serverConnections } from '@solus/client-core/server-connections'
  *
  * A descriptor is the single place a destination states what it needs: how its
  * params survive a round-trip through a URL (`parse`/`serialize`), where it is
- * allowed to sit (`placement`), what it may not coexist with (`exclusiveGroup`),
- * how wide it opens (`defaultWeight`), and which module renders it
+ * allowed to sit (`placement`), which surfaces count as the same subject
+ * (`surfaceKey`), how wide it opens (`defaultWeight`), and which module renders it
  * (`component`). Adding a destination is one entry here — no store method, no
  * boolean flag, no branch in the outlet.
  *
@@ -24,7 +24,6 @@ import { serverConnections } from '@solus/client-core/server-connections'
 export type SettingsTab =
   | 'personal'
   | 'organization'
-  | 'device'
   | 'host'
   | 'general'
   | 'appearance'
@@ -47,7 +46,6 @@ export type SettingsTab =
 const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
   'personal',
   'organization',
-  'device',
   'host',
   'general',
   'appearance',
@@ -155,8 +153,9 @@ export interface RouteParams {
    *  is how "an agent asked for a surface" lands somewhere. */
   browser: { browserPageId?: string; serverId?: string }
   /** Native device previews for one session (docs/plans/native-devices.md).
-   *  Without a session the pane follows the focused conversation. */
-  devices: { sessionId?: string; serverId?: string }
+   *  Without a session the pane follows the focused conversation. A
+   *  `surfaceId` names an extra Devices tab, which shows its own device. */
+  devices: { sessionId?: string; serverId?: string; surfaceId?: string }
   /** The record of a session on a host that cannot open its transcript: the
    *  organization's workspace service while the runner is offline
    *  (docs/plans/cloud-service-model.md R8). Read-only. */
@@ -171,16 +170,12 @@ export type RouteRef<K extends RouteName = RouteName> = K extends RouteName
   : never
 
 /**
- * Where a route may sit, stated relatively so it survives adding panes.
- * - `any` — any pane, including the leading one.
- * - `aside` — never the leading pane. What "secondary-only" used to mean.
- * - `overlay` — covers a pane's base content instead of replacing it.
+ * Where a route may sit (docs/plans/companion-surfaces.md).
+ * - `destination` — the leading pane. A place the user navigates to.
+ * - `surface` — the companion strip. A thing inspected beside the destination.
+ * - `either` — a conversation or a page that can also be the destination or a surface.
  */
-export type Placement = 'any' | 'aside' | 'overlay'
-
-/** At most one route of a group exists across all panes; opening another
- *  replaces it wherever it already lives. */
-export type ExclusiveGroup = 'page' | 'artifact'
+export type Placement = 'destination' | 'surface' | 'either'
 
 /** Everything the router and the outlet need from a destination. */
 export interface RouteDescriptor<K extends RouteName> {
@@ -189,7 +184,10 @@ export interface RouteDescriptor<K extends RouteName> {
   parse: (segment: string) => RouteParams[K] | null
   serialize: (params: RouteParams[K]) => string
   placement: Placement
-  exclusiveGroup?: ExclusiveGroup
+  /** The subject a surface shows, without its detail. Two refs with the same
+   *  key are one surface: opening the second updates the first in place.
+   *  Defaults to the serialized params. */
+  surfaceKey?: (params: RouteParams[K]) => string
   /** A utility page the user steps into and back out of. Closing it returns its
    *  pane to the main-workspace route it replaced, not to home or to history. */
   returnsOnClose?: boolean
@@ -272,7 +270,7 @@ export const ROUTES: RouteTable = {
         : { sessionId: optional(s) }
     },
     serialize: (p) => p.sessionId ? serializeScopedId(p.sessionId, p.serverId) : '',
-    placement: 'any',
+    placement: 'either',
     // The pool owns a chat's lifecycle: the leading pane renders it hidden
     // rather than unmounted, so navigation never tears a conversation down.
     // A chat pinned into a companion pane mounts eagerly through the outlet,
@@ -282,23 +280,23 @@ export const ROUTES: RouteTable = {
   draft: {
     parse: (s) => (s ? { draftId: s } : null),
     serialize: (p) => p.draftId,
-    placement: 'any',
+    // A second composition can sit beside the first and become a chat surface
+    // when it is sent.
+    placement: 'either',
     // The pane shell renders this primary creation surface eagerly. It still
     // unmounts on navigation; the prompt itself lives in `sessionDrafts`.
   },
   tasks: {
     parse: () => ({}),
     serialize: () => '',
-    placement: 'any',
-    exclusiveGroup: 'page',
+    placement: 'destination',
     // Workspace list pages keep one fixed header position when the session
     // sidebar changes; their own top measure clears the page controls.
     ownsTitlebarChrome: true,
     component: () => import('../../../components/tasks/TasksPage.svelte'),
   },
-  // One task, deep-linkable. It replaces the list in place rather than sitting
-  // beside it: the page is the full-width two-column detail, and its own
-  // breadcrumb is the way back.
+  // One task, deep-linkable. A surface beside the board or the conversation;
+  // maximize gives it the full width.
   task: {
     parse: (s) => {
       const { id, serverId } = parseScopedId(s)
@@ -306,16 +304,14 @@ export const ROUTES: RouteTable = {
       return serverId ? { taskId: id, serverId } : { taskId: id }
     },
     serialize: (p) => serializeScopedId(p.taskId, p.serverId),
-    placement: 'any',
-    exclusiveGroup: 'page',
+    placement: 'surface',
     ownsTitlebarChrome: true,
     component: () => import('../../../components/tasks/task-page/TaskPage.svelte'),
   },
   prs: {
     parse: (s) => ({ projectPath: optional(s) }),
     serialize: (p) => p.projectPath ?? '',
-    placement: 'any',
-    exclusiveGroup: 'page',
+    placement: 'destination',
     // The review panel beside the list paints its chrome band to the window's
     // top edge, so an outlet-level pad would read as an empty strip above it.
     // The list keeps the same fixed top measure in either sidebar state.
@@ -341,8 +337,10 @@ export const ROUTES: RouteTable = {
         : p.traceId
           ? (p.spanId ? `${p.traceId}/${p.spanId}` : p.traceId)
           : '',
-    placement: 'any',
-    exclusiveGroup: 'page',
+    // A page from the sidebar, a surface beside the conversation it measures.
+    placement: 'either',
+    // One console: opening a turn or a session in it updates the surface in place.
+    surfaceKey: () => 'insights',
     // Keeps the console at the same fixed top measure as the other workspace
     // pages whether or not the session sidebar is showing.
     ownsTitlebarChrome: true,
@@ -351,8 +349,7 @@ export const ROUTES: RouteTable = {
   reviewMode: {
     parse: () => ({}),
     serialize: () => '',
-    placement: 'any',
-    exclusiveGroup: 'page',
+    placement: 'destination',
     ownsTitlebarChrome: true,
     component: () => import('../../../components/review-mode/ReviewModeHost.svelte'),
   },
@@ -370,8 +367,7 @@ export const ROUTES: RouteTable = {
       }
     },
     serialize: (p) => (p.projectCwd ? `${p.tab ?? 'projects'}/${p.projectCwd}` : p.tab ?? ''),
-    placement: 'any',
-    exclusiveGroup: 'page',
+    placement: 'destination',
     returnsOnClose: true,
     // The nav column paints to the window's top edge, so the page clears the
     // window controls inside its own header band rather than being padded down.
@@ -381,8 +377,7 @@ export const ROUTES: RouteTable = {
   folio: {
     parse: () => ({}),
     serialize: () => '',
-    placement: 'any',
-    exclusiveGroup: 'page',
+    placement: 'destination',
     // The workspace paints to the window's top edge and keeps one fixed header
     // position when the session sidebar changes.
     ownsTitlebarChrome: true,
@@ -391,8 +386,7 @@ export const ROUTES: RouteTable = {
   automations: {
     parse: (s) => ({ automationId: optional(s) }),
     serialize: (p) => p.automationId ?? '',
-    placement: 'any',
-    exclusiveGroup: 'page',
+    placement: 'destination',
     // Keep the list aligned with Tasks, Pull Requests, and Workspace instead of
     // applying a second top inset when the session sidebar collapses.
     ownsTitlebarChrome: true,
@@ -401,8 +395,7 @@ export const ROUTES: RouteTable = {
   notifications: {
     parse: () => ({}),
     serialize: () => '',
-    placement: 'any',
-    exclusiveGroup: 'page',
+    placement: 'destination',
     ownsTitlebarChrome: true,
     component: () => import('../../../components/notifications/NotificationsPage.svelte'),
   },
@@ -414,8 +407,7 @@ export const ROUTES: RouteTable = {
       return serverId ? { planId: id || null, serverId } : { planId: s || null }
     },
     serialize: (p) => serializeScopedId(p.planId ?? '', p.serverId),
-    placement: 'any',
-    exclusiveGroup: 'artifact',
+    placement: 'surface',
     component: () => import('../../../components/plan/PlanPane.svelte'),
   },
   work: {
@@ -425,8 +417,7 @@ export const ROUTES: RouteTable = {
       return serverId ? { workId: id, serverId } : { workId: id }
     },
     serialize: (p) => serializeScopedId(p.workId, p.serverId),
-    placement: 'any',
-    exclusiveGroup: 'artifact',
+    placement: 'surface',
     // The pane shell mounts WorkPane eagerly: it owns the loading state for the
     // content read, so there is no module boundary to cover in front of it.
   },
@@ -436,8 +427,7 @@ export const ROUTES: RouteTable = {
       return serverId ? { automationId: id || null, serverId } : { automationId: s || null }
     },
     serialize: (p) => serializeScopedId(p.automationId ?? '', p.serverId),
-    placement: 'any',
-    exclusiveGroup: 'artifact',
+    placement: 'surface',
     component: () => import('../../../components/automations/AutomationPane.svelte'),
   },
   goal: {
@@ -447,7 +437,7 @@ export const ROUTES: RouteTable = {
       return serverId ? { sessionId: id, serverId } : { sessionId: id }
     },
     serialize: (p) => serializeScopedId(p.sessionId, p.serverId),
-    placement: 'aside',
+    placement: 'surface',
     defaultWeight: 0.34,
     // No component: the goal surface only exists in the shells that have no
     // project panel to put it in (mobile web), which renders its own.
@@ -456,17 +446,6 @@ export const ROUTES: RouteTable = {
     parse: (s) => {
       const [head, second, ...rest] = s.split('/')
       if (!head) return null
-      // The guide route this one absorbed: `<key>/<branch|session>/<sourceTabId>`.
-      // `branch`/`session` can never be a view name, so the two forms never
-      // collide. The cached-guide key is dropped — it is derivable from the
-      // checkout, which is why it was never load-bearing.
-      if (second === 'branch' || second === 'session') {
-        const sourceTabId = rest[0]
-        if (!sourceTabId) return null
-        const legacy: RouteParams['review'] = { sourceTabId, view: 'guide' }
-        if (second === 'session') legacy.scope = { kind: 'session' }
-        return legacy
-      }
       // Parsing is canonicalising: a location always names its view, so a
       // round trip through the address bar cannot quietly change one.
       const params: RouteParams['review'] = {
@@ -490,10 +469,10 @@ export const ROUTES: RouteTable = {
       ]
         .join('/')
         .replace(/\/+$/, ''),
-    // The diff's placement, not the old guide's leading pane: reading changes
-    // beside a running conversation is the high-frequency gesture, and the
-    // guide is now a tab away rather than a different destination.
-    placement: 'overlay',
+    placement: 'surface',
+    // One review surface per source conversation. The view, scope and file are
+    // where the reader is inside it.
+    surfaceKey: (p) => p.sourceTabId,
     defaultWeight: 0.6,
     component: () => import('../../../components/review/ReviewPane.svelte'),
   },
@@ -515,11 +494,7 @@ export const ROUTES: RouteTable = {
     serialize: (p) => [serializeScopedId(String(p.number), p.serverId), p.cwd]
       .filter((segment) => segment != null)
       .join('/'),
-    // A pull request is a place inside the list, not a panel beside it: opening
-    // one replaces the list in the leading pane, and the chrome band's crumb —
-    // not a second copy of the list in a sidebar — is the way back and sideways.
-    placement: 'any',
-    exclusiveGroup: 'page',
+    placement: 'surface',
     ownsTitlebarChrome: true,
     component: () => import('../../../components/pr-review/PrReviewRoutePane.svelte'),
     resolve: (params, ctx) => {
@@ -552,9 +527,7 @@ export const ROUTES: RouteTable = {
     serialize: (p) => [serializeScopedId(String(p.number), p.serverId), p.cwd ?? '']
       .join('/')
       .replace(/\/+$/, ''),
-    // The review leads; its diff pops out beside it, so the activity feed and
-    // the change are readable together. Shares the aside with the review's chat.
-    placement: 'aside',
+    placement: 'surface',
     defaultWeight: 0.5,
     component: () => import('../../../components/pr-review/PrDiffPane.svelte'),
   },
@@ -575,7 +548,9 @@ export const ROUTES: RouteTable = {
     serialize: (p) => p.path
       ? `${p.serverId}/@file/${encodeURIComponent(p.cwd)}/${p.line ?? '-'}/${p.path}`
       : `${p.serverId}/${p.cwd}`,
-    placement: 'overlay',
+    placement: 'surface',
+    // A different line in the same file is the same surface.
+    surfaceKey: (p) => [p.serverId, p.cwd, p.path ?? ''].join('/'),
     defaultWeight: 0.6,
     component: () => import('../../../components/files/FilesTreePane.svelte'),
   },
@@ -588,7 +563,7 @@ export const ROUTES: RouteTable = {
       return serverId ? { sessionId: id, messageId, serverId } : { sessionId: id, messageId }
     },
     serialize: (p) => `${serializeScopedId(p.sessionId, p.serverId)}/${p.messageId}`,
-    placement: 'overlay',
+    placement: 'surface',
     defaultWeight: 0.6,
     component: () => import('../../../components/conversation/SubagentHostPane.svelte'),
   },
@@ -601,22 +576,30 @@ export const ROUTES: RouteTable = {
       return params
     },
     serialize: (p) => serializeScopedId(p.browserPageId ?? '', p.serverId),
-    // Beside the conversation, like the diff and the review: looking at the app
-    // while directing an agent is the gesture, not leaving the conversation.
-    placement: 'aside',
+    placement: 'surface',
+    // One browser surface per strip: its own page strip moves between pages.
+    surfaceKey: () => '',
     defaultWeight: 0.5,
     component: () => import('../../../components/browser/BrowserPane.svelte'),
   },
   devices: {
     parse: (s) => {
-      const { id, serverId } = parseScopedId(s)
+      const [head, surfaceId] = s.split('/')
+      const { id, serverId } = parseScopedId(head)
       const params: RouteParams['devices'] = {}
       if (id) params.sessionId = id
       if (serverId) params.serverId = serverId
+      if (surfaceId) params.surfaceId = surfaceId
       return params
     },
-    serialize: (p) => serializeScopedId(p.sessionId ?? '', p.serverId),
-    placement: 'aside',
+    serialize: (p) => {
+      const scoped = serializeScopedId(p.sessionId ?? '', p.serverId)
+      return p.surfaceId ? `${scoped}/${p.surfaceId}` : scoped
+    },
+    placement: 'surface',
+    // One first Devices surface per strip: a run started from inside it opens
+    // it again. The user adds more from the strip; each has its own id.
+    surfaceKey: (p) => p.surfaceId ?? '',
     defaultWeight: 0.4,
     component: () => import('../../../components/devices/DevicesPane.svelte'),
   },
@@ -626,10 +609,9 @@ export const ROUTES: RouteTable = {
       return id && serverId ? { sessionId: id, serverId } : null
     },
     serialize: (p) => serializeScopedId(p.sessionId, p.serverId),
-    // A page, like a task: it replaces the list in the leading pane, and its
-    // crumb is the way back.
-    placement: 'any',
-    exclusiveGroup: 'page',
+    // Read like a conversation: the destination from the sidebar, a surface
+    // from inside a page.
+    placement: 'either',
     ownsTitlebarChrome: true,
     component: () => import('../../../components/session/record/SessionRecordPage.svelte'),
   },
@@ -658,58 +640,22 @@ export function serializeRef(ref: RouteRef): string {
   return segment ? `${ref.name}/${segment}` : ref.name
 }
 
-/**
- * Route names that no longer exist, and what they became. A persisted location
- * or a shared link outlives the route it names, so a retired name is a redirect
- * here rather than a dropped pane.
- *
- * Each entry brings its own parser: the old name had its own segment grammar,
- * and reading it with the successor's parser would silently mis-seat every
- * field rather than fail.
- */
-const RENAMED_ROUTES = new Map<string, (segment: string) => RouteRef | null>([
-  // The diff became the review pane's Diff view. Its grammar was
-  // `<sourceTabId>/<scope>/<filePath>` — a scope where the review pane now
-  // writes a view — so it is read here and re-seated.
-  [
-    'diff',
-    (segment: string) => {
-      const [sourceTabId, scope, ...rest] = segment.split('/')
-      if (!sourceTabId) return null
-      const params: RouteParams['review'] = { sourceTabId, view: 'diff' }
-      if (scope) params.scope = parseDiffScope(scope)
-      const filePath = optional(rest.join('/'))
-      if (filePath) params.filePath = filePath
-      return { name: 'review', params }
-    },
-  ],
-])
-
 /** Total: unparseable input yields null so the caller can drop one pane. */
 export function parseRef(text: string): RouteRef | null {
   const slash = text.indexOf('/')
   const name = slash === -1 ? text : text.slice(0, slash)
   const segment = slash === -1 ? '' : text.slice(slash + 1)
-  const renamed = RENAMED_ROUTES.get(name)
-  if (renamed) return renamed(segment)
   if (!isRouteName(name)) return null
   const params = ROUTES[name].parse(segment)
   // SAFETY: The selected descriptor parses the parameter type paired with name.
   return params ? ({ name, params } as RouteRef) : null
 }
 
-export function isPageRoute(ref: RouteRef | null | undefined): boolean {
-  return !!ref && ROUTES[ref.name].exclusiveGroup === 'page'
-}
-
-/** Content the open-in-split action may move between panes. A chat moves by
- *  splitting its tab, and `aside`/`overlay` routes have nowhere else to go. */
-export function isMovableRoute(ref: RouteRef | null | undefined): boolean {
-  return !!ref && ref.name !== 'chat' && ROUTES[ref.name].placement === 'any'
-}
-
-export function isArtifactRoute(ref: RouteRef | null | undefined): boolean {
-  return !!ref && ROUTES[ref.name].exclusiveGroup === 'artifact'
+/** The subject a ref names, without its detail. Same key, same surface. */
+export function surfaceKey(ref: RouteRef): string {
+  // SAFETY: A RouteRef couples each route name to the matching parameter type.
+  const key = ROUTES[ref.name].surfaceKey as ((params: RouteParams[RouteName]) => string) | undefined
+  return key ? `${ref.name}/${key(ref.params)}` : serializeRef(ref)
 }
 
 /** The chat pool's own route: the leading pane's resting state. */

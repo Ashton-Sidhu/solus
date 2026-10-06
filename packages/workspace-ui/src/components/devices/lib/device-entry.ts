@@ -12,7 +12,7 @@ import type { SettingsTab } from '../../../contexts/workspace/routing/route-regi
  */
 
 interface DeviceShell {
-  openDevices(sessionId?: string, serverId?: string): void
+  openDevices(sessionId?: string, serverId?: string, opts?: { automatic?: boolean }): void
   showSettings(tab: SettingsTab, via: Via): void
   focusedChatTabId: string | null
   sessionFor(tabId: string): { id: string } | undefined
@@ -51,6 +51,6 @@ export function revealDeviceSurface(
   const focusedTabId = shell.focusedChatTabId
   const focusedSessionId = focusedTabId ? shell.sessionFor(focusedTabId)?.id : undefined
   if (focusedSessionId !== payload.sessionId) return
-  shell.openDevices(payload.sessionId, serverId)
+  shell.openDevices(payload.sessionId, serverId, { automatic: payload.openedBy === 'agent' })
   requestInputFocus()
 }

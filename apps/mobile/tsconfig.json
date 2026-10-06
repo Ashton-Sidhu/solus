@@ -6,5 +6,5 @@
     "noEmit": true,
     "types": []
   },
-  "include": ["index.ts", "src/**/*.ts", "src/**/*.tsx"]
+  "include": ["index.ts", "uniwind-types.d.ts", "src/**/*.ts", "src/**/*.tsx"]
 }

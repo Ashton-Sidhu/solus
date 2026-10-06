@@ -132,3 +132,20 @@ export function limitResetSnoozeUntil(
 ): number | null {
   return limitResetsAt && limitResetsAt > now ? limitResetsAt : null
 }
+
+/** A wake time as the custom picker's local `YYYY-MM-DDTHH:MM` value. */
+export function snoozePickerValue(at: number): string {
+  const date = new Date(at)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+/** The wake time a custom picker value names, or null when it is not a time
+ *  ahead of `now`: a snooze into the past would wake at once. */
+export function customSnoozeUntil(value: string, now = Date.now()): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value)
+  if (!match) return null
+  const [, year, month, day, hours, minutes] = match.map(Number)
+  const at = new Date(year, month - 1, day, hours, minutes).getTime()
+  return at > now ? at : null
+}

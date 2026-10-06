@@ -36,7 +36,7 @@
     threadStartsFolded,
     type ActivityEvent,
   } from "./lib/activity-data";
-  import { TIMELINE_WINDOW_PAGE, windowTimeline } from "./lib/timeline-window";
+  import { TIMELINE_WINDOW_PAGE, windowTimeline } from "../../lib/timeline-window";
 
   // The activity timeline proper: the opened event plus commits, review
   // threads, and conversation interleaved by time on one hairline spine.

@@ -51,7 +51,7 @@ export function registerUsageHandlers(server: SolusServer, deps: UsageHandlerDep
   }
 
   /** The seat to read for one provider: `null` means nothing to read, `undefined` the host's own login. */
-  const turnSeatFor = async (seat: Seat, agentId: Parameters<SessionRuntime['readUsageLimits']>[0]): Promise<TurnSeat | null | undefined> => {
+  const turnSeatFor = async (seat: Seat, agentId: Parameters<SessionRuntime['history']['readUsageLimits']>[0]): Promise<TurnSeat | null | undefined> => {
     const isHostLogin = seat.kind === 'host-login'
     if (!deps.seats || !isSeatProvider(agentId)) return isHostLogin ? undefined : null
     const turnSeat = deps.seats.connectedSeat(seat, agentId)
@@ -67,11 +67,11 @@ export function registerUsageHandlers(server: SolusServer, deps: UsageHandlerDep
     const key = seatKey(seat)
     const cached = reads.get(key)
     if (cached?.pending) return cached.pending
-    const pending = Promise.all(deps.sessionRuntime.usageCapableAgents().map(async (agentId): Promise<AgentUsageLimits | null> => {
+    const pending = Promise.all(deps.sessionRuntime.history.usageCapableAgents().map(async (agentId): Promise<AgentUsageLimits | null> => {
       const turnSeat = await turnSeatFor(seat, agentId)
       if (turnSeat === null) return null
       try {
-        const limits = await deps.sessionRuntime.readUsageLimits(agentId, turnSeat)
+        const limits = await deps.sessionRuntime.history.readUsageLimits(agentId, turnSeat)
         if (isHostLogin) {
           if (limits) store.apply(limits)
           else store.markStale(agentId, 'no_report')

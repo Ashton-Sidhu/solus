@@ -1,7 +1,6 @@
 <script lang="ts">
   import {
     ExternalLink as ArrowSquareOutIcon,
-    Asterisk as AsteriskIcon,
     MessageCircle as ChatCircleIcon,
     Columns3 as ColumnsIcon,
     FileText as FileTextIcon,
@@ -12,14 +11,11 @@
     Cloud as CloudIcon,
     Pin as PushPinIcon,
     CircleCheck as CircleCheckIcon,
-    CircleX as CircleXIcon,
     CircleAlert as CircleAlertIcon,
     Clock as ClockIcon,
     Eye as EyeIcon,
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
-  import ClaudeIcon from "../ClaudeIcon.svelte";
-  import OpenAIBlossom from "../pickers/OpenAIBlossom.svelte";
   import DocProviderLogo from "../work/DocProviderLogo.svelte";
   import ReviewerAvatars from "../work/ReviewerAvatars.svelte";
   import { PR_CHECKS_TONE, PR_STATUS_TONE, PR_VERDICT_TONE } from "../prs/lib/pr-row-styles";
@@ -65,8 +61,8 @@
   interface Props {
     item: WorkspaceItem;
     selected: boolean;
-    /** Set while the ledger spans more than one project — the row then names
-     *  the project it came from, which is otherwise implied by the scope. */
+    /** Set while the ledger holds more than one project — the row then names
+     *  the project it came from. */
     showProject: boolean;
     /** "Solus Cloud" when the artifact's home is the workspace service; null for this machine's. */
     homeLabel?: string | null;
@@ -77,7 +73,7 @@
     sessionLabel: string | null;
     onOpen: () => void;
     onTogglePin: () => void;
-    /** Absent on plans — a plan is a session artifact and has no delete. */
+    /** Absent where the reader may not delete the work. */
     onDelete?: () => void;
     /** Opens the session the artifact came from. */
     onOpenSession?: () => void;
@@ -115,27 +111,17 @@
   const generated = $derived(formatGeneratedDate(item.createdAt));
   const upstreamProvider = $derived(upstreamProviderFor(item));
 
-  // 12px glyph in a 16px box. A plan wears its agent's logo — Claude's mark in
-  // primary, Codex's in its own black — and the generic asterisk when the
-  // provider is unknown.
-  //
-  // Works take the two Solus brand hues that carry no lifecycle meaning: teal
+  // 12px glyph in a 16px box. Works take the two Solus brand hues that carry no lifecycle meaning: teal
   // for written artifacts, dusty blue for drawn ones. Amber and sage are spoken
   // for elsewhere — they read as "needs you" and "done" on every other surface,
   // so a document must not wear them. Never filled, never duotone.
   const GLYPH_COLOR = {
-    claude: "text-primary",
-    plan: "text-primary",
     doc: "text-[color-mix(in_oklch,var(--chart-4)_66%,var(--foreground))]",
     slides: "text-[color-mix(in_oklch,var(--chart-4)_66%,var(--foreground))]",
     diagram: "text-[color-mix(in_oklch,var(--chart-5)_66%,var(--foreground))]",
     // An artifact is drawn, not written, so it takes the diagram's hue.
     artifact: "text-[color-mix(in_oklch,var(--chart-5)_66%,var(--foreground))]",
     "insights-report": "text-[color-mix(in_oklch,var(--chart-5)_66%,var(--foreground))]",
-    // Codex's mark is solid black, so it takes the white plate it wears
-    // everywhere else in Solus rather than a text colour — that is what keeps
-    // it legible in dark mode.
-    codex: "",
   } as const;
 </script>
 
@@ -165,15 +151,7 @@
     class="flex w-4 shrink-0 items-center justify-center @max-[30rem]/pane:col-start-1 @max-[30rem]/pane:row-start-1 @max-[30rem]/pane:pt-0.5 {GLYPH_COLOR[item.glyph]}"
     aria-hidden="true"
   >
-    {#if item.glyph === "claude"}
-      <ClaudeIcon size={14} />
-    {:else if item.glyph === "codex"}
-      <span class="flex size-4 items-center justify-center rounded-full bg-white">
-        <OpenAIBlossom size={14} />
-      </span>
-    {:else if item.glyph === "plan"}
-      <AsteriskIcon size={14} />
-    {:else if item.glyph === "diagram"}
+    {#if item.glyph === "diagram"}
       <ArchitectureIcon size={14} />
     {:else if item.glyph === "artifact"}
       <ArtifactIcon size={14} />
@@ -305,9 +283,10 @@
   <span
     class="contents @max-[30rem]/pane:col-start-2 @max-[30rem]/pane:flex @max-[30rem]/pane:items-center @max-[30rem]/pane:gap-2"
   >
-    <!-- Where it lives. Implied by the ledger's own scope on a wide pane, so it
-         appears there only across projects; on the record it is always stated,
-         because the record is the only line that carries provenance at all. -->
+    <!-- Where it lives. The ledger spans every project, so a wide pane names
+         it whenever more than one project is present; on the record it is
+         always stated, because the record is the only line that carries
+         provenance at all. -->
     <span
       class="w-[4rem] shrink-0 truncate text-right @max-[30rem]/pane:w-auto @max-[30rem]/pane:text-left @max-[30rem]/pane:font-mono @max-[30rem]/pane:opacity-75 {showProject
  ? ''
@@ -332,7 +311,7 @@
     {/if}
 
     <!-- Upstream is a logo-only column. Its fixed slot keeps the status and time
-         columns aligned for local works and plans without adding placeholder
+         columns aligned for local works without adding placeholder
          prose to rows that have no external twin. The record has no columns to
          align, so the slot collapses to the logo it holds. -->
     <span
@@ -350,18 +329,14 @@
       <ReviewerAvatars reviewers={item.reviewers} size={14} />
     </span>
 
-    <!-- Status is an icon in a fixed slot: a decided plan or a work's review
-         state. Its word is the hover text and the screen-reader name. A
-         pending plan shows nothing, because pending is the usual state. The
-         one that needs the reader, a requested review, is amber. The tones are
+    <!-- Status is an icon in a fixed slot: a work's review state. Its word is
+         the hover text and the screen-reader name. The one that needs the reader, a requested review, is amber. The tones are
          the pull request list's, so a verdict reads the same on both pages. -->
     <span class="flex w-4 shrink-0 items-center justify-center @max-[30rem]/pane:w-auto @max-[30rem]/pane:empty:hidden">
       {#if status}
         <span class="flex" role="img" aria-label={status.label} title={status.label} data-testid="workspace-row-status" data-status={status.kind}>
           {#if status.kind === "approved"}
             <CircleCheckIcon size={14} class={PR_VERDICT_TONE.approved} />
-          {:else if status.kind === "rejected"}
-            <CircleXIcon size={14} class={PR_STATUS_TONE.closed} />
           {:else if status.kind === "changes_requested"}
             <CircleAlertIcon size={14} class={PR_VERDICT_TONE["changes-requested"]} />
           {:else if status.kind === "review_requested"}
@@ -389,7 +364,7 @@
        of status and time separate it from the pin, so the two can no longer be
        confused for one another under a moving cursor. The slot is reserved at
        rest rather than inserted on hover, so no column shifts when the trash
-       appears, and it stays empty on plans, which have no delete. -->
+       appears. -->
   <span class="flex w-[22px] shrink-0 justify-end @max-[30rem]/pane:hidden">
     {#if onDelete}
       <button

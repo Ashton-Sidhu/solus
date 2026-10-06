@@ -48,7 +48,7 @@
         if (option) onChange([option.value]);
       }}>
         {#each options as option (option.value)}
-          <DropdownMenu.RadioItem value={option.value} class="data-[state=checked]:bg-[var(--solus-menu-hover-ink)]">
+          <DropdownMenu.RadioItem value={option.value}>
             <span class="min-w-0 flex-1 truncate">{option.label}</span>
             {#if option.count !== undefined}<span class="mr-1 tabular-nums text-muted-foreground">{option.count}</span>{/if}
           </DropdownMenu.RadioItem>

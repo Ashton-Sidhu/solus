@@ -41,8 +41,8 @@ Use a `<canvas>` element with manual draw calls. Read colours from CSS variables
 
 ```js
 const css = getComputedStyle(document.documentElement);
-const NODE = css.getPropertyValue('--solus-art-raised').trim();
-const EDGE = css.getPropertyValue('--solus-art-border-strong').trim();
+const NODE = css.getPropertyValue('--muted').trim();
+const EDGE = css.getPropertyValue('--input').trim();
 function draw() {
   ctx.clearRect(0, 0, W, H);
   edges.forEach(e => drawEdge(e));  // edges first, under nodes
@@ -50,7 +50,7 @@ function draw() {
 }
 ```
 
-Encode knowledge level with meaning, not a rainbow: e.g. Know → `--solus-art-positive`, Fuzzy → `--solus-art-2` (amber), Unknown → `--solus-text-tertiary`.
+Encode knowledge level with meaning, not a rainbow: e.g. Know → `--success`, Fuzzy → `--warning`, Unknown → `--muted-foreground`.
 
 ## Prompt output for concept maps
 

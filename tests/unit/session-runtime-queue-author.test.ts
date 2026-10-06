@@ -18,14 +18,19 @@ type DbModule = typeof import('@solus/server/db')
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
 let sessionRuntimeModule: SessionRuntimeModule
+let inputRequestsModule: typeof import('@solus/server/execution/sessions/input-requests')
 let db: DbModule
 let actors: typeof import('./helpers/actors')
 let HOST_ACTOR: typeof import('@solus/server/admission/actor')['HOST_ACTOR']
+
+// The launcher refuses a working directory that does not exist.
+const projectDir = mkdtempSync(join(tmpdir(), 'solus-queue-author-project-'))
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-control-plane-queue-author-'))
   process.env.SOLUS_DATA_DIR = dataDir
   sessionRuntimeModule = await import('@solus/server/execution/session-runtime')
+  inputRequestsModule = await import('@solus/server/execution/sessions/input-requests')
   db = await import('@solus/server/db')
   actors = await import('./helpers/actors')
   ;({ HOST_ACTOR } = await import('@solus/server/admission/actor'))
@@ -33,6 +38,7 @@ beforeAll(async () => {
 
 afterAll(() => {
   rmSync(dataDir, { recursive: true, force: true })
+  rmSync(projectDir, { recursive: true, force: true })
   if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
@@ -106,7 +112,7 @@ afterEach(() => {
 
 function ctx(sessionId: string, agentSessionId: string | null = null): IpcContext {
   return {
-    session: { sessionId, provider: 'claude-code', agentSessionId, workingDirectory: '/tmp/project', projectPath: '/tmp/project', origin: 'user',
+    session: { sessionId, provider: 'claude-code', agentSessionId, workingDirectory: projectDir, projectPath: projectDir, origin: 'user',
       additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: 1_000_000,
       preferredModel: 'claude-sonnet-5', permissionMode: 'full-access' },
     window: {},
@@ -124,13 +130,13 @@ describe('queue author', () => {
     const events: NormalizedEvent[] = []
     plane.on('event', (_sessionId: string, event: NormalizedEvent) => { events.push(event) })
 
-    await plane.submitPrompt(ctx('s1'), { prompt: 'start' }, { clientId: 'c-bob', actor: actors.memberActor('bob', 'Bob') })
+    await plane.dispatch.submitPrompt(ctx('s1'), { prompt: 'start' }, { clientId: 'c-bob', actor: actors.memberActor('bob', 'Bob') })
     await Promise.resolve()
-    const second = await plane.submitPrompt(ctx('s1', 'thread-1'), { prompt: 'then deploy', clientPromptId: 'p-cara', delivery: 'queue' }, {
+    const second = await plane.dispatch.submitPrompt(ctx('s1', 'thread-1'), { prompt: 'then deploy', clientPromptId: 'p-cara', delivery: 'queue' }, {
       clientId: 'c-cara', actor: actors.memberActor('cara', 'Cara', { avatarUrl: 'https://x/cara.png' }),
     })
     expect(second.disposition).toBe('queued')
-    await plane.submitPrompt(ctx('s1', 'thread-1'), { prompt: 'and the host', delivery: 'queue' }, { clientId: 'c-owner', actor: HOST_ACTOR })
+    await plane.dispatch.submitPrompt(ctx('s1', 'thread-1'), { prompt: 'and the host', delivery: 'queue' }, { clientId: 'c-owner', actor: HOST_ACTOR })
 
     const cara = actors.accountUser('cara', 'Cara', { avatarUrl: 'https://x/cara.png' })
     const queued = events.filter((event): event is Extract<NormalizedEvent, { type: 'prompt_queued' }> => event.type === 'prompt_queued')
@@ -139,8 +145,27 @@ describe('queue author', () => {
     // A client that connects later reads the same names from the queue snapshot
     // (the one `watchSession` attaches; read directly, since attaching also
     // reconciles the run, which is not what is under test).
-    const snapshot = (plane as unknown as { _queuedPromptsForSession(sessionId: string): QueuedPromptSnapshot[] })._queuedPromptsForSession('s1')
+    const snapshot = plane.scheduler.queuedPromptsForSession('s1')
     expect(snapshot.map((prompt) => [prompt.clientPromptId, prompt.author])).toEqual([['p-cara', cara], [undefined, undefined]])
+  })
+})
+
+// WHY: a session restored without its git context still points at its old
+// worktree. Spawned there, Claude fails with a libc message and the sender
+// cannot tell the worktree is gone. The provider must not start at all.
+describe('a working directory that is gone', () => {
+  test('stops the turn before the provider starts and says what is missing', async () => {
+    const backend = holdingBackend('claude-code', 'gone-thread')
+    const plane = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]))
+    plane.on('error', () => {})
+    cleanups.push(() => { plane.shutdown(); backend.releaseAll() })
+    const removed = join(projectDir, 'removed-worktree')
+    const gone = ctx('gone')
+    gone.session.workingDirectory = removed
+    gone.session.projectPath = removed
+    await expect(plane.dispatch.submitPrompt(gone, { prompt: 'Fix the width' }, { clientId: 'owner', actor: HOST_ACTOR }))
+      .rejects.toThrow(`The working directory ${removed} no longer exists`)
+    expect(backend.requests).toHaveLength(0)
   })
 })
 
@@ -157,10 +182,10 @@ describe('durable queue controls', () => {
       return runTurn(...args)
     }
     const options = { prompt: 'Fix the parser', clientPromptId: 'retry-receipt' }
-    await expect(plane.submitPrompt(ctx('retry'), options, { actor: HOST_ACTOR })).rejects.toThrow('Queue storage unavailable')
-    expect((await plane.submitPrompt(ctx('retry'), options, { actor: HOST_ACTOR })).disposition).not.toBe('duplicate')
+    await expect(plane.dispatch.submitPrompt(ctx('retry'), options, { actor: HOST_ACTOR })).rejects.toThrow('Queue storage unavailable')
+    expect((await plane.dispatch.submitPrompt(ctx('retry'), options, { actor: HOST_ACTOR })).disposition).not.toBe('duplicate')
     expect(backend.requests).toHaveLength(1)
-    expect((await plane.submitPrompt(ctx('retry'), options, { actor: HOST_ACTOR })).disposition).toBe('duplicate')
+    expect((await plane.dispatch.submitPrompt(ctx('retry'), options, { actor: HOST_ACTOR })).disposition).toBe('duplicate')
     expect(backend.requests).toHaveLength(1)
   })
 
@@ -171,18 +196,18 @@ describe('durable queue controls', () => {
     cleanups.push(() => { plane.shutdown(); backend.releaseAll() })
     const parent = ctx('permission-parent')
     parent.session.permissionMode = 'plan'
-    await plane.submitPrompt(parent, { prompt: 'Plan the work' }, { clientId: 'owner', actor: HOST_ACTOR })
+    await plane.dispatch.submitPrompt(parent, { prompt: 'Plan the work' }, { clientId: 'owner', actor: HOST_ACTOR })
     await Promise.resolve()
     const order = { provider: 'claude-code' as const, prompt: 'Inspect the parser', modelId: 'claude-sonnet-5',
-      reasoningEffort: 'medium' as const, contextWindow: 1_000_000, cwd: '/tmp/project',
+      reasoningEffort: 'medium' as const, contextWindow: 1_000_000, cwd: projectDir,
       delegation: { parentAgentSessionId: 'permission-thread-1', messageId: 'delegate', intent: 'delegate' as const, createdAt: 1 } }
-    await expect(plane.createSession({ ...order, permissionMode: 'full-access' }, HOST_ACTOR)).rejects.toThrow('cannot change permissions')
-    const child = await plane.createSession(order, HOST_ACTOR)
+    await expect(plane.dispatch.createSession({ ...order, permissionMode: 'full-access' }, HOST_ACTOR)).rejects.toThrow('cannot change permissions')
+    const child = await plane.dispatch.createSession(order, HOST_ACTOR)
     expect(backend.requests[1]?.permissionMode).toBe('plan')
     backend.releaseOne()
     backend.releaseOne()
     await Promise.resolve()
-    await plane.promptSession(child.agentSessionId, 'Inspect the next file', 'queue')
+    await plane.dispatch.promptSession(child.agentSessionId, 'Inspect the next file', 'queue')
     expect(backend.requests[2]?.permissionMode).toBe('plan')
   })
 
@@ -191,19 +216,19 @@ describe('durable queue controls', () => {
     const plane = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]))
     plane.on('error', () => {})
     cleanups.push(() => { plane.shutdown(); backend.releaseAll() })
-    await plane.submitPrompt(ctx('edit'), { prompt: 'start' }, { clientId: 'owner', actor: HOST_ACTOR })
+    await plane.dispatch.submitPrompt(ctx('edit'), { prompt: 'start' }, { clientId: 'owner', actor: HOST_ACTOR })
     await Promise.resolve()
-    await plane.submitPrompt(ctx('edit', 'edit-thread-1'), {
+    await plane.dispatch.submitPrompt(ctx('edit', 'edit-thread-1'), {
       prompt: '[Attached file: /tmp/notes.md]\n\nReference context\n\nOld text', displayPrompt: 'Old text', delivery: 'queue',
       queueAttachmentContext: '[Attached file: /tmp/notes.md]',
       queueAttachments: [{ id: 'notes', type: 'file', name: 'notes.md', hostPath: '/tmp/notes.md' }],
     }, { clientId: 'owner', actor: HOST_ACTOR })
-    const entry = plane.sessionQueue(ctx('edit')).entries[0]!
-    await plane.sessionQueueChange(ctx('edit'), { kind: 'edit', queueId: entry.queueId, revision: entry.revision ?? 0, text: 'New text' }, HOST_ACTOR)
-    await expect(plane.sessionQueueChange(ctx('edit'), { kind: 'remove', queueId: entry.queueId, revision: entry.revision ?? 0 }, HOST_ACTOR)).rejects.toThrow('changed or started')
-    const edited = plane.sessionQueue(ctx('edit')).entries[0]!
+    const entry = plane.scheduler.sessionQueue(ctx('edit')).entries[0]!
+    await plane.scheduler.sessionQueueChange(ctx('edit'), { kind: 'edit', queueId: entry.queueId, revision: entry.revision ?? 0, text: 'New text' }, HOST_ACTOR)
+    await expect(plane.scheduler.sessionQueueChange(ctx('edit'), { kind: 'remove', queueId: entry.queueId, revision: entry.revision ?? 0 }, HOST_ACTOR)).rejects.toThrow('changed or started')
+    const edited = plane.scheduler.sessionQueue(ctx('edit')).entries[0]!
     expect(edited.attachments?.[0]?.name).toBe('notes.md')
-    await plane.sessionQueueChange(ctx('edit'), { kind: 'resume' }, HOST_ACTOR)
+    await plane.scheduler.sessionQueueChange(ctx('edit'), { kind: 'resume' }, HOST_ACTOR)
     expect(backend.requests).toHaveLength(1)
     const started = backend.nextStart()
     backend.releaseOne()
@@ -217,17 +242,17 @@ describe('durable queue controls', () => {
     const plane = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', claude.value], ['codex', codex.value]]))
     plane.on('error', () => {})
     cleanups.push(() => { plane.shutdown(); claude.releaseAll(); codex.releaseAll() })
-    await plane.submitPrompt(ctx('switch'), { prompt: 'first' }, { clientId: 'owner', actor: HOST_ACTOR })
+    await plane.dispatch.submitPrompt(ctx('switch'), { prompt: 'first' }, { clientId: 'owner', actor: HOST_ACTOR })
     await Promise.resolve()
-    await plane.sessionQueueChange(ctx('switch', 'switch-thread-1'), { kind: 'switch', provider: 'codex', modelConfig: {
+    await plane.scheduler.sessionQueueChange(ctx('switch', 'switch-thread-1'), { kind: 'switch', provider: 'codex', modelConfig: {
       modelId: 'gpt-6-astra', reasoningEffort: 'medium', contextWindow: 1_050_000, fastMode: false,
     } }, HOST_ACTOR)
-    await plane.submitPrompt(ctx('switch', 'switch-thread-1'), { prompt: 'second', delivery: 'queue' }, { clientId: 'owner', actor: HOST_ACTOR })
-    await plane.sessionQueueChange(ctx('switch', 'switch-thread-1'), { kind: 'switch', provider: 'claude-code', modelConfig: {
+    await plane.dispatch.submitPrompt(ctx('switch', 'switch-thread-1'), { prompt: 'second', delivery: 'queue' }, { clientId: 'owner', actor: HOST_ACTOR })
+    await plane.scheduler.sessionQueueChange(ctx('switch', 'switch-thread-1'), { kind: 'switch', provider: 'claude-code', modelConfig: {
       modelId: 'claude-sonnet-5', reasoningEffort: 'medium', contextWindow: 1_000_000, fastMode: false,
     } }, HOST_ACTOR)
-    await plane.submitPrompt(ctx('switch', 'switch-thread-1'), { prompt: 'third', delivery: 'queue' }, { clientId: 'owner', actor: HOST_ACTOR })
-    expect(plane.sessionQueue(ctx('switch')).entries.map((item) => [item.kind, item.provider])).toEqual([
+    await plane.dispatch.submitPrompt(ctx('switch', 'switch-thread-1'), { prompt: 'third', delivery: 'queue' }, { clientId: 'owner', actor: HOST_ACTOR })
+    expect(plane.scheduler.sessionQueue(ctx('switch')).entries.map((item) => [item.kind, item.provider])).toEqual([
       ['provider_switch', 'codex'], ['prompt', 'codex'], ['provider_switch', 'claude-code'], ['prompt', 'claude-code'],
     ])
     expect(claude.requests).toHaveLength(1)
@@ -258,9 +283,9 @@ describe('stop keeps the queue', () => {
     const events: NormalizedEvent[] = []
     plane.on('event', (_sessionId: string, event: NormalizedEvent) => { events.push(event) })
 
-    await plane.submitPrompt(ctx('s1'), { prompt: 'start' }, { clientId: 'c-bob', actor: actors.memberActor('bob', 'Bob') })
+    await plane.dispatch.submitPrompt(ctx('s1'), { prompt: 'start' }, { clientId: 'c-bob', actor: actors.memberActor('bob', 'Bob') })
     await Promise.resolve()
-    const queued = await plane.submitPrompt(ctx('s1', 'thread-1'), { prompt: 'then deploy', delivery: 'queue' }, {
+    const queued = await plane.dispatch.submitPrompt(ctx('s1', 'thread-1'), { prompt: 'then deploy', delivery: 'queue' }, {
       clientId: 'c-cara', actor: actors.memberActor('cara', 'Cara'),
     })
     expect(queued.disposition).toBe('queued')
@@ -297,7 +322,7 @@ describe('whose turn asks, and what was chosen', () => {
     const events: NormalizedEvent[] = []
     plane.on('event', (_sessionId: string, event: NormalizedEvent) => { events.push(event) })
 
-    await plane.submitPrompt(ctx('s1'), { prompt: 'start' }, { clientId: 'c-bob', actor: actors.memberActor('bob', 'Bob') })
+    await plane.dispatch.submitPrompt(ctx('s1'), { prompt: 'start' }, { clientId: 'c-bob', actor: actors.memberActor('bob', 'Bob') })
     await Promise.resolve()
     const bob = actors.accountUser('bob', 'Bob')
     const options = [{ id: 'allow', label: 'Allow Once', kind: 'allow' }, { id: 'allow-session', label: 'Allow for Session', kind: 'allow' }, { id: 'deny', label: 'Deny', kind: 'deny' }]
@@ -308,7 +333,7 @@ describe('whose turn asks, and what was chosen', () => {
     expect(asked.map((event) => 'turnAuthor' in event ? event.turnAuthor : undefined)).toEqual([bob, bob])
 
     const cara = actors.accountUser('cara', 'Cara')
-    expect(plane.respondToPermission('s1', 'q1', 'allow-session', undefined, actors.memberActor('cara', 'Cara'))).toBe(true)
+    expect(plane.inputRequests.respondToPermission('s1', 'q1', 'allow-session', undefined, actors.memberActor('cara', 'Cara'))).toBe(true)
     expect(answered).toBe('allow-session')
     const resolved = events.find((event) => event.type === 'permission_resolved')
     expect(resolved).toEqual({ type: 'permission_resolved', questionId: 'q1', decision: 'approved_for_session' })
@@ -323,10 +348,10 @@ describe('whose turn asks, and what was chosen', () => {
       type: 'permission_request' as const, questionId: 'q', toolName: 'Bash',
       options: [{ id: 'accept', label: 'Allow', kind: 'allow' }, { id: 'acceptForSession', label: 'Allow for session', kind: 'allow' }, { id: 'decline', label: 'Deny', kind: 'deny' }],
     }
-    expect(sessionRuntimeModule.permissionDecisionFor(request, 'accept')).toBe('approved')
-    expect(sessionRuntimeModule.permissionDecisionFor(request, 'acceptForSession')).toBe('approved_for_session')
-    expect(sessionRuntimeModule.permissionDecisionFor(request, 'decline')).toBe('denied')
-    expect(sessionRuntimeModule.permissionDecisionFor(request, 'nope')).toBeUndefined()
+    expect(inputRequestsModule.permissionDecisionFor(request, 'accept')).toBe('approved')
+    expect(inputRequestsModule.permissionDecisionFor(request, 'acceptForSession')).toBe('approved_for_session')
+    expect(inputRequestsModule.permissionDecisionFor(request, 'decline')).toBe('denied')
+    expect(inputRequestsModule.permissionDecisionFor(request, 'nope')).toBeUndefined()
   })
 
   test('a refused seat tells the room who waits on it, as an activity', async () => {
@@ -341,7 +366,7 @@ describe('whose turn asks, and what was chosen', () => {
     const sent: Array<{ event: NormalizedEvent; to?: { only?: string; except?: string } }> = []
     plane.on('event', (_sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }) => { sent.push({ event, to }) })
 
-    await expect(plane.submitPrompt(ctx('s1'), { prompt: 'start' }, { clientId: 'c-dan', actor: actors.memberActor('dan', 'Dan') })).rejects.toBeInstanceOf(SeatRequiredError)
+    await expect(plane.dispatch.submitPrompt(ctx('s1'), { prompt: 'start' }, { clientId: 'c-dan', actor: actors.memberActor('dan', 'Dan') })).rejects.toBeInstanceOf(SeatRequiredError)
     const notice = () => sent.find(({ event }) => event.type === 'activity')
     for (let i = 0; i < 20 && !notice(); i++) await new Promise((resolve) => setTimeout(resolve, 0))
     expect(notice()?.event).toMatchObject({ type: 'activity', activity: { kind: 'seat_needed', provider: 'claude-code', by: { kind: 'user', user: actors.accountUser('dan', 'Dan') } } })
@@ -372,15 +397,15 @@ describe('host restart continuation', () => {
     context.session.preferredModel = 'claude-sonnet-5'
     context.session.contextWindow = 1_000_000
     context.statusBar.fastMode = true
-    await first.submitPrompt(context, { prompt: 'Fix the parser' }, { actor: HOST_ACTOR })
+    await first.dispatch.submitPrompt(context, { prompt: 'Fix the parser' }, { actor: HOST_ACTOR })
     await Promise.resolve()
-    await first.submitPrompt(ctx('restart-source', 'restart-thread-1'), { prompt: 'Later user work', delivery: 'queue' }, { actor: HOST_ACTOR })
+    await first.dispatch.submitPrompt(ctx('restart-source', 'restart-thread-1'), { prompt: 'Later user work', delivery: 'queue' }, { actor: HOST_ACTOR })
     // New user work takes precedence over recovery; use another run to verify
     // direct continuation without changing that queued-work contract.
     const direct = ctx('restart-direct')
     direct.session.permissionMode = 'plan'
     direct.statusBar.fastMode = true
-    await first.submitPrompt(direct, { prompt: 'Inspect the serializer', clientPromptId: 'restart-original' }, { actor: HOST_ACTOR })
+    await first.dispatch.submitPrompt(direct, { prompt: 'Inspect the serializer', clientPromptId: 'restart-original' }, { actor: HOST_ACTOR })
     await Promise.resolve()
     first.shutdown()
     await Promise.resolve()
@@ -389,21 +414,21 @@ describe('host restart continuation', () => {
     second.on('error', () => {})
     cleanups.push(() => { second.shutdown(); next.releaseAll() })
     const started = next.nextStart()
-    await second.recoverSessionsAfterRestart()
+    await second.restarts.recoverSessionsAfterRestart()
     const request = await started
     expect(request.prompt).toContain('Continue where you left off')
     expect(request.prompt).not.toContain('Inspect the serializer')
     expect(next.requests).toHaveLength(1)
-    expect(second.sessionQueue(ctx('restart-source')).entries[0]?.held).toBe(true)
+    expect(second.scheduler.sessionQueue(ctx('restart-source')).entries[0]?.held).toBe(true)
     expect(request.conversation).toEqual({ kind: 'resume', threadId: 'restart-thread-2' })
     expect(request.model).toBe('claude-sonnet-5')
     expect(request.permissionMode).toBe('plan')
     expect(request.fastMode).toBe(true)
-    expect((await second.submitPrompt(ctx('restart-direct'), {
+    expect((await second.dispatch.submitPrompt(ctx('restart-direct'), {
       prompt: 'Inspect the serializer', clientPromptId: 'restart-original',
     }, { actor: HOST_ACTOR })).disposition).toBe('duplicate')
     expect(next.requests).toHaveLength(1)
-    const store = new (await import('@solus/server/data/sessions/session-restart-store')).SessionRestartStore()
+    const store = new (await import('@solus/server/data/sessions/run-ledger')).RunLedger().activeRuns
     expect(store.get('restart-direct')?.input.agentSessionId).toBe('restart-new-1')
     next.releaseAll()
     await Promise.resolve()
@@ -415,25 +440,61 @@ describe('host restart continuation', () => {
     const runtime = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]), { queueDirectory })
     runtime.on('error', () => {})
     cleanups.push(() => { runtime.shutdown(); backend.releaseAll() })
-    await runtime.submitPrompt(ctx('restart-stopped'), { prompt: 'Inspect the parser' }, { actor: HOST_ACTOR })
+    await runtime.dispatch.submitPrompt(ctx('restart-stopped'), { prompt: 'Inspect the parser' }, { actor: HOST_ACTOR })
     await Promise.resolve()
     expect(runtime.stopSession('restart-stopped', HOST_ACTOR)).toBe(true)
-    const store = new (await import('@solus/server/data/sessions/session-restart-store')).SessionRestartStore()
+    const store = new (await import('@solus/server/data/sessions/run-ledger')).RunLedger().activeRuns
     expect(store.get('restart-stopped')).toBeUndefined()
-    await runtime.recoverSessionsAfterRestart()
+    await runtime.restarts.recoverSessionsAfterRestart()
     expect(backend.requests).toHaveLength(1)
+  })
+
+  // A turn parked on a question waits for a person, not for the host. A
+  // restart must not answer for them with "Continue where you left off".
+  test('a run waiting for an answer is not continued; once answered it is', async () => {
+    const queueDirectory = await recoveryDirectory()
+    const { RunLedger } = await import('@solus/server/data/sessions/run-ledger')
+    const backend = holdingBackend('claude-code', 'restart-question')
+    const first = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]), { queueDirectory })
+    first.on('error', () => {})
+    cleanups.push(() => { first.shutdown(); backend.releaseAll() })
+    for (const sessionId of ['asks', 'answered']) {
+      await first.dispatch.submitPrompt(ctx(sessionId), { prompt: 'Change the composer' }, { actor: HOST_ACTOR })
+      await Promise.resolve()
+    }
+    for (const [threadId, questionId] of [['restart-question-1', 'q-asks'], ['restart-question-2', 'q-answered']]) {
+      backend.value.emit('normalized', threadId, {
+        type: 'question_request', questionId, questions: [{ question: 'Which composer?', header: 'Composer', multiSelect: false, options: [] }],
+      } satisfies NormalizedEvent)
+    }
+    expect(new RunLedger().activeRuns.get('asks')?.state).toBe('awaiting_input')
+    first.statuses.setStatus('answered', 'running')
+    first.shutdown()
+    await Promise.resolve()
+    const nextBackend = holdingBackend('claude-code', 'restart-question-next')
+    const next = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', nextBackend.value]]), { queueDirectory })
+    next.on('error', () => {})
+    cleanups.push(() => { next.shutdown(); nextBackend.releaseAll() })
+    const started = nextBackend.nextStart()
+    await next.restarts.recoverSessionsAfterRestart()
+    expect((await started).conversation).toEqual({ kind: 'resume', threadId: 'restart-question-2' })
+    expect(nextBackend.requests).toHaveLength(1)
+    expect(new RunLedger().activeRuns.get('asks')).toBeUndefined()
+    expect(next.scheduler.sessionQueue(ctx('asks')).entries).toHaveLength(0)
+    nextBackend.releaseAll()
+    await Promise.resolve()
   })
 
   test('an uncertain recovery delivery becomes held and is never sent automatically', async () => {
     const queueDirectory = await recoveryDirectory()
-    const { SessionRestartStore } = await import('@solus/server/data/sessions/session-restart-store')
-    const store = new SessionRestartStore()
+    const { RunLedger } = await import('@solus/server/data/sessions/run-ledger')
     const backend = holdingBackend('claude-code', 'restart-uncertain')
     const runtime = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]), { queueDirectory })
     runtime.on('error', () => {})
     cleanups.push(() => { runtime.shutdown(); backend.releaseAll() })
-    await runtime.submitPrompt(ctx('uncertain'), { prompt: 'Change the parser' }, { actor: HOST_ACTOR })
+    await runtime.dispatch.submitPrompt(ctx('uncertain'), { prompt: 'Change the parser' }, { actor: HOST_ACTOR })
     await Promise.resolve()
+    const store = new RunLedger().activeRuns
     const saved = store.get('uncertain')!
     runtime.shutdown()
     await Promise.resolve()
@@ -441,24 +502,24 @@ describe('host restart continuation', () => {
     const next = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]), { queueDirectory })
     next.on('error', () => {})
     cleanups.push(() => next.shutdown())
-    await next.recoverSessionsAfterRestart()
-    const entry = next.sessionQueue(ctx('uncertain')).entries[0]!
+    await next.restarts.recoverSessionsAfterRestart()
+    const entry = next.scheduler.sessionQueue(ctx('uncertain')).entries[0]!
     expect(entry.held).toBe(true)
     expect(entry.error).toContain('Check history')
     expect(backend.requests).toHaveLength(1)
-    await next.recoverSessionsAfterRestart()
-    expect(next.sessionQueue(ctx('uncertain')).entries).toHaveLength(1)
+    await next.restarts.recoverSessionsAfterRestart()
+    expect(next.scheduler.sessionQueue(ctx('uncertain')).entries).toHaveLength(1)
   })
 
   test('managed cloud hosts discard recovery intent without launching a provider', async () => {
     const queueDirectory = await recoveryDirectory()
-    const { SessionRestartStore } = await import('@solus/server/data/sessions/session-restart-store')
+    const { RunLedger } = await import('@solus/server/data/sessions/run-ledger')
     const { adoptProvisionedLink, resetHostCategoryForTests } = await import('@solus/server/host/host-category')
     const backend = holdingBackend('claude-code', 'restart-cloud')
     const runtime = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]), { queueDirectory })
     runtime.on('error', () => {})
     cleanups.push(() => { runtime.shutdown(); backend.releaseAll(); resetHostCategoryForTests() })
-    await runtime.submitPrompt(ctx('cloud-disabled'), { prompt: 'Inspect the parser' }, { actor: HOST_ACTOR })
+    await runtime.dispatch.submitPrompt(ctx('cloud-disabled'), { prompt: 'Inspect the parser' }, { actor: HOST_ACTOR })
     await Promise.resolve()
     runtime.shutdown()
     await Promise.resolve()
@@ -466,10 +527,10 @@ describe('host restart continuation', () => {
     const next = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]), { queueDirectory })
     next.on('error', () => {})
     cleanups.push(() => next.shutdown())
-    await next.recoverSessionsAfterRestart()
-    expect(new SessionRestartStore().get('cloud-disabled')).toBeUndefined()
+    await next.restarts.recoverSessionsAfterRestart()
+    expect(new RunLedger().activeRuns.get('cloud-disabled')).toBeUndefined()
     expect(backend.requests).toHaveLength(1)
-    expect(next.sessionQueue(ctx('cloud-disabled')).entries).toHaveLength(0)
+    expect(next.scheduler.sessionQueue(ctx('cloud-disabled')).entries).toHaveLength(0)
   })
 
   test('background recovery tells the agent what stopped without copying tool inputs', async () => {
@@ -478,7 +539,7 @@ describe('host restart continuation', () => {
     const first = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]), { queueDirectory })
     first.on('error', () => {})
     cleanups.push(() => { first.shutdown(); backend.releaseAll() })
-    await first.submitPrompt(ctx('background-restart'), { prompt: 'Inspect the parser' }, { actor: HOST_ACTOR })
+    await first.dispatch.submitPrompt(ctx('background-restart'), { prompt: 'Inspect the parser' }, { actor: HOST_ACTOR })
     await Promise.resolve()
     backend.value.emit('normalized', 'restart-background-1', {
       type: 'tool_call', toolName: 'Task', toolId: 'child', index: 0, isSubagent: true, subagentType: 'Explore', toolInput: 'private runtime input',
@@ -490,7 +551,7 @@ describe('host restart continuation', () => {
     next.on('error', () => {})
     cleanups.push(() => { next.shutdown(); nextBackend.releaseAll() })
     const started = nextBackend.nextStart()
-    await next.recoverSessionsAfterRestart()
+    await next.restarts.recoverSessionsAfterRestart()
     const request = await started
     expect(request.prompt).toContain('Child agent (Explore)')
     expect(request.prompt).not.toContain('private runtime input')
@@ -506,9 +567,9 @@ describe('host restart continuation', () => {
     runtime.on('error', () => {})
     cleanups.push(() => { runtime.shutdown(); backend.releaseAll() })
     const prepare = spyOn(db.getDb(), 'prepare')
-    const restartStatements = () => prepare.mock.calls.filter(([sql]) => sql.includes('session_restart_runs')).map(([sql]) => sql)
+    const restartStatements = () => prepare.mock.calls.filter(([sql]) => /\b(INTO|FROM|UPDATE) runs\b/.test(sql)).map(([sql]) => sql)
     try {
-      await runtime.submitPrompt(ctx('efficient-tools'), { prompt: 'Inspect the parser' }, { actor: HOST_ACTOR })
+      await runtime.dispatch.submitPrompt(ctx('efficient-tools'), { prompt: 'Inspect the parser' }, { actor: HOST_ACTOR })
       await Promise.resolve()
       // Starting, resolved launch input, and the new native thread: init must
       // not write the native thread a second time after the handle names it.
@@ -532,8 +593,8 @@ describe('host restart continuation', () => {
       await settled
       expect(restartStatements()).toHaveLength(1)
       expect(restartStatements()[0]).toStartWith('DELETE')
-      const { SessionRestartStore } = await import('@solus/server/data/sessions/session-restart-store')
-      expect(new SessionRestartStore().get('efficient-tools')).toBeUndefined()
+      const { RunLedger } = await import('@solus/server/data/sessions/run-ledger')
+      expect(new RunLedger().activeRuns.get('efficient-tools')).toBeUndefined()
     } finally {
       prepare.mockRestore()
     }
@@ -549,12 +610,12 @@ describe('host restart continuation', () => {
     cleanups.push(() => { runtime.shutdown(); backend.releaseAll() })
     const prepare = spyOn(db.getDb(), 'prepare')
     try {
-      await runtime.submitPrompt(ctx('disabled-recovery'), { prompt: 'Inspect the parser' }, { actor: HOST_ACTOR })
+      await runtime.dispatch.submitPrompt(ctx('disabled-recovery'), { prompt: 'Inspect the parser' }, { actor: HOST_ACTOR })
       await Promise.resolve()
       backend.value.emit('normalized', 'restart-disabled-1', { type: 'tool_call', toolName: 'Bash', toolId: 'command', index: 0 } satisfies NormalizedEvent)
       backend.releaseAll()
       await Promise.resolve()
-      expect(prepare.mock.calls.filter(([sql]) => sql.includes('session_restart_runs'))).toEqual([])
+      expect(prepare.mock.calls.filter(([sql]) => /\b(INTO|FROM|UPDATE) runs\b/.test(sql))).toEqual([])
     } finally {
       prepare.mockRestore()
     }
@@ -571,7 +632,7 @@ describe('host restart continuation', () => {
     context.session.preferredModel = 'gpt-6-astra'
     context.statusBar.model = 'gpt-6-astra'
     context.statusBar.reasoningEffort = 'high'
-    await first.submitPrompt(context, { prompt: 'Inspect the parser' }, { actor: HOST_ACTOR })
+    await first.dispatch.submitPrompt(context, { prompt: 'Inspect the parser' }, { actor: HOST_ACTOR })
     await Promise.resolve()
     first.shutdown()
     await Promise.resolve()
@@ -580,7 +641,7 @@ describe('host restart continuation', () => {
     next.on('error', () => {})
     cleanups.push(() => { next.shutdown(); backend.releaseAll() })
     const started = backend.nextStart()
-    await next.recoverSessionsAfterRestart()
+    await next.restarts.recoverSessionsAfterRestart()
     const request = await started
     expect(request.conversation).toEqual({ kind: 'resume', threadId: 'restart-codex-1' })
     expect(request.model).toBe('gpt-6-astra')
@@ -596,7 +657,7 @@ describe('host restart continuation', () => {
     const first = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', original.value]]), { queueDirectory })
     first.on('error', () => {})
     cleanups.push(() => { first.shutdown(); original.releaseAll() })
-    await first.submitPrompt(ctx('restart-failure'), { prompt: 'Inspect the parser' }, { actor: HOST_ACTOR })
+    await first.dispatch.submitPrompt(ctx('restart-failure'), { prompt: 'Inspect the parser' }, { actor: HOST_ACTOR })
     await Promise.resolve()
     first.shutdown()
     await Promise.resolve()
@@ -613,11 +674,11 @@ describe('host restart continuation', () => {
         }
       })
     })
-    await next.recoverSessionsAfterRestart()
+    await next.restarts.recoverSessionsAfterRestart()
     expect((await held).error).toContain('Native conversation unavailable')
-    expect(next.sessionQueue(ctx('restart-failure')).held).toBe(true)
-    await next.recoverSessionsAfterRestart()
-    expect(next.sessionQueue(ctx('restart-failure')).entries).toHaveLength(1)
+    expect(next.scheduler.sessionQueue(ctx('restart-failure')).held).toBe(true)
+    await next.restarts.recoverSessionsAfterRestart()
+    expect(next.scheduler.sessionQueue(ctx('restart-failure')).entries).toHaveLength(1)
   })
 
 })

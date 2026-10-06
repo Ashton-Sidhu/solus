@@ -136,7 +136,7 @@
           </TooltipUI.Root>
         {/snippet}
       </Popover.Trigger>
-      <!-- Same surface as the orb's progress and changed-files popovers: the
+      <!-- Same surface as the session action row's progress and changed-files popovers: the
            popover tokens, a 1rem radius and a hairline border, an icon tile
            leading the head. The `shadow:` type hint is what evicts
            Popover.Content's stock `shadow-md` — without it tailwind-merge reads

@@ -34,21 +34,6 @@ export function reviewerStateColor(state: PrReviewer['state']): string {
   }
 }
 
-/** The ring around a reviewer's avatar where the rail has no room for its
- *  rows: a verdict that changes what happens next earns a colour, a pending
- *  or neutral review does not — the row is a glance, and the name and the
- *  word stay on the title. */
-export function reviewerRingColor(state: PrReviewer['state']): string | null {
-  switch (state) {
-    case 'APPROVED':
-      return 'var(--solus-art-positive)'
-    case 'CHANGES_REQUESTED':
-      return 'var(--solus-art-negative)'
-    default:
-      return null
-  }
-}
-
 export interface ReviewerRowAction {
   kind: 'remove' | 're-request'
   label: string

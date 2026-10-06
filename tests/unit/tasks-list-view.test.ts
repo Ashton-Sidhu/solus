@@ -4,6 +4,8 @@ import {
   OPEN_TASK_STATUS_KEYS,
   TASK_STATUS_GROUPS,
   isOpenTaskStatusFilter,
+  isTaskSnoozed,
+  nextTaskWake,
   taskGroups,
   taskRow,
   taskStatusesFor,
@@ -166,5 +168,38 @@ describe('the label chip', () => {
       label: 'design',
       labelColor: 'var(--solus-accent)',
     })
+  })
+})
+
+describe('snoozed tasks', () => {
+  test('a snooze holds until its wake time, whatever the status', () => {
+    // WHY: snooze is independent of the lifecycle. A task returns to the list
+    // at its wake time without anyone having to unsnooze it.
+    for (const status of ['in_progress', 'done'] as const) {
+      const sleeping = { ...task('s', status), snoozedUntil: NOW + 60_000 }
+      expect(isTaskSnoozed(sleeping, NOW)).toBe(true)
+      expect(isTaskSnoozed(sleeping, NOW + 60_000)).toBe(false)
+    }
+    expect(isTaskSnoozed(task('a', 'todo'), NOW)).toBe(false)
+  })
+
+  test('the list wakes at the earliest wake time still ahead', () => {
+    // WHY: the list sets one timer for the next task to return.
+    const tasks = [
+      { ...task('late', 'todo'), snoozedUntil: NOW + 7_200_000 },
+      { ...task('soon', 'todo'), snoozedUntil: NOW + 60_000 },
+      { ...task('past', 'todo'), snoozedUntil: NOW - 60_000 },
+      task('awake', 'todo'),
+    ]
+    expect(nextTaskWake(tasks, NOW)).toBe(NOW + 60_000)
+    expect(nextTaskWake([task('awake', 'todo')], NOW)).toBeNull()
+  })
+
+  test('a snoozed row says when it comes back', () => {
+    // WHY: the Snoozed filter is the way back to a hidden task, so each row
+    // must show its return time.
+    const row = taskRow({ ...task('s', 'todo'), snoozedUntil: NOW + 3 * 3_600_000, priority: 'urgent' }, 0, NOW)
+    expect(row.chips).toContainEqual(expect.objectContaining({ label: 'wakes in 3h' }))
+    expect(row.chips.some((chip) => chip.label === 'urgent')).toBe(false)
   })
 })

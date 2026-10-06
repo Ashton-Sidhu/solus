@@ -13,7 +13,7 @@ import { TASKS_AUTH_ERROR_PREFIX } from '@solus/contracts/task-types'
 import { isHostUserKey } from '../../host/host-user'
 import { sql } from 'drizzle-orm'
 import { getDatabase } from '../../db/database'
-import { resourceOwner } from '../../sharing/schema'
+import { shareGrant } from '../../sharing/schema'
 import { withCredentialScope } from '../../vault/credential-scope'
 import { taskLinks, taskSessionLinks, tasks } from './schema'
 import { sessionPullRequests } from '../sessions/schema'
@@ -21,7 +21,7 @@ import { createLogger } from '../../logger'
 import { loadProjectConfig } from '../../project-config/project-config'
 import { linkedPullRequestIsMerged, readTaskLinks, type PrLinkTarget } from './task-links'
 import { taskSessions } from './task-sessions'
-import { createTask, emitChanged } from './task-store'
+import { createTask, emitChanged, TASK_HERE } from './task-store'
 import { Task as TaskModel } from './task'
 import {
   dirtyCommentsForTask,
@@ -51,15 +51,15 @@ import { mentionsAsText } from '@solus/contracts/mentions'
 const log = createLogger('main', 'task-sync')
 const PUSH_DEBOUNCE_MS = 2_000
 
-const ownerRowSchema = z.object({ owner_user_id: z.string() })
+const ownerRowSchema = z.object({ subject_id: z.string() })
 
 /** Whose credential a task's link syncs with: its owner's; null (the host's own) for the host owner or a task nobody claimed. */
 async function taskOwnerCredentialUserId(organizationId: string, taskId: string): Promise<string | null> {
   const row = ownerRowSchema.nullish().parse(await getDatabase().get(sql`
-    SELECT owner_user_id FROM ${resourceOwner}
-    WHERE organization_id = ${organizationId} AND resource_kind = 'task' AND resource_id = ${taskId}
+    SELECT subject_id FROM ${shareGrant}
+    WHERE organization_id = ${organizationId} AND resource_kind = 'task' AND resource_id = ${taskId} AND role = 'owner'
   `))
-  const ownerUserId = row?.owner_user_id ?? null
+  const ownerUserId = row?.subject_id ?? null
   return ownerUserId === null || isHostUserKey(ownerUserId) ? null : ownerUserId
 }
 const POLL_INTERVAL_MS = 5 * 60_000
@@ -601,7 +601,7 @@ export async function completeTasksForMergedPullRequest(
   })).parse(await db.all(sql`
     SELECT tasks.id, tasks.project_key, tasks.updated_at, tasks.organization_id
     FROM ${tasks}
-    WHERE ${scopeClause(scope, sql`tasks.organization_id`)}
+    WHERE ${scopeClause(scope, sql`tasks.organization_id`)} AND ${TASK_HERE}
       AND tasks.status NOT IN ('done', 'dropped')
       AND (
         EXISTS (

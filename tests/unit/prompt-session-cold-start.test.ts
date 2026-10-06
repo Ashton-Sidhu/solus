@@ -152,10 +152,10 @@ describe.serial('SessionRuntime.promptSession cold start', () => {
       resumed.on('error', () => {})
       const orchestrator = runtime.orchestrateSessions(resumed)
       try {
-        await resumed.promptSession(targetId, 'continue')
+        await resumed.dispatch.promptSession(targetId, 'continue')
         expect(resumedBackend.requests).toHaveLength(1)
         expect(resumedBackend.requests[0].conversation).toEqual({ kind: 'resume', threadId: 'thread-1' })
-        expect((await resumed.getSessionInfo('solus-target'))?.status).toBe('running')
+        expect((await resumed.history.getSessionInfo('solus-target'))?.status).toBe('running')
         const caller = await resumed.runTurn({
           target: { kind: 'new-session' }, sessionId: 'solus-caller', input: input(), tools: [],
           options: { prompt: 'coordinate', promptSource: 'agent' },
@@ -231,7 +231,7 @@ describe.serial('SessionRuntime.promptSession cold start', () => {
       backend.complete('thread-1')
       await created.done
 
-      await plane.promptSession('thread-1', 'follow up on that')
+      await plane.dispatch.promptSession('thread-1', 'follow up on that')
 
       expect(backend.requests).toHaveLength(2)
       expect(backend.requests[1].permissionMode).toBe('full-access')
@@ -255,7 +255,7 @@ describe.serial('SessionRuntime.promptSession cold start', () => {
       backend.complete('thread-1')
       await created.done
 
-      await plane.promptSession('thread-1', 'review this', 'queue', { permissionMode: 'plan' })
+      await plane.dispatch.promptSession('thread-1', 'review this', 'queue', { permissionMode: 'plan' })
 
       expect(backend.requests[1].permissionMode).toBe('plan')
     } finally {

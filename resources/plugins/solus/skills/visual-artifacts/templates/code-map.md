@@ -58,14 +58,14 @@ Give each connection type a distinct dash pattern and a palette colour (used con
 
 | Type | Colour | Style | Use for |
 |---|---|---|---|
-| `data-flow` | `--solus-art-5` (dusty blue) | Solid | request/response, data passing |
-| `tool-call` | `--solus-art-3` (sage) | Dashed (6,3) | function calls, API invocations |
-| `event` | `--solus-art-1` (terracotta) | Short dash (4,4) | async events, pub/sub |
-| `dependency` | `--solus-art-border-strong` | Dotted | import/require relationships |
+| `data-flow` | `--chart-5` (blue) | Solid | request/response, data passing |
+| `tool-call` | `--chart-3` (green) | Dashed (6,3) | function calls, API invocations |
+| `event` | `--chart-1` (lime) | Short dash (4,4) | async events, pub/sub |
+| `dependency` | `--input` | Dotted | import/require relationships |
 
 ```html
 <marker id="arrow-dataflow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-  <polygon points="0 0, 8 3, 0 6" fill="var(--solus-art-5)"/>
+  <polygon points="0 0, 8 3, 0 6" fill="var(--chart-5)"/>
 </marker>
 ```
 
@@ -75,15 +75,15 @@ Assign each layer one palette colour, used consistently for every node in that l
 
 | Layer | Fill |
 |---|---|
-| Client/UI | `--solus-art-5` (dusty blue) |
-| Server/API | `--solus-art-2` (amber) |
-| SDK/Core | `--solus-art-6` (plum) |
-| Agent/Logic | `--solus-art-3` (sage) |
-| Data | `--solus-art-1` (terracotta) |
-| External | `--solus-art-4` (teal) |
+| Client/UI | `--chart-5` (blue) |
+| Server/API | `--chart-2` (amber) |
+| SDK/Core | `--chart-6` (plum) |
+| Agent/Logic | `--chart-3` (green) |
+| Data | `--chart-1` (lime) |
+| External | `--chart-4` (teal) |
 
 ```css
-.node-client { fill: color-mix(in srgb, var(--solus-art-5) 18%, transparent); }
+.node-client { fill: color-mix(in srgb, var(--chart-5) 18%, transparent); }
 ```
 
 ## Comment system

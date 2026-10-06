@@ -141,8 +141,8 @@ describe('accepting a plan', () => {
   test('stops the planning run, starts a fresh agent session, and records one decision by the person', async () => {
     const { runtime, claude, sent } = host()
     const bob = actors.memberActor('bob', 'Bob')
-    await runtime.submitPrompt(ctx('s1'), { prompt: 'plan it' }, { actor: bob })
-    await until(() => runtime.isSessionBusy('s1') && runtime.agentSessionIdFor('s1') === 'claude-code-thread-1')
+    await runtime.dispatch.submitPrompt(ctx('s1'), { prompt: 'plan it' }, { actor: bob })
+    await until(() => runtime.statuses.isSessionBusy('s1') && runtime.agentSessionIdFor('s1') === 'claude-code-thread-1')
 
     const result = await runtime.acceptPlan(ctx('s1', 'claude-code-thread-1'), { planId: 'claude-code-thread-1__tool-plan', startNewSession: true }, bob)
 
@@ -152,7 +152,7 @@ describe('accepting a plan', () => {
     expect(result).toEqual({})
     expect(sent.map(({ activity }) => activity.kind)).toEqual(['plan_decided'])
     expect(sent[0].activity).toMatchObject({ kind: 'plan_decided', planId: 'claude-code-thread-1__tool-plan', decision: 'accepted', newSessionId: 's1', by: BOB })
-    expect(runtime.isSessionBusy('s1')).toBe(false)
+    expect(runtime.statuses.isSessionBusy('s1')).toBe(false)
     expect(runtime.agentSessionIdFor('s1')).toBeUndefined()
     // After a reload the same row comes back.
     expect(await activityModule.activityFor('local', { kind: 'session', id: 's1' })).toEqual([sent[0].activity])
@@ -173,12 +173,12 @@ describe('a fork', () => {
     const { runtime, claude, sent } = host()
     const bob = actors.memberActor('bob', 'Bob')
     const cara = actors.memberActor('cara', 'Cara')
-    await runtime.submitPrompt(ctx('s-source'), { prompt: 'start' }, { actor: bob })
+    await runtime.dispatch.submitPrompt(ctx('s-source'), { prompt: 'start' }, { actor: bob })
     await until(() => runtime.agentSessionIdFor('s-source') === 'claude-code-thread-1')
     claude.releaseAll()
-    await until(() => !runtime.isSessionBusy('s-source'))
+    await until(() => !runtime.statuses.isSessionBusy('s-source'))
 
-    await runtime.submitPrompt(ctx('s-fork', 'claude-code-thread-1', { forked: true }), { prompt: 'try another way' }, { actor: cara })
+    await runtime.dispatch.submitPrompt(ctx('s-fork', 'claude-code-thread-1', { forked: true }), { prompt: 'try another way' }, { actor: cara })
     await until(() => sent.length > 0)
 
     // WHY: the fork's divider is the host's record, made where the provider
@@ -186,12 +186,12 @@ describe('a fork', () => {
     expect(sent).toEqual([{ sessionId: 's-fork', activity: expect.objectContaining({ kind: 'forked', sourceSessionId: 'claude-code-thread-1', subject: { kind: 'session', id: 's-fork' } }) }])
     expect(sent[0].activity.by).toMatchObject({ kind: 'user', user: { id: { kind: 'account', accountId: 'cara' } } })
     claude.releaseAll()
-    await until(() => !runtime.isSessionBusy('s-fork'))
+    await until(() => !runtime.statuses.isSessionBusy('s-fork'))
 
     // The source re-homed into a worktree forks its own active thread and stays
     // the same session: its move is recorded by the worktree handler, not here.
     const before = sent.length
-    await runtime.submitPrompt(ctx('s-source', 'claude-code-thread-1', { forked: true }), { prompt: 'continue in the worktree' }, { actor: bob })
+    await runtime.dispatch.submitPrompt(ctx('s-source', 'claude-code-thread-1', { forked: true }), { prompt: 'continue in the worktree' }, { actor: bob })
     await until(() => claude.requests.length === 3)
     expect(sent.slice(before)).toEqual([])
     claude.releaseAll()
@@ -211,6 +211,7 @@ describe('an agent switch', () => {
       sessionRuntime: runtime,
       events: { broadcast: () => {} } as never,
       agentIdFromContext: () => 'claude-code',
+      exchangeProgress: () => undefined,
     })
     const { TEST_HANDLER_CTX } = await import('./helpers/handler-ctx')
     return (sessionId: string) => handlers.get('loadSession')!([sessionId, '/tmp/project', undefined, 'codex'], TEST_HANDLER_CTX) as Promise<Array<{ content: string; activity?: Activity }>>
@@ -221,7 +222,7 @@ describe('an agent switch', () => {
     indexer.persistIndexedSessionStart('thread-1', 'claude-code', '/tmp/project', '/tmp/project', 'claude-opus-5', 'high', 'first')
     const bob = actors.memberActor('bob', 'Bob')
 
-    await runtime.switchSessionProvider('solus-1', 'codex', 'thread-1', bob)
+    await runtime.handoffs.switchSessionProvider('solus-1', 'codex', 'thread-1', bob)
 
     expect(sent.map(({ activity }) => activity)).toEqual([expect.objectContaining({ kind: 'agent_switched', provider: 'codex', fromProvider: 'claude-code', fromModel: 'claude-opus-5', by: BOB })])
     // WHY: the lineage still rebuilds a divider for this handoff; the recorded
@@ -254,20 +255,25 @@ describe('a move into a worktree', () => {
     const gitContext: GitCheckout = { repoRoot: repo, worktreePath, branch: 'solus/abc', targetBranch: 'main' }
     const recorded: unknown[][] = []
     const runtime = {
-      checkouts: { create: async () => gitContext },
-      setSessionGitEnvironment: () => {},
+      checkouts: { create: async () => gitContext, refresh: async () => ({ checkout: gitContext }) },
+      getGitContext: () => undefined,
+      trackWorktreeMove: () => () => {},
+      moveSessionCheckout: () => {},
       nameWorktreeBranch: async () => {},
       recordActivity: async (...args: unknown[]) => { recorded.push(args) },
     }
     const handlers = new Map<string, (args: unknown[], ctx: unknown) => Promise<unknown>>()
     const { registerWorktreeHandlers } = await import('@solus/server/transport/handlers/worktree-handlers')
+    const { WorktreeMover } = await import('@solus/server/execution/sessions/worktree-move')
     registerWorktreeHandlers({ register: (method: string, handler: (args: unknown[], ctx: unknown) => Promise<unknown>) => { handlers.set(method, handler) } } as never, {
       sessionRuntime: runtime as never,
       events: { broadcast: () => {} } as never,
       gitIdentities: {} as never,
+      worktreeMover: new WorktreeMover(runtime as never),
+      worktreeOffers: {} as never,
     })
     const bob = actors.memberActor('bob', 'Bob')
-    const ipc = { session: { sessionId: 's1', workingDirectory: repo, gitContext: null } } as unknown as IpcContext
+    const ipc = { session: { sessionId: 's1', workingDirectory: repo, gitContext: null }, settings: {} } as unknown as IpcContext
 
     const result = await handlers.get('continueInWorktree')!([ipc, 'name it'], { actor: bob })
 

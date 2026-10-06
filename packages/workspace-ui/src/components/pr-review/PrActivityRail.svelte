@@ -8,7 +8,6 @@
     CircleX as XCircleIcon,
     Clock as ClockIcon,
     File as FileIcon,
-    MessageCircle as MessageCircleIcon,
     GitMerge as GitMergeIcon,
     Hammer as HammerIcon,
     LoaderCircle as CircleNotchIcon,
@@ -36,7 +35,6 @@
   import { checkVerdict, checksSummary } from "./lib/check-verdict";
   import {
     reviewerRowAction,
-    reviewerStateColor,
     reviewerStateLabel,
   } from "./lib/reviewer-state";
   import type { PrActionsLayout } from "./lib/pr-actions-layout";
@@ -44,7 +42,7 @@
   import {
     mergeReadiness,
     readinessTone,
-    type MergeAction,
+    type MergeReadiness,
   } from "./lib/merge-readiness";
   import {
     CHECKS_VISIBLE_ROWS,
@@ -54,6 +52,7 @@
   } from "./lib/rail-rows";
   import { Skeleton } from "../ui/skeleton";
   import ReviewerRequestMenu from "./ReviewerRequestMenu.svelte";
+  import ReviewerVerdictIcon from "./ReviewerVerdictIcon.svelte";
 
   // The changed-file rows carry brand glyphs, the same ones Files, Diff and the
   // pickers use. Registering the curated offline subset is idempotent and
@@ -123,15 +122,13 @@
     /** Re-reads everything the rail shows. Offered beside any section that
      *  failed to load. */
     onRetry?: () => void;
-    /** The PR's action cluster (the readiness move + quiet secondary row) — it
-     *  lives with the readiness status it acts on, Linear-style, not in the
-     *  header. It is handed the move the shared readiness model chose. */
-    actions?: Snippet<[PrActionsLayout, MergeAction | null]>;
+    /** The PR's action cluster, which lives with the readiness status it acts
+     *  on. It is handed the shared readiness reading the card states. */
+    actions?: Snippet<[PrActionsLayout, MergeReadiness]>;
     /** The ⋯ menu of rarely-used PR actions. It rides beside the status,
      *  where it is always present, rather than under a cluster that a draft
-     *  or a closed PR leaves empty. It is handed the same move as `actions`,
-     *  so it offers what the card does not. */
-    menu?: Snippet<[MergeAction | null]>;
+     *  or a closed PR leaves empty. */
+    menu?: Snippet;
     /** A column beside the conversation, or a block inside it. */
     variant?: "column" | "inline";
     /** Which part to draw. Inline, the status sits under the title and the
@@ -391,8 +388,8 @@
             {@render readinessText()}
           </div>
           <div class="flex min-w-0 items-center gap-2">
-            {#if actions}{@render actions("row", readiness.action)}{/if}
-            {#if menu}<span class="shrink-0">{@render menu(readiness.action)}</span>{/if}
+            {#if actions}{@render actions("row", readiness)}{/if}
+            {#if menu}<span class="shrink-0">{@render menu()}</span>{/if}
           </div>
         </div>
       {:else}
@@ -403,9 +400,9 @@
             <!-- The ⋯ rides with the headline, where it is always present,
                  rather than under a cluster that a draft or a closed PR
                  empties. -->
-            {#if menu}<span class="-mr-1 shrink-0">{@render menu(readiness.action)}</span>{/if}
+            {#if menu}<span class="-mr-1 shrink-0">{@render menu()}</span>{/if}
           </div>
-          {#if actions}{@render actions("card", readiness.action)}{/if}
+          {#if actions}{@render actions("card", readiness)}{/if}
         </div>
       {/if}
     </section>
@@ -466,49 +463,41 @@
             <li
               class="group/reviewer flex h-8 items-center gap-2.5 rounded-lg px-2 transition-colors hover:bg-[var(--wash-2)]"
             >
-              <PrAvatar
-                name={reviewer.login}
-                url={reviewer.avatarUrl ?? ""}
-                size="size-5 text-xs"
-              />
+              <!-- The verdict as an icon on the avatar's corner, in its own
+                   colour; the word stays on the title and in the
+                   accessibility tree. A pending request carries no badge. -->
+              <span
+                class="relative grid size-5 shrink-0 place-items-center"
+                title={reviewerStateLabel(reviewer.state)}
+              >
+                <PrAvatar
+                  name={reviewer.login}
+                  url={reviewer.avatarUrl ?? ""}
+                  size="size-5 text-xs"
+                />
+                {#if reviewer.state !== null}
+                  <span
+                    class="absolute -right-1 -bottom-1 grid size-3 place-items-center rounded-full bg-background"
+                    aria-hidden="true"
+                  >
+                    <ReviewerVerdictIcon state={reviewer.state} size={10} />
+                  </span>
+                {/if}
+              </span>
               <span class="min-w-0 flex-1 truncate">
                 {reviewer.login}
+                <span class="sr-only">, {reviewerStateLabel(reviewer.state)}</span>
               </span>
-              <span
-                class="grid shrink-0 items-center justify-items-end pointer-coarse:gap-1.5"
-              >
-                <!-- The verdict as an icon in its own colour; the word stays
-                     on the title and in the accessibility tree. -->
-                <span
-                  class="col-start-1 row-start-1 grid size-6 place-items-center {action
-                    ? 'pointer-fine:group-hover/reviewer:invisible pointer-fine:group-focus-within/reviewer:invisible'
-                    : ''}"
-                  style={`color:${reviewerStateColor(reviewer.state)}`}
-                  title={reviewerStateLabel(reviewer.state)}
-                >
-                  {#if reviewer.state === "APPROVED"}
-                    <CheckCircleIcon size={14} aria-hidden="true" />
-                  {:else if reviewer.state === "CHANGES_REQUESTED"}
-                    <CircleAlertIcon size={14} aria-hidden="true" />
-                  {:else if reviewer.state === "COMMENTED"}
-                    <MessageCircleIcon size={14} aria-hidden="true" />
-                  {:else if reviewer.state === "DISMISSED"}
-                    <MinusCircleIcon size={14} aria-hidden="true" />
-                  {:else}
-                    <ClockIcon size={14} aria-hidden="true" />
-                  {/if}
-                  <span class="sr-only">{reviewerStateLabel(reviewer.state)}</span>
-                </span>
+              <span class="grid shrink-0 items-center justify-items-end">
                 {#if action}
-                  <!-- Precise pointers reveal it in the verdict's own cell;
-                       touch has no hover, so the control stays beside the
-                       verdict as a glyph. -->
+                  <!-- Precise pointers reveal it on hover; touch has no
+                       hover, so the control stays visible as a glyph. -->
                   <Button
                     type="button"
                     variant="ghost"
                     size="xs"
                     disabled={busy}
-                    class="col-start-1 row-start-1 h-6 cursor-pointer gap-1 rounded-md bg-[var(--wash-3)] px-2 text-xs font-medium text-foreground opacity-0 transition-opacity hover:bg-[var(--wash-3)] focus-visible:opacity-100 pointer-fine:group-hover/reviewer:opacity-100 pointer-coarse:col-start-2 pointer-coarse:size-7 pointer-coarse:px-0 pointer-coarse:opacity-100"
+                    class="h-6 cursor-pointer gap-1 rounded-md bg-[var(--wash-3)] px-2 text-xs font-medium text-foreground opacity-0 transition-opacity hover:bg-[var(--wash-3)] focus-visible:opacity-100 pointer-fine:group-hover/reviewer:opacity-100 pointer-coarse:size-7 pointer-coarse:px-0 pointer-coarse:opacity-100"
                     aria-label={action.kind === "remove"
                       ? `Remove ${reviewer.login} as a requested reviewer`
                       : `Request another review from ${reviewer.login}`}

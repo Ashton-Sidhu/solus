@@ -3,7 +3,6 @@ import {
   buildPrChecksFixPrompt,
   buildPrCommentsFixPrompt,
   buildPrQuestionDraft,
-  buildPrUpdateBranchPrompt,
 } from '@solus/workspace-ui/components/pr-review/lib/pr-input-drafts'
 
 describe('PR input drafts', () => {
@@ -81,17 +80,5 @@ describe('PR input drafts', () => {
 
     const unknown = buildPrChecksFixPrompt({ number: 19, title: 'Keep CI focused' }, [])
     expect(unknown).toContain('gh pr checks 19')
-  })
-
-  test('builds a local branch update that leaves publishing to the reviewer', () => {
-    const prompt = buildPrUpdateBranchPrompt({
-      number: 23,
-      title: 'Rework the picker',
-      baseRef: 'release/2.0',
-      headRef: 'feat/picker',
-    })
-    expect(prompt).toContain('Update branch `feat/picker` of PR #23: Rework the picker with its base branch `release/2.0`')
-    expect(prompt).toContain('Merge `origin/release/2.0` into `feat/picker`')
-    expect(prompt).toContain('Do NOT push or change remote pull request state.')
   })
 })

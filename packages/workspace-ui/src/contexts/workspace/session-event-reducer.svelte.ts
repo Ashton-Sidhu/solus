@@ -20,6 +20,7 @@ import type { NotificationSoundTrigger } from '@solus/contracts/notification-typ
 import type { UserId } from '@solus/contracts/user'
 import type { Activity } from '@solus/contracts/activity'
 import { showsActivity } from '../../components/activity/lib/activity-line'
+import { foldWorktreeOfferDecision } from '../../components/conversation/lib/worktree-offer'
 import { canDriveSession } from '../sharing/session-drive'
 
 type ThinkingSpan = { startedAt?: number; pendingMs: number; thoughts: string[] }
@@ -117,6 +118,11 @@ export class SessionEventReducer {
    * added once. Rows the reader need not see — their own notices — are not added.
    */
   private appendActivity(session: Session, activity: Activity): void {
+    // An offer's answer changes the offer's card; it is not a row of its own.
+    if (activity.kind === 'worktree_offer_decided') {
+      foldWorktreeOfferDecision(session.messages, activity)
+      return
+    }
     if (!showsActivity(activity, this.reader(session))) return
     for (let index = session.messages.length - 1; index >= 0; index--) {
       if (session.messages[index].activity?.id === activity.id) return
@@ -1024,19 +1030,6 @@ export class SessionEventReducer {
           role: 'assistant',
           content: '',
           browserSnapshot: event.snapshot,
-          timestamp: Date.now(),
-        })
-        break
-      }
-
-      case 'device_build_ready': {
-        // Like a capture: the build is what the turn produced, so its install
-        // buttons appear when the agent hands it over.
-        session.messages.push({
-          id: nextMsgId(),
-          role: 'assistant',
-          content: '',
-          deviceBuild: event.build,
           timestamp: Date.now(),
         })
         break

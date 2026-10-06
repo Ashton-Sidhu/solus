@@ -11,12 +11,6 @@ export const APPEARANCE_LABELS = {
   dark: 'Dark',
 } as const satisfies Record<AppearanceMode, string>
 
-export const APPEARANCE_DESCRIPTIONS = {
-  system: 'Follow this device’s light or dark setting.',
-  light: 'Always light.',
-  dark: 'Always dark.',
-} as const satisfies Record<AppearanceMode, string>
-
 /** In the desktop's words (`SettingsTabGeneral.svelte`). */
 export const STREAMING_CHOICES: readonly { mode: ResponseStreamingMode; label: string; description: string }[] = [
   { mode: 'paragraph', label: 'Streaming', description: 'Show paragraphs and code blocks as they finish.' },

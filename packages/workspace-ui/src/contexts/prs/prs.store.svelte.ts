@@ -35,6 +35,7 @@ export interface PrProject {
 interface ProjectWants {
   project: ProjectPrs
   bySurface: Map<symbol, readonly PrInterest[]>
+  sentInterests?: string
 }
 
 /** Heard for every `pr.changed` and every interest answer: the change, and
@@ -98,16 +99,22 @@ export class PrsStore {
     }).finally(() => { this.sending = undefined })
   }
 
-  private async sendNow({ project, bySurface }: ProjectWants): Promise<void> {
+  private async sendNow(wants: ProjectWants): Promise<void> {
+    const { project, bySurface } = wants
+    if (this.wants.get(project.key) !== wants) return
     const byJson = new Map<string, PrInterest>()
     for (const interests of bySurface.values()) {
       for (const interest of interests) byJson.set(JSON.stringify(interest), interest)
     }
-    if (!bySurface.size) this.wants.delete(project.key)
+    const signature = JSON.stringify([...byJson.keys()].sort())
+    if (wants.sentInterests === signature) return
+    wants.sentInterests = signature
     try {
       const known = await project.hostApi.prSetInterest(detached(project.hostContext), [...byJson.values()])
       this.applyChange(project.serverId, known, project)
+      if (!byJson.size && !bySurface.size && this.wants.get(project.key) === wants) this.wants.delete(project.key)
     } catch {
+      wants.sentInterests = undefined
       // A project with no repository has nothing to keep fresh; a lost
       // connection sends again when it returns.
     }
@@ -121,7 +128,10 @@ export class PrsStore {
     const reconnected = serverConnections.onStatusChange((serverId, status) => {
       if (status !== 'connected') return
       for (const wants of this.wants.values()) {
-        if (wants.project.serverId === serverId) this.send(wants)
+        if (wants.project.serverId === serverId) {
+          wants.sentInterests = undefined
+          this.send(wants)
+        }
       }
     })
     this.stopListening = () => {

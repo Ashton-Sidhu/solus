@@ -3,8 +3,8 @@ import type { DeviceInput } from '@solus/contracts/device-types'
 /**
  * Pointer and keyboard input for a device surface. Coordinates are normalized
  * against the device screen as drawn (letterboxed inside the element), never
- * against browser viewport presets. Moves are batched per frame; down, up and
- * cancel flush at once and are never dropped.
+ * against browser viewport presets. Moves and wheel scrolls are batched per
+ * frame; down, up and cancel flush at once and are never dropped.
  */
 
 export interface ScreenPoint {
@@ -51,18 +51,24 @@ export function clampedPoint(clientX: number, clientY: number, picture: Rect): S
   }
 }
 
-/** Wheel deltas in pixels as a fraction of the picture, bounded to one screen. */
-export function scrollDelta(deltaX: number, deltaY: number, picture: Rect): ScrollFraction {
+/**
+ * Wheel deltas as a fraction of the picture, bounded to one screen. A wheel
+ * that reports lines (Firefox) or pages counts 16px a line and the picture a
+ * page, as the 3D view does.
+ */
+export function scrollDelta(deltaX: number, deltaY: number, deltaMode: number, picture: Rect): ScrollFraction {
   const clamp = (value: number) => Math.min(1, Math.max(-1, value))
+  const unit = (size: number) => (deltaMode === 1 ? 16 : deltaMode === 2 ? size : 1)
   return {
-    deltaX: picture.width > 0 ? clamp(deltaX / picture.width) : 0,
-    deltaY: picture.height > 0 ? clamp(deltaY / picture.height) : 0,
+    deltaX: picture.width > 0 ? clamp((deltaX * unit(picture.width)) / picture.width) : 0,
+    deltaY: picture.height > 0 ? clamp((deltaY * unit(picture.height)) / picture.height) : 0,
   }
 }
 
 /**
  * Collects input and sends it in order. Moves wait for the next frame and
- * collapse to the latest; anything else flushes the queue at once. One send
+ * collapse to the latest; wheel scrolls wait too and add up, so a fast wheel
+ * sends one scroll a frame. Anything else flushes the queue at once. One send
  * is in flight at a time, so batches arrive in order.
  */
 export class DeviceInputBatcher {
@@ -78,12 +84,16 @@ export class DeviceInputBatcher {
 
   push(input: DeviceInput): void {
     const last = this.queue.at(-1)
+    const clamp = (value: number) => Math.min(1, Math.max(-1, value))
     if (input.kind === 'pointer' && input.phase === 'move' && last?.kind === 'pointer' && last.phase === 'move') {
       this.queue[this.queue.length - 1] = input
+    } else if (input.kind === 'scroll' && last?.kind === 'scroll') {
+      last.deltaX = clamp(last.deltaX + input.deltaX)
+      last.deltaY = clamp(last.deltaY + input.deltaY)
     } else {
       this.queue.push(input)
     }
-    if (input.kind === 'pointer' && input.phase === 'move') {
+    if ((input.kind === 'pointer' && input.phase === 'move') || input.kind === 'scroll') {
       if (!this.scheduled) {
         this.scheduled = true
         this.schedule(() => {

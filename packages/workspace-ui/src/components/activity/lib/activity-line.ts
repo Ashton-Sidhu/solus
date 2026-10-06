@@ -80,9 +80,17 @@ function sessionPredicate(activity: Activity, self: UserId | null): string | nul
     case 'question_answered': return 'answered the question'
     case 'rate_limit_decided': return rateLimitDecisionNotice(activity.action)
     case 'queued_prompt_changed': return `${activity.change} ${heldPromptOwner(activity.author, self)} held prompt`
+    case 'worktree_offered': return `found the agent working in worktree ${activity.branch || activity.path}`
+    case 'worktree_offer_decided': return worktreeOfferPredicate(activity.resolution.decision)
     case 'seat_needed': return `needs to connect a ${activity.provider === 'codex' ? 'Codex' : 'Claude'} seat on this host`
     default: return null
   }
+}
+
+function worktreeOfferPredicate(decision: 'switched' | 'kept' | 'failed'): string {
+  if (decision === 'switched') return "switched to the agent's worktree"
+  if (decision === 'kept') return 'kept the current checkout'
+  return "could not switch to the agent's worktree"
 }
 
 /** What was done to any subject: a rename, a share, a mention. */

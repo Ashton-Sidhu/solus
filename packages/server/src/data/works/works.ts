@@ -317,9 +317,10 @@ export async function importWorkFromHost(organizationId: string, transfer: WorkT
   })
 }
 
-/** A successful cloud write does not authorize deleting newer local edits. The
- *  row stays with the work's new location (cloud-sharing.md §3a). */
-export async function removePushedWork(scope: RecordScope, id: string, fingerprint: string, organizationId: string): Promise<void> {
+/** After the cloud has the work, point this host's row at it (cloud-sharing.md §3a).
+ *  The content stays here. A work edited after it was read is not pointed away:
+ *  the cloud copy would be older than this one. */
+export async function markWorkMoved(scope: RecordScope, id: string, fingerprint: string, organizationId: string): Promise<void> {
   await database().transaction(async () => {
     const snapshot = await exportWorkForCloud(scope, id)
     if (snapshot.fingerprint !== fingerprint) throw new Error('The work changed during the cloud push. Its local copy was kept.')

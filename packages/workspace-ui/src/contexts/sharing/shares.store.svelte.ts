@@ -17,7 +17,7 @@ import { organizationIdFor } from '@solus/client-core/uplink-session'
 import { serversStore } from '../connections/servers.store.svelte'
 import { toasts } from '../../lib/toasts'
 import { notificationsStore } from '../notifications/notifications.store.svelte'
-import { grantsFor, guestLinkContext, linkPresentation, linkRoleFor, sameScope, scopeOf, withPersonRole, withoutPerson, type GuestLinkContext, type ShareScope } from '../../components/sharing/lib/share-rows'
+import { guestLinkContext, linkPresentation, sameScope, scopeOf, scopeRequestFor, withPersonRole, withoutPerson, type GuestLinkContext, type ShareScope } from '../../components/sharing/lib/share-rows'
 import { publishProblemMessage } from '../../components/sharing/lib/publish-copy'
 import { provideShareRoles } from './session-drive'
 import { accountStore } from '../account/account.store.svelte'
@@ -190,9 +190,7 @@ export class SharesStore {
    * account merged into the registry fills that in, for the window's organization.
    */
   async identityFor(serverId: string, refresh = false): Promise<HostIdentity> {
-    const cached = this.identities.get(serverId)
-    if (cached && !refresh) return cached
-    const info = await serverConnections.apiFor(serverId).connectionsGetServerInfo()
+    const info = await serverConnections.serverInfoFor(serverId, refresh)
     const identity: HostIdentity = {
       principal: info.principal,
       accountConnectionsUrl: info.accountConnectionsUrl,
@@ -520,9 +518,9 @@ export class SharesStore {
   /**
    * A Local work leaves its machine as a cloud copy (docs/plans/cloud-sharing.md §3):
    * read from the machine, uploaded to the Solus API with this client's sign-in
-   * under the same id, then removed from the machine. Every step is safe to
-   * repeat: the same work uploaded again answers as before, so a Share that
-   * stopped halfway finishes the next time.
+   * under the same id, then marked moved on the machine, which keeps its
+   * content. Every step is safe to repeat: the same work uploaded again
+   * answers as before, so a Share that stopped halfway finishes the next time.
    */
   private async uploadWork(serverId: string, workId: string, organizationId: string): Promise<PublishOutcome> {
     const host = serverConnections.apiFor(serverId)
@@ -530,7 +528,7 @@ export class SharesStore {
     const cloudServerId = solusApiId(organizationId)
     await this.reachCloud(cloudServerId)
     await serverConnections.apiFor(cloudServerId).workUpload(transfer)
-    await host.workRemoveUploaded(workId, transfer.fingerprint, organizationId)
+    await host.workMarkMoved(workId, transfer.fingerprint, organizationId)
     this.works?.markPublished(workId, organizationId, cloudServerId)
     this.lists.delete(listKey(serverId, { kind: 'work', id: workId }))
     return { kind: 'committed', cloudServerId }
@@ -549,7 +547,7 @@ export class SharesStore {
     const cloud = serverConnections.apiFor(cloudServerId)
     for (const work of works) await cloud.workUpload(work)
     await cloud.taskUpload(task)
-    await host.taskRemoveUploaded(taskId, task.fingerprint, works.map((work) => ({ workId: work.work.id, fingerprint: work.fingerprint })), organizationId)
+    await host.taskMarkMoved(taskId, task.fingerprint, works.map((work) => ({ workId: work.work.id, fingerprint: work.fingerprint })), organizationId)
     for (const work of works) {
       this.works?.markPublished(work.work.id, organizationId, cloudServerId)
       this.lists.delete(listKey(serverId, { kind: 'work', id: work.work.id }))
@@ -610,16 +608,14 @@ export class SharesStore {
 
   /**
    * Who can open a resource and what they may do, as one choice: the named rows
-   * and the link change together so the list never lands between two scopes. A
+   * and the link change in one call, so the list never lands between two scopes. A
    * scope that is already the list's, role included, is a no-op; a role change on
    * the link keeps its secret, so guests stay connected with the new role.
    */
   async setScope(serverId: string, list: ShareList, scope: ShareScope): Promise<void> {
     if (sameScope(scopeOf(list), scope)) return
     const organizationId = this.identities.get(serverId)?.organizationId ?? null
-    await this.setGrants(serverId, grantsFor(scope, list, organizationId))
-    const linkRole = linkRoleFor(scope)
-    if (linkRole !== (list.link?.role ?? null)) await this.setLink(serverId, list.resource, linkRole)
+    await this.setGrants(serverId, scopeRequestFor(scope, list, organizationId))
   }
 
   /** One person's own row, added or changed; every other row and the link stay as they are. */

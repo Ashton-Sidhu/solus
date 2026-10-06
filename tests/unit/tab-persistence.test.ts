@@ -103,6 +103,16 @@ describe('tab persistence server scoping', () => {
     expect(loadPersistedTabs()).toBeNull()
   })
 
+  test('keeps the tabs when the saved strips have a shape this build cannot read', () => {
+    // WHY: a rejected snapshot boots empty, and the next write replaces every
+    // open tab. An earlier build saved strips as an object.
+    storage.setItem('solus-open-tabs', JSON.stringify({ ...sampleSnapshot(), strips: {} }))
+
+    const restored = loadPersistedTabs()
+    expect(restored?.tabs.map((tab) => tab.tabId)).toEqual(['tab-1'])
+    expect(restored?.strips).toBeUndefined()
+  })
+
   test('writes drafts to the client-wide key — the draft follows its tab, not a host', () => {
     initDraftState(loadDrafts())
 

@@ -4,15 +4,14 @@ import { writeAssetBytes } from '../data/assets/assets'
 import { dataDir } from '../platform/paths'
 import { DeviceAgentBridge } from './device-agent-bridge'
 import { DeviceBuildStore } from './device-builds'
-import { DeviceFrameChannel } from './device-frame-channel'
+import { DeviceRuns } from './device-run'
+import { DeviceHubProxy } from './device-hub-proxy'
 import { spawnHelper } from './device-helpers'
 import type { DeviceHost } from './device-host'
 import { DeviceManager } from './device-manager'
 import { runDeviceCommand } from './device-process'
 import { DeviceSettingsStore } from './device-settings-store'
-import { DeviceStreams } from './device-streams'
 import { DeviceToolchain } from './device-toolchain'
-import { loopbackUpstream } from './device-upstream'
 import { LocalDeviceHost, processCommandLine } from './local-device-host'
 
 /**
@@ -22,12 +21,17 @@ import { LocalDeviceHost, processCommandLine } from './local-device-host'
 
 export interface DeviceDomain {
   manager: DeviceManager
-  frames: DeviceFrameChannel
+  /** The signed pass-through route from a client to a device's hub stream. */
+  hubProxy: DeviceHubProxy
   /** Where the agent-device CLI keeps per-host endpoint config (0600). */
   agentConfigDir: string
   toolchain: DeviceToolchain
   /** The guarded loopback path from an agent's CLI to the daemon. */
   bridge: DeviceAgentBridge
+  /** Build and run of a project's saved run profiles. */
+  runs: DeviceRuns
+  /** A client's connection expired: its proxied streams close and its control ends. */
+  dropClient: (clientId: string) => void
 }
 
 export interface DeviceDomainOptions {
@@ -44,8 +48,6 @@ export function initDeviceDomain(options: DeviceDomainOptions): DeviceDomain {
   const root = options.root ?? join(dataDir(), 'devices')
   const toolchain = new DeviceToolchain(join(root, 'tools'), runDeviceCommand)
   const stateDir = join(root, 'state')
-  const frames = new DeviceFrameChannel()
-  const streams = new DeviceStreams(frames, loopbackUpstream)
   const localHost = new LocalDeviceHost({
     stateDir: join(stateDir, 'local'),
     toolchain,
@@ -57,10 +59,10 @@ export function initDeviceDomain(options: DeviceDomainOptions): DeviceDomain {
   // The bridge and the manager refer to each other: the bridge checks leases
   // the manager owns, and the manager revokes bindings when access ends.
   let manager: DeviceManager | null = null
+  let runs: DeviceRuns | null = null
   const bridge = new DeviceAgentBridge({
     endpoint: (deviceHostId) => manager?.agentEndpoint(deviceHostId) ?? null,
-    acquire: (binding, holder) => manager!.control.acquireForAgent(binding, holder).generation,
-    begin: (binding, generation, holder) => manager!.control.begin(binding, generation, holder),
+    acquire: (binding, holder) => { manager!.control.acquireForAgent(binding, holder) },
   })
   manager = new DeviceManager({
     settings: new DeviceSettingsStore(join(root, 'settings.json')),
@@ -71,10 +73,23 @@ export function initDeviceDomain(options: DeviceDomainOptions): DeviceDomain {
     surfaceRequested: options.surfaceRequested,
     storeImage: async (bytes) => ({ assetId: (await writeAssetBytes(bytes, 'png')).id }),
     builds: new DeviceBuildStore({ path: join(root, 'builds.json'), run: runDeviceCommand }),
-    streams,
+    runs: () => runs?.list() ?? [],
     revokeAgentBindings: (predicate) => bridge.revoke(predicate),
   })
-  current = { manager, frames, agentConfigDir: join(stateDir, 'agent-config'), toolchain, bridge }
+  const runner = new DeviceRuns({ manager, approvalsPath: join(root, 'run-approvals.json'), changed: () => manager?.changed() })
+  runs = runner
+  const hubProxy = new DeviceHubProxy({
+    hubOrigin: async (target) => (await manager!.resolveDevice(target.deviceHostId, target.deviceId)).ready.hubOrigin,
+    holdsControl: (target, clientId) => {
+      const holder = manager!.control.state(target).lease?.holder
+      return holder?.kind === 'user' && holder.clientId === clientId
+    },
+  })
+  const dropClient = (clientId: string) => {
+    hubProxy.dropClient(clientId)
+    manager!.control.dropClient(clientId)
+  }
+  current = { manager, hubProxy, agentConfigDir: join(stateDir, 'agent-config'), toolchain, bridge, runs: runner, dropClient }
   return current
 }
 

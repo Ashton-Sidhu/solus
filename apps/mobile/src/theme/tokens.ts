@@ -6,7 +6,7 @@
  */
 
 export interface Palette {
-  /** The page behind everything (`--solus-sidebar-bg`). */
+  /** The page behind everything: the app background (`--solus-container-bg`). */
   canvas: string
   /** Content containers (`--solus-container-bg`). */
   surface: string
@@ -21,14 +21,14 @@ export interface Palette {
   onAccent: string
   danger: string
   dangerSoft: string
-  /** A user's own message bubble (`--solus-surface-primary`). */
+  /** A user's own sent message bubble: 2% ink over the page (`UserMessageBubble.svelte`). */
   userBubble: string
 }
 
 export const lightPalette: Palette = {
-  canvas: '#f9f8f4',
-  surface: '#fefefc',
-  card: '#fefefc',
+  canvas: '#fffffd',
+  surface: '#fffffd',
+  card: '#fffffd',
   border: '#d2cfc5',
   text: '#2a2618',
   textSecondary: '#484538',
@@ -38,7 +38,7 @@ export const lightPalette: Palette = {
   onAccent: '#ffffff',
   danger: '#ef4444',
   dangerSoft: '#fdecec',
-  userBubble: '#faf3e4',
+  userBubble: '#fbfbf8',
 }
 
 export const darkPalette: Palette = {
@@ -48,13 +48,13 @@ export const darkPalette: Palette = {
   border: '#45443f',
   text: '#f0ede5',
   textSecondary: '#bdbab3',
-  textTertiary: '#8d8a83',
+  textTertiary: '#9a978f',
   accent: '#e68e6b',
   accentSoft: '#3d2c24',
   onAccent: '#ffffff',
   danger: '#ef4444',
   dangerSoft: '#3a1f1f',
-  userBubble: '#3d2c1f',
+  userBubble: '#2a2926',
 }
 
 /** One density (docs/plans/single-density.md): 14px chrome; the system's text

@@ -5,6 +5,7 @@ import { solusDir } from '../platform/paths'
 import { resolveEngine } from './engine'
 import { runMigrations } from './migrations'
 import { runSqliteSchemaMigrations } from './sqlite-migrations'
+import { assertTestDatabase } from './test-safety'
 
 /**
  * The host's SQLite file: the legacy hand-written tables and, on the SQLite
@@ -41,6 +42,7 @@ export function getDb(): DatabaseSync {
   if (db) return db
 
   const dataDir = solusDir()
+  assertTestDatabase({ kind: 'sqlite', path: join(dataDir, 'solus.db') })
   mkdirSync(dataDir, { recursive: true })
 
   const openedDb = new DatabaseSync(join(dataDir, 'solus.db'))

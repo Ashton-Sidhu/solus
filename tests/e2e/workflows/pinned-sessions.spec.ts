@@ -6,7 +6,7 @@ const ACTIVE_SHELL = '.workspace-shell'
 
 // The pinned sidebar section belongs to the wide workspace sidebar.
 test.describe('Pinned sessions', () => {
-  test('star action in the orb pins the active session into the sidebar', async ({ page }) => {
+  test('star action in the session action row pins the active session into the sidebar', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
     await app.waitForAppReady()
@@ -16,7 +16,7 @@ test.describe('Pinned sessions', () => {
     await conversation.waitForResponse()
     await app.waitForWorkspace()
 
-    const pinBtn = page.locator(`${ACTIVE_SHELL} [data-orb-action="pin"]`).first()
+    const pinBtn = page.locator(`${ACTIVE_SHELL} [data-session-action="pin"]`).first()
     await expect(pinBtn).toBeVisible()
 
     // When: the user clicks the star
@@ -27,8 +27,8 @@ test.describe('Pinned sessions', () => {
     await expect(pinnedItem).toBeVisible({ timeout: 3000 })
     await expect(pinnedItem).toContainText('Pin this session please')
 
-    // And: the orb action reflects the pinned state
-    await expect(pinBtn).toContainText('Pinned')
+    // And: the row action reflects the pinned state
+    await expect(pinBtn).toHaveAttribute('aria-pressed', 'true')
 
     // Clean up so the shared ~/.solus manifest isn't polluted across runs.
     await page.keyboard.press('Alt+Shift+x')
@@ -63,7 +63,7 @@ test.describe('Pinned sessions', () => {
     await conversation.waitForResponse()
     await app.waitForWorkspace()
 
-    await page.locator(`${ACTIVE_SHELL} [data-orb-action="pin"]`).first().click()
+    await page.locator(`${ACTIVE_SHELL} [data-session-action="pin"]`).first().click()
     const pinnedItem = page.locator(`${ACTIVE_SHELL} .pinned-item`).first()
     await expect(pinnedItem).toBeVisible({ timeout: 3000 })
 

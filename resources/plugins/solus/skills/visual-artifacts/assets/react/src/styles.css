@@ -1,10 +1,10 @@
 @import "tailwindcss" source(".");
 
 :root {
-  --artifact-border: var(--solus-art-border, #ddd5cc);
-  --artifact-text: var(--solus-text-primary, #302b26);
-  --artifact-accent: var(--solus-accent, #a84d35);
-  font-family: var(--solus-font-family, system-ui, sans-serif);
+  --artifact-border: var(--border, #e2e2e2);
+  --artifact-text: var(--foreground, #262626);
+  --artifact-accent: var(--primary, #d97757);
+  font-family: var(--font-sans, system-ui, sans-serif);
   color: var(--artifact-text);
 }
 
@@ -28,9 +28,9 @@ button {
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --artifact-border: var(--solus-art-border, #5d5147);
-    --artifact-text: var(--solus-text-primary, #efe9e0);
-    --artifact-accent: var(--solus-accent, #e89476);
+    --artifact-border: var(--border, #3d3d3d);
+    --artifact-text: var(--foreground, #ededed);
+    --artifact-accent: var(--primary, #e68e6b);
   }
 }
 

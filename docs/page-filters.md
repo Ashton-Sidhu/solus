@@ -2,7 +2,7 @@
 
 Workspace, Automations, and Tasks group controls that change which records are shown under a Filters button. The button shows an active tint and a count when its label is hidden. Search, sort, layout, and create actions stay on the page row.
 
-- Workspace groups type, time, status, Pinned, and Needs review.
+- Workspace groups project, type, time, Pinned, and Needs my review. It is global: it opens on all projects, and its Project filter is local to the page, so it never changes the scope of Tasks, Pull requests, or Automations. Plans stay with their sessions.
 - Automations groups Starred and status. Status remains a single choice, including Archived.
 - Tasks groups Running, Overdue, Assigned, and status. Inbox project and involvement controls also appear in Filters. Board view omits status because its columns show every status.
 

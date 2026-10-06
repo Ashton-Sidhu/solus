@@ -93,9 +93,8 @@ describe('panel sizing across displays', () => {
     const fiveK = measure(2560)
     expect(fiveK).toBeGreaterThan(laptop)
     expect(fiveK - laptop).toBeLessThan(conversationWidth(2560) - conversationWidth(1440))
-    // Neither end is allowed to collapse into the other's failure: a readable
-    // laptop line, and a 5K that is not mostly gutter.
-    expect(laptop).toBeGreaterThan(700)
+    // A laptop uses the requested share; a 5K stops at the reading cap.
+    expect(laptop).toBeCloseTo((conversationWidth(1440) - 32) * 0.65, 6)
     expect(fiveK).toBe(68 * 16)
   })
 
@@ -106,7 +105,7 @@ describe('panel sizing across displays', () => {
     for (const pane of [360, 480, 600, 800]) {
       expect(pane - gutterWidth(pane) * 2).toBeLessThanOrEqual(pane - 32)
     }
-    expect(800 - gutterWidth(800) * 2).toBeCloseTo((800 - 32) * 0.8, 6)
+    expect(800 - gutterWidth(800) * 2).toBeCloseTo((800 - 32) * 0.65, 6)
   })
 
   test('a laptop lands inside the band rather than on either bound', () => {

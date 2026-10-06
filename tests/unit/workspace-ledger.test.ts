@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'bun:test'
-import type { PlanDescriptor, Work } from '@solus/contracts/types'
+import type { Work } from '@solus/contracts/types'
 import {
+  DEFAULT_FILTER,
+  applyFilter,
   buildWorkspaceItems,
   formatGeneratedDate,
   formatGeneratedFull,
   groupItems,
-  initialWorkspaceProject,
+  isDefaultFilter,
   isHtmlArtifact,
-  planItem,
-  projectsForWorkspaceScope,
+  parseToken,
+  projectOptions,
   sortItems,
   upstreamProviderFor,
   workItem,
@@ -22,8 +24,8 @@ const DAY = 86_400_000
 function item(over: Partial<WorkspaceItem> & { id: string; timestamp: number }): WorkspaceItem {
   return {
     rowKey: `test:${over.id}`,
-    type: 'plan',
-    glyph: 'plan',
+    type: 'doc',
+    glyph: 'doc',
     title: over.id,
     snippet: '',
     createdAt: 0,
@@ -33,11 +35,10 @@ function item(over: Partial<WorkspaceItem> & { id: string; timestamp: number }):
     cwd: '/repo',
     projectKey: '/repo',
     projectLabel: 'repo',
-    status: null,
     reviewState: null,
     reviewers: [],
     awaitingMyReview: false,
-    source: { kind: 'work', work: {} as never },
+    work: {} as never,
     ...over,
   }
 }
@@ -65,23 +66,47 @@ describe('the ledger orders and groups what the reader asked for', () => {
   })
 })
 
-describe('a project selected from Workspace history', () => {
-  it('attributes and shows its artifacts before any session is open in it', () => {
-    const catalogProject: WorkspaceProject = { key: '/catalog', label: 'catalog', roots: ['/catalog'] }
-    const selectedProject = { key: '/catalog-only', label: 'catalog-only' }
-    const projects = projectsForWorkspaceScope([catalogProject], selectedProject)
-    const work = {
-      id: 'catalog-work',
-      type: 'doc',
-      title: 'Loaded from the selected project',
-      preview: '',
-      createdAt: '2026-08-28T12:00:00Z',
-      updatedAt: '2026-08-28T12:00:00Z',
-      cwd: '/catalog-only',
-    } as Work
+describe('the Workspace is global', () => {
+  const KNOWN: WorkspaceProject = { key: '/known', label: 'known', roots: ['/known'] }
+  const work = (id: string, cwd: string) =>
+    ({ id, type: 'doc', title: id, preview: '', createdAt: '', updatedAt: '', cwd }) as Work
 
-    expect(buildWorkspaceItems([], [work], projects).map((item) => item.id)).toEqual([
-      'catalog-work',
+  it('shows works from every project, not only the one in focus', () => {
+    const other: WorkspaceProject = { key: '/other', label: 'other', roots: ['/other'] }
+    const built = buildWorkspaceItems([work('a', '/known/sub'), work('b', '/other')], [KNOWN, other])
+    expect(built.map((entry) => [entry.id, entry.projectLabel])).toEqual([
+      ['a', 'known'],
+      ['b', 'other'],
+    ])
+  })
+
+  it('keeps a work that no known project claims, filed under its own folder', () => {
+    const [built] = buildWorkspaceItems([work('stray', '/elsewhere/notes/')], [KNOWN])
+    expect(built.projectKey).toBe('/elsewhere/notes/')
+    expect(built.projectLabel).toBe('notes')
+  })
+})
+
+describe('project is one filter among the others', () => {
+  const items = [
+    item({ id: 'a1', timestamp: 3, projectKey: '/a', projectLabel: 'alpha' }),
+    item({ id: 'b1', timestamp: 2, projectKey: '/b', projectLabel: 'beta' }),
+    item({ id: 'a2', timestamp: 1, projectKey: '/a', projectLabel: 'alpha' }),
+  ]
+
+  it('shows every project until the reader picks one', () => {
+    expect(applyFilter(items, DEFAULT_FILTER)).toHaveLength(3)
+    expect(applyFilter(items, { ...DEFAULT_FILTER, project: '/a' }).map((i) => i.id)).toEqual(['a1', 'a2'])
+  })
+
+  it('counts as an active filter, so the ledger reads as filtered', () => {
+    expect(isDefaultFilter({ ...DEFAULT_FILTER, project: '/a' })).toBe(false)
+  })
+
+  it('offers only the projects that hold a work, by name, with their counts', () => {
+    expect(projectOptions(items)).toEqual([
+      { value: '/a', label: 'alpha', count: 2 },
+      { value: '/b', label: 'beta', count: 1 },
     ])
   })
 })
@@ -102,70 +127,22 @@ describe('HTML artifact mobile behavior', () => {
   })
 })
 
-describe('Workspace initial project ownership', () => {
-  const defaultInput = { workingDirectory: '/input-default', gitContext: null }
-
-  it('starts on the active session project instead of another input-bar project', () => {
-    const activeSessionRun = {
-      serverId: 'host-a',
-      workingDirectory: '/active-worktree',
-      gitContext: { repoRoot: '/active-project' },
-    }
-    const inputBarRun = {
-      serverId: 'host-b',
-      workingDirectory: '/input-project',
-      gitContext: null,
-    }
-
-    expect(initialWorkspaceProject(activeSessionRun, inputBarRun, defaultInput, 'default')).toEqual({
-      serverId: 'host-a',
-      projectRoot: '/active-project',
-    })
-  })
-
-  it('uses the input-bar project when there is no active session', () => {
-    const inputBarRun = {
-      serverId: 'host-b',
-      workingDirectory: '/input-project',
-      gitContext: null,
-    }
-
-    expect(initialWorkspaceProject(undefined, inputBarRun, defaultInput, 'default')).toEqual({
-      serverId: 'host-b',
-      projectRoot: '/input-project',
-    })
-  })
-
-  it('uses the input-bar default only when neither session nor draft owns a run', () => {
-    expect(initialWorkspaceProject(undefined, undefined, defaultInput, 'default')).toEqual({
-      serverId: 'default',
-      projectRoot: '/input-default',
-    })
-  })
-})
-
 describe('a row is marked with what actually made it', () => {
   const PROJECT: WorkspaceProject = { key: '/repo', label: 'repo', roots: ['/repo'] }
-  const plan = (provider?: string) =>
-    planItem({ provider, sessionId: 's', planToolUseId: 't', cwd: '/repo' } as PlanDescriptor, PROJECT)
-      .glyph
   const work = (type: string) =>
     workItem({ id: 'w', type, updatedAt: '2026-01-01T00:00:00Z', cwd: '/repo' } as Work, PROJECT).glyph
-
-  it('gives a plan the logo of the agent that wrote it — the ledger is scanned for "the one Codex made"', () => {
-    expect(plan('claude-code')).toBe('claude')
-    expect(plan('codex')).toBe('codex')
-  })
-
-  it('falls back to the generic plan mark rather than guessing an agent', () => {
-    expect(plan(undefined)).toBe('plan')
-    expect(plan('opencode')).toBe('plan')
-  })
 
   it('keeps each work format on the icon Solus already uses for it, slides included', () => {
     expect(work('doc')).toBe('doc')
     expect(work('slides')).toBe('slides')
     expect(work('diagram')).toBe('diagram')
+  })
+
+  it('gives HTML artifacts their own facet instead of filing them under Docs', () => {
+    expect(workItem({ id: 'w', type: 'artifact', updatedAt: '', cwd: '/repo' } as Work, PROJECT).type).toBe(
+      'artifact',
+    )
+    expect(parseToken('type:artifact')).toEqual({ type: 'artifact' })
   })
 
   it('still files slides under the Docs facet, so the rail count stays honest', () => {
@@ -186,11 +163,9 @@ describe('a row is marked with what actually made it', () => {
       PROJECT,
     )
     const local = workItem({ id: 'local', type: 'doc', updatedAt: '', cwd: '/repo' } as Work, PROJECT)
-    const planRow = planItem({ sessionId: 's', planToolUseId: 't', cwd: '/repo' } as PlanDescriptor, PROJECT)
 
     expect(upstreamProviderFor(linked)).toBe('gdrive')
     expect(upstreamProviderFor(local)).toBeNull()
-    expect(upstreamProviderFor(planRow)).toBeNull()
   })
 })
 
@@ -228,39 +203,6 @@ describe('a row carries the provenance the peek does not', () => {
   it('leaves a hand-made work without a session rather than inventing one', () => {
     const built = workItem({ id: 'w', type: 'doc', createdAt: '', updatedAt: '', cwd: '/repo' } as Work, PROJECT)
     expect(built.sessionId).toBeNull()
-  })
-
-  it('generates a plan once: it was written when it was written', () => {
-    const built = planItem(
-      { sessionId: 's', planToolUseId: 't', cwd: '/repo', timestamp: 1_700_000_000_000 } as PlanDescriptor,
-      PROJECT,
-    )
-    expect(built.sessionId).toBe('s')
-    expect(built.createdAt).toBe(built.timestamp)
-  })
-
-  it('keeps matching plan ids from different hosts as separate renderer rows', () => {
-    const descriptors = [
-      { serverId: 'host-a', sessionId: 'session', planToolUseId: 'tool', cwd: '/repo', timestamp: 2 },
-      { serverId: 'host-b', sessionId: 'session', planToolUseId: 'tool', cwd: '/repo', timestamp: 1 },
-    ] as PlanDescriptor[]
-
-    const built = buildWorkspaceItems(descriptors, [], [PROJECT])
-
-    expect(built.map((entry) => entry.id)).toEqual(['session__tool', 'session__tool'])
-    expect(new Set(built.map((entry) => entry.rowKey)).size).toBe(2)
-  })
-
-  it('collapses an exact duplicate plan row from one host', () => {
-    const descriptor = {
-      serverId: 'host-a',
-      sessionId: 'session',
-      planToolUseId: 'tool',
-      cwd: '/repo',
-      timestamp: 1,
-    } as PlanDescriptor
-
-    expect(buildWorkspaceItems([descriptor, descriptor], [], [PROJECT])).toHaveLength(1)
   })
 })
 

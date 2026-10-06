@@ -7,7 +7,6 @@
     ChevronRight as CaretRightIcon,
     FileText as FileTextIcon,
     Network as ArchitectureIcon,
-    Search as MagnifyingGlassIcon,
     Plus as PlusIcon,
     Pin as PushPinIcon,
     UserCheck as UserCheckIcon,
@@ -15,20 +14,16 @@
     Upload as UploadSimpleIcon,
     Link2 as LinkIcon,
   } from "@lucide/svelte";
-  import type { PlanDescriptor } from "@solus/contracts/types";
   import type { WorkListing } from "../../contexts/works/works.store.svelte";
   import {
     getClientShellContext,
     getSurfaceContext,
-    getPlanStore,
     runtime,
     presenceStore,
     projectsStore,
     serversStore,
     sharesStore,
-    type ProjectRef,
   } from "../../contexts";
-  import type { ProjectPageScope } from "../../contexts/projects/project-catalog";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
   import { liveSessionTitle } from "../../lib/sessionUtils";
@@ -39,13 +34,11 @@
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { PAGE_PRIMARY_BTN, PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
   import {
-    ListProjectFilter,
     ListFilterMenu,
     ListFilterGroup,
     ListSortMenu,
     PageCrumbLine,
     syncStamp,
-    type ListProjectOption,
   } from "../ui/list-page";
   import { frameChrome } from "../layout/frame-chrome.store.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -64,7 +57,6 @@
   import { SessionLabels } from "./lib/session-labels.svelte";
   import type {
     SortOrder,
-    StatusFilter,
     TimeFilter,
     TypeFilter,
     WorkspaceFilter,
@@ -78,18 +70,17 @@
     groupItems,
     isHtmlArtifact,
     isDefaultFilter,
-    projectsForWorkspaceScope,
+    projectOptions,
     sortItems,
   } from "./lib/workspace-items";
 
   const session = getSurfaceContext();
   // The ledger is mounted by the workspace and by the cloud console alike
-  // (docs/plans/cloud-console-native-pages.md §9). Plans, the sessions a row
-  // leads back to, the split opens, the catalog's history, and the page's
-  // close need a workspace.
+  // (docs/plans/cloud-console-native-pages.md §9). The sessions a row leads
+  // back to, the split opens, the catalog's history, and the page's close
+  // need a workspace.
   const workspace = session.workspace;
   const shell = getClientShellContext();
-  const planStore = getPlanStore();
 
   const PINNED_PREVIEW = 6;
   const RENDER_PAGE = 80;
@@ -99,48 +90,15 @@
   const open = $derived(workspace?.router.at("folio") ?? true);
 
   // ── Data ──
-  const descriptorsKey = planStore.descriptorCacheKey(undefined, true);
-  const descriptors: PlanDescriptor[] = $derived(
-    planStore.cachedDescriptorKey === descriptorsKey
-      ? planStore.cachedDescriptors
-      : [],
-  );
+  // The Workspace is global: every work from every project, never scoped to
+  // one. Plans are session artifacts and stay with their sessions.
   // Local works and the selected organization's (organization-scope §2).
   const worksList: WorkListing[] = $derived(
     session.worksStore.visibleWorks.filter(
       (w) => session.worksStore.pendingWorkDelete?.id !== w.id,
     ),
   );
-  // ── Project scope. The page owns the shared page scope; the tab in focus
-  //    never sets it (docs/plans/project-model.md §5). ──
-  // The Workspace opens on All projects, whatever scope Tasks, Pull requests,
-  // or Automations last left in the shared value. A scope chosen while the
-  // page is open — from its Filters menu, ⌥C, or the shell's project picker —
-  // applies here and to the other pages, as before.
-  const sharedScopeKey = $derived(
-    session.projectPageScope.kind === "project" ? session.projectPageScope.key : "all",
-  );
-  let scopeKeyAtOpen = $state<string | null>(null);
-  let hasChosenScope = $state(false);
-  const pageScope = $derived<ProjectPageScope>(
-    hasChosenScope || sharedScopeKey !== scopeKeyAtOpen
-      ? session.projectPageScope
-      : { kind: "all" },
-  );
-  const pageKey = $derived(pageScope.kind === "project" ? pageScope.key : null);
-  const projectScope = $derived<ProjectRef | null>(
-    pageScope.kind === "project" ? pageScope.checkout : null,
-  );
-  // One row per project, never one per host.
-  const projectOptions = $derived<ListProjectOption[]>(session.projectScopeOptions);
-  const scopedProject = $derived.by(() => {
-    if (!pageKey) return null;
-    return {
-      key: pageKey,
-      label: session.logicalProjects.find((project) => project.key === pageKey)?.label ?? pageKey,
-    };
-  });
-  // A project's works and plans are the ones filed under any of its checkouts.
+  // Known projects only name the rows; a work outside all of them still shows.
   const catalogProjects = $derived(
     session.logicalProjects.map((project) => ({
       key: project.key,
@@ -148,54 +106,16 @@
       roots: project.checkouts.map((checkout) => checkout.projectRoot),
     })),
   );
-  const workspaceProjects = $derived(
-    projectsForWorkspaceScope(catalogProjects, scopedProject),
-  );
-  const allItems: WorkspaceItem[] = $derived(
-    buildWorkspaceItems(descriptors, worksList, workspaceProjects, {
+  const items: WorkspaceItem[] = $derived(
+    buildWorkspaceItems(worksList, catalogProjects, {
       summaryOf: (workId) => session.worksStore.reviews.summaries.get(workId),
       awaitsMe: (workId) => !!session.worksStore.reviews.inboxItem(workId),
     }),
   );
-  // Plans are the slow half of the ledger (each split plan is read off disk), so
-  // works can land long before them. Track each source: an empty ledger gets the
-  // skeleton, a populated one still says which half is catching up.
-  const plansLoading = $derived(planStore.isDescriptorLoading(descriptorsKey));
-  const worksLoading = $derived(session.worksStore.listLoading);
-  const anyLoading = $derived(plansLoading || worksLoading);
-  const loading = $derived(allItems.length === 0 && anyLoading);
+  const anyLoading = $derived(session.worksStore.listLoading);
+  const loading = $derived(items.length === 0 && anyLoading);
   const backgroundLoading = $derived(!loading && anyLoading);
-  // Plans are read off disk one split file at a time, so they routinely land
-  // long after the works do. The head's refresh chip says "syncing…" for the
-  // whole of it, and the ledger's own tail placeholders say which rows are
-  // still coming — neither needs to name the slow half in the head.
   const synced = syncStamp(() => anyLoading);
-  const items: WorkspaceItem[] = $derived(
-    scopedProject
-      ? allItems.filter((item) => item.projectKey === scopedProject.key)
-      : allItems,
-  );
-  // The switcher and the page scope share the project key. Artifact rows still
-  // carry a path because that is what persisted plans and works own.
-  const activeProjectOptionKey = $derived(pageKey);
-  /** A row names its project only when the ledger spans more than one. */
-  const showProject = $derived(!scopedProject && workspaceProjects.length > 1);
-  const scopeLabel = $derived(scopedProject?.label ?? "all projects");
-
-  function selectProject(option: ListProjectOption | null) {
-    hasChosenScope = true;
-    if (option) session.scopePageToProject(option.key);
-    else session.setProjectPageScope({ kind: "all" });
-    // Switching keeps the facets — they partition any project — and clears the
-    // search, which was written against the project being left.
-    filter.text = "";
-    resetLedgerSelection();
-  }
-
-  function removeProjectHistory(option: { key: string }) {
-    projectsStore.removeProject(option.key);
-  }
-
   function refreshRecentProjects() {
     if (!workspace) return;
     for (const host of serversStore.servers) {
@@ -204,13 +124,20 @@
   }
 
   function load() {
-    const ipcCtx = untrack(() => session.ctx);
-    void planStore.getDescriptors(undefined, true, ipcCtx).catch(() => {});
     void session.worksStore.loadAll();
   }
 
   // ── Filter + view state ──
   const filter = $state<WorkspaceFilter>({ ...DEFAULT_FILTER });
+  /** A row names its project unless the reader filtered to one, or the
+   *  ledger holds only one. */
+  const showProject = $derived(
+    !filter.project && new Set(items.map((item) => item.projectKey)).size > 1,
+  );
+  const scopeLabel = $derived(
+    (filter.project && items.find((item) => item.projectKey === filter.project)?.projectLabel) ||
+      "all projects",
+  );
   let sort = $state<SortOrder>("recent");
   let pinnedCollapsed = $state(
     localStorage.getItem(PINNED_COLLAPSED_KEY) === "true",
@@ -255,21 +182,15 @@
 
   function clearFacets() {
     filter.type = "all";
-    filter.status = "any";
     filter.pinnedOnly = false;
     filter.awaitingMyReview = false;
     filter.time = "all";
+    filter.project = "";
   }
 
   function clearFilters() {
     clearFacets();
     filter.text = "";
-  }
-
-  /** Clears what the Filters badge counts: the facets and the project scope. */
-  function clearMenuFilters() {
-    clearFacets();
-    if (activeProjectOptionKey) selectProject(null);
   }
 
   function resetLedgerSelection() {
@@ -280,11 +201,7 @@
 
   $effect(() => {
     if (!open) return;
-    // The shell captured the visible project before this route replaced it.
-    // Changes to hidden tabs and sessions after this point cannot retarget it.
     untrack(() => {
-      scopeKeyAtOpen = sharedScopeKey;
-      hasChosenScope = false;
       refreshRecentProjects();
       clearFilters();
       resetLedgerSelection();
@@ -297,28 +214,10 @@
     });
   });
 
-  let observedProjectScopeKey = "";
-  $effect(() => {
-    if (!open) return;
-    const nextKey = pageKey ?? "all";
-    if (!observedProjectScopeKey) {
-      observedProjectScopeKey = nextKey;
-      return;
-    }
-    if (observedProjectScopeKey === nextKey) return;
-    observedProjectScopeKey = nextKey;
-    filter.text = "";
-    resetLedgerSelection();
-    load();
-    void tick().then(() => searchEl?.focus());
-  });
-
   $effect(() =>
     serverConnections.onPhaseChange((serverId, phase) => {
       if (phase !== "connected" || !open) return;
       if (workspace) void projectsStore.loadRecentProjects(serverId);
-      const ipcCtx = session.ctx;
-      void planStore.refreshAllDescriptors(ipcCtx).catch(() => {});
       void session.worksStore.loadAll();
     }),
   );
@@ -376,7 +275,7 @@
   //    numbers stay live against the rest of the filter. ──
   const typeCounts = $derived.by(() => {
     const base = applyFilter(items, { ...filter, type: "all" });
-    const c = { all: base.length, plan: 0, doc: 0, diagram: 0 };
+    const c = { all: base.length, doc: 0, diagram: 0, artifact: 0 };
     for (const item of base) c[item.type]++;
     return c;
   });
@@ -391,6 +290,10 @@
     }
     return c;
   });
+  const PROJECT_OPTIONS = $derived([
+    { value: "", label: "All projects", count: applyFilter(items, { ...filter, project: "" }).length },
+    ...projectOptions(applyFilter(items, { ...filter, project: "" })),
+  ]);
   const pinnedCount = $derived(
     applyFilter(items, { ...filter, pinnedOnly: false }).filter((i) => i.pinned)
       .length,
@@ -398,22 +301,10 @@
   const awaitingMyReviewCount = $derived(
     applyFilter(items, { ...filter, awaitingMyReview: false }).filter((i) => i.awaitingMyReview).length,
   );
-  const needsReviewCount = $derived(
-    applyFilter(items, { ...filter, status: "any", type: "all" }).filter(
-      (i) => i.status === "pending",
-    ).length,
-  );
   /** Matches that exist outside the active facets (same text, no facets). */
   const outsideCount = $derived(
     applyFilter(items, { ...DEFAULT_FILTER, text: filter.text }).length,
   );
-
-  const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
-    { value: "any", label: "Any status" },
-    { value: "pending", label: "Pending" },
-    { value: "accepted", label: "Accepted" },
-    { value: "rejected", label: "Rejected" },
-  ];
 
   const SORT_OPTIONS: { value: SortOrder; label: string }[] = [
     { value: "recent", label: "Recent" },
@@ -425,9 +316,9 @@
    *  `type:` / `time:` search tokens write. */
   const TYPE_OPTIONS = $derived<{ value: TypeFilter; label: string; count: number }[]>([
     { value: "all", label: "Everything", count: typeCounts.all },
-    { value: "plan", label: "Plans", count: typeCounts.plan },
     { value: "doc", label: "Docs", count: typeCounts.doc },
     { value: "diagram", label: "Diagrams", count: typeCounts.diagram },
+    { value: "artifact", label: "Artifacts", count: typeCounts.artifact },
   ]);
 
   const TIME_OPTIONS = $derived<{ value: TimeFilter; label: string; count?: number }[]>([
@@ -438,30 +329,15 @@
     { value: "older", label: "Older", count: timeCounts.older },
   ]);
 
-  const needsReviewActive = $derived(filter.status === "pending");
-
-  /** The rail's two saved views, now toggle chips. "Needs review" is pending
-   *  plans — the only type that has a status — so it narrows both axes. */
-  function toggleNeedsReview() {
-    if (needsReviewActive) {
-      filter.status = "any";
-    } else {
-      filter.status = "pending";
-      filter.type = "plan";
-    }
-  }
-
   // ── Selection bookkeeping ──
   $effect(() => {
     void filter.type;
-    void filter.status;
     void filter.pinnedOnly;
     void filter.awaitingMyReview;
     void filter.time;
+    void filter.project;
     void filter.text;
     void sort;
-    // Project changes reset explicitly in `selectProject`. The implicit scope
-    // can be reconstructed as sessions hydrate, which must not move selection.
     resetLedgerSelection();
   });
 
@@ -482,12 +358,9 @@
   // Only the rows that are actually rendered are looked up — the ledger pages
   // in 80 at a time, so scrolling resolves the next batch rather than the whole
   // history up front.
-  /** The host that owns an artifact's origin session: the plan descriptor's
-   *  stamp (or the plan store's side map), or the work's owner host. */
+  /** The host that owns an artifact's origin session: the work's owner host. */
   function originServerId(item: WorkspaceItem): string | null {
-    return item.source.kind === "plan"
-      ? (item.source.descriptor.serverId ?? planStore.hostFor(item.id))
-      : session.worksStore.hostFor(item.source.work.id);
+    return session.worksStore.hostFor(item.id);
   }
 
   $effect(() => {
@@ -503,8 +376,7 @@
    *  knows its own name; the index answers for everything else. */
   /** "Solus Cloud" when the artifact lives on the workspace service. */
   function homeLabel(item: WorkspaceItem): string | null {
-    const serverId = item.source.kind === "work" ? session.worksStore.hostFor(item.id) : item.source.descriptor.serverId;
-    return serversStore.cloudHomeLabel(serverId);
+    return serversStore.cloudHomeLabel(session.worksStore.hostFor(item.id));
   }
 
   function originLabel(item: WorkspaceItem): string | null {
@@ -573,12 +445,6 @@
 
   // ── Keyboard ──
   useScope("workspace", { active: () => open });
-  // The one explicit way to scope the page to the input bar's project; the tab
-  // in focus never does it by itself (docs/plans/project-model.md §5).
-  useKeybinding("workspace.current-project", () => {
-    if (session.scopePageToCurrentProject()) hasChosenScope = true;
-  }, { enabled: () => open });
-
   // Escape closes the peek before it closes the page — dismissing what is on
   // top is what Escape means here.
   useKeybinding(
@@ -642,24 +508,18 @@
   }
 
   async function openItem(item: WorkspaceItem) {
-    if (item.source.kind === "plan")
-      await workspace?.openPlanFromDescriptor(item.source.descriptor);
-    else if (workspace) await workspace.openWorkModal(item.id);
+    if (workspace) await workspace.openWorkModal(item.id);
     else session.openWork(item.id);
   }
 
   async function openItemInSplit(item: WorkspaceItem) {
-    if (item.source.kind !== "work" || !workspace) return;
-    await workspace.openWorkModal(item.id, undefined, { secondary: true });
+    if (!workspace) return;
+    await workspace.openWorkModal(item.id);
   }
 
   async function resumeItem(item: WorkspaceItem) {
     if (!workspace) return;
-    if (item.source.kind === "plan") {
-      await workspace.resumeSessionFromDescriptor(item.source.descriptor);
-      return;
-    }
-    const work = item.source.work;
+    const work = item.work;
     if (work.sessionIds?.length || work.sessionId) {
       await workspace.openChatForWork(item.id, "resume");
     }
@@ -670,66 +530,54 @@
    *  Workspace stays put and the conversation opens as its companion. */
   async function openSessionInSplit(item: WorkspaceItem) {
     if (!item.sessionId || !workspace) return;
-    const descriptor = item.source.kind === "plan" ? item.source.descriptor : null;
-    const work = item.source.kind === "work" ? item.source.work : null;
-    if (descriptor?.sessionAvailable === false) {
-      workspace.notifySessionUnavailable(descriptor.provider);
-      return;
-    }
+    const work = item.work;
     let tabId: string;
     try {
       tabId = await workspace.opening.resumeSession(
         {
-          serverId: descriptor?.serverId ?? (work ? session.worksStore.hostFor(work.id) ?? undefined : undefined),
-          provider: descriptor?.provider ?? work?.agentProvider ?? session.settings.activeAgent,
+          serverId: session.worksStore.hostFor(work.id) ?? undefined,
+          provider: work.agentProvider ?? session.settings.activeAgent,
           sessionId: item.sessionId,
           slug: null,
           firstMessage: item.title,
           lastTimestamp: new Date(item.timestamp).toISOString(),
           size: 0,
           cwd: item.cwd,
-          projectPath: descriptor?.projectPath ?? "",
+          projectPath: "",
         },
         { background: true },
       );
     } catch (error) {
       if (!(error instanceof SessionUnavailableError)) throw error;
-      workspace.notifySessionUnavailable(descriptor?.provider);
+      workspace.notifySessionUnavailable(work.agentProvider);
       return;
     }
     const resumed = tabId ? workspace.sessionFor(tabId) : undefined;
-    if (resumed) workspace.openSplitChat(resumed.id);
+    if (resumed) workspace.openChatSurface(resumed.id);
   }
 
   function togglePin(item: WorkspaceItem) {
-    if (item.source.kind === "work") {
-      void session.worksStore.setPinned(item.id, !item.pinned);
-      return;
-    }
-    const d = item.source.descriptor;
-    void planStore.toggleBookmarkDescriptor(d);
+    void session.worksStore.setPinned(item.id, !item.pinned);
   }
 
-  /** Works only: the Share dialog, which uploads a Local work into the window's organization first (organization-scope §7). */
+  /** The Share dialog, which uploads a Local work into the window's organization first (organization-scope §7). */
   function canShare(item: WorkspaceItem): boolean {
     const serverId = session.worksStore.hostFor(item.id);
-    return item.source.kind === "work" && !!serverId && (!accountStore.isSignedIn || sharesStore.canShareFrom(serverId, "work"));
+    return !!serverId && (!accountStore.isSignedIn || sharesStore.canShareFrom(serverId, "work"));
   }
   function shareItem(item: WorkspaceItem) {
     const serverId = session.worksStore.hostFor(item.id);
-    if (item.source.kind === "work" && serverId) void sharesStore.open({ serverId, resource: { kind: "work", id: item.id }, title: item.title });
+    if (serverId) void sharesStore.open({ serverId, resource: { kind: "work", id: item.id }, title: item.title });
   }
 
-  /** Works only: who has the work open now, from its host's room. */
+  /** Who has the work open now, from its host's room. */
   function workPresence(workId: string) {
     const serverId = session.worksStore.hostFor(workId);
     return serverId ? presenceStore.peopleFocusedOn(serverId, { kind: "work", workId }) : [];
   }
 
-  /** Works only — a plan is a session artifact and has no delete. */
   function deleteItem(item: WorkspaceItem) {
-    if (item.source.kind !== "work") return;
-    session.requestWorkDelete(item.source.work);
+    session.requestWorkDelete(item.work);
     void tick().then(() => searchEl?.focus());
   }
 
@@ -795,35 +643,17 @@
 
 {#snippet filterControls()}
   <ListSortMenu bind:value={sort} options={SORT_OPTIONS} ariaLabel="Sort workspace" />
-  <ListFilterMenu activeCount={Number(filter.type !== "all") + Number(filter.time !== "all") + Number(filter.status !== "any") + Number(filter.pinnedOnly) + Number(filter.awaitingMyReview) + Number(!!activeProjectOptionKey)} onClear={clearMenuFilters}>
-    <ListProjectFilter
-      projects={projectOptions}
-      activeKey={activeProjectOptionKey ?? ""}
-      emptyLabel="All projects"
-      onSelect={(option) => selectProject(option)}
-      onSelectAll={() => selectProject(null)}
-      onSelectCurrent={() => {
-        if (session.scopePageToCurrentProject()) hasChosenScope = true;
-      }}
-      onRemoveHistory={workspace ? removeProjectHistory : undefined}
-      footerNote="Switching keeps facets, clears search"
-    />
-    <DropdownMenu.Separator />
+  <ListFilterMenu activeCount={Number(filter.type !== "all") + Number(filter.time !== "all") + Number(filter.pinnedOnly) + Number(filter.awaitingMyReview) + Number(!!filter.project)} onClear={clearFacets}>
+    <ListFilterGroup label="Project" options={PROJECT_OPTIONS} selected={[filter.project]} onChange={(next) => (filter.project = next[0])} />
     <ListFilterGroup label="Type" icon={BooksIcon} options={TYPE_OPTIONS} selected={[filter.type]} onChange={(next) => (filter.type = next[0])} />
     <ListFilterGroup label="Time" options={TIME_OPTIONS} selected={[filter.time]} onChange={(next) => (filter.time = next[0])} />
-    <ListFilterGroup label="Status" options={STATUS_OPTIONS} selected={[filter.status]} onChange={(next) => (filter.status = next[0])} />
     <DropdownMenu.Separator />
     <DropdownMenu.CheckboxItem checked={filter.pinnedOnly} closeOnSelect={false} onCheckedChange={(checked) => (filter.pinnedOnly = checked)}>
       <PushPinIcon size={14} class="shrink-0 text-muted-foreground" />
       <span class="flex-1">Pinned</span>
       <span class="mr-1 tabular-nums text-muted-foreground">{pinnedCount}</span>
     </DropdownMenu.CheckboxItem>
-    <DropdownMenu.CheckboxItem checked={needsReviewActive} closeOnSelect={false} onCheckedChange={toggleNeedsReview}>
-      <MagnifyingGlassIcon size={14} class="shrink-0 text-muted-foreground" />
-      <span class="flex-1">Needs review</span>
-      <span class="mr-1 tabular-nums text-muted-foreground">{needsReviewCount}</span>
-    </DropdownMenu.CheckboxItem>
-    <!-- Works a teammate asked the reader to review; plans' "Needs review" above is their own approval queue. -->
+    <!-- Works a teammate asked the reader to review. -->
     <DropdownMenu.CheckboxItem checked={filter.awaitingMyReview} closeOnSelect={false} onCheckedChange={(checked) => (filter.awaitingMyReview = checked)} data-testid="filter-needs-my-review">
       <UserCheckIcon size={14} class="shrink-0 text-muted-foreground" />
       <span class="flex-1">Needs my review</span>
@@ -842,14 +672,14 @@
     onOpen={() =>
       stacked && !isHtmlArtifact(item) ? peek.raise(item) : openItem(item)}
     onTogglePin={() => togglePin(item)}
-    onDelete={item.source.kind === "work" ? () => deleteItem(item) : undefined}
+    onDelete={() => deleteItem(item)}
     sessionLabel={originLabel(item)}
     onOpenSession={workspace && item.sessionId ? () => resumeItem(item) : undefined}
     onOpenSessionSplit={workspace && item.sessionId ? () => openSessionInSplit(item) : undefined}
     onPeek={(row) => peek.enter(item, row)}
     onPeekLeave={() => peek.leave()}
     onContextMenu={(event) => openItemContextMenu(event, item)}
-    present={item.source.kind === "work" ? workPresence(item.id) : []}
+    present={workPresence(item.id)}
   />
 {/snippet}
 
@@ -1049,9 +879,9 @@
                   {items.length === 1 ? "artifact" : "artifacts"}</span
                 >
                 <span class="opacity-35" aria-hidden="true">·</span>
-                <span>{typeCounts.plan} plans</span>
-                <span class="opacity-35" aria-hidden="true">·</span>
                 <span>{typeCounts.doc} docs</span>
+                <span class="opacity-35" aria-hidden="true">·</span>
+                <span>{typeCounts.diagram} diagrams</span>
               </span>
             </span>
             {@render newMenu(
@@ -1124,7 +954,7 @@
             </div>
           {:else if items.length === 0}
             <PageEmpty icon={BooksIcon} title="Nothing here yet.">
-              Plans, docs and diagrams your agents produce land here.
+              Docs, diagrams and artifacts from every project land here.
               {#snippet actions()}
                 <button
                   type="button"
@@ -1264,7 +1094,7 @@
         y={itemContextMenu.y}
         item={menuItem}
         onOpen={() => void openItem(menuItem)}
-        onOpenSplit={workspace && menuItem.source.kind === "work"
+        onOpenSplit={workspace
           ? () => void openItemInSplit(menuItem)
           : undefined}
         onTogglePin={() => togglePin(menuItem)}
@@ -1277,11 +1107,9 @@
         onShare={canShare(menuItem)
           ? () => shareItem(menuItem)
           : undefined}
-        onRequestReview={menuItem.source.kind === "work" ? () => openWorkReview(session, menuItem.id) : undefined}
-        onCopyReviewLink={menuItem.source.kind === "work" ? () => void copyWorkReviewLink(session.worksStore.hostFor(menuItem.id), menuItem.id, menuItem.title) : undefined}
-        onDelete={menuItem.source.kind === "work"
-          ? () => deleteItem(menuItem)
-          : undefined}
+        onRequestReview={() => openWorkReview(session, menuItem.id)}
+        onCopyReviewLink={() => void copyWorkReviewLink(session.worksStore.hostFor(menuItem.id), menuItem.id, menuItem.title)}
+        onDelete={() => deleteItem(menuItem)}
         onClose={() => (itemContextMenu = null)}
       />
     {/if}
@@ -1309,13 +1137,11 @@
           const target = peek.item;
           if (target) togglePin(target);
         }}
-        onDelete={peek.item.source.kind === "work"
-          ? () => {
-              const target = peek.item;
-              peek.close();
-              if (target) deleteItem(target);
-            }
-          : undefined}
+        onDelete={() => {
+          const target = peek.item;
+          peek.close();
+          if (target) deleteItem(target);
+        }}
         onClose={() => peek.close()}
       />
     {:else if peek.item && peek.anchor && scrollEl}

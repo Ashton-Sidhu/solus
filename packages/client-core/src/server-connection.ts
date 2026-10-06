@@ -12,6 +12,8 @@ import {
   type SavedServerUplink,
 } from './server-registry'
 import { WsTransport, type ConnectionStatus } from './ws-transport'
+import { HostGrantCache } from './host-grant-cache'
+export { GRANT_RENEW_BEFORE_END_MS } from './host-grant-cache'
 import { withBrowserCapabilities } from './ws-browser-api'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import { asHostApi, type HostApi } from './host-api'
@@ -128,40 +130,23 @@ export function installWsBackedSolusApi(
   return { transport: connection.transport, api, events: connection.events }
 }
 
-/** A kept grant is replaced this long before it ends: a host closes a socket when
- *  its grant ends, so a dial on a nearly spent grant would soon drop again. */
-export const GRANT_RENEW_BEFORE_END_MS = 30 * 60 * 1000
-
 /**
  * The grants of one connection. A host accepts an access token at every ticket
  * exchange while it lives (eight hours), so a redial or a record-API session
  * reuses the kept one instead of asking the account site again. A grant is kept
- * for one organization; a window that works in another gets a new one.
+ * separately for each organization a window works in.
  */
 export function keptGrantSource(
-  mint: (organizationId: string | undefined) => Promise<HostAccessTokenResponse | null>,
+  mint: (organizationId: string | undefined, options?: { fresh?: boolean }) => Promise<HostAccessTokenResponse | null>,
   organizationId: () => string | undefined,
   now: () => number = Date.now,
 ): (options?: { fresh?: boolean }) => Promise<string | null> {
-  let kept: { organizationId: string | undefined; accessToken: string; expiresAt: number } | null = null
-  let minting: { organizationId: string | undefined; grant: Promise<string | null> } | null = null
+  const cache = new HostGrantCache(now)
   return async (options) => {
     const wanted = organizationId()
-    const held = kept
-    if (!options?.fresh && held && held.organizationId === wanted && held.expiresAt - now() > GRANT_RENEW_BEFORE_END_MS) {
-      return held.accessToken
-    }
-    // The socket dial and the record API ask at once on a cold start: one mint answers both.
-    const inFlight = minting
-    if (inFlight && inFlight.organizationId === wanted) return inFlight.grant
-    const grant = mint(wanted).then((minted) => {
-      kept = minted ? { organizationId: wanted, accessToken: minted.accessToken, expiresAt: minted.expiresAt } : null
-      return minted?.accessToken ?? null
-    }).finally(() => {
-      if (minting?.grant === grant) minting = null
-    })
-    minting = { organizationId: wanted, grant }
-    return grant
+    // This source belongs to one host connection; organization is its changing scope.
+    const grant = await cache.acquire('connection', wanted, () => mint(wanted, options), options)
+    return organizationId() === wanted ? grant?.accessToken ?? null : null
   }
 }
 
@@ -174,6 +159,7 @@ export function createSolusConnection(
   // memory for this connection while it has life left.
   const uplinkHostId = !target.sessionToken && target.uplink ? target.uplink.hostId : null
   const account = uplinkHostId ? uplinkAccountSource() : null
+  const organizationId = () => organizationIdOfSolusApiId(target.id) ?? activeOrganizationId() ?? undefined
   const guest = options.guest
   const transport = new WsTransport({
     serverUrl: target.url,
@@ -182,13 +168,14 @@ export function createSolusConnection(
     acquireGrant: guest
       ? guest.acquireGrant
       : uplinkHostId && account
-        ? keptGrantSource(
-            (organizationId) => account.acquireHostAccessToken(uplinkHostId, organizationId),
-            // The access token names the organization the window works in, so a host
-            // shared with several admits this connection to the right one (§7). A
-            // workspace service is one organization's by its id.
-            () => organizationIdOfSolusApiId(target.id) ?? activeOrganizationId() ?? undefined,
-          )
+        // Desktop main owns the account cache and sign-out invalidation. A web
+        // connection owns its cache because its account source is an HTTP call.
+        ? globalThis.window?.solusNative
+          ? async (grantOptions) => (await account.acquireHostAccessToken(uplinkHostId, organizationId(), grantOptions))?.accessToken ?? null
+          : keptGrantSource(
+              (organization, grantOptions) => account.acquireHostAccessToken(uplinkHostId, organization, grantOptions),
+              organizationId,
+            )
         : undefined,
     shareSecret: guest?.shareSecret,
     onStatusChange: options.onStatusChange,

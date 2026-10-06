@@ -176,8 +176,9 @@ if it did not change after it was read.
 Sharing an individual work publishes that work and the assets needed to read
 it. It does not publish its surrounding scratch conversation. Task sharing
 retains its existing access inheritance for linked sessions and works; a task's
-linked Local works upload with it, and its linked sessions keep their homes
-(`cloud-sharing.md` §8). Do not sweep every session in the project into the upload.
+linked Local works upload with it, and its linked sessions keep their homes:
+the organization's task lists them by title and host, and the host keeps the
+task's row with its location and links (`cloud-sharing.md` §3a, §8). Do not sweep every session in the project into the upload.
 
 Revoking a link removes link access. It does not delete cloud content, move it
 back to Local, or remove access independently granted through a task or team.

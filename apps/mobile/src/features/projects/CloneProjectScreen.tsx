@@ -1,12 +1,14 @@
+// Adapted from T3 Code apps/mobile/src/features/projects/AddProjectScreen.tsx (MIT, see UPSTREAM.md).
 import { useState } from 'react'
+import { AppText as Text } from '../../components/AppText'
+import { ErrorBanner } from '../../components/ErrorBanner'
 import type { ScreenProps } from '../../navigation/routes'
-import { Banner, Button, Field } from '../../ui/primitives'
-import { GroupedFooter, GroupedScroll } from '../../ui/grouped-rows'
 import { HostStatusBanner } from '../hosts/HostStatusBanner'
+import { AddProjectShell, AddProjectTextInput, PrimaryActionButton } from './components/add-project-ui'
 import { cloneUrlFromInput } from './lib/open-project'
 import { errorText, useHostApi, useMounted, useShowProject } from './use-open-project'
 
-/** Clones any repository the host can reach. The host checks the address. */
+/** Clones any repository the host can reach, as T3 Code's Git URL source. The host checks the address. */
 export function CloneProjectScreen({ navigation, route }: ScreenProps<'CloneProject'>) {
   const { hostId } = route.params
   const api = useHostApi(hostId)
@@ -18,7 +20,7 @@ export function CloneProjectScreen({ navigation, route }: ScreenProps<'CloneProj
   const cloneUrl = cloneUrlFromInput(input)
 
   const clone = async () => {
-    if (!api || !cloneUrl) return
+    if (!api || !cloneUrl || busy) return
     setBusy(true)
     setError(null)
     try {
@@ -32,11 +34,12 @@ export function CloneProjectScreen({ navigation, route }: ScreenProps<'CloneProj
   }
 
   return (
-    <GroupedScroll>
+    <AddProjectShell>
       <HostStatusBanner hostId={hostId} />
-      <Field
-        label="Repository URL"
-        placeholder="https://github.com/owner/repo"
+      {error ? <ErrorBanner message={error} /> : null}
+      <AddProjectTextInput
+        accessibilityLabel="Repository URL"
+        placeholder="https://github.com/org/repo.git"
         value={input}
         onChangeText={setInput}
         keyboardType="url"
@@ -45,9 +48,8 @@ export function CloneProjectScreen({ navigation, route }: ScreenProps<'CloneProj
         onSubmitEditing={() => void clone()}
         editable={!busy}
       />
-      <GroupedFooter text="You can also type owner/repo for a GitHub repository." />
-      {error ? <Banner message={error} /> : null}
-      <Button tone="primary" label={busy ? 'Cloning…' : 'Clone'} busy={busy} disabled={!api || !cloneUrl} onPress={() => void clone()} />
-    </GroupedScroll>
+      <Text className="px-1 text-sm leading-snug text-foreground-muted">You can also type owner/repo for a GitHub repository.</Text>
+      <PrimaryActionButton label="Clone" loading={busy} disabled={busy || !api || !cloneUrl} onPress={() => void clone()} />
+    </AddProjectShell>
   )
 }

@@ -40,9 +40,6 @@
     primaryAction?: { label: string; shortcut?: string; run: () => void };
     /** Move the page between the leading pane and the companion beside it.
      *  Absent where there is no pane to move to, such as an inline mobile page. */
-    onMoveAcross?: () => void;
-    /** Which way `onMoveAcross` sends the page. */
-    isLeading?: boolean;
     onClose?: () => void;
     /** Page-specific chips at the far end of the crumb line — provider
      *  identity, a bulk-selection count. Never anything that filters. */
@@ -90,8 +87,6 @@
     syncedAt = null,
     syncFromCache = false,
     primaryAction,
-    onMoveAcross,
-    isLeading = true,
     onClose,
     actions,
     filters,
@@ -157,8 +152,6 @@
           {refreshing}
           {syncedAt}
           {syncFromCache}
-          {onMoveAcross}
-          {isLeading}
           {onClose}
         />
       </div>

@@ -11,7 +11,7 @@ import {
 import { AccountStore } from './account-store'
 import { AccountSession } from './account-session'
 import { desktopSettingsRequests } from './settings-client'
-import { acquireHostAccessToken, issueEnrollmentTicket, listDirectory, loadOrganizationDirectory, startManagedHost } from './uplink-client'
+import { issueEnrollmentTicket, listDirectory, loadOrganizationDirectory, startManagedHost } from './uplink-client'
 
 export const ACCOUNT_CHANNELS = {
   state: 'solus:account-state',
@@ -93,11 +93,12 @@ export function registerAccountIpc(broadcast: (channel: string, state: AccountSt
   ipcMain.handle(ACCOUNT_CHANNELS.retryVerify, () => session.verify('retry'))
   // Personal Uplink on the account's behalf; the renderer gets answers, never the token.
   ipcMain.handle(ACCOUNT_CHANNELS.uplinkDirectory, () => listDirectory(session))
-  ipcMain.handle(ACCOUNT_CHANNELS.uplinkAccessToken, (_event, rawHostId, rawOrganizationId) => {
+  ipcMain.handle(ACCOUNT_CHANNELS.uplinkAccessToken, (_event, rawHostId, rawOrganizationId, rawOptions) => {
     const hostId = hostIdSchema.safeParse(rawHostId)
     const organizationId = organizationIdSchema.optional().safeParse(rawOrganizationId)
-    if (!hostId.success || !organizationId.success) return null
-    return acquireHostAccessToken(session, hostId.data, organizationId.data)
+    const options = z.object({ fresh: z.boolean().optional() }).strict().optional().safeParse(rawOptions)
+    if (!hostId.success || !organizationId.success || !options.success) return null
+    return session.acquireHostAccessToken(hostId.data, organizationId.data, options.data)
   })
   ipcMain.handle(ACCOUNT_CHANNELS.uplinkStartManagedHost, (_event, rawHostId) => {
     const hostId = hostIdSchema.safeParse(rawHostId)

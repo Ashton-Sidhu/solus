@@ -15,7 +15,9 @@ const host = (id: string): NotificationSource => ({ sourceId: `host:${id}`, serv
 const organization = (id: string): NotificationSource => ({ sourceId: `workspace:${id}`, serverId: `workspace:${id}`, kind: 'organization', label: id, organizationId: id })
 
 function hub(fakes: Record<string, FakeNotificationSource>, options: { pageSize?: number; concurrency?: number } = {}) {
-  return new NotificationHubClient({ identity: 'person-a', connect: (source) => fakes[source.sourceId]!.link(), ...options })
+  const client = new NotificationHubClient({ identity: 'person-a', connect: (source) => fakes[source.sourceId]!.link(), ...options })
+  client.setHistoryVisible(true)
+  return client
 }
 
 const titles = (client: NotificationHubClient) => client.entries().map((row) => row.notification.summary.title)
@@ -239,5 +241,83 @@ describe('removal and identity', () => {
     // A stopped engine reads nothing new.
     client.setSources([host('x')])
     expect(client.sources.size).toBe(0)
+  })
+})
+
+describe('notification page lifetime', () => {
+  test('first connection shares its queued read, but retries an initial read that failed', async () => {
+    const source = new FakeNotificationSource()
+    const client = new NotificationHubClient({ identity: 'me', connect: () => source.link() })
+    client.setSources([host('x')])
+    source.emitReconnected(true)
+    await client.idle()
+    expect(source.calls).toEqual(['notificationsCapability', 'notificationsCount'])
+    client.stop()
+
+    const offline = new FakeNotificationSource()
+    offline.failure = new Error('not connected yet')
+    const retrying = new NotificationHubClient({ identity: 'me', connect: () => offline.link() })
+    retrying.setSources([host('x')])
+    await retrying.idle()
+    expect(retrying.unreadCount().isComplete).toBe(false)
+    offline.failure = null
+    offline.emitReconnected(true)
+    await retrying.idle()
+    expect(retrying.unreadCount().isComplete).toBe(true)
+    expect(lists(offline)).toBe(0)
+  })
+
+  test('boot and background changes read counts only; opening reads history and closing stops it', async () => {
+    const source = new FakeNotificationSource()
+    source.add({ id: 'first', createdAt: 1 })
+    const client = new NotificationHubClient({ identity: 'me', connect: () => source.link() })
+    client.setSources([host('x')])
+    await client.idle()
+    expect(source.calls).toEqual(['notificationsCapability', 'notificationsCount'])
+    expect(client.unreadCount().unread).toBe(1)
+    source.add({ id: 'second', createdAt: 2 })
+    source.emitChanged()
+    await client.idle()
+    expect(lists(source)).toBe(0)
+    expect(client.unreadCount().unread).toBe(2)
+    client.setHistoryVisible(true)
+    await client.idle()
+    expect(titles(client)).toEqual(['second', 'first'])
+    expect(lists(source)).toBe(1)
+    client.setHistoryVisible(true)
+    client.setFilter({ view: 'all' })
+    await client.idle()
+    expect(lists(source)).toBe(1)
+    client.setHistoryVisible(false)
+    source.emitChanged()
+    await client.idle()
+    expect(lists(source)).toBe(1)
+    expect(client.entries()).toEqual([])
+    source.update('first', { archivedAt: 10 })
+    client.setHistoryVisible(true)
+    await client.idle()
+    expect(titles(client)).toEqual(['second'])
+    expect(source.calls.filter((call) => call === 'notificationsCapability')).toHaveLength(1)
+    source.emitReconnected()
+    await client.idle()
+    expect(source.calls.filter((call) => call === 'notificationsCapability')).toHaveLength(2)
+  })
+
+  test('closing during a history read discards its late page and keeps the badge current', async () => {
+    const source = new FakeNotificationSource()
+    source.add({ id: 'first', createdAt: 1 })
+    const client = hub({ 'host:x': source })
+    let finish!: () => void
+    source.hold = new Promise((resolve) => { finish = resolve })
+    client.setSources([host('x')])
+    await Promise.resolve()
+    expect(lists(source)).toBe(1)
+    client.setHistoryVisible(false)
+    source.hold = null
+    finish()
+    await client.idle()
+    expect(client.entries()).toEqual([])
+    expect(client.unreadCount()).toEqual({ unread: 1, isCapped: false, isComplete: true })
+    expect(lists(source)).toBe(1)
   })
 })

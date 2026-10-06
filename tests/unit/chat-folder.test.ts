@@ -125,13 +125,16 @@ describe('starting a chat', () => {
     }
     const sessionRuntime = {
       isKnownSession: () => false,
-      watchSession: (input: { sessionId: string }) => ({ sessionId: input.sessionId }),
-      submitPrompt: async (ctx: IpcContext) => {
-        prompted.push(ctx)
-        return { disposition: 'started' }
+      watchers: {
+        watchSession: (input: { sessionId: string }) => ({ sessionId: input.sessionId }),
+        bindRuntimeSession: () => null,
       },
-      bindRuntimeSession: () => null,
-      busyWorkingTree: () => null,
+      dispatch: {
+        submitPrompt: async (ctx: IpcContext) => {
+          prompted.push(ctx)
+          return { disposition: 'started' }
+        },
+      },
     }
     registerSessionHandlers(
       { register: (name: string, handler: Handler) => handlers.set(name, (args, ctx) => handler(args, withActor(ctx))) } as never,

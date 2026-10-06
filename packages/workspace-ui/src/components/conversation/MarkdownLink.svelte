@@ -137,7 +137,6 @@
       e.preventDefault();
       if (session) {
         session.openRoute(linkRoute, {
-          target: linkRoute.name === "task" ? "new" : "aside",
           sourceUrl:
             linkRoute.name === "prReview" && /^https:\/\//i.test(href)
               ? href

@@ -196,7 +196,12 @@ export interface PrReviewCapabilities {
   threadResolution: boolean
   reviewVerdicts: PrReviewVerdict[]
   actions: PrLifecycleAction[]
+  /** What the repository and the base branch's rules allow, in menu order. */
   mergeMethods: PrMergeMethod[]
+  /** The method every merge control starts on: the viewer's default on the
+   *  host when the base branch allows it, else the first allowed method.
+   *  Absent when no method is allowed. */
+  defaultMergeMethod?: PrMergeMethod
   reviewerRequests: boolean
   reviewerCandidates: boolean
   labelManagement: boolean

@@ -16,7 +16,7 @@ import {
   sessionPullRequestOwnerId,
 } from '../data/sessions/session-pull-requests'
 import { attachReviewAttention } from '../transport/handlers/review-attention'
-import { codeHostFor, pullRequestForBranch, type CodeHost } from './code-host'
+import { codeHostFor, type CodeHost } from './code-host'
 import { prIndex, repoKeyOf } from './pr-index'
 
 const log = createLogger('main', 'pr-sync')
@@ -72,7 +72,6 @@ interface ClientInterest {
 /** Everything wanted from one repository this tick. */
 interface Wanted {
   numbers: Set<number>
-  branches: Set<string>
   review: Set<number>
   needsReview: boolean
   /** A client holds this repository open, so it hears every change. */
@@ -84,9 +83,6 @@ interface RepositorySync {
   host: CodeHost
   records: Map<number, PrRecord>
   byBranch: Map<string, number>
-  /** Branches already asked about once. After that, the recent list finds a
-   *  new pull request for them. */
-  askedBranches: Set<string>
   /** Branch owners already linked, as `branch#number`. */
   linkedBranches: Set<string>
   watermark: string | null
@@ -221,7 +217,6 @@ export class PrSync {
   refresh(host: CodeHost): void {
     prIndex.invalidate(host.repo)
     const sync = this.syncFor(repoKeyOf(host.repo).toLowerCase(), host)
-    sync.askedBranches.clear()
     sync.needsReviewAt = 0
     sync.nextAt = 0
     void this.tick()
@@ -242,7 +237,7 @@ export class PrSync {
     let sync = this.repositories.get(key)
     if (!sync) {
       sync = {
-        host, records: new Map(), byBranch: new Map(), askedBranches: new Set(), linkedBranches: new Set(),
+        host, records: new Map(), byBranch: new Map(), linkedBranches: new Set(),
         watermark: null, syncedAt: 0, nextAt: 0, checks: new Map(), checksInFlight: false, needsReview: null, needsReviewAt: 0,
       }
       this.repositories.set(key, sync)
@@ -282,7 +277,6 @@ export class PrSync {
     const clients = this.clientInterests.get(key)
     const wanted: Wanted = {
       numbers: new Set(task?.open),
-      branches: new Set(task?.branches.keys()),
       review: new Set(),
       needsReview: false,
       clientsListening: !!clients,
@@ -293,8 +287,7 @@ export class PrSync {
         else if (interest.kind === 'review') {
           wanted.numbers.add(interest.number)
           wanted.review.add(interest.number)
-        } else if (interest.kind === 'branch') wanted.branches.add(interest.head)
-        else if (interest.kind === 'needs-review') wanted.needsReview = true
+        } else if (interest.kind === 'needs-review') wanted.needsReview = true
       }
     }
     return wanted
@@ -344,13 +337,13 @@ export class PrSync {
   }
 
   /**
-   * One tick's reads: what changed since the last one, wanted numbers never
-   * seen, and wanted branches never asked about. Answers only what changed.
+   * One tick's reads: what changed since the last one and linked numbers never
+   * seen. Branches match these stored rows; an unmatched branch costs no read.
    */
   private async readChanges(sync: RepositorySync, wanted: Wanted): Promise<Observation[]> {
     const { repo, provider } = sync.host
     // News is a change since an earlier tick. One tick can see a pull request
-    // twice (a batch read, then a branch lookup); the later sight replaces it.
+    // twice (a recent-list read, then a numbered read); the later sight replaces it.
     const heldBefore = new Set(sync.records.keys())
     const observations = new Map<number, Observation>()
     const observe = (number: number, pullRequest: PullRequest | null) => {
@@ -371,12 +364,6 @@ export class PrSync {
     const unknown = [...wanted.numbers].filter((number) => !sync.records.has(number))
     if (unknown.length) {
       for (const [number, pullRequest] of await provider.review.getPullRequests(repo, unknown)) observe(number, pullRequest)
-    }
-    for (const branch of wanted.branches) {
-      if (sync.byBranch.has(branch) || sync.askedBranches.has(branch)) continue
-      sync.askedBranches.add(branch)
-      const pullRequest = await pullRequestForBranch(sync.host, branch)
-      if (pullRequest) observe(pullRequest.number, pullRequest)
     }
     return [...observations.values()]
   }
@@ -594,7 +581,7 @@ function isAnswered(sync: RepositorySync, interest: PrInterest): boolean {
   if (interest.kind === 'repository') return sync.syncedAt > 0
   if (interest.kind === 'pull-request') return sync.records.has(interest.number)
   if (interest.kind === 'review') return sync.records.has(interest.number) && sync.checks.has(interest.number)
-  if (interest.kind === 'branch') return sync.byBranch.has(interest.head) || sync.askedBranches.has(interest.head)
+  if (interest.kind === 'branch') return sync.byBranch.has(interest.head) || sync.syncedAt > 0
   return sync.needsReview !== null
 }
 

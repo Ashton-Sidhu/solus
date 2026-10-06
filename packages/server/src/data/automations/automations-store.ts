@@ -632,7 +632,7 @@ export async function finishRun(
         eventId: `automation.finished:${runId}`,
         recipients: [recipient],
         facts: { kind: 'automation.finished', status: outcome.status },
-        resource: { kind: 'automation', automationId, runId },
+        resource: { kind: 'automation', automationId, runId, ...(finished.agentSessionId ? { sessionId: finished.agentSessionId } : {}) },
         by: { kind: 'automation', automationId, name: responsible.name },
         summary: { title: responsible.name.slice(0, 300) },
       })

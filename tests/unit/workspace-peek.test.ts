@@ -23,11 +23,10 @@ function item(over: Partial<WorkspaceItem> = {}): WorkspaceItem {
     cwd: '/repo',
     projectKey: '/repo',
     projectLabel: 'repo',
-    status: null,
     reviewState: null,
     reviewers: [],
     awaitingMyReview: false,
-    source: { kind: 'work', work: {} as never },
+    work: {} as never,
     ...over,
   }
 }
@@ -77,9 +76,9 @@ describe('peekOutline', () => {
     expect(peekOutline(item(), content).lines.map((l) => l.text)).toEqual(['Context', 'Proposal'])
   })
 
-  it('falls back to a plan written as numbered steps rather than sections', () => {
+  it('falls back to a document written as numbered steps rather than sections', () => {
     const content = ['1. Read the exports', '2. Change the store', '3. Update callers'].join('\n')
-    const outline = peekOutline(item({ type: 'plan' }), content)
+    const outline = peekOutline(item(), content)
     expect(outline.lines.map((l) => l.n)).toEqual(['01', '02', '03'])
     expect(outline.lines[1].text).toBe('Change the store')
   })

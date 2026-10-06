@@ -33,11 +33,10 @@ test('a known work opens beside the conversation without reading its body', asyn
     activeTabId: 'tab',
     sessionFor: () => ({ run: { workingDirectory: '/project' } }),
     worksStore: storeThatCountsReads(reads),
-    router: { close: () => calls.push('close gallery') },
-    openWork: (workId: string, target: string) => calls.push(`${workId}:${target}`),
+    openWork: (workId: string) => calls.push(workId),
   }
-  await command.call(workspace, 'work', undefined, { secondary: true })
-  expect(calls).toEqual(['close gallery', 'work:aside'])
+  await command.call(workspace, 'work', undefined)
+  expect(calls).toEqual(['work'])
   expect(reads).toEqual([])
 })
 
@@ -50,7 +49,6 @@ test('a historical title resolves its id from the listing, then opens without re
     activeTabId: 'tab',
     sessionFor: () => ({ run: { workingDirectory: '/project' } }),
     worksStore: { ...storeThatCountsReads(reads, { work: { title: 'Design' } }), loadAll: () => manifest },
-    router: { close: () => {} },
     openWork: (workId: string) => opened.push(workId),
   }
   const opening = command.call(workspace, '', 'Design')

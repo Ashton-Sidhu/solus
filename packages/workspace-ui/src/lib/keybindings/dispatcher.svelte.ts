@@ -42,7 +42,7 @@ export function isEditableTarget(target: EventTarget | null): boolean {
 
 export class KeybindingsContext {
   private scopeStack: ScopeEntry[] = []
-  // Multiple components (e.g. one ActionOrb per tab) can register the same
+  // Multiple components (e.g. one session action row per tab) can register the same
   // binding ID. All entries are checked; the first whose `enabled` passes fires.
   private handlers = new Map<BindingId, Set<HandlerEntry>>()
   overrides: BindingOverrides = {}

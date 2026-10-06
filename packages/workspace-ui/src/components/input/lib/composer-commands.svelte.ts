@@ -1,7 +1,8 @@
 import { getWorkspaceContext, getSettingsContext, getClientShellContext } from '../../../contexts';
 import type { Prompt, PromptDelivery, RunConfig, PluginCommandsResult } from '@solus/contracts/types';
 import type PromptEditor from '../../ui/PromptEditor.svelte';
-import { SLASH_COMMANDS, type SlashCommand } from '../slash-commands';
+import { SLASH_COMMANDS, slashCommandAppliesTo, type SlashCommand } from '../slash-commands';
+import { parseAgentAuthCommand } from '@solus/contracts/agent-auth';
 import { createGoalCommand } from './goal-command';
 import { loadPromptHistory, savePromptToHistory } from './prompt-history';
 import { pendingPlanForPrompt } from './pending-plan';
@@ -75,8 +76,12 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
   function solusCommandFromInput(
     value: string,
   ): { cmd: SlashCommand; argument: string } | null {
+    const provider = getOptions().run?.provider;
     for (const cmd of SLASH_COMMANDS) {
+      if (!slashCommandAppliesTo(cmd, provider)) continue;
       if (!value.startsWith(cmd.command)) continue;
+      // A sign-in command takes the shared parser's word, so every client agrees on what reaches the agent.
+      if (cmd.providers && !parseAgentAuthCommand(value, provider)) continue;
       const rest = value.slice(cmd.command.length);
       if (rest && !/^[ \t\n]/.test(rest)) continue;
       return { cmd, argument: rest ? rest.slice(1) : "" };
@@ -85,11 +90,14 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
   }
 
   function executeCommand(cmd: SlashCommand, argument = "") {
-    const { isReadOnly, run, targetTabId, composerCwd, refocusComposer } = getOptions();
+    const { isReadOnly, run, sessionId, targetTabId, composerCwd, refocusComposer } = getOptions();
     if (isReadOnly && !cmd.allowReadOnly) return;
     void cmd.run?.({
       api: session.apiForRun(run),
       argument,
+      serverId: run?.serverId,
+      sessionId,
+      provider: run?.provider ?? null,
       // A command run from a draft's composer has no conversation to clear or
       // to speak into; it still runs, against the project the draft points at.
       ipcContext: targetTabId

@@ -14,7 +14,7 @@ import { printLayoutCandidates } from "./page-layout";
 const FRAME_BUDGET = 120;
 
 /** Painted behind an off-screen capture: the light board colour the editor uses. */
-const STAGE_BACKGROUND = "#fefefc";
+const STAGE_BACKGROUND = "#fffffd";
 
 type FlowInstance = ReturnType<typeof useSvelteFlow>;
 

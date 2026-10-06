@@ -85,7 +85,7 @@ const nativeApi: NativeSolusAPI = {
   accountRetryVerify: () => ipcRenderer.invoke('solus:account-retry-verify'),
   onAccountStateChange: subscribeAccountStateChange,
   uplinkListDirectory: () => ipcRenderer.invoke('solus:uplink-directory'),
-  uplinkAcquireHostAccessToken: (hostId: string, organizationId?: string) => ipcRenderer.invoke('solus:uplink-access-token', hostId, organizationId),
+  uplinkAcquireHostAccessToken: (hostId: string, organizationId?: string, options?: { fresh?: boolean }) => ipcRenderer.invoke('solus:uplink-access-token', hostId, organizationId, options),
   uplinkStartManagedHost: (hostId: string) => ipcRenderer.invoke('solus:uplink-start-managed-host', hostId),
   accountSettingsGet: () => ipcRenderer.invoke('solus:account-settings-get'),
   accountSettingsPatch: (request: AccountSettingsPatchRequest) => ipcRenderer.invoke('solus:account-settings-patch', request),

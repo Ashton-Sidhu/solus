@@ -13,16 +13,59 @@ hosts. Managed cloud hosts always expose and persist false. This is the policy
 for restart continuation. The current user queue still restores held for
 explicit Resume.
 
+## Run ledger
+
+One `RunLedger` (`packages/server/src/data/sessions/run-ledger.ts`) is the
+single durable source for the lifecycle of a run. It lives in the host-local
+SQLite file and uses the same migrations as the rest of that file:
+
+- `run_queue` — a run that has not started: one row per queue entry, with its
+  session, position, and saved payload (revision, held state, error, kind
+  `prompt` or `provider_switch`, run input, options, author, exchange ids).
+- `run_exchanges` — a run that another session started: the exchange state,
+  run id, report delivery state and queue id, parent links and fingerprint in
+  the payload, the bounded model report, and the complete reply in its own
+  column.
+- `runs` — a run that is still active: the restart receipt, one row per
+  session.
+
+The ledger stores records only. Live promises, tools, timers, provider
+callbacks, credentials, and permission grants stay in the process.
+
+The owners write first and change memory only when the write succeeds.
+`ExchangeLedger` changes an exchange through commands (`open`, `update`,
+`apply`, `markDelivery`), so a failed write leaves the exchange as it is on
+disk. `SessionRequestQueue` restores its memory when a queue write fails.
+
+One transaction commits a queue write together with the report delivery it
+carries: a prompt with report ids moves those exchanges to `queued` with its
+queue id, or neither change commits. The settled result, its full reply, and
+its delivery state are one row.
+
+`ParentDelivery` owns delivery retries while the host runs. A submission that
+fails on a known transient error (locked or busy database, full or busy
+storage, a busy working tree) is tried again after 1, 5, 30, and 120 seconds.
+After the last try the report stays `pending`, and restart recovery delivers it.
+
+On first boot the ledger imports the JSON queue and exchange files of earlier
+versions from `session-queues/` once, then removes them. A migration moves the
+rows of the earlier `session_restart_runs` table into `runs` and drops it.
+
+Two stores stay outside the ledger because they are not per-run state:
+`SessionPermissionStore` keeps the last user-authorized policy of a session
+across turns, and `HandoffCarryStore` keeps public text of a thread's last
+incomplete turn for history merges. No run transition reads or writes them.
+
 ## Restart continuation
 
-The execution host retains its latest eligible run in the host-local SQLite
-`session_restart_runs` table, before provider launch. The receipt records the
+The execution host retains its latest eligible run in the ledger's `runs`
+table, before provider launch. The receipt records the
 native conversation, effective model options, permission mode, task, and author.
 Tool names identify work that stopped; tool inputs and provider callbacks are
 not retained. Provider initialization updates the native conversation id.
 
-One runtime owns the receipt store. It loads the receipts once and keeps an
-in-memory snapshot. Live events do not query SQLite. Changed receipts are saved
+One runtime owns the receipts. The ledger loads them once at startup and keeps
+an in-memory snapshot. Live events do not query SQLite. Changed receipts are saved
 synchronously; duplicate native initialization, tool events, status changes,
 and removals cause no write. A tracked tool adds one write when it starts and
 one when it finishes. Recovery remains durable without a delayed flush.
@@ -55,10 +98,26 @@ an operating-system process.
 ## Ownership
 
 - `SessionRequestQueue` owns order, revisions, prompt edits, provider rebinding,
-  and execution receipts. `SessionQueueStore` writes atomic per-session files.
-- `SessionRuntime` owns admission, seats, live provider handles, steering, and
-  handoff application. It claims an entry before provider work starts and
-  settles the receipt afterward.
+  and execution receipts. The run ledger writes them to `run_queue`.
+- `SessionRuntime` (`execution/session-runtime.ts`) owns turn admission
+  (`runTurn`), seats, Stop, organization settlement, and the wiring of the
+  owners below. Each owner keeps its own state under `execution/sessions/`;
+  all of them read the live maps that `SessionRuntime` holds: the session
+  records, identity index, active runs, and turn replay log.
+- `RunScheduler` claims a queue entry before provider work starts, settles its
+  receipt afterward, applies provider switches in delivery order, and holds and
+  resumes queues. `RateLimitPark` owns runs parked on a provider limit and
+  their release. `RestartRecovery` owns restart receipts and continuations.
+- `RunLauncher` owns setup (Auto routing, worktree creation), the provider
+  launch, steering into an open turn, and the run lifecycle.
+  `ProviderHandoffs` owns the provisional handoff and its bounded payload.
+- `ProviderEvents` translates each backend event to its Solus session once and
+  applies it. `InputRequests` owns permissions, questions, and plans a run
+  waits on. `SessionStatuses` owns status transitions, attention, and the run
+  watchdog.
+- `SessionWatchers`, `SessionHistory`, `SessionCheckouts`, and `PromptDispatch`
+  own client watches, history reads, session checkouts and worktree moves, and
+  the run requests each kind of sender builds.
 - `SessionPermissionStore` retains user-authorized permission modes.
   `HandoffCarryStore` retains only public text from incomplete turns.
 - The shared client queue controller owns RPC commands and stale refresh
@@ -110,5 +169,7 @@ logic tests cover native queue drafts and remembered model options. Interactive
 client verification is a separate pass under the repository's development
 safety rules.
 
-`SessionRuntime` remains a large pre-existing file. This change extracts queue
-state and persistence; it does not split unrelated runtime responsibilities.
+`SessionRuntime` was split by ownership into the owners above; behavior did
+not change. A worktree move's "fork on the next turn" mark is still held in
+memory by `SessionCheckouts`, so a host restart between the move and the next
+turn resumes the old thread in the new directory.

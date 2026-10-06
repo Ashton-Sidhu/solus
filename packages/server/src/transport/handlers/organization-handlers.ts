@@ -3,8 +3,9 @@ import type { HostOrganizationsStatus } from '@solus/contracts/organization-scop
 import { shareResourceSchema, type ShareResource } from '@solus/contracts/sharing'
 import { hostUserKey } from '../../host/host-user'
 import { isAnyOrganization, LOCAL_ORGANIZATION_ID, recordScopeOf } from '../../admission/principal'
-import { exportWorkForCloud, removePushedWork } from '../../data/works/works'
-import { exportTaskForCloud, removeUploadedTask } from '../../data/tasks/task-transfer'
+import { exportWorkForCloud, markWorkMoved } from '../../data/works/works'
+import { exportTaskForCloud, markTaskMoved } from '../../data/tasks/task-transfer'
+import { getInstallationId } from '../../admission/auth'
 import { ownerKeyOf } from '../../admission/actor'
 import { hostCategory } from '../../host/host-category'
 import { organizationAttachedAt } from '../../host/organization-attachment'
@@ -84,24 +85,24 @@ export function registerOrganizationHandlers(server: SolusServer, deps: Organiza
   })
 
   // Cloud sharing (docs/plans/cloud-sharing.md §3): the client reads a Local work
-  // here, uploads it to the Solus API with its own sign-in, then removes it here.
-  // This host makes no cloud call.
+  // here, uploads it to the Solus API with its own sign-in, then points it at the
+  // organization here. The content stays. This host makes no cloud call.
   server.register('workExportForCloud', async ([workId], ctx) => {
     const transfer = await exportWorkForCloud(recordScopeOf(ctx.principal), workId)
     if (transfer.work.organizationId !== LOCAL_ORGANIZATION_ID) throw new Error('This work already belongs to an organization.')
     return transfer
   })
 
-  server.register('workRemoveUploaded', async ([workId, fingerprint, organizationId], ctx) => {
-    await removePushedWork(recordScopeOf(ctx.principal), workId, fingerprint, z.string().min(1).parse(organizationId))
+  server.register('workMarkMoved', async ([workId, fingerprint, organizationId], ctx) => {
+    await markWorkMoved(recordScopeOf(ctx.principal), workId, fingerprint, z.string().min(1).parse(organizationId))
     await deps.forgetResource({ kind: 'work', id: workId })
   })
 
   // A task leaves the same way, with its linked Local works (cloud-sharing.md §4).
-  server.register('taskExportForCloud', async ([taskId], ctx) => exportTaskForCloud(recordScopeOf(ctx.principal), taskId))
+  server.register('taskExportForCloud', async ([taskId], ctx) => exportTaskForCloud(recordScopeOf(ctx.principal), taskId, getInstallationId()))
 
-  server.register('taskRemoveUploaded', async ([taskId, fingerprint, works, organizationId], ctx) => {
-    await removeUploadedTask(recordScopeOf(ctx.principal), taskId, fingerprint, works, z.string().min(1).parse(organizationId))
+  server.register('taskMarkMoved', async ([taskId, fingerprint, works, organizationId], ctx) => {
+    await markTaskMoved(recordScopeOf(ctx.principal), taskId, fingerprint, works, z.string().min(1).parse(organizationId), getInstallationId())
     await deps.forgetResource({ kind: 'task', id: taskId })
     for (const work of works) await deps.forgetResource({ kind: 'work', id: work.workId })
   })

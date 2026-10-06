@@ -19,9 +19,13 @@
       }
     ],
     "hasMoreFiles": false,
-    "insertions": 52,
-    "deletions": 0,
+    "fileCount": 3,
     "mergeInProgress": false
+  },
+  "branchChanges": {
+    "fileCount": 3,
+    "insertions": 52,
+    "deletions": 0
   },
   "upstreamRef": "origin/feat/rate-limiting",
   "aheadCount": 0,

@@ -49,11 +49,32 @@ async function settled(hub: NativeNotificationHub): Promise<void> {
 }
 
 describe('native notifications hub', () => {
+  test('native startup keeps the badge live and reads history only while its screen has focus', async () => {
+    const { hub, sources, account } = world(['mac'])
+    sources.mac!.add({ id: 'first', createdAt: 1 })
+    const stop = hub.start(account.changes)
+    await settled(hub)
+    expect(hub.snapshot().unread.unread).toBe(1)
+    expect(sources.mac!.calls).not.toContain('notificationsList')
+    const blur = hub.showHistory()
+    await settled(hub)
+    expect(hub.snapshot().entries.map((row) => row.notification.id)).toEqual(['first'])
+    blur()
+    sources.mac!.calls.length = 0
+    sources.mac!.add({ id: 'second', createdAt: 2 })
+    sources.mac!.emitChanged()
+    await settled(hub)
+    expect(hub.snapshot().unread.unread).toBe(2)
+    expect(sources.mac!.calls).not.toContain('notificationsList')
+    stop()
+  })
+
   test('every host this device knows feeds one list; the snapshot is stable between changes', async () => {
     const { hub, sources, account } = world(['mac', 'vm'])
     sources.mac!.add({ id: 'm', createdAt: 1 })
     sources.vm!.add({ id: 'v', createdAt: 2 })
     const stop = hub.start(account.changes)
+    hub.showHistory()
     await settled(hub)
     expect(hub.snapshot().entries.map((row) => row.notification.id)).toEqual(['v', 'm'])
     expect(hub.snapshot()).toBe(hub.snapshot())
@@ -67,6 +88,7 @@ describe('native notifications hub', () => {
     sources.vm!.add({ id: 'v', createdAt: 2 })
     connected.delete('vm')
     const stop = hub.start(account.changes)
+    hub.showHistory()
     await settled(hub)
     expect(hub.snapshot().entries.map((row) => row.notification.id)).toEqual(['m'])
     expect(hub.snapshot().sources.find((state) => state.source.serverId === 'vm')?.status).toBe('offline')
@@ -82,6 +104,7 @@ describe('native notifications hub', () => {
     const { hub, sources, account } = world(['mac'])
     sources.mac!.add({ id: 'private', createdAt: 1 })
     const stop = hub.start(account.changes)
+    hub.showHistory()
     await settled(hub)
     expect(hub.snapshot().entries).toHaveLength(1)
     sources.mac!.items.clear()

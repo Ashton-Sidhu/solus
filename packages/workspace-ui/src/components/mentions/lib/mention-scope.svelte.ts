@@ -33,17 +33,12 @@ export function mentionDirectory(scope: MentionScope | null): OrganizationPeople
 export function warmMentionSources(scope: MentionScope | null): void {
   if (!hasOrganization(scope)) return
   void sharesStore.directoryFor(scope.serverId)
-  void sharesStore.load(scope.serverId, scope.resource).then((list) => {
-    for (const task of list?.inheritedFrom ?? []) void sharesStore.load(scope.serverId, { kind: 'task', id: task.taskId })
-  })
+  void sharesStore.load(scope.serverId, scope.resource)
 }
 
 /** Whether the person can open the record; null while that is not known. */
 export function mentionAccess(scope: MentionScope, userId: string): boolean | null {
-  const list = sharesStore.listFor(scope.serverId, scope.resource)
-  if (!list) return null
-  const inherited = (list.inheritedFrom ?? []).map((task) => sharesStore.listFor(scope.serverId, { kind: 'task', id: task.taskId }))
-  return personCanOpen(userId, [list, ...inherited], mentionDirectory(scope))
+  return personCanOpen(userId, sharesStore.listFor(scope.serverId, scope.resource), mentionDirectory(scope))
 }
 
 /** The mentioned people who cannot open the record: the composer warns about them. */

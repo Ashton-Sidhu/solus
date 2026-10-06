@@ -1,8 +1,9 @@
-import type { AgentId, PermissionMode, RateLimitInfo, ReasoningEffort, SessionStatus } from '@solus/contracts/types'
+import type { AgentId, AgentMetadata, PermissionMode, RateLimitInfo, ReasoningEffort, SessionStatus } from '@solus/contracts/types'
 import type { SessionQueueSnapshot } from '@solus/contracts/session-queue'
 import { Listeners } from '../../lib/listeners'
 import { ConversationController, type ConversationDeps, type ConversationPhase, type ConversationTarget } from './conversation-controller'
 import type { UploadedAttachment } from './lib/attachments'
+import type { AgentCapabilities } from './lib/run-settings'
 import type { AgentPlanAwaiting } from './lib/agent-plans'
 import type { PendingPermission, PendingQuestion, QueuedPrompt, TranscriptItem } from './lib/transcript-model'
 
@@ -29,7 +30,10 @@ export interface ConversationMeta {
   attachments: readonly UploadedAttachment[]
   uploading: number
   /** What the next prompt runs with. */
-  run: { provider: AgentId; model: string | null; reasoningEffort: ReasoningEffort; permissionMode: PermissionMode }
+  run: { provider: AgentId; model: string | null; reasoningEffort: ReasoningEffort; fastMode: boolean; permissionMode: PermissionMode }
+  /** What the next prompt may choose: Auto before the host starts the
+   *  session, and the permission modes the agent's host reports. */
+  runOptions: { canRoute: boolean; autoNeedsKey: boolean; capabilities: AgentCapabilities; agents: readonly AgentMetadata[] | null }
 }
 
 export class ConversationStore {
@@ -103,7 +107,14 @@ export class ConversationStore {
         provider: this.controller.run.provider,
         model: this.controller.run.preferredModel,
         reasoningEffort: this.controller.run.reasoningEffort,
+        fastMode: this.controller.run.fastMode,
         permissionMode: this.controller.run.permissionMode,
+      },
+      runOptions: {
+        canRoute: this.controller.canRoute,
+        autoNeedsKey: this.controller.autoNeedsKey,
+        capabilities: this.controller.capabilitiesOf(this.controller.run.provider),
+        agents: this.controller.agents,
       },
     }
   }

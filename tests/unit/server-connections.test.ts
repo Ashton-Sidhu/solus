@@ -3,11 +3,14 @@ import type { SolusServerTarget } from '@solus/client-core/server-connection'
 import { installationIdDecision } from '@solus/client-core/server-registry'
 import type { WsTransport } from '@solus/client-core/ws-transport'
 import type { SolusAPI } from '../../src/preload'
+import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 
 const startedTransports: string[] = []
 const destroyedTransports: string[] = []
 const switchedUrls: string[] = []
 const capabilityLoaders = new Map<string, () => Promise<unknown>>()
+const infoLoaders = new Map<string, () => Promise<ConnectionsServerInfo>>()
+const identityLoaders = new Map<string, SolusAPI['listProjectIdentities']>()
 
 // A real transport opens a socket and reads browser lifecycle globals; the
 // behavior under test is only when a connection's side effects run.
@@ -28,6 +31,8 @@ mock.module('@solus/client-core/server-connection', () => ({
     }
     const api = {
       serverGetCapabilities: () => capabilityLoaders.get(target.id)?.() ?? Promise.resolve({}),
+      connectionsGetServerInfo: () => infoLoaders.get(target.id)!(),
+      listProjectIdentities: () => identityLoaders.get(target.id)!(),
     }
     return { transport: transport as unknown as WsTransport, api: api as unknown as SolusAPI, events: transport.events }
   },
@@ -331,5 +336,132 @@ describe('session-scoped host capabilities', () => {
     expect(calls).toBe(2)
     capabilityLoaders.delete('cap-reconnect')
     connections.release('cap-reconnect')
+  })
+})
+
+describe('an installation id names a host in every client of it', () => {
+  test('resolves to this client’s id for that host, and leaves a host it does not have unchanged', () => {
+    // WHY: a task shared to an organization names the machine that runs each of
+    // its sessions by installation id (docs/plans/cloud-sharing.md §3a). The owner's
+    // desktop calls that machine `local` and their browser calls it by a saved id;
+    // both must open the session. A teammate has no such host, so the id must stay
+    // unresolved and the task page offers no Open.
+    const previousLocalStorage = globalThis.localStorage
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      writable: true,
+      value: {
+        getItem: (key: string) => key === 'solus.servers'
+          ? JSON.stringify([{
+              id: 'studio',
+              label: 'Studio',
+              url: 'https://studio.example',
+              sessionToken: '',
+              installationId: 'studio-installation',
+              lastConnected: 1,
+            }])
+          : null,
+      },
+    })
+    const connections = new ServerConnections()
+    connections.registerTarget({
+      id: 'local',
+      label: 'This Mac',
+      url: 'http://127.0.0.1:3000',
+      sessionToken: 'local-token',
+      installationId: 'mac-installation',
+      local: true,
+    })
+    try {
+      expect(connections.resolveId('mac-installation')).toBe('local')
+      expect(connections.resolveId('studio-installation')).toBe('studio')
+      expect(connections.resolveId('local')).toBe('local')
+      expect(connections.resolveId('teammate-installation')).toBe('teammate-installation')
+    } finally {
+      if (previousLocalStorage === undefined) {
+        delete (globalThis as unknown as { localStorage?: Storage }).localStorage
+      } else {
+        Object.defineProperty(globalThis, 'localStorage', {
+          configurable: true,
+          writable: true,
+          value: previousLocalStorage,
+        })
+      }
+    }
+  })
+})
+
+describe('connection-owned startup reads', () => {
+  const info: ConnectionsServerInfo = {
+    host: 'test.invalid', port: 443, allowLan: false, installationId: 'info-host',
+    remoteAccess: true, requireAuth: true, trustLocalNetwork: false,
+    hostKind: 'personal', roles: ['execution', 'collaboration'], principal: 'remote-owner',
+  }
+
+  test('concurrent and later consumers share one info read; explicit refresh and reconnect read again', async () => {
+    const connections = new ServerConnections()
+    connections.registerTarget({ ...remoteTarget, id: 'info', installationId: 'info-host' })
+    let calls = 0
+    infoLoaders.set('info', async () => { calls++; return info })
+    const first = connections.serverInfoFor('info')
+    expect(connections.serverInfoFor('info-host')).toBe(first)
+    await first
+    connections.updateStatus('info', 'connected')
+    expect(await connections.serverInfoFor('info')).toEqual(info)
+    expect(calls).toBe(1)
+    await Promise.all([connections.serverInfoFor('info', true), connections.serverInfoFor('info', true)])
+    expect(calls).toBe(2)
+    connections.updateStatus('info', 'disconnected')
+    connections.updateStatus('info', 'connected')
+    await connections.serverInfoFor('info')
+    expect(calls).toBe(3)
+    connections.release('info')
+    infoLoaders.delete('info')
+  })
+
+  test('a late answer from the old connection cannot replace the new identity', async () => {
+    const connections = new ServerConnections()
+    connections.registerTarget({ ...remoteTarget, id: 'info-stale' })
+    let finish!: (value: ConnectionsServerInfo) => void
+    infoLoaders.set('info-stale', () => new Promise((resolve) => { finish = resolve }))
+    const old = connections.serverInfoFor('info-stale')
+    await Promise.resolve()
+    connections.updateStatus('info-stale', 'connected')
+    connections.updateStatus('info-stale', 'disconnected')
+    infoLoaders.set('info-stale', async () => ({ ...info, userId: 'new-person' }))
+    connections.updateStatus('info-stale', 'connected')
+    await connections.serverInfoFor('info-stale')
+    finish({ ...info, userId: 'old-person' })
+    await old
+    expect((await connections.serverInfoFor('info-stale')).userId).toBe('new-person')
+    connections.release('info-stale')
+    infoLoaders.delete('info-stale')
+  })
+
+  test('failed info reads can retry, and different hosts never share an answer', async () => {
+    const connections = new ServerConnections()
+    for (const id of ['info-fail', 'info-other']) connections.registerTarget({ ...remoteTarget, id })
+    infoLoaders.set('info-fail', async () => { throw new Error('offline') })
+    infoLoaders.set('info-other', async () => ({ ...info, installationId: 'other' }))
+    await expect(connections.serverInfoFor('info-fail')).rejects.toThrow('offline')
+    infoLoaders.set('info-fail', async () => info)
+    expect((await connections.serverInfoFor('info-fail')).installationId).toBe('info-host')
+    expect((await connections.serverInfoFor('info-other')).installationId).toBe('other')
+    for (const id of ['info-fail', 'info-other']) { connections.release(id); infoLoaders.delete(id) }
+  })
+
+  test('project identity readers share pending work, including an explicit refresh', async () => {
+    const connections = new ServerConnections()
+    connections.registerTarget({ ...remoteTarget, id: 'projects' })
+    let calls = 0
+    identityLoaders.set('projects', async () => { calls++; return [] })
+    await Promise.all([connections.projectIdentities('projects'), connections.projectIdentities('projects')])
+    expect(calls).toBe(1)
+    await connections.projectIdentities('projects')
+    expect(calls).toBe(1)
+    await Promise.all([connections.projectIdentities('projects', true), connections.projectIdentities('projects', true)])
+    expect(calls).toBe(2)
+    connections.release('projects')
+    identityLoaders.delete('projects')
   })
 })

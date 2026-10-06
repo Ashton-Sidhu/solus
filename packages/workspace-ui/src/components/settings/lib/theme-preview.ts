@@ -16,7 +16,7 @@ export interface ThemePreviewColors {
 }
 
 export const LIGHT_PREVIEW: ThemePreviewColors = {
-  canvas: '#fefefc',
+  canvas: '#fffffd',
   sidebar: '#f9f8f4',
   surface: '#ffffff',
   accent: '#d97757',

@@ -1,4 +1,4 @@
-import { isWorkingStatus, type SidebarTask } from './task-list'
+import { isInWorkingSection, type SidebarTask } from './task-list'
 
 /**
  * When each row came back to the user, as this client saw it: the moment a row
@@ -19,7 +19,7 @@ export class SidebarReturnOrder {
     const present = new Set<string>()
     for (const row of rows) {
       present.add(row.id)
-      if (isWorkingStatus(row.status)) working.add(row.id)
+      if (isInWorkingSection(row)) working.add(row.id)
     }
     // A row that left the column forgets its stamp, so the map stays bounded.
     for (const rowId of this.returnedAtByRowId.keys()) {

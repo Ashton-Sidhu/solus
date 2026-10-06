@@ -5,6 +5,7 @@ import {
   managedHostStartResponseSchema,
   type AccountResponse,
   type HostAccessTokenRequest,
+  type HostAccessTokenResponse,
   type ManagedHostLifecycle,
   type UplinkDirectory,
 } from '@solus/contracts/uplink'
@@ -63,15 +64,15 @@ export class CloudAccountClient {
     return { directoryUrl: this.origin, ...directory }
   }
 
-  /** One ≤5-minute token for one host, naming the organization this device works in. */
-  async hostAccessToken(sessionToken: string, hostId: string, organizationId: string | null): Promise<string> {
+  /** An eight-hour first-party grant, including the expiry needed for reuse. */
+  async hostAccessToken(sessionToken: string, hostId: string, organizationId: string | null): Promise<HostAccessTokenResponse> {
     const body: HostAccessTokenRequest = organizationId ? { organizationId } : {}
     const response = await this.call(sessionToken, `/v1/hosts/${encodeURIComponent(hostId)}/access-token`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     })
-    return (await parseResponse(hostAccessTokenResponseSchema, response, 'host access')).accessToken
+    return parseResponse(hostAccessTokenResponseSchema, response, 'host access')
   }
 
   /** Asks Solus Cloud to start a stopped managed host. Callers check

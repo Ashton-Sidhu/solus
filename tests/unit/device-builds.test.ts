@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { deviceBuildFits, type DeviceBuild, type DeviceHostSummary, type DeviceState, type DeviceSummary } from '@solus/contracts/device-types'
-import { deviceBuildTargets, installDeviceBuild } from '@solus/client-core/device-builds'
+import { deviceBuildTargets, installDeviceBuild, isBuildOutput } from '@solus/client-core/device-builds'
 import { DeviceBuildStore, explainInstallFailure, installBuild, installCommands, type StoredDeviceBuild } from '@solus/server/devices/device-builds'
 import { DeviceDomainError } from '@solus/server/devices/device-errors'
 import { DeviceHubClient } from '@solus/server/devices/device-hub-client'
@@ -155,6 +155,68 @@ describe('build store', () => {
     expect(store.list().map((entry) => entry.buildId)).toEqual([again.buildId])
   })
 
+  test('a build whose output is gone is not offered, also after a restart', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'solus-builds-'))
+    const app = join(dir, 'Demo.app')
+    mkdirSync(app)
+    writeFileSync(join(app, 'Info.plist'), 'plist')
+    const store = new DeviceBuildStore({ path: join(dir, 'builds.json'), run: plutilRunner('iPhoneSimulator') })
+    const added = await store.add(app, 's1')
+    rmSync(app, { recursive: true })
+    // WHY: a row for a missing file can only fail when it is run.
+    expect(store.list()).toEqual([])
+    expect(() => store.get(added.buildId)).toThrow(DeviceDomainError)
+    expect(new DeviceBuildStore({ path: join(dir, 'builds.json'), run: plutilRunner('iPhoneSimulator') }).list()).toEqual([])
+  })
+
+  test('deleting an .app removes that bundle and its entry, and nothing around it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'solus-builds-'))
+    const products = join(dir, 'Debug-iphonesimulator')
+    const app = join(products, 'Demo.app')
+    mkdirSync(join(app, 'Frameworks'), { recursive: true })
+    writeFileSync(join(app, 'Info.plist'), 'plist')
+    writeFileSync(join(products, 'Demo.swiftmodule'), 'sibling')
+    const store = new DeviceBuildStore({ path: join(dir, 'builds.json'), run: plutilRunner('iPhoneSimulator') })
+    const added = await store.add(app, 's1')
+
+    await store.remove(added.buildId)
+
+    expect(existsSync(app)).toBe(false)
+    expect(readFileSync(join(products, 'Demo.swiftmodule'), 'utf8')).toBe('sibling')
+    expect(store.list()).toEqual([])
+    expect(JSON.parse(readFileSync(join(dir, 'builds.json'), 'utf8'))).toEqual([])
+  })
+
+  test('deleting a linked .app removes the link, not the bundle it points to', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'solus-builds-'))
+    const real = join(dir, 'real', 'Demo.app')
+    mkdirSync(real, { recursive: true })
+    writeFileSync(join(real, 'Info.plist'), 'plist')
+    const link = join(dir, 'Linked.app')
+    symlinkSync(real, link)
+    const store = new DeviceBuildStore({ path: join(dir, 'builds.json'), run: plutilRunner('iPhoneSimulator') })
+    const added = await store.add(link, 's1')
+
+    await store.remove(added.buildId)
+
+    expect(existsSync(link)).toBe(false)
+    expect(existsSync(join(real, 'Info.plist'))).toBe(true)
+  })
+
+  test('deleting an APK removes the stored copy, not the project output', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'solus-builds-'))
+    const apk = join(dir, 'app-debug.apk')
+    writeFileSync(apk, 'apk bytes')
+    const store = new DeviceBuildStore({ path: join(dir, 'builds.json'), run: plutilRunner('iPhoneOS'), assetsDir: join(dir, 'assets') })
+    const added = await store.add(apk, 's1')
+
+    await store.remove(added.buildId)
+
+    expect(existsSync(added.path)).toBe(false)
+    expect(readFileSync(apk, 'utf8')).toBe('apk bytes')
+    expect(store.list()).toEqual([])
+  })
+
   test('anything but an .app bundle or an .apk is refused', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'solus-builds-'))
     writeFileSync(join(dir, 'Demo.ipa'), 'x')
@@ -252,19 +314,41 @@ describe('device manager installs', () => {
     const target = { deviceHostId: 'local', deviceId: '00008140-AAA' }
     const holder = { kind: 'agent' as const, sessionId: 's1', label: 'Claude agent' }
     // WHY: an install changes the device, so it follows the same lease as every other mutation.
-    const unleased = await manager.installBuild(target, stored.buildId, 0, holder).catch((cause: unknown) => cause)
+    const unleased = await manager.installBuild(target, stored.buildId, holder).catch((cause: unknown) => cause)
     expect((unleased as DeviceDomainError).code).toBe('control_required')
 
     const notReady = { deviceHostId: 'local', deviceId: '00008140-BBB' }
-    const ipadLease = manager.control.acquireForAgent(notReady, holder)
-    const refused = await manager.installBuild(notReady, stored.buildId, ipadLease.generation, holder).catch((cause: unknown) => cause)
+    manager.control.acquireForAgent(notReady, holder)
+    const refused = await manager.installBuild(notReady, stored.buildId, holder).catch((cause: unknown) => cause)
     expect((refused as DeviceDomainError).detail).toContain('Developer Mode')
 
-    const lease = manager.control.acquireForAgent(target, holder)
-    const result = await manager.installBuild(target, stored.buildId, lease.generation, holder)
+    manager.control.acquireForAgent(target, holder)
+    const result = await manager.installBuild(target, stored.buildId, holder)
     expect(result.launched).toBe(true)
     expect(commands.filter((command) => command.startsWith('xcrun devicectl device'))).toHaveLength(2)
     expect(manager.state().builds[0]!.lastInstall?.deviceName).toBe('Ash iPhone')
+  })
+
+  test('a deleted build leaves the snapshot every client reads', async () => {
+    const { manager, stored } = await setup()
+    const state = await manager.deleteBuild(stored.buildId)
+    expect(state.builds).toEqual([])
+    expect(existsSync(stored.path)).toBe(false)
+    // A second delete, from a client still showing the row, says it is gone.
+    const again = await manager.deleteBuild(stored.buildId).catch((cause: unknown) => cause)
+    expect((again as DeviceDomainError).code).toBe('invalid_request')
+  })
+})
+
+describe('choosing a build in a folder browser', () => {
+  test('an .app bundle is a folder and an .apk is a file; nothing else is offered', () => {
+    // WHY: the browser chooses an .app instead of opening it, so it must
+    // recognize the bundle as the folder it is.
+    expect(isBuildOutput({ name: 'Demo.app', isDir: true })).toBe(true)
+    expect(isBuildOutput({ name: 'app-debug.apk', isDir: false })).toBe(true)
+    expect(isBuildOutput({ name: 'Demo.app', isDir: false })).toBe(false)
+    expect(isBuildOutput({ name: 'outputs.apk', isDir: true })).toBe(false)
+    expect(isBuildOutput({ name: 'Debug-iphonesimulator', isDir: true })).toBe(false)
   })
 })
 
@@ -274,12 +358,12 @@ describe('client install', () => {
   test('a free device is borrowed for the install and given back', async () => {
     const calls: string[] = []
     const api = {
-      deviceControlAcquire: async () => { calls.push('acquire'); return { status: 'granted' as const, lease: { deviceHostId: 'local', deviceId: 'SIM-1', holder: { kind: 'user' as const, clientId: 'c', label: 'Me' }, generation: 7, expiresAt: 0 }, control } },
-      deviceInstall: async (request: { controlGeneration: number }) => { calls.push(`install:${request.controlGeneration}`); return build({}) },
+      deviceControlAcquire: async () => { calls.push('acquire'); return { lease: { deviceHostId: 'local', deviceId: 'SIM-1', holder: { kind: 'user' as const, clientId: 'c', label: 'Me' }, generation: 7, expiresAt: 0 }, control } },
+      deviceInstall: async () => { calls.push('install'); return build({}) },
       deviceControlRelease: async () => { calls.push('release') },
     }
-    await installDeviceBuild(api, { deviceHostId: 'local', deviceId: 'SIM-1' }, build({}), control, null)
-    expect(calls).toEqual(['acquire', 'install:7', 'release'])
+    await installDeviceBuild(api, { deviceHostId: 'local', deviceId: 'SIM-1' }, build({}), control, false)
+    expect(calls).toEqual(['acquire', 'install', 'release'])
   })
 
   test('an install never takes a device from an agent that is using it', async () => {
@@ -290,6 +374,6 @@ describe('client install', () => {
       deviceInstall: async () => build({}),
       deviceControlRelease: async () => {},
     }
-    await expect(installDeviceBuild(api, { deviceHostId: 'local', deviceId: 'SIM-1' }, build({}), busy, null)).rejects.toThrow('Codex agent is using this device')
+    await expect(installDeviceBuild(api, { deviceHostId: 'local', deviceId: 'SIM-1' }, build({}), busy, false)).rejects.toThrow('Codex agent is using this device')
   })
 })

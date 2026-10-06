@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    CalendarClock as CalendarClockIcon,
     Clock as ClockIcon,
     Hourglass as HourglassIcon,
     Moon as MoonIcon,
@@ -7,11 +8,15 @@
   } from "@lucide/svelte";
   import * as Popover from "../ui/popover";
   import { menuRowVariants } from "../ui/menu/menu-row";
+  import DateTimePicker from "../ui/DateTimePicker.svelte";
+  import { Button } from "../ui/button";
   import { cn } from "@solus/workspace-ui/lib/tw";
   import { formatResetClock } from "../../lib/sessionUtils";
   import {
     TASK_SNOOZE_CHOICES,
+    customSnoozeUntil,
     limitResetSnoozeUntil,
+    snoozePickerValue,
     taskSnoozeAnchorTarget,
     taskSnoozeUntil,
     type TaskSnoozeAnchor,
@@ -36,6 +41,11 @@
 
   let open = $state(true);
   let note = $state("");
+  // The custom time opens on the "Tomorrow morning" preset, the usual
+  // starting point for a time of one's own.
+  let isCustomOpen = $state(false);
+  let customValue = $state(snoozePickerValue(taskSnoozeUntil("tomorrow", new Date(openedAt))));
+  const customUntil = $derived(customSnoozeUntil(customValue, openedAt));
   let rowsEl: HTMLDivElement | undefined = $state();
   const anchorTarget = $derived(taskSnoozeAnchorTarget(anchor));
 
@@ -105,6 +115,34 @@
           <span class="min-w-0 flex-1 truncate text-left">{choice.label}</span>
         </button>
       {/each}
+      <button
+        type="button"
+        class={cn(menuRowVariants(), "w-full")}
+        aria-expanded={isCustomOpen}
+        onclick={() => (isCustomOpen = !isCustomOpen)}
+      >
+        <CalendarClockIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+        <span class="min-w-0 flex-1 truncate text-left">Pick date and time…</span>
+      </button>
     </div>
+    {#if isCustomOpen}
+      <div class="flex flex-col gap-1.5 border-t border-(--solus-menu-hairline) p-2">
+        <DateTimePicker
+          value={customValue}
+          onChange={(next) => (customValue = next)}
+          class="w-full"
+        />
+        <Button
+          class="w-full pointer-coarse:h-10"
+          disabled={customUntil === null}
+          title={customUntil === null ? "Pick a time in the future" : undefined}
+          onclick={() => {
+            if (customUntil !== null) onConfirm(customUntil, note.trim());
+          }}
+        >
+          Snooze
+        </Button>
+      </div>
+    {/if}
   </Popover.Content>
 </Popover.Root>

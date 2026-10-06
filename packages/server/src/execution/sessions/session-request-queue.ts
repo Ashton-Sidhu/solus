@@ -1,7 +1,7 @@
 import type { QueuedPromptReason, SessionRunInput } from '@solus/contracts/types'
 import type { User } from '@solus/contracts/user'
 import type { SessionQueueMutation } from '@solus/contracts/session-queue'
-import { SessionQueueStore, type SavedQueueEntry } from '../../data/sessions/session-queue-store'
+import type { RunLedger, SavedQueueEntry } from '../../data/sessions/run-ledger'
 import type { SessionRunRequest } from '../session-runtime'
 
 export interface QueuedRequest {
@@ -27,14 +27,16 @@ export interface QueuedRequest {
   started?: boolean
 }
 
-/** Owns ordered entries and their crash receipts. Live promises and tools stay
- * in this process; restored work is held until its author resumes it. */
+/** Owns ordered entries. The run ledger keeps their crash receipts; live
+ * promises and tools stay in this process. A change is written first, and
+ * memory is restored when the write fails. Restored work is held until its
+ * author resumes it. */
 export class SessionRequestQueue {
   private readonly queues = new Map<string, QueuedRequest[]>()
   private readonly claimed = new Map<string, QueuedRequest[]>()
 
-  constructor(private readonly store?: SessionQueueStore) {
-    for (const entry of store?.load() ?? []) {
+  constructor(private readonly ledger?: RunLedger) {
+    for (const entry of ledger?.loadQueue() ?? []) {
       const queue = this.queues.get(entry.sessionId) ?? []
       queue.push({
         ...entry, held: true,
@@ -238,7 +240,7 @@ export class SessionRequestQueue {
       rateLimitSessionId: entry.rateLimitSessionId, releaseAt: entry.releaseAt, rateLimitType: entry.rateLimitType,
       runId: entry.run.runId, exchangeIds: entry.run.exchangeIds, reportExchangeIds: entry.run.reportExchangeIds, started: entry.started || active.includes(entry),
     }))
-    this.store?.save(sessionId, entries)
+    this.ledger?.saveQueue(sessionId, entries)
     if (!pending.length) this.queues.delete(sessionId)
     if (!active.length) this.claimed.delete(sessionId)
   }

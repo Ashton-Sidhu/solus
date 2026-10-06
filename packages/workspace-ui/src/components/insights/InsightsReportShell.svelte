@@ -14,7 +14,6 @@
   import { openThreads } from "../comments/lib/thread";
   import { sameUser } from "@solus/contracts/user";
   import { toasts } from "../../lib/toasts";
-  import { formatClock } from "./lib/format";
   import { buildTraceView } from "./lib/waterfall";
   import { traceExportJson } from "./lib/turn-analysis";
   import { parseTurnReport } from "./lib/turn-report";
@@ -181,11 +180,6 @@
 {/snippet}
 
 {#snippet headerActions()}
-  {#if report}
-    <span class="shrink-0 text-muted-foreground @max-[30rem]/pane:hidden">
-      Captured {formatClock(report.capturedAt)}
-    </span>
-  {/if}
   {#if !commentsReadOnly}
     <Button
       variant="ghost"

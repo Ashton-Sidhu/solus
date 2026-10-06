@@ -41,7 +41,7 @@
   const loadError = $derived(record?.error ?? null);
   const transcriptError = $derived(record?.transcriptError ?? null);
   const showsRecordState = $derived(live !== true && live !== null);
-  const openWork = $derived(workspace.workspace ? (workId: string) => workspace.openWork(workId, "aside") : undefined);
+  const openWork = $derived(workspace.workspace ? (workId: string) => workspace.openWork(workId) : undefined);
 
   const header = $derived(meta ? sessionRecordHeader(meta) : null);
   const home = $derived(serversStore.hostFor(params.serverId));
@@ -51,7 +51,7 @@
   const workFor = (workId: string) => workspace.worksStore.get(workId);
 
   function close() {
-    workspace.workspace?.router.closeGroup("page");
+    workspace.workspace?.router.close("sessionRecord");
   }
 </script>
 
@@ -148,6 +148,6 @@
   {/if}
 
   {#if shell.canOpenResource("workspace") && paneId}
-    <PaneChrome onClose={close} isLeading={pane.isLeading} closeLabel="Close session record" />
+    <PaneChrome onClose={close} closeLabel="Close session record" />
   {/if}
 </div>

@@ -33,9 +33,8 @@ export interface HostConnectionState {
 export interface HostConnectionsDeps {
   registry: HostRegistry
   createTransport(options: WsTransportOptions): HostTransport
-  /** A ≤5-minute access token for a cloud host, minted per dial. Null when the
-   *  account is signed out or the cloud did not answer. */
-  acquireHostAccessToken(host: NativeHost): Promise<string | null>
+  /** A cached eight-hour grant; a host refusal requests a fresh one. */
+  acquireHostAccessToken(host: NativeHost, options?: { fresh?: boolean }): Promise<string | null>
   /** The organization this device works in; it scopes record reads. */
   organizationId(): string | null
   fetch: typeof fetch
@@ -118,7 +117,7 @@ export class HostConnections {
       serverUrl: route.url,
       serverId: host.id,
       sessionToken: this.deps.registry.credential(host.id),
-      acquireGrant: host.paired ? undefined : () => this.deps.acquireHostAccessToken(host),
+      acquireGrant: host.paired ? undefined : (options) => this.deps.acquireHostAccessToken(host, options),
       onSessionTokenRefreshed: (sessionToken) => { void this.deps.registry.updateCredential(host.id, sessionToken) },
       verifyConnectedHost: () => this.verifyIdentity(host.id, connection?.transport.serverUrl ?? route.url),
       organizationId: this.deps.organizationId,

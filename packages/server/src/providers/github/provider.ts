@@ -47,6 +47,7 @@ import {
   githubWriteRefusal,
   listGithubReviewerCandidates,
   revertGithubPullRequest,
+  updateGithubPullRequestBranch,
   updateGithubPullRequestLifecycle,
   type PrAutoMergeUpdate,
   type PullRequestAccess,
@@ -1027,8 +1028,13 @@ async function viewerLogin(client: GitHubClient): Promise<string> {
  * settings per client, so a whole page costs one `repos.get` and one viewer
  * read no matter how many distinct authors it holds.
  */
-async function accessFor(client: GitHubClient, repo: RepoRef, author: string): Promise<PullRequestAccess> {
-  return githubPullRequestAccessFor(client, repo, await viewerLogin(client), author)
+async function accessFor(
+  client: GitHubClient,
+  repo: RepoRef,
+  author: string,
+  baseRef?: string,
+): Promise<PullRequestAccess> {
+  return githubPullRequestAccessFor(client, repo, await viewerLogin(client), author, baseRef)
 }
 
 /**
@@ -1143,7 +1149,7 @@ export class GitHubProvider implements ReviewProvider {
       const items = await Promise.all(
         wanted.map(async (pr) => {
           const row = pr.node_id ? facts.get(pr.node_id) : undefined
-          const item = toPullRequest(pr, repo, await accessFor(client, repo, pr.user?.login ?? ''), row?.reviewStatus)
+          const item = toPullRequest(pr, repo, await accessFor(client, repo, pr.user?.login ?? '', pr.base.ref), row?.reviewStatus)
           return row ? { ...item, additions: row.additions, deletions: row.deletions } : item
         }),
       )
@@ -1179,7 +1185,7 @@ export class GitHubProvider implements ReviewProvider {
         : { nodes: [] }
       const found = response.nodes.flatMap((node) => node?.number ? [node] : [])
       const items = await Promise.all(found.map(async (node) =>
-        toNeedsReviewPullRequest(node, repo, await accessFor(client, repo, node.author?.login ?? '')),
+        toNeedsReviewPullRequest(node, repo, await accessFor(client, repo, node.author?.login ?? '', node.baseRefName)),
       ))
       return {
         items,
@@ -1202,7 +1208,7 @@ export class GitHubProvider implements ReviewProvider {
         title: input.title,
         body: input.body,
       })
-      return toPullRequest(data, repo, await accessFor(client, repo, data.user?.login ?? ''))
+      return toPullRequest(data, repo, await accessFor(client, repo, data.user?.login ?? '', data.base.ref))
     }, input.credentialCwd)
   }
 
@@ -1229,7 +1235,7 @@ export class GitHubProvider implements ReviewProvider {
         const assigned = response.assigned
         for (const pr of [...(requested?.nodes ?? []), ...(assigned?.nodes ?? [])]) {
           if (!pr) continue
-          const access = await accessFor(client, repo, pr.author?.login ?? '')
+          const access = await accessFor(client, repo, pr.author?.login ?? '', pr.baseRefName)
           pullRequests.set(pr.number, toNeedsReviewPullRequest(pr, repo, access))
         }
         hasMoreRequested = requested?.pageInfo.hasNextPage ?? false
@@ -1382,7 +1388,7 @@ export class GitHubProvider implements ReviewProvider {
         throw error
       })
       const [access, requiredApprovingReviewCount] = await Promise.all([
-        accessFor(client, repo, pr.user?.login ?? ''),
+        accessFor(client, repo, pr.user?.login ?? '', pr.base.ref),
         loadRequiredApprovalCount(client, repo, pr.base.ref, number),
       ])
       return toPullRequest(pr, repo, access, undefined, requiredApprovingReviewCount)
@@ -1407,7 +1413,7 @@ export class GitHubProvider implements ReviewProvider {
         after = page.pageInfo.endCursor
       }
       return Promise.all(found.map(async (row) =>
-        toNeedsReviewPullRequest(row, repo, await accessFor(client, repo, row.author?.login ?? ''))))
+        toNeedsReviewPullRequest(row, repo, await accessFor(client, repo, row.author?.login ?? '', row.baseRefName))))
     })
   }
 
@@ -1430,7 +1436,7 @@ export class GitHubProvider implements ReviewProvider {
         for (const number of batch) {
           const row = response.repository[`pr${number}`]
           answers.set(number, row
-            ? toNeedsReviewPullRequest(row, repo, await accessFor(client, repo, row.author?.login ?? ''))
+            ? toNeedsReviewPullRequest(row, repo, await accessFor(client, repo, row.author?.login ?? '', row.baseRefName))
             : null)
         }
       })
@@ -1593,7 +1599,7 @@ export class GitHubProvider implements ReviewProvider {
   ): Promise<PullRequest> {
     return this.withClient('update_pull_request_lifecycle', repo.host, async (client) => {
       const { data: raw } = await client.rest.pulls.get({ owner: repo.owner, repo: repo.repo, pull_number: number })
-      const access = await accessFor(client, repo, raw.user?.login ?? '')
+      const access = await accessFor(client, repo, raw.user?.login ?? '', raw.base.ref)
       if (!access.viewerPermissions.actions.includes(action)) {
         throw new Error(`You do not have permission to ${action} this pull request.`)
       }
@@ -1704,6 +1710,27 @@ export class GitHubProvider implements ReviewProvider {
     }
   }
 
+  async updatePullRequestBranch(
+    repo: RepoRef,
+    number: number,
+    method: 'merge' | 'rebase',
+    expectedHeadSha: string,
+  ): Promise<void> {
+    try {
+      await this.withClient('update_pull_request_branch', repo.host, async (client) => {
+        const { data: raw } = await client.rest.pulls.get({ owner: repo.owner, repo: repo.repo, pull_number: number })
+        if (!raw.node_id) throw new Error('GitHub did not return the pull request node ID.')
+        await updateGithubPullRequestBranch(client, raw.node_id, method, expectedHeadSha)
+      })
+    } catch (err) {
+      throw githubWriteRefusal(
+        err,
+        'GitHub could not update the branch',
+        'Check that you can push to the head branch and that it does not conflict with the base.',
+      )
+    }
+  }
+
   /** One auto-merge write: read the pull request for its node ID, run the
    *  mutation, and answer the pull request as the mutation left it. */
   private writeAutoMerge(
@@ -1715,7 +1742,7 @@ export class GitHubProvider implements ReviewProvider {
     return this.withClient(operation, repo.host, async (client) => {
       const { data: raw } = await client.rest.pulls.get({ owner: repo.owner, repo: repo.repo, pull_number: number })
       if (!raw.node_id) throw new Error('GitHub did not return the pull request node ID.')
-      const current = toPullRequest(raw, repo, await accessFor(client, repo, raw.user?.login ?? ''))
+      const current = toPullRequest(raw, repo, await accessFor(client, repo, raw.user?.login ?? '', raw.base.ref))
       return { ...current, ...(await write(client, raw.node_id)) }
     })
   }

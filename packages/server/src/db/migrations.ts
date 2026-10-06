@@ -10,7 +10,7 @@ import type { DatabaseSync } from 'node:sqlite'
  * slot and never rewrites a released one. A file whose version is past the
  * list predates the baseline and cannot be read.
  */
-const migrations = [
+export const migrations = [
   `
 CREATE TABLE automations (
   id TEXT PRIMARY KEY,
@@ -380,6 +380,46 @@ CREATE TABLE session_restart_runs (
   run_id TEXT NOT NULL,
   state TEXT NOT NULL,
   payload TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+`,
+  // The run ledger (docs/plans/orchestration-queue.md): queue entries,
+  // exchanges, and restart receipts in one host-local file, so one transaction
+  // can change them together. Restart receipts move from the table above; the
+  // JSON receipts of earlier versions are imported by the ledger on boot.
+  `
+CREATE TABLE runs (
+  session_id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  state TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+INSERT INTO runs(session_id, run_id, state, payload, updated_at)
+  SELECT session_id, run_id, state, payload, updated_at FROM session_restart_runs;
+DROP TABLE session_restart_runs;
+
+CREATE TABLE run_queue (
+  queue_id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  payload TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX run_queue_by_session ON run_queue(session_id, position);
+
+CREATE TABLE run_exchanges (
+  exchange_id TEXT PRIMARY KEY,
+  sender_session_id TEXT NOT NULL,
+  target_session_id TEXT NOT NULL,
+  run_id TEXT,
+  state TEXT NOT NULL,
+  delivery_state TEXT,
+  delivery_queue_id TEXT,
+  payload TEXT NOT NULL,
+  report TEXT,
+  reply TEXT,
+  settled_at INTEGER,
   updated_at INTEGER NOT NULL
 );
 `,

@@ -9,10 +9,13 @@ describe('Codex dynamic tool adapter', () => {
       name, description: name, inputFields: {}, requiresApproval: false,
       alwaysLoad: name === 'start_session', execute: async () => ({ ok: true, text: '' }),
     }))
-    expect(adaptCodexTools(tools).map(({ name, deferLoading }) => ({ name, deferLoading }))).toEqual([
-      { name: 'ordinary_tool', deferLoading: true },
-      { name: 'start_session', deferLoading: false },
-    ])
+    expect(adaptCodexTools(tools)).toMatchObject([{
+      type: 'namespace', name: 'solus', tools: [
+        { type: 'function', name: 'ordinary_tool', deferLoading: true },
+        { type: 'function', name: 'start_session', deferLoading: false },
+      ],
+    }])
+    expect(adaptCodexTools([])).toEqual([])
   })
 
   test('returns a terminal failure when a tool throws', async () => {
@@ -55,7 +58,7 @@ describe('the schema Codex reads', () => {
       requiresApproval: false,
       execute: async () => ({ ok: true, text: '' }),
     }
-    const [adapted] = adaptCodexTools([tool])
+    const [adapted] = adaptCodexTools([tool])[0]!.tools
     expect(adapted!.inputSchema).toMatchObject({ required: ['prompt'] })
   })
 })

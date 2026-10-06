@@ -7,6 +7,7 @@ import type { RecordScope } from '../../admission/principal'
 import { getDatabase } from '../../db/database'
 import { scopeClause } from '../scope'
 import { taskComments, tasks } from './schema'
+import { TASK_HERE } from './task-store'
 
 const commentRowSchema = z.object({
   id: z.string(),
@@ -36,7 +37,7 @@ export async function searchTaskComments(scope: RecordScope, input: TaskCommentS
     SELECT ${taskComments}.id, ${taskComments}.task_id, ${taskComments}.body, ${taskComments}.created_at
     FROM ${taskComments}
     JOIN ${tasks} ON ${tasks}.id = ${taskComments}.task_id
-    WHERE ${scopeClause(scope, sql`${tasks}.organization_id`)}${project} AND (${anyWord})
+    WHERE ${scopeClause(scope, sql`${tasks}.organization_id`)} AND ${TASK_HERE}${project} AND (${anyWord})
     ORDER BY ${taskComments}.created_at DESC
     LIMIT ${MAX_COMMENTS}
   `))

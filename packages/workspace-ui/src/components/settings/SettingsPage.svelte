@@ -25,12 +25,12 @@
     Smartphone as SmartphoneIcon,
     UserRound as PersonIcon,
     Building2 as OrganizationIcon,
-    Laptop as ThisDeviceIcon,
     Server as HostIcon,
   } from "@lucide/svelte";
   import {
     getWorkspaceContext,
     getClientShellContext,
+    getSettingsContext,
     serversStore,
   } from "../../contexts";
   import type { SettingsTab } from "../../contexts/workspace/routing/route-registry";
@@ -40,28 +40,29 @@
   import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import { SearchField } from "../ui/search-field";
   import SettingsUpdateButton from "./SettingsUpdateButton.svelte";
-  import SettingsTabGeneral from "./SettingsTabGeneral.svelte";
-  import SettingsTabAppearance from "./SettingsTabAppearance.svelte";
+  import SettingsTabGeneral, { settingItems as generalSearch } from "./SettingsTabGeneral.svelte";
+  import SettingsTabAppearance, { settingItems as appearanceSearch } from "./SettingsTabAppearance.svelte";
   import SettingsTabNotifications from "./SettingsTabNotifications.svelte";
-  import SettingsTabInstructions from "./SettingsTabInstructions.svelte";
-  import SettingsTabTasks from "./SettingsTabTasks.svelte";
-  import SettingsTabReview from "./SettingsTabReview.svelte";
+  import SettingsTabInstructions, { settingItems as instructionsSearch } from "./SettingsTabInstructions.svelte";
+  import SettingsTabTasks, { settingItems as tasksSearch } from "./SettingsTabTasks.svelte";
+  import SettingsTabReview, { settingItems as reviewSearch } from "./SettingsTabReview.svelte";
   import ConnectionsPanel from "../connections/ConnectionsPanel.svelte";
-  import SettingsTabTools from "./SettingsTabTools.svelte";
+  import SettingsTabTools, { settingItems as toolsSearch } from "./SettingsTabTools.svelte";
   import SettingsTabProviders from "./SettingsTabProviders.svelte";
   import SettingsTabSkills from "./SettingsTabSkills.svelte";
   import SettingsTabVoice from "./SettingsTabVoice.svelte";
-  import SettingsTabExperimental from "./SettingsTabExperimental.svelte";
-  import SettingsTabTelemetry from "./SettingsTabTelemetry.svelte";
-  import AnalyticsSettings from "./AnalyticsSettings.svelte";
+  import SettingsTabExperimental, { settingItems as experimentalSearch } from "./SettingsTabExperimental.svelte";
+  import SettingsTabTelemetry, { settingItems as telemetrySearch } from "./SettingsTabTelemetry.svelte";
+  import AnalyticsSettings, { searchWords as analyticsSearch } from "./AnalyticsSettings.svelte";
+  import { APP_NOTICE_ROWS, NOTIFICATION_CHANNEL_ROWS, SESSION_EVENT_ROWS } from "./lib/notification-settings";
+  import { dataMatches, wordsMatch } from "./lib/settings-search";
   import SettingsTabProjects from "./SettingsTabProjects.svelte";
   import SettingsCloudProjects from "./SettingsCloudProjects.svelte";
   import SettingsTabSourceControl from "./SettingsTabSourceControl.svelte";
   import SettingsTabKeybindings from "./SettingsTabKeybindings.svelte";
-  import SettingsTabPersonal from "./SettingsTabPersonal.svelte";
-  import SettingsTabDevice from "./SettingsTabDevice.svelte";
-  import SettingsTabHost from "./SettingsTabHost.svelte";
-  import SettingsTabOrganization from "./SettingsTabOrganization.svelte";
+  import SettingsTabPersonal, { searchWords as personalSearch } from "./SettingsTabPersonal.svelte";
+  import SettingsTabHost, { searchWords as hostSearch } from "./SettingsTabHost.svelte";
+  import SettingsTabOrganization, { searchWords as organizationSearch } from "./SettingsTabOrganization.svelte";
   import DeviceSettings from "../devices/DeviceSettings.svelte";
   import { settingsHost } from "./lib/settings-host.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -70,6 +71,24 @@
   import { serverConnections } from "@solus/client-core/server-connections";
 
   const session = getWorkspaceContext();
+  const settings = getSettingsContext();
+  let searchQuery = $state("");
+
+  function tabMatchesSearch(tab: TabMeta, query: string): boolean {
+    return (
+      wordsMatch(query, [tab.label, ...(SEARCH_WORDS[tab.id] ?? [])]) ||
+      dataMatches(tab.id, query, settings.keybindings)
+    );
+  }
+
+  // A search that leaves the open page empty opens the first page it matches.
+  function setSearchQuery(query: string) {
+    searchQuery = query;
+    if (!query || searchedTabs.some((t) => t.id === session.settingsTab)) return;
+    const first = searchedTabs[0];
+    if (first) selectTab(first.id);
+  }
+
   const shell = getClientShellContext();
 
   interface TabMeta {
@@ -114,13 +133,6 @@
       label: "Appearance",
       description: "Theme, typefaces, and text sizes on this device.",
       icon: PaletteIcon,
-      group: "Workspace",
-    },
-    {
-      id: "device",
-      label: "This device",
-      description: "Installed fonts that replace your synced fonts on this device only.",
-      icon: ThisDeviceIcon,
       group: "Workspace",
     },
     {
@@ -245,16 +257,39 @@
     },
   ];
 
+  // What each page can be found by, beside its label. Pages without a list
+  // (Projects, Providers, Skills, …) are found by their label alone.
+  const keywordsOf = (items: { keywords: readonly string[] }[]) => items.flatMap((item) => item.keywords);
+  const SEARCH_WORDS: Partial<Record<SettingsTab, readonly string[]>> = {
+    personal: personalSearch,
+    organization: organizationSearch,
+    general: keywordsOf(generalSearch),
+    appearance: keywordsOf(appearanceSearch),
+    notifications: [...NOTIFICATION_CHANNEL_ROWS, ...SESSION_EVENT_ROWS, ...APP_NOTICE_ROWS].flatMap((row) => [row.label, ...row.keywords]),
+    instructions: keywordsOf(instructionsSearch),
+    tasks: keywordsOf(tasksSearch),
+    review: keywordsOf(reviewSearch),
+    tools: keywordsOf(toolsSearch),
+    telemetry: [...analyticsSearch, ...keywordsOf(telemetrySearch)],
+    host: hostSearch,
+    experimental: keywordsOf(experimentalSearch),
+  };
+
   const tabs = $derived(
     ALL_TABS.filter(
       (t) => !t.hiddenFromNav && (!t.desktopOnly || shell.supportsNativeSettings),
     ),
   );
 
+  // While searching, the nav lists only the pages with a match.
+  const searchedTabs = $derived(
+    searchQuery ? tabs.filter((t) => tabMatchesSearch(t, searchQuery)) : tabs,
+  );
+
   const groupedTabs = $derived.by(() => {
     const order: string[] = [];
     const map = new Map<string, TabMeta[]>();
-    for (const t of tabs) {
+    for (const t of searchedTabs) {
       if (!map.has(t.group)) {
         map.set(t.group, []);
         order.push(t.group);
@@ -268,6 +303,10 @@
   // (Projects) still titles the page after itself.
   const activeTabMeta = $derived(
     ALL_TABS.find((t) => t.id === session.settingsTab) ?? tabs[0],
+  );
+  // A page found by its own label shows all of its settings.
+  const pageQuery = $derived(
+    searchQuery && !wordsMatch(searchQuery, [activeTabMeta.label]) ? searchQuery : "",
   );
   const hostFramedTab = $derived(
     session.settingsTab === "general" ||
@@ -309,7 +348,6 @@
       serverConnections.defaultMachineId() ?? settingsHosts[0]?.serverId ?? "";
   });
 
-  let searchQuery = $state("");
   let searchInputEl = $state<HTMLInputElement | null>(null);
 
   function close() {
@@ -353,7 +391,6 @@
 
   function selectTab(tab: SettingsTab) {
     session.selectSettingsTab(tab);
-    searchQuery = "";
     connectionsNav.back();
   }
 </script>
@@ -383,7 +420,7 @@
 -->
 {#snippet tabChips(padding: string)}
   <div class="shrink-0 flex flex-wrap gap-1.5 {padding}">
-    {#each tabs as tab (tab.id)}
+    {#each searchedTabs as tab (tab.id)}
       {@const Icon = tab.icon}
       <button
         type="button"
@@ -420,29 +457,27 @@
     />
   {:else if session.settingsTab === "general" && selectedSettingsHost && selectedSettingsApi}
     <SettingsTabGeneral
-      {searchQuery}
+      searchQuery={pageQuery}
       serverId={selectedSettingsHost.serverId}
       api={selectedSettingsApi}
       hostLabel={selectedSettingsHost.label}
     />
   {:else if session.settingsTab === "tasks"}
-    <SettingsTabTasks {searchQuery} />
+    <SettingsTabTasks searchQuery={pageQuery} />
   {:else if session.settingsTab === "personal"}
-    <SettingsTabPersonal {searchQuery} />
+    <SettingsTabPersonal searchQuery={pageQuery} />
   {:else if session.settingsTab === "organization"}
-    <SettingsTabOrganization {searchQuery} />
-  {:else if session.settingsTab === "device"}
-    <SettingsTabDevice {searchQuery} />
+    <SettingsTabOrganization searchQuery={pageQuery} />
   {:else if session.settingsTab === "host" && selectedSettingsHost}
-    <SettingsTabHost {searchQuery} serverId={selectedSettingsHost.serverId} />
+    <SettingsTabHost searchQuery={pageQuery} serverId={selectedSettingsHost.serverId} />
   {:else if session.settingsTab === "appearance"}
-    <SettingsTabAppearance {searchQuery} />
+    <SettingsTabAppearance searchQuery={pageQuery} />
   {:else if session.settingsTab === "notifications"}
-    <SettingsTabNotifications {searchQuery} />
+    <SettingsTabNotifications searchQuery={pageQuery} />
   {:else if session.settingsTab === "instructions"}
-    <SettingsTabInstructions {searchQuery} />
+    <SettingsTabInstructions searchQuery={pageQuery} />
   {:else if session.settingsTab === "review"}
-    <SettingsTabReview {searchQuery} />
+    <SettingsTabReview searchQuery={pageQuery} />
   {:else if session.settingsTab === "voice" && selectedSettingsHost && selectedSettingsApi}
     <SettingsTabVoice
       serverId={selectedSettingsHost.serverId}
@@ -450,23 +485,23 @@
       hostLabel={selectedSettingsHost.label}
     />
   {:else if session.settingsTab === "telemetry"}
-    <AnalyticsSettings {searchQuery} host={selectedSettingsHost} />
+    <AnalyticsSettings searchQuery={pageQuery} host={selectedSettingsHost} />
     {#if selectedSettingsHost && selectedSettingsApi}
       <SettingsTabTelemetry
-        {searchQuery}
+        searchQuery={pageQuery}
         serverId={selectedSettingsHost.serverId}
         api={selectedSettingsApi}
       />
     {/if}
   {:else if session.settingsTab === "experimental"}
-    <SettingsTabExperimental {searchQuery} />
+    <SettingsTabExperimental searchQuery={pageQuery} />
   {:else if session.settingsTab === "providers" && selectedSettingsHost}
     <SettingsTabProviders serverId={selectedSettingsHost.serverId} />
   {:else if session.settingsTab === "api-access"}
     <ConnectionsPanel />
   {:else if session.settingsTab === "tools" && selectedSettingsHost && selectedSettingsApi}
     <SettingsTabTools
-      {searchQuery}
+      searchQuery={pageQuery}
       serverId={selectedSettingsHost.serverId}
       api={selectedSettingsApi}
       hostLabel={selectedSettingsHost.label}
@@ -482,7 +517,7 @@
       <DeviceSettings serverId={selectedSettingsHost.serverId} />
     {/key}
   {:else if session.settingsTab === "keybindings"}
-    <SettingsTabKeybindings bind:searchQuery />
+    <SettingsTabKeybindings bind:searchQuery={() => pageQuery, setSearchQuery} />
   {/if}
 {/snippet}
 
@@ -570,7 +605,7 @@
         <h2 class="px-[0.625rem] text-lg font-semibold tracking-[-0.01em] text-foreground">Settings</h2>
         <SearchField
           bind:ref={searchInputEl}
-          bind:value={searchQuery}
+          bind:value={() => searchQuery, setSearchQuery}
           placeholder="Search"
           class="w-full basis-auto rounded-lg border-transparent bg-transparent px-3 py-1.5 transition-[background-color] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)] focus-within:border-transparent focus-within:bg-[color-mix(in_oklch,var(--foreground)_4%,transparent)] [&_input]:text-workspace-chrome"
         />
@@ -578,6 +613,9 @@
       <Sidebar.Content
         class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-4 px-[1.1875rem] pb-4"
       >
+        {#if groupedTabs.length === 0}
+          <p class="px-[0.625rem] py-2 text-workspace-chrome text-muted-foreground">No settings match</p>
+        {/if}
         {#each groupedTabs as section (section.group)}
           <Sidebar.Group class="p-0">
             <!-- A group name is the level above the rows, so it starts on the

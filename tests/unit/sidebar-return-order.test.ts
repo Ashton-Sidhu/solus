@@ -6,9 +6,9 @@ import {
   type TaskStatus,
 } from '@solus/workspace-ui/components/session/lib/task-list'
 
-function row(id: string, status: TaskStatus, createdAt: number): SidebarTask {
-  // SAFETY: the return order reads only a row's identity, status, and creation time.
-  return { id, key: id, status, createdAt } as SidebarTask
+function row(id: string, status: TaskStatus, createdAt: number, taskId?: string): SidebarTask {
+  // SAFETY: the return order reads only a row's identity, task, status, and creation time.
+  return { id, key: id, taskId, status, createdAt } as SidebarTask
 }
 
 function order(returnOrder: SidebarReturnOrder, rows: SidebarTask[]): string[] {
@@ -34,6 +34,33 @@ describe('SidebarReturnOrder', () => {
     returnOrder.observe(rows, 6_000)
 
     expect(order(returnOrder, rows)).toEqual(['b', 'c', 'a'])
+  })
+
+  it('keeps a task row in place when its lead or workers start and stop', () => {
+    // WHY: the user decided tasks do not move while agents run. A task row
+    // stays in Tasks, so a finished run must not lift it to the top either.
+    const returnOrder = new SidebarReturnOrder()
+    const tasks = (leadStatus: TaskStatus, workerStatus: TaskStatus) => [
+      row('lead-task', leadStatus, 1_000, 'lead-task'),
+      row('worker-task', workerStatus, 2_000, 'worker-task'),
+      row('newest', 'idle', 3_000, 'newest'),
+    ]
+    returnOrder.observe(tasks('idle', 'idle'), 5_000)
+    returnOrder.observe(tasks('running', 'background'), 6_000)
+    returnOrder.observe(tasks('idle', 'question'), 7_000)
+    returnOrder.observe(tasks('limit', 'idle'), 8_000)
+    returnOrder.observe(tasks('error', 'idle'), 9_000)
+
+    expect(order(returnOrder, tasks('error', 'idle'))).toEqual(['newest', 'worker-task', 'lead-task'])
+  })
+
+  it('still lifts a session row that comes back from the Working section', () => {
+    const returnOrder = new SidebarReturnOrder()
+    returnOrder.observe([row('session', 'running', 1_000), row('task', 'running', 2_000, 'task')], 5_000)
+    returnOrder.observe([row('session', 'idle', 1_000), row('task', 'idle', 2_000, 'task')], 6_000)
+
+    expect(returnOrder.returnedAt(row('session', 'idle', 1_000))).toBe(6_000)
+    expect(returnOrder.returnedAt(row('task', 'idle', 2_000, 'task'))).toBe(2_000)
   })
 
   it('forgets a row that left the column', () => {

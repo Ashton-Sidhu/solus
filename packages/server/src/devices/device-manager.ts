@@ -17,8 +17,8 @@ import {
   type DeviceBooting,
   type DeviceAction,
   type DeviceDetail,
-  type DeviceInput,
   type DeviceBuild,
+  type DeviceRun,
   deviceBuildFits,
 } from '@solus/contracts/device-types'
 import { createLogger } from '../logger'
@@ -31,7 +31,6 @@ import { installBuild, type DeviceBuildStore, type StoredDeviceBuild } from './d
 import type { DeviceSettingsStore } from './device-settings-store'
 import type { DeviceToolName } from './device-toolchain'
 import { readDeviceDetail, runDeviceAction } from './device-actions'
-import type { DeviceStreams } from './device-streams'
 
 const log = createLogger('devices', 'device-manager.ts')
 
@@ -54,8 +53,9 @@ export interface DeviceManagerDeps {
   storeImage: (bytes: Buffer) => Promise<{ assetId: string }>
   /** App builds agents hand over. Absent in tests that do not install. */
   builds?: DeviceBuildStore
+  /** Build-and-run operations, for the snapshot. */
+  runs?: () => DeviceRun[]
   /** Live video and input links. Ended when their device goes away. */
-  streams?: DeviceStreams
   /** Agent CLI bindings that must stop working: access off, preview closed, host changed. */
   revokeAgentBindings?: (predicate: (binding: { sessionId: string; deviceHostId: string; deviceId: string }) => boolean) => void
   now?: () => number
@@ -128,10 +128,16 @@ export class DeviceManager {
       booting: this.booting.map((entry) => ({ ...entry })),
       controls: this.control.states(),
       builds: this.deps.builds?.list() ?? [],
+      runs: this.deps.runs?.() ?? [],
     }
   }
 
   private publishQueued = false
+
+  /** Something outside the manager changed what the snapshot shows (a run). */
+  changed(): void {
+    this.publish()
+  }
 
   /** Changes in one tick publish one snapshot. The revision counts changes. */
   private publish(): void {
@@ -354,7 +360,6 @@ export class DeviceManager {
         for (const { host } of this.hosts.values()) await host.stop().catch(() => {})
         this.agentEndpoints.clear()
         this.deps.revokeAgentBindings?.(() => true)
-        this.deps.streams?.end(() => true, 'Device support was turned off.')
         this.control.forget(() => true)
         this.devices = []
         this.previews = []
@@ -422,7 +427,6 @@ export class DeviceManager {
     this.booting = this.booting.filter((entry) => entry.deviceHostId !== deviceHostId)
     this.agentEndpoints.delete(deviceHostId)
     this.deps.revokeAgentBindings?.((binding) => binding.deviceHostId === deviceHostId)
-    this.deps.streams?.end((target) => target.deviceHostId === deviceHostId, 'The device host was removed.')
     this.control.forget((target) => target.deviceHostId === deviceHostId)
   }
 
@@ -547,7 +551,6 @@ export class DeviceManager {
     const sameDevice = (item: { deviceHostId: string; deviceId: string }) => item.deviceHostId === target.deviceHostId && item.deviceId === target.deviceId
     this.devices = this.devices.map((device) => (sameDevice(device) ? { ...device, booted: false } : device))
     this.previews = this.previews.filter((preview) => !sameDevice(preview))
-    this.deps.streams?.end(sameDevice, 'The device was shut down.')
     this.deps.revokeAgentBindings?.(sameDevice)
     this.control.forget(sameDevice)
     this.publish()
@@ -568,14 +571,10 @@ export class DeviceManager {
   }
 
   /** Run one Tools action under the caller's control lease, then read the device back. */
-  async action(target: DeviceControlTarget, action: DeviceAction, controlGeneration: number, holder: DeviceControlHolder): Promise<DeviceDetail> {
-    const end = this.control.begin(target, controlGeneration, holder)
-    try {
-      const { ready, device } = await this.resolveDevice(target.deviceHostId, target.deviceId)
-      await runDeviceAction(ready, device.platform, device.deviceId, action)
-    } finally {
-      end()
-    }
+  async action(target: DeviceControlTarget, action: DeviceAction, holder: DeviceControlHolder): Promise<DeviceDetail> {
+    this.control.authorize(target, holder)
+    const { ready, device } = await this.resolveDevice(target.deviceHostId, target.deviceId)
+    await runDeviceAction(ready, device.platform, device.deviceId, action)
     return this.detail(target)
   }
 
@@ -588,23 +587,26 @@ export class DeviceManager {
     return build
   }
 
+  /** Delete a build's output from this host, and its entry. */
+  async deleteBuild(buildId: string): Promise<DeviceState> {
+    await this.requireBuilds().remove(buildId)
+    this.publish()
+    return this.state()
+  }
+
   /** Install a build under the caller's control lease, then open it. */
-  async installBuild(target: DeviceControlTarget, buildId: string, controlGeneration: number, holder: DeviceControlHolder, launch = true): Promise<{ build: DeviceBuild; device: DeviceSummary; launched: boolean }> {
+  async installBuild(target: DeviceControlTarget, buildId: string, holder: DeviceControlHolder, launch = true): Promise<{ build: DeviceBuild; device: DeviceSummary; launched: boolean }> {
     const builds = this.requireBuilds()
-    const end = this.control.begin(target, controlGeneration, holder)
-    try {
-      const build = builds.get(buildId)
-      const { ready, device } = await this.resolveDevice(target.deviceHostId, target.deviceId)
-      const fit = deviceBuildFits(build, device)
-      if (!fit.fits) throw new DeviceDomainError('action_unsupported', fit.reason)
-      const { launched } = await installBuild(ready.run, build, device, launch)
-      const updated = await builds.noteInstall(buildId, device)
-      log.info('device_build_installed', { buildId, deviceHostId: device.deviceHostId, deviceId: device.deviceId, physical: device.physical, launched })
-      this.publish()
-      return { build: updated, device: { ...device }, launched }
-    } finally {
-      end()
-    }
+    this.control.authorize(target, holder)
+    const build = builds.get(buildId)
+    const { ready, device } = await this.resolveDevice(target.deviceHostId, target.deviceId)
+    const fit = deviceBuildFits(build, device)
+    if (!fit.fits) throw new DeviceDomainError('action_unsupported', fit.reason)
+    const { launched } = await installBuild(ready.run, build, device, launch)
+    const updated = await builds.noteInstall(buildId, device)
+    log.info('device_build_installed', { buildId, deviceHostId: device.deviceHostId, deviceId: device.deviceId, physical: device.physical, launched })
+    this.publish()
+    return { build: updated, device: { ...device }, launched }
   }
 
   private requireBuilds(): DeviceBuildStore {
@@ -612,38 +614,9 @@ export class DeviceManager {
     return this.deps.builds
   }
 
-  /** Watch a device. The subscription belongs to one authenticated client. */
-  async subscribeFrames(clientId: string, target: DeviceControlTarget, format: 'h264' | 'jpeg'): Promise<void> {
-    const streams = this.requireStreams()
-    const { ready, device } = await this.resolveDevice(target.deviceHostId, target.deviceId)
-    streams.subscribe(clientId, { deviceHostId: device.deviceHostId, deviceId: device.deviceId, platform: device.platform, hubOrigin: ready.hubOrigin }, format)
-  }
-
-  unsubscribeFrames(clientId: string, target: DeviceControlTarget): void {
-    this.deps.streams?.unsubscribe(clientId, target)
-  }
-
-  /** Forward manual input under the caller's control lease. */
-  async input(clientId: string, holder: DeviceControlHolder, request: { deviceHostId: string; deviceId: string; controlGeneration: number; screenGeneration: number; inputs: DeviceInput[] }): Promise<void> {
-    const streams = this.requireStreams()
-    const target = { deviceHostId: request.deviceHostId, deviceId: request.deviceId }
-    const end = this.control.begin(target, request.controlGeneration, holder)
-    try {
-      const { ready, device } = await this.resolveDevice(target.deviceHostId, target.deviceId)
-      await streams.input(clientId, { ...target, platform: device.platform, hubOrigin: ready.hubOrigin }, request.inputs, request.screenGeneration)
-    } finally {
-      end()
-    }
-  }
-
-  private requireStreams(): DeviceStreams {
-    if (!this.deps.streams) throw new DeviceDomainError('request_failed', 'Device streaming is not available on this host.')
-    return this.deps.streams
-  }
-
   // ─── Control ───
 
-  async acquireControl(target: DeviceControlTarget, holder: DeviceControlHolder & { kind: 'user' }): Promise<DeviceControlResult> {
+  acquireControl(target: DeviceControlTarget, holder: DeviceControlHolder & { kind: 'user' }): DeviceControlResult {
     this.requireEnabled()
     this.entry(target.deviceHostId)
     return this.control.acquireForUser(target, holder)
@@ -651,23 +624,10 @@ export class DeviceManager {
 
   releaseControl(target: DeviceControlTarget, holder: DeviceControlHolder): void {
     this.control.release(target, holder)
-    if (holder.kind === 'user') void this.deps.streams?.get(target)?.cancelInput(holder.clientId)
-  }
-
-  /** A client disconnected: release any touch it holds. Its watches wait for expiry. */
-  async cancelInput(clientId: string): Promise<void> {
-    await this.deps.streams?.cancelInput(clientId)
-  }
-
-  /** A client expired: its watches, held input and control end. */
-  async dropClient(clientId: string): Promise<void> {
-    await this.deps.streams?.dropClient(clientId)
-    this.control.dropClient(clientId)
   }
 
   /** Remove everything a host restart or process exit would invalidate. */
   async dispose(): Promise<void> {
-    this.deps.streams?.closeAll()
     this.deps.revokeAgentBindings?.(() => true)
     for (const { host } of this.hosts.values()) await host.stop().catch(() => {})
   }

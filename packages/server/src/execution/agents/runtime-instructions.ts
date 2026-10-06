@@ -38,6 +38,12 @@ Prefer report=true and wait_seconds=0. End your turn while the worker runs; its 
 
 Use a new request_id for each request or review round, and reuse it only when retrying that same work. Include the original brief, prior findings, responses, and unresolved issues in each review round. Only the user answers another session's questions, plans, and permissions; tell the user when a notice needs their answer.`
 
+/** Solus binds a session to one checkout. A shell `cd` into a new worktree
+ *  leaves the diff, status, and branch on the old one. */
+const WORKTREE_INSTRUCTION = `## Worktrees
+
+Solus binds this session to its directory. When you want an isolated checkout, call move_to_worktree. Do not use \`git worktree add\` and \`cd\` for this: the diff, Git status, and branch that the user sees stay on the old checkout.`
+
 /** A chat has no project (docs/plans/projectless-chat.md). Its folder is a
  *  scratch folder the person never sees, so the agent must not lead them to it. */
 const CHAT_INSTRUCTIONS = `## Chat
@@ -57,7 +63,8 @@ function singleLine(value: string): string {
 }
 
 /** Each tool-group block goes only to a run that has the group's entry tool:
- *  `browser_status` for Browser, `link` for Tasks, `start_session` for Sessions. */
+ *  `browser_status` for Browser, `link` for Tasks, `start_session` for Sessions,
+ *  `move_to_worktree` for worktrees. */
 export function runtimeInstructions(runtime: AgentRuntime, tools: readonly AgentTool[]): string {
   const runtimeInfo = `<runtime_info>In case you are asked: you are running in Solus through the ${runtime.harness} harness as ${singleLine(runtime.model)} with ${singleLine(runtime.reasoningEffort)} reasoning effort. Do not mention this otherwise.
 
@@ -72,6 +79,7 @@ You can embed images and videos in your response with Markdown and absolute file
       has('send_session') && 'Use send_session to continue an existing session; each new request has its own exchange. Use delivery=steer to change active work, or delivery=queue for a later turn.',
       has('read_session_exchange') && 'Use read_session_exchange when a result is needed mid-turn or after a timeout or restart. Do not poll in a loop or start a watcher to wait for a worker report.',
     ].filter(Boolean).join('\n\n'),
+    has('move_to_worktree') && !isChat(runtime.workingDirectory) && WORKTREE_INSTRUCTION,
     has('browser_status') && SOLUS_BROWSER_TOOL_INSTRUCTIONS,
     has('link') && (has('list_session_pull_requests')
       ? `${PULL_REQUEST_LINKING_INSTRUCTIONS} ${PULL_REQUEST_CHECK_INSTRUCTION}`

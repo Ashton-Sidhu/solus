@@ -19,9 +19,11 @@
     autofocus?: boolean;
     /** A small connection action beside the composer. */
     compact?: boolean;
+    /** `/login`: a connected seat also offers a new sign-in over it. */
+    signInAgain?: boolean;
   }
 
-  let { serverId, provider, autofocus = false, compact = false }: Props = $props();
+  let { serverId, provider, autofocus = false, compact = false, signInAgain = false }: Props = $props();
 
   const label = $derived(seatLabel(provider));
   const cloud = $derived(usesCloudAgentSeats(serverId));
@@ -60,10 +62,10 @@
       onsubmit={(code) => seatsStore.submitCode(serverId, provider, code)}
       oncancel={() => void seatsStore.cancel(serverId, provider)}
     />
-  {:else if action !== "disconnect"}
+  {:else if action !== "disconnect" || signInAgain}
     <div class="flex flex-wrap items-center gap-2">
       <Button size="sm" variant={compact ? "ghost" : action === "switch" ? "outline" : "default"} class="pointer-coarse:min-h-11" disabled={busy} onclick={() => void seatsStore.connect(serverId, provider)}>
-        {busy ? "Starting…" : action === "switch" ? "Switch account" : action === "reconnect" ? `Reconnect ${label}` : `Connect ${label}`}
+        {busy ? "Starting…" : action === "disconnect" ? "Sign in again" : action === "switch" ? "Switch account" : action === "reconnect" ? `Reconnect ${label}` : `Connect ${label}`}
       </Button>
       <button
         type="button"

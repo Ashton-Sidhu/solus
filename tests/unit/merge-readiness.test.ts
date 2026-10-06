@@ -165,7 +165,7 @@ describe('merge readiness', () => {
       headline: 'Branch is out of date',
       note: 'Update this branch with release',
       blocked: true,
-      action: { kind: 'update-branch', label: 'Update branch with agent' },
+      action: { kind: 'update-branch', label: 'Update branch' },
     })
   })
 

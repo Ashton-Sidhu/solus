@@ -21,9 +21,7 @@ export function recoverExchanges(
       const exchange = ledger.exchanges.get(exchangeId)
       if (!exchange?.report || !ledger.restoredExchangeIds.has(exchangeId)) return []
       covered.add(exchangeId)
-      exchange.deliveryState = 'queued'
-      exchange.deliveryQueueId = queue.queueId
-      ledger.save(exchange)
+      ledger.update(exchange, (draft) => { draft.deliveryState = 'queued'; draft.deliveryQueueId = queue.queueId })
       return [{ exchangeId, targetAgentSessionId: exchange.targetAgentSessionId,
         continuationExchangeIds: exchange.parentExchangeIds,
         item: { type: 'report' as const, report: exchange.report } }]
@@ -35,9 +33,10 @@ export function recoverExchanges(
     if (!ledger.restoredExchangeIds.has(exchange.exchangeId) || !isOpenExchange(exchange)) continue
     const queued = queues.find((queue) => queue.exchangeIds.includes(exchange.exchangeId) && !queue.started)
     if (queued) {
-      exchange.state = exchange.state === 'waiting_for_children' ? 'waiting_for_children' : 'queued'
-      exchange.request = undefined
-      ledger.save(exchange)
+      ledger.update(exchange, (draft) => {
+        draft.state = draft.state === 'waiting_for_children' ? 'waiting_for_children' : 'queued'
+        draft.request = undefined
+      })
     } else if (exchange.state !== 'waiting_for_children' || !ledger.hasChildren(exchange.exchangeId)) {
       exchange.revising = false
       settle(exchange, 'interrupted', CHILD_INTERRUPTED_BY_RESTART)

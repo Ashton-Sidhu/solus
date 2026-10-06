@@ -136,23 +136,3 @@ describe('artifact linking across the session id boundary', () => {
     expect(linked).toBeNull()
   })
 })
-
-describe('what a task share reaches', () => {
-  test('one read answers for many tasks, and only for the tasks it names', async () => {
-    // WHY: a member's session and work lists ask what every task they own
-    // reaches. That question is batched, so a wrong IN list would either leak
-    // another task's sessions or drop the member's own.
-    const { taskShareContents } = await import('@solus/server/data/tasks/task-sharing')
-    const first = await tasks.Task.byId('local', (await taskStore.createTask('local', { title: 'First' })).id)
-    const second = await tasks.Task.byId('local', (await taskStore.createTask('local', { title: 'Second' })).id)
-    const other = await tasks.Task.byId('local', (await taskStore.createTask('local', { title: 'Other' })).id)
-    await first.linkSession('session-first')
-    await second.linkSession('session-second')
-    await other.linkSession('session-other')
-
-    const reached = await taskShareContents('local', [first.id, second.id])
-
-    expect(reached.map((item) => `${item.kind}:${item.id}`).sort()).toEqual(['session:session-first', 'session:session-second'])
-    expect(await taskShareContents('local', [])).toEqual([])
-  })
-})

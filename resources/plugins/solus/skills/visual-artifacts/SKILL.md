@@ -108,15 +108,17 @@ Follow the user's direction, then the target product's real design system, then 
 
 For Solus-native visuals, keep the outer body transparent, use clear spacing and thin borders, and avoid a generic marketing-page shell, gradients, glow, and heavy shadows. Product mockups can reproduce their actual surface treatment.
 
-Use the injected palette:
-- Text: `--solus-text-primary`, `--solus-text-secondary`, `--solus-text-tertiary`.
-- Actions and single-series data: `--solus-accent`, `--solus-accent-soft`, `--solus-accent-light`, `--solus-accent-border`.
-- Structure: `--solus-art-surface`, `--solus-art-raised`, `--solus-art-border`, `--solus-art-border-strong`.
-- Categories: `--solus-art-1` through `--solus-art-6` in order. Semantic status: `--solus-art-positive` and `--solus-art-negative`.
+Use the injected theme tokens. They follow the user's light or dark mode live:
+- Page and text: `--background` (the conversation around the frame), `--foreground`, `--muted-foreground`.
+- Panels and lines: `--card`, `--muted`, `--secondary`, `--popover`, each with a `-foreground`; `--border`, `--input`, `--ring`.
+- Actions and single-series data: `--primary` and `--primary-foreground` for solid buttons; `--accent` and `--accent-foreground` for the brand accent; `--accent-surface` for a quiet selected or hover fill.
+- Status: `--destructive`, `--warning`, `--success`, `--info`, each with a `-foreground` for text; `--destructive-surface` and `--warning-surface` for tinted backgrounds.
+- Categories: `--chart-1` through `--chart-6` in order. Code: `--code-background`, `--code-foreground`.
+- Shape and type: `--radius`, `--font-sans`, `--font-mono`.
 
-Use `--solus-font-family` with a system fallback. Use readable sentence-case labels and regular/medium weights for native views; no text below 11px. Use inline SVG for icons and accessible names for icon-only buttons. Do not override host theme variables or force light mode. The starter provides standalone fallback colors.
+The base stylesheet sets the html background, color, and a 14px font from these, body margin to 0, and monospace for code. Use `--font-sans` with a system fallback. Use readable sentence-case labels and regular/medium weights for native views; no text below 11px. Use inline SVG for icons and accessible names for icon-only buttons. Do not override host theme variables or force light mode. The starter provides standalone fallback colors.
 
-Use flexible layouts, wrapping controls, and `min-width: 0`, not `screen.width`. Provide labels, visible keyboard focus, keyboard alternatives for dragging, and chart summaries or tables. Pair color with labels or shapes. Include the instructions, units, and assumptions needed to understand a saved visual.
+The frame is the page: it is as wide as the conversation, the side pane, or the share view. Lay out to the full container width. Do not put the root in a fixed or maximum-width column. Limit only the line length of prose (for example `max-width: 70ch` on a paragraph). Use flexible layouts, wrapping controls, and `min-width: 0`, not `screen.width`. Provide labels, visible keyboard focus, keyboard alternatives for dragging, and chart summaries or tables. Pair color with labels or shapes. Include the instructions, units, and assumptions needed to understand a saved visual.
 
 Use finite transitions only when they clarify change; respect reduced motion. No continuous decorative animation or repeated entrance effects on input changes.
 

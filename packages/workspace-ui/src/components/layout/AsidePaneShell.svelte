@@ -60,9 +60,10 @@
   let paneWidth = $state(0);
   // A conversation can end up in the leading pane — "Ask Solus" beside a review
   // already showing in the companion puts it there, and so does moving a pane
-  // across. This shell is then the leftmost surface, not one docked beside
-  // another: it draws no seam of its own, and its row has to clear the frame's
-  // own controls the way every other leading chrome row does.
+  // across. This shell is then the leftmost surface, and its row has to clear
+  // the frame's own controls the way every other leading chrome row does.
+  // Beside the leading pane it sits under the companion strip, which draws the
+  // seam and closes the tab, so the row offers no close of its own.
   const isLeading = $derived(paneId === session.router.leadingPane.id);
 
   function toggleRail() {
@@ -72,9 +73,7 @@
 </script>
 
 <div
-  class="flex h-full min-h-0 min-w-0 bg-(--solus-container-bg) {isLeading
- ? ''
- : 'border-l border-(--solus-container-border)'}"
+  class="flex h-full min-h-0 min-w-0 bg-(--solus-container-bg)"
   onfocusin={() => session.router.focusPane(paneId)}
   bind:clientWidth={paneWidth}
 >
@@ -94,7 +93,7 @@
         projectPanelOpen={settings.splitProjectPanelOpen}
         onProjectPanelToggle={toggleRail}
         {onOpenAsPage}
-        {onClose}
+        onClose={isLeading ? onClose : undefined}
         {closeLabel}
       />
     </div>

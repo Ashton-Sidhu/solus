@@ -1,14 +1,28 @@
-import { NavigationContainer, DarkTheme, DefaultTheme, createNavigationContainerRef, type InitialState } from '@react-navigation/native'
-import { createNativeStackNavigator } from '@react-navigation/native-stack'
-import { usePalette, useIsDark } from '../theme/theme'
+import {
+  NavigationContainer,
+  createNavigationContainerRef,
+  type InitialState,
+  type NavigationState,
+} from '@react-navigation/native'
+import { createNativeStackNavigator, type NativeStackNavigationOptions } from '@react-navigation/native-stack'
+import { Platform, useWindowDimensions } from 'react-native'
+import { useUniwindTheme } from '../lib/useUniwindTheme'
+import { getCompactBrandHeaderOptions } from '../components/CompactBrandTitle'
+import { deriveLayout } from '../lib/layout'
+import { useMobileNavigationTheme } from '../lib/useMobileNavigationTheme'
+import { NATIVE_LIQUID_GLASS_SUPPORTED } from '../native/native-glass'
+import { nativeHeaderScrollEdgeEffects } from '../native/StackHeader'
+import { FORM_SHEET_PRESENTATION_OPTIONS } from '../native/sheet-surface'
 import { CloudHostsScreen } from '../features/account/CloudHostsScreen'
 import { CloudSignInScreen } from '../features/account/CloudSignInScreen'
-import { ConversationScreen } from '../features/conversation/ConversationScreen'
+import { HomeRouteScreen } from '../features/home/HomeRouteScreen'
+import { ThreadRouteScreen } from '../features/threads/ThreadRouteScreen'
+import { ThreadAgentsSheet } from '../features/threads/ThreadAgents'
+import { NewTaskRouteScreen } from '../features/threads/NewTaskRouteScreen'
 import { HostsScreen } from '../features/hosts/HostsScreen'
 import { PairHostScreen } from '../features/hosts/PairHostScreen'
+import { AdaptiveWorkspaceLayout, type WorkspaceLocation } from '../features/layout/AdaptiveWorkspaceLayout'
 import { WelcomeScreen } from '../features/onboarding/WelcomeScreen'
-import { ProjectsScreen } from '../features/sessions/ProjectsScreen'
-import { WorkspaceScreen } from '../features/sessions/WorkspaceScreen'
 import { OpenProjectScreen } from '../features/projects/OpenProjectScreen'
 import { NewProjectScreen } from '../features/projects/NewProjectScreen'
 import { OpenFolderScreen } from '../features/projects/OpenFolderScreen'
@@ -16,6 +30,7 @@ import { ProjectFromGithubScreen } from '../features/projects/ProjectFromGithubS
 import { CloneProjectScreen } from '../features/projects/CloneProjectScreen'
 import { NotificationsScreen } from '../features/notifications/NotificationsScreen'
 import { BuildsScreen } from '../features/devices/BuildsScreen'
+import { BuildFolderScreen } from '../features/devices/BuildFolderScreen'
 import { SettingsScreen } from '../features/settings/SettingsScreen'
 import { AppearanceScreen } from '../features/settings/AppearanceScreen'
 import { PersonalSettingsScreen } from '../features/settings/PersonalSettingsScreen'
@@ -32,40 +47,160 @@ import { FileScreen } from '../features/files/FileScreen'
 import { useKeyboardCommand } from '../features/keyboard/use-keyboard-command'
 import type { RootStackParamList } from './routes'
 
+// Header presets adapted from T3 Code apps/mobile/src/Stack.tsx (MIT, see UPSTREAM.md).
+const HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version)
+
+type AppScreenOptions = NativeStackNavigationOptions & {
+  /** T3's patched react-native-screens option (patches/react-native-screens@4.28.0.patch). */
+  readonly unstable_navigationItemStyle?: 'editor'
+}
+
+// Shared header presets. Screens only override genuinely dynamic values (titles,
+// subtitles, toolbar items, search callbacks) via NativeStackScreenOptions.
+//
+// GLASS: transparent header over the screen's primary scroll view on supported
+// iOS versions. Pre-glass iOS gets the same solid material as internal-scroll
+// surfaces so content is laid out below the bar instead of underlapping it.
+export const GLASS_HEADER_OPTIONS: AppScreenOptions = {
+  headerBackButtonDisplayMode: 'minimal',
+  headerBackTitle: '',
+  headerLargeTitle: false,
+  headerShadowVisible: false,
+  headerShown: true,
+  headerStyle: NATIVE_LIQUID_GLASS_SUPPORTED ? { backgroundColor: 'transparent' } : undefined,
+  headerTitleStyle: { fontSize: 18, fontWeight: '800' },
+  headerTransparent: NATIVE_LIQUID_GLASS_SUPPORTED,
+  scrollEdgeEffects: NATIVE_LIQUID_GLASS_SUPPORTED ? HEADER_SCROLL_EDGE_EFFECTS : undefined,
+  unstable_navigationItemStyle: NATIVE_LIQUID_GLASS_SUPPORTED ? 'editor' : undefined,
+}
+
+// SOLID: opaque sheet-colored header for surfaces whose content scrolls internally
+// (file viewer, terminal, review) — there is nothing for glass to sample there.
+export const SOLID_HEADER_OPTIONS: AppScreenOptions = {
+  headerBackButtonDisplayMode: 'minimal',
+  headerBackTitle: '',
+  headerLargeTitle: false,
+  headerShadowVisible: false,
+  headerShown: true,
+  headerTitleStyle: { fontSize: 18, fontWeight: '800' },
+  headerTransparent: false,
+  unstable_navigationItemStyle: Platform.OS === 'ios' ? 'editor' : undefined,
+}
+
+// Solid header variant for screens inside sheets (centered title, no editor style).
+export const SHEET_SOLID_HEADER_OPTIONS: AppScreenOptions = {
+  ...SOLID_HEADER_OPTIONS,
+  unstable_navigationItemStyle: undefined,
+}
+
+// A native glass header for a sheet screen whose primary child is a scroll
+// view. The centered sheet title stays stable while UIKit supplies scroll-edge
+// fading from that child.
+export const SHEET_GLASS_HEADER_OPTIONS: AppScreenOptions = {
+  ...GLASS_HEADER_OPTIONS,
+  unstable_navigationItemStyle: undefined,
+}
+
+/** Settings and the new-task flow, which T3 presents as sheets. */
+const SHEET_ROUTES = new Set<keyof RootStackParamList>(['Settings', 'NewTask'])
+
+// Routes presented as sheets/overlays ON TOP of the workspace. They must not
+// influence the adaptive workspace layout: opening Settings over Home should
+// not flip the sidebar in or change the active thread. Settings pages pushed
+// from the Settings sheet stay in it.
+const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
+  'NewTask',
+  'Settings',
+  'PersonalSettings',
+  'AppearanceSettings',
+  'AgentDefaults',
+  'NotificationSettings',
+  'OrganizationSettings',
+  'HostSettings',
+  'GitHubConnection',
+  'About',
+])
+
+/** The topmost non-overlay route, with its key so thread selection can
+ *  dismiss sheets without replacing the wrong destination. */
+function workspaceLocationFromState(state: NavigationState<RootStackParamList>): WorkspaceLocation {
+  const routes = state.routes.filter((route) => !WORKSPACE_OVERLAY_ROUTES.has(route.name))
+  const route = routes.length > 0 ? routes[routes.length - 1] : state.routes[state.index]
+  return {
+    routeName: route?.name,
+    routeKey: route?.key,
+    // SAFETY: a route named 'Thread' is only pushed with `RootStackParamList['Thread']` params.
+    thread: route?.name === 'Thread' ? (route.params as RootStackParamList['Thread']) : null,
+  }
+}
+
 const Stack = createNativeStackNavigator<RootStackParamList>()
 const navigation = createNavigationContainerRef<RootStackParamList>()
 
 export function RootNavigator({ initialState }: { initialState: InitialState }) {
-  const palette = usePalette()
-  const isDark = useIsDark()
+  const themeVariables = useUniwindTheme()
+  const navigationTheme = useMobileNavigationTheme()
+  const { width, height } = useWindowDimensions()
+  // Follow the workspace viewport as it resizes; compact iOS keeps sheets.
+  const usesWorkspaceFlowScreens = Platform.OS === 'android' || deriveLayout({ width, height }).usesSplitView
   useKeyboardCommand('back', () => {
     if (!navigation.isReady() || !navigation.canGoBack()) return false
     navigation.goBack()
   })
-  const base = isDark ? DarkTheme : DefaultTheme
-  const theme = {
-    ...base,
-    colors: { ...base.colors, primary: palette.accent, background: palette.canvas, card: palette.surface, text: palette.text, border: palette.border },
-  }
   return (
-    <NavigationContainer ref={navigation} theme={theme} initialState={initialState}>
-      <Stack.Navigator screenOptions={{ headerTintColor: palette.accent, headerTitleStyle: { color: palette.text }, contentStyle: { backgroundColor: palette.canvas } }}>
+    <NavigationContainer ref={navigation} theme={navigationTheme} initialState={initialState}>
+      <Stack.Navigator
+        layout={({ children, state }) => (
+          <AdaptiveWorkspaceLayout location={workspaceLocationFromState(state)}>{children}</AdaptiveWorkspaceLayout>
+        )}
+        screenOptions={({ route }) => {
+          // As T3 Code's stack: no header tint, so titles take the theme's
+          // header foreground and buttons draw their own symbols.
+          const base: NativeStackNavigationOptions = {
+            contentStyle: { backgroundColor: themeVariables['--color-screen'] },
+          }
+          if (!SHEET_ROUTES.has(route.name)) return base
+          return usesWorkspaceFlowScreens
+            ? { ...base, presentation: 'card' }
+            : { ...base, ...FORM_SHEET_PRESENTATION_OPTIONS, sheetAllowedDetents: [0.92], sheetGrabberVisible: true }
+        }}
+      >
+        <Stack.Screen
+          name="Home"
+          component={HomeRouteScreen}
+          options={{
+            ...GLASS_HEADER_OPTIONS,
+            contentStyle: { backgroundColor: 'transparent' },
+            headerBackVisible: false,
+            ...getCompactBrandHeaderOptions(),
+          }}
+        />
+        <Stack.Screen name="Thread" component={ThreadRouteScreen} options={GLASS_HEADER_OPTIONS} />
+        <Stack.Screen
+          name="ThreadAgents"
+          component={ThreadAgentsSheet}
+          // T3 Code's Agents sheet (Stack.tsx): half height, drawn up to 0.9.
+          options={{ ...FORM_SHEET_PRESENTATION_OPTIONS, headerShown: false, sheetAllowedDetents: [0.5, 0.9], sheetGrabberVisible: true }}
+        />
+        <Stack.Screen
+          name="NewTask"
+          component={NewTaskRouteScreen}
+          options={{ ...SHEET_GLASS_HEADER_OPTIONS, title: 'Choose project', gestureEnabled: true }}
+        />
         <Stack.Screen name="Welcome" component={WelcomeScreen} options={{ headerShown: false }} />
         <Stack.Screen name="PairHost" component={PairHostScreen} options={{ title: 'Connect to a host' }} />
         <Stack.Screen name="CloudSignIn" component={CloudSignInScreen} options={{ title: 'Solus Cloud' }} />
         <Stack.Screen name="CloudHosts" component={CloudHostsScreen} options={{ title: 'Your hosts' }} />
         <Stack.Screen name="Hosts" component={HostsScreen} options={{ title: 'Hosts', headerLargeTitle: true }} />
-        <Stack.Screen name="Projects" component={ProjectsScreen} options={{ title: 'Projects' }} />
         <Stack.Screen name="OpenProject" component={OpenProjectScreen} options={{ title: 'Open project' }} />
         <Stack.Screen name="NewProject" component={NewProjectScreen} options={{ title: 'Start a new project' }} />
         <Stack.Screen name="OpenFolder" component={OpenFolderScreen} options={{ title: 'Open an existing folder' }} />
         <Stack.Screen name="ProjectFromGithub" component={ProjectFromGithubScreen} options={{ title: 'Get a project from GitHub' }} />
         <Stack.Screen name="CloneProject" component={CloneProjectScreen} options={{ title: 'Clone from a URL' }} />
-        <Stack.Screen name="Workspace" component={WorkspaceScreen} options={{ title: 'Sessions' }} />
-        <Stack.Screen name="Conversation" component={ConversationScreen} options={{ title: 'Session' }} />
         <Stack.Screen name="Builds" component={BuildsScreen} options={{ title: 'App builds' }} />
+        <Stack.Screen name="BuildFolder" component={BuildFolderScreen} options={{ title: 'Add a build' }} />
         <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications', headerLargeTitle: true }} />
-        <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
+        <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings', gestureEnabled: true }} />
         <Stack.Screen name="PersonalSettings" component={PersonalSettingsScreen} options={{ title: 'Personal' }} />
         <Stack.Screen name="AppearanceSettings" component={AppearanceScreen} options={{ title: 'Appearance' }} />
         <Stack.Screen name="OrganizationSettings" component={OrganizationSettingsScreen} options={{ title: 'Organization' }} />

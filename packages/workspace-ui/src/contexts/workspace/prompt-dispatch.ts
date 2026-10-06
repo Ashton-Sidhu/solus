@@ -14,8 +14,7 @@ import { ownedTaskId, taskRoleOf } from './session-draft.svelte'
 import { isDispatch } from './run-config'
 import { nextMsgId } from './session.utils'
 import { uuid } from '@solus/contracts/uuid'
-import { isSessionBusyStatus, isSteerableStatus, worktreeProjectRoot, WORKING_TREE_BUSY_CODE } from '@solus/contracts/types'
-import { busyTreeQuestion } from '../git/busy-tree.store.svelte'
+import { isSessionBusyStatus, isSteerableStatus, worktreeProjectRoot } from '@solus/contracts/types'
 import { requestConversationScrollToBottom } from './session-plan-operations'
 import { chatFolderIn, isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { connectionsStore } from '../connections/connections.store.svelte'
@@ -203,13 +202,6 @@ export class PromptDispatch {
         const session = this.workspace.sessionFor(tabId)
         if (!session) return
         return api.prompt(this.workspace.ctxFor(tabId), resolved)
-          .catch(async (err: Error) => {
-            // A new session in a working tree where another session runs: the
-            // host started nothing and the person decides (plan 004 item 7).
-            if (rpcErrorCode(err) !== WORKING_TREE_BUSY_CODE || !(await busyTreeQuestion.ask(err.message))) throw err
-            if (!this.workspace.sessionFor(tabId)) return
-            return api.prompt(this.workspace.ctxFor(tabId), { ...resolved, allowBusyWorkingTree: true })
-          })
           .then(() => {
             // The host accepted the prompt: its durable copy has done its job.
             if (options.clientPromptId) sendOutbox.remove(outboxServerId, options.clientPromptId)
@@ -247,10 +239,8 @@ export class PromptDispatch {
           }
           // The organization model refused the turn (organization-vms §4): nothing ran,
           // so the draft goes back to the composer for the retry once the cause is fixed.
-          // A cancelled start in a busy working tree ran nothing either.
-          const code = rpcErrorCode(err)
-          const refusal = turnRefusalSchema.safeParse(code)
-          if ((refusal.success || code === WORKING_TREE_BUSY_CODE) && !session.prompt.text) {
+          const refusal = turnRefusalSchema.safeParse(rpcErrorCode(err))
+          if (refusal.success && !session.prompt.text) {
             session.prompt.text = options.displayPrompt || options.prompt
           }
           // The card says which organization the turn needs and what to do; only this client sees it.
@@ -618,7 +608,7 @@ export class PromptDispatch {
       hostLabel = connection.target.label
       isLocalHost = connection.target.local
       session.statusCard = buildRemoteDispatchCard({ tabId, hostLabel, phase: 'connecting' })
-      const serverInfo = await connection.api.connectionsGetServerInfo()
+      const serverInfo = await serverConnections.serverInfoFor(pending.serverId)
       accountConnectionsUrl = serverInfo.accountConnectionsUrl ?? accountConnectionsUrl
       if (bailIfStale()) return
       // Only a dispatch has a repository to prepare. An opened project is

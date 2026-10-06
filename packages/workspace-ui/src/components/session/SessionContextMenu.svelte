@@ -36,6 +36,9 @@
     /** Session id to copy when the target has no resolvable session (e.g. a
      *  pinned session that isn't currently open as a tab). */
     sessionId?: string | null;
+    /** The host of `sessionId`. With it and no `tabId`, the menu finds the
+     *  session's open tab itself, for a surface that may not read the tabs. */
+    serverId?: string | null;
     /** The workspace variant surfaces split-pane actions; the sidebar can too. */
     showSplit?: boolean;
     /** Override for "Open in split" — pinned sessions resume before splitting. */
@@ -69,8 +72,9 @@
   let {
     x,
     y,
-    tabId = null,
+    tabId: givenTabId = null,
     sessionId = null,
+    serverId = null,
     showSplit = false,
     onOpenInSplit,
     onStartRename,
@@ -86,6 +90,10 @@
   const session = getWorkspaceContext();
   const sidebarStore = getSessionSidebarStore();
 
+  const tabId = $derived(
+    givenTabId ??
+      (sessionId && serverId ? (session.tabIdForAgentSession(sessionId, serverId) ?? null) : null),
+  );
   const sess = $derived(tabId ? session.sessionFor(tabId) : null);
   // A member who may only read a shared session gets the menu's reading
   // actions; stopping, renaming, linking, settling, and snoozing are an editor's.
@@ -99,7 +107,7 @@
   const canOpenInsights = $derived(
     !!insightsSessionId && (!!sess?.agentSessionId || !!sessionId),
   );
-  const splitTabId = $derived(session.splitChatTabId);
+  const splitTabId = $derived(session.chatSurfaceTabId);
   const isSplit = $derived(!!tabId && tabId === splitTabId);
   const canSplit = $derived(showSplit && (!!tabId || !!onOpenInSplit));
   const isContinuingWorktree = $derived(
@@ -181,7 +189,7 @@
     const openTargetInSplit = onOpenInSplit;
     onClose();
     if (openTargetInSplit) openTargetInSplit();
-    else if (targetTabId) session.openTabInSplit(targetTabId);
+    else if (targetTabId) session.openTabAsSurface(targetTabId);
   }
 
   function openInInsights() {
@@ -192,7 +200,7 @@
 
   function closeSplit() {
     onClose();
-    session.closeSplitChat();
+    session.closeChatSurface();
     requestInputFocus();
   }
 
@@ -217,7 +225,7 @@
     const task = linkedTask;
     onClose();
     if (!task) return;
-    session.goToTask(task.id, "click", session.hasCompanionPanes ? "secondary" : "leading");
+    session.goToTask(task.id, "click");
   }
 
   async function unlinkFromTask() {

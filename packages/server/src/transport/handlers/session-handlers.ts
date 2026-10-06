@@ -22,7 +22,6 @@ import { insightsAccountOf, type Actor } from '../../admission/actor'
 import { admitTurnOrganization, mayAnswerFor, type DelegationPort } from '../../execution/sessions/turn-organization'
 import type { HostOrganizations } from '../../host/organizations'
 import { isOrganizationSpace, type Principal } from '../../admission/principal'
-import { WorkingTreeBusyError } from '../../execution/sessions/working-tree-busy'
 import { RequestNotAnswerableError } from '../../execution/sessions/pending-input'
 import { chatFolderFor, projectsRootFor } from './setup-handlers'
 import { parseExecutionPreferences } from '../../execution/agents/run-input'
@@ -236,26 +235,6 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   }
 
   /**
-   * A new session that starts in a working tree where another session runs a
-   * turn is refused once, so the client can ask the person (plan 004 item 7).
-   * A session that makes its own new worktree, and a chat folder, share no tree.
-   */
-  function refuseBusyStart(ctx: IpcContext, handlerCtx: HandlerCtx): void {
-    if (ctx.session.agentSessionId) return
-    if (ctx.session.worktreeBaseBranch && !ctx.session.gitContext?.worktreePath) return
-    const tree = ctx.session.gitContext?.worktreePath || ctx.session.workingDirectory
-    if (isChat(tree)) return
-    const busy = sessionRuntime.busyWorkingTree(tree, {
-      sessionId: ctx.session.sessionId,
-      clientId: handlerCtx.clientId,
-      userId: handlerCtx.actor.user ? userKey(handlerCtx.actor.user.id) : null,
-    })
-    if (!busy) return
-    log.info('session_start_working_tree_busy', { sessionId: ctx.session.sessionId, runningSessionId: busy.sessionId })
-    throw new WorkingTreeBusyError(busy.authorName)
-  }
-
-  /**
    * New sessions a client watched before any request named their folder. They
    * start private; the first request that names the folder decides whether the
    * organization gets its grant. Lost on restart, so such a session stays private.
@@ -283,7 +262,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     const [input] = args
     // Asked before the watch, which makes any session known.
     const startsSession = !input?.agentSessionId && !(input?.sessionId && sessionRuntime.isKnownSession(input.sessionId))
-    const resolved = sessionRuntime.watchSession(input ?? {}, requireClientId(handlerCtx))
+    const resolved = sessionRuntime.watchers.watchSession(input ?? {}, requireClientId(handlerCtx))
     log.info('rpc_watch_session', { sessionId: resolved.sessionId, requested: input?.sessionId ?? null })
     // A guest or member can only watch a session that was shared with them, so a
     // claim here never gives them one; it records the owner of a brand-new session.
@@ -303,7 +282,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     const [sessionId] = args
     log.info('rpc_unwatch_session', { sessionId })
     sessionsAwaitingFolder.delete(sessionId)
-    sessionRuntime.unwatchSession(sessionId, requireClientId(handlerCtx))
+    sessionRuntime.watchers.unwatchSession(sessionId, requireClientId(handlerCtx))
   })
 
   server.register('createHeadlessSession', async (args, handlerCtx) => {
@@ -311,7 +290,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     log.info('rpc_create_headless_session', { provider: request.provider })
     if (request.cwd === NEW_CHAT_DIRECTORY) request.cwd = chatFolderFor(randomUUID(), handlerCtx.principal)
     request.executionPreferences = parseExecutionPreferences(request.executionPreferences)
-    const created = await sessionRuntime.createSession(request, handlerCtx.actor)
+    const created = await sessionRuntime.dispatch.createSession(request, handlerCtx.actor)
     await claimSession(created.agentSessionId, handlerCtx, request.cwd)
     return created
   })
@@ -324,7 +303,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     })
     resolveChat(ctx, handlerCtx.principal)
     await claimSession(ctx.session.sessionId, handlerCtx, ctx.session.workingDirectory)
-    return sessionRuntime.bindRuntimeSession(ctx, requireClientId(handlerCtx))
+    return sessionRuntime.watchers.bindRuntimeSession(ctx, requireClientId(handlerCtx))
   })
 
   server.register('resetSession', (args) => {
@@ -335,7 +314,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     // workingDirectory missed entirely for worktree sessions, so their first
     // open paid full scan.
     const warmPath =
-      sessionRuntime.getGitContext(ctx.session.sessionId)?.worktreePath ?? ctx.session.workingDirectory
+      sessionRuntime.sessionCheckouts.getGitContext(ctx.session.sessionId)?.worktreePath ?? ctx.session.workingDirectory
     if (warmPath && warmPath !== '~') warmFinder(warmPath)
     sessionRuntime.resetSession(ctx)
   })
@@ -343,7 +322,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   server.register('switchSessionAgent', (args, handlerCtx) => {
     const [sessionId, provider, agentSessionId] = args
     log.info('rpc_switch_session_agent', { sessionId, provider, agentSessionId: agentSessionId ?? null })
-    return sessionRuntime.switchSessionProvider(sessionId, provider, agentSessionId, handlerCtx.actor)
+    return sessionRuntime.handoffs.switchSessionProvider(sessionId, provider, agentSessionId, handlerCtx.actor)
   })
 
   server.register('acceptPlan', (args, handlerCtx) => {
@@ -358,7 +337,6 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     log.info('rpc_prompt', { sessionId })
     if (!sessionId) throw new Error('No sessionId provided — prompt rejected')
     resolveChat(ctx, handlerCtx.principal)
-    if (!options.allowBusyWorkingTree) refuseBusyStart(ctx, handlerCtx)
     await claimSession(sessionId, handlerCtx, ctx.session.workingDirectory)
     await admitTurn(ctx, handlerCtx.actor)
     // A recording sent to an agent is part of the transcript now, so the
@@ -368,7 +346,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     })
     try {
       // The turn runs on its author's provider seat (Step 2 plan §3.3).
-      return await sessionRuntime.submitPrompt(ctx, options, {
+      return await sessionRuntime.dispatch.submitPrompt(ctx, options, {
         clientId: handlerCtx.clientId,
         deviceId: handlerCtx.deviceId,
         actor: handlerCtx.actor,
@@ -386,7 +364,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     // step 7); a returning lease flushes whatever went stale in the dark.
     const hadLease = activityLeases.hasForegroundLease()
     activityLeases.report(handlerCtx.clientId ?? 'unknown-client', foreground === true)
-    if (!hadLease && foreground === true) sessionRuntime.flushDeferredGitRefreshes()
+    if (!hadLease && foreground === true) sessionRuntime.sessionCheckouts.flushDeferredGitRefreshes()
     return { ok: true }
   })
 
@@ -395,7 +373,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     log.info('rpc_retry', { sessionId: ctx.session.sessionId })
     resolveChat(ctx, handlerCtx.principal)
     await admitTurn(ctx, handlerCtx.actor)
-    return sessionRuntime.retry(ctx, options, handlerCtx.clientId, handlerCtx.actor)
+    return sessionRuntime.dispatch.retry(ctx, options, handlerCtx.clientId, handlerCtx.actor)
   })
 
   // A conversation answers its own requests, and the requests of a session it
@@ -407,7 +385,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     if (!deps.orchestrator.mayAnswer(ctx.session.sessionId, askingSessionId)) return false
     if (!await mayAnswer(askingSessionId, handlerCtx.principal)) return false
     // A caller may not answer: false. The host does not hold the request now: a typed refusal.
-    if (!sessionRuntime.respondToPermission(askingSessionId, questionId, optionId, updatedPlan, handlerCtx.actor)) throw new RequestNotAnswerableError()
+    if (!sessionRuntime.inputRequests.respondToPermission(askingSessionId, questionId, optionId, updatedPlan, handlerCtx.actor)) throw new RequestNotAnswerableError()
     return true
   })
 
@@ -416,51 +394,51 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     log.info('rpc_respond_question', { sessionId: ctx.session.sessionId, askingSessionId, questionId })
     if (!deps.orchestrator.mayAnswer(ctx.session.sessionId, askingSessionId)) return false
     if (!await mayAnswer(askingSessionId, handlerCtx.principal)) return false
-    if (!await sessionRuntime.respondToQuestion(askingSessionId, questionId, answers, handlerCtx.actor)) throw new RequestNotAnswerableError()
+    if (!await sessionRuntime.inputRequests.respondToQuestion(askingSessionId, questionId, answers, handlerCtx.actor)) throw new RequestNotAnswerableError()
     return true
   })
 
   server.register('rateLimitDecision', (args, handlerCtx) => {
     const [ctx, action] = args
     log.info('rpc_rate_limit_decision', { sessionId: ctx.session.sessionId, action })
-    return sessionRuntime.resolveRateLimit(ctx, action, handlerCtx.actor)
+    return sessionRuntime.rateLimitPark.resolveRateLimit(ctx, action, handlerCtx.actor)
   })
 
-  server.register('sessionQueue', ([ctx]) => sessionRuntime.sessionQueue(ctx))
+  server.register('sessionQueue', ([ctx]) => sessionRuntime.scheduler.sessionQueue(ctx))
   server.register('sessionQueueChange', async ([ctx, mutation], handlerCtx) => {
     await admitTurn(ctx, handlerCtx.actor)
-    return sessionRuntime.sessionQueueChange(ctx, mutation, handlerCtx.actor)
+    return sessionRuntime.scheduler.sessionQueueChange(ctx, mutation, handlerCtx.actor)
   })
 
   server.register('cancelQueuedPrompt', (args, handlerCtx) => {
     const [ctx, queueId] = args
     log.info('rpc_cancel_queued_prompt', { sessionId: ctx.session.sessionId, queueId })
-    return sessionRuntime.cancelQueuedPrompt(ctx, queueId, handlerCtx.actor)
+    return sessionRuntime.scheduler.cancelQueuedPrompt(ctx, queueId, handlerCtx.actor)
   })
 
   server.register('editQueuedPrompt', (args, handlerCtx) => {
     const [ctx, queueId, text] = args
     log.info('rpc_edit_queued_prompt', { sessionId: ctx.session.sessionId, queueId })
-    return sessionRuntime.editQueuedPrompt(ctx, queueId, text, handlerCtx.actor)
+    return sessionRuntime.scheduler.editQueuedPrompt(ctx, queueId, text, handlerCtx.actor)
   })
 
   server.register('getPluginCommands', (args) => {
     const [workingDirectory, ctx] = args
-    return sessionRuntime.listPluginCommands(agentIdFromContext(ctx), workingDirectory, ctx)
+    return sessionRuntime.history.listPluginCommands(agentIdFromContext(ctx), workingDirectory, ctx)
   })
 
   server.register('getThreadGoal', (args) => {
     const [threadId, ctx, provider] = args
-    return sessionRuntime.getThreadGoal(provider ?? agentIdFromContext(ctx), threadId)
+    return sessionRuntime.history.getThreadGoal(provider ?? agentIdFromContext(ctx), threadId)
   })
 
   server.register('setThreadGoal', (args) => {
     const [request, ctx, provider] = args
-    return sessionRuntime.setThreadGoal(provider ?? agentIdFromContext(ctx), request)
+    return sessionRuntime.history.setThreadGoal(provider ?? agentIdFromContext(ctx), request)
   })
 
   server.register('clearThreadGoal', (args) => {
     const [threadId, ctx, provider] = args
-    return sessionRuntime.clearThreadGoal(provider ?? agentIdFromContext(ctx), threadId)
+    return sessionRuntime.history.clearThreadGoal(provider ?? agentIdFromContext(ctx), threadId)
   })
 }

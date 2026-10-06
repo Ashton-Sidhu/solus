@@ -80,6 +80,7 @@ export class NativeNotificationHub {
   private client: NotificationHubClient | null = null
   private view: NotificationView = 'all'
   private cached: NotificationHubSnapshot | null = null
+  private historyReaders = 0
 
   constructor(private readonly deps: NativeNotificationHubDeps) {}
 
@@ -112,6 +113,18 @@ export class NativeNotificationHub {
 
   loadMore(): Promise<void> {
     return this.client?.loadMore() ?? Promise.resolve()
+  }
+
+  /** Native navigation focus owns history; badges keep only the count live. */
+  showHistory(): () => void {
+    this.historyReaders++
+    this.client?.setHistoryVisible(true)
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      if (--this.historyReaders === 0) this.client?.setHistoryVisible(false)
+    }
   }
 
   setView(view: NotificationView): void {
@@ -159,6 +172,7 @@ export class NativeNotificationHub {
       pending: this.pending,
     })
     this.client.setFilter({ view: this.view })
+    this.client.setHistoryVisible(this.historyReaders > 0)
     this.client.setSources(this.hostSources())
   }
 
@@ -173,7 +187,8 @@ export class NativeNotificationHub {
    */
   private link(hostId: string): NotificationSourceLink {
     const changed: (() => void)[] = []
-    const reconnected: (() => void)[] = []
+    const reconnected: ((initialConnection?: boolean) => void)[] = []
+    let hasConnected = this.deps.connections.state(hostId)?.phase === 'connected'
     let attachedTo: HostConnection | null = null
     let detach: (() => void)[] = []
     const attach = (): HostConnection | null => {
@@ -182,7 +197,11 @@ export class NativeNotificationHub {
         for (const stop of detach) stop()
         detach = [
           ...changed.map((listener) => found.events.subscribe('notifications.changed', () => listener())),
-          ...reconnected.map((listener) => found.onAccepted(listener)),
+          found.onAccepted(() => {
+            const initialConnection = !hasConnected
+            hasConnected = true
+            for (const listener of reconnected) listener(initialConnection)
+          }),
         ]
         attachedTo = found
       }
@@ -208,7 +227,12 @@ export class NativeNotificationHub {
         notificationsSetArchived: (request) => connection().api.notificationsSetArchived(request),
       },
       onChanged: (listener) => listen(changed, listener),
-      onReconnected: (listener) => listen(reconnected, listener),
+      onReconnected: (listener) => {
+        reconnected.push(listener)
+        attachedTo = null
+        attach()
+        return () => { reconnected.splice(reconnected.indexOf(listener), 1) }
+      },
       // The app owns the connection; the hub only stops listening.
       release: () => { for (const stop of detach) stop() },
     }

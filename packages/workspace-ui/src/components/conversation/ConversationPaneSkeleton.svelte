@@ -1,13 +1,19 @@
 <script lang="ts">
   import { Skeleton } from "../ui/skeleton";
   import ConversationSkeleton from "./ConversationSkeleton.svelte";
+  import { underStrip } from "../ui/lib/pane-strip";
+
+  // The companion strip draws the seam for the pane it heads.
+  const isUnderStrip = underStrip();
 </script>
 
 <!-- Holds the split chat's frame — chrome row, transcript, composer — while
      ConversationPane is still being fetched, so the pane opens at its final
      geometry instead of resettling once the module lands. -->
 <div
-  class="flex h-full min-h-0 min-w-0 flex-col border-l border-(--solus-container-border) bg-(--solus-container-bg)"
+  class="flex h-full min-h-0 min-w-0 flex-col bg-(--solus-container-bg) {isUnderStrip()
+    ? ''
+    : 'border-l border-(--solus-container-border)'}"
   role="status"
   aria-label="Loading conversation"
 >

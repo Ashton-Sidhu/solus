@@ -221,7 +221,7 @@ describe.serial('SessionRuntime observability hooks', () => {
         },
       }
       const started = new Promise<void>((resolve) => { backend.onStart = resolve })
-      const retry = plane.retry(context, { prompt: 'Inspect the attachment.' }, 'second-client', HOST_ACTOR)
+      const retry = plane.dispatch.retry(context, { prompt: 'Inspect the attachment.' }, 'second-client', HOST_ACTOR)
       await started
       await Promise.resolve()
       expect(backend.requests.at(-1)).toMatchObject({ cwd: repository, prompt: fullPrompt, imageAttachments })
@@ -251,10 +251,10 @@ describe.serial('SessionRuntime observability hooks', () => {
       await lifecycle.agentSessionId
       const questions = [{ id: 'branch', question: 'Which branch?', options: [{ label: 'main' }], multiSelect: false }]
       backend.send('thread-1', { type: 'question_request', questionId: 'q1', questions })
-      expect(plane.respondToQuestion('solus-question-receipt', 'q1', { branch: 'main' }, HOST_ACTOR)).toBe(false)
+      expect(plane.inputRequests.respondToQuestion('solus-question-receipt', 'q1', { branch: 'main' }, HOST_ACTOR)).toBe(false)
       expect(receipts).toHaveLength(0)
       accepted = true
-      expect(plane.respondToQuestion('solus-question-receipt', 'q1', { branch: 'main' }, HOST_ACTOR)).toBe(true)
+      expect(plane.inputRequests.respondToQuestion('solus-question-receipt', 'q1', { branch: 'main' }, HOST_ACTOR)).toBe(true)
       expect(receipts).toHaveLength(1)
       expect(receipts[0].event).toMatchObject({ type: 'question_answered', answer: { questionId: 'q1', questions, answers: { branch: 'main' } } })
       expect(receipts[0].to).toBeUndefined()

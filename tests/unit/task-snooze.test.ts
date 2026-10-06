@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import {
+  customSnoozeUntil,
+  snoozePickerValue,
   taskSnoozeAnchorTarget,
   taskSnoozeToastLabel,
   taskSnoozeUntil,
@@ -83,5 +85,23 @@ describe("taskSnoozeToastLabel", () => {
   test("claims nothing about work that is not running", () => {
     expect(taskSnoozeToastLabel({ count: 1, hasNote: true, keepsRunning: false }))
       .toBe("Task snoozed with a reminder");
+  });
+});
+
+describe("custom snooze time", () => {
+  test("the picker value round-trips to the same local wake time", () => {
+    // WHY: the custom time is read in local time. A UTC slip would wake the
+    // task hours early or late.
+    const at = new Date(2026, 9, 6, 14, 30).getTime();
+    expect(snoozePickerValue(at)).toBe("2026-10-06T14:30");
+    expect(customSnoozeUntil("2026-10-06T14:30", at - 60_000)).toBe(at);
+  });
+
+  test("a time that is not ahead, or not a time, cannot be chosen", () => {
+    // WHY: a snooze into the past would wake at once and look like it failed.
+    const now = new Date(2026, 9, 6, 14, 30).getTime();
+    expect(customSnoozeUntil("2026-10-06T14:30", now)).toBeNull();
+    expect(customSnoozeUntil("2026-10-06T09:00", now)).toBeNull();
+    expect(customSnoozeUntil("2026-10-06T", now)).toBeNull();
   });
 });

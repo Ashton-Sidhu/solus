@@ -240,40 +240,43 @@ test.skipIf(process.env.SOLUS_DB === 'postgres')('a member uploads a Local work 
 })
 
 test.skipIf(process.env.SOLUS_DB === 'postgres')('a source change during the push, even history alone, keeps the local copy', async () => {
-  const { exportWorkForCloud, loadWork, removePushedWork } = await import('@solus/server/data/works/works')
+  const { exportWorkForCloud, loadWork, markWorkMoved } = await import('@solus/server/data/works/works')
   const { Work } = await import('@solus/server/data/works/work')
   const { applyWorkComment } = await import('@solus/server/data/works/work-annotations')
   const work = await workWithHistory('push-work')
 
   const beforeCheckpoint = await exportWorkForCloud('local', 'push-work')
   await work.checkpoint({ reason: 'review', expectedContentVersion: work.contentVersion })
-  await expect(removePushedWork('local', 'push-work', beforeCheckpoint.fingerprint, 'org-1')).rejects.toThrow('local copy was kept')
+  await expect(markWorkMoved('local', 'push-work', beforeCheckpoint.fingerprint, 'org-1')).rejects.toThrow('local copy was kept')
 
   const beforeComment = await exportWorkForCloud('local', 'push-work')
   await applyWorkComment('local', 'push-work', { kind: 'add', comment: { id: 'comment2', selectedText: 'first', comment: 'Another' } }, { by: { kind: 'system' }, canModerate: true, now: 200 })
-  await expect(removePushedWork('local', 'push-work', beforeComment.fingerprint, 'org-1')).rejects.toThrow('local copy was kept')
+  await expect(markWorkMoved('local', 'push-work', beforeComment.fingerprint, 'org-1')).rejects.toThrow('local copy was kept')
 
   const beforeEdit = await exportWorkForCloud('local', 'push-work')
   await edit(Work, 'local', 'push-work', { content: 'new edit', author: BOB, reason: 'edit' })
-  await expect(removePushedWork('local', 'push-work', beforeEdit.fingerprint, 'org-1')).rejects.toThrow('local copy was kept')
+  await expect(markWorkMoved('local', 'push-work', beforeEdit.fingerprint, 'org-1')).rejects.toThrow('local copy was kept')
   expect((await loadWork('local', 'push-work'))?.content).toBe('new edit')
 
-  // An unchanged work is removed once the service holds it.
-  await removePushedWork('local', 'push-work', (await exportWorkForCloud('local', 'push-work')).fingerprint, 'org-1')
+  // An unchanged work points at the organization once the service holds it.
+  await markWorkMoved('local', 'push-work', (await exportWorkForCloud('local', 'push-work')).fingerprint, 'org-1')
   expect(await loadWork('local', 'push-work')).toBeNull()
 })
 
-test('a shared work keeps only its location, so a reference to its id here learns where it went', async () => {
+test('a shared work points at its organization and keeps its content, so a reference to its id here learns where it went', async () => {
   // WHY: transcripts, task links, and embeds name a work by id, and some of them
-  // cannot change after Share. The row stays with the organization that has the
+  // cannot change after Share. The row points at the organization that has the
   // work now (cloud-sharing.md §3a), so the host answers "moved to org-1", not
-  // "not found". The organization's copy is the only copy of the body.
-  const { exportWorkForCloud, listWorks, loadWork, removePushedWork } = await import('@solus/server/data/works/works')
+  // "not found". Share changes the pointer only: the body, history, and comments
+  // stay on this host, so nothing is lost if the cloud copy is.
+  const { exportWorkForCloud, listWorks, loadWork, markWorkMoved } = await import('@solus/server/data/works/works')
   const { Work, WorkMovedError } = await import('@solus/server/data/works/work')
   const { sql } = await import('drizzle-orm')
   await workWithHistory('moved-work')
 
-  await removePushedWork('local', 'moved-work', (await exportWorkForCloud('local', 'moved-work')).fingerprint, 'org-1')
+  const before = await exportWorkForCloud('local', 'moved-work')
+  expect(before.revisions.length).toBeGreaterThan(0)
+  await markWorkMoved('local', 'moved-work', before.fingerprint, 'org-1')
 
   const moved = await Work.byId('local', 'moved-work').catch((error) => error)
   expect(moved).toBeInstanceOf(WorkMovedError)
@@ -281,9 +284,9 @@ test('a shared work keeps only its location, so a reference to its id here learn
   expect(await loadWork('local', 'moved-work')).toBeNull()
   expect((await listWorks('local')).map((work) => work.id)).not.toContain('moved-work')
   const db = getDatabase()
-  expect(await db.get(sql`SELECT content FROM works WHERE id = 'moved-work'`)).toEqual({ content: '' })
-  expect(await db.get(sql`SELECT COUNT(*) AS count FROM work_revisions WHERE work_id = 'moved-work'`)).toEqual({ count: 0 })
-  expect(await db.get(sql`SELECT COUNT(*) AS count FROM work_annotations WHERE work_id = 'moved-work'`)).toEqual({ count: 0 })
+  expect(await db.get(sql`SELECT content FROM works WHERE id = 'moved-work'`)).toEqual({ content: before.work.content })
+  expect(await db.get(sql`SELECT COUNT(*) AS count FROM work_revisions WHERE work_id = 'moved-work'`)).toEqual({ count: before.revisions.length })
+  expect(await db.get(sql`SELECT COUNT(*) AS count FROM work_annotations WHERE work_id = 'moved-work'`)).toEqual({ count: before.annotations ? 1 : 0 })
 })
 
 test('a work from before versions transfers with its unknown authors and null source versions kept', async () => {
@@ -340,14 +343,20 @@ test('an authenticated link visitor uses the verified account identity, never a 
   await pending
 })
 
-test.skipIf(process.env.SOLUS_DB === 'postgres')('a Local task uploads with its comments and linked works under its own ids, and leaves its host only unchanged', async () => {
-  // WHY: a task's linked Local works go with it (docs/plans/cloud-sharing.md §8). The
-  // cloud task must link to the uploaded works, a repeat must change nothing, and the
-  // host must keep a task that changed after it was read.
+test.skipIf(process.env.SOLUS_DB === 'postgres')('a Local task uploads with its comments, works, and sessions, and its host keeps a row that points to the organization', async () => {
+  // WHY: a task's linked Local works go with it, and its sessions stay on the host
+  // (docs/plans/cloud-sharing.md §3a, §8). The cloud task must link to the uploaded
+  // works and list the sessions on the host that runs them, a repeat must change
+  // nothing, and the host must keep a task that changed after it was read. After the
+  // upload the host keeps the task's row and its session links, so a session that
+  // names the task is told where it went instead of "not found".
   const { loadWork } = await import('@solus/server/data/works/works')
   const { createTask } = await import('@solus/server/data/tasks/task-store')
   const { Task } = await import('@solus/server/data/tasks/task')
-  const { exportTaskForCloud, removeUploadedTask } = await import('@solus/server/data/tasks/task-transfer')
+  const { exportTaskForCloud, markTaskMoved } = await import('@solus/server/data/tasks/task-transfer')
+  const { taskSessions } = await import('@solus/server/data/tasks/task-sessions')
+  const { listTasks, TaskMovedError } = await import('@solus/server/data/tasks/task-store')
+  const { persistIndexedSessionStart } = await import('@solus/server/db/session-indexer')
   const { SolusServer } = await import('@solus/server/transport/server')
   const { registerCloudUploadHandlers } = await import('@solus/server/transport/solus-api/cloud-uploads')
   const { resetApiModeForTests } = await import('@solus/server/host/api-mode')
@@ -356,19 +365,26 @@ test.skipIf(process.env.SOLUS_DB === 'postgres')('a Local task uploads with its 
   const local = await Task.byId('local', 'task-1')
   await local.comment('Looks good', { by: BOB })
   await local.link({ kind: 'work', targetKey: 'task-work' }, ALICE)
+  persistIndexedSessionStart('session-lead', 'claude-code', '/repo', '-repo', 'opus', 'high', 'Lead the fix')
+  await local.linkSession('session-lead', 'lead', { startedBy: ALICE })
+  await local.linkSession('session-worker', 'working')
 
-  const exported = await exportTaskForCloud('local', 'task-1')
+  const exported = await exportTaskForCloud('local', 'task-1', 'host-a')
   expect(exported.task.task).toMatchObject({ id: 'task-1', title: 'Ship it', body: 'The plan', status: 'todo' })
   expect(exported.task.comments.map((comment) => comment.body)).toEqual(['Looks good'])
   expect(exported.task.workIds).toEqual(['task-work'])
   expect(exported.works.map((work) => work.work.id)).toEqual(['task-work'])
+  expect(exported.task.sessions).toEqual([
+    { sessionId: 'session-lead', role: 'lead', linkedAt: expect.any(Number), title: 'Lead the fix', provider: 'claude-code', startedBy: ALICE, hostInstallationId: 'host-a' },
+    { sessionId: 'session-worker', role: 'working', linkedAt: expect.any(Number), title: null, provider: null, startedBy: null, hostInstallationId: 'host-a' },
+  ])
   const works = [{ workId: 'task-work', fingerprint: exported.works[0]!.fingerprint }]
 
   // A comment after the read: the task stays, and so does its work.
   await local.comment('One more thing', { by: ALICE })
-  await expect(removeUploadedTask('local', 'task-1', exported.task.fingerprint, works, 'org-1')).rejects.toThrow(/changed/)
+  await expect(markTaskMoved('local', 'task-1', exported.task.fingerprint, works, 'org-1', 'host-a')).rejects.toThrow(/changed/)
   expect(await loadWork('local', 'task-work')).not.toBeNull()
-  const current = await exportTaskForCloud('local', 'task-1')
+  const current = await exportTaskForCloud('local', 'task-1', 'host-a')
   const bob: Extract<Principal, { kind: 'org-member' }> = { ...alice, organizationId: 'org2', userId: 'bob', displayName: 'Bob', deviceId: 'bob' }
 
   const previous = process.env.SOLUS_API
@@ -387,6 +403,10 @@ test.skipIf(process.env.SOLUS_DB === 'postgres')('a Local task uploads with its 
       expect(cloud.comments.map((comment) => comment.body)).toEqual(['Looks good', 'One more thing'])
       expect(cloud.links.filter((link) => link.kind === 'work').map((link) => link.targetKey)).toEqual(['task-work'])
       expect(await shares.ownerOf({ kind: 'task', id: 'task-1' })).toBe('alice')
+      expect(((await taskSessions('org1', 'task-1'))['task-1'] ?? []).map((link) => [link.sessionId, link.role, link.sessionTitle, link.executionServerId, link.startedBy ?? null])).toEqual([
+        ['session-lead', 'lead', 'Lead the fix', 'host-a', ALICE],
+        ['session-worker', 'working', null, 'host-a', null],
+      ])
 
       expect(await service.handle('taskUpload', [current.task], as(alice))).toEqual({ taskId: 'task-1', organizationId: 'org1' })
       expect((await (await Task.byId('org1', 'task-1')).details()).comments).toHaveLength(2)
@@ -399,7 +419,33 @@ test.skipIf(process.env.SOLUS_DB === 'postgres')('a Local task uploads with its 
     resetApiModeForTests()
   }
 
-  await removeUploadedTask('local', 'task-1', current.task.fingerprint, current.works.map((work) => ({ workId: work.work.id, fingerprint: work.fingerprint })), 'org-1')
-  await expect(Task.byId('local', 'task-1')).rejects.toThrow()
+  await markTaskMoved('local', 'task-1', current.task.fingerprint, current.works.map((work) => ({ workId: work.work.id, fingerprint: work.fingerprint })), 'org-1', 'host-a')
+  const moved = await Task.byId('local', 'task-1').catch((error: unknown) => error)
+  expect(moved).toBeInstanceOf(TaskMovedError)
+  expect(moved).toMatchObject({ code: 'MOVED', location: { organizationId: 'org-1' } })
   expect(await loadWork('local', 'task-work')).toBeNull()
+  // The host lists only its own tasks, and the sessions still name the moved one.
+  expect((await listTasks('local')).tasks).toEqual([])
+  expect(await taskSessions('local', 'task-1')).toEqual({})
+  expect(await Task.forSession('local', 'session-lead').catch((error: unknown) => error)).toBeInstanceOf(TaskMovedError)
+})
+
+test('a share call counts the queries it sends, inside its transaction too, and no one else\'s', async () => {
+  // WHY: `share_call_timed` tells whether a slow Share waits on the database.
+  // A count that missed transaction queries, or took in a concurrent call's
+  // queries, would point the investigation at the wrong place.
+  const { tallyQueries } = await import('@solus/server/db/database')
+  const { sql } = await import('drizzle-orm')
+  const { shares } = await fixture()
+  const tally = { queries: 0, queryMs: 0 }
+  const outside = { queries: 0, queryMs: 0 }
+  await Promise.all([
+    tallyQueries(tally, () => shares.setLink({ resource, role: 'viewer' }, alice)),
+    tallyQueries(outside, () => getDatabase().get(sql`SELECT 1`)),
+  ])
+  expect(outside.queries).toBe(1)
+  // One joined read of the owner and the rows, then the one write: the role is computed once.
+  expect(tally.queries).toBe(2)
+  await getDatabase().get(sql`SELECT 1`)
+  expect(outside.queries).toBe(1)
 })

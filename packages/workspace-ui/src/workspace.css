@@ -137,18 +137,16 @@
   --solus-font-features: normal;
   /* Centered reading column — shared by the message stream, progress tracker,
      status bars and the input dock so the whole thread lines up as one column.
-     It takes most of the available conversation pane on laptops and smaller
-     viewports, then caps at 68rem so a 5K or ultrawide display gains useful
+     It takes 65% of the available conversation pane, then caps at 68rem so a
+     5K or ultrawide display gains useful
      width without turning the transcript into a full-width wall of text. The
      percentage resolves against each consumer's container, so splits and side
      panels resize the column with the pane rather than with the outer window.
-     Below the 30rem floor, max-width remains a limit rather than a forced width,
-     so the column still contracts to the available space.
 
      Keep `conversation/lib/minimap.ts` in step — it mirrors this in TypeScript
      to place the message navigator, and `tests/unit/panel-sizing.test.ts` reads
      this line back to prove the two agree. */
-  --solus-reading-max: clamp(30rem, 80%, 68rem);
+  --solus-reading-max: min(65%, 68rem);
   /* SF Pro Text first-paint defaults. Runtime font preferences replace these
      with the selected face's named Regular or Medium instance. */
   --solus-font-weight-body: 400;
@@ -177,7 +175,7 @@
   );
   /* Container */
   --solus-edge-bg: #fbfaf6;
-  --solus-container-bg: #fefefc;
+  --solus-container-bg: #fffffd;
   --solus-container-bg-collapsed: #faf9f4;
   --solus-container-border: #d2cfc5;
   --solus-sidebar-bg: #f9f8f4;
@@ -194,7 +192,7 @@
   --solus-card-shadow: 0 0 0 0.0625rem rgba(0,0,0,0.04), 0 0.5rem 2rem rgba(0,0,0,0.12), 0 0.125rem 0.375rem rgba(0,0,0,0.06);
   --solus-card-shadow-collapsed: 0 0.25rem 1rem rgba(0,0,0,0.09), 0 0.0625rem 0.25rem rgba(0,0,0,0.05);
   /* Surface */
-  --solus-surface-primary: #faf3e4;
+  --solus-surface-primary: #f3f3f3;
   --solus-surface-secondary: #dddad2;
   /* Same lift the session sidebar rows use, so hover reads identically everywhere.
      Defined once against `--foreground`: the mix works in light and dark. */
@@ -399,8 +397,9 @@
      row-tint color-mix() blends against, and it fills the sticky file headers so
      code can't be read through them while scrolling. Nothing else paints it —
      the pane background stays --solus-container-bg so the diff matches the panes
-     beside it. Keep in sync with --solus-container-bg. */
-  --solus-diff-surface: #fefefc;
+     beside it. Light mode's container background is already opaque, so it is
+     used as is; only the .dark block needs its own value. */
+  --solus-diff-surface: var(--solus-container-bg);
   /* Line selection is a different job from text selection (--solus-diff-selection-bg
      above, which is applied directly). @pierre/diffs blends this one into the row
      at ~18%, so it has to start strong to land as a visible band. */
@@ -468,21 +467,21 @@
      ArtifactView THEME_VARS). Replaces the generic grey the design tool used to
      default to: neutrals are a soft ivory — the sand hue at about half its
      saturation, so panels read as warm paper rather than tan or grey — and the
-     categorical data colours are a bright, clean spread (terracotta → plum)
+     categorical data colours are a bright, clean spread (lime → plum)
      that lifts charts and tinted marks off the warm theme. They no longer share
      values with the brand accent or the syntax/status tokens. */
   --solus-art-surface: #fcfbf7;
   --solus-art-raised: #f7f4ec;
   --solus-art-border: #ebe5d8;
   --solus-art-border-strong: #d9d0bd;
-  --solus-art-1: #ff6b4a; /* terracotta */
-  --solus-art-2: #ffa114; /* amber */
-  --solus-art-3: #1fc46b; /* sage */
-  --solus-art-4: #00b8a9; /* teal */
-  --solus-art-5: #2b8cff; /* blue */
-  --solus-art-6: #9b5cff; /* plum */
-  --solus-art-positive: #1fc46b;
-  --solus-art-negative: #e5482a;
+  --solus-art-1: #649100; /* lime */
+  --solus-art-2: #cf7b00; /* amber */
+  --solus-art-3: #2f9a5a; /* sage */
+  --solus-art-4: #1b9388; /* teal */
+  --solus-art-5: #2a71d6; /* blue */
+  --solus-art-6: #894ed6; /* plum */
+  --solus-art-positive: #26894c;
+  --solus-art-negative: #c9302d;
 }
 
 
@@ -518,7 +517,7 @@
   --solus-card-shadow: 0 0 0 0.0625rem rgba(255,255,255,0.04), 0 0.5rem 2rem rgba(0,0,0,0.50), 0 0.125rem 0.5rem rgba(0,0,0,0.30);
   --solus-card-shadow-collapsed: 0 0.25rem 1.25rem rgba(0,0,0,0.40), 0 0.0625rem 0.375rem rgba(0,0,0,0.25);
   /* Surface */
-  --solus-surface-primary: #3d2c1f;
+  --solus-surface-primary: #303030;
   --solus-surface-secondary: #3a3935;
   --solus-surface-active: #ffffff1f;
   /* Input */
@@ -691,14 +690,14 @@
   --solus-art-raised: #36332d;
   --solus-art-border: rgba(255, 240, 215, 0.11);
   --solus-art-border-strong: rgba(255, 240, 215, 0.2);
-  --solus-art-1: #ff7a57; /* terracotta */
+  --solus-art-1: #a6e146; /* lime */
   --solus-art-2: #ffb020; /* amber */
   --solus-art-3: #2ee07e; /* sage */
   --solus-art-4: #1fe0cf; /* teal */
   --solus-art-5: #4aa3ff; /* blue */
   --solus-art-6: #a878ff; /* plum */
   --solus-art-positive: #2ee07e;
-  --solus-art-negative: #ff7a57;
+  --solus-art-negative: #f75d59;
 }
 
 /* shadcn-svelte theme bridge — maps the semantic vars that shadcn components
@@ -3085,23 +3084,14 @@ button.solus-token {
    specificity with a `.prose-cloud` / `.prose-reading` rule above, so source
    order is what decides them. */
 .prose-transcript {
-  /* A share of the reading column, not a fixed measure, so the measure holds
-     at every pane width. */
-  max-width: 82%;
+  max-width: 100%;
   /* Primary conversation text uses the body rung. */
   font-size: var(--text-body);
   line-height: 1.625;
   font-weight: 400;
+  letter-spacing: normal;
   color: var(--solus-text-primary);
   text-wrap: pretty;
-}
-/* Rendered HTML uses the full conversation column.
-   Keep the surrounding prose narrow without constraining the frame. */
-.prose-transcript-main:has(> [data-conversation-preview]) {
-  max-width: none;
-}
-.prose-transcript-main:has(> [data-conversation-preview]) > :not([data-conversation-preview]) {
-  max-width: 82%;
 }
 /* The reply's own text takes the Appearance opacity. Headings keep full ink,
    so the structure of a reply stays visible at a low setting. */
@@ -3111,7 +3101,7 @@ button.solus-token {
 /* Element margins alone set the rhythm; the generic sibling step would add to
    the asymmetric heading spacing below. */
 .prose-transcript > * + * { margin-top: 0; }
-.prose-transcript p { margin: 0 0 0.625rem; }
+.prose-transcript p { margin: 0.65rem 0; }
 .prose-transcript > :first-child { margin-top: 0; }
 .prose-transcript > :last-child { margin-bottom: 0; }
 
@@ -3129,7 +3119,6 @@ button.solus-token {
 }
 .prose-transcript h1 {
   font-size: calc(1.25rem * var(--solus-font-scale, 1));
-  letter-spacing: -0.015em;
   text-wrap: balance;
 }
 .prose-transcript h1::after {
@@ -3224,7 +3213,7 @@ button.solus-token {
 }
 
 /* Emphasis is weight and a rule — never a hue. */
-.prose-transcript strong { font-weight: 500; color: inherit; }
+.prose-transcript strong { font-weight: 600; color: inherit; }
 .prose-transcript em { font-style: italic; }
 .prose-transcript del,
 .prose-transcript s {
@@ -3813,26 +3802,24 @@ button.solus-token {
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) strong { font-weight: 500; color: var(--solus-text-primary); }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) em { font-style: italic; color: var(--solus-text-primary); }
 
-/* PR and task inline code uses the assistant message's bordered card shell.
-   Restrict the shell to inline children. A fenced block also contains a
-   `<code>` element, and decorating that inline box clones the rounded shell
-   around every visual line. A file reference produced from backticks is a
-   `.solus-token` and keeps the base chip geometry. */
+/* PR and task inline code is a small neutral chip, as T3 Code sets it: a
+   hairline and the muted wash. The warm card fill read as a yellow highlight
+   on the page. Restrict the chip to inline children. A fenced block also
+   contains a `<code>` element, and decorating that inline box clones the
+   rounded shell around every visual line. A file reference produced from
+   backticks is a `.solus-token` and keeps the base chip geometry. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) :not(pre) > code {
-  padding: 0.1875em 0.4375em;
-  border: 0.0625rem solid
-    color-mix(in oklch, var(--foreground) 11%, transparent);
-  border-radius: var(--radius-md);
+  padding: 0.1em 0.35em;
+  border: 0.0625rem solid var(--hairline-strong);
+  border-radius: 0.375rem;
   margin-inline: 0;
-  background: var(--card);
+  background: var(--muted);
   color: var(--solus-text-primary);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
   /* `em`, not a rem: the description (caption rung) and an activity comment
-     (chrome rung) read at different sizes, and the chip has to follow both.
-     The ratio is the transcript's, so a literal is the same size next to a
-     reference here as it is in a message. */
-  font-size: 0.9286em;
+     (chrome rung) read at different sizes, and the chip has to follow both. */
+  font-size: 0.857em;
 }
 
 /* When a code span is also bold, show the bold treatment. Keep the markup so
@@ -3948,13 +3935,14 @@ button.solus-token {
   text-decoration: none;
 }
 
-/* Quiet, not decorative: a wash and a leading hairline, same muted text. */
+/* Quiet, not decorative: a leading hairline and muted text, as GitHub and
+   T3 Code set it. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) blockquote {
   margin: 1rem 0;
-  padding: 0.75rem 1rem;
-  border-left: 0.125rem solid var(--solus-container-border);
-  border-radius: 0.5rem;
-  background: var(--solus-surface-hover);
+  padding: 0 0 0 0.8rem;
+  border-left: 0.125rem solid var(--hairline-strong);
+  border-radius: 0;
+  background: transparent;
   color: var(--solus-text-tertiary);
   font-size: var(--prose-pr-size);
   line-height: 1.7;
@@ -3991,16 +3979,16 @@ button.solus-token {
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) .markdown-alert-title { margin-bottom: 0.25rem; }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) .markdown-alert-title svg { width: 0.9375rem; height: 0.9375rem; }
 
-/* No chrome and no language label. A fenced block in a review comment is as
+/* A hairline and the muted wash, as T3 Code sets it, and no language label. A fenced block in a review comment is as
    often a prompt or a log line as it is code, so it wraps at spaces and only
    breaks inside a token that has none; nothing scrolls sideways in a column
    that is already narrow. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) pre {
   margin: 1rem 0;
-  padding: 0.75rem 0.875rem;
-  border: none;
-  border-radius: 0.5rem;
-  background: var(--solus-code-tint);
+  padding: 0.8rem 0.9rem;
+  border: 0.0625rem solid var(--hairline-strong);
+  border-radius: 0.75rem;
+  background: var(--muted);
   color: var(--solus-text-primary);
   font-size: 0.9em;
   line-height: 1.65;
@@ -4101,6 +4089,15 @@ button.solus-token {
 .task-description-prose .solus-doc-editor .ProseMirror h2 { font-size: calc(var(--prose-pr-size) * 1.125); }
 .github-markdown.prose-pr:is(.prose-pr-description, .prose-pr-activity) h6,
 .task-description-prose .solus-doc-editor .ProseMirror h6 { color: var(--solus-text-secondary); }
+/* Links read by colour alone, as T3 Code sets them; a dotted rule shows on
+   hover and focus. */
+.github-markdown.prose-pr a:not(.markdown-media-link-card) { text-decoration: none; }
+.github-markdown.prose-pr a:not(.markdown-media-link-card):is(:hover, :focus-visible) {
+  background-image: radial-gradient(circle, currentcolor 0.75px, transparent 1px);
+  background-position: left bottom;
+  background-repeat: repeat-x;
+  background-size: 4px 2px;
+}
 /* An `@login` reads as a person, not a word in the sentence: primary ink and
    weight, as GitHub sets it apart. */
 .github-markdown .markdown-mention {
@@ -4359,6 +4356,17 @@ html.is-mac-workspace
     @variant dark {
       @apply bg-input/30;
     }
+  }
+}
+
+/* Match T3 Code's dialog backdrop across commands, pickers, and loading frames. */
+@utility picker-backdrop {
+  background: color-mix(in srgb, var(--background) 60%, transparent);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+
+  @variant dark {
+    background: color-mix(in srgb, var(--background) 64%, transparent);
   }
 }
 

@@ -15,6 +15,7 @@ import * as tasksSchema from '../../data/tasks/schema'
 
 export const tasks = tasksSchema.tasks.sqlite
 export const task_counters = tasksSchema.taskCounters.sqlite
+export const task_snoozes = tasksSchema.taskSnoozes.sqlite
 export const task_session_links = tasksSchema.taskSessionLinks.sqlite
 export const task_comments = tasksSchema.taskComments.sqlite
 export const task_links = tasksSchema.taskLinks.sqlite
@@ -29,7 +30,6 @@ export const work_live_docs = folioSchema.workLiveDocs.sqlite
 export const plan_annotations = plansSchema.planAnnotations.sqlite
 export const indexed_plans = plansSchema.indexedPlans.sqlite
 export const plan_index_providers = plansSchema.planIndexProviders.sqlite
-export const resource_owner = sharingSchema.resourceOwner.sqlite
 export const share_grant = sharingSchema.shareGrant.sqlite
 export const session_records = sessionsSchema.sessionRecords.sqlite
 export const session_admissions = sessionsSchema.sessionAdmissions.sqlite

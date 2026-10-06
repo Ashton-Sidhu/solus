@@ -41,7 +41,7 @@ export interface OpenWorkLease {
 
 export class WorksStore {
   readonly externalComments = new ExternalCommentsStore(workId => this.apiForWork(workId), workId => this.get(workId)?.mirroredDoc)
-  readonly history = new WorkHistoryStore((workId, read) => this.followMove(workId, read))
+  readonly history = new WorkHistoryStore((workId, read, likelyServerId) => this.followMove(workId, read, likelyServerId))
   /** The works open live, shared by the panes that show them (phase 3b). */
   readonly live = new WorkLiveStore({ title: (workId) => this.get(workId)?.title || 'Untitled' })
   readonly reviews = new WorkReviewsStore(workId => this.apiForWork(workId), serverId => serverConnections.apiFor(serverId), workId => this.hostFor(workId))
@@ -158,14 +158,18 @@ export class WorksStore {
    * (cloud-sharing.md §3a): the work lists then name its new owner, and the
    * read is asked there once. A work this client has not listed yet is looked
    * up first: one shared before hosts kept a location has no row to answer.
+   * `likelyServerId` skips that lookup: a reader that knows where the work was
+   * made (the session's host) asks there, and lists every host only when that
+   * host does not have it.
    */
-  private async followMove<T>(workId: string, read: (api: HostApi) => Promise<T>): Promise<T> {
-    if (!this.hostByWorkId.has(workId)) await this.loadAll()
+  private async followMove<T>(workId: string, read: (api: HostApi) => Promise<T>, likelyServerId?: string): Promise<T> {
+    const guessedServerId = this.hostByWorkId.has(workId) ? undefined : likelyServerId
+    if (!this.hostByWorkId.has(workId) && !guessedServerId) await this.loadAll()
+    const askedServerId = this.hostByWorkId.get(workId) ?? guessedServerId ?? serverConnections.defaultServerId()
     try {
-      return await read(this.apiForWork(workId))
+      return await read(guessedServerId ? serverConnections.apiFor(guessedServerId) : this.apiForWork(workId))
     } catch (error) {
-      if (!isMovedError(error)) throw error
-      const askedServerId = this.hostByWorkId.get(workId) ?? serverConnections.defaultServerId()
+      if (!isMovedError(error) && !(guessedServerId && isMissingWorkError(error))) throw error
       await this.loadAll()
       const ownerServerId = this.hostByWorkId.get(workId)
       if (!ownerServerId || ownerServerId === askedServerId) throw error

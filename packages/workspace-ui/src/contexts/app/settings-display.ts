@@ -38,7 +38,7 @@ export function applyTheme(isDark: boolean): void {
   // page background and Safari's toolbar have to *render* as the same value or
   // the seam between browser chrome and app reads as two different blacks. The
   // page takes it neat; the toolbar takes it through `toolbarTint`.
-  const edgeColor = isDark ? '#262522' : '#fefefc'
+  const edgeColor = isDark ? '#262522' : '#fffffd'
   const isWebShell = document.documentElement.classList.contains('solus-web')
   document.documentElement.classList.toggle('dark', isDark)
   document.documentElement.classList.toggle('light', !isDark)

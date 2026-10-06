@@ -36,7 +36,6 @@ import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
 import { consumeClientAttachmentRead } from '@solus/desktop-main/client-attachment-read'
 import { configurePlatformServices } from '@solus/server/platform/services'
 import { registerAccountIpc } from '@solus/desktop-main/account/ipc'
-import { acquireHostAccessToken } from '@solus/desktop-main/account/uplink-client'
 import type { AccountSession } from '@solus/desktop-main/account/account-session'
 import { desktopServerPort } from '@solus/desktop-main/server-port'
 import { ensureScreenCaptureAccess, handleMicrophoneRequests } from '@solus/desktop-main/mac-permissions'
@@ -85,7 +84,7 @@ let powerSaveBlockerId: number | null = null
 // machine warm at idle.
 function syncPowerSaveBlocker(): void {
   if (isHeadless || isTestMode || !core) return
-  const shouldBlock = core.sessionRuntime.hasActiveWork()
+  const shouldBlock = core.sessionRuntime.statuses.hasActiveWork()
   const isBlocking = powerSaveBlockerId !== null && powerSaveBlocker.isStarted(powerSaveBlockerId)
   if (shouldBlock === isBlocking) return
   if (shouldBlock) {
@@ -954,7 +953,7 @@ if (isPairUrl) {
         staticDir: join(__dirname, '../client'),
         transcribeAudio,
         // The owner of this machine works here without a token; their account session gets one (plans/010-standard-oauth.md).
-        ownerAccessToken: async (hostId) => accountSession ? (await acquireHostAccessToken(accountSession, hostId))?.accessToken ?? null : null,
+        ownerAccessToken: async (hostId) => (await accountSession?.acquireHostAccessToken(hostId))?.accessToken ?? null,
         // A window paints first; a headless app has none and sweeps at once.
         deferSessionIndex: !isHeadless,
       })

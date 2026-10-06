@@ -19,6 +19,8 @@
   const request = $derived(seatsStore.required);
   const status = $derived(request ? seatsStore.statusFor(request.serverId, request.provider) : undefined);
   const connected = $derived(status?.state === "connected");
+  /** A requested card stays open on a seat that was already connected, until a new login ends. */
+  const resolved = $derived(connected && (!request?.requested || request.completed === true));
 
   let cardEl = $state<HTMLDivElement | null>(null);
 
@@ -40,9 +42,11 @@
 {#if request}
   <div bind:this={cardEl}>
     <AttentionCard
-      title={connected ? `${seatLabel(request.provider)} seat connected` : `Connect your ${seatLabel(request.provider)} seat`}
-      type={connected ? "send your message again" : "to run this turn"}
-      resolved={connected}
+      title={request.requested
+        ? resolved ? `Signed in to ${seatLabel(request.provider)}` : `Sign in to ${seatLabel(request.provider)}`
+        : connected ? `${seatLabel(request.provider)} seat connected` : `Connect your ${seatLabel(request.provider)} seat`}
+      type={request.requested ? "on the host" : connected ? "send your message again" : "to run this turn"}
+      {resolved}
       testId="seat-connect-card"
     >
       {#snippet icon()}
@@ -52,7 +56,7 @@
       {/snippet}
 
       {#snippet actions()}
-        {#if connected}
+        {#if resolved}
           <TranscriptCardAction onclick={dismiss}>Done</TranscriptCardAction>
         {:else}
           <TranscriptCardAction kind="icon" label="Dismiss" onclick={dismiss}>
@@ -62,9 +66,10 @@
       {/snippet}
 
       <p class="m-0 text-(--muted-foreground)">
-        Turns on a shared host run on the seat of whoever wrote the prompt. {seatDescription(status, seatsStore.errorFor(request.serverId, request.provider))}
+        {#if !request.requested}Turns on a shared host run on the seat of whoever wrote the prompt.{/if}
+        {seatDescription(status, seatsStore.errorFor(request.serverId, request.provider))}
       </p>
-      <SeatConnectPanel serverId={request.serverId} provider={request.provider} autofocus />
+      <SeatConnectPanel serverId={request.serverId} provider={request.provider} signInAgain={request.requested} autofocus />
       <div>
         <TranscriptCardAction kind="ghost" class="-ml-2.5" onclick={dismiss}>Not now</TranscriptCardAction>
       </div>

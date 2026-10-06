@@ -341,8 +341,8 @@ export interface SidebarTask {
   /** The raw state behind `status`, kept so glyphs can be labelled in the
    *  app's own words rather than the sidebar's narrower vocabulary. */
   attention: AttentionState
-  /** True while any mounted session has output the user has not seen. The
-   *  active session clears its own flag, so task activity must not set this. */
+  /** A task row reads only its lead's unread output. A session row reads its
+   *  own output. The active session clears its own flag. */
   unread: boolean
   /** Durable creation position shared by task-backed rows and loose rows —
    *  the sessions that have no task, which Solus supports on purpose. */
@@ -439,8 +439,8 @@ export function resolveTaskSidebarLifecycle(input: {
  * Which shelf a session's row sits on, from the state its host holds
  * (docs/plans/session-pull-requests.md): a settled session is on Completed, a
  * snoozed one on Snoozed, and a session with no state is active. A task's row
- * takes its shelf from the task: a finished task is on Completed, and a task
- * is never snoozed.
+ * takes its shelf from the task: a finished task is on Completed, a snoozed
+ * task on Snoozed.
  */
 export function sessionRowLifecycle(
   state: { settledAt: number | null; snoozedUntil: number | null } | null,
@@ -591,16 +591,23 @@ export function sortSidebarRowsByCreation(tasks: SidebarTask[]): SidebarTask[] {
 export type RowActivity = (task: SidebarTask) => number
 
 /** Statuses of an agent that is busy and does not need the user: a running
- *  turn, background work after a finished turn, or a wait on a rate limit.
- *  These rows fold into the Working section until they come back to the user
- *  with a question, a plan, an error, or a finished turn. */
+ *  turn, background work after a finished turn, or a wait on a rate limit. */
 export function isWorkingStatus(status: TaskStatus): boolean {
   return status === 'running' || status === 'background' || status === 'limit'
 }
 
+/** Whether a row folds into the Working section until it comes back to the
+ *  user with a question, a plan, an error, or a finished turn. Only a session
+ *  row does. A task keeps its place in Tasks while its lead or workers run,
+ *  and its row shows that they run (docs/plans/task-conversation.md). */
+export function isInWorkingSection(row: Pick<SidebarTask, 'taskId' | 'status'>): boolean {
+  return !row.taskId && isWorkingStatus(row.status)
+}
+
 /** Order the Tasks and Sessions sections newest first by when each row last
- *  came back to the user, so a row that leaves the Working section lands on
- *  top (`SidebarReturnOrder`). */
+ *  came back to the user, so a session row that leaves the Working section
+ *  lands on top (`SidebarReturnOrder`). A task row never leaves Tasks, so it
+ *  keeps its creation order. */
 export function sortRowsByReturn(tasks: readonly SidebarTask[], returnedAt: RowActivity): SidebarTask[] {
   const returned = new Map(tasks.map((task) => [task, returnedAt(task)]))
   return tasks.toSorted((a, b) =>

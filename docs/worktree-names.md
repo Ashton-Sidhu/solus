@@ -83,6 +83,54 @@ checkout path when the session index has one, with their recorded branch as a
 fallback. Custom browser page labels remain unchanged, even when they happen to
 match the original branch name.
 
+## Agent worktrees
+
+A session is bound to one checkout. The diff, Git status, changed files,
+snapshots, and branch name all come from that checkout. An agent can leave it:
+Claude's `EnterWorktree` tool and a shell `git worktree add` followed by `cd`
+both move the agent, but not the session.
+
+**`move_to_worktree`.** Agents use this Solus tool (Sessions group) when they
+want an isolated checkout. Without `path`, Solus creates a new worktree from
+`base_branch` (default: the session's target branch). The branch-naming settings
+above name its branch from `branch_name`, or from `purpose` when there is no
+name. With `path`, the session moves into an existing linked worktree of the
+same repository. The tool refuses a move into the worktree the session is
+already in, and a new worktree when the session is already in one. Moves of one
+session run one after another. Agent instructions tell agents to use the tool
+instead of `git worktree add` and `cd`.
+
+The user's **Continue in worktree** action, the tool, and the card below use one
+server path (`WorktreeMover`). The session's checkout changes at once, and every
+client gets a `git_context` event and a "Continued in worktree" divider. A
+provider process cannot change its directory, so the turn that calls the tool
+keeps working in the old directory; the tool result tells the agent to use the
+new path for the rest of that turn. The next turn forks the provider thread into
+the worktree, as a user move always did. Stop cancels a move that is still
+creating its worktree.
+
+**Detection and the card.** Solus does not block `EnterWorktree` or any other
+agent tool. When a Claude `EnterWorktree` call, a Claude `Bash` call, or a Codex
+command that runs `git worktree add` succeeds, the host finds the path, then asks
+`git worktree list` whether it is a linked worktree of the session's repository.
+A path that git does not list is ignored, and `~` is the host user's home. Calls
+made by sub-agents are ignored. If the worktree is not the session's checkout,
+the host records a `worktree_offered` activity and the conversation shows a card:
+"The agent is working in worktree `<branch>` (`<short path>`). Switch this
+session to it?" with **Switch** and **Keep current**.
+
+**Switch** calls `decideWorktreeOffer`, which moves the session through the same
+path as `move_to_worktree`. Each answer is a `worktree_offer_decided` activity,
+so the card shows **switched**, **kept current**, or **failed** with the error on
+desktop, web, and mobile, after a reload, and after a reconnect. A failed switch
+can be tried again. Solus offers a worktree once per session: after
+**Keep current**, the same path is not offered again. Only an editor of the
+session can answer; a reader sees "Waiting for an editor". On desktop and web the
+input bar takes focus again after an answer; on mobile the keyboard stays closed.
+
+Claude and Codex both get the tool and the detection. OpenCode has no Solus
+backend, so it has neither.
+
 ## Verification
 
 Focused tests cover startup naming before session registration, a status scan

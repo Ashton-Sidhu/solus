@@ -102,17 +102,17 @@ export function materializeTabs(ctx: WorkspaceContext): void {
   // it names rather than being dropped as a dead pane.
   const persistedDrafts = loadPersistedSessionDrafts()
   if (persistedDrafts) ctx.drafts.restoreSessionDrafts(persistedDrafts)
+  // Before the location too: entering it shows the restored destination's strip.
+  ctx.router.restoreStrips(snapshot?.strips)
   if (!snapshot?.tabs?.length) {
     const hasCurrentDraftSnapshot = ctx.drafts.sessionDrafts.size > 0
     if (drafts) ctx.activeInput.text = drafts.activeInputText
     restoreLocation(ctx, snapshot?.location)
-    const hasVisibleDraft = ctx.router.panes.some(
-      (pane) => pane.base?.name === 'draft'
-        && ctx.drafts.sessionDrafts.has(pane.base.params.draftId),
-    )
-    // Keep a restored page or artifact in place. Only replace the empty chat
-    // pool, which has no conversation to render in this state.
-    if (!hasVisibleDraft && (!ctx.router.leadingPane.base || ctx.router.leadingPane.base.name === 'chat')) {
+    const destination = ctx.router.destination
+    const hasVisibleDraft = destination.name === 'draft' && ctx.drafts.sessionDrafts.has(destination.params.draftId)
+    // Keep a restored page in place. Only replace the empty chat pool, which
+    // has no conversation to render in this state.
+    if (!hasVisibleDraft && destination.name === 'chat') {
       let latestDraftId: string | null = null
       for (const draftId of ctx.drafts.sessionDrafts.keys()) latestDraftId = draftId
       if (latestDraftId) ctx.drafts.openDraft(latestDraftId)
@@ -171,16 +171,17 @@ export function restoreLocation(ctx: WorkspaceContext, serialized: string | unde
  * desktop calls it through restoreLocation above. */
 export function reconcileReloadLocation(ctx: WorkspaceContext): void {
   const hasRestoredTab = ctx.tabOrder.some((tabId) => !!ctx.tabs[tabId])
-  for (const pane of ctx.router.panes.slice()) {
-    const sessionId = pane.base?.name === 'chat' ? pane.base.params.sessionId : undefined
-    if (sessionId && !ctx.tabIdForSession(sessionId)) ctx.router.closePane(pane.id)
-    const draftId = pane.base?.name === 'draft' ? pane.base.params.draftId : undefined
-    // A pre-fix snapshot can still point at an empty draft that was deliberately
-    // not restored. Treat it like any other dead pane: the leading pane falls
-    // back to the active conversation and a companion pane closes.
-    if (draftId && (hasRestoredTab || !ctx.drafts.sessionDrafts.has(draftId))) {
-      ctx.router.closePane(pane.id)
-    }
+  // A surface that names a conversation or a draft this boot did not restore
+  // would render nothing.
+  ctx.router.closeSurfacesWhere((ref) =>
+    (ref.name === 'chat' && !!ref.params.sessionId && !ctx.tabIdForSession(ref.params.sessionId))
+    || (ref.name === 'draft' && !ctx.drafts.sessionDrafts.has(ref.params.draftId)))
+  // A draft must not replace a session that survived this reload; an empty one
+  // that was deliberately not restored is gone. The leading pane falls back to
+  // the active conversation.
+  const destination = ctx.router.destination
+  if (destination.name === 'draft' && (hasRestoredTab || !ctx.drafts.sessionDrafts.has(destination.params.draftId))) {
+    ctx.router.closePane(ctx.router.leadingPane.id)
   }
 }
 
@@ -213,6 +214,10 @@ export async function bootstrapRuntimeTabs(ctx: WorkspaceContext): Promise<void>
   }
   ctx.pruneTabOrder()
   const activeHydration = ctx.activeTabId ? hydrateRestoredTab(ctx, state, ctx.activeTabId) : Promise.resolve()
+  // A chat surface restored beside it is on screen too. Later navigation loads
+  // what it shows itself (`loadShownConversations`).
+  const surfaceTabId = ctx.chatSurfaceTabId
+  if (surfaceTabId) void hydrateRestoredTab(ctx, state, surfaceTabId).catch(() => null)
   void afterPaint().then(() => startRestoredMetadataReads(ctx, snapshot.tabs, state))
   await activeHydration
 }
@@ -621,9 +626,11 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
       session.rateLimitInfo = info.rateLimitInfo
       if (info.handoffFrom) session.handoffFrom = info.handoffFrom
       ctx.lifecycle.reconcileQueuedPrompts(snapTab.tabId, info.queuedPrompts)
-    } else if (info === null && isSessionBusyStatus(session.status)) {
+    } else if (info === null && (isSessionBusyStatus(session.status) || session.status === 'background')) {
       // An optimistic status probe may race the session settling before its
       // deferred bind. Reconcile that stale busy state when no runtime remains.
+      // 'background' needs the live query too: after a host restart its tasks
+      // are gone, and a kept status offers a stop that can never succeed.
       session.status = 'idle'
       session.rateLimitInfo = null
     }

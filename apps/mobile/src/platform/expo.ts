@@ -1,4 +1,4 @@
-import { Appearance, AppState, Platform, type AppStateStatus } from 'react-native'
+import { Appearance, AppState, Platform } from 'react-native'
 import * as SecureStore from 'expo-secure-store'
 import * as WebBrowser from 'expo-web-browser'
 import * as Network from 'expo-network'
@@ -99,7 +99,7 @@ export const expoPlatform: PlatformAdapters = {
  * survived the suspension, so a long one dials every host now.
  */
 export function watchAppLifecycle(connections: HostConnections, onForeground?: () => void): () => void {
-  let state: AppStateStatus = AppState.currentState
+  let state = AppState.currentState
   const appSubscription = AppState.addEventListener('change', (next) => {
     if (next === 'active' && state !== 'active') {
       connections.resume(Date.now())

@@ -1,4 +1,5 @@
-import type { DeviceFrameHeader, DeviceScreenConfig } from '@solus/contracts/device-types'
+import type { DeviceScreenConfig } from '@solus/contracts/device-types'
+import type { DeviceVideoPacket } from '@solus/client-core/device-hub-stream'
 
 /**
  * Decodes one device's packets for one visible surface. H.264 goes through
@@ -22,7 +23,34 @@ export type DrawableFrame = VideoFrameLike | ImageBitmapLike
 export interface DeviceVideoEvents {
   present(source: DrawableFrame, width: number, height: number): void
   status(status: DeviceVideoStatus): void
-  screen(screen: DeviceScreenConfig | null, screenGeneration: number): void
+  screen(screen: DeviceScreenConfig | null): void
+  /** The decoder drops frames until a keyframe; the stream should ask for one. */
+  needsKeyframe(): void
+}
+
+/** A canvas transform `[a, b, c, d, e, f]` that draws a raw frame upright. */
+export type FrameTransform = [number, number, number, number, number, number]
+
+/**
+ * How to draw an iOS frame as the user sees the screen. serve-sim streams the
+ * portrait framebuffer and only reports the new orientation, so a rotated
+ * portrait-native device (an iPad turned to landscape) must be turned here.
+ * A landscape-shaped screen is already upright. This is the inverse of the
+ * host's `iosRawPoint`, so taps land where they are drawn.
+ */
+export function framePlacement(screen: DeviceScreenConfig | null, width: number, height: number) {
+  const upright = { width, height, transform: [1, 0, 0, 1, 0, 0] as FrameTransform }
+  if (!screen || screen.width > screen.height) return upright
+  switch (screen.orientation) {
+    case 'landscape_left':
+      return { width: height, height: width, transform: [0, 1, -1, 0, height, 0] as FrameTransform }
+    case 'landscape_right':
+      return { width: height, height: width, transform: [0, -1, 1, 0, 0, width] as FrameTransform }
+    case 'portrait_upside_down':
+      return { width, height, transform: [-1, 0, 0, -1, width, height] as FrameTransform }
+    default:
+      return upright
+  }
 }
 
 export interface DecoderConfig {
@@ -104,7 +132,7 @@ export class DeviceVideoDecoder {
     events.status({ kind: 'connecting' })
   }
 
-  push(header: DeviceFrameHeader, data: Uint8Array): void {
+  push(header: DeviceVideoPacket, data: Uint8Array): void {
     if (this.closed) return
     if (header.streamGeneration !== this.generation) {
       // The host restarted its upstream: nothing decodable carries over.
@@ -113,7 +141,7 @@ export class DeviceVideoDecoder {
     }
     switch (header.kind) {
       case 'screen':
-        this.events.screen(header.screen ?? null, header.screenGeneration ?? 0)
+        this.events.screen(header.screen ?? null)
         return
       case 'ended':
         this.resetDecoder()
@@ -159,7 +187,9 @@ export class DeviceVideoDecoder {
             }
           },
           error: () => {
-            if (this.decoder === decoder) this.resetDecoder()
+            if (this.decoder !== decoder) return
+            this.resetDecoder()
+            this.events.needsKeyframe()
           },
         })
         try {
@@ -180,12 +210,17 @@ export class DeviceVideoDecoder {
     const decoder = this.decoder
     if (!decoder || decoder.state !== 'configured' || !this.codecs) return
     if (this.awaitingKey) {
-      if (!isKey) return
+      if (!isKey) {
+        this.events.needsKeyframe()
+        return
+      }
       this.awaitingKey = false
     }
     if (decoder.decodeQueueSize > SOFT_DECODE_QUEUE) {
       // Falling behind: skip to the next keyframe instead of growing a queue.
+      // iOS sends one only when its stream starts, so ask for it.
       this.awaitingKey = true
+      this.events.needsKeyframe()
       return
     }
     try {

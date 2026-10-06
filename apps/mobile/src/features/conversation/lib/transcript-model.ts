@@ -1,7 +1,9 @@
+import type { Activity, WorktreeOfferResolution } from '@solus/contracts/activity'
 import type { PermissionOption, QuestionItem, RateLimitInfo, RequestExpiry, SessionStatus, WireNormalizedEvent } from '@solus/contracts/types'
 import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { planKey } from '@solus/contracts/types'
-import type { DeviceBuildRef } from '@solus/contracts/device-types'
+import { AgentCards, isAgentConversationTool, type AgentItem } from './agent-cards'
+import { promptImageAttachments, splitAttachedFiles, type MessageAttachment } from './message-attachments'
 import { AgentPlans } from './agent-plans'
 
 /**
@@ -15,7 +17,7 @@ import { AgentPlans } from './agent-plans'
 export type Delivery = 'sending' | 'queued' | 'sent' | 'failed'
 
 export type TranscriptItem =
-  | { kind: 'user'; id: string; text: string; delivery: Delivery; error: string | null; attachmentCount: number }
+  | { kind: 'user'; id: string; text: string; delivery: Delivery; error: string | null; attachments: readonly MessageAttachment[] }
   | { kind: 'assistant'; id: string; text: string }
   | {
       kind: 'tool'
@@ -27,10 +29,15 @@ export type TranscriptItem =
       errorHead: string | null
       /** Rows a sub-agent wrote under this call. Shown as a count. */
       childCount: number
+      /** A provider-native subagent this call ran ('claude', 'codex', …): it has
+       *  no Solus session to open, so it shows as an agent card of its own. */
+      subagent: string | null
+      /** The subagent's answer, apart from ordinary tool output. */
+      report: string | null
     }
+  /** Another Solus session this conversation sent work to (`agent-cards.ts`). */
+  | AgentItem
   | { kind: 'notice'; id: string; text: string; tone: 'error' | 'info' }
-  /** An app build the agent handed to the host; its row opens App builds. */
-  | { kind: 'build'; id: string; build: DeviceBuildRef }
   | {
       kind: 'plan'
       id: string
@@ -42,6 +49,17 @@ export type TranscriptItem =
       options: PermissionOption[]
       /** `earlier`: read from history, where this client does not know the decision. */
       decision: 'pending' | 'accepted' | 'rejected' | 'earlier'
+    }
+  /** The agent works in a worktree the session is not bound to. The host
+   *  records the offer and its answer as activity (docs/worktree-names.md). */
+  | {
+      kind: 'worktree_offer'
+      id: string
+      offerId: string
+      path: string
+      branch: string | null
+      /** Null while the user has not answered. */
+      resolution: WorktreeOfferResolution | null
     }
 
 /** What changed since the last read: rows replaced, rows added, or the chrome around them. */
@@ -96,6 +114,18 @@ export class TranscriptModel {
   olderCursor: string | null = null
 
   private nextId = 0
+  /** Orchestration calls a card stands for: kept out of the feed unless they fail. */
+  private readonly heldTools = new Set<string>()
+  /** While a history page is read, the ids it places, in order. */
+  private collecting: string[] | null = null
+  private readonly agentCards = new AgentCards({
+    get: (id) => {
+      const item = this.items.get(id)
+      return item?.kind === 'agent' ? item : undefined
+    },
+    add: (item) => this.place(item),
+    update: (item) => this.replace(item),
+  })
   private streamTarget: string | null = null
   private proseSinceUser = false
   private readonly settledTurns = new Set<string>()
@@ -125,24 +155,42 @@ export class TranscriptModel {
 
   private rowsToItems(rows: readonly WireSessionLoadMessage[]): string[] {
     const ids: string[] = []
+    this.collecting = ids
     for (const row of rows) {
       // A sub-agent's rows are counted on the call that started it.
       if (row.parentToolUseId) this.countChild(row.parentToolUseId)
       else if (row.role === 'tool_result') this.applyHistoryResult(row)
+      else if (row.activity?.kind === 'worktree_offer_decided') this.setWorktreeOfferResolution(row.activity.offerId, row.activity.resolution)
       else {
         const id = this.historyItem(row)
         if (id) ids.push(id)
       }
     }
+    this.collecting = null
     return ids
   }
 
+  /** A row added now: at the end of the feed, or in the history page being read. */
+  private place(item: TranscriptItem): void {
+    if (this.collecting) {
+      this.items.set(item.id, item)
+      this.collecting.push(item.id)
+    } else {
+      this.append(item)
+    }
+  }
+
   /** One history row as an item; null for rows this client does not render yet
-   *  (reasoning, activity). */
+   *  (reasoning, most activity). */
   private historyItem(row: WireSessionLoadMessage): string | null {
+    if (row.activity) return row.activity.kind === 'worktree_offered' ? this.addWorktreeOffer(row.activity, false) : null
     const id = row.messageId ?? this.mintId('h')
     if (row.role === 'user') {
-      this.items.set(id, { kind: 'user', id, text: row.content, delivery: 'sent', error: null, attachmentCount: row.imageAttachments?.length ?? 0 })
+      // A [session report] or notice is the orchestrator's, not the person's: it settles a card.
+      if (this.agentCards.applyUserRow(row.content, row.timestamp)) return null
+      this.agentCards.closeTurn()
+      const { text, files } = splitAttachedFiles(row.content)
+      this.items.set(id, { kind: 'user', id, text, delivery: 'sent', error: null, attachments: [...promptImageAttachments(row.imageAttachments, undefined), ...files] })
       return id
     }
     if (row.role === 'assistant' && row.content.trim()) {
@@ -150,13 +198,21 @@ export class TranscriptModel {
       return id
     }
     if (row.role === 'tool' && row.toolId) {
+      const toolName = row.toolName ?? 'Tool'
+      const status = row.toolStatus === 'error' ? 'error' : row.toolStatus === 'running' ? 'running' : 'completed'
       this.items.set(id, {
-        kind: 'tool', id, toolId: row.toolId, toolName: row.toolName ?? 'Tool',
+        kind: 'tool', id, toolId: row.toolId, toolName,
         input: row.toolInput ?? null,
-        status: row.toolStatus === 'error' ? 'error' : row.toolStatus === 'running' ? 'running' : 'completed',
+        status,
         errorHead: null, childCount: 0,
+        subagent: row.isSubagent ? row.subagentType ?? 'agent' : subagentFromToolName(toolName),
+        report: row.report ?? null,
       })
-      return id
+      if (!isAgentConversationTool(toolName)) return id
+      this.agentCards.applyToolRow(toolName, row.toolInput, row.agentConversationResult, row.timestamp)
+      if (status === 'error') return id
+      this.heldTools.add(id)
+      return null
     }
     if (row.role === 'plan' && row.planContent?.trim()) {
       return this.addPlanItem(id, {
@@ -207,13 +263,23 @@ export class TranscriptModel {
         // The final text of prose that already streamed is a boundary, not new text.
         this.addProseOnce(event.text)
         return true
-      case 'tool_call':
+      case 'tool_call': {
         this.streamTarget = null
-        this.append({
+        const item: TranscriptItem = {
           kind: 'tool', id: this.mintId('t'), toolId: event.toolId, toolName: event.toolName,
           input: event.toolInput ?? null, status: 'running', errorHead: null, childCount: 0,
-        })
+          subagent: event.isSubagent ? event.subagentType ?? 'agent' : subagentFromToolName(event.toolName),
+          report: null,
+        }
+        if (isAgentConversationTool(event.toolName)) {
+          // The host's dispatch update draws the card; the call shows only if it fails.
+          this.items.set(item.id, item)
+          this.heldTools.add(item.id)
+        } else {
+          this.append(item)
+        }
         return true
+      }
       case 'tool_call_update':
         this.updateToolInput(event.toolId, event.toolInput)
         return true
@@ -221,15 +287,21 @@ export class TranscriptModel {
         this.completeTool(event)
         return true
       case 'tool_result':
-        this.patchToolById(event.toolUseId, false, (tool) => ({ ...tool, status: event.status === 'error' ? 'error' : 'completed', errorHead: event.errorHead ?? null }))
+        this.patchToolById(event.toolUseId, false, (tool) => ({
+          ...tool,
+          status: event.status === 'error' ? 'error' : 'completed',
+          errorHead: event.errorHead ?? null,
+        }))
+        return true
+      case 'subagent_report':
+        this.patchToolById(event.toolUseId, false, (tool) => ({ ...tool, report: event.text, status: event.isError ? 'error' : tool.status }))
         return true
       case 'user_message':
         this.applyUserMessage(event)
         return true
-      case 'device_build_ready':
-        // The build is what the turn produced: it shows when it is handed over.
-        this.streamTarget = null
-        this.append({ kind: 'build', id: this.mintId('b'), build: event.build })
+      case 'activity':
+        if (event.activity.kind === 'worktree_offered') this.addWorktreeOffer(event.activity, true)
+        else if (event.activity.kind === 'worktree_offer_decided') this.setWorktreeOfferResolution(event.activity.offerId, event.activity.resolution)
         return true
       default:
         return false
@@ -304,6 +376,7 @@ export class TranscriptModel {
         return true
       case 'agent_conversation_update':
         this.agentPlans.apply(event.update)
+        this.agentCards.apply(event.update)
         this.metaChanged = true
         return true
       case 'pending_input_sync':
@@ -396,9 +469,10 @@ export class TranscriptModel {
   // ─── Local state the client owns ───
 
   /** A prompt the user just sent, shown before the host echoes it. */
-  addOptimisticUser(clientPromptId: string, text: string, delivery: Delivery = 'sending', attachmentCount = 0): void {
+  addOptimisticUser(clientPromptId: string, text: string, delivery: Delivery = 'sending', attachments: readonly MessageAttachment[] = []): void {
     if (this.items.has(clientPromptId)) return
-    this.append({ kind: 'user', id: clientPromptId, text, delivery, error: null, attachmentCount })
+    this.agentCards.closeTurn()
+    this.append({ kind: 'user', id: clientPromptId, text, delivery, error: null, attachments })
     this.streamTarget = null
     this.proseSinceUser = false
   }
@@ -443,6 +517,13 @@ export class TranscriptModel {
     }
   }
 
+  /** The answer to a worktree offer, from the host's activity or its reply. */
+  setWorktreeOfferResolution(offerId: string, resolution: WorktreeOfferResolution): void {
+    for (const [id, item] of this.items) {
+      if (item.kind === 'worktree_offer' && item.offerId === offerId) this.replace({ ...item, resolution }, id)
+    }
+  }
+
   /** The open plan awaiting this session's decision, if any. */
   pendingPlan(): Extract<TranscriptItem, { kind: 'plan' }> | null {
     for (let index = this.order.length - 1; index >= 0; index -= 1) {
@@ -466,6 +547,7 @@ export class TranscriptModel {
   private applyUserMessage(event: Extract<WireNormalizedEvent, { type: 'user_message' }>): void {
     // A sub-agent's report and a question answer are not the person's prompt.
     if (event.via === 'session-report' || event.via === 'question-answer') return
+    this.agentCards.closeTurn()
     this.streamTarget = null
     this.proseSinceUser = false
     if (event.clientPromptId) {
@@ -476,8 +558,9 @@ export class TranscriptModel {
         return
       }
     }
-    const attachmentCount = (event.imageAttachments?.length ?? 0) + (event.imageAttachmentRefs?.length ?? 0)
-    this.append({ kind: 'user', id: event.clientPromptId ?? this.mintId('u'), text: event.text, delivery: 'sent', error: null, attachmentCount })
+    const { text, files } = splitAttachedFiles(event.text)
+    const attachments = [...promptImageAttachments(event.imageAttachments, event.imageAttachmentRefs), ...files]
+    this.append({ kind: 'user', id: event.clientPromptId ?? this.mintId('u'), text, delivery: 'sent', error: null, attachments })
   }
 
   private addPlanItem(id: string, plan: Omit<Extract<TranscriptItem, { kind: 'plan' }>, 'kind' | 'id' | 'planId'>, append: boolean): string {
@@ -492,6 +575,20 @@ export class TranscriptModel {
     const item: TranscriptItem = { kind: 'plan', id, planId, ...plan }
     if (append) this.append(item)
     else this.items.set(id, item)
+    return id
+  }
+
+  /** The offer's row id, or null when the row is already shown. */
+  private addWorktreeOffer(activity: Extract<Activity, { kind: 'worktree_offered' }>, append: boolean): string | null {
+    const id = `activity:${activity.id}`
+    if (this.items.has(id)) return null
+    const item: TranscriptItem = { kind: 'worktree_offer', id, offerId: activity.id, path: activity.path, branch: activity.branch ?? null, resolution: null }
+    if (append) {
+      this.streamTarget = null
+      this.append(item)
+    } else {
+      this.items.set(id, item)
+    }
     return id
   }
 
@@ -543,7 +640,17 @@ export class TranscriptModel {
   private patchToolById(toolId: string, runningOnly: boolean, patch: (tool: Extract<TranscriptItem, { kind: 'tool' }>) => Extract<TranscriptItem, { kind: 'tool' }>): void {
     const id = this.findTool(toolId, runningOnly)
     const item = id ? this.items.get(id) : undefined
-    if (id && item?.kind === 'tool') this.replace(patch(item), id)
+    if (!id || item?.kind !== 'tool') return
+    const next = patch(item)
+    this.replace(next, id)
+    // A failed orchestration call made no card: it shows after all.
+    if (next.status === 'error' && this.heldTools.delete(id)) {
+      if (this.collecting) this.collecting.push(id)
+      else {
+        this.order = [...this.order, id]
+        this.orderChanged = true
+      }
+    }
   }
 
   private append(item: TranscriptItem): void {
@@ -567,3 +674,12 @@ export class TranscriptModel {
 const DROPPED_WHILE_INTERRUPTED = new Set<WireNormalizedEvent['type']>([
   'text_chunk', 'assistant_message', 'thinking', 'tool_call', 'tool_call_update', 'tool_call_complete', 'plan',
 ])
+
+/** Provider subagent calls the host names without the live flag (history, older hosts),
+ *  as the desktop transcript reads them. */
+function subagentFromToolName(toolName: string): string | null {
+  if (toolName === 'Task' || toolName === 'Agent') return 'claude'
+  if (toolName === 'mcp__solus__codex_subagent') return 'codex'
+  if (toolName.slice(toolName.lastIndexOf('.') + 1) === 'claude_subagent') return 'claude'
+  return null
+}

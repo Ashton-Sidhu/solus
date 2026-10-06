@@ -36,9 +36,9 @@ const reply = {
 describe('ask_jev', () => {
   test('both providers can discover it and clients recognize both names', () => {
     const tool = createJevAgentTool()
-    const codex = adaptCodexTools([tool])[0]
+    const codex = adaptCodexTools([tool])[0]!.tools[0]!
     expect(codex.name).toBe('ask_jev')
-    expect(JSON.stringify(codex.inputSchema)).toBe(JSON.stringify(z.toJSONSchema(z.object(tool.inputFields))))
+    expect(JSON.stringify(codex.inputSchema)).toBe(JSON.stringify(z.toJSONSchema(z.object(tool.inputFields), { io: 'input' })))
     const claude = adaptClaudeTools([tool], { ...context, provider: 'claude-code' }, 'plan')
     expect(claude.allowedTools).toEqual(['mcp__solus__ask_jev'])
     expect(tool.alwaysLoad).toBe(true)

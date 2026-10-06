@@ -33,6 +33,7 @@ import {
   projectFilterChoices,
   resolveProjectFilter,
   sortTasks,
+  isInWorkingSection,
   isWorkingStatus,
   sortRowsByReturn,
   taskRowBranchName,
@@ -1092,6 +1093,18 @@ describe('isWorkingStatus', () => {
     // error asks for the user and must stay in sight.
     const statuses: TaskStatus[] = ['question', 'error', 'plan', 'limit', 'running', 'background', 'idle', 'done']
     expect(statuses.filter(isWorkingStatus)).toEqual(['limit', 'running', 'background'])
+  })
+})
+
+describe('isInWorkingSection', () => {
+  it('folds a busy session row and never a task row', () => {
+    // WHY: the user decided a task keeps its place in Tasks while its lead or
+    // workers run. Only a session that no task row stands for folds away.
+    expect(isInWorkingSection({ status: 'running' })).toBe(true)
+    expect(isInWorkingSection({ status: 'question' })).toBe(false)
+    for (const status of ['running', 'background', 'limit'] satisfies TaskStatus[]) {
+      expect(isInWorkingSection({ taskId: 'task-1', status })).toBe(false)
+    }
   })
 })
 

@@ -246,7 +246,9 @@
   }
 
   .artifact-root.fill-available {
-    height: 100%;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
     padding-block: 0;
   }
 

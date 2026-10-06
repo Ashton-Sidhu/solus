@@ -10,6 +10,7 @@
     serversStore,
   } from "../../contexts";
   import { projectDirLabel } from "../../lib/paths";
+  import { isChat } from "@solus/contracts/chat";
   import { homeGitDetails, worktreeDisplayName } from "../../lib/git-context";
   import { requestInputFocus } from "../../lib/inputFocus";
   import type {
@@ -192,6 +193,22 @@
     if (!hasGitRepository) gitOpen = false;
   });
 
+  // A chat draws no strip (docs/plans/projectless-chat.md): its project list
+  // opens from the composer's + menu, above that button.
+  const inChat = $derived(isChat(gitHome.projectRoot ?? projectDir));
+  let addProjectAnchor = $state<HTMLElement | null>(null);
+  $effect(() => {
+    const handler = (event: Event) => {
+      const detail: { sourceId?: string; anchor?: HTMLElement } | undefined =
+        event instanceof CustomEvent ? event.detail : undefined;
+      if (!detail?.anchor || detail.sourceId !== source) return;
+      addProjectAnchor = detail.anchor;
+      projectPickerOpen = true;
+    };
+    window.addEventListener("solus:add-project", handler);
+    return () => window.removeEventListener("solus:add-project", handler);
+  });
+
   // The chip names a branch, so it always opens the branch list.
   function toggleBranchPicker() {
     gitInitialView = pendingDispatch ? "worktrees" : "branches";
@@ -368,12 +385,7 @@
   does not fit takes the next line instead, at any width: the same rule saves a
   narrow companion pane on desktop.
 -->
-<div class="flex flex-wrap items-center gap-1.5 px-3.5 pb-2">
-  <!-- A sentence read left to right: which project, on which machine, from
-       which branch, filed under which task. The project chip lists projects
-       from every host; the Run on picker then says what each machine would use
-       for the chosen one, and decides its own visibility from the connected
-       hosts. -->
+{#snippet projectChip()}
   <ProjectChip
     run={run ?? session.defaultRunConfig}
     projectDir={gitHome.projectRoot ?? projectDir}
@@ -381,10 +393,28 @@
     onSelect={selectProject}
     onBrowse={browseProjects}
     onNewProject={newProject}
-    onDismiss={() => requestInputFocus(focusTarget)}
-    anchor={projectPickerAnchor}
+    onDismiss={() => {
+      addProjectAnchor = null;
+      requestInputFocus(focusTarget);
+    }}
+    anchor={addProjectAnchor ?? projectPickerAnchor}
+    anchorSide={addProjectAnchor ? "top" : "bottom"}
     bind:open={projectPickerOpen}
   />
+{/snippet}
+
+{#if inChat}
+  <!-- No strip: its list still opens, from the + menu or the draft headline.
+       The host choice for a chat sits in the composer's own row. -->
+  <div class="hidden">{@render projectChip()}</div>
+{:else}
+<div class="flex flex-wrap items-center gap-1.5 px-3.5 pb-2">
+  <!-- A sentence read left to right: which project, on which machine, from
+       which branch, filed under which task. The project chip lists projects
+       from every host; the Run on picker then says what each machine would use
+       for the chosen one, and decides its own visibility from the connected
+       hosts. -->
+  {@render projectChip()}
 
   <RunOnPicker
     run={run ?? session.defaultRunConfig}
@@ -439,6 +469,7 @@
   {/if}
 
 </div>
+{/if}
 
 <!-- The composer is bottom-anchored, so the list opens over the transcript. -->
 {#if hasGitRepository}

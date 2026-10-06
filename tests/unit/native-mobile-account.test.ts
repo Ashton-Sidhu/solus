@@ -25,6 +25,8 @@ interface CloudScript {
   accountStatus?: number
   /** Resolves the directory read when the test says so. */
   directoryGate?: Promise<void>
+  grantGate?: Promise<void>
+  grantStatus?: number
 }
 
 function fakeCloud(script: CloudScript) {
@@ -67,7 +69,9 @@ function fakeCloud(script: CloudScript) {
         return json(200, {})
       default:
         if (path.startsWith('/v1/hosts/') && path.endsWith('/access-token')) {
-          return json(200, { accessToken: `jwt-${path.split('/')[3]}`, hostId: path.split('/')[3], expiresAt: 0 })
+          await script.grantGate
+          if (script.grantStatus) return json(script.grantStatus, {})
+          return json(200, { accessToken: `jwt-${path.split('/')[3]}`, hostId: path.split('/')[3], expiresAt: 8 * 60 * 60 * 1000 })
         }
         return json(404, {})
     }
@@ -206,5 +210,49 @@ describe('native Solus account', () => {
     const bodies = cloud.requests.filter((request) => request.path.endsWith('/access-token')).map((request) => JSON.parse(request.body ?? '{}'))
     expect(bodies).toEqual([{ organizationId: 'org-1' }, {}])
   })
-})
 
+  test('mobile reuses an eight-hour grant and combines a dial with record API acquisition', async () => {
+    const { session, registry, cloud, advance } = world({ hosts: [host('inst-org', ['org-1'])] })
+    await registry.load()
+    await session.load()
+    await session.startSignIn()
+    const target = registry.host('inst-org')!
+    const tokens = await Promise.all([session.acquireHostAccessToken(target), session.acquireHostAccessToken(target)])
+    expect(tokens).toEqual(['jwt-h-inst-org', 'jwt-h-inst-org'])
+    advance(7 * 60 * 60 * 1000)
+    expect(await session.acquireHostAccessToken(target)).toBe(tokens[0])
+    expect(cloud.requests.filter((r) => r.path.endsWith('/access-token'))).toHaveLength(1)
+    advance(60 * 60 * 1000)
+    await session.acquireHostAccessToken(target)
+    expect(cloud.requests.filter((r) => r.path.endsWith('/access-token'))).toHaveLength(2)
+  })
+
+  test('mobile scopes grants by organization and forwards forced renewal', async () => {
+    const { session, registry, cloud } = world({ hosts: [host('inst-org', ['org-1', 'org-2'])] })
+    await registry.load()
+    await session.load()
+    await session.startSignIn()
+    const target = registry.host('inst-org')!
+    await session.acquireHostAccessToken(target)
+    session.selectOrganization('org-2')
+    await session.acquireHostAccessToken(target)
+    await session.acquireHostAccessToken(target, { fresh: true })
+    expect(cloud.requests.filter((r) => r.path.endsWith('/access-token')).map((r) => JSON.parse(r.body ?? '{}')))
+      .toEqual([{ organizationId: 'org-1' }, { organizationId: 'org-2' }, { organizationId: 'org-2' }])
+  })
+
+  test('a mobile grant that finishes after sign-out is neither returned nor reused', async () => {
+    let release!: () => void
+    const grantGate = new Promise<void>((resolve) => { release = resolve })
+    const { session, registry } = world({ hosts: [host('inst-org')], grantGate })
+    await registry.load()
+    await session.load()
+    await session.startSignIn()
+    const target = registry.host('inst-org')!
+    const pending = session.acquireHostAccessToken(target)
+    await session.signOut()
+    release()
+    expect(await pending).toBeNull()
+    expect(await session.acquireHostAccessToken(target)).toBeNull()
+  })
+})

@@ -37,7 +37,7 @@
     mountedTabIds = next;
     untrack(() => {
       // A conversation still on screen in the split pane keeps its history.
-      const splitSession = session.splitChatTabId ? session.sessionFor(session.splitChatTabId) : undefined;
+      const splitSession = session.chatSurfaceTabId ? session.sessionFor(session.chatSurfaceTabId) : undefined;
       for (const tabId of previous) {
         if (next.includes(tabId) || !session.tabs[tabId]) continue;
         if (splitSession && session.sessionFor(tabId) === splitSession) continue;

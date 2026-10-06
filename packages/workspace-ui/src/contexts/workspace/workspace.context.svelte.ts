@@ -32,8 +32,8 @@ import { projectScopeOptions, scopeForProject, type LogicalProject, type Project
 import type { ListProjectOption } from '../../components/ui/list-page/list-page'
 import { toasts } from '../../lib/toasts'
 import { RouterStore } from './routing/router.store.svelte'
-import { visibleRef, type NavTarget, type PaneId } from './routing/location'
-import { ROUTES, chatRoute, type ReviewView, type RouteParams, type RouteRef, type SettingsTab } from './routing/route-registry'
+import { activeSurface, type OpenTarget, type PaneId } from './routing/location'
+import { CHAT_ROUTE, chatRoute, type ReviewView, type RouteParams, type RouteRef, type SettingsTab } from './routing/route-registry'
 import { WorkStreamTracker } from './work-stream-tracker.svelte'
 import { canReturnToRoute, leadingHomeRoute } from './leading-home'
 import { WorkspaceUiStore } from './workspace-ui.store.svelte'
@@ -142,9 +142,9 @@ export type SessionFields = {
 
 export interface CreateTabOptions {
   activate?: boolean
-  /** Where a draft opens: a pane id, or `'aside'` for a new companion pane.
-   *  Defaults to the focused pane. */
-  target?: NavTarget
+  /** Where a draft opens: the leading pane or the companion strip. Defaults
+   *  to the focused pane. */
+  target?: OpenTarget
   /** Whether selecting this tab should also reveal its conversation. True for
    *  every tab a person asks for; false for the tab seeded at startup. */
   reveal?: boolean
@@ -267,11 +267,18 @@ export class WorkspaceContext implements SurfaceContext {
     // pool. The router asks only when the leading pane is the one closing.
     this.router.leadingHome = () => leadingHomeRoute({
       hasTabs: this.hasOpenTabs(),
-      leadingBase: this.router.leadingPane.base,
+      leadingBase: this.router.destination,
       drafts: this.drafts.sessionDrafts,
       composingDraftIds: this.drafts.composingDraftIds,
       createDraft: () => this.drafts.createSessionDraft({}),
     })
+    // The pool's conversation owns the strip beside it, so switching tabs
+    // switches strips (docs/plans/companion-surfaces.md).
+    this.router.poolDestinationKey = () => {
+      const sessionId = this.tabs[this.activeTabId]?.sessionId
+      return sessionId ? `session:${sessionId}` : null
+    }
+    this.router.onLocationChanged = () => this.loadShownConversations()
     // Settings hands its pane back to what it covered, unless that tab closed
     // or that draft was sent while it was open.
     this.router.canReturnTo = (ref) => canReturnToRoute(ref, {
@@ -419,7 +426,10 @@ export class WorkspaceContext implements SurfaceContext {
   get tabOrder(): string[] { return this.registry.tabOrder }
   set tabOrder(value: string[]) { this.registry.tabOrder = value }
   get activeTabId(): string { return this.registry.activeTabId }
-  set activeTabId(value: string) { this.registry.setActiveTab(value) }
+  set activeTabId(value: string) {
+    this.registry.setActiveTab(value)
+    this.router.syncDestination()
+  }
   /**
    * The tab a pane's chat is rendered in — the session→tab hop, and the only
    * place it happens. A pinned chat names its session and resolves through the
@@ -443,7 +453,7 @@ export class WorkspaceContext implements SurfaceContext {
    *  answers only once a conversation has started, but a draft owns a run too,
    *  so a command that changes where work happens resolves its source here. */
   get focusedSourceId(): string | null {
-    const ref = visibleRef(this.router.focused)
+    const ref = activeSurface(this.router.focused)
     if (ref?.name === 'draft') return ref.params.draftId
     return this.focusedChatTabId
   }
@@ -462,18 +472,10 @@ export class WorkspaceContext implements SurfaceContext {
     )
   }
 
-  /** The chat pinned into a companion pane, if any — the "split chat". */
-  get splitChatTabId(): string | null {
-    for (const pane of this.router.asidePanes) {
-      const tabId = this.chatTabIn(pane.id)
-      if (tabId) return tabId
-    }
-    return null
-  }
-
-  /** The pane holding the split chat, for focus and close operations. */
-  private get splitChatPaneId(): PaneId | null {
-    return this.router.asidePanes.find((pane) => pane.base?.name === 'chat')?.id ?? null
+  /** The tab of the chat surface the companion pane shows, if any. */
+  get chatSurfaceTabId(): string | null {
+    const companion = this.router.companionPane
+    return companion ? this.chatTabIn(companion.id) : null
   }
   get activeInput(): Prompt { return this.registry.activeInput }
   set activeInput(value: Prompt) { this.registry.activeInput = value }
@@ -599,12 +601,21 @@ export class WorkspaceContext implements SurfaceContext {
     return this.registry.resolveTab(tabId)
   }
 
+  /** A restored tab loads its transcript when its conversation is shown — in
+   *  the leading pane or as a chat surface — not when it becomes active: a
+   *  surface shows a tab that is not active, and a page can cover one that is.
+   *  A tab already loaded is left as it is. */
+  loadShownConversations(): void {
+    if (this.showsConversation && this.activeTabId) prioritizeTabHydration(this, this.activeTabId)
+    const surfaceTabId = this.chatSurfaceTabId
+    if (surfaceTabId) prioritizeTabHydration(this, surfaceTabId)
+  }
+
   setActiveTab(tabId: string): void {
     this.registry.setActiveTab(tabId)
-    prioritizeTabHydration(this, tabId)
-    // A review guide belongs to the session it was generated from, so moving to
-    // another tab leaves it rather than showing a stale walkthrough.
-    this.router.close('review')
+    // The conversation owns the strip beside it: a review of the session left
+    // behind goes with that session's strip.
+    this.router.syncDestination()
   }
 
   /** Visibility can change without selecting a tab: window focus, closing a
@@ -636,9 +647,8 @@ export class WorkspaceContext implements SurfaceContext {
     const hasCompanionPanes = this.shell.hasCompanionPanes
     // A chat pinned in a companion pane is on screen too — but only in
     // wide layouts, where companion panes actually render.
-    if (hasCompanionPanes && this.router.asidePanes.some(
-      (pane) => this.router.chatSessionIn(pane.id) === sessionId,
-    )) {
+    const companion = this.router.companionPane
+    if (hasCompanionPanes && companion && this.router.chatSessionIn(companion.id) === sessionId) {
       return true
     }
     return this.tabs[this.activeTabId]?.sessionId === sessionId
@@ -657,14 +667,13 @@ export class WorkspaceContext implements SurfaceContext {
     )
     if (!tabId) return false
     const hasCompanionPanes = this.shell.hasCompanionPanes
-    if (hasCompanionPanes && this.router.asidePanes.some((pane) => {
-      if (pane.overlay || pane.base?.name !== 'chat') return false
-      if (pane.base.params.sessionId !== sessionId) return false
-      return pane.base.params.serverId
-        ? pane.base.params.serverId === serverId
-        : this.chatTabIn(pane.id) === tabId
-    })) {
-      return true
+    const companion = this.router.companionPane
+    const surface = this.router.companionSurface
+    if (hasCompanionPanes && companion && surface?.name === 'chat' && surface.params.sessionId === sessionId) {
+      const isSameHost = surface.params.serverId
+        ? surface.params.serverId === serverId
+        : this.chatTabIn(companion.id) === tabId
+      if (isSameHost) return true
     }
     return this.activeTabId === tabId && this.showsConversation
   }
@@ -673,7 +682,7 @@ export class WorkspaceContext implements SurfaceContext {
    *  an artifact or a draft sitting in it means the active tab exists but is
    *  not on screen — so selecting that tab still has somewhere to go. */
   get showsConversation(): boolean {
-    return visibleRef(this.router.leadingPane)?.name === 'chat'
+    return this.router.destination.name === 'chat'
   }
 
   /** The tab whose conversation is on screen, for surfaces that mark the current
@@ -684,18 +693,15 @@ export class WorkspaceContext implements SurfaceContext {
    *  highlights nothing rather than the tab you left behind. */
   get onScreenTabId(): string {
     if (this.showsConversation) return this.activeTabId
-    return this.splitChatTabId ?? ''
+    return this.chatSurfaceTabId ?? ''
   }
 
-  /** Leave whatever page (and optionally artifact) is showing — what selecting
-   *  another tab or creating one does, so the new conversation is what you see.
-   *  `keepAside` closes only a page covering the conversation and leaves the one
-   *  beside it: opening a task's lead puts the task page there first. */
-  resetOverlays(opts: { closeArtifact?: boolean; keepAside?: boolean } = {}): void {
-    const leading = this.router.leadingPane
-    if (!opts.keepAside) this.router.closeGroup('page')
-    else if (leading.base && ROUTES[leading.base.name].exclusiveGroup === 'page') this.router.closePane(leading.id)
-    if (opts.closeArtifact) this.router.closeGroup('artifact')
+  /** Leave whatever page or draft the leading pane shows — what selecting
+   *  another tab or creating one does, so the conversation is what you see. Its
+   *  strip comes with it. */
+  revealConversation(): void {
+    const destination = this.router.destination
+    if (destination.name !== 'chat' && destination.name !== 'draft') this.router.close(destination.name)
     this.drafts.leaveDraftInLead()
     this.planStore.dismissPreview()
   }
@@ -835,8 +841,8 @@ export class WorkspaceContext implements SurfaceContext {
    *  beside that pane, so annotations must follow its draft even when the tab
    *  strip still names an older session. */
   get leadingInput(): Prompt {
-    const ref = this.router.leadingPane.base
-    if (ref?.name === 'draft') {
+    const ref = this.router.destination
+    if (ref.name === 'draft') {
       const draft = this.drafts.sessionDrafts.get(ref.params.draftId)
       if (draft) return draft.prompt
     }
@@ -856,10 +862,8 @@ export class WorkspaceContext implements SurfaceContext {
    *  surface that must agree with it (the session picker's project scope) reads
    *  it here rather than off the active tab, which a draft has none of. */
   get activeRun(): RunConfig | undefined {
-    // A page can cover a draft without changing the input bar below it. Read
-    // the pane's base so that covered composer remains the project authority.
-    const ref = this.router.leadingPane.base
-    if (ref?.name === 'draft') {
+    const ref = this.router.destination
+    if (ref.name === 'draft') {
       const draft = this.drafts.sessionDrafts.get(ref.params.draftId)
       if (draft) return draft.run
     }
@@ -978,6 +982,8 @@ export class WorkspaceContext implements SurfaceContext {
       session.rateLimitInfo = info.rateLimitInfo
       this.lifecycle.reconcileQueuedPrompts(tabId, info.queuedPrompts)
     } else {
+      // Background tasks live in the run's query, so with no run none are left.
+      if (session.status === 'background') session.status = 'idle'
       // No run is alive on the host, so no blocking request it asked can be answered.
       for (const request of session.permissionQueue) request.expired ??= 'run_ended'
       for (const request of session.questionQueue) {
@@ -1020,14 +1026,10 @@ export class WorkspaceContext implements SurfaceContext {
     const sessionId = this.tabs[tabId]?.sessionId
     if (!this.shell.hasProjectPanel) {
       if (!sessionId) return
-      const pane = this.router.navigate(
-        { name: 'goal', params: { sessionId, serverId: this.sessions.byId[sessionId]?.run.serverId } },
-        { target: 'aside' },
-      )
-      pane.defaultSize = 34
+      this.router.navigate({ name: 'goal', params: { sessionId, serverId: this.sessions.byId[sessionId]?.run.serverId } })
       return
     }
-    const isSplit = tabId === this.splitChatTabId
+    const isSplit = tabId === this.chatSurfaceTabId
     const collapsed = isSplit ? this.settings.splitProjectPanelCollapsed : this.settings.projectPanelCollapsed
     collapsed.goal = false
     this.settings.setLayout(isSplit ? 'splitProjectPanelOpen' : 'projectPanelOpen', true)
@@ -1064,7 +1066,7 @@ export class WorkspaceContext implements SurfaceContext {
     track('tab_created', { via: options.via, worktree: worktreeRequested })
     if (options.activate !== false) {
       this.setActiveTab(tab.id)
-      this.resetOverlays({ closeArtifact: true })
+      this.revealConversation()
     }
     if (options.gitInitialization !== 'skip') {
       const gitInitialization = this.environment.refreshEnvironment(this, { sourceId: tabId, worktreeRequested, force: false })
@@ -1127,9 +1129,7 @@ export class WorkspaceContext implements SurfaceContext {
     })
     if (options.activate !== false) {
       this.setActiveTab(tabId)
-      if (options.reveal !== false) {
-        this.resetOverlays({ closeArtifact: true })
-      }
+      if (options.reveal !== false) this.revealConversation()
     }
     void this.config.refreshSessionStartTarget(
       tabId,
@@ -1209,17 +1209,17 @@ export class WorkspaceContext implements SurfaceContext {
     return agentSessionId
   }
 
-  selectTab(tabId: string, via: Via = 'click', opts: { keepAside?: boolean } = {}): void {
-    // Selecting is also the user's explicit request to see this transcript.
-    // Retry even when this is already active behind a draft/page: setActiveTab
-    // does not run in that branch, and a failed boot hydration must not strand
-    // the conversation as an empty composer for the renderer lifetime.
+  selectTab(tabId: string, via: Via = 'click'): void {
+    // Selecting is the user's explicit request to see this transcript, so it
+    // retries a failed load. Showing it is what loads it the first time
+    // (`loadShownConversations`), but a conversation already on screen changes
+    // no location, so only the click can try again.
     prioritizeTabHydration(this, tabId)
-    if (tabId === this.splitChatTabId) {
-      const paneId = this.splitChatPaneId
-      if (paneId) this.router.focusPane(paneId)
-      const secondarySession = this.sessionFor(tabId)
-      if (secondarySession) void this.lifecycle.refreshPluginCommands(secondarySession.run.workingDirectory, tabId, { onlyIfStale: true })
+    const companion = this.router.companionPane
+    if (companion && tabId === this.chatSurfaceTabId) {
+      this.router.focusPane(companion.id)
+      const surfaceSession = this.sessionFor(tabId)
+      if (surfaceSession) void this.lifecycle.refreshPluginCommands(surfaceSession.run.workingDirectory, tabId, { onlyIfStale: true })
       requestInputFocus({ tabId })
       track('tab_selected', { via })
       return
@@ -1230,11 +1230,11 @@ export class WorkspaceContext implements SurfaceContext {
     if (tabId === this.activeTabId) {
       // If a page covers the active conversation, selecting its tab reveals the
       // conversation again. Otherwise it is a no-op apart from read state.
-      if (!this.showsConversation) this.resetOverlays({ closeArtifact: true, keepAside: opts.keepAside })
+      if (!this.showsConversation) this.revealConversation()
       if (tab) tab.hasUnread = false
     } else {
       this.setActiveTab(tabId)
-      this.resetOverlays({ closeArtifact: true, keepAside: opts.keepAside })
+      this.revealConversation()
       if (tab) {
         tab.hasUnread = false
       }
@@ -1250,90 +1250,105 @@ export class WorkspaceContext implements SurfaceContext {
   }
 
   /**
-   * Pin a chat into the secondary pane beside the primary conversation.
-   * Splitting the active tab first activates its nearest neighbour (or a fresh
-   * tab when it's the only one) so the same chat isn't rendered twice — the
-   * pool and the split pane are separate ConversationView instances.
+   * Open a tab's conversation as a surface beside the leading one. Opening the
+   * active tab this way first activates its nearest neighbour (or a fresh draft
+   * when it's the only one) so the same chat isn't rendered twice — the pool
+   * and the surface are separate ConversationView instances.
    */
-  openTabInSplit(tabId: string): void {
+  openTabAsSurface(tabId: string, opts: { background?: boolean } = {}): void {
     const tab = this.tabs[tabId]
     if (!tab) return
-    if (tabId === this.activeTabId) {
+    if (tabId === this.activeTabId && this.showsConversation) {
       const others = this.tabOrder.filter((id) => id !== tabId && this.tabs[id])
       if (others.length === 0) {
-        this.drafts.openSessionDraft({ sourceId: tabId, via: 'click' })
+        this.drafts.openSessionDraft({ sourceId: tabId, via: 'click', target: 'leading' })
       } else {
-        const splitIdx = this.tabOrder.indexOf(tabId)
+        const surfaceIndex = this.tabOrder.indexOf(tabId)
         this.selectTab(others.reduce((best, id) => {
           const idxA = this.tabOrder.indexOf(id)
           const idxB = this.tabOrder.indexOf(best)
-          return Math.abs(idxA - splitIdx) < Math.abs(idxB - splitIdx) ? id : best
+          return Math.abs(idxA - surfaceIndex) < Math.abs(idxB - surfaceIndex) ? id : best
         }))
       }
     }
     tab.hasUnread = false
-    this.openSplitChat(tab.sessionId)
+    this.openChatSurface(tab.sessionId, opts)
     track('tab_split_opened', {})
-    requestInputFocus({ tabId })
+    if (!opts.background) requestInputFocus({ tabId })
   }
 
-  /** Pin a conversation into a companion pane beside the leading one. The pane
-   *  is addressed by session; which tab renders it is resolved on the way out.
-   *  The split pane is already the narrow half, so it starts without its project
-   *  rail — the user opens it deliberately from there. */
-  openSplitChat(sessionId: string): void {
+  /** Open a conversation as a surface in the strip. It is addressed by
+   *  session; which tab renders it is resolved on the way out. The companion
+   *  pane is already the narrow half, so it starts without its project rail —
+   *  the user opens it deliberately from there. */
+  openChatSurface(sessionId: string, opts: { background?: boolean } = {}): void {
     // The route is persisted and restored: it must name the session's host or
     // a restore resolves the bare id against whichever host answers first.
     this.router.navigate(
       chatRoute(sessionId, this.sessions.byId[sessionId]?.run.serverId),
-      { target: 'aside' },
+      { target: 'companion', background: opts.background },
     )
     if (this.settings.splitProjectPanelOpen) this.settings.setLayout('splitProjectPanelOpen', false)
   }
 
-  /** Move the split chat back into the leading pane's tab pool. */
-  promoteSplitToMainTab(): void {
-    const splitTabId = this.splitChatTabId
-    if (!splitTabId) return
-    const splitTab = this.tabs[splitTabId]
-    const splitSession = this.sessionFor(splitTabId)
-    if (!splitTab || !splitSession) return
+  /** The tab keys act on the pane with focus: in the companion pane they move
+   *  between its surfaces. Answers whether they did. */
+  moveBetweenSurfaces(delta: 1 | -1): boolean {
+    const companion = this.router.companionPane
+    if (!companion || this.router.focusedPaneId !== companion.id) return false
+    this.router.activateAdjacentSurface(delta)
+    return true
+  }
 
-    this.setActiveTab(splitTabId)
-    splitTab.hasUnread = false
-    this.closeSplitPane()
-    if (splitSession.run.provider && this.settings.activeAgent !== splitSession.run.provider) {
-      this.config.followActiveSessionAgent(splitSession.run.provider)
+  /** The close-tab key in the companion pane closes its active surface.
+   *  Answers whether it did. */
+  closeFocusedSurface(): boolean {
+    const companion = this.router.companionPane
+    if (!companion || this.router.focusedPaneId !== companion.id) return false
+    this.router.closeSurface(companion.activeSurfaceIndex)
+    requestInputFocus()
+    return true
+  }
+
+  /** Make the chat surface on screen the leading conversation. */
+  moveChatSurfaceToMain(): void {
+    const surfaceTabId = this.chatSurfaceTabId
+    const companion = this.router.companionPane
+    if (!surfaceTabId || !companion) return
+    const surfaceTab = this.tabs[surfaceTabId]
+    const surfaceSession = this.sessionFor(surfaceTabId)
+    if (!surfaceTab || !surfaceSession) return
+
+    this.router.closeSurface(companion.activeSurfaceIndex)
+    this.setActiveTab(surfaceTabId)
+    this.revealConversation()
+    surfaceTab.hasUnread = false
+    if (surfaceSession.run.provider && this.settings.activeAgent !== surfaceSession.run.provider) {
+      this.config.followActiveSessionAgent(surfaceSession.run.provider)
     }
-    requestInputFocus({ tabId: splitTabId })
+    requestInputFocus({ tabId: surfaceTabId })
   }
 
-  /** Close the pinned chat, discarding only a never-used split-created tab. */
-  closeSplitChat(): void {
-    const splitTabId = this.splitChatTabId
-    if (!splitTabId) {
-      this.closeSplitPane()
-      return
-    }
-    const splitTab = this.tabs[splitTabId]
-    const splitSession = this.sessionFor(splitTabId)
-    const shouldCloseTab = splitTabId !== this.activeTabId
-      && !!splitTab
-      && !!splitSession
-      && isPristineSplitTab(splitTab, splitSession)
+  /** Close the chat surface on screen, discarding only a never-used tab that
+   *  was made for it. A used conversation keeps its tab, so it stays in the
+   *  sidebar. */
+  closeChatSurface(): void {
+    const companion = this.router.companionPane
+    const surfaceTabId = this.chatSurfaceTabId
+    if (!companion || !surfaceTabId) return
+    const surfaceTab = this.tabs[surfaceTabId]
+    const surfaceSession = this.sessionFor(surfaceTabId)
+    const shouldCloseTab = surfaceTabId !== this.activeTabId
+      && !!surfaceTab
+      && !!surfaceSession
+      && isPristineSplitTab(surfaceTab, surfaceSession)
 
-    this.closeSplitPane()
-    if (shouldCloseTab) this.closeTab(splitTabId)
+    this.router.closeSurface(companion.activeSurfaceIndex)
+    if (shouldCloseTab) this.closeTab(surfaceTabId)
   }
 
-  /** Close the companion pane holding the split chat, if there is one. */
-  private closeSplitPane(): void {
-    const paneId = this.splitChatPaneId
-    if (paneId) this.router.closePane(paneId)
-  }
   closeTab(tabId: string, via: Via = 'click'): void {
     const serverId = this.sessionFor(tabId)?.run.serverId
-    if (this.splitChatTabId === tabId) this.closeSplitPane()
     const tab = this.tabs[tabId]
     const sessionId = tab?.sessionId
     const closedTabIndex = this.tabOrder.indexOf(tabId)
@@ -1348,6 +1363,8 @@ export class WorkspaceContext implements SurfaceContext {
     // Clean up the session once nothing is watching it any more. Only this —
     // the user closing the last view — unwatches; a dropped socket does not.
     if (sessionId && this.tabIdsForSession(sessionId).length === 0) {
+      // Nothing shows this conversation as a surface now.
+      this.router.closeSurfacesWhere((ref) => ref.name === 'chat' && ref.params.sessionId === sessionId)
       void this.apiFor(tabId).unwatchSession(sessionId).catch(() => {})
       this.lifecycle.disposeSession(sessionId)
       delete this.sessions.byId[sessionId]
@@ -1364,6 +1381,8 @@ export class WorkspaceContext implements SurfaceContext {
       if (newOrder.length === 0) this.activeTabId = ''
       else this.setActiveTab(newOrder[0])
     }
+    // After the switch above, which puts the closed conversation's strip away.
+    if (sessionId && this.tabIdsForSession(sessionId).length === 0) this.router.dropStrip(`session:${sessionId}`)
     // Preserve the reactive array identity so closing one tab only invalidates the
     // removed index instead of rebuilding every tab-strip item.
     if (closedTabIndex !== -1) this.tabOrder.splice(closedTabIndex, 1)
@@ -1371,7 +1390,7 @@ export class WorkspaceContext implements SurfaceContext {
     track('tab_closed', { via })
     // Closing the last tab lands on the draft you would have opened next, so no
     // surface has to describe a workspace with nothing in it.
-    if (this.tabOrder.length === 0 && this.router.leadingPane.base?.name !== 'draft') {
+    if (this.tabOrder.length === 0 && this.router.destination.name !== 'draft') {
       this.drafts.openSessionDraft({ via })
     }
   }
@@ -1479,8 +1498,8 @@ export class WorkspaceContext implements SurfaceContext {
   // ─── Plans (open state lives in panes, not on Tab) ───
 
   clearPlanWaiting(sessionId: string): void { clearPlanWaiting(this, sessionId) }
-  async openPlanModal(planId: string, ref?: { sessionId?: string; planToolUseId?: string; status?: 'pending' | 'accepted' | 'rejected' }, opts: { secondary?: boolean } = {}): Promise<void> {
-    await openPlanModal(this, planId, ref, opts)
+  async openPlanModal(planId: string, ref?: { sessionId?: string; planToolUseId?: string; status?: 'pending' | 'accepted' | 'rejected' }): Promise<void> {
+    await openPlanModal(this, planId, ref)
     track('surface_viewed', { surface: 'plan_modal' })
   }
   closePlanModal(): void { closePlanModal(this) }
@@ -1506,10 +1525,8 @@ export class WorkspaceContext implements SurfaceContext {
     })
   }
 
-  /** Open a work as an artifact. By default it takes the Focus pane (or the
-   *  secondary slot if one is already open); `secondary: true` forces it beside
-   *  the conversation in the secondary pane (used by the project panel). */
-  async openWorkModal(workId: string, title?: string, opts: { secondary?: boolean; via?: Via } = {}): Promise<void> {
+  /** Open a work as a surface beside the destination. */
+  async openWorkModal(workId: string, title?: string, opts: { via?: Via } = {}): Promise<void> {
     let resolvedId = workId
     if (!workId) {
       if (!title) return
@@ -1521,21 +1538,16 @@ export class WorkspaceContext implements SurfaceContext {
     }
     // The pane's open-work lease reads the body once it has subscribed, and
     // shows its loading state until then. Opening does not read it again.
-    this.router.close('folio')
-    this.openWork(resolvedId, opts.secondary ? 'aside' : 'focused')
+    this.openWork(resolvedId)
     track('surface_viewed', { surface: 'work_modal', via: opts.via })
   }
 
-  /** Open a work as the single artifact. `aside` puts it beside the
-   *  conversation; otherwise it takes the focused pane. */
-  openWork(workId: string, target: 'focused' | 'aside' = 'focused'): void {
+  /** Open a work as a surface beside the destination. */
+  openWork(workId: string): void {
     const serverId = this.worksStore.hostFor(workId) ?? undefined
     const params: Extract<RouteRef, { name: 'work' }>['params'] = { workId }
     if (serverId) params.serverId = serverId
-    this.router.navigate(
-      { name: 'work', params },
-      { target: this.paneTarget(target) },
-    )
+    this.router.navigate({ name: 'work', params })
   }
 
   /** Close a work and reveal a real prompt destination. A work can be opened
@@ -1551,14 +1563,9 @@ export class WorkspaceContext implements SurfaceContext {
       return
     }
 
-    const openDraftPane = this.router.panes.find(
-      (pane) => pane.base?.name === 'draft'
-        && this.drafts.sessionDrafts.has(pane.base.params.draftId),
-    )
-    if (openDraftPane) {
-      const draftIndex = this.router.panes.indexOf(openDraftPane)
-      if (draftIndex > 0) this.router.movePane(openDraftPane.id, -draftIndex)
-      else this.router.focusPane(openDraftPane.id)
+    const destination = this.router.destination
+    if (destination.name === 'draft' && this.drafts.sessionDrafts.has(destination.params.draftId)) {
+      this.router.focusPane(this.router.leadingPane.id)
       requestInputFocus()
       return
     }
@@ -1566,7 +1573,7 @@ export class WorkspaceContext implements SurfaceContext {
     let latestDraft: SessionDraft | null = null
     for (const draft of this.drafts.sessionDrafts.values()) latestDraft = draft
     if (latestDraft) this.drafts.openDraft(latestDraft.id)
-    else this.drafts.openSessionDraft({ target: this.router.leadingPane.id, via: 'click' })
+    else this.drafts.openSessionDraft({ target: 'leading', via: 'click' })
     requestInputFocus()
   }
 
@@ -1604,7 +1611,6 @@ export class WorkspaceContext implements SurfaceContext {
     const serverId = this.serverIdForRun(run)
     const work = await api.createWork(title, type, content, workPreview(type, content), undefined, provider, run.workingDirectory)
     this.worksStore.acceptCreated(work, serverId)
-    this.router.close('folio')
     this.openWork(work.id)
   }
 
@@ -1640,7 +1646,7 @@ export class WorkspaceContext implements SurfaceContext {
   async openChatForWork(workId: string, mode: 'resume' | 'new'): Promise<void> {
     const work = this.worksStore.get(workId)
     if (!work) return
-    this.router.closeGroup('page')
+    this.revealConversation()
 
     // Resume targets the most recently linked session (newest in sessionIds),
     // falling back to the legacy origin session.
@@ -1648,7 +1654,6 @@ export class WorkspaceContext implements SurfaceContext {
 
     let targetTabId: string | null = null
     let resumed = false
-    this.openWork(workId, 'aside')
     void this.worksStore.ensureContent(workId, 'open-chat-for-work')
     if (mode === 'resume' && resumeSid) {
       // find an open tab with this session on the work's own host, else resume
@@ -1675,12 +1680,17 @@ export class WorkspaceContext implements SurfaceContext {
       // session. The work binding crosses into the session only when Send
       // creates it, so an abandoned prompt leaves no empty tab behind.
       this.drafts.openSessionDraft(
-        { freshTask: true, workId, target: this.router.leadingPane.id },
+        { freshTask: true, workId, target: 'leading' },
         work.cwd,
       )
+      // In the draft's strip, so it is still beside the conversation once sent.
+      this.openWork(workId)
       requestInputFocus()
       return
     }
+
+    // In the resumed conversation's strip, now that it is the destination.
+    this.openWork(workId)
 
     // A resumed session already exists, so attach the work immediately and
     // publish the back-reference now.
@@ -1722,8 +1732,6 @@ export class WorkspaceContext implements SurfaceContext {
     await this.tasksStore.ensureLinkedTasks([linkTarget], taskServerId)
     const owningTask = this.tasksStore.linkedTasksFor(linkTarget)?.[0]
 
-    this.router.closeGroup('page')
-    this.openWork(workId, 'aside')
     void this.worksStore.ensureContent(workId, 'send-message-to-work')
 
     const draft = this.drafts.createSessionDraft(
@@ -1734,39 +1742,22 @@ export class WorkspaceContext implements SurfaceContext {
     const tabId = this.drafts.startSessionDraft(draft.id, { via: 'click' })
     if (!tabId) return false
 
-    this.router.navigate(
-      { name: 'chat', params: {} },
-      { target: this.router.leadingPane.id },
-    )
+    this.router.navigate(CHAT_ROUTE)
+    this.openWork(workId)
     return this.dispatch.sendMessage(prompt, undefined, tabId)
   }
 
   // ─── Pages ───
   //
-  // A page is a route with `exclusiveGroup: 'page'`, so only one can exist.
-  // `showPage` makes an explicit destination win over that reuse rule.
+  // A page is a destination: it takes the leading pane, and the strip beside
+  // it is its own (docs/plans/companion-surfaces.md).
 
   showPage(
     ref: RouteRef,
     via: Via,
     surface: SolusEventMap['surface_viewed']['surface'],
-    target: NavTarget = this.router.leadingPane.id,
   ): void {
-    // An explicit target must beat page-group reuse. Main page entry points
-    // name the leading pane; contextual links can name the companion. Without
-    // clearing a page in the other pane first, exclusivity replaces it where it
-    // already lives and silently ignores the requested destination.
-    const existingPage = this.router.panes.find(
-      (pane) => pane.base && ROUTES[pane.base.name].exclusiveGroup === 'page',
-    )
-    if (existingPage && (
-      target === 'aside' ||
-      target === 'new' ||
-      (target !== 'focused' && existingPage.id !== target)
-    )) {
-      this.router.closeGroup('page')
-    }
-    this.router.navigate(ref, { via, target })
+    this.router.navigate(ref, { via })
     track('surface_viewed', { surface, via })
   }
 
@@ -1790,42 +1781,40 @@ export class WorkspaceContext implements SurfaceContext {
     this.showPage({ name: 'sessionRecord', params: { sessionId, serverId } }, via, 'tasks')
   }
 
-  openFolio(via: Via = 'click', target: 'focused' | 'aside' = 'focused'): void {
-    this.showPage({ name: 'folio', params: {} }, via, 'workspace', this.paneTarget(target))
+  openFolio(via: Via = 'click'): void {
+    this.showPage({ name: 'folio', params: {} }, via, 'workspace')
   }
 
-  /** Open a plan as the single artifact. */
-  openPlan(planId: string, target: 'focused' | 'aside' = 'focused'): void {
-    this.router.navigate(
-      { name: 'plan', params: { planId, serverId: this.planStore.hostFor(planId) ?? undefined } },
-      { target: this.paneTarget(target) },
-    )
+  /** Open a plan as a surface beside the destination. */
+  openPlan(planId: string): void {
+    this.router.navigate({ name: 'plan', params: { planId, serverId: this.planStore.hostFor(planId) ?? undefined } })
   }
 
   /**
    * Open the browser pane — the running UI at a chosen viewport. Naming a page
    * deep-links it; without one the pane follows the browser store's active
    * page, or offers the dev servers the host discovered.
-   *
-   * `aside` by placement: looking at the app while directing an agent is the
-   * gesture, not leaving the conversation to do it.
    */
-  openBrowser(browserPageId?: string, serverId?: string): void {
+  openBrowser(browserPageId?: string, serverId?: string, opts: { automatic?: boolean } = {}): void {
     const params: Extract<RouteRef, { name: 'browser' }>['params'] = {}
     if (browserPageId) params.browserPageId = browserPageId
     if (serverId) params.serverId = serverId
-    this.router.navigate({ name: 'browser', params }, { target: 'aside' })
+    this.router.navigate({ name: 'browser', params }, { automatic: opts.automatic })
   }
 
   /**
    * Open the Devices pane beside the conversation: the session's simulators
    * and emulators. Without a session the pane follows the focused one.
+   * `newTab` adds another Devices tab when the strip already has one.
    */
-  openDevices(sessionId?: string, serverId?: string): void {
+  openDevices(sessionId?: string, serverId?: string, opts: { automatic?: boolean; newTab?: boolean } = {}): void {
     const params: Extract<RouteRef, { name: 'devices' }>['params'] = {}
     if (sessionId) params.sessionId = sessionId
     if (serverId) params.serverId = serverId
-    this.router.navigate({ name: 'devices', params }, { target: 'aside' })
+    if (opts.newTab && this.router.companionPane?.surfaces.some((surface) => surface.name === 'devices')) {
+      params.surfaceId = Math.random().toString(36).slice(2, 10)
+    }
+    this.router.navigate({ name: 'devices', params }, { automatic: opts.automatic })
   }
 
   /**
@@ -1845,13 +1834,6 @@ export class WorkspaceContext implements SurfaceContext {
   async openUrlInBrowser(url: string, serverId: string): Promise<void> {
     const key = await browserStore.open(serverId, { target: { kind: 'url', url } })
     this.openBrowser(splitHostKey(key).path, serverId)
-  }
-
-  /** A surface opening fresh covers the conversation; `aside` puts it beside
-   *  one. Where an artifact of the same group is already open, exclusivity
-   *  replaces it in place and this target is never consulted. */
-  private paneTarget(target: 'focused' | 'aside'): NavTarget {
-    return target === 'aside' ? 'aside' : this.router.leadingPane.id
   }
 
   // ─── Tasks page ───
@@ -1932,29 +1914,18 @@ export class WorkspaceContext implements SurfaceContext {
     return tabId ? this.sessionFor(tabId) : undefined
   }
 
-  /** Open one task's page. Its own route, so it deep-links, joins history and
-   *  can be opened beside the conversation from contextual entry points. */
-  goToTask(
-    taskId: string,
-    via: Via = 'palette',
-    target: 'leading' | 'secondary' = 'leading',
-  ): void {
-    // A task page already beside the conversation takes the next task in
-    // place. A new pane closed the old one and opened another, so the
-    // conversation column narrowed, widened and narrowed again on every switch.
-    const taskBeside = target === 'secondary'
-      ? this.router.panes.find((pane) => pane.id !== this.router.leadingPane.id && pane.base?.name === 'task')
-      : undefined
+  /** Open one task as a surface beside the destination. Its own route, so it
+   *  deep-links and joins history. */
+  goToTask(taskId: string, via: Via = 'palette'): void {
     this.showPage(
       { name: 'task', params: { taskId, serverId: this.tasksStore.get(taskId).serverId ?? undefined } },
       via,
       'tasks',
-      target === 'secondary' ? (taskBeside?.id ?? 'new') : this.router.leadingPane.id,
     )
   }
 
-  openTasks(via: Via = 'click', target: 'focused' | 'aside' = 'focused'): void {
-    this.showPage({ name: 'tasks', params: {} }, via, 'tasks', this.paneTarget(target))
+  openTasks(via: Via = 'click'): void {
+    this.showPage({ name: 'tasks', params: {} }, via, 'tasks')
   }
 
   /** New task: file an untitled task and open it as the split view, its lead
@@ -1993,17 +1964,8 @@ export class WorkspaceContext implements SurfaceContext {
     this.togglePage({ name: 'prs', params: {} }, via, 'prs')
   }
 
-  openPrs(
-    projectPath: string | null = null,
-    via: Via = 'click',
-    target: 'focused' | 'aside' = 'focused',
-  ): void {
-    this.showPage(
-      { name: 'prs', params: { projectPath: projectPath ?? undefined } },
-      via,
-      'prs',
-      this.paneTarget(target),
-    )
+  openPrs(projectPath: string | null = null, via: Via = 'click'): void {
+    this.showPage({ name: 'prs', params: { projectPath: projectPath ?? undefined } }, via, 'prs')
   }
 
   // ─── Insights page ───
@@ -2016,21 +1978,29 @@ export class WorkspaceContext implements SurfaceContext {
     this.togglePage({ name: 'insights', params: {} }, via, 'insights')
   }
 
-  openInsights(via: Via = 'click', target: 'focused' | 'aside' = 'focused'): void {
-    this.showPage({ name: 'insights', params: {} }, via, 'insights', this.paneTarget(target))
+  /** Open Insights. It opens where it already is; otherwise it opens as the
+   *  destination, or as a surface beside the conversation when asked. */
+  openInsights(via: Via = 'click', target?: OpenTarget): void {
+    this.showInsights({}, via, target)
   }
 
   /** One turn's waterfall, by the trace that identifies it: the Insights page
    *  with that turn's detail panel open beside the list. Naming a span opens
    *  the waterfall with that span's detail already expanded. */
   openInsightsTurn(traceId: string, spanId?: string, via: Via = 'click'): void {
-    this.showPage({ name: 'insights', params: spanId ? { traceId, spanId } : { traceId } }, via, 'insights')
+    this.showInsights(spanId ? { traceId, spanId } : { traceId }, via)
   }
 
   /** One session's page in Insights: every turn of it on one axis, with cost
    *  and context climbing — where "why is this session slow" is answered. */
-  openInsightsSession(sessionId: string, via: Via = 'click'): void {
-    this.showPage({ name: 'insights', params: { sessionId } }, via, 'insights')
+  openInsightsSession(sessionId: string, via: Via = 'click', target?: OpenTarget): void {
+    this.showInsights({ sessionId }, via, target)
+  }
+
+  private showInsights(params: RouteParams['insights'], via: Via, target?: OpenTarget): void {
+    const shownTarget = this.router.companionSurface?.name === 'insights' ? 'companion' : 'leading'
+    this.router.navigate({ name: 'insights', params }, { via, target: target ?? shownTarget })
+    track('surface_viewed', { surface: 'insights', via })
   }
 
   // ─── Notifications page ───
@@ -2041,8 +2011,8 @@ export class WorkspaceContext implements SurfaceContext {
     this.togglePage({ name: 'notifications', params: {} }, via, 'notifications')
   }
 
-  openNotifications(via: Via = 'click', target: 'focused' | 'aside' = 'focused'): void {
-    this.showPage({ name: 'notifications', params: {} }, via, 'notifications', this.paneTarget(target))
+  openNotifications(via: Via = 'click'): void {
+    this.showPage({ name: 'notifications', params: {} }, via, 'notifications')
   }
 
   // ─── Automations page ───
@@ -2058,38 +2028,24 @@ export class WorkspaceContext implements SurfaceContext {
   /** Open the automations page, optionally focused on one automation. In editor
    *  mode a focused automation opens in the side-panel builder; otherwise (and
    *  for the bare list) the full-page list is shown. */
-  openAutomations(
-    focusId?: string | null,
-    via: Via = 'click',
-    target: 'focused' | 'aside' = 'focused',
-  ): void {
-    if (focusId && this.shell.hasCompanionPanes) this.openAutomationBuilder(focusId, target)
+  openAutomations(focusId?: string | null, via: Via = 'click'): void {
+    if (focusId && this.shell.hasCompanionPanes) this.openAutomationBuilder(focusId)
     else {
       this.showPage(
         { name: 'automations', params: { automationId: focusId ?? undefined } },
         via,
         'automations',
-        this.paneTarget(target),
       )
     }
     void this.automationsStore.loadAll()
   }
 
-  /** Open one automation as the single artifact. `aside` puts it beside the
-   *  conversation, which is what an inline chat card wants. */
-  openAutomationBuilder(
-    automationId: string | null,
-    target: 'focused' | 'aside' = 'focused',
-    sourceId?: string,
-  ): void {
-    this.router.closeGroup('page')
-    const serverId = sourceId ? this.runFor(sourceId)?.serverId : undefined
+  /** Open one automation as a surface beside the destination. */
+  openAutomationBuilder(automationId: string | null, opts: { sourceId?: string } = {}): void {
+    const serverId = opts.sourceId ? this.runFor(opts.sourceId)?.serverId : undefined
     const params: Extract<RouteRef, { name: 'automation' }>['params'] = { automationId }
     if (serverId) params.serverId = serverId
-    this.router.navigate(
-      { name: 'automation', params },
-      { target: this.paneTarget(target) },
-    )
+    this.router.navigate({ name: 'automation', params })
     void this.automationsStore.loadAll(serverId)
   }
 
@@ -2133,27 +2089,20 @@ export class WorkspaceContext implements SurfaceContext {
    */
   openRoute(
     ref: RouteRef,
-    opts: { via?: Via; target?: NavTarget; sourceUrl?: string; tab?: PrReviewTab } = {},
+    opts: { via?: Via; sourceUrl?: string; tab?: PrReviewTab } = {},
   ): void {
     switch (ref.name) {
       case 'plan':
-        if (ref.params.planId) {
-          void this.openPlanModal(ref.params.planId, undefined, {
-            secondary: opts.target === 'aside' || opts.target === 'new',
-          })
-        }
+        if (ref.params.planId) void this.openPlanModal(ref.params.planId)
         return
       case 'work':
         if (ref.params.serverId) {
           this.worksStore.rememberHost(ref.params.workId, ref.params.serverId)
         }
-        void this.openWorkModal(ref.params.workId, undefined, {
-          secondary: opts.target === 'aside' || opts.target === 'new',
-          via: opts.via,
-        })
+        void this.openWorkModal(ref.params.workId, undefined, { via: opts.via })
         return
       case 'task':
-        this.showPage(ref, opts.via ?? 'click', 'tasks', opts.target)
+        this.showPage(ref, opts.via ?? 'click', 'tasks')
         return
       case 'prReview':
         void this.prReview.openPullRequest({
@@ -2167,7 +2116,6 @@ export class WorkspaceContext implements SurfaceContext {
           preflight: opts.sourceUrl !== undefined,
           tab: opts.tab,
           via: opts.via,
-          target: opts.target,
           serverId: ref.params.serverId,
           ctx: ref.params.cwd ? this.ctxForDirectory(ref.params.cwd) : this.ctx,
         })
@@ -2210,9 +2158,9 @@ export class WorkspaceContext implements SurfaceContext {
    *  diff" action, which switches a mismatched-scope review instead of closing
    *  it. */
   toggleDiff(sourceTabId: string, scope: DiffScope = { kind: 'session' }, switchScope = false): void {
-    const current = this.router.overlay
+    const current = this.router.companionSurface
     if (current?.name === 'review' && (!switchScope || current.params.scope?.kind === scope.kind)) {
-      this.router.closeOverlay()
+      this.router.close('review')
       return
     }
     if (!this.sessionFor(sourceTabId)?.run.workingDirectory) return
@@ -2228,7 +2176,7 @@ export class WorkspaceContext implements SurfaceContext {
       scope,
     }
     if (filePath) params.filePath = filePath
-    this.showViewer({ name: 'review', params })
+    this.router.navigate({ name: 'review', params })
   }
 
   /** `sourceId` is a tab or a draft: the file tree follows its run, so browsing
@@ -2239,7 +2187,7 @@ export class WorkspaceContext implements SurfaceContext {
     const run = this.runFor(sourceId)
     const environment = this.environment.environmentFor(run)
     if (!environment.cwd || environment.cwd === '~') return
-    this.showViewer({
+    this.router.navigate({
       name: 'files',
       params: {
         serverId: this.serverIdForRun(run),
@@ -2248,33 +2196,24 @@ export class WorkspaceContext implements SurfaceContext {
     })
   }
 
-  openFileInFiles(file: FilePreviewRequest, sourceId: string, sourcePaneId?: PaneId): void {
+  openFileInFiles(file: FilePreviewRequest, sourceId: string): void {
     const run = this.runFor(sourceId)
     const environment = this.environment.environmentFor(run)
     if (!environment.cwd || environment.cwd === '~') return
-    this.showViewer(
-      {
-        name: 'files',
-        params: { serverId: this.serverIdForRun(run), cwd: environment.cwd, path: file.path, line: file.line },
-      },
-      sourcePaneId ? this.router.targetAcrossFrom(sourcePaneId) : 'aside',
-    )
+    this.router.navigate({
+      name: 'files',
+      params: { serverId: this.serverIdForRun(run), cwd: environment.cwd, path: file.path, line: file.line },
+    })
   }
 
   /** Pop a sub-agent's nested transcript out of its card into a companion pane. */
   openSubagent(tabId: string, messageId: string): void {
     const sessionId = this.tabs[tabId]?.sessionId
     if (!sessionId) return
-    this.showViewer({
+    this.router.navigate({
       name: 'subagent',
       params: { sessionId, messageId, serverId: this.sessions.byId[sessionId]?.run.serverId },
     })
-  }
-
-  /** Viewers cover a companion pane and size themselves. */
-  private showViewer(ref: RouteRef, target: NavTarget = 'aside'): void {
-    const pane = this.router.navigate(ref, { target })
-    pane.defaultSize = 60
   }
 
   // ─── Reviews ───
@@ -2297,7 +2236,7 @@ export class WorkspaceContext implements SurfaceContext {
     }
     const params: RouteParams['review'] = { sourceTabId: reviewTabId, view }
     if (scope === 'session') params.scope = { kind: 'session' }
-    this.showViewer({ name: 'review', params })
+    this.router.navigate({ name: 'review', params })
   }
 
   /** Open the exact guide selected by a durable conversation reference. */
@@ -2307,7 +2246,7 @@ export class WorkspaceContext implements SurfaceContext {
     prepared?: { repoRoot: string; key: string; serverId: string },
   ): void {
     if (target.kind === 'pr' && prepared) {
-      this.showViewer({
+      this.router.navigate({
         name: 'review',
         params: {
           sourceTabId,
@@ -2330,7 +2269,7 @@ export class WorkspaceContext implements SurfaceContext {
     const params: RouteParams['review'] = { sourceTabId, view: 'guide' }
     if (target.kind === 'session') params.scope = { kind: 'session' }
     if (target.kind === 'working-tree') params.scope = { kind: 'working-tree' }
-    this.showViewer({ name: 'review', params })
+    this.router.navigate({ name: 'review', params })
     requestInputFocus({ tabId: sourceTabId })
   }
 

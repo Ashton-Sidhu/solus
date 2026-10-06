@@ -56,13 +56,13 @@ describe('cloud sharing of a work or a task', () => {
     // An editor who could export it could copy it out; one who could remove it could delete it.
     const editorOnly = resources({ 'work:w1': 'editor' })
     const ownerOnly = resources({ 'work:w1': 'owner' })
-    for (const method of ['workExportForCloud', 'workRemoveUploaded'] as const) {
+    for (const method of ['workExportForCloud', 'workMarkMoved'] as const) {
       await expect(assertRpcAccess(method, MEMBER, ['w1'], editorOnly, false)).rejects.toThrow(RpcAccessError)
       await expect(assertRpcAccess(method, MEMBER, ['w1'], ownerOnly, false)).resolves.toBeUndefined()
     }
     const taskEditor = resources({ 'task:t1': 'editor' })
     const taskOwner = resources({ 'task:t1': 'owner' })
-    for (const method of ['taskExportForCloud', 'taskRemoveUploaded'] as const) {
+    for (const method of ['taskExportForCloud', 'taskMarkMoved'] as const) {
       await expect(assertRpcAccess(method, MEMBER, ['t1'], taskEditor, false)).rejects.toThrow(RpcAccessError)
       await expect(assertRpcAccess(method, MEMBER, ['t1'], taskOwner, false)).resolves.toBeUndefined()
     }

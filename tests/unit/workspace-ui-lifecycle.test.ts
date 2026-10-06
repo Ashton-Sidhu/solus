@@ -16,6 +16,8 @@ function executable(code: string): string {
   return code.replaceAll(/(['"])svelte\/internal\/client\1/g, JSON.stringify(internal))
     .replaceAll(/(['"])svelte\1/g, JSON.stringify(client))
     .replaceAll(/import ['"]svelte\/internal\/disclose-version['"];?/g, '')
+    .replaceAll(/(['"])svelte\/internal\/flags\/(\w+)\1/g, (_, _quote, flag) =>
+      JSON.stringify(new URL(`node_modules/svelte/src/internal/flags/${flag}.js`, root).href))
 }
 
 async function run(name: string, code: string) {
@@ -180,13 +182,12 @@ test('revealing a conversation clears unread across its tabs without selecting i
   const harness = `
     import assert from 'node:assert/strict';
     import { flushSync } from 'svelte';
-    const visibleRef = pane => pane.overlay ?? pane.base;
     class Workspace {
       shell = $state({ visible: false, hasCompanionPanes: false });
       tabs = $state({ first: { sessionId: 'one', hasUnread: true }, duplicate: { sessionId: 'one', hasUnread: true }, second: { sessionId: 'two', hasUnread: true } });
       tabOrder = $state(['first', 'duplicate', 'second']);
       activeTabId = $state('first');
-      router = $state({ leadingPane: { base: { name: 'chat' }, overlay: null }, asidePanes: [], chatSessionIn(id) { return id; } });
+      router = $state({ destination: { name: 'chat' }, companionPane: null, chatSessionIn(id) { return id; } });
       metadata = { publishSessionViewed() {} };
       ${methods.map(node => node.getText(ast)).join('\n')}
     }
@@ -198,12 +199,12 @@ test('revealing a conversation clears unread across its tabs without selecting i
     assert.equal(workspace.tabs.first.hasUnread, false);
     assert.equal(workspace.tabs.duplicate.hasUnread, false);
     assert.equal(workspace.tabs.second.hasUnread, true);
-    workspace.router.leadingPane.overlay = { name: 'tasks' };
+    workspace.router.destination = { name: 'tasks' };
     workspace.tabs.first.hasUnread = true; flushSync();
     assert.equal(workspace.tabs.first.hasUnread, true);
-    workspace.router.leadingPane.overlay = null; flushSync();
+    workspace.router.destination = { name: 'chat' }; flushSync();
     assert.equal(workspace.tabs.first.hasUnread, false);
-    workspace.router.asidePanes.push({ id: 'two' }); flushSync();
+    workspace.router.companionPane = { id: 'two' }; flushSync();
     assert.equal(workspace.tabs.second.hasUnread, true);
     workspace.shell.hasCompanionPanes = true; flushSync();
     assert.equal(workspace.tabs.second.hasUnread, false);
@@ -269,7 +270,7 @@ test('branch review guides are probed once per shown source, not on every workin
       ? { repoRoot: environment.repoRoot, key: environment.branch + '__reviews', headSha: environment.status?.headSha } : null;
     ${body}
     const environments = $state({
-      main: { cwd: '/repo', checkout: null, repoRoot: '/repo', branch: 'main', status: { headSha: 'h1', uncommittedChanges: { files: [], insertions: 0, deletions: 0 } } },
+      main: { cwd: '/repo', checkout: null, repoRoot: '/repo', branch: 'main', status: { headSha: 'h1', uncommittedChanges: { files: [], fileCount: 0 } } },
       draft: { cwd: '~', checkout: null, repoRoot: null, branch: null, status: null },
     });
     const runs = { first: 'main', companion: 'main', 'draft-1': 'draft' };
@@ -288,7 +289,7 @@ test('branch review guides are probed once per shown source, not on every workin
     flushSync();
     assert.deepEqual(loads, [['first', 'main__reviews', 'branch']], 'a shown source probes once; a draft with no checkout is skipped');
     environments.main.status.uncommittedChanges.files.push({ path: 'a.ts' });
-    environments.main.status.uncommittedChanges.insertions = 3; flushSync();
+    environments.main.status.uncommittedChanges.fileCount = 1; flushSync();
     environments.main.status.headSha = 'h2'; flushSync();
     assert.equal(loads.length, 1, 'a working-tree move or a commit is not a reason to re-probe: staleness is checked when the guide opens');
     environments.main.branch = 'feature'; flushSync();
@@ -330,5 +331,44 @@ test('artifact readiness resets for new content and explicit reloads', async () 
   `
   await run('artifact-readiness', executable(compileModule(transpiler.transformSync(harness), {
     filename: 'artifact-readiness.svelte.js', generate: 'client',
+  }).js.code))
+})
+
+test('notification history follows pane visibility, not changes in the store it reads', async () => {
+  const source = readFileSync(new URL('packages/workspace-ui/src/components/notifications/NotificationsPage.svelte', root), 'utf8')
+  const script = source.slice(source.indexOf('>') + 1, source.indexOf('</script>'))
+  const ast = ts.createSourceFile('NotificationsPage.ts', script, ts.ScriptTarget.Latest, true)
+  const effect = ast.statements.find((statement) => ts.isExpressionStatement(statement)
+    && statement.getText(ast).startsWith('$effect(') && statement.getText(ast).includes('store.showHistory()'))
+  if (!effect) throw new Error('Missing notification history page lifetime')
+  const harness = `
+    import assert from 'node:assert/strict';
+    import { flushSync, untrack } from 'svelte';
+    let surfaceVisible = $state(true);
+    let unread = $state(1);
+    let opened = 0;
+    let closed = 0;
+    const store = { showHistory() {
+      void unread;
+      opened++;
+      return () => { closed++ };
+    } };
+    const destroy = $effect.root(() => { ${effect.getText(ast)} });
+    flushSync();
+    assert.equal(opened, 1);
+    unread = 2; flushSync();
+    assert.equal(opened, 1);
+    assert.equal(closed, 0);
+    surfaceVisible = false; flushSync();
+    assert.equal(closed, 1);
+    unread = 3; flushSync();
+    assert.equal(opened, 1);
+    surfaceVisible = true; flushSync();
+    assert.equal(opened, 2);
+    destroy();
+    assert.equal(closed, 2);
+  `
+  await run('notification-lifetime', executable(compileModule(transpiler.transformSync(harness), {
+    filename: 'notification-lifetime.svelte.js', generate: 'client',
   }).js.code))
 })

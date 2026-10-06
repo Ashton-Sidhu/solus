@@ -1,32 +1,41 @@
-import { Text, View } from 'react-native'
+// Adapted from T3 Code apps/mobile/src/features/threads/thread-list-v2-items.tsx and state/thread-pr-presentation.ts (MIT, see UPSTREAM.md).
+import { View } from 'react-native'
 import type { PullRequest } from '@solus/contracts/providers'
-import { useIsDark, usePalette } from '../../../theme/theme'
+import { SymbolView } from '../../../components/AppSymbol'
+import { AppText as Text } from '../../../components/AppText'
+import { cn } from '../../../lib/cn'
 import { CODE_FONT } from '../../../theme/tokens'
-import { AppSymbol } from '../../../ui/app-symbol'
 import { PR_STATE_LABELS, prStateTone, type PrStateTone } from '../lib/pr-presentation'
 
-/** T3 Code's pull request colors: open green, merged violet, closed rose, a
+/** T3 Code's pull request colors: open emerald, merged violet, closed rose, a
  *  draft muted, because it is not asking to land yet. */
-const STATE_COLORS = {
-  light: { open: '#059669', merged: '#7c3aed', closed: '#e11d48' },
-  dark: { open: '#34d399', merged: '#a78bfa', closed: '#fb7185' },
-} as const
+const PR_STATE_TEXT_CLASS = {
+  open: 'text-adaptive-emerald-600-400',
+  merged: 'text-adaptive-violet-600-400',
+  closed: 'text-adaptive-rose-600-400',
+  draft: 'text-foreground-muted',
+} as const satisfies Record<PrStateTone, string>
 
-export function usePrStateColor(tone: PrStateTone): string {
-  const palette = usePalette()
-  const colors = STATE_COLORS[useIsDark() ? 'dark' : 'light']
-  return tone === 'draft' ? palette.textTertiary : colors[tone]
-}
+export const PR_STATE_TINT_CLASS = {
+  open: 'accent-adaptive-emerald-600-400',
+  merged: 'accent-adaptive-violet-600-400',
+  closed: 'accent-adaptive-rose-600-400',
+  draft: 'accent-icon-muted',
+} as const satisfies Record<PrStateTone, string>
 
 /** The pull request mark, "Open", and "#123", in the state's color. */
-export function PrStateBadge({ pr }: { pr: Pick<PullRequest, 'state' | 'draft' | 'number'> }) {
+export function PrStateBadge({ pr, showLabel = true }: { pr: Pick<PullRequest, 'state' | 'draft' | 'number'>; showLabel?: boolean }) {
   const tone = prStateTone(pr)
-  const color = usePrStateColor(tone)
   return (
-    <View accessible accessibilityLabel={`${PR_STATE_LABELS[tone]} pull request ${pr.number}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 3.5 }}>
-      <AppSymbol name="pullRequest" size={12} weight="semibold" color={color} />
-      <Text style={{ color, fontSize: 13, fontWeight: '600' }}>
-        {PR_STATE_LABELS[tone]} <Text style={{ fontFamily: CODE_FONT, fontWeight: '400' }}>#{pr.number}</Text>
+    <View
+      accessible
+      accessibilityLabel={`#${pr.number} pull request ${PR_STATE_LABELS[tone].toLowerCase()}`}
+      className="flex-row items-center gap-1"
+    >
+      <SymbolView name="arrow.triangle.pull" size={12} tintColorClassName={PR_STATE_TINT_CLASS[tone]} />
+      {showLabel ? <Text className={cn('text-xs font-t3-medium', PR_STATE_TEXT_CLASS[tone])}>{PR_STATE_LABELS[tone]}</Text> : null}
+      <Text className={cn('text-xs', PR_STATE_TEXT_CLASS[tone])} style={{ fontFamily: CODE_FONT }}>
+        {pr.number}
       </Text>
     </View>
   )

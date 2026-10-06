@@ -5,13 +5,10 @@ import type {
   GitActionResult,
   IpcContext,
 } from '@solus/contracts/types'
-import { WORKING_TREE_BUSY_CODE } from '@solus/contracts/types'
-import { rpcErrorCode } from '@solus/client-core/rpc-error'
-import { busyTreeQuestion } from '../contexts/git/busy-tree.store.svelte'
 import type { WorkspaceContext, SessionEnvironmentStore } from '../contexts'
 import { toolsStore } from '../contexts/app/tools.store.svelte'
 import { connectionsStore } from '../contexts/connections/connections.store.svelte'
-import { toasts, type ProgressToast } from './toasts'
+import { toasts } from './toasts'
 import { requestInputFocus } from './inputFocus'
 import type { HostApi } from '@solus/client-core/host-api'
 import { hostPolicy } from '@solus/client-core/host-policy'
@@ -71,7 +68,7 @@ export class GitActions {
 
   async run(
     action: GitAction,
-    options: { createFeatureBranch?: boolean; filePaths?: string[]; commitMessage?: string; allowBusyWorkingTree?: boolean } = {},
+    options: { createFeatureBranch?: boolean; filePaths?: string[]; commitMessage?: string } = {},
   ): Promise<void> {
     const target = this.target()
     if (this.running || !target.gitContext || !target.cwd || target.cwd === '~') return
@@ -89,8 +86,6 @@ export class GitActions {
     this.lastResult = null
     this.actionError = null
     const progress = toasts.progress(startingLabel(action, options.createFeatureBranch === true))
-    // Another session runs in this tree: the host did nothing, and asks the person (plan 004 item 7).
-    let busyMessage: string | null = null
     const unsubscribe = serverConnections.eventsFor(this.session.serverIdFor(this.sourceId)).subscribe(
       'git.actionProgressed',
       (event: GitActionProgressEvent) => {
@@ -112,7 +107,6 @@ export class GitActions {
       if (options.createFeatureBranch) request.createFeatureBranch = true
       if (options.filePaths) request.filePaths = options.filePaths
       if (options.commitMessage) request.commitMessage = options.commitMessage
-      request.allowBusyWorkingTree = options.allowBusyWorkingTree
       const result = await api.gitRunAction($state.snapshot(target.ctx), request)
       this.lastResult = result
       this.refreshPushedPullRequest(api, target.ctx, target.gitContext.branch, result)
@@ -141,7 +135,8 @@ export class GitActions {
         progress.dismiss()
       }
     } catch (error) {
-      busyMessage = this.failed(progress, error)
+      this.actionError = error instanceof Error ? error.message : String(error)
+      progress.error('Git action failed', { description: this.actionError })
     } finally {
       unsubscribe()
       await this.environmentStore.refreshEnvironment(this.session, {
@@ -162,30 +157,6 @@ export class GitActions {
       }
       requestInputFocus()
     }
-    if (busyMessage) await this.continueOnBusyTree(busyMessage, action, options)
-  }
-
-  /**
-   * Shows a failed action. The host's "busy" answer (plan 004 item 7) is not a
-   * failure: nothing ran, and its question is returned for the person.
-   */
-  private failed(progress: ProgressToast, error: unknown): string | null {
-    if (error instanceof Error && rpcErrorCode(error) === WORKING_TREE_BUSY_CODE) {
-      progress.dismiss()
-      return error.message
-    }
-    this.actionError = error instanceof Error ? error.message : String(error)
-    progress.error('Git action failed', { description: this.actionError })
-    return null
-  }
-
-  /** Runs the action again, past the busy check, when the person continues. */
-  private async continueOnBusyTree(
-    message: string,
-    action: GitAction,
-    options: Parameters<GitActions['run']>[1] = {},
-  ): Promise<void> {
-    if (await busyTreeQuestion.ask(message)) await this.run(action, { ...options, allowBusyWorkingTree: true })
   }
 
   /** A push moves the branch's pull request: read its mergeability again. */

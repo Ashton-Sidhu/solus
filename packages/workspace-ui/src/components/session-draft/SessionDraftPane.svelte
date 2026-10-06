@@ -51,6 +51,18 @@
   // Beside another pane the composer needs the same seam a split chat draws;
   // in the leading pane it is the leftmost surface and draws none.
   const isAside = $derived(paneId !== session.router.leadingPane.id);
+  // A draft that is gone — dropped empty while its tab was put away with
+  // another page's strip — has nothing to show, so its tab closes rather than
+  // standing empty. The leading pane falls back to its home.
+  $effect(() => {
+    if (draft || !session.router.pane(paneId)) return;
+    const draftId = params.draftId;
+    if (isAside) {
+      session.router.closeSurfacesWhere((ref) => ref.name === "draft" && ref.params.draftId === draftId);
+    } else {
+      session.router.closePane(paneId);
+    }
+  });
   let composerInput = $state<ReturnType<typeof DraftComposer> | null>(null);
 
   // A draft is its own routed surface, so it owns the focus transition into its
@@ -114,6 +126,8 @@
     // must name it and the pool must not take it: an unnamed chat route is the
     // pool's, which renders the active tab — the same conversation twice, and a
     // pane with no session of its own for its close button to let go of.
+    // A lead is written with its task page beside it, and the draft's strip
+    // goes with the session it starts.
     const tabId = session.drafts.startSessionDraft(params.draftId, {
       via: "click",
       activate: !isAside,
@@ -122,7 +136,7 @@
     const started = isAside ? session.sessionFor(tabId) : null;
     session.router.navigate(
       { name: "chat", params: started ? { sessionId: started.id } : {} },
-      { target: paneId },
+      { target: isAside ? "companion" : "leading", inPlace: true },
     );
     if (isAside) requestInputFocus({ tabId });
     return session.dispatch.sendMessage(text, undefined, tabId);
@@ -136,7 +150,7 @@
   function dispatchInBackground(text: string): boolean {
     if (!draft) return false;
     sent = draft;
-    return session.drafts.startDraftInBackground(draft.id, text, paneId);
+    return session.drafts.startDraftInBackground(draft.id, text, isAside ? "companion" : "leading");
   }
 
   /** Nothing has started, so there is no tab to close — the draft is dropped and
@@ -251,9 +265,15 @@
 
     <!-- On a wide pane the composer is what sits centred; the question rests
          on top of it rather than pushing it down, so the bar does not move as
-         the headline wraps. It takes the conversation's measure, so a sent
-         draft keeps its width when it becomes the session's bar. -->
-    <div class={cn("relative w-full max-w-(--solus-reading-max)", isPhone && "mt-auto")}>
+         the headline wraps. The full-page new tab home is narrower than the
+         conversation, so the empty page reads as one focused prompt. -->
+    <div
+      class={cn(
+        "relative w-full",
+        isAside || isPhone ? "max-w-(--solus-reading-max)" : "max-w-[min(55%,46rem)]",
+        isPhone && "mt-auto",
+      )}
+    >
       {#if !isPhone}
         <div class="absolute inset-x-0 bottom-full pb-4">{@render headline()}</div>
       {/if}
@@ -284,7 +304,7 @@
     <!-- What cloud onboarding asked and was skipped. Cloud only; renders nothing
          when setup is complete. -->
     {#if !isAside && !isPhone}
-      <GetStartedList class="max-w-(--solus-reading-max)" />
+      <GetStartedList class="max-w-[min(55%,46rem)]" />
     {/if}
 
     <!-- Full-page draft only: the narrow split composer has its own chrome, so
@@ -306,7 +326,10 @@
       {paneId}
       {draft}
       centered
-      onOpenAsPage={() => session.router.movePane(paneId, -1)}
+      onOpenAsPage={() => {
+        const companion = session.router.companionPane;
+        if (companion) session.router.moveSurfaceToMain(companion.activeSurfaceIndex);
+      }}
       onClose={discard}
       closeLabel="Discard draft"
     >

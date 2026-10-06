@@ -27,6 +27,9 @@ export interface UploadedAttachment {
   size: number
   /** Images only: the bytes as a data URL, for a host that cannot read refs. */
   dataUrl: string | null
+  /** Videos only: the picked file on this phone, for the composer's thumbnail.
+   *  Never sent: the prompt names `hostPath`. */
+  localUri?: string
 }
 
 /** Reading and sending the picked bytes; the Expo adapter is `platform/expo.ts`. */
@@ -70,7 +73,7 @@ export async function uploadAttachment(file: PickedFile, deps: AttachmentUploadD
     dataUrl = `data:${mime};base64,${(await deps.io.readBase64(file.uri)).replace(/\s+/g, '')}`
     hostPath = await deps.api.attachUpload(deps.ctx, { name: file.name, mime, dataUrl })
   }
-  return {
+  const uploaded: UploadedAttachment = {
     id: deps.uuid(),
     kind: isImage ? 'image' : 'file',
     name: file.name,
@@ -79,6 +82,8 @@ export async function uploadAttachment(file: PickedFile, deps: AttachmentUploadD
     size: file.size ?? 0,
     dataUrl: isImage ? dataUrl : null,
   }
+  if (video) uploaded.localUri = file.uri
+  return uploaded
 }
 
 /** A video's raw bytes over HTTP to a signed upload URL; a host too old to

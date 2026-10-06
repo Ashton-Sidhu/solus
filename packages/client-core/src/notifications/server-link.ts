@@ -11,11 +11,16 @@ import type { NotificationSource } from './sources'
 export function serverNotificationLink(source: NotificationSource, connections: ServerConnections = serverConnections): NotificationSourceLink {
   const { serverId } = source
   if (source.kind === 'organization') connections.retain(serverId)
+  // The initial read can already be queued on the first connection. Only a
+  // later acceptance is a reconnect that requires another snapshot.
+  let hasConnected = connections.statusFor(serverId) === 'connected'
   return {
     api: connections.apiFor(serverId),
     onChanged: (listener) => connections.eventsFor(serverId).subscribe('notifications.changed', () => listener()),
     onReconnected: (listener) => connections.onStatusChange((changedServerId, status) => {
-      if (changedServerId === serverId && status === 'connected') listener()
+      if (changedServerId !== serverId || status !== 'connected') return
+      listener(!hasConnected)
+      hasConnected = true
     }),
     release: () => {
       if (source.kind === 'organization') connections.unretain(serverId)

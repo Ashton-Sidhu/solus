@@ -45,7 +45,7 @@ export function registerSkillsHandlers(server: SolusServer, deps: { sessionRunti
 
   server.register('skillsRemove', async ([name], ctx) => {
     const result = await removeSkill(name, memberSkillHomes(ctx, deps.seats))
-    if (result.ok) await deps.sessionRuntime.refreshPluginCommands()
+    if (result.ok) await deps.sessionRuntime.history.refreshPluginCommands()
     return result
   })
 
@@ -59,7 +59,7 @@ export function registerSkillsHandlers(server: SolusServer, deps: { sessionRunti
     // Always install into every active provider — the cross-provider opt-in goal.
     const agents = deps.sessionRuntime.getBackendIds()
     const result = await installSkill(id, agents, memberSkillHomes(ctx, deps.seats))
-    if (result.ok) await deps.sessionRuntime.refreshPluginCommands()
+    if (result.ok) await deps.sessionRuntime.history.refreshPluginCommands()
     return result
   })
 

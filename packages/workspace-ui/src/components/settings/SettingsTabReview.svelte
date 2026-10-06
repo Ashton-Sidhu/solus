@@ -1,3 +1,21 @@
+<script module lang="ts">
+  /** Search words, read by the settings page to find this page from any other. */
+  export interface SettingItem {
+    id: string;
+    keywords: string[];
+  }
+
+  export const settingItems: SettingItem[] = [
+    { id: "review-generate-on-open", keywords: ["review", "guide", "generate", "open", "automatic", "agent"] },
+    { id: "review-warming", keywords: ["review", "guide", "warm", "background", "prefetch", "worktree"] },
+    { id: "review-agent", keywords: ["review", "companion", "agent", "code review", "backend", "claude", "codex"] },
+    { id: "review-model", keywords: ["review", "companion", "model", "code review", "llm"] },
+    { id: "review-reasoning", keywords: ["review", "companion", "reasoning", "effort", "thinking", "code review"] },
+    { id: "review-instructions", keywords: ["review", "guide", "instructions", "prompt", "custom"] },
+    { id: "review-lenses", keywords: ["review", "lens", "lenses", "artifact", "html", "prompt", "visualize", "custom"] },
+  ];
+</script>
+
 <script lang="ts">
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
@@ -6,7 +24,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Switch } from "../ui/switch";
   import { Button } from "../ui/button";
-  import PlainTextEditor from "../ui/plain-text-editor/plain-text-editor.svelte";
+  import SettingsTextField from "./SettingsTextField.svelte";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
   import SavedLensesSetting from "./SavedLensesSetting.svelte";
@@ -92,20 +110,6 @@
     requestInputFocus();
   }
 
-  interface SettingItem {
-    id: string;
-    keywords: string[];
-  }
-
-  const settingItems: SettingItem[] = [
-    { id: "review-generate-on-open", keywords: ["review", "guide", "generate", "open", "automatic", "agent"] },
-    { id: "review-warming", keywords: ["review", "guide", "warm", "background", "prefetch", "worktree"] },
-    { id: "review-agent", keywords: ["review", "companion", "agent", "code review", "backend", "claude", "codex"] },
-    { id: "review-model", keywords: ["review", "companion", "model", "code review", "llm"] },
-    { id: "review-reasoning", keywords: ["review", "companion", "reasoning", "effort", "thinking", "code review"] },
-    { id: "review-instructions", keywords: ["review", "guide", "instructions", "prompt", "custom"] },
-    { id: "review-lenses", keywords: ["review", "lens", "lenses", "artifact", "html", "prompt", "visualize", "custom"] },
-  ];
 
   function isVisible(id: string): boolean {
     if (!searchQuery) return true;
@@ -241,14 +245,11 @@
     visible={isVisible("review-instructions")}
   >
     {#snippet body()}
-      <PlainTextEditor
+      <SettingsTextField
+        label="Review guide instructions"
         value={theme.reviewGuideInstructions}
         onValueChange={(value) => theme.setPersonal("reviewGuideInstructions", value)}
         onBlur={() => requestInputFocus()}
-        enterInsertsNewline
-        hidePlaceholderOnFocus
-        maxHeight={220}
-        dictation
         placeholder="Focus on data flow, call out migration risks, and group tests with the behavior they verify."
         class="rounded-lg border border-input bg-white dark:bg-input/30 px-3 [--plain-editor-font-size:var(--text-workspace-chrome)] [--plain-editor-line-height:1.5] [--plain-editor-padding:0.625rem_0] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400]"
       />

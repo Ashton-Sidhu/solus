@@ -161,17 +161,7 @@ export interface GitActionRequest {
    *  change (legacy `git add -A` behavior); an empty array is invalid. Only
    *  valid alongside a commit action. */
   filePaths?: string[]
-  /** The person saw that another session runs in this working tree and chose to
-   *  continue. Without it the host refuses with `WORKING_TREE_BUSY_CODE`. */
-  allowBusyWorkingTree?: boolean
 }
-
-/**
- * The code of a host refusal: another session runs a turn in this working tree
- * (plan 004 item 7). It is a question, not a lock. The client asks the person,
- * and sends again with `allowBusyWorkingTree` when they continue.
- */
-export const WORKING_TREE_BUSY_CODE = 'WORKING_TREE_BUSY'
 
 export type GitBranchStep =
   | { status: 'created'; name: string }
@@ -242,11 +232,20 @@ export interface UncommittedFile {
 /** Files and operation state currently reported by Git. This becomes empty
  * after a successful commit and is distinct from cumulative session changes. */
 export interface UncommittedChanges {
+  /** The first entries only; `fileCount` is the whole working tree. */
   files: UncommittedFile[]
   hasMoreFiles: boolean
+  fileCount: number
+  mergeInProgress: boolean
+}
+
+/** What the branch review shows: the working tree, untracked files included,
+ *  against where the branch left its target — or against HEAD on the target
+ *  itself. Counted, never listed, so it has no cap. */
+export interface BranchChanges {
+  fileCount: number
   insertions: number
   deletions: number
-  mergeInProgress: boolean
 }
 
 /** Which repo and branch a working tree is on — all O(1) to obtain, unlike the
@@ -265,6 +264,8 @@ export interface GitState extends GitIdentity {
   behindCount: number
   /** Commits on HEAD that are not on the target branch. Loaded with details. */
   targetAheadCount?: number
+  /** Loaded with details. */
+  branchChanges?: BranchChanges
   prUrl?: string
   /** Present only when the request asked for refs. */
   refs?: GitProjectRefs

@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import type { PrepareSessionTaskResult } from '@solus/contracts/task-types'
 import {
   commentOnUpstreamTask,
@@ -22,6 +23,7 @@ import {
 } from '../../data/sessions/session-pull-requests'
 import { readSessionShelf, rekeySessionState, settleSession, snoozeSession, unsettleSession } from '../../data/sessions/session-states'
 import { markTaskRead, recordTaskActivity } from '../../data/tasks/task-lifecycle'
+import { readTaskSnoozes, snoozeTaskFor } from '../../data/tasks/task-snoozes'
 import { getDatabase } from '../../db/database'
 import { readTaskSidebarSnapshot } from '../../data/tasks/task-sidebar'
 import { searchTaskComments } from '../../data/tasks/comment-search'
@@ -35,7 +37,7 @@ import {
 } from '../../data/tasks/sync-engine'
 import type { HandlerCtx, SolusServer } from '../server'
 import { isHostAdmin, organizationForNew, recordScopeOf } from '../../admission/principal'
-import { attributionOf } from '../../admission/actor'
+import { attributionOf, ownerKeyOf, type Actor } from '../../admission/actor'
 import type { ShareManager } from '../../sharing/share-manager'
 import { listInboxUpstream } from '../../data/tasks/inbox'
 import type { Task as TaskRecord, TaskSidebarSnapshot } from '@solus/contracts/task-types'
@@ -43,6 +45,12 @@ import { MAX_SIDEBAR_TASK_IDS } from '@solus/contracts/task-types'
 import { createLogger, isDebugEnabled } from '../../logger'
 
 const log = createLogger('main', 'tasks-handlers')
+const taskOpenTimingSchema = z.object({
+  activationId: z.string().max(100),
+  taskId: z.string().max(200).nullable(),
+  outcome: z.enum(['completed', 'cancelled', 'failed']),
+  marks: z.array(z.object({ stage: z.string().max(64), elapsedMs: z.number().finite().nonnegative() })).max(32),
+})
 
 /**
  * Global native-task RPCs plus project-scoped upstream-provider reads/writes.
@@ -53,6 +61,14 @@ const log = createLogger('main', 'tasks-handlers')
  * creates starts in the caller's organization (`organizationForNew`); a write to
  * an existing task lands in that task's own organization (organization-scope R10).
  */
+/** The person a task snooze belongs to. The host itself and a runner are no
+ *  person, so they cannot snooze. */
+function personKeyFor(actor: Actor): string {
+  const personKey = ownerKeyOf(actor)
+  if (!personKey) throw new Error('A snooze belongs to a person, and this connection acts for none.')
+  return personKey
+}
+
 export function registerTasksHandlers(server: SolusServer, deps: { shares?: ShareManager; sync?: boolean } = {}): void {
   if (deps.sync !== false) startTaskSyncEngine()
   const claim = async (task: TaskRecord | null, ctx: HandlerCtx): Promise<void> => {
@@ -116,6 +132,17 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
   })
 
 
+  server.register('tasksLogOpenTiming', ([input], ctx) => {
+    const timing = taskOpenTimingSchema.parse(input)
+    log.info('task_sidebar_open_timing', {
+      clientId: ctx.clientId,
+      activationId: timing.activationId,
+      taskId: timing.taskId,
+      outcome: timing.outcome,
+      marks: timing.marks.map(({ stage, elapsedMs }) => ({ stage, elapsedMs })),
+    })
+  })
+
   server.register('tasksSidebarSnapshot', async (args, ctx) => {
     const [filter] = args
     const taskIds = filter?.taskIds
@@ -170,6 +197,18 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
     return markTaskRead(recordScopeOf(ctx.principal), id, read)
   })
 
+  // A snooze is the caller's own: the person comes from the connection, never
+  // from the request, so nobody can read or write another person's snoozes.
+  server.register('tasksSnooze', (args, ctx) => {
+    const [id, until, note] = args
+    return snoozeTaskFor(recordScopeOf(ctx.principal), personKeyFor(ctx.actor), id, until, note)
+  })
+
+  server.register('tasksSnoozes', (_args, ctx) => {
+    const personKey = ownerKeyOf(ctx.actor)
+    return personKey ? readTaskSnoozes(recordScopeOf(ctx.principal), personKey) : Promise.resolve([])
+  })
+
   server.register('tasksRecordActivity', (args, ctx) => {
     const [id] = args
     return recordTaskActivity(recordScopeOf(ctx.principal), id, attributionOf(ctx.actor))
@@ -195,7 +234,7 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
 
   server.register('tasksLinkSession', async (args, ctx) => {
     const [taskId, sessionId, role, execution] = args
-    return (await Task.byId(recordScopeOf(ctx.principal), taskId)).linkSession(sessionId, role ?? 'working', { execution })
+    return (await Task.byId(recordScopeOf(ctx.principal), taskId)).linkSession(sessionId, role ?? 'working', { execution, startedBy: attributionOf(ctx.actor) })
   })
 
   server.register('tasksUnlinkSession', async (args, ctx) => {

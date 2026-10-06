@@ -157,6 +157,9 @@ export interface ReviewProvider {
    *  viewer saw. Answers the pull request as the mutation left it. */
   enablePullRequestAutoMerge(repo: RepoRef, number: number, method: MergeMethod, expectedHeadSha: string): Promise<PullRequest>
   disablePullRequestAutoMerge(repo: RepoRef, number: number): Promise<PullRequest>
+  /** Bring the base into the head with a merge commit or a rebase, refused by
+   *  the host when the head moved past `expectedHeadSha`. */
+  updatePullRequestBranch(repo: RepoRef, number: number, method: 'merge' | 'rebase', expectedHeadSha: string): Promise<void>
   /** Open a pull request that reverses a merged one. */
   revertPullRequest(repo: RepoRef, number: number): Promise<PrRevertResult>
   /** Changed files with host-reported per-file add/delete counts. */

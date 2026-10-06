@@ -2,7 +2,7 @@ import type { Activity, ActivityKind, ActivitySubject } from '@solus/contracts/a
 import { randomUUID } from 'node:crypto'
 import { recoverExchanges } from './recover-exchanges'
 import { ExchangeLedger, type ExchangeIdentity } from './exchange-ledger'
-import { SessionExchangeStore } from '../../data/sessions/session-exchange-store'
+import type { RunLedger } from '../../data/sessions/run-ledger'
 import { promptedUpdate, settledUpdate, exchangeRequestFrom, finishOutputs, requestId, requestNotice, type TurnEnding } from './exchange-reports'
 export { turnEnding } from './exchange-reports'
 import {
@@ -18,12 +18,12 @@ import {
 import type {
   AgentConversationUpdate,
   AgentId,
+  ExchangeProgress,
   GitCheckout,
   NormalizedEvent,
   PermissionMode,
   PromptDelivery,
   ReasoningEffort,
-  SentSessionMessage,
   SessionMeta,
 } from '@solus/contracts/types'
 import { planKey } from '@solus/contracts/types'
@@ -76,6 +76,8 @@ export interface RunExchanges {
 export interface SettledRun extends RunExchanges {
   outcome: ExchangeOutcome
   resultText?: string
+  /** Why a failed run ended, when the provider said. */
+  error?: string
   durationMs?: number
   toolCallCount?: number
   provider: AgentId
@@ -191,19 +193,12 @@ export class SessionOrchestrator {
   constructor(
     private readonly runtime: OrchestratedRuntime,
     private readonly deps: OrchestratorDeps,
-    store?: SessionExchangeStore,
+    store?: RunLedger,
+    schedule?: ConstructorParameters<typeof ParentDelivery>[2],
   ) {
     this.ledger = new ExchangeLedger(store)
     this.exchanges = this.ledger.exchanges
-    this.delivery = new ParentDelivery(runtime, (exchangeIds, state, queueId) => {
-      for (const exchangeId of exchangeIds) {
-        const exchange = this.exchanges.get(exchangeId)
-        if (!exchange || exchange.deliveryState === 'accepted' || exchange.deliveryState === 'disposed') continue
-        exchange.deliveryState = state
-        exchange.deliveryQueueId = queueId
-        this.ledger.save(exchange)
-      }
-    })
+    this.delivery = new ParentDelivery(runtime, (exchangeIds, state, queueId) => this.ledger.markDelivery(exchangeIds, state, queueId), schedule)
   }
 
   recover(): void {
@@ -215,23 +210,11 @@ export class SessionOrchestrator {
   /** Acceptance is separate from the result. Queued reports are accepted when
    * their runtime turn starts, not when they merely enter its queue. */
   reportsAccepted(exchangeIds: readonly string[]): void {
-    for (const exchangeId of exchangeIds) {
-      const exchange = this.exchanges.get(exchangeId)
-      if (!exchange || exchange.deliveryState === 'disposed') continue
-      exchange.deliveryState = 'accepted'
-      exchange.deliveryQueueId = undefined
-      this.ledger.save(exchange)
-    }
+    this.ledger.markDelivery(exchangeIds, 'accepted')
   }
 
   reportsDisposed(exchangeIds: readonly string[]): void {
-    for (const exchangeId of exchangeIds) {
-      const exchange = this.exchanges.get(exchangeId)
-      if (!exchange) continue
-      exchange.deliveryState = 'disposed'
-      exchange.deliveryQueueId = undefined
-      this.ledger.save(exchange)
-    }
+    this.ledger.markDelivery(exchangeIds, 'disposed')
   }
 
   readExchange(senderAgentSessionId: string, exchangeId: string): Exchange | undefined {
@@ -285,7 +268,7 @@ export class SessionOrchestrator {
             : undefined,
         })
         if (exchange) this.bindStarted(exchange, started.agentSessionId, this.runtime.sessionMeta(started.agentSessionId)?.cwd)
-        if (exchange) { exchange.disposition = 'started'; this.ledger.save(exchange) }
+        if (exchange) this.ledger.update(exchange, (draft) => { draft.disposition = 'started' })
         if (senderSessionId) this.recordStartedSession(senderSessionId, order.prompt, started)
         const created: SpawnedSession = { exchangeId, agentSessionId: started.agentSessionId }
         if (started.taskId) created.taskId = started.taskId
@@ -385,8 +368,7 @@ export class SessionOrchestrator {
     if (message.permissionMode) order.permissionMode = message.permissionMode
     try {
       const result = await this.runtime.promptSession(targetAgentSessionId, message.prompt, message.delivery, order)
-      exchange.disposition = result.disposition
-      this.ledger.save(exchange)
+      this.ledger.update(exchange, (draft) => { draft.disposition = result.disposition })
       return waited
         ? { exchangeId, disposition: result.disposition, waited: await waited }
         : { exchangeId, disposition: result.disposition }
@@ -536,23 +518,19 @@ export class SessionOrchestrator {
     return false
   }
 
-  /** The messages a session sent that this process still carries, for a card
-   *  rebuilt from the transcript. What is missing has finished or was lost. */
-  exchangesSentBy(senderId: string): SentSessionMessage[] {
-    const senderSessionId = this.runtime.sessionIdFor(senderId) ?? senderId
-    const sent: SentSessionMessage[] = []
-    for (const exchange of this.exchanges.values()) {
-      if (exchange.senderSessionId !== senderSessionId) continue
-      const state = !isOpenExchange(exchange) ? exchange.deliveryState === 'pending' || exchange.deliveryState === 'queued' ? 'reply_queued' : 'settled' : exchange.state === 'waiting_for_children' ? 'waiting_for_children' : exchange.state === 'awaiting_input' || exchange.state === 'rate_limited'
-        ? exchange.state
-        : exchange.state === 'running' ? 'running' : 'queued'
-      const message: SentSessionMessage = { messageId: exchange.exchangeId, targetAgentSessionId: exchange.targetAgentSessionId, state }
-      if (state === 'settled') message.outcome = exchange.outcome
-      if (exchange.request && exchange.state === 'awaiting_input') message.request = exchange.request
-      if (exchange.state === 'rate_limited' && exchange.rateLimitResetsAt) message.resetsAt = exchange.rateLimitResetsAt
-      sent.push(message)
-    }
-    return sent
+  /** Where one exchange stands, for a card rebuilt from the transcript. An
+   *  exchange this process does not carry was lost to a restart or expired. */
+  progressOf(exchangeId: string): ExchangeProgress | undefined {
+    const exchange = this.exchanges.get(exchangeId)
+    if (!exchange) return undefined
+    const state = !isOpenExchange(exchange) ? exchange.deliveryState === 'pending' || exchange.deliveryState === 'queued' ? 'reply_queued' : 'settled' : exchange.state === 'waiting_for_children' ? 'waiting_for_children' : exchange.state === 'awaiting_input' || exchange.state === 'rate_limited'
+      ? exchange.state
+      : exchange.state === 'running' ? 'running' : 'queued'
+    const progress: ExchangeProgress = { state }
+    if (state === 'settled') progress.outcome = exchange.outcome
+    if (exchange.request && exchange.state === 'awaiting_input') progress.request = exchange.request
+    if (exchange.state === 'rate_limited' && exchange.rateLimitResetsAt) progress.resetsAt = exchange.rateLimitResetsAt
+    return progress
   }
 
   /** Children whose turn the previous process never settled. A parent that
@@ -688,10 +666,10 @@ export class SessionOrchestrator {
   }
 
   /** The run never reached a turn: its queue entry was cancelled or drained, or it failed to launch. */
-  runCancelled(run: RunExchanges, outcome: 'interrupted' | 'failed' = 'interrupted'): void {
+  runCancelled(run: RunExchanges, outcome: 'interrupted' | 'failed' = 'interrupted', reason = ''): void {
     for (const exchange of this.exchangesOf(run)) {
       if (!isOpenExchange(exchange) || exchange.revising) continue
-      this.settle(exchange, outcome, '')
+      this.settle(exchange, outcome, reason)
     }
   }
 
@@ -732,9 +710,7 @@ export class SessionOrchestrator {
       if (exchange.senderSessionId !== senderSessionId || !isOpenExchange(exchange)) continue
       // Reports held for a stopped lead would wake it again: drop them.
       if (!cancelled) this.delivery.dropHeld(exchange.senderAgentSessionId)
-      exchange.notify = false
-      exchange.revising = false
-      this.settle(exchange, 'interrupted', '')
+      this.settle(exchange, 'interrupted', '', { silenced: true })
       cancelled = true
     }
     return cancelled
@@ -744,8 +720,7 @@ export class SessionOrchestrator {
 
   private open(fields: Omit<Exchange, 'state' | 'outputs' | 'notices' | 'revising'>): Exchange {
     const exchange: Exchange = { ...fields, state: 'dispatched', outputs: [], notices: [], revising: false }
-    this.ledger.save(exchange)
-    this.exchanges.set(exchange.exchangeId, exchange)
+    this.ledger.open(exchange)
     if (exchange.targetSessionId) this.remember(exchange.senderSessionId, exchange.targetSessionId)
     return exchange
   }
@@ -755,10 +730,9 @@ export class SessionOrchestrator {
    *  answer, or the run's settlement. */
   private bindStarted(exchange: Exchange, agentSessionId: string, cwd: string | undefined): void {
     if (!exchange.targetAgentSessionId.startsWith('pending:')) return
-    exchange.targetAgentSessionId = agentSessionId
+    this.ledger.update(exchange, (draft) => { draft.targetAgentSessionId = agentSessionId })
     const attached: AgentConversationUpdate = { phase: 'attached', messageId: exchange.exchangeId, agentSessionId }
     if (cwd) attached.cwd = cwd
-    this.ledger.save(exchange)
     this.publish(exchange, attached)
   }
 
@@ -792,8 +766,7 @@ export class SessionOrchestrator {
   }
 
   private apply(exchange: Exchange, event: ExchangeEvent): boolean {
-    const changed = applyExchangeEvent(exchange, event)
-    if (changed && event.type !== 'settled') this.ledger.save(exchange)
+    const changed = this.ledger.apply(exchange, event)
     if (changed) log.debug('exchange_changed', { exchangeId: exchange.exchangeId, event: event.type, state: exchange.state })
     return changed
   }
@@ -817,6 +790,9 @@ export class SessionOrchestrator {
   private async settleRun(run: SettledRun, exchanges: Exchange[]): Promise<void> {
     if (run.agentSessionId) for (const exchange of exchanges) this.bindStarted(exchange, run.agentSessionId, undefined)
     let reply = run.resultText?.trim()
+    // A run that failed before it wrote its prompt leaves the previous turn last
+    // in the transcript; its own error is the only reply that is about this turn.
+    if (!reply && run.outcome === 'failed' && run.error) reply = `The turn ended with an error: ${clip(run.error, ORCHESTRATION_LIMITS.questionText)}`
     const targetAgentSessionId = run.agentSessionId ?? exchanges[0]!.targetAgentSessionId
     if (!reply && !targetAgentSessionId.startsWith('pending:')) {
       const ending = await this.runtime.turnEnding(run.provider, targetAgentSessionId, run.projectScope).catch((): TurnEnding => ({}))
@@ -858,36 +834,46 @@ export class SessionOrchestrator {
       alsoMessageIds?: string[]
       /** The message whose report covers this one: none is sent for it. */
       reportedBy?: string
+      /** The sender stopped waiting: nothing is delivered to it. */
+      silenced?: boolean
     } = {},
   ): void {
-    const { run, taskId, alsoMessageIds, reportedBy } = settledBy
+    const { run, taskId, alsoMessageIds, reportedBy, silenced } = settledBy
     const settled: ExchangeEvent = { type: 'settled', outcome }
     if (run) settled.runId = run.runId
-    if (!this.apply(exchange, settled)) return
-    if (exchange.targetAgentSessionId.startsWith('pending:')) exchange.targetAgentSessionId = exchange.targetSessionId
+    const stoppedBySender = this.stoppedBySender.has(exchange.exchangeId)
+    const settledAt = Date.now()
+    // The result, its full reply, and its delivery state are one write.
+    const changed = this.ledger.update(exchange, (draft) => {
+      if (silenced) { draft.notify = false; draft.revising = false }
+      if (!applyExchangeEvent(draft, settled)) return false
+      if (draft.targetAgentSessionId.startsWith('pending:')) draft.targetAgentSessionId = draft.targetSessionId
+      const report: SessionReport = {
+        messageId: draft.exchangeId,
+        agentSessionId: draft.targetAgentSessionId,
+        taskId,
+        provider: draft.provider,
+        status: outcome,
+        durationMs: run?.durationMs,
+        outputs: draft.outputs,
+        reply: reply || NO_REPLY,
+      }
+      if (alsoMessageIds?.length) report.alsoMessageIds = alsoMessageIds
+      draft.report = report
+      draft.settledAt = settledAt
+      draft.deliveryState = draft.notify && !stoppedBySender && !reportedBy ? 'pending' : 'disposed'
+    })
+    if (!changed) return
+    log.debug('exchange_changed', { exchangeId: exchange.exchangeId, event: 'settled', state: exchange.state })
+    this.stoppedBySender.delete(exchange.exchangeId)
     const update = settledUpdate(exchange, outcome, reply, run, taskId)
-    const stoppedBySender = this.stoppedBySender.delete(exchange.exchangeId)
+    update.settledAt = settledAt
     // Whatever the turn was still waiting on ended with it; the report says how.
     while (exchange.notices.length) this.withdrawNotice(exchange, exchange.notices[0]!)
-    const report: SessionReport = {
-      messageId: exchange.exchangeId,
-      agentSessionId: exchange.targetAgentSessionId,
-      taskId,
-      provider: exchange.provider,
-      status: outcome,
-      durationMs: run?.durationMs,
-      outputs: exchange.outputs,
-      reply: reply || NO_REPLY,
-    }
-    if (alsoMessageIds?.length) report.alsoMessageIds = alsoMessageIds
-    exchange.report = report
-    exchange.settledAt = update.settledAt
-    exchange.deliveryState = exchange.notify && !stoppedBySender && !reportedBy ? 'pending' : 'disposed'
-    this.ledger.save(exchange)
     this.publish(exchange, update)
-    const item: OrchestrationItem = { type: 'report', report }
+    const item: OrchestrationItem = { type: 'report', report: exchange.report! }
     // A sender waiting in its tool call gets the report there, and only there.
-    if (this.endWait(exchange, item)) { exchange.deliveryState = 'accepted'; this.ledger.save(exchange); return }
+    if (this.endWait(exchange, item)) { this.ledger.markDelivery([exchange.exchangeId], 'accepted'); return }
     if (reportedBy) return
     this.deliverReport(exchange, item, exchange.notify && !stoppedBySender)
   }

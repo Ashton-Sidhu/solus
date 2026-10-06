@@ -29,12 +29,9 @@
 </script>
 
 <div
-  class="group flex min-w-0 items-start gap-2.5 rounded-lg px-2.5 py-2 hover:bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)] focus-within:bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)] pointer-coarse:py-3"
+  class="group flex min-w-0 items-center gap-3 rounded-lg px-2.5 py-2 hover:bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)] focus-within:bg-[color-mix(in_oklch,var(--foreground)_5%,transparent)] pointer-coarse:py-3"
   data-testid="notification-row"
 >
-  <span class="mt-1.5 flex size-2 shrink-0 items-center justify-center" aria-hidden="true">
-    {#if isUnread}<span class="size-2 rounded-full bg-primary"></span>{/if}
-  </span>
   <button
     type="button"
     class="flex min-w-0 flex-1 flex-col items-start gap-0.5 overflow-hidden text-left focus-visible:outline-none"
@@ -42,10 +39,7 @@
     title={openLabel}
     aria-label="{notificationHeadline(notification)}: {notification.summary.title}. {openLabel}"
   >
-    <span class="flex w-full min-w-0 items-baseline gap-2">
-      <span class="truncate text-workspace-chrome {isUnread ? 'font-medium text-foreground' : 'text-[color-mix(in_oklch,var(--foreground)_80%,transparent)]'}">{notification.summary.title}</span>
-      <span class="ml-auto shrink-0 text-chrome-dense text-muted-foreground tabular-nums">{notificationAge(notification.createdAt, now)}</span>
-    </span>
+    <span class="w-full truncate text-workspace-chrome {isUnread ? 'font-medium text-foreground' : 'text-[color-mix(in_oklch,var(--foreground)_80%,transparent)]'}">{notification.summary.title}</span>
     <span class="flex w-full min-w-0 items-baseline gap-1.5 text-chrome-dense text-muted-foreground">
       <span class="shrink-0">{notificationHeadline(notification)}</span>
       <span class="shrink-0 opacity-50" aria-hidden="true">·</span>
@@ -61,6 +55,7 @@
       <span class="w-full truncate text-chrome-dense text-destructive">{error}</span>
     {/if}
   </button>
+  <span class="shrink-0 text-chrome-dense text-muted-foreground tabular-nums">{notificationAge(notification.createdAt, now)}</span>
   <span class="flex shrink-0 items-center gap-0.5 opacity-60 group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100">
     <button
       type="button"

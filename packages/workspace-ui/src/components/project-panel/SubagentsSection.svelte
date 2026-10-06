@@ -59,7 +59,7 @@
   );
 
   const openMessageId = $derived(
-    router.overlay?.name === "subagent" ? router.overlay.params.messageId : null,
+    router.companionSurface?.name === "subagent" ? router.companionSurface.params.messageId : null,
   );
 
   function open(messageId: string) {

@@ -34,6 +34,7 @@ test('a refused device setting leaves its switch at the stored value and says wh
       onclick={() => { checked = !checked; onCheckedChange?.(checked); }}></button>`, 'switch')
     const section = component('<script>let { children, action } = $props();</script>{@render action?.()}{@render children()}', 'section')
     const row = component('<script>let { control, body, bodyVisible = true } = $props();</script>{@render control?.()}{#if body && bodyVisible}{@render body()}{/if}', 'row')
+    const empty = component('<script>let { children } = $props();</script>{@render children?.()}', 'empty')
     const store = join(directory, 'store.mjs')
     writeFileSync(store, `
       import { SvelteMap } from ${JSON.stringify(reactivity)};
@@ -62,10 +63,13 @@ test('a refused device setting leaves its switch at the stored value and says wh
         import SettingsRow from ${JSON.stringify(row)};
         import Button from ${JSON.stringify(button)};
         import Switch from ${JSON.stringify(switchControl)};
+        import Empty from ${JSON.stringify(empty)};
+        const Input = Empty, DeviceToolVersions = Empty, Check = Empty, Ellipsis = Empty, LoaderCircle = Empty, Minus = Empty, Plus = Empty;
+        const DropdownMenu = { Root: Empty, Trigger: Empty, Content: Empty, Item: Empty };
         const deviceErrorMessage = (cause) => cause.message;
-        const AGENT_DEVICE_VERSION = '0.0.0', DEVICE_HUB_VERSION = '0.0.0';
+        const hostProgressLabel = () => null;
         const sshDeviceHostConfigSchema = { safeParse: () => ({ success: false, error: { issues: [] } }) };
-        const emptySshHostDraft = () => ({ id: '', label: '', target: '', port: '', identityFile: '' });
+        const emptySshHostDraft = () => ({ label: '', target: '', port: '', identityFile: '' });
         const sshHostDraftConfig = (draft) => draft;
       `)
     const settings = component(source, 'device-settings')

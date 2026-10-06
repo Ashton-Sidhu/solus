@@ -144,9 +144,12 @@ To start a chat:
 
 - **Command palette or `⌘⌥N`.** **New chat** opens a new chat. It runs on the
   host of the conversation in front of you, else on the default machine.
-- **Project chip.** When a draft has no project, the chip reads **Add project**.
-  When a draft has a project, the last item of its menu is **Switch to chat**,
-  which removes the project and keeps what you typed.
+- **Project chip.** When a draft has a project, the last item of its menu is
+  **Switch to chat**, which removes the project and keeps what you typed.
+- **The composer's + menu.** A chat has no strip of project, host, and branch
+  above the composer. To add a project before the first prompt, open **+** and
+  choose **Add project…**. When you have more than one host, **Run on…** in the
+  same menu names the chat's host and changes it.
 - **Onboarding.** **New chat** ends the flow in a new chat.
 - **Mobile.** **Chats** on the host screen lists the chats of that host. **New
   chat** starts one.

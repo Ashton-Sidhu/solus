@@ -1,11 +1,11 @@
-import { Building2, RefreshCw, Laptop } from '@lucide/svelte'
+import { Building2, RefreshCw } from '@lucide/svelte'
 import type { Via } from '@solus/contracts/analytics-events'
 import type { Command } from '../../command-palette/lib/commands'
 import type { SettingsTab } from '../../../contexts/workspace/routing/route-registry'
 
 /**
  * Palette entries for the settings pages that have an owner of their own
- * (plans/018 §7): personal sync, the organization's settings, and this device.
+ * (plans/018 §7): personal sync and the organization's settings.
  * Shared by desktop and web so both expose the same entry points.
  */
 export function settingsOwnerCommands(shell: { showSettings(tab: SettingsTab, via: Via): void }): Command[] {
@@ -23,12 +23,5 @@ export function settingsOwnerCommands(shell: { showSettings(tab: SettingsTab, vi
     icon: Building2,
     keywords: ['organization', 'insights', 'owner', 'team'],
     run: () => shell.showSettings('organization', 'palette'),
-  }, {
-    id: 'open-this-device-settings',
-    label: 'This device settings',
-    group: 'General',
-    icon: Laptop,
-    keywords: ['device', 'font', 'installed', 'local'],
-    run: () => shell.showSettings('device', 'palette'),
   }]
 }

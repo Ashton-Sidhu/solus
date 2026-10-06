@@ -921,27 +921,6 @@ export async function getDiffStats(
   return parseChangedFileStats(out)
 }
 
-/** Working-tree insertion/deletion totals for visible Git UI — numstat only, so
- *  a detailed status fetch never materializes full patch text.
- *  Untracked files included via the same intent-to-add temp index as getDiff. */
-export async function getWorkingTreeStats(
-  workTree: string,
-  repoRoot: string,
-): Promise<{ additions: number; deletions: number }> {
-  return withWorkingTreeIndex(workTree, repoRoot, async (env) => {
-    const out = await runAsync('git', ['diff', 'HEAD', '--numstat'], workTree, { env, maxBuffer: COMBINED_DIFF_MAX_BUFFER })
-    let additions = 0
-    let deletions = 0
-    for (const line of out.split('\n')) {
-      if (!line) continue
-      const parts = line.split('\t')
-      additions += parseInt(parts[0], 10) || 0
-      deletions += parseInt(parts[1], 10) || 0
-    }
-    return { additions, deletions }
-  })
-}
-
 export async function listTurnSnapshots(repoRoot: string, sessionId: string): Promise<TurnSnapshot[]> {
   const sidecar = readSidecar(repoRoot, sessionId)
   return sidecar?.turns ?? []

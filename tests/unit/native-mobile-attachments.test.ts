@@ -55,7 +55,8 @@ describe('native attachments', () => {
     const uploaded = await uploadAttachment(clip, { api, ctx: {} as IpcContext, serverUrl: 'https://host.tunnel/', io: ok.io, uuid: () => 'v1' })
     expect(tokens).toEqual([{ name: 'clip.mov', mime: 'video/quicktime', size: 30 * MB }])
     expect(ok.uploads).toEqual([{ url: 'https://host.tunnel/api/uploads/tok', uri: 'file:///p/clip.mov' }])
-    expect(uploaded).toMatchObject({ kind: 'file', hostPath: '/data/attachments/s/2-clip.mov', dataUrl: null })
+    // The picked file stays on the phone for the composer thumbnail only; the prompt names the host path.
+    expect(uploaded).toMatchObject({ kind: 'file', hostPath: '/data/attachments/s/2-clip.mov', dataUrl: null, localUri: 'file:///p/clip.mov' })
 
     const refused = fakeIo(409)
     await expect(uploadAttachment(clip, { api, ctx: {} as IpcContext, serverUrl: 'http://h:1', io: refused.io, uuid: () => 'v2' })).rejects.toThrow('409')

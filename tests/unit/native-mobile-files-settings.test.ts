@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { DEFAULT_HOST_CONFIG } from '@solus/contracts/host-config'
-import { buildFileTree, childPath, folderListing, folderTitle } from '../../apps/mobile/src/features/files/lib/file-tree'
+import { buildFileTree, childPath, folderListing, folderTitle, visibleTreeRows } from '../../apps/mobile/src/features/files/lib/file-tree'
 import { ProjectFiles } from '../../apps/mobile/src/features/files/project-files'
 import { AppearancePreference, type AppearanceMode } from '../../apps/mobile/src/features/settings/appearance'
 import { HostSettings } from '../../apps/mobile/src/features/settings/host-settings'
@@ -40,6 +40,17 @@ describe('project file tree', () => {
     expect(childPath('src', 'lib')).toBe('src/lib')
     expect(folderTitle('', 'solus')).toBe('solus')
     expect(folderTitle('src/lib', 'solus')).toBe('lib')
+  })
+
+  test('shows an expanded folder\'s children below it, one level deeper', () => {
+    const rows = visibleTreeRows(tree, '', new Set(['src']))
+    expect(rows.map((row) => `${row.depth}:${row.path}`)).toEqual(['0:docs', '0:src', '1:src/lib', '1:src/app.ts', '1:src/App.tsx', '0:README.md'])
+    expect(rows.find((row) => row.path === 'src')?.childCount).toBe(3)
+  })
+
+  test('a search finds files in closed folders and keeps the folders that lead to them', () => {
+    const rows = visibleTreeRows(tree, '', new Set(), 'util')
+    expect(rows.map((row) => row.path)).toEqual(['src', 'src/lib', 'src/lib/util.ts'])
   })
 
   test('reads a project once through the host index, scoped to the project folder', async () => {

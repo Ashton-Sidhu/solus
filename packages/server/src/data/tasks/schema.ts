@@ -40,6 +40,10 @@ export const tasks = defineTable('tasks', {
    * use them, so a person's changed default does not change an existing task.
    */
   lead_preferences: json(),
+  /** `TaskLocation` JSON: the organization a shared task is in now
+   * (cloud-sharing.md §3a). Null while the task is on this host; a row with a
+   * location keeps its id, title, and links, and nothing else. */
+  location: json(),
   organization_id: ORGANIZATION,
 }, {
   indexes: [
@@ -59,6 +63,9 @@ export const taskSessionLinks = defineTable('task_session_links', {
   pr: json(),
   injected_at: bigint(),
   linked_at: bigint({ notNull: true }),
+  /** `Attribution` JSON: who started the session, as the first writer of the
+   *  link knew it. Null when nobody said (an agent's own link, older rows). */
+  started_by: json(),
   organization_id: ORGANIZATION,
 }, {
   primaryKey: ['task_id', 'session_id'],
@@ -173,8 +180,27 @@ export const taskCounters = defineTable('task_counters', {
   organization_id: ORGANIZATION,
 })
 
+/**
+ * One person's snooze of a task (docs/task-snooze.md): the task leaves that
+ * person's task lists until `snoozed_until`. It is the person's own view, so it
+ * is keyed by their user key (`ownerKeyOf`) and is never part of the task record,
+ * its events, or its sync. `organization_id` is the task's, so a read is scoped
+ * as the task is.
+ */
+export const taskSnoozes = defineTable('task_snoozes', {
+  task_id: text({ notNull: true, references: TASK_REFERENCE }),
+  person_key: text({ notNull: true }),
+  snoozed_until: bigint({ notNull: true }),
+  snooze_note: text(),
+  organization_id: ORGANIZATION,
+}, {
+  primaryKey: ['task_id', 'person_key'],
+  indexes: [{ name: 'task_snoozes_by_person', columns: ['person_key', 'snoozed_until'] }],
+})
+
 export const TASK_TABLES = [
   tasks,
+  taskSnoozes,
   taskCounters,
   taskSessionLinks,
   taskComments,

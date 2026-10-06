@@ -194,6 +194,32 @@ function commentFromRow(row: TaskCommentRow): TaskComment {
 /** The tasks domain's database handle: SQLite on a host, Postgres in the cloud. */
 export const database = getDatabase
 
+export const taskLocationSchema = z.strictObject({ organizationId: z.string().min(1) })
+export type TaskLocation = z.infer<typeof taskLocationSchema>
+
+/** A task that Share moved to an organization (cloud-sharing.md §3a): this host
+ *  has only its location. The code lets a client ask the task's new owner. */
+export class TaskMovedError extends Error {
+  readonly code = 'MOVED' as const
+
+  constructor(readonly taskId: string, readonly location: TaskLocation) {
+    super(`Task ${taskId} moved to organization ${location.organizationId}.`)
+    this.name = 'TaskMovedError'
+  }
+}
+
+/** The rows of tasks that are on this host. Every read of `tasks` that is not
+ *  about a moved task's location carries it, as works carry `location IS NULL`. */
+export const TASK_HERE = sql`tasks.location IS NULL`
+
+/** Where a task Share moved is now, or null for a task on this host or no task. */
+export async function taskLocation(scope: RecordScope, id: string, db: Db = database()): Promise<TaskLocation | null> {
+  const row = z.object({ location: z.string().nullable() }).nullish().parse(await db.get(sql`
+    SELECT location FROM ${tasks} WHERE id = ${id} AND ${scopeClause(scope, sql`tasks.organization_id`)}
+  `))
+  return row?.location ? taskLocationSchema.parse(JSON.parse(row.location)) : null
+}
+
 /**
  * Every task read joins its external link, so a published task names its
  * provider everywhere it is listed — not only on the detail page, which is the
@@ -218,7 +244,7 @@ const TASK_SELECT = sql`
  */
 async function taskRow(scope: RecordScope, id: string, db: Db = database()): Promise<TaskRow | undefined> {
   return taskRowSchema.nullish().parse(await db.get(sql`
-    ${TASK_SELECT} WHERE tasks.id = ${id} AND ${scopeClause(scope, sql`tasks.organization_id`)}
+    ${TASK_SELECT} WHERE tasks.id = ${id} AND ${scopeClause(scope, sql`tasks.organization_id`)} AND ${TASK_HERE}
   `)) ?? undefined
 }
 
@@ -252,8 +278,10 @@ export async function readTaskMetadataPage(where: SQL, limit: number): Promise<T
 
 export async function requireTask(scope: RecordScope, id: string, db: Db = database()): Promise<TaskRow> {
   const row = await taskRow(scope, id, db)
-  if (!row) throw new Error(`Task ${id} not found.`)
-  return row
+  if (row) return row
+  const location = await taskLocation(scope, id, db)
+  if (location) throw new TaskMovedError(id, location)
+  throw new Error(`Task ${id} not found.`)
 }
 
 /** One upsert on the counter row: atomic on both engines (see `taskCounters`).
@@ -336,7 +364,7 @@ export async function listTasks(
   filter: TaskListFilter = {},
   taskIds?: readonly string[],
 ): Promise<TaskListResult> {
-  const clauses: SQL[] = [scopeClause(scope, sql`tasks.organization_id`)]
+  const clauses: SQL[] = [scopeClause(scope, sql`tasks.organization_id`), TASK_HERE]
   if (taskIds) {
     if (!taskIds.length) return { tasks: [] }
     clauses.push(sql`tasks.id IN (${sql.join(taskIds.map((taskId) => sql`${taskId}`), sql`, `)})`)
@@ -373,7 +401,7 @@ const unfinishedTaskRowSchema = z.object({ id: z.string(), project_key: z.string
 export async function unfinishedTaskProjects(scope: RecordScope): Promise<Map<string, string | null>> {
   const rows = unfinishedTaskRowSchema.array().parse(await database().all(sql`
     SELECT id, project_key FROM ${tasks}
-    WHERE ${scopeClause(scope)} AND status NOT IN ('done', 'dropped')
+    WHERE ${scopeClause(scope)} AND ${TASK_HERE} AND status NOT IN ('done', 'dropped')
   `))
   return new Map(rows.map((row) => [row.id, row.project_key]))
 }

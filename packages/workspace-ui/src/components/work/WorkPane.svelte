@@ -6,6 +6,7 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
+  import { underStrip } from "../ui/lib/pane-strip";
   import PaneChrome from "../ui/PaneChrome.svelte";
   import { Button } from "../ui/button";
   import PageComposer from "../page-composer/PageComposer.svelte";
@@ -34,6 +35,8 @@
 
   const session = getSurfaceContext();
   const pane = paneActions(() => paneId);
+  // Under the companion strip there is no floating cluster to reserve room for.
+  const isUnderStrip = underStrip();
   const shell = getClientShellContext();
 
   const workMetadata = $derived(session.worksStore.get(params.workId));
@@ -285,7 +288,7 @@
        control the pane does not show reads as a hole in the row. Guest shells
        supply their own measured inset; keep it for every pointer type. -->
   <div
-    class="flex h-full flex-col min-h-0 work-live-host {!canOpenWorkspace
+    class="flex h-full flex-col min-h-0 work-live-host {!canOpenWorkspace || isUnderStrip()
       ? ''
       : canMaximizePane
         ? 'pointer-fine:[--solus-pane-chrome-inset:6.625rem]'
@@ -446,10 +449,8 @@
     {#if canOpenWorkspace}
       <PaneChrome
         onClose={handleClose}
-        onOpenInSplit={shell.hasCompanionPanes ? pane.moveAcross : undefined}
         onToggleMaximize={canMaximizePane ? pane.toggleMaximize : null}
         maximized={pane.maximized}
-        isLeading={pane.isLeading}
         closeLabel={work.type === "diagram"
           ? "Close diagram"
           : work.type === "artifact"
@@ -481,10 +482,8 @@
 {#if !work && canOpenWorkspace}
   <PaneChrome
     onClose={handleClose}
-    onOpenInSplit={shell.hasCompanionPanes ? pane.moveAcross : undefined}
     onToggleMaximize={canMaximizePane ? pane.toggleMaximize : null}
     maximized={pane.maximized}
-    isLeading={pane.isLeading}
     closeLabel="Close loading work"
   />
 {/if}

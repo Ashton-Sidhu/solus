@@ -1,5 +1,5 @@
 import { formatParentPrompt, type OrchestrationItem } from '@solus/contracts/session-exchange'
-import type { PromptDelivery } from '@solus/contracts/types'
+import { type PromptDelivery } from '@solus/contracts/types'
 import { createLogger } from '../../logger'
 
 const log = createLogger('orchestration', 'parent-delivery.ts')
@@ -18,7 +18,32 @@ const log = createLogger('orchestration', 'parent-delivery.ts')
  * A task's lead is not woken for each report. Its reports are held until its
  * last open message settles, and then reach it as one prompt
  * (docs/plans/task-conversation.md).
+ *
+ * This class owns delivery retries while the host runs. A submission that
+ * fails on a known transient error is tried again after a growing delay, a
+ * bounded number of times. After the last try the report stays pending in the
+ * run ledger, and restart recovery delivers it.
  */
+
+/** Waits before each retry of a failed submission; the count bounds the retries. */
+export const DELIVERY_RETRY_DELAYS_MS = [1_000, 5_000, 30_000, 120_000] as const
+
+/** Runs `retry` after `delayMs`. Tests inject their own clock. */
+export type RetrySchedule = (delayMs: number, retry: () => void) => void
+
+const scheduleRetry: RetrySchedule = (delayMs, retry) => {
+  // A pending retry does not keep the host process alive.
+  setTimeout(retry, delayMs).unref()
+}
+
+const TRANSIENT_CODES = new Set(['SQLITE_BUSY', 'SQLITE_LOCKED', 'SQLITE_IOERR', 'EBUSY', 'EAGAIN', 'EMFILE', 'ENFILE', 'ENOSPC'])
+
+/** A failure a later attempt can get past: busy or full storage, or a locked
+ *  database. */
+export function isTransientDeliveryError(error: Error): boolean {
+  if ('code' in error && TRANSIENT_CODES.has(String(error.code))) return true
+  return /database (table )?is locked|disk I\/O error/i.test(error.message)
+}
 
 export interface ParentDeliveryRuntime {
   sessionIdFor(id: string): string | undefined
@@ -61,6 +86,7 @@ export class ParentDelivery {
   constructor(
     private readonly runtime: ParentDeliveryRuntime,
     private readonly recordDelivery: (exchangeIds: string[], state: 'queued' | 'accepted' | 'disposed', queueId?: string) => void,
+    private readonly schedule: RetrySchedule = scheduleRetry,
   ) {}
 
   /** Reattach reports to an existing held queue entry; never enqueue a copy. */
@@ -80,7 +106,7 @@ export class ParentDelivery {
         log.info('session_report_held', { parentAgentSessionId, exchangeId: resolved.exchangeId })
         return
       }
-      await this.put(parentAgentSessionId, [...this.takeHeld(parentAgentSessionId), resolved])
+      await this.putOrRetry(parentAgentSessionId, [...this.takeHeld(parentAgentSessionId), resolved], 0)
     })
   }
 
@@ -88,7 +114,7 @@ export class ParentDelivery {
   release(parentAgentSessionId: string): void {
     this.serialize(parentAgentSessionId, async () => {
       const entries = this.takeHeld(parentAgentSessionId)
-      if (entries.length) await this.put(parentAgentSessionId, entries)
+      if (entries.length) await this.putOrRetry(parentAgentSessionId, entries, 0)
     })
   }
 
@@ -121,6 +147,18 @@ export class ParentDelivery {
   waitingReports(parentAgentSessionId: string): Array<{ exchangeId: string; targetAgentSessionId: string }> {
     const entries = [...this.held.get(parentAgentSessionId) ?? [], ...this.waitingOutbox(parentAgentSessionId)?.entries ?? []]
     return entries.filter((entry) => entry.item.type === 'report').map(({ exchangeId, targetAgentSessionId }) => ({ exchangeId, targetAgentSessionId }))
+  }
+
+  /** Puts `entries`, and schedules the next try when a transient error stops it. */
+  private async putOrRetry(parentAgentSessionId: string, entries: DeliveryEntry[], attempt: number): Promise<void> {
+    try {
+      await this.put(parentAgentSessionId, entries)
+    } catch (error) {
+      const delayMs = DELIVERY_RETRY_DELAYS_MS[attempt]
+      if (delayMs === undefined || !(error instanceof Error) || !isTransientDeliveryError(error)) throw error
+      log.warn('session_report_retry_scheduled', { parentAgentSessionId, attempt: attempt + 1, delayMs, error: String(error) })
+      this.schedule(delayMs, () => this.serialize(parentAgentSessionId, () => this.putOrRetry(parentAgentSessionId, entries, attempt + 1)))
+    }
   }
 
   /** Merges `entries` into the parent's waiting prompt, or wakes it with them. */

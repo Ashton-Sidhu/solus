@@ -94,8 +94,8 @@ function inlineText(text: string): string {
 }
 
 /**
- * The document's own spine: its top heading level, or — for a plan written as a
- * numbered list rather than sections — its steps.
+ * The document's own spine: its top heading level, or — for a document written
+ * as a numbered list rather than sections — its steps.
  *
  * A lone top heading is the document's title, which the row above the card is
  * already showing, so the outline drops a level to find the structure under it.

@@ -80,6 +80,8 @@ const keyOf = (userId: string, organizationId: string): string => `${organizatio
 
 export class Delegations {
   private held: Map<string, Held> | null = null
+  /** Concurrent callers share the first exchange for each person and organization. */
+  private readonly establishing = new Map<string, Promise<void>>()
   /** The person and organization each Solus session's agent acts for, by session id and record id. */
   private readonly actors = new Map<string, { userId: string; organizationId: string }>()
 
@@ -96,17 +98,31 @@ export class Delegations {
    */
   async ensure(userId: string, organizationId: string): Promise<void> {
     if (this.has(userId, organizationId)) return
-    const subjectToken = await this.deps.personToken(userId)
-    if (!subjectToken) throw new DelegationError('ORGANIZATION_AUTHORITY_MISSING', 'Your sign-in for this machine expired. Reconnect and send again.')
-    const answer = await this.tokenRequest(organizationId, userId, {
-      grant_type: TOKEN_EXCHANGE_GRANT_TYPE,
-      subject_token: subjectToken,
-      subject_token_type: ACCESS_TOKEN_TYPE,
-      organization_id: organizationId,
+    const key = keyOf(userId, organizationId)
+    const existing = this.establishing.get(key)
+    if (existing) return existing
+    const assertCurrent = (): void => {
+      if (this.establishing.get(key) !== pending) throw new DelegationError('ORGANIZATION_AUTHORITY_MISSING', 'This machine’s authorization changed. Reconnect and send again.')
+    }
+    const pending: Promise<void> = (async () => {
+      const subjectToken = await this.deps.personToken(userId)
+      assertCurrent()
+      if (!subjectToken) throw new DelegationError('ORGANIZATION_AUTHORITY_MISSING', 'Your sign-in for this machine expired. Reconnect and send again.')
+      const answer = await this.tokenRequest(organizationId, userId, {
+        grant_type: TOKEN_EXCHANGE_GRANT_TYPE,
+        subject_token: subjectToken,
+        subject_token_type: ACCESS_TOKEN_TYPE,
+        organization_id: organizationId,
+      })
+      assertCurrent()
+      if (!answer.refresh_token) throw new DelegationError('ORGANIZATION_API_UNAVAILABLE', 'Solus answered the exchange without a refresh token.')
+      this.store(userId, organizationId, { refreshToken: answer.refresh_token, accessToken: answer.access_token, expiresAt: this.now() + answer.expires_in * 1000, renewing: null })
+      log.info('delegation_held', { userId, organizationId })
+    })().finally(() => {
+      if (this.establishing.get(key) === pending) this.establishing.delete(key)
     })
-    if (!answer.refresh_token) throw new DelegationError('ORGANIZATION_API_UNAVAILABLE', 'Solus answered the exchange without a refresh token.')
-    this.store(userId, organizationId, { refreshToken: answer.refresh_token, accessToken: answer.access_token, expiresAt: this.now() + answer.expires_in * 1000, renewing: null })
-    log.info('delegation_held', { userId, organizationId })
+    this.establishing.set(key, pending)
+    return pending
   }
 
   /** A current access token for the person in the organization, refreshed when needed. */
@@ -193,6 +209,7 @@ export class Delegations {
 
   /** The person no longer works here in that organization. */
   forget(userId: string, organizationId: string): void {
+    this.establishing.delete(keyOf(userId, organizationId))
     const held = this.load()
     if (!held.delete(keyOf(userId, organizationId))) return
     for (const [id, actor] of this.actors) if (actor.userId === userId && actor.organizationId === organizationId) this.actors.delete(id)
@@ -201,6 +218,7 @@ export class Delegations {
 
   /** The link went: every delegation was the old client's. */
   clear(): void {
+    this.establishing.clear()
     this.held = new Map()
     this.actors.clear()
     secretStore().remove(SECRET_KEY, electronPath())

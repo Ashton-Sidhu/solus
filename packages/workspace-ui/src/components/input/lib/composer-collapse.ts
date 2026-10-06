@@ -30,7 +30,7 @@ export const COMPOSER_REFOCUS_GRACE_MS = 150
  *
  * The dock floats over the conversation, so the transcript's own box never
  * changes size and nothing in it moves when the bar folds. This reservation is
- * what keeps the last message, the orb, the activity strip and the minimap
+ * what keeps the last message, the session action row, the activity strip and the minimap
  * clear of the bar — and it is *held* at the expanded height while the bar
  * rests. A folded measurement may only hold the reservation, never shrink it,
  * so unfolding does not move the transcript either. An expanded measurement is

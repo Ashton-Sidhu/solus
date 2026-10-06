@@ -17,9 +17,17 @@
  * `reading` is the wait for those reads to settle. */
 export type ScopeSwitchPhase = 'idle' | 'starting' | 'reading'
 
-export function showsPrPageSkeleton(phase: ScopeSwitchPhase, loading: boolean, rowCount: number): boolean {
+/** A read for a search never takes the page: the skeleton replaces the
+ *  toolbar too, which unmounts the search field and drops the reader's focus
+ *  mid-typing. The list area shows its own row skeleton for that read. */
+export function showsPrPageSkeleton(
+  phase: ScopeSwitchPhase,
+  loading: boolean,
+  rowCount: number,
+  searching: boolean,
+): boolean {
   if (phase !== 'idle') return true
-  return loading && rowCount === 0
+  return loading && rowCount === 0 && !searching
 }
 
 /**

@@ -35,9 +35,6 @@
     onNext?: (() => void) | null;
     onOpenSource?: (() => void) | null;
     /** Move the task between the leading pane and the companion beside it. */
-    onMoveAcross?: () => void;
-    /** Which way `onMoveAcross` sends it. */
-    isLeading?: boolean;
     /** Replace an embedded detail panel with this task's standalone route. */
     onOpenPage?: () => void;
     /** Upload a Local task if it needs it, then copy its link. Null where there is no organization to link into. */
@@ -54,8 +51,6 @@
     onPrevious,
     onNext,
     onOpenSource,
-    onMoveAcross,
-    isLeading = true,
     onOpenPage,
     onCopyLink = null,
     onOpenList,
@@ -165,8 +160,6 @@
   copyTitle="Copy task ID"
   {actions}
   stepper={{ onPrevious: onPrevious ?? null, onNext: onNext ?? null, itemLabel: "task" }}
-  {onMoveAcross}
-  {isLeading}
   {onClose}
   divided={false}
 />

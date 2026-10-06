@@ -64,7 +64,7 @@ export interface PrMergeConfirmation {
 export function prMergeConfirmation(
   pr: Pick<PullRequestFacts, 'number' | 'title' | 'baseRef' | 'capabilities'>,
 ): PrMergeConfirmation {
-  const method = defaultMergeMethod(pr.capabilities.mergeMethods)
+  const method = defaultMergeMethod(pr.capabilities)
   const option = MERGE_METHOD_OPTIONS.find((candidate) => candidate.value === method)
   return {
     title: `Merge #${pr.number}?`,
@@ -80,7 +80,7 @@ export function prMergeConfirmation(
  */
 export async function runPrRowAction(pullRequest: PullRequest, kind: PrRowActionKind): Promise<void> {
   try {
-    if (kind === 'merge') await pullRequest.merge(defaultMergeMethod(pullRequest.capabilities.mergeMethods))
+    if (kind === 'merge') await pullRequest.merge(defaultMergeMethod(pullRequest.capabilities))
     else await pullRequest.updateLifecycle(kind, pullRequest.headSha)
   } catch (error) {
     toasts.error(kind === 'merge' ? "Couldn't merge the pull request" : "Couldn't update the pull request", {

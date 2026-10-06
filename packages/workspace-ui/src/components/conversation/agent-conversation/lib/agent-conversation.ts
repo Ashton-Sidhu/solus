@@ -1,4 +1,4 @@
-import type { AgentConversationRef, AgentExchange, AgentExchangeStatus, AgentId, SentSessionMessage, SessionMeta } from '@solus/contracts/types'
+import type { AgentConversationRef, AgentExchange, AgentExchangeStatus, AgentId, SessionMeta } from '@solus/contracts/types'
 import { exchangeRequestText, type ExchangeRequest, type SessionOutput } from '@solus/contracts/session-exchange'
 import { loadServers, LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import { agentLabel } from '../../../../lib/agentAvailability'
@@ -19,29 +19,14 @@ export function isPendingAgent(ref: AgentConversationRef): boolean {
   return ref.agentSessionId.startsWith('pending:')
 }
 
-/** A message rebuilt from the transcript and not yet answered there: only the
- *  host can say whether it is still being carried. */
-export function awaitsHostWord(ref: AgentConversationRef): boolean {
-  const last = ref.exchanges[ref.exchanges.length - 1]
-  return !!last?.restored && OPEN_STATUSES.has(last.status)
-}
-
 /**
  * The card's state, read off its last exchange: the host's orchestrator says
- * where every live exchange stands. `carried` is the host's word on a message
- * rebuilt from the transcript (see `sent-messages.store`): undefined while
- * unasked, null once the host no longer carries it — a restart ended it.
+ * where every exchange stands, live or stamped on the history page it served.
  */
-export function agentConversationCardState(
-  ref: AgentConversationRef,
-  carried: SentSessionMessage | null | undefined,
-): AgentConversationCardState {
+export function agentConversationCardState(ref: AgentConversationRef): AgentConversationCardState {
   if (ref.closedByAgent) return 'closed'
   const last = ref.exchanges[ref.exchanges.length - 1]
   if (!last) return 'dispatching'
-  if (last.restored && OPEN_STATUSES.has(last.status)) {
-    return restoredCardState(carried)
-  }
   switch (last.status) {
     case 'dispatched':
     case 'queued':
@@ -65,23 +50,10 @@ export function agentConversationCardState(
   }
 }
 
-function restoredCardState(carried: SentSessionMessage | null | undefined): AgentConversationCardState {
-  if (carried === undefined) return 'dispatching'
-  if (carried === null) return 'lost'
-  if (carried.state === 'settled') return carried.outcome === 'failed' ? 'failed' : 'replied'
-  if (carried.state === 'awaiting_input') return 'waiting'
-  if (carried.state === 'rate_limited') return 'limited'
-  if (carried.state === 'waiting_for_children') return 'children'
-  return carried.state === 'queued' ? 'dispatching' : 'replying'
-}
-
 /** What the card's last exchange is waiting on a person for, if it is waiting. */
-export function pendingRequest(ref: AgentConversationRef, carried: SentSessionMessage | null | undefined): ExchangeRequest | null {
+export function pendingRequest(ref: AgentConversationRef): ExchangeRequest | null {
   const last = ref.exchanges[ref.exchanges.length - 1]
-  if (!last) return null
-  // The transcript never recorded a rebuilt request; the host still has it.
-  if (last.restored) return carried?.state === 'awaiting_input' ? carried.request ?? null : null
-  return last.status === 'awaiting_input' ? last.request ?? null : null
+  return last?.status === 'awaiting_input' ? last.request ?? null : null
 }
 
 /** A plan the other agent's last finished turn brought back, which a person can
@@ -99,13 +71,10 @@ export function cardTaskId(ref: AgentConversationRef): string | undefined {
   return ref.exchanges.findLast((exchange) => exchange.taskId)?.taskId
 }
 
-/** When a card parked on a rate limit resumes, if its provider said. The host
- *  carries it for a message rebuilt from the transcript. */
-export function rateLimitedUntil(ref: AgentConversationRef, carried: SentSessionMessage | null | undefined): number | undefined {
+/** When a card parked on a rate limit resumes, if its provider said. */
+export function rateLimitedUntil(ref: AgentConversationRef): number | undefined {
   const last = ref.exchanges[ref.exchanges.length - 1]
-  if (!last) return undefined
-  if (last.restored) return carried?.state === 'rate_limited' ? carried.resetsAt : undefined
-  return last.status === 'rate_limited' ? last.rateLimitedUntil : undefined
+  return last?.status === 'rate_limited' ? last.rateLimitedUntil : undefined
 }
 
 /** Live states keep their colour, clock and footer; settled states drop all three. */

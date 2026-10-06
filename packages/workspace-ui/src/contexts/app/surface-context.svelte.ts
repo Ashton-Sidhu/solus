@@ -78,10 +78,10 @@ export interface SurfaceContext {
   /** The project authority the boards share. A board owns it while open. */
   readonly projectPageScope: ProjectPageScope
   setProjectPageScope(scope: ProjectPageScope): void
-  goToTask(taskId: string, via?: Via, target?: 'leading' | 'secondary'): void
-  openTasks(via?: Via, target?: 'focused' | 'aside'): void
-  openWork(workId: string, target?: 'focused' | 'aside'): void
-  openFolio(via?: Via, target?: 'focused' | 'aside'): void
+  goToTask(taskId: string, via?: Via): void
+  openTasks(via?: Via): void
+  openWork(workId: string): void
+  openFolio(via?: Via): void
   closeWork(paneId?: PaneId): void
   /** Delete a work with a brief undo window. */
   requestWorkDelete(work: WorkListing): void
@@ -101,6 +101,7 @@ export interface SurfaceContext {
 export type WorkspaceCommands = Pick<WorkspaceContext,
   // Where the person is: panes, tabs, and the sessions they show.
   | 'router'
+  | 'hasCompanionPanes'
   | 'maximizedPaneId'
   | 'activeTabId'
   | 'focusedChatTabId'
@@ -116,7 +117,7 @@ export type WorkspaceCommands = Pick<WorkspaceContext,
   | 'ctxFor'
   // Sessions reached from a record.
   | 'revealSession'
-  | 'openSplitChat'
+  | 'openChatSurface'
   | 'notifySessionUnavailable'
   // Plans, works, and other destinations.
   | 'openPlanModal'

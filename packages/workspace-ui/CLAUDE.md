@@ -73,11 +73,11 @@ State stores, foldered by domain. **Public surface = `contexts/index.ts`** (cura
 ## Variable naming
 
 - **Name the meaning, not the mechanism or the history.** When a thing's purpose outgrows its name, rename it in the same change — the compiler catches every call site. (`artifactViewer` drifted into managing all panes and confused everyone until it became `panes`.)
-- **Plain roles over jargon.** Prefer `BaseContent`/`OverlayContent` to `DurableContent`/`TransientContent`. If a reader needs a glossary to parse the name, pick a different word.
+- **Plain roles over jargon.** Prefer `destination`/`surface` (`docs/plans/companion-surfaces.md`) to names that need a glossary. If a reader needs a glossary to parse the name, pick a different word.
 - **No abbreviations for domain objects.** `panes`, not `av`; `session`, not `sess` in new code. Conventional short names are fine where scope is a few lines (`i`, `e`, `el`).
 - **One name per concept, everywhere.** Don't coin synonyms across files ("split chat" vs "pinned conversation" vs "secondary chat"). The canonical term lives where the concept is defined; feature plans in `docs/plans/` lock vocabulary before implementation.
 - **Qualify ids and booleans.** An id says whose id it is (`sourceTabId` — the chat a viewer was opened for; `focusedChatTabId`), never a bare `id`/`tabId` where several are in play. Booleans read as assertions: `hasResized`, `isBusy`, `secondaryOpen`.
-- **Methods read as commands, getters as answers.** `openSplitChat(tabId)`, `closeOverlay()`, `chatTabIn(slot)`.
+- **Methods read as commands, getters as answers.** `openChatSurface(sessionId)`, `closeSurface(index)`, `chatTabIn(paneId)`.
 
 ## Svelte 5 performance (a bounded pool of mounted conversations; hidden via `display:none`)
 

@@ -1,11 +1,11 @@
+// Adapted from T3 Code apps/mobile/src/features/projects/AddProjectScreen.tsx (MIT, see UPSTREAM.md).
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, FlatList, RefreshControl, View } from 'react-native'
+import { ActivityIndicator } from 'react-native'
 import type { SetupGithubRepo } from '@solus/contracts/types'
+import { ErrorBanner } from '../../components/ErrorBanner'
 import type { ScreenProps } from '../../navigation/routes'
-import { usePalette } from '../../theme/theme'
-import { space } from '../../theme/tokens'
-import { Banner, Button, EmptyState, Field, Row } from '../../ui/primitives'
 import { HostStatusBanner } from '../hosts/HostStatusBanner'
+import { AddProjectShell, AddProjectTextInput, ListRow, ListRowSymbol, ListSection, ListStateCard } from './components/add-project-ui'
 import { matchingRepos } from './lib/open-project'
 import { errorText, useHostApi, useMounted, useShowProject } from './use-open-project'
 
@@ -15,10 +15,9 @@ type Repos =
   | { kind: 'not-connected' }
   | { kind: 'error'; message: string }
 
-/** The repositories the host's GitHub account can reach; one tap clones it into the projects folder. */
+/** The repositories the host's GitHub account can reach, as T3 Code's repository source; one tap clones it into the projects folder. */
 export function ProjectFromGithubScreen({ navigation, route }: ScreenProps<'ProjectFromGithub'>) {
   const { hostId } = route.params
-  const palette = usePalette()
   const api = useHostApi(hostId)
   const showProject = useShowProject(hostId, navigation)
   const mounted = useMounted()
@@ -57,42 +56,53 @@ export function ProjectFromGithubScreen({ navigation, route }: ScreenProps<'Proj
   }
 
   return (
-    <FlatList
-      contentInsetAdjustmentBehavior="automatic"
-      keyboardShouldPersistTaps="handled"
-      style={{ backgroundColor: palette.canvas }}
-      data={repos}
-      keyExtractor={(repo) => repo.cloneUrl}
-      refreshControl={<RefreshControl refreshing={false} onRefresh={reload} />}
-      ListHeaderComponent={<>
-        <HostStatusBanner hostId={hostId} />
-        <View style={{ padding: space.lg, gap: space.md }}>
-          {state.kind === 'not-connected' ? (
-            <Banner tone="info" message="GitHub is not connected on this host." action={<Button label="Connect GitHub" onPress={() => navigation.navigate('GitHubConnection', { hostId })} />} />
-          ) : null}
-          {state.kind === 'error' ? (
-            <Banner message={`Repositories could not be read: ${state.message}`} action={<Button label="Try again" onPress={reload} />} />
-          ) : null}
-          {state.kind === 'loaded' ? (
-            <Field label="Search repositories" placeholder="Search repositories" value={query} onChangeText={setQuery} returnKeyType="search" />
-          ) : null}
-          {cloneError ? <Banner message={cloneError} /> : null}
-        </View>
-      </>}
-      ListEmptyComponent={state.kind === 'loading'
-        ? (api ? <View style={{ padding: space.xl }}><ActivityIndicator accessibilityLabel="Reading repositories" /></View> : null)
-        : state.kind === 'loaded'
-          ? <EmptyState title={query.trim() ? 'No matching repositories' : 'No repositories'} message={query.trim() ? 'Try a different name.' : 'This GitHub account has no repositories yet.'} />
-          : null}
-      renderItem={({ item }) => (
-        <Row
-          title={item.fullName}
-          subtitle={cloningUrl === item.cloneUrl ? 'Cloning…' : item.private ? 'Private' : undefined}
-          accessibilityHint="Copies this repository to the host and opens it"
-          onPress={cloningUrl ? undefined : () => void clone(item)}
-          trailing={cloningUrl === item.cloneUrl ? <ActivityIndicator /> : null}
+    <AddProjectShell onRefresh={reload}>
+      <HostStatusBanner hostId={hostId} />
+      {state.kind === 'not-connected' ? (
+        <ListStateCard
+          title="GitHub is not connected"
+          detail="Connect GitHub on this host to clone its repositories."
+          actionLabel="Connect GitHub"
+          onAction={() => navigation.navigate('GitHubConnection', { hostId })}
         />
-      )}
-    />
+      ) : null}
+      {state.kind === 'error' ? (
+        <ListStateCard title="Repositories unavailable" detail={state.message} actionLabel="Try again" onAction={reload} />
+      ) : null}
+      {state.kind === 'loading' && api ? <ListStateCard title="Reading repositories" loading /> : null}
+      {cloneError ? <ErrorBanner message={cloneError} /> : null}
+      {state.kind === 'loaded' ? (
+        <AddProjectTextInput
+          accessibilityLabel="Search repositories"
+          placeholder="Search repositories"
+          value={query}
+          onChangeText={setQuery}
+          returnKeyType="search"
+        />
+      ) : null}
+      {state.kind === 'loaded' && repos.length === 0 ? (
+        <ListStateCard
+          title={query.trim() ? 'No matching repositories' : 'No repositories'}
+          detail={query.trim() ? 'Try a different name.' : 'This GitHub account has no repositories yet.'}
+        />
+      ) : null}
+      {repos.length > 0 ? (
+        <ListSection>
+          {repos.map((repo, index) => (
+            <ListRow
+              key={repo.cloneUrl}
+              title={repo.fullName}
+              subtitle={cloningUrl === repo.cloneUrl ? 'Cloning…' : repo.private ? 'Private' : undefined}
+              icon={<ListRowSymbol name="arrow.triangle.branch" muted />}
+              isFirst={index === 0}
+              disabled={cloningUrl !== null && cloningUrl !== repo.cloneUrl}
+              accessibilityHint="Copies this repository to the host and opens it"
+              onPress={cloningUrl ? undefined : () => void clone(repo)}
+              {...(cloningUrl === repo.cloneUrl ? { right: <ActivityIndicator colorClassName="accent-icon-muted" /> } : {})}
+            />
+          ))}
+        </ListSection>
+      ) : null}
+    </AddProjectShell>
   )
 }

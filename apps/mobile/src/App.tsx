@@ -1,22 +1,43 @@
+// T3 Code's styling system; must load before any component renders.
+import '../global.css'
 import { useEffect, useState, type ReactNode } from 'react'
-import { ActivityIndicator, Dimensions, View } from 'react-native'
-import { StatusBar } from 'expo-status-bar'
+import { ActivityIndicator, StatusBar, View } from 'react-native'
 import { useFonts } from 'expo-font'
 import { JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono/400Regular'
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import { KeyboardProvider } from 'react-native-keyboard-controller'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import type { InitialState } from '@react-navigation/native'
 import { AppProvider, useListened } from './app/app-context'
 import { initialRoutes } from './app/initial-route'
 import { SolusApp } from './app/solus-app'
-import { deriveLayout } from './features/layout/lib/layout'
+import { ConfirmDialogHost } from './components/ConfirmDialogHost'
+import { OverlayPortalHost } from './components/OverlayPortal'
 import { KeyboardCommandsView } from './features/keyboard/KeyboardCommandsView'
+import {
+  AppearancePreferencesProvider,
+  useAppearancePreferences,
+} from './features/settings/appearance/AppearancePreferencesProvider'
 import { RootNavigator } from './navigation/RootNavigator'
 import { expoPlatform, watchAppLifecycle } from './platform/expo'
 import { ThemeProvider, usePalette } from './theme/theme'
 
 const app = new SolusApp(expoPlatform)
 
+/** Provider order adapted from T3 Code apps/mobile/src/App.tsx (MIT, see UPSTREAM.md);
+ *  the appearance provider reads the app, so the app wraps it. */
 export default function App() {
+  return (
+    <AppProvider app={app}>
+      <AppearancePreferencesProvider>
+        <AppContent />
+      </AppearancePreferencesProvider>
+    </AppProvider>
+  )
+}
+
+function AppContent() {
+  const { themeAppearance } = useAppearancePreferences()
   const [initialState, setInitialState] = useState<InitialState | null>(null)
   // A font that fails to load falls back to the system's; it never blocks the app.
   const [fontsLoaded, fontError] = useFonts({ JetBrainsMono_400Regular })
@@ -33,7 +54,6 @@ export default function App() {
         hasHosts: app.registry.hosts().length > 0,
         isSignedIn: app.account.isSignedIn,
         lastRoute: app.lastRoute(),
-        compact: deriveLayout(Dimensions.get('window')).variant === 'compact',
       })
       setInitialState({ index: routes.length - 1, routes })
     })
@@ -46,14 +66,22 @@ export default function App() {
   }, [])
 
   return (
-    <SafeAreaProvider>
-      <ThemeProvider>
-        <AppProvider app={app}>
-          <StatusBar style="auto" />
-          {ready && initialState ? <KeyboardRoot><RootNavigator initialState={initialState} /></KeyboardRoot> : <Loading />}
-        </AppProvider>
-      </ThemeProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView className="flex-1">
+      <KeyboardProvider statusBarTranslucent>
+        <SafeAreaProvider>
+          <ThemeProvider>
+            <StatusBar barStyle={themeAppearance === 'dark' ? 'light-content' : 'dark-content'} />
+            <View style={{ flex: 1 }}>
+              {ready && initialState ? <KeyboardRoot><RootNavigator initialState={initialState} /></KeyboardRoot> : <Loading />}
+              <ConfirmDialogHost />
+            </View>
+            {/* Anchored-menu overlays render here — in-window, so the
+                keyboard stays up while a dropdown is open. */}
+            <OverlayPortalHost />
+          </ThemeProvider>
+        </SafeAreaProvider>
+      </KeyboardProvider>
+    </GestureHandlerRootView>
   )
 }
 

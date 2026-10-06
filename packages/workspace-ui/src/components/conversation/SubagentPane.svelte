@@ -5,6 +5,7 @@
     getSessionRecords,
   } from "../../contexts";
   import CopyButton from "../ui/CopyButton.svelte";
+  import { underStrip } from "../ui/lib/pane-strip";
   import SubagentReport from "./SubagentReport.svelte";
   import SubagentTranscript from "./SubagentTranscript.svelte";
   import {
@@ -37,6 +38,8 @@
 
   const sessions = getSessionRecords();
   const environments = getSessionEnvironmentStore();
+  // The companion strip draws the seam for the pane it heads.
+  const isUnderStrip = underStrip();
 
   const currentSession = $derived(sessions.byId[sessionId]);
   const message = $derived(
@@ -113,7 +116,9 @@
 {/snippet}
 
 <div
-  class="text-sm flex h-full min-h-0 min-w-0 flex-col border-l border-(--solus-container-border) bg-(--solus-container-bg)"
+  class="text-sm flex h-full min-h-0 min-w-0 flex-col bg-(--solus-container-bg) {isUnderStrip()
+    ? ''
+    : 'border-l border-(--solus-container-border)'}"
 >
   <!-- The chrome row: `‹ Subagents` on the traffic-light side, PaneChrome's
        expand/close floating on the other. Both insets are published by the pane

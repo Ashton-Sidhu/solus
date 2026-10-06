@@ -53,8 +53,10 @@ function baseApi(): FakeApi {
     .on('prompt', () => ({ disposition: 'started' }))
 }
 
-/** The conversation's own calls, without the per-connection capability read. */
-const conversationCalls = (api: FakeApi) => api.calls.map((call) => call.method).filter((method) => method !== 'serverGetCapabilities')
+/** The conversation's own calls, without the per-connection capability and agent reads
+ *  and the run-option read beside history. */
+const conversationCalls = (api: FakeApi) => api.calls.map((call) => call.method)
+  .filter((method) => method !== 'serverGetCapabilities' && method !== 'start' && method !== 'configGet')
 
 const texts = (controller: ConversationController) => controller.model.order.map((id) => {
   const item = controller.model.items.get(id)

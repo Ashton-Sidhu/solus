@@ -1,0 +1,1 @@
+ALTER TABLE `task_session_links` ADD `started_by` text;

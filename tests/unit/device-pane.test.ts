@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { DeviceControlState, DevicePreview, DeviceState } from '@solus/contracts/device-types'
-import { addableDevices, controlLabel, deviceLiveState, selectedPreview, unavailablePlatformReasons } from '@solus/workspace-ui/components/devices/lib/device-pane'
+import { addableDevices, controlLabel, deviceLiveState, previewGroups, selectedPreview, unavailablePlatformReasons } from '@solus/workspace-ui/components/devices/lib/device-pane'
 import { DeviceViewState } from '@solus/workspace-ui/components/devices/lib/device-view-state.svelte'
 
 /**
@@ -46,6 +46,16 @@ describe('device pane', () => {
     expect(addableDevices(state, 'other')[0]!.devices.map((device) => device.deviceId)).toEqual(['A', 'B'])
   })
 
+  test('device tabs group under their host in opening order, like browser pages under their branch', () => {
+    // A host that left the snapshot still shows its tabs, under its id, so a tab never disappears from the strip.
+    const remote: DevicePreview = { ...preview('p3', 'C'), deviceHostId: 'studio' }
+    const groups = previewGroups(state, [preview('p1', 'A'), remote, preview('p2', 'B')])
+    expect(groups.map((group) => [group.label, group.previews.map((entry) => entry.devicePreviewId)])).toEqual([
+      ['This machine', ['p1', 'p2']],
+      ['studio', ['p3']],
+    ])
+  })
+
   test('a platform no host can run is explained', () => {
     expect(unavailablePlatformReasons(state)).toEqual(['Android: No SDK'])
   })
@@ -60,7 +70,6 @@ describe('device pane', () => {
     }
     expect(controlLabel(agent, false)).toBe('Claude agent has control')
     expect(controlLabel({ ...agent, lease: null, agentPaused: true }, false)).toBe('Agent actions paused')
-    expect(controlLabel({ ...agent, pendingTakeover: { clientId: 'c', label: 'Alice' } }, false)).toContain("agent's current action")
   })
 
   test('a rename changes the tab label only and survives selection changes', () => {

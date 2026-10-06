@@ -15,10 +15,10 @@ export function createReferenceNavigation(
 ) {
   return {
     openPlan(planId: string): void {
-      void session.openPlanModal(planId, undefined, { secondary: true })
+      void session.openPlanModal(planId)
     },
     openWork(workId: string, title?: string): void {
-      void session.openWorkModal(workId, title, { secondary: true })
+      void session.openWorkModal(workId, title)
     },
     openPr(number: number, title?: string): void {
       const workingDirectory = scope.workingDirectory()
@@ -26,7 +26,6 @@ export function createReferenceNavigation(
         ctx: workingDirectory
           ? session.ctxForDirectory(workingDirectory)
           : session.ctx,
-        target: 'aside',
       })
     },
     openFile(path: string): void {

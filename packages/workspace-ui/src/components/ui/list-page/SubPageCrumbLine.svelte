@@ -9,7 +9,6 @@
   } from "@lucide/svelte";
   import type { NavPage } from "../../../lib/page-nav";
   import CopyButton from "../CopyButton.svelte";
-  import PaneSwapButton from "../PaneSwapButton.svelte";
   import ParentPageCrumb from "./ParentPageCrumb.svelte";
   import type { SubPageStepper, SubPageTrailSegment } from "./list-page";
   import {
@@ -52,8 +51,6 @@
     /** The page's own verbs and chips, before the stepper. */
     actions?: Snippet;
     stepper?: SubPageStepper;
-    onMoveAcross?: () => void;
-    isLeading?: boolean;
     onToggleMaximize?: () => void;
     maximized?: boolean;
     maximizeLabel?: string;
@@ -80,8 +77,6 @@
     copyTitle = "Copy ID",
     actions,
     stepper,
-    onMoveAcross,
-    isLeading = true,
     onToggleMaximize,
     maximized = false,
     maximizeLabel = "Maximize",
@@ -92,7 +87,7 @@
     divided = true,
   }: Props = $props();
 
-  const hasWindowControls = $derived(!!onMoveAcross || !!onToggleMaximize || !!onClose);
+  const hasWindowControls = $derived(!!onToggleMaximize || !!onClose);
   const queueLabel = $derived(
     stepper?.position && stepper.total ? `${stepper.position} of ${stepper.total}` : "",
   );
@@ -200,10 +195,6 @@
       aria-hidden="true"
     ></span>
     <span class="contents @max-[30rem]/pane:hidden">
-
-    {#if onMoveAcross}
-      <PaneSwapButton {isLeading} onMove={onMoveAcross} iconSize={15} iconStroke={1.5} class={SUB_PAGE_ROUND_BTN} />
-    {/if}
 
     {#if onToggleMaximize}
       <button

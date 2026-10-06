@@ -24,6 +24,59 @@
     },
     "plugins": [
       [
+        "expo-font",
+        {
+          "ios": {
+            "fonts": [
+              "@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf",
+              "@expo-google-fonts/dm-sans/500Medium/DMSans_500Medium.ttf",
+              "@expo-google-fonts/dm-sans/600SemiBold/DMSans_600SemiBold.ttf",
+              "@expo-google-fonts/dm-sans/700Bold/DMSans_700Bold.ttf"
+            ]
+          },
+          "android": {
+            "fonts": [
+              {
+                "fontFamily": "DMSans-Regular",
+                "fontDefinitions": [
+                  {
+                    "path": "@expo-google-fonts/dm-sans/400Regular/DMSans_400Regular.ttf",
+                    "weight": 400
+                  }
+                ]
+              },
+              {
+                "fontFamily": "DMSans-Medium",
+                "fontDefinitions": [
+                  {
+                    "path": "@expo-google-fonts/dm-sans/500Medium/DMSans_500Medium.ttf",
+                    "weight": 500
+                  }
+                ]
+              },
+              {
+                "fontFamily": "DMSans-SemiBold",
+                "fontDefinitions": [
+                  {
+                    "path": "@expo-google-fonts/dm-sans/600SemiBold/DMSans_600SemiBold.ttf",
+                    "weight": 600
+                  }
+                ]
+              },
+              {
+                "fontFamily": "DMSans-Bold",
+                "fontDefinitions": [
+                  {
+                    "path": "@expo-google-fonts/dm-sans/700Bold/DMSans_700Bold.ttf",
+                    "weight": 700
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "Solus uses the camera only to scan a host's pairing code.",
@@ -39,6 +92,15 @@
           "microphonePermission": false
         }
       ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "enableBackgroundPlayback": false,
+          "enableBackgroundRecording": false
+        }
+      ],
       "expo-secure-store",
       "expo-sqlite",
       [
@@ -48,7 +110,10 @@
             "usesCleartextTraffic": true
           }
         }
-      ]
+      ],
+      "expo-image",
+      "expo-status-bar",
+      "expo-web-browser"
     ]
   }
 }

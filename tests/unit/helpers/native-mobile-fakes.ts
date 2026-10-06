@@ -122,6 +122,7 @@ export function createHostWorld(options: { fetch?: typeof fetch; api?: () => Fak
   const timers = new ManualTimers()
   const transports: FakeTransport[] = []
   const grants: string[] = []
+  const grantOptions: Array<{ fresh?: boolean } | undefined> = []
   const connections = new HostConnections({
     registry,
     createTransport: (transportOptions) => {
@@ -129,8 +130,9 @@ export function createHostWorld(options: { fetch?: typeof fetch; api?: () => Fak
       transports.push(transport)
       return transport
     },
-    acquireHostAccessToken: async (host) => {
+    acquireHostAccessToken: async (host, options) => {
       grants.push(host.id)
+      grantOptions.push(options)
       return `grant-for-${host.id}`
     },
     organizationId: () => null,
@@ -138,7 +140,7 @@ export function createHostWorld(options: { fetch?: typeof fetch; api?: () => Fak
     setTimeoutFn: timers.setTimeoutFn,
     clearTimeoutFn: timers.clearTimeoutFn,
   })
-  return { storage, secrets, registry, connections, transports, timers, grants }
+  return { storage, secrets, registry, connections, transports, timers, grants, grantOptions }
 }
 
 export async function flushPromises(): Promise<void> {

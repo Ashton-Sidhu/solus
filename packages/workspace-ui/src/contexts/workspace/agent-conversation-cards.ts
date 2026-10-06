@@ -1,4 +1,4 @@
-import type { AgentConversationRef, AgentConversationUpdate, AgentExchange, AgentExchangeStatus, AgentId, Message, Session } from '@solus/contracts/types'
+import type { AgentConversationRef, AgentConversationUpdate, AgentExchange, AgentExchangeStatus, AgentId, ExchangeProgress, Message, Session } from '@solus/contracts/types'
 import type { AgentConversationResultProjection } from '@solus/contracts/session-history'
 import { parseOrchestrationItems, promptTitle, type ExchangeOutcome, type SessionOutput, type SessionReport } from '@solus/contracts/session-exchange'
 import { z } from 'zod'
@@ -10,9 +10,9 @@ import { isAgentNotice, nextMsgId } from './session.utils'
  *
  * Live, the host's orchestrator sends `agent_conversation_update`s. On reload,
  * the same cards come back from the transcript: an orchestration tool row opens
- * an exchange, and a `[session report]` turn — read with the codec the host
- * wrote it with — settles it. A `[session notice]` turn is consumed and never
- * shown: the host says what is still waiting. Both paths go through
+ * an exchange at the state the host stamped on it when it read the page, and a
+ * `[session report]` turn — read with the codec the host wrote it with —
+ * settles it. A `[session notice]` turn is consumed and never shown. Both paths go through
  * `CardIndex`, so a card rebuilt from history is the card that was shown live.
  */
 
@@ -44,7 +44,6 @@ interface ExchangeOpening {
   reasoningEffort?: string
   cwd: string
   timestamp: number
-  restored?: boolean
 }
 
 interface OpenedExchange {
@@ -92,7 +91,6 @@ class CardIndex {
       dispatchedAt: opening.timestamp,
       status: 'dispatched',
     }
-    if (opening.restored) exchange.restored = true
     const current = this.currentByAgent.get(agentSessionId)
     if (current?.agentConversationRef) {
       const ref = current.agentConversationRef
@@ -106,7 +104,9 @@ class CardIndex {
       if (opening.reasoningEffort) ref.reasoningEffort = opening.reasoningEffort
       if (opening.provider) ref.provider = opening.provider
       this.cardByExchange.set(exchange.messageId, current)
-      return { exchange, newCard: false }
+      // A live transcript is `$state`: keep the proxy it stored, not the plain
+      // object, or later updates change a value the screen never reads again.
+      return { exchange: ref.exchanges.at(-1)!, newCard: false }
     }
     const message: Message = {
       id: nextMsgId(),
@@ -128,19 +128,21 @@ class CardIndex {
       timestamp: opening.timestamp,
     }
     this.messages.push(message)
-    this.currentByAgent.set(agentSessionId, message)
-    this.cardByExchange.set(exchange.messageId, message)
-    return { exchange, newCard: true }
+    const card = this.messages.at(-1)!
+    this.currentByAgent.set(agentSessionId, card)
+    this.cardByExchange.set(exchange.messageId, card)
+    return { exchange: card.agentConversationRef!.exchanges[0]!, newCard: true }
   }
 
   exchange(messageId: string | undefined, agentSessionId: string): AgentExchange | undefined {
     const tracked = messageId ? this.cardByExchange.get(messageId) : undefined
     const card = tracked?.agentConversationRef ? tracked : this.latestCard(agentSessionId)
     const exchanges = card?.agentConversationRef?.exchanges ?? []
-    // A report that names no exchange is older than this format: the oldest open one is its answer.
+    // A report that names no exchange is older than this format: the oldest
+    // unanswered one is its answer, even one the host no longer carries.
     return messageId
       ? exchanges.find((exchange) => exchange.messageId === messageId)
-      : exchanges.find((exchange) => OPEN_STATUSES.has(exchange.status))
+      : exchanges.find((exchange) => OPEN_STATUSES.has(exchange.status) || exchange.status === 'lost')
   }
 
   card(messageId: string): Message | undefined {
@@ -196,6 +198,21 @@ function settle(exchange: AgentExchange, report: Pick<SessionReport, 'status' | 
   if (report.outputs.length) exchange.outputs = report.outputs
   if (report.taskId) exchange.taskId = report.taskId
   if (report.durationMs !== undefined) exchange.durationMs = report.durationMs
+}
+
+/** Where the host said a rebuilt exchange stood when it read the page. One it
+ *  no longer carries was lost to a restart, unless a report later in the
+ *  transcript settles it. A finished reply still on its way reads as running. */
+function applyProgress(exchange: AgentExchange, progress: ExchangeProgress | undefined): void {
+  if (!progress) {
+    exchange.status = 'lost'
+    return
+  }
+  if (progress.state === 'settled') exchange.status = SETTLED_STATUS[progress.outcome ?? 'completed']
+  else if (progress.state === 'reply_queued') exchange.status = 'running'
+  else exchange.status = progress.state
+  if (progress.state === 'awaiting_input') exchange.request = progress.request
+  if (progress.state === 'rate_limited') exchange.rateLimitedUntil = progress.resetsAt
 }
 
 interface CardUpdateResult {
@@ -370,8 +387,8 @@ export class TranscriptAgentConversations {
         reasoningEffort: input.reasoning_effort,
         cwd: input.cwd ?? '',
         timestamp,
-        restored: true,
       })
+      applyProgress(exchange, result.progress)
       this.settleWaited(exchange, result, timestamp)
       return
     }
@@ -384,8 +401,8 @@ export class TranscriptAgentConversations {
         delivery: input.delivery === 'steer' ? 'steer' : undefined,
         cwd: '',
         timestamp,
-        restored: true,
       })
+      applyProgress(exchange, result?.progress)
       this.settleWaited(exchange, result, timestamp)
     }
   }
@@ -394,7 +411,6 @@ export class TranscriptAgentConversations {
   private settleWaited(exchange: AgentExchange, result: AgentConversationResultProjection | undefined, timestamp: number): void {
     if (!result?.report) return
     settle(exchange, result.report)
-    exchange.restored = undefined
     exchange.settledAt = timestamp
   }
 

@@ -7,7 +7,9 @@
   } from "../../contexts";
   import type { RunConfig } from "@solus/contracts/types";
   import type { PickerSelection } from "../pickers/lib/picker-selection";
-  import AddFilesButton from "./AddFilesButton.svelte";
+  import ComposerAddMenu from "./ComposerAddMenu.svelte";
+  import RunOnPicker from "../servers/RunOnPicker.svelte";
+  import { shouldShowRunOnPicker } from "../servers/run-on";
   import PermissionModePicker from "../pickers/PermissionModePicker.svelte";
   import SessionChip from "../pickers/SessionChip.svelte";
   import StatusBarControls from "../layout/StatusBarControls.svelte";
@@ -39,6 +41,10 @@
     onDesignMode?: (() => void) | null;
     /** Extra controls appended to the right cluster (web: push bell, logout). */
     trailingActions?: Snippet;
+    /** The tab or draft id when this composes a chat that has not started. A
+     *  chat has no destination strip (docs/plans/projectless-chat.md): its host
+     *  choice sits in this row, and its project list opens from the + menu. */
+    chatSourceId?: string | null;
     /** Editing is not permitted here (a viewer on a shared session). The row
      *  stays, so the bar keeps its shape, but every control in it is inert:
      *  the host would refuse a model, mode, or attachment change anyway. */
@@ -58,6 +64,7 @@
     onScreenshot,
     onDesignMode,
     trailingActions,
+    chatSourceId = null,
     readOnly = false,
   }: Props = $props();
 
@@ -74,13 +81,46 @@
   );
   const hostCapabilities = $derived(hostCapabilitiesStore.for(serverId));
   const canAttachFiles = $derived(hostCapabilities?.attachUpload === true);
-  const attachTooltip = $derived(
+  const attachNote = $derived(
     hostCapabilities === undefined
       ? "Checking file attachment support…"
       : canAttachFiles
-        ? "Attach file (⌥⇧A)"
+        ? null
         : unsupportedOnHost("File attachments", hostLabel),
   );
+  const chatRun = $derived(chatSourceId ? (run ?? sess?.run ?? null) : null);
+
+  /** A host choice is inert until Send, so it lands on the run as written. */
+  function applyChatRun(next: RunConfig) {
+    if (onRun) onRun(next);
+    else if (sess) sess.run = next;
+  }
+
+  // A chat's Run on list opens from the + menu, when there is a host to choose.
+  const chatHostId = $derived(chatRun ? (chatRun.pendingHostDispatch?.serverId ?? chatRun.serverId) : null);
+  const chatOffersHosts = $derived(
+    !!chatHostId &&
+      shouldShowRunOnPicker({
+        connectedRemoteCount: serversStore.connectedRemotes.length,
+        onRemoteHost: !!serversStore.hostFor(chatHostId) && !serversStore.hostFor(chatHostId)?.local,
+        selectedHostId: chatHostId,
+      }),
+  );
+  const chatHostLabel = $derived(
+    chatOffersHosts && chatHostId ? (serversStore.hostFor(chatHostId)?.label ?? "This host") : null,
+  );
+  let runOnOpen = $state(false);
+  let runOnAnchor = $state<HTMLElement | null>(null);
+
+  function openRunOn(anchor: HTMLElement) {
+    runOnAnchor = anchor;
+    runOnOpen = true;
+  }
+
+  /** The chat's project list lives in its header, which has no strip to click. */
+  function addProject(anchor: HTMLElement) {
+    window.dispatchEvent(new CustomEvent("solus:add-project", { detail: { sourceId: chatSourceId, anchor } }));
+  }
 
   $effect(() => {
     // A restored tab may name a deleted machine; asking it throws synchronously.
@@ -134,18 +174,33 @@
     : ''} {readOnly ? 'opacity-50' : ''}"
   inert={readOnly}
 >
-  <AddFilesButton
+  <ComposerAddMenu
     {onAttachFile}
     {onScreenshot}
     {onDesignMode}
+    onAddProject={chatSourceId ? addProject : null}
+    onRunOn={chatOffersHosts ? openRunOn : null}
+    runOnLabel={chatHostLabel}
+    {isPrimary}
     disabled={isRunning}
     attachDisabled={!canAttachFiles}
-    {attachTooltip}
+    {attachNote}
   />
   <div class="h-4 w-px shrink-0 bg-(--solus-container-border)" aria-hidden="true"></div>
   <PermissionModePicker {tabId} {isPrimary} {run} {onRun} />
   <div class="h-4 w-px shrink-0 bg-(--solus-container-border)" aria-hidden="true"></div>
   <SessionChip {tabId} {draftId} {isPrimary} bind:selection returnFocusOnClose class="border-0" />
+  {#if chatSourceId && chatRun}
+    <!-- No button of its own: the chat's + menu opens this list above itself. -->
+    <RunOnPicker
+      run={chatRun}
+      requesterId={chatSourceId}
+      onRun={applyChatRun}
+      variant="menu"
+      anchor={runOnAnchor}
+      bind:open={runOnOpen}
+    />
+  {/if}
 
   <!-- Rungs 1 and 4 live inside StatusBarControls, which hides its own readouts and
        keeps `trailingActions` — connection retry, push bell, Switch server on

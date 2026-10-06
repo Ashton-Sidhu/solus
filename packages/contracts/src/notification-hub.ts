@@ -40,7 +40,13 @@ export const notificationResourceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('work'), workId: z.string().min(1), revisionId: z.number().int().optional() }),
   z.object({ kind: z.literal('task'), taskId: z.string().min(1) }),
   z.object({ kind: z.literal('pr'), pr: notificationPrSchema }),
-  z.object({ kind: z.literal('automation'), automationId: z.string().min(1), runId: z.string().min(1) }),
+  z.object({
+    kind: z.literal('automation'),
+    automationId: z.string().min(1),
+    runId: z.string().min(1),
+    /** The run's conversation, when the run started one. Rows written before it was recorded have none. */
+    sessionId: z.string().min(1).optional(),
+  }),
   z.object({
     kind: z.literal('review_job'),
     job: z.enum(['guide', 'lens']),

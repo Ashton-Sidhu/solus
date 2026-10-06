@@ -24,10 +24,10 @@ interface SourceSession {
 interface Fixture {
   workspace: {
     activeTabId: string
-    splitChatTabId: string | null
+    chatSurfaceTabId: string | null
     sessionFor(tabId: string): SourceSession
     tasksStore: { taskForSession(sessionId: string): { id: string } | null }
-    openSplitChat(sessionId: string): void
+    openChatSurface(sessionId: string): void
   }
   forkTab(tabId: string, options: { activate: boolean; task: TaskTarget }): Promise<string>
   askInNewSession(tabId: string, text: string): Promise<void>
@@ -43,10 +43,10 @@ async function ask(task: TaskTarget, boundTask?: { id: string }, handoffId: stri
   let openedSessionId = ''
   fixture.workspace = {
     activeTabId: 'source-tab',
-    splitChatTabId: null,
+    chatSurfaceTabId: null,
     sessionFor: (tabId) => tabId === 'source-tab' ? original : forked,
     tasksStore: { taskForSession: (sessionId) => { bindingId = sessionId; return boundTask ?? null } },
-    openSplitChat: (sessionId) => { openedSessionId = sessionId },
+    openChatSurface: (sessionId) => { openedSessionId = sessionId },
   }
   fixture.forkTab = async (tabId, options) => {
     expect(tabId).toBe('source-tab')

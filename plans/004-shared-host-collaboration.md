@@ -641,7 +641,10 @@ owner. Each decision below is the smallest one that meets the item.
   `contracts/src/types.ts` is correct now. Existing device-keyed clones on a
   managed machine are not moved; the next dispatch clones again under the
   member. Test: `dispatch-history-roots`.
-- **Step 14 (item 7).** Decisions:
+- **Step 14 (item 7).** Removed (2026-10-06). The dialog showed for a person's
+  own sessions on a single-user host, so the busy check, the refusal code, and
+  the dialog were deleted. Sessions in one working tree are not checked. The
+  original decisions follow:
   - The answer is in the request, not a separate query: `gitRunAction` and
     the first `prompt` of a new session refuse with `WORKING_TREE_BUSY_CODE`
     (`execution/sessions/working-tree-busy.ts`). The request carries

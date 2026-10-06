@@ -78,6 +78,33 @@ through the list, and the `#number` switcher in the panel walks the same order.
 - Rows keep their full layout beside the panel. As a row narrows it drops the
   labels first, then the author's name, then the age.
 
+## The pull request's action
+
+In an open pull request, the `#number` in the top row is also the pull
+request's one action. It shows the next step and has the colour of the state:
+
+- **Merge** (for example *Squash and merge*) when the pull request is ready.
+- **Update branch** when the branch is behind its base and the base branch
+  requires it to be up to date. The host merges the base into the branch, or
+  rebases the branch if the base branch takes only rebases.
+- **Auto-merge** when only checks or reviews are pending. The host merges the
+  pull request when they pass.
+- **Resolve conflicts with agent** (red) or **Fix failing checks with agent**,
+  which open a session.
+- **Mark ready for review** for a draft.
+
+When you cannot take a step, the number shows the state: *Merged*, *Closed*,
+*Auto-merge on*, *Checks in progress*, and so on. The caret beside the number
+selects the merge method, merges now instead of waiting, and turns auto-merge
+on or off. The status card on Activity has the same action as a button under
+its state, so you can merge from either place.
+
+Merge methods come from the repository and from the rules of the base branch.
+A branch that requires linear history, or a ruleset that names the allowed
+methods, removes the methods it does not allow. The host names the default
+method: your GitHub default when the base branch allows it, otherwise the first
+allowed method.
+
 ## Row actions
 
 A row can merge, close, reopen, or mark a draft ready for review without
@@ -95,8 +122,8 @@ offers nothing.
 - **Context menu** — right-click a row, or press and hold it on a touch
   screen. The menu has the same actions, so a phone gets them without Shift.
 
-Merge always asks for confirmation first, and merges with the repository's
-default method. Every action changes the row at once. If the host refuses, the
+Merge always asks for confirmation first, and merges with the default method
+that the host names. Every action changes the row at once. If the host refuses, the
 row goes back to its earlier state and an error message tells you why.
 
 ## Row colours

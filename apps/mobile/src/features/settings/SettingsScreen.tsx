@@ -1,63 +1,153 @@
-import { useApp, useListened } from '../../app/app-context'
-import type { ScreenProps } from '../../navigation/routes'
-import { APPEARANCE_LABELS, SYNC_STATE_LABELS } from './lib/settings-labels'
-import { NavigationRow, GroupedScroll, GroupedSection } from '../../ui/grouped-rows'
+// Adapted from T3 Code apps/mobile/src/features/settings/SettingsRouteScreen.tsx (MIT, see UPSTREAM.md).
+import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
+import { Platform, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { useApp, useListened } from "../../app/app-context";
+import type { ScreenProps } from "../../navigation/routes";
+import { hostMachineKind } from "../connection/lib/host-connection-status";
+import { ENVIRONMENT_MACHINE_SYMBOLS } from "../../components/EnvironmentMachineSymbol";
+import { SettingsRow } from "./components/SettingsRow";
+import { SettingsSection } from "./components/SettingsSection";
+import { SettingsScreen as SettingsScreenFrame } from "./components/SettingsScreen";
+import { APPEARANCE_LABELS, SYNC_STATE_LABELS } from "./lib/settings-labels";
 
 /**
- * Settings by owner (plans/018 §7): yours, which follow you to every host and,
- * with sync, every device; this device's own; each organization's settings; and
- * each host's own. Personal settings need no host.
+ * Settings by owner (plans/018 §7), in T3's settings layout: this device's
+ * connections; yours, which follow you to every host and, with sync, every
+ * device; each organization's; and each host's own. Personal settings need no
+ * host.
  */
-export function SettingsScreen({ navigation }: ScreenProps<'Settings'>) {
-  const app = useApp()
-  const hosts = useListened(app.registry.changes, app.registry.hosts)
-  const account = useListened(app.account.changes, () => app.account.view)
-  const directory = useListened(app.account.changes, () => app.account.directory)
-  const organizationId = useListened(app.account.changes, () => app.account.organizationId)
-  const appearance = useListened(app.appearance.changes, app.appearance.current)
-  const sync = useListened(app.personalSync.changes, app.personalSync.current)
-  const organizationName = directory.kind === 'loaded'
-    ? directory.organizations.find((organization) => organization.organizationId === organizationId)?.name
-    : undefined
+export function SettingsScreen(props: ScreenProps<"Settings">) {
+  const content = <SettingsIndex {...props} />;
+  return Platform.OS === "android" ? (
+    <SettingsScreenFrame title="Settings">{content}</SettingsScreenFrame>
+  ) : (
+    content
+  );
+}
+
+function SettingsIndex({ navigation }: ScreenProps<"Settings">) {
+  const app = useApp();
+  const insets = useSafeAreaInsets();
+  const hosts = useListened(app.registry.changes, app.registry.hosts);
+  const account = useListened(app.account.changes, () => app.account.view);
+  const directory = useListened(app.account.changes, () => app.account.directory);
+  const organizationId = useListened(app.account.changes, () => app.account.organizationId);
+  const appearance = useListened(app.appearance.changes, app.appearance.current);
+  const sync = useListened(app.personalSync.changes, app.personalSync.current);
+  const organizationName =
+    directory.kind === "loaded"
+      ? directory.organizations.find(
+          (organization) => organization.organizationId === organizationId,
+        )?.name
+      : undefined;
+  const accountLabel =
+    account.kind === "loading"
+      ? "Checking"
+      : account.kind === "signed-in"
+        ? account.profile.email
+        : "Sign in";
 
   return (
-    <GroupedScroll gap={14}>
-      <GroupedSection title="Personal" footer="Yours on every host. With sync on, also on your other devices.">
-        <NavigationRow icon="sync" label="Sync" value={SYNC_STATE_LABELS[sync.state]} accessibilityHint="Sync your settings with your account" onPress={() => navigation.navigate('PersonalSettings')} />
-        <NavigationRow icon="appearance" label="Appearance" value={APPEARANCE_LABELS[appearance]} onPress={() => navigation.navigate('AppearanceSettings')} />
-        <NavigationRow icon="agentDefaults" label="Agent defaults" accessibilityHint="Default agent, model, permissions, and limits" onPress={() => navigation.navigate('AgentDefaults')} />
-        <NavigationRow icon="notifications" label="Notifications" accessibilityHint="What you are told about, and how" onPress={() => navigation.navigate('NotificationSettings')} />
-      </GroupedSection>
+    <View collapsable={false} className="flex-1 bg-sheet">
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        showsVerticalScrollIndicator={false}
+        className="flex-1"
+        contentContainerClassName="gap-4 px-5 pt-4"
+        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 18) + 18 }}
+      >
+        <SettingsSection title="Connections">
+          <SettingsRow
+            icon="person.crop.circle"
+            label="Solus Cloud"
+            value={accountLabel}
+            disabled={account.kind === "loading"}
+            onPress={() =>
+              navigation.navigate(account.kind === "signed-in" ? "CloudHosts" : "CloudSignIn")
+            }
+          />
+          <SettingsRow
+            icon="desktopcomputer"
+            label="Hosts"
+            value={`${hosts.length}`}
+            valuePosition="trailing"
+            onPress={() => navigation.navigate("Hosts")}
+          />
+          <SettingsRow
+            icon={{ ios: "tray", android: "chat_bubble" }}
+            label="Inbox"
+            accessibilityHint="Opens your notifications"
+            onPress={() => navigation.navigate("Notifications")}
+          />
+        </SettingsSection>
 
-      {account.kind === 'signed-in' ? (
-        <GroupedSection title="Organization" footer="Whether your organization syncs all Insights of its work. Owners change it here.">
-          <NavigationRow icon="organization" label="Organization settings" value={organizationName} onPress={() => navigation.navigate('OrganizationSettings', organizationId ? { organizationId } : undefined)} />
-        </GroupedSection>
-      ) : null}
+        <SettingsSection title="Personal">
+          <SettingsRow
+            icon="arrow.clockwise"
+            label="Sync"
+            value={SYNC_STATE_LABELS[sync.state]}
+            accessibilityHint="Sync your settings with your account"
+            onPress={() => navigation.navigate("PersonalSettings")}
+          />
+          <SettingsRow
+            icon="paintbrush"
+            label="Appearance"
+            value={APPEARANCE_LABELS[appearance]}
+            onPress={() => navigation.navigate("AppearanceSettings")}
+          />
+          <SettingsRow
+            icon={{ ios: "sparkles", android: "auto_awesome" }}
+            label="Agent defaults"
+            accessibilityHint="Default agent, model, permissions, and limits"
+            onPress={() => navigation.navigate("AgentDefaults")}
+          />
+          <SettingsRow
+            icon="bell.badge"
+            label="Notifications"
+            accessibilityHint="What you are told about, and how"
+            onPress={() => navigation.navigate("NotificationSettings")}
+          />
+        </SettingsSection>
 
-      <GroupedSection title="This device" footer="These stay on this device.">
-        <NavigationRow
-          icon="account"
-          label="Solus Cloud"
-          value={account.kind === 'signed-in' ? account.profile.email : 'Sign in'}
-          accessibilityHint={account.kind === 'signed-in' ? 'Your account’s hosts and organization' : 'Sign in to use your account’s hosts'}
-          onPress={() => navigation.navigate(account.kind === 'signed-in' ? 'CloudHosts' : 'CloudSignIn')}
-        />
-        <NavigationRow icon="hosts" label="Hosts" value={String(hosts.length)} onPress={() => navigation.navigate('Hosts')} />
-        <NavigationRow icon="inbox" label="Inbox" accessibilityHint="Opens your notifications" onPress={() => navigation.navigate('Notifications')} />
-      </GroupedSection>
+        {account.kind === "signed-in" ? (
+          <SettingsSection title="Organization">
+            <SettingsRow
+              icon="person.2"
+              label="Organization"
+              value={organizationName}
+              onPress={() =>
+                navigation.navigate(
+                  "OrganizationSettings",
+                  organizationId ? { organizationId } : undefined,
+                )
+              }
+            />
+          </SettingsSection>
+        ) : null}
 
-      {hosts.length > 0 ? (
-        <GroupedSection title="Host settings" footer="Each host keeps its own machine settings and GitHub connection. Every device that uses the host shares them.">
-          {hosts.map((host) => (
-            <NavigationRow icon="host" key={host.id} label={host.label} onPress={() => navigation.navigate('HostSettings', { hostId: host.id })} />
-          ))}
-        </GroupedSection>
-      ) : null}
+        {hosts.length > 0 ? (
+          <SettingsSection title="Host settings">
+            {hosts.map((host) => (
+              <SettingsRow
+                key={host.id}
+                icon={ENVIRONMENT_MACHINE_SYMBOLS[hostMachineKind(host)]}
+                label={host.label}
+                onPress={() => navigation.navigate("HostSettings", { hostId: host.id })}
+              />
+            ))}
+          </SettingsSection>
+        ) : null}
 
-      <GroupedSection title="App">
-        <NavigationRow icon="about" label="About Solus" value={app.platform.appVersion} onPress={() => navigation.navigate('About')} />
-      </GroupedSection>
-    </GroupedScroll>
-  )
+        <SettingsSection title="App">
+          <SettingsRow
+            icon="info.circle"
+            label="About Solus"
+            onPress={() => navigation.navigate("About")}
+          />
+        </SettingsSection>
+      </ScrollView>
+    </View>
+  );
 }

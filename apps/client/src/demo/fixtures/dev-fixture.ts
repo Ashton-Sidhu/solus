@@ -273,10 +273,10 @@ export const devFixtures: DemoFixtures = {
     uncommittedChanges: {
       files: [{ path: 'src/api/account.ts', conflicted: false }],
       hasMoreFiles: false,
-      insertions: 1,
-      deletions: 1,
+      fileCount: 1,
       mergeInProgress: false,
     },
+    branchChanges: { fileCount: 1, insertions: 1, deletions: 1 },
     upstreamRef: null,
     aheadCount: 0,
     behindCount: 0,

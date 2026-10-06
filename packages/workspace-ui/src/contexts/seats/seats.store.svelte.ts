@@ -21,6 +21,10 @@ export interface SeatRequest {
   serverId: string
   sessionId: string
   provider: SeatProvider
+  /** `/login`: the person asked, so the seat may already be connected. */
+  requested?: boolean
+  /** A login finished while a requested card was open. */
+  completed?: boolean
 }
 
 /** A login the person called off, so the wizard reports no failure for the cancel it asked for. */
@@ -127,6 +131,8 @@ class SeatsStore {
       const key = seatKey(serverId, event.provider)
       if (event.error) this.errors.set(key, event.error)
       else if (event.state === 'connected' || event.state === 'connecting') this.errors.delete(key)
+      const required = this.required
+      if (required?.requested && required.serverId === serverId && required.provider === event.provider && event.state === 'connected') required.completed = true
       if (event.state !== 'connecting') {
         this.verifications.delete(key)
         for (const settle of this.settleWaiters.get(key)?.splice(0) ?? []) settle(event.state, event.error)
@@ -208,6 +214,12 @@ class SeatsStore {
   noteRefusal(serverId: string, sessionId: string, provider: SeatProvider): void {
     this.required = { serverId, sessionId, provider }
     this.hasSeats.set(serverId, true)
+    void this.load(serverId)
+  }
+
+  /** `/login`: the connect card stands in this conversation on request. */
+  requestSignIn(serverId: string, sessionId: string, provider: SeatProvider): void {
+    this.required = { serverId, sessionId, provider, requested: true }
     void this.load(serverId)
   }
 

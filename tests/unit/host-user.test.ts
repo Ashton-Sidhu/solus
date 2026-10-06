@@ -77,10 +77,10 @@ describe('the host user rows', () => {
 
   async function seed(): Promise<void> {
     const db = database.getDatabase()
-    await db.run(sql`INSERT INTO resource_owner (resource_kind, resource_id, owner_user_id, created_at, organization_id) VALUES
-      ('work', 'w-local', 'host-owner', 1, 'local'),
-      ('session', 's-org', 'host-owner', 1, 'org1'),
-      ('work', 'w-bob', 'bob', 1, 'local')`)
+    await db.run(sql`INSERT INTO share_grant (id, resource_kind, resource_id, subject_kind, subject_id, role, granted_by_user_id, created_at, organization_id) VALUES
+      ('o1', 'work', 'w-local', 'user', 'host-owner', 'owner', 'host-owner', 1, 'local'),
+      ('o2', 'session', 's-org', 'user', 'host-owner', 'owner', 'host-owner', 1, 'org1'),
+      ('o3', 'work', 'w-bob', 'user', 'bob', 'owner', 'bob', 1, 'local')`)
     await db.run(sql`INSERT INTO share_grant (id, resource_kind, resource_id, subject_kind, subject_id, role, granted_by_user_id, created_at, organization_id) VALUES
       ('g1', 'work', 'w-local', 'user', 'bob', 'viewer', 'host-owner', 1, 'local')`)
     await db.run(sql`INSERT INTO session_records (session_id, organization_id, owner_user_id, provider, project_path, created_at, last_activity_at) VALUES
@@ -115,8 +115,8 @@ describe('the host user rows', () => {
   }
 
   async function ownerOf(resourceId: string): Promise<string | undefined> {
-    const row = await database.getDatabase().get<{ owner_user_id: string }>(sql`SELECT owner_user_id FROM resource_owner WHERE resource_id = ${resourceId}`)
-    return row?.owner_user_id
+    const row = await database.getDatabase().get<{ subject_id: string }>(sql`SELECT subject_id FROM share_grant WHERE resource_id = ${resourceId} AND role = 'owner'`)
+    return row?.subject_id
   }
 
   async function storedWorkThreads(): Promise<Array<{ id: string; author: unknown; person?: unknown; readBy?: Array<{ userId: string }> }>> {
@@ -164,16 +164,19 @@ describe('the host user rows', () => {
     expect(settings.getServerSettings().hostUser).toMatchObject({ localId: 'L1', adoptedAt: expect.any(Number) })
 
     // A second boot finds the mark and leaves a row written since alone.
-    await database.getDatabase().run(sql`INSERT INTO resource_owner (resource_kind, resource_id, owner_user_id, created_at, organization_id) VALUES ('task', 't-late', 'host-owner', 1, 'local')`)
+    await database.getDatabase().run(sql`INSERT INTO share_grant (id, resource_kind, resource_id, subject_kind, subject_id, role, granted_by_user_id, created_at, organization_id) VALUES ('o-late', 'task', 't-late', 'user', 'host-owner', 'owner', 'host-owner', 1, 'local')`)
     await rows.adoptHostUser(database.getDatabase(), settings.getServerSettings().hostUser!)
     expect(await ownerOf('t-late')).toBe('host-owner')
-    await database.getDatabase().run(sql`DELETE FROM resource_owner WHERE resource_id = 't-late'`)
+    await database.getDatabase().run(sql`DELETE FROM share_grant WHERE resource_id = 't-late'`)
   })
 
   test('linking moves every row of the local user to the owner account', async () => {
+    // The account already holds a named row on a work the local user owns: the owner row wins.
+    await database.getDatabase().run(sql`INSERT INTO share_grant (id, resource_kind, resource_id, subject_kind, subject_id, role, granted_by_user_id, created_at, organization_id) VALUES ('g-acc', 'work', 'w-local', 'user', 'acc-1', 'viewer', 'bob', 1, 'local')`)
     await rows.followHostAccount(database.getDatabase(), { userId: 'acc-1', name: 'Ashton', email: 'a@example.com' })
 
     expect(await ownerOf('w-local')).toBe('acc-1')
+    expect(await database.getDatabase().get(sql`SELECT id FROM share_grant WHERE id = 'g-acc'`)).toBeUndefined()
     expect(await ownerOf('s-org')).toBe('acc-1')
     expect(await ownerOf('w-bob')).toBe('bob')
     expect(localOwnerKey()).toBe('acc-1')

@@ -1,6 +1,6 @@
 import { Link, UserCheck } from '@lucide/svelte'
 import { sharesStore } from '../../../contexts/sharing/shares.store.svelte'
-import { visibleRef, type PaneEntry } from '../../../contexts/workspace/routing/location'
+import { activeSurface, type PaneEntry } from '../../../contexts/workspace/routing/location'
 import type { Command } from '../../command-palette/lib/commands'
 import type { WorksStore } from '../../../contexts/works/works.store.svelte'
 import { toasts } from '../../../lib/toasts'
@@ -49,7 +49,7 @@ interface ReviewPaletteSurface {
 /** The work shown in the focused pane, else in any pane. */
 function visibleWorkId(router: ReviewPaletteSurface['router']): string | null {
   for (const pane of [router.focused, ...router.panes]) {
-    const ref = visibleRef(pane)
+    const ref = activeSurface(pane)
     if (ref?.name === 'work') return ref.params.workId
   }
   return null

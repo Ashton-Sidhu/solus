@@ -133,7 +133,7 @@ function imageContent(
 }
 
 /** The Claude half of a seat: the config directory and, for a token seat, the token. */
-function claudeSeatOf(seat: TurnSeat): ClaudeSeat {
+export function claudeSeatOf(seat: TurnSeat): ClaudeSeat {
   const claudeSeat: ClaudeSeat = { home: seat.home }
   if (seat.seat.kind === 'host-login') claudeSeat.isHostLogin = true
   if (seat.envToken) claudeSeat.envToken = seat.envToken

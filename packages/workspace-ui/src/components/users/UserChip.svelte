@@ -19,11 +19,12 @@
 </script>
 
 <span
-  class="inline-flex max-w-[12rem] items-center gap-1 align-[-0.1875rem] font-medium whitespace-nowrap {className}"
+  class="inline-flex max-w-[12rem] items-baseline gap-1 align-baseline font-medium whitespace-nowrap {className}"
   style:color={presenceTint(userColorIndex(user)).ink}
   data-testid="user-chip"
   data-user={userKey(user.id)}
 >
-  <UserAvatar {user} {size} />
+  <!-- The name sets the baseline, so the chip sits on the line of the prose around it. -->
+  <UserAvatar {user} {size} class="self-center" />
   <span class="truncate">{chipName(user, short)}</span>
 </span>

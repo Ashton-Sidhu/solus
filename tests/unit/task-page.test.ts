@@ -3,6 +3,7 @@ import { linkedPrIdentity, type LinkedPr } from '@solus/workspace-ui/contexts/pr
 import { describe, expect, test } from 'bun:test'
 import {
   canDeleteTaskComment,
+  commentSessionLink,
   commentSessionName,
   linkGroups,
   linkRow,
@@ -105,6 +106,16 @@ describe('task comment session attribution', () => {
       .toBe('Fix comment attribution')
   })
 
+  test('names the session when the comment carries its provider thread id', () => {
+    // WHY: an agent comments under the id it knows itself by, the provider
+    // thread, while the task links the stable Solus id. The card must still
+    // show the session's title and open the linked session.
+    const linked = { ...session, sessionId: 'stable-solus-id', agentSessionId: '01a10c74-169a-70a2-92e6-0463ff615cbe' }
+    const comment = { originSessionId: '01a10c74-169a-70a2-92e6-0463ff615cbe' }
+    expect(commentSessionName(comment, [linked])).toBe('Fix comment attribution')
+    expect(commentSessionLink(comment, [linked])?.sessionId).toBe('stable-solus-id')
+  })
+
   test('keeps attribution useful before the session link is indexed', () => {
     expect(commentSessionName({ originSessionId: '01M0B1F57R0HSH0R0SY2P9AMYX' }, []))
       .toBe('01M0B1F5')
@@ -161,6 +172,17 @@ describe('the task conversation', () => {
     expect(ordered.map((entry) => entry.sessionId)).toEqual(['l', 'w1', 'w2'])
     expect(taskSessionRow(lead, null, null, false, 3).isLead).toBe(true)
     expect(taskSessionRow(link('w1', 'working'), null, null, false, 3).isLead).toBe(false)
+  })
+
+  test('a session row names who started it, and says "you" for the reader', () => {
+    // WHY: an organization's task lists sessions from several people's machines;
+    // the starter is how a teammate knows whose session it is. The reader's own
+    // reads "you", and a session nobody recorded a starter for claims no one.
+    const alice = { id: { kind: 'account' as const, accountId: 'alice' }, displayName: 'Alice Chen' }
+    const started = { ...link('s', 'working'), startedBy: { kind: 'user' as const, user: alice } }
+    expect(taskSessionRow(started, null, null, false, 3, null, null, { kind: 'account', accountId: 'bob' }).startedBy).toBe('Alice Chen')
+    expect(taskSessionRow(started, null, null, false, 3, null, null, alice.id).startedBy).toBe('you')
+    expect(taskSessionRow(link('s', 'working'), null, null, false, 3).startedBy).toBeNull()
   })
 
   test('the stacked rung keeps the four record sections; the conversation is the lead\'s own tab', () => {

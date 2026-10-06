@@ -29,7 +29,11 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
   import { comboHint } from "../../lib/keybindings/manifest";
-  import { getAttentionIcon, hasSessionStarted, sessionTitle } from "../../lib/sessionUtils";
+  import {
+    getAttentionIcon,
+    hasSessionStarted,
+    sessionTitle,
+  } from "../../lib/sessionUtils";
   import { homeGitDetails } from "../../lib/git-context";
   import { projectDirLabel } from "../../lib/paths";
   import { withCheckout } from "../../contexts/workspace/run-config";
@@ -112,7 +116,9 @@
   /** The band draws the leaf session; its share badge names it. */
   const bandSession = $derived(session.sessionFor(tabId));
   // A member who may only read a shared session neither renames it nor links it to a task.
-  const canDrive = $derived(canDriveSession(session.serverIdFor(tabId), bandSession?.id));
+  const canDrive = $derived(
+    canDriveSession(session.serverIdFor(tabId), bandSession?.id),
+  );
   const linkedTask = $derived(taskOfTab(session, tabId));
   let taskLinkOpen = $state(false);
   let taskLinkAnchor = $state<HTMLButtonElement | null>(null);
@@ -123,14 +129,15 @@
       if ((detail?.paneId ?? null) !== (paneId ?? null)) return;
       if (!taskLinkAnchor || taskLinkAnchor.offsetParent === null) return;
       if (linkedTask) {
-        session.goToTask(linkedTask.id, "click", session.hasCompanionPanes ? "secondary" : "leading");
+        session.goToTask(linkedTask.id, "click");
       } else {
         menu = null;
         taskLinkOpen = !taskLinkOpen;
       }
     };
     window.addEventListener("solus:toggle-session-task-picker", handler);
-    return () => window.removeEventListener("solus:toggle-session-task-picker", handler);
+    return () =>
+      window.removeEventListener("solus:toggle-session-task-picker", handler);
   });
   const sidebarStore = getSessionSidebarStore();
   let taskQuery = $state("");
@@ -160,9 +167,7 @@
       : (task?.projectKey ?? "~"),
   );
   const projectLabel = $derived(
-    draft
-      ? projectDirLabel(projectKey)
-      : (task?.projectLabel ?? "~"),
+    draft ? projectDirLabel(projectKey) : (task?.projectLabel ?? "~"),
   );
   const tasksInProject = $derived(sidebarStore.tasksForProject(projectKey));
   const filteredTasksInProject = $derived(
@@ -220,10 +225,13 @@
   const statusIcon = $derived(getAttentionIcon(current?.attention ?? null));
   const currentStatusColor = $derived(statusColor(currentStatus));
   // Whose turn waits: "Needs you" to its author, "Needs Alice" to everyone else (plan 004 F2).
-  const currentNeeds = $derived(needsLabel(
-    bandSession?.permissionQueue[0]?.turnAuthor ?? bandSession?.questionQueue[0]?.turnAuthor,
-    presenceStore.currentUserId(session.serverIdFor(tabId)),
-  ));
+  const currentNeeds = $derived(
+    needsLabel(
+      bandSession?.permissionQueue[0]?.turnAuthor ??
+        bandSession?.questionQueue[0]?.turnAuthor,
+      presenceStore.currentUserId(session.serverIdFor(tabId)),
+    ),
+  );
 
   // Every crumb is a click, not a hover: a menu that opens on the way past
   // fights the click that would toggle it, and on the mac workspace the drag
@@ -243,7 +251,8 @@
   $effect(() => {
     if (!menu) return;
     const onPointerDown = (event: PointerEvent) => {
-      if (event.target instanceof Node && bandEl?.contains(event.target)) return;
+      if (event.target instanceof Node && bandEl?.contains(event.target))
+        return;
       menu = null;
     };
     const onKeydown = (event: KeyboardEvent) => {
@@ -449,7 +458,12 @@
     >
       <span class={MENU_LABEL}>{item.title}</span>
       {#if item.status === "running"}
-        <span class={ROW_STATUS} role="img" aria-label="Running" title="Running">
+        <span
+          class={ROW_STATUS}
+          role="img"
+          aria-label="Running"
+          title="Running"
+        >
           <SpinnerGapIcon
             size={14}
             class="animate-spin motion-reduce:animate-none"
@@ -490,9 +504,9 @@
   <div
     bind:this={bandEl}
     class="workspace-titlebar crumb-band @container z-[3] flex items-center gap-px text-workspace-chrome {variant ===
- 'inline'
- ? 'crumb-band--inline relative h-full min-w-0 flex-1 px-1'
- : 'absolute inset-x-0 top-1 h-[2.875rem] pr-3.5'}"
+    'inline'
+      ? 'crumb-band--inline relative h-full min-w-0 flex-1 px-1'
+      : 'absolute inset-x-0 top-1 h-[2.875rem] pr-3.5'}"
     style={variant === "floating"
       ? "padding-left:max(1.125rem, var(--solus-chrome-lead-inset, 0px))"
       : undefined}
@@ -508,11 +522,11 @@
     >
       <!-- The band, not the list, owns the type scale and the neutral colour:
            each crumb states its own, and the leaf stays full-contrast. -->
-      <Breadcrumb.List
-        class="min-w-0 flex-nowrap gap-px text-foreground"
-      >
+      <Breadcrumb.List class="min-w-0 flex-nowrap gap-px text-foreground">
         <Breadcrumb.Item class="relative shrink-0">
-          <Breadcrumb.Link class="{CRUMB_BUTTON} gap-[0.4375rem] pl-[0.3125rem]">
+          <Breadcrumb.Link
+            class="{CRUMB_BUTTON} gap-[0.4375rem] pl-[0.3125rem]"
+          >
             {#snippet child({ props })}
               <button
                 {...props}
@@ -531,7 +545,9 @@
           </Breadcrumb.Link>
           {#if menu === "project"}
             <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
-              <div class="menu-surface w-[min(18.25rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense">
+              <div
+                class="menu-surface w-[min(18.25rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense"
+              >
                 <div class={MENU_HEADING}>Projects</div>
                 {#each sidebarStore.projectSummaries as project (project.projectKey)}
                   {@const note = projectNote(project.waiting, project.failed)}
@@ -547,8 +563,8 @@
                     />
                     <span
                       class="{MENU_LABEL} {project.projectKey === projectKey
- ? 'font-medium'
- : ''}">{project.label}</span
+                        ? 'font-medium'
+                        : ''}">{project.label}</span
                     >
                     {#if note}
                       <span
@@ -622,8 +638,8 @@
                          have not reached the task's own host yet (ADR-0007). -->
                     <span
                       class="ml-1 size-1.5 shrink-0 rounded-full {taskSyncFailed
- ? 'bg-red-500'
- : 'bg-amber-500'}"
+                        ? 'bg-red-500'
+                        : 'bg-amber-500'}"
                       title={taskSyncFailed
                         ? "Some task updates failed to sync"
                         : `${taskSyncOps.length} task update${taskSyncOps.length === 1 ? "" : "s"} waiting to sync`}
@@ -635,7 +651,9 @@
             </Breadcrumb.Link>
             {#if menu === "task"}
               <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
-                <div class="menu-surface w-[min(19.75rem,calc(100vw-2rem))] overflow-hidden p-0 text-chrome-dense">
+                <div
+                  class="menu-surface w-[min(19.75rem,calc(100vw-2rem))] overflow-hidden p-0 text-chrome-dense"
+                >
                   <Command.Root shouldFilter={false}>
                     <MenuSearch
                       bind:value={taskQuery}
@@ -702,8 +720,8 @@
                               size={11}
                               weight="bold"
                               class="ml-auto shrink-0 transition-transform duration-150 {completedVisible
- ? ''
- : '-rotate-90'}"
+                                ? ''
+                                : '-rotate-90'}"
                             />
                           </Command.Item>
                           {#if completedVisible}
@@ -745,8 +763,8 @@
              keeps the whole remainder and pushes the trailing actions off. -->
         <Breadcrumb.Item
           class="relative min-w-0 shrink {renamingTabId === tabId
- ? 'w-[min(20rem,42vw)]'
- : 'max-w-[clamp(9rem,28cqw,20rem)]'}"
+            ? 'w-[min(20rem,42vw)]'
+            : 'max-w-[clamp(9rem,28cqw,20rem)]'}"
         >
           {#if renamingTabId === tabId}
             <!-- Editing in place: the leaf keeps its column and type ramp, only
@@ -797,8 +815,8 @@
                     {@const StatusIcon = statusIcon.component}
                     <span
                       class="flex size-[0.8125rem] shrink-0 items-center justify-center {statusIcon.spin
- ? 'animate-spin motion-reduce:animate-none'
- : ''}"
+                        ? 'animate-spin motion-reduce:animate-none'
+                        : ''}"
                       style:color={currentStatusColor ?? statusIcon.color}
                       role="img"
                       aria-label={statusNote(currentStatus, currentNeeds)?.text}
@@ -813,10 +831,15 @@
           {/if}
           {#if menu === "session"}
             <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
-              <div class="menu-surface w-[min(18rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense">
+              <div
+                class="menu-surface w-[min(18rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense"
+              >
                 {#each sessions as child (child.sessionId ?? child.tabId ?? child.taskId)}
                   <!-- The crumb already shows the current session's status. -->
-                  {@const status = child.tabId === tabId ? null : taskStatusFor(child.attention)}
+                  {@const status =
+                    child.tabId === tabId
+                      ? null
+                      : taskStatusFor(child.attention)}
                   {@const note = status ? statusNote(status) : null}
                   <div class="group/row relative">
                     <button
@@ -828,8 +851,8 @@
                     >
                       <span
                         class="{MENU_LABEL} {child.tabId === tabId
- ? 'font-medium'
- : ''}">{child.label}</span
+                          ? 'font-medium'
+                          : ''}">{child.label}</span
                       >
                       {#if status === "running"}
                         <span
@@ -894,8 +917,8 @@
       <button
         type="button"
         class="flex h-[1.875rem] shrink-0 cursor-pointer items-center gap-1.5 rounded px-[0.4375rem] transition-[background] duration-150 hover:bg-accent {taskDone
- ? 'bg-[color-mix(in_oklch,var(--chart-3)_12%,transparent)]'
- : ''}"
+          ? 'bg-[color-mix(in_oklch,var(--chart-3)_12%,transparent)]'
+          : ''}"
         title="Task actions"
         aria-haspopup="menu"
         onclick={(event) => openTaskActions(event, task)}
@@ -905,8 +928,8 @@
         {/if}
         <span
           class="text-xs whitespace-nowrap {taskDone
- ? 'text-chart-3'
- : 'opacity-75'}">{taskRef(record)}</span
+            ? 'text-chart-3'
+            : 'opacity-75'}">{taskRef(record)}</span
         >
         <CaretDownIcon
           size={14}
@@ -917,26 +940,10 @@
 
       <button
         type="button"
-        class="{BAND_ACTION} @max-[36rem]:hidden {taskDone
- ? 'text-chart-3 hover:text-chart-3'
- : ''}"
-        title={taskDone ? "Reopen task" : "Mark done"}
-        aria-label={taskDone ? "Reopen task" : "Mark done"}
-        onclick={() => void completeTask(task)}
-      >
-        {#if taskDone}
-          <ArrowUUpLeftIcon size={14} weight="bold" />
-        {:else}
-          <CheckIcon size={14} weight="bold" />
-        {/if}
-      </button>
-
-      <button
-        type="button"
         class="{BAND_ACTION} @max-[36rem]:hidden"
         title="Open task page"
         aria-label="Open task page"
-        onclick={() => session.goToTask(record.id, "click", "secondary")}
+        onclick={() => session.goToTask(record.id, "click")}
       >
         <ArrowSquareOutIcon size={14} />
       </button>
@@ -966,11 +973,15 @@
         task={draft.task}
         {projectKey}
         serverId={draft.run.taskServerId ?? draft.run.serverId}
-        onSelect={(next) => { if (draft) draft.task = next; }}
+        onSelect={(next) => {
+          if (draft) draft.task = next;
+        }}
         onDismiss={() => requestInputFocus()}
         {paneId}
       />
-    {:else if bandSession && (linkedTask || canDrive)}
+    {:else if bandSession && !taskRecord && (linkedTask || canDrive)}
+      <!-- In task mode the task's own code and open-page control already stand
+           to the left, so linking to a task is not offered again. -->
       <button
         type="button"
         class={BAND_ACTION}
@@ -978,10 +989,12 @@
         aria-haspopup={linkedTask ? undefined : "dialog"}
         aria-expanded={linkedTask ? undefined : taskLinkOpen}
         title={linkedTask ? `Open task: ${linkedTask.title}` : "Link to task"}
-        aria-label={linkedTask ? `Open task: ${linkedTask.title}` : "Link to task"}
+        aria-label={linkedTask
+          ? `Open task: ${linkedTask.title}`
+          : "Link to task"}
         onclick={() => {
           if (linkedTask) {
-            session.goToTask(linkedTask.id, "click", session.hasCompanionPanes ? "secondary" : "leading");
+            session.goToTask(linkedTask.id, "click");
           } else {
             menu = null;
             taskLinkOpen = !taskLinkOpen;
@@ -994,7 +1007,9 @@
         <LinkSessionTaskDialog
           {tabId}
           anchor={taskLinkAnchor}
-          onClose={() => { taskLinkOpen = false; }}
+          onClose={() => {
+            taskLinkOpen = false;
+          }}
         />
       {/if}
     {/if}
@@ -1088,7 +1103,7 @@
     {#if menuTask}
       {@const hasLinkedSession =
         menuSidebarTask.tabIds.length > 0 ||
-        (session.tasksStore.get(menuTask.id).sessions.length) > 0}
+        session.tasksStore.get(menuTask.id).sessions.length > 0}
       <TaskContextMenu
         x={contextMenu.x}
         y={contextMenu.y}
@@ -1096,7 +1111,10 @@
         {hasLinkedSession}
         isRunning={menuSidebarTask.status === "running"}
         onLinkPr={() =>
-          (session.ui.linkPrompt = { kind: "task-pull-request", taskId: menuTask.id })}
+          (session.ui.linkPrompt = {
+            kind: "task-pull-request",
+            taskId: menuTask.id,
+          })}
         onStart={() => void session.opening.openTaskSession(menuTask)}
         onResume={hasLinkedSession
           ? () => void session.opening.openTaskLinkedSession(menuTask)
@@ -1108,7 +1126,7 @@
               }
             }
           : undefined}
-        onOpenTask={() => session.goToTask(menuTask.id, "click", "secondary")}
+        onOpenTask={() => session.goToTask(menuTask.id, "click")}
         onOpenSource={menuTask.url
           ? () => void localApi.openExternal(menuTask.url!)
           : undefined}

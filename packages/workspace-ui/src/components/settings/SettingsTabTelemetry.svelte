@@ -1,3 +1,12 @@
+<script module lang="ts">
+  /** Search words, read by the settings page to find this page from any other. */
+  export const settingItems = [
+    { id: "export", keywords: ["otel", "opentelemetry", "otlp", "export", "telemetry", "enable", "collector"] },
+    { id: "endpoint", keywords: ["otel", "otlp", "endpoint", "url", "collector", "headers", "auth", "token", "api key"] },
+    { id: "signals", keywords: ["otel", "otlp", "logs", "metrics", "traces", "spans", "signal"] },
+  ];
+</script>
+
 <script lang="ts">
   /**
    * Where this host sends its own telemetry.
@@ -95,11 +104,6 @@
       : `Exporting ${list}.`;
   });
 
-  const settingItems = [
-    { id: "export", keywords: ["otel", "opentelemetry", "otlp", "export", "telemetry", "enable", "collector"] },
-    { id: "endpoint", keywords: ["otel", "otlp", "endpoint", "url", "collector", "headers", "auth", "token", "api key"] },
-    { id: "signals", keywords: ["otel", "otlp", "logs", "metrics", "traces", "spans", "signal"] },
-  ];
 
   function isVisible(id: string): boolean {
     if (!searchQuery) return true;

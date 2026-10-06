@@ -50,7 +50,7 @@ longer chats.
 | Chat | A session with no project |
 | New chat | The action that starts a chat |
 | Switch to chat | The project chip action that removes the project from a draft |
-| Add project | The project chip label when the draft has no project |
+| Add project… | The + menu item that adds a project to a chat before its first prompt |
 | Chat root | The folder that holds the chat folders (`.solus-chats` in a projects root) |
 | New-chat marker | `NEW_CHAT_DIRECTORY`: the working directory of a chat that has no folder yet |
 
@@ -90,8 +90,11 @@ It never reuses the chat's folder. A chat is never saved as the last project.
 Desktop and web (shared Svelte UI):
 
 - Draft headline: "What can I help with?" for a chat.
-- Project chip: "Add project" when there is no project; **Switch to chat** at
-  the end of the menu when there is one.
+- No destination strip for a chat. **Add project…** and, with more than one
+  host, **Run on…** are in the composer's + menu. A project draft keeps
+  its strip, and its project menu ends with **Switch to chat**.
+- The composer's + is a menu (Attach files, Take screenshot, Design mode, and
+  Add project… and Run on… in a chat). It no longer widens on hover.
 - Sidebar, breadcrumb, status bar, and automations name a chat "Chat", with a
   chat icon. All chats file under one sidebar group.
 - Git refresh and slash commands do not read a folder for a new chat.

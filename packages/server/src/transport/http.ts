@@ -87,6 +87,8 @@ export interface HttpServerOptions {
     applyMirror: (runner: RunnerPrincipal, request: RunnerMirrorRequest) => Promise<RunnerMirrorResponse>
     /** A work published whole (organization-scope §7). */
   }
+  /** The device hub proxy's video routes (docs/plans/native-devices.md, D2). The token is the credential. */
+  deviceHub?: { serve(token: string, route: string, signal: AbortSignal): Promise<Response> }
   /** Long-form voice transcription implementation supplied by the host. */
   transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
 }
@@ -165,6 +167,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   app.use('/artifact', publicCors)
   app.use('/api/assets/*', publicCors)
   app.use('/api/uploads/*', publicCors)
+  app.use('/api/device-hub/*', publicCors)
   app.use('/auth/refresh', publicCors)
   app.use('/auth/ws-ticket', publicCors)
   app.use('/auth/revoke', publicCors)
@@ -184,14 +187,14 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     app.all('/pair/*', (c) => c.notFound())
   }
   // The tunnel is a public URL. Only what a grant-holding client needs exists there:
-  // the health probe, the ticket exchange, signed assets, and signed uploads (a
-  // capability minted over the authenticated socket). Pairing is local
+  // the health probe, the ticket exchange, signed assets, signed uploads and signed
+  // device streams (capabilities minted over the authenticated socket). Pairing is local
   // authorization and has no meaning there; the LAN endpoints, bearer uploads, and
   // the served client are not offered either — a door that does not exist cannot leak.
   app.use('*', async (c, next) => {
     if (!viaTunnel(c)) return next()
     const { pathname } = new URL(c.req.url)
-    const offered = pathname.startsWith('/v1/') || pathname === '/health' || pathname === '/auth/ws-ticket' || pathname.startsWith('/api/assets/') || pathname.startsWith('/api/uploads/')
+    const offered = pathname.startsWith('/v1/') || pathname === '/health' || pathname === '/auth/ws-ticket' || pathname.startsWith('/api/assets/') || pathname.startsWith('/api/uploads/') || pathname.startsWith('/api/device-hub/')
     return offered ? next() : c.notFound()
   })
   if (opts.solusApi) {
@@ -367,6 +370,12 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   }
   app.get('/api/assets/:token', serveSignedAsset)
   app.on('HEAD', '/api/assets/:token', serveSignedAsset)
+
+  // The token is the credential: it names one device, one client, and an expiry.
+  if (opts.deviceHub) {
+    const deviceHub = opts.deviceHub
+    app.get('/api/device-hub/:token/:route', (c) => deviceHub.serve(c.req.param('token'), c.req.param('route'), c.req.raw.signal))
+  }
 
   // The token is the credential: it names one file, its size, and an expiry.
   // The body is read straight off the socket, so a 50 MB video is never buffered.

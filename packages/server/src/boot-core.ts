@@ -82,7 +82,7 @@ export async function bootCore(opts: BootCoreOptions = {}): Promise<BootCore> {
   phaseDone('server_booted')
   // Recovery belongs to the execution host, after tools and seats are ready.
   // Do not make client connection or first paint wait on provider setup.
-  void sessionRuntime.recoverSessionsAfterRestart().catch((error) => {
+  void sessionRuntime.restarts.recoverSessionsAfterRestart().catch((error) => {
     log.error('restart_recovery_failed', { error: String(error) })
   })
 

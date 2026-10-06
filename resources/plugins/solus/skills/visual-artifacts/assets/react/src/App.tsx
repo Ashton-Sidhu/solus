@@ -5,7 +5,7 @@ export default function App() {
   const prompt = `Set the allocation to ${allocation} percent. Use the remaining ${100 - allocation} percent for the other category.`
 
   return (
-    <main className="mx-auto grid max-w-3xl gap-5 p-4">
+    <main className="grid gap-5 p-4">
       <header className="grid gap-1">
         <h1 className="text-xl font-medium">Allocation explorer</h1>
         <p className="text-sm opacity-75">Example values. Changes stay in this page until reload.</p>

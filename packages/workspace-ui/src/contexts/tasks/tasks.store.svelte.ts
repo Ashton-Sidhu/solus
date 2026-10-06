@@ -25,6 +25,7 @@ import type {
 } from '@solus/contracts/task-types'
 import { MAX_SIDEBAR_TASK_IDS } from '@solus/contracts/task-types'
 import { Task } from './task.svelte'
+import { taskSnoozesStore } from './task-snoozes.store.svelte'
 
 const INVALIDATION_DEBOUNCE_MS = 100
 const UPSTREAM_SEARCH_DEBOUNCE_MS = 350
@@ -80,6 +81,41 @@ function splitLinkTargetKey(key: string): [TaskLinkTarget['kind'], string, strin
 export class TasksStore {
   /** The person's execution preferences for task work (plans/018 §6); the workspace supplies them. */
   executionPreferences: () => ExecutionPreferences = () => ({})
+  private readonly checkedWorkerTitles = new Set<string>()
+
+  /** Repair only the attempts on a task the person opened, two at a time. Each
+   *  session is asked once per client run: a null answer (a lead, a session
+   *  nobody delegated, naming turned off) is final, and only a failed call is
+   *  asked again on a later page open. A title the task already shows costs no
+   *  further read or write. */
+  async repairWorkerTitles(taskId: string, links: TaskSessionLink[]): Promise<void> {
+    const preferences = this.executionPreferences()
+    if (preferences.autoRenameSessions === false) return
+    const taskServerId = this.get(taskId).serverId
+    const candidates = links.flatMap((link) => {
+      const serverId = attemptServerId({ link, taskServerId })
+      if (!serverId) return []
+      const key = `${serverId}:${link.sessionId}`
+      if (this.checkedWorkerTitles.has(key)) return []
+      return [{ link, serverId }]
+    }).slice(0, 20)
+    for (const { link, serverId } of candidates) this.checkedWorkerTitles.add(`${serverId}:${link.sessionId}`)
+    for (let index = 0; index < candidates.length; index += 2) {
+      await Promise.all(candidates.slice(index, index + 2).map(async ({ link, serverId }) => {
+        try {
+          const title = await serverConnections.apiFor(serverId).ensureBackgroundSessionTitle(link.sessionId, preferences)
+          if (!title || title === link.sessionTitle) return
+          if (taskServerId && taskServerId !== serverId) {
+            await serverConnections.apiFor(taskServerId).setSessionTitle(link.sessionId, title, 'generated', undefined, false)
+          }
+          await this.refreshSessionBinding(link.sessionId, taskServerId ?? serverId)
+        } catch {
+          // A host that is offline or has not updated yet can be retried on a later page open.
+          this.checkedWorkerTitles.delete(`${serverId}:${link.sessionId}`)
+        }
+      }))
+    }
+  }
   loading = $state(false)
   loaded = $state(false)
   error = $state<string | null>(null)
@@ -251,6 +287,7 @@ export class TasksStore {
   private hostGeneration = 0
 
   constructor() {
+    taskSnoozesStore.start()
     for (const serverId of serverConnections.connectedServerIds()) {
       this.watchHost(serverId)
     }

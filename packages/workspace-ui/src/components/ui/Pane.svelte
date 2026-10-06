@@ -25,8 +25,7 @@
 
 <script lang="ts">
   import type { PaneEntry } from "../../contexts/workspace/routing/location";
-  import { visibleRef } from "../../contexts/workspace/routing/location";
-  import { ROUTES } from "../../contexts/workspace/routing/route-registry";
+  import { ROUTES, type RouteRef } from "../../contexts/workspace/routing/route-registry";
   import type { PaneSurfaceProps } from "./lib/pane-surface";
   import { getWorkspaceContext } from "../../contexts";
   // Eager, unlike every surface below: these are what cover an async boundary,
@@ -62,28 +61,30 @@
   import RouteLoadError from "./RouteLoadError.svelte";
   import PaneChrome from "./PaneChrome.svelte";
   import { paneActions } from "./lib/pane-actions.svelte";
+  import { setUnderStrip } from "./lib/pane-strip";
 
   /**
-   * The route outlet: drafts and chats mount directly; other destinations load
+   * The route outlet for one route in one pane — the destination, or one
+   * surface of the strip: drafts and chats mount directly; other routes load
    * through the registry. Each surface owns its own chrome.
    */
   interface Props extends Omit<PaneSurfaceProps, "paneId"> {
     pane: PaneEntry;
+    surface: RouteRef;
   }
 
-  let { pane, surfaceVisible = true, onAttachFile, onScreenshot, onDesignMode }: Props = $props();
+  let { pane, surface: ref, surfaceVisible = true, onAttachFile, onScreenshot, onDesignMode }: Props = $props();
 
   const session = getWorkspaceContext();
   const actions = paneActions(() => pane.id);
-  const ref = $derived(visibleRef(pane));
-  const descriptor = $derived(ref ? ROUTES[ref.name] : null);
+  const descriptor = $derived(ROUTES[ref.name]);
   // Pages used to size themselves with `flex-1` as children of the content
   // column; a companion pane's wrapper is a block, so it needs the height.
-  const isPage = $derived(descriptor?.exclusiveGroup === "page");
-  const needsPageTopInset = $derived(
-    isPage && descriptor?.ownsTitlebarChrome !== true,
-  );
+  const isPage = $derived(descriptor.ownsTitlebarChrome === true);
   const isLeading = $derived(session.router.leadingPane.id === pane.id);
+  // Every pane beside the leading one is a companion pane, and it always draws
+  // its strip.
+  setUnderStrip(() => !isLeading);
   // Bumped by the error surface's retry. `{#key}` reads it, so a new attempt
   // rebuilds the await block and calls the route's loader again — a failed
   // chunk fetch is recoverable in place rather than only by reloading the app.
@@ -91,7 +92,7 @@
 </script>
 
 {#snippet surface()}
-  {#if ref?.name === "draft"}
+  {#if ref.name === "draft"}
     <SessionDraftPane
       params={ref.params}
       paneId={pane.id}
@@ -100,7 +101,7 @@
       {onScreenshot}
       {onDesignMode}
     />
-  {:else if ref?.name === "chat"}
+  {:else if ref.name === "chat"}
     <ConversationPane
       params={ref.params}
       paneId={pane.id}
@@ -109,7 +110,7 @@
       {onScreenshot}
       {onDesignMode}
     />
-  {:else if ref?.name === "work"}
+  {:else if ref.name === "work"}
     <WorkPane
       params={ref.params}
       paneId={pane.id}
@@ -117,7 +118,7 @@
       {onScreenshot}
       {onDesignMode}
     />
-  {:else if ref && descriptor?.component}
+  {:else if descriptor.component}
     <!-- An await block can keep its previous component until the next loader
          settles. Drop it before a different route supplies incompatible params.
          Keep same-route updates mounted so they retain their local state. -->
@@ -149,9 +150,7 @@
         <div class="relative h-full min-h-0 w-full">
           <ReviewLoadingSurface view={ref.params.view ?? "diff"} />
           <PaneChrome
-            onClose={actions.closeOverlay}
-            onOpenInSplit={!actions.isLeading ? actions.moveAcross : undefined}
-            isLeading={actions.isLeading}
+            onClose={actions.close}
             closeLabel="Close loading review"
           />
         </div>
@@ -160,8 +159,6 @@
           <ReviewLoadingSurface view="diff" />
           <PaneChrome
             onClose={actions.close}
-            onOpenInSplit={!actions.isLeading ? actions.moveAcross : undefined}
-            isLeading={actions.isLeading}
             closeLabel="Close loading diff"
           />
         </div>
@@ -169,20 +166,16 @@
         <div class="relative h-full min-h-0 w-full">
           <FilesRouteSkeleton variant={ref.params.path ? "editor" : "tree"} />
           <PaneChrome
-            onClose={actions.closeOverlay}
-            onOpenInSplit={!actions.isLeading ? actions.moveAcross : undefined}
-            isLeading={actions.isLeading}
+            onClose={actions.close}
             closeLabel="Close loading files"
           />
         </div>
       {:else if ref.name === "subagent"}
         <div class="relative h-full min-h-0 w-full">
           <ConversationPaneSkeleton />
-          {#if descriptor.placement === "overlay"}
+          {#if !isLeading}
             <PaneChrome
-              onClose={actions.closeOverlay}
-              onOpenInSplit={!actions.isLeading ? actions.moveAcross : undefined}
-              isLeading={actions.isLeading}
+              onClose={actions.close}
               closeLabel="Close loading conversation"
             />
           {/if}
@@ -190,13 +183,11 @@
       {:else}
         <div class="relative h-full min-h-0 w-full">
           <ConversationPaneSkeleton />
-          {#if descriptor.placement === "overlay"}
+          {#if !isLeading}
             <!-- After the chrome row: drag rects are collected in DOM order, so
                  the cluster's no-drag holes must come after the row's drag rect. -->
             <PaneChrome
-              onClose={actions.closeOverlay}
-              onOpenInSplit={!actions.isLeading ? actions.moveAcross : undefined}
-              isLeading={actions.isLeading}
+              onClose={actions.close}
               closeLabel="Close loading pane"
             />
           {/if}
@@ -223,21 +214,9 @@
 {/snippet}
 
 {#if isPage}
-  <!-- Page routes share one macOS safe-area boundary here rather than each
-       surface remembering to clear the overlaid window controls. The inset is
-       published only when this pane actually reaches the window's top-left. -->
-  <div
-    class="page-surface flex min-h-0 flex-col {isLeading ? 'flex-1' : 'h-full'}"
-    class:page-surface--inset={needsPageTopInset}
-  >
+  <div class="page-surface flex min-h-0 flex-col {isLeading ? 'flex-1' : 'h-full'}">
     {@render surface()}
   </div>
 {:else}
   {@render surface()}
 {/if}
-
-<style>
-  .page-surface--inset {
-    padding-top: var(--solus-page-top-inset, 0px);
-  }
-</style>

@@ -497,10 +497,15 @@ dispatches to them; `tests/unit/server-module-boundaries.test.ts` names every ex
   `RecordScope` into a `WHERE` clause: every root record carries one canonical
   `organization_id` (`local` or an organization id, never changed), a read names its
   scope, a write names one organization (`docs/plans/organization-scope.md` §3).
-- `execution/` — `session-runtime.ts` (the `SessionRuntime`: session lifecycle, prompt
-  dispatch, and event normalization), `agents/` (Claude and Codex adapters and the
-  agent tools under `agents/tools/`), `sessions/` (live-turn helpers such as pending
-  input and titles, and `turn-organization.ts`: one-time organization assignment,
+- `execution/` — `session-runtime.ts` (the `SessionRuntime`: turn admission, Stop,
+  and the wiring of the session owners), `agents/` (Claude and Codex adapters and the
+  agent tools under `agents/tools/`), `sessions/` (the session owners —
+  `run-scheduler.ts` (queue and provider switches), `rate-limit-park.ts`,
+  `restart-recovery.ts`, `run-launcher.ts` (setup, launch, steering),
+  `provider-events.ts` (backend events), `input-requests.ts`, `session-statuses.ts`,
+  `session-watchers.ts`, `session-history.ts`, `provider-handoffs.ts`,
+  `session-checkouts.ts`, `prompt-dispatch.ts`, which read the live session maps on `SessionRuntime` —
+  live-turn helpers such as pending input and titles, and `turn-organization.ts`: one-time organization assignment,
   the allowed-host policy, acting-user attribution, and, on a machine attached for
   organization work, the new-root/continuation rule and the Solus API's admission
   of a new organization session before its provider starts),

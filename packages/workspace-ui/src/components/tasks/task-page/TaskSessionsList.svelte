@@ -1,8 +1,6 @@
 <script lang="ts">
   import {
     ExternalLink as ArrowSquareOutIcon,
-    Globe as GlobeIcon,
-    Laptop as LaptopIcon,
     Plus as PlusIcon,
     Square as StopIcon,
   } from "@lucide/svelte";
@@ -20,10 +18,12 @@
   import PresenceStack from "../../presence/PresenceStack.svelte";
   import { activeTurnAuthorOf } from "../../presence/lib/presence-people";
   import SessionStatusGlyph from "../../session/SessionStatusGlyph.svelte";
+  import SessionContextMenu from "../../session/SessionContextMenu.svelte";
+  import HostOperatingSystemIcon from "../../servers/HostOperatingSystemIcon.svelte";
+  import { hostIsManaged } from "../../servers/lib/managed-host";
+  import ProviderMark from "../../ui/ProviderMark.svelte";
   import {
     attemptServerId,
-    attentionLabel,
-    getAttentionIcon,
     sessionTitle,
     type AttentionState,
   } from "../../../lib/sessionUtils";
@@ -109,6 +109,11 @@
         serversStore.statusFor(executionServerId) === "online"
           ? executionServerId
           : null;
+      // A session runs on one machine, and only a client connected to it can
+      // open it. On an organization's task a teammate's session names a
+      // machine this client does not have: the row says who ran what, and
+      // offers nothing that would fail.
+      const isReachable = !!host && !("unknown" in host);
       const attention: AttentionState =
         sidebarStore?.sessionAttention(serverId, link.sessionId) ?? (running ? "running" : null);
       return {
@@ -119,20 +124,57 @@
           running,
           now,
           taskTitle,
-          host && ({ label: host.label, isRemote: !host.local } satisfies TaskSessionHost),
+          host &&
+            ({
+              label: isReachable ? host.label : "Another machine",
+              os: "os" in host ? host.os : undefined,
+              managed: hostIsManaged(host),
+            } satisfies TaskSessionHost),
+          taskServerId ? presenceStore.currentUserId(taskServerId) : null,
         ),
+        serverId,
+        isReachable,
         stopServerId,
         attention,
-        // Stated in words only when there is something to say; an ended
-        // session's glyph and its tooltip already say "Idle".
-        statusLabel: attention === "running" ? "running" : attentionLabel(attention),
-        statusColor: getAttentionIcon(attention)?.color ?? null,
         people,
         activeUserId: activeTurnAuthorOf(people),
       };
     }),
   );
   const shown = $derived(expanded ? rows : rows.slice(0, CAP));
+
+  type Row = (typeof rows)[number];
+
+  /** The session menu every other session row opens, with this row's run. The
+   *  console has no workspace and so no session menu. The row is read live, so
+   *  Stop follows the run while the menu is open. */
+  let contextMenu = $state<{ sessionId: string; x: number; y: number } | null>(null);
+  const contextMenuRow = $derived(
+    contextMenu ? rows.find((row) => row.sessionId === contextMenu?.sessionId) ?? null : null,
+  );
+
+  function openContextMenu(event: MouseEvent, row: Row) {
+    if (!session.workspace) return;
+    event.preventDefault();
+    event.stopPropagation();
+    contextMenu = {
+      sessionId: row.sessionId,
+      x: event.clientX,
+      y: event.clientY,
+    };
+  }
+
+  /** Shift+F10 or the menu key: the keyboard's right-click, under the row. */
+  function openContextMenuFromKeyboard(event: KeyboardEvent, row: Row): boolean {
+    if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) return false;
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    openContextMenu(
+      new MouseEvent("contextmenu", { clientX: rect.left + 8, clientY: rect.bottom }),
+      row,
+    );
+    event.preventDefault();
+    return true;
+  }
 </script>
 
 {#if stacked}
@@ -163,6 +205,9 @@
       {#each rows as row (row.sessionId)}
         <div
           class="overflow-hidden rounded-xl bg-card shadow-[shadow:var(--elev-ring)]"
+          role="group"
+          aria-label={row.title}
+          oncontextmenu={(e) => openContextMenu(e, row)}
         >
           <div class="flex items-start gap-2.5 px-[13px] pt-[13px] pb-3">
             <span class="flex size-[26px] shrink-0 items-center justify-center rounded-lg bg-[var(--wash-2)]">
@@ -172,30 +217,36 @@
               <span class="leading-[1.35] font-medium text-pretty">{row.title}</span>
               <span class="flex flex-wrap items-center gap-[7px]">
                 {#if row.isLead}
-                  <span
-                    class="rounded-md bg-[color-mix(in_oklch,var(--primary)_14%,transparent)] px-1.5 text-xs font-medium text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]"
-                    >Lead</span
-                  >
-                {/if}
-                {#if row.statusLabel}
-                  <span style:color={row.statusColor}>{row.statusLabel}</span>
+                  <span class="text-muted-foreground">Lead</span>
+                  <span class="text-muted-foreground opacity-40" aria-hidden="true">·</span>
                 {/if}
                 <span class="font-mono text-xs tabular-nums text-muted-foreground"
                   >{row.date}</span
                 >
+                {#if row.startedBy}
+                  <span class="text-muted-foreground opacity-40" aria-hidden="true">·</span>
+                  <span class="text-muted-foreground">by {row.startedBy}</span>
+                {/if}
                 {#if row.agent}
                   <span class="text-muted-foreground opacity-40" aria-hidden="true">·</span>
-                  <span class="font-mono text-xs text-muted-foreground">{row.agent}</span>
+                  {#if row.agentMark}
+                    <span class="flex items-center" role="img" aria-label={row.agent} title={row.agent}>
+                      <ProviderMark mark={row.agentMark} size={12} />
+                    </span>
+                  {:else}
+                    <span class="font-mono text-xs text-muted-foreground">{row.agent}</span>
+                  {/if}
                 {/if}
                 {#if row.host}
                   <span
                     class="flex min-w-0 items-center gap-1 text-muted-foreground opacity-70"
                   >
-                    {#if row.host.isRemote}
-                      <GlobeIcon size={11} class="shrink-0" aria-hidden="true" />
-                    {:else}
-                      <LaptopIcon size={11} class="shrink-0" aria-hidden="true" />
-                    {/if}
+                    <HostOperatingSystemIcon
+                      os={row.host.os}
+                      managed={row.host.managed}
+                      size={11}
+                      class="shrink-0"
+                    />
                     <span class="truncate">{row.host.label}</span>
                   </span>
                 {/if}
@@ -220,13 +271,19 @@
                 Stop
               </button>
             {/if}
-            <button
-              type="button"
-              class="h-[38px] flex-1 cursor-pointer rounded-lg border-0 bg-[var(--wash-2)] font-medium text-foreground active:bg-[var(--wash-3)] [-webkit-tap-highlight-color:transparent]"
-              onclick={() => onOpen(row.sessionId)}
-            >
-              Open session
-            </button>
+            {#if row.isReachable}
+              <button
+                type="button"
+                class="h-[38px] flex-1 cursor-pointer rounded-lg border-0 bg-[var(--wash-2)] font-medium text-foreground active:bg-[var(--wash-3)] [-webkit-tap-highlight-color:transparent]"
+                onclick={() => onOpen(row.sessionId)}
+              >
+                Open session
+              </button>
+            {:else}
+              <span class="flex h-[38px] flex-1 items-center text-muted-foreground">
+                Runs on another machine
+              </span>
+            {/if}
             <button
               type="button"
               class="flex size-[38px] shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-muted-foreground shadow-[shadow:var(--elev-ring)] active:bg-[var(--wash-2)] [-webkit-tap-highlight-color:transparent]"
@@ -298,14 +355,26 @@
   {:else}
     <div class="flex flex-col">
       {#each shown as row (row.sessionId)}
+        <!-- An unreachable row is plain text: it names the session and the
+             machine, and keeps only Unlink, which edits this task. -->
         <div
-          class="group flex h-[34px] cursor-pointer items-center gap-[11px] rounded-md px-1 transition-colors hover:bg-[var(--wash-1)] focus-visible:bg-[var(--wash-2)] focus-visible:outline-none"
+          class={[
+            "group flex h-[34px] items-center gap-[11px] rounded-md px-1",
+            row.isReachable &&
+              "cursor-pointer transition-colors hover:bg-[var(--wash-1)] focus-visible:bg-[var(--wash-2)] focus-visible:outline-none",
+          ]}
           role="button"
-          tabindex="0"
+          tabindex={row.isReachable ? 0 : -1}
+          aria-disabled={!row.isReachable}
           aria-label="Open session {row.title}"
-          onclick={() => onOpen(row.sessionId)}
+          title={row.isReachable ? undefined : "This session runs on another machine."}
+          onclick={() => {
+            if (row.isReachable) onOpen(row.sessionId);
+          }}
+          oncontextmenu={(e) => openContextMenu(e, row)}
           onkeydown={(e) => {
-            if (e.target !== e.currentTarget) return;
+            if (e.target !== e.currentTarget || openContextMenuFromKeyboard(e, row)) return;
+            if (!row.isReachable) return;
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
               onOpen(row.sessionId);
@@ -319,37 +388,39 @@
             <!-- The lead is the one row that is not an attempt: it owns the
                  conversation above, so it says so. -->
             {#if row.isLead}
-              <span
-                class="shrink-0 rounded-md bg-[color-mix(in_oklch,var(--primary)_14%,transparent)] px-1.5 text-xs font-medium text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]"
-                >Lead</span
-              >
+              <span class="shrink-0 text-muted-foreground">Lead</span>
             {/if}
             <!-- Who is in this attempt right now, from the host's roster. The
                  ring marks whose prompt is running, the dot a draft being typed. -->
             <PresenceStack people={row.people} size={14} max={3} activeUserId={row.activeUserId} />
           </span>
 
-          {#if row.statusLabel}
-            <span class="shrink-0 whitespace-nowrap" style:color={row.statusColor}>
-              {row.statusLabel}
-            </span>
-          {/if}
-
           <!-- Agent and machine, one muted cluster instead of two columns. The
-               laptop/globe pair is the sidebar's, so one machine reads the same
-               way wherever it is named; a host that cannot be named is left out
-               rather than defaulting to this machine. -->
+               agent is its logo and the machine its OS logo, each named in the
+               tooltip; a host that cannot be named is left out rather than
+               defaulting to this machine. -->
           <span
             class="flex max-w-[16rem] shrink-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-muted-foreground opacity-70 @max-[40rem]:hidden"
           >
-            {#if row.agent}<span class="truncate">{row.agent}</span>{/if}
+            {#if row.startedBy}<span class="truncate">by {row.startedBy}</span>{/if}
+            {#if row.startedBy && (row.agent || row.host)}<span aria-hidden="true">·</span>{/if}
+            {#if row.agent}
+              {#if row.agentMark}
+                <span class="flex items-center" role="img" aria-label={row.agent} title={row.agent}>
+                  <ProviderMark mark={row.agentMark} size={12} />
+                </span>
+              {:else}
+                <span class="truncate">{row.agent}</span>
+              {/if}
+            {/if}
             {#if row.agent && row.host}<span aria-hidden="true">·</span>{/if}
             {#if row.host}
-              {#if row.host.isRemote}
-                <GlobeIcon size={11} class="shrink-0" aria-hidden="true" />
-              {:else}
-                <LaptopIcon size={11} class="shrink-0" aria-hidden="true" />
-              {/if}
+              <HostOperatingSystemIcon
+                os={row.host.os}
+                managed={row.host.managed}
+                size={12}
+                class="shrink-0"
+              />
               <span class="truncate">{row.host.label}</span>
             {/if}
           </span>
@@ -387,7 +458,7 @@
                 <TooltipUI.Content value="Stop session" />
               </TooltipUI.Root>
             {/if}
-            {#if onOpenSplit}
+            {#if onOpenSplit && row.isReachable}
               {@const openSplit = onOpenSplit}
               <TooltipUI.Root>
                 <TooltipUI.Trigger>
@@ -452,4 +523,22 @@
     </div>
   {/if}
 </div>
+{/if}
+
+{#if contextMenu && contextMenuRow}
+  {@const menu = contextMenu}
+  {@const menuRow = contextMenuRow}
+  {@const stopServerId = menuRow.running ? menuRow.stopServerId : null}
+  <SessionContextMenu
+    x={menu.x}
+    y={menu.y}
+    sessionId={menuRow.sessionId}
+    serverId={menuRow.serverId}
+    showSplit={!!onOpenSplit && menuRow.isReachable}
+    onOpenInSplit={onOpenSplit ? () => onOpenSplit(menuRow.sessionId) : undefined}
+    rowActions={{
+      onStop: stopServerId ? () => onStop(menuRow.sessionId, stopServerId) : undefined,
+    }}
+    onClose={() => (contextMenu = null)}
+  />
 {/if}

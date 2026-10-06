@@ -5,8 +5,8 @@ rule in `organization-scope.md` §4 for works, tasks, and Insights reports.
 
 Where it lives:
 
-- Host: `workExportForCloud`, `workRemoveUploaded`, `taskExportForCloud`, and
-  `taskRemoveUploaded` (`transport/handlers/organization-handlers.ts`, over
+- Host: `workExportForCloud`, `workMarkMoved`, `taskExportForCloud`, and
+  `taskMarkMoved` (`transport/handlers/organization-handlers.ts`, over
   `data/works/works.ts` and `data/tasks/task-transfer.ts`).
 - Solus API: `workUpload` and `taskUpload`
   (`transport/solus-api/cloud-uploads.ts`).
@@ -68,10 +68,11 @@ repeat, so there is no pending row and no idempotency key.
    The API stores it under the same id. If that id is already there with the
    same content, the API answers "already there". If it is there in another
    organization, the API refuses.
-3. **Remove.** The client tells the host to remove the local copy. The host
-   removes it only if it did not change since step 1 (same fingerprint);
-   otherwise it keeps the newer copy and says so. A work keeps its row with a
-   location (§3a).
+3. **Point.** The client tells the host to point the local record at the
+   organization. The host does this only if the record did not change since
+   step 1 (same fingerprint); otherwise it keeps the newer copy and says so. A
+   work or a task keeps its row with a location (§3a). A work also keeps its
+   content.
 4. **Share.** The dialog applies the access rules on the cloud record and
    shows its link.
 
@@ -85,9 +86,10 @@ make. The client offers the organizations of the signed-in account.
 ## 3a. A shared work keeps its row
 
 Step 3 does not delete the work's row. It gives the row a **location**: the
-organization that has the work now. The host clears the body, the revisions,
-and the comments, so the organization's copy is the only copy of the content.
-The row keeps the id, title, type, and links.
+organization that has the work now. Only the pointer changes (decision
+2026-10-06): the host keeps the body, the revisions, and the comments. The
+organization's copy is the authority, and the host answers `WORK_MOVED` for
+its own copy.
 
 Many records name a work only by its id: transcript receipts, task links, the
 work's sessions, and `work://embed` links in other works. Some of them cannot
@@ -109,15 +111,27 @@ lets that host answer "this work is in organization X" instead of "not found".
 - **Agent tools.** `read_work` and `update_work` on a moved work tell the agent
   which organization has it. They do not read or write the organization's
   copy.
-- **Tasks.** A task is still removed after its upload. Its linked works get a
-  location through the same step.
+- **Tasks.** A task keeps its row the same way: `tasks.location`, and a read
+  or edit fails with `MOVED` (`TaskMovedError`). The host clears the body, the
+  comments, the ticket link, and the history, and keeps the id, the title, and
+  the links. Its session links stay, so a session on this host still names its
+  task, and an agent in it is told which organization has the task. Task lists,
+  the sidebar, search, and every other read of a task skip a row with a
+  location (`TASK_HERE`). Its linked works get a location through the same step.
+- **Sessions of a shared task.** The session stays on the host that runs it;
+  nothing of its transcript or checkout goes. The organization's copy of the
+  task gets a link to it with its title, agent, and role, and names the host by
+  its installation id. A client resolves that id to its own id for the host
+  (`serverConnections.resolveId`). Only a client with that host can open the
+  session; for everyone else the task page shows the row with no Open, Split,
+  or Stop.
 
 ## 4. Per resource
 
-| Resource | Read from the host | Upload to the Solus API | Remove on the host |
+| Resource | Read from the host | Upload to the Solus API | Point on the host |
 |---|---|---|---|
-| Work | `workExportForCloud` (history, annotations, fingerprint) | `workUpload`: the logic of the old runner work route, admitted with the person's sign-in | `workRemoveUploaded` (same fingerprint, or kept) |
-| Task | `taskExportForCloud`: the task, its local comments, and its linked Local works | `workUpload` for each linked work first, then `taskUpload` (task and comments under their ids, linked to the uploaded works) | `taskRemoveUploaded`: the task and each uploaded work, each only if unchanged |
+| Work | `workExportForCloud` (history, annotations, fingerprint) | `workUpload`: the logic of the old runner work route, admitted with the person's sign-in | `workMarkMoved`: a location only, the content kept (same fingerprint, or kept). |
+| Task | `taskExportForCloud`: the task, its local comments, its linked Local works, and its sessions' title, agent, role, and host installation id | `workUpload` for each linked work first, then `taskUpload` (task and comments under their ids, linked to the uploaded works and to the sessions on their host) | `taskMarkMoved`: a location on the task and on each uploaded work, each only if unchanged |
 | Insights report | The turn panel's readings, captured at Share as an `insights-report` work (JSON) | Filed as a Local work with `createWork` on the host, then the Work row | As the Work row |
 
 `importWork` and `createTask` are not used: `importWork` reads a Google Doc or
@@ -200,8 +214,9 @@ with their own sign-in; anyone else signs in first and returns to it.
 
 A task has no Share, no share rows, and no guest link. Its organization sees
 it: the workspace service gives the organization the editor grant when the
-task is claimed there (`ShareManager.claimOwner`), and the sessions and works
-linked to it are opened through it (`data/tasks/task-sharing.ts`).
+task is claimed there (`ShareManager.claimOwner`). The sessions and works
+linked to it keep their own access: a link to a task shares nothing (decision
+2026-10-06). Each of them is shared on its own.
 
 The task's control is **Copy link** (`SharesStore.copyTaskLink`). For a Local
 task it first runs the upload in §3 and §4: the task, its comments, and its
@@ -212,6 +227,31 @@ organization.
 
 The host refuses `shareSet` and `shareSetLink` for a task, and a task link made
 before this change admits nobody (`resolveLinkSecret`).
+
+## 4c. One table of access
+
+Decision 2026-10-06, to make each access check one query.
+
+- **One table.** `share_grant` holds all access to a resource. The owner is a
+  `user` row with role `owner`, at most one per resource (`share_grant_owner`).
+  The other rows name a person, a team, the organization, or everyone with
+  the link. A person has one row on a resource, so the owner has no named row:
+  a transfer removes the new owner's named row, and `shareSet` ignores a named
+  row for the owner.
+- **Organization on the rows.** Every row carries its resource's organization.
+  The owner row is written when the record is created (`claimOwner`,
+  `claimForRunner`, `adoptForOrganization`), with the record's organization.
+- **One read.** A role check reads the resource's rows once and computes the
+  role in memory. The host owner on the whole disk reads nothing. Two checks
+  still ask the record, because no row can answer them:
+  - a host owner whose scope is Local only (a pairing connection on an attached
+    machine), because a fork or an Insights assignment moves a session into an
+    organization without rewriting its rows;
+  - a resource with no owner on a managed host, which is the team's only in its
+    own organization.
+- **One write for a scope.** `shareSet` writes the named rows and, when the
+  request has `link`, the link, in one transaction. `shareSetLink` stays for
+  regenerating the link and for the review link.
 
 ## 5. What is removed
 
@@ -270,6 +310,11 @@ host keeps a local copy that changed after it was read.
 6. **2026-10-02:** Copy link on a resource shared only with members copies
    the app's address, not a guest link; a signed-in visitor of a guest link is
    not asked for a name.
+7. **2026-10-05:** a shared task keeps its row with a location, as a work does
+   (§3a); it is no longer deleted. Deleting it also deleted its session links,
+   so the organization's task showed no sessions and the sessions lost their
+   task. The organization's copy lists the sessions by title and host; only a
+   client of that host opens one.
 
 ## Shared work header spacing
 

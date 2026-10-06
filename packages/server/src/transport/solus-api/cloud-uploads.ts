@@ -13,6 +13,7 @@ import { Task } from '../../data/tasks/task'
 import { attributionOf } from '../../admission/actor'
 import { createLogger } from '../../logger'
 import { isApiMode } from '../../host/api-mode'
+import { timeShareCall } from '../../sharing/share-timing'
 
 const log = createLogger('main', 'cloud-uploads')
 
@@ -66,6 +67,15 @@ const taskTransferSchema = z.object({
   }),
   comments: z.array(z.object({ id: z.string().min(1), body: z.string(), author: attributionSchema.nullable(), originSessionId: z.string().nullable() })),
   workIds: z.array(z.string().min(1)),
+  sessions: z.array(z.object({
+    sessionId: z.string().min(1),
+    role: z.enum(['lead', 'working', 'referenced']),
+    linkedAt: z.number(),
+    title: z.string().nullable(),
+    provider: z.string().nullable(),
+    startedBy: attributionSchema.nullable(),
+    hostInstallationId: z.string().min(1),
+  })),
   fingerprint: z.string().min(1),
 }) satisfies z.ZodType<TaskTransfer>
 
@@ -82,13 +92,15 @@ export function registerCloudUploadHandlers(server: SolusServer, deps: { shares:
     if (principal.kind !== 'org-member') throw new Error('Sign in to an organization to share this work.')
     const transfer = workTransferSchema.parse(input)
     const organizationId = principal.organizationId
-    const existing = await Work.find(ANY_ORGANIZATION, transfer.work.id)
-    if (existing && existing.organizationId !== organizationId) throw new Error('This work already belongs to another organization.')
-    const work = await importWorkFromHost(organizationId, transfer)
-    await deps.shares.claimOwner({ kind: 'work', id: work.id }, principal)
-    await linkWorkToSessionTasks(organizationId, work)
-    log.info('work_uploaded', { organizationId, workId: work.id, userId: principal.userId, alreadyThere: existing !== null })
-    return { workId: work.id, organizationId }
+    return timeShareCall('workUpload', { kind: 'work', id: transfer.work.id }, async () => {
+      const existing = await Work.find(ANY_ORGANIZATION, transfer.work.id)
+      if (existing && existing.organizationId !== organizationId) throw new Error('This work already belongs to another organization.')
+      const work = await importWorkFromHost(organizationId, transfer)
+      await deps.shares.claimOwner({ kind: 'work', id: work.id }, principal)
+      await linkWorkToSessionTasks(organizationId, work)
+      log.info('work_uploaded', { organizationId, workId: work.id, userId: principal.userId, alreadyThere: existing !== null, revisions: transfer.revisions.length })
+      return { workId: work.id, organizationId }
+    })
   })
 
   server.register('taskUpload', async ([input], { principal, actor }) => {
@@ -96,11 +108,13 @@ export function registerCloudUploadHandlers(server: SolusServer, deps: { shares:
     if (principal.kind !== 'org-member') throw new Error('Sign in to an organization to share this task.')
     const transfer = taskTransferSchema.parse(input)
     const organizationId = principal.organizationId
-    const existing = await Task.byId(ANY_ORGANIZATION, transfer.task.id).catch(() => null)
-    if (existing && existing.organizationId !== organizationId) throw new Error('This task already belongs to another organization.')
-    const task = await importTaskFromHost(organizationId, transfer, attributionOf(actor))
-    await deps.shares.claimOwner({ kind: 'task', id: task.id }, principal)
-    log.info('task_uploaded', { organizationId, taskId: task.id, userId: principal.userId, works: transfer.workIds.length, alreadyThere: existing !== null })
-    return { taskId: task.id, organizationId }
+    return timeShareCall('taskUpload', { kind: 'task', id: transfer.task.id }, async () => {
+      const existing = await Task.byId(ANY_ORGANIZATION, transfer.task.id).catch(() => null)
+      if (existing && existing.organizationId !== organizationId) throw new Error('This task already belongs to another organization.')
+      const task = await importTaskFromHost(organizationId, transfer, attributionOf(actor))
+      await deps.shares.claimOwner({ kind: 'task', id: task.id }, principal)
+      log.info('task_uploaded', { organizationId, taskId: task.id, userId: principal.userId, works: transfer.workIds.length, sessions: transfer.sessions.length, alreadyThere: existing !== null })
+      return { taskId: task.id, organizationId }
+    })
   })
 }

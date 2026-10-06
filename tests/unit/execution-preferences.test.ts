@@ -168,7 +168,7 @@ describe('what a session works under survives a host restart', () => {
     const first = await runtimeWith()
     const parent = await sessionIn('A', 'restart-parent')
     await (await first.runtime.runTurn(turn(parent, input('codex', 'full-access', PREFERENCES)))).agentSessionId
-    const { agentSessionId: childThread } = await first.runtime.createSession({
+    const { agentSessionId: childThread } = await first.runtime.dispatch.createSession({
       provider: 'codex', modelId: 'model-test', reasoningEffort: 'medium', contextWindow: null, cwd: dataDir, prompt: 'restart-child',
       delegation: { parentAgentSessionId: `thread-${parent}`, messageId: 'm2', intent: 'fire_and_forget', createdAt: 1 },
     })
@@ -179,7 +179,7 @@ describe('what a session works under survives a host restart', () => {
 
     // A follow-up nobody typed, on a new runtime: the record answers, not memory.
     const second = await runtimeWith()
-    await second.runtime.promptSession(childThread, 'after-restart', 'queue')
+    await second.runtime.dispatch.promptSession(childThread, 'after-restart', 'queue')
     await until(() => second.backends.codex.requests.length > 0)
     const childId = second.runtime.sessionIdForRecord(childThread)
     expect(sessionSettings.sessionSettings(childId)?.organizationId).toBe('A')
@@ -216,7 +216,7 @@ describe('what a session works under survives a host restart', () => {
     expect(await states.sessionExecutionPreferences('prefs-local')).toEqual(preferences)
 
     const second = await runtimeWith()
-    await second.runtime.promptSession('thread-prefs-local', 'after-restart', 'queue')
+    await second.runtime.dispatch.promptSession('thread-prefs-local', 'after-restart', 'queue')
     await until(() => second.backends.codex.requests.length > 0)
     expect(second.backends.codex.requests.at(-1)?.systemPrompt).toContain('Answer in French.')
     expect(sessionSettings.sessionSettings(second.runtime.sessionIdForRecord('thread-prefs-local'))?.preferences).toEqual(preferences)

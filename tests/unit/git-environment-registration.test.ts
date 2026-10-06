@@ -33,14 +33,52 @@ function gitState(branch: string): GitState {
     uncommittedChanges: {
       files: [],
       hasMoreFiles: false,
-      insertions: 0,
-      deletions: 0,
+      fileCount: 0,
       mergeInProgress: false,
     },
   }
 }
 
 describe('Git environment registration', () => {
+  test('a forced read after a mutation does not accept a pending pre-mutation summary', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(<T>(value: T) => value, { snapshot: <T>(value: T) => value })
+    let finish!: (state: GitState) => void
+    let calls = 0
+    servedBy(asHostApi({ gitRefreshState: async () => {
+      calls++
+      if (calls === 1) return new Promise<GitState>((resolve) => { finish = resolve })
+      return gitState('after-mutation')
+    } }))
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    const before = store.refresh('host-a', '/repo')
+    const after = store.refresh('host-a', '/repo', { force: true })
+    expect(calls).toBe(1)
+    finish(gitState('before-mutation'))
+    await Promise.all([before, after])
+    expect(calls).toBe(2)
+    expect(store.statusFor('host-a', '/repo')?.branch).toBe('after-mutation')
+  })
+
+  test('startup summary readers join a pending details read for the same checkout', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(<T>(value: T) => value, { snapshot: <T>(value: T) => value })
+    let finish!: (state: GitState) => void
+    let calls = 0
+    servedBy(asHostApi({ gitRefreshState: async () => {
+      calls++
+      return new Promise<GitState>((resolve) => { finish = resolve })
+    } }))
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    const details = store.refresh('host-a', '/repo', { details: true })
+    const summary = store.refresh('host-a', '/repo')
+    const anotherSummary = store.refresh('host-a', '/repo')
+    expect(calls).toBe(1)
+    finish(gitState('main'))
+    expect(await Promise.all([details, summary, anotherSummary])).toEqual([true, true, true])
+    expect(store.statusFor('host-a', '/repo')?.branch).toBe('main')
+  })
+
   test('a rename supersedes cached status and a status request already in flight on its host', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(<T>(value: T) => value, { snapshot: <T>(value: T) => value })
     let finish!: (state: GitState) => void
@@ -481,15 +519,14 @@ describe('Git environment on a tab switch', () => {
     pushed.uncommittedChanges.files.push({ path: 'b.ts', conflicted: false })
     store.set('host-a', '/repo', pushed)
     const withCounts = edited()
-    withCounts.uncommittedChanges.insertions = 12
-    withCounts.uncommittedChanges.deletions = 3
+    withCounts.branchChanges = { fileCount: 1, insertions: 12, deletions: 3 }
     answers[0](withCounts)
     await Bun.sleep(200)
 
     expect(answers).toHaveLength(2)
     answers[1](withCounts)
     await Bun.sleep(0)
-    expect(store.statusFor('host-a', '/repo')?.uncommittedChanges).toMatchObject({ insertions: 12, deletions: 3 })
+    expect(store.statusFor('host-a', '/repo')?.branchChanges).toEqual({ fileCount: 1, insertions: 12, deletions: 3 })
     stopWatching()
   })
 })

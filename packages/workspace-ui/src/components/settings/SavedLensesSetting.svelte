@@ -7,7 +7,7 @@
   import { LENS_TEMPLATES } from "../review/lib/lens-surface";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
-  import PlainTextEditor from "../ui/plain-text-editor/plain-text-editor.svelte";
+  import SettingsTextField from "./SettingsTextField.svelte";
 
   /**
    * Saved lenses: named prompts the Lens tab offers on every review
@@ -81,14 +81,11 @@
           <DeleteIcon />
         </Button>
       </div>
-      <PlainTextEditor
+      <SettingsTextField
+        label={lens.name ? `${lens.name} prompt` : 'Lens prompt'}
         value={lens.prompt}
         onValueChange={(value) => change(lens.id, { prompt: value })}
-        ariaLabel="Lens prompt"
-        enterInsertsNewline
-        hidePlaceholderOnFocus
         maxHeight={180}
-        dictation
         placeholder="Describe the view you want for every change: what to show, how to lay it out, what to link."
         class="px-3 [--plain-editor-font-size:var(--text-workspace-chrome)] [--plain-editor-line-height:1.5] [--plain-editor-padding:0_0_0.625rem] [&_.cm-content]:![min-height:2.5rem] [&_.cm-content]:![font-weight:400]"
       />

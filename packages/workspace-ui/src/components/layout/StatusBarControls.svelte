@@ -5,6 +5,7 @@
     getWorkspaceContext,
     getStatusBarContext,
     getSessionEnvironmentStore,
+    getSessionSidebarStore,
   } from "../../contexts";
   import { displayDirName } from "../../lib/paths";
   import { isChat } from "@solus/contracts/chat";
@@ -36,6 +37,7 @@
   const session = getWorkspaceContext();
   const statusBar = getStatusBarContext();
   const environmentStore = getSessionEnvironmentStore();
+  const sidebarStore = getSessionSidebarStore();
   // "Pinned" means these controls belong to a pane of their own rather than to
   // the workspace's composer — the workspace one is the only place that opens a
   // project or answers the git-dropdown shortcut.
@@ -107,9 +109,9 @@
   // shows when the destination controls are enabled. Text truncates to degrade gracefully.
   const showBranch = $derived(showDestination);
   const showDirLabel = true;
-  // The context meter is hidden for now while we decide whether to remove it.
-  // Restore `!showDestination` to show it again.
-  const showUsage = false;
+  // The context meter shows only in task mode: a conversation that the sidebar
+  // files under a task row. A loose session does not show it.
+  const showUsage = $derived(!!sess && !!sidebarStore.taskForTab(source)?.taskId);
 
   $effect(() => {
     if (isPinned) return;

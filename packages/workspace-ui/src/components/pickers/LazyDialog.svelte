@@ -54,7 +54,7 @@
     onclick={(e) => e.target === e.currentTarget && onclose()}
     onkeydown={(e) => e.key === "Escape" && onclose()}
     class={cn(
-      "fixed inset-0 z-[10020] flex justify-center px-6 pointer-events-auto outline-none bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)]",
+      "fixed inset-0 z-[10020] flex justify-center px-6 pointer-events-auto outline-none picker-backdrop",
       centered ? "items-center" : "items-start pt-[12vh]",
     )}
     role="presentation"

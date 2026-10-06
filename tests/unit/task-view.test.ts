@@ -114,4 +114,12 @@ describe('the task view', () => {
   test('an unknown task is not found', async () => {
     expect(await taskView.formatTaskSessions('01NOTATASK00000000000000000', reads({}, {}))).toBeNull()
   })
+
+  test('a child output uses its saved name after generation', async () => {
+    // WHY: the lead reads task session names without opening each child tab.
+    const { task } = await tree()
+    await indexer.setSessionCustomTitle('thread-grandchild', 'Queue Tests')
+    const view = (await taskView.formatTaskSessions(task.id, reads({}, {})))!
+    expect(view).toContain('- session "Queue Tests" session=thread-grandchild')
+  })
 })

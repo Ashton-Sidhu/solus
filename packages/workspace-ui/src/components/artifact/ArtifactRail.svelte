@@ -54,7 +54,7 @@
     title="Open in split"
     aria-label="Open in split"
     onclick={() => {
-      session.openWork(workId, "aside");
+      session.openWork(workId);
       requestInputFocus();
     }}
   >

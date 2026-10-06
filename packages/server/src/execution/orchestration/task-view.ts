@@ -82,7 +82,7 @@ function sessionTitle(session: ViewedSession, reads: TaskViewReads): string {
   const link = reads.link({
     provider: meta?.provider ?? session.link.provider ?? 'claude-code',
     sessionId: session.thread,
-    slug: meta?.slug ?? session.link.sessionTitle ?? null,
+    slug: meta?.customTitle ?? session.link.sessionTitle ?? meta?.slug ?? null,
     cwd: meta?.cwd ?? '',
     serverId: meta?.serverId,
   })
@@ -156,7 +156,7 @@ async function outputsBySession(sessions: readonly ViewedSession[]): Promise<Map
   for (const child of getChildSessions([...byThread.keys()])) {
     const parent = child.delegation?.parentSessionId
     if (!parent) continue
-    byThread.get(parent)?.push({ kind: 'session', sessionId: child.sessionId, title: child.slug || child.firstMessage || child.sessionId })
+    byThread.get(parent)?.push({ kind: 'session', sessionId: child.sessionId, title: child.customTitle || child.slug || child.firstMessage || child.sessionId })
   }
   for (const session of sessions) {
     const pr = session.link.pr

@@ -1,11 +1,13 @@
+import type { TaskOpenTiming } from './task-types'
 import type { SessionQueueMutation, SessionQueueSnapshot } from './session-queue'
 import type { CheckoutSnapshot } from './checkout'
+import type { WorktreeOfferResolution } from './activity'
 import type { BrowserRuntimeStatus } from './browser-runtime'
 import type { ExternalCommentCommand, WorkExternalComments } from './work-comments'
 import type { WorkCommentCommand } from './comment-commands'
-import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, SessionCtx, PromptOptions, SentSessionMessage, PromptDispatchResult, Attachment, SessionMeta, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, HostPathMutation, HostPathMutationResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionLineageResolution, SessionProviderSwitchResult, AcceptPlanRequest, AcceptPlanResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkType, WorkAnnotations, WorkRevision, WorkRevisionSummary, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, SessionRecordList, SessionRecordSearchQuery, SessionRecordSearch, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot, ProviderId, ModelProfilesStatus } from './types'
+import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, SessionCtx, PromptOptions, PromptDispatchResult, Attachment, SessionMeta, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, HostPathMutation, HostPathMutationResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionLineageResolution, SessionProviderSwitchResult, AcceptPlanRequest, AcceptPlanResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkType, WorkAnnotations, WorkRevision, WorkRevisionSummary, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, SessionRecordList, SessionRecordSearchQuery, SessionRecordSearch, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot, ProviderId, ModelProfilesStatus } from './types'
 import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrFilter, PrInterest, PrLabel, PrListPage, PrProjectListing, PrRevertResult, PrStateAction, PrSyncChange, PrReviewer, PrReviewerCandidate, PrReviewerKind, PrReviewTarget, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderRepository, ProviderViewer } from './providers'
-import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCommentHit, TaskCommentSearchQuery, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarFilter, TaskSidebarSnapshot, TaskSnapshot, TaskTransfer, TaskUpdatePatch } from './task-types'
+import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCommentHit, TaskCommentSearchQuery, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarFilter, TaskSidebarSnapshot, TaskSnapshot, TaskSnooze, TaskTransfer, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
 import type { SessionPullRequestsBySession } from './session-pull-requests'
 import type { SessionShelfEntry } from './session-state'
@@ -20,7 +22,7 @@ import type { MetricsNlCompileResult, MetricsQueryResult, MetricsQuerySpec, Metr
 import type { ClientNotificationRequest, NotificationSoundLog } from './notification-types'
 import type { NotificationCount, NotificationHubCapability, NotificationListRequest, NotificationPage, NotificationSetArchived, NotificationSetRead, NotificationStateResult } from './notification-hub'
 import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, BrowserAppearance, BrowserCaptureRequest, BrowserCloseResult, BrowserCookieImportRequest, BrowserCookieImportResult, BrowserCookieSourceScan, BrowserDetachReason, BrowserDiscoveredTarget, BrowserEvidence, BrowserEvidenceOptions, BrowserInteractOp, BrowserInteractResult, BrowserNavigateOp, BrowserOpenRequest, BrowserPage, BrowserProfileSet, BrowserRecordingResult, BrowserRecordingState, BrowserRecordingStopRequest, BrowserSnapshot, BrowserSnapshotOptions, BrowserSurfaceReport, BrowserViewportRequest } from './browser-types'
-import type { DeviceActionRequest, DeviceBuild, DeviceInstallRequest, DeviceProjectInfo, DeviceCloseRequest, DeviceConfigureRequest, DeviceControlRequest, DeviceControlResult, DeviceDetail, DeviceHostTestResult, DeviceInputRequest, DeviceOpenRequest, DevicePreview, DeviceScreenshotRequest, DeviceScreenshotResult, DeviceShutdownRequest, DeviceState, DeviceSubscribeRequest, DeviceTarget, DeviceToolUpdateRequest, SshDeviceHostConfig } from './device-types'
+import type { DeviceActionRequest, DeviceBuild, DeviceBuildImportRequest, DeviceInstallRequest, DeviceProjectInfo, DeviceRun, DeviceRunLog, DeviceRunStartRequest, DeviceCloseRequest, DeviceConfigureRequest, DeviceControlRequest, DeviceControlResult, DeviceDetail, DeviceHostTestResult, DeviceOpenRequest, DevicePreview, DeviceScreenshotRequest, DeviceScreenshotResult, DeviceShutdownRequest, DeviceState, DeviceStreamUrl, DeviceTarget, DeviceToolUpdateRequest, SshDeviceHostConfig } from './device-types'
 import type { AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus } from './atlassian'
 import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest, CodeIntelInstallResult, CodeIntelReferencesRequest, CodeIntelReferencesResult, CodeIntelReindexRequest, CodeIntelReindexResult, CodeIntelStatus, CodeIntelStatusRequest, CodeIntelSymbolRequest, CodeIntelSymbolResult } from './code-intel'
 import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishRequest, WorkExternalLink, WorkPublishRequest, WorkPublishResult, WorkPullResult } from './docs'
@@ -38,6 +40,7 @@ import type { WorkReview, WorkReviewDecide, WorkReviewInboxItem, WorkReviewReque
 import type { ShareLink, ShareList, ShareResource, ShareRole, ShareSetLinkRequest, ShareSetRequest, ShareTransferRequest } from './sharing'
 import type { HostOrganizationsStatus, Publication, PublicationStartRequest } from './organization-scope'
 import type { WorkTransfer } from './work-transfer'
+import type { AgentAuthFlowRequest, AgentAuthMcpTarget, AgentAuthStartResult, AgentAuthSubmitRequest, AgentAuthTarget } from './agent-auth'
 import type { SeatConnectCodeRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
 import type { AgentProfileBundle, AgentProfileStatus } from './agent-profile'
 import type { PresenceSetComposingRequest, PresenceSetEditingRequest, PresenceSetFocusRequest, PresenceSnapshotResult } from './presence'
@@ -200,6 +203,8 @@ export interface SolusAPI {
     cwd: string,
     context?: SessionMetadataGenerationContext,
   ): Promise<SessionGeneratedMetadata | null>
+  /** Return a worker's saved title, generating one if it is missing and allowed. */
+  ensureBackgroundSessionTitle(sessionId: string, preferences?: ExecutionPreferences): Promise<string | null>
   /** Persist a session name; null clears it back to the derived title. */
   setSessionTitle(
     sessionId: string,
@@ -280,14 +285,14 @@ export interface SolusAPI {
   publicationList(resource?: ShareResource): Promise<Publication[]>
   /** A Local work, whole, for its upload into an organization (docs/plans/cloud-sharing.md §3). */
   workExportForCloud(workId: string): Promise<WorkTransfer>
-  /** The Local work after its upload into `organizationId`: removed only when it did not change since that export. Its row keeps that location (cloud-sharing.md §3a). */
-  workRemoveUploaded(workId: string, fingerprint: string, organizationId: string): Promise<void>
+  /** The Local work after its upload into `organizationId`: points at that organization, with its content kept, only when it did not change since that export (cloud-sharing.md §3a). */
+  workMarkMoved(workId: string, fingerprint: string, organizationId: string): Promise<void>
   /** Solus API: store an uploaded work in the caller's organization under its own id; the same work again answers as before. */
   workUpload(transfer: WorkTransfer): Promise<{ workId: string; organizationId: string }>
   /** A Local task with its local comments and its linked Local works, for its upload into an organization. */
   taskExportForCloud(taskId: string): Promise<{ task: TaskTransfer; works: WorkTransfer[] }>
-  /** The Local task and its uploaded works after the upload: each removed only when it did not change since that export. */
-  taskRemoveUploaded(taskId: string, fingerprint: string, works: Array<{ workId: string; fingerprint: string }>, organizationId: string): Promise<void>
+  /** The Local task and its uploaded works after the upload: each points at the organization only when it did not change since that export. */
+  taskMarkMoved(taskId: string, fingerprint: string, works: Array<{ workId: string; fingerprint: string }>, organizationId: string): Promise<void>
   /** Solus API: store an uploaded task in the caller's organization under its own id; the same task again answers as before. */
   taskUpload(transfer: TaskTransfer): Promise<{ taskId: string; organizationId: string }>
   /** Sharing (docs/plans/multiplayer-sharing.md §3–§4). Reading needs viewer access; the list is replaced whole. */
@@ -308,6 +313,13 @@ export interface SolusAPI {
   seatDisconnect(request: SeatProviderRequest): Promise<SeatStatus>
   /** Host administrator: deletes a member's seat files, on removal from the team. */
   seatRemove(request: SeatRemoveRequest): Promise<{ removed: number }>
+  /** Starts a Claude Design or MCP server sign-in in the caller's seat. The end of a `waiting` flow arrives as `host.agentAuthFinished`. */
+  agentAuthStart(target: AgentAuthTarget): Promise<AgentAuthStartResult>
+  /** Hands the code, or the address the browser ended on, to the waiting sign-in. */
+  agentAuthSubmit(request: AgentAuthSubmitRequest): Promise<{ submitted: true }>
+  agentAuthCancel(request: AgentAuthFlowRequest): Promise<{ cancelled: boolean }>
+  /** Clears the caller's stored OAuth credential for one MCP server. */
+  agentAuthSignOut(target: AgentAuthMcpTarget): Promise<{ message: string }>
   /** Host administrator: this host's own agent profile, to copy to a seat on another host (docs/agent-profile.md). */
   agentProfileRead(): Promise<AgentProfileBundle>
   /** An organization member: replaces the profile in their own seats with this one; an empty bundle removes it. */
@@ -382,9 +394,6 @@ export interface SolusAPI {
 
   /** Create a durable provider session with no client watching it. */
   createHeadlessSession(request: HeadlessSessionRequest): Promise<{ agentSessionId: string }>
-  /** The messages a session sent that the host still carries, so a reloaded
-   *  card knows which of its messages are live and which were lost. */
-  sessionMessagesSentBy(sessionId: string): Promise<SentSessionMessage[]>
   /** A person's decision on a plan another session wrote, taken from the card in
    *  the conversation that sent it the work. False when the plan is no longer
    *  waiting, or this conversation has no message open to that session. */
@@ -464,6 +473,9 @@ export interface SolusAPI {
    *  the whole pull request, armed. */
   prEnableAutoMerge(ctx: IpcContext, number: number, method: MergeMethod, expectedHeadSha: string): Promise<PullRequest>
   prDisableAutoMerge(ctx: IpcContext, number: number): Promise<PullRequest>
+  /** Bring the base branch into the head on the host, checked against the
+   *  head the viewer saw. Answers the whole pull request after the update. */
+  prUpdateBranch(ctx: IpcContext, number: number, expectedHeadSha: string): Promise<PullRequest>
   /** Open a new pull request that reverses a merged one. */
   prRevert(ctx: IpcContext, number: number): Promise<PrRevertResult>
   prPrepareConflictResolution(ctx: IpcContext, number: number): Promise<PrConflictResolutionResult>
@@ -640,6 +652,7 @@ export interface SolusAPI {
   tasksImport(cwd: string, externalIds: string[]): Promise<TaskDetails[]>
   tasksPublish(id: string, cwd: string): Promise<TaskDetails>
   tasksSyncNow(id?: string): Promise<TaskExternalLink[]>
+  tasksLogOpenTiming(timing: TaskOpenTiming): Promise<void>
   tasksSidebarSnapshot(filter?: TaskSidebarFilter): Promise<TaskSidebarSnapshot>
   /** The tasks whose comments hold every word of a query (docs/plans/unified-search.md §7). */
   tasksSearchComments(query: TaskCommentSearchQuery): Promise<TaskCommentHit[]>
@@ -650,6 +663,12 @@ export interface SolusAPI {
   tasksSnapshot(taskId: string): Promise<TaskSnapshot>
   tasksUpdate(id: string, patch: TaskUpdatePatch, expectedUpdatedAt?: number): Promise<Task>
   tasksMarkRead(id: string, read: boolean): Promise<Task>
+  /** Hide the task from the caller's own task lists until `until`, or wake it
+   *  now with null. Nobody else's lists change, and its agents keep working
+   *  (docs/task-snooze.md). Answers the caller's snooze, null once woken. */
+  tasksSnooze(id: string, until: number | null, note?: string): Promise<TaskSnooze | null>
+  /** The caller's own task snoozes. `tasks.snoozesChanged` says to read again. */
+  tasksSnoozes(): Promise<TaskSnooze[]>
   tasksRecordActivity(id: string): Promise<Task>
   tasksDelete(id: string): Promise<boolean>
   tasksComment(id: string, body: string, opts?: { pushToExternal?: boolean }): Promise<TaskDetails>
@@ -730,6 +749,10 @@ export interface SolusAPI {
   worktreeBranches(ctx: IpcContext, options?: { remoteOnly?: boolean }): Promise<string[]>
   worktreeRestore(ctx: IpcContext, worktreePath: string): Promise<GitCheckout | null>
   continueInWorktree(ctx: IpcContext, namePrompt?: string): Promise<GitCheckoutBranchResult>
+  /** Answer a `worktree_offered` activity: switch the session into the agent's
+   *  worktree, or keep its current checkout. Returns the recorded resolution;
+   *  an offer already answered returns its answer unchanged. */
+  decideWorktreeOffer(ctx: IpcContext, offerId: string, decision: 'switch' | 'keep'): Promise<WorktreeOfferResolution>
   checkoutSnapshot(paths: string[]): Promise<CheckoutSnapshot>
   gitRefreshState(cwd: string, options?: GitStateOptions): Promise<GitState | null>
   gitIdentity(cwd: string): Promise<GitIdentity | null>
@@ -867,21 +890,28 @@ export interface SolusAPI {
   deviceClose(request: DeviceCloseRequest): Promise<void>
   /** Power a device off. Every session's preview of it ends. */
   deviceShutdown(request: DeviceShutdownRequest): Promise<void>
-  deviceInput(request: DeviceInputRequest): Promise<void>
   deviceAction(request: DeviceActionRequest): Promise<DeviceDetail>
-  /** Receive this device's video on the `device-frame` channel while visible. */
-  deviceSubscribeFrames(request: DeviceSubscribeRequest): Promise<void>
-  deviceUnsubscribeFrames(target: DeviceTarget): Promise<void>
+  /** A short-lived path that opens this device's video and input socket through the host's hub proxy. */
+  deviceStreamUrl(target: DeviceTarget): Promise<DeviceStreamUrl>
   deviceScreenshot(request: DeviceScreenshotRequest): Promise<DeviceScreenshotResult>
-  /** Take control of a device. From an agent, waits for its in-flight action. */
+  /** Take control of a device. From an agent, pauses its device actions. */
   deviceControlAcquire(request: DeviceControlRequest): Promise<DeviceControlResult>
   deviceControlRelease(target: DeviceTarget): Promise<void>
   /** Let agents act on this device again after a takeover. */
   deviceControlResume(target: DeviceTarget): Promise<void>
   /** Install a recorded build on a device under the caller's control lease, then open it. */
   deviceInstall(request: DeviceInstallRequest): Promise<DeviceBuild>
+  /** Add a build output that is already on the host. */
+  deviceBuildImport(request: DeviceBuildImportRequest): Promise<DeviceBuild>
+  /** Delete a build's output from the host, and its entry. */
+  deviceBuildDelete(buildId: string): Promise<DeviceState>
   /** Whether the project at this host path builds a mobile app. Reads names only, to a fixed depth. */
   deviceProjectDetect(projectPath: string): Promise<DeviceProjectInfo>
+  /** Build a project run profile in a checkout, then install and open it on a device. */
+  deviceRunStart(request: DeviceRunStartRequest): Promise<DeviceRun>
+  /** Stop a run's build. Only the process the host started is stopped. */
+  deviceRunCancel(runId: string): Promise<void>
+  deviceRunLog(runId: string): Promise<DeviceRunLog>
 
   /** The named identities a project's browser pages can sign in as. Host-owned,
    *  because the cookie jars live there. The built-in default is always first. */
@@ -970,7 +1000,7 @@ export interface NativeSolusAPI {
    *  the website did not answer; the account token itself never crosses. */
   uplinkListDirectory(): Promise<UplinkDirectory | null>
   /** A member of several organizations a host is shared with names the one their window works in. */
-  uplinkAcquireHostAccessToken(hostId: string, organizationId?: string): Promise<HostAccessTokenResponse | null>
+  uplinkAcquireHostAccessToken(hostId: string, organizationId?: string, options?: { fresh?: boolean }): Promise<HostAccessTokenResponse | null>
   uplinkIssueEnrollmentTicket(): Promise<UplinkEnrollmentTicket | null>
   /** People and teams of one organization, for the share dialog. */
   uplinkOrganizationDirectory(organizationId: string): Promise<OrganizationDirectory | null>

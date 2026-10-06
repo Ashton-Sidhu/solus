@@ -119,6 +119,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       tabOrder: [...session.tabOrder],
       tabs,
       location: session.router.serialized,
+      strips: session.router.persistedStrips,
     };
     savePersistedTabsDebounced(snapshot);
   });
@@ -333,8 +334,9 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       );
       // A browser page an agent opened has nowhere to render until a pane shows
       // it, so the request is answered app-wide rather than by a surface that
-      // may not be mounted. Explicitly invoked — nothing here auto-opens.
-      browserStore.onSurfaceRequested = () => session.openBrowser();
+      // may not be mounted. The agent asked, not the user, so it never takes
+      // the place of a surface the user is reading.
+      browserStore.onSurfaceRequested = () => session.openBrowser(undefined, undefined, { automatic: true });
       // A stopped recording goes to the composer the user is writing in, from
       // whichever entry point stopped it, and when a limit stopped it.
       browserStore.onRecordingSaved = (serverId, result) =>
@@ -366,6 +368,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
             sourceId: session.activeTabId,
             cwd,
             level: "status",
+            force: false,
           });
       });
       return () => {

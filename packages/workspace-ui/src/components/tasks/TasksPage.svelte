@@ -7,6 +7,7 @@
   import {
     RotateCw as ArrowClockwiseIcon,
     CalendarX as CalendarXIcon,
+    Moon as MoonIcon,
     Columns3Cog as KanbanIcon,
     List as ListIcon,
     Plus as PlusIcon,
@@ -64,6 +65,8 @@
     OPEN_TASK_STATUS_KEYS,
     TASK_STATUS_GROUPS,
     isOpenTaskStatusFilter,
+    isTaskSnoozed,
+    nextTaskWake,
     taskGroups,
     taskStatusesFor,
   } from "./lib/tasks-list-view";
@@ -263,6 +266,8 @@
   let runningOnly = $state(false);
   let overdueOnly = $state(false);
   let assignedOnly = $state(false);
+  // A snoozed task is out of the list until it wakes; this shows only those.
+  let snoozedOnly = $state(false);
   // Which lifecycle states the list is showing. Opens on live
   // work only, so finished and dropped tasks stay out of the way until asked
   // for. The board is exempt — its columns *are* this filter, and a kanban
@@ -290,6 +295,7 @@
     runningOnly = false;
     overdueOnly = false;
     assignedOnly = false;
+    snoozedOnly = false;
     statusKeys = [...OPEN_TASK_STATUS_KEYS];
   }
 
@@ -298,6 +304,7 @@
     runningOnly = false;
     overdueOnly = false;
     assignedOnly = false;
+    snoozedOnly = false;
     statusKeys = [...OPEN_TASK_STATUS_KEYS];
     if (!splitList) session.setProjectPageScope({ kind: "all" });
   }
@@ -380,8 +387,22 @@
     }),
   );
 
+  // The snoozed tasks, or every other task: the list shows one of the two.
+  const inView = $derived(
+    searched.filter((task) => isTaskSnoozed(task, now) === snoozedOnly),
+  );
+
+  // Bring a snoozed task back the moment it wakes, not on the next 30s tick.
+  $effect(() => {
+    if (!open) return;
+    const wake = nextTaskWake(projectTasks, now);
+    if (wake === null) return;
+    const timeout = setTimeout(() => (now = Date.now()), Math.max(1, wake - Date.now()));
+    return () => clearTimeout(timeout);
+  });
+
   const visibleTasks = $derived.by(() => {
-    let rows = searched;
+    let rows = inView;
     if (!boardLayout) rows = rows.filter((task) => statuses.has(task.status));
     if (runningOnly) rows = rows.filter((task) => runningSessionsFor(task.id) > 0);
     if (overdueOnly) rows = rows.filter(isOverdue);
@@ -393,7 +414,7 @@
   // means anything when `visibleTasks` *is* the board. (The status filter is
   // exempt — the board already ignores it.)
   const boardUnfiltered = $derived(
-    !query.trim() && !runningOnly && !overdueOnly && !assignedOnly,
+    !query.trim() && !runningOnly && !overdueOnly && !assignedOnly && !snoozedOnly,
   );
 
   // The list is a table: project and host take one column of their own. The
@@ -425,7 +446,7 @@
       key: "running",
       label: "Agent running",
       icon: PulseIcon,
-      count: searched.filter((task) => runningSessionsFor(task.id) > 0).length,
+      count: inView.filter((task) => runningSessionsFor(task.id) > 0).length,
       active: runningOnly,
       toggle: () => (runningOnly = !runningOnly),
     },
@@ -433,7 +454,7 @@
       key: "overdue",
       label: "Overdue",
       icon: CalendarXIcon,
-      count: searched.filter(isOverdue).length,
+      count: inView.filter(isOverdue).length,
       active: overdueOnly,
       toggle: () => (overdueOnly = !overdueOnly),
     },
@@ -441,9 +462,17 @@
       key: "assigned",
       label: "Assigned",
       icon: TaskIcon,
-      count: searched.filter((task) => !!task.assignee).length,
+      count: inView.filter((task) => !!task.assignee).length,
       active: assignedOnly,
       toggle: () => (assignedOnly = !assignedOnly),
+    },
+    {
+      key: "snoozed",
+      label: "Snoozed",
+      icon: MoonIcon,
+      count: searched.filter((task) => isTaskSnoozed(task, now)).length,
+      active: snoozedOnly,
+      toggle: () => (snoozedOnly = !snoozedOnly),
     },
   ]);
 
@@ -454,7 +483,7 @@
     TASK_STATUS_GROUPS.map((group) => ({
       value: group.key,
       label: group.label,
-      count: searched.filter((task) =>
+      count: inView.filter((task) =>
         group.statuses.includes(task.status),
       ).length,
     })),
@@ -757,7 +786,7 @@
 
   function openTaskRoute(task: Task) {
     openTaskId = null;
-    session.goToTask(task.id, "click", pane.isLeading ? "leading" : "secondary");
+    session.goToTask(task.id, "click");
   }
 
   function onOpenLink(task: Task) {
@@ -1069,8 +1098,6 @@
             run: () => void startNewTask(),
           }
         : undefined}
-      onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
-      isLeading={pane.isLeading}
       onClose={workspace ? close : undefined}
       toolbarFilters
       filters={filterBar}

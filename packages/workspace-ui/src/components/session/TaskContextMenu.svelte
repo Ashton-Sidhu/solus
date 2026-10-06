@@ -8,9 +8,11 @@
     Copy as CopyIcon,
     GitPullRequest as GitPullRequestIcon,
     ListChecks as ListChecksIcon,
+    Moon as MoonIcon,
     Play as PlayIcon,
     Pen as PencilSimpleIcon,
     RefreshCw as ArrowsClockwiseIcon,
+    Sun as SunIcon,
     CircleStop as StopCircleIcon,
     Trash2 as TrashIcon,
     X as XIcon,
@@ -28,6 +30,7 @@
   import TaskStatusGlyph from "../tasks/TaskStatusGlyph.svelte";
   import UnreadDot from "./UnreadDot.svelte";
   import { STATUS_META, TASK_STATUSES } from "../tasks/lib/tasks-api";
+  import { TASK_SNOOZE_CHOICES, taskSnoozeToastLabel, taskSnoozeUntil } from "./lib/task-snooze";
 
   interface Props {
     x: number;
@@ -47,6 +50,9 @@
     onStartRename?: () => void;
     onSetStatus?: (status: TaskStatus) => void;
     onMarkUnread?: () => void;
+    /** Opens the full snooze menu, with its note and custom time, at the
+     *  point the menu opened. Without it the submenu offers presets only. */
+    onSnoozeCustom?: () => void;
     onRemove?: () => void;
     onDelete?: () => void;
     /** Opens the prompt that links a pull request to the task itself: one
@@ -80,6 +86,7 @@
     onStartRename,
     onSetStatus,
     onMarkUnread,
+    onSnoozeCustom,
     onRemove,
     onDelete,
     onLinkPr,
@@ -162,6 +169,28 @@
       progress.success("Task title regenerated");
     } catch (error) {
       progress.error(error instanceof Error ? error.message : "Couldn't regenerate task title");
+    }
+    requestInputFocus();
+  }
+
+  // A snooze lives on a Solus task's own record, which a host holds: a
+  // provider-owned ticket has none, and the Solus API has no snooze.
+  const canSnooze = $derived(task.providerId === "local" && !!session.workspace);
+  const isSnoozed = $derived(!!task.snoozedUntil && task.snoozedUntil > Date.now());
+
+  async function snooze(until: number | null) {
+    const taskId = task.id;
+    onClose();
+    const record = session.tasksStore.get(taskId);
+    try {
+      await record.snooze(until);
+      if (until !== null) {
+        toasts.undo(taskSnoozeToastLabel({ count: 1, hasNote: false, keepsRunning: isRunning }), () => {
+          void record.snooze(null).catch(() => toasts.error("Couldn't wake task"));
+        });
+      }
+    } catch (error) {
+      toasts.error(error instanceof Error ? error.message : until === null ? "Couldn't wake task" : "Couldn't snooze task");
     }
     requestInputFocus();
   }
@@ -337,6 +366,32 @@
               {/if}
             </ContextMenu.Item>
           {/each}
+        </ContextMenu.SubContent>
+      </ContextMenu.Sub>
+    {/if}
+    {#if canSnooze && isSnoozed}
+      <ContextMenu.Item onSelect={() => void snooze(null)}>
+        <SunIcon />
+        Wake now
+      </ContextMenu.Item>
+    {:else if canSnooze}
+      <ContextMenu.Sub>
+        <ContextMenu.SubTrigger>
+          <MoonIcon />
+          Snooze
+        </ContextMenu.SubTrigger>
+        <ContextMenu.SubContent>
+          {#each TASK_SNOOZE_CHOICES as choice (choice.preset)}
+            <ContextMenu.Item onSelect={() => void snooze(taskSnoozeUntil(choice.preset))}>
+              {choice.label}
+            </ContextMenu.Item>
+          {/each}
+          {#if onSnoozeCustom}
+            <ContextMenu.Separator />
+            <ContextMenu.Item onSelect={() => select(onSnoozeCustom)}>
+              Pick date and time…
+            </ContextMenu.Item>
+          {/if}
         </ContextMenu.SubContent>
       </ContextMenu.Sub>
     {/if}

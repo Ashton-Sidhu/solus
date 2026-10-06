@@ -4,6 +4,7 @@ import {
   ERROR_HEAD_MAX_BYTES,
   projectSessionEvent,
   projectSessionHistory,
+  withExchangeProgress,
 } from '@solus/server/data/sessions/result-projection'
 
 describe('session result projection', () => {
@@ -123,5 +124,22 @@ describe('session result projection', () => {
       content: '',
       agentConversationResult: { agentSessionId, messageId: 'm1', provider: 'codex' },
     })
+  })
+
+  test("stamps each exchange a page names with the host's word as of the read", () => {
+    // WHY: a card rebuilt from history must show where its exchange stands now,
+    // not where the transcript left it, without a second lookup that can miss.
+    const rows = [
+      { role: 'tool' as const, content: '', timestamp: 1, agentConversationResult: { agentSessionId: 'child', messageId: 'running' } },
+      { role: 'tool' as const, content: '', timestamp: 2, agentConversationResult: { agentSessionId: 'child', messageId: 'gone' } },
+      { role: 'assistant' as const, content: 'prose', timestamp: 3 },
+    ]
+    const stamped = withExchangeProgress(rows, (exchangeId) => exchangeId === 'running' ? { state: 'running' } : undefined)
+    expect(stamped[0]!.agentConversationResult).toEqual({ agentSessionId: 'child', messageId: 'running', progress: { state: 'running' } })
+    // One the host no longer carries stays unstamped; the client reads it as lost.
+    expect(stamped[1]!.agentConversationResult).toEqual({ agentSessionId: 'child', messageId: 'gone' })
+    expect(stamped[2]).toBe(rows[2])
+    // A cached page is never changed in place: the next read stamps afresh.
+    expect(rows[0]!.agentConversationResult).toEqual({ agentSessionId: 'child', messageId: 'running' })
   })
 })

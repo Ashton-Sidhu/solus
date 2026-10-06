@@ -15,6 +15,7 @@ import * as tasksSchema from '../../data/tasks/schema'
 
 export const tasks = tasksSchema.tasks.pg
 export const task_counters = tasksSchema.taskCounters.pg
+export const task_snoozes = tasksSchema.taskSnoozes.pg
 export const task_session_links = tasksSchema.taskSessionLinks.pg
 export const task_comments = tasksSchema.taskComments.pg
 export const task_links = tasksSchema.taskLinks.pg
@@ -29,7 +30,6 @@ export const work_live_docs = folioSchema.workLiveDocs.pg
 export const plan_annotations = plansSchema.planAnnotations.pg
 export const indexed_plans = plansSchema.indexedPlans.pg
 export const plan_index_providers = plansSchema.planIndexProviders.pg
-export const resource_owner = sharingSchema.resourceOwner.pg
 export const share_grant = sharingSchema.shareGrant.pg
 export const session_records = sessionsSchema.sessionRecords.pg
 export const session_admissions = sessionsSchema.sessionAdmissions.pg

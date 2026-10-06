@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { windowTimeline } from "../../../lib/timeline-window";
   import CommentMarkdown from '../../github-markdown/CommentMarkdown.svelte';
   import { SvelteSet } from "svelte/reactivity";
   import {
@@ -32,6 +33,7 @@
   import {
     activityFeed,
     canDeleteTaskComment,
+    commentSessionLink,
     commentSessionName,
     linkedArtifactForActivity,
   } from "./lib/task-page";
@@ -123,6 +125,7 @@
     const option = filterOptions.find((option) => option.value === value);
     if (!option) return;
     filter = option.value;
+    revealedCount = 0;
     requestInputFocus();
   }
 
@@ -138,6 +141,16 @@
     filter === "all" ? entries : entries.filter((e) => e.type === "comment"),
   );
 
+  let revealedCount = $state(0);
+  const revealPage = 10;
+  const timelineWindow = $derived(windowTimeline(shown, revealedCount, {
+    threshold: 20,
+    oldest: 2,
+    newest: 8,
+    textBudget: 16_000,
+    textSize: (entry) => entry.type === "comment" ? entry.comment.body.length : 0,
+  }));
+  const visibleEntries = $derived([...timelineWindow.before, ...timelineWindow.after]);
 
   /** An agent's comment is authored by a session, not a person, so it takes the
    *  accent wash and the Solus mark instead of a face. */
@@ -203,7 +216,19 @@
   <ol class="relative flex flex-col gap-5" role="list">
     <span class="absolute top-2 bottom-2 left-[11px] w-px bg-border" aria-hidden="true"></span>
 
-    {#each shown as entry (entry.key)}
+    {#each visibleEntries as entry, index (entry.key)}
+      {#if timelineWindow.hiddenCount > 0 && index === timelineWindow.before.length}
+        <li class="relative flex gap-2">
+          <span class="size-[22px] shrink-0" aria-hidden="true"></span>
+          <button
+            type="button"
+            class="cursor-pointer rounded-md px-2 py-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            onclick={() => (revealedCount += revealPage)}
+          >
+            Show {Math.min(revealPage, timelineWindow.hiddenCount)} of {timelineWindow.hiddenCount} hidden events
+          </button>
+        </li>
+      {/if}
       {#if entry.type === "activity"}
         {@const glyph = activityLine(entry.activity, currentUserId).glyph}
         {@const artifact = linkedArtifactForActivity(entry.activity, links)}
@@ -246,7 +271,7 @@
         {@const comment = entry.comment}
         {@const agent = isAgent(comment)}
         {@const user = commentUser(comment)}
-        {@const originSessionId = comment.originSessionId}
+        {@const originSessionId = commentSessionLink(comment, sessions)?.sessionId ?? comment.originSessionId}
         {@const originSessionName = commentSessionName(comment, sessions)}
         <!-- A comment leaves the spine, as on the pull request timeline: a
              full-width card with the author's mark in its tinted header, and
@@ -329,13 +354,13 @@
               {#if originSessionId && originSessionName}
                 <button
                   type="button"
-                  class="flex h-5 shrink-0 self-center cursor-pointer items-center gap-0.5 rounded-md px-1.5 text-[11px] leading-none font-medium transition-[background-color,transform] duration-150 hover:bg-[color-mix(in_oklch,var(--primary)_20%,transparent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.96]"
+                  class="flex h-5 min-w-0 self-center cursor-pointer items-center gap-0.5 overflow-hidden rounded-md px-1.5 text-[11px] leading-none font-medium transition-[background-color,transform] duration-150 hover:bg-[color-mix(in_oklch,var(--primary)_20%,transparent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.96]"
                   style="background:color-mix(in oklch, var(--primary) 13%, transparent);color:color-mix(in oklch, var(--primary) 82%, var(--foreground))"
-                  title="Open session {originSessionId}"
+                  title="Open session: {originSessionName}"
                   aria-label="Open source session {originSessionName}"
                   onclick={() => onOpenSession(originSessionId)}
                 >
-                  <TerminalWindowIcon size={10} aria-hidden="true" />
+                  <TerminalWindowIcon size={10} class="shrink-0" aria-hidden="true" />
                   <span class="max-w-48 truncate">{originSessionName}</span>
                 </button>
               {/if}

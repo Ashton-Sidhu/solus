@@ -11,15 +11,12 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { Skeleton } from "../ui/skeleton";
   import ReviewerRequestMenu from "./ReviewerRequestMenu.svelte";
-  import {
-    reviewerRingColor,
-    reviewerRowAction,
-    reviewerStateLabel,
-  } from "./lib/reviewer-state";
+  import ReviewerVerdictIcon from "./ReviewerVerdictIcon.svelte";
+  import { reviewerRowAction, reviewerStateLabel } from "./lib/reviewer-state";
 
   /**
    * The reviewers as one row of the facts list, for the pane too narrow to
-   * keep the rail's column. Avatars with a verdict ring, and the same two
+   * keep the rail's column. Avatars with a verdict badge, and the same two
    * moves the rail's rows offer: the add-person glyph asks someone new, and
    * each avatar opens a menu with the one thing you can do to that person —
    * take a pending request back, or ask someone who has answered to look
@@ -74,6 +71,20 @@
   }
 </script>
 
+<!-- The verdict as an icon on the avatar's corner, as the rail shows it
+     beside the name. A pending request carries no badge: the bare avatar
+     already reads as "not answered yet". -->
+{#snippet verdictBadge(state: PrReviewer["state"])}
+  {#if state !== null}
+    <span
+      class="absolute -right-1 -bottom-1 grid size-3.5 place-items-center rounded-full bg-background"
+      aria-hidden="true"
+    >
+      <ReviewerVerdictIcon {state} size={12} />
+    </span>
+  {/if}
+{/snippet}
+
 <dt class="flex items-center gap-2">
   <UsersIcon size={12} class="shrink-0 opacity-80" aria-hidden="true" />
   Reviewers
@@ -94,7 +105,6 @@
     {/if}
   {:else}
     {#each reviewers as reviewer (reviewer.login)}
-      {@const ring = reviewerRingColor(reviewer.state)}
       {@const action = reviewerAction(reviewer)}
       {@const busy = mutation === reviewer.login}
       {@const verdict = reviewerStateLabel(reviewer.state)}
@@ -105,10 +115,7 @@
               <button
                 {...props}
                 type="button"
-                class="grid size-6 shrink-0 cursor-pointer place-items-center rounded-full transition-[outline-color] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] {ring
-                  ? 'outline-2 -outline-offset-0 outline-[var(--reviewer-ring)]'
-                  : 'hover:outline-2 hover:-outline-offset-0 hover:outline-[var(--hairline-strong)]'}"
-                style={ring ? `--reviewer-ring:${ring}` : undefined}
+                class="relative grid size-6 shrink-0 cursor-pointer place-items-center rounded-full transition-[outline-color] hover:outline-2 hover:-outline-offset-0 hover:outline-[var(--hairline-strong)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
                 title={`${reviewer.login} · ${verdict}`}
                 aria-label={`${reviewer.login}, ${verdict}`}
               >
@@ -121,10 +128,9 @@
                   <PrAvatar
                     name={reviewer.login}
                     url={reviewer.avatarUrl ?? ""}
-                    size={ring
-                      ? "size-5 text-xs"
-                      : "size-6 text-xs"}
+                    size="size-6 text-xs"
                   />
+                  {@render verdictBadge(reviewer.state)}
                 {/if}
               </button>
             {/snippet}
@@ -149,10 +155,7 @@
         </DropdownMenu.Root>
       {:else}
         <span
-          class="grid size-6 shrink-0 place-items-center rounded-full {ring
-            ? 'outline-2 -outline-offset-0 outline-[var(--reviewer-ring)]'
-            : ''}"
-          style={ring ? `--reviewer-ring:${ring}` : undefined}
+          class="relative grid size-6 shrink-0 place-items-center rounded-full"
           title={`${reviewer.login} · ${verdict}`}
           role="img"
           aria-label={`${reviewer.login}, ${verdict}`}
@@ -160,10 +163,9 @@
           <PrAvatar
             name={reviewer.login}
             url={reviewer.avatarUrl ?? ""}
-            size={ring
-              ? "size-5 text-xs"
-              : "size-6 text-xs"}
+            size="size-6 text-xs"
           />
+          {@render verdictBadge(reviewer.state)}
         </span>
       {/if}
     {/each}

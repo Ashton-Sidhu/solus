@@ -17,8 +17,8 @@ const log = createLogger('devices', 'device-agent-bridge.ts')
  *
  * - authenticates the bridge token and resolves its binding (session, host, device);
  * - pins the daemon session to that binding and refuses a different device target;
- * - for a mutating command, takes the agent's control lease and checks its
- *   generation before forwarding, so a person's takeover stops agent input;
+ * - for a mutating command, takes or renews the agent's control lease before
+ *   forwarding, so a person's takeover stops agent input;
  * - swaps in the daemon credential, which never leaves the host.
  *
  * It routes; it does not sandbox an agent that already has a shell.
@@ -79,9 +79,7 @@ export interface DeviceAgentBridgeDeps {
   /** The daemon endpoint for a device host, or why it is unavailable. */
   endpoint: (deviceHostId: string) => AgentDeviceEndpoint | null
   /** Take or renew the agent's lease. Throws `agent_paused` / `control_busy`. */
-  acquire: (binding: DeviceAgentBinding, holder: DeviceControlHolder & { kind: 'agent' }) => number
-  /** Begin a mutation under `generation`; call the result when it ends. */
-  begin: (binding: DeviceAgentBinding, generation: number, holder: DeviceControlHolder & { kind: 'agent' }) => () => void
+  acquire: (binding: DeviceAgentBinding, holder: DeviceControlHolder & { kind: 'agent' }) => void
 }
 
 interface BindingEntry {
@@ -214,26 +212,22 @@ export class DeviceAgentBridge {
     // Commands always run in the binding's own daemon session, with the daemon's credential.
     const params: RpcRequest['params'] & { token: string; session?: string } = { ...request.params, token: endpoint.token }
     if (isCommand) params.session = binding.agentSession
-    const end = this.guard(binding, isCommand ? request.params.command ?? '' : request.method, isCommand)
-    if (end instanceof DeviceDomainError) {
-      fail(-32001, end.detail)
+    const refused = this.guard(binding, isCommand ? request.params.command ?? '' : request.method, isCommand)
+    if (refused) {
+      fail(-32001, refused.detail)
       return
     }
-    try {
-      await this.forwardRpc(res, binding, endpoint, JSON.stringify({ ...request, params }), fail)
-    } finally {
-      end?.()
-    }
+    await this.forwardRpc(res, binding, endpoint, JSON.stringify({ ...request, params }), fail)
   }
 
   /** Take the agent's lease for a mutation. Reads pass without one. */
-  private guard(binding: DeviceAgentBinding, name: string, isCommand: boolean): (() => void) | null | DeviceDomainError {
+  private guard(binding: DeviceAgentBinding, name: string, isCommand: boolean): DeviceDomainError | null {
     const mutating = isCommand ? !isReadCommand(name) : name.includes('install')
     if (!mutating) return null
     const holder = { kind: 'agent' as const, sessionId: binding.sessionId, label: binding.label }
     try {
-      const generation = this.deps.acquire(binding, holder)
-      return this.deps.begin(binding, generation, holder)
+      this.deps.acquire(binding, holder)
+      return null
     } catch (cause) {
       return cause instanceof DeviceDomainError ? cause : new DeviceDomainError('control_busy', 'Control of this device is not available.')
     }

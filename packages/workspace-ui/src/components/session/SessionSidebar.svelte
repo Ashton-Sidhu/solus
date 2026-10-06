@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { TaskOpenTrace } from "./lib/task-open-timing";
+  import { serverConnections } from "@solus/client-core/server-connections";
   import TaskIcon from "../ui/TaskIcon.svelte";
   import type { PrReviewTab } from "../../contexts/prs/pr-view.svelte";
   import { localApi } from "@solus/client-core/local-api";
@@ -39,7 +41,6 @@
   import * as Sidebar from "../ui/sidebar";
   import TaskListSkeleton from "./TaskListSkeleton.svelte";
   import SessionContextMenu from "./SessionContextMenu.svelte";
-  import SidebarNavContextMenu from "./SidebarNavContextMenu.svelte";
   import TaskContextMenu from "./TaskContextMenu.svelte";
   import PrContextMenu from "./PrContextMenu.svelte";
   import TaskActionBar from "./TaskActionBar.svelte";
@@ -54,7 +55,6 @@
   } from "./lib/task-snooze";
   import type { DraftRow as DraftRowModel } from "./lib/draft-list";
   import { taskPrNavigation } from "./lib/pr-navigation";
-  import { openNavPage, type NavPage } from "../../lib/page-nav";
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import { nextTaskAfterLeaving } from "../../contexts/workspace/session-sidebar-selection";
   import { canDriveSession } from "../../contexts/sharing/session-drive";
@@ -128,9 +128,6 @@
       }
     | null
   >(null);
-  let navContextMenu = $state<{ page: NavPage; x: number; y: number } | null>(
-    null,
-  );
   /** The row being renamed in place. One at a time: the edit replaces the label
    *  where it sits, so two open editors would be two claims on the same name.
    *  A durable row is named by its task, which outlives any session it has open
@@ -315,16 +312,12 @@
   /** The task a session's chip names, beside the session where the shell has
    *  a companion pane. The session stays on screen. */
   function openLinkedTask(taskId: string) {
-    session.goToTask(
-      taskId,
-      "click",
-      session.hasCompanionPanes ? "secondary" : "leading",
-    );
+    session.goToTask(taskId, "click");
   }
 
   function openTaskPr(choice: TaskPrChoice, tab?: PrReviewTab): void {
     const { route, sourceUrl } = taskPrNavigation(choice);
-    session.openRoute(route, { target: "aside", sourceUrl, tab, via: "click" });
+    session.openRoute(route, { sourceUrl, tab, via: "click" });
   }
 
   /** A draft row goes back to the composer it was left in, with the caret in it
@@ -388,14 +381,26 @@
    *  with nothing mounted it waits on an IPC round trip first. It runs two
    *  frames later, so the row answers the click before the app switches. */
   function activateTask(task: SidebarTask) {
+    const serverId = task.serverId ?? session.serverIdForContext(session.ctx);
+    const timing = new TaskOpenTrace(task.taskId ?? null, (report) =>
+      serverConnections.apiFor(serverId).tasksLogOpenTiming(report),
+    );
     sidebarStore.acknowledgeRow(task);
+    timing.mark("row_acknowledged");
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         // A fast double-click can enter rename mode before the first click's
         // deferred navigation runs. Do not let that stale navigation take the
         // caret back from the rename field.
-        if (renamingTaskId || renamingTabId) return;
-        void sidebarStore.selectTask(task);
+        if (renamingTaskId || renamingTabId) {
+          void timing.finish("cancelled");
+          return;
+        }
+        timing.mark("navigation_started");
+        void sidebarStore.selectTask(task, timing).then(
+          () => timing.finish("completed"),
+          () => timing.finish("failed"),
+        );
         requestInputFocus();
         onSessionSelect?.();
       });
@@ -737,14 +742,6 @@
     sessionContextMenu = null;
   }
 
-  /** Right-clicking a nav destination offers the same page in either pane. The
-   *  left click keeps its toggle; the menu only ever opens. */
-  function openNavContextMenu(event: MouseEvent, page: NavPage) {
-    event.preventDefault();
-    event.stopPropagation();
-    navContextMenu = { page, x: event.clientX, y: event.clientY };
-  }
-
   function openTaskContextMenu(
     event: MouseEvent | PointerEvent,
     taskId: string,
@@ -809,7 +806,7 @@
         },
         { background: true },
       ));
-    session.openTabInSplit(splitTabId);
+    session.openTabAsSurface(splitTabId);
     onSessionSelect?.();
   }
 </script>
@@ -842,7 +839,7 @@
     onRename={(child, next) => renameSidebarItem(task, child, next)}
     onRenameCancel={cancelRename}
     onMore={(event) => openTaskOrSessionContextMenu(event, task)}
-    canSnooze={sidebarStore.canShelve(task)}
+    canSnooze={sidebarStore.canSnooze(task)}
     onSnooze={(anchor) =>
       openSnooze({ rowKey: task.key, title: task.title }, anchor)}
     onWake={() => wakeRow(task.key)}
@@ -893,7 +890,6 @@
               : ''}"
             isActive={session.router.at("folio")}
             onclick={() => session.toggleFolio()}
-            oncontextmenu={(event) => openNavContextMenu(event, "folio")}
           >
             <span class="flex shrink-0 items-center"
               ><BooksIcon size={14} /></span
@@ -926,7 +922,6 @@
               : ''}"
             isActive={session.router.at("automations")}
             onclick={() => session.toggleAutomations()}
-            oncontextmenu={(event) => openNavContextMenu(event, "automations")}
           >
             <span class="flex shrink-0 items-center"
               ><ArrowsClockwiseIcon size={14} /></span
@@ -950,7 +945,6 @@
               : ''}"
             isActive={session.router.at("insights")}
             onclick={() => session.toggleInsights()}
-            oncontextmenu={(event) => openNavContextMenu(event, "insights")}
           >
             <span class="flex shrink-0 items-center"
               ><ChartBarIcon size={14} /></span
@@ -972,7 +966,6 @@
               : ''}"
             isActive={session.router.at("prs")}
             onclick={togglePrs}
-            oncontextmenu={(event) => openNavContextMenu(event, "prs")}
           >
             <span class="flex shrink-0 items-center"
               ><GitPullRequestIcon size={14} /></span
@@ -1000,7 +993,6 @@
               : ''}"
             isActive={session.router.at("tasks")}
             onclick={() => session.toggleTasks()}
-            oncontextmenu={(event) => openNavContextMenu(event, "tasks")}
           >
             <span class="flex shrink-0 items-center"
               ><TaskIcon size={14} /></span
@@ -1126,9 +1118,9 @@
         type="button"
         class="rounded-lg px-2 py-1 text-xs hover:bg-accent"
         onclick={(event) => {
-          // Only a session can be snoozed; a selected task stays where it is.
+          // A selected upstream ticket cannot be snoozed and stays where it is.
           const targets = selectedTasks()
-            .filter((row) => sidebarStore.canShelve(row))
+            .filter((row) => sidebarStore.canSnooze(row))
             .map((row) => ({ rowKey: row.key, title: row.title }));
           if (!targets.length) return;
           snoozeAnchor = event.currentTarget;
@@ -1407,6 +1399,7 @@
     )}
     {@const sidebarTask = sessionContextMenu.sidebarTask}
     {@const menuChild = sessionContextMenu.child}
+    {@const taskMenuPoint = { x: sessionContextMenu.x, y: sessionContextMenu.y }}
     {@const hasLinkedSession =
       !!sidebarTask?.tabIds.length ||
       !!menuChild?.tabId ||
@@ -1458,6 +1451,13 @@
         onStartRename={() => startRename({ taskId: menuTask.id })}
         onSetStatus={(status) => void setTaskStatus(menuTask.id, status)}
         onMarkUnread={() => void sidebarStore.markTaskUnread(menuTask.id)}
+        onSnoozeCustom={sidebarTask && sidebarStore.canSnooze(sidebarTask)
+          ? () =>
+              openSnooze(
+                { rowKey: sidebarTask.key, title: sidebarTask.title },
+                taskMenuPoint,
+              )
+          : undefined}
         onLinkPr={() =>
           (session.ui.linkPrompt = {
             kind: "task-pull-request",
@@ -1543,17 +1543,6 @@
       onClose={closeSessionContextMenu}
     />
   {/if}
-{/if}
-
-{#if navContextMenu}
-  {@const navPage = navContextMenu.page}
-  <SidebarNavContextMenu
-    x={navContextMenu.x}
-    y={navContextMenu.y}
-    onOpen={() => openNavPage(session, navPage, "focused")}
-    onOpenInSplit={() => openNavPage(session, navPage, "aside")}
-    onClose={() => (navContextMenu = null)}
-  />
 {/if}
 
 {#if snoozeTargets.length > 0 && snoozeAnchor}

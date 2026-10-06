@@ -123,8 +123,11 @@ export function scopeOptions(list: ShareList, directory: OrganizationPeople | nu
   return options
 }
 
-/** The rows a scope stands for, with the people named on the list kept as they are; the link is its own call (`linkRoleFor`). */
-export function grantsFor(scope: ShareScope, list: ShareList, organizationId: string | null): ShareSetRequest {
+/**
+ * The one write a scope stands for: its rows, with the people named on the list
+ * kept as they are, and the link when the scope changes it.
+ */
+export function scopeRequestFor(scope: ShareScope, list: ShareList, organizationId: string | null): ShareSetRequest {
   const grants: ShareSetRequest['grants'] = list.grants
     .filter((grant) => grant.subject.kind === 'user')
     .map((grant) => ({ subject: grant.subject, role: grant.role }))
@@ -146,12 +149,10 @@ export function grantsFor(scope: ShareScope, list: ShareList, organizationId: st
       break
     }
   }
-  return { resource: list.resource, grants }
-}
-
-/** Whether a scope keeps a link, and with which role. */
-export function linkRoleFor(scope: ShareScope): ShareRole | null {
-  return scope.kind === 'link' ? scope.role : null
+  const request: ShareSetRequest = { resource: list.resource, grants }
+  const linkRole = scope.kind === 'link' ? scope.role : null
+  if (linkRole !== (list.link?.role ?? null)) request.link = { role: linkRole }
+  return request
 }
 
 /** Who "Only …" names: the reader when they own it, else the owner by name. */

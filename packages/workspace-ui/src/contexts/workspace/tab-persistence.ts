@@ -1,5 +1,6 @@
 import type { AgentId, Message, ContextUsage, GitCheckout, ModelConfig, SessionHandoffLineage, SessionSpec, SessionStatus, StartInfo } from '@solus/contracts/types'
 import { z } from 'zod'
+import type { PersistedStrip } from './routing/router.store.svelte'
 
 // Tab state is client-scoped (dispatch-client step 5): the workspace is one
 // tab set spanning hosts, and each persisted tab names its own host.
@@ -72,6 +73,8 @@ export interface PersistedTabs {
   /** The serialized location — which routes were in which panes. Rides the same
    *  debounced write as the tabs, so there is one writer, not two. */
   location: string
+  /** The companion strips of the conversations and drafts not on screen. */
+  strips?: PersistedStrip[]
 }
 
 const persistedTabsSchema = z.object({
@@ -87,6 +90,15 @@ const persistedTabsSchema = z.object({
     taskServerId: z.string(),
   }).passthrough()),
   location: z.string(),
+  // Strips are a convenience on top of the tabs. A shape this build cannot read
+  // drops the strips alone: rejecting the snapshot would boot empty and then
+  // overwrite every open tab.
+  strips: z.array(z.object({
+    destinationKey: z.string(),
+    surfaces: z.string(),
+    activeSurfaceIndex: z.number(),
+    isOpen: z.boolean(),
+  })).optional().catch(undefined),
 }).passthrough()
 
 export function loadPersistedTabs(): PersistedTabs | null {

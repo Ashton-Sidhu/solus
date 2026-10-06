@@ -40,10 +40,12 @@ simulator, emulator or connected phone. See
 
 The Sessions group holds the orchestration tools: `start_session`,
 `send_session`, `stop_session`, `read_session`, `read_task_sessions`,
-`search_sessions`, `list_agent_targets`, `read_queue`, and `change_queue`. The
-queue tools operate on the calling session. They cannot resume held work or
-approve permissions. See
-[Session orchestration](session-orchestration.md).
+`search_sessions`, and `list_agent_targets`. See
+[Session orchestration](session-orchestration.md). It also holds
+`move_to_worktree`, which moves the calling session into a new or an existing
+worktree of its repository, so the diff, Git status, and branch follow. A
+sub-agent cannot call it for its parent. See
+[Agent worktrees](worktree-names.md#agent-worktrees).
 
 The Tasks group holds one tool for links, `link`. With a `task_id` it attaches
 a work, plan, pull request, automation or session to the task. With `kind=pr`

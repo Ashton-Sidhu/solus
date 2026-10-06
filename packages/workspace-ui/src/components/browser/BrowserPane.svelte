@@ -20,6 +20,7 @@
   import { toasts } from "../../lib/toasts";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
+  import { underStrip } from "../ui/lib/pane-strip";
   import PaneChrome from "../ui/PaneChrome.svelte";
   import BrowserAnnotationBar from "./BrowserAnnotationBar.svelte";
   import BrowserCloseConfirm from "./BrowserCloseConfirm.svelte";
@@ -62,6 +63,7 @@
 
   const session = getWorkspaceContext();
   const actions = paneActions(() => paneId);
+  const isUnderStrip = underStrip();
   const serverId = $derived(params.serverId ?? session.fallbackServerId);
 
   // The route names a page when the user deep-linked one; otherwise the pane
@@ -172,6 +174,12 @@
    *  the selected page is ready to take over. */
   let isOpeningTarget = $state(false);
   let hadPageBeforeOpen = $state(false);
+  // The page strip shows once there is a page to switch between. Under the
+  // companion strip an empty row has nothing to hold, so it is not drawn; a
+  // leading browser keeps it, because its maximize and close sit in it.
+  const showsPageStrip = $derived(
+    pages.length > 0 && (!isOpeningTarget || hadPageBeforeOpen),
+  );
   let openingPageKey = $state<string | null>(null);
   /** The address the picker is waiting on, so the offer that was chosen can say
    *  it is loading rather than sitting inert for the whole offscreen load. */
@@ -680,13 +688,14 @@
           serverId: candidate.serverId,
         },
       },
-      { target: paneId, replace: true },
+      { replace: true },
     );
   }
 </script>
 
 <div
-  class="relative flex h-full min-h-0 min-w-0 flex-col bg-(--solus-container-bg) {actions.isLeading
+  class="relative flex h-full min-h-0 min-w-0 flex-col bg-(--solus-container-bg) {actions.isLeading ||
+  isUnderStrip()
     ? ''
     : 'border-l border-(--solus-container-border)'}"
   onfocusin={() => session.router.focusPane(paneId)}
@@ -701,10 +710,11 @@
        than 0: the phone shell draws this pane outside the pane columns, so the
        published variable is absent there and the strip had nothing telling it
        where the close and maximize buttons start. -->
+  {#if showsPageStrip || !isUnderStrip()}
   <div
     class="workspace-titlebar flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center gap-1.5 pr-[max(0.625rem,var(--solus-pane-chrome-inset,6.25rem))] pl-[max(0.625rem,var(--solus-chrome-lead-inset,0px))] pointer-coarse:pr-[max(0.625rem,var(--solus-pane-chrome-inset,9.625rem))]"
   >
-    {#if pages.length && (!isOpeningTarget || hadPageBeforeOpen)}
+    {#if showsPageStrip}
       <!-- The strip scrolls inside its own box, which ends where the pane's
            floating chrome cluster begins. Scrolling the row itself only bought
            extra scroll extent at the end: a padding box is still part of the
@@ -830,6 +840,7 @@
       </button>
     {/if}
   </div>
+  {/if}
 
   {#if entry && activeKey && !choosingTarget && !isOpeningTarget}
     <BrowserToolbar
@@ -991,8 +1002,6 @@
        chrome row rendered before this cluster would re-cover its no-drag holes. -->
   <PaneChrome
     onClose={actions.close}
-    onOpenInSplit={!actions.isLeading ? actions.moveAcross : undefined}
-    isLeading={actions.isLeading}
     onToggleMaximize={actions.inPane ? actions.toggleMaximize : null}
     maximized={actions.maximized}
     closeLabel="Close browser"

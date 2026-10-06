@@ -67,6 +67,7 @@ export function singleHostServerConnections() {
   }
 
   return {
+    serverInfoFor: (serverId: string) => api(serverId).connectionsGetServerInfo(),
     registerTarget: () => {},
     registerPrimary: (serverId: string, nextApi: object) => {
       primaryServerId = serverId

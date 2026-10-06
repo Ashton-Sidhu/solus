@@ -192,8 +192,8 @@
   const theme = getSettingsContext();
   const embedOptions = {
     worksStore: session.worksStore,
-    onOpen: (workId: string) => session.openWork(workId, "focused"),
-    onOpenSecondary: (workId: string) => session.openWork(workId, "aside"),
+    onOpen: (workId: string) => session.openWork(workId),
+    onOpenSecondary: (workId: string) => session.openWork(workId),
   };
   // The document schema's block views. The editor reads them once, when it
   // builds its schema from the document model's list.

@@ -59,7 +59,7 @@ describe('SessionEventReducer Git events', () => {
       headSha: 'abc123',
       branch: 'feature',
       targetBranch: 'main',
-      uncommittedChanges: { files: [], hasMoreFiles: false, insertions: 0, deletions: 0, mergeInProgress: false },
+      uncommittedChanges: { files: [], hasMoreFiles: false, fileCount: 0, mergeInProgress: false },
     }
     reducer.apply('session-1', { type: 'git_status', cwd: '/repo', state: status })
 

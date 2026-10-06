@@ -114,7 +114,7 @@ class ServersStore {
    *  until the probe answers; the row falls back to a generic label. The row
    *  deliberately carries no `os`: OS logos mark machines you are not sitting
    *  at, and the local row keeps the plain device glyph everywhere. */
-  private localIdentity = $state<{ name: string } | null>(null)
+  private localIdentity = $state<{ name: string; os?: HostOperatingSystem } | null>(null)
   remotes = $state<SavedServer[]>(loadServers())
   /** The organizations' workspace services, as the account directory last listed them. */
   workspaces = $state<SavedWorkspace[]>(loadWorkspaces())
@@ -182,6 +182,7 @@ class ServersStore {
         label: this.localIdentity?.name ?? 'This computer',
         url,
         installationId: this.local.installationId,
+        os: this.localIdentity?.os,
         local: true,
         status: this.statusFor(LOCAL_SERVER_ID),
         routes: [{ kind: 'direct', url }],
@@ -407,7 +408,7 @@ class ServersStore {
         // The row should carry the machine's real name, not a placeholder —
         // /health is the one source that knows it.
         void serverConnections.probeHealth(LOCAL_SERVER_ID).then((health) => {
-          if (health) this.localIdentity = { name: health.name }
+          if (health) this.localIdentity = { name: health.name, os: health.os }
         })
       })
     }

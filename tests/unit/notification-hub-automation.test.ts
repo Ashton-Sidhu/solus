@@ -59,6 +59,13 @@ describe.skipIf(Boolean(process.env.DATABASE_URL))('automation results', () => {
     expect(heard).toEqual(['dana'])
   })
 
+  test('the row names the conversation the run started, so the hub can open it', async () => {
+    const automation = await automations.createAutomation('Nightly', action, dana)
+    const run = await automations.startRun(automation.id)
+    await automations.finishRun(automation.id, run.id, { status: 'succeeded', agentSessionId: 'agent-session-1' })
+    expect((await inbox('dana'))[0]?.resource).toEqual({ kind: 'automation', automationId: automation.id, runId: run.id, sessionId: 'agent-session-1' })
+  })
+
   test('a run write that fails leaves no notification', () => {
     expect(() => legacy.withTx(() => {
       store.recordNotificationSync(legacy.getDb(), {
@@ -86,16 +93,17 @@ describe('the v1 to v2 upgrade', () => {
     const { readMigrationFiles } = await import('drizzle-orm/migrator')
     const { migrationsFolder } = await import('@solus/server/db/migration-files')
     const { runSqliteSchemaMigrations } = await import('@solus/server/db/sqlite-migrations')
-    const { runMigrations } = await import('@solus/server/db/migrations')
+    const { migrations, runMigrations } = await import('@solus/server/db/migrations')
     const file = new Database(':memory:')
     // SAFETY: bun:sqlite answers the calls the migration runners make on a node:sqlite handle.
     const db = file as unknown as import('node:sqlite').DatabaseSync
 
     // The host-local slots, then v1's intent table as v1's slot left it.
-    runMigrations(db)
-    const version = (file.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
+    // Later host-local slots are not v1's, so the file stops before the slot that drops its table.
+    const v2Slot = migrations.findIndex((sql) => sql.includes('DROP TABLE IF EXISTS notification_intents'))
+    for (const sql of migrations.slice(0, v2Slot)) file.exec(sql)
     file.exec('CREATE TABLE notification_intents (id TEXT PRIMARY KEY, payload TEXT NOT NULL, created_at INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT)')
-    file.exec(`PRAGMA user_version = ${version - 1}`)
+    file.exec(`PRAGMA user_version = ${v2Slot}`)
 
     // The generated migrations through v1's 0003, recorded as the runner records them.
     file.exec('CREATE TABLE "__drizzle_migrations" (id INTEGER PRIMARY KEY, hash TEXT NOT NULL, created_at NUMERIC)')

@@ -1,3 +1,34 @@
+<script module lang="ts">
+  /** Search words, read by the settings page to find this page from any other. */
+  export interface SettingItem {
+    id: string;
+    keywords: string[];
+  }
+
+  export const settingItems: SettingItem[] = [
+    {
+      id: "task-lifecycle",
+      keywords: ["agent", "task", "ticket", "lifecycle", "status", "done", "autonomous", "moderate"],
+    },
+    {
+      id: "completed-retention",
+      keywords: ["task", "completed", "done", "sidebar", "history", "days", "retention"],
+    },
+    {
+      id: "lead-model",
+      keywords: ["lead", "orchestration", "orchestrator", "task", "agent", "model", "reasoning", "effort", "claude", "codex"],
+    },
+    {
+      id: "worker-model",
+      keywords: ["worker", "routing", "route", "orchestration", "task", "agent", "model", "reasoning", "effort", "default"],
+    },
+    {
+      id: "lead-instructions",
+      keywords: ["lead", "orchestration", "orchestrator", "instructions", "routing", "route", "prompt", "rules"],
+    },
+  ];
+</script>
+
 <script lang="ts">
   import type { AgentTaskLifecyclePolicy } from "@solus/contracts/types";
   import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
@@ -5,7 +36,7 @@
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import { Switch } from "../ui/switch";
-  import PlainTextEditor from "../ui/plain-text-editor/plain-text-editor.svelte";
+  import SettingsTextField from "./SettingsTextField.svelte";
   import SessionChip from "../pickers/SessionChip.svelte";
   import {
     defaultModelIdFor,
@@ -121,33 +152,6 @@
 
   // ─── Search ───
 
-  interface SettingItem {
-    id: string;
-    keywords: string[];
-  }
-
-  const settingItems: SettingItem[] = [
-    {
-      id: "task-lifecycle",
-      keywords: ["agent", "task", "ticket", "lifecycle", "status", "done", "autonomous", "moderate"],
-    },
-    {
-      id: "completed-retention",
-      keywords: ["task", "completed", "done", "sidebar", "history", "days", "retention"],
-    },
-    {
-      id: "lead-model",
-      keywords: ["lead", "orchestration", "orchestrator", "task", "agent", "model", "reasoning", "effort", "claude", "codex"],
-    },
-    {
-      id: "worker-model",
-      keywords: ["worker", "routing", "route", "orchestration", "task", "agent", "model", "reasoning", "effort", "default"],
-    },
-    {
-      id: "lead-instructions",
-      keywords: ["lead", "orchestration", "orchestrator", "instructions", "routing", "route", "prompt", "rules"],
-    },
-  ];
 
   function isVisible(id: string): boolean {
     if (!searchQuery) return true;
@@ -328,14 +332,11 @@
     visible={isVisible("lead-instructions")}
   >
     {#snippet body()}
-      <PlainTextEditor
+      <SettingsTextField
+        label="Lead instructions"
         value={leadInstructionsDraft}
         onValueChange={(text) => (leadInstructionsDraft = text)}
         onBlur={commitLeadInstructions}
-        enterInsertsNewline
-        hidePlaceholderOnFocus
-        maxHeight={220}
-        dictation
         placeholder="Send frontend work to Claude Opus and backend work to Codex. Ask before you start more than three workers."
         class="rounded-lg border border-input bg-white dark:bg-input/30 px-3 [--plain-editor-line-height:1.5] [--plain-editor-padding:0.625rem_0] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400] [&_.cm-placeholder]:text-workspace-chrome"
       />

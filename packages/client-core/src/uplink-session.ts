@@ -22,7 +22,7 @@ import { savedServerRoutes, type SavedServer, type SavedServerUplink } from './s
  * how: on desktop the Electron main process holds it and answers over the native
  * bridge; on the cloud-served web client the account cookie rides a same-origin
  * `fetch`. Neither path ever hands the credential to this module. A grant is minted
- * for one dial and never kept: the host spends it the moment it is presented.
+ * for a host and may be reused until its expiry.
  */
 
 export interface UplinkAccountSource {
@@ -30,7 +30,7 @@ export interface UplinkAccountSource {
   listDirectory(): Promise<UplinkDirectory | null>
   /** A grant for one host. A member of several organizations the host is shared
    *  with names the one their window works in; the owner may name nothing. */
-  acquireHostAccessToken(hostId: string, organizationId?: string): Promise<HostAccessTokenResponse | null>
+  acquireHostAccessToken(hostId: string, organizationId?: string, options?: { fresh?: boolean }): Promise<HostAccessTokenResponse | null>
   issueEnrollmentTicket(): Promise<UplinkEnrollmentTicket | null>
   /** People and teams of one organization, for the share dialog; null when not a member. */
   loadOrganizationDirectory(organizationId: string): Promise<OrganizationDirectory | null>

@@ -122,7 +122,7 @@ const BLOCKED_TOOLS = [
 // Setup installs Claude on the host; the app does not ship the SDK's CLI.
 // Wait for PATH discovery before querying, and check the file on every request
 // so an install or removal after boot is visible without restarting Solus.
-async function resolveClaudeExecutable(): Promise<string> {
+export async function resolveClaudeExecutable(): Promise<string> {
   const executable = findOnPath('claude', await warmCliPath())
   if (!executable) {
     throw new Error('Claude Code was not found on this host. Install it through Solus setup, then try again.')

@@ -71,7 +71,7 @@ describe('automation model resolution', () => {
     const plane = new SessionRuntime(new Map([['claude-code', fake.value as never]]))
     planes.push(plane)
 
-    const session = await plane.startAutomationSession({
+    const session = await plane.dispatch.startAutomationSession({
       prompt: 'sync the docs',
       automationId: 'automation-1',
       automationName: 'Docs sync',
@@ -94,7 +94,7 @@ describe('automation model resolution', () => {
     const plane = new SessionRuntime(new Map([['claude-code', fake.value as never]]))
     planes.push(plane)
 
-    const session = await plane.startAutomationSession({
+    const session = await plane.dispatch.startAutomationSession({
       prompt: 'sync the docs',
       automationId: 'automation-1',
       automationName: 'Docs sync',

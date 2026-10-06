@@ -315,12 +315,8 @@
 </script>
 
 <div
-  class="text-workspace-chrome browser-canvas @container/stage relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--wash-1)] shadow-[inset_0_1px_0_var(--hairline)]"
+  class="text-workspace-chrome browser-canvas @container/stage relative flex min-h-0 flex-1 flex-col overflow-hidden bg-(--solus-container-bg) shadow-[inset_0_1px_0_var(--hairline)]"
 >
-    <!-- The page floats on a dot grid so its own edges stay visible even when the
-         site's background is the same colour as the app's. -->
-    <div class="browser-canvas__grid pointer-events-none absolute inset-0"></div>
-
   <!-- The measured area. Annotation details attach to the active composer, so
        the browser keeps the full canvas instead of reserving a comment rail. -->
   <div
@@ -518,18 +514,6 @@
 </div>
 
 <style>
-  /* A dot grid rather than a fill: it reads as ground under the page without
-     ever being mistaken for part of it. */
-  .browser-canvas__grid {
-    opacity: 0.5;
-    background-image: radial-gradient(
-      circle at center,
-      var(--hairline-strong) 0.5px,
-      transparent 0.5px
-    );
-    background-size: 1rem 1rem;
-  }
-
   .browser-flash {
     animation: browser-flash 420ms ease-out forwards;
   }

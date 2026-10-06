@@ -1,3 +1,4 @@
+import type { PrReviewCapabilities } from '@solus/contracts/providers'
 import type { MergeMethod } from '@solus/contracts/types'
 
 /**
@@ -19,8 +20,8 @@ export interface MergeMethodOption {
   hint: string
 }
 
-/** Preference order, the order the merge menu lists them in, and the one place
- *  a merge method is put into words. */
+/** The order the merge menu lists them in, and the one place a merge method is
+ *  put into words. */
 export const MERGE_METHOD_OPTIONS: MergeMethodOption[] = [
   {
     value: 'merge',
@@ -42,9 +43,14 @@ export const MERGE_METHOD_OPTIONS: MergeMethodOption[] = [
   },
 ]
 
-const METHOD_ORDER: MergeMethod[] = MERGE_METHOD_OPTIONS.map((option) => option.value)
-
-/** The method the merge button starts on for the methods a host allows. */
-export function defaultMergeMethod(methods: readonly MergeMethod[]): MergeMethod {
-  return METHOD_ORDER.find((method) => methods.includes(method)) ?? 'merge'
+/**
+ * The method the merge button starts on. The server names it — the viewer's
+ * default on the host, when the base branch allows it — so no client picks a
+ * merge commit that a squash-only branch would refuse. A server too old to
+ * name it still lists only allowed methods, so the first one is safe.
+ */
+export function defaultMergeMethod(
+  capabilities: Pick<PrReviewCapabilities, 'mergeMethods' | 'defaultMergeMethod'>,
+): MergeMethod {
+  return capabilities.defaultMergeMethod ?? capabilities.mergeMethods[0] ?? 'merge'
 }

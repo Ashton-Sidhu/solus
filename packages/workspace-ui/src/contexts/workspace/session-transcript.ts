@@ -11,6 +11,7 @@ import type { WorkspaceContext } from './workspace.context.svelte'
 import type { SurfaceContext } from '../app/surface-context.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { showsActivity } from '../../components/activity/lib/activity-line'
+import { foldWorktreeOfferDecision } from '../../components/conversation/lib/worktree-offer'
 
 // ─── Transcript loader ───
 
@@ -153,7 +154,9 @@ export async function loadSessionTranscript(ctx: SurfaceContext, args: SessionTr
   if (history.some((message) => message.role === 'tool' && isAutomationSaveTool(message.toolName)) && !ctx.automationsStore.loaded) {
     await ctx.automationsStore.loadAll()
   }
-  return materializeSessionTranscript(ctx, args, loaded, await loadArtifactFileBodies((workId, version) => ctx.worksStore.history.bodyAtVersion(workId, version), history))
+  // An artifact is saved on the host its session ran on: ask there first.
+  const sessionServerId = args.serverId ?? serverConnections.serverIdForApi(api)
+  return materializeSessionTranscript(ctx, args, loaded, await loadArtifactFileBodies((workId, version) => ctx.worksStore.history.bodyAtVersion(workId, version, sessionServerId), history))
 }
 
 /** Purely synchronous conversion of an already-read page. The first mounted
@@ -206,7 +209,8 @@ export function materializeSessionTranscript(
     // Activity the host merged in by its time (plans/012 §5): a row of its own,
     // outside the thinking run, and only where the reader is meant to see it.
     if (m.activity) {
-      if (showsActivity(m.activity, reader)) {
+      if (m.activity.kind === 'worktree_offer_decided') foldWorktreeOfferDecision(messages, m.activity)
+      else if (showsActivity(m.activity, reader)) {
         messages.push({ id: m.messageId ?? `activity:${m.activity.id}`, role: 'system', content: '', timestamp: m.timestamp, activity: m.activity })
       }
       continue

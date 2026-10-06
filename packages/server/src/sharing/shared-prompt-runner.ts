@@ -35,7 +35,7 @@ export function startSharedPromptRunner(delivery: RunnerDelivery, sessionRuntime
           if (!record) throw new Error('This runner does not hold the session.')
           if (record.organizationId !== organizationId) throw new Error('This session belongs to another organization.')
           // Ask mode keeps tool permission decisions with the signed-in sharer/owner.
-          await sessionRuntime.promptSession(command.sessionId, command.text, 'queue', { actor: sharedPromptActor(command, organizationId), permissionMode: 'supervised' })
+          await sessionRuntime.dispatch.promptSession(command.sessionId, command.text, 'queue', { actor: sharedPromptActor(command, organizationId), permissionMode: 'supervised' })
         } catch (failure) {
           error = failure instanceof Error ? failure.message : String(failure)
         }

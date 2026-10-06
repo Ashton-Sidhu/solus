@@ -29,6 +29,7 @@ const SAMPLES: RouteRef[] = [
   { name: 'settings', params: { tab: 'voice' } },
   { name: 'settings', params: { tab: 'projects', projectCwd: '/repo/app' } },
   { name: 'folio', params: {} as Record<string, never> },
+  { name: 'notifications', params: {} as Record<string, never> },
   { name: 'automations', params: {} },
   { name: 'automations', params: { automationId: 'a_3' } },
   { name: 'plan', params: { planId: 'p_88' } },
@@ -65,10 +66,18 @@ const SAMPLES: RouteRef[] = [
   { name: 'devices', params: { sessionId: 'sess_a', serverId: 'studio-host' } },
 ]
 
-function locationOf(...refs: RouteRef[]): Location {
-  const panes = refs.map((ref) => makePane(ref))
+/** A location with this destination and, after it, this strip. Focus is on
+ *  the strip when there is one. */
+function locationOf(destination: RouteRef, ...surfaces: RouteRef[]): Location {
+  const panes = [makePane([destination])]
+  if (surfaces.length > 0) panes.push(makePane(surfaces))
   return { panes, focusedPaneId: panes[panes.length - 1].id }
 }
+
+const SESSION_CHAT: RouteRef = { name: 'chat', params: { sessionId: 'sess_abc' } }
+const PLAN: RouteRef = { name: 'plan', params: { planId: 'p_88' } }
+const WORK: RouteRef = { name: 'work', params: { workId: 'w_12' } }
+const PR_REVIEW: RouteRef = { name: 'prReview', params: { number: 4821 } }
 
 describe('route codec', () => {
   test('every destination is covered by a sample', () => {
@@ -81,15 +90,19 @@ describe('route codec', () => {
     }
   })
 
-  test('every sample round-trips as the leading pane of a location', () => {
+  test('every sample round-trips in the pane its placement gives it', () => {
     for (const ref of SAMPLES) {
-      const parsed = parseLocation(serializeLocation(locationOf(ref)))
-      expect(parsed.panes.map((pane) => pane.base)).toEqual([ref])
+      const isSurface = ROUTES[ref.name].placement === 'surface'
+      // The pool's chat names no session, so it can only lead.
+      if (ref.name === 'chat' && !ref.params.sessionId) continue
+      const location = isSurface ? locationOf(CHAT_ROUTE, ref) : locationOf(ref)
+      const parsed = parseLocation(serializeLocation(location))
+      expect(parsed.panes.map((pane) => pane.surfaces)).toEqual(location.panes.map((pane) => pane.surfaces))
     }
   })
 })
 
-describe('the pane grammar', () => {
+describe('the location grammar', () => {
   test('a review without an explicit view opens on the diff', () => {
     expect(parseRoute('/review/tab_a')).toEqual({
       name: 'review',
@@ -99,84 +112,39 @@ describe('the pane grammar', () => {
       .toBe('/review/tab_a/diff/branch')
   })
 
-  test('one pane is just a path', () => {
-    expect(serializeLocation(locationOf({ name: 'chat', params: { sessionId: 'sess_abc' } })))
-      .toBe('/chat/sess_abc')
+  test('a destination alone is just a path', () => {
+    expect(serializeLocation(locationOf({ name: 'tasks', params: {} }))).toBe('/tasks')
   })
 
-  test('two panes with focus on the right', () => {
-    const location = locationOf(
-      { name: 'chat', params: { sessionId: 'sess_abc' } },
-      { name: 'prReview', params: { number: 4821 } },
-    )
-    expect(serializeLocation(location)).toBe('/chat/sess_abc?p=prReview%2F4821&f=1')
+  test('one surface beside the destination, focus on it', () => {
+    expect(serializeLocation(locationOf(CHAT_ROUTE, PR_REVIEW))).toBe('/chat?p=prReview%2F4821&f=1')
   })
 
-  test('an overlay attaches to its pane with `!`', () => {
-    const location = locationOf({ name: 'chat', params: { sessionId: 'sess_abc' } })
-    location.panes.push(
-      makePane(
-        { name: 'prReview', params: { number: 4821 } },
-        { name: 'review', params: { sourceTabId: 'tab_abc', view: 'map' } },
-      ),
-    )
+  test('the strip joins its surfaces with `!` and names a non-last active one with `a`', () => {
+    const location = locationOf({ name: 'tasks', params: {} }, PLAN, SESSION_CHAT, WORK)
+    location.panes[1].activeSurfaceIndex = 1
     const text = serializeLocation(location)
-    expect(text).toContain('prReview%2F4821%21review%2Ftab_abc%2Fmap%2Fbranch')
-    expect(parseLocation(text).panes[1]).toMatchObject({
-      base: { name: 'prReview', params: { number: 4821 } },
-      overlay: { name: 'review' },
-    })
+
+    expect(text).toContain('p=plan%2Fp_88%21chat%2Fsess_abc%21work%2Fw_12')
+    expect(text).toContain('a=1')
+    const parsed = parseLocation(text)
+    expect(parsed.panes[1].surfaces).toEqual([PLAN, SESSION_CHAT, WORK])
+    expect(parsed.panes[1].activeSurfaceIndex).toBe(1)
   })
 
-  test('adding a pane adds a `p` — the grammar is not two-pane-shaped', () => {
-    for (const count of [3, 4]) {
-      const refs = ([
-        { name: 'chat', params: { sessionId: 'sess_abc' } },
-        { name: 'plan', params: { planId: 'p_88' } },
-        { name: 'work', params: { workId: 'w_12' } },
-        { name: 'tasks', params: {} },
-      ] as RouteRef[]).slice(0, count)
-
-      const parsed = parseLocation(serializeLocation(locationOf(...refs)))
-      expect(parsed.panes).toHaveLength(count)
-      expect(parsed.panes.map((pane) => pane.base)).toEqual(refs)
-      expect(parsed.panes.findIndex((pane) => pane.id === parsed.focusedPaneId)).toBe(count - 1)
-    }
+  test('without `a` the last surface is active', () => {
+    const parsed = parseLocation('/chat?p=plan%2Fp_88%21work%2Fw_12')
+    expect(parsed.panes[1].activeSurfaceIndex).toBe(1)
   })
 
-  test('a diff link written before the review pane existed opens the same change', () => {
-    // The diff and the review guide became one destination. A persisted
-    // location, an agent link, or a notification written against either old
-    // grammar has to land on the same change and the same view — the two old
-    // names put different things in the second segment, so reading one with the
-    // other's parser would silently mis-seat every field.
-    expect(parseRoute('/diff/tab_a/working-tree')).toEqual({
-      name: 'review',
-      params: { sourceTabId: 'tab_a', view: 'diff', scope: { kind: 'working-tree' } },
-    })
-    expect(parseRoute('/diff/tab_a/session/src/a/b.ts')).toEqual({
-      name: 'review',
-      params: {
-        sourceTabId: 'tab_a',
-        view: 'diff',
-        scope: { kind: 'session' },
-        filePath: 'src/a/b.ts',
-      },
-    })
-  })
+  test('a link to a surface opens it beside the conversation, never in the leading pane', () => {
+    // WHY: the leading pane only ever holds a destination; `/task/T1` from an
+    // agent or a notification opens the task as a surface.
+    const parsed = parseLocation('/task/SOL-12')
 
-  test('a guide link written before the review pane existed opens the guide', () => {
-    // The cached-guide key the old route carried is derivable from the
-    // checkout, so it is dropped rather than kept as a thing to keep in sync.
-    expect(parseRoute('/review/solus__fix/branch/tab_a')).toEqual({
-      name: 'review',
-      params: { sourceTabId: 'tab_a', view: 'guide' },
-    })
-
-    expect(parseRoute('/review/solus__fix/session/tab_a')).toEqual({
-      name: 'review',
-      params: { sourceTabId: 'tab_a', view: 'guide', scope: { kind: 'session' } },
-    })
+    expect(parsed.panes[0].surfaces).toEqual([CHAT_ROUTE])
+    expect(parsed.panes[1].surfaces).toEqual([{ name: 'task', params: { taskId: 'SOL-12' } }])
+    expect(parsed.focusedPaneId).toBe(parsed.panes[1].id)
   })
 
   test('the removed standalone file editor route is no longer accepted', () => {
@@ -208,95 +176,53 @@ describe('the pane grammar', () => {
     expect(parseRoute('/files/draft_a')).toBeNull()
   })
 
-  test('a companion chat that names no session is dropped', () => {
+  test('a chat surface that names no session is dropped', () => {
     // A chat naming no session is the conversation pool's, and only the leading
-    // pane renders the pool. Restored beside it, the companion showed whichever
-    // tab the pool was on — so starting a session in the leading pane put the
-    // same conversation on both sides of the split.
-    const parsed = parseLocation('/chat?p=chat&p=plan%2Fp_88')
+    // pane renders the pool. As a surface it would show the same conversation
+    // on both sides of the split.
+    const parsed = parseLocation('/chat?p=chat%21plan%2Fp_88')
 
-    expect(parsed.panes.map((pane) => pane.base)).toEqual([
-      CHAT_ROUTE,
-      { name: 'plan', params: { planId: 'p_88' } },
-    ])
+    expect(parsed.panes[1].surfaces).toEqual([PLAN])
   })
 
-  test('a companion opened for an overlay keeps it when its chat is dropped', () => {
-    const parsed = parseLocation('/chat?p=chat%21files%2Fhost_a%2F%2Frepo%2Fapp')
-
-    expect(parsed.panes).toHaveLength(2)
-    expect(parsed.panes[1].base).toBeNull()
-    expect(parsed.panes[1].overlay).toEqual({
-      name: 'files',
-      params: { serverId: 'host_a', cwd: '/repo/app' },
-    })
-  })
-
-  test('a companion chat that names its session is kept', () => {
+  test('a chat surface that names its session is kept', () => {
     const parsed = parseLocation('/chat?p=chat%2Fsess_abc')
 
-    expect(parsed.panes.map((pane) => pane.base)).toEqual([
-      CHAT_ROUTE,
-      { name: 'chat', params: { sessionId: 'sess_abc' } },
-    ])
-  })
-
-  test('a pane may exist for its overlay alone', () => {
-    const location = locationOf({ name: 'chat', params: {} })
-    location.panes.push(
-      makePane(null, {
-        name: 'files',
-        params: { serverId: 'host_a', cwd: '/repo/app' },
-      }),
-    )
-
-    const parsed = parseLocation(serializeLocation(location))
-
-    expect(parsed.panes[1].base).toBeNull()
-    expect(parsed.panes[1].overlay).toEqual({
-      name: 'files',
-      params: { serverId: 'host_a', cwd: '/repo/app' },
-    })
+    expect(parsed.panes[1].surfaces).toEqual([SESSION_CHAT])
   })
 })
 
 describe('untrusted input', () => {
-  // URLs and notification payloads are untrusted, so `parse` is total: a pane
-  // that cannot be read is dropped and the rest of the location still opens.
-  test('an unknown destination drops its pane, not the location', () => {
-    const parsed = parseLocation('/chat/sess_abc?p=nonsense%2F1&p=plan%2Fp_88&f=2')
+  // URLs and notification payloads are untrusted, so `parse` is total: a
+  // surface that cannot be read is dropped and the rest of the location opens.
+  test('an unknown route drops its surface, not the strip', () => {
+    const parsed = parseLocation('/chat/sess_abc?p=nonsense%2F1%21plan%2Fp_88&f=1')
 
-    expect(parsed.panes.map((pane) => pane.base)).toEqual([
-      { name: 'chat', params: { sessionId: 'sess_abc' } },
-      { name: 'plan', params: { planId: 'p_88' } },
-    ])
+    expect(parsed.panes[0].surfaces).toEqual([SESSION_CHAT])
+    expect(parsed.panes[1].surfaces).toEqual([PLAN])
   })
 
-  test('garbage params drop their pane', () => {
+  test('a strip with nothing readable leaves no companion pane', () => {
     const parsed = parseLocation('/chat?p=prReview%2Fnot-a-number')
     expect(parsed.panes).toHaveLength(1)
   })
 
   test('an unreadable leading pane falls back to the conversation', () => {
-    expect(parseLocation('/nonsense').panes[0].base).toEqual(CHAT_ROUTE)
-    expect(parseLocation('').panes[0].base).toEqual(CHAT_ROUTE)
+    expect(parseLocation('/nonsense').panes[0].surfaces).toEqual([CHAT_ROUTE])
+    expect(parseLocation('').panes[0].surfaces).toEqual([CHAT_ROUTE])
   })
 
   test('malformed percent-encoding never escapes the parser', () => {
-    expect(parseLocation('#/settings/%E0%A4%A').panes[0].base).toEqual(CHAT_ROUTE)
+    expect(parseLocation('#/settings/%E0%A4%A').panes[0].surfaces).toEqual([CHAT_ROUTE])
     expect(parseRoute('#/chat/%')).toBeNull()
   })
 
   test('invalid settings tabs fall back to the conversation', () => {
-    expect(parseLocation('#/settings/connections').panes[0].base).toEqual(CHAT_ROUTE)
-    expect(parseLocation('#/settings/keybindings').panes[0].base).toEqual({
+    expect(parseLocation('#/settings/connections').panes[0].surfaces).toEqual([CHAT_ROUTE])
+    expect(parseLocation('#/settings/keybindings').panes[0].surfaces).toEqual([{
       name: 'settings',
       params: { tab: 'keybindings' },
-    })
-    expect(parseLocation('#/settings/source-control').panes[0].base).toEqual({
-      name: 'settings',
-      params: { tab: 'source-control' },
-    })
+    }])
   })
 
   test('reserved characters survive one path decode', () => {
@@ -305,18 +231,18 @@ describe('untrusted input', () => {
       { name: 'files', params: { serverId: 'host% with spaces', cwd: '/repo/% with spaces' } },
     )
 
-    expect(parseLocation(serializeLocation(location)).panes.map((pane) => pane.base))
-      .toEqual(location.panes.map((pane) => pane.base))
+    expect(parseLocation(serializeLocation(location)).panes.map((pane) => pane.surfaces))
+      .toEqual(location.panes.map((pane) => pane.surfaces))
   })
 
-  test('an out-of-range focus index falls back to the leading pane', () => {
-    const parsed = parseLocation('/chat?p=tasks&f=9')
+  test('an out-of-range active surface falls back to the last one', () => {
+    const parsed = parseLocation('/chat?p=plan%2Fp_88%21work%2Fw_12&a=9')
+    expect(parsed.panes[1].activeSurfaceIndex).toBe(1)
+  })
+
+  test('focus on a companion pane that is not there falls back to the leading pane', () => {
+    const parsed = parseLocation('/chat?f=1')
     expect(parsed.focusedPaneId).toBe(parsed.panes[0].id)
-  })
-
-  test('a leading pane may not be overlay-only', () => {
-    const parsed = parseLocation('/!files%2Fhost_a%2F%2Frepo%2Fapp')
-    expect(parsed.panes[0].base).toEqual(CHAT_ROUTE)
   })
 
   test('every descriptor parses garbage without throwing', () => {

@@ -78,7 +78,6 @@
   import { createProjectPicker } from "@solus/workspace-ui/components/servers/project-picker.svelte";
   import { hostSetupStore } from "@solus/workspace-ui/components/servers/host-setup.store.svelte";
   import WebLayout from "./shell/WebLayout.svelte";
-  import BusyTreeConfirm from "@solus/workspace-ui/components/busy-tree/BusyTreeConfirm.svelte";
   import { WebShell } from "./shell/web-shell.svelte";
 
   const shell = new WebShell();
@@ -134,8 +133,8 @@
 
   session.lifecycle.hydrateStaticInfoFromCache();
   materializeTabs(session);
-  // The web shell has an address bar, so the location is mirrored into it: every
-  // pane, its overlay, and the focused index are in the URL, which is what makes
+  // The web shell has an address bar, so the location is mirrored into it: the
+  // destination, the companion strip, and the focused pane are in the URL, which is what makes
   // a workspace shareable and browser-back meaningful here.
   session.router.bindAddressBar();
   reconcileReloadLocation(session);
@@ -152,6 +151,7 @@
       tabOrder: [...session.tabOrder],
       tabs,
       location: session.router.serialized,
+      strips: session.router.persistedStrips,
     };
     savePersistedTabs(snapshot);
   });
@@ -447,12 +447,15 @@
       enabled: () => !!session.tasksProjectCwd && !session.router.at("tasks"),
     },
   );
+  // In the companion pane the tab keys move between its surfaces.
   useKeybinding("global.next-tab", () => {
+    if (session.moveBetweenSurfaces(1)) return;
     const idx = visualTabOrder.indexOf(activeTabId);
     if (idx !== -1)
       session.selectTab(visualTabOrder[(idx + 1) % visualTabOrder.length], "keybinding");
   });
   useKeybinding("global.prev-tab", () => {
+    if (session.moveBetweenSurfaces(-1)) return;
     const idx = visualTabOrder.indexOf(activeTabId);
     if (idx !== -1)
       session.selectTab(
@@ -487,6 +490,7 @@
     session.setPermissionMode(nextPermissionMode(permissionMode), composerSourceId, "keybinding");
   });
   useKeybinding("global.close-tab", () => {
+    if (session.closeFocusedSurface()) return;
     if (activeTabId) sessionSidebarStore.closeTabs([activeTabId], "keybinding");
   });
   useKeybinding("global.attach-file", handleAttachFile);
@@ -510,7 +514,7 @@
     }, composerSourceId, "keybinding");
   });
   useKeybinding("global.toggle-reasoning", () => {
-    const targetTabId = session.router.leadingPane.base?.name === "draft"
+    const targetTabId = session.router.destination.name === "draft"
       ? undefined
       : session.activeTabId;
     const targetStatus = targetTabId ? session.sessionFor(targetTabId)?.status : undefined;
@@ -769,7 +773,6 @@
 {:catch}
   <p role="alert">Could not load the command palette.</p>
 {/await}
-<BusyTreeConfirm />
 {#if hasMountedShareDialog}
   {#await import("@solus/workspace-ui/components/sharing/ShareDialog.svelte") then module}
     {@const ShareDialog = module.default}

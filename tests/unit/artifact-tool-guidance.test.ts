@@ -51,3 +51,34 @@ describe('HTML guidance without a system prompt', () => {
     expect(registry.find_works?._meta?.['anthropic/alwaysLoad']).toBeUndefined()
   })
 })
+
+describe('the theme the fence guidance names', () => {
+  test('every variable the guidance tells the agent to use is one the frame defines', async () => {
+    // WHY: the frame cannot read the app's CSS; it gets only the tokens the
+    // sandbox writes into it. A name the guidance teaches but the frame lacks
+    // resolves to nothing, and the agent's chart draws without colour.
+    const previousDocument = globalThis.document
+    const previousGetComputedStyle = globalThis.getComputedStyle
+    Object.defineProperty(globalThis, 'document', { configurable: true, value: { documentElement: {} } })
+    // Every Solus variable resolves, as it does in the app.
+    Object.defineProperty(globalThis, 'getComputedStyle', {
+      configurable: true,
+      value: () => ({ getPropertyValue: () => '#123456' }),
+    })
+    try {
+      const { buildSandboxThemeCss } = await import('../../packages/workspace-ui/src/lib/artifactSandbox')
+      const description = solusToolbox.artifact.render.description
+      const named = [...new Set(description.match(/--[a-z][a-z0-9-]*[a-z0-9]/g) ?? [])]
+      // `--chart-1 … --chart-6` names the series by its ends.
+      named.push('--chart-2', '--chart-3', '--chart-4', '--chart-5')
+      expect(named).toContain('--background')
+      for (const isDark of [false, true]) {
+        const css = buildSandboxThemeCss(isDark)
+        for (const variable of named) expect(css).toContain(`${variable}:`)
+      }
+    } finally {
+      Object.defineProperty(globalThis, 'document', { configurable: true, value: previousDocument })
+      Object.defineProperty(globalThis, 'getComputedStyle', { configurable: true, value: previousGetComputedStyle })
+    }
+  })
+})

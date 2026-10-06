@@ -6,7 +6,6 @@ import { Database } from 'bun:sqlite'
 import { sql } from 'drizzle-orm'
 import type { Principal } from '@solus/server/admission/principal'
 import type { ShareAccessError as ShareAccessErrorType, ShareChange, ShareManager as ShareManagerType } from '@solus/server/sharing/share-manager'
-import type { ShareResource } from '@solus/contracts/sharing'
 import { hostUserKey } from '@solus/server/host/host-user'
 import { resetTestDatabase } from './helpers/test-db'
 
@@ -61,20 +60,9 @@ const member = (userId: string, teamIds: string[] = [], organizationRole: 'owner
   kind: 'org-member', userId, organizationId, organizationRole, teamIds, hostKind, displayName: userId, deviceId: `d-${userId}`, expiresAt: 0, deviceLabel: 'Solus cloud',
 })
 
-/** A task tree in one line: task id → what is linked under it. */
-type TaskTree = Record<string, ShareResource[]>
-
-function manager(canonical?: (id: string) => string, tasks: TaskTree = {}): { shares: ShareManagerType; changes: ShareChange[] } {
+function manager(canonical?: (id: string) => string): { shares: ShareManagerType; changes: ShareChange[] } {
   const changes: ShareChange[] = []
-  const shares = new ShareManager({
-    db: database.getDatabase(),
-    canonicalSessionId: canonical,
-    now: () => 1_000,
-    taskContents: async (_organizationId, taskIds) => taskIds.flatMap((taskId) => tasks[taskId] ?? []),
-    containingTasks: async (_organizationId, resource) => Object.entries(tasks)
-      .filter(([, contents]) => contents.some((item) => item.kind === resource.kind && item.id === resource.id))
-      .map(([taskId]) => ({ taskId, title: `Task ${taskId}` })),
-  })
+  const shares = new ShareManager({ db: database.getDatabase(), canonicalSessionId: canonical, now: () => 1_000 })
   shares.onChanged((change) => changes.push(change))
   return { shares, changes }
 }
@@ -268,60 +256,69 @@ describe('new sessions', () => {
   })
 })
 
-describe('tasks', () => {
-  const personal = (userId: string, teamIds: string[] = []) => member(userId, teamIds, 'member', 'personal')
-  const tree: TaskTree = { t1: [{ kind: 'session', id: 's1' }, { kind: 'work', id: 'w1' }], t2: [{ kind: 'session', id: 's9' }] }
+describe('one table of access', () => {
+  test('a role check reads the rows once, and the host owner reads nothing', async () => {
+    // WHY: every request through the access policy asks for a role. The owner
+    // lives in share_grant beside the other rows, and the organization is on the
+    // rows, so a member's check is one query; the host owner's is none.
+    const { shares } = manager()
+    const work = { kind: 'work', id: 'w1' } as const
+    await shares.claimOwner(work, member('alice'))
+    const asMember = { queries: 0, queryMs: 0 }
+    expect(await database.tallyQueries(asMember, () => shares.roleFor(member('bob'), work))).toBe('editor')
+    expect(asMember.queries).toBe(1)
+    const asOwner = { queries: 0, queryMs: 0 }
+    expect(await database.tallyQueries(asOwner, () => shares.roleFor(OWNER, work))).toBe('owner')
+    expect(asOwner.queries).toBe(0)
+  })
 
-  test('a task\'s organization opens its sessions and works through it, short of ownership; the task itself is not shared', async () => {
-    // WHY: a task is seen by its whole organization, and the sessions and works
-    // in it come with it, or the task page is a list of doors that do not open.
-    // There is no other way in: a task has no share rows or link of its own.
-    const cloud = (userId: string) => member(userId, [], 'member', 'cloud')
-    const { shares } = manager(undefined, tree)
+  test('a resource has one owner row; the owner is never also a named row', async () => {
+    // WHY: the owner and the named rows share one unique key per person. A named
+    // row for the owner would block the owner row, or leave two answers for one person.
+    const { shares } = manager()
+    const work = { kind: 'work', id: 'w1' } as const
+    await shares.claimOwner(work, member('alice'))
+    await shares.claimOwner(work, member('bob'))
+    const list = await shares.setGrants({ resource: work, grants: [{ subject: { kind: 'user', id: 'alice' }, role: 'viewer' }, { subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, member('alice'))
+    expect(list.ownerUserId).toBe('alice')
+    expect(list.grants.map((grant) => grant.subject)).toEqual([{ kind: 'user', id: 'bob' }])
+    const owners = await database.getDatabase().all<{ subject_id: string }>(sql`SELECT subject_id FROM share_grant WHERE resource_id = 'w1' AND role = 'owner'`)
+    expect(owners).toEqual([{ subject_id: 'alice' }])
+  })
+
+  test('a transfer to a person with a named row makes them owner and drops that row', async () => {
+    const { shares } = manager()
+    const work = { kind: 'work', id: 'w1' } as const
+    await shares.claimOwner(work, member('alice'))
+    await shares.setGrants({ resource: work, grants: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, member('alice'))
+    const list = await shares.transfer({ resource: work, toUserId: 'bob' }, member('alice'))
+    expect(list.ownerUserId).toBe('bob')
+    expect(list.grants.some((grant) => grant.subject.kind === 'user' && grant.subject.id === 'bob')).toBe(false)
+    expect(await shares.roleFor(member('bob'), work)).toBe('owner')
+    expect(await shares.ownerOf(work)).toBe('bob')
+  })
+})
+
+describe('tasks', () => {
+  const cloud = (userId: string) => member(userId, [], 'member', 'cloud')
+
+  test('a task is its organization\'s and is not shared on its own; what is linked to it keeps its own access', async () => {
+    // WHY: a task is born with its organization's grant. If a session or work took
+    // access from a task it is linked to, linking it would silently open it to the
+    // whole organization (decision 2026-10-06). Each resource is shared on its own.
+    const { shares } = manager()
     await shares.claimOwner({ kind: 'task', id: 't1' }, cloud('alice'))
     await shares.claimOwner({ kind: 'session', id: 's1' }, cloud('alice'), { shareWithOrganization: false })
-    await shares.claimOwner({ kind: 'session', id: 's7' }, cloud('alice'), { shareWithOrganization: false })
     expect(await shares.roleFor(cloud('bob'), { kind: 'task', id: 't1' })).toBe('editor')
-    expect(await shares.roleFor(cloud('bob'), { kind: 'session', id: 's1' })).toBe('editor')
-    expect(await shares.roleFor(cloud('bob'), { kind: 'session', id: 's7' })).toBe('none')
+    expect(await shares.roleFor(cloud('bob'), { kind: 'session', id: 's1' })).toBe('none')
+    expect((await shares.filterVisible(cloud('bob'), 'session', [{ id: 's1' }], (session) => session.id))).toEqual([])
     await expect(shares.setGrants({ resource: { kind: 'task', id: 't1' }, grants: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, cloud('alice'))).rejects.toThrow(ShareAccessError)
     await expect(shares.setLink({ resource: { kind: 'task', id: 't1' }, role: 'viewer' }, cloud('alice'))).rejects.toThrow(ShareAccessError)
-    // The task's owner edits, but never owns, a session someone else started in it.
-    await shares.transfer({ resource: { kind: 'task', id: 't1' }, toUserId: 'cara' }, cloud('alice'))
-    expect(await shares.roleFor(cloud('cara'), { kind: 'session', id: 's1' })).toBe('editor')
-    // The session's list names the task it is opened through.
-    expect((await shares.list({ kind: 'session', id: 's1' }, cloud('alice'))).inheritedFrom).toEqual([{ taskId: 't1', title: 'Task t1' }])
   })
 
-  test('a session listing reads what all of a member\'s tasks hold at once', async () => {
-    // WHY: a read per owned task cost two database queries per task on every
-    // session and work list, so a member with hundreds of tasks turned one
-    // listing into hundreds of queries.
-    const reads: string[][] = []
-    const shares = new ShareManager({
-      db: database.getDatabase(),
-      now: () => 1_000,
-      taskContents: async (_organizationId, taskIds) => {
-        reads.push([...taskIds])
-        return taskIds.flatMap((taskId) => tree[taskId] ?? [])
-      },
-    })
-    await shares.claimOwner({ kind: 'task', id: 't1' }, personal('bob'))
-    await shares.claimOwner({ kind: 'task', id: 't2' }, personal('bob'))
-    const visible = await shares.filterVisible(personal('bob'), 'session', [{ id: 's1' }, { id: 's9' }, { id: 's7' }], (s) => s.id)
-    expect(visible.map((s) => s.id)).toEqual(['s1', 's9'])
-    expect(reads).toHaveLength(1)
-    expect(reads[0]?.sort()).toEqual(['t1', 't2'])
-  })
-
-  test('a listing shows what an organization\'s task holds, and a guest bound to a task reaches nothing', async () => {
-    const cloud = (userId: string) => member(userId, [], 'member', 'cloud')
-    const { shares } = manager(undefined, tree)
+  test('a guest bound to a task reaches nothing', async () => {
+    const { shares } = manager()
     await shares.claimOwner({ kind: 'task', id: 't1' }, cloud('alice'))
-    await shares.claimOwner({ kind: 'session', id: 's1' }, cloud('alice'), { shareWithOrganization: false })
-    await shares.claimOwner({ kind: 'session', id: 's9' }, cloud('alice'), { shareWithOrganization: false })
-    const sessions = [{ id: 's1' }, { id: 's9' }]
-    expect((await shares.filterVisible(cloud('bob'), 'session', sessions, (s) => s.id)).map((s) => s.id)).toEqual(['s1'])
     // A guest from a task link made before tasks stopped being shared opens nothing.
     const maya: Principal = {
       kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1', organizationId: 'org1',
@@ -329,7 +326,6 @@ describe('tasks', () => {
       expiresAt: 0, deviceLabel: 'Guest link',
     }
     expect(await shares.roleFor(maya, { kind: 'task', id: 't1' })).toBe('none')
-    expect(await shares.roleFor(maya, { kind: 'session', id: 's1' })).toBe('none')
     expect(await shares.visibleIds(maya, 'session')).toEqual(new Set())
   })
 })
@@ -352,8 +348,8 @@ describe('the link and guests', () => {
     expect(await shares.resolveLinkSecret(link.secret)).toEqual({ organizationId: 'org1', resource: session, role: 'viewer', sharedByUserId: 'alice', linkSecretHash: hashLinkSecret(link.secret) })
     expect(await shares.resolveLinkSecret('nope')).toBeNull()
     expect((await shares.list(session, member('alice'))).link).toEqual({ role: 'viewer', secret: link.secret })
-    // Changing the role keeps the secret: no new secret comes back.
-    expect(await shares.setLink({ resource: session, role: 'editor' }, member('alice'))).toBeNull()
+    // Changing the role keeps the secret, and the answer is the link as it now stands.
+    expect(await shares.setLink({ resource: session, role: 'editor' }, member('alice'))).toEqual({ role: 'editor', secret: link.secret })
     expect((await shares.resolveLinkSecret(link.secret))?.role).toBe('editor')
   })
 
@@ -393,7 +389,7 @@ describe('the link and guests', () => {
       expiresAt: 0, deviceLabel: 'Guest link',
     }
     expect((await shares.list(work, viewingGuest)).link).toEqual({ role: 'viewer' })
-    expect(await shares.setLink({ resource: work, role: 'editor' }, member('alice'))).toBeNull()
+    expect(await shares.setLink({ resource: work, role: 'editor' }, member('alice'))).toEqual({ role: 'editor', secret: link.secret })
     expect((await shares.list(work, member('alice'))).link).toEqual({ role: 'editor', secret: link.secret })
     // A row made before the host kept the secret answers that a link exists, and no more.
     const { shareGrant } = await import('@solus/server/sharing/schema')

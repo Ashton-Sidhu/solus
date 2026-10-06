@@ -3,6 +3,7 @@
   import { getWorkspaceContext } from "../../contexts";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
+  import { underStrip } from "../ui/lib/pane-strip";
   import PaneChrome from "../ui/PaneChrome.svelte";
   import FilesRouteSkeleton from "./FilesRouteSkeleton.svelte";
 
@@ -10,6 +11,7 @@
 
   const session = getWorkspaceContext();
   const pane = paneActions(() => paneId);
+  const isUnderStrip = underStrip();
   const api = $derived(serverConnections.apiFor(params.serverId));
   const ctx = $derived(session.ctxForEnvironment(params.cwd, null));
 </script>
@@ -25,17 +27,16 @@
     cwd={params.cwd}
     requestedFile={params}
     isDark={session.settings.isDark}
-    bordered={!pane.isLeading}
-    onClose={pane.closeOverlay}
+    bordered={!pane.isLeading && !isUnderStrip()}
+    onClose={pane.close}
   />
 {/await}
 <!-- After the content: the header above is a window drag region, and a drag
      rect later in the DOM would re-cover this cluster's no-drag holes. -->
 <PaneChrome
-  onClose={pane.closeOverlay}
+  onClose={pane.close}
   onToggleMaximize={pane.toggleMaximize}
   maximized={pane.maximized}
-  isLeading={pane.isLeading}
   closeLabel="Close files"
   raised="soft"
 />

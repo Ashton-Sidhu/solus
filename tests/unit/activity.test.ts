@@ -116,6 +116,7 @@ async function historyHost(history: SessionLoadMessage[]) {
     sessionRuntime: runtime,
     events: { broadcast: () => {} } as never,
     agentIdFromContext: () => 'claude-code',
+    exchangeProgress: () => undefined,
   })
   const { TEST_HANDLER_CTX } = await import('./helpers/handler-ctx')
   const call = <T>(method: string, args: unknown[], ctx: unknown = TEST_HANDLER_CTX) => handlers.get(method)!(args, ctx) as Promise<T>

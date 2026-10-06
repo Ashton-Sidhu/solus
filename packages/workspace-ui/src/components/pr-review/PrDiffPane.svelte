@@ -149,9 +149,7 @@
      drag rect later in the DOM would re-cover this cluster's no-drag holes. -->
 <PaneChrome
   onClose={close}
-  onOpenInSplit={!pane.isLeading ? pane.moveAcross : undefined}
   onToggleMaximize={pane.toggleMaximize}
   maximized={pane.maximized}
-  isLeading={pane.isLeading}
   closeLabel="Close diff"
 />

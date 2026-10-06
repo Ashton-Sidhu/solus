@@ -82,7 +82,7 @@ describe('native task migration', () => {
     ).all().map((row) => (row as { name: string }).name)
     expect(tables()).toEqual([
       'asset_publications', 'task_comments', 'task_counters', 'task_external_links',
-      'task_links', 'task_session_links', 'tasks', 'upstream_task_cache',
+      'task_links', 'task_session_links', 'task_snoozes', 'tasks', 'upstream_task_cache',
     ])
     const generated = readdirSync(migrationsFolder('sqlite')).filter((file) => file.endsWith('.sql')).length
     expect(fresh.prepare('SELECT COUNT(*) AS count FROM __drizzle_migrations').get()).toEqual({ count: generated })
@@ -727,6 +727,9 @@ describe('session binding and durable links', () => {
     expect((await taskSessions.taskSessions('local', task!.id))[task!.id]).toEqual([
       expect.objectContaining({
         sessionId: 'stable-session',
+        // An agent's task comment names this thread; the task page finds the
+        // link, and so the title, through it.
+        agentSessionId: 'provider-session',
         sessionTitle: 'Provider session title',
         provider,
       }),
@@ -778,6 +781,7 @@ describe('session binding and durable links', () => {
       sessionRuntime,
       events: new HostEventPublisher(new ClientEventRegistry()),
       agentIdFromContext: () => 'codex',
+      exchangeProgress: () => undefined,
     })
 
     await server.handle('setSessionTitle', ['second-session', 'Renamed second session', 'manual'], testHandlerCtx)

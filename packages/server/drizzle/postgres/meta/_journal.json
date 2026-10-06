@@ -50,6 +50,34 @@
       "when": 1791083309796,
       "tag": "0006_session_execution_preferences",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791211663957,
+      "tag": "0007_task_location",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791212271916,
+      "tag": "0008_task_session_started_by",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791223603570,
+      "tag": "0009_task_snooze",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791261601521,
+      "tag": "0010_share_grant_owner",
+      "breakpoints": true
     }
   ]
 }

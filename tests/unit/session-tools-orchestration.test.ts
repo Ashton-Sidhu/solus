@@ -3,7 +3,7 @@ import { Database } from 'bun:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { SessionLoadMessage } from '@solus/contracts/session-history'
+import type { SessionLoadMessage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import type { OrchestrationItem } from '@solus/contracts/session-exchange'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
@@ -285,6 +285,29 @@ test('an accepted creation names its exchange without treating the pending card 
     expect(result.text).toContain('read_session_exchange with exchange_id=m-created')
     expect(result.text).not.toContain('session://open')
     expect(reloaded('start_session', result.text)).toMatchObject({ agentSessionId: 'pending:m-created', messageId: 'm-created' })
+  } finally { startingReceipt = false }
+})
+
+// WHY: the receipt keeps the pending id forever, but the card rebuilt from it
+// must reach the session that started — or it reads "Starting" and cannot open.
+test('a reloaded pending receipt names the session its exchange started, and a start with no session stays pending', async () => {
+  startingReceipt = true
+  try {
+    const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'none' }, deps())
+    const rows = (receipt: string): WireSessionLoadMessage[] => projection.projectSessionHistory([
+      { role: 'tool', toolName: 'start_session', toolId: 't1', content: '', timestamp: 1 },
+      { role: 'tool_result', toolResultForId: 't1', content: receipt, timestamp: 2 },
+    ])
+    const unstarted = await projection.resolvePendingStarts('local', rows(result.text))
+    expect(unstarted[1]!.agentConversationResult).toMatchObject({ agentSessionId: 'pending:m-created', messageId: 'm-created' })
+
+    const { upsertOwnSessionRecord } = await import('@solus/server/data/sessions/session-records')
+    await upsertOwnSessionRecord({
+      sessionId: 'thread-started', provider: 'codex', projectPath: '-repo', lastActivityAt: 1,
+      delegation: { messageId: 'm-created', depth: 1, intent: 'delegate', createdAt: 1 },
+    })
+    const started = await projection.resolvePendingStarts('local', rows(result.text))
+    expect(started[1]!.agentConversationResult).toMatchObject({ agentSessionId: 'thread-started', messageId: 'm-created' })
   } finally { startingReceipt = false }
 })
 

@@ -95,7 +95,7 @@
       boundTask ??
       (await workspace.tasksStore.ensureSessionBinding(sessionId, insightsStore.serverId ?? undefined));
     const destination = taskId ?? task?.id ?? null;
-    if (destination) workspace.goToTask(destination, "click", "secondary");
+    if (destination) workspace.goToTask(destination, "click");
   }
 
   function queryThisSession(): void {

@@ -20,6 +20,7 @@ import type { RecordScope } from '../../admission/principal'
 
 const sessionRecordRowSchema = z.object({
   session_id: z.string(),
+  agent_session_id: z.string().nullable(),
   session_title: z.string().nullable(),
   session_provider: z.enum(['claude', 'claude-code', 'codex', 'opencode']).nullable(),
   session_model: z.string().nullable(),
@@ -44,6 +45,7 @@ export function sessionRecordsFor(sessionIds: Iterable<string>): Map<string, Ses
   const rows = sessionRecordRowSchema.array().parse(getDb().prepare(`
     SELECT
       ids.session_id,
+      sessions.session_id AS agent_session_id,
       COALESCE(sessions.custom_title, sessions.first_message) AS session_title,
       sessions.provider AS session_provider,
       sessions.model AS session_model,

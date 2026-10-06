@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, jest, test } from 'bun:test'
 import { wrapSandboxSrcdoc } from '../../packages/workspace-ui/src/lib/artifactSandbox'
 
 const previousDocument = globalThis.document
@@ -134,4 +134,32 @@ test('a remounted render starts at the height it last reported', async () => {
   expect(lastReportedHeight(html)).toBeUndefined()
   rememberReportedHeight(html, 812)
   expect(lastReportedHeight(html)).toBe(812)
+})
+
+test('a render starts at its last height after the app restarts', async () => {
+  // WHY: after a restart every frame is new. One that starts at a guess grows
+  // under the reader the first time they scroll back to it.
+  const storage = new Map<string, string>()
+  const previousStorage = globalThis.localStorage
+  Object.defineProperty(globalThis, 'localStorage', {
+    configurable: true,
+    value: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) },
+  })
+  jest.useFakeTimers()
+  try {
+    const modulePath = '../../packages/workspace-ui/src/components/artifact/lib/artifact-view'
+    const html = `<style></style><p>${crypto.randomUUID()}</p>`
+    const beforeRestart = await import(`${modulePath}?run=before`)
+    beforeRestart.rememberReportedHeight(html, 640)
+    jest.advanceTimersByTime(1000)
+    // A new module instance is a new app run: it has only what storage kept.
+    const afterRestart = await import(`${modulePath}?run=after`)
+    expect(afterRestart).not.toBe(beforeRestart)
+    expect(afterRestart.lastReportedHeight(html)).toBe(640)
+    // The stored key is a short hash, not the markup itself.
+    expect([...storage.values()].join('')).not.toContain(html)
+  } finally {
+    jest.useRealTimers()
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: previousStorage })
+  }
 })

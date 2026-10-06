@@ -5,6 +5,7 @@
   import { agentLabel } from "../../lib/agentAvailability";
   import ActivityRow from "../activity/ActivityRow.svelte";
   import TranscriptDivider from "./TranscriptDivider.svelte";
+  import WorktreeOfferCard from "./WorktreeOfferCard.svelte";
   import { worktreeDividerName } from "./lib/worktree-divider";
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
 
@@ -12,6 +13,7 @@
    * One activity in the transcript (plans/012 §5): what a person did as a
    * divider, and the thread's own news — a fork, a move into a worktree, an
    * agent switch, a plan's fresh session — with the action each has always had.
+   * An offer to switch into the agent's worktree is a card with its answer.
    */
   interface Props {
     activity: Activity;
@@ -50,6 +52,8 @@
       title={worktreeDividerName(activity, movedCheckout ? movedCheckout.checkout : session.environment.environmentFor(sess?.run).checkout)}
     />
   </TranscriptDivider>
+{:else if activity.kind === "worktree_offered"}
+  <WorktreeOfferCard offer={activity} {tabId} />
 {:else if activity.kind === "agent_switched"}
   <TranscriptDivider timestamp={activity.at} testid="agent-handoff-message" {skipMotion}>
     <ActivityRow {activity} {self} short {targetModel} title={agentLabel(activity.provider)} />

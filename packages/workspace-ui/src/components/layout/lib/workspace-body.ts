@@ -1,5 +1,5 @@
-import { isArtifactRoute, isPageRoute, type RouteRef } from '../../../contexts/workspace/routing/route-registry'
-import type { PaneEntry, PaneId } from '../../../contexts/workspace/routing/location'
+import type { RouteRef } from '../../../contexts/workspace/routing/route-registry'
+import { activeSurface, type PaneEntry, type PaneId } from '../../../contexts/workspace/routing/location'
 import type { Tab } from '@solus/contracts/types'
 
 export const MIN_PRIMARY_PANE_WIDTH = 400
@@ -140,27 +140,14 @@ export function maximizeTargetPaneId(
  * be the worst version of the same bug.
  */
 export function closeTargetPaneId(
-  companionPanes: readonly Pick<PaneEntry, 'id' | 'base'>[],
+  companionPanes: readonly PaneEntry[],
   focusedPaneId: PaneId,
 ): PaneId | null {
   const focused = companionPanes.find((pane) => pane.id === focusedPaneId)
   if (!focused) return null
-  const name = focused.base?.name
+  const name = activeSurface(focused)?.name
   if (name === 'chat' || name === 'draft') return null
   return focused.id
-}
-
-/**
- * Surfaces that read as a framed document beside the thread rather than as
- * another live column — they get the border and the stepped-back background.
- */
-export function isFramedRoute(ref: RouteRef | null): boolean {
-  // `prDiff` frames for the same reason `review` does: it opens beside a full
-  // page (the PR review), not beside a conversation, so the two surfaces need a
-  // seam between them rather than floating on one canvas.
-  return (
-    isArtifactRoute(ref) || isPageRoute(ref) || ref?.name === 'review' || ref?.name === 'prDiff'
-  )
 }
 
 /**

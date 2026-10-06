@@ -1,3 +1,8 @@
+<script module lang="ts">
+  /** Search words, read by the settings page to find this page from any other. */
+  export const searchWords = ["analytics", "telemetry", "tracking", "privacy", "data", "consent", "usage"];
+</script>
+
 <script lang="ts">
   /** Anonymous usage analytics, on the Telemetry page with the rest of the data
    *  Solus sends out. Two emitters, two choices: this app's own (a device
@@ -15,7 +20,7 @@
   const matches = (words: string[]) => !searchQuery || words.some((word) => word.includes(searchQuery.toLowerCase()));
 </script>
 
-<SettingsSection label="Usage analytics" visible={matches(["analytics", "telemetry", "tracking", "privacy", "data", "consent", "usage"])}>
+<SettingsSection label="Usage analytics" visible={matches(searchWords)}>
   <SettingsRow
     label="Share anonymous analytics from this device"
     description={settings.clientAnalyticsEnabled === null

@@ -15,6 +15,8 @@ test('pane route changes isolate params and preserve same-route state', async ()
     const code = compile(source, { filename: `${name}.svelte`, generate: 'client' }).js.code
       .replaceAll(/(['"])svelte\/internal\/client\1/g, JSON.stringify(internal))
       .replaceAll(/import ['"]svelte\/internal\/disclose-version['"];?/g, '')
+      .replaceAll(/(['"])svelte\/internal\/flags\/(\w+)\1/g, (_, _quote, flag) =>
+        JSON.stringify(new URL(`node_modules/svelte/src/internal/flags/${flag}.js`, root).href))
     const path = join(directory, `${name}.mjs`)
     writeFileSync(path, code)
     return path
@@ -46,16 +48,16 @@ test('pane route changes isolate params and preserve same-route state', async ()
       .replace(/^  import (\w+) from .*?;$/gm, (_, name) => `  import ${name} from ${JSON.stringify(stub)};`)
       .replace('<script lang="ts">', `<script lang="ts">
         import { ROUTES } from ${JSON.stringify(registry)};
-        const visibleRef = pane => pane.overlay ?? pane.base;
         const getWorkspaceContext = () => ({ router: { leadingPane: { id: 'main' } } });
         const paneActions = () => ({});
       `)
     const pane = component(source, 'pane')
     const harness = component(`<script>
       import Pane from ${JSON.stringify(pane)};
-      let pane = $state({ id: 'aside', base: null, overlay: { name: 'files', params: { serverId: 'host', cwd: '/project' } } });
-      export function navigate(name, params) { pane.overlay = { name, params }; }
-    </script><Pane {pane} />`, 'harness')
+      const pane = { id: 'aside', surfaces: [], activeSurfaceIndex: 0 };
+      let surface = $state({ name: 'files', params: { serverId: 'host', cwd: '/project' } });
+      export function navigate(name, params) { surface = { name, params }; }
+    </script><Pane {pane} {surface} />`, 'harness')
     const runner = join(directory, 'test.mjs')
     writeFileSync(runner, `
       import assert from 'node:assert/strict';

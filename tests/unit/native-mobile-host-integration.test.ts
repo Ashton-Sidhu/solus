@@ -165,10 +165,9 @@ describe('native client against a disposable host', () => {
     expect(await received).toBe('hello phone')
 
     // One record read over the host's HTTP API with the paired credential.
-    await app.sessions.loadSessions(host.id, '/work/app')
-    const sessions = app.sessions.sessionsOf(host.id, '/work/app')
-    expect(sessions.kind === 'loaded' && sessions.items.map((record) => [record.sessionId, record.title])).toEqual([['thread-1', 'Fix the build']])
-    expect(recordReads[0]).toContain('projectPath=%2Fwork%2Fapp')
+    await app.threads.load(host.id)
+    expect(app.threads.threads().map((thread) => [thread.record.sessionId, thread.record.title])).toEqual([['thread-1', 'Fix the build']])
+    expect(recordReads).toHaveLength(1)
 
     await app.registry.forget(host.id)
     expect(app.connections.state(host.id)).toBeNull()

@@ -1,18 +1,24 @@
 <script lang="ts">
-  import { ChevronDown, Download, Smartphone } from "@lucide/svelte";
+  import { Download, Ellipsis, Smartphone, Trash2 } from "@lucide/svelte";
   import type { DeviceBuild, DeviceState, DeviceSummary } from "@solus/contracts/device-types";
-  import { buildDownloadName, buildSummary, deviceBuildTargets, lastInstallLabel } from "@solus/client-core/device-builds";
+  import { buildCardSummary, buildDetails, buildDownloadName, deviceBuildTargets, isBuildOutput } from "@solus/client-core/device-builds";
+  import { serverConnections } from "@solus/client-core/server-connections";
   import { getWorkspaceContext } from "../../contexts";
+  import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { devicesStore, deviceErrorMessage } from "../../contexts/devices/devices.store.svelte";
   import { toasts } from "../../lib/toasts";
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
+  import { RowCard } from "../ui/row-card";
+  import DirectoryPicker from "../pickers/DirectoryPicker.svelte";
   import { runDeviceBuild } from "./lib/run-build";
 
   /**
-   * App builds agents handed to Solus (plan 016, S02). Run one on the best
-   * device in one click, pick another device, or download an APK in a
-   * phone's browser.
+   * App builds on this host (plan 016, S02), one row each in a Settings-style
+   * card: the build's name and what it runs on. Run puts it on the best device
+   * that fits; the … menu shows the rest of what it is, runs it on another
+   * device, downloads an APK, or deletes the build's output from the host. A build whose output is gone is never
+   * listed: the host leaves it out.
    */
 
   interface Props {
@@ -25,16 +31,28 @@
   let { serverId, sessionId, deviceState, onInstalled }: Props = $props();
   const session = getWorkspaceContext();
 
-  let installing = $state<string | null>(null);
+  /** The build going onto a device, and which device, while it opens and installs. */
+  let installing = $state<{ buildId: string; deviceName: string } | null>(null);
+  let deletingBuildId = $state<string | null>(null);
+  /** The host folder browser, open to choose a build output to add. */
+  let browsing = $state(false);
+  let importing = $state(false);
   const now = Date.now();
+  const hostLabel = $derived(serversStore.hostFor(serverId)?.label ?? "This computer");
+  const isBusy = $derived(installing !== null || deletingBuildId !== null);
 
-  // A phone may have been plugged in since the last discovery.
+  // A phone may have been plugged in, or an output deleted, since the last discovery.
   $effect(() => {
     void devicesStore.refresh(serverId).catch(() => {});
   });
 
+  function details(build: DeviceBuild) {
+    const source = build.sessionId ? session.sessions.byId[build.sessionId] : undefined;
+    return buildDetails(build, now, { projectPath: source?.run.workingDirectory, conversationTitle: source?.title });
+  }
+
   async function install(build: DeviceBuild, device: DeviceSummary) {
-    installing = build.buildId;
+    installing = { buildId: build.buildId, deviceName: device.name };
     try {
       const shown = await runDeviceBuild(session, serverId, sessionId, build, device);
       if (shown.physical) toasts.success(`${build.name} is open on ${shown.name}`);
@@ -56,58 +74,134 @@
       toasts.error("Couldn't download the build", { description: deviceErrorMessage(cause) });
     }
   }
+
+  async function remove(build: DeviceBuild) {
+    const what = build.assetId ? "the copy of this APK that Solus keeps" : "this .app bundle";
+    if (!confirm(`Delete ${build.name}? This deletes ${what} from ${hostLabel}.`)) return;
+    deletingBuildId = build.buildId;
+    try {
+      await devicesStore.deleteBuild(serverId, build);
+      toasts.success(`Deleted ${build.name}`);
+    } catch (cause) {
+      toasts.error(`Couldn't delete ${build.name}`, { description: deviceErrorMessage(cause) });
+    } finally {
+      deletingBuildId = null;
+    }
+  }
+
+  /** Add the chosen output. The browser stays open on an error, so another can be chosen. */
+  async function importBuild(path: string) {
+    if (importing) return;
+    importing = true;
+    try {
+      await devicesStore.importBuild(serverId, path, sessionId);
+      browsing = false;
+    } catch (cause) {
+      toasts.error("Couldn't add the build", { description: deviceErrorMessage(cause) });
+    } finally {
+      importing = false;
+    }
+  }
+
+  // Browsing starts in the conversation's folder, where its builds are.
+  const browseFrom = $derived.by(() => {
+    const folder = sessionId ? session.sessions.byId[sessionId]?.run.workingDirectory : undefined;
+    return folder && folder !== "~" ? folder : undefined;
+  });
 </script>
 
-<div class="flex flex-col gap-1 text-chrome-dense" data-testid="device-builds">
-  {#each deviceState.builds as build (build.buildId)}
-    {@const targets = deviceBuildTargets(deviceState, build, { canBoot: !!sessionId })}
-    {@const installed = lastInstallLabel(build, now)}
-    <div class="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted">
-      <div class="flex min-w-0 flex-1 flex-col">
-        <span class="truncate text-workspace-chrome">{build.name}</span>
-        <span class="truncate text-muted-foreground">{buildSummary(build, now)}</span>
-        {#if installed}<span class="truncate text-muted-foreground">{installed}</span>{/if}
-      </div>
-      {#if build.assetId}
-        <Button size="icon-xs" variant="ghost" aria-label="Download {build.name}" title="Download the APK. Open this in your phone's browser to install it there." onclick={() => void download(build)}>
-          <Download />
-        </Button>
-      {/if}
-      {#if targets[0]}
-        {@const best = targets[0]}
-        <Button size="xs" variant="outline" disabled={installing !== null} onclick={() => void install(build, best)}>
-          {installing === build.buildId ? "Running…" : `Run on ${best.name}`}
-        </Button>
-      {/if}
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger>
-          {#snippet child({ props })}
-            <Button {...props} size="icon-xs" variant="ghost" aria-label="Run {build.name} on another device" disabled={installing !== null}>
-              <ChevronDown />
+<div class="flex flex-col gap-4" data-testid="device-builds">
+  {#if deviceState.builds.length > 0}
+    <!-- One card of rows, as Settings draws it. A row says what the build is
+         and how old it is; the rest is in its … menu. -->
+    <RowCard>
+      {#each deviceState.builds as build (build.buildId)}
+        {@const targets = deviceBuildTargets(deviceState, build, { canBoot: !!sessionId })}
+        {@const isInstalling = installing?.buildId === build.buildId}
+        <div class="flex min-w-0 items-center gap-2 py-2.5 pr-2.5 pl-4">
+          <div class="flex min-w-0 flex-1 flex-col">
+            <span class="truncate font-medium text-(--solus-text-primary)">{build.name}</span>
+            <span class="truncate text-chrome-dense text-(--solus-text-tertiary)">{buildCardSummary(build, now)}</span>
+          </div>
+          {#if targets[0]}
+            {@const best = targets[0]}
+            <Button size="xs" variant="outline" disabled={isBusy} title={isInstalling ? `Installing on ${installing?.deviceName}` : `Run on ${best.name}`}
+              aria-label={isInstalling ? `Installing ${build.name} on ${installing?.deviceName}` : `Run ${build.name} on ${best.name}`}
+              onclick={() => void install(build, best)}>
+              {isInstalling ? "Installing…" : "Run"}
             </Button>
-          {/snippet}
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Content align="end" class="w-[min(18rem,calc(100vw-2rem))]">
-          {#each targets as device (`${device.deviceHostId}:${device.deviceId}`)}
-            <DropdownMenu.Item onSelect={() => void install(build, device)}>
-              <Smartphone class="size-4" />
-              <span class="min-w-0 flex-1 truncate">{device.name}</span>
-              <span class="text-muted-foreground">{device.physical ? "connected" : device.booted ? "running" : "starts it"}</span>
-            </DropdownMenu.Item>
           {:else}
-            <p class="px-2 py-1.5 text-muted-foreground">
-              No device can take this build. Connect a phone, or add a {build.platform === "ios" ? "simulator" : "emulator"} on this host.
-            </p>
-          {/each}
-        </DropdownMenu.Content>
-      </DropdownMenu.Root>
-    </div>
+            <Button size="xs" variant="outline" disabled title="No device can take this build. Connect a phone, or add a {build.platform === 'ios' ? 'simulator' : 'emulator'} on this host.">Run</Button>
+          {/if}
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger>
+              {#snippet child({ props })}
+                <Button {...props} size="icon-xs" variant="ghost" aria-label="More for {build.name}" disabled={isBusy}>
+                  <Ellipsis />
+                </Button>
+              {/snippet}
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Content align="end" class="w-[min(17rem,calc(100vw-2rem))]">
+              <!-- What the build is, as label and value rows. Long values wrap
+                   instead of being cut off; the row already shows the name, kind and age. -->
+              <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 px-2.5 pt-1.5 pb-2 text-xs leading-snug">
+                {#each details(build) as row (row.label)}
+                  <dt class="text-(--solus-text-tertiary)">{row.label}</dt>
+                  <dd class="text-(--solus-text-primary) [overflow-wrap:anywhere]">{row.value}</dd>
+                {/each}
+              </dl>
+              <DropdownMenu.Separator />
+              {#if targets.length > 1}
+                <DropdownMenu.Sub>
+                  <DropdownMenu.SubTrigger>
+                    <Smartphone class="size-4" />Run on another device
+                  </DropdownMenu.SubTrigger>
+                  <DropdownMenu.SubContent class="w-[min(16rem,calc(100vw-2rem))]">
+                    {#each targets as device (`${device.deviceHostId}:${device.deviceId}`)}
+                      <DropdownMenu.Item onSelect={() => void install(build, device)}>
+                        <span class="min-w-0 flex-1 truncate">{device.name}</span>
+                        <span class="text-muted-foreground">{device.physical ? "connected" : device.booted ? "running" : "starts it"}</span>
+                      </DropdownMenu.Item>
+                    {/each}
+                  </DropdownMenu.SubContent>
+                </DropdownMenu.Sub>
+              {/if}
+              {#if build.assetId}
+                <DropdownMenu.Item onSelect={() => void download(build)}>
+                  <Download class="size-4" />Download APK
+                </DropdownMenu.Item>
+              {/if}
+              {#if targets.length > 1 || build.assetId}<DropdownMenu.Separator />{/if}
+              <DropdownMenu.Item variant="destructive" onSelect={() => void remove(build)}>
+                <Trash2 class="size-4" />Delete…
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Root>
+        </div>
+      {/each}
+    </RowCard>
   {:else}
-    <p class="text-muted-foreground">
-      No builds yet. Ask the agent to build the app and put it on your phone or a simulator; its builds appear here.
-    </p>
-  {/each}
+    <p class="text-(--solus-text-tertiary)">No builds yet. Builds the agent makes appear here.</p>
+  {/if}
+  {#if installing}<span class="sr-only" role="status" aria-live="polite">Installing on {installing.deviceName}</span>{/if}
   {#each deviceState.devices.filter((device) => device.physical && device.unavailableReason) as device (`${device.deviceHostId}:${device.deviceId}`)}
-    <p class="px-2 text-muted-foreground">{device.unavailableReason}</p>
+    <p class="text-(--solus-text-tertiary)">{device.unavailableReason}</p>
   {/each}
+  <Button size="sm" variant="outline" class="self-start" disabled={importing} onclick={() => (browsing = true)}>
+    {importing ? "Adding…" : "Add a build…"}
+  </Button>
 </div>
+
+<!-- The host's folder browser: an .app bundle or an .apk is chosen, not opened. -->
+<DirectoryPicker
+  open={browsing}
+  onClose={() => (browsing = false)}
+  onSelect={(path) => void importBuild(path)}
+  initialPath={browseFrom}
+  title="Add a build"
+  actionLabel={importing ? "Adding…" : "Add"}
+  api={serverConnections.apiFor(serverId)}
+  {serverId}
+  hostLabel={serverId === serversStore.activeServer?.id ? undefined : hostLabel}
+  chooses={isBuildOutput}
+/>

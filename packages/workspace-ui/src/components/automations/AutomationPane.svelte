@@ -49,9 +49,7 @@
      rect later in the DOM would re-cover this cluster's no-drag holes. -->
 <PaneChrome
   onClose={pane.close}
-  onOpenInSplit={pane.moveAcross}
   onToggleMaximize={pane.toggleMaximize}
   maximized={pane.maximized}
-  isLeading={pane.isLeading}
   closeLabel="Close automation"
 />

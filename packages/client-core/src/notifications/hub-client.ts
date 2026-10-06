@@ -16,8 +16,8 @@ import { compareHubRows, hubRowKey, matchesHubFilter, mergedHorizon, type HubRow
 /**
  * The client side of the notifications hub (plans/015-notifications-hub.md §6).
  *
- * One engine per signed-in identity. Each source is read on its own: its first
- * page and count, and the same again whenever it says it changed, reconnects,
+ * One engine per signed-in identity. Each source is read on its own: its count,
+ * plus history only while a page shows it. Reads follow changes, reconnects,
  * the app returns to the foreground, or a person asks. A burst of signals while a
  * read runs costs one more read. One source failing or being slow never holds
  * the others. A read or archive choice goes to the row's own source while that
@@ -57,8 +57,8 @@ export interface NotificationSourceLink {
   api: NotificationSourceApi
   /** `notifications.changed` from this source. */
   onChanged(listener: () => void): () => void
-  /** The source's connection came back. */
-  onReconnected(listener: () => void): () => void
+  /** The source connected. Its first acceptance can share the queued initial read. */
+  onReconnected(listener: (initialConnection?: boolean) => void): () => void
   /** Give back the connection the link holds. */
   release(): void
 }
@@ -103,6 +103,7 @@ interface SourceRuntime {
   cursor: string | null
   reading: Promise<void> | null
   readAgain: boolean
+  capability: NotificationHubCapability | null
   unsubscribes: (() => void)[]
 }
 
@@ -116,6 +117,7 @@ export class NotificationHubClient {
   private active = 0
   private isStopped = false
   private filter: NotificationFilter = { view: 'all' }
+  private historyVisible = false
 
   constructor(private readonly options: NotificationHubClientOptions) {
     this.rows = options.rows ?? new Map()
@@ -137,10 +139,36 @@ export class NotificationHubClient {
     for (const source of next) if (!this.runtimes.has(source.sourceId)) this.addSource(source)
   }
 
-  /** Show another view or kind filter: every source reads its first page for it. */
+  /** Page lifetime, independent of badges: opening reads history; closing stops
+   * history reads while count subscriptions continue. */
+  setHistoryVisible(visible: boolean): void {
+    if (this.historyVisible === visible) return
+    this.historyVisible = visible
+    for (const runtime of this.runtimes.values()) {
+      if (visible) {
+        this.setStatus(runtime.source.sourceId, 'loading')
+        void this.refresh(runtime.source.sourceId)
+      } else {
+        runtime.generation++
+        this.dropSourceRows(runtime.source.sourceId)
+        runtime.cursor = null
+        this.patchSource(runtime.source.sourceId, { hasMore: false, oldestLoadedAt: null })
+        if (runtime.reading) void this.refresh(runtime.source.sourceId)
+      }
+    }
+  }
+
+  /** A filter change reads history only while a page shows it. */
   setFilter(filter: NotificationFilter): void {
+    if (this.filter.view === filter.view
+      && JSON.stringify([...(this.filter.kinds ?? [])].sort()) === JSON.stringify([...(filter.kinds ?? [])].sort())) return
     this.filter = filter
-    for (const sourceId of this.runtimes.keys()) void this.refresh(sourceId)
+    if (!this.historyVisible) return
+    for (const runtime of this.runtimes.values()) {
+      runtime.generation++
+      this.setStatus(runtime.source.sourceId, 'loading')
+      void this.refresh(runtime.source.sourceId)
+    }
   }
 
   /** Read one source's first page again; with no id, every source's. */
@@ -165,13 +193,14 @@ export class NotificationHubClient {
 
   /** The next page of every source that still has older rows. */
   async loadMore(): Promise<void> {
+    if (!this.historyVisible) return
     await this.track(Promise.all([...this.runtimes.values()].map(async (runtime) => {
       const state = this.sources.get(runtime.source.sourceId)
-      if (!state?.hasMore || !runtime.cursor || runtime.reading) return
+      if (state?.status !== 'ready' || !state.hasMore || !runtime.cursor || runtime.reading) return
       const generation = runtime.generation
       try {
         const page = await runtime.link.api.notificationsList({ filter: this.filter, limit: this.pageSize(), cursor: runtime.cursor })
-        if (!this.isCurrent(runtime, generation)) return
+        if (!this.historyVisible || !this.isCurrent(runtime, generation)) return
         this.takePage(runtime, page)
       } catch (error) {
         if (this.isCurrent(runtime, generation)) this.setStatus(runtime.source.sourceId, 'offline', error instanceof Error ? error.message : String(error))
@@ -246,12 +275,17 @@ export class NotificationHubClient {
   private addSource(source: NotificationSource): void {
     this.sources.set(source.sourceId, { source, status: 'loading', count: null, hasMore: false, oldestLoadedAt: null })
     const runtime: SourceRuntime = {
-      source, link: this.options.connect(source), generation: 0, cursor: null, reading: null, readAgain: false, unsubscribes: [],
+      source, link: this.options.connect(source), generation: 0, cursor: null, reading: null, readAgain: false, capability: null, unsubscribes: [],
     }
     this.runtimes.set(source.sourceId, runtime)
     // Subscribed before the first read: a change during it asks for one more.
     runtime.unsubscribes.push(runtime.link.onChanged(() => { void this.refresh(source.sourceId) }))
-    runtime.unsubscribes.push(runtime.link.onReconnected(() => { void this.refresh(source.sourceId) }))
+    runtime.unsubscribes.push(runtime.link.onReconnected((initialConnection) => {
+      if (initialConnection && (runtime.reading || runtime.capability)) return
+      runtime.capability = null
+      runtime.generation++
+      void this.refresh(source.sourceId)
+    }))
     void this.refresh(source.sourceId)
   }
 
@@ -331,17 +365,21 @@ export class NotificationHubClient {
     const generation = ++runtime.generation
     const { sourceId } = runtime.source
     try {
-      const capability = await runtime.link.api.notificationsCapability()
+      const capability = runtime.capability ?? await runtime.link.api.notificationsCapability()
       if (!this.isCurrent(runtime, generation)) return
+      runtime.capability = capability
       if (capability.version < NOTIFICATION_HUB_VERSION) return this.unsupported(sourceId)
       const [page, count] = await Promise.all([
-        runtime.link.api.notificationsList({ filter: this.filter, limit: this.pageSize() }),
+        this.historyVisible ? runtime.link.api.notificationsList({ filter: this.filter, limit: this.pageSize() }) : null,
         runtime.link.api.notificationsCount(),
       ])
       if (!this.isCurrent(runtime, generation)) return
-      this.dropSourceRows(sourceId)
-      this.patchSource(sourceId, { count, oldestLoadedAt: null })
-      this.takePage(runtime, page)
+      this.patchSource(sourceId, { count })
+      if (page && this.historyVisible) {
+        this.dropSourceRows(sourceId)
+        this.patchSource(sourceId, { oldestLoadedAt: null })
+        this.takePage(runtime, page)
+      }
       this.setStatus(sourceId, 'ready')
     } catch (error) {
       if (!this.isCurrent(runtime, generation)) return
@@ -403,4 +441,3 @@ export class NotificationHubClient {
 function isUnsupported(error: Error): boolean {
   return error.message.startsWith('Unknown method') || rpcErrorCode(error) === 'PLANE_DISABLED'
 }
-

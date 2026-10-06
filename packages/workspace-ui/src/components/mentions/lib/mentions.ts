@@ -110,25 +110,20 @@ export function mentionQuery(textBeforeCursor: string): string | null {
 }
 
 /**
- * Whether a person can open the record, from its share list and the lists of
- * the tasks it inherits from (share-manager `roleFor`): its owner, a row for
- * them, a row for a team they are in, or a row for the organization when they
- * are its member. A link does not count: the person does not hold its secret.
- * Null while the answer is not known, so no warning is shown on a guess.
+ * Whether a person can open the record, from its share list (share-manager
+ * `roleFor`): its owner, a row for them, a row for a team they are in, or a row
+ * for the organization when they are its member. A link does not count: the
+ * person does not hold its secret. Null while the answer is not known, so no
+ * warning is shown on a guess.
  */
-export function personCanOpen(
-  userId: string,
-  lists: readonly (ShareList | undefined)[],
-  directory: OrganizationPeople | null,
-): boolean | null {
-  if (!directory || lists.length === 0 || lists.some((list) => !list)) return null
+export function personCanOpen(userId: string, list: ShareList | undefined, directory: OrganizationPeople | null): boolean | null {
+  if (!directory || !list) return null
   const teamIds = new Set(directory.teams.filter((team) => team.memberUserIds.includes(userId)).map((team) => team.teamId))
   const isMember = !!memberByKey(directory, userId)
-  return lists.some((list) =>
-    list!.ownerUserId === userId || list!.grants.some(({ subject }) =>
-      (subject.kind === 'user' && subject.id === userId)
-      || (subject.kind === 'team' && teamIds.has(subject.id))
-      || (subject.kind === 'organization' && isMember && subject.id === directory.organizationId)))
+  return list.ownerUserId === userId || list.grants.some(({ subject }) =>
+    (subject.kind === 'user' && subject.id === userId)
+    || (subject.kind === 'team' && teamIds.has(subject.id))
+    || (subject.kind === 'organization' && isMember && subject.id === directory.organizationId))
 }
 
 /** The people who wrote a work's threads and replies, newest first. */

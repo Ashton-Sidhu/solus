@@ -102,7 +102,7 @@
     void workspace.lifecycle.refreshAgentAvailability().catch(() => {});
     projectsStore.addProject(project.serverId, serverConnections.apiFor(project.serverId), project.path);
     const draft = workspace.drafts.openSessionDraft(
-      { freshTask: true, target: workspace.router.leadingPane.id },
+      { freshTask: true, target: "leading" },
       project.path,
     );
     draft.run = withProjectHost(draft.run, project.serverId, {

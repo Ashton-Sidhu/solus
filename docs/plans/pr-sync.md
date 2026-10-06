@@ -112,9 +112,12 @@ A tick:
    answers a number that does not exist with a `null` alias and a `NOT_FOUND`
    error for that path. The other aliases still return data. That pair is
    `missing`.
-3. **Unknown branches.** A `branch` interest that step 1 does not answer asks with
-   a `head` filter, one request per branch, only once. After that, step 1 finds a
-   new pull request for the branch.
+3. **Branch matching — no requests.** Match session and worktree branches against
+   the repository rows already loaded by step 1 and the known-number batch.
+   An unmatched branch stays unknown; it does not trigger a `head` lookup.
+   Later repository reads can discover its PR. Restarting does not cause one
+   request per saved worktree. A branch outside the loaded pages is not proof
+   that no PR exists.
 4. **Check runs** — only for `review` interest, the existing batched query
    (`listChecks`). Other surfaces use the rollup state from step 1.
 5. **Needs review** — only for `needs-review` interest, every 5 min, one search

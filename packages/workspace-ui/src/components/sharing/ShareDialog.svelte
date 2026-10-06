@@ -296,11 +296,6 @@
           </li>
         {/each}
       </ul>
-      {#if list.inheritedFrom?.length}
-        <p class="text-pretty text-[0.875em] text-muted-foreground" data-testid="share-inherited">
-          Also open to whoever can open {list.inheritedFrom.length === 1 ? `the task “${list.inheritedFrom[0]!.title}”` : `${list.inheritedFrom.length} tasks it belongs to`}.
-        </p>
-      {/if}
     </section>
   {/if}
 {/snippet}

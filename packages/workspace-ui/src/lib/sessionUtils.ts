@@ -10,6 +10,7 @@ import {
   } from "@lucide/svelte";
   import type { AttentionKind } from '@solus/contracts/attention-types'
   import type { TaskSessionLink } from '@solus/contracts/task-types'
+import { serverConnections } from '@solus/client-core/server-connections'
 import type { Tab, Session, SessionMeta, SessionStatus, Plan } from '@solus/contracts/types'
 import type { TabGroupMode } from '../contexts'
 import { hasAnswerableRequest } from '../contexts/workspace/session.utils'
@@ -535,11 +536,15 @@ export function sessionDisplayName(input: {
  * the host holding the task (ADR-0006). Everything else ran wherever the task
  * lives, which is the arm that matters: falling through to the reading client
  * is what marked a session on another machine's project as local.
+ *
+ * A task in an organization names the machine by its installation id, which
+ * resolves to this client's id for that host.
  */
 export function attemptServerId(input: {
   link: Pick<TaskSessionLink, 'executionServerId'>
   liveServerId?: string | null
   taskServerId: string | null
 }): string | null {
-  return input.liveServerId ?? input.link.executionServerId ?? input.taskServerId
+  const executionServerId = input.link.executionServerId ? serverConnections.resolveId(input.link.executionServerId) : null
+  return input.liveServerId ?? executionServerId ?? input.taskServerId
 }

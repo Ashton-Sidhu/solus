@@ -50,9 +50,17 @@ paths. Older hosts without receipt metadata can show standalone previews; client
 do not guess their work identity by title.
 
 HTML blocks, artifact works, document embeds, and HTML file previews share
-`SandboxFrame`. Theme changes update the injected stylesheet through a message
+`SandboxFrame`. The frame gets t3code's theme token set (`--background`, `--card`,
+`--primary`, `--chart-1` … `--chart-6`, and the others in `artifactSandbox.ts`),
+filled from the live Solus theme, so a page matches the conversation around it.
+The chart series is the Solus data palette: lime, amber, green, teal, blue,
+plum. Warning and info, which Solus has no token for, are fixed values. The
+older `--solus-*` names are still supplied for renders that use them. Theme changes update the injected stylesheet through a message
 from its parent; they do not assign `srcdoc`. Changing the HTML or selecting Reload
-still reloads the document. A selected render width is a CSS width, including
+still reloads the document. A frame starts at the height its markup last
+reported. The client keeps the last 256 heights in `localStorage` under a hash
+of the markup, so a frame keeps its height across a remount and an app restart.
+A selected render width is a CSS width, including
 when it exceeds the pane and requires scrolling.
 
 An HTML block in a reply has no source view. Its actions are Save as HTML,
@@ -62,6 +70,15 @@ the block has none and then opens it in the companion pane. The fullscreen
 overlay remains for renders that have no work to open: images, HTML file
 previews, and artifact cards without a work reference. A snippet the reader
 rendered by hand keeps a Show source action as its way back.
+
+An HTML block can show a local image by its absolute path (`src="/tmp/shot.png"`,
+a `file:` URL, or CSS `url()`). The client asks the session's host for each file
+through a signed asset URL and writes it into the page as a `data:` URL before
+the frame loads. The frame's CSP never loads host paths, and the client can be
+on another device. While the images load, the block holds the height its frame
+last reported. An image that fails or is over 8 MB stays as written. Save as
+HTML and Save as artifact keep the inlined page, so the saved file is
+self-contained. Saved artifact works and document embeds do not inline.
 
 The artifact pane has no source view either. Its header carries Save as HTML:
 on a local host it opens the save picker; on a remote host the browser

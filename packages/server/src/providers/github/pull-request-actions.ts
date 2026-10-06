@@ -22,6 +22,12 @@ interface RepositoryAccess {
   allowRebaseMerge: boolean
   /** The repository has GitHub's auto-merge switched on. */
   allowAutoMerge: boolean
+  /** GitHub's own pick for this viewer — the method its merge button starts
+   *  on. It becomes `defaultMergeMethod` when the base branch allows it. */
+  defaultMergeMethod?: PrMergeMethod
+  /** What the base branch's rules leave of the repository's methods. Null
+   *  when no rule narrows them. */
+  branchMergeMethods?: PrMergeMethod[] | null
 }
 
 interface RepositorySettings {
@@ -31,6 +37,7 @@ interface RepositorySettings {
   allowSquashMerge: boolean
   allowRebaseMerge: boolean
   allowAutoMerge: boolean
+  defaultMergeMethod?: PrMergeMethod
 }
 
 export interface PullRequestAccess {
@@ -39,6 +46,7 @@ export interface PullRequestAccess {
 }
 
 const repositorySettingsByClient = new WeakMap<GitHubClient, Map<string, Promise<RepositorySettings>>>()
+const branchMergeMethodsByClient = new WeakMap<GitHubClient, Map<string, Promise<PrMergeMethod[] | null>>>()
 
 const MERGE_METHODS_QUERY = `
   query($owner: String!, $repo: String!) {
@@ -47,6 +55,7 @@ const MERGE_METHODS_QUERY = `
       squashMergeAllowed
       rebaseMergeAllowed
       autoMergeAllowed
+      viewerDefaultMergeMethod
     }
   }
 `
@@ -57,6 +66,7 @@ interface MergeMethodsResponse {
     squashMergeAllowed: boolean
     rebaseMergeAllowed: boolean
     autoMergeAllowed: boolean
+    viewerDefaultMergeMethod?: string | null
   } | null
 }
 
@@ -77,7 +87,10 @@ async function mergeMethodSettings(
     rebase: boolean | null | undefined
     autoMerge: boolean | null | undefined
   },
-): Promise<Pick<RepositorySettings, 'allowMergeCommit' | 'allowSquashMerge' | 'allowRebaseMerge' | 'allowAutoMerge'>> {
+): Promise<Pick<
+  RepositorySettings,
+  'allowMergeCommit' | 'allowSquashMerge' | 'allowRebaseMerge' | 'allowAutoMerge' | 'defaultMergeMethod'
+>> {
   try {
     const result = await client.graphql<MergeMethodsResponse>(MERGE_METHODS_QUERY, {
       owner: repo.owner,
@@ -89,6 +102,7 @@ async function mergeMethodSettings(
         allowSquashMerge: result.repository.squashMergeAllowed,
         allowRebaseMerge: result.repository.rebaseMergeAllowed,
         allowAutoMerge: result.repository.autoMergeAllowed,
+        defaultMergeMethod: githubAutoMergeMethod(result.repository.viewerDefaultMergeMethod),
       }
     }
   } catch {
@@ -110,6 +124,9 @@ export async function githubPullRequestAccessFor(
   repo: RepoRef,
   viewer: string,
   author: string,
+  /** The pull request's base branch, whose rules can forbid merge methods the
+   *  repository allows. Absent for a repository-only question. */
+  baseRef?: string,
 ): Promise<ReturnType<typeof githubPullRequestAccess>> {
   let cache = repositorySettingsByClient.get(client)
   if (!cache) {
@@ -136,7 +153,92 @@ export async function githubPullRequestAccessFor(
       })
     cache.set(key, settings)
   }
-  return githubPullRequestAccess({ viewer, author, ...(await settings) })
+  const [repositorySettings, branchMergeMethods] = await Promise.all([
+    settings,
+    baseRef ? branchMergeMethodsFor(client, repo, baseRef) : null,
+  ])
+  return githubPullRequestAccess({ viewer, author, ...repositorySettings, branchMergeMethods })
+}
+
+const BRANCH_PROTECTION_QUERY = `
+  query($owner: String!, $repo: String!, $ref: String!) {
+    repository(owner: $owner, name: $repo) {
+      ref(qualifiedName: $ref) { branchProtectionRule { requiresLinearHistory } }
+    }
+  }
+`
+
+interface BranchProtectionResponse {
+  repository: {
+    ref: { branchProtectionRule: { requiresLinearHistory: boolean } | null } | null
+  } | null
+}
+
+/** One active rule on a branch, as `GET /rules/branches/{branch}` lists it. */
+export interface GithubBranchMergeRule {
+  type: string
+  parameters?: { allowed_merge_methods?: string[] }
+}
+
+/**
+ * The merge methods a branch's rules leave, or null when none narrows them.
+ * Linear history — a ruleset's or classic protection's — forbids a merge
+ * commit; a ruleset's pull request rule can name the methods outright.
+ */
+export function branchMergeMethods(
+  rules: GithubBranchMergeRule[],
+  protectionRequiresLinearHistory: boolean,
+): PrMergeMethod[] | null {
+  const limits: PrMergeMethod[][] = []
+  if (protectionRequiresLinearHistory) limits.push(['squash', 'rebase'])
+  for (const rule of rules) {
+    if (rule.type === 'required_linear_history') limits.push(['squash', 'rebase'])
+    const named = rule.type === 'pull_request' ? rule.parameters?.allowed_merge_methods : undefined
+    if (named) limits.push(named.flatMap((method) => githubAutoMergeMethod(method) ?? []))
+  }
+  if (limits.length === 0) return null
+  return limits.reduce((allowed, limit) => allowed.filter((method) => limit.includes(method)))
+}
+
+/**
+ * Read the base branch's rules once per client. A rule that cannot be read
+ * narrows nothing: the host still refuses a forbidden merge, and the refusal
+ * names the reason.
+ */
+function branchMergeMethodsFor(client: GitHubClient, repo: RepoRef, branch: string): Promise<PrMergeMethod[] | null> {
+  let cache = branchMergeMethodsByClient.get(client)
+  if (!cache) {
+    cache = new Map()
+    branchMergeMethodsByClient.set(client, cache)
+  }
+  const key = `${repo.host}/${repo.owner}/${repo.repo}#${branch}`
+  let methods = cache.get(key)
+  if (!methods) {
+    methods = Promise.all([
+      client.rest.paginate(client.rest.repos.getBranchRules, {
+        owner: repo.owner,
+        repo: repo.repo,
+        branch,
+        per_page: 100,
+      }).then(
+        (rules) => rules.map((rule): GithubBranchMergeRule =>
+          rule.type === 'pull_request'
+            ? { type: rule.type, parameters: { allowed_merge_methods: rule.parameters?.allowed_merge_methods } }
+            : { type: rule.type }),
+        (): GithubBranchMergeRule[] => [],
+      ),
+      client.graphql<BranchProtectionResponse>(BRANCH_PROTECTION_QUERY, {
+        owner: repo.owner,
+        repo: repo.repo,
+        ref: `refs/heads/${branch}`,
+      }).then(
+        (result) => result.repository?.ref?.branchProtectionRule?.requiresLinearHistory ?? false,
+        () => false,
+      ),
+    ]).then(([rules, linearHistory]) => branchMergeMethods(rules, linearHistory))
+    cache.set(key, methods)
+  }
+  return methods
 }
 
 export function githubPullRequestAccess(access: RepositoryAccess): PullRequestAccess {
@@ -153,25 +255,36 @@ export function githubPullRequestAccess(access: RepositoryAccess): PullRequestAc
   if (access.allowAutoMerge) supported.push('enable-auto-merge', 'disable-auto-merge')
   supported.push('revert')
 
-  const mergeMethods: PrReviewCapabilities['mergeMethods'] = []
-  if (access.allowMergeCommit) mergeMethods.push('merge')
-  if (access.allowSquashMerge) mergeMethods.push('squash')
-  if (access.allowRebaseMerge) mergeMethods.push('rebase')
+  const repositoryMethods: PrReviewCapabilities['mergeMethods'] = []
+  if (access.allowMergeCommit) repositoryMethods.push('merge')
+  if (access.allowSquashMerge) repositoryMethods.push('squash')
+  if (access.allowRebaseMerge) repositoryMethods.push('rebase')
+  const branchMethods = access.branchMergeMethods
+  const allowed = branchMethods
+    ? repositoryMethods.filter((method) => branchMethods.includes(method))
+    : repositoryMethods
+  // The server names the default, so every client starts on GitHub's own pick
+  // rather than guessing one from the list.
+  const preferred = access.defaultMergeMethod
+  const defaultMergeMethod = preferred && allowed.includes(preferred) ? preferred : allowed[0]
+
+  const capabilities: PrReviewCapabilities = {
+    diff: true,
+    diffFileContents: true,
+    inlineComments: true,
+    threadReplies: true,
+    threadResolution: true,
+    reviewVerdicts: ['comment', 'approve', 'request-changes'],
+    actions: supported,
+    mergeMethods: allowed,
+    reviewerRequests: true,
+    reviewerCandidates: true,
+    labelManagement: true,
+  }
+  if (defaultMergeMethod) capabilities.defaultMergeMethod = defaultMergeMethod
 
   return {
-    capabilities: {
-      diff: true,
-      diffFileContents: true,
-      inlineComments: true,
-      threadReplies: true,
-      threadResolution: true,
-      reviewVerdicts: ['comment', 'approve', 'request-changes'],
-      actions: supported,
-      mergeMethods,
-      reviewerRequests: true,
-      reviewerCandidates: true,
-      labelManagement: true,
-    },
+    capabilities,
     viewerPermissions: {
       actions: lifecycle,
       reviewVerdicts: isAuthor ? ['comment'] : ['comment', 'approve', 'request-changes'],
@@ -301,6 +414,28 @@ const DISABLE_AUTO_MERGE_MUTATION = `
     }
   }
 `
+
+const UPDATE_BRANCH_MUTATION = `
+  mutation($pullRequestId: ID!, $expectedHeadOid: GitObjectID, $updateMethod: PullRequestBranchUpdateMethod) {
+    updatePullRequestBranch(input: { pullRequestId: $pullRequestId, expectedHeadOid: $expectedHeadOid, updateMethod: $updateMethod }) {
+      pullRequest { headRefOid }
+    }
+  }
+`
+
+/** Bring the base into the head on GitHub, the host's "Update branch". */
+export async function updateGithubPullRequestBranch(
+  client: GitHubClient,
+  pullRequestId: string,
+  method: 'merge' | 'rebase',
+  expectedHeadSha: string,
+): Promise<void> {
+  await client.graphql(UPDATE_BRANCH_MUTATION, {
+    pullRequestId,
+    expectedHeadOid: expectedHeadSha,
+    updateMethod: method === 'rebase' ? 'REBASE' : 'MERGE',
+  })
+}
 
 const REVERT_MUTATION = `
   mutation($pullRequestId: ID!) {

@@ -30,6 +30,12 @@ export type ActivityKind =
    *  when the source was mid-turn and the fork stops at its last settled turn. */
   | { kind: 'forked'; sourceSessionId: string; sourceTitle?: string; midRun?: boolean }
   | { kind: 'moved_to_worktree'; path: string; branch?: string }
+  /** The agent works in a worktree of the session's repository that the session
+   *  is not bound to. The activity id is the offer id. `resolution` is never
+   *  stored: a client folds the later `worktree_offer_decided` row onto it. */
+  | { kind: 'worktree_offered'; path: string; branch?: string; resolution?: WorktreeOfferResolution }
+  /** The answer to a `worktree_offered` row, named by that row's id. */
+  | { kind: 'worktree_offer_decided'; offerId: string; resolution: WorktreeOfferResolution }
   /** `model` and `fromModel` are model ids or, from a session switched before
    *  this record existed, the labels its lineage read. */
   | { kind: 'agent_switched'; provider: AgentId; model?: string; fromProvider?: AgentId; fromModel?: string }
@@ -48,6 +54,12 @@ export type ActivityKind =
   // values already stringified (`labels_changed` holds JSON).
   | { kind: 'task_changed'; change: TaskEventKind; from?: string | null; to?: string | null; target?: TaskEventTarget }
 
+/** What became of an offer to move the session into the agent's worktree. */
+export type WorktreeOfferResolution =
+  | { decision: 'switched' }
+  | { decision: 'kept' }
+  | { decision: 'failed'; error: string }
+
 export type Activity = {
   id: string
   subject: ActivitySubject
@@ -65,11 +77,19 @@ const taskEventKindSchema = z.enum([
   'linked', 'unlinked', 'session_started',
 ])
 
+const worktreeOfferResolutionSchema: z.ZodType<WorktreeOfferResolution> = z.discriminatedUnion('decision', [
+  z.object({ decision: z.literal('switched') }),
+  z.object({ decision: z.literal('kept') }),
+  z.object({ decision: z.literal('failed'), error: z.string() }),
+])
+
 /** An activity's kind and its fields, as a row stores them (`kind` plus `data`). */
 export const activityKindSchema: z.ZodType<ActivityKind> = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('stopped') }),
   z.object({ kind: z.literal('forked'), sourceSessionId: z.string(), sourceTitle: z.string().optional(), midRun: z.boolean().optional() }),
   z.object({ kind: z.literal('moved_to_worktree'), path: z.string(), branch: z.string().optional() }),
+  z.object({ kind: z.literal('worktree_offered'), path: z.string(), branch: z.string().optional() }),
+  z.object({ kind: z.literal('worktree_offer_decided'), offerId: z.string(), resolution: worktreeOfferResolutionSchema }),
   z.object({ kind: z.literal('agent_switched'), provider: agentIdSchema, model: z.string().optional(), fromProvider: agentIdSchema.optional(), fromModel: z.string().optional() }),
   z.object({ kind: z.literal('plan_decided'), planId: z.string(), decision: z.enum(['accepted', 'rejected']), newSessionId: z.string().optional() }),
   z.object({ kind: z.literal('permission_decided'), questionId: z.string(), tool: z.string(), decision: z.enum(['approved', 'approved_for_session', 'denied']) }),

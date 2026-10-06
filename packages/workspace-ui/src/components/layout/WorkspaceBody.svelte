@@ -21,9 +21,10 @@
     PaneEntry,
     PaneId,
   } from "../../contexts/workspace/routing/location";
-  import { visibleRef } from "../../contexts/workspace/routing/location";
-  import { isMovableRoute } from "../../contexts/workspace/routing/route-registry";
+  import { activeSurface } from "../../contexts/workspace/routing/location";
+  import { ROUTES, surfaceKey } from "../../contexts/workspace/routing/route-registry";
   import { CompanionPanes } from "./lib/companion-panes.svelte";
+  import CompanionSurfaceStrip from "./CompanionSurfaceStrip.svelte";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import {
     closeTargetPaneId,
@@ -31,7 +32,6 @@
     COMPANION_PANE_DEFAULT_SIZE,
     COMPANION_PANE_MIN_SIZE,
     isCompanionVisible,
-    isFramedRoute,
     LIST_PRIMARY_PANE_MIN_SIZE,
     LIST_PRIMARY_PANE_SIZE,
     maximizeTargetPaneId,
@@ -110,7 +110,7 @@
   const sess = $derived(session.sessionFor(session.activeTabId));
   const hasStartedSession = $derived(hasSessionStarted(sess));
   const leadingPane = $derived(router.leadingPane);
-  const leadingRef = $derived(visibleRef(leadingPane));
+  const leadingRef = $derived(router.destination);
   // The leading pane resting on the conversation pool: naming no session means
   // "whatever the active tab is", which is exactly what the pool renders.
   const poolInLead = $derived(
@@ -166,8 +166,8 @@
       .map((paneId) => router.pane(paneId) ?? companions.entry(paneId))
       .filter((pane): pane is PaneEntry => !!pane),
   );
-  const companion = $derived(router.asidePanes[0] ?? null);
-  const companionRef = $derived(companion ? visibleRef(companion) : null);
+  const companion = $derived(router.companionPane);
+  const companionRef = $derived(router.companionSurface);
   const secondaryVisible = $derived(isCompanionVisible(companionRef, session));
   const secondaryMinimizesProjectPanel = $derived(
     secondaryVisible && companionMinimizesProjectPanel(companionRef),
@@ -348,7 +348,7 @@
   // split chat) had no keyboard way out of a half-width column.
   const maximizePaneId = $derived(
     maximizeTargetPaneId(
-      router.asidePanes.map((pane) => pane.id),
+      companion ? [companion.id] : [],
       router.focusedPaneId,
       session.maximizedPaneId,
     ),
@@ -362,19 +362,19 @@
     },
     { enabled: () => active && !!maximizePaneId },
   );
-  // Escape closes the companion pane it is pressed in, whatever surface it
-  // holds — the browser pane had no way out by keyboard at all. The DOM check
-  // is the ladder: a popover the pane opened is portalled to the body, so while
-  // it holds focus the press is its own and the pane stays; once it closes,
-  // focus returns to the trigger and the next Escape reaches the pane.
+  // Escape hides the companion pane it is pressed in, whatever surface it
+  // holds, and keeps its strip — the open-in-split key brings it back. The DOM
+  // check is the ladder: a popover the pane opened is portalled to the body, so
+  // while it holds focus the press is its own and the pane stays; once it
+  // closes, focus returns to the trigger and the next Escape reaches the pane.
   const closePaneId = $derived(
-    closeTargetPaneId(router.asidePanes, router.focusedPaneId),
+    closeTargetPaneId(companion ? [companion] : [], router.focusedPaneId),
   );
   useKeybinding(
     "pane.close",
     () => {
       if (!closePaneId) return;
-      router.closePane(closePaneId);
+      router.hideCompanion();
       requestInputFocus();
     },
     {
@@ -388,21 +388,21 @@
     "global.toggle-project-panel",
     () =>
       toggleProjectPanel(
-        !!session.splitChatTabId && router.focusedPaneId !== leadingPane.id,
+        !!session.chatSurfaceTabId && router.focusedPaneId !== leadingPane.id,
       ),
     { enabled: () => active && enableProjectPanel },
   );
   useKeybinding(
     "global.new-split-chat",
     async () => {
-      if (session.splitChatTabId) {
-        session.closeSplitChat();
+      if (session.chatSurfaceTabId) {
+        session.closeChatSurface();
         requestInputFocus();
         return;
       }
-      // A second composition beside the first: a draft in its own companion
-      // pane, which becomes a split chat the moment it is sent.
-      session.drafts.openSessionDraft({ target: "aside", via: "keybinding" });
+      // A second composition beside the first: a draft surface, which becomes
+      // a chat surface the moment it is sent.
+      session.drafts.openSessionDraft({ target: "companion", via: "keybinding" });
       requestInputFocus();
     },
     { enabled: () => active },
@@ -410,7 +410,7 @@
   useKeybinding(
     "global.toggle-files",
     () => {
-      if (router.overlay?.name === "files") router.closeOverlay();
+      if (companion && companionRef?.name === "files") router.closePane(companion.id);
       else session.openFiles(focusedChatTabId);
       requestInputFocus();
     },
@@ -419,16 +419,17 @@
   useKeybinding(
     "global.open-in-split",
     () => {
-      if (isMovableRoute(leadingRef)) {
-        router.movePane(leadingPane.id, 1);
-      } else if (companion && isMovableRoute(companionRef)) {
-        router.movePane(companion.id, -1);
-      } else if (session.splitChatTabId) {
-        // Promote the split chat back into the leading pane's tab pool.
-        session.promoteSplitToMainTab();
+      if (session.chatSurfaceTabId) {
+        // The chat surface on screen becomes the leading conversation.
+        session.moveChatSurfaceToMain();
+      } else if (companion && companionRef && ROUTES[companionRef.name].placement === "either") {
+        router.moveSurfaceToMain(companion.activeSurfaceIndex);
+      } else if (!companion && router.hasHiddenStrip) {
+        // Bring back the strip Escape hid.
+        router.showCompanion();
       } else if (poolInLead && session.activeTab) {
-        // Plain conversation: split the active chat off to the side.
-        session.openTabInSplit(session.activeTab.id);
+        // Plain conversation: open the active chat to the side.
+        session.openTabAsSurface(session.activeTab.id);
       } else {
         return;
       }
@@ -488,7 +489,7 @@
   // state it owns, so tracking it would make this effect retrigger itself — the
   // failure mode the one-directional router exists to rule out.
   $effect(() => {
-    const live = router.asidePanes;
+    const live = router.companionPane ? [router.companionPane] : [];
     untrack(() => {
       if (live.length === 0 && secondaryPaneEl) {
         secondaryClosingWidth =
@@ -733,6 +734,7 @@
                       <div
                         class="primary-column relative flex h-full flex-1 flex-col min-w-0"
                         style={composerDock.columnStyle(conversationChromeVisible)}
+                        data-composer-column
                       >
                         {#if showLeadingBand}
                           <SessionBreadcrumb
@@ -749,12 +751,16 @@
                  published on the collapsed primary-column — clears the mac
                  traffic lights. Conversations rely on it too now: the chrome
                  row that used to carry their sidebar toggle is gone, and the
-                 capsule is centred, so nothing collides at the left edge. -->
+                 capsule is centred, so nothing collides at the left edge.
+                 Without an inset titlebar it centres on the row it sits in:
+                 the conversation band, or a page's own chrome row. -->
                         {#if leadingRef?.name !== "settings"}
                           <div
                             class="no-drag absolute left-[var(--solus-chrome-control-left,var(--solus-titlebar-control-left))] z-20 flex {shell.hasInsetTitlebar
                               ? 'top-[var(--solus-titlebar-control-top)]'
-                              : 'top-1 h-[2.875rem] items-center'}"
+                              : showLeadingBand
+                                ? 'top-1 h-[2.875rem] items-center'
+                                : 'top-0 h-(--solus-chrome-row-h) items-center'}"
                           >
                             <FrameExpandButton variant="sidebar" size="header" />
                           </div>
@@ -778,6 +784,7 @@
                         {#if !poolInLead}
                           <Pane
                             pane={leadingPane}
+                            surface={leadingRef}
                             surfaceVisible={active}
                             {onAttachFile}
                             {onScreenshot}
@@ -788,6 +795,7 @@
                         <div
                           bind:this={inputDockEl}
                           class="input-dock no-drag absolute inset-x-0 bottom-0 z-10 px-4 pt-2.5 pb-2.5"
+                          data-composer-dock
                           class:mode-hidden={!conversationChromeVisible}
                           onfocusin={() => router.focusPane(leadingPane.id)}
                         >
@@ -832,7 +840,7 @@
 
           {#each companionPanes as pane, index (pane.id)}
             {@const closing = companions.isClosing(pane.id)}
-            {@const ref = visibleRef(pane)}
+            {@const ref = activeSurface(pane)}
             {@const maximized = session.maximizedPaneId === pane.id}
             {#if !closing}
               <Resizable.Handle
@@ -852,8 +860,6 @@
               class={`secondary-pane-wrap relative ${
                 closing ? "secondary-pane-wrap--closing" : ""
               } ${
-                isFramedRoute(ref) ? "secondary-pane-wrap--framed" : ""
-              } ${
                 FLUSH_PAGES.has(ref?.name ?? "")
                   ? "secondary-pane-wrap--flush"
                   : ""
@@ -866,17 +872,32 @@
                      workspace behind never relayouts on maximize or restore —
                      only the surface re-measures to the window. -->
                 <div
-                  class="secondary-pane-content h-full min-h-0"
+                  class="secondary-pane-content flex h-full min-h-0 flex-col"
                   class:secondary-pane-content--maximized={maximized}
                   class:secondary-pane-content--continuous={IMMEDIATE_COMPANIONS.has(ref?.name ?? "")}
+                  onfocusin={() => router.focusPane(pane.id)}
                 >
-                  <Pane
-                    {pane}
-                    surfaceVisible={active && secondaryVisible}
-                    {onAttachFile}
-                    {onScreenshot}
-                    {onDesignMode}
-                  />
+                  <CompanionSurfaceStrip {pane} />
+                  <!-- Only the active surface is mounted, except a keep-alive
+                       one (a conversation), which stays mounted and hidden so
+                       moving between tabs keeps its scroll and open cards. -->
+                  <div class="companion-surfaces relative min-h-0 flex-1">
+                    {#each pane.surfaces as surface, surfaceIndex (surfaceKey(surface))}
+                      {@const isActiveSurface = surfaceIndex === pane.activeSurfaceIndex}
+                      {#if isActiveSurface || ROUTES[surface.name].keepAlive}
+                        <div class="h-full min-h-0" class:mode-hidden={!isActiveSurface}>
+                          <Pane
+                            {pane}
+                            {surface}
+                            surfaceVisible={active && secondaryVisible && isActiveSurface}
+                            {onAttachFile}
+                            {onScreenshot}
+                            {onDesignMode}
+                          />
+                        </div>
+                      {/if}
+                    {/each}
+                  </div>
                 </div>
               {/if}
             </Resizable.Pane>
@@ -946,6 +967,21 @@
   .secondary-pane-content {
     container: pane / inline-size;
   }
+  /* The seam between the pane and the one before it. One line for the whole
+     pane, strip included, stopping 16px short of the top and bottom edges.
+     Drawn on the wrap, whose box is the pane's whole height whatever its
+     bottom padding; a maximized surface covers it. */
+  :global(.secondary-pane-wrap)::before {
+    content: "";
+    position: absolute;
+    top: 1rem;
+    bottom: 1rem;
+    left: 0;
+    z-index: 1;
+    width: 1px;
+    background: var(--solus-container-border);
+    pointer-events: none;
+  }
   /* Touch grows every chrome button to 2.75rem (PAGE_ICON_BTN), so the same
      arithmetic gives the cluster proportionally more room. */
   @media (pointer: coarse) {
@@ -1005,12 +1041,14 @@
     --solus-chrome-lead-inset: var(--solus-traffic-light-inset);
     --solus-page-top-inset: var(--solus-titlebar-height);
   }
-  :global(.secondary-pane-wrap--framed) {
-    border-left: 1px solid
-      color-mix(in srgb, var(--solus-container-border) 45%, transparent);
-    /* The thread stays the brighter surface: a pane opened beside it steps back
-       by 1.5% so the eye keeps the conversation as the primary object. */
-    background: color-mix(in oklch, var(--foreground) 1.5%, var(--card));
+  /* The strip above is the pane's header: it is the row beside the traffic
+     lights, and it carries maximize and hide. A surface under it starts a plain
+     chrome row with no lead inset and no floating cluster to clear. */
+  .companion-surfaces {
+    --solus-chrome-row-h: 2.5rem;
+    --solus-chrome-lead-inset: 0px;
+    --solus-page-top-inset: 0px;
+    --solus-pane-chrome-inset: 0px;
   }
   .content-column {
     padding: 0 var(--solus-pane-gutter) var(--solus-pane-gutter) 0;

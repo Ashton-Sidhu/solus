@@ -244,8 +244,25 @@ export interface Task {
   doneAt?: number
   /** Last time the task rollup was visited or explicitly marked read. */
   lastReadAt?: number
+  /** The reading person's own snooze (`TaskSnooze`), in epoch ms: their task
+   *  lists hide the task until then. A host never sends it on a task record; a
+   *  client fills it from `tasksSnoozes`, so one person's snooze never reaches
+   *  another. A time in the past is a snooze that ended and was not yet seen. */
+  snoozedUntil?: number
+  /** The reminder the reading person wrote with their snooze. */
+  snoozeNote?: string
   /** Full provider payload, kept for hydration / context injection at session start. */
   raw?: unknown
+}
+
+/** One person's snooze of a task (docs/task-snooze.md). Only that person reads
+ *  it: the task stays in everyone else's lists, and its status and agents do
+ *  not change. */
+export interface TaskSnooze {
+  taskId: string
+  /** Epoch ms. A time in the past is a snooze that ended and was not yet woken. */
+  snoozedUntil: number
+  snoozeNote?: string
 }
 
 export interface TaskListFilter {
@@ -645,6 +662,9 @@ export interface TaskSessionLink {
    *  session id. Stating the field forces that read to fail at compile time
    *  instead. `null` means "the session is not indexed yet" — a real answer. */
   sessionTitle: string | null
+  /** The provider thread the indexed record belongs to, when it differs from
+   *  `sessionId`. An agent's task comment names this id, not the stable one. */
+  agentSessionId?: string
   /** Agent that ran the session, as the session index stores it. Null for a
    *  link whose session is not indexed yet. */
   provider: AgentId | null
@@ -672,6 +692,8 @@ export interface TaskSessionLink {
   pr?: TaskPr
   /** Epoch ms the link was recorded; drives "most recent session" ordering. */
   linkedAt: number
+  /** Who started the session. Absent when nobody recorded it. */
+  startedBy?: Attribution
 }
 
 /**
@@ -697,5 +719,29 @@ export interface TaskTransfer {
   }
   comments: Array<{ id: string; body: string; author: Attribution | null; originSessionId: string | null }>
   workIds: string[]
+  /** The sessions linked to the task. Only what the task page shows goes: the
+   *  session itself stays on the host that runs it. */
+  sessions: TaskTransferSession[]
   fingerprint: string
+}
+
+export interface TaskTransferSession {
+  sessionId: string
+  role: TaskSessionRole
+  linkedAt: number
+  title: string | null
+  provider: string | null
+  startedBy: Attribution | null
+  /** The installation id of the host that runs the session: the one id every
+   *  client of that host knows it by. */
+  hostInstallationId: string
+}
+
+/** Client monotonic timings, measured from sidebar activation. Frame marks are
+ * paint opportunities, not proof that the browser displayed pixels. */
+export interface TaskOpenTiming {
+  activationId: string
+  taskId: string | null
+  outcome: 'completed' | 'cancelled' | 'failed'
+  marks: { stage: string; elapsedMs: number }[]
 }

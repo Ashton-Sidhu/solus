@@ -1,4 +1,5 @@
 import type { OutboundPrompt, Session } from '@solus/contracts/types'
+import { modelName, providerMark, providerName, type ProviderMarkId } from '../../insights/lib/provider'
 
 /** A held run needs a decision until the host confirms a queued retry. */
 export function needsRateLimitDecision(session: Pick<Session, 'status' | 'rateLimitInfo' | 'outboundPrompts'> | undefined): boolean {
@@ -143,4 +144,14 @@ export function queuedCaption(
 /** Epoch seconds → "3:10 AM". */
 export function formatReleaseTime(resetsAt: number): string {
   return new Date(resetsAt * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+}
+
+/** The backend and model a queued entry runs with, named as the model picker
+ *  names them: `Opus 5.5`, not `claude-opus-5-5[1m]`. Null when the entry
+ *  names neither. */
+export function queuedEntryModel(
+  prompt: Pick<OutboundPrompt, 'provider' | 'modelConfig'>,
+): { mark: ProviderMarkId; label: string } | null {
+  const label = modelName(prompt.provider, prompt.modelConfig?.modelId) ?? providerName(prompt.provider)
+  return label ? { mark: providerMark(prompt.provider), label } : null
 }

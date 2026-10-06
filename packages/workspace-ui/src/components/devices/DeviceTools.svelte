@@ -60,7 +60,7 @@
   }
 </script>
 
-<div class="flex max-h-[45%] flex-col gap-4 overflow-y-auto border-t border-border px-3 py-3 text-chrome-dense" data-testid="device-tools">
+<div class="flex max-h-[45%] flex-col gap-4 overflow-y-auto border-t border-[var(--hairline)] px-3 py-3 text-chrome-dense" data-testid="device-tools">
   <section class="flex flex-col gap-2" aria-label="Display">
     <div class="flex items-center justify-between gap-2">
       <span>Appearance</span>

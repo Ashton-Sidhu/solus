@@ -26,10 +26,7 @@
     mergeReadiness,
     type MergeAction,
   } from "../pr-review/lib/merge-readiness";
-  import {
-    buildPrChecksFixPrompt,
-    buildPrUpdateBranchPrompt,
-  } from "../pr-review/lib/pr-input-drafts";
+  import { buildPrChecksFixPrompt } from "../pr-review/lib/pr-input-drafts";
   import MenuRow, {
     type ActionRowIcon,
     type ActionRowItem,
@@ -161,7 +158,6 @@
     void session.prReview.openPullRequest(pr, {
       ctx,
       serverId,
-      target: "aside",
       ...(tab ? { tab } : {}),
     });
     requestInputFocus();
@@ -203,7 +199,6 @@
                   {
                     ctx,
                     serverId,
-                    target: "aside",
                     tab: "guide",
                   },
                 ),
@@ -296,6 +291,21 @@
         .enableAutoMerge(method);
     } catch (error) {
       toasts.error("Couldn't turn on auto-merge", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      merging = false;
+      requestInputFocus();
+    }
+  }
+
+  async function updateBranch() {
+    if (merging) return;
+    merging = true;
+    try {
+      await pullRequests.projects.get(api, serverId, ctx).get(pr.number).updateBranch();
+    } catch (error) {
+      toasts.error("Couldn't update the branch", {
         description: error instanceof Error ? error.message : String(error),
       });
     } finally {
@@ -416,15 +426,7 @@
       onAgentDraft(
         buildPrChecksFixPrompt(pr, orderedChecks(checksSummary).filter(isFailing)),
       );
-    else if (primary?.kind === "update-branch" && detail)
-      onAgentDraft(
-        buildPrUpdateBranchPrompt({
-          number: pr.number,
-          title: pr.title,
-          baseRef: detail.baseRef,
-          headRef: detail.headRef,
-        }),
-      );
+    else if (primary?.kind === "update-branch") void updateBranch();
   }
 </script>
 

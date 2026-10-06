@@ -1,4 +1,3 @@
-import { readQueueAgentTool, changeQueueAgentTool } from './queue-tools'
 import { deviceCloseAgentTool, deviceInstallAgentTool, deviceListAgentTool, deviceOpenAgentTool, deviceScreenshotAgentTool } from '../../../devices/device-tools'
 import { readExternalDocCommentsAgentTool, writeExternalDocCommentAgentTool } from '../../../docs/comment-tools'
 import {
@@ -74,6 +73,7 @@ import {
   browserWaitForAgentTool,
 } from '../../../browser/browser-tools'
 import { readConfigAgentTool, updateConfigAgentTool } from './config-tools'
+import { moveToWorktreeAgentTool } from './worktree-tools'
 import { askJevAgentTool } from '../../../typesafe/jev-tool'
 
 export const solusToolbox = {
@@ -151,8 +151,6 @@ export const solusToolbox = {
     install: deviceInstallAgentTool,
   },
   sessions: {
-    readQueue: readQueueAgentTool,
-    changeQueue: changeQueueAgentTool,
     targets: listAgentTargetsAgentTool,
     search: searchSessionsAgentTool,
     read: readSessionAgentTool,
@@ -161,6 +159,7 @@ export const solusToolbox = {
     start: startSessionAgentTool,
     send: sendSessionAgentTool,
     stop: stopSessionAgentTool,
+    moveToWorktree: moveToWorktreeAgentTool,
   },
   tasks: {
     list: listTasksAgentTool,

@@ -228,10 +228,50 @@ describe('merges made outside Solus', () => {
 })
 
 describe('branch discovery', () => {
-  test('links isolated attempts once per branch, and asks the code host once', async () => {
+  test('many unloaded worktrees share project data; unmatched branches wait for later rows, also after restart', async () => {
+    const { getDb } = await import('@solus/server/db')
+    const sessionPrs = await import('@solus/server/data/sessions/session-pull-requests')
+    const { scope, host, pullRequest } = codeHost('stored-worktrees')
+    let now = Date.now()
+    for (let index = 0; index < 12; index++) {
+      getDb().prepare(`INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, size, branch, cwd)
+        VALUES (?, 'codex', 1, ?, 0, ?, ?)`).run(`stored-worktree-${index}`, now, `topic-${index}`, scope)
+    }
+    host.rows = [pullRequest(1, { headRef: 'topic-0', updatedAt: later(1) })]
+    // This answer must never be requested: a missing branch in the loaded
+    // rows is not a reason to ask GitHub about that worktree separately.
+    host.branchRows = [pullRequest(2, { headRef: 'topic-1', updatedAt: later(2) })]
+    const sync = new PrSync({ publish: () => {}, now: () => now })
+    await sync.tick()
+    expect(host.recentReads).toBe(1)
+    expect(host.branchReads).toBe(0)
+    expect((await sessionPrs.readSessionPullRequests('local', ['stored-worktree-0']))['stored-worktree-0'] ?? []).toEqual([
+      expect.objectContaining({ number: 1, source: 'branch' }),
+    ])
+    expect((await sessionPrs.readSessionPullRequests('local', ['stored-worktree-1']))['stored-worktree-1'] ?? []).toEqual([])
+
+    // Registering another unknown branch after the project loaded must not
+    // schedule another repository read just to answer it.
+    sync.setInterest('stored-client', {
+      repo: { host: 'github.com', owner: 'owner', repo: 'stored-worktrees' },
+      provider: providers.get('stored-worktrees')!,
+    }, [{ kind: 'branch', head: 'topic-11' }])
+    await sync.tick()
+    expect(host.recentReads).toBe(1)
+    host.rows.push(host.branchRows[0]!)
+    now += 60_001
+    await sync.tick()
+    expect((await sessionPrs.readSessionPullRequests('local', ['stored-worktree-1']))['stored-worktree-1'] ?? []).toEqual([
+      expect.objectContaining({ number: 2, source: 'branch' }),
+    ])
+    await new PrSync({ publish: () => {}, now: () => now }).tick()
+    expect(host.branchReads).toBe(0)
+  })
+
+  test('links isolated attempts from loaded project rows without branch requests', async () => {
     const { getDb } = await import('@solus/server/db')
     const { scope, host, pullRequest } = codeHost('branch-discovery')
-    host.branchRows = [pullRequest(4, { headRef: 'feature' })]
+    host.rows = [pullRequest(4, { headRef: 'feature' })]
     const owners: string[] = []
     for (const [index, isolated] of [true, true, false].entries()) {
       const created = await taskStore.createTask('local', { title: 'Branch task', projectKey: scope, status: 'todo' })
@@ -247,7 +287,7 @@ describe('branch discovery', () => {
     now += 60_001
     await sync.tick()
 
-    expect(host.branchReads).toBe(1)
+    expect(host.branchReads).toBe(0)
     expect((await linksOf(owners[0]!))[0]?.number).toBe(4)
     expect((await linksOf(owners[1]!))[0]?.number).toBe(4)
     expect(await linksOf(owners[2]!)).toEqual([])
@@ -261,7 +301,7 @@ describe('branch discovery', () => {
     const { getDb } = await import('@solus/server/db')
     const sessionPrs = await import('@solus/server/data/sessions/session-pull-requests')
     const { scope, host, pullRequest } = codeHost('taskless-session')
-    host.branchRows = [pullRequest(9, { headRef: 'solo' })]
+    host.rows = [pullRequest(9, { headRef: 'solo' })]
     getDb().prepare(`INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, size, branch, cwd)
       VALUES ('pr-sync-solo', 'codex', 1, ?, 0, 'solo', ?)`).run(Date.now(), scope)
     let now = Date.now()
@@ -372,9 +412,9 @@ describe('client interest', () => {
     expect(host.recentReads).toBe(1)
   })
 
-  test('answers what it knows at once, and a new branch is asked about right away', async () => {
+  test('answers a branch from the loaded project rows', async () => {
     const { host, pullRequest } = codeHost('client-branch')
-    host.branchRows = [pullRequest(3, { headRef: 'topic' })]
+    host.rows = [pullRequest(3, { headRef: 'topic' })]
     const published: number[] = []
     const sync = new PrSync({ publish: (change) => { published.push(...change.pullRequests.map(({ number }) => number)) } })
 
@@ -385,7 +425,7 @@ describe('client interest', () => {
 
     const second = sync.setInterest(owner, hostOf('client-branch'), [{ kind: 'branch', head: 'topic' }])
     expect(second.pullRequests.map(({ number }) => number)).toEqual([3])
-    expect(host.branchReads).toBe(1)
+    expect(host.branchReads).toBe(0)
   })
 
   test('an open review pane reads check runs and ticks faster', async () => {

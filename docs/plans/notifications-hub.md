@@ -61,7 +61,8 @@ page or a count is cut. Read and archived are separate facts the recipient sets
 review is still open or a task is still yours is the owning domain's answer.
 
 `notifications.changed` carries nothing but the fact. A client reads that
-source's first page again; older pages are read again through Load more.
+source's count again. While the Notifications page is visible, it also reads
+the first page again; older pages are read again through Load more.
 
 ## Clients
 
@@ -69,6 +70,13 @@ source's first page again; older pages are read again through Load more.
 the merge order, and the presentation helpers. The Svelte store
 (`contexts/notifications/notification-hub.store.svelte.ts`) and the native hub
 (`apps/mobile/src/features/notifications/`) use the same engine.
+
+Startup reads the unread count and subscribes to changes. History is read only
+while a Notifications pane is visible on desktop/web, or its screen has focus
+on mobile. Closing the last such surface clears the loaded history and stops
+history reads; counts remain live. Opening it again reads a fresh first page.
+Capability is read once per source connection and checked again after reconnect.
+The first connection shares a pending startup read instead of starting another.
 
 - Sources are read on their own, with bounded concurrency; one slow or failing
   source holds no other. A failed read is stale state, not a revocation: loaded

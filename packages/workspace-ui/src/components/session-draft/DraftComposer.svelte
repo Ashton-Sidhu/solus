@@ -9,6 +9,7 @@
   import InputToolbar from "../input/InputToolbar.svelte";
   import SeatNeededNotice from "../seats/SeatNeededNotice.svelte";
   import { cn } from "../../lib/utils";
+  import { isChat } from "@solus/contracts/chat";
   import { draftModelSelection } from "./lib/draft-selection";
   import { useDraftPreflight } from "./lib/draft-preflight.svelte";
 
@@ -157,6 +158,7 @@
         onAttachFile={attachFile}
         {onScreenshot}
         {onDesignMode}
+        chatSourceId={!destinationFixed && isChat(draft.run.workingDirectory) ? draft.id : null}
       />
     {/snippet}
   </InputBar>

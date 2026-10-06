@@ -36,6 +36,7 @@
   } from "../review/review-guide.store.svelte";
   import { showBranchReviewGuide } from "../review/lib/branch-guide-tracker.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
+  import BranchRow from "./BranchRow.svelte";
   import MenuRow, {
     type ActionRowIcon,
     type ActionRowItem,
@@ -83,8 +84,11 @@
     status?.uncommittedChanges.files.filter((file) => file.conflicted) ?? [],
   );
   const uncommittedFileCount = $derived(
-    status?.uncommittedChanges.files.length ?? 0,
+    status?.uncommittedChanges.fileCount ?? 0,
   );
+  // The Changes row counts what it opens: the branch review, not only the
+  // uncommitted part of it.
+  const branchChanges = $derived(status?.branchChanges);
   const actions = $derived(gitActionsFor(sourceId, session, environmentStore, pullRequests.projects));
   // "Discard changes…" arms in place rather than opening a dialog — the row
   // swaps to a confirm label, which is what the ellipsis promises.
@@ -203,8 +207,8 @@
               ? "Committed"
               : commitPrimary.label,
         icon: PaperPlaneTiltIcon,
-        // No trailing count: the changed-file total already sits on the stats
-        // line under the branch, and repeating it here reads as a second,
+        // No trailing count: the Changes row below already states the
+        // change's size, and repeating it here reads as a second,
         // different number.
         phase: commitPhase,
         hint: comboHint("orb.commit-push"),
@@ -216,6 +220,25 @@
           void actions.run(commitPrimary.action);
         },
         caretAction: { ariaLabel: "More commit actions", menu: "commit" },
+      },
+      {
+        key: "changes",
+        label: "Changes",
+        icon: FileDiffIcon,
+        diffStat: branchChanges,
+        badge: branchChanges?.fileCount
+          ? `${branchChanges.fileCount} file${branchChanges.fileCount === 1 ? "" : "s"}`
+          : undefined,
+        phase: "idle",
+        tooltip: !branchChanges
+          ? undefined
+          : branchChanges.fileCount === 0
+            ? "No changes"
+            : status && status.branch !== status.targetBranch
+              ? `Changes since this branch left ${status.targetBranch}`
+              : "Uncommitted changes",
+        disabled: !canGit,
+        run: () => openReviewView("diff"),
       },
       {
         key: "sync",
@@ -543,7 +566,6 @@
     void session.prReview.openPullRequest(pr, {
       ctx: session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
       serverId: prServerId,
-      target: "aside",
     });
   }
 
@@ -562,7 +584,6 @@
       {
         ctx: session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
         serverId: prServerId,
-        target: "aside",
         via: "click",
       },
     );
@@ -732,6 +753,7 @@
 {/snippet}
 
 <div class="menu-list">
+  <BranchRow {sourceId} />
   {#each actionDefs as def (def.key)}
     <!-- An open PR is reported by the row that already stands for it: the
          branch's PR becomes the label, its number the trailing metric, and the

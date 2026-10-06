@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { HostGrantCache, type GrantOptions } from '@solus/client-core/host-grant-cache'
 import { formatUserCode, requestDeviceCode, waitForDeviceApproval } from '@solus/client-core/device-authorization'
 import { ACTIVE_ORGANIZATION_KEY, OrganizationSelection } from '@solus/client-core/organization-selection'
 import type { SettingsCloudRequests } from '@solus/client-core/settings-requests'
@@ -75,8 +76,11 @@ export class AccountSession {
   private generation = 0
   private signIn: AbortController | null = null
   private loaded: Promise<void> | null = null
+  private readonly grants: HostGrantCache
 
   constructor(private readonly deps: AccountSessionDeps) {
+    this.grants = new HostGrantCache(deps.now)
+    deps.registry.onHostRemoved(() => this.grants.clear())
     const device = {
       getItem: (key: string) => deps.storage.getItem(key),
       setItem: (key: string, value: string) => deps.storage.setItem(key, value),
@@ -172,6 +176,7 @@ export class AccountSession {
       await this.deps.secrets.set(SESSION_KEY, JSON.stringify(stored))
       if (generation !== this.generation) return
       this.stored = stored
+      this.grants.clear()
       this.setView({ kind: 'signed-in', profile, origin: client.origin })
       void client.nameDevice(result.sessionToken, this.deps.deviceLabel).catch(() => undefined)
       await this.refreshDirectory()
@@ -218,16 +223,19 @@ export class AccountSession {
     this.organizations.set(organizationId)
   }
 
-  /** A grant for one dial of a cloud host, naming this device's organization
-   *  when the host belongs to it. Null when signed out or refused. */
-  async acquireHostAccessToken(host: NativeHost): Promise<string | null> {
+  /** Reuse an eight-hour grant for this host and organization; renew on refusal. */
+  async acquireHostAccessToken(host: NativeHost, options?: GrantOptions): Promise<string | null> {
     const stored = this.stored
     if (!stored || !host.uplink) return null
-    const organizationId = this.organizationId && host.uplink.organizationIds?.includes(this.organizationId)
-      ? this.organizationId
+    const hostId = host.uplink.hostId
+    const selectedOrganization = this.organizationId
+    const organizationId = selectedOrganization && host.uplink.organizationIds?.includes(selectedOrganization)
+      ? selectedOrganization
       : null
     try {
-      return await this.deps.client.hostAccessToken(stored.sessionToken, host.uplink.hostId, organizationId)
+      const grant = await this.grants.acquire(hostId, organizationId ?? undefined,
+        () => this.deps.client.hostAccessToken(stored.sessionToken, hostId, organizationId), options)
+      return this.stored === stored && this.organizationId === selectedOrganization ? grant?.accessToken ?? null : null
     } catch (error) {
       if (error instanceof AccountUnauthorizedError && this.stored === stored) await this.endSession('Your Solus session ended. Sign in again.')
       return null
@@ -251,14 +259,16 @@ export class AccountSession {
   async signOut(): Promise<void> {
     const stored = this.stored
     this.cancelSignIn()
+    const ended = this.endSession()
     if (stored) await this.deps.client.signOut(stored.sessionToken)
-    await this.endSession()
+    await ended
   }
 
   private async endSession(message?: string): Promise<void> {
     const stored = this.stored
     this.generation += 1
     this.stored = null
+    this.grants.clear()
     await this.deps.secrets.delete(SESSION_KEY)
     if (stored) this.deps.registry.forgetAccount(stored.profile.id)
     // No workspaces: the selection empties, and the device seed goes with the account.

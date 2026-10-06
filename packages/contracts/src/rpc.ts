@@ -93,7 +93,6 @@ export const RPC_INVOKE_METHODS = [
 
   // Agent conversations (cards drive sessions no client is looking at)
   'createHeadlessSession',
-  'sessionMessagesSentBy',
   'decideSessionPlan',
 
   // Permission / interaction
@@ -165,6 +164,7 @@ export const RPC_INVOKE_METHODS = [
   'resolveSessionLineage',
   'describeSession',
   'generateSessionMetadata',
+  'ensureBackgroundSessionTitle',
   'setSessionTitle',
   'setSessionBranch',
   'sessionPullRequestsList',
@@ -204,6 +204,7 @@ export const RPC_INVOKE_METHODS = [
   'worktreeBranches',
   'worktreeRestore',
   'continueInWorktree',
+  'decideWorktreeOffer',
   'checkoutSnapshot',
   'gitRefreshState',
   'gitIdentity',
@@ -262,10 +263,10 @@ export const RPC_INVOKE_METHODS = [
   'publicationList',
   // Cloud sharing (docs/plans/cloud-sharing.md): a Local work read from its host, uploaded to the Solus API, then removed
   'workExportForCloud',
-  'workRemoveUploaded',
+  'workMarkMoved',
   'workUpload',
   'taskExportForCloud',
-  'taskRemoveUploaded',
+  'taskMarkMoved',
   'taskUpload',
   // Sharing: who may open one session or work on this host
   'shareGet',
@@ -280,6 +281,11 @@ export const RPC_INVOKE_METHODS = [
   'seatConnectToken',
   'seatDisconnect',
   'seatRemove',
+  // Agent sign-ins beyond the seat: Claude Design and one MCP server's OAuth, in the caller's seat
+  'agentAuthStart',
+  'agentAuthSubmit',
+  'agentAuthCancel',
+  'agentAuthSignOut',
   // Agent profile: a member's own instructions and skills, copied into their seats
   'agentProfileRead',
   'agentProfileApply',
@@ -438,6 +444,7 @@ export const RPC_INVOKE_METHODS = [
   'prMerge',
   'prEnableAutoMerge',
   'prDisableAutoMerge',
+  'prUpdateBranch',
   'prRevert',
   'prPrepareConflictResolution',
   'prRefresh',
@@ -480,9 +487,12 @@ export const RPC_INVOKE_METHODS = [
   'tasksPublish',
   'tasksSyncNow',
   'tasksSidebarSnapshot',
+  'tasksLogOpenTiming',
   'tasksSearchComments',
   'tasksReadExtras',
   'tasksMarkRead',
+  'tasksSnooze',
+  'tasksSnoozes',
   'tasksRecordActivity',
   'tasksComment',
   'tasksDeleteComment',
@@ -578,16 +588,19 @@ export const RPC_INVOKE_METHODS = [
   'deviceOpen',
   'deviceClose',
   'deviceShutdown',
-  'deviceInput',
   'deviceAction',
-  'deviceSubscribeFrames',
-  'deviceUnsubscribeFrames',
+  'deviceStreamUrl',
   'deviceScreenshot',
   'deviceControlAcquire',
   'deviceControlRelease',
   'deviceControlResume',
   'deviceInstall',
+  'deviceBuildImport',
+  'deviceBuildDelete',
   'deviceProjectDetect',
+  'deviceRunStart',
+  'deviceRunCancel',
+  'deviceRunLog',
 
   // Observability / Insights (metrics.db query engine)
   'metricsQuery',

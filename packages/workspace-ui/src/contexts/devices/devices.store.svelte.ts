@@ -3,12 +3,14 @@ import type {
   DeviceAction,
   DeviceBuild,
   DeviceProjectInfo,
+  DeviceRun,
+  DeviceRunLog,
+  DeviceRunProfile,
   DeviceConfigureRequest,
   DeviceControlResult,
   DeviceControlState,
   DeviceDetail,
   DeviceHostTestResult,
-  DeviceInput,
   DevicePlatform,
   DevicePreview,
   DeviceScreenshotResult,
@@ -17,8 +19,7 @@ import type {
   SshDeviceHostConfig,
 } from '@solus/contracts/device-types'
 import { parseDeviceError } from '@solus/contracts/device-types'
-import type { DeviceFrameListener } from '@solus/client-core/device-frame-subscriber'
-import type { DeviceFrameHeader } from '@solus/contracts/device-types'
+import { DeviceStreamEnded } from '@solus/client-core/device-hub-stream'
 import { buildDownloadName, installDeviceBuild } from '@solus/client-core/device-builds'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -34,17 +35,6 @@ import { serverConnections } from '@solus/client-core/server-connections'
 export interface DeviceTargetRef {
   deviceHostId: string
   deviceId: string
-}
-
-interface FrameWatch {
-  serverId: string
-  target: DeviceTargetRef
-  format: 'h264' | 'jpeg'
-  listeners: number
-  /** The host sends the screen and its input generation once per subscription.
-   *  A surface that joins the watch later gets this copy, or its taps would
-   *  name a screen the host already replaced. */
-  lastScreen: DeviceFrameHeader | null
 }
 
 const deviceKey = (serverId: string, target: DeviceTargetRef) => `${serverId}\u0000${target.deviceHostId}\u0000${target.deviceId}`
@@ -65,14 +55,16 @@ export class DevicesStore {
   states = new SvelteMap<string, DeviceState>()
   /** Why a host's devices cannot be shown, when they cannot. */
   unavailable = new SvelteMap<string, string>()
-  /** The lease generation this client was granted, per device. */
+  /** The lease generation this client was granted, per device: how it knows a lease is its own. */
   private grants = new SvelteMap<string, number>()
   details = new SvelteMap<string, DeviceDetail>()
   /** Which projects build a mobile app, per host and project root. */
   private projects = new SvelteMap<string, DeviceProjectInfo>()
+  /** Each checkout's build profiles from its `.solus/config.json`; null when it has none. */
+  private profiles = new SvelteMap<string, DeviceRunProfile[] | null>()
+  private profileReads = new Set<string>()
   private projectReads = new Set<string>()
   private loadVersions = new Map<string, number>()
-  private frameWatches = new Map<string, FrameWatch>()
 
   /** Set by the shell: a session's device asked to be shown. */
   onSurfaceRequested: ((serverId: string, payload: { sessionId: string; devicePreviewId: string; openedBy: 'user' | 'agent' }) => void) | null = null
@@ -84,7 +76,6 @@ export class DevicesStore {
       serverConnections.onStatusChange((serverId, status) => {
         if (status !== 'connected') return
         void this.load(serverId)
-        this.restoreFrames(serverId)
       }),
     ]
     return () => {
@@ -164,11 +155,10 @@ export class DevicesStore {
       ?? { ...target, lease: null, agentPaused: false }
   }
 
-  /** This client's live lease generation for a device, or null. */
-  grant(serverId: string, target: DeviceTargetRef): number | null {
+  /** Whether this client holds the device's live lease. */
+  holdsControl(serverId: string, target: DeviceTargetRef): boolean {
     const generation = this.grants.get(deviceKey(serverId, target))
-    if (generation === undefined) return null
-    return this.control(serverId, target).lease?.generation === generation ? generation : null
+    return generation !== undefined && this.control(serverId, target).lease?.generation === generation
   }
 
   // ─── Setup ───
@@ -209,8 +199,8 @@ export class DevicesStore {
 
   /** Power off. Needs control; takes it first when nobody else holds it. */
   async shutdown(serverId: string, target: DeviceTargetRef & { platform: DevicePlatform }): Promise<void> {
-    const generation = await this.ensureControl(serverId, target)
-    await serverConnections.apiFor(serverId).deviceShutdown({ ...target, controlGeneration: generation })
+    await this.ensureControl(serverId, target)
+    await serverConnections.apiFor(serverId).deviceShutdown(target)
   }
 
   async screenshot(serverId: string, target: DeviceTargetRef): Promise<DeviceScreenshotResult> {
@@ -221,21 +211,18 @@ export class DevicesStore {
 
   async takeControl(serverId: string, target: DeviceTargetRef, sessionId?: string): Promise<DeviceControlResult> {
     const result = await serverConnections.apiFor(serverId).deviceControlAcquire({ ...target, sessionId })
-    if (result.status === 'granted') this.grants.set(deviceKey(serverId, target), result.lease.generation)
+    this.grants.set(deviceKey(serverId, target), result.lease.generation)
     return result
   }
 
-  /** The lease generation to act under. Takes control only when nobody holds it. */
-  async ensureControl(serverId: string, target: DeviceTargetRef): Promise<number> {
-    const held = this.grant(serverId, target)
-    if (held !== null) return held
+  /** Take control unless this client has it. A working agent's device needs an explicit Take control. */
+  async ensureControl(serverId: string, target: DeviceTargetRef): Promise<void> {
+    if (this.holdsControl(serverId, target)) return
     const current = this.control(serverId, target)
     if (current.lease && current.lease.holder.kind === 'agent' && !current.agentPaused) {
       throw new Error(`${current.lease.holder.label} is controlling this device. Take control first.`)
     }
-    const result = await this.takeControl(serverId, target)
-    if (result.status !== 'granted') throw new Error('Someone else took control of this device.')
-    return result.lease.generation
+    await this.takeControl(serverId, target)
   }
 
   async releaseControl(serverId: string, target: DeviceTargetRef): Promise<void> {
@@ -248,15 +235,9 @@ export class DevicesStore {
     await serverConnections.apiFor(serverId).deviceControlResume(target)
   }
 
-  /** Send manual input under this client's lease. */
-  async input(serverId: string, target: DeviceTargetRef, screenGeneration: number, inputs: DeviceInput[]): Promise<void> {
-    const controlGeneration = await this.ensureControl(serverId, target)
-    await serverConnections.apiFor(serverId).deviceInput({ ...target, controlGeneration, screenGeneration, inputs })
-  }
-
   async action(serverId: string, target: DeviceTargetRef, action: DeviceAction): Promise<DeviceDetail> {
-    const controlGeneration = await this.ensureControl(serverId, target)
-    const detail = await serverConnections.apiFor(serverId).deviceAction({ ...target, controlGeneration, action })
+    await this.ensureControl(serverId, target)
+    const detail = await serverConnections.apiFor(serverId).deviceAction({ ...target, action })
     this.details.set(deviceKey(serverId, target), detail)
     return detail
   }
@@ -289,11 +270,75 @@ export class DevicesStore {
     return known
   }
 
+  // ─── Build and run ───
+
+  /** The checkout's build profiles; undefined until the host answers. Asks once until saved. */
+  runProfiles(serverId: string, checkoutPath: string): DeviceRunProfile[] | null | undefined {
+    const key = `${serverId}\u0000${checkoutPath}`
+    if (!this.profileReads.has(key)) {
+      this.profileReads.add(key)
+      void serverConnections.apiFor(serverId).projectConfigLoad(checkoutPath).then(
+        (config) => this.profiles.set(key, config?.deviceRuns ?? null),
+        () => this.profiles.set(key, null),
+      )
+    }
+    return this.profiles.get(key)
+  }
+
+  /** Replace the checkout's build profiles. The rest of the project config is kept. */
+  async saveRunProfiles(serverId: string, checkoutPath: string, profiles: DeviceRunProfile[]): Promise<void> {
+    const api = serverConnections.apiFor(serverId)
+    const config = (await api.projectConfigLoad(checkoutPath)) ?? { version: 1 as const }
+    const saved = await api.projectConfigSave(checkoutPath, { ...config, deviceRuns: profiles })
+    this.profiles.set(`${serverId}\u0000${checkoutPath}`, saved.deviceRuns ?? null)
+  }
+
+  runs(serverId: string): DeviceRun[] {
+    return this.states.get(serverId)?.runs ?? []
+  }
+
+  /**
+   * Start a build and run. The host asks once per command, because profiles
+   * come from the repository; `confirm` shows that question to the person.
+   */
+  async startRun(serverId: string, request: { checkoutPath: string; profileName: string; deviceHostId: string; deviceId: string; sessionId?: string }, confirm: (question: string) => boolean): Promise<DeviceRun | null> {
+    const api = serverConnections.apiFor(serverId)
+    try {
+      return await api.deviceRunStart(request)
+    } catch (cause) {
+      const parsed = parseDeviceError(cause instanceof Error ? cause.message : String(cause))
+      if (parsed?.code !== 'confirmation_required') throw cause
+      if (!confirm(parsed.message)) return null
+      return api.deviceRunStart({ ...request, approve: true })
+    }
+  }
+
+  cancelRun(serverId: string, runId: string): Promise<void> {
+    return serverConnections.apiFor(serverId).deviceRunCancel(runId)
+  }
+
+  runLog(serverId: string, runId: string): Promise<DeviceRunLog> {
+    return serverConnections.apiFor(serverId).deviceRunLog(runId)
+  }
+
   // ─── Builds ───
 
   /** Install a build and open it. Uses this client's lease, or borrows a free device. */
   async installBuild(serverId: string, target: DeviceTargetRef, build: DeviceBuild): Promise<void> {
-    await installDeviceBuild(serverConnections.apiFor(serverId), target, build, this.control(serverId, target), this.grant(serverId, target))
+    await installDeviceBuild(serverConnections.apiFor(serverId), target, build, this.control(serverId, target), this.holdsControl(serverId, target))
+  }
+
+  /** Add a build output that is already on the host. The next snapshot lists it. */
+  async importBuild(serverId: string, path: string, sessionId: string | null): Promise<DeviceBuild> {
+    const api = serverConnections.apiFor(serverId)
+    const build = await api.deviceBuildImport(sessionId ? { path, sessionId } : { path })
+    this.adopt(serverId, await api.deviceState(), true)
+    return build
+  }
+
+  /** Delete a build's output from the host. */
+  async deleteBuild(serverId: string, build: DeviceBuild): Promise<void> {
+    this.adopt(serverId, await serverConnections.apiFor(serverId).deviceBuildDelete(build.buildId), true)
   }
 
   /** A short-lived link that downloads an APK build, for a phone's browser. */
@@ -303,48 +348,20 @@ export class DevicesStore {
     return new URL(signed.relativeUrl, serverConnections.httpOriginFor(serverId)).toString()
   }
 
-  // ─── Frames ───
+  // ─── Streams ───
 
-  /**
-   * Watch a device's video while a surface is visible. One host-side
-   * subscription per device on this client, however many surfaces show it.
-   */
-  watchFrames(serverId: string, target: DeviceTargetRef, format: 'h264' | 'jpeg', listener: DeviceFrameListener, onError: (message: string) => void): () => void {
-    const key = deviceKey(serverId, target)
-    let watch = this.frameWatches.get(key)
-    const isJoining = !!watch && watch.format === format
-    if (!watch || watch.format !== format) {
-      watch = { serverId, target, format, listeners: 0, lastScreen: null }
-      this.frameWatches.set(key, watch)
-    }
-    const current = watch
-    const unsubscribe = serverConnections.deviceFramesFor(serverId).subscribe(target.deviceHostId, target.deviceId, (header, data) => {
-      if (header.kind === 'screen') current.lastScreen = header
-      listener(header, data)
-    })
-    if (isJoining) {
-      if (current.lastScreen) listener(current.lastScreen, new Uint8Array())
-    } else {
-      serverConnections.apiFor(serverId).deviceSubscribeFrames({ ...target, format })
-        .catch((cause: unknown) => onError(deviceErrorMessage(cause)))
-    }
-    current.listeners++
-    let stopped = false
-    return () => {
-      if (stopped) return
-      stopped = true
-      unsubscribe()
-      current.listeners--
-      if (current.listeners > 0 || this.frameWatches.get(key) !== current) return
-      this.frameWatches.delete(key)
-      void serverConnections.apiFor(serverId).deviceUnsubscribeFrames(target).catch(() => {})
-    }
-  }
-
-  private restoreFrames(serverId: string): void {
-    for (const watch of this.frameWatches.values()) {
-      if (watch.serverId !== serverId) continue
-      void serverConnections.apiFor(serverId).deviceSubscribeFrames({ ...watch.target, format: watch.format }).catch(() => {})
+  /** An absolute URL that opens this device's hub stream through the host's proxy. */
+  async streamUrl(serverId: string, target: DeviceTargetRef): Promise<string> {
+    try {
+      const { path } = await serverConnections.apiFor(serverId).deviceStreamUrl(target)
+      return new URL(path, serverConnections.httpOriginFor(serverId)).toString()
+    } catch (cause) {
+      // The host refused (a device error), or it is too old to stream: the
+      // stream stops and says why. A lost connection is retried.
+      const raw = cause instanceof Error ? cause.message : String(cause)
+      const message = deviceErrorMessage(cause)
+      if (message !== raw) throw new DeviceStreamEnded(message)
+      throw cause
     }
   }
 }

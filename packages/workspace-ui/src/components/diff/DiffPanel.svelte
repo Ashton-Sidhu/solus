@@ -672,7 +672,7 @@
     const root = symbolLookup?.root;
     symbolLookup = null;
     if (!root) return;
-    session.openFileInFiles({ path: `${root}/${path}`, line }, tabId, paneId);
+    session.openFileInFiles({ path: `${root}/${path}`, line }, tabId);
   }
 
   // Single entry point for both selection gestures — the gutter "+" button

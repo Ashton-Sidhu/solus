@@ -1,0 +1,90 @@
+/* ── Session action row ── */
+
+  /* Scales with the user's text size, like the conversation prose. Declared on
+     the portalled popovers too: they mount outside the row. */
+  .session-action-root,
+  .progress-popover,
+  .files-pop {
+    --action-scale: var(--solus-font-scale, 1);
+    --action-btn-min: calc(1.75rem * var(--action-scale));
+    --action-btn-font: calc(0.875rem * var(--action-scale));
+  }
+
+  .session-action-root {
+    width: min(calc(100% - 2rem), var(--solus-reading-max));
+
+    /* The row rides on the composer's live top edge, so a fold moves it. The
+       bar's own tween is a WAAPI height animation on the card, which the dock
+       reports at its destination height from the first frame — so without this
+       the row would jump the whole fold distance while the bar was still
+       travelling. Same duration and easing, published by WorkspaceBody from
+       the fold's constants, so the two edges stay together frame for frame.
+       It fades on the same curve when the bar collapses (below). */
+    transition:
+      bottom var(--solus-composer-fold-duration, 0ms)
+        var(--solus-composer-fold-easing, linear),
+      opacity var(--solus-composer-fold-duration, 0ms)
+        var(--solus-composer-fold-easing, linear),
+      visibility 0s linear var(--solus-composer-fold-duration, 0ms);
+  }
+
+  /* The row belongs to the bar, so it goes away while the bar in its column is
+     collapsed and returns when the bar expands. It stays while the pointer or
+     focus is in it, so a click on one of its buttons (which takes focus from
+     the bar) does not pull the row out from under the hand. Visibility waits
+     for the fade on the way out and flips at once on the way back. The `:has()`
+     looks only through the column's own dock child, so the transcript
+     streaming beside it never asks for this rule to be checked again. */
+  [data-composer-column]:has(> [data-composer-dock] [data-composer-collapsed])
+    .session-action-root:not(:hover):not(:focus-within) {
+    opacity: 0;
+    visibility: hidden;
+  }
+  [data-composer-column]:not(:has(> [data-composer-dock] [data-composer-collapsed]))
+    .session-action-root {
+    transition-delay: 0s;
+  }
+
+  /* The fold is a cut under reduced motion, so the row cuts with it. */
+  @media (prefers-reduced-motion: reduce) {
+    .session-action-root {
+      transition: none;
+    }
+  }
+
+  /* ── Progress-style popover shell reused by changed files ── */
+
+  .progress-popover {
+    /* Shared type scale consumed by BOTH the steps and files popovers so their
+       title / meta / body text match in size and scale identically with the row.
+       Weights are set per-role below (title 600, meta 500, body 500). */
+    --pop-title-size: calc(0.8125rem * var(--action-scale));
+    --pop-meta-size: calc(0.75rem * var(--action-scale));
+    --pop-body-size: calc(0.75rem * var(--action-scale));
+
+    overflow: hidden;
+    border-radius: calc(1rem * var(--action-scale));
+    pointer-events: auto;
+    background: var(--solus-popover-bg);
+    border: 0.0313rem solid var(--solus-popover-border);
+    box-shadow:
+      inset 0 0.0625rem 0 0 color-mix(in srgb, white 14%, transparent),
+      0 0.25rem 0.875rem rgba(0, 0, 0, 0.1),
+      0 0.75rem 1.75rem rgba(0, 0, 0, 0.12);
+    color: var(--solus-text-secondary);
+    z-index: 50;
+  }
+  .dark .progress-popover {
+    box-shadow:
+      inset 0 0.0625rem 0 0 color-mix(in srgb, white 5%, transparent),
+      0 0.25rem 0.875rem rgba(0, 0, 0, 0.3),
+      0 0.75rem 1.75rem rgba(0, 0, 0, 0.3);
+  }
+
+  /* ── Changed files review popover ── */
+
+  /* Wide enough that a nested row — indent, folder chain, filename, counts —
+     lands well short of truncating, which is the whole point of the tree. */
+  .files-pop {
+    width: min(calc(44rem * var(--action-scale)), calc(100vw - 2.5rem));
+  }

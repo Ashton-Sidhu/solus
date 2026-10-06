@@ -44,7 +44,7 @@ export function promptedUpdate(exchange: Exchange, meta: SessionMeta | null, mes
 }
 
 function sessionTitle(meta: SessionMeta): string {
-  return meta.slug || (meta.firstMessage ? promptTitle(meta.firstMessage) : '') || meta.sessionId.slice(0, 8)
+  return meta.customTitle || meta.slug || (meta.firstMessage ? promptTitle(meta.firstMessage) : '') || meta.sessionId.slice(0, 8)
 }
 
 export function exchangeRequestFrom(event: NormalizedEvent): ExchangeRequest | null {

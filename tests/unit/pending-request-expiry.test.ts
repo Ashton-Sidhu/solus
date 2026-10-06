@@ -150,7 +150,7 @@ for (const provider of ['claude-code', 'codex'] as const) {
     test('the host tells the provider no and broadcasts each request as expired', async () => {
       const { backend, plane, events, lifecycle, sessionId, threadId, asyncId } = await askingRun(provider)
       try {
-        expect(plane.liveSessionStatus(threadId)).toBe('awaiting_input')
+        expect(plane.statuses.liveSessionStatus(threadId)).toBe('awaiting_input')
         backend.stop(threadId)
         await lifecycle.done
 
@@ -162,7 +162,7 @@ for (const provider of ['claude-code', 'codex'] as const) {
         ])
         // The async question is not closed with its run.
         expect(events.some((event) => event.type === 'permission_resolved' && event.questionId === asyncId)).toBe(false)
-        expect(plane.respondToPermission(sessionId, 'perm-1', 'allow', undefined, HOST_ACTOR)).toBe(false)
+        expect(plane.inputRequests.respondToPermission(sessionId, 'perm-1', 'allow', undefined, HOST_ACTOR)).toBe(false)
       } finally { plane.shutdown() }
     })
 
@@ -191,10 +191,10 @@ for (const provider of ['claude-code', 'codex'] as const) {
       try {
         backend.stop(threadId)
         await lifecycle.done
-        expect(plane.watchSession({ sessionId: sessionId, agentSessionId: threadId }, 'late').pendingQuestions)
+        expect(plane.watchers.watchSession({ sessionId: sessionId, agentSessionId: threadId }, 'late').pendingQuestions)
           .toContainEqual(expect.objectContaining({ questionId: asyncId }))
 
-        expect(await plane.respondToQuestion(sessionId, asyncId, { '0': 'pnpm' }, HOST_ACTOR)).toBe(true)
+        expect(await plane.inputRequests.respondToQuestion(sessionId, asyncId, { '0': 'pnpm' }, HOST_ACTOR)).toBe(true)
         // The answer starts a new turn, as a message.
         expect(backend.starts).toBe(2)
         backend.stop(threadId)

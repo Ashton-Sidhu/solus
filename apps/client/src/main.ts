@@ -354,7 +354,7 @@ async function connectGuest(link: GuestLink, displayName: string, onShellMounted
   transport.start()
 
   try {
-    const info = await api.connectionsGetServerInfo()
+    const info = await serverConnections.serverInfoFor(serverId)
     if (generation !== connectionGeneration) return
     const share = linkShare(info, link)
     if (!share) {

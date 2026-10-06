@@ -1,25 +1,29 @@
-import { SvelteMap } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import type { Via } from '@solus/contracts/analytics-events'
 import type { IpcContext } from '@solus/contracts/types'
 import type { PrReviewTarget } from '@solus/contracts/providers'
 import type { HostApi } from '@solus/client-core/host-api'
 import { track } from '../../../lib/analytics'
-import { parseLocation, serializeLocation } from './codec'
+import { parseLocation, parseSurfaces, serializeLocation, serializeSurfaces } from './codec'
 import { BrowserRouteHistory, MemoryRouteHistory, type RouteHistory } from './route-history'
 import {
+  activateSurface,
+  activeSurface,
   applyLocation,
-  closeOverlay as closePaneOverlay,
-  closePane as closeLocationPane,
+  closeCompanion,
+  closeSurface,
+  closeSurfacesWhere,
+  companionOf,
+  destinationOf,
   focusedPane,
   initialLocation,
-  isRouteOpen,
-  movePane as moveLocationPane,
+  openDestination,
+  openSurface,
   paneById,
-  place,
-  refFor,
-  visibleRef,
+  showStrip,
+  targetFor,
   type Location,
-  type NavTarget,
+  type OpenTarget,
   type PaneEntry,
   type PaneId,
 } from './location'
@@ -27,16 +31,44 @@ import {
   CHAT_ROUTE,
   ROUTES,
   serializeRef,
+  surfaceKey,
   type RouteName,
   type RouteParams,
   type RouteRef,
 } from './route-registry'
 
 export interface NavigateOptions {
-  target?: NavTarget
+  /** Which pane a route that may sit in either one opens in. Destinations and
+   *  surfaces ignore it: their placement decides. */
+  target?: OpenTarget
+  /** Add a surface to the strip without making it active. */
+  background?: boolean
+  /** Replace the active surface rather than add one. */
+  inPlace?: boolean
+  /** The user did not ask for this — an agent did, or the app did on its own.
+   *  It never takes the place of a surface the user is reading: beside another
+   *  surface it opens in the background, marked unread. */
+  automatic?: boolean
   /** Overwrite the current history entry instead of pushing a new one. */
   replace?: boolean
   via?: Via
+}
+
+/** The strip a destination owns while another destination is on screen, or
+ *  while the companion pane is hidden. */
+export interface StoredStrip {
+  surfaces: RouteRef[]
+  activeSurfaceIndex: number
+  isOpen: boolean
+}
+
+/** A stored strip as the tab snapshot saves it, with the destination that owns
+ *  it (`session:<id>` or `draft:<id>`). */
+export interface PersistedStrip {
+  destinationKey: string
+  surfaces: string
+  activeSurfaceIndex: number
+  isOpen: boolean
 }
 
 /**
@@ -54,6 +86,10 @@ const MAX_RESOLVED_PAYLOADS = 16
  * the URL is written inside `navigate`, never derived — that one-directional
  * rule is what makes the `effect_update_depth_exceeded` loop the old
  * router↔pane sync effects produced structurally impossible.
+ *
+ * Each destination owns its companion strip (docs/plans/companion-surfaces.md).
+ * The location holds the strip on screen; `strips` holds the others, keyed by
+ * destination, until that destination comes back.
  */
 export class RouterStore {
   location = $state<Location>(initialLocation())
@@ -80,9 +116,27 @@ export class RouterStore {
    */
   canReturnTo: (ref: RouteRef) => boolean = () => true
 
-  /** The route a `returnsOnClose` page replaced, and the pane it replaced it
-   *  in. Held only while that pane still shows such a page. */
-  private returnTo: { paneId: PaneId; ref: RouteRef } | null = null
+  /**
+   * The strip key of the conversation the pool shows. The pool's route names
+   * no session — which tab is active is the workspace's to know — so the
+   * workspace answers, and calls `syncDestination` when the answer changes.
+   */
+  poolDestinationKey: () => string | null = () => null
+
+  /**
+   * Called after every change to what the panes show. Routing names
+   * conversations by session; the workspace knows which tabs render them and
+   * loads what they need to be shown.
+   */
+  onLocationChanged: () => void = () => {}
+
+  /** The route a `returnsOnClose` page replaced. Held only while the leading
+   *  pane still shows such a page. */
+  private returnTo: RouteRef | null = null
+  private strips = new SvelteMap<string, StoredStrip>()
+  /** Surfaces opened in the background and not yet looked at, by surface key. */
+  private unreadSurfaceKeys = new SvelteSet<string>()
+  private shownDestinationKey: string
   private history: RouteHistory
   private detachHistory: (() => void) | null = null
   private resolved = new SvelteMap<string, PrReviewTarget>()
@@ -91,6 +145,7 @@ export class RouterStore {
   constructor(history: RouteHistory = new MemoryRouteHistory('/chat', MAX_HISTORY_ENTRIES)) {
     this.history = history
     applyLocation(this.location, parseLocation(history.current()))
+    this.shownDestinationKey = this.destinationKeyFor(this.destination)
     this.attachHistory(history)
   }
 
@@ -104,6 +159,21 @@ export class RouterStore {
     return this.location.panes[0]
   }
 
+  /** The route the leading pane holds. */
+  get destination(): RouteRef {
+    return destinationOf(this.location)
+  }
+
+  get companionPane(): PaneEntry | null {
+    return companionOf(this.location)
+  }
+
+  /** The surface the companion pane shows, if it is open. */
+  get companionSurface(): RouteRef | null {
+    const companion = this.companionPane
+    return companion ? activeSurface(companion) : null
+  }
+
   get focused(): PaneEntry {
     return focusedPane(this.location)
   }
@@ -112,24 +182,31 @@ export class RouterStore {
     return this.location.focusedPaneId
   }
 
-  /** Panes after the leading one — the companions the split layout renders. */
-  get asidePanes(): PaneEntry[] {
-    return this.location.panes.slice(1)
+  /** Whether the companion pane is hidden with a strip it can show again. */
+  get hasHiddenStrip(): boolean {
+    return !this.companionPane && this.strips.has(this.shownDestinationKey)
   }
 
   pane(paneId: PaneId): PaneEntry | null {
     return paneById(this.location, paneId)
   }
 
-  /** Whether this destination is showing anywhere — replaces the `*Open` flags. */
+  /** Whether this route is on screen: the destination or the active surface. */
   at(name: RouteName): boolean {
-    return isRouteOpen(this.location, name)
+    return this.destination.name === name || this.companionSurface?.name === name
   }
 
-  /** The live ref for a destination, so a surface can read its params. */
+  /** The live ref for a route on screen, so a surface can read its params. */
   ref<K extends RouteName>(name: K): RouteRef<K> | null {
-    // SAFETY: refFor returns a reference only after matching this exact route name.
-    return refFor(this.location, name) as RouteRef<K> | null
+    const surface = this.companionSurface
+    if (surface?.name === name) {
+      // SAFETY: the surface's name was just matched against this exact route name.
+      return surface as RouteRef<K>
+    }
+    const destination = this.destination
+    if (destination.name !== name) return null
+    // SAFETY: the destination's name was just matched against this exact route name.
+    return destination as RouteRef<K>
   }
 
   params<K extends RouteName>(name: K): RouteParams[K] | null {
@@ -145,37 +222,37 @@ export class RouterStore {
    */
   chatSessionIn(paneId: PaneId): string | null {
     const pane = this.pane(paneId)
-    if (!pane || pane.overlay || pane.base?.name !== 'chat') return null
-    return pane.base.params.sessionId ?? null
+    const ref = pane ? activeSurface(pane) : null
+    return ref?.name === 'chat' ? ref.params.sessionId ?? null : null
   }
 
   /** Whether this pane is showing a chat at all, pinned or pooled. */
   showsChat(paneId: PaneId): boolean {
     const pane = this.pane(paneId)
-    return !!pane && !pane.overlay && pane.base?.name === 'chat'
-  }
-
-  /** The pane beside a known source, or a fresh pane when the source is alone.
-   *  Unlike `aside`, this answer does not depend on whichever pane happens to
-   *  own focus when a portaled menu action runs. */
-  targetAcrossFrom(sourcePaneId: PaneId): NavTarget {
-    const sourceIndex = this.location.panes.findIndex((pane) => pane.id === sourcePaneId)
-    if (sourceIndex === -1) return 'aside'
-    return this.location.panes[sourceIndex + 1]?.id
-      ?? this.location.panes[sourceIndex - 1]?.id
-      ?? 'new'
+    return !!pane && activeSurface(pane)?.name === 'chat'
   }
 
   // ─── Navigating ───
 
   navigate(ref: RouteRef, opts: NavigateOptions = {}): PaneEntry {
-    const bases = new Map(this.location.panes.map((pane) => [pane.id, pane.base]))
-    const pane = place(this.location, ref, opts.target ?? 'focused')
-    const replaced = bases.get(pane.id) ?? null
-    // Remember only the step in from the main workspace. Moving between the
-    // page's own tabs replaces it with itself and keeps the first answer.
-    if (ROUTES[ref.name].returnsOnClose && !(replaced && ROUTES[replaced.name].returnsOnClose)) {
-      this.returnTo = replaced ? { paneId: pane.id, ref: replaced } : null
+    let pane: PaneEntry
+    if (targetFor(ref, opts.target) === 'leading') {
+      const replaced = this.destination
+      pane = openDestination(this.location, ref)
+      // Remember only the step in from the main workspace. Moving between the
+      // page's own tabs replaces it with itself and keeps the first answer.
+      if (ROUTES[ref.name].returnsOnClose && !ROUTES[replaced.name].returnsOnClose) {
+        this.returnTo = replaced
+      }
+      this.swapStrip()
+    } else {
+      this.revealHiddenStrip()
+      const shown = this.companionSurface
+      const background = opts.background
+        || (opts.automatic === true && !!shown && surfaceKey(shown) !== surfaceKey(ref))
+      pane = openSurface(this.location, ref, { background, inPlace: opts.inPlace })
+      if (background) this.unreadSurfaceKeys.add(surfaceKey(ref))
+      else this.unreadSurfaceKeys.delete(surfaceKey(ref))
     }
     this.navigationEpoch += 1
     this.commit(ref, opts)
@@ -190,66 +267,171 @@ export class RouterStore {
     this.commit(null, {})
   }
 
+  /** Close what a pane shows: the leading pane falls back to home, and the
+   *  companion pane closes its active surface. */
   closePane(paneId: PaneId): void {
-    closeLocationPane(this.location, paneId, this.homeFor(paneId))
+    if (paneId === this.leadingPane.id) {
+      this.closeDestination()
+    } else {
+      const companion = this.pane(paneId)
+      if (companion) closeSurface(this.location, companion.activeSurfaceIndex)
+    }
     this.commit(null, {})
   }
 
-  closeOverlay(paneId: PaneId = this.overlayPaneId ?? this.focusedPaneId): void {
-    closePaneOverlay(this.location, paneId)
+  closeSurface(index: number): void {
+    closeSurface(this.location, index)
     this.commit(null, {})
   }
 
-  /** Where the single overlay currently lives, if any. */
-  get overlayPaneId(): PaneId | null {
-    return this.location.panes.find((pane) => pane.overlay)?.id ?? null
-  }
-
-  get overlay(): RouteRef | null {
-    return this.location.panes.find((pane) => pane.overlay)?.overlay ?? null
-  }
-
-  movePane(paneId: PaneId, delta: number): void {
-    moveLocationPane(this.location, paneId, delta, this.homeFor(paneId))
+  /** Close every surface except the one at `index`. */
+  closeOtherSurfaces(index: number): void {
+    const keep = this.companionPane?.surfaces[index]
+    if (!keep) return
+    closeSurfacesWhere(this.location, (ref) => ref !== keep)
     this.commit(null, {})
   }
 
-  /** Bring a destination that is already open into the leading pane, so a
-   *  second surface can then open beside it. `aside` means "the pane after the
-   *  focused one", which at the pane cap resolves back to the leading pane —
-   *  so a companion asking for a companion of its own would be answered with
-   *  its own neighbour's slot. Leading with it first is what makes the next
-   *  `aside` a real second pane. No-op when it already leads or is not open. */
-  leadWith(name: RouteName): void {
-    const index = this.location.panes.findIndex((pane) => pane.base?.name === name)
-    if (index <= 0) return
-    this.movePane(this.location.panes[index].id, -index)
+  closeSurfacesToRight(index: number): void {
+    closeSurfacesWhere(this.location, (_ref, surfaceIndex) => surfaceIndex > index)
+    this.commit(null, {})
   }
 
-  /** Close every pane showing this destination, wherever it lives. A
-   *  `returnsOnClose` page goes back to the route it replaced when that route
-   *  can still be shown. */
+  /** Close the surfaces a predicate names, wherever they sit in the strip. */
+  closeSurfacesWhere(shouldClose: (ref: RouteRef) => boolean): void {
+    closeSurfacesWhere(this.location, shouldClose)
+    this.commit(null, {})
+  }
+
+  /** Whether a surface opened in the background has not been looked at yet. */
+  isSurfaceUnread(ref: RouteRef): boolean {
+    return this.unreadSurfaceKeys.has(surfaceKey(ref))
+  }
+
+  activateSurface(index: number): void {
+    const companion = this.companionPane
+    if (!companion || companion.activeSurfaceIndex === index) return
+    const ref = companion.surfaces[index]
+    if (ref) this.unreadSurfaceKeys.delete(surfaceKey(ref))
+    activateSurface(this.location, index)
+    this.location.focusedPaneId = companion.id
+    this.commit(null, {})
+  }
+
+  /** Move to the next or previous surface, wrapping at the ends. */
+  activateAdjacentSurface(delta: 1 | -1): void {
+    const companion = this.companionPane
+    if (!companion || companion.surfaces.length < 2) return
+    const count = companion.surfaces.length
+    this.activateSurface((companion.activeSurfaceIndex + delta + count) % count)
+  }
+
+  /** Make a surface that may also lead — a draft, a conversation — the
+   *  destination. */
+  moveSurfaceToMain(index: number): void {
+    const ref = this.companionPane?.surfaces[index]
+    if (!ref || ROUTES[ref.name].placement !== 'either') return
+    closeSurface(this.location, index)
+    this.navigate(ref, { target: 'leading' })
+  }
+
+  /** Hide the companion pane and keep its strip, so it can come back. */
+  hideCompanion(): void {
+    const companion = this.companionPane
+    if (!companion) return
+    this.strips.set(this.shownDestinationKey, {
+      surfaces: companion.surfaces.slice(),
+      activeSurfaceIndex: companion.activeSurfaceIndex,
+      isOpen: false,
+    })
+    closeCompanion(this.location)
+    this.commit(null, {})
+  }
+
+  /** Show the strip `hideCompanion` kept. */
+  showCompanion(): void {
+    if (!this.revealHiddenStrip()) return
+    const companion = this.companionPane
+    if (companion) this.location.focusedPaneId = companion.id
+    this.commit(null, {})
+  }
+
+  /** Close every route of this name: its surfaces, and the destination when it
+   *  is the one showing. A `returnsOnClose` page goes back to the route it
+   *  replaced when that route can still be shown. */
   close(name: RouteName): void {
-    for (const pane of this.location.panes.slice()) {
-      if (pane.overlay?.name === name) closePaneOverlay(this.location, pane.id)
-      else if (pane.base?.name === name) {
-        const remembered = this.returnTo?.paneId === pane.id ? this.returnTo.ref : null
-        const home = remembered && this.canReturnTo(remembered) ? remembered : this.homeFor(pane.id)
-        closeLocationPane(this.location, pane.id, home)
-      }
-    }
+    closeSurfacesWhere(this.location, (ref) => ref.name === name)
+    if (this.destination.name === name) this.closeDestination()
     this.commit(null, {})
   }
 
-  /** Close whatever route of this group is open — pages and artifacts are each
-   *  single-instance, so this needs no id. */
-  closeGroup(group: 'page' | 'artifact'): void {
-    for (const pane of this.location.panes.slice()) {
-      if (pane.base && ROUTES[pane.base.name].exclusiveGroup === group) {
-        closeLocationPane(this.location, pane.id, this.homeFor(pane.id))
-      }
+  // ─── Strips ───
+
+  /**
+   * Show the strip of the destination now on screen. Navigation calls this
+   * itself; the workspace calls it when the active tab changes, because the
+   * pool's route stays the same while the conversation it shows does not.
+   */
+  syncDestination(): void {
+    if (this.swapStrip()) this.commit(null, { replace: true })
+  }
+
+  /** Give a destination's strip to another key — a draft becoming a session
+   *  keeps what the user opened beside it. */
+  carryStrip(fromKey: string, toKey: string): void {
+    if (this.shownDestinationKey === fromKey) {
+      this.shownDestinationKey = toKey
+      return
     }
-    this.commit(null, {})
+    const stored = this.strips.get(fromKey)
+    if (!stored) return
+    this.strips.delete(fromKey)
+    this.strips.set(toKey, stored)
+    // The conversation may already be on screen — starting it is what put the
+    // draft's strip away — so its strip shows now.
+    if (this.shownDestinationKey === toKey && stored.isOpen && this.revealHiddenStrip()) {
+      this.commit(null, { replace: true })
+    }
+  }
+
+  /** Every route in a strip that is put away — hidden, or owned by a
+   *  destination not on screen. */
+  get storedSurfaces(): RouteRef[] {
+    return [...this.strips.values()].flatMap((strip) => strip.surfaces)
+  }
+
+  /** Forget a destination's strip — its tab closed. */
+  dropStrip(key: string): void {
+    this.strips.delete(key)
+  }
+
+  /** The stored strips worth keeping across a restart: a conversation's or a
+   *  draft's. A page's strip lives only for the run. */
+  get persistedStrips(): PersistedStrip[] {
+    const persisted: PersistedStrip[] = []
+    for (const [key, strip] of this.strips) {
+      if (!key.startsWith('session:') && !key.startsWith('draft:')) continue
+      persisted.push({
+        destinationKey: key,
+        surfaces: serializeSurfaces(strip.surfaces),
+        activeSurfaceIndex: strip.activeSurfaceIndex,
+        isOpen: strip.isOpen,
+      })
+    }
+    return persisted
+  }
+
+  restoreStrips(persisted: readonly PersistedStrip[] | undefined): void {
+    if (!persisted) return
+    for (const strip of persisted) {
+      const surfaces = parseSurfaces(strip.surfaces)
+      if (surfaces.length === 0) continue
+      this.strips.set(strip.destinationKey, {
+        surfaces,
+        activeSurfaceIndex: Math.min(Math.max(0, strip.activeSurfaceIndex), surfaces.length - 1),
+        isOpen: strip.isOpen,
+      })
+    }
   }
 
   // ─── History ───
@@ -271,10 +453,11 @@ export class RouterStore {
   }
 
   /** Enter a serialized location wholesale — reload restore, a deep link, a
-   *  notification click. Never partially applied: an unparseable pane drops. */
+   *  notification click. Never partially applied: an unparseable surface drops. */
   enter(serialized: string, opts: { replace?: boolean; via?: Via } = {}): void {
-    applyLocation(this.location, parseLocation(serialized))
-    this.commit(visibleRef(this.focused), { replace: opts.replace, via: opts.via })
+    this.applySerialized(serialized)
+    const focused = activeSurface(this.focused)
+    this.commit(focused, { replace: opts.replace, via: opts.via })
   }
 
   get serialized(): string {
@@ -364,26 +547,90 @@ export class RouterStore {
 
   // ─── Internals ───
 
-  /** A companion pane closes outright, so only the leading pane needs a home —
-   *  and only then is the workspace asked, since answering may mint a draft. */
-  private homeFor(paneId: PaneId): RouteRef {
-    return paneId === this.leadingPane.id ? this.leadingHome() : CHAT_ROUTE
+  private closeDestination(): void {
+    const remembered = this.returnTo && this.canReturnTo(this.returnTo) ? this.returnTo : null
+    openDestination(this.location, remembered ?? this.leadingHome())
+    this.swapStrip()
   }
 
-  /** Drop the remembered route once its pane no longer shows the page that
-   *  remembered it, so a later visit never returns to an older one. */
+  /** Which strip a destination owns: a conversation's, a draft's, or a page's.
+   *  A pool with no conversation in it yet owns one strip of its own. */
+  private destinationKeyFor(ref: RouteRef): string {
+    if (ref.name === 'chat') {
+      return ref.params.sessionId ? `session:${ref.params.sessionId}` : (this.poolDestinationKey() ?? 'pool')
+    }
+    if (ref.name === 'draft') return `draft:${ref.params.draftId}`
+    if (ref.name === 'sessionRecord') return `record:${ref.params.sessionId}`
+    return `page:${ref.name}`
+  }
+
+  /** Put away the strip on screen and show the current destination's. Answers
+   *  whether the destination changed. */
+  private swapStrip(): boolean {
+    const key = this.destinationKeyFor(this.destination)
+    if (key === this.shownDestinationKey) return false
+    this.stashCompanion()
+    this.shownDestinationKey = key
+    const stored = this.strips.get(key)
+    if (stored?.isOpen) {
+      showStrip(this.location, stored.surfaces, stored.activeSurfaceIndex)
+      this.strips.delete(key)
+    } else {
+      closeCompanion(this.location)
+    }
+    return true
+  }
+
+  /** Keep the strip on screen under its destination's key. A hidden strip is
+   *  already stored. */
+  private stashCompanion(): void {
+    const companion = this.companionPane
+    if (!companion) return
+    this.strips.set(this.shownDestinationKey, {
+      surfaces: companion.surfaces.slice(),
+      activeSurfaceIndex: companion.activeSurfaceIndex,
+      isOpen: true,
+    })
+  }
+
+  /** Bring back a hidden strip without committing. */
+  private revealHiddenStrip(): boolean {
+    const key = this.shownDestinationKey
+    const stored = this.strips.get(key)
+    if (!stored || this.companionPane) return false
+    showStrip(this.location, stored.surfaces, stored.activeSurfaceIndex)
+    this.strips.delete(key)
+    return true
+  }
+
+  /** Apply a whole location. Its companion strip is what this destination
+   *  shows now, so a stored strip for it either goes (the location has one) or
+   *  stays hidden (the location has none). */
+  private applySerialized(serialized: string): void {
+    this.stashCompanion()
+    applyLocation(this.location, parseLocation(serialized))
+    const key = this.destinationKeyFor(this.destination)
+    this.shownDestinationKey = key
+    const stored = this.strips.get(key)
+    if (stored) {
+      if (this.companionPane) this.strips.delete(key)
+      else if (stored.isOpen) this.strips.set(key, { ...stored, isOpen: false })
+    }
+  }
+
+  /** Drop the remembered route once the leading pane no longer shows the page
+   *  that remembered it, so a later visit never returns to an older one. */
   private forgetStaleReturn(): void {
-    if (!this.returnTo) return
-    const base = this.pane(this.returnTo.paneId)?.base
-    if (!base || !ROUTES[base.name].returnsOnClose) this.returnTo = null
+    if (this.returnTo && !ROUTES[this.destination.name].returnsOnClose) this.returnTo = null
   }
 
-  private commit(ref: RouteRef | null, opts: NavigateOptions): void {
+  private commit(ref: RouteRef | null, opts: Pick<NavigateOptions, 'replace' | 'via'>): void {
     this.forgetStaleReturn()
     const serialized = serializeLocation(this.location)
     if (opts.replace) this.history.replace(serialized)
     else this.history.push(serialized)
     if (ref) track('route_viewed', { route: ref.name, via: opts.via })
+    this.onLocationChanged()
   }
 
   private attachHistory(history: RouteHistory): void {
@@ -393,11 +640,11 @@ export class RouterStore {
   }
 
   private applyHistoryLocation(serialized: string): void {
-    const next = parseLocation(serialized)
-    if (serializeLocation(this.location) === serializeLocation(next)) return
-    applyLocation(this.location, next)
+    if (serializeLocation(this.location) === serializeLocation(parseLocation(serialized))) return
+    this.applySerialized(serialized)
     this.forgetStaleReturn()
-    const ref = visibleRef(this.focused) ?? CHAT_ROUTE
+    const ref = activeSurface(this.focused) ?? CHAT_ROUTE
     track('route_viewed', { route: ref.name })
+    this.onLocationChanged()
   }
 }

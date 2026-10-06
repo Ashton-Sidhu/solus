@@ -40,9 +40,9 @@ describe('merge method naming', () => {
     // mergeable PR on a squash-only repo was told it would land as a merge
     // commit. The button's own label is now the only place the method is
     // stated, which makes this the only thing that decides what it says.
-    expect(defaultMergeMethod(['squash', 'rebase'])).toBe('squash')
-    expect(defaultMergeMethod(['rebase'])).toBe('rebase')
-    expect(defaultMergeMethod(['merge', 'squash'])).toBe('merge')
+    expect(defaultMergeMethod({ mergeMethods: ['merge', 'squash', 'rebase'], defaultMergeMethod: 'rebase' })).toBe('rebase')
+    // A server too old to name one still lists only the allowed methods.
+    expect(defaultMergeMethod({ mergeMethods: ['squash', 'rebase'] })).toBe('squash')
   })
 
 })

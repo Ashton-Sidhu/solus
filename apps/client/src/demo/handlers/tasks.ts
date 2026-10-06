@@ -1,5 +1,5 @@
 import { arg, optionalArg } from './args'
-import type { Task, TaskCreateInput, TaskDetails, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskUpdatePatch } from '@solus/contracts/task-types'
+import type { Task, TaskCreateInput, TaskDetails, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskSnooze, TaskUpdatePatch } from '@solus/contracts/task-types'
 import { type DemoServer } from '../fixtures/types'
 import { DEMO_USER, type DemoStore } from '../store'
 
@@ -85,6 +85,19 @@ export function registerTasksHandlers(backend: DemoServer, store: DemoStore): vo
     backend.broadcast('tasks.invalidated', {})
     return task
   })
+  // The demo has one person, so their snoozes are this one map, apart from the
+  // task records as on a host.
+  const snoozes = new Map<string, TaskSnooze>()
+  backend.register('tasksSnooze', (args) => {
+    const id = arg<string>(args, 0)
+    const until = arg<number | null>(args, 1)
+    const note = arg<string | undefined>(args, 2)?.trim()
+    if (until === null) snoozes.delete(id)
+    else snoozes.set(id, note ? { taskId: id, snoozedUntil: until, snoozeNote: note } : { taskId: id, snoozedUntil: until })
+    backend.broadcast('tasks.snoozesChanged', {})
+    return snoozes.get(id) ?? null
+  })
+  backend.register('tasksSnoozes', () => [...snoozes.values()])
 
   backend.register('tasksRecordActivity', (args) => {
     const id = arg<string>(args, 0)

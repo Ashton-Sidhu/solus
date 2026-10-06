@@ -11,7 +11,7 @@ import {
   parseIosHelperPacket,
   parseSemuPacket,
   scanAccessUnit,
-} from '@solus/server/devices/device-protocol'
+} from '@solus/client-core/device-protocol'
 
 /**
  * Fixture bytes for the two vendored hub protocols (plan 016, stage 0). The

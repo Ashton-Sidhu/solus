@@ -36,14 +36,17 @@ pane, a record beside it.
 - **Tasks section**, **Sessions section** — the two live sections of the
   session sidebar. A row in Tasks is a **task row**; a row in Sessions is a
   **session row**. Both sections list rows newest first by creation, except
-  that a row this client saw leave the Working section moves to the top.
-  Opening or loading a session never moves it.
+  that a session row this client saw leave the Working section moves to the
+  top of Sessions. Opening or loading a session never moves it. A task row
+  stays in Tasks, in its place, while its lead or workers run. Its row shows
+  the run, the alerts, and the lead's unread state (user decision,
+  2026-10-06).
 - **Working section** — the closed-by-default section below Sessions that
-  holds the task and session rows whose agent is busy without the user: a
-  running turn, background work after a finished turn, or a rate-limit wait. A
-  row goes back to the top of its own section when it finishes, fails, or asks
-  for an answer or a plan decision. This is not the `working` task session
-  role.
+  holds the session rows whose agent is busy without the user: a running
+  turn, background work after a finished turn, or a rate-limit wait. A row
+  goes back to the top of Sessions when it finishes, fails, or asks for an
+  answer or a plan decision. Task rows never move here. This is not the
+  `working` task session role.
 - **task chip** — the mark on a session row that names the task the session
   belongs to, when that task has no task row on this client.
 
@@ -218,6 +221,11 @@ link transfers session ownership exactly as `working` does.
    - `openTaskLinkedSession(task)` is the older "jump back to the work" command
      the context menus' Resume keeps: the lead when there is one, else the
      latest attempt. Only a lead brings the page beside it.
+   - A lead that is not open yet is resumed, and the page opens as soon as the
+     lead's tab is on screen. The page reads its details while the transcript
+     loads, not after it. When the reader opens another task first, the
+     earlier open stops: it does not open a tab, show its page, or take the
+     focus.
    - The phone has one pane, so none of these opens the page; the conversation
      keeps the pane and the page is a tap away on the session's task chip.
    - Opening a companion pane keeps the session sidebar in its current state.
@@ -247,7 +255,7 @@ link transfers session ownership exactly as `working` does.
    puts each under its header, before Snoozed and Completed. The phone list
    wraps the same builder. A row lives in exactly one place: lifecycle still
    wins. A finished task and a settled session go to Completed; a snoozed
-   session goes to Snoozed; a task is never snoozed. A session takes its shelf
+   session or task goes to Snoozed (`docs/task-snooze.md`). A session takes its shelf
    from the state its host holds (`docs/plans/session-pull-requests.md`,
    decisions 7 and 8).
    - `isDurableRowShown` gives a task a row only while it is open on the
@@ -267,7 +275,8 @@ link transfers session ownership exactly as `working` does.
    pins the lead first with a "Lead" mark and offers **Start lead** beside New
    session while the task has no lead. Start lead calls `openTaskSession` with
    the lead role, so the page it was pressed on closes and reopens beside the
-   draft.
+   draft. Send keeps the page there: `SessionDraftPane` starts a lead with
+   `keepAside`.
 6. **Console without a workspace.** The task page lists the lead in Sessions
    and opens its record read-only, as any session row does. Nothing else.
 
@@ -290,7 +299,14 @@ General.
   it. The worker model is a default: instructions that name another agent and
   model win. Routing rules ("frontend work to Claude, backend work to Codex")
   go in the instructions, because the lead already chooses each worker's
-  agent and model with `start_session`.
+  agent and model with `start_session`. The default instructions
+  (`defaultLeadInstructions(DEFAULT_MODEL_ROUTING)`) tell the lead to always
+  start workers async (`wait_seconds=0`) and to start a new worker for new
+  work instead of sending it to an old one. Then they give routing rules: each
+  model routing category with the description Auto's classifier uses
+  (`ROUTING_DESCRIPTIONS`) and its model. The lead chooses the category
+  itself; no Jev call runs. The field shows them, so the user edits the
+  rules the lead gets.
 - Each model setting also stores a reasoning level (`reasoningEffort`),
   chosen in the chip's reasoning column. The lead draft starts at it, and the
   packet names it as `reasoning_effort` for a worker. A selection saved

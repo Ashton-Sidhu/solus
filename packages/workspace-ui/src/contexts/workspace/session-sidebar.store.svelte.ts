@@ -1,3 +1,4 @@
+import type { TaskOpenTrace } from '../../components/session/lib/task-open-timing'
 import { createAppContext } from '../app/create-app-context'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { untrack } from 'svelte'
@@ -18,6 +19,7 @@ import {
   shouldShelveCompletedTask,
   shouldShowDurableSidebarTask,
   shouldShowSidebarChild,
+  isInWorkingSection,
   isWorkingStatus,
   projectFilterChoices,
   resolveProjectFilter,
@@ -68,6 +70,7 @@ import {
   sessionGuideIdentity,
 } from '../../components/review/review-guide.store.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { hostKey } from '@solus/client-core/host-key'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { isSolusApiId } from '@solus/contracts/uplink'
 import { mergeSessionHomes, type SessionHomeHosts } from '../../components/session/lib/session-home'
@@ -226,6 +229,7 @@ export class SessionSidebarStore {
       if (!tab) continue
       for (const sessionId of sidebarSessionIds(tab, session)) {
         bySessionId.set(sessionId, tabId)
+        if (session?.run.serverId) bySessionId.set(hostKey(session.run.serverId, sessionId), tabId)
       }
     }
     return bySessionId
@@ -307,12 +311,15 @@ export class SessionSidebarStore {
     let linkedServerId: string | null = null
 
     const taskModel = this.session.tasksStore.get(task.id)
+    const leadSessionId = taskModel.sessions.find((link) => link.role === 'lead')?.sessionId
     for (const link of taskModel.sessions) {
       if (!this.projectsSessionUnder(task.id, link)) continue
       const linkServerId = attemptServerId({ link, taskServerId: taskModel.serverId })
       linkedServerId ??= linkServerId
       createdAt = Math.min(createdAt, link.startedAt ?? createdAt)
-      const tabId = openTabBySessionId.get(link.sessionId)
+      const tabId = linkServerId
+        ? openTabBySessionId.get(hostKey(linkServerId, link.sessionId))
+        : openTabBySessionId.get(link.sessionId)
       // The feed speaks for the sessions with no tab, as its name says. A
       // mounted tab knows the same status and, unlike the feed, whether the
       // user has read it — letting the feed answer for one kept a viewed
@@ -335,8 +342,8 @@ export class SessionSidebarStore {
       createdAt = Math.min(createdAt, firstActivityAt(session))
       serverId ??= session.run.serverId ?? null
       const nextAttention = getAttentionState(session, tab, this.planStore.plans)
-      attention = maxTaskAttention(attention, nextAttention)
-      unread ||= tab.hasUnread
+      attention = maxTaskAttention(attention, link.role === 'lead' || nextAttention !== 'unread' ? nextAttention : null)
+      if (link.role === 'lead') unread ||= tab.hasUnread
       limitResetsAt ??= sessionLimitResetsAt(session) ?? undefined
       if (nextAttention === 'running') {
         const startedAt = turnStartedAt(session)
@@ -356,8 +363,9 @@ export class SessionSidebarStore {
       createdAt = Math.min(createdAt, firstActivityAt(session))
       serverId ??= session.run.serverId ?? null
       const nextAttention = getAttentionState(session, tab, this.planStore.plans)
-      attention = maxTaskAttention(attention, nextAttention)
-      unread ||= tab.hasUnread
+      const isLead = taskRoleOf(session.task) === 'lead' && (!leadSessionId || sidebarSessionIds(tab, session).includes(leadSessionId))
+      attention = maxTaskAttention(attention, isLead || nextAttention !== 'unread' ? nextAttention : null)
+      if (isLead) unread ||= tab.hasUnread
       limitResetsAt ??= sessionLimitResetsAt(session) ?? undefined
       if (nextAttention === 'running') {
         const startedAt = turnStartedAt(session)
@@ -365,12 +373,13 @@ export class SessionSidebarStore {
       }
     }
     const projectKey = worktreeProjectRoot(task.projectKey ?? '~')
-    // A task is never snoozed: only a session is. A finished task is on the
+    // A snoozed task is on the Snoozed shelf; a finished task is on the
     // Completed shelf.
     const lifecycle = resolveTaskSidebarLifecycle({
       status: task.status,
       doneAt: task.doneAt,
       updatedAt: task.updatedAt,
+      snoozedUntil: task.snoozedUntil,
       lastReadAt: task.lastReadAt,
       attention,
       now: this.lifecycleNow,
@@ -397,10 +406,10 @@ export class SessionSidebarStore {
       limitResetsAt,
       lifecycle: lifecycle.lifecycle,
       completedAt: lifecycle.completedAt,
-      snoozedUntil: 0,
-      snoozeNote: null,
+      snoozedUntil: lifecycle.snoozedUntil,
+      snoozeNote: task.snoozeNote ?? null,
       lastReadAt: lifecycle.lastReadAt,
-      woke: false,
+      woke: lifecycle.woke,
       tabIds,
     }
   }
@@ -667,13 +676,13 @@ export class SessionSidebarStore {
   })
 
   /**
-   * The Tasks section: open tasks that are not working. A row opens the task's
+   * The Tasks section: every open task, busy or not. A row opens the task's
    * lead with the task page beside it. A row lives in exactly one place: a
-   * busy task is in the Working section, a finished task on the Completed
-   * shelf.
+   * running task stays here and its row shows the run; a finished task is on
+   * the Completed shelf.
    */
   taskRows: SidebarTask[] = $derived(sortRowsByReturn(
-    this.openRows.filter((row) => !!row.taskId && !isWorkingStatus(row.status)),
+    this.openRows.filter((row) => !!row.taskId),
     (row) => this.returnOrder.returnedAt(row),
   ))
 
@@ -684,10 +693,10 @@ export class SessionSidebarStore {
     (row) => this.returnOrder.returnedAt(row),
   ))
 
-  /** The Working section: open tasks and sessions whose agent is busy without
-   *  the user, in the order they arrived. A row leaves it when it comes back
-   *  to the user, and lands on top of its own section. */
-  workingRows: SidebarTask[] = $derived(this.openRows.filter((row) => isWorkingStatus(row.status)))
+  /** The Working section: open sessions that no task row stands for, whose
+   *  agent is busy without the user, in the order they arrived. A row leaves
+   *  it when it comes back to the user, and lands on top of Sessions. */
+  workingRows: SidebarTask[] = $derived(this.openRows.filter(isInWorkingSection))
 
   /**
    * The one session the list shows under a task row: the session on screen,
@@ -1142,7 +1151,7 @@ export class SessionSidebarStore {
     $effect(() => {
       const now = this.lifecycleNow
       let nextWake = 0
-      for (const { snoozedUntil } of sessionStatesStore.entries) {
+      for (const { snoozedUntil } of [...sessionStatesStore.entries, ...this.session.tasksStore.tasks]) {
         if (snoozedUntil && snoozedUntil > now && (nextWake === 0 || snoozedUntil < nextWake)) {
           nextWake = snoozedUntil
         }
@@ -1363,14 +1372,24 @@ export class SessionSidebarStore {
     return this.pickerSessionsByTaskId.get(task.id) ?? this.buildSessions(task.id, [], true)
   }
 
-  /** Mark the durable task and every mounted session represented by its row
-   * as unread. The task timestamp persists the choice; the tab flags drive
-   * the blue unread indicator in the mounted sidebar. */
+  /** Mark only the task's lead as unread. Worker tabs keep their own read state. */
   async markTaskUnread(taskId: string): Promise<void> {
     const tabIds = this.catalogTasks.find((row) => row.taskId === taskId)?.tabIds ?? []
+    const taskModel = this.session.tasksStore.get(taskId)
+    const lead = taskModel.sessions.find((link) => link.role === 'lead')
+    const leadServerId = lead ? attemptServerId({ link: lead, taskServerId: taskModel.serverId }) : null
+    const leadTabIds = tabIds.filter((tabId) => {
+      const tab = this.session.tabs[tabId]
+      const session = this.session.sessionFor(tabId)
+      if (!tab || !session) return false
+      if (lead) return sidebarSessionIds(tab, session).includes(lead.sessionId)
+        && (!leadServerId || session.run.serverId === leadServerId)
+      return taskRoleOf(session.task) === 'lead'
+    })
+    if (!lead && leadTabIds.length === 0) return
     await this.session.tasksStore.get(taskId).markRead(false)
     const notifiedSessions = new Set<string>()
-    for (const tabId of tabIds) {
+    for (const tabId of leadTabIds) {
       const tab = this.session.tabs[tabId]
       if (!tab) continue
       tab.hasUnread = true
@@ -1391,7 +1410,11 @@ export class SessionSidebarStore {
   /** Opening a session whose snooze ended is the read that clears the woken
    *  mark: the host forgets the snooze. */
   acknowledgeRow(row: SidebarTask): void {
-    if (row.woke) this.snoozeRow(row.key, null)
+    if (!row.woke) return
+    // Opening the task is a read: a failed clear of the reader's own snooze
+    // is not an error to show, and the next open tries again.
+    if (row.taskId) void this.session.tasksStore.get(row.taskId).snooze(null).catch(() => {})
+    else this.snoozeRow(row.key, null)
   }
 
   /**
@@ -1415,19 +1438,38 @@ export class SessionSidebarStore {
     return target !== null && canDriveSession(target.serverId, target.sessionId)
   }
 
-  /** Snooze a session's row on its host, so every client defers it. `until`
-   *  of null wakes it now, which is what the row's own Wake button and the
-   *  undo toast both call. A prompt also wakes it, on the host. */
+  /** Whether the row can be snoozed: a session's row as `canShelve` says, and
+   *  a Solus task's row, which snoozes the task itself. A provider-owned
+   *  ticket has no Solus record to hold the wake time. */
+  canSnooze(row: SidebarTask): boolean {
+    if (row.taskId) return this.session.tasksStore.peek(row.taskId)?.providerId === 'local'
+    return this.canShelve(row)
+  }
+
+  /** Snooze a row on its host: a task's row snoozes the task for the reader
+   *  alone (on every client they use), a session's row the session. `until` of null wakes it now,
+   *  which is what the row's own Wake button and the undo toast both call. A
+   *  prompt also wakes a session, on the host. */
   snoozeRow(rowKey: string, until: number | null, note = ''): void {
     const row = this.catalogTasks.find((task) => task.key === rowKey)
-    const target = row ? this.sessionOfRow(row) : null
-    if (!row || !target) return
+    if (!row) return
     const wasActive = row.lifecycle === 'active'
-    void sessionStatesStore.snooze(target.serverId, target.sessionId, until, note)
+    const target = this.sessionOfRow(row)
+    const write = row.taskId
+      ? this.session.tasksStore.get(row.taskId).snooze(until, note)
+      : target
+        ? sessionStatesStore.snooze(target.serverId, target.sessionId, until, note)
+        : null
+    if (!write) return
+    void write
       .then(() => {
         if (until !== null && wasActive) this.composeNextPromptIfNoActiveTask(row)
       })
-      .catch(() => {})
+      .catch(async () => {
+        // The undo toast already said it moved; say that it did not.
+        const { toasts } = await import('../../lib/toasts')
+        toasts.error(until === null ? "Couldn't wake it" : "Couldn't snooze it")
+      })
   }
 
   /** Open a settled or snoozed session that has no conversation here. */
@@ -1603,13 +1645,13 @@ export class SessionSidebarStore {
     this.session.selectTab(tabId)
   }
 
-  async selectTask(task: SidebarTask): Promise<void> {
+  async selectTask(task: SidebarTask, timing?: TaskOpenTrace): Promise<void> {
     // A task is talked to through its lead, with the task page beside it
     // (docs/plans/task-conversation.md). A task with no lead gets a lead
     // draft. Its other sessions are on its page.
     const record = task.taskId ? this.taskRecord(task.taskId) : undefined
     if (record) {
-      await this.session.opening.openTask(record)
+      await this.session.opening.openTask(record, timing)
       return
     }
     // A session's own row stands for one conversation: the mounted one, or
@@ -1617,6 +1659,7 @@ export class SessionSidebarStore {
     const tabId = task.tabIds[0]
     if (tabId) this.selectTab(tabId)
     else await this.openShelvedSession(task)
+    timing?.shown()
   }
 
   /** Restore a picker result, then open it as clicking its sidebar row does. */

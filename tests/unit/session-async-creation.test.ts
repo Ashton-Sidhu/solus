@@ -9,7 +9,7 @@ beforeAll(async () => {
   ;({ SessionOrchestrator } = await import('@solus/server/execution/orchestration/session-orchestrator'))
 })
 
-function fixture() {
+function fixture(previousReply?: string) {
   const startup = Promise.withResolvers<{ agentSessionId: string }>()
   const orders: CreateSessionOrder[] = []
   const updates: NormalizedEvent[] = []
@@ -24,7 +24,7 @@ function fixture() {
     stopSession: () => false, respondToPermission: () => false,
     pendingInputEvents: () => [], replaceQueuedPrompt: () => false,
     hasQueuedPrompt: () => false, cancelQueuedPrompt: () => false,
-    turnEnding: async () => ({}), taskIdFor: async () => undefined, isLead: async () => false,
+    turnEnding: async () => (previousReply ? { reply: previousReply } : {}), taskIdFor: async () => undefined, isLead: async () => false,
     emit: (_id, event) => { updates.push(event) }, invalidatePlanCaches: () => {},
     recordActivity: async () => { throw new Error('No person acted in this test') },
     trackWork: (promise) => { work.push(promise.then(() => {})); return promise },
@@ -102,5 +102,39 @@ describe('async session creation', () => {
     await drain()
     expect(orchestrator.readExchange('thread-parent', accepted.exchangeId)?.outcome).toBe('failed')
     expect(prompts).toEqual([])
+  })
+})
+
+// WHY: a run that dies before it writes its prompt leaves the previous turn last
+// in the transcript. Reading the reply from there told the sender the child had
+// finished its old work, so the sender retried a session that could never start.
+describe('a failed run reports why it failed', () => {
+  async function startedChild(previousReply: string) {
+    const fixture_ = fixture(previousReply)
+    const accepted = await fixture_.orchestrator.spawn('thread-parent', fixture_.order, true)
+    fixture_.startup.resolve({ agentSessionId: 'thread-child' })
+    await fixture_.drain()
+    const run = { sessionId: fixture_.orders[0]!.sessionId!, agentSessionId: 'thread-child', runId: 'child-run', exchangeIds: [accepted.exchangeId] }
+    return { ...fixture_, accepted, run }
+  }
+
+  test('its own error, never the previous turn\'s reply', async () => {
+    const { orchestrator, accepted, run, drain } = await startedChild('Earlier work is done.')
+    orchestrator.runStarted(run)
+    orchestrator.runSettled({ ...run, provider: 'codex', outcome: 'failed', error: 'spawn ENOENT' })
+    await drain()
+    expect(orchestrator.readExchange('thread-parent', accepted.exchangeId)).toMatchObject({
+      state: 'settled', outcome: 'failed', report: { reply: 'The turn ended with an error: spawn ENOENT' },
+    })
+  })
+
+  test('a run that could not start reports the reason', async () => {
+    const { orchestrator, accepted, run, drain } = await startedChild('Earlier work is done.')
+    const reason = 'The turn could not start: The working directory /gone no longer exists.'
+    orchestrator.runCancelled(run, 'failed', reason)
+    await drain()
+    expect(orchestrator.readExchange('thread-parent', accepted.exchangeId)).toMatchObject({
+      state: 'settled', outcome: 'failed', report: { reply: reason },
+    })
   })
 })

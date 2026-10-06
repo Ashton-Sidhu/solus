@@ -7,7 +7,7 @@ import { getDb, withTx } from '../../db'
 import { getDatabase } from '../../db/database'
 import { createLogger } from '../../logger'
 import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../../admission/principal'
-import { projectSessionHistory } from '../../data/sessions/result-projection'
+import { projectSessionHistory, resolvePendingStarts } from '../../data/sessions/result-projection'
 import { getSessionRecord } from '../../data/sessions/session-records'
 import type { ActivityMirrorPayload, TranscriptMirrorPayload } from '../runner-protocol'
 import type { Activity } from '@solus/contracts/activity'
@@ -137,7 +137,7 @@ export class TranscriptMirror {
     if (this.disposed) return 0
     const destination = await transcriptDestination(sessionId)
     if (!destination) return 0
-    const messages = projectSessionHistory(await this.deps.loadSession(source.provider, sessionId, source.projectPath))
+    const messages = await resolvePendingStarts(ANY_ORGANIZATION, projectSessionHistory(await this.deps.loadSession(source.provider, sessionId, source.projectPath)))
     // Whatever organization a row was recorded in: a session published from Local brings the activity it had.
     const activity = await activityFor(ANY_ORGANIZATION, { kind: 'session', id: this.deps.activitySubjectId?.(sessionId) ?? sessionId })
     const hashes = messages.map(hashOf)

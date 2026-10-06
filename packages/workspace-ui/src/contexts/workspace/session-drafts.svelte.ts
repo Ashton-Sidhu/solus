@@ -3,7 +3,7 @@ import type { Via } from '@solus/contracts/analytics-events'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serversStore } from '../connections/servers.store.svelte'
 import { toasts } from '../../lib/toasts'
-import { type NavTarget, type PaneId } from './routing/location'
+import { activeSurface, type OpenTarget, type PaneId } from './routing/location'
 import { CHAT_ROUTE } from './routing/route-registry'
 import { SessionDraft, requestedTaskTarget } from './session-draft.svelte'
 import { alignRunProvider, resolveNewRunConfig } from './run-config'
@@ -49,11 +49,11 @@ export class SessionDrafts {
    *  moving the pane off it is the moment it becomes a draft they *have*. */
   get composingDraftIds(): Set<string> {
     const ids = new Set<string>()
-    for (const pane of this.workspace.router.panes) {
-      // The pane's own content, not whatever is layered over it: a settings
-      // overlay is still that composer's pane, and a row appearing behind a
-      // modal only to leave again when it closes is noise.
-      if (pane.base?.name === 'draft') ids.add(pane.base.params.draftId)
+    // A draft tab put away with another destination's strip is still one the
+    // user is composing: it comes back when that destination does.
+    const surfaces = [...this.workspace.router.panes.flatMap((pane) => pane.surfaces), ...this.workspace.router.storedSurfaces]
+    for (const surface of surfaces) {
+      if (surface.name === 'draft') ids.add(surface.params.draftId)
     }
     for (const draftId of this.dockedDraftIds) ids.add(draftId)
     return ids
@@ -63,9 +63,9 @@ export class SessionDrafts {
    *  it. */
   leaveDraftInLead(): void {
     const pane = this.workspace.router.leadingPane
-    if (pane.base?.name !== 'draft') return
+    if (this.workspace.router.destination.name !== 'draft') return
     this.releaseDraftIn(pane.id)
-    this.workspace.router.navigate(CHAT_ROUTE, { target: pane.id })
+    this.workspace.router.navigate(CHAT_ROUTE)
   }
 
   /** Let go of the draft a pane is showing, before it shows something else. One
@@ -76,10 +76,21 @@ export class SessionDrafts {
    *  `keepDraftId` is the draft the pane is about to show, so re-aiming a pane
    *  at what it already holds never drops it out from under itself. */
   private releaseDraftIn(paneId: PaneId, keepDraftId?: string): void {
-    const base = this.workspace.router.pane(paneId)?.base
-    if (base?.name !== 'draft' || base.params.draftId === keepDraftId) return
-    const draft = this.sessionDrafts.get(base.params.draftId)
-    if (draft?.isEmpty) this.dropDraft(draft.id)
+    const pane = this.workspace.router.pane(paneId)
+    const shown = pane ? activeSurface(pane) : null
+    if (shown?.name !== 'draft' || shown.params.draftId === keepDraftId) return
+    const draft = this.sessionDrafts.get(shown.params.draftId)
+    if (!draft?.isEmpty) return
+    this.dropDraft(draft.id)
+    // A companion surface pointing at a dropped draft would render nothing.
+    if (pane && pane !== this.workspace.router.leadingPane) {
+      this.workspace.router.closeSurface(pane.activeSurfaceIndex)
+    }
+  }
+
+  /** Which pane the focus is in, as a place a draft can open. */
+  private get focusedTarget(): OpenTarget {
+    return this.workspace.router.focusedPaneId === this.workspace.router.leadingPane.id ? 'leading' : 'companion'
   }
 
   /**
@@ -96,7 +107,7 @@ export class SessionDrafts {
     if (!options.target) this.releaseDraftIn(this.workspace.router.focusedPaneId)
     this.workspace.router.navigate(
       { name: 'draft', params: { draftId: draft.id } },
-      { via: options.via ?? 'click', target: options.target ?? this.workspace.router.focusedPaneId },
+      { via: options.via ?? 'click', target: options.target ?? this.focusedTarget },
     )
     // Boot seeds a draft so the workspace is never empty. Only a draft the user
     // asked for takes focus through the caller's reveal path.
@@ -154,9 +165,8 @@ export class SessionDrafts {
    *  on the same rule every other route change uses. */
   openDraft(draftId: string, via: Via = 'click'): void {
     if (!this.sessionDrafts.has(draftId)) return
-    const target = this.workspace.router.focusedPaneId
-    this.releaseDraftIn(target, draftId)
-    this.workspace.router.navigate({ name: 'draft', params: { draftId } }, { via, target })
+    this.releaseDraftIn(this.workspace.router.focusedPaneId, draftId)
+    this.workspace.router.navigate({ name: 'draft', params: { draftId } }, { via, target: this.focusedTarget })
   }
 
   /**
@@ -167,6 +177,12 @@ export class SessionDrafts {
     const draft = this.sessionDrafts.get(draftId)
     if (!draft) return null
     const tabId = this.workspace.createSession(draft.spec, options)
+    // The conversation keeps what the user opened beside its draft. A draft
+    // sent in the background leaves its strip with the composer that stays.
+    const sessionId = this.workspace.sessionFor(tabId)?.id
+    if (sessionId && options.activate !== false) {
+      this.workspace.router.carryStrip(`draft:${draftId}`, `session:${sessionId}`)
+    }
     this.dropDraft(draftId)
     return tabId
   }
@@ -182,7 +198,7 @@ export class SessionDrafts {
    * Returns false when there is no draft or the send is refused, leaving the
    * pane where it is so the words are not lost.
    */
-  startDraftInBackground(draftId: string, text: string, target: NavTarget): boolean {
+  startDraftInBackground(draftId: string, text: string, target: OpenTarget): boolean {
     const draft = this.sessionDrafts.get(draftId)
     if (!draft) return false
     const run = draft.run
@@ -212,7 +228,7 @@ export class SessionDrafts {
     next.task = task
     next.boundWorkId = boundWorkId
     this.sessionDrafts.set(next.id, next)
-    this.workspace.router.navigate({ name: 'draft', params: { draftId: next.id } }, { via: 'keybinding', target })
+    this.workspace.router.navigate({ name: 'draft', params: { draftId: next.id } }, { via: 'keybinding', target, inPlace: true })
     toasts.success('Session started in the background')
     return true
   }
@@ -226,11 +242,10 @@ export class SessionDrafts {
     const spec = this.sessionDrafts.get(draftId)?.spec
     const discarded = spec ? $state.snapshot(spec) : null
     this.dropDraft(draftId)
-    for (const pane of this.workspace.router.panes.slice()) {
-      if (pane.base?.name === 'draft' && pane.base.params.draftId === draftId) {
-        this.workspace.router.closePane(pane.id)
-      }
+    if (this.workspace.router.destination.name === 'draft' && this.workspace.router.destination.params.draftId === draftId) {
+      this.workspace.router.closePane(this.workspace.router.leadingPane.id)
     }
+    this.workspace.router.closeSurfacesWhere((ref) => ref.name === 'draft' && ref.params.draftId === draftId)
     return discarded
   }
 
@@ -239,6 +254,7 @@ export class SessionDrafts {
   private dropDraft(draftId: string): void {
     this.sessionDrafts.delete(draftId)
     this.dockedDraftIds.delete(draftId)
+    this.workspace.router.dropStrip(`draft:${draftId}`)
     disposeGitActions(draftId)
   }
 

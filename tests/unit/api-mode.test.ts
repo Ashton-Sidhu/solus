@@ -174,6 +174,7 @@ describe('organization isolation through HTTP operations and retained RPC', () =
       sessionRuntime: {} as SessionRuntime,
       events: {} as HostEventPublisher,
       agentIdFromContext: () => 'claude-code',
+      exchangeProgress: () => undefined,
     })
     connectionsHandlers.registerConnectionsHandlers(server, {
       getServerInfo: () => ({ host: '0.0.0.0', port: 3000, allowLan: true, remoteAccess: true, requireAuth: true, trustLocalNetwork: false, hostKind: 'cloud', roles: ['collaboration'] }),

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CornerLeftUp as ArrowElbowLeftUpIcon, Folder as FolderIcon, GitBranch as GitBranchIcon } from "@lucide/svelte";
+  import { CornerLeftUp as ArrowElbowLeftUpIcon, File as FileIcon, Folder as FolderIcon, GitBranch as GitBranchIcon } from "@lucide/svelte";
   import { worktreeDisplayName } from "../../lib/git-context";
   import { MiddleTruncate } from "../ui/middle-truncate";
   import { TouchLongPress } from "../../lib/touch-long-press";
@@ -16,6 +16,8 @@
     branch?: string;
     /** Solus already knows this folder as a project on this host. */
     isProject?: boolean;
+    /** A file the picker offers to choose, not a folder. */
+    isFile?: boolean;
     /** Absolute positioning handed down by the virtual list. */
     style?: string;
     onclick: () => void;
@@ -31,6 +33,7 @@
     isRepo = false,
     branch,
     isProject = false,
+    isFile = false,
     style,
     onclick,
     onContextMenu,
@@ -72,6 +75,8 @@
          row that carries the accent. -->
     {#if isRepo}
       <GitBranchIcon size={13} class="shrink-0 text-primary" />
+    {:else if isFile}
+      <FileIcon size={13} class="shrink-0 text-muted-foreground" />
     {:else}
       <FolderIcon size={13} class="shrink-0 text-muted-foreground" />
     {/if}

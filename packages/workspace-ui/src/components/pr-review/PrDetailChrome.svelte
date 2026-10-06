@@ -24,8 +24,6 @@
     projectCtx,
     onExit,
     actions,
-    onMoveAcross,
-    isLeading = true,
     onToggleMaximize,
     maximized = false,
   }: {
@@ -38,8 +36,6 @@
     onExit: () => void;
     /** The review's own verbs, in the band's action slot. */
     actions?: Snippet;
-    onMoveAcross?: () => void;
-    isLeading?: boolean;
     onToggleMaximize?: () => void;
     maximized?: boolean;
   } = $props();
@@ -194,8 +190,6 @@
   onOpenPage={onExit}
   leafControl={switcher}
   {actions}
-  {onMoveAcross}
-  {isLeading}
   {onToggleMaximize}
   {maximized}
   maximizeLabel="Maximize (⌥M)"

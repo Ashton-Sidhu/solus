@@ -4,10 +4,9 @@ import { organizationPeople } from '@solus/workspace-ui/components/users/lib/org
 import type { ShareList } from '@solus/contracts/sharing'
 import type { SavedServerUplink } from '@solus/client-core/server-registry'
 import {
-  grantsFor,
+  scopeRequestFor,
   guestLinkContext,
   linkPresentation,
-  linkRoleFor,
   ownerLabel,
   personCandidates,
   personRows,
@@ -82,15 +81,25 @@ describe('scope', () => {
   test('a scope becomes rows with its role, and the link keeps the organization as it was', () => {
     // WHY: the link is the widest scope. Dropping the organization row when the link
     // goes on would push teammates through the guest door as viewers.
-    expect(grantsFor({ kind: 'private' }, base, 'org1').grants).toEqual([])
-    expect(grantsFor({ kind: 'team', teamId: 'team-a', role: 'viewer' }, base, 'org1').grants).toEqual([{ subject: { kind: 'team', id: 'team-a' }, role: 'viewer' }])
-    expect(grantsFor({ kind: 'organization', organizationId: 'org1', role: 'editor' }, base, null).grants).toEqual([{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }])
-    expect(grantsFor({ kind: 'link', role: 'viewer' }, base, 'org1').grants).toEqual([{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer' }])
+    expect(scopeRequestFor({ kind: 'private' }, base, 'org1').grants).toEqual([])
+    expect(scopeRequestFor({ kind: 'team', teamId: 'team-a', role: 'viewer' }, base, 'org1').grants).toEqual([{ subject: { kind: 'team', id: 'team-a' }, role: 'viewer' }])
+    expect(scopeRequestFor({ kind: 'organization', organizationId: 'org1', role: 'editor' }, base, null).grants).toEqual([{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }])
+    expect(scopeRequestFor({ kind: 'link', role: 'viewer' }, base, 'org1').grants).toEqual([{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer' }])
     const viewing: ShareList = { ...base, grants: [{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer', grantedByUserId: 'alice', createdAt: 1 }] }
-    expect(grantsFor({ kind: 'link', role: 'editor' }, viewing, 'org1').grants).toEqual([{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer' }])
-    expect(grantsFor({ kind: 'link', role: 'viewer' }, base, null).grants).toEqual([])
-    expect(linkRoleFor({ kind: 'link', role: 'editor' })).toBe('editor')
-    expect(linkRoleFor({ kind: 'organization', organizationId: 'org1', role: 'editor' })).toBeNull()
+    expect(scopeRequestFor({ kind: 'link', role: 'editor' }, viewing, 'org1').grants).toEqual([{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer' }])
+    expect(scopeRequestFor({ kind: 'link', role: 'viewer' }, base, null).grants).toEqual([])
+  })
+
+  test('a scope change carries the link only when the link changes', () => {
+    // WHY: the rows and the link go in one transaction, so the list never lands
+    // between two scopes. A scope that leaves the link as it is must not touch it,
+    // or an unchanged link would be rewritten on every row change.
+    expect(scopeRequestFor({ kind: 'link', role: 'editor' }, base, 'org1').link).toEqual({ role: 'editor' })
+    expect(scopeRequestFor({ kind: 'organization', organizationId: 'org1', role: 'editor' }, base, 'org1').link).toBeUndefined()
+    const linked: ShareList = { ...base, link: { role: 'viewer' } }
+    expect(scopeRequestFor({ kind: 'link', role: 'viewer' }, linked, 'org1').link).toBeUndefined()
+    expect(scopeRequestFor({ kind: 'link', role: 'commenter' }, linked, 'org1').link).toEqual({ role: 'commenter' })
+    expect(scopeRequestFor({ kind: 'private' }, linked, 'org1').link).toEqual({ role: null })
   })
 
   test('"Only …" names the reader when they own it, else the owner', () => {
@@ -148,8 +157,8 @@ describe('people named on the list', () => {
     expect(withPersonRole(list, 'bob', 'editor').grants).toEqual([{ subject: orgRow.subject, role: 'editor' }, { subject: bobRow.subject, role: 'editor' }])
     expect(withPersonRole(list, 'cara', 'viewer').grants).toHaveLength(3)
     expect(withoutPerson(list, 'bob').grants).toEqual([{ subject: orgRow.subject, role: 'editor' }])
-    expect(grantsFor({ kind: 'private' }, list, 'org1').grants).toEqual([{ subject: bobRow.subject, role: 'viewer' }])
-    expect(grantsFor({ kind: 'team', teamId: 'team-a', role: 'editor' }, list, 'org1').grants).toEqual([
+    expect(scopeRequestFor({ kind: 'private' }, list, 'org1').grants).toEqual([{ subject: bobRow.subject, role: 'viewer' }])
+    expect(scopeRequestFor({ kind: 'team', teamId: 'team-a', role: 'editor' }, list, 'org1').grants).toEqual([
       { subject: bobRow.subject, role: 'viewer' },
       { subject: { kind: 'team', id: 'team-a' }, role: 'editor' },
     ])

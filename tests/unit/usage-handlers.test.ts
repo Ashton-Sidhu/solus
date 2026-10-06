@@ -20,8 +20,10 @@ describe('usage handlers', () => {
 
     registerUsageHandlers(server, {
       sessionRuntime: {
-        usageCapableAgents: () => ['claude-code'],
-        readUsageLimits: () => read,
+        history: {
+          usageCapableAgents: () => ['claude-code'],
+          readUsageLimits: () => read,
+        },
         usageLimits: new UsageLimitsStore(),
       } as never,
       events: {
@@ -51,8 +53,10 @@ describe('usage handlers', () => {
 
     registerUsageHandlers(server, {
       sessionRuntime: {
-        usageCapableAgents: () => ['claude-code'],
-        readUsageLimits: async () => null,
+        history: {
+          usageCapableAgents: () => ['claude-code'],
+          readUsageLimits: async () => null,
+        },
         usageLimits: new UsageLimitsStore(),
       } as never,
       events: { broadcast: () => 1 } as never,
@@ -74,10 +78,12 @@ describe('usage handlers', () => {
     const bobSeat = { seat: BOB_SEAT, provider: 'claude-code' as const, home: '/seats/claude/bob' }
     registerUsageHandlers(server, {
       sessionRuntime: {
-        usageCapableAgents: () => ['claude-code'],
-        readUsageLimits: async (_agentId: string, seat?: { home: string }) => {
-          reads.push(seat?.home)
-          return { provider: 'claude-code', fiveHour: null, weekly: null, planType: null, fetchedAt: 1, stale: false, seat: seat?.home }
+        history: {
+          usageCapableAgents: () => ['claude-code'],
+          readUsageLimits: async (_agentId: string, seat?: { home: string }) => {
+            reads.push(seat?.home)
+            return { provider: 'claude-code', fiveHour: null, weekly: null, planType: null, fetchedAt: 1, stale: false, seat: seat?.home }
+          },
         },
         usageLimits: new UsageLimitsStore(),
       } as never,
@@ -114,8 +120,10 @@ describe('usage handlers', () => {
     let statusReads = 0
     registerUsageHandlers(server, {
       sessionRuntime: {
-        usageCapableAgents: () => ['claude-code'],
-        readUsageLimits: async () => ({ provider: 'claude-code', stale: false }),
+        history: {
+          usageCapableAgents: () => ['claude-code'],
+          readUsageLimits: async () => ({ provider: 'claude-code', stale: false }),
+        },
         usageLimits: new UsageLimitsStore(),
       } as never,
       events: { publish: () => 1, broadcast: () => 1 } as never,
@@ -140,8 +148,10 @@ describe('usage handlers', () => {
     const published: AgentUsageLimits[][] = []
     registerUsageHandlers(server, {
       sessionRuntime: {
-        usageCapableAgents: () => ['claude-code'],
-        readUsageLimits: async () => ({ provider: 'claude-code', fiveHour: null, weekly: null, planType: null, fetchedAt: 1, stale: false }),
+        history: {
+          usageCapableAgents: () => ['claude-code'],
+          readUsageLimits: async () => ({ provider: 'claude-code', fiveHour: null, weekly: null, planType: null, fetchedAt: 1, stale: false }),
+        },
         usageLimits: new UsageLimitsStore(),
       } as never,
       events: {

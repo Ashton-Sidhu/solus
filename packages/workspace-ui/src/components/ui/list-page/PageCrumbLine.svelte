@@ -8,7 +8,6 @@
   import { PAGE_SOFT_ICON_BTN } from "../../../lib/page-chrome";
   import { navPageSpec, type NavPage } from "../../../lib/page-nav";
   import { frameChrome } from "../../layout/frame-chrome.store.svelte";
-  import PaneSwapButton from "../PaneSwapButton.svelte";
   import { syncLabel } from "./list-page";
 
   /**
@@ -49,8 +48,6 @@
     syncedAt?: number | null;
     /** The rows on screen came off a cached copy, not from the provider. */
     syncFromCache?: boolean;
-    onMoveAcross?: () => void;
-    isLeading?: boolean;
     onClose?: () => void;
   }
   let {
@@ -63,8 +60,6 @@
     refreshing = false,
     syncedAt = null,
     syncFromCache = false,
-    onMoveAcross,
-    isLeading = true,
     onClose,
   }: Props = $props();
 
@@ -78,7 +73,7 @@
   });
   const syncText = $derived(syncLabel(syncedAt, now, syncFromCache));
 
-  const hasWindowActions = $derived(!!onMoveAcross || !!onClose);
+  const hasWindowActions = $derived(!!onClose);
   const pageTitle = $derived(pageLabel ?? navPageSpec(page).label);
 </script>
 
@@ -177,15 +172,6 @@
       class="mx-1 h-4 w-px shrink-0 bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] @max-[30rem]/pane:hidden"
       aria-hidden="true"
     ></span>
-  {/if}
-
-  <!-- Moving a page between the leading pane and its companion needs a
-       companion. The phone shell renders exactly one pane, so at the record
-       rung this control has nowhere to send the page. -->
-  {#if onMoveAcross}
-    <span class="contents @max-[30rem]/pane:hidden">
-      <PaneSwapButton {isLeading} onMove={onMoveAcross} iconSize={15} iconStroke={1.5} class={PAGE_SOFT_ICON_BTN} />
-    </span>
   {/if}
 
   <!-- Closing a page needs somewhere to land. The phone shell renders one pane

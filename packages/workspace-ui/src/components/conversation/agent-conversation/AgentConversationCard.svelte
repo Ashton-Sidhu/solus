@@ -6,6 +6,7 @@
   import { mergeProps } from "bits-ui";
   import * as Popover from "../../ui/popover";
   import { requestInputFocus } from "../../../lib/inputFocus";
+  import { copyText, toasts } from "../../../lib/toasts";
   import AgentLinkRow from "../AgentLinkRow.svelte";
   import TranscriptCardAction from "../TranscriptCardAction.svelte";
   import type { AgentConversationRef } from "@solus/contracts/types";
@@ -17,7 +18,6 @@
     agentConversationElapsedMs,
     agentConversationLink,
     agentConversationTitle,
-    awaitsHostWord,
     cardTaskId,
     formatAgentConversationDuration,
     hostLabelFor,
@@ -29,7 +29,6 @@
     provenanceLine,
   } from "./lib/agent-conversation";
   import { agentConversationMeta } from "./agent-conversation-meta.store.svelte";
-  import { sentMessages } from "./sent-messages.store.svelte";
   import AgentPlanDecision from "./AgentPlanDecision.svelte";
   import AgentRequestCard from "./AgentRequestCard.svelte";
   import { liveActivityClock } from "../../../lib/shared-clock";
@@ -68,20 +67,8 @@
   });
 
   const meta = $derived(agentConversationMeta.metaFor(ref.agentSessionId));
-  const senderSessionId = $derived(session.sessionFor(tabId)?.id);
-  // A message rebuilt from the transcript asks the host whether it is still live.
-  $effect(() => {
-    if (neverStarted || !senderSessionId || !awaitsHostWord(ref)) return;
-    return sentMessages.retain(senderSessionId, api, serverId);
-  });
-  const lastExchange = $derived(ref.exchanges[ref.exchanges.length - 1]);
-  const carried = $derived(
-    lastExchange?.restored && senderSessionId
-      ? sentMessages.lookup(senderSessionId, serverId, lastExchange.messageId)
-      : undefined,
-  );
   let now = $state(Date.now());
-  const cardState = $derived(agentConversationCardState(ref, carried));
+  const cardState = $derived(agentConversationCardState(ref));
   const live = $derived(isLiveAgentConversationState(cardState));
   // Reloaded transcripts default the provider; the index knows the truth.
   const provider = $derived(meta?.provider ?? ref.provider);
@@ -101,7 +88,7 @@
     formatAgentConversationDuration(agentConversationElapsedMs(ref, now)),
   );
   // What the other agent's turn waits on a person for; answered right here.
-  const request = $derived(cardState === "waiting" ? pendingRequest(ref, carried) : null);
+  const request = $derived(cardState === "waiting" ? pendingRequest(ref) : null);
   const taskId = $derived(cardTaskId(ref));
   const planToDecide = $derived(live ? null : planAwaitingDecision(ref));
 
@@ -116,7 +103,7 @@
       serverId,
       {
         resume: (resumed, opts) => session.opening.resumeSession(resumed, opts),
-        openInSplit: (openedTabId) => session.openTabInSplit(openedTabId),
+        openInSplit: (openedTabId) => session.openTabAsSurface(openedTabId),
       },
       options,
     );
@@ -128,6 +115,12 @@
 
   const link = $derived(agentConversationLink(ref, cardState, neverStarted));
   let menuOpen = $state(false);
+
+  async function copySessionId() {
+    menuOpen = false;
+    await copyText(ref.agentSessionId);
+    toasts.success("Session ID copied");
+  }
 
   function handleMenuCloseAutoFocus(event: Event) {
     event.preventDefault();
@@ -242,11 +235,8 @@
       Open its task
     </TranscriptCardAction>
   {/if}
-  <TranscriptCardAction
-    kind="item"
-    onclick={() => void navigator.clipboard.writeText(ref.agentSessionId)}
-  >
-    Copy session id
+  <TranscriptCardAction kind="item" onclick={() => void copySessionId()}>
+    Copy session ID
   </TranscriptCardAction>
   {#if live && cardState !== "waiting"}
     <TranscriptCardAction kind="item" destructive onclick={stop}>

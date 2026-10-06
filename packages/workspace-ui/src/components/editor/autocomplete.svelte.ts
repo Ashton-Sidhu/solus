@@ -21,6 +21,7 @@ import type {
 import {
   SLASH_COMMANDS,
   codexSlashCommands,
+  slashCommandAppliesTo,
   type SlashCommand,
   type CategorizedSlashCommands,
 } from "../input/slash-commands";
@@ -177,7 +178,9 @@ export class UnifiedAutocompleteController {
 
   commands = $derived.by(
     (): CategorizedSlashCommands => ({
-      solus: this.deps.includeSolusCommands() ? SLASH_COMMANDS : [],
+      solus: this.deps.includeSolusCommands()
+        ? SLASH_COMMANDS.filter((command) => slashCommandAppliesTo(command, this.deps.provider()))
+        : [],
       codex: codexSlashCommands(
         this.deps.provider(),
         this.deps.includeSolusCommands(),

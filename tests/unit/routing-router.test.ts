@@ -19,6 +19,7 @@ const TASKS: RouteRef = { name: 'tasks', params: {} }
 const PRS: RouteRef = { name: 'prs', params: {} }
 const PLAN: RouteRef = { name: 'plan', params: { planId: 'p_1' } }
 const CHAT: RouteRef = { name: 'chat', params: {} }
+const TASK: RouteRef = { name: 'task', params: { taskId: 't_1' } }
 
 describe('history', () => {
   test('back and forward walk the locations that were visited', () => {
@@ -122,44 +123,26 @@ describe('reading the location', () => {
     }
   })
 
-  test('`at` answers for a destination wherever it is showing', () => {
+  test('`at` answers for the destination and the surface on screen, not one in the background', () => {
     const router = new RouterStore()
-    router.navigate(PLAN, { target: 'aside' })
+    router.navigate(PLAN)
+    router.navigate(TASK, { background: true })
 
+    expect(router.at('chat')).toBe(true)
     expect(router.at('plan')).toBe(true)
-    expect(router.at('tasks')).toBe(false)
-    expect(router.panes).toHaveLength(2)
+    expect(router.at('task')).toBe(false)
   })
 
-  test('a pinned chat names its session; the pooled one names none', () => {
+  test('a chat surface names its session; the pooled one names none', () => {
     // The router answers in sessions and never in tabs — resolving a session to
     // the tab rendering it is the workspace's job, not routing's. The leading
     // pane names no session precisely because the pool decides which one shows.
     const router = new RouterStore()
-    const pane = router.navigate({ name: 'chat', params: { sessionId: 'sess_b' } }, { target: 'aside' })
+    const pane = router.navigate({ name: 'chat', params: { sessionId: 'sess_b' } }, { target: 'companion' })
 
     expect(router.chatSessionIn(pane.id)).toBe('sess_b')
     expect(router.chatSessionIn(router.leadingPane.id)).toBeNull()
     expect(router.showsChat(router.leadingPane.id)).toBe(true)
-  })
-
-  test('a target across from a pane does not depend on current focus', () => {
-    // WHY: a symbol popover is portaled. Its action must preserve the source
-    // editor or diff even if focus moved before the user chose a location.
-    const router = new RouterStore()
-    const leadingPaneId = router.leadingPane.id
-    const companion = router.navigate(PLAN, { target: 'aside' })
-
-    router.focusPane(leadingPaneId)
-    expect(router.targetAcrossFrom(companion.id)).toBe(leadingPaneId)
-    expect(router.targetAcrossFrom(leadingPaneId)).toBe(companion.id)
-  })
-
-  test('a target across from a lone pane creates a split', () => {
-    // WHY: go-to-definition must not replace the file or diff being read.
-    const router = new RouterStore()
-
-    expect(router.targetAcrossFrom(router.leadingPane.id)).toBe('new')
   })
 
   test('every navigation bumps the epoch, including a repeat of the same route', () => {
@@ -167,73 +150,241 @@ describe('reading the location', () => {
     // twice has to move the panel again, so a changed param is not enough.
     const router = new RouterStore()
     const diff: RouteRef = { name: 'review', params: { sourceTabId: 'tab_a', view: 'diff', filePath: 'a.ts' } }
-    router.navigate(diff, { target: 'aside' })
+    router.navigate(diff)
     const afterFirst = router.navigationEpoch
 
-    router.navigate(diff, { target: 'aside' })
+    router.navigate(diff)
     expect(router.navigationEpoch).toBe(afterFirst + 1)
 
-    router.navigate({ name: 'review', params: { sourceTabId: 'tab_a', view: 'diff', filePath: 'b.ts' } }, { target: 'aside' })
+    router.navigate({ name: 'review', params: { sourceTabId: 'tab_a', view: 'diff', filePath: 'b.ts' } })
     expect(router.navigationEpoch).toBe(afterFirst + 2)
   })
 })
 
-describe('leading with a route that is already open', () => {
-  const PR_REVIEW: RouteRef = { name: 'prReview', params: { number: 4821 } }
+describe('strips belong to destinations', () => {
+  const REVIEW: RouteRef = { name: 'review', params: { sourceTabId: 'tab_a', view: 'diff' } }
+  const WORK: RouteRef = { name: 'work', params: { workId: 'w_1' } }
 
-  test('a companion review takes the lead so a chat can open beside it', () => {
-    // WHY: "Ask Solus" must never cost the user the review they asked about.
-    // At the pane cap `aside` resolves back to the leading pane, so a review
-    // sitting in the companion would have been overwritten by its own chat.
+  function stripOf(router: InstanceType<typeof RouterStore>): string[] {
+    return router.companionPane?.surfaces.map((ref) => ref.name) ?? []
+  }
+
+  test('leaving a page puts its strip away, and coming back brings it again', () => {
+    // WHY: the task opened beside the board is the board's. Moving to another
+    // page must not show it there, and must not lose it.
     const router = new RouterStore()
-    router.navigate(PR_REVIEW, { target: 'aside' })
+    router.navigate(TASKS)
+    router.navigate(TASK)
 
-    router.leadWith('prReview')
-    router.navigate({ name: 'chat', params: { sessionId: 'sess_pr' } }, { target: 'aside' })
+    router.navigate(PRS)
+    expect(stripOf(router)).toEqual([])
 
-    expect(router.panes.map((pane) => pane.base?.name)).toEqual(['prReview', 'chat'])
-    expect(router.chatSessionIn(router.panes[1].id)).toBe('sess_pr')
+    router.navigate(TASKS)
+    expect(stripOf(router)).toEqual(['task'])
   })
 
-  test('reattaching an Ask Solus checkout keeps chat only in the secondary pane', () => {
-    // WHY: checkout preparation completes after the chat pane opens. At that
-    // point focus is in the secondary pane, where a second relative `aside`
-    // points back at the leading pane and duplicates the conversation.
+  test('each conversation in the pool keeps its own strip', () => {
+    // WHY: a diff belongs to the conversation that made the change. Switching
+    // to another conversation must not show the first one's diff beside it.
     const router = new RouterStore()
-    router.navigate(PR_REVIEW)
+    let activeSession = 's_1'
+    router.poolDestinationKey = () => `session:${activeSession}`
+    router.syncDestination()
+    router.navigate(REVIEW)
 
-    const reveal = () => {
-      router.leadWith('prReview')
-      router.navigate(
-        { name: 'chat', params: { sessionId: 'sess_pr' } },
-        { target: router.asidePanes[0]?.id ?? 'aside' },
-      )
-    }
+    activeSession = 's_2'
+    router.syncDestination()
+    expect(stripOf(router)).toEqual([])
 
-    reveal()
-    reveal()
-
-    expect(router.panes.map((pane) => pane.base?.name)).toEqual(['prReview', 'chat'])
-    expect(router.panes.filter((pane) => pane.base?.name === 'chat')).toHaveLength(1)
+    activeSession = 's_1'
+    router.syncDestination()
+    expect(stripOf(router)).toEqual(['review'])
   })
 
-  test('a review that already leads stays put, and its pane is not rebuilt', () => {
+  test('hiding the companion keeps its strip, and the next surface joins it', () => {
     const router = new RouterStore()
-    const review = router.navigate(PR_REVIEW)
+    router.navigate(TASK)
+    router.navigate(PLAN)
 
-    router.leadWith('prReview')
+    router.hideCompanion()
+    expect(router.companionPane).toBeNull()
+    expect(router.hasHiddenStrip).toBe(true)
 
-    expect(router.panes).toHaveLength(1)
-    expect(router.leadingPane.id).toBe(review.id)
+    router.navigate(WORK)
+    expect(stripOf(router)).toEqual(['task', 'plan', 'work'])
   })
 
-  test('a destination that is not open leaves the location alone', () => {
+  test('showing a hidden strip brings it back with focus', () => {
     const router = new RouterStore()
-    router.navigate(PLAN, { target: 'aside' })
+    router.navigate(TASK)
+    router.hideCompanion()
 
-    router.leadWith('prReview')
+    router.showCompanion()
 
-    expect(router.panes.map((pane) => pane.base?.name)).toEqual(['chat', 'plan'])
+    expect(stripOf(router)).toEqual(['task'])
+    expect(router.focusedPaneId).toBe(router.companionPane?.id)
+    expect(router.hasHiddenStrip).toBe(false)
+  })
+
+  test('a sent draft gives its strip to the conversation it started', () => {
+    // WHY: a task's lead is written with the task beside it. Send must keep
+    // the task there, now beside the conversation.
+    const router = new RouterStore()
+    router.poolDestinationKey = () => 'session:s_new'
+    router.navigate({ name: 'draft', params: { draftId: 'd_1' } })
+    router.navigate(TASK)
+
+    router.carryStrip('draft:d_1', 'session:s_new')
+    router.navigate(CHAT)
+
+    expect(stripOf(router)).toEqual(['task'])
+  })
+
+  test('the strip follows a draft that became the destination\'s conversation first', () => {
+    // WHY: starting the session can make the conversation the destination
+    // before the strip is handed over; the strip must still land beside it.
+    const router = new RouterStore()
+    let activeSession: string | null = null
+    router.poolDestinationKey = () => (activeSession ? `session:${activeSession}` : null)
+    router.navigate({ name: 'draft', params: { draftId: 'd_1' } })
+    router.navigate(TASK)
+
+    activeSession = 's_new'
+    router.navigate(CHAT)
+    expect(stripOf(router)).toEqual([])
+
+    router.carryStrip('draft:d_1', 'session:s_new')
+    expect(stripOf(router)).toEqual(['task'])
+  })
+
+  test('a draft tab put away with a page is still known to the workspace', () => {
+    // WHY: a draft nobody can see looks abandoned. Counted as composed, it is
+    // not taken as the leading pane's home or dropped while its page is away.
+    const router = new RouterStore()
+    const draft: RouteRef = { name: 'draft', params: { draftId: 'd_side' } }
+    router.navigate(TASKS)
+    router.navigate(draft, { target: 'companion' })
+
+    router.navigate(PRS)
+
+    expect(router.storedSurfaces).toEqual([draft])
+  })
+
+  test('a closed conversation\'s strip is forgotten', () => {
+    const router = new RouterStore()
+    let activeSession = 's_1'
+    router.poolDestinationKey = () => `session:${activeSession}`
+    router.syncDestination()
+    router.navigate(REVIEW)
+    activeSession = 's_2'
+    router.syncDestination()
+
+    router.dropStrip('session:s_1')
+    activeSession = 's_1'
+    router.syncDestination()
+
+    expect(stripOf(router)).toEqual([])
+  })
+
+  test('a conversation\'s strip is saved across a restart; a page\'s strip is not', () => {
+    const router = new RouterStore()
+    router.poolDestinationKey = () => 'session:s_1'
+    router.syncDestination()
+    router.navigate(REVIEW)
+    router.navigate(TASKS)
+    router.navigate(TASK)
+    router.navigate(PRS)
+
+    const saved = router.persistedStrips
+    expect(saved.map((strip) => strip.destinationKey)).toEqual(['session:s_1'])
+
+    const restored = new RouterStore()
+    restored.poolDestinationKey = () => 'session:s_1'
+    restored.restoreStrips(saved)
+    restored.syncDestination()
+    expect(stripOf(restored)).toEqual(['review'])
+  })
+})
+
+describe('Run on device', () => {
+  // Device Panel Fixes (task 01M46E8SGHZE08W88BCXEW0TFM): every entry point
+  // that opens Devices reuses one Devices tab, and the conversation stays.
+  const paletteDevices: RouteRef = { name: 'devices', params: {} }
+  const runDevices: RouteRef = { name: 'devices', params: { sessionId: 's_1', serverId: 'local' } }
+
+  test('Devices opened from the palette, then by a run, is one tab with the run\'s session', () => {
+    const router = new RouterStore()
+    router.navigate(paletteDevices)
+
+    router.navigate(runDevices)
+
+    expect(router.companionPane?.surfaces).toEqual([runDevices])
+    expect(router.destination).toEqual(CHAT)
+  })
+
+  test('a run started inside the Devices tab keeps the conversation and every other tab', () => {
+    // WHY: the click focuses the Devices pane. Before, reopening from there
+    // replaced the conversation and showed Devices in both panes.
+    const router = new RouterStore()
+    router.navigate(TASK)
+    const companion = router.navigate(paletteDevices)
+    router.focusPane(companion.id)
+
+    router.navigate(runDevices)
+    router.navigate(runDevices)
+
+    expect(router.destination).toEqual(CHAT)
+    expect(router.panes).toHaveLength(2)
+    expect(router.companionPane?.surfaces.map((ref) => ref.name)).toEqual(['task', 'devices'])
+    expect(router.companionSurface).toEqual(runDevices)
+  })
+
+  test('a Devices tab the user adds from the strip sits beside the first, and a run still reuses the first', () => {
+    // WHY: one Devices tab per strip meant "+ → Devices" only refocused the
+    // open one, so a second device could never be watched in its own tab.
+    const extraDevices: RouteRef = { name: 'devices', params: { surfaceId: 'extra1' } }
+    const router = new RouterStore()
+    router.navigate(paletteDevices)
+    router.navigate(extraDevices)
+
+    router.navigate(runDevices)
+
+    expect(router.companionPane?.surfaces).toEqual([runDevices, extraDevices])
+    expect(router.companionSurface).toEqual(runDevices)
+  })
+
+  test('an extra Devices tab keeps its id through the address', () => {
+    const extraDevices: RouteRef = { name: 'devices', params: { sessionId: 's_1', serverId: 'local', surfaceId: 'extra1' } }
+    expect(parseRef(serializeRef(extraDevices))).toEqual(extraDevices)
+    expect(parseRef(serializeRef(runDevices))).toEqual(runDevices)
+  })
+})
+
+describe('opens the user did not ask for', () => {
+  test('beside another surface, an automatic open waits in the background, marked unread', () => {
+    // WHY: an agent opening the browser must not take the task page out from
+    // under the person reading it.
+    const router = new RouterStore()
+    router.navigate(TASK)
+    const browser: RouteRef = { name: 'browser', params: {} }
+
+    router.navigate(browser, { automatic: true })
+
+    expect(router.companionSurface?.name).toBe('task')
+    expect(router.isSurfaceUnread(browser)).toBe(true)
+
+    router.activateSurface(1)
+    expect(router.isSurfaceUnread(browser)).toBe(false)
+  })
+
+  test('with nothing beside the destination, an automatic open shows at once', () => {
+    const router = new RouterStore()
+    const browser: RouteRef = { name: 'browser', params: {} }
+
+    router.navigate(browser, { automatic: true })
+
+    expect(router.companionSurface?.name).toBe('browser')
+    expect(router.isSurfaceUnread(browser)).toBe(false)
   })
 })
 
@@ -248,7 +399,6 @@ describe('closing the leading pane', () => {
     for (const close of [
       (router: InstanceType<typeof RouterStore>) => router.closePane(router.leadingPane.id),
       (router: InstanceType<typeof RouterStore>) => router.close('tasks'),
-      (router: InstanceType<typeof RouterStore>) => router.closeGroup('page'),
     ]) {
       const router = new RouterStore()
       router.leadingHome = () => DRAFT
@@ -256,32 +406,33 @@ describe('closing the leading pane', () => {
 
       close(router)
 
-      expect(router.leadingPane.base).toEqual(DRAFT)
+      expect(router.destination).toEqual(DRAFT)
     }
   })
 
-  test('the workspace is asked only when the leading pane is the one closing', () => {
-    // WHY: answering may mint a draft, so a companion closing — which simply
-    // leaves the split — must not cost the workspace one.
+  test('closing in the companion pane closes its surface and never asks the workspace', () => {
+    // WHY: answering may mint a draft, so a surface closing must not cost the
+    // workspace one.
     const router = new RouterStore()
     let asked = 0
     router.leadingHome = () => { asked += 1; return DRAFT }
-    const companion = router.navigate(PLAN, { target: 'aside' })
+    const companion = router.navigate(PLAN)
 
     router.closePane(companion.id)
 
     expect(asked).toBe(0)
-    expect(router.leadingPane.base).toEqual({ name: 'chat', params: {} })
+    expect(router.companionPane).toBeNull()
+    expect(router.destination).toEqual(CHAT)
   })
 
-  test('moving the lead\'s content aside leaves home behind it', () => {
+  test('a conversation surface moved to main becomes the destination', () => {
     const router = new RouterStore()
-    router.leadingHome = () => DRAFT
-    router.navigate(TASKS)
+    router.navigate(TASK)
+    router.navigate(DRAFT, { target: 'companion' })
 
-    router.movePane(router.leadingPane.id, 1)
+    router.moveSurfaceToMain(1)
 
-    expect(router.panes.map((pane) => pane.base)).toEqual([DRAFT, TASKS])
+    expect(router.destination).toEqual(DRAFT)
   })
 })
 
@@ -299,7 +450,7 @@ describe('closing Settings', () => {
 
     router.close('settings')
 
-    expect(router.leadingPane.base).toEqual(TASKS)
+    expect(router.destination).toEqual(TASKS)
   })
 
   test('moving between settings tabs does not change where it returns', () => {
@@ -314,7 +465,7 @@ describe('closing Settings', () => {
 
     router.close('settings')
 
-    expect(router.leadingPane.base).toEqual(PRS)
+    expect(router.destination).toEqual(PRS)
   })
 
   test('with nothing remembered it rests on home', () => {
@@ -324,7 +475,7 @@ describe('closing Settings', () => {
 
     router.close('settings')
 
-    expect(router.leadingPane.base).toEqual(DRAFT)
+    expect(router.destination).toEqual(DRAFT)
   })
 
   test('a remembered route that can no longer show falls back to home', () => {
@@ -339,7 +490,7 @@ describe('closing Settings', () => {
 
     router.close('settings')
 
-    expect(router.leadingPane.base).toEqual(DRAFT)
+    expect(router.destination).toEqual(DRAFT)
   })
 
   test('a later visit does not return to an earlier one\'s page', () => {
@@ -354,7 +505,7 @@ describe('closing Settings', () => {
 
     router.close('settings')
 
-    expect(router.leadingPane.base).toEqual(CHAT)
+    expect(router.destination).toEqual(CHAT)
   })
 })
 
@@ -449,5 +600,46 @@ describe('the insights route', () => {
 
   test('a bare "session" segment is the list, not a page with no session', () => {
     expect(parseRef('insights/session')).toEqual({ name: 'insights', params: {} })
+  })
+
+  // WHY: the conversation's action row opens Insights beside the conversation
+  // it measures. Opening a turn from that console must update it there, not
+  // stack a second console in the strip or take the leading pane.
+  test('opens as one surface beside the conversation and updates in place', () => {
+    const router = new RouterStore()
+    const pane = router.navigate({ name: 'insights', params: {} }, { target: 'companion' })
+    router.navigate({ name: 'insights', params: { traceId: 'abc123' } }, { target: 'companion' })
+
+    expect(router.destination.name).toBe('chat')
+    expect(pane.surfaces).toEqual([{ name: 'insights', params: { traceId: 'abc123' } }])
+    expect(router.at('insights')).toBe(true)
+  })
+
+  test('still opens as the destination by default', () => {
+    const router = new RouterStore()
+    router.navigate({ name: 'insights', params: {} })
+
+    expect(router.destination.name).toBe('insights')
+    expect(router.companionPane).toBeNull()
+  })
+})
+
+describe('reporting what the panes show', () => {
+  // WHY: a restored conversation loads only when something shows it, and the
+  // workspace learns that from this report. A change that skips it — a chat
+  // surface opened beside a task, a strip tab, browser back — leaves that
+  // conversation on screen with an empty transcript.
+  test('every change to the location is reported, history included', () => {
+    const router = new RouterStore()
+    let reports = 0
+    router.onLocationChanged = () => { reports += 1 }
+
+    router.navigate(TASK)
+    router.navigate({ name: 'chat', params: { sessionId: 's-2' } }, { target: 'companion' })
+    router.activateSurface(0)
+    expect(reports).toBe(3)
+
+    router.back()
+    expect(reports).toBe(4)
   })
 })

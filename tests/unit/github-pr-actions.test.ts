@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   AUTO_MERGE_REFUSAL_HINT,
+  branchMergeMethods,
   enableGithubAutoMerge,
   githubPullRequestAccess,
   githubPullRequestAccessFor,
@@ -212,6 +213,74 @@ describe('GitHub auto-merge and revert', () => {
     } as unknown as GitHubClient
     const access = await githubPullRequestAccessFor(client, { host: 'github.com', owner: 'acme', repo: 'auto' }, 'viewer', 'author')
     expect(access.viewerPermissions.actions).toContain('enable-auto-merge')
+  })
+
+  test('the base branch rules remove merge methods the repository allows', () => {
+    // WHY: a repository can allow merge commits while its base branch requires
+    // linear history or names its methods. Offering a merge commit there sent
+    // auto-merge to a method GitHub refuses.
+    expect(branchMergeMethods([], false)).toBeNull()
+    expect(branchMergeMethods([{ type: 'required_linear_history' }], false)).toEqual(['squash', 'rebase'])
+    expect(branchMergeMethods([], true)).toEqual(['squash', 'rebase'])
+    expect(
+      branchMergeMethods(
+        [
+          { type: 'pull_request', parameters: { allowed_merge_methods: ['merge', 'squash'] } },
+          { type: 'required_linear_history' },
+        ],
+        false,
+      ),
+    ).toEqual(['squash'])
+
+    const linear = githubPullRequestAccess({ ...writer, allowAutoMerge: true, branchMergeMethods: ['squash', 'rebase'] })
+    expect(linear.capabilities.mergeMethods).toEqual(['squash', 'rebase'])
+  })
+
+  test('the server names the default method: the viewer default when the branch allows it', () => {
+    // WHY: every merge control starts on this method, so it must be one the
+    // base branch accepts, and GitHub's own pick when it is.
+    const preferred = githubPullRequestAccess({ ...writer, allowAutoMerge: false, defaultMergeMethod: 'rebase' })
+    expect(preferred.capabilities.defaultMergeMethod).toBe('rebase')
+    expect(preferred.capabilities.mergeMethods).toEqual(['merge', 'squash', 'rebase'])
+    expect(
+      githubPullRequestAccess({
+        ...writer,
+        allowAutoMerge: false,
+        defaultMergeMethod: 'merge',
+        branchMergeMethods: ['squash', 'rebase'],
+      }).capabilities.defaultMergeMethod,
+    ).toBe('squash')
+  })
+
+  test('reads the base branch rules for a pull request', async () => {
+    const client = {
+      rest: {
+        repos: {
+          get: async () => ({ data: { permissions: { push: true } } }),
+          getBranchRules: {},
+        },
+        paginate: async () => [{ type: 'pull_request', parameters: { allowed_merge_methods: ['squash'] } }],
+      },
+      graphql: async (query: string) =>
+        query.includes('branchProtectionRule')
+          ? { repository: { ref: { branchProtectionRule: null } } }
+          : {
+              repository: {
+                mergeCommitAllowed: true,
+                squashMergeAllowed: true,
+                rebaseMergeAllowed: true,
+                autoMergeAllowed: true,
+                viewerDefaultMergeMethod: 'MERGE',
+              },
+            },
+    } as unknown as GitHubClient
+    const repo = { host: 'github.com', owner: 'acme', repo: 'squash-only' }
+    const branch = (await githubPullRequestAccessFor(client, repo, 'viewer', 'author', 'main')).capabilities
+    expect(branch.mergeMethods).toEqual(['squash'])
+    expect(branch.defaultMergeMethod).toBe('squash')
+    // Without a branch the question is the repository's alone.
+    expect((await githubPullRequestAccessFor(client, repo, 'viewer', 'author')).capabilities.mergeMethods)
+      .toEqual(['merge', 'squash', 'rebase'])
   })
 
   test('arms auto-merge with the chosen method against the head the viewer saw', async () => {

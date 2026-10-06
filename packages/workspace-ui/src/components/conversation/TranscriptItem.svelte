@@ -20,7 +20,6 @@
   import TaskRefCard from "./TaskRefCard.svelte";
   import BrowserSnapshotCard from "../browser/BrowserSnapshotCard.svelte";
   import BrowserSnapshotGallery from "../browser/BrowserSnapshotGallery.svelte";
-  import DeviceBuildCard from "../devices/DeviceBuildCard.svelte";
   import BrowserRecordingCard from "../browser/BrowserRecordingCard.svelte";
   import AgentConversationGroup from "./agent-conversation/AgentConversationGroup.svelte";
   import ArtifactView from "../artifact/ArtifactView.svelte";
@@ -260,13 +259,6 @@
   <BrowserRecordingCard
     recording={item.message.browserRecording}
     serverId={sess?.run.serverId}
-    {skipMotion}
-  />
-{:else if item.kind === "device-build" && item.message.deviceBuild}
-  <DeviceBuildCard
-    buildRef={item.message.deviceBuild}
-    serverId={sess?.run.serverId}
-    sessionId={sess?.id}
     {skipMotion}
   />
 {:else if item.kind === "agent-conversation-group"}

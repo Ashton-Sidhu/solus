@@ -177,7 +177,7 @@ describe.serial('SessionRuntime background status', () => {
       // work often starts mid-task and the agent resumes when it settles, so a
       // "finished" notification here announced work that had not finished.
       expect(settlements(events)).toEqual([])
-      expect(plane.isSessionBusy(SESSION_ID)).toBe(false)
+      expect(plane.statuses.isSessionBusy(SESSION_ID)).toBe(false)
     } finally {
       plane.shutdown()
     }

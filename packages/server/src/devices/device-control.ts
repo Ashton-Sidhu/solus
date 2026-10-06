@@ -8,12 +8,11 @@ import { DeviceDomainError } from './device-errors'
 
 /**
  * One controller per device (plan 016, S01). Watching never takes control.
- * Every mutation names the lease generation it was issued under; an older
- * generation is refused, so a delayed command cannot act after a takeover.
+ * A mutation is allowed only for the current holder. The lease generation
+ * only tells a client which lease is its own; commands do not carry it.
  *
- * A person taking control from an agent pauses agent device actions at once
- * and waits for the agent's in-flight mutation to finish before the grant.
- * The agent stays paused until someone explicitly resumes it: releasing
+ * A person taking control from an agent pauses agent device actions and gets
+ * control at once. The agent stays paused until someone explicitly resumes it: releasing
  * control, a lease expiring or a disconnect never resumes it, and never
  * grants an agent control.
  *
@@ -33,10 +32,6 @@ interface Slot {
   target: DeviceControlTarget
   lease: DeviceControlLease | null
   agentPaused: boolean
-  pendingTakeover?: { clientId: string; label: string }
-  inFlight: number
-  /** Resolvers waiting for in-flight mutations to drain. */
-  drained: (() => void)[]
 }
 
 const slotKey = (target: DeviceControlTarget) => `${target.deviceHostId}\u0000${target.deviceId}`
@@ -49,7 +44,7 @@ export function sameHolder(a: DeviceControlHolder, b: DeviceControlHolder): bool
 
 export class DeviceControl {
   private readonly slots = new Map<string, Slot>()
-  /** Seeded from the clock so generations from before a host restart never match. */
+  /** Seeded from the clock so a client never mistakes a lease from before a restart for its own. */
   private nextGeneration: number
 
   constructor(
@@ -63,7 +58,7 @@ export class DeviceControl {
     const key = slotKey(target)
     let slot = this.slots.get(key)
     if (!slot) {
-      slot = { target: { deviceHostId: target.deviceHostId, deviceId: target.deviceId }, lease: null, agentPaused: false, inFlight: 0, drained: [] }
+      slot = { target: { deviceHostId: target.deviceHostId, deviceId: target.deviceId }, lease: null, agentPaused: false }
       this.slots.set(key, slot)
     }
     return slot
@@ -79,13 +74,11 @@ export class DeviceControl {
 
   private stateOf(slot: Slot): DeviceControlState {
     const lease = this.liveLease(slot)
-    const state: DeviceControlState = {
+    return {
       ...slot.target,
       lease: lease ? { ...lease, holder: { ...lease.holder } } : null,
       agentPaused: slot.agentPaused,
     }
-    if (slot.pendingTakeover) state.pendingTakeover = { ...slot.pendingTakeover }
-    return state
   }
 
   /** Every device someone controls or whose agent actions are paused. */
@@ -93,7 +86,7 @@ export class DeviceControl {
     const out: DeviceControlState[] = []
     for (const slot of this.slots.values()) {
       const state = this.stateOf(slot)
-      if (state.lease || state.agentPaused || state.pendingTakeover) out.push(state)
+      if (state.lease || state.agentPaused) out.push(state)
     }
     return out
   }
@@ -118,31 +111,18 @@ export class DeviceControl {
   /**
    * A person takes control. A free device, their own lease and another
    * person's lease are granted at once. From an agent, agent actions pause
-   * immediately and the grant waits for the in-flight mutation.
+   * and the person gets control at once.
    */
-  async acquireForUser(target: DeviceControlTarget, holder: DeviceControlHolder & { kind: 'user' }): Promise<DeviceControlResult> {
+  acquireForUser(target: DeviceControlTarget, holder: DeviceControlHolder & { kind: 'user' }): DeviceControlResult {
     const slot = this.slot(target)
     const lease = this.liveLease(slot)
     if (lease && sameHolder(lease.holder, holder)) {
       lease.expiresAt = this.now() + USER_LEASE_MS
-      return { status: 'granted', lease: { ...lease }, control: this.stateOf(slot) }
+      return { lease: { ...lease }, control: this.stateOf(slot) }
     }
-    if (lease?.holder.kind === 'agent') {
-      slot.agentPaused = true
-      if (slot.inFlight > 0) {
-        slot.pendingTakeover = { clientId: holder.clientId, label: holder.label }
-        this.onChange()
-        await new Promise<void>((resolve) => slot.drained.push(resolve))
-        if (slot.pendingTakeover?.clientId === holder.clientId) delete slot.pendingTakeover
-        const after = this.liveLease(slot)
-        if (after?.holder.kind === 'user' && !sameHolder(after.holder, holder)) {
-          return { status: 'superseded', control: this.stateOf(slot) }
-        }
-        if (!this.slots.has(slotKey(target))) return { status: 'superseded', control: this.state(target) }
-      }
-    }
+    if (lease?.holder.kind === 'agent') slot.agentPaused = true
     const granted = this.grant(slot, holder)
-    return { status: 'granted', lease: { ...granted }, control: this.stateOf(slot) }
+    return { lease: { ...granted }, control: this.stateOf(slot) }
   }
 
   /** An agent asks to mutate. Never takes a device from a person or another agent. */
@@ -181,34 +161,17 @@ export class DeviceControl {
     this.onChange()
   }
 
-  /**
-   * Begin one mutation. Throws unless `generation` is the live lease's and
-   * this holder owns it. Call the returned function in `finally`.
-   */
-  begin(target: DeviceControlTarget, generation: number, holder: DeviceControlHolder): () => void {
+  /** Allow one mutation, and renew the lease. Throws unless this holder has control. */
+  authorize(target: DeviceControlTarget, holder: DeviceControlHolder): void {
     const slot = this.slots.get(slotKey(target))
     const lease = slot ? this.liveLease(slot) : null
-    if (!slot || !lease) throw new DeviceDomainError('control_required', 'Take control of this device first.')
-    if (lease.generation !== generation || !sameHolder(lease.holder, holder)) {
-      throw new DeviceDomainError('control_stale', 'Control of this device changed. Take control again.')
+    if (!slot || !lease || !sameHolder(lease.holder, holder)) {
+      throw new DeviceDomainError('control_required', 'Take control of this device first.')
     }
     if (holder.kind === 'agent' && slot.agentPaused) {
       throw new DeviceDomainError('agent_paused', 'The user took control of this device. Wait until they resume agent control.')
     }
     lease.expiresAt = this.now() + (holder.kind === 'user' ? USER_LEASE_MS : AGENT_LEASE_MS)
-    slot.inFlight++
-    let ended = false
-    return () => {
-      if (ended) return
-      ended = true
-      slot.inFlight--
-      if (slot.inFlight === 0) for (const resolve of slot.drained.splice(0)) resolve()
-    }
-  }
-
-  /** Is this generation still live? Queued work checks before each step. */
-  isCurrent(target: DeviceControlTarget, generation: number): boolean {
-    return this.state(target).lease?.generation === generation
   }
 
   /** A client's connection expired: its leases end. Agents stay paused. */
@@ -241,7 +204,6 @@ export class DeviceControl {
     let changed = false
     for (const [key, slot] of this.slots) {
       if (!predicate(slot.target)) continue
-      for (const resolve of slot.drained.splice(0)) resolve()
       this.slots.delete(key)
       changed = true
     }

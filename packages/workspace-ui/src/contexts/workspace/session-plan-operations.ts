@@ -31,15 +31,11 @@ export async function openPlanModal(ctx: WorkspaceContext, planId: string, ref?:
   sessionId?: string
   planToolUseId?: string
   status?: Plan['status']
-}, opts: { secondary?: boolean } = {}): Promise<void> {
+}): Promise<void> {
   let targetPlanId = planId || (ref?.sessionId && ref.planToolUseId ? planKey(ref.sessionId, ref.planToolUseId) : '')
   if (!targetPlanId) return
 
-  // `secondary` forces the plan beside the conversation (the conversation-ref
-  // "pop out to side" action); otherwise it takes the focused pane.
-  const reveal = (id: string) => {
-    ctx.openPlan(id, opts.secondary ? 'aside' : 'focused')
-  }
+  const reveal = (id: string) => ctx.openPlan(id)
 
   const plan = ctx.planStore.plans[targetPlanId]
   if (plan?.content?.trim()) {

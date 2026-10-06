@@ -46,6 +46,9 @@
   import PrViewTabs from "./PrViewTabs.svelte";
   import PrCheckoutButton from "./PrCheckoutButton.svelte";
   import PrReviewButton from "./PrReviewButton.svelte";
+  import PrPrimaryAction from "./PrPrimaryAction.svelte";
+  import { mergeReadiness, type MergeAction } from "./lib/merge-readiness";
+  import { isFailing, orderedChecks } from "../prs/lib/checks";
   import PageComposer from "../page-composer/PageComposer.svelte";
   import LensSurface from "../review/LensSurface.svelte";
   import { reviewLensStore, type LensSubject } from "../review/review-lens.store.svelte";
@@ -58,7 +61,6 @@
     buildPrChecksFixPrompt,
     buildPrCommentsFixPrompt,
     buildPrQuestionDraft,
-    buildPrUpdateBranchPrompt,
     type PrFailingCheck,
     type PrFixFeedback,
   } from "./lib/pr-input-drafts";
@@ -81,7 +83,6 @@
     embedded = false,
     fullScreen = false,
     onToggleFullScreen,
-    onMoveAcross,
     onExit,
     onUnresolvedCountChange,
     onRefreshTarget,
@@ -112,11 +113,6 @@
     /** Embedded only: the panel is covering the list rather than sitting beside it. */
     fullScreen?: boolean;
     onToggleFullScreen?: () => void;
-    /** Move the review between the leading pane and the companion beside it.
-     *  Passed only by the route adapter: mounted as the pull requests page's
-     *  own detail panel there is no pane of its own to move. `embedded` states
-     *  which way the move goes. */
-    onMoveAcross?: () => void;
     /** How Esc and the close control get out. Defaults to leaving the review route. */
     onExit?: () => void;
     onUnresolvedCountChange?: (count: number) => void;
@@ -567,7 +563,6 @@
     intent: PrComposerIntent,
   ) {
     if (!pr) return;
-    const targetPane = paneId ?? session.router.focusedPaneId;
     const hadCheckout = review.sourceContext !== null;
     const progress = toasts.progress(
       hadCheckout
@@ -580,7 +575,9 @@
       session.prReview.openPrReviewDraft(sourceContext, {
         prompt,
         serverId,
-        target: targetPane,
+        // A surface beside the review, so the PR stays on screen while the
+        // prompt is written.
+        target: "companion",
         task,
       });
       progress.success(
@@ -643,16 +640,29 @@
     await openFixDraft(buildPrChecksFixPrompt(target, checks));
   }
 
-  async function openUpdateBranch() {
-    if (!reviewDetail) return;
-    await openFixDraft(
-      buildPrUpdateBranchPrompt({
-        number: target.number,
-        title: target.title,
-        baseRef: reviewDetail.baseRef,
-        headRef: reviewDetail.headRef,
-      }),
-    );
+  // The pull request's one move, read from the same table as the status card
+  // on Activity so the header and the card never disagree. The checks and the
+  // threads are the ones this pane already keeps fresh.
+  const prChecks = $derived(pullRequests.checks.summaryFor(serverId, projectCtx(), target.number));
+  const readiness = $derived(
+    reviewDetail
+      ? mergeReadiness({
+          detail: reviewDetail,
+          checks: prChecks,
+          checksLoadFailed: pullRequests.checks.loadFailedFor(serverId, projectCtx()),
+          unresolvedCount: review.unresolvedCount,
+          approvedReviewCount: (reviewDetail.reviewers ?? []).filter((reviewer) => reviewer.state === "APPROVED").length,
+        })
+      : null,
+  );
+
+  async function runAgentAction(move: MergeAction) {
+    if (move.kind === "resolve-conflicts")
+      await session.prReview.startConflictResolverSession(
+        { number: target.number, title: reviewDetail?.title ?? target.title },
+        { ctx: prCtx() },
+      );
+    else if (move.kind === "fix-checks") await openFixChecks(orderedChecks(prChecks).filter(isFailing));
   }
 
   function exit() {
@@ -753,6 +763,15 @@
   />
 {/snippet}
 
+{#snippet primaryAction()}
+  <PrPrimaryAction
+    number={target.number}
+    pullRequest={reviewDetail}
+    {readiness}
+    onAgentAction={runAgentAction}
+  />
+{/snippet}
+
 {#snippet checkoutButton()}
   <PrCheckoutButton {preparingComposer} disabled={!pr} onclick={() => void openPrComposer()} />
 {/snippet}
@@ -801,8 +820,6 @@
       {fullScreen}
       {onToggleFullScreen}
       onOpenPage={prUrl ? openPr : undefined}
-      {onMoveAcross}
-      isLeading={false}
       onClose={exit}
       onRefresh={() => void refreshPr()}
       refreshing={refreshingPr}
@@ -814,6 +831,9 @@
            gives the pull request a worktree and a session composer. Refresh
            and the external host page live in the overflow, and the check
            state is read on Activity. -->
+      {#snippet numberAction()}
+        {@render primaryAction()}
+      {/snippet}
       {#snippet actions()}
         {@render reviewButton()}
         {@render checkoutButton()}
@@ -828,11 +848,11 @@
       {serverId}
       {projectCtx}
       onExit={exit}
-      {onMoveAcross}
       {onToggleMaximize}
       {maximized}
     >
       {#snippet actions()}
+        {@render primaryAction()}
         {@render reviewButton()}
         {@render checkoutButton()}
         <!-- The same overflow the panel band carries, so refresh, external
@@ -983,7 +1003,6 @@
           addressCommentsReady={!!pr && review.checkoutStatus !== "preparing"}
           onAddressComments={() => openFixComments()}
           onFixChecks={openFixChecks}
-          onUpdateBranch={openUpdateBranch}
           generationStatus={visibleGuideStatus}
           onOpenGuide={() => select("guide")}
           onGenerateGuide={generateGuide}

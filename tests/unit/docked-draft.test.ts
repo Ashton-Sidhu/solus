@@ -48,7 +48,7 @@ function runIn(workingDirectory: string): RunConfig {
 
 /** One pane showing a work page, and the workspace members the controller reads. */
 function draftsBesideAWorkPage() {
-  const pane = { id: 'lead', base: { name: 'work', params: { workId: 'w1' } } }
+  const pane = { id: 'lead', surfaces: [{ name: 'work', params: { workId: 'w1' } }], activeSurfaceIndex: 0 }
   let drafts: InstanceType<typeof SessionDrafts>
   const workspace = {
     settings: { modelOptionsByProvider: {} },
@@ -58,7 +58,15 @@ function draftsBesideAWorkPage() {
     runFor: () => undefined,
     rootTaskIdFor: () => null,
     opening: { moveToRunOnHost: () => {} },
-    router: { focusedPaneId: pane.id, panes: [pane], pane: () => pane, navigate: () => {} },
+    router: {
+      focusedPaneId: pane.id,
+      panes: [pane],
+      leadingPane: pane,
+      storedSurfaces: [],
+      pane: () => pane,
+      navigate: () => {},
+      dropStrip: () => {},
+    },
   }
   drafts = new SessionDrafts(workspace as never)
   return drafts

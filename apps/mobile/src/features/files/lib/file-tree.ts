@@ -76,3 +76,62 @@ export function fileSizeLabel(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
+
+/** One row of T3 Code's expandable file tree: an entry and how deep it sits. */
+export interface FileTreeRow {
+  kind: 'folder' | 'file'
+  name: string
+  /** Root-relative path. */
+  path: string
+  depth: number
+  /** Child count of a folder; 0 for a file. */
+  childCount: number
+}
+
+/**
+ * The rows under `rootPath`, folders first, as T3 Code's file tree shows
+ * them: an expanded folder lists its children below it. A search shows every
+ * entry whose path holds all the words, with the folders that lead to it
+ * open, and ignores `expanded`.
+ */
+export function visibleTreeRows(tree: FileTree, rootPath: string, expanded: ReadonlySet<string>, query = ''): FileTreeRow[] {
+  const words = query.toLowerCase().split(/[\s/\\._-]+/).filter(Boolean)
+  const matches = (path: string) => {
+    const lower = path.toLowerCase()
+    return words.every((word) => lower.includes(word))
+  }
+  const rows: FileTreeRow[] = []
+  // Returns whether the folder at `folderPath` holds a search match.
+  const walk = (folderPath: string, depth: number): boolean => {
+    const listing = folderListing(tree, folderPath)
+    let found = false
+    for (const name of listing.folders) {
+      const path = childPath(folderPath, name)
+      const row: FileTreeRow = { kind: 'folder', name, path, depth, childCount: childCount(tree, path) }
+      if (words.length === 0) {
+        rows.push(row)
+        if (expanded.has(path)) walk(path, depth + 1)
+        continue
+      }
+      const at = rows.length
+      rows.push(row)
+      const inside = walk(path, depth + 1)
+      if (inside || matches(path)) found = true
+      else rows.length = at
+    }
+    for (const name of listing.files) {
+      const path = childPath(folderPath, name)
+      if (words.length > 0 && !matches(path)) continue
+      rows.push({ kind: 'file', name, path, depth, childCount: 0 })
+      found = true
+    }
+    return found
+  }
+  walk(rootPath, 0)
+  return rows
+}
+
+function childCount(tree: FileTree, folderPath: string): number {
+  const listing = folderListing(tree, folderPath)
+  return listing.folders.length + listing.files.length
+}

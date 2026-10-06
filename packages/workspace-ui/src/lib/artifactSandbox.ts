@@ -1,12 +1,74 @@
 // Shared substrate for Solus's sandboxed-iframe renders. The
 // conversation artifact card (ArtifactView) wraps untrusted/generated HTML with
-// a CSP, a mirror of the live Solus theme variables (the frame can't read
+// a CSP, theme tokens filled from the live Solus theme (the frame can't read
 // the host's CSS without allow-same-origin), and a height-reporting loop so the
 // frame can grow to its content. Kept here as a cross-feature utility.
 
-// Solus palette mirrored into the sandboxed frame so the render can drive
-// colours off `var(--solus-…)` and sit flush in the app's theme.
-const THEME_VARS = [
+// The theme a render styles against: t3code's token set (`--background`,
+// `--card`, `--primary`, `--chart-1`…), filled from the live Solus theme. Each
+// token names the Solus variable it copies, so the page matches the
+// conversation around the frame and follows the user's theme.
+const THEME_TOKENS: ReadonlyArray<readonly [token: string, solusVariable: string]> = [
+  ['--background', '--solus-container-bg'],
+  ['--foreground', '--solus-text-primary'],
+  ['--muted', '--solus-art-raised'],
+  ['--muted-foreground', '--solus-text-secondary'],
+  ['--card', '--solus-art-surface'],
+  ['--card-foreground', '--solus-text-primary'],
+  ['--popover', '--solus-popover-bg'],
+  ['--popover-foreground', '--solus-text-primary'],
+  ['--secondary', '--solus-art-raised'],
+  ['--secondary-foreground', '--solus-text-primary'],
+  ['--border', '--solus-art-border'],
+  ['--input', '--solus-art-border-strong'],
+  ['--ring', '--solus-accent'],
+  ['--primary', '--solus-accent'],
+  ['--primary-foreground', '--solus-text-on-accent'],
+  ['--accent', '--solus-accent'],
+  ['--accent-foreground', '--solus-text-on-accent'],
+  ['--accent-surface', '--solus-surface-hover'],
+  ['--accent-surface-foreground', '--solus-text-primary'],
+  ['--destructive', '--solus-art-negative'],
+  ['--destructive-foreground', '--solus-art-negative'],
+  ['--success', '--solus-art-positive'],
+  ['--success-foreground', '--solus-art-positive'],
+  ['--code-background', '--solus-art-raised'],
+  ['--code-foreground', '--solus-text-primary'],
+  // The Solus data series: terracotta, amber, green, teal, blue, plum.
+  ['--chart-1', '--solus-art-1'],
+  ['--chart-2', '--solus-art-2'],
+  ['--chart-3', '--solus-art-3'],
+  ['--chart-4', '--solus-art-4'],
+  ['--chart-5', '--solus-art-5'],
+  ['--chart-6', '--solus-art-6'],
+  ['--font-sans', '--solus-font-family'],
+];
+
+// Roles the Solus theme has no token for. Each surface is a tint of its
+// colour, so it sits on the page in either mode.
+const FIXED_COLORS = {
+  light: { warning: '#b86e00', warningForeground: '#965f10', info: '#2a71d6', infoForeground: '#1d4ed8' },
+  dark: { warning: '#ffb020', warningForeground: '#ffc561', info: '#4aa3ff', infoForeground: '#7cbcff' },
+} as const;
+
+function fixedTokens(isDark: boolean): string[] {
+  const fixed = FIXED_COLORS[isDark ? 'dark' : 'light'];
+  return [
+    '--destructive-surface:color-mix(in srgb,var(--destructive) 14%,transparent)',
+    `--warning:${fixed.warning}`,
+    `--warning-foreground:${fixed.warningForeground}`,
+    `--warning-surface:color-mix(in srgb,${fixed.warning} 14%,transparent)`,
+    `--info:${fixed.info}`,
+    `--info-foreground:${fixed.infoForeground}`,
+    '--radius:0.625rem',
+    '--font-mono:"SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace',
+  ];
+}
+
+// The previous variable names. Renders already in transcripts and saved works
+// style against them, so the frame still supplies them. New guidance teaches
+// only the tokens above.
+const LEGACY_THEME_VARS = [
   '--solus-container-bg',
   '--solus-container-bg-collapsed',
   '--solus-surface-primary',
@@ -21,8 +83,6 @@ const THEME_VARS = [
   '--solus-accent-border-medium',
   '--solus-tool-border',
   '--solus-font-family',
-  // Artifact palette — ivory neutrals + brand-coherent categorical
-  // data colours, so renders never fall back to generic grey/rainbow.
   '--solus-art-surface',
   '--solus-art-raised',
   '--solus-art-border',
@@ -133,25 +193,31 @@ const RESIZE_REPORTER = `<script>(function(){
 /** Read the host palette for initial injection and live theme messages. */
 export function buildSandboxThemeCss(isDark: boolean): string {
   const cs = getComputedStyle(document.documentElement);
-  const decls = THEME_VARS.map((name) => `${name}:${cs.getPropertyValue(name).trim()}`)
-    .filter((d) => !d.endsWith(":"))
+  const read = (name: string) => cs.getPropertyValue(name).trim();
+  const declarations = [
+    ...THEME_TOKENS.map(([token, solusVariable]) => [token, read(solusVariable)] as const),
+    ...LEGACY_THEME_VARS.map((name) => [name, read(name)] as const),
+  ]
+    .filter(([, value]) => value !== "")
+    .map(([name, value]) => `${name}:${value}`)
+    .concat(fixedTokens(isDark))
     .join(";");
   return (
-    `:root{color-scheme:${isDark ? "dark" : "light"};${decls}}` +
+    `:root{color-scheme:${isDark ? "dark" : "light"};${declarations}}` +
     // A sandboxed iframe has its own document canvas. Chromium paints that
     // canvas white when the root is transparent, even when the host pane is
-    // dark. Paint the root with the mirrored pane colour, but keep the body
+    // dark. Paint the root with the pane colour, but keep the body
     // transparent so artifact markup still has no outer card of its own.
-    `html{margin:0;background:var(--solus-container-bg,Canvas);` +
-    `color:var(--solus-text-primary);` +
-    `font-family:var(--solus-font-family,-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif);` +
-    `font-size: var(--text-sm);line-height:1.5;-webkit-font-smoothing:antialiased;` +
+    `html{margin:0;background:var(--background,Canvas);color:var(--foreground);` +
+    `font-family:var(--font-sans,-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif);` +
+    `font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%;` +
     // The frame grows to the document, so the document never scrolls. Hidden
     // overflow keeps a wheel over the render from latching onto an invisible
     // inner scroller instead of moving the transcript.
     `overflow:hidden;scrollbar-width:none;` +
     `text-rendering:optimizeLegibility}` +
     `body{margin:0;background:transparent;color:inherit;font:inherit;}` +
+    `code,kbd,pre,samp{font-family:var(--font-mono)}` +
     // A render that caps its own width — a card with a max-width — sat against
     // the left edge of a frame that is as wide as the transcript. Centre every
     // root block: a full-width block is unaffected, and an author's own margin

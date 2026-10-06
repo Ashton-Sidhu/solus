@@ -24,7 +24,6 @@
   import DesignAnnotation from "@solus/workspace-ui/components/artifact/DesignAnnotation.svelte";
   import RenameSessionDialog from "@solus/workspace-ui/components/session/RenameSessionDialog.svelte";
   import SessionLinkPrompts from "@solus/workspace-ui/components/session/SessionLinkPrompts.svelte";
-  import BusyTreeConfirm from "@solus/workspace-ui/components/busy-tree/BusyTreeConfirm.svelte";
   import { Toaster } from "@solus/workspace-ui/components/ui/sonner/index.js";
   import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
 
@@ -502,7 +501,6 @@
       {/snippet}
     </LazyDialog>
 
-    <BusyTreeConfirm />
 
     <SessionLinkPrompts />
 

@@ -313,14 +313,14 @@ describe('sharing a Local work', () => {
   const transfer = { work: { id: 'w1' }, previousRevisionId: null, revisions: [], annotations: null, fingerprint: 'fp-1' }
   const workList: ShareList = { ...cloudList, resource: work }
 
-  /** The machine gives the work and removes it; the cloud stores the upload. Every call is recorded. */
-  function machineAndCloud(options: { upload?: () => Promise<unknown>; remove?: () => Promise<void> } = {}) {
+  /** The machine gives the work and marks it moved; the cloud stores the upload. Every call is recorded. */
+  function machineAndCloud(options: { upload?: () => Promise<unknown>; markMoved?: () => Promise<void> } = {}) {
     const calls: string[] = []
     connections.registerPrimary('local', {
       publicationList: async () => [],
       publicationStart: async () => { calls.push('publicationStart'); throw new Error('a work is not published by the machine') },
       workExportForCloud: async (workId: string) => { calls.push(`export:${workId}`); return transfer },
-      workRemoveUploaded: async (workId: string, fingerprint: string) => { calls.push(`remove:${workId}:${fingerprint}`); await options.remove?.() },
+      workMarkMoved: async (workId: string, fingerprint: string) => { calls.push(`mark-moved:${workId}:${fingerprint}`); await options.markMoved?.() },
     })
     connections.registerHost(CLOUD, {
       shareGet: async () => workList,
@@ -333,16 +333,16 @@ describe('sharing a Local work', () => {
     return calls
   }
 
-  test('Share reads the work from the machine, uploads that export to the organization, then removes the local copy', async () => {
+  test('Share reads the work from the machine, uploads that export to the organization, then marks the local copy moved', async () => {
     // WHY: a work is a cloud copy made with the person's sign-in; the machine only
-    // gives and removes it, so the host link plays no part (docs/plans/cloud-sharing.md §3).
+    // gives it and marks it moved, so the host link plays no part (docs/plans/cloud-sharing.md §3).
     const calls = machineAndCloud()
     const { store, published } = await newStore()
 
     await store.open(workTarget)
     await settle()
 
-    expect(calls).toEqual(['export:w1', 'upload:the export', 'remove:w1:fp-1'])
+    expect(calls).toEqual(['export:w1', 'upload:the export', 'mark-moved:w1:fp-1'])
     expect(published).toEqual([['w1', 'org-1', CLOUD]])
     expect(store.dialog).toEqual({ serverId: CLOUD, resource: work, title: 'Release plan' })
   })
@@ -357,13 +357,13 @@ describe('sharing a Local work', () => {
     await store.open(workTarget)
     await settle()
 
-    expect(calls).toEqual(['export:w1', 'upload:the export', 'remove:w1:fp-1'])
+    expect(calls).toEqual(['export:w1', 'upload:the export', 'mark-moved:w1:fp-1'])
     expect(store.dialog).toEqual({ serverId: CLOUD, resource: work, title: 'Release plan' })
     expect(directoryReads).toBe(0)
   })
 
   test('a refused upload keeps the local copy and shows the reason with Retry', async () => {
-    // WHY: the local copy goes only after the cloud has it.
+    // WHY: the local copy points at the cloud only after the cloud has it.
     const calls = machineAndCloud({ upload: async () => { throw new Error('This work already belongs to another organization.') } })
     const { store, published } = await newStore()
 
@@ -376,13 +376,13 @@ describe('sharing a Local work', () => {
   })
 
   test('a work that changed after it was read stays on the machine, and Share says so', async () => {
-    const calls = machineAndCloud({ remove: async () => { throw new Error('The work changed during the cloud push. Its local copy was kept.') } })
+    const calls = machineAndCloud({ markMoved: async () => { throw new Error('The work changed during the cloud push. Its local copy was kept.') } })
     const { store, published } = await newStore()
 
     await store.open(workTarget)
     await settle()
 
-    expect(calls).toEqual(['export:w1', 'upload:the export', 'remove:w1:fp-1'])
+    expect(calls).toEqual(['export:w1', 'upload:the export', 'mark-moved:w1:fp-1'])
     expect(published).toEqual([])
     expect(store.dialog?.publication?.status).toEqual({ kind: 'failed', error: 'The work changed during the cloud push. Its local copy was kept.' })
   })
@@ -442,8 +442,8 @@ describe('a task\'s link', () => {
     const calls: string[] = []
     connections.registerPrimary('local', {
       taskExportForCloud: async (taskId: string) => { calls.push(`export:${taskId}`); return { task: taskTransfer, works: [workTransfer] } },
-      taskRemoveUploaded: async (taskId: string, fingerprint: string, works: Array<{ workId: string; fingerprint: string }>) => {
-        calls.push(`remove:${taskId}:${fingerprint}:${works.map((work) => `${work.workId}:${work.fingerprint}`).join(',')}`)
+      taskMarkMoved: async (taskId: string, fingerprint: string, works: Array<{ workId: string; fingerprint: string }>) => {
+        calls.push(`mark-moved:${taskId}:${fingerprint}:${works.map((work) => `${work.workId}:${work.fingerprint}`).join(',')}`)
       },
     })
     connections.registerHost(CLOUD, {
@@ -454,7 +454,7 @@ describe('a task\'s link', () => {
 
     await store.copyTaskLink('local', 't1')
 
-    expect(calls).toEqual(['export:t1', 'upload-work:w1', 'upload-task:t1', 'remove:t1:task-fp:w1:work-fp'])
+    expect(calls).toEqual(['export:t1', 'upload-work:w1', 'upload-task:t1', 'mark-moved:t1:task-fp:w1:work-fp'])
     expect(published).toEqual([['w1', 'org-1', CLOUD]])
     expect(await Promise.all(copied.map(opensTaskOf))).toEqual([{ origin: 'https://app.example.test', taskId: 't1', serverId: CLOUD }])
     expect(store.dialog).toBeNull()
@@ -493,7 +493,7 @@ describe('sharing an Insights report', () => {
       publicationList: async () => [],
       createWork: async (title: string, type: string, content: string) => { calls.push(`create:${type}:${title}:${content}`); return { id: 'report-1' } },
       workExportForCloud: async (workId: string) => { calls.push(`export:${workId}`); return transfer },
-      workRemoveUploaded: async (workId: string) => { calls.push(`remove:${workId}`) },
+      workMarkMoved: async (workId: string) => { calls.push(`mark-moved:${workId}`) },
     })
     connections.registerHost(CLOUD, {
       shareGet: async () => ({ ...cloudList, resource: { kind: 'work', id: 'report-1' } }),
@@ -505,7 +505,7 @@ describe('sharing an Insights report', () => {
     await store.shareReport('local', { title: 'Turn report', content: '# Turn report', agentProvider: 'claude-code' })
     await settle()
 
-    expect(calls).toEqual(['create:insights-report:Turn report:# Turn report', 'export:report-1', 'upload', 'remove:report-1'])
+    expect(calls).toEqual(['create:insights-report:Turn report:# Turn report', 'export:report-1', 'upload', 'mark-moved:report-1'])
     expect(store.dialog).toEqual({ serverId: CLOUD, resource: { kind: 'work', id: 'report-1' }, title: 'Turn report' })
   })
 })
@@ -588,4 +588,19 @@ describe('the organization directory', () => {
     expect(store.directories.get(CLOUD)).toBe(people)
     expect(loads).toBe(1)
   })
+})
+
+test('sharing identity follows the connection answer after reconnect instead of a separate identity cache', async () => {
+  let userId = 'first-person'
+  connections.registerHost('identity-host', {
+    connectionsGetServerInfo: async () => ({ principal: 'org-member', userId, organizationId: 'org-1' }),
+  })
+  const { SharesStore } = await import('@solus/workspace-ui/contexts/sharing/shares.store.svelte')
+  const store = new SharesStore()
+  expect((await store.identityFor('identity-host')).userId).toBe('first-person')
+  // The connection owner supplies the current session's answer; the sharing
+  // projection must not hide it behind another independently cached answer.
+  userId = 'second-person'
+  expect((await store.identityFor('identity-host')).userId).toBe('second-person')
+  expect(store.identities.get('identity-host')?.userId).toBe('second-person')
 })

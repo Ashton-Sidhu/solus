@@ -726,6 +726,25 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     })
   })
 
+  // The host's "Update branch". A merge commit unless the base branch only
+  // takes rebases, where a merge commit on the head could never land.
+  server.register('prUpdateBranch', async (args) => {
+    const [ctx, number, expectedHeadSha] = args
+    return writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
+      const current = await pullRequest.readFresh()
+      if (current.headSha !== expectedHeadSha) {
+        throw new Error('This pull request changed. Refresh it before updating its branch.')
+      }
+      if (current.state !== 'open') throw new Error('Only an open pull request has a branch to update.')
+      const methods = current.capabilities.mergeMethods
+      const method = methods.length > 0 && methods.every((allowed) => allowed === 'rebase') ? 'rebase' : 'merge'
+      await provider.review.updatePullRequestBranch(repo, number, method, expectedHeadSha)
+      const updated = await pullRequest.readFresh()
+      await deps.prSync.apply({ repo, provider }, updated)
+      return updated
+    })
+  })
+
   server.register('prRevert', async (args, handlerCtx) => {
     const [ctx, number] = args
     const { repo, opened } = await writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {

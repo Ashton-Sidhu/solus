@@ -18,10 +18,8 @@
 <!-- After the content: a window drag rect later in the DOM would re-cover this
      cluster's no-drag holes. -->
 <PaneChrome
-  onClose={pane.closeOverlay}
-  onOpenInSplit={!pane.isLeading ? pane.moveAcross : undefined}
+  onClose={pane.close}
   onToggleMaximize={pane.toggleMaximize}
   maximized={pane.maximized}
-  isLeading={pane.isLeading}
   closeLabel="Close sub-agent panel"
 />

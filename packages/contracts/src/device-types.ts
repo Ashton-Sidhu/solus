@@ -129,7 +129,7 @@ export interface DeviceControlLease {
   deviceHostId: string
   deviceId: string
   holder: DeviceControlHolder
-  /** Increases on every grant. A command naming an older generation is refused. */
+  /** Increases on every grant. A client compares it to know which lease is its own. */
   generation: number
   expiresAt: number
 }
@@ -141,8 +141,6 @@ export interface DeviceControlState {
   lease: DeviceControlLease | null
   /** Agent device actions stay paused until someone resumes them. */
   agentPaused: boolean
-  /** A takeover is waiting for an in-flight agent mutation to finish. */
-  pendingTakeover?: { clientId: string; label: string }
 }
 
 /** The revisioned device snapshot every authorized client renders from. */
@@ -157,6 +155,8 @@ export interface DeviceState {
   controls: DeviceControlState[]
   /** Recent app builds an agent handed to Solus, newest first. */
   builds: DeviceBuild[]
+  /** Build-and-run operations on this host, newest first. */
+  runs: DeviceRun[]
 }
 
 /**
@@ -179,17 +179,6 @@ export interface DeviceBuild {
   /** The stored APK, downloadable through `assetCreateUrl`. Null for iOS. */
   assetId: string | null
   lastInstall: { deviceHostId: string; deviceId: string; deviceName: string; installedAt: number } | null
-}
-
-/** What the conversation keeps about a build. The card reads the live build
- *  from the device state by id; this is what it shows when that build is gone. */
-export interface DeviceBuildRef {
-  buildId: string
-  name: string
-  platform: DevicePlatform
-  appId: string | null
-  /** The device the agent installed it on in the same call, if any. */
-  installedOn: string | null
 }
 
 /** Can this build go on this device? Answers with the reason it cannot. */
@@ -240,7 +229,6 @@ export type DeviceCloseRequest = z.infer<typeof deviceCloseRequestSchema>
 
 export const deviceShutdownRequestSchema = deviceTargetSchema.extend({
   platform: z.enum(DEVICE_PLATFORMS),
-  controlGeneration: z.number().int().nonnegative(),
 })
 export type DeviceShutdownRequest = z.input<typeof deviceShutdownRequestSchema>
 
@@ -266,10 +254,10 @@ export const deviceControlRequestSchema = deviceTargetSchema.extend({
 })
 export type DeviceControlRequest = z.input<typeof deviceControlRequestSchema>
 
-export type DeviceControlResult =
-  | { status: 'granted'; lease: DeviceControlLease; control: DeviceControlState }
-  /** Someone else took control while this request waited. */
-  | { status: 'superseded'; control: DeviceControlState }
+export interface DeviceControlResult {
+  lease: DeviceControlLease
+  control: DeviceControlState
+}
 
 // ─── Input ───
 
@@ -279,42 +267,23 @@ export type DeviceButton = (typeof DEVICE_BUTTONS)[number]
 export const DEVICE_ORIENTATIONS = ['portrait', 'landscape_left', 'portrait_upside_down', 'landscape_right'] as const
 export type DeviceOrientation = (typeof DEVICE_ORIENTATIONS)[number]
 
-const unit = z.number().min(0).max(1)
-
-export const deviceInputSchema = z.discriminatedUnion('kind', [
-  /** Normalized 0..1 in the displayed screen of `screenGeneration`. */
-  z.object({ kind: z.literal('pointer'), phase: z.enum(['down', 'move', 'up', 'cancel']), x: unit, y: unit }),
-  z.object({ kind: z.literal('text'), text: z.string().min(1).max(2000) }),
-  z.object({
-    kind: z.literal('key'),
-    phase: z.enum(['down', 'up']),
-    /** `KeyboardEvent.code` (iOS HID). */
-    code: z.string().max(32),
-    /** `KeyboardEvent.key` (Android). */
-    key: z.string().max(32),
-    hasModifier: z.boolean().optional(),
-  }),
-  z.object({ kind: z.literal('scroll'), x: unit, y: unit, deltaX: z.number().min(-1).max(1), deltaY: z.number().min(-1).max(1) }),
-  z.object({ kind: z.literal('button'), button: z.enum(DEVICE_BUTTONS) }),
-  z.object({ kind: z.literal('rotate') }),
-])
-export type DeviceInput = z.infer<typeof deviceInputSchema>
-
-export const deviceInputRequestSchema = deviceTargetSchema.extend({
-  controlGeneration: z.number().int().nonnegative(),
-  /** Pointer coordinates are only valid against the screen they were made on. */
-  screenGeneration: z.number().int().nonnegative(),
-  inputs: z.array(deviceInputSchema).min(1).max(64),
-})
-export type DeviceInputRequest = z.input<typeof deviceInputRequestSchema>
+/** One input a client sends a device through the hub proxy. Coordinates are normalized 0..1 in the displayed screen. */
+export type DeviceInput =
+  | { kind: 'pointer'; phase: 'down' | 'move' | 'up' | 'cancel'; x: number; y: number }
+  | { kind: 'text'; text: string }
+  /** `code` is `KeyboardEvent.code` (iOS HID); `key` is `KeyboardEvent.key` (Android). */
+  | { kind: 'key'; phase: 'down' | 'up'; code: string; key: string; hasModifier?: boolean }
+  | { kind: 'scroll'; x: number; y: number; deltaX: number; deltaY: number }
+  | { kind: 'button'; button: DeviceButton }
+  | { kind: 'rotate' }
 
 // ─── Stream ───
 
-export const deviceSubscribeRequestSchema = deviceTargetSchema.extend({
-  /** `jpeg` when this client cannot decode H.264 (iOS only). */
-  format: z.enum(['h264', 'jpeg']),
-})
-export type DeviceSubscribeRequest = z.input<typeof deviceSubscribeRequestSchema>
+/** A short-lived signed path on the host that opens one device's hub stream (docs/plans/native-devices.md, D2). */
+export interface DeviceStreamUrl {
+  path: string
+  platform: DevicePlatform
+}
 
 export interface DeviceScreenConfig {
   width: number
@@ -323,36 +292,6 @@ export interface DeviceScreenConfig {
   screenId?: number
 }
 
-/**
- * One packet on the binary `device-frame` channel. The header rides beside the
- * bytes; video is never base64'd into a typed event.
- *
- * - `config`: decoder configuration. `format: 'avcc'` carries the avcC record
- *   as bytes; `annexb` carries no bytes (parameter sets ride in keyframes).
- * - `key` / `delta`: one encoded access unit.
- * - `jpeg`: one whole image (MJPEG fallback and iOS seed frames).
- * - `screen`: no bytes; the device screen changed and input generation moved.
- * - `ended`: no bytes; the upstream stream stopped (reason in `detail`).
- */
-export type DeviceFramePacketKind = 'config' | 'key' | 'delta' | 'jpeg' | 'screen' | 'ended'
-
-export interface DeviceFrameHeader {
-  deviceHostId: string
-  deviceId: string
-  /** Increases whenever the upstream stream restarts. */
-  streamGeneration: number
-  seq: number
-  kind: DeviceFramePacketKind
-  codec?: string
-  format?: 'avcc' | 'annexb'
-  /** Microseconds, when the source provides them. */
-  timestamp?: number
-  screen?: DeviceScreenConfig
-  screenGeneration?: number
-  detail?: string
-}
-
-export const MAX_DEVICE_FRAME_BYTES = 8 * 1024 * 1024
 
 // ─── Settings and actions (P10–P13) ───
 
@@ -427,7 +366,6 @@ export type DeviceAction = z.infer<typeof deviceActionSchema>
 export type DeviceActionType = DeviceAction['type']
 
 export const deviceActionRequestSchema = deviceTargetSchema.extend({
-  controlGeneration: z.number().int().nonnegative(),
   action: deviceActionSchema,
 })
 export type DeviceActionRequest = z.input<typeof deviceActionRequestSchema>
@@ -475,11 +413,82 @@ export function deviceSupportsButton(platform: DevicePlatform, button: DeviceBut
 
 export const deviceInstallRequestSchema = deviceTargetSchema.extend({
   buildId: z.string().trim().min(1).max(128),
-  controlGeneration: z.number().int().nonnegative(),
   /** Open the app after it installs. Defaults to true. */
   launch: z.boolean().optional(),
 })
 export type DeviceInstallRequest = z.input<typeof deviceInstallRequestSchema>
+
+/** Add a build output that is already on the host: an iOS `.app` bundle or an Android `.apk`. */
+export const deviceBuildImportRequestSchema = z.object({
+  /** A path on the host. The host resolves `~`. */
+  path: z.string().trim().min(1).max(4096),
+  /** The conversation the build belongs to, if any. */
+  sessionId: z.string().trim().max(128).optional(),
+})
+export type DeviceBuildImportRequest = z.input<typeof deviceBuildImportRequestSchema>
+
+// ─── Build and run ───
+
+/** One way to build the app, saved in the project's `.solus/config.json`. */
+export const deviceRunProfileSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  platform: z.enum(DEVICE_PLATFORMS),
+  /** Which iOS devices the build runs on. Android builds run on both. */
+  target: z.enum(['simulator', 'device', 'any']),
+  /** Folder to build in, relative to the checkout root. */
+  cwd: z.string().trim().max(512).default('.'),
+  /** The executable and its arguments. Run without a shell. */
+  command: z.array(z.string().max(1024)).min(1).max(64),
+  /** The `.app` or `.apk` the build makes, relative to `cwd`. A `*` matches
+   *  within one path segment; the newest match wins. */
+  artifact: z.string().trim().min(1).max(1024),
+  appId: z.string().trim().max(255).regex(/^[A-Za-z0-9._-]*$/).optional(),
+})
+export type DeviceRunProfile = z.infer<typeof deviceRunProfileSchema>
+export const MAX_DEVICE_RUN_PROFILES = 10
+
+export type DeviceRunStage = 'building' | 'installing' | 'done' | 'failed' | 'cancelled'
+
+/** One build-and-run. The full log is read on demand (`deviceRunLog`). */
+export interface DeviceRun {
+  runId: string
+  profileName: string
+  /** The checkout folder name and branch the build ran in. */
+  checkout: string
+  branch: string | null
+  deviceHostId: string
+  deviceId: string
+  deviceName: string
+  stage: DeviceRunStage
+  /** The newest log line, for a one-line status. */
+  lastLine: string | null
+  error: string | null
+  buildId: string | null
+  startedAt: number
+  endedAt: number | null
+}
+
+export function isDeviceRunActive(run: Pick<DeviceRun, 'stage'>): boolean {
+  return run.stage === 'building' || run.stage === 'installing'
+}
+
+export const deviceRunStartRequestSchema = deviceTargetSchema.extend({
+  /** The conversation's checkout. Resolved on the host. */
+  checkoutPath: z.string().trim().min(1).max(4096),
+  profileName: z.string().trim().min(1).max(60),
+  /** Opens a simulator or emulator in this session so the app shows. */
+  sessionId: z.string().min(1).max(200).optional(),
+  /** The person confirmed this command; the host remembers it. */
+  approve: z.boolean().optional(),
+})
+export type DeviceRunStartRequest = z.input<typeof deviceRunStartRequestSchema>
+
+export interface DeviceRunLog {
+  runId: string
+  /** The newest part of the output, bounded. */
+  text: string
+  truncated: boolean
+}
 
 // ─── Projects ───
 
@@ -512,7 +521,8 @@ export interface DeviceScreenshotResult {
 export const DEVICE_ERROR_CODES = [
   'feature_disabled', 'host_unavailable', 'platform_unavailable', 'device_not_found', 'boot_failed',
   'command_failed', 'request_failed', 'action_unsupported', 'helper_missing', 'control_required',
-  'control_stale', 'control_busy', 'agent_paused', 'session_forbidden', 'stale_generation', 'invalid_request',
+  'control_busy', 'agent_paused', 'session_forbidden', 'invalid_request',
+  'confirmation_required',
 ] as const
 export type DeviceErrorCode = (typeof DEVICE_ERROR_CODES)[number]
 

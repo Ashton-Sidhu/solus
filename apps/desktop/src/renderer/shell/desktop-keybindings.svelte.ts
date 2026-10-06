@@ -173,8 +173,9 @@ export function installDesktopKeybindings(
     requestInputFocus();
   }
 
-  useKeybinding("global.next-tab", () => navigateTab(1));
-  useKeybinding("global.prev-tab", () => navigateTab(-1));
+  // In the companion pane the tab keys move between its surfaces.
+  useKeybinding("global.next-tab", () => session.moveBetweenSurfaces(1) || navigateTab(1));
+  useKeybinding("global.prev-tab", () => session.moveBetweenSurfaces(-1) || navigateTab(-1));
   useKeybinding("global.next-session", () => {
     const order = scopedSessionTabOrder();
     const idx = order.indexOf(activeTabId);
@@ -214,6 +215,7 @@ export function installDesktopKeybindings(
     session.ui.unifiedPickerOpen = !session.ui.unifiedPickerOpen;
   });
   useKeybinding("global.close-tab", () => {
+    if (session.closeFocusedSurface()) return;
     if (activeTabId) core.sessionSidebarStore.closeTabs([activeTabId], "keybinding");
   });
   useKeybinding("global.group-tabs", () => {
@@ -236,7 +238,7 @@ export function installDesktopKeybindings(
     },
   );
   useKeybinding("global.toggle-reasoning", () => {
-    const isComposingDraft = session.router.leadingPane.base?.name === "draft";
+    const isComposingDraft = session.router.destination.name === "draft";
     const targetTabId = isComposingDraft ? undefined : keyboardTabId;
     const targetStatus = targetTabId
       ? session.sessionFor(targetTabId)?.status

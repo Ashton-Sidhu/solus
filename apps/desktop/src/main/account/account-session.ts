@@ -1,4 +1,7 @@
 import type { AccountState, DeviceSignInEnd } from '@solus/contracts/account-types'
+import { HostGrantCache, type GrantOptions } from '@solus/client-core/host-grant-cache'
+import type { HostAccessTokenResponse } from '@solus/contracts/uplink'
+import { acquireHostAccessToken } from './uplink-client'
 import { createLogger } from '@solus/server/logger'
 import { profileFromResponse } from '@solus/client-core/cloud-account'
 import { AccountStore, type StoredAccount } from './account-store'
@@ -36,8 +39,10 @@ export class AccountSession {
   private stored: StoredAccount | null
   private signInAbort: AbortController | null = null
   private lastVerifyAttemptAt = 0
+  private readonly grants: HostGrantCache
 
   constructor(private readonly deps: AccountSessionDeps) {
+    this.grants = new HostGrantCache(deps.now)
     const canPersist = deps.store.canPersist()
     this.stored = canPersist ? deps.store.load() : null
     this.state = !canPersist
@@ -80,6 +85,14 @@ export class AccountSession {
   /** Whether a session is stored. A null `cloudRequest` then means the website did not answer. */
   get isSignedIn(): boolean {
     return this.stored !== null
+  }
+
+  /** Shared by every desktop window and the local host's owner-token callback. */
+  async acquireHostAccessToken(hostId: string, organizationId?: string, options?: GrantOptions): Promise<HostAccessTokenResponse | null> {
+    const token = this.stored?.sessionToken
+    if (!token) return null
+    const grant = await this.grants.acquire(hostId, organizationId, () => acquireHostAccessToken(this, hostId, organizationId), options)
+    return this.stored?.sessionToken === token ? grant : null
   }
 
   /**
@@ -154,6 +167,7 @@ export class AccountSession {
       return 'error'
     }
     this.stored = { sessionToken: result.sessionToken, profile, cloudOrigin: this.deps.cloudOrigin, signedInAt: now, lastVerifiedAt: now }
+    this.grants.clear()
     this.deps.store.save(this.stored)
     this.setState(signedInState(this.stored, false))
     log.info('account_sign_in_ended', { end: 'approved' })
@@ -170,6 +184,11 @@ export class AccountSession {
   async signOut(): Promise<void> {
     this.cancelSignIn()
     const headers = this.authHeaders()
+    this.stored = null
+    this.grants.clear()
+    this.deps.store.clear()
+    this.setState({ kind: 'signed-out' })
+    log.info('account_signed_out')
     if (headers) {
       try {
         await this.deps.fetch(`${this.deps.cloudOrigin}/api/auth/sign-out`, { method: 'POST', headers })
@@ -177,10 +196,6 @@ export class AccountSession {
         // The local session ends regardless; the website drops it on expiry.
       }
     }
-    this.stored = null
-    this.deps.store.clear()
-    this.setState({ kind: 'signed-out' })
-    log.info('account_signed_out')
   }
 
   /**
@@ -188,7 +203,8 @@ export class AccountSession {
    * expired it; a network failure keeps the session and marks it stale.
    */
   async verify(reason: 'boot' | 'focus' | 'retry'): Promise<void> {
-    if (!this.stored) return
+    const stored = this.stored
+    if (!stored) return
     const now = this.deps.now()
     if (reason === 'focus' && now - this.lastVerifyAttemptAt < VERIFY_INTERVAL_MS) return
     this.lastVerifyAttemptAt = now
@@ -197,12 +213,14 @@ export class AccountSession {
     try {
       response = await this.deps.fetch(`${this.deps.cloudOrigin}/api/account/me`, { headers: this.authHeaders()! })
     } catch {
-      this.setState(signedInState(this.stored, true))
+      if (this.stored?.sessionToken === stored.sessionToken) this.setState(signedInState(this.stored, true))
       return
     }
+    if (this.stored?.sessionToken !== stored.sessionToken) return
     if (response.status === 401) {
       log.info('account_invalidated', { reason: 'revoked' })
       this.stored = null
+      this.grants.clear()
       this.deps.store.clear()
       this.setState({ kind: 'invalid', reason: 'revoked' })
       return
@@ -212,6 +230,7 @@ export class AccountSession {
       return
     }
     const profile = await profileFromResponse(response)
+    if (this.stored?.sessionToken !== stored.sessionToken) return
     if (profile) this.stored = { ...this.stored, profile, lastVerifiedAt: now }
     this.deps.store.save(this.stored)
     this.setState(signedInState(this.stored, false))

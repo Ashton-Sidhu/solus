@@ -75,8 +75,8 @@ async function run(file: string): Promise<void> {
   const output = openSync(logPath, 'w')
   const database = admin ? await createDatabase() : null
   const engineEnv = database
-    ? { SOLUS_DB: 'postgres', DATABASE_URL: database.url }
-    : { SOLUS_DB: 'sqlite', DATABASE_URL: '' }
+    ? { SOLUS_DB: 'postgres', DATABASE_URL: database.url, SOLUS_TEST_DATABASE_URL: database.url }
+    : { SOLUS_DB: 'sqlite', DATABASE_URL: '', SOLUS_TEST_DATABASE_URL: '' }
   const child = spawn(process.execPath, ['test', '--no-orphans', file], {
     cwd: root,
     env: {

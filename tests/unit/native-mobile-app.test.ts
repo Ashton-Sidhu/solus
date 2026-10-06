@@ -82,14 +82,14 @@ describe('native app composition', () => {
 
   test('a new conversation starts from the person\'s own defaults, not the host\'s config', async () => {
     // createApp's host answers configGet with 'supervised'; the person chose 'plan' on this device.
-    const { app, api } = createApp()
+    const { app } = createApp()
     await app.load()
     app.personal.set({ defaultPermissionMode: 'plan' })
     await app.pair({ url: 'http://10.0.0.8:3000' }, 'ABC123')
     const store = app.conversation('inst-a', { newSession: { sessionId: 's2', provider: 'codex', workingDirectory: '/w' } })!
     await untilReady(store)
+    // The host's 'supervised' lost: its config is read only for the TypeSafe key Auto needs.
     expect(store.controller.run).toMatchObject({ preferredModel: 'gpt-6-astra', permissionMode: 'plan' })
-    expect(api.callsOf('configGet')).toEqual([])
   })
 
   test('a returning launch reopens the last conversation once its host is loaded', async () => {
@@ -107,15 +107,17 @@ describe('native app composition', () => {
     await second.app.load()
     const lastRoute = second.app.lastRoute()
     expect(lastRoute?.record?.sessionId).toBe('t1')
-    expect(initialRoutes({ hasHosts: true, isSignedIn: false, lastRoute, compact: true }).map((route) => route.name))
-      .toEqual(['Hosts', 'Projects', 'Workspace', 'Conversation'])
-    expect(initialRoutes({ hasHosts: true, isSignedIn: false, lastRoute, compact: false }).at(-1))
-      .toEqual({ name: 'Workspace', params: { hostId: 'inst-a', projectPath: '/w', selected: { record } } })
+    // Home stays beneath the restored thread: the way back on a phone, the sidebar's list on an iPad.
+    expect(initialRoutes({ hasHosts: true, isSignedIn: false, lastRoute }))
+      .toEqual([{ name: 'Home' }, { name: 'Thread', params: { hostId: 'inst-a', sessionId: 't1' } }])
+    expect(initialRoutes({ hasHosts: true, isSignedIn: false, lastRoute: { hostId: 'inst-a', projectPath: '/w' } }))
+      .toEqual([{ name: 'Home' }])
   })
 
   test('first launch offers the two ways in; a signed-in account with no host goes to its hosts', () => {
-    expect(initialRoutes({ hasHosts: false, isSignedIn: false, lastRoute: null, compact: true })).toEqual([{ name: 'Welcome' }])
-    expect(initialRoutes({ hasHosts: false, isSignedIn: true, lastRoute: null, compact: true }).map((route) => route.name)).toEqual(['Hosts', 'CloudHosts'])
+    expect(initialRoutes({ hasHosts: false, isSignedIn: false, lastRoute: null })).toEqual([{ name: 'Welcome' }])
+    expect(initialRoutes({ hasHosts: false, isSignedIn: true, lastRoute: null }).map((route) => route.name)).toEqual(['Hosts', 'CloudHosts'])
+    expect(initialRoutes({ hasHosts: true, isSignedIn: false, lastRoute: null })).toEqual([{ name: 'Home' }])
   })
 })
 

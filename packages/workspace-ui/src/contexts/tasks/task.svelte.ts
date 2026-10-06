@@ -19,6 +19,7 @@
 // host serving it, its detail payload, its attempts — is private, so the public
 // surface of a Task is the task plus the things you can do to it.
 
+import { taskSnoozesStore } from './task-snoozes.store.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostApi } from '@solus/client-core/host-api'
 import type {
@@ -325,6 +326,25 @@ export class Task implements TaskRecord {
 
   async markRead(read: boolean): Promise<this> {
     this.hydrate(await this.#api.tasksMarkRead(this.id, read))
+    return this
+  }
+
+  /** The reader's own snooze: their lists hide the task until then. It is
+   *  not part of the task record; each person's host answers their own. */
+  get snoozedUntil(): number | undefined {
+    return taskSnoozesStore.get(this.id)?.snoozedUntil
+  }
+
+  get snoozeNote(): string | undefined {
+    return taskSnoozesStore.get(this.id)?.snoozeNote
+  }
+
+  /** Hide the task from the reader's task lists until `until`, or wake it now
+   *  with null. Nobody else's lists change, and its agents keep working. */
+  async snooze(until: number | null, note = ''): Promise<this> {
+    const serverId = await this.ownerHost()
+    if (!serverId) throw new Error('No connected host has this task.')
+    await taskSnoozesStore.snooze(serverId, this.id, until, note)
     return this
   }
 

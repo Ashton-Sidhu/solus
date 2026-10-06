@@ -10,7 +10,7 @@ import { linkTargetRecordKey, linkTargetRecordsFor } from './host-records'
 import { taskLinks, taskSessionLinks, tasks } from './schema'
 import { sessionPullRequests } from '../sessions/schema'
 import { recordSessionPullRequestObservation, sessionPullRequestIsMerged } from '../sessions/session-pull-requests'
-import { database, emitChanged } from './task-store'
+import { database, emitChanged, TASK_HERE } from './task-store'
 import { scopeClause } from '../scope'
 import type { RecordScope } from '../../admission/principal'
 import type {
@@ -395,7 +395,7 @@ export async function readTasksLinkingTargets(
       tasks.title, tasks.status, tasks.short_id, tasks.project_key
     FROM ${taskLinks}
     JOIN ${tasks} ON tasks.id = task_links.task_id
-    WHERE ${scopeClause(scope, sql`tasks.organization_id`)} AND (${clause})
+    WHERE ${scopeClause(scope, sql`tasks.organization_id`)} AND ${TASK_HERE} AND (${clause})
     ORDER BY task_links.linked_at DESC
   `))
   return rows.map((row) => {
@@ -427,7 +427,7 @@ export async function readPrLinkWatchList(db: Db, scope: RecordScope): Promise<P
       MAX(CASE WHEN tasks.status NOT IN ('done', 'dropped') THEN 1 ELSE 0 END) AS active
     FROM ${taskLinks}
     JOIN ${tasks} ON tasks.id = task_links.task_id
-    WHERE ${scopeClause(scope, sql`tasks.organization_id`)}
+    WHERE ${scopeClause(scope, sql`tasks.organization_id`)} AND ${TASK_HERE}
       AND task_links.kind = 'pr'
       AND task_links.target_scope <> ''
     GROUP BY task_links.target_scope, task_links.target_key

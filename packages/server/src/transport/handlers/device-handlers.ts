@@ -4,12 +4,12 @@ import {
   deviceCloseRequestSchema,
   deviceConfigureRequestSchema,
   deviceControlRequestSchema,
-  deviceInputRequestSchema,
   deviceInstallRequestSchema,
+  deviceBuildImportRequestSchema,
+  deviceRunStartRequestSchema,
   deviceOpenRequestSchema,
   deviceScreenshotRequestSchema,
   deviceShutdownRequestSchema,
-  deviceSubscribeRequestSchema,
   deviceTargetSchema,
   deviceToolUpdateRequestSchema,
   sshDeviceHostConfigSchema,
@@ -103,27 +103,42 @@ export function registerDeviceHandlers(
   server.register('deviceShutdown', async (args, ctx) => {
     const request = parse(deviceShutdownRequestSchema, args[0])
     // Powering off is a mutation: it needs the caller's live control lease.
-    const end = manager.control.begin(request, request.controlGeneration, userHolder(ctx))
-    try {
-      await manager.shutdown(request)
-    } finally {
-      end()
-    }
+    manager.control.authorize(request, userHolder(ctx))
+    await manager.shutdown(request)
   })
 
-  server.register('deviceInput', (args, ctx) => {
-    const request = parse(deviceInputRequestSchema, args[0])
-    return manager.input(ctx.clientId, userHolder(ctx), request)
-  })
   server.register('deviceAction', (args, ctx) => {
     const request = parse(deviceActionRequestSchema, args[0])
-    return manager.action(request, request.action, request.controlGeneration, userHolder(ctx))
+    return manager.action(request, request.action, userHolder(ctx))
   })
 
   server.register('deviceInstall', async (args, ctx) => {
     const request = parse(deviceInstallRequestSchema, args[0])
-    const { build } = await manager.installBuild(request, request.buildId, request.controlGeneration, userHolder(ctx), request.launch ?? true)
+    const { build } = await manager.installBuild(request, request.buildId, userHolder(ctx), request.launch ?? true)
     return build
+  })
+
+  server.register('deviceBuildImport', async (args) => {
+    const request = parse(deviceBuildImportRequestSchema, args[0])
+    // A client path is not a real path until it is resolved on this host.
+    const path = request.path === '~' ? null : resolveHomePath(request.path)
+    if (!path || !isAbsolute(path)) throw new DeviceDomainError('invalid_request', 'Enter the full path of the build on the host.')
+    const { path: _path, ...build } = await manager.addBuild(path, request.sessionId ?? '')
+    return build
+  })
+  server.register('deviceBuildDelete', (args) => manager.deleteBuild(parse(z.string().trim().min(1).max(128), args[0])))
+
+  server.register('deviceRunStart', (args, ctx) => {
+    const request = parse(deviceRunStartRequestSchema, args[0])
+    return deps.domain.runs.start(request, userHolder(ctx))
+  })
+  server.register('deviceRunCancel', (args, ctx) => {
+    requirePerson(ctx)
+    deps.domain.runs.cancel(parse(z.string().min(1).max(128), args[0]))
+  })
+  server.register('deviceRunLog', (args, ctx) => {
+    requirePerson(ctx)
+    return deps.domain.runs.log(parse(z.string().min(1).max(128), args[0]))
   })
 
   const projects = new DeviceProjectDetector()
@@ -138,13 +153,11 @@ export function registerDeviceHandlers(
     return projects.detect(root)
   })
 
-  server.register('deviceSubscribeFrames', (args, ctx) => {
+  server.register('deviceStreamUrl', async (args, ctx) => {
     requirePerson(ctx)
-    const request = parse(deviceSubscribeRequestSchema, args[0])
-    return manager.subscribeFrames(ctx.clientId, request, request.format)
-  })
-  server.register('deviceUnsubscribeFrames', (args, ctx) => {
-    manager.unsubscribeFrames(ctx.clientId, parse(deviceTargetSchema, args[0]))
+    const target = parse(deviceTargetSchema, args[0])
+    const { device } = await manager.resolveDevice(target.deviceHostId, target.deviceId)
+    return { path: deps.domain.hubProxy.mint(ctx.clientId, target, device.platform), platform: device.platform }
   })
   server.register('deviceScreenshot', async (args, ctx) => {
     requirePerson(ctx)

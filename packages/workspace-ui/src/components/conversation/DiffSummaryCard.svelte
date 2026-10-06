@@ -111,8 +111,8 @@
 
   /** The row stays marked for as long as the pane still shows that file. */
   const openFilePath = $derived(
-    router.overlay?.name === "review" && router.overlay.params.view === "diff"
-      ? (router.overlay.params.filePath ?? null)
+    router.companionSurface?.name === "review" && router.companionSurface.params.view === "diff"
+      ? (router.companionSurface.params.filePath ?? null)
       : null,
   );
 </script>

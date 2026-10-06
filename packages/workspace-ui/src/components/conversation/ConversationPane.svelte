@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getSessionSidebarStore, getWorkspaceContext } from "../../contexts";
+  import { getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import EditorInputCard from "../input/EditorInputCard.svelte";
   import AsidePaneShell from "../layout/AsidePaneShell.svelte";
@@ -7,6 +7,7 @@
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
 
   let {
+    params,
     paneId,
     surfaceVisible = true,
     onAttachFile,
@@ -15,21 +16,19 @@
   }: RouteSurfaceProps<"chat"> = $props();
 
   const session = getWorkspaceContext();
-  const sidebarStore = getSessionSidebarStore();
 
-  // A pinned chat names the session it shows; the tab rendering that session is
-  // the workspace's answer, not the route's — the one place that hop happens.
-  // The leading pane's chat goes through the pool instead.
-  const tabId = $derived(session.chatTabIn(paneId));
-  // Only the leading pane renders the pool, so a companion that names no
-  // session has no conversation of its own. Borrowing the active tab put the
-  // leading pane's conversation on both sides of the split — and gave the close
-  // button someone else's tab to close — so the pane is closed instead. Reached
-  // by a location saved before a companion always named its session; the router
-  // has since dropped the pane when it is only mid-exit, hence the guard.
+  // A chat surface names the session it shows; the tab rendering that session
+  // is the workspace's answer, not the route's. Read off this surface's own
+  // params, not the pane's active surface: a chat surface stays mounted while
+  // another surface of the strip is showing.
+  const tabId = $derived(params.sessionId ? (session.tabIdForSession(params.sessionId) ?? null) : null);
+  // A surface whose conversation has no tab has nothing to show, and its close
+  // button nothing to let go of, so it closes. The router has already dropped
+  // it when it is only mid-exit, hence the guard.
   $effect(() => {
     if (tabId || !session.router.pane(paneId)) return;
-    session.router.closePane(paneId);
+    const sessionId = params.sessionId;
+    session.router.closeSurfacesWhere((ref) => ref.name === "chat" && ref.params.sessionId === sessionId);
   });
 
   async function attachFile(conversationTabId: string) {
@@ -44,12 +43,10 @@
     session.addAttachments(files, conversationTabId);
   }
 
-  // The X takes the whole surface away: the conversation's tab and the pane
-  // showing it. Closing the tab drops the pane too when the workspace can match
-  // the two up, but this pane is the thing the user clicked — it goes either way.
-  function closeConversationTab(conversationTabId: string) {
-    sidebarStore.closeTabs([conversationTabId]);
-    session.router.closePane(paneId);
+  // The X closes this surface only. The conversation keeps its tab, so it
+  // stays in the sidebar; a never-used split tab is discarded with it.
+  function closeConversationPane() {
+    session.closeChatSurface();
     requestInputFocus();
   }
 </script>
@@ -60,11 +57,14 @@
     {paneId}
     tabId={conversationTabId}
     {surfaceVisible}
-    onOpenAsPage={() => session.promoteSplitToMainTab()}
-    onClose={() => closeConversationTab(conversationTabId)}
-    closeLabel="Close conversation tab"
+    onOpenAsPage={() => session.moveChatSurfaceToMain()}
+    onClose={closeConversationPane}
+    closeLabel="Close conversation pane"
   >
     {#snippet body()}
+      <!-- Marks the conversation and its bar as one column, so the session
+           action row can hide while this bar is collapsed. -->
+      <div class="contents" data-composer-column>
       <div class="flex min-h-0 flex-1 flex-col">
         <ConversationView
           tabId={conversationTabId}
@@ -73,7 +73,7 @@
         />
       </div>
 
-      <div class="split-input-dock shrink-0 px-4 pt-2.5 pb-2.5">
+      <div class="split-input-dock shrink-0 px-4 pt-2.5 pb-2.5" data-composer-dock>
         <EditorInputCard
           active={surfaceVisible}
           class="mx-auto max-w-(--solus-reading-max)"
@@ -87,6 +87,7 @@
             ? () => onDesignMode(conversationTabId)
             : null}
         />
+      </div>
       </div>
     {/snippet}
   </AsidePaneShell>

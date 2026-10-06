@@ -16,7 +16,7 @@
   import GithubMarkdown from '../github-markdown/GithubMarkdown.svelte';
   import { CommentPostingBar } from "../ui/comment-posting-bar";
   import PrDescriptionEditor from "./PrDescriptionEditor.svelte";
-  import { projectScopeOf, type ChangedFileStat, type IpcContext, type MergeMethod } from "@solus/contracts/types";
+  import { projectScopeOf, type ChangedFileStat, type IpcContext } from "@solus/contracts/types";
   import type {
     ReviewThread,
     ReviewComment,
@@ -53,7 +53,7 @@
   } from "./lib/activity-data";
   import PrActivityRail from "./PrActivityRail.svelte";
   import type { PrActionsLayout } from "./lib/pr-actions-layout";
-  import type { MergeAction } from "./lib/merge-readiness";
+  import type { MergeAction, MergeReadiness } from "./lib/merge-readiness";
   import { isFailing, orderedChecks } from "../prs/lib/checks";
   import { observeContainerWidth } from "../../lib/pane-width";
   import { isRailFolded } from "./lib/rail-rows";
@@ -85,7 +85,6 @@
     addressCommentsReady = true,
     onAddressComments,
     onFixChecks,
-    onUpdateBranch,
     onGenerateGuide,
     onOpenGuide,
     generationStatus,
@@ -121,8 +120,6 @@
     /** Prepare the PR checkout and put the failing checks in a new composer:
      *  one check from its row in the rail, or all of them from the status card. */
     onFixChecks?: (checks: CheckItem[]) => Promise<void>;
-    /** Prepare the PR checkout and put "bring the base in" in a new composer. */
-    onUpdateBranch?: () => Promise<void>;
     onGenerateGuide?: () => void;
     onOpenGuide?: () => void;
     /** Immediate parent-owned state while the PR checkout is being prepared.
@@ -580,18 +577,6 @@
     await pullRequest(pr.number).updateLifecycle(action, detail.headSha);
   }
 
-  async function enableAutoMerge(method: MergeMethod): Promise<void> {
-    await pullRequest(pr.number).enableAutoMerge(method);
-  }
-
-  async function disableAutoMerge(): Promise<void> {
-    await pullRequest(pr.number).disableAutoMerge();
-  }
-
-  async function mergeNow(method: MergeMethod): Promise<void> {
-    await pullRequest(pr.number).merge(method);
-  }
-
   async function revertPullRequest(): Promise<void> {
     const revert = await pullRequest(pr.number).revert();
     const ctx = feedCtx();
@@ -737,22 +722,18 @@
     }
   }
 
-  // The status card's one move. The merge has a control of its own; every
-  // other move arrives here. The failure toast is the cluster's, so the button
-  // only has to say it is busy. Conflict resolution opens its own session at
-  // once — the resolver prepares a merge worktree behind a live status card —
-  // where the other agent moves open a composer for the user to send.
-  async function runMergeAction(action: MergeAction): Promise<void> {
-    if (action.kind === "mark-ready") await updateLifecycle("ready");
-    else if (action.kind === "enable-auto-merge") await enableAutoMerge(action.method);
-    else if (action.kind === "resolve-conflicts")
+  // The moves that open a session rather than write to the host. Conflict resolution
+  // opens its own session at once — the resolver prepares a merge worktree
+  // behind a live status card — where fixing checks opens a composer for the
+  // user to send.
+  async function runAgentAction(action: MergeAction): Promise<void> {
+    if (action.kind === "resolve-conflicts")
       await session.prReview.startConflictResolverSession(
         { number: pr.number, title: prTitle },
         { ctx: feedCtx() },
       );
     else if (action.kind === "fix-checks")
       await onFixChecks?.(orderedChecks(checks).filter(isFailing));
-    else if (action.kind === "update-branch") await onUpdateBranch?.();
   }
 
   function jumpToFile(path: string, line: number | null = null) {
@@ -1202,11 +1183,11 @@
   />
 {/snippet}
 
-{#snippet prActions(layout: PrActionsLayout, action: MergeAction | null)}
+{#snippet prActions(layout: PrActionsLayout, readiness: MergeReadiness)}
   <PrActions
     {layout}
-    {action}
-    onAction={runMergeAction}
+    {readiness}
+    onAgentAction={runAgentAction}
     {detail}
     {feedbackCount}
     {addressCommentsReady}
@@ -1216,7 +1197,7 @@
   />
 {/snippet}
 
-{#snippet prOverflowMenu(action: MergeAction | null)}
+{#snippet prOverflowMenu()}
   <PrOverflowMenu
     pr={{ host: pr.host }}
     {detail}
@@ -1229,10 +1210,6 @@
     onOpenRemote={openPr}
     onRefresh={refresh}
     onLifecycleAction={updateLifecycle}
-    primaryAction={action}
-    onEnableAutoMerge={enableAutoMerge}
-    onDisableAutoMerge={disableAutoMerge}
-    onMergeNow={mergeNow}
     onRevert={revertPullRequest}
     {guideStatus}
     {onOpenGuide}

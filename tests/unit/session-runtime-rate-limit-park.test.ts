@@ -186,13 +186,12 @@ async function park(
 
   // Codex retries two minutes after the raw provider reset.
   const releaseAt = resetsAt === null ? null : (Math.ceil(resetsAt / 1000) + 120) * 1000
-  const watchdog = plane as unknown as { _checkActiveRuns(): void }
   return {
     backend,
     plane,
     events,
     releaseDelay: releaseTimer?.[1],
-    sweepWatchdog: () => { watchdog._checkActiveRuns(); watchdog._checkActiveRuns() },
+    sweepWatchdog: () => { plane.statuses.checkActiveRuns(); plane.statuses.checkActiveRuns() },
     settleRelease: async () => {
       if (releaseAt !== null) {
         setSystemTime(new Date(releaseAt))
@@ -205,7 +204,7 @@ async function park(
 }
 
 function statusOf(plane: Parked['plane'], clientId: string): string | null {
-  const watch = plane.watchSession(
+  const watch = plane.watchers.watchSession(
     { sessionId: SESSION_ID, agentSessionId: 'thread-1', attachRuntime: true },
     clientId,
   )
@@ -255,7 +254,7 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
       const { plane, events } = await park(60_000, 'ask')
       try {
         expect(events.some((event) => event.type === 'prompt_queued')).toBe(false)
-        expect(plane.watchSession(
+        expect(plane.watchers.watchSession(
           { sessionId: SESSION_ID, agentSessionId: 'thread-1', attachRuntime: true }, 'queue-client',
         ).runtime?.queuedPrompts).toHaveLength(0)
       } finally {
@@ -271,19 +270,19 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
       const { plane, backend, events } = await park(60_000)
       try {
         expect(events.some((event) => event.type === 'prompt_queued')).toBe(false)
-        const watch = () => plane.watchSession(
+        const watch = () => plane.watchers.watchSession(
           { sessionId: SESSION_ID, agentSessionId: 'thread-1', attachRuntime: true }, 'queue-client',
         ).runtime!
         // A client whose person chose Queue: explicitly, or by rejoining with that preference.
-        if (trigger === 'decision') plane.queueHeldRateLimitedPrompts('queue')
+        if (trigger === 'decision') plane.rateLimitPark.queueHeldRateLimitedPrompts('queue')
         else {
           const rejoining = ctx()
           rejoining.session.agentSessionId = 'thread-1'
           rejoining.settings = { rateLimitBehavior: 'queue' } as IpcContext['settings']
-          plane.bindRuntimeSession(rejoining, 'queue-client')
+          plane.watchers.bindRuntimeSession(rejoining, 'queue-client')
         }
         expect(watch().queuedPrompts).toHaveLength(1)
-        plane.queueHeldRateLimitedPrompts('queue')
+        plane.rateLimitPark.queueHeldRateLimitedPrompts('queue')
         expect(watch().queuedPrompts).toHaveLength(1)
         expect(new Set(events.flatMap((event) => event.type === 'prompt_queued' ? [event.queueId] : []))).toHaveLength(1)
         expect(backend.starts).toBe(1)
@@ -296,7 +295,7 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
   test('a client whose person chose ask leaves a held prompt for the decision', async () => {
     const { plane, events } = await park(60_000)
     try {
-      plane.queueHeldRateLimitedPrompts('ask')
+      plane.rateLimitPark.queueHeldRateLimitedPrompts('ask')
       expect(events.some((event) => event.type === 'prompt_queued')).toBe(false)
     } finally {
       plane.shutdown()
@@ -331,7 +330,7 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
       backend.emit('normalized', 'thread-1', {
         type: 'rate_limit', status: 'limited', resetsAt: null, rateLimitType: 'usageLimitExceeded',
       } satisfies NormalizedEvent)
-      const runtime = plane.watchSession(
+      const runtime = plane.watchers.watchSession(
         { sessionId: SESSION_ID, agentSessionId: 'thread-1', attachRuntime: true }, 'terminal-client',
       ).runtime!
       expect(runtime.rateLimitInfo?.resetsAt).toBe(releaseAt)
@@ -360,7 +359,7 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
       const queued = events.find((event) => event.type === 'prompt_queued')
       expect(limit?.type === 'rate_limit' && limit.info?.resetsAt).toBe(releaseAt)
       expect(queued?.type === 'prompt_queued' && queued.releaseAt).toBe(releaseAt)
-      const runtime = plane.watchSession(
+      const runtime = plane.watchers.watchSession(
         { sessionId: SESSION_ID, agentSessionId: 'thread-1', attachRuntime: true }, 'timer-client',
       ).runtime!
       expect(runtime.rateLimitInfo?.resetsAt).toBe(releaseAt)
@@ -378,14 +377,14 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
   test('reconnecting clients receive the held decision and then the confirmed queue', async () => {
     const { plane } = await park(null, 'ask')
     try {
-      const watch = (clientId: string) => plane.watchSession(
+      const watch = (clientId: string) => plane.watchers.watchSession(
         { sessionId: SESSION_ID, agentSessionId: 'thread-1', attachRuntime: true }, clientId,
       ).runtime!
       const held = watch('other-client')
       expect(held.status).toBe('rate_limited')
       expect(held.rateLimitInfo).not.toBeNull()
       expect(held.queuedPrompts).toHaveLength(0)
-      expect(plane.resolveRateLimit(ctx(), 'wait', HOST_ACTOR)).toBe(true)
+      expect(plane.rateLimitPark.resolveRateLimit(ctx(), 'wait', HOST_ACTOR)).toBe(true)
       const queued = watch('reconnected-client')
       expect(queued.status).toBe('rate_limited')
       expect(queued.rateLimitInfo).not.toBeNull()
@@ -399,14 +398,13 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
   test('queuing an unknown reset waits for an explicit send', async () => {
     const { backend, plane, events } = await park(null)
     try {
-      expect(plane.resolveRateLimit(ctx(), 'wait', HOST_ACTOR)).toBe(true)
+      expect(plane.rateLimitPark.resolveRateLimit(ctx(), 'wait', HOST_ACTOR)).toBe(true)
       // There must be no timer that can release this prompt on its own.
-      const timers = plane as unknown as { rateLimitTimers: Map<string, ReturnType<typeof setTimeout>> }
-      expect(timers.rateLimitTimers.has(SESSION_ID)).toBe(false)
+      expect(plane.rateLimitPark.rateLimitTimers.has(SESSION_ID)).toBe(false)
       expect(backend.starts).toBe(1)
       expect(events.filter((event) => event.type === 'rate_limit_resolved')).toEqual([])
       const dispatched = backend.nextStart()
-      expect(plane.resolveRateLimit(ctx(), 'send_now', HOST_ACTOR)).toBe(true)
+      expect(plane.rateLimitPark.resolveRateLimit(ctx(), 'send_now', HOST_ACTOR)).toBe(true)
       await dispatched
       expect(backend.starts).toBe(2)
     } finally {
@@ -417,21 +415,19 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
   test('direct resets survive unsupported windows and cache refreshes keep retry policy stable', () => {
     const backend = new Backend()
     const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
-    const prepare = plane as unknown as {
-      _prepareRateLimit(agentId: 'codex' | 'claude-code', event: Extract<NormalizedEvent, { type: 'rate_limit' }>): Extract<NormalizedEvent, { type: 'rate_limit' }>
-    }
+    const prepare = plane.rateLimitPark
     const reset = Math.ceil(Date.now() / 1000) + 3600
     const event: Extract<NormalizedEvent, { type: 'rate_limit' }> = {
       type: 'rate_limit', status: 'limited', resetsAt: reset, rateLimitType: '1h', windowDurationMins: 60,
     }
     try {
-      expect(prepare._prepareRateLimit('codex', event).resetsAt).toBe(reset + 120)
-      expect(prepare._prepareRateLimit('claude-code', event).resetsAt).toBe(reset)
+      expect(prepare.prepareRateLimit('codex', event).resetsAt).toBe(reset + 120)
+      expect(prepare.prepareRateLimit('claude-code', event).resetsAt).toBe(reset)
       plane.usageLimits.applyWindows('codex', [{windowDurationMins: 300, usedPercent: 100, resetsAt: reset * 1000}])
       const missing = { ...event, resetsAt: null, windowDurationMins: 300 }
-      expect(prepare._prepareRateLimit('codex', missing).resetsAt).toBe(reset + 120)
+      expect(prepare.prepareRateLimit('codex', missing).resetsAt).toBe(reset + 120)
       plane.usageLimits.apply({ provider: 'codex', fiveHour: { usedPercent: 100, resetsAt: reset * 1000, resetsLabel: null }, weekly: null, planType: null, fetchedAt: Date.now(), stale: false })
-      expect(prepare._prepareRateLimit('codex', missing).resetsAt).toBe(reset + 120)
+      expect(prepare.prepareRateLimit('codex', missing).resetsAt).toBe(reset + 120)
       expect(plane.usageLimits.get('codex')?.fiveHour?.resetsAt).toBe(reset * 1000)
     } finally {
       plane.shutdown()
@@ -448,7 +444,7 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
     const { plane, events, sweepWatchdog } = await park(60_000)
     expect(statusOf(plane, 'client-parked')).toBe('rate_limited')
 
-    expect(plane.resolveRateLimit(ctx(), 'stop', HOST_ACTOR)).toBe(true)
+    expect(plane.rateLimitPark.resolveRateLimit(ctx(), 'stop', HOST_ACTOR)).toBe(true)
 
     sweepWatchdog()
     expect(events.filter((event) => event.type === 'session_dead')).toEqual([])
@@ -470,7 +466,7 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
 
     // The answer, whenever it comes, still has a prompt to send.
     const dispatched = backend.nextStart()
-    expect(plane.resolveRateLimit(ctx(), 'send_now', HOST_ACTOR)).toBe(true)
+    expect(plane.rateLimitPark.resolveRateLimit(ctx(), 'send_now', HOST_ACTOR)).toBe(true)
     await dispatched
     expect(backend.starts).toBe(2)
     plane.shutdown()
@@ -490,7 +486,7 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
     const queued = events.find((event) => event.type === 'prompt_queued')
     expect(queued).toBeDefined()
 
-    expect(plane.cancelQueuedPrompt(ctx(), (queued as { queueId: string }).queueId, HOST_ACTOR)).toBe(true)
+    expect(plane.scheduler.cancelQueuedPrompt(ctx(), (queued as { queueId: string }).queueId, HOST_ACTOR)).toBe(true)
 
     expect(statusOf(plane, 'client-cancelled')).toBeNull()
     expect(events.filter((event) => event.type === 'rate_limit_resolved')).toHaveLength(1)

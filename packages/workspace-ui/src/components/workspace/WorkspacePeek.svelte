@@ -7,7 +7,7 @@
   import { highlightRuns } from "../../lib/searchHighlight";
   import { peekBody, peekBox, peekOutline } from "./lib/workspace-peek";
   import { parseDiagram, summarizeDiagram } from "@solus/contracts/diagram-types";
-  import { getSurfaceContext, getPlanStore } from "../../contexts";
+  import { getSurfaceContext } from "../../contexts";
   import { portal } from "../portal";
   import { BottomSheet } from "../ui/bottom-sheet";
 
@@ -43,8 +43,8 @@
     /** Sheet only. The record row drops the pin a pointer would have revealed,
      *  so this sheet is where pinning and unpinning live on a phone. */
     onTogglePin?: () => void;
-    /** Sheet only, and works only — a plan is a session artifact and has no
-     *  delete, so the slot stays empty rather than showing a dead control. */
+    /** Sheet only. Absent where the reader may not delete the work, so the
+     *  slot stays empty rather than showing a dead control. */
     onDelete?: () => void;
     onClose?: () => void;
   }
@@ -63,9 +63,8 @@
   }: Props = $props();
 
   const session = getSurfaceContext();
-  const planStore = getPlanStore();
 
-  const KIND_LABELS = { plan: "Plan", doc: "Doc", diagram: "Diagram" } as const;
+  const KIND_LABELS = { doc: "Doc", diagram: "Diagram", artifact: "Artifact" } as const;
 
   // The artifact's own text, loaded once the card is already open. Until it
   // lands the ledger snippet stands in — a hover card never shows a spinner.
@@ -78,21 +77,11 @@
   });
 
   async function loadContent(target: WorkspaceItem) {
-    if (target.source.kind === "work") {
-      const work = await session.worksStore.ensureContent(
-        target.id,
-        "workspace-peek",
-      );
-      if (work) loadedContent = { id: target.id, content: work.content };
-      return;
-    }
-    // A plan is a session artifact; only the workspace reads one.
-    if (!session.workspace) return;
-    await session.workspace.loadPlanContent(target.source.descriptor);
-    loadedContent = {
-      id: target.id,
-      content: planStore.get(target.id)?.content ?? "",
-    };
+    const work = await session.worksStore.ensureContent(
+      target.id,
+      "workspace-peek",
+    );
+    if (work) loadedContent = { id: target.id, content: work.content };
   }
 
   const content = $derived(
@@ -141,7 +130,7 @@
 </script>
 
 {#snippet peekBodyBlock()}
-  <!-- Kind · origin · age, then the plan's status word in its own colour. The
+  <!-- Kind · origin · age, then the review status word. The
        title is not repeated — it is two pixels above, in the row. -->
   <div class="flex items-center gap-2 text-muted-foreground">
     <span class="text-xs font-normal uppercase">

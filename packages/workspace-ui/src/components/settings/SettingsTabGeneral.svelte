@@ -1,3 +1,124 @@
+<script module lang="ts">
+  /** Search words, read by the settings page to find this page from any other. */
+  export interface SettingItem {
+    id: string;
+    keywords: string[];
+  }
+
+  export const settingItems: SettingItem[] = [
+    {
+      id: "agent-model",
+      keywords: [
+        "agent",
+        "model",
+        "default",
+        "claude",
+        "codex",
+        "opus",
+        "sonnet",
+        "haiku",
+        "gpt",
+        "ai",
+        "auto",
+      ],
+    },
+    {
+      id: "text-generation-model",
+      keywords: [
+        "model",
+        "text",
+        "generation",
+        "background",
+        "session",
+        "name",
+        "metadata",
+        "writing",
+      ],
+    },
+    {
+      id: "default-permission",
+      keywords: ["default", "permission", "supervised", "ask", "edits", "auto", "full", "access", "plan", "mode"],
+    },
+    {
+      id: "response-streaming",
+      keywords: ["response", "streaming", "paragraph", "buffered", "text"],
+    },
+    {
+      id: "ratelimit",
+      keywords: ["rate", "limit", "behavior", "queue", "throttle"],
+    },
+    {
+      id: "sidebar-motion",
+      keywords: [
+        "sidebar",
+        "animation",
+        "motion",
+        "speed",
+        "duration",
+        "slide",
+        "fade",
+        "ms",
+      ],
+    },
+    {
+      id: "projects-base",
+      keywords: [
+        "project",
+        "projects",
+        "folder",
+        "directory",
+        "base",
+        "start",
+        "open",
+        "picker",
+        "path",
+      ],
+    },
+    {
+      id: "auto-rename",
+      keywords: [
+        "rename",
+        "name",
+        "title",
+        "session",
+        "tab",
+        "auto",
+        "summarize",
+      ],
+    },
+    {
+      id: "turn-diff-summary",
+      keywords: ["diff", "summary", "changed", "files", "turn", "transcript"],
+    },
+    {
+      id: "show-tool-calls",
+      keywords: ["tool", "calls", "steps", "activity", "transcript", "simple", "hide"],
+    },
+    {
+      id: "collapse-composer",
+      keywords: [
+        "collapse",
+        "composer",
+        "input",
+        "bar",
+        "toolbar",
+        "focus",
+        "idle",
+        "compact",
+        "minimize",
+      ],
+    },
+    {
+      id: "model-routing",
+      keywords: ["auto", "model", "routing", "jev", "interface", "exploration", "task", "general"],
+    },
+    {
+      id: "about",
+      keywords: ["about", "version", "update", "upgrade", "release", "notes", "restart"],
+    },
+  ];
+</script>
+
 <script lang="ts">
   import { Skeleton } from "../ui/skeleton";
   import { untrack } from "svelte";
@@ -183,123 +304,6 @@
     theme.setPersonal("sidebarMotionMs", value);
   }
 
-  interface SettingItem {
-    id: string;
-    keywords: string[];
-  }
-
-  const settingItems: SettingItem[] = [
-    {
-      id: "agent-model",
-      keywords: [
-        "agent",
-        "model",
-        "default",
-        "claude",
-        "codex",
-        "opus",
-        "sonnet",
-        "haiku",
-        "gpt",
-        "ai",
-        "auto",
-      ],
-    },
-    {
-      id: "text-generation-model",
-      keywords: [
-        "model",
-        "text",
-        "generation",
-        "background",
-        "session",
-        "name",
-        "metadata",
-        "writing",
-      ],
-    },
-    {
-      id: "default-permission",
-      keywords: ["default", "permission", "supervised", "ask", "edits", "auto", "full", "access", "plan", "mode"],
-    },
-    {
-      id: "response-streaming",
-      keywords: ["response", "streaming", "paragraph", "buffered", "text"],
-    },
-    {
-      id: "ratelimit",
-      keywords: ["rate", "limit", "behavior", "queue", "throttle"],
-    },
-    {
-      id: "sidebar-motion",
-      keywords: [
-        "sidebar",
-        "animation",
-        "motion",
-        "speed",
-        "duration",
-        "slide",
-        "fade",
-        "ms",
-      ],
-    },
-    {
-      id: "projects-base",
-      keywords: [
-        "project",
-        "projects",
-        "folder",
-        "directory",
-        "base",
-        "start",
-        "open",
-        "picker",
-        "path",
-      ],
-    },
-    {
-      id: "auto-rename",
-      keywords: [
-        "rename",
-        "name",
-        "title",
-        "session",
-        "tab",
-        "auto",
-        "summarize",
-      ],
-    },
-    {
-      id: "turn-diff-summary",
-      keywords: ["diff", "summary", "changed", "files", "turn", "transcript"],
-    },
-    {
-      id: "show-tool-calls",
-      keywords: ["tool", "calls", "steps", "activity", "transcript", "simple", "hide"],
-    },
-    {
-      id: "collapse-composer",
-      keywords: [
-        "collapse",
-        "composer",
-        "input",
-        "bar",
-        "toolbar",
-        "focus",
-        "idle",
-        "compact",
-        "minimize",
-      ],
-    },
-    {
-      id: "model-routing",
-      keywords: ["auto", "model", "routing", "jev", "interface", "exploration", "task", "general"],
-    },
-    {
-      id: "about",
-      keywords: ["about", "version", "update", "upgrade", "release", "notes", "restart"],
-    },
-  ];
 
   function isVisible(id: string): boolean {
     if (!searchQuery) return true;

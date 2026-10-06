@@ -88,8 +88,8 @@ describe('reviewer rows', () => {
 describe('the gallery', () => {
   const item = (over: Partial<WorkspaceItem>): WorkspaceItem => ({
     id: 'w', rowKey: 'work:w', type: 'doc', glyph: 'doc', title: 'Spec', snippet: '', timestamp: Date.now(), createdAt: 0, sessionId: null,
-    pinned: false, pinnedAt: 0, cwd: '/repo', projectKey: '/repo', projectLabel: 'repo', status: null, reviewState: null, reviewers: [], awaitingMyReview: false,
-    source: { kind: 'work', work: {} as never }, ...over,
+    pinned: false, pinnedAt: 0, cwd: '/repo', projectKey: '/repo', projectLabel: 'repo', reviewState: null, reviewers: [], awaitingMyReview: false,
+    work: {} as never, ...over,
   })
 
   test('"Needs my review" keeps only the works waiting on the reader', () => {
@@ -102,11 +102,5 @@ describe('the gallery', () => {
     expect(rowStatus(item({ awaitingMyReview: true, reviewState: 'approved' }))?.kind).toBe('review_requested')
     expect(rowStatus(item({ reviewState: 'changes_requested' }))?.kind).toBe('changes_requested')
     expect(rowStatus(item({}))).toBeNull()
-  })
-
-  test('a pending plan shows no status, and a decided plan shows its decision', () => {
-    expect(rowStatus(item({ status: 'pending' }))).toBeNull()
-    expect(rowStatus(item({ status: 'accepted' }))).toEqual({ kind: 'approved', label: 'Accepted' })
-    expect(rowStatus(item({ status: 'rejected' }))?.kind).toBe('rejected')
   })
 })

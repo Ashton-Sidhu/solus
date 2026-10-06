@@ -41,8 +41,7 @@ async function setup() {
   const control = new DeviceControl(() => {})
   bridge = new DeviceAgentBridge({
     endpoint: () => ({ baseUrl: `http://127.0.0.1:${port}`, token: 'daemon-secret' }),
-    acquire: (binding, holder) => control.acquireForAgent(binding, holder).generation,
-    begin: (binding, generation, holder) => control.begin(binding, generation, holder),
+    acquire: (binding, holder) => { control.acquireForAgent(binding, holder) },
   })
   const url = await bridge.start()
   const binding: DeviceAgentBinding = { sessionId: 's1', deviceHostId: 'local', deviceId: 'SIM-1', platform: 'ios', agentSession: agentSessionName('s1', 'local', 'SIM-1'), label: 'Claude agent' }
@@ -84,8 +83,7 @@ describe('device agent bridge', () => {
     // WHY: Take control must stop agent input through Solus, not only label it.
     const { received, call, control, binding } = await setup()
     await call('click')
-    const result = await control.acquireForUser(binding, { kind: 'user', clientId: 'client-a', label: 'Alice' })
-    expect(result.status).toBe('granted')
+    control.acquireForUser(binding, { kind: 'user', clientId: 'client-a', label: 'Alice' })
     const refused = await call('fill')
     expect(refused.body.error?.message).toContain('took control')
     const read = await call('snapshot')

@@ -130,25 +130,22 @@ describe('the access warning', () => {
 
   test('warns only for a person with no role on the record', () => {
     const shared = list([grant({ kind: 'user', id: 'u_ann' }), grant({ kind: 'team', id: 't_ops' })], { role: 'viewer' })
-    expect(personCanOpen('u_zoe', [shared], DIRECTORY)).toBe(true) // owner
-    expect(personCanOpen('u_ann', [shared], DIRECTORY)).toBe(true) // their own row
-    expect(personCanOpen('u_bob', [shared], DIRECTORY)).toBe(true) // their team's row
+    expect(personCanOpen('u_zoe', shared, DIRECTORY)).toBe(true) // owner
+    expect(personCanOpen('u_ann', shared, DIRECTORY)).toBe(true) // their own row
+    expect(personCanOpen('u_bob', shared, DIRECTORY)).toBe(true) // their team's row
     // A link does not count: the person does not hold its secret.
-    expect(personCanOpen('u_new', [shared], { ...DIRECTORY, members: [...DIRECTORY.members, memberUser({ userId: 'u_new', name: 'New', role: 'member' })] })).toBe(false)
+    expect(personCanOpen('u_new', shared, { ...DIRECTORY, members: [...DIRECTORY.members, memberUser({ userId: 'u_new', name: 'New', role: 'member' })] })).toBe(false)
   })
 
-  test('an organization row reaches its members; a task the record sits in counts too', () => {
+  test('an organization row reaches its members; a private record reaches nobody else', () => {
     const organizationWide = list([grant({ kind: 'organization', id: 'org_1' })])
-    expect(personCanOpen('u_ann', [organizationWide], DIRECTORY)).toBe(true)
-    const privateWork = list([])
-    const task = { ...list([grant({ kind: 'user', id: 'u_ann' })]), resource: { kind: 'task' as const, id: 't1' } }
-    expect(personCanOpen('u_ann', [privateWork], DIRECTORY)).toBe(false)
-    expect(personCanOpen('u_ann', [privateWork, task], DIRECTORY)).toBe(true)
+    expect(personCanOpen('u_ann', organizationWide, DIRECTORY)).toBe(true)
+    expect(personCanOpen('u_ann', list([]), DIRECTORY)).toBe(false)
   })
 
   test('says nothing while the answer is not known', () => {
-    expect(personCanOpen('u_ann', [list([])], null)).toBeNull()
-    expect(personCanOpen('u_ann', [list([]), undefined], DIRECTORY)).toBeNull()
+    expect(personCanOpen('u_ann', list([]), null)).toBeNull()
+    expect(personCanOpen('u_ann', undefined, DIRECTORY)).toBeNull()
   })
 })
 

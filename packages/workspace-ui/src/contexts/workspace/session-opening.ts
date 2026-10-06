@@ -1,3 +1,4 @@
+import type { TaskOpenTrace } from '../../components/session/lib/task-open-timing'
 import { hostRolesStore } from '../connections/host-roles.store.svelte'
 import type { AgentId, Session, RunConfig, Message, SessionDescription, SessionMeta } from '@solus/contracts/types'
 import type { Via } from '@solus/contracts/analytics-events'
@@ -29,9 +30,10 @@ import { runOnModel } from './run-config'
 import { requestConversationScrollToBottom } from './session-plan-operations'
 import { SessionUnavailableError } from './session-errors'
 import { quotedReplyDraft } from '../../lib/quoted-reply'
+import { applyWorktreeOfferResolution } from '../../components/conversation/lib/worktree-offer'
 import type { SessionEnvironmentWorkspace } from '../git/session-environment.store.svelte'
 import type { WorkspaceContext, ForkTabOptions, CreateTabOptions } from './workspace.context.svelte'
-import type { NavTarget } from './routing/location'
+import type { OpenTarget } from './routing/location'
 import type { SessionDraft } from './session-draft.svelte'
 
 /** The lineage and answering member's metadata for a saved session. One read on
@@ -70,11 +72,11 @@ type SessionOpeningWorkspace = Pick<WorkspaceContext,
   | 'lifecycle'
   | 'onTaskOpened'
   | 'openSessionRecord'
-  | 'openSplitChat'
+  | 'openChatSurface'
   | 'planStore'
   | 'pluginCommands'
-  | 'promoteSplitToMainTab'
-  | 'resetOverlays'
+  | 'moveChatSurfaceToMain'
+  | 'revealConversation'
   | 'router'
   | 'runFor'
   | 'selectTab'
@@ -84,7 +86,7 @@ type SessionOpeningWorkspace = Pick<WorkspaceContext,
   | 'setActiveTab'
   | 'settings'
   | 'showExplicitSidebarTaskSession'
-  | 'splitChatTabId'
+  | 'chatSurfaceTabId'
   | 'staticInfo'
   | 'tabOrder'
   | 'tabs'
@@ -99,6 +101,10 @@ type SessionOpeningWorkspace = Pick<WorkspaceContext,
  * then asks the workspace to show it.
  */
 export class SessionOpening {
+  /** Counts task opens. A slow open checks it after each wait, so a task the
+   *  reader clicked past cannot take the screen back when its reads land. */
+  private taskOpenCount = 0
+
   constructor(private readonly workspace: SessionOpeningWorkspace) {}
 
   /**
@@ -177,7 +183,7 @@ export class SessionOpening {
     this.workspace.addTabToOrder(forkTab.id)
     if (options.activate !== false) {
       this.workspace.setActiveTab(forkTab.id)
-      this.workspace.resetOverlays()
+      this.workspace.revealConversation()
     }
     void this.workspace.environment.refreshEnvironment(this.workspace, { sourceId: tabId, force: false }).catch(() => null)
     if (options.activate !== false) requestInputFocus()
@@ -193,8 +199,7 @@ export class SessionOpening {
     const sourceSession = this.workspace.sessionFor(sourceTabId)
     if (!draft || !sourceSession?.agentSessionId) return
 
-    const splitTabId = this.workspace.splitChatTabId
-    if (splitTabId === sourceTabId) this.workspace.promoteSplitToMainTab()
+    if (this.workspace.chatSurfaceTabId === sourceTabId) this.workspace.moveChatSurfaceToMain()
     else if (sourceTabId !== this.workspace.activeTabId) this.workspace.selectTab(sourceTabId)
 
     const taskId = ownedTaskId(this.workspace.tasksStore, sourceSession)
@@ -205,7 +210,7 @@ export class SessionOpening {
     if (!forkTabId) return
     const forked = this.workspace.sessionFor(forkTabId)!
     forked.prompt.text = draft
-    this.workspace.openSplitChat(forked.id)
+    this.workspace.openChatSurface(forked.id)
     requestInputFocus({ tabId: forkTabId })
   }
 
@@ -268,9 +273,38 @@ export class SessionOpening {
     }
   }
 
+  /** Answer the card that offers to move this session into the worktree the
+   *  agent works in. The host records the answer and moves the session; the
+   *  card and the checkout follow its events. */
+  async decideWorktreeOffer(tabId: string, offerId: string, decision: 'switch' | 'keep'): Promise<void> {
+    const session = this.workspace.sessionFor(tabId)
+    if (!session) return
+    try {
+      const resolution = await this.workspace.apiFor(tabId).decideWorktreeOffer(this.workspace.ctxFor(tabId), offerId, decision)
+      applyWorktreeOfferResolution(session.messages, offerId, resolution)
+      if (resolution.decision === 'switched') {
+        void this.workspace.environment.refreshEnvironment(this.workspace, {
+          sourceId: tabId,
+          level: 'full',
+          force: true,
+        }).catch(() => null)
+      }
+    } catch (error) {
+      toasts.error("Couldn't answer the worktree offer", { description: error instanceof Error ? error.message : String(error) })
+    }
+    requestInputFocus()
+  }
+
   async resumeSession(
     meta: SessionMeta,
-    opts?: { background?: boolean; intoTabId?: string; keepAside?: boolean },
+    opts?: {
+      background?: boolean
+      intoTabId?: string
+      /** False once the reader has moved on; the resume then stops before it opens a tab. */
+      stillWanted?: () => boolean
+      /** Runs once the new conversation is the destination, before its transcript loads. */
+      onShown?: (tabId: string) => void
+    },
   ): Promise<string> {
     // A session ref crossing the client names its host — there is no probe.
     if (!meta.serverId) throw new Error(`Session ${meta.sessionId} names no host`)
@@ -306,6 +340,7 @@ export class SessionOpening {
       if (!describedMeta) throw new SessionUnavailableError(meta.sessionId)
       meta = { ...meta, ...describedMeta, serverId: meta.serverId }
     }
+    if (opts?.stillWanted?.() === false) return ''
     const background = opts?.background ?? false
     const intoTabId = opts?.intoTabId
     const provider = meta.provider ?? this.workspace.settings.activeAgent
@@ -323,8 +358,8 @@ export class SessionOpening {
           if (openTabId === this.workspace.activeTabId) {
             // Already the active tab, so nothing switches — but a draft or page
             // may still be sitting over the conversation being asked for.
-            this.workspace.resetOverlays({ closeArtifact: true, keepAside: opts?.keepAside })
-          } else this.workspace.selectTab(openTabId, 'click', { keepAside: opts?.keepAside })
+            this.workspace.revealConversation()
+          } else this.workspace.selectTab(openTabId, 'click')
         }
         return openTabId
       }
@@ -402,7 +437,8 @@ export class SessionOpening {
       }
     }
     if (!background && !intoTabId) {
-      this.workspace.resetOverlays({ keepAside: opts?.keepAside })
+      this.workspace.revealConversation()
+      opts?.onShown?.(tabId)
     }
 
     // Main is authoritative on session identity. This client read the provider
@@ -541,13 +577,12 @@ export class SessionOpening {
    *  draft until Send creates the session, so leaving the composer does not
    *  leave an empty tab behind. `role: 'lead'` composes the task's lead, with
    *  the task page beside the draft: the prompt is about the task, so the
-   *  record is on screen while it is written (docs/plans/task-conversation.md). */
+   *  record is on screen while it is written (docs/plans/task-conversation.md).
+   *  The task surface is in the draft's strip, so Send keeps it. */
   async openTaskSession(task: Task, options: { role?: 'lead' } = {}): Promise<void> {
-    // A task page already beside the conversation takes this task in place
-    // (`goToTask`), rather than closing and reopening the pane.
-    if (options.role === 'lead' && this.workspace.hasCompanionPanes) this.openTaskAside(task.id)
-    else this.workspace.router.closeGroup('page')
-    this.createTaskDraft(task, options.role, this.workspace.router.leadingPane.id)
+    this.taskOpenCount++
+    this.createTaskDraft(task, options.role, 'leading')
+    if (options.role === 'lead') this.openTaskAside(task.id)
     requestInputFocus()
   }
 
@@ -556,7 +591,7 @@ export class SessionOpening {
    *  the session's task chip. */
   private openTaskAside(taskId: string): void {
     if (!this.workspace.hasCompanionPanes) return
-    this.workspace.goToTask(taskId, 'click', 'secondary')
+    this.workspace.goToTask(taskId, 'click')
   }
 
   /**
@@ -570,7 +605,7 @@ export class SessionOpening {
    * host that holds it. A task in the cloud workspace service files there and
    * runs on an execution host the run picker chooses.
    */
-  createTaskDraft(task: Task, role: 'lead' | undefined, target?: NavTarget): SessionDraft {
+  createTaskDraft(task: Task, role: 'lead' | undefined, target?: OpenTarget): SessionDraft {
     const cwd = task.projectKey ?? '~'
     const taskServerId = this.workspace.tasksStore.get(task.id).serverId ?? undefined
     const binding = { taskId: task.id, taskRole: role, taskServerId }
@@ -655,7 +690,7 @@ export class SessionOpening {
     projectKey: string | null,
     task?: { taskId: string; taskRole?: 'lead'; taskServerId: string },
     preferredServerId?: string,
-    target: NavTarget | undefined = this.workspace.router.leadingPane.id,
+    target: OpenTarget | undefined = 'leading',
   ): SessionDraft {
     const choice = projectKey ? this.repositoryRunOn(projectKey, preferredServerId) : null
     const open = (options: CreateTabOptions, cwd: string): SessionDraft => target
@@ -677,15 +712,19 @@ export class SessionOpening {
    * becomes a native task first, because a session binds only to one. The
    * task is open on this client from then on, so the sidebar lists it.
    */
-  async openTask(ticket: Task): Promise<void> {
+  async openTask(ticket: Task, timing?: TaskOpenTrace): Promise<void> {
     const task = ticket.providerId === 'local'
       ? ticket
       : await this.workspace.tasksStore.get(ticket.id, ticket.projectKey ?? undefined).promote()
+    timing?.mark('task_resolved')
     this.workspace.onTaskOpened?.(task.id)
     const links = this.workspace.tasksStore.get(task.id).sessions
     const hasLead = links?.some((candidate) => candidate.role === 'lead') ?? false
-    if (hasLead) await this.openTaskLinkedSession(task)
-    else await this.openTaskSession(task, { role: 'lead' })
+    if (hasLead) await this.openTaskLinkedSession(task, timing)
+    else {
+      await this.openTaskSession(task, { role: 'lead' })
+      timing?.shown()
+    }
   }
 
   /** Jump back to the work happening on a task: its lead when it has one, else
@@ -693,21 +732,24 @@ export class SessionOpening {
    *  history. The back-link counterpart to openTaskSession, driven by the
    *  persisted task↔session map. A lead comes with the task page beside it, as
    *  its draft did; a task nothing has run on starts its lead. */
-  async openTaskLinkedSession(task: Task): Promise<void> {
+  async openTaskLinkedSession(task: Task, timing?: TaskOpenTrace): Promise<void> {
+    const opening = ++this.taskOpenCount
+    const stillWanted = () => opening === this.taskOpenCount
     const links = this.workspace.tasksStore.get(task.id).sessions
     const link = links?.find((candidate) => candidate.role === 'lead') ?? links?.[links.length - 1]
-    if (!link?.sessionId) return void this.openTaskSession(task, { role: 'lead' })
+    if (!link?.sessionId) {
+      await this.openTaskSession(task, { role: 'lead' })
+      timing?.shown()
+      return
+    }
 
+    timing?.mark('owner_lookup_started')
     const ownerServerId = await this.workspace.tasksStore.get(task.id).ownerHost()
-    if (!ownerServerId) return
-    // The page goes up before the session loads, and the session keeps it
-    // (`keepAside`). A resume reads the whole transcript, and the page used to
-    // wait behind it: the conversation filled the column, then the split opened.
-    // A task page already beside the conversation takes this task in place
-    // (`goToTask`); closing it and opening a new pane resized the column twice.
-    const keepAside = link.role === 'lead' && this.workspace.hasCompanionPanes
-    if (keepAside) this.openTaskAside(task.id)
-    else this.workspace.router.closeGroup('page')
+    timing?.mark('owner_lookup_finished')
+    if (!ownerServerId || !stillWanted()) return
+    // A lead comes with its task page beside it. The page opens once the
+    // conversation is the destination, so it lands in that conversation's strip.
+    const opensTaskAside = link.role === 'lead'
     const sessionServerId = serverConnections.resolveId(link.executionServerId ?? ownerServerId)
     const openTab = findOpenTabForSession(
       link.sessionId,
@@ -719,19 +761,34 @@ export class SessionOpening {
     )
     if (openTab) {
       this.workspace.showExplicitSidebarTaskSession(task.id, link.sessionId)
-      this.workspace.selectTab(openTab, 'click', { keepAside })
+      this.workspace.selectTab(openTab, 'click')
+      if (opensTaskAside) this.openTaskAside(task.id)
+      timing?.shown()
     }
     else {
       // The task link stores a session id, not its agent backend. Resolve the
       // indexed record before resuming instead of assigning whichever provider
       // happens to be selected now; loading a Claude transcript through Codex
       // (or vice versa) returns an empty conversation.
+      timing?.mark('session_metadata_started')
       const meta = await readSessionMeta(sessionServerId, link.sessionId)
-      if (meta) {
-        this.workspace.showExplicitSidebarTaskSession(task.id, link.sessionId)
-        await this.resumeSession(meta, { keepAside })
+      timing?.mark('session_metadata_finished')
+      if (!meta || !stillWanted()) return
+      this.workspace.showExplicitSidebarTaskSession(task.id, link.sessionId)
+      // The page opens as soon as the conversation is the destination, so it
+      // reads its details while the transcript loads rather than after it.
+      let asideOpened = false
+      const openAside = () => {
+        if (!opensTaskAside || asideOpened || !stillWanted()) return
+        asideOpened = true
+        this.openTaskAside(task.id)
+        timing?.shown()
       }
+      await this.resumeSession(meta, { stillWanted, onShown: openAside })
+      // A resume that found the conversation already open selects it without
+      // showing a new one.
+      openAside()
     }
-    requestInputFocus()
+    if (stillWanted()) requestInputFocus()
   }
 }

@@ -512,6 +512,16 @@ export class SessionEnvironmentStore {
     return (await this.refreshStatusForHost(serverId, cwd, opts)).ok
   }
 
+  /** A details read contains the summary too. Only normal consumers may join
+   * a broader read; a forced refresh must run after any pending exact read. */
+  private pendingStatusRead(key: string, level: 'summary' | 'details' | 'details+refs', force: boolean): Promise<GitStatusOutcome> | undefined {
+    const exact = this.inflight.get(`${key}\0${level}`)
+    if (exact || force || level === 'details+refs') return exact
+    const full = this.inflight.get(`${key}\0details+refs`)
+    if (full || level === 'details') return full
+    return this.inflight.get(`${key}\0details`)
+  }
+
   /** Status/details scan that also carries the failure reason, for callers that
    *  report it (e.g. the Environment panel's refresh button). */
   private async refreshStatusForHost(
@@ -532,8 +542,9 @@ export class SessionEnvironmentStore {
     if (!opts.force && now - last < 2_000) return { ok: true }
     // The host pushes a watched checkout's status, so the cache already holds it.
     if (!opts.force && !includeDetails && this.isLive(serverId, cwd)) return { ok: true }
-    const inflightKey = `${key}\0${includeRefs ? 'details+refs' : includeDetails ? 'details' : 'summary'}`
-    const existing = this.inflight.get(inflightKey)
+    const level = includeRefs ? 'details+refs' : includeDetails ? 'details' : 'summary'
+    const inflightKey = `${key}\0${level}`
+    const existing = this.pendingStatusRead(key, level, opts.force === true)
     // A forced lifecycle refresh must observe state after the existing scan,
     // rather than silently joining a request that may predate a Git mutation.
     if (existing) {
@@ -620,7 +631,7 @@ export class SessionEnvironmentStore {
     // later consumers share the same status and refresh timer. A tab switch
     // back to a watched checkout whose details are current reads nothing.
     if (previousCount === 0 && !(this.isLive(serverId, cwd) && this.hasCurrentDetails(key))) {
-      void this.refreshStatusForHost(serverId, cwd, { force: true, details: true })
+      void this.refreshStatusForHost(serverId, cwd, { details: true })
     }
     return () => {
       const remaining = (this.detailWatchers.get(key) ?? 1) - 1
@@ -652,11 +663,7 @@ export class SessionEnvironmentStore {
       const next = current
         ? {
             ...current,
-            uncommittedChanges: {
-              ...current.uncommittedChanges,
-              insertions: status.uncommittedChanges.insertions,
-              deletions: status.uncommittedChanges.deletions,
-            },
+            branchChanges: status.branchChanges,
             targetAheadCount: status.targetAheadCount,
             prUrl: status.prUrl,
           }
@@ -675,14 +682,8 @@ export class SessionEnvironmentStore {
     const key = hostKey(serverId, cwd)
     const previous = this.byCwd[key]
     if (!status || !previous || !this.detailWatchers.has(key) || previous.branch !== status.branch) return status
-    const visibleStatus: GitState = {
-      ...status,
-      uncommittedChanges: {
-        ...status.uncommittedChanges,
-        insertions: previous.uncommittedChanges.insertions,
-        deletions: previous.uncommittedChanges.deletions,
-      },
-    }
+    const visibleStatus: GitState = { ...status }
+    if (previous.branchChanges) visibleStatus.branchChanges = previous.branchChanges
     if (previous.targetAheadCount !== undefined) visibleStatus.targetAheadCount = previous.targetAheadCount
     if (previous.prUrl) visibleStatus.prUrl = previous.prUrl
     return visibleStatus

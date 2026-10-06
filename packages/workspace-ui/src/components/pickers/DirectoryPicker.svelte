@@ -71,6 +71,13 @@
     hostLabel?: string;
     /** The browsed host; keys the shared project store. */
     serverId: string;
+    /**
+     * Present ⇒ the picker chooses an entry rather than a folder: entries it
+     * accepts are listed (files too) and chosen on click instead of opened,
+     * and only such an entry can be committed. An `.app` bundle is a folder,
+     * so it must be chosen here, not browsed into.
+     */
+    chooses?: (entry: DirectoryEntry) => boolean;
   }
 
   let {
@@ -84,6 +91,7 @@
     api: host,
     hostLabel = undefined,
     serverId,
+    chooses = undefined,
   }: Props = $props();
 
   const layer = getPopoverLayer();
@@ -139,7 +147,7 @@
     const revealHidden = showHidden || leaf.startsWith(".");
     return entries.filter(
       (e) =>
-        e.isDir &&
+        (e.isDir || !!chooses?.(e)) &&
         e.name.toLowerCase().startsWith(prefix) &&
         (revealHidden || !e.name.startsWith(".")),
     );
@@ -166,13 +174,15 @@
   );
   /** The path Enter commits — always host-absolute so the tab's host can act on it. */
   const resolvedPath = $derived.by(() => {
+    if (chooses) return exactEntry && chooses(exactEntry) ? exactEntry.path : "";
     if (!resolvedDirectory) return resolveRelativePath(path, relativeAnchor, hostPlatform);
     if (!leaf) return resolvedDirectory;
     return exactEntry?.path ?? joinBrowsePath(resolvedDirectory, leaf, hostPlatform);
   });
   /** A path with no matching folder is created on submit instead of rejected. */
   const willCreate = $derived(
-    !loading &&
+    !chooses &&
+      !loading &&
       path.trim().length > 0 &&
       (leaf ? exactEntry === null : !!loadError),
   );
@@ -355,6 +365,7 @@
 
   function descend(row: Row) {
     if (row.kind === "up") navigateUp();
+    else if (chooses?.(row.entry)) onSelect(row.entry.path);
     else navigateTo(appendPathSegment(path, row.entry.name, hostPlatform));
   }
 
@@ -503,7 +514,8 @@
     }
 
     if (e.key === "ArrowRight") {
-      if (!highlightedRow) return;
+      // Opens a folder; an entry being chosen has nothing to open.
+      if (!highlightedRow || (highlightedRow.kind === "dir" && chooses?.(highlightedRow.entry))) return;
       e.preventDefault();
       descend(highlightedRow);
       return;
@@ -522,7 +534,7 @@
   <!-- Pickers centre in the app window. -->
   <div
     use:portal={layer.el}
-    class="fixed inset-0 z-[200] flex items-center justify-center overflow-hidden overscroll-contain bg-black/12"
+    class="fixed inset-0 z-[200] flex items-center justify-center overflow-hidden overscroll-contain picker-backdrop"
     role="presentation"
     onmousedown={handleBackdropMousedown}
     transition:fade={{ duration: 120 }}
@@ -675,6 +687,7 @@
                 isRepo={item.kind === "dir" && item.entry.isRepo}
                 branch={item.kind === "dir" ? item.entry.branch : undefined}
                 isProject={item.kind === "dir" && item.entry.isProject}
+                isFile={item.kind === "dir" && !item.entry.isDir}
                 {style}
                 onclick={() => descend(item)}
                 onContextMenu={(event) => openRowMenu(index, event)}

@@ -56,7 +56,7 @@ function fixture() {
   context.pluginCommands = { global: [], project: [] }
   context.addTabToOrder = () => {}
   context.setActiveTab = () => {}
-  context.resetOverlays = () => {}
+  context.revealConversation = () => {}
   context.environment = { refreshEnvironment: async () => {} }
   return { context, original }
 }

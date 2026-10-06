@@ -31,6 +31,10 @@
     /** The markup to run. Undefined renders nothing — the caller owns its own
      *  loading state, which must not sit inside an expandable frame. */
     html?: string;
+    /** The text the frame's last height is remembered under. Defaults to
+     *  `html`. A caller that rewrites its markup before the frame runs it
+     *  passes the original, so it can reserve that height while it waits. */
+    heightKey?: string;
     /** Rendered in place of the iframe. The image artifact's one use. */
     children?: Snippet;
     /** Extra buttons for the hover action cluster, before Expand. */
@@ -67,6 +71,7 @@
 
   let {
     html,
+    heightKey,
     children,
     actions,
     loading,
@@ -108,7 +113,10 @@
   });
 
   let frameEl = $state<HTMLDivElement | null>(null);
-  let contentHeight = $state(untrack(() => (html === undefined ? undefined : lastReportedHeight(html))) ?? 120);
+  let contentHeight = $state(untrack(() => {
+    const key = heightKey ?? html;
+    return key === undefined ? undefined : lastReportedHeight(key);
+  }) ?? 120);
   let expanded = $state(false);
   let isNearViewport = $state(untrack(() => !lazy));
   // Inline content width, captured the moment we expand. Fullscreen pins the
@@ -163,7 +171,8 @@
       // iframe pinned to its inline width, so the reported height stays the
       // inline content height even while expanded.
       contentHeight = Math.max(40, Math.ceil(parsed.data.h));
-      if (html !== undefined) rememberReportedHeight(html, contentHeight);
+      const key = heightKey ?? html;
+      if (key !== undefined) rememberReportedHeight(key, contentHeight);
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
@@ -345,7 +354,12 @@
     background: transparent;
   }
 
+  /* In a flex column (the artifact pane), the frame and its iframe grow to
+     the free height; the iframe never goes below its content height. */
   .artifact-frame.fill-available {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
     min-height: 100%;
   }
 
@@ -405,6 +419,7 @@
   }
 
   .artifact-iframe.fill-available {
+    flex-grow: 1;
     min-height: 100%;
   }
 

@@ -1,4 +1,3 @@
-import { setAgentQueueController } from './execution/agents/tools/queue-tools'
 import { installWorkspaceToolOperations, type RemoteToolOperations } from './data/workspace/tool-context'
 import { solusApiSettings } from './host/solus-api-settings'
 import { createWorkspaceOperations } from './data/workspace/service'
@@ -50,7 +49,6 @@ import { registerUplinkHandlers } from './transport/handlers/uplink-handlers'
 import { registerSharingHandlers } from './transport/handlers/sharing-handlers'
 import { registerCloudUploadHandlers } from './transport/solus-api/cloud-uploads'
 import { ShareManager } from './sharing/share-manager'
-import { taskShareContents, tasksContaining } from './data/tasks/task-sharing'
 import { registerSeatHandlers } from './transport/handlers/seat-handlers'
 import { AgentProfileManager, hostProfileHomes } from './execution/seats/agent-profile'
 import { publishPresenceRoom, registerPresenceHandlers } from './transport/handlers/presence-handlers'
@@ -64,6 +62,7 @@ import { fetchLogin } from './providers/github/auth'
 import { loadToken } from './providers/github/token-store'
 import { withCredentialScope } from './vault/credential-scope'
 import { SeatConnector } from './execution/seats/seat-connect'
+import { AgentAuthFlows } from './execution/seats/agent-auth'
 import { attentionVisibleTo, eventVisibleTo } from './sharing/event-audience'
 import { getDb } from './db'
 import { closeDatabase, getDatabase } from './db/database'
@@ -101,6 +100,7 @@ import { registerFilesystemHandlers } from './transport/handlers/filesystem-hand
 import { registerCodeIntelHandlers } from './transport/handlers/code-intel-handlers'
 import { CodeIntelManager } from './code-intel/code-intel-manager'
 import { registerHistoryHandlers } from './transport/handlers/history-handlers'
+import { ensureBackgroundSessionTitle, type BackgroundSessionTitleRequest } from './execution/sessions/background-session-title'
 import { registerFolioHandlers } from './transport/handlers/folio-handlers'
 import { registerReviewHandlers } from './transport/handlers/review-handlers'
 import { registerAutomationHandlers } from './transport/handlers/automation-handlers'
@@ -118,6 +118,7 @@ import { onWorkReviewsChanged } from './data/works/work-reviews'
 import { registerWorkReviewHandlers } from './transport/handlers/work-review-handlers'
 import { registerNotificationHubHandlers } from './transport/handlers/notification-hub-handlers'
 import { publishNotificationChanges } from './notifications/hub-events'
+import { publishTaskSnoozeChanges } from './transport/events/task-snooze-events'
 import { hostPrObserver } from './notifications/pr-observer'
 import { registerWorkLiveHandlers } from './transport/handlers/work-live-handlers'
 import { WorkLiveManager } from './work-live/work-live-manager'
@@ -166,6 +167,10 @@ import { InsightPull } from './sync/insight-pull'
 import { startMetricsRollover, stopMetricsRollover } from './data/insights/rollover'
 import { onTurnRowWritten } from './data/insights/span-table'
 import { projectSessionEvent, serializedBytes } from './data/sessions/result-projection'
+import { activityFor } from './data/activity/activity'
+import { WorktreeMover } from './execution/sessions/worktree-move'
+import { WorktreeOffers } from './execution/sessions/worktree-offers'
+import { setWorktreeMover } from './execution/agents/tools/worktree-tools'
 
 const log = createLogger('main', 'server-boot')
 
@@ -432,8 +437,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const shares = new ShareManager({
     db: getDatabase(),
     canonicalSessionId: (sessionId) => opts.sessionRuntime.canonicalSessionId(sessionId),
-    taskContents: taskShareContents,
-    containingTasks: tasksContaining,
     sessionExists: (sessionId) => opts.sessionRuntime.isKnownSession(sessionId),
     organizationOfResource: organizationOfResource,
     hasLeftOrganization: (organizationId, userId) => hasLeftOrganization(hostOrganizations.current(), organizationId, userId),
@@ -480,7 +483,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // session's history rows to its organization's workspace service. On a host
   // that mirrors nowhere, and on the service itself, a touch does nothing.
   const transcriptMirror = new TranscriptMirror({
-    loadSession: (provider, sessionId, projectPath) => opts.sessionRuntime.loadSession(provider, sessionId, projectPath),
+    loadSession: (provider, sessionId, projectPath) => opts.sessionRuntime.history.loadSession(provider, sessionId, projectPath),
     activitySubjectId: (sessionId) => opts.sessionRuntime.sessionActivitySubject(sessionId).id,
   })
   const touchTranscript = (sessionId: string): void => {
@@ -489,6 +492,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
   opts.sessionRuntime.useSeats(seats)
   const seatConnector = new SeatConnector({ seats })
+  const agentAuth = new AgentAuthFlows({ seats })
   const clientEvents = new ClientEventRegistry((clientId, event) => {
     const principal = ws?.principalOf(clientId)
     return !principal || eventVisibleTo(principal, event, shares)
@@ -503,15 +507,15 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // service — and goes to the admitted clients in it (the audience filter keeps
   // it from guests, and a guest on a work's link gets that work's people); a
   // session's room goes to that session's watchers, who are the room.
-  const presence = new PresenceManager({ describeSession: (sessionId) => opts.sessionRuntime.sessionActivityFor(sessionId) })
+  const presence = new PresenceManager({ describeSession: (sessionId) => opts.sessionRuntime.watchers.sessionActivityFor(sessionId) })
   const publishHostPresence = (organizationId?: string): void => {
     const rooms = organizationId ? [organizationId] : presence.organizations()
     for (const room of rooms) void publishPresenceRoom(presence, events, room)
   }
   const publishSessionPresence = (sessionId: string): void => {
-    const watchers = opts.sessionRuntime.clientsWatching(sessionId)
+    const watchers = opts.sessionRuntime.watchers.clientsWatching(sessionId)
     if (!watchers.length) return
-    events.publishToRoom({ kind: 'session', id: sessionId }, watchers, 'session.presenceChanged', presence.sessionSnapshot(sessionId, watchers, opts.sessionRuntime.activeTurnFor(sessionId)))
+    events.publishToRoom({ kind: 'session', id: sessionId }, watchers, 'session.presenceChanged', presence.sessionSnapshot(sessionId, watchers, opts.sessionRuntime.watchers.activeTurnFor(sessionId)))
   }
   // Streamed browser frames bypass the typed-event envelope: the transport
   // registers a per-client binary delivery here, the browser registry publishes
@@ -537,6 +541,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onWorkReviewsChanged((change) => events.broadcast('workReviews.changed', change)),
     // A client with no socket principal is the desktop's own IPC connection: the local owner.
     publishNotificationChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? principalFor({ kind: 'credential-free' })),
+    publishTaskSnoozeChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? principalFor({ kind: 'credential-free' })),
     installWorkLiveBridge(workLive.bridge()),
     // A deleted work's room ends; its clients hear the delete as `works.changed`.
     onWorkDeleted(async (change) => async () => { workLive.forget(change.workId); return 0 }),
@@ -569,7 +574,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const prObserver = hostPrObserver()
   const prSync = new PrSync({
     publish: (change) => events.broadcast('pr.changed', change),
-    isSessionBusy: (sessionId) => opts.sessionRuntime.isSessionBusy(sessionId),
+    isSessionBusy: (sessionId) => opts.sessionRuntime.statuses.isSessionBusy(sessionId),
     observeNeedingAttention: (repo, viewer, pullRequests) => prObserver.observe(repo, viewer, pullRequests),
   })
   prSync.start()
@@ -596,7 +601,27 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     onHostConfigChanged: (snapshot) => events.broadcast('config.changed', snapshot),
   })
 
-  registerWorktreeHandlers(server, { sessionRuntime: opts.sessionRuntime, events, gitIdentities })
+  // One worktree mover for the user's move, the agent's tool, and an offer's Switch.
+  const sessionCheckouts = opts.sessionRuntime.sessionCheckouts
+  const worktreeMover = new WorktreeMover({
+    checkouts: opts.sessionRuntime.checkouts,
+    getGitContext: (sessionId) => sessionCheckouts.getGitContext(sessionId),
+    trackWorktreeMove: (sessionId, controller) => sessionCheckouts.trackWorktreeMove(sessionId, controller),
+    moveSessionCheckout: (sessionId, checkout) => sessionCheckouts.moveSessionCheckout(sessionId, checkout),
+    recordActivity: (subject, actor, kind) => opts.sessionRuntime.recordActivity(subject, actor, kind),
+    nameWorktreeBranch: (...args) => sessionCheckouts.nameWorktreeBranch(...args),
+  })
+  setWorktreeMover(worktreeMover)
+  const worktreeOffers = new WorktreeOffers({
+    mover: worktreeMover,
+    recordActivity: (sessionId, actor, kind) => opts.sessionRuntime.recordActivity({ kind: 'session', id: sessionId }, actor, kind),
+    sessionActivity: (sessionId) => activityFor(ANY_ORGANIZATION, opts.sessionRuntime.sessionActivitySubject(sessionId)),
+    hostActor: HOST_ACTOR,
+  })
+  opts.sessionRuntime.on('event', (sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
+    if (!to) worktreeOffers.observe(sessionId, event)
+  })
+  registerWorktreeHandlers(server, { sessionRuntime: opts.sessionRuntime, events, gitIdentities, worktreeMover, worktreeOffers })
   registerGitPublishHandlers(server)
   // Browsing a host's filesystem must work headless — that is the whole point
   // of pairing a server that has no window.
@@ -608,6 +633,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     sessionRuntime: opts.sessionRuntime,
     events,
     agentIdFromContext: opts.agentIdFromContext,
+    exchangeProgress: (exchangeId) => orchestrator.progressOf(exchangeId),
+  })
+  opts.sessionRuntime.on('background-session-created', (request: BackgroundSessionTitleRequest) => {
+    void ensureBackgroundSessionTitle(opts.sessionRuntime, events, request).catch((error) => {
+      log.warn('background_session_title_failed', { sessionId: request.sessionId, error: String(error) })
+    })
   })
   await opts.registerHostHandlers?.(server)
   phaseDone('host_handlers_registered')
@@ -624,26 +655,22 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     return sharedPrompts.prompt(ctx.principal, sharedPromptRequestSchema.parse(args[0]))
   })
   const profiles = new AgentProfileManager({ sourceHomes: hostProfileHomes, homeFor: (target, provider) => seats.homeFor(target.kind === 'owner' ? HOST_LOGIN_SEAT : memberSeat(target.userId, target.name), provider), now: Date.now })
-  registerSeatHandlers(server, { seats, connector: seatConnector, profiles })
+  registerSeatHandlers(server, { seats, connector: seatConnector, profiles, agentAuth })
   registerPresenceHandlers(server, { presence, onHostChanged: (clientId) => publishHostPresence(presence.organizationOf(clientId)), onSessionChanged: publishSessionPresence })
   registerReviewHandlers(server, opts.sessionRuntime, events)
   registerAutomationHandlers(server)
   registerWatchHandlers(server)
   // Watches wait on this host and wake their session through the control plane.
-  const watches = new WatchService({ dispatchWake: (wake) => opts.sessionRuntime.dispatchWake(wake) })
+  const watches = new WatchService({ dispatchWake: (wake) => opts.sessionRuntime.dispatch.dispatchWake(wake) })
   // Isolated automations use the same headless SessionRuntime lifecycle as normal
   // background sessions, so their live transcript can be opened mid-run.
-  setAutomationBackgroundSessionDispatcher((o) => opts.sessionRuntime.startAutomationSession(o))
+  setAutomationBackgroundSessionDispatcher((o) => opts.sessionRuntime.dispatch.startAutomationSession(o))
   setAutomationWorktreeCreator((prompt, cwd, abortSignal, preferences) => (
     opts.sessionRuntime.checkouts.createNamed(cwd, prompt, opts.sessionRuntime, abortSignal, preferences)
   ))
   // Push every automation mutation (saves, deletes, run transitions — incl.
   // background scheduler fires) to all connected clients so the UI stays live.
   setSessionOrchestration(orchestrator)
-  setAgentQueueController({
-    read: (id) => opts.sessionRuntime.agentQueue(id),
-    change: (id, mutation) => opts.sessionRuntime.changeAgentQueue(id, mutation),
-  })
   setSessionController({
     listAgentTargets: async () => Promise.all(
       opts.sessionRuntime
@@ -652,16 +679,15 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         .filter((metadata): metadata is AgentMetadata => metadata !== undefined)
         .map(async (metadata) => agentTargetFromMetadata(await enrichAgentMetadata(metadata))),
     ),
-    getSessionInfo: (sessionId) => opts.sessionRuntime.getSessionInfo(sessionId),
-    loadSessionTail: (provider, sessionId, projectPath, limit) => opts.sessionRuntime.loadSession(provider, sessionId, projectPath, limit),
-    liveStatus: (sessionId) => opts.sessionRuntime.liveSessionStatus(sessionId),
-    pendingInputEvents: (sessionId) => opts.sessionRuntime.pendingInputEventsForSession(sessionId),
+    getSessionInfo: (sessionId) => opts.sessionRuntime.history.getSessionInfo(sessionId),
+    loadSessionTail: (provider, sessionId, projectPath, limit) => opts.sessionRuntime.history.loadSession(provider, sessionId, projectPath, limit),
+    liveStatus: (sessionId) => opts.sessionRuntime.statuses.liveSessionStatus(sessionId),
+    pendingInputEvents: (sessionId) => opts.sessionRuntime.inputRequests.pendingInputEventsForSession(sessionId),
     loadPlanContent: (provider, sessionId, projectPath, planToolUseId) =>
-      opts.sessionRuntime.loadPlanContent(provider, sessionId, projectPath, planToolUseId),
-    listPlans: (provider, projectPath, allProjects) => opts.sessionRuntime.listPlans(provider, projectPath, allProjects),
-    invalidatePlanCaches: (sessionId) => opts.sessionRuntime.invalidatePlanCaches(sessionId),
+      opts.sessionRuntime.history.loadPlanContent(provider, sessionId, projectPath, planToolUseId),
+    listPlans: (provider, projectPath, allProjects) => opts.sessionRuntime.history.listPlans(provider, projectPath, allProjects),
+    invalidatePlanCaches: (sessionId) => opts.sessionRuntime.history.invalidatePlanCaches(sessionId),
   })
-  server.register('sessionMessagesSentBy', (args) => orchestrator.exchangesSentBy(args[0]))
   // A person deciding on a plan a session it sent work to wrote, from that card.
   // The decision drives the other session, so the caller must be allowed to.
   server.register('decideSessionPlan', async (args, ctx) => {
@@ -705,8 +731,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     checkouts: opts.sessionRuntime.checkouts,
     dispatcher: opts.sessionRuntime,
     events,
-    isWorktreeInUse: (path) => opts.sessionRuntime.listGitContexts().some((context) => context.worktreePath === path),
-    isSessionBusy: (sessionId) => opts.sessionRuntime.isSessionBusy(sessionId),
+    isWorktreeInUse: (path) => opts.sessionRuntime.sessionCheckouts.listGitContexts().some((context) => context.worktreePath === path),
+    isSessionBusy: (sessionId) => opts.sessionRuntime.statuses.isSessionBusy(sessionId),
     prSync,
   })
   registerChecksHandlers(server)
@@ -830,14 +856,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       if ('toolName' in event && event.toolName) Object.assign(details, { toolName: event.toolName })
       log.debug('session_event_bytes', details)
     }
-    let clients = opts.sessionRuntime.clientsWatching(sessionId)
+    let clients = opts.sessionRuntime.watchers.clientsWatching(sessionId)
     if (to?.only) clients = clients.filter((clientId) => clientId === to.only)
     if (to?.except) clients = clients.filter((clientId) => clientId !== to.except)
     // The watchers are the session's room: each is checked on its first event, not on every token.
     if (clients.length) events.publishToRoom({ kind: 'session', id: sessionId }, clients, 'session.eventReceived', { sessionId, event: projectedEvent })
   })
   opts.sessionRuntime.on('error', (sessionId: string, error: EnrichedError) => {
-    const clients = opts.sessionRuntime.clientsWatching(sessionId)
+    const clients = opts.sessionRuntime.watchers.clientsWatching(sessionId)
     if (clients.length) events.publishToRoom({ kind: 'session', id: sessionId }, clients, 'session.errorReceived', { sessionId, error })
   })
   opts.sessionRuntime.on('session-index-updated', (event: SessionIndexUpdatedEvent) => {
@@ -912,7 +938,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   hostOrganizationsDeps.hostToken = () => uplinkManager.hostToken()
   // A managed machine holds itself awake while it has work, and tells the control plane when to wake it (plan 004 item 3).
   const managedHostActivity = new ManagedHostActivity({
-    isBusy: () => opts.sessionRuntime.hasWorkToKeepAwake(),
+    isBusy: () => opts.sessionRuntime.statuses.hasWorkToKeepAwake(),
     nextDueAt: nextAutomationDueAt,
     lastForegroundAt: () => activityLeases.lastForegroundAt(),
     link: () => uplinkManager.currentLink(),
@@ -1028,6 +1054,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     requireAuth: () => requireAuth,
     isTrustedRequester: isTrustedRequesterAddress,
     isTunnelRequest,
+    deviceHub: devices.hubProxy,
     // No pairing door on a managed host or the workspace service: a grant is the only credential there.
     pairingDisabled: credentialAlwaysRequired,
     isApiMode: apiMode,
@@ -1070,15 +1097,21 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   domainEventUnsubscribes.push(seats.onChanged((event) => {
     events.publish(clientsForSeat(event.seat), 'host.seatChanged', event)
   }))
+  domainEventUnsubscribes.push(agentAuth.onFinished((event) => {
+    events.publish(clientsForSeat(event.seat), 'host.agentAuthFinished', event)
+  }))
   // Seats of members who ran nothing for thirty days are removed (plan §3.7).
   const seatSweepTimer = setInterval(() => {
     if (!apiMode) seats.sweep().catch((err) => log.warn('seat_sweep_failed', { error: err instanceof Error ? err.message : String(err) }))
   }, 24 * 60 * 60_000)
   seatSweepTimer.unref()
+  // Engine.IO answers `/ws` upgrades; the device hub proxy answers its own.
+  http.on('upgrade', (request, socket, head) => {
+    devices.hubProxy.handleUpgrade(request, socket, head)
+  })
   let ws = attachWebSocketTransport(http, server, {
     clientEvents,
     browserFrames,
-    deviceFrames: devices.frames,
     requireAuth: () => requireAuth,
     isTrustedRequester: isTrustedRequesterAddress,
     isTunnelRequest,
@@ -1090,12 +1123,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       prSync.dropConnection(clientId)
       handlePresenceDisconnected(clientId)
       workLive.disconnected(clientId)
-      void devices.manager.cancelInput(clientId)
     },
     onClientExpired: ({ clientId }) => {
-      opts.sessionRuntime.handleClientExpired(clientId)
+      opts.sessionRuntime.watchers.handleClientExpired(clientId)
       void browserRegistry.dropClient(clientId)
-      void devices.manager.dropClient(clientId)
+      devices.dropClient(clientId)
     },
   })
   // A member the organization standing no longer lists loses their seats and sockets (plan 004 item 10).
@@ -1118,14 +1150,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     const room = presence.organizationOf(clientId)
     if (joined) publishHostPresence(room)
     else if (room !== undefined) void publishPresenceRoom(presence, events, room, [clientId])
-    for (const sessionId of opts.sessionRuntime.sessionsWatchedBy(clientId)) publishSessionPresence(sessionId)
+    for (const sessionId of opts.sessionRuntime.watchers.sessionsWatchedBy(clientId)) publishSessionPresence(sessionId)
   }
   function handlePresenceDisconnected(clientId: string): void {
     const room = presence.organizationOf(clientId)
     const left = presence.leave(clientId)
     if (!left) return
     publishHostPresence(room)
-    const rooms = new Set(opts.sessionRuntime.sessionsWatchedBy(clientId))
+    const rooms = new Set(opts.sessionRuntime.watchers.sessionsWatchedBy(clientId))
     if (left.composingSessionId) rooms.add(left.composingSessionId)
     for (const sessionId of rooms) publishSessionPresence(sessionId)
   }
@@ -1217,7 +1249,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const tunnelHttp = createNodeHttpServer(requestListener)
   tunnelHttp.on('upgrade', (request, socket, head) => {
     if (request.url?.startsWith('/ws')) ws.handleUpgrade(request, socket, head)
-    else socket.destroy()
+    else if (!devices.hubProxy.handleUpgrade(request, socket, head)) socket.destroy()
   })
   // The workspace service has no tunnel and no link to resume (cloud-service-model.md §15).
   if (!apiMode) {
@@ -1271,7 +1303,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     ws = attachWebSocketTransport(http, server, {
       clientEvents,
       browserFrames,
-      deviceFrames: devices.frames,
       requireAuth: () => requireAuth,
       isTrustedRequester: isTrustedRequesterAddress,
       isTunnelRequest,
@@ -1283,12 +1314,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         prSync.dropConnection(clientId)
         handlePresenceDisconnected(clientId)
         workLive.disconnected(clientId)
-        void devices.manager.cancelInput(clientId)
       },
       onClientExpired: ({ clientId }) => {
-        opts.sessionRuntime.handleClientExpired(clientId)
+        opts.sessionRuntime.watchers.handleClientExpired(clientId)
         void browserRegistry.dropClient(clientId)
-        void devices.manager.dropClient(clientId)
+        devices.dropClient(clientId)
       },
     })
     lock = acquireLock(host, actualPort)
@@ -1350,6 +1380,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         remoteUpdates.stop()
         stopSupervisor?.()
         codeIntel.dispose()
+        devices.runs.dispose()
         await devices.manager.dispose()
         await devices.bridge.stop()
         for (const unsubscribe of domainEventUnsubscribes) unsubscribe()
@@ -1357,6 +1388,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         sessionIndexPollTimer = null
         clearInterval(seatSweepTimer)
         await seatConnector.stopAll()
+        agentAuth.stopAll()
         await lanDiscovery.close()
         transcriptMirror.dispose()
         hostOrganizations.stop()

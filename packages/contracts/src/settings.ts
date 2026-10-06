@@ -17,7 +17,7 @@
 // not make. Device storage heals one bad key to its default.
 
 import { z } from 'zod'
-import { DEFAULT_MODEL_ROUTING, modelRoutingSchema } from './model-routing'
+import { DEFAULT_MODEL_ROUTING, defaultLeadInstructions, modelRoutingSchema } from './model-routing'
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   mergeNotificationPreferences,
@@ -249,7 +249,7 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   sidebarMotionMs: DEFAULT_SIDEBAR_MOTION_MS,
   leadModel: null,
   agentTaskLifecyclePolicy: 'moderate',
-  leadInstructions: '',
+  leadInstructions: defaultLeadInstructions(DEFAULT_MODEL_ROUTING),
   workerModel: null,
   textGenerationModel: { provider: 'codex', model: DEFAULT_TEXT_GENERATION_MODELS.codex },
   sourceControlWriterModel: null,

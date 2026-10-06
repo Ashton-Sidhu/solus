@@ -72,7 +72,7 @@ export class ConnectionsStore {
     try {
       const api = serverConnections.apiFor(serverId)
       const [serverInfo, endpoints, sessions] = await Promise.all([
-        api.connectionsGetServerInfo(),
+        serverConnections.serverInfoFor(serverId, true),
         api.connectionsListEndpoints(),
         api.connectionsListSessions(),
       ])

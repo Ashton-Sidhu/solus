@@ -35,7 +35,7 @@
           document.documentElement.classList.toggle('dark', isDark)
           document.documentElement.classList.toggle('light', !isDark)
           document.documentElement.style.setProperty('color-scheme', isDark ? 'dark' : 'light')
-          document.querySelector('meta[name="theme-color"]').content = isDark ? '#000000' : '#fefefb'
+          document.querySelector('meta[name="theme-color"]').content = isDark ? '#000000' : '#fffffd'
           document
             .querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')
             .setAttribute('content', isDark ? 'black-translucent' : 'default')
@@ -45,7 +45,7 @@
     <style>
       html, body, #root { height: 100%; margin: 0; }
       html:root, html:root body, html:root #root { background: #262522 !important; overscroll-behavior: none; }
-      html:root.light, html:root.light body, html:root.light #root { background: #fefefc !important; }
+      html:root.light, html:root.light body, html:root.light #root { background: #fffffd !important; }
     </style>
   </head>
   <body>

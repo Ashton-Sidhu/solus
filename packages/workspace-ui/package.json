@@ -4,6 +4,6 @@
   "type": "module",
   "exports": { "./*": "./src/*" },
   "scripts": { "check": "tsc --noEmit -p tsconfig.json" },
-  "dependencies": { "@solus/contracts": "workspace:*", "@solus/client-core": "workspace:*", "@solus/document-model": "workspace:*" },
-  "devDependencies": { "typescript": "^5.9.3" }
+  "dependencies": { "@solus/contracts": "workspace:*", "@solus/client-core": "workspace:*", "@solus/document-model": "workspace:*", "three": "0.180.0" },
+  "devDependencies": { "@types/three": "0.180.0", "typescript": "^5.9.3" }
 }

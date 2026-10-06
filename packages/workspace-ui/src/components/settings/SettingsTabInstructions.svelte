@@ -1,5 +1,18 @@
+<script module lang="ts">
+  /** Search words, read by the settings page to find this page from any other. */
+  export interface SettingItem {
+    id: string;
+    keywords: string[];
+  }
+
+  export const settingItems: SettingItem[] = [
+    { id: "extra-instructions", keywords: ["extra", "instructions", "system", "prompt", "agent", "general", "custom"] },
+    { id: "model-instructions", keywords: ["model", "instructions", "system", "prompt", "per-model", "specific", "custom"] },
+  ];
+</script>
+
 <script lang="ts">
-  import PlainTextEditor from "../ui/plain-text-editor/plain-text-editor.svelte";
+  import SettingsTextField from "./SettingsTextField.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import { getAgentContext, getSettingsContext } from "../../contexts";
@@ -56,15 +69,6 @@
     requestInputFocus();
   }
 
-  interface SettingItem {
-    id: string;
-    keywords: string[];
-  }
-
-  const settingItems: SettingItem[] = [
-    { id: "extra-instructions", keywords: ["extra", "instructions", "system", "prompt", "agent", "general", "custom"] },
-    { id: "model-instructions", keywords: ["model", "instructions", "system", "prompt", "per-model", "specific", "custom"] },
-  ];
 
   function isVisible(id: string): boolean {
     if (!searchQuery) return true;
@@ -88,14 +92,11 @@
            uses the smaller workspace-chrome type rung. px-2.5 lines it up with
            the editor text (0.625rem wrapper pad + 0.25rem ProseMirror pad =
            0.875rem). -->
-      <PlainTextEditor
+      <SettingsTextField
+        label="Extra instructions"
         value={theme.extraInstructions}
         onValueChange={(md) => theme.setPersonal("extraInstructions", md)}
         onBlur={() => requestInputFocus()}
-        enterInsertsNewline
-        hidePlaceholderOnFocus
-        maxHeight={220}
-        dictation
         placeholder="Prefer concise answers. Use specific libraries. Follow my writing style."
         class="rounded-lg border border-input bg-white dark:bg-input/30 px-3 [--plain-editor-line-height:1.5] [--plain-editor-padding:0.625rem_0] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400] [&_.cm-placeholder]:text-workspace-chrome"
       />
@@ -146,14 +147,11 @@
       </DropdownMenu.Root>
     {/snippet}
     {#snippet body()}
-      <PlainTextEditor
+      <SettingsTextField
+        label={selectedModelLabel ? `${selectedModelLabel} instructions` : 'Per-model instructions'}
         value={theme.modelInstructions[selectedModelId] ?? ""}
         onValueChange={(md) => theme.setPersonal("modelInstructions", { ...$state.snapshot(theme.modelInstructions), [selectedModelId]: md })}
         onBlur={() => requestInputFocus()}
-        enterInsertsNewline
-        hidePlaceholderOnFocus
-        maxHeight={220}
-        dictation
         placeholder="Instructions that only apply when {selectedModelLabel || 'this model'} is running."
         class="rounded-lg border border-input bg-white dark:bg-input/30 px-3 [--plain-editor-line-height:1.5] [--plain-editor-padding:0.625rem_0] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400] [&_.cm-placeholder]:text-workspace-chrome"
       />

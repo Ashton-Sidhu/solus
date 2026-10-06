@@ -521,12 +521,8 @@
       hoveredLevel = null;
     }}
   >
-    <!-- The model list sits on a tinted well and the side column stays on the
-         menu surface, so the eye lands on the list first. `rounded-[inherit]`
-         keeps the well inside the menu's corners: the menu cannot clip
-         (see overflow-visible above). -->
-    <div class="flex items-stretch rounded-[inherit]">
-      <div class="min-w-0 flex-1 rounded-l-[inherit] bg-(--wash-2) px-2 py-1.5">
+    <div class="flex items-stretch">
+      <div class="min-w-0 flex-1 p-1.5">
         <!-- The preview clears on the way out of the whole surface, never on a
              row: row-level leave/enter pairs flash the column back to the
              current model between every two rows you sweep across, and clearing

@@ -110,7 +110,6 @@ const resourceRpcRules = {
   sharedSessionPrompt: editor(sessionFieldAt(0, 'sessionId')),
   prompt: editor(ctxAt(0)),
   retry: editor(ctxAt(0)),
-  sessionMessagesSentBy: viewer(sessionIdAt(0)),
   decideSessionPlan: editor(ctxAt(0)),
   stopSession: editor(sessionIdAt(0)),
   stopBackgroundTasks: editor(sessionIdAt(0)),
@@ -137,6 +136,7 @@ const resourceRpcRules = {
   enterDesignMode: editor(optionalCtxAt(0)),
   submitDesignAnnotations: editor(optionalCtxAt(1)),
   setSessionTitle: editor(sessionIdAt(0)),
+  ensureBackgroundSessionTitle: editor(sessionIdAt(0)),
   setSessionBranch: editor(sessionIdAt(0)),
   sessionPullRequestLink: editor(sessionIdAt(0)),
   sessionPullRequestUnlink: editor(sessionIdAt(0)),
@@ -198,6 +198,8 @@ const resourceRpcRules = {
   tasksSessions: viewer(taskIdAt(0)),
   tasksSnapshot: viewer(taskIdAt(0)),
   tasksMarkRead: viewer(taskIdAt(0)),
+  // A snooze is the caller's own view of a task they can read (docs/task-snooze.md).
+  tasksSnooze: viewer(taskIdAt(0)),
   tasksRecordActivity: viewer(taskIdAt(0)),
   tasksComment: editor(taskIdAt(0)),
   tasksDeleteComment: editor(taskIdAt(0)),
@@ -214,9 +216,9 @@ const resourceRpcRules = {
   publicationStart: owner(sharedResourceAt(0)),
   // A Local work leaves its host by its owner's Share (docs/plans/cloud-sharing.md).
   workExportForCloud: owner(workIdAt(0)),
-  workRemoveUploaded: owner(workIdAt(0)),
+  workMarkMoved: owner(workIdAt(0)),
   taskExportForCloud: owner(taskIdAt(0)),
-  taskRemoveUploaded: owner(taskIdAt(0)),
+  taskMarkMoved: owner(taskIdAt(0)),
   // Showing a device in a session changes that session's workspace. The device
   // handler also refuses guests: a session share grants no host device access.
   deviceOpen: editor(sessionFieldAt(0, 'sessionId')),
@@ -319,6 +321,9 @@ export const HOST_ADMIN_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>
   'deviceHostTest',
   'deviceToolUpdate',
   'deviceHostRetry',
+  // Builds name files on the machine: adding one reads a host path, deleting one removes it.
+  'deviceBuildImport',
+  'deviceBuildDelete',
 ])
 
 /**

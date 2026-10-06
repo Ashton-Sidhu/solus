@@ -1,21 +1,17 @@
 <script lang="ts">
-  import {
-    LoaderCircle as CircleNotchIcon,
-    GitMerge as GitMergeIcon,
-  } from "@lucide/svelte";
+  import { LoaderCircle as CircleNotchIcon } from "@lucide/svelte";
   import type { PullRequest } from "@solus/contracts/providers";
-  import { toasts } from "../../lib/toasts";
-  import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
-  import MergeControl from "./MergeControl.svelte";
-  import { armedAutoMergeLabel, type MergeAction } from "./lib/merge-readiness";
+  import PrPrimaryAction from "./PrPrimaryAction.svelte";
+  import type { MergeAction, MergeReadiness } from "./lib/merge-readiness";
   import type { PrActionsLayout } from "./lib/pr-actions-layout";
   import type { PullRequest as IndexedPullRequest } from "../../contexts/prs/pull-request.svelte";
 
   // The PR's action cluster, Linear-style: it lives inside the status card in
-  // the right rail, not in the page header. One full-width primary CTA — the
-  // move the shared readiness model chose — and one quiet full-width row under
-  // it. The rarely-used actions are in the ⋯ beside the card's headline (see
+  // the right rail. The pull request's one move (PrPrimaryAction) leads it —
+  // the same control the header carries, so the card says what it will do
+  // right under the state it changes. Under it, one quiet full-width row. The
+  // rarely-used actions are in the ⋯ beside the card's headline (see
   // PrOverflowMenu).
   //
   // Once the rail folds into the reading column the same cluster is the
@@ -24,28 +20,23 @@
   let {
     pullRequest,
     detail,
-    action,
-    onAction,
+    readiness,
+    onAgentAction,
     feedbackCount = 0,
     addressCommentsReady = true,
     addressingComments = false,
     onAddressComments,
-    onMerged,
     layout = "card",
   }: {
-    /** The indexed pull request, for the merge that changes it. */
+    /** The indexed pull request, which the host moves write through. */
     pullRequest: IndexedPullRequest;
     detail: PullRequest | null;
-    /** The move the shared readiness model chose; null when the next step is
-     *  someone else's. The merge has a control of its own here; every other
-     *  move is one button that runs through `onAction`. */
-    action: MergeAction | null;
-    onAction: (action: MergeAction) => Promise<void>;
+    readiness: MergeReadiness;
+    onAgentAction: (action: MergeAction) => Promise<void>;
     feedbackCount?: number;
     addressCommentsReady?: boolean;
     addressingComments?: boolean;
     onAddressComments?: () => void;
-    onMerged?: () => void;
     layout?: PrActionsLayout;
   } = $props();
 
@@ -60,29 +51,11 @@
       !detail.draft &&
       !detail.headRepo.isFork,
   );
-  // The host's standing instruction to merge, said where the merge button
-  // would otherwise stand.
-  const armedLabel = $derived(detail ? armedAutoMergeLabel(detail) : null);
-  // The cluster owns its own top margin: a PR with nothing to do has none of
-  // these actions, and an empty wrapper still held a gap inside the card.
-  const hasActions = $derived(!!action || !!armedLabel || showAddressComments);
-
-  let running = $state(false);
-
-  async function run(move: MergeAction) {
-    if (running) return;
-    running = true;
-    try {
-      await onAction(move);
-    } catch (error) {
-      toasts.error("Couldn't run the pull request action", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      running = false;
-      requestInputFocus();
-    }
-  }
+  // A merged or closed pull request has no move; the card's headline already
+  // says so, and an empty wrapper would still hold a gap inside the card.
+  const hasActions = $derived(
+    readiness.key !== "merged" && readiness.key !== "closed",
+  );
 </script>
 
 {#if hasActions}
@@ -97,56 +70,13 @@
     ? "flex min-w-0 items-center gap-1.5"
     : "mt-[13px] flex w-full flex-col gap-[7px]"}
 >
-  {#if armedLabel}
-    <div
-      class="flex min-w-0 items-center justify-center gap-2 overflow-hidden rounded-[10px] px-3.5 font-medium text-(--solus-art-positive) shadow-[shadow:var(--elev-ring)] {row
-        ? 'h-8 shrink-0'
-        : 'h-[34px] w-full'}"
-      title="{armedLabel}: the host merges this once its requirements pass"
-    >
-      <GitMergeIcon size={14} class="shrink-0" aria-hidden="true" />
-      <span class="truncate">{armedLabel}</span>
-    </div>
-  {/if}
-  {#if action?.kind === "merge" && detail}
-    <MergeControl
-      {pullRequest}
-      methods={detail.capabilities.mergeMethods}
-      method={action.method}
-      {onMerged}
-      {layout}
-    />
-  {:else if action}
-    <!-- The same saturated tier as the merge button: this is the one move the
-         card asks for, whether it runs on the host or opens a session. A
-         conflict is the one move painted in the blocker's own colour. -->
-    <Button
-      type="button"
-      disabled={running}
-      class="flex min-w-0 cursor-pointer items-center justify-center gap-2 overflow-hidden rounded-[10px] border-0 px-3.5 font-medium transition-[background-color,scale] duration-150 active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-60 {action.kind ===
-      'resolve-conflicts'
-        ? 'bg-(--solus-art-negative) text-white hover:bg-[color-mix(in_oklch,var(--solus-art-negative)_88%,var(--foreground))] focus-visible:ring-[color:color-mix(in_srgb,var(--solus-art-negative)_28%,transparent)]'
-        : 'bg-primary text-primary-foreground shadow-[0_1px_2px_-1px_color-mix(in_oklch,var(--primary)_55%,transparent)] hover:bg-primary/90'} {row
-        ? 'h-8 shrink-0'
-        : 'h-[34px] w-full'}"
-      title={action.kind === "mark-ready"
-        ? "Mark the pull request ready for review"
-        : action.kind === "enable-auto-merge"
-          ? "Ask the host to merge this once its requirements pass"
-        : action.kind === "resolve-conflicts"
-          ? "Open an agent session to resolve the merge conflicts"
-          : "Open a new session composer with the fix drafted"}
-      onclick={() => run(action)}
-    >
-      {#if running}
-        <CircleNotchIcon
-          size={14}
-          class="shrink-0 animate-spin [animation-duration:0.9s]"
-        />
-      {/if}
-      <span class="truncate">{running ? "Working…" : action.label}</span>
-    </Button>
-  {/if}
+  <PrPrimaryAction
+    number={pullRequest.number}
+    {pullRequest}
+    {readiness}
+    {onAgentAction}
+    layout={row ? "row" : "card"}
+  />
 
   {#if showAddressComments}
     <Button

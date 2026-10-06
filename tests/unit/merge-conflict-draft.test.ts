@@ -15,8 +15,7 @@ function status(overrides: Partial<GitState['uncommittedChanges']> = {}): GitSta
     uncommittedChanges: {
       files: [],
       hasMoreFiles: false,
-      insertions: 0,
-      deletions: 0,
+      fileCount: 0,
       mergeInProgress: false,
       ...overrides,
     },
