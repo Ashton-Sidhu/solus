@@ -6,6 +6,7 @@ import type {
   ServerRequest,
 } from './generated'
 import type {
+  ConfigReadResponse,
   DynamicToolSpec,
   GetAccountResponse,
   GetAccountRateLimitsResponse,
@@ -93,6 +94,7 @@ export type CodexThreadGoalSetParams = ThreadGoalSetParams
 
 export interface CodexResponseByMethod {
   initialize: InitializeResponse
+  'config/read': ConfigReadResponse
   'skills/extraRoots/set': SkillsExtraRootsSetResponse
   'thread/compact/start': ThreadCompactStartResponse
   'thread/start': CodexThreadStartResponse

@@ -19,6 +19,11 @@ const log = createLogger('main', 'session-title')
 
 const MAX_TITLE_LENGTH = 48
 const MAX_DESCRIPTION_LENGTH = 1_000
+/** The first run and two retries. */
+const METADATA_ATTEMPTS = 3
+/** A healthy run submits in 2-7s, so a run past this is stuck behind a slow
+ *  provider response, and a new run is faster than more waiting. */
+const METADATA_ATTEMPT_TIMEOUT_MS = 20_000
 
 /** The cheapest model each backend has that still writes useful metadata, at
  * its lowest reasoning setting — scaffolding a thread must never cost a real turn. */
@@ -74,8 +79,7 @@ function buildSessionMetadataPrompt(
     '- Do not copy and truncate the user\'s message.',
     '- Avoid project names already visible in the UI, quotes, labels, filler, and trailing punctuation.',
     '- Use attached images as primary context for UI issues.',
-    '- When a URL or attachment is the only source of the subject, use available tools to inspect it directly.',
-    '- Local git history is not evidence of what a linked PR or issue is about. Never title the session after branch names, commit messages, or merged commits found in the checkout.',
+    '- When a URL is the only source of the subject, open it with your web tool.',
     '- If a linked PR or issue cannot be read, fall back to the user\'s stated action plus its number, such as "Take Over PR 8588". This is the one case where a PR or issue number belongs in the title.',
     '',
     'Description rules:',
@@ -203,53 +207,71 @@ export async function generateMetadataWith(
 ): Promise<SessionGeneratedMetadata | null> {
   const { model: defaultModel, reasoningEffort } = METADATA_MODELS[provider]
   const model = selectedModel ?? defaultModel
-  let submitted: SessionGeneratedMetadata | null = null
+  const sessionId = context?.sessionId
   let imageAttachments = context?.imageAttachments
   try {
     imageAttachments = await resolvePromptImages(context ?? {})
   } catch (err) {
-    log.warn('session_title_attachment_failed', { error: String(err) })
+    log.warn('session_title_attachment_failed', { sessionId, error: String(err) })
   }
-  // The submission is the whole answer. Stop the run there: a model that keeps
-  // going after it spends turns for nothing and can end at the turn limit,
-  // which the backend reports as a failed run.
-  const submission = new AbortController()
-  try {
-    await new TextGenerator(dispatcher).generate({
-      provider,
-      cwd,
-      prompt: buildSessionMetadataPrompt(trimmed, context?.attachments),
-      model,
-      reasoningEffort,
-      imageAttachments,
-      tools: [createSessionMetadataTool((metadata) => {
-        submitted = metadata
-        submission.abort()
-      })],
-      abortSignal: submission.signal,
-      seat,
-      unattended: true,
-      // Linked context can require inspection before the structured submission.
-      maxTurns: /https?:\/\//i.test(trimmed) || context?.attachments?.length ? 4 : 2,
-      timeoutMs: 30_000,
-    })
-  } catch (err) {
-    // Don't return here: a late stream error must not discard a name the model
-    // already submitted through the tool.
-    log.warn('session_title_failed', { provider, model, error: String(err) })
-  }
+  const generator = new TextGenerator(dispatcher)
+  const prompt = buildSessionMetadataPrompt(trimmed, context?.attachments)
+  // A link can be the only source of the subject, so a prompt with one keeps
+  // the web tool and the turns to read it before the submission.
+  const hasLink = /https?:\/\//i.test(trimmed)
 
-  // The structured tool is the only naming path. Sanitize its fields because a
-  // schema constrains their types, not the model's punctuation or length.
-  const title = sanitizeTitle(submitted?.title ?? '')
-  const description = sanitizeDescription(submitted?.description ?? '')
-  const metadata = title && description ? { title, description } : null
-  log.info('session_metadata_generated', {
-    provider,
-    model,
-    structured: !!submitted,
-    titled: !!title,
-    described: !!description,
-  })
-  return metadata
+  // The provider sometimes takes 10-20s to answer a request it usually answers
+  // in 2s. A fresh run is then the quickest way to a name.
+  for (let attempt = 1; attempt <= METADATA_ATTEMPTS; attempt++) {
+    // Only the tool callback assigns it, which control flow cannot see.
+    let submitted = null as SessionGeneratedMetadata | null
+    // The submission is the whole answer. Stop the run there: a model that keeps
+    // going after it spends turns for nothing and can end at the turn limit,
+    // which the backend reports as a failed run.
+    const submission = new AbortController()
+    const startedAt = Date.now()
+    try {
+      await generator.generate({
+        provider,
+        cwd,
+        prompt,
+        model,
+        reasoningEffort,
+        imageAttachments,
+        tools: [createSessionMetadataTool((metadata) => {
+          submitted = metadata
+          submission.abort()
+        })],
+        abortSignal: submission.signal,
+        seat,
+        unattended: true,
+        // A name needs no built-in tools or setup from the user or the project.
+        // Loading them made the prompt much larger and waited for MCP servers to start.
+        bare: { webAccess: hasLink },
+        maxTurns: hasLink ? 4 : 2,
+        timeoutMs: METADATA_ATTEMPT_TIMEOUT_MS,
+      })
+    } catch (err) {
+      // Don't skip the check below: a late stream error must not discard a
+      // name the model already submitted through the tool.
+      log.warn('session_title_failed', { sessionId, provider, model, attempt, error: String(err) })
+    }
+
+    // The structured tool is the only naming path. Sanitize its fields because a
+    // schema constrains their types, not the model's punctuation or length.
+    const title = sanitizeTitle(submitted?.title ?? '')
+    const description = sanitizeDescription(submitted?.description ?? '')
+    log.info('session_metadata_generated', {
+      sessionId,
+      provider,
+      model,
+      attempt,
+      durationMs: Date.now() - startedAt,
+      structured: !!submitted,
+      titled: !!title,
+      described: !!description,
+    })
+    if (title && description) return { title, description }
+  }
+  return null
 }

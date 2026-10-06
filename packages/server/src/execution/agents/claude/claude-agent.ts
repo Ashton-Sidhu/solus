@@ -177,6 +177,9 @@ export interface ClaudeRunOptions {
   systemPromptAppend?: string
   maxTurns?: number
   maxBudgetUsd?: number
+  /** Load no settings, CLAUDE.md, plugins, or MCP servers beyond `mcpServers`,
+   *  and no built-in tool but WebFetch when `webAccess` is set. */
+  bare?: { webAccess: boolean }
   canUseTool?: CanUseTool
   persistSession?: boolean
   abortController?: AbortController
@@ -240,22 +243,24 @@ export class ClaudeAgent {
       preset: 'claude_code',
     }
     if (opts.systemPromptAppend) systemPrompt.append = opts.systemPromptAppend
+    const bareTools = opts.bare?.webAccess ? ['WebFetch'] : []
 
     const claudeOptions: Options = {
       // The CLI leaves TodoWrite out of the Claude 5 preset; naming it here adds
       // it back so the progress tracker still fills (see claude-event-normalizer).
-      allowedTools: ['TodoWrite', ...(opts.allowedTools ?? [])],
+      allowedTools: opts.bare ? [...bareTools, ...(opts.allowedTools ?? [])] : ['TodoWrite', ...(opts.allowedTools ?? [])],
       disallowedTools: [...BLOCKED_TOOLS],
       cwd: resolveHomePath(opts.cwd),
       systemPrompt,
-      plugins: [{type: 'local', path: SOLUS_PLUGINS_DIR}],
+      plugins: opts.bare ? [] : [{type: 'local', path: SOLUS_PLUGINS_DIR}],
       maxTurns: opts.maxTurns,
       maxBudgetUsd: opts.maxBudgetUsd,
       additionalDirectories: opts.additionalDirectories,
       model: opts.model ?? undefined,
       abortController,
       includePartialMessages: true,
-      settingSources: ['user', 'project'],
+      settingSources: opts.bare ? [] : ['user', 'project'],
+      strictMcpConfig: !!opts.bare,
       canUseTool: opts.canUseTool ?? autoAllow,
       permissionMode: sdkPermissionMode,
       allowDangerouslySkipPermissions: sdkPermissionMode === 'bypassPermissions',
@@ -265,6 +270,7 @@ export class ClaudeAgent {
       env: claudeEnv(opts.seat),
     }
     if (opts.mcpServers) claudeOptions.mcpServers = opts.mcpServers
+    if (opts.bare) claudeOptions.tools = bareTools
     if (!opts.disableReasoning) {
       claudeOptions.effort = opts.reasoningEffort ?? 'high'
       // Request readable summaries without changing the model's thinking budget.

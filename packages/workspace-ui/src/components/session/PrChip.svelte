@@ -107,12 +107,12 @@
       side="bottom"
       align="end"
       sideOffset={7}
-      class="w-80 min-w-0 max-w-[calc(100vw-2rem)] max-h-[min(24rem,var(--bits-dropdown-menu-content-available-height))] overscroll-contain text-workspace-chrome"
+      class="w-72 min-w-0 max-w-[calc(100vw-2rem)] max-h-[min(20rem,var(--bits-dropdown-menu-content-available-height))] overscroll-contain text-workspace-chrome"
     >
       <DropdownMenu.Label class="text-workspace-chrome">Pull requests</DropdownMenu.Label>
       {#each choices as choice (`${choice.targetScope}:${choice.number}`)}
         <DropdownMenu.Item
-          class="h-auto py-2 text-workspace-chrome"
+          class="text-workspace-chrome"
           textValue={`#${choice.number} ${taskPrMenuTitle(choice)}`}
           title={`Open #${choice.number} ${taskPrMenuTitle(choice)}`}
           onclick={(event) => {

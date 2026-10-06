@@ -114,7 +114,18 @@
       ],
       "expo-image",
       "expo-status-bar",
-      "expo-web-browser"
+      "expo-web-browser",
+      "./plugins/withWidgetLogoAsset.cjs",
+      [
+        "expo-widgets",
+        {
+          "bundleIdentifier": "sh.solus.mobile.widgets",
+          "groupIdentifier": "group.sh.solus.mobile",
+          "enablePushNotifications": false,
+          "frequentUpdates": true,
+          "widgets": []
+        }
+      ]
     ]
   }
 }

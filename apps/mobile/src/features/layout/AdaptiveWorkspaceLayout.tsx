@@ -46,6 +46,7 @@ import { HomeListOptionsProvider } from "../home/home-list-options";
 import { threadKey, type SolusThreadShell } from "../threads/thread-directory";
 import { ThreadNavigationSidebar } from "../threads/ThreadNavigationSidebar";
 import { useThreadListRefresh } from "../threads/use-thread-list";
+import { useAgentLiveActivity } from "../live-activity/use-agent-live-activity";
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
 import { WORKSPACE_PANE_TIMING } from "./workspace-pane-animation";
 import { WorkspaceInspectorPane } from "./workspace-inspector-pane";
@@ -215,6 +216,7 @@ export function AdaptiveWorkspaceLayout(props: {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   // One reader keeps every host's thread list current for Home and the sidebar.
   useThreadListRefresh();
+  useAgentLiveActivity();
   const activeRoleOwner = useRef<symbol | null>(null);
   const [primarySidebarPreferredVisible, setPrimarySidebarPreferredVisible] = useState(true);
   const showPrimarySidebar = isHome || primarySidebarPreferredVisible;

@@ -296,14 +296,14 @@
           <GitPullRequestIcon />
           {prChoices.length === 1 ? `Pull request #${prChoices[0].number}` : `Pull requests (${prChoices.length})`}
         </ContextMenu.SubTrigger>
-        <ContextMenu.SubContent class="w-80 min-w-0 max-w-[calc(100vw-2rem)] max-h-[min(24rem,var(--bits-context-menu-content-available-height))] overflow-y-auto overscroll-contain">
+        <ContextMenu.SubContent class="w-72 min-w-0 max-w-[calc(100vw-2rem)] max-h-[min(20rem,var(--bits-context-menu-content-available-height))] overflow-y-auto overscroll-contain">
           {#if prChoices.length === 1}
             {@render prActions(prChoices[0])}
           {:else}
             {#each prChoices as choice (`${choice.targetScope}:${choice.number}`)}
               <div class="flex items-center">
                 <ContextMenu.Item
-                  class="h-auto min-w-0 flex-1 py-2 text-workspace-chrome"
+                  class="min-w-0 flex-1 text-workspace-chrome"
                   title={`Open #${choice.number} ${taskPrMenuTitle(choice)}`}
                   onSelect={() => select(() => onOpenPr?.(choice))}
                 >

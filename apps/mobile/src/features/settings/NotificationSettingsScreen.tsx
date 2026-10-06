@@ -6,7 +6,7 @@ import {
   SESSION_NOTIFICATION_EVENTS,
 } from "@solus/contracts/notification-types";
 import type { PersonalSettings } from "@solus/contracts/settings";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useApp, useListened } from "../../app/app-context";
@@ -34,6 +34,7 @@ export function NotificationSettingsScreen(_props: ScreenProps<"NotificationSett
     app.personal.changes,
     app.personal.current,
   ).notifications;
+  const liveActivities = useListened(app.liveActivity.changes, app.liveActivity.enabled);
   const update = (change: (next: PersonalSettings["notifications"]) => void) => {
     const next = structuredClone(app.personal.current().notifications);
     change(next);
@@ -102,6 +103,22 @@ export function NotificationSettingsScreen(_props: ScreenProps<"NotificationSett
           </SettingsSection>
           <SettingsNote>Things that happen around your work. Always shown in the app.</SettingsNote>
         </View>
+
+        {Platform.OS === "ios" ? (
+          <View className="gap-3">
+            <SettingsSection title="This device">
+              <SettingsSwitchRow
+                label="Live Activities"
+                value={liveActivities}
+                onValueChange={(on) => app.liveActivity.set(on)}
+              />
+            </SettingsSection>
+            <SettingsNote>
+              Agent work on the Lock Screen and in the Dynamic Island: titles and status only. It
+              updates while Solus is open; after 10 minutes without an update it shows as out of date.
+            </SettingsNote>
+          </View>
+        ) : null}
       </ScrollView>
     </SettingsScreen>
   );

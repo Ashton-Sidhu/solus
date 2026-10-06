@@ -970,16 +970,19 @@
   /* The seam between the pane and the one before it. One line for the whole
      pane, strip included, stopping 16px short of the top and bottom edges.
      Drawn on the wrap, whose box is the pane's whole height whatever its
-     bottom padding; a maximized surface covers it. */
+     bottom padding; a maximized surface covers it. It sits above the layers a
+     surface stacks across its full width (a chat's transcript fade at 5, its
+     composer dock at 10), which otherwise cut a gap into it. Same hairline as
+     a Settings card border (RowCard's `border-border/50`). */
   :global(.secondary-pane-wrap)::before {
     content: "";
     position: absolute;
     top: 1rem;
     bottom: 1rem;
     left: 0;
-    z-index: 1;
+    z-index: 30;
     width: 1px;
-    background: var(--solus-container-border);
+    background: color-mix(in oklab, var(--border) 50%, transparent);
     pointer-events: none;
   }
   /* Touch grows every chrome button to 2.75rem (PAGE_ICON_BTN), so the same

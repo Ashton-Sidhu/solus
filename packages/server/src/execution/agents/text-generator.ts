@@ -24,6 +24,8 @@ export interface TextGenerationOptions {
   abortSignal?: AbortSignal
   timeoutMs?: number
   maxTurns?: number
+  /** Run with only this caller's tools (`AgentRunRequest.bare`). */
+  bare?: { webAccess: boolean }
   /** Capture tools for structured answers — the caller reads the arguments the
    *  model submits rather than scraping its prose. */
   tools?: AgentTool[]
@@ -61,6 +63,7 @@ export class TextGenerator {
       systemPrompt,
       maxTurns: options.maxTurns,
       timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      bare: options.bare,
       seat: options.seat,
     })
     const cancel = () => run.cancel()

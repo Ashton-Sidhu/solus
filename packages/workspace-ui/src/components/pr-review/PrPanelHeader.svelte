@@ -90,7 +90,8 @@
      overflow and the ✕ — under the pane beside this one, where they cannot be
      reached. Beside a companion the band is legally ~40rem, and in full screen
      the traffic-light inset spends another ~6rem of it, so the widest slot
-     that can give does: under 40rem the Review and Check out actions keep
+     that can give does. The row with both labels needs about 44rem, so under
+     52rem — before the row is tight — the Review and Check out actions keep
      their glyphs and drop their labels (see `reviewButton` and
      `checkoutButton` in PrReviewPane). The number never gives
      — in this shape the band is the only place the pull request is named.

@@ -31,6 +31,25 @@ function dispatcherAnswering(options: { submitted?: { title: string; description
   }
 }
 
+/** A dispatcher whose first `failures` runs time out before any submission,
+ *  as a run stuck behind a slow provider response does. */
+function dispatcherTimingOut(failures: number, submitted: { title: string; description: string }) {
+  const requests: AgentRunRequest[] = []
+  return {
+    requests,
+    runAgent(request: AgentRunRequest): AgentRun {
+      requests.push(request)
+      const attempt = requests.length
+      const done = (async () => {
+        if (attempt <= failures) throw new Error('Agent run timed out after 20000ms')
+        await request.tools[0].execute(submitted as never, {} as never)
+        return { sessionId: null, output: '', toolCallCount: 1, permissionDenials: [], exitCode: 0, signal: null }
+      })()
+      return { sessionId: Promise.resolve(null), done, cancel: () => {}, handle: {} as never }
+    },
+  }
+}
+
 // A generated name goes straight onto a tab and into the session index, so what
 // matters is that a chat model's habits — a preamble, a code fence, a bullet, a
 // trailing period, an essay — never reach the UI as the session's name.
@@ -175,7 +194,6 @@ describe('generateMetadataWith', () => {
     )
 
     expect(dispatcher.requests[0].imageAttachments).toEqual(imageAttachments)
-    expect(dispatcher.requests[0].maxTurns).toBe(4)
     expect(dispatcher.requests[0].prompt).toContain(
       'Attachment metadata:\n- mobile.png (image, image/png, 1234 bytes)',
     )
@@ -184,8 +202,9 @@ describe('generateMetadataWith', () => {
     )
   })
 
-  test('allows linked context inspection before structured submission', async () => {
-    // WHY: a link can be the only source that identifies the durable subject.
+  test('keeps web access and the turns to use it only when the prompt has a link', async () => {
+    // WHY: a link can be the only source that identifies the durable subject,
+    // and every other name needs no tool but the submission.
     const dispatcher = dispatcherAnswering({
       submitted: {
         title: 'Take Over PR 8588',
@@ -200,8 +219,44 @@ describe('generateMetadataWith', () => {
     )
 
     expect(dispatcher.requests[0].maxTurns).toBe(4)
+    expect(dispatcher.requests[0].bare).toEqual({ webAccess: true })
     expect(dispatcher.requests[0].prompt).toContain(
-      'When a URL or attachment is the only source of the subject, use available tools to inspect it directly.',
+      'When a URL is the only source of the subject, open it with your web tool.',
     )
+
+    const unlinked = dispatcherAnswering({
+      submitted: { title: 'Session Renaming', description: 'Allow users to rename sessions.' },
+    })
+    await generateMetadataWith(unlinked, 'codex', 'let me rename sessions', '/repo')
+    expect(unlinked.requests[0].maxTurns).toBe(2)
+    expect(unlinked.requests[0].bare).toEqual({ webAccess: false })
+  })
+
+  test('runs again when a run times out before it submits', async () => {
+    // WHY: the provider sometimes answers a 2s request in 20s. Without a new
+    // run, the session keeps its prompt-derived name for good.
+    const submitted = { title: 'Session Title Timeouts', description: 'Keep sessions named when a run is slow.' }
+    const dispatcher = dispatcherTimingOut(2, submitted)
+    expect(await generateMetadataWith(dispatcher, 'codex', 'why was this session not renamed', '/repo')).toEqual(submitted)
+    expect(dispatcher.requests).toHaveLength(3)
+  })
+
+  test('stops after the first run and two retries', async () => {
+    // WHY: each run costs a model call; a provider that is down must not
+    // cause unlimited runs for one name.
+    const dispatcher = dispatcherTimingOut(Infinity, { title: 'Unused', description: 'Unused.' })
+    expect(await generateMetadataWith(dispatcher, 'codex', 'why was this session not renamed', '/repo')).toBeNull()
+    expect(dispatcher.requests).toHaveLength(3)
+  })
+
+  test('runs as a bare agent with only the submission tool', async () => {
+    // WHY: built-in tools, AGENTS.md, plugins, skills, and MCP servers made the
+    // naming prompt much larger and made each run wait for servers it never uses.
+    const dispatcher = dispatcherAnswering({
+      submitted: { title: 'Session Renaming', description: 'Allow users to rename sessions.' },
+    })
+    await generateMetadataWith(dispatcher, 'codex', 'let me rename sessions', '/repo')
+    expect(dispatcher.requests[0].bare).toBeDefined()
+    expect(dispatcher.requests[0].tools.map((tool) => tool.name)).toEqual(['submit_session_metadata'])
   })
 })

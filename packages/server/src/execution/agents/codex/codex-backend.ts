@@ -132,6 +132,39 @@ function isThreadNotLoadedError(error: Error): error is CodexRpcError {
   return error instanceof CodexRpcError && /thread not loaded/i.test(error.message)
 }
 
+/** Config overrides for a bare run. They keep out the user's and the project's
+ *  setup (AGENTS.md, plugins, apps, the skill list, MCP servers), Codex's
+ *  permission and environment text, and every built-in tool except web search
+ *  when the run needs web access. Codex has no switch for all MCP servers at
+ *  once, so each configured one is turned off. */
+async function bareThreadConfig(client: CodexAppServerClient, cwd: string, webAccess: boolean): Promise<NonNullable<CodexThreadStartParams['config']>> {
+  const config: NonNullable<CodexThreadStartParams['config']> = {
+    project_doc_max_bytes: 0,
+    'features.plugins': false,
+    'features.apps': false,
+    'skills.include_instructions': false,
+    include_permissions_instructions: false,
+    include_environment_context: false,
+    include_apps_instructions: false,
+    'features.shell_tool': false,
+    'features.unified_exec': false,
+    'features.view_image': false,
+    'features.image_generation': false,
+    'features.goals': false,
+    'features.sleep_tool': false,
+    web_search: webAccess ? 'live' : 'disabled',
+  }
+  try {
+    const servers = (await client.request('config/read', { cwd })).config.mcp_servers
+    if (servers && typeof servers === 'object' && !Array.isArray(servers)) {
+      for (const name of Object.keys(servers)) config[`mcp_servers.${name}.enabled`] = false
+    }
+  } catch (err) {
+    log.warn('bare_config_read_failed', { error: err instanceof Error ? err.message : String(err) })
+  }
+  return config
+}
+
 /** Max concurrent thread/read calls while indexing Codex message bodies. Keeps a
  *  new user's first full sweep from spiking the RPC channel. */
 const CODEX_INDEX_READ_CONCURRENCY = 6
@@ -474,6 +507,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         persistExtendedHistory: request.persistence === 'session',
         ephemeral: request.persistence === 'ephemeral',
       }
+      if (request.bare) threadConfig.config = await bareThreadConfig(handle.client, handle.cwd, request.bare.webAccess)
       threadConfig.developerInstructions = developerInstructions
       // Dynamic tools (list/read/update_work) are an experimental app-server
       // capability — include them unless a prior start rejected them.

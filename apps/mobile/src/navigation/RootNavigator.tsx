@@ -5,7 +5,9 @@ import {
   type NavigationState,
 } from '@react-navigation/native'
 import { createNativeStackNavigator, type NativeStackNavigationOptions } from '@react-navigation/native-stack'
-import { Platform, useWindowDimensions } from 'react-native'
+import { useEffect } from 'react'
+import { Linking, Platform, useWindowDimensions } from 'react-native'
+import { parseDeepLink } from './deep-links'
 import { useUniwindTheme } from '../lib/useUniwindTheme'
 import { getCompactBrandHeaderOptions } from '../components/CompactBrandTitle'
 import { deriveLayout } from '../lib/layout'
@@ -149,6 +151,29 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
     if (!navigation.isReady() || !navigation.canGoBack()) return false
     navigation.goBack()
   })
+  useEffect(() => {
+    // A `solus://` link (a Live Activity row) opens its session over where the
+    // person was; one that arrives before the navigator is ready waits for it.
+    let pending: string | null = null
+    const open = (url: string | null | undefined) => {
+      const target = url ? parseDeepLink(url) : null
+      if (!target) return
+      if (navigation.isReady()) navigation.navigate(target.screen, target.params)
+      else pending = url ?? null
+    }
+    void Linking.getInitialURL().then(open).catch(() => undefined)
+    const subscription = Linking.addEventListener('url', (event) => open(event.url))
+    const ready = setInterval(() => {
+      if (!pending || !navigation.isReady()) return
+      const url = pending
+      pending = null
+      open(url)
+    }, 250)
+    return () => {
+      subscription.remove()
+      clearInterval(ready)
+    }
+  }, [])
   return (
     <NavigationContainer ref={navigation} theme={navigationTheme} initialState={initialState}>
       <Stack.Navigator

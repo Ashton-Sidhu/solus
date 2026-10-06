@@ -20,6 +20,7 @@ import { ThreadListState } from '../features/threads/thread-list-state'
 import { NativeNotificationHub } from '../features/notifications/notification-hub'
 import { AppearancePreference, type AppearanceMode } from '../features/settings/appearance'
 import { HostSettings } from '../features/settings/host-settings'
+import { LiveActivityPreference } from '../features/live-activity/live-activity-preference'
 import { PersonalSettingsStore } from '../features/settings/personal-settings'
 import { alwaysOnlineEnvironment, PersonalSync, timerClock } from '../features/settings/personal-sync'
 import { OrganizationSettingsStore } from '../features/settings/organization-settings'
@@ -86,6 +87,8 @@ export class SolusApp {
   readonly threads: ThreadDirectory
   /** Each host's shelf (settled, snoozed), live status, and PR links, as T3 Code's list shows them. */
   readonly threadList: ThreadListState
+  /** Whether this device shows agent work as a Live Activity (iOS). */
+  readonly liveActivity: LiveActivityPreference
   readonly outbox: SendOutbox
   /** Notifications addressed to the person, from every host this device knows (plan 015). */
   readonly notifications: NativeNotificationHub
@@ -134,6 +137,7 @@ export class SolusApp {
     })
     this.threads = new ThreadDirectory(this.registry, (hostId) => this.connections.connection(hostId))
     this.threadList = new ThreadListState((hostId) => this.connections.connection(hostId), storage)
+    this.liveActivity = new LiveActivityPreference(storage)
     this.personal = new PersonalSettingsStore(storage)
     this.appearance = new AppearancePreference(this.personal, (mode) => platform.applyAppearance?.(mode))
     this.personalSync = new PersonalSync(this.personal, {

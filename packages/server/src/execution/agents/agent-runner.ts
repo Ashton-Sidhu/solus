@@ -57,6 +57,11 @@ export interface AgentRunRequest {
   maxTurns?: number
   maxBudgetUsd?: number
   timeoutMs?: number
+  /** A utility run with only its caller's tools: no instruction files, MCP
+   *  servers, plugins, skills, or built-in tools load. The provider's system
+   *  prompt stays. `webAccess` keeps the provider's web tool for a run that
+   *  must read a link. */
+  bare?: { webAccess: boolean }
   /** The member's own provider login this run must use; absent for the host's login (Step 2 plan §3.3). */
   seat?: TurnSeat
   onEvent?: (event: NormalizedEvent) => void

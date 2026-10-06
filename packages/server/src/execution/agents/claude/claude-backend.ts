@@ -301,6 +301,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         ].filter(Boolean).join('\n\n'),
         maxTurns: request.maxTurns,
         maxBudgetUsd: request.maxBudgetUsd,
+        bare: request.bare,
         canUseTool,
         seat: request.seat ? claudeSeatOf(request.seat) : undefined,
         persistSession: request.persistence === 'session',
