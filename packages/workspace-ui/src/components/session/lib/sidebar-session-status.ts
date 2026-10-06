@@ -24,38 +24,23 @@ export class SidebarSessionStatusFeed {
   private states = new SvelteMap<string, SidebarLiveSessionState>()
 
   /** A closed tab no longer contributes attention to its durable task row. */
-  clear(serverId: string, sessionIds: readonly string[]): void {
-    for (const sessionId of sessionIds) {
-      this.states.delete(hostKey(serverId, sessionId))
-    }
+  clear(serverId: string, sessionId: string): void {
+    this.states.delete(hostKey(serverId, sessionId))
   }
 
   apply(serverId: string, event: HostEventMap['session.statusChanged']): void {
-    // Ordinary task links use the provider session id. A handoff re-keys that
-    // same attempt to the stable Solus session id. Keep both aliases in sync so
-    // the switch frame cannot leave the old row running or start a second timer.
-    const sessionIds = [...new Set([event.sessionId, event.agentSessionId].filter(
-      (sessionId): sessionId is string => !!sessionId,
-    ))]
-    const keys = sessionIds.map((sessionId) => hostKey(serverId, sessionId))
+    const key = hostKey(serverId, event.sessionId)
     const attention = attentionForStatus(event.status)
     if (!attention) {
-      for (const key of keys) this.states.delete(key)
+      this.states.delete(key)
       return
     }
-
-    const previousRunStartedAt = keys
-      .map((key) => this.states.get(key))
-      .filter((state) => state && state.attention !== 'error')
-      .reduce<number | null>((earliest, state) => (
-        earliest === null ? state!.runStartedAt : Math.min(earliest, state!.runStartedAt)
-      ), null)
-    const continuesRun = previousRunStartedAt !== null && isSessionBusyStatus(event.status)
-    const next = {
+    const previous = this.states.get(key)
+    const continuesRun = !!previous && previous.attention !== 'error' && isSessionBusyStatus(event.status)
+    this.states.set(key, {
       attention,
-      runStartedAt: continuesRun ? previousRunStartedAt : event.at,
-    }
-    for (const key of keys) this.states.set(key, next)
+      runStartedAt: continuesRun ? previous.runStartedAt : event.at,
+    })
   }
 
   stateFor(serverId: string | null | undefined, sessionId: string): SidebarLiveSessionState | null {

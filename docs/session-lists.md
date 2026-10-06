@@ -99,6 +99,7 @@ The Solus API has no sweep and always answers `indexing: false`.
 
 ## Known difference
 
-The removed `listSessions` RPC merged the provider threads of a handed-off
-session into one row. The record list has one row per provider thread. The search has
-always returned provider threads.
+The record list has one row per session: a session that changed provider is
+one record, which shows its current thread (`docs/plans/session-identity.md`).
+The search reads transcripts, so a hit names the provider thread that holds the
+text; opening it resolves the thread to its session.

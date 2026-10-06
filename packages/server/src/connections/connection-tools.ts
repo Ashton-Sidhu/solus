@@ -170,7 +170,7 @@ export const connectionStatusAgentTool: AgentTool = {
     // The turn is waiting on a person now, so the card goes up beside the
     // conversation that asked. A run with no session behind it has nowhere to
     // put it and simply reports the gap.
-    const sessionId = context.solusSessionId()
+    const sessionId = context.sessionId()
     if (sessionId) {
       const request: ConnectionConnectNeeded = { provider: target.provider, reason: target.reason, sessionId }
       if (accountUrl) request.accountConnectionsUrl = accountUrl

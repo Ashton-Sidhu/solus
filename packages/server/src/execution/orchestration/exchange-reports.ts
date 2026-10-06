@@ -15,7 +15,7 @@ export function settledUpdate(
   metrics: { durationMs?: number; toolCallCount?: number } | undefined, taskId: string | undefined,
 ): Extract<AgentConversationUpdate, { phase: 'settled' }> {
   const update: Extract<AgentConversationUpdate, { phase: 'settled' }> = {
-    phase: 'settled', agentSessionId: exchange.targetAgentSessionId,
+    phase: 'settled', sessionId: exchange.targetSessionId,
     messageId: exchange.exchangeId, status: outcome, replyText: reply, settledAt: Date.now(),
   }
   if (exchange.outputs.length) update.outputs = exchange.outputs
@@ -28,13 +28,13 @@ export function settledUpdate(
 export function promptedUpdate(exchange: Exchange, meta: SessionMeta | null, message: { prompt: string; delivery: PromptDelivery }): AgentConversationUpdate {
   const dispatched: AgentConversationUpdate = {
     phase: 'dispatched',
-    agentSessionId: exchange.targetAgentSessionId,
+    sessionId: exchange.targetSessionId,
     messageId: exchange.exchangeId,
     origin: 'prompted',
     prompt: message.prompt,
     delivery: message.delivery,
     provider: exchange.provider,
-    title: meta ? sessionTitle(meta) : exchange.targetAgentSessionId.slice(0, 8),
+    title: meta ? sessionTitle(meta) : exchange.targetSessionId.slice(0, 8),
     cwd: meta?.cwd ?? '',
     dispatchedAt: exchange.dispatchedAt,
   }
@@ -100,7 +100,7 @@ export function requestId(request: ExchangeRequest): string {
 
 /** The short notice a sender reads about a request: never a plan's text. */
 export function requestNotice(exchange: Exchange, request: ExchangeRequest): SessionNotice {
-  const target = { messageId: exchange.exchangeId, agentSessionId: exchange.targetAgentSessionId, provider: exchange.provider }
+  const target = { messageId: exchange.exchangeId, sessionId: exchange.targetSessionId, provider: exchange.provider }
   if (request.kind === 'question') {
     return {
       ...target,

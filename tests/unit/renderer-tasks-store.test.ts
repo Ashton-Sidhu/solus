@@ -958,67 +958,6 @@ describe('renderer task hydration', () => {
     expect(store.taskForSession('session-1')?.id).toBe('task-1')
   })
 
-  test('re-keys a provider attempt to one stable handoff session', async () => {
-    // WHY: the sidebar reads this store in the same frame as a provider switch.
-    // Keeping the old attempt while adding the stable id creates two rows.
-    installStateRune()
-    Object.defineProperty(globalThis, 'window', {
-      configurable: true,
-      writable: true,
-      value: {
-        solus: {
-          tasksSidebarSnapshot: async () => ({ tasks: [task()], sessionsByTask: {} }),
-        },
-      },
-    })
-
-    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
-    const store = new TasksStore()
-    await store.ensureLoaded()
-    store.get('task-1').trackSessionStart('provider-session')
-
-    store.rekeySessionBinding('provider-session', 'solus-session')
-
-    expect(store.taskForSession('provider-session')).toBeNull()
-    expect(store.taskForSession('solus-session')?.id).toBe('task-1')
-    expect(store.get('task-1').sessions.map((attempt) => attempt.sessionId)).toEqual([
-      'solus-session',
-    ])
-  })
-
-  test('forwards a dispatched handoff re-key to the task host', async () => {
-    // WHY: the provider switch runs on the execution host, but a dispatched
-    // session's attempt row lives on the task host. Updating only renderer state
-    // leaves the old provider attempt durable and it returns as a duplicate row.
-    installStateRune()
-    const rekeys: Array<[string, string]> = []
-    const api = {
-      tasksSidebarSnapshot: async () => ({ tasks: [task()], sessionsByTask: {} }),
-      tasksRekeySession: async (sourceSessionId: string, targetSessionId: string) => {
-        rekeys.push([sourceSessionId, targetSessionId])
-      },
-      tasksForSession: async () => null,
-    }
-    taskServerConnections.registerPrimary('task-host', api)
-    Object.defineProperty(globalThis, 'window', {
-      configurable: true,
-      writable: true,
-      value: { solus: api },
-    })
-
-    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
-    const store = new TasksStore()
-    await store.ensureLoaded()
-    store.get('task-1').trackSessionStart('provider-session')
-
-    store.rekeySessionBinding('provider-session', 'solus-session', 'task-host')
-    await Promise.resolve()
-
-    expect(rekeys).toEqual([['provider-session', 'solus-session']])
-    expect(store.taskForSession('provider-session')).toBeNull()
-    expect(store.taskForSession('solus-session')?.id).toBe('task-1')
-  })
-
   test('keeps GitHub issue sync loading until the upstream request settles', async () => {
     // WHY: the Tasks header spinner must describe the GitHub sync itself, not
     // just the much faster local task read that runs beside it.

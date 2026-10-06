@@ -236,7 +236,7 @@ export class ReferenceIndex {
     if (!session) return null
     const { tasksStore } = this.deps.session
     return (
-      tasksStore.taskForSession(session.handoffId ?? session.id)
+      tasksStore.taskForSession(session.id)
       ?? tasksStore.taskForSession(session.agentSessionId)
     )
   })

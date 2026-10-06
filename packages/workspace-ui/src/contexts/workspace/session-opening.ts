@@ -1,6 +1,6 @@
 import type { TaskOpenTrace } from '../../components/session/lib/task-open-timing'
 import { hostRolesStore } from '../connections/host-roles.store.svelte'
-import type { AgentId, Session, RunConfig, Message, SessionDescription, SessionMeta } from '@solus/contracts/types'
+import type { Session, RunConfig, Message, SessionMeta } from '@solus/contracts/types'
 import type { Via } from '@solus/contracts/analytics-events'
 import type { SurfaceContext } from '../app/surface-context.svelte'
 import { findOpenTabForSession } from '../../lib/sessionUtils'
@@ -20,7 +20,6 @@ import { loadSessionTranscript } from './session-transcript'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { serverConnections } from '@solus/client-core/server-connections'
-import type { HostApi } from '@solus/client-core/host-api'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { reviewGuideStore, sessionGuideIdentity } from '../../components/review/review-guide.store.svelte'
 import { ownedTaskId } from './session-draft.svelte'
@@ -35,20 +34,6 @@ import type { SessionEnvironmentWorkspace } from '../git/session-environment.sto
 import type { WorkspaceContext, ForkTabOptions, CreateTabOptions } from './workspace.context.svelte'
 import type { OpenTarget } from './routing/location'
 import type { SessionDraft } from './session-draft.svelte'
-
-/** The lineage and answering member's metadata for a saved session. One read on
- *  a current host; a host that predates `describeSession` rejects the method,
- *  and the two reads it replaced still answer there. */
-async function describeSavedSession(api: HostApi, provider: AgentId, providerSessionId: string): Promise<SessionDescription> {
-  try {
-    return await api.describeSession(provider, providerSessionId)
-  } catch {
-    const lineage = await api.resolveSessionLineage(provider, providerSessionId)
-    const active = lineage?.active
-    if (active && !active.providerSessionId) return { lineage, meta: null }
-    return { lineage, meta: await api.getSessionInfo(active?.providerSessionId ?? providerSessionId) }
-  }
-}
 
 /** The workspace members this controller reads or calls, and no others. */
 type SessionOpeningWorkspace = Pick<WorkspaceContext,
@@ -314,12 +299,11 @@ export class SessionOpening {
       this.workspace.openSessionRecord(meta.sessionId, meta.serverId)
       return ''
     }
-    const selectedProvider = meta.provider ?? this.workspace.settings.activeAgent
     const selectedApi = serverConnections.apiFor(meta.serverId)
-    // One read answers both what the client used to ask in turn: the lineage,
-    // then the metadata of whichever member answers for it.
-    const { lineage: handoff, meta: describedMeta } = await describeSavedSession(selectedApi, selectedProvider, meta.sessionId)
-    const stableSessionId = handoff?.sessionId ?? meta.sessionId
+    // `meta.sessionId` is the session id; its lineage names the thread to read
+    // (docs/plans/session-identity.md).
+    const resumedSessionId = meta.sessionId
+    const { lineage: handoff, meta: describedMeta } = await selectedApi.describeSession(resumedSessionId)
     const activeMember = handoff?.active
     let activeProviderSessionId: string | null = meta.sessionId
     if (activeMember?.providerSessionId) {
@@ -328,7 +312,7 @@ export class SessionOpening {
         ...meta,
         ...describedMeta,
         provider: activeMember.provider,
-        sessionId: activeMember.providerSessionId,
+        sessionId: resumedSessionId,
         cwd: activeMember.cwd,
         serverId: meta.serverId,
       }
@@ -346,7 +330,7 @@ export class SessionOpening {
     const provider = meta.provider ?? this.workspace.settings.activeAgent
     if (!intoTabId) {
       const openTabId = findOpenTabForSession(
-        stableSessionId,
+        resumedSessionId,
         this.workspace.tabs,
         this.workspace.sessions.byId,
         this.workspace.tabOrder,
@@ -402,7 +386,7 @@ export class SessionOpening {
       if (!session || !tab) throw new Error('The resumed session tab was not created')
       session.run.provider = provider
       session.agentSessionId = activeProviderSessionId
-      session.handoffId = handoff?.sessionId
+      session.handoffPending = !!handoff && !activeProviderSessionId
       session.readOnlyReason = null
       session.loadingHistory = true
       session.title = title
@@ -416,7 +400,7 @@ export class SessionOpening {
       const session = targetSession!
       session.run.provider = provider
       session.agentSessionId = activeProviderSessionId
-      session.handoffId = handoff?.sessionId
+      session.handoffPending = !!handoff && !activeProviderSessionId
       // Taking over an empty tab moves it to the session's host. Safe only
       // because takeover already requires a tab that has started nothing.
       if (meta.serverId) session.run.serverId = meta.serverId
@@ -436,17 +420,14 @@ export class SessionOpening {
         }
       }
     }
+    this.workspace.adoptSessionId(tabId, resumedSessionId)
     if (!background && !intoTabId) {
       this.workspace.revealConversation()
       opts?.onShown?.(tabId)
     }
 
-    // Main is authoritative on session identity. This client read the provider
-    // thread off disk and minted a local id for it; if another client already
-    // has that thread open, main answers with *its* id and we adopt it. Without
-    // this the two clients hold different addresses for one session and "one id"
-    // is only true within a client. The same round trip attaches to the live
-    // runtime, which is what a separate bind used to do after the watch.
+    // The watch also attaches to the live runtime, which is what a separate
+    // bind used to do after it.
     //
     // It is deliberately not awaited with the transcript below. It supplies only
     // chrome around the conversation — status, rate limits, queued prompts — so
@@ -456,20 +437,17 @@ export class SessionOpening {
     // several awaits away, so a failure before then would otherwise surface as an
     // unhandled rejection. It is carried and re-thrown at the join instead.
     const runtimeAttach = this.workspace.apiFor(tabId).watchSession({
-      sessionId: stableSessionId,
-      agentSessionId: activeProviderSessionId ?? undefined,
-      provider,
+      sessionId: resumedSessionId,
       attachRuntime: !!activeProviderSessionId,
     })
       .then(
         (watched) => {
-          this.workspace.adoptSessionId(tabId, watched.sessionId)
           this.workspace.applyRuntimeAttach(tabId, watched.runtime)
           this.workspace.applyPendingQuestions(tabId, watched.pendingQuestions)
           return null
         },
-        // With no runtime to attach, a failed watch costs only the identity
-        // adoption and is not worth failing the resume over.
+        // With no runtime to attach, a failed watch is not worth failing the
+        // resume over.
         (error: unknown) => activeProviderSessionId
           ? (error instanceof Error ? error : new Error(String(error)))
           : null,
@@ -491,9 +469,9 @@ export class SessionOpening {
       const identityPending = api.gitIdentity
         ? api.gitIdentity(defaultDir).catch(() => null)
         : Promise.resolve(null)
-      void this.workspace.tasksStore.ensureSessionBinding(stableSessionId, this.workspace.runFor(tabId)?.taskServerId).catch(() => null)
+      void this.workspace.tasksStore.ensureSessionBinding(resumedSessionId, this.workspace.runFor(tabId)?.taskServerId).catch(() => null)
       const transcript = await loadSessionTranscript(this.workspace, {
-        sessionId: stableSessionId,
+        sessionId: resumedSessionId,
         loadPath: meta.projectPath || defaultDir,
         displayCwd: workingDirectory,
         provider,

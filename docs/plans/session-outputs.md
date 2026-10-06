@@ -10,8 +10,9 @@ a session that leaves takes them. This is the same rule as for pull requests
 ## Vocabulary
 
 - **output** — a work, a plan or an automation that a session made. The item
-  records its session: a work and a plan by the provider thread, an automation
-  in `createdBy`.
+  records its session id (`docs/plans/session-identity.md`): a work in
+  `session_id`, a plan in `indexed_plans.session_id`, an automation in
+  `createdBy`.
 - **output link** — a row of `task_links` that is on the task because a working
   session of the task made the item. `output_session_id` names that session.
   `TaskLink.ownerSessionId` carries it to the clients.
@@ -30,10 +31,9 @@ is "linked to a session". A session makes an output. A task links it.
    in step with the session, not a live read. The reason is access: the
    workspace API gives read access to a work through its `task_links` row
    (`data/tasks/resource-visibility.ts`), and access to a task reaches the
-   works that have a row (`data/tasks/task-sharing.ts`). A work records a provider
-   thread and a task records Solus's session id, and the map between the two
-   is not in the database those checks run on. A live read would need that map
-   in SQL, so it would change who can read a work.
+   works that have a row (`data/tasks/task-sharing.ts`). A live read would
+   move that access rule into a join over the session's outputs, so it would
+   change who can read a work.
 3. **The row follows the session.**
    - An output made while the session works on a task gets a row at once
      (`Task.linkSessionOutput`).
@@ -56,18 +56,17 @@ is "linked to a session". A session makes an output. A task links it.
 
 `task_links.output_session_id` (migrations SQLite `0031`, Postgres `0020`). Its
 value is the `session_id` of the task's session link, so a leave is one
-delete, and a rekey of the session link rekeys it.
+delete.
 
 ## Host
 
 - `data/tasks/session-outputs.ts` — `readSessionOutputs`: the works, plans and
-  automations of one session, by each id the session is known by.
+  automations of one session, by its session id.
 - `data/tasks/task.ts` — `Task.linkSessionOutput` (was
   `linkArtifactForSession`), the adoption in `linkSession`, the claim in
   `linkWorkspaceObject`.
 - `data/tasks/task-sessions.ts` — `writeSessionLink` answers whether the link
-  is new; `deleteSessionLink` and `rekeyTaskSessionLinks` keep the output links
-  in step.
+  is new; `deleteSessionLink` keeps the output links in step.
 - The writers are the same six as before: a work create and update, the work
   applier, the plan event in `SessionRuntime`, the automation handler and the
   two automation tools.

@@ -58,19 +58,15 @@ export class SessionPullRequestsStore {
       known.delete(sessionId)
       return
     }
-    for (const [stableSessionId, links] of answered) {
-      this.linksBySession.set(stableSessionId, links)
-      known.add(stableSessionId)
+    for (const [sessionId, links] of answered) {
+      this.linksBySession.set(sessionId, links)
+      known.add(sessionId)
     }
   }
 
-  /** The links of one session, which a client can know by several ids. */
-  linksFor(sessionIds: readonly string[]): SessionPullRequestLink[] {
-    for (const sessionId of sessionIds) {
-      const links = this.linksBySession.get(sessionId)
-      if (links?.length) return links
-    }
-    return []
+  /** The links of one session. */
+  linksFor(sessionId: string | null | undefined): SessionPullRequestLink[] {
+    return sessionId ? this.linksBySession.get(sessionId) ?? [] : []
   }
 
   /** Link a pull request to a session by its URL. */

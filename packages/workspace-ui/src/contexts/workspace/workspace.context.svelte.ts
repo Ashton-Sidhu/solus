@@ -57,7 +57,7 @@ import { type AgentContext } from '../app/agent.context.svelte'
 import { type SessionEnvironmentStore } from '../git/session-environment.store.svelte'
 
 import { makeSession, makeTab } from './session.factories'
-import { SessionDraft, existingTaskId, taskBindingSessionId } from './session-draft.svelte'
+import { SessionDraft, existingTaskId } from './session-draft.svelte'
 import { defaultStartProject, projectRootOf, resolveNewRunConfig, startsWorktree } from './run-config'
 import { removeDraft, removePersistedTab } from './tab-persistence'
 import { applyRuntimeConfig, nextMsgId } from './session.utils'
@@ -325,9 +325,6 @@ export class WorkspaceContext implements SurfaceContext {
       apiFor: (tabId) => tabId ? this.apiFor(tabId) : this.defaultHostApi(),
       apiForRun: (run) => this.apiForRun(run),
       refreshPluginCommands: (dir, tabId) => { void this.lifecycle.refreshPluginCommands(dir, tabId) },
-      rekeyTaskSessionBinding: (sourceSessionId, targetSessionId, serverId) => {
-        this.tasksStore.rekeySessionBinding(sourceSessionId, targetSessionId, serverId)
-      },
       refreshGitRefs: (run, projectRoot, ctx) => {
         void this.environment.refreshRefs(run?.serverId ?? this.fallbackServerId, projectRoot, ctx, { force: true })
       },
@@ -739,9 +736,10 @@ export class WorkspaceContext implements SurfaceContext {
    *  finds the branch too. The host is part of the question — a dispatched
    *  session's clone shares the provider id — so a caller without one gets no
    *  match rather than another host's conversation. */
-  tabIdForAgentSession(agentSessionId: string, serverId: string | undefined): string | undefined {
+  /** The tab showing a session on one host (docs/plans/session-identity.md). */
+  tabIdForHostSession(sessionId: string, serverId: string | undefined): string | undefined {
     if (!serverId) return undefined
-    return this.registry.tabIdsByAgentSession.get(hostKey(serverId, agentSessionId))?.[0]
+    return this.registry.tabIdsByHostSession.get(hostKey(serverId, sessionId))?.[0]
   }
 
   /**
@@ -954,20 +952,16 @@ export class WorkspaceContext implements SurfaceContext {
   }
 
   /**
-   * Re-key a session onto the id the host resolved for it. Every from-disk path
-   * needs this — resume, restore, and reconnect alike: a fresh session's uuid has
-   * never left this renderer and so cannot collide, but a provider thread read off
-   * disk may already be open on another client, which named it first. Skipping the
-   * adoption leaves the two clients holding different addresses for one session,
-   * so each one only ever sees the turns it started.
+   * Give a tab's session the id of the saved session it opens. A new tab mints
+   * its own id; a saved session already has one (docs/plans/session-identity.md).
    *
    * Safe precisely because it runs before anything is published under the local
    * id — the session is empty, unbound, and not yet streaming.
    */
-  adoptSessionId(tabId: string, resolvedSessionId: string): void {
+  adoptSessionId(tabId: string, sessionId: string): void {
     const tab = this.tabs[tabId]
     if (!tab) return
-    if (this.sessions.rekey(tab.sessionId, resolvedSessionId)) tab.sessionId = resolvedSessionId
+    if (this.sessions.rekey(tab.sessionId, sessionId)) tab.sessionId = sessionId
   }
 
   /** Land what the host answered about a session's live runtime when the tab's
@@ -1086,7 +1080,7 @@ export class WorkspaceContext implements SurfaceContext {
     if (draftTaskId) return draftTaskId
     const anchor = sourceId ? this.sessionFor(sourceId) : undefined
     if (!anchor) return null
-    return this.tasksStore.taskForSession(taskBindingSessionId(anchor))?.id
+    return this.tasksStore.taskForSession(anchor.id)?.id
       ?? existingTaskId(anchor.task)
       ?? null
   }
@@ -1413,7 +1407,7 @@ export class WorkspaceContext implements SurfaceContext {
     const session = this.sessionFor(targetTabId)
     if (!session) return
     session.agentSessionId = null
-    session.handoffId = undefined
+    session.handoffPending = false
     session.run.provider = null
     session.handoffFrom = undefined
     session.messages = []
@@ -1649,7 +1643,7 @@ export class WorkspaceContext implements SurfaceContext {
     this.revealConversation()
 
     // Resume targets the most recently linked session (newest in sessionIds),
-    // falling back to the legacy origin session.
+    // falling back to the session that made the work.
     const resumeSid = work.sessionIds?.[work.sessionIds.length - 1] ?? work.sessionId
 
     let targetTabId: string | null = null
@@ -1657,7 +1651,7 @@ export class WorkspaceContext implements SurfaceContext {
     void this.worksStore.ensureContent(workId, 'open-chat-for-work')
     if (mode === 'resume' && resumeSid) {
       // find an open tab with this session on the work's own host, else resume
-      const openTab = this.tabIdForAgentSession(resumeSid, this.worksStore.hostFor(workId) ?? undefined)
+      const openTab = this.tabIdForHostSession(resumeSid, this.worksStore.hostFor(workId) ?? undefined)
       if (openTab) { this.selectTab(openTab); targetTabId = openTab; resumed = true }
       else {
         targetTabId = await this.opening.resumeSession({
@@ -1698,9 +1692,7 @@ export class WorkspaceContext implements SurfaceContext {
       const s = this.sessionFor(targetTabId)
       if (s) {
         s.boundWorkId = workId
-        if (s.agentSessionId) {
-          this.worksStore.linkSession(workId, s.agentSessionId)
-        }
+        this.worksStore.linkSession(workId, s.id)
       }
     }
 
@@ -1715,7 +1707,7 @@ export class WorkspaceContext implements SurfaceContext {
     const sessionId = work?.sessionIds?.at(-1) ?? work?.sessionId
     if (!sessionId) return this.sendMessageToNewWorkSession(workId, prompt)
     await this.openChatForWork(workId, 'resume')
-    const tabId = this.tabIdForAgentSession(sessionId, this.worksStore.hostFor(workId) ?? undefined)
+    const tabId = this.tabIdForHostSession(sessionId, this.worksStore.hostFor(workId) ?? undefined)
     if (!tabId) return this.sendMessageToNewWorkSession(workId, prompt)
     return this.dispatch.sendMessage(prompt, undefined, tabId)
   }
@@ -1838,13 +1830,6 @@ export class WorkspaceContext implements SurfaceContext {
 
   // ─── Tasks page ───
 
-  private sidebarSessionIdsForTab(tabId: string): string[] {
-    const session = this.sessionFor(tabId)
-    const tab = this.tabs[tabId]
-    return [tab?.sessionId, session?.id, session?.handoffId, session?.agentSessionId]
-      .filter((sessionId): sessionId is string => !!sessionId)
-  }
-
   /** Record the task-scoped occurrence the user selected. This controls the
    * active path only; it does not create another automatic sidebar row. */
   selectSidebarTaskOccurrence(taskId: string, sessionId: string): void {
@@ -1863,11 +1848,8 @@ export class WorkspaceContext implements SurfaceContext {
   }
 
   sidebarTaskContextForTab(tabId: string): string | null {
-    for (const sessionId of this.sidebarSessionIdsForTab(tabId)) {
-      const taskId = this.sidebarTaskContextBySessionId.get(sessionId)
-      if (taskId) return taskId
-    }
-    return null
+    const sessionId = this.tabs[tabId]?.sessionId
+    return sessionId ? this.sidebarTaskContextBySessionId.get(sessionId) ?? null : null
   }
 
   clearSidebarTaskOccurrences(taskId: string): void {
@@ -1908,9 +1890,9 @@ export class WorkspaceContext implements SurfaceContext {
     return meta ? await this.opening.resumeSession(meta, { background: opts.background }) : null
   }
 
-  /** The open session showing a provider's session, on one host; see `tabIdForAgentSession`. */
-  sessionForAgentSession(agentSessionId: string, serverId: string | undefined): Session | undefined {
-    const tabId = this.tabIdForAgentSession(agentSessionId, serverId)
+  /** The open session for a session id, on one host; see `tabIdForHostSession`. */
+  sessionForHostSession(sessionId: string, serverId: string | undefined): Session | undefined {
+    const tabId = this.tabIdForHostSession(sessionId, serverId)
     return tabId ? this.sessionFor(tabId) : undefined
   }
 

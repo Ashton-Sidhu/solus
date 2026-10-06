@@ -363,7 +363,7 @@
     const task = store.get(taskId);
     return task.sessions.filter((link) =>
       store.isAttemptRunning(link, task.serverId, (sessionId, serverId) =>
-        session.sessionForAgentSession(sessionId, serverId),
+        session.sessionForHostSession(sessionId, serverId),
       ),
     ).length;
   }

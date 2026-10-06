@@ -12,12 +12,11 @@ import { SOLUS_AGENT_TOOL_NAMES } from '@solus/contracts/agent-tools'
  * agent access on every call; hiding a tool from the catalog is not the gate.
  */
 
-function context(solusSessionId: string | undefined): AgentToolContext {
+function context(sessionId: string | undefined): AgentToolContext {
   return {
     provider: 'claude-code',
     cwd: '/tmp',
-    sessionId: () => 'provider-thread',
-    solusSessionId: () => solusSessionId,
+    sessionId: () => sessionId,
     abortSignal: new AbortController().signal,
     parentToolUseId: () => undefined,
     emit: () => {},

@@ -10,7 +10,7 @@ const ref: DocRef = { provider: 'gdrive', externalId: 'doc', externalKey: 'root'
 let comments: DocCommentsAdapter | undefined = google
 mock.module('@solus/server/docs/registry', () => ({ resolveDocUrl: () => ({ ref, adapter: { comments } }) }))
 const { readExternalDocCommentsAgentTool: read, writeExternalDocCommentAgentTool: write } = await import('@solus/server/docs/comment-tools')
-const context: AgentToolContext = { provider: 'codex', cwd: '/tmp', sessionId: () => undefined, solusSessionId: () => undefined, abortSignal: new AbortController().signal, parentToolUseId: () => undefined, emit: () => {} }
+const context: AgentToolContext = { provider: 'codex', cwd: '/tmp', sessionId: () => undefined, abortSignal: new AbortController().signal, parentToolUseId: () => undefined, emit: () => {} }
 const originalFetch = globalThis.fetch
 afterEach(() => { globalThis.fetch = originalFetch; comments = google })
 const modifiedAt = '2026-09-09T00:00:00Z'

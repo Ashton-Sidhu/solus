@@ -37,7 +37,7 @@ function deviceTool<F extends Fields>(spec: {
     requiresApproval: false,
     execute: async (input, context) => {
       const domain = deviceDomain()
-      const sessionId = context.solusSessionId()
+      const sessionId = context.sessionId()
       if (!domain) return { ok: false, text: 'This Solus host has no device support.' }
       if (!sessionId) return { ok: false, text: 'Device tools need a Solus session.' }
       const settings = domain.manager.settings()

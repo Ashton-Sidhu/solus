@@ -1,3 +1,4 @@
+import { reviewedSessionId } from './review-target'
 import type {
   ReviewContext,
   ReviewLedger,
@@ -73,7 +74,7 @@ async function locate(ctx: IpcContext, target: ReviewTarget): Promise<LocatedLen
   // A PR lens belongs to the remote repository, like the PR guide, so every
   // checkout of that repository reads the same one.
   if (target.kind === 'pr') return { address: { repoRoot: prGuideRepository(target), key: prGuideKey(target) }, target }
-  const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
+  const review = await resolveReviewContext(reviewCheckout(ctx), reviewedSessionId(ctx))
   if (!review) return null
   const base = await resolveTargetBase(ctx, review, { target })
   return { address: { repoRoot: review.repoRoot, key: base.guideKey }, target: base.target }
@@ -89,7 +90,7 @@ async function resolveChange(ctx: IpcContext, requested: ReviewTarget): Promise<
     runCtx = prepared.ctx
     target = prepared.target
   }
-  const review = await resolveReviewContext(reviewCheckout(runCtx), runCtx.session.agentSessionId)
+  const review = await resolveReviewContext(reviewCheckout(runCtx), reviewedSessionId(runCtx))
   if (!review) throw new Error('This review has no git checkout.')
   const workTree = reviewCheckout(runCtx) ?? review.repoRoot
   const change = await resolveTarget(runCtx, review, { target })
@@ -101,7 +102,7 @@ async function isOutdated(ctx: IpcContext, target: ReviewTarget, lens: ReviewLen
     const current = await currentPrGuideTarget(target)
     return current.headSha !== lens.headSha || current.baseSha !== lens.baseSha
   }
-  const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
+  const review = await resolveReviewContext(reviewCheckout(ctx), reviewedSessionId(ctx))
   if (!review) return false
   const change = await resolveTarget(ctx, review, { target })
   return change.changeFingerprint !== lens.changeFingerprint

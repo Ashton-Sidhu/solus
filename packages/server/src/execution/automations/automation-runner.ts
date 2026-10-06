@@ -24,7 +24,7 @@ export type AutomationBackgroundSessionDispatcher = (opts: {
   gitContext?: GitCheckout | null
   abortSignal?: AbortSignal
   executionPreferences?: ExecutionPreferences
-}) => Promise<{ agentSessionId: string; done: Promise<{ output?: string }> }>
+}) => Promise<{ sessionId: string; done: Promise<{ output?: string }> }>
 
 let backgroundSessionDispatcher: AutomationBackgroundSessionDispatcher | null = null
 export function setAutomationBackgroundSessionDispatcher(dispatcher: AutomationBackgroundSessionDispatcher): void {
@@ -145,7 +145,7 @@ function automationPreferences(automation: Automation): ExecutionPreferences {
 async function executeRun(automation: Automation, run: AutomationRun, entry: ActiveRun): Promise<void> {
   const { action } = automation
   const runId = run.id
-  let agentSessionId: string | undefined
+  let sessionId: string | undefined
   let branch: string | undefined
 
   try {
@@ -184,14 +184,14 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
       abortSignal: entry.abort.signal,
       executionPreferences: preferences,
     })
-    agentSessionId = session.agentSessionId
-    await attachRunSession(automation.id, runId, agentSessionId, branch, gitContext?.worktreePath)
+    sessionId = session.sessionId
+    await attachRunSession(automation.id, runId, sessionId, branch, gitContext?.worktreePath)
     const { output } = await session.done
 
     // A cancelled run that still resolved is terminal as 'cancelled', not a
     // partial success.
     if (entry.cancelled) {
-      await finishRun(automation.id, runId, { status: 'cancelled', output, agentSessionId, branch })
+      await finishRun(automation.id, runId, { status: 'cancelled', output, sessionId, branch })
       log.info('automation_run_cancelled', { automationId: automation.id, runId })
       return
     }
@@ -199,20 +199,20 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
     await finishRun(automation.id, runId, {
       status: 'succeeded',
       output,
-      agentSessionId,
+      sessionId,
       branch,
     })
-    log.info('automation_run_succeeded', { automationId: automation.id, runId, sessionId: agentSessionId })
+    log.info('automation_run_succeeded', { automationId: automation.id, runId, sessionId })
     captureServerEvent('automation_run_succeeded', {})
   } catch (err: any) {
     if (entry.cancelled) {
-      await finishRun(automation.id, runId, { status: 'cancelled', agentSessionId, branch })
+      await finishRun(automation.id, runId, { status: 'cancelled', sessionId, branch })
       log.info('automation_run_cancelled', { automationId: automation.id, runId })
       return
     }
     await finishRun(automation.id, runId, {
       status: 'failed',
-      agentSessionId,
+      sessionId,
       branch,
       error: String(err?.message ?? err),
     })

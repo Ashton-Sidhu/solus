@@ -14,14 +14,10 @@ export type ExchangeState = 'dispatched' | 'queued' | 'running' | 'awaiting_inpu
 export interface Exchange {
   exchangeId: string
   kind: 'create' | 'prompt'
-  /** Solus id of the session that sent the message; its cards hear every change. */
+  /** The session that sent the message; its cards hear every change, and its report is delivered to it. */
   senderSessionId: string
-  /** The sender's provider thread, which a report is delivered to. */
-  senderAgentSessionId: string
-  /** Solus id of the target, known once the message is accepted. */
+  /** The target session, known from dispatch: a created session's id is chosen before its provider starts. */
   targetSessionId: string
-  /** The id the sender's card knows the target by: `pending:<exchange>` until a created session starts. */
-  targetAgentSessionId: string
   provider: AgentId
   /** Whether the result wakes the sender's model, or is only shown on its card. */
   notify: boolean

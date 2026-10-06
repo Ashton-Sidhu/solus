@@ -13,7 +13,6 @@ import { getDatabase } from '../../db/database'
 import type { RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
 import { sessionPullRequests } from './schema'
-import { stableSessionIdForProviderThread } from './session-lineage'
 import { organizationOfSession } from './session-records'
 
 /**
@@ -60,12 +59,6 @@ function emitChanged(sessionId: string): void {
   for (const listener of listeners) listener(sessionId)
 }
 
-/** A link is keyed by the stable Solus session id; callers may hold a
- *  provider thread id. */
-export function sessionPullRequestOwnerId(sessionId: string): string {
-  return stableSessionIdForProviderThread(sessionId) ?? sessionId
-}
-
 /** The pull request a URL names, as a link stores it. Null for a URL that is
  *  not a pull request. */
 export function pullRequestIdentityOf(url: string): { repository: string; number: number; url: string } | null {
@@ -109,13 +102,12 @@ export interface SessionPullRequestInput {
 export async function linkSessionPullRequest(sessionId: string, input: SessionPullRequestInput): Promise<boolean> {
   const identity = pullRequestIdentityOf(input.url)
   if (!identity) throw new Error('A session pull request link needs the full URL of the pull request.')
-  const ownerId = sessionPullRequestOwnerId(sessionId)
-  const organizationId = await organizationOfSession(ownerId)
+  const organizationId = await organizationOfSession(sessionId)
   const title = input.title?.trim() ?? ''
   const changed = await getDatabase().transaction(async (db) => {
     const stored = z.object({ source: z.enum(SOURCES) }).nullish().parse(await db.get(sql`
       SELECT source FROM ${sessionPullRequests}
-      WHERE session_id = ${ownerId} AND repository = ${identity.repository} AND number = ${identity.number}
+      WHERE session_id = ${sessionId} AND repository = ${identity.repository} AND number = ${identity.number}
     `))
     const source = nextSessionPullRequestSource(stored?.source ?? null, input.source)
     if (!source) return false
@@ -125,7 +117,7 @@ export async function linkSessionPullRequest(sessionId: string, input: SessionPu
           source = ${source}, created_by = ${attributionJson(input.by)}, url = ${identity.url},
           linked_at = ${Date.now()},
           title = CASE WHEN ${title} = '' THEN title ELSE ${title} END
-        WHERE session_id = ${ownerId} AND repository = ${identity.repository} AND number = ${identity.number}
+        WHERE session_id = ${sessionId} AND repository = ${identity.repository} AND number = ${identity.number}
       `)
       return true
     }
@@ -133,13 +125,13 @@ export async function linkSessionPullRequest(sessionId: string, input: SessionPu
       INSERT INTO ${sessionPullRequests}(
         session_id, repository, number, url, title, source, created_by, linked_at, organization_id
       ) VALUES (
-        ${ownerId}, ${identity.repository}, ${identity.number}, ${identity.url}, ${title}, ${source},
+        ${sessionId}, ${identity.repository}, ${identity.number}, ${identity.url}, ${title}, ${source},
         ${attributionJson(input.by)}, ${Date.now()}, ${organizationId}
       )
     `)
     return true
   })
-  if (changed) emitChanged(ownerId)
+  if (changed) emitChanged(sessionId)
   return changed
 }
 
@@ -149,13 +141,12 @@ export async function linkSessionPullRequest(sessionId: string, input: SessionPu
  * false when the session did not show the pull request.
  */
 export async function unlinkSessionPullRequest(sessionId: string, repository: string, number: number): Promise<boolean> {
-  const ownerId = sessionPullRequestOwnerId(sessionId)
   const removed = (await getDatabase().run(sql`
     UPDATE ${sessionPullRequests} SET source = 'dismissed'
-    WHERE session_id = ${ownerId} AND repository = ${repository.toLowerCase()} AND number = ${number}
+    WHERE session_id = ${sessionId} AND repository = ${repository.toLowerCase()} AND number = ${number}
       AND source <> 'dismissed'
   `)).changes > 0
-  if (removed) emitChanged(ownerId)
+  if (removed) emitChanged(sessionId)
   return removed
 }
 
@@ -222,7 +213,7 @@ export async function readSessionPullRequests(
 export async function sessionKnowsPullRequest(sessionId: string, repository: string, number: number): Promise<boolean> {
   const row = await getDatabase().get(sql`
     SELECT 1 AS present FROM ${sessionPullRequests}
-    WHERE session_id = ${sessionPullRequestOwnerId(sessionId)}
+    WHERE session_id = ${sessionId}
       AND repository = ${repository.toLowerCase()} AND number = ${number}
   `)
   return !!row
@@ -255,28 +246,6 @@ export async function recordSessionPullRequestObservation(
       WHERE ${matches}`)
   for (const sessionId of sessionIds) emitChanged(sessionId)
   return sessionIds
-}
-
-/** Move a session's links to the stable Solus id when the session first enters
- *  a handoff chain, as its task links move. A link the target already holds
- *  stays the target's. */
-export async function rekeySessionPullRequests(sourceSessionId: string, targetSessionId: string): Promise<void> {
-  if (sourceSessionId === targetSessionId) return
-  const moved = await getDatabase().transaction(async (db) => {
-    await db.run(sql`
-      DELETE FROM ${sessionPullRequests}
-      WHERE session_id = ${sourceSessionId} AND EXISTS (
-        SELECT 1 FROM ${sessionPullRequests} AS held
-        WHERE held.session_id = ${targetSessionId}
-          AND held.repository = session_pull_requests.repository
-          AND held.number = session_pull_requests.number
-      )
-    `)
-    return (await db.run(sql`
-      UPDATE ${sessionPullRequests} SET session_id = ${targetSessionId} WHERE session_id = ${sourceSessionId}
-    `)).changes > 0
-  })
-  if (moved) emitChanged(targetSessionId)
 }
 
 /** One watched pull request of a session, for PR sync's interest. */

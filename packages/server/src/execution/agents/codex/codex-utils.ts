@@ -15,6 +15,7 @@ import type { AgentId, PermissionMode, PlanDescriptor } from '@solus/contracts/t
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import type { ApprovalsReviewer, AskForApproval, SandboxPolicy } from './generated/v2'
 import { resolveHomePath } from '../../../platform/paths'
+import { sessionIdOfThread } from '../../../data/sessions/session-lineage'
 
 const stringValueSchema = z.string()
 const finiteNumberSchema = z.number().finite()
@@ -251,7 +252,10 @@ export type CodexHistoryItem = {
 export interface ScannedCodexPlan {
   provider: AgentId
   planToolUseId: string
+  /** The session the plan belongs to (docs/plans/session-identity.md). */
   sessionId: string
+  /** The thread whose transcript holds it. */
+  threadId: string
   projectPath: string
   cwd: string
   timestamp: number
@@ -277,7 +281,7 @@ export function isNormalStreamingTextNotification(
 export async function scanCodexPlans(thread: CodexThreadSummary, annotations: AnnotationIndex): Promise<ScannedCodexPlan[]> {
   if (!thread.id || !thread.path || !existsSync(thread.path)) return []
 
-  const sessionId = thread.id
+  const threadId = thread.id
   const transcriptPath = thread.path
   const cwd = resolveHomePath(thread.cwd || process.cwd())
   const projectPath = encodePathAsFolder(cwd)
@@ -309,7 +313,7 @@ export async function scanCodexPlans(thread: CodexThreadSummary, annotations: An
           if (content.trim()) {
             const id = `codex-plan-${payload.id || activePlanTurn?.turnId || timestamp}`
             out.push(makeCodexPlan({
-              sessionId,
+              threadId,
               planToolUseId: id,
               projectPath,
               cwd,
@@ -330,7 +334,7 @@ export async function scanCodexPlans(thread: CodexThreadSummary, annotations: An
           const content = textFromCodexMessageContent(payload.content)
           if (content.trim()) {
             out.push(makeCodexPlan({
-              sessionId,
+              threadId,
               planToolUseId: `codex-plan-${activePlanTurn.turnId}`,
               projectPath,
               cwd,
@@ -428,7 +432,7 @@ export async function scanCodexThreadActivityTimestamp(thread: CodexThreadSummar
 }
 
 export function makeCodexPlan(opts: {
-  sessionId: string
+  threadId: string
   planToolUseId: string
   projectPath: string
   cwd: string
@@ -436,12 +440,14 @@ export function makeCodexPlan(opts: {
   content: string
   annotations: AnnotationIndex
 }): ScannedCodexPlan {
-  const ann = opts.annotations.get(`${opts.sessionId}__${opts.planToolUseId}`)
+  const sessionId = sessionIdOfThread(opts.threadId)
+  const ann = opts.annotations.get(`${sessionId}__${opts.planToolUseId}`)
   const status = z.enum(['pending', 'accepted', 'rejected']).catch('pending').parse(ann?.status)
   return {
     provider: 'codex',
     planToolUseId: opts.planToolUseId,
-    sessionId: opts.sessionId,
+    sessionId,
+    threadId: opts.threadId,
     projectPath: opts.projectPath,
     cwd: resolveHomePath(opts.cwd),
     timestamp: opts.timestamp,

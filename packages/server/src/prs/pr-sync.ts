@@ -5,6 +5,7 @@ import { createLogger } from '../logger'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { completeTasksForMergedPullRequest } from '../data/tasks/sync-engine'
 import { settledSessionIds, settleIdleSessions, settleSessionsWithEndedPullRequests } from '../data/sessions/session-states'
+import { sessionIdOfThread } from '../data/sessions/session-lineage'
 import { readPrLinkWatchList, recordPullRequestObservation, type PrLinkWatch } from '../data/tasks/task-links'
 import { unfinishedTaskProjects } from '../data/tasks/task-store'
 import { taskSessions } from '../data/tasks/task-sessions'
@@ -13,7 +14,6 @@ import {
   linkSessionPullRequest,
   readSessionPullRequestWatchList,
   sessionKnowsPullRequest,
-  sessionPullRequestOwnerId,
 } from '../data/sessions/session-pull-requests'
 import { attachReviewAttention } from '../transport/handlers/review-attention'
 import { codeHostFor, type CodeHost } from './code-host'
@@ -543,7 +543,7 @@ async function liveCheckouts(now: number): Promise<LiveCheckout[]> {
   const { checkouts } = await liveTaskSessions()
   const seen = new Set(checkouts.map((checkout) => `${checkout.sessionId}\0${checkout.branch}`))
   const recent = recentWorktreeSessions(now - BRANCH_LOOKUP_MS)
-    .map((indexed) => ({ ...indexed, sessionId: sessionPullRequestOwnerId(indexed.sessionId) }))
+    .map((indexed) => ({ ...indexed, sessionId: sessionIdOfThread(indexed.sessionId) }))
   const settled = await settledSessionIds(recent.map((indexed) => indexed.sessionId))
   for (const { sessionId, branch, projectScope } of recent) {
     if (settled.has(sessionId) || seen.has(`${sessionId}\0${branch}`)) continue

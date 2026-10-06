@@ -12,7 +12,8 @@ import { ANY_ORGANIZATION } from '../../admission/principal'
  * A plan with no tool-use id has nothing to key on and is not annotated.
  */
 export async function recordPlanDecision(
-  meta: Pick<SessionMeta, 'sessionId' | 'projectPath' | 'cwd'>,
+  sessionId: string,
+  meta: Pick<SessionMeta, 'projectPath' | 'cwd'>,
   plan: { planToolUseId?: string; planContent: string },
   status: 'accepted' | 'rejected',
   comment: string | undefined,
@@ -20,7 +21,7 @@ export async function recordPlanDecision(
   by: Attribution,
 ): Promise<boolean> {
   if (!plan.planToolUseId) return false
-  const existing = await loadAnnotations(ANY_ORGANIZATION, meta.sessionId, plan.planToolUseId)
+  const existing = await loadAnnotations(ANY_ORGANIZATION, sessionId, plan.planToolUseId)
   const title = extractPlanTitle(plan.planContent)
   const thread: PlanComment[] = comment
     // Anchored on the plan's own title line so the note lands somewhere real in
@@ -29,7 +30,7 @@ export async function recordPlanDecision(
     : []
   const annotations: PlanAnnotations = {
     version: 1,
-    sessionId: meta.sessionId,
+    sessionId,
     projectPath: existing?.projectPath || meta.projectPath || meta.cwd,
     cwd: existing?.cwd || meta.cwd,
     planToolUseId: plan.planToolUseId,
@@ -41,6 +42,6 @@ export async function recordPlanDecision(
   }
   if (existing?.bookmarkedAt !== undefined) annotations.bookmarkedAt = existing.bookmarkedAt
   await saveAnnotations(ANY_ORGANIZATION, annotations)
-  notifyAnnotationsChanged({ kind: 'plan', targetId: `${meta.sessionId}__${plan.planToolUseId}` })
+  notifyAnnotationsChanged({ kind: 'plan', targetId: `${sessionId}__${plan.planToolUseId}` })
   return true
 }

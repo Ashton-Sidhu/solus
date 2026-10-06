@@ -7,7 +7,7 @@ import { getDb, withTx } from '../../db'
 import { getDatabase } from '../../db/database'
 import { createLogger } from '../../logger'
 import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../../admission/principal'
-import { projectSessionHistory, resolvePendingStarts } from '../../data/sessions/result-projection'
+import { projectSessionHistory } from '../../data/sessions/result-projection'
 import { getSessionRecord } from '../../data/sessions/session-records'
 import type { ActivityMirrorPayload, TranscriptMirrorPayload } from '../runner-protocol'
 import type { Activity } from '@solus/contracts/activity'
@@ -51,10 +51,8 @@ export interface TranscriptSource {
 }
 
 export interface TranscriptMirrorDeps {
-  /** The lineage-aware reader: every row of the session's history, in order. */
+  /** The lineage-aware reader: every row of the session's history, every thread, in order. */
   loadSession: (provider: AgentId, sessionId: string, projectPath?: string) => Promise<SessionLoadMessage[]>
-  /** The id the session's activity is recorded under (the Solus session id) for the thread id it is mirrored by; the same id when omitted. */
-  activitySubjectId?: (sessionId: string) => string
   debounceMs?: number
 }
 
@@ -137,9 +135,9 @@ export class TranscriptMirror {
     if (this.disposed) return 0
     const destination = await transcriptDestination(sessionId)
     if (!destination) return 0
-    const messages = await resolvePendingStarts(ANY_ORGANIZATION, projectSessionHistory(await this.deps.loadSession(source.provider, sessionId, source.projectPath)))
+    const messages = projectSessionHistory(await this.deps.loadSession(source.provider, sessionId, source.projectPath))
     // Whatever organization a row was recorded in: a session published from Local brings the activity it had.
-    const activity = await activityFor(ANY_ORGANIZATION, { kind: 'session', id: this.deps.activitySubjectId?.(sessionId) ?? sessionId })
+    const activity = await activityFor(ANY_ORGANIZATION, { kind: 'session', id: sessionId })
     const hashes = messages.map(hashOf)
     let lastSeq = 0
     withTx(() => {
@@ -169,10 +167,8 @@ export class TranscriptMirror {
   }
 
   /**
-   * The session's activity rows not yet sent under this transcript id (plans/012
-   * §5): an activity row never changes, so its id is enough to send it once. Each
-   * names the session by the id its transcript is mirrored under, which is the id
-   * the Solus API reads the history by.
+   * The session's activity rows not yet sent (plans/012 §5): an activity row
+   * never changes, so its id is enough to send it once.
    */
   private appendNewActivity(sessionId: string, destination: DeliveryDestination, activity: Activity[]): number {
     const sent = new Set(sentActivityRowSchema.array().parse(getDb().prepare('SELECT activity_id FROM activity_mirror_rows WHERE session_id = ?').all(sessionId)).map((row) => row.activity_id))

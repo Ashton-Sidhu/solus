@@ -9,6 +9,7 @@ import { runBounded } from '../../../lib/concurrency'
 import { MemoryCache } from '@solus/contracts/cache'
 import { z } from 'zod'
 import { resolveHomePath } from '../../../platform/paths'
+import { sessionIdOfThread } from '../../../data/sessions/session-lineage'
 
 export const PLAN_LIST_TTL = 60_000
 export const _planListCache = new MemoryCache<string, PlanDescriptor[]>({ ttlMs: PLAN_LIST_TTL, maxEntries: 64 })
@@ -37,7 +38,10 @@ export type DerivedStatus = 'pending' | 'accepted' | 'rejected'
 
 export interface ScannedPlan {
   planToolUseId: string
+  /** The session the plan belongs to (docs/plans/session-identity.md). */
   sessionId: string
+  /** The thread whose transcript holds it. */
+  threadId: string
   projectPath: string
   cwd: string
   timestamp: number
@@ -60,14 +64,16 @@ function classifyToolResult(content: string, isError: boolean): DerivedStatus | 
 
 export async function scanPlanFile(
   filePath: string,
-  sessionId: string,
+  threadId: string,
   encodedPath: string,
   fallbackCwd: string,
 ): Promise<ScannedPlan[]> {
   const stat = await fsStat(filePath)
   const mtime = stat.mtimeMs
   const cached = _planFileCache.get(filePath)
-  if (cached && cached.mtime === mtime) return cached.plans
+  // The file's plans are cached; their session is read now, because the
+  // thread may have joined a session since the file was read.
+  if (cached && cached.mtime === mtime) return inSession(cached.plans)
   if (stat.size < 100) {
     _planFileCache.set(filePath, { mtime, plans: [] })
     return []
@@ -91,13 +97,14 @@ export async function scanPlanFile(
             if (block?.type === 'tool_use' && block?.name === 'ExitPlanMode') {
               const planContent: string = block.input?.plan || ''
               if (!planContent) continue
-              const id = block.id || `${sessionId}__${obj.timestamp || ''}`
+              const id = block.id || `${threadId}__${obj.timestamp || ''}`
               if (seenIds.has(id)) continue
               seenIds.add(id)
               const ts = obj.timestamp ? new Date(obj.timestamp).getTime() : stat.mtime.getTime()
               pending.set(id, {
                 planToolUseId: id,
-                sessionId,
+                sessionId: threadId,
+                threadId,
                 projectPath: encodedPath,
                 cwd: resolveHomePath(resolvedCwd || fallbackCwd),
                 timestamp: ts,
@@ -143,7 +150,11 @@ export async function scanPlanFile(
 
   const plans = Array.from(pending.values())
   _planFileCache.set(filePath, { mtime, plans })
-  return plans
+  return inSession(plans)
+}
+
+function inSession(plans: ScannedPlan[]): ScannedPlan[] {
+  return plans.map((plan) => ({ ...plan, sessionId: sessionIdOfThread(plan.threadId) }))
 }
 
 export async function scanPlansInDir(
@@ -159,9 +170,9 @@ export async function scanPlansInDir(
   }
 
   const tasks = files.map((file) => {
-    const sessionId = file.replace(/\.jsonl$/, '')
+    const threadId = file.replace(/\.jsonl$/, '')
     const filePath = join(sessionsDir, file)
-    return () => scanPlanFile(filePath, sessionId, encodedPath, fallbackCwd)
+    return () => scanPlanFile(filePath, threadId, encodedPath, fallbackCwd)
   })
   const results = await runBounded(tasks, MAX_CONCURRENT_PLAN_SCANS)
   return results.flat()

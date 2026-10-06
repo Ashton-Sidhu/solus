@@ -49,7 +49,7 @@ export interface SurfaceContext {
   readonly pluginCommands: Session['pluginCommands']
   /** The session the person is in, when this client has one. */
   readonly activeSession: Session | undefined
-  sessionForAgentSession(agentSessionId: string, serverId: string | undefined): Session | undefined
+  sessionForHostSession(sessionId: string, serverId: string | undefined): Session | undefined
   ctxForDirectory(workingDirectory: string): IpcContext
   ctxForEnvironment(workingDirectory: string, gitContext: GitCheckout | null): IpcContext
   /** The RPC context of the surface the person is on: the active tab's, or one host with no directory. */

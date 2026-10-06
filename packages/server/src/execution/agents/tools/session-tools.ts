@@ -37,7 +37,7 @@ const AGENT_PROVIDER_VALUES = ['claude-code', 'codex'] as const
 /** The orchestration commands the acting tools call. */
 export interface SessionOrchestration {
   spawn(
-    senderAgentSessionId: string | undefined,
+    senderSessionId: string | undefined,
     order: {
       prompt: string
       provider: AgentId
@@ -51,14 +51,14 @@ export interface SessionOrchestration {
     report: boolean,
     waitMs?: number,
     requestId?: string,
-  ): Promise<{ exchangeId: string; agentSessionId: string; starting?: boolean; taskId?: string; waited?: OrchestrationItem | null }>
+  ): Promise<{ exchangeId: string; sessionId: string; starting?: boolean; taskId?: string; waited?: OrchestrationItem | null }>
   send(
-    senderAgentSessionId: string,
-    targetAgentSessionId: string,
+    senderSessionId: string,
+    targetSessionId: string,
     message: { prompt: string; delivery: PromptDelivery; notify: boolean; waitMs?: number; requestId?: string },
   ): Promise<{ exchangeId: string; disposition: 'started' | 'steered' | 'queued'; waited?: OrchestrationItem | null }>
-  readExchange?(senderAgentSessionId: string, exchangeId: string): Exchange | undefined
-  stop(senderAgentSessionId: string | undefined, targetAgentSessionId: string): boolean
+  readExchange?(senderSessionId: string, exchangeId: string): Exchange | undefined
+  stop(senderSessionId: string | undefined, targetSessionId: string): boolean
 }
 
 let sessionOrchestration: SessionOrchestration | null = null
@@ -71,8 +71,8 @@ export interface SessionController {
   getSessionInfo(sessionId: string): Promise<SessionMeta | null>
   /** The last `limit` messages; without a limit, the whole transcript. */
   loadSessionTail(provider: AgentId, sessionId: string, projectPath: string | undefined, limit?: number): Promise<SessionLoadMessage[]>
-  liveStatus(agentSessionId: string): SessionStatus | null
-  pendingInputEvents(agentSessionId: string): NormalizedEvent[]
+  liveStatus(sessionId: string): SessionStatus | null
+  pendingInputEvents(sessionId: string): NormalizedEvent[]
   loadPlanContent(provider: AgentId, sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null>
   listPlans(provider: AgentId, projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]>
   invalidatePlanCaches(sessionId: string): void
@@ -94,10 +94,8 @@ export function getSessionController(): SessionController | null {
 export interface SessionToolCtx {
   agentProvider: AgentId
   cwd: string
-  /** Provider thread id — provenance on durable rows. */
+  /** The calling session; every row the tool writes names it. */
   sessionId: string | undefined
-  /** Solus session id — keys a dispatched session's shipped task snapshot. */
-  solusSessionId?: string
 }
 
 export interface SessionToolDeps {
@@ -544,11 +542,12 @@ async function readSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Pr
   if (!sessionController) return { ok: false, text: 'read_session is unavailable — no session controller is wired.' }
   const parsed = z.object(readSessionFields).safeParse(args)
   if (!parsed.success) return { ok: false, text: 'read_session requires a valid session_id.' }
-  const sessionId = parsed.data.session_id.trim()
   const tail = parsed.data.tail ?? 10
   const match = parsed.data.match?.trim() ?? ''
-  const meta = await findSession(sessionId)
-  if (!meta) return { ok: false, text: `Session ${sessionId} not found.` }
+  const meta = await findSession(parsed.data.session_id.trim())
+  if (!meta) return { ok: false, text: `Session ${parsed.data.session_id.trim()} not found.` }
+  // The session read may name a thread; everything below names the session.
+  const sessionId = meta.sessionId
   const status = sessionController.liveStatus(sessionId) ?? meta.status ?? 'idle'
   const read = { controller: sessionController, meta, sessionId, projectPath: meta.projectPath || deps.ctx?.cwd, tail }
   const since = parsed.data.since
@@ -595,8 +594,8 @@ async function readTaskSessionsTool(args: SessionToolArgs, deps: SessionToolDeps
   if (!taskId) return { ok: false, text: 'This session has no task. Pass task_id.' }
   const controller = sessionController
   const view = await formatTaskSessions(taskId, {
-    liveStatus: (agentSessionId) => controller.liveStatus(agentSessionId),
-    pendingInputEvents: (agentSessionId) => controller.pendingInputEvents(agentSessionId),
+    liveStatus: (sessionId) => controller.liveStatus(sessionId),
+    pendingInputEvents: (sessionId) => controller.pendingInputEvents(sessionId),
     loadSessionTail: (provider, sessionId, projectPath, limit) => controller.loadSessionTail(provider, sessionId, projectPath, limit),
     link: sessionLink,
   })
@@ -664,11 +663,12 @@ async function sendSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Pr
   if (!message.trim()) return { ok: false, text: 'send_session requires a non-empty message.' }
   const meta = await findSession(sessionId)
   if (!meta) return { ok: false, text: `Session ${sessionId} not found.` }
+  if (meta.sessionId === callerSessionId) return { ok: false, text: 'Cannot message your own session.' }
   const report = parsed.data.report
   const waitMs = parsed.data.wait_seconds * 1000
   const order: Parameters<SessionOrchestration['send']>[2] = { prompt: message, delivery: parsed.data.delivery, notify: report, waitMs }
   if (parsed.data.request_id) order.requestId = parsed.data.request_id
-  const sent = await sessionOrchestration.send(callerSessionId, sessionId, order)
+  const sent = await sessionOrchestration.send(callerSessionId, meta.sessionId, order)
   const dispatch = sent.disposition === 'queued'
     ? 'Queued for'
     : sent.disposition === 'steered'
@@ -676,7 +676,7 @@ async function sendSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Pr
       : 'Sent to'
   return {
     ok: true,
-    text: `${dispatch} ${sessionLink(meta)}.${outcomeNote(report, waitMs, sent.waited)}\n${formatExchangeTag({ messageId: sent.exchangeId, agentSessionId: sessionId, provider: meta.provider })}${waitedBlock(sent.waited)}`,
+    text: `${dispatch} ${sessionLink(meta)}.${outcomeNote(report, waitMs, sent.waited)}\n${formatExchangeTag({ messageId: sent.exchangeId, sessionId: meta.sessionId, provider: meta.provider })}${waitedBlock(sent.waited)}`,
   }
 }
 
@@ -691,7 +691,7 @@ async function readExchangeTool(args: SessionToolArgs, deps: SessionToolDeps): P
   if (!parsed.success || !sender) return { ok: false, text: 'read_session_exchange requires exchange_id and an initialized calling session.' }
   const exchange = sessionOrchestration?.readExchange?.(sender, parsed.data.exchange_id)
   if (!exchange) return { ok: false, text: 'Exchange not found for this calling session.' }
-  const lines = [`Exchange ${exchange.exchangeId}: ${exchange.state}. Session ${exchange.targetAgentSessionId}.`]
+  const lines = [`Exchange ${exchange.exchangeId}: ${exchange.state}. Session ${exchange.targetSessionId}.`]
   if (exchange.deliveryState) lines.push(`Report delivery: ${exchange.deliveryState}.`)
   if (exchange.report) {
     const offset = parsed.data.reply_offset
@@ -714,7 +714,7 @@ async function stopSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Pr
   if (sessionId === deps.ctx?.sessionId) return { ok: false, text: 'Cannot stop your own session.' }
   const meta = await findSession(sessionId)
   if (!meta) return { ok: false, text: `Session ${sessionId} not found.` }
-  return sessionOrchestration.stop(deps.ctx?.sessionId, sessionId)
+  return sessionOrchestration.stop(deps.ctx?.sessionId, meta.sessionId)
     ? { ok: true, text: `Stopped session ${sessionId}.` }
     : { ok: true, text: `Session ${sessionId} is not currently running.` }
 }
@@ -737,7 +737,7 @@ async function startSessionTool(args: SessionToolArgs, deps: SessionToolDeps): P
   const cwd = resolveHomePath(input.cwd?.trim() || deps.ctx?.cwd || '~')
   const waitMs = input.wait_seconds * 1000
   // The orchestrator puts the card in this conversation before the session
-  // starts — startup can take a while — and binds it to the session once it does.
+  // starts — startup can take a while. The session's id is known from the start.
   const created = await sessionOrchestration.spawn(deps.ctx?.sessionId, {
     prompt: input.prompt,
     provider,
@@ -752,14 +752,14 @@ async function startSessionTool(args: SessionToolArgs, deps: SessionToolDeps): P
   if (created.starting) return { ok: true, text: formatPendingSessionReceipt(created, runner, input.report, waitMs) }
   return {
     ok: true,
-    text: `Session ${sessionLink({ provider, sessionId: created.agentSessionId, slug: null, cwd })} on ${provider}/${modelId} (reasoning: ${reasoningEffort}).${created.taskId ? ` Task ${created.taskId}.` : ''}${outcomeNote(input.report, waitMs, created.waited)}\n${formatExchangeTag({ messageId: created.exchangeId, agentSessionId: created.agentSessionId, provider })}${waitedBlock(created.waited)}`,
+    text: `Session ${sessionLink({ provider, sessionId: created.sessionId, slug: null, cwd })} on ${provider}/${modelId} (reasoning: ${reasoningEffort}).${created.taskId ? ` Task ${created.taskId}.` : ''}${outcomeNote(input.report, waitMs, created.waited)}\n${formatExchangeTag({ messageId: created.exchangeId, sessionId: created.sessionId, provider })}${waitedBlock(created.waited)}`,
   }
 }
 
-/** A pending card ID is not a provider conversation that session tools can use. */
+/** A session whose provider has not started yet: its id is real, but there is no transcript to read. */
 function formatPendingSessionReceipt(created: SpawnedSession, runner: Runner, report: boolean, waitMs: number): string {
   const startup = created.waited?.type === 'report' ? 'Provider startup ended.' : 'Startup continues in the background.'
-  return `Accepted session creation on ${runner.provider}/${runner.modelId} (reasoning: ${runner.reasoningEffort}). ${startup}${created.taskId ? ` Task ${created.taskId}.` : ''}${outcomeNote(report, waitMs, created.waited)} Use read_session_exchange with exchange_id=${created.exchangeId} for the startup state and provider session ID; do not pass the pending ID to session tools.\n${formatExchangeTag({ messageId: created.exchangeId, agentSessionId: created.agentSessionId, provider: runner.provider })}${waitedBlock(created.waited)}`
+  return `Accepted session ${created.sessionId} on ${runner.provider}/${runner.modelId} (reasoning: ${runner.reasoningEffort}). ${startup}${created.taskId ? ` Task ${created.taskId}.` : ''}${outcomeNote(report, waitMs, created.waited)} Use read_session_exchange with exchange_id=${created.exchangeId} for the startup state.\n${formatExchangeTag({ messageId: created.exchangeId, sessionId: created.sessionId, provider: runner.provider })}${waitedBlock(created.waited)}`
 }
 
 type StartTaskBinding = { taskId: string | null } | { error: string }

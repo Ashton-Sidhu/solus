@@ -180,21 +180,16 @@ export class Delegations {
     return new SolusApiClient(options)
   }
 
-  /** Who a session's agent acts for: set when a person's turn is admitted, by session id and, once known, record id. */
+  /** Who a session's agent acts for: set when a person's turn is admitted. */
   bindSession(sessionId: string, actor: { userId: string; organizationId: string }): void {
     this.actors.set(sessionId, actor)
   }
 
-  bindRecord(sessionId: string, recordId: string): void {
-    const actor = this.actors.get(sessionId)
-    if (actor) this.actors.set(recordId, actor)
+  actorOf(sessionId: string): { userId: string; organizationId: string } | null {
+    return this.actors.get(sessionId) ?? null
   }
 
-  actorOf(sessionOrRecordId: string): { userId: string; organizationId: string } | null {
-    return this.actors.get(sessionOrRecordId) ?? null
-  }
-
-  /** The sessions (and records) whose agent acts for the person in the organization. */
+  /** The sessions whose agent acts for the person in the organization. */
   sessionsActingFor(userId: string, organizationId: string): string[] {
     return [...this.actors].filter(([, actor]) => actor.userId === userId && actor.organizationId === organizationId).map(([id]) => id)
   }

@@ -48,6 +48,6 @@ export async function resolveNotificationDestination(
 ): Promise<NotificationDestination> {
   const resource = notification.resource
   if (resource.kind !== 'automation' || resource.sessionId) return notificationDestination(notification, serverId)
-  const sessionId = await Promise.resolve().then(() => readRun(resource.automationId, resource.runId)).then((run) => run?.agentSessionId ?? undefined, () => undefined)
+  const sessionId = await Promise.resolve().then(() => readRun(resource.automationId, resource.runId)).then((run) => run?.sessionId ?? undefined, () => undefined)
   return notificationDestination({ ...notification, resource: { ...resource, sessionId } }, serverId)
 }

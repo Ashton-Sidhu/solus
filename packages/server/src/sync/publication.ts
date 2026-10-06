@@ -2,7 +2,7 @@ import type { ShareResource } from '@solus/contracts/sharing'
 import type { Publication, PublicationStartRequest } from '@solus/contracts/organization-scope'
 import { createLogger } from '../logger'
 import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../admission/principal'
-import { assignSessionOrganization, getSessionRecord, markSessionPublished, recordSessionId } from '../data/sessions/session-records'
+import { assignSessionOrganization, getSessionRecord, markSessionPublished } from '../data/sessions/session-records'
 import { mirrorPendingThrough } from './mirror/mirror-log'
 import { queueSessionReport, sessionReportPendingThrough } from './outbox/outbox-store'
 import type { TranscriptMirror, TranscriptSource } from './mirror/transcript-mirror'
@@ -37,7 +37,7 @@ export interface PublicationDeps {
   delivery: RunnerDelivery
   transcriptMirror: TranscriptMirror
   /** The runtime's view of a session: how its transcript is read, and whether a turn is running. */
-  transcriptSource: (sessionId: string) => (TranscriptSource & { agentSessionId: string }) | null
+  transcriptSource: (sessionId: string) => TranscriptSource | null
   hostId: () => string | null
   onChanged: (publication: Publication) => void
 }
@@ -73,7 +73,7 @@ export class PublicationCoordinator {
       this.drive(active.id)
       return toPublication(active)
     }
-    const home = (await getSessionRecord(ANY_ORGANIZATION, recordSessionId(request.resource.id)))?.organizationId ?? null
+    const home = (await getSessionRecord(ANY_ORGANIZATION, request.resource.id))?.organizationId ?? null
     if (home !== null && home !== LOCAL_ORGANIZATION_ID && home !== request.organizationId) {
       throw new Error('This resource belongs to another organization and cannot move between organizations.')
     }
@@ -110,26 +110,24 @@ export class PublicationCoordinator {
 
   private async publishSession(row: PublicationRow): Promise<void> {
     const sessionId = row.resource.id
-    // A client names the Solus session id; the record is keyed by the provider thread id.
-    const recordId = recordSessionId(sessionId)
-    const record = await getSessionRecord(ANY_ORGANIZATION, recordId)
+    const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
     if (!record) return this.fail(row, 'This session has no record on this host.')
     if (record.organizationId !== row.organizationId) {
-      const assigned = await assignSessionOrganization(recordId, row.organizationId)
+      const assigned = await assignSessionOrganization(sessionId, row.organizationId)
       if (!assigned || assigned.organizationId !== row.organizationId) return this.fail(row, 'This session belongs to another organization.')
     }
     if (!this.deps.hostId()) return this.fail(row, 'This host is not linked to Solus cloud.')
     // The record is reported and the transcript read once; the record says
     // `published` only after the service acknowledged both (§7).
-    const current = await getSessionRecord(row.organizationId, recordId)
+    const current = await getSessionRecord(row.organizationId, sessionId)
     if (!current) return this.fail(row, 'This session belongs to another organization.')
     const destination = destinationOf(row, current.ownerUserId)
     const reportSeq = queueSessionReport(destination, { ...current, runnerHostId: this.deps.hostId()! })
     // A live session's history is read the way the runtime reads it; a session
-    // that is not running is read from its record's provider and thread id.
-    const source = this.deps.transcriptSource(sessionId) ?? { provider: current.provider, agentSessionId: recordId }
-    this.deps.transcriptMirror.touch(source.agentSessionId, source)
-    const mirrorSeq = await this.deps.transcriptMirror.flushNow(source.agentSessionId)
+    // that is not running is read from its record's provider and lineage.
+    const source = this.deps.transcriptSource(sessionId) ?? { provider: current.provider }
+    this.deps.transcriptMirror.touch(sessionId, source)
+    const mirrorSeq = await this.deps.transcriptMirror.flushNow(sessionId)
     const throughSeq = Math.max(row.throughSeq ?? 0, reportSeq, mirrorSeq)
     const sent = updatePublication(row.id, { state: 'sent', throughSeq })
     this.deps.onChanged(toPublication(sent))
@@ -140,13 +138,12 @@ export class PublicationCoordinator {
 
   /** A `sent` session is `published` once the service received everything through its sequence. */
   private async confirmSession(row: PublicationRow): Promise<void> {
-    const recordId = recordSessionId(row.resource.id)
-    const record = await getSessionRecord(row.organizationId, recordId)
+    const record = await getSessionRecord(row.organizationId, row.resource.id)
     if (!record) return this.fail(row, 'This session belongs to another organization.')
     if (this.waitingOnPerson(row, destinationOf(row, record.ownerUserId))) return
     const throughSeq = row.throughSeq ?? 0
     if (sessionReportPendingThrough(row.organizationId, throughSeq) || mirrorPendingThrough(row.organizationId, throughSeq)) return
-    await markSessionPublished(recordId)
+    await markSessionPublished(row.resource.id)
     this.commit(row)
   }
 

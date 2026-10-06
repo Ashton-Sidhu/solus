@@ -21,7 +21,7 @@ import { ensureBackgroundSessionTitle } from '../../execution/sessions/backgroun
 import { sessionExecutionPreferences } from '../../data/sessions/session-states'
 import { emitSessionTasksChanged } from '../../data/tasks/task-sessions'
 import type { HostEventPublisher } from '../events/host-event-publisher'
-import { projectSessionHistory, resolvePendingStarts, serializedBytes, withExchangeProgress } from '../../data/sessions/result-projection'
+import { projectSessionHistory, serializedBytes, withExchangeProgress } from '../../data/sessions/result-projection'
 import { deferSessionToolInputs, selectSessionToolInputs } from '../../data/sessions/session-tool-inputs'
 import { MAX_SESSION_TOOL_INPUTS, type SessionHistoryPage, type WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { activityFor, mergePageActivity, mergeWindowActivity, readActivityPageCursor } from '../../data/activity/activity'
@@ -48,10 +48,10 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   const historyOf = async (handlerCtx: HandlerCtx, agentId: AgentId, sessionId: string, projectPath?: string, limit?: number): Promise<WireSessionLoadMessage[]> =>
     isApiMode()
       ? readTranscript(recordScopeOf(handlerCtx.principal), sessionId, limit)
-      : resolvePendingStarts(recordScopeOf(handlerCtx.principal), projectSessionHistory(await sessionRuntime.history.loadSession(agentId, sessionId, projectPath, limit)))
+      : projectSessionHistory(await sessionRuntime.history.loadSession(agentId, sessionId, projectPath, limit))
   /** A session's activity for a history read (plans/012 §5). */
   const sessionActivityOf = (handlerCtx: HandlerCtx, sessionId: string) =>
-    activityFor(recordScopeOf(handlerCtx.principal), sessionRuntime.sessionActivitySubject(sessionId))
+    activityFor(recordScopeOf(handlerCtx.principal), { kind: 'session', id: sessionId })
   const sessionInfoOf = async (handlerCtx: HandlerCtx, sessionId: string): Promise<SessionMeta | null> => {
     const meta = await sessionRuntime.history.getSessionInfo(sessionId)
     if (meta || !isApiMode()) return meta
@@ -134,7 +134,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const pageRequest = { ...request, before: cursor.before }
     const page: SessionHistoryPage = isApiMode()
       ? await readTranscriptPage(recordScopeOf(handlerCtx.principal), pageRequest.sessionId, pageRequest.turnLimit, pageRequest.before)
-      : await sessionRuntime.history.loadSessionPage(pageRequest).then(async (loaded) => ({ messages: await resolvePendingStarts(recordScopeOf(handlerCtx.principal), projectSessionHistory(loaded.messages)), before: loaded.before }))
+      : await sessionRuntime.history.loadSessionPage(pageRequest).then((loaded) => ({ messages: projectSessionHistory(loaded.messages), before: loaded.before }))
     const { messages, before } = mergePageActivity(page, await sessionActivityOf(handlerCtx, request.sessionId), cursor.at)
     recordOtelDuration('load_session_page', Date.now() - startedAt, { provider: request.provider, count: messages.length })
     log.info('session_history_page_loaded', {
@@ -200,24 +200,14 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }))
   })
 
-  server.register('resolveSessionLineage', (args) => {
-    const [provider, providerSessionId] = args
-    try {
-      return sessionRuntime.history.resolveSessionLineage(provider, providerSessionId)
-    } catch (err) {
-      log.error('resolve_session_handoff_failed', { error: String(err), provider, providerSessionId })
-      return null
-    }
-  })
-
   server.register('describeSession', async (args, handlerCtx) => {
-    const [provider, providerSessionId] = args
+    const [sessionId] = args
     try {
-      const description = await sessionRuntime.history.describeSession(provider, providerSessionId)
+      const description = await sessionRuntime.history.describeSession(sessionId)
       if (description.meta || !isApiMode()) return description
-      return { ...description, meta: await sessionInfoOf(handlerCtx, providerSessionId) }
+      return { ...description, meta: await sessionInfoOf(handlerCtx, sessionId) }
     } catch (err) {
-      log.error('describe_session_failed', { error: String(err), provider, providerSessionId })
+      log.error('describe_session_failed', { error: String(err), sessionId })
       return { lineage: null, meta: null }
     }
   })

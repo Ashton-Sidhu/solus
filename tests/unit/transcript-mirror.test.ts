@@ -187,26 +187,25 @@ describe('transcript mirror', () => {
     producer.dispose()
   })
 
-  test('a published session\'s activity is queued once, named by the id its transcript is mirrored under; a Local or unpublished session\'s is not', async () => {
+  test('a published session\'s activity is queued once, under its session id; a Local or unpublished session\'s is not', async () => {
     // WHY: plans/012 §5, stage 8. The Solus API merges a session's activity into the
     // history it serves, so the rows must travel with the transcript, once each, and
-    // under the id the API knows the session by. Only a publication sends anything.
+    // under the session id. Only a publication sends anything.
     const { appendActivity, newActivity } = await import('@solus/server/data/activity/activity')
     const alice = { kind: 'user' as const, user: { id: { kind: 'account' as const, accountId: 'alice' }, displayName: 'Alice' } }
     await session('act-pub', 'published')
     await session('act-local', 'local')
     await session('act-attributed', 'assigned')
     for (const id of ['act-pub', 'act-local', 'act-attributed']) transcripts.set(id, [message('a')])
-    // Recorded under the Solus session id, before the session was published (as Local).
-    const stopped = newActivity({ kind: 'session', id: 'solus:act-pub' }, alice, { kind: 'stopped' }, 1_500)
-    const renamed = newActivity({ kind: 'session', id: 'solus:act-pub' }, alice, { kind: 'renamed', title: 'Spec' }, 2_500)
+    // Recorded before the session was published (as Local).
+    const stopped = newActivity({ kind: 'session', id: 'act-pub' }, alice, { kind: 'stopped' }, 1_500)
+    const renamed = newActivity({ kind: 'session', id: 'act-pub' }, alice, { kind: 'renamed', title: 'Spec' }, 2_500)
     await appendActivity('local', stopped)
     await appendActivity('org1', renamed)
-    await appendActivity('local', newActivity({ kind: 'session', id: 'solus:act-local' }, alice, { kind: 'stopped' }, 1_500))
-    await appendActivity('org1', newActivity({ kind: 'session', id: 'solus:act-attributed' }, alice, { kind: 'stopped' }, 1_500))
+    await appendActivity('local', newActivity({ kind: 'session', id: 'act-local' }, alice, { kind: 'stopped' }, 1_500))
+    await appendActivity('org1', newActivity({ kind: 'session', id: 'act-attributed' }, alice, { kind: 'stopped' }, 1_500))
     const producer = new TranscriptMirrorModule.TranscriptMirror({
       loadSession: async (_provider, sessionId) => transcripts.get(sessionId) ?? [],
-      activitySubjectId: (sessionId) => `solus:${sessionId}`,
       debounceMs: 5,
     })
     const flush = async (sessionId: string) => {
@@ -228,7 +227,7 @@ describe('transcript mirror', () => {
     // Nothing new: nothing is sent again. A new activity, while the transcript stays, is sent alone.
     expect(await flush('act-pub')).toBe(0)
     expect(drainLog()).toEqual([])
-    const answered = newActivity({ kind: 'session', id: 'solus:act-pub' }, alice, { kind: 'question_answered', questionId: 'q1' }, 3_500)
+    const answered = newActivity({ kind: 'session', id: 'act-pub' }, alice, { kind: 'question_answered', questionId: 'q1' }, 3_500)
     await appendActivity('org1', answered)
     await flush('act-pub')
     expect(drainLog()).toEqual([

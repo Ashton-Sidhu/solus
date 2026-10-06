@@ -34,7 +34,7 @@ test('messages display while git identity and task binding are still pending', a
   const transcript = { messages: [{ content: 'ready' }], progress: null, truncated: false, before: null, planIds: [] }
   const execute = new Function('context', 'transcript', `
     const defaultDir = '/repo', workingDirectory = '/repo', tabId = 'tab',
-      stableSessionId = 'session', provider = 'codex', meta = {}, background = false, intoTabId = undefined;
+      resumedSessionId = 'session', provider = 'codex', meta = {}, background = false, intoTabId = undefined;
     const runtimeAttach = Promise.resolve(null), INITIAL_HISTORY_TURNS = 10;
     const isSolusWorktreePath = () => false, gitCheckoutFromState = () => null;
     const loadSessionTranscript = async () => transcript;

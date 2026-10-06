@@ -44,9 +44,7 @@ export class SessionStatuses {
     return status !== undefined && isSessionBusyStatus(status)
   }
 
-  liveSessionStatus(agentSessionId: string): SessionStatus | null {
-    const sessionId = this.rt.agentSessionToSession.get(agentSessionId)
-    if (!sessionId) return null
+  liveSessionStatus(sessionId: string): SessionStatus | null {
     if (this.rt.rateLimitPark.currentRateLimitEvent(sessionId)) return 'rate_limited'
     return this.rt.activeSessions.get(sessionId)?.status ?? null
   }
@@ -286,15 +284,15 @@ export class SessionStatuses {
     })
   }
 
-  private writeSessionRecordStatus(sessionId: string, agentSessionId: string, status: SessionRecordStatus): void {
-    if (this.recordStatusWritten.get(agentSessionId) === status) return
-    // A session admitted for an organization before its record existed is assigned now that its record id is known.
-    applyPendingAssignment(sessionId, agentSessionId)
-    this.recordStatusWritten.set(agentSessionId, status)
-    void setSessionRecordStatus(ANY_ORGANIZATION, agentSessionId, status).catch((error) => {
+  private writeSessionRecordStatus(sessionId: string, status: SessionRecordStatus): void {
+    if (this.recordStatusWritten.get(sessionId) === status) return
+    // A session admitted for an organization before its record existed is assigned now that the record exists.
+    applyPendingAssignment(sessionId)
+    this.recordStatusWritten.set(sessionId, status)
+    void setSessionRecordStatus(ANY_ORGANIZATION, sessionId, status).catch((error) => {
       // Unknown outcome: the next transition writes again.
-      this.recordStatusWritten.delete(agentSessionId)
-      log.warn('session_record_status_failed', { sessionId, agentSessionId, error: String(error) })
+      this.recordStatusWritten.delete(sessionId)
+      log.warn('session_record_status_failed', { sessionId, error: String(error) })
     })
   }
 
@@ -347,8 +345,8 @@ export class SessionStatuses {
     log.info('session_status_changed', { sessionId, agentSessionId, oldStatus, newStatus })
     // The collaboration plane's record keeps one fact of this: a turn open or
     // not. Most transitions (connecting, awaiting input, rate limited) keep that
-    // fact, so write only when it changes.
-    if (agentSessionId) this.writeSessionRecordStatus(sessionId, agentSessionId, sessionRecordStatusOf(newStatus))
+    // fact, so write only when it changes. The record exists once the provider started a thread.
+    if (agentSessionId) this.writeSessionRecordStatus(sessionId, sessionRecordStatusOf(newStatus))
     this.rt.publish(sessionId, { type: 'status_change', status: newStatus, oldStatus })
     if (
       session &&

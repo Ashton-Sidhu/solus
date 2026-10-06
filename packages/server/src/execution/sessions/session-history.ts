@@ -3,8 +3,8 @@ import { lineageSwitchDivider } from './thread-activity'
 import { createLogger } from '../../logger'
 import { isRawReviewSkill } from '../agents/review-command'
 import { getIndexedSession } from '../../db/session-indexer'
-import { resolveSessionLineage, resolveSessionLineageById } from '../../data/sessions/session-lineage'
-import type { AgentId, AgentUsageLimits, IpcContext, PlanDescriptor, PluginCommandsResult, SessionMeta, SessionDescription, SessionLineageResolution, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
+import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
+import type { AgentId, AgentUsageLimits, IpcContext, PlanDescriptor, PluginCommandsResult, SessionMeta, SessionDescription, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
 import type { SessionHistoryPageRequest, ProviderHistoryPage, SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/session-history'
 import { type TurnSeat } from '../seats/seat-manager'
 import type { SessionRuntime } from '../session-runtime'
@@ -39,14 +39,9 @@ export class SessionHistory {
     }
   }
 
-  resolveSessionLineage(agentId: AgentId, providerSessionId: string): SessionLineageResolution | null {
-    return resolveSessionLineage(agentId, providerSessionId)
-      ?? resolveSessionLineageById(providerSessionId)
-  }
-
   async loadSessionPage(request: SessionHistoryPageRequest): Promise<ProviderHistoryPage> {
     const { provider, sessionId, projectPath } = request
-    const lineage = this.resolveSessionLineage(provider, sessionId)
+    const lineage = resolveSessionLineageById(sessionId)
     const segments: HistorySegment[] = lineage ? lineage.members.map((member, index) => {
       const previous = lineage.members[index - 1]
       return {
@@ -68,7 +63,7 @@ export class SessionHistory {
   }
 
   async loadSession(agentId: AgentId, sessionId: string, projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {
-    let handoff = resolveSessionLineage(agentId, sessionId) ?? resolveSessionLineageById(sessionId)
+    let handoff = resolveSessionLineageById(sessionId)
     if (!handoff) return this.rt.handoffs.handoffCarry.merge(sessionId, await this.rt.backendFor(agentId).loadSession(sessionId, projectPath, limit))
 
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -117,24 +112,23 @@ export class SessionHistory {
     return []
   }
 
-  /** One read for opening a saved session: what the client used to ask for as
-   *  a lineage lookup and then a metadata lookup on whichever member it named. */
-  async describeSession(agentId: AgentId, providerSessionId: string): Promise<SessionDescription> {
-    const lineage = this.resolveSessionLineage(agentId, providerSessionId)
-    const active = lineage?.active
+  /** One read for opening a saved session: its lineage and its metadata. */
+  async describeSession(sessionId: string): Promise<SessionDescription> {
+    const lineage = resolveSessionLineageById(sessionId)
     // An active member with no transcript yet has no metadata to read; the
     // lineage alone carries what the client needs for it.
-    if (active && !active.providerSessionId) return { lineage, meta: null }
-    const meta = await this.getSessionInfo(active?.providerSessionId ?? providerSessionId)
-    return { lineage, meta }
+    if (lineage && !lineage.active.providerSessionId) return { lineage, meta: null }
+    return { lineage, meta: await this.getSessionInfo(sessionId) }
   }
 
-  async getSessionInfo(agentSessionId: string): Promise<SessionMeta | null> {
-    const handoff = resolveSessionLineageById(agentSessionId)
+  /** A session's metadata, read from the index row of its active thread. A
+   *  session with no lineage is its own thread (docs/plans/session-identity.md). */
+  async getSessionInfo(sessionId: string): Promise<SessionMeta | null> {
+    const handoff = resolveSessionLineageById(sessionId)
     const metadataMember = handoff?.active.providerSessionId
       ? handoff.active
       : handoff?.members.findLast((member) => !!member.providerSessionId)
-    const indexedSessionId = metadataMember?.providerSessionId ?? agentSessionId
+    const indexedSessionId = metadataMember?.providerSessionId ?? sessionId
     const meta = getIndexedSession(indexedSessionId)
     if (!meta) return null
     if (handoff) {
@@ -142,9 +136,8 @@ export class SessionHistory {
       meta.provider = handoff.active.provider
       meta.cwd = handoff.active.cwd
     }
-    const sessionId = handoff?.sessionId ?? this.rt.agentSessionToSession.get(agentSessionId)
-    const active = sessionId ? this.rt.activeSessions.get(sessionId) : undefined
-    if (active && sessionId) {
+    const active = this.rt.activeSessions.get(sessionId)
+    if (active) {
       meta.provider = active.backendId
       const runtimeAgentSessionId = active.agentSessionId ?? indexedSessionId
       const pendingRateLimit = this.rt.rateLimitPark.currentRateLimitEvent(sessionId)
@@ -167,7 +160,7 @@ export class SessionHistory {
     // provider transcript and keeps the backend's cheap preview. This is the
     // session picker's hot path — reading full transcripts here would cost a
     // whole-list stall on every open.
-    const lineage = resolveSessionLineage(agentId, sessionId) ?? resolveSessionLineageById(sessionId)
+    const lineage = resolveSessionLineageById(sessionId)
     if (lineage && lineage.members.length > 1) {
       return this.loadSession(agentId, sessionId, projectPath).then((allMsgs) => {
         const msgs = allMsgs.filter((message) => message.role !== 'reasoning')

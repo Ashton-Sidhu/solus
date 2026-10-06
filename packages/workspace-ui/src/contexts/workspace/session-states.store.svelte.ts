@@ -56,14 +56,9 @@ export class SessionStatesStore {
     return [...this.entriesBySession.values()]
   }
 
-  /** The state of one session, which a client can know by several ids. Null
-   *  for an active session. */
-  stateFor(sessionIds: readonly string[]): ShelvedSession | null {
-    for (const sessionId of sessionIds) {
-      const entry = this.entriesBySession.get(sessionId)
-      if (entry) return entry
-    }
-    return null
+  /** The state of one session. Null for an active session. */
+  stateFor(sessionId: string): ShelvedSession | null {
+    return this.entriesBySession.get(sessionId) ?? null
   }
 
   /** Settle a session, or make a settled one active again. */

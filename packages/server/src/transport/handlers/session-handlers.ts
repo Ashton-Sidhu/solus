@@ -167,7 +167,6 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   const turnOrganizationDeps = (hostOrganizations: HostOrganizations) => ({
     hostOrganizations,
     reservedOrganization: deps.reservedOrganization,
-    recordIdFor: (sessionId: string) => sessionRuntime.sessionTranscriptSource(sessionId)?.agentSessionId ?? null,
     delegations: deps.delegations,
     markAttached: deps.markAttached,
     adoptSession: (sessionId: string, organizationId: string, ownerUserId: string, options: { shareWithOrganization: boolean }) =>
@@ -177,8 +176,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   /** A new approval or answer needs the person's organization authority again (organization-vms §4). */
   const mayAnswer = async (askingSessionId: string, principal: Principal): Promise<boolean> => {
     if (!deps.hostOrganizations) return true
-    const recordId = sessionRuntime.sessionTranscriptSource(askingSessionId)?.agentSessionId ?? askingSessionId
-    const allowed = await mayAnswerFor(principal, askingSessionId, recordId, turnOrganizationDeps(deps.hostOrganizations))
+    const allowed = await mayAnswerFor(principal, askingSessionId, turnOrganizationDeps(deps.hostOrganizations))
     if (!allowed) log.info('answer_refused_authority_removed', { sessionId: askingSessionId, principal: principal.kind })
     return allowed
   }
@@ -260,22 +258,23 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
 
   server.register('watchSession', async (args, handlerCtx) => {
     const [input] = args
+    const { sessionId } = input
     // Asked before the watch, which makes any session known.
-    const startsSession = !input?.agentSessionId && !(input?.sessionId && sessionRuntime.isKnownSession(input.sessionId))
-    const resolved = sessionRuntime.watchers.watchSession(input ?? {}, requireClientId(handlerCtx))
-    log.info('rpc_watch_session', { sessionId: resolved.sessionId, requested: input?.sessionId ?? null })
+    const startsSession = !sessionRuntime.isKnownSession(sessionId)
+    const watched = sessionRuntime.watchers.watchSession(input, requireClientId(handlerCtx))
+    log.info('rpc_watch_session', { sessionId })
     // A guest or member can only watch a session that was shared with them, so a
     // claim here never gives them one; it records the owner of a brand-new session.
     // The watch does not know the session's folder, so a new session waits for
     // the prompt that names it before the organization can see it.
-    const resource = { kind: 'session', id: resolved.sessionId } as const
+    const resource = { kind: 'session', id: sessionId } as const
     if (startsSession && deps.shares && isOrganizationSpace(handlerCtx.principal)) {
-      sessionsAwaitingFolder.add(resolved.sessionId)
+      sessionsAwaitingFolder.add(sessionId)
       await deps.shares.claimOwner(resource, handlerCtx.principal, { shareWithOrganization: false })
     } else {
       await deps.shares?.claimOwner(resource, handlerCtx.principal)
     }
-    return resolved
+    return watched
   })
 
   server.register('unwatchSession', (args, handlerCtx) => {
@@ -291,7 +290,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     if (request.cwd === NEW_CHAT_DIRECTORY) request.cwd = chatFolderFor(randomUUID(), handlerCtx.principal)
     request.executionPreferences = parseExecutionPreferences(request.executionPreferences)
     const created = await sessionRuntime.dispatch.createSession(request, handlerCtx.actor)
-    await claimSession(created.agentSessionId, handlerCtx, request.cwd)
+    await claimSession(created.sessionId, handlerCtx, request.cwd)
     return created
   })
 

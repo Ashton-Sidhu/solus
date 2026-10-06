@@ -17,7 +17,7 @@ export class SessionRecords {
   byId = $state<Record<string, Session>>({})
 
   /**
-   * Move a record to the id its host assigned. Refuses when another record
+   * Move a record to the id of the saved session it opens. Refuses when another record
    * already answers to that id: re-keying would evict a live object out from
    * under whatever points at it. Tabs holding the old id are the caller's to
    * repoint — records do not know which tabs exist.

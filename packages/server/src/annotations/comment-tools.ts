@@ -305,7 +305,7 @@ async function readPlan(args: CommentToolArgs, deps: CommentToolDeps = {}): Prom
   if (!controller || !meta) {
     // The plan's session is not on this host. A dispatched session may still
     // hold a shipped copy of the task's linked plan — serve that, read-only.
-    const foreign = foreignLinkedItemsFor(deps.ctx?.solusSessionId).find(
+    const foreign = foreignLinkedItemsFor(deps.ctx?.sessionId).find(
       (item) => item.kind === 'plan' && item.scope === sessionId
         && (requestedPlanId === null || item.key === requestedPlanId),
     )
@@ -336,8 +336,8 @@ async function readPlan(args: CommentToolArgs, deps: CommentToolDeps = {}): Prom
 
 /** Whether a comment target the local stores cannot resolve names a shipped
  *  linked item — a work id, or a plan id shaped `<sessionId>__<planToolUseId>`. */
-function isForeignCommentTarget(solusSessionId: string | undefined, targetId: string): boolean {
-  const items = foreignLinkedItemsFor(solusSessionId)
+function isForeignCommentTarget(sessionId: string | undefined, targetId: string): boolean {
+  const items = foreignLinkedItemsFor(sessionId)
   if (!isPlanTarget(targetId)) return items.some((item) => item.kind === 'work' && item.key === targetId)
   const separator = targetId.indexOf('__')
   const scope = targetId.slice(0, separator)
@@ -363,7 +363,7 @@ async function commentDocument(args: CommentToolArgs, deps: CommentToolDeps): Pr
 
   const target = await resolveTarget(targetId)
   if (!target) {
-    if (isForeignCommentTarget(deps.ctx?.solusSessionId, targetId)) {
+    if (isForeignCommentTarget(deps.ctx?.sessionId, targetId)) {
       return {
         ok: false,
         text: `"${targetId}" is a read-only copy shipped from the task's host (this session was dispatched); its comment threads live there and cannot be written from here. Put the feedback in a comment_task instead.`,
@@ -501,7 +501,6 @@ function commentAgentTool(name: string, description: string, inputFields: AgentT
         agentProvider: context.provider,
         cwd: context.cwd,
         sessionId: context.sessionId(),
-        solusSessionId: context.solusSessionId(),
       },
     }),
   }

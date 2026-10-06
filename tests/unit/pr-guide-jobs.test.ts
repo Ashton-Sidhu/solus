@@ -330,8 +330,8 @@ describe('PR guide content and storage', () => {
         runAgent(input) {
           request = input
           const toolContext: AgentToolContext = {
-            provider: input.provider, cwd: input.cwd, sessionId: () => undefined,
-            solusSessionId: () => undefined, abortSignal: new AbortController().signal,
+            provider: input.provider, cwd: input.cwd,
+            sessionId: () => undefined, abortSignal: new AbortController().signal,
             parentToolUseId: () => undefined, emit: () => {},
           }
           return {

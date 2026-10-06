@@ -2,8 +2,6 @@ import { isQuestionTool } from '@solus/contracts/question-history'
 import { parseExchangeTag, parseOrchestrationItems } from '@solus/contracts/session-exchange'
 import type { ExchangeProgress, NormalizedEvent, WireNormalizedEvent } from '@solus/contracts/types'
 import type { AgentConversationResultProjection, SessionLoadMessage, WireSessionLoadMessage } from '@solus/contracts/session-history'
-import type { RecordScope } from '../../admission/principal'
-import { sessionIdsStartedBy } from './session-records'
 
 export const ERROR_HEAD_MAX_BYTES = 2 * 1024
 
@@ -97,27 +95,6 @@ export function projectSessionHistory(messages: SessionLoadMessage[]): WireSessi
 }
 
 /**
- * A start_session receipt names its session `pending:<exchangeId>` when the call
- * returned before the provider did, and the transcript keeps that receipt. The
- * started session's record names the exchange, so a reloaded card binds to the
- * real session. A start that never got a session keeps the pending id.
- */
-export async function resolvePendingStarts(scope: RecordScope, messages: WireSessionLoadMessage[]): Promise<WireSessionLoadMessage[]> {
-  const pending = new Map<string, AgentConversationResultProjection[]>()
-  for (const message of messages) {
-    const result = message.agentConversationResult
-    if (!result?.agentSessionId?.startsWith('pending:')) continue
-    const exchangeId = result.agentSessionId.slice('pending:'.length)
-    pending.set(exchangeId, [...pending.get(exchangeId) ?? [], result])
-  }
-  if (!pending.size) return messages
-  for (const [exchangeId, agentSessionId] of await sessionIdsStartedBy(scope, [...pending.keys()])) {
-    for (const result of pending.get(exchangeId) ?? []) result.agentSessionId = agentSessionId
-  }
-  return messages
-}
-
-/**
  * Each orchestration result with where its exchange stands now. Call it as the
  * last synchronous step before the reply is sent: an update the host emits
  * after this read then reaches the client after the page, never before it.
@@ -172,9 +149,9 @@ function agentConversationProjection(
   const tag = parseExchangeTag(content)
   if (!tag) return {}
   // A created session's card needs the session the tool started; a prompt names it in its input.
-  if (toolName.endsWith('start_session') && !tag.agentSessionId) return {}
+  if (toolName.endsWith('start_session') && !tag.sessionId) return {}
   const agentConversationResult: AgentConversationResultProjection = {}
-  if (tag.agentSessionId) agentConversationResult.agentSessionId = tag.agentSessionId
+  if (tag.sessionId) agentConversationResult.sessionId = tag.sessionId
   if (tag.messageId) agentConversationResult.messageId = tag.messageId
   if (tag.provider) agentConversationResult.provider = tag.provider
   // A call that waited may carry the exchange's report: no report turn follows.

@@ -142,10 +142,9 @@ describe('guests', () => {
     // WHY: the client resolves a session's lineage and info before it can render it. A
     // guest must be able to do that for its one session and for nothing else.
     const table = resources({ 'session:s1': 'viewer' })
-    await expect(assertRpcAccess('describeSession', GUEST, ['claude-code', 's1'], table)).resolves.toBeUndefined()
-    await expect(assertRpcAccess('resolveSessionLineage', GUEST, ['claude-code', 's1'], table)).resolves.toBeUndefined()
+    await expect(assertRpcAccess('describeSession', GUEST, ['s1'], table)).resolves.toBeUndefined()
     await expect(assertRpcAccess('getSessionInfos', GUEST, [['s1']], table)).resolves.toBeUndefined()
-    await expect(assertRpcAccess('describeSession', GUEST, ['claude-code', 's2'], table)).rejects.toThrow(/not shared/)
+    await expect(assertRpcAccess('describeSession', GUEST, ['s2'], table)).rejects.toThrow(/not shared/)
     await expect(assertRpcAccess('getSessionInfos', GUEST, [['s1', 's2']], table)).rejects.toThrow(RpcAccessError)
     await expect(assertRpcAccess('getSessionInfos', MEMBER, [['s1', 's2']], table)).resolves.toBeUndefined()
   })

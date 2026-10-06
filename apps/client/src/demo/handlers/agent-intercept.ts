@@ -44,9 +44,11 @@ function streamReply(backend: DemoBackend, sessionId: string): void {
 export function registerAgentIntercept(backend: DemoBackend, store: DemoStore): void {
   void store
 
-  backend.register('createHeadlessSession', () => ({
-    agentSessionId: `demo-live-session-${++sessionCounter}`,
-  }))
+  backend.register('createHeadlessSession', () => {
+    // A demo session's thread is its own session, as a thread found on disk is.
+    const sessionId = `demo-live-session-${++sessionCounter}`
+    return { sessionId, agentSessionId: sessionId }
+  })
 
   backend.register('prompt', (args) => {
     streamReply(backend, arg<IpcContext>(args, 0).session.sessionId)

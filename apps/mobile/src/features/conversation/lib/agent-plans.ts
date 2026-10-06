@@ -23,7 +23,7 @@ interface Exchange {
 }
 
 interface Card {
-  agentSessionId: string
+  sessionId: string
   title: string
   closedByAgent: boolean
   exchanges: Exchange[]
@@ -31,7 +31,7 @@ interface Card {
 
 /** A plan from another session that waits on this one. */
 export interface AgentPlanAwaiting {
-  /** The provider thread of the session that wrote the plan: the decision's target. */
+  /** The session that wrote the plan: the decision's target. */
   targetSessionId: string
   /** The exchange the plan answers; a decision is remembered against it. */
   messageId: string
@@ -49,41 +49,35 @@ export class AgentPlans {
   apply(update: AgentConversationUpdate): void {
     switch (update.phase) {
       case 'dispatched': {
-        const card = this.cards.get(update.agentSessionId) ?? { agentSessionId: update.agentSessionId, title: update.title, closedByAgent: false, exchanges: [] }
+        const card = this.cards.get(update.sessionId) ?? { sessionId: update.sessionId, title: update.title, closedByAgent: false, exchanges: [] }
         card.closedByAgent = false
         card.title = update.title
         card.exchanges.push({ messageId: update.messageId, status: 'dispatched', request: null, outputs: [] })
-        this.cards.set(update.agentSessionId, card)
+        this.cards.set(update.sessionId, card)
         return
       }
-      case 'attached': {
-        // A card opened before its session existed is keyed `pending:<messageId>`.
-        const pending = this.cards.get(`pending:${update.messageId}`)
-        if (!pending) return
-        this.cards.delete(pending.agentSessionId)
-        pending.agentSessionId = update.agentSessionId
-        this.cards.set(update.agentSessionId, pending)
+      // The session's id is known from dispatch; nothing on the card changes.
+      case 'attached':
         return
-      }
       case 'accepted':
-        this.patch(update.agentSessionId, update.messageId, { status: update.state })
+        this.patch(update.sessionId, update.messageId, { status: update.state })
         return
       case 'awaiting_input':
-        this.patch(update.agentSessionId, update.messageId, { status: 'awaiting_input', request: update.request })
+        this.patch(update.sessionId, update.messageId, { status: 'awaiting_input', request: update.request })
         return
       case 'answered':
-        this.patch(update.agentSessionId, update.messageId, { status: 'answered', request: null })
+        this.patch(update.sessionId, update.messageId, { status: 'answered', request: null })
         return
       case 'rate_limited':
-        this.patch(update.agentSessionId, update.messageId, { status: 'rate_limited' })
+        this.patch(update.sessionId, update.messageId, { status: 'rate_limited' })
         return
       case 'settled': {
         const status: ExchangeStatus = update.status === 'completed' ? 'done' : update.status
-        this.patch(update.agentSessionId, update.messageId, { status, request: null, outputs: update.outputs ?? [] })
+        this.patch(update.sessionId, update.messageId, { status, request: null, outputs: update.outputs ?? [] })
         return
       }
       case 'stopped': {
-        const card = this.cards.get(update.agentSessionId)
+        const card = this.cards.get(update.sessionId)
         if (!card) return
         for (const exchange of card.exchanges) {
           if (exchange.status !== 'done' && exchange.status !== 'failed' && exchange.status !== 'queued') exchange.status = 'interrupted'
@@ -99,14 +93,14 @@ export class AgentPlans {
     const plans: AgentPlanAwaiting[] = []
     for (const card of this.cards.values()) {
       const last = card.exchanges[card.exchanges.length - 1]
-      if (!last || this.decided.has(decisionKey(card.agentSessionId, last.messageId))) continue
+      if (!last || this.decided.has(decisionKey(card.sessionId, last.messageId))) continue
       if (last.status === 'awaiting_input' && last.request?.kind === 'plan') {
-        plans.push({ targetSessionId: card.agentSessionId, messageId: last.messageId, sessionTitle: card.title, planTitle: last.request.plan.title, content: last.request.plan.content })
+        plans.push({ targetSessionId: card.sessionId, messageId: last.messageId, sessionTitle: card.title, planTitle: last.request.plan.title, content: last.request.plan.content })
         continue
       }
       if (card.closedByAgent || last.status !== 'done') continue
       const plan = last.outputs.findLast((output) => output.kind === 'plan')
-      if (plan?.kind === 'plan') plans.push({ targetSessionId: card.agentSessionId, messageId: last.messageId, sessionTitle: card.title, planTitle: plan.title, content: null })
+      if (plan?.kind === 'plan') plans.push({ targetSessionId: card.sessionId, messageId: last.messageId, sessionTitle: card.title, planTitle: plan.title, content: null })
     }
     return plans
   }
@@ -116,13 +110,13 @@ export class AgentPlans {
     this.decided.add(decisionKey(targetSessionId, messageId))
   }
 
-  private patch(agentSessionId: string, messageId: string, change: Partial<Exchange>): void {
-    const card = this.cards.get(agentSessionId)
+  private patch(sessionId: string, messageId: string, change: Partial<Exchange>): void {
+    const card = this.cards.get(sessionId)
     const exchange = card?.exchanges.find((candidate) => candidate.messageId === messageId) ?? card?.exchanges[card.exchanges.length - 1]
     if (!exchange) return
     Object.assign(exchange, change)
     // A new answer from the target replaces a decision made here.
-    this.decided.delete(decisionKey(agentSessionId, exchange.messageId))
+    this.decided.delete(decisionKey(sessionId, exchange.messageId))
   }
 }
 

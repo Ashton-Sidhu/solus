@@ -5,44 +5,43 @@ import { applySessionTitleChange } from '@solus/workspace-ui/contexts/workspace/
 function workspace() {
   return {
     sessions: {
-      'local-session': { run: { serverId: 'local', taskServerId: 'local' }, agentSessionId: 'agent-1', title: 'Opening prompt', titleCustom: false } as Session,
-      'remote-session': { run: { serverId: 'remote', taskServerId: 'local' }, agentSessionId: 'agent-1', title: 'Remote title', titleCustom: false } as Session,
-      'other-session': { run: { serverId: 'local', taskServerId: 'local' }, agentSessionId: 'agent-2', title: 'Other title', titleCustom: false } as Session,
+      'local-session': { id: 'local-session', run: { serverId: 'local', taskServerId: 'local' }, agentSessionId: 'agent-1', title: 'Opening prompt', titleCustom: false } as Session,
+      'remote-session': { id: 'local-session', run: { serverId: 'remote', taskServerId: 'local' }, agentSessionId: 'agent-1', title: 'Remote title', titleCustom: false } as Session,
+      'other-session': { id: 'other-session', run: { serverId: 'local', taskServerId: 'local' }, agentSessionId: 'agent-2', title: 'Other title', titleCustom: false } as Session,
     },
   }
 }
 
 describe('session title changes', () => {
-  test('source title changes leave a pending fork name intact', () => {
+  test('a pending fork keeps its own name until it is a session of its own', () => {
     const state = workspace()
     const fork = {
-      ...state.sessions['local-session'], forked: true, title: 'My fork', titleCustom: true,
+      ...state.sessions['local-session'], id: 'fork', forked: true, title: 'My fork', titleCustom: true,
     }
     const sessions = { ...state.sessions, fork }
     for (const title of ['Renamed source', null]) {
       expect(applySessionTitleChange(sessions, 'local', {
-        sessionId: 'agent-1', title, source: 'manual',
+        sessionId: 'local-session', title, source: 'manual',
       })).toEqual([{ sessionId: 'local-session', taskServerId: 'local' }])
       expect(fork.title).toBe('My fork')
       expect(fork.titleCustom).toBe(true)
     }
     fork.forked = false
-    fork.agentSessionId = 'fork-agent'
     applySessionTitleChange(sessions, 'local', {
-      sessionId: 'fork-agent', title: 'Saved fork', source: 'manual',
+      sessionId: 'fork', title: 'Saved fork', source: 'manual',
     })
     expect(fork.title).toBe('Saved fork')
     expect(sessions['local-session'].title).toBe('New Tab')
   })
 
   test('names the changed session on the emitting host and no other', () => {
-    // WHY: the name belongs to the conversation, so one write reaches every tab
-    // watching it — but two hosts can issue the same agent session id, and a
-    // sibling session on this host must keep its own name.
+    // WHY: the name belongs to the session, so one write reaches every tab
+    // watching it — but two hosts can hold the same session id (a dispatched
+    // session), and a sibling session on this host must keep its own name.
     const state = workspace()
 
     expect(applySessionTitleChange(state.sessions, 'local', {
-      sessionId: 'agent-1',
+      sessionId: 'local-session',
       title: 'Generated Title',
       source: 'generated',
     })).toEqual([{ sessionId: 'local-session', taskServerId: 'local' }])
@@ -52,12 +51,20 @@ describe('session title changes', () => {
     expect(state.sessions['other-session'].title).toBe('Other title')
   })
 
+  test('an event that names the provider thread names no session', () => {
+    // WHY: one session id (docs/plans/session-identity.md). The host resolves a
+    // thread to its session before it broadcasts, so a thread id never matches.
+    const state = workspace()
+    expect(applySessionTitleChange(state.sessions, 'local', { sessionId: 'agent-1', title: 'Wrong', source: 'manual' })).toEqual([])
+    expect(state.sessions['local-session'].title).toBe('Opening prompt')
+  })
+
   test('clearing a title restores prompt-derived display behavior', () => {
     const state = workspace()
     state.sessions['local-session'].title = 'Custom Title'
     state.sessions['local-session'].titleCustom = true
 
-    applySessionTitleChange(state.sessions, 'local', { sessionId: 'agent-1', title: null, source: 'manual' })
+    applySessionTitleChange(state.sessions, 'local', { sessionId: 'local-session', title: null, source: 'manual' })
 
     expect(state.sessions['local-session'].title).toBe('New Tab')
     expect(state.sessions['local-session'].titleCustom).toBe(false)
@@ -69,7 +76,7 @@ describe('session title changes', () => {
     const state = workspace()
 
     expect(applySessionTitleChange(state.sessions, 'remote', {
-      sessionId: 'agent-1',
+      sessionId: 'local-session',
       title: 'Dispatched Session Name',
       source: 'generated',
       generatedDescription: 'Keep the task-host proxy in sync.',

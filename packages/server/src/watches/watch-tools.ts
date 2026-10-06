@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import type { AgentTool, AgentToolContext, AgentToolResult } from '../execution/agents/tools/agent-tool'
+import type { AgentTool, AgentToolResult } from '../execution/agents/tools/agent-tool'
 import { resolveHomePath } from '../platform/paths'
-import { stableSessionIdForProviderThread } from '../data/sessions/session-lineage'
 import type { NormalizedEvent } from '@solus/contracts/types'
 import type { Watch, WatchSchedule, WatchUntil } from '@solus/contracts/watch-types'
 import { cancelWatch, listWatchesForSession, loadWatch, saveWatch } from './watches-store'
@@ -48,12 +47,6 @@ const cancelFields = {
 }
 
 type WatchInput = z.output<z.ZodObject<typeof watchFields>>
-
-/** The stable session a tool call belongs to: the host routes wakes by it. */
-function callingSessionId(context: AgentToolContext): string | undefined {
-  const providerThread = context.sessionId()
-  return context.solusSessionId() ?? (providerThread ? stableSessionIdForProviderThread(providerThread) : undefined)
-}
 
 type Parsed<T> = { ok: true; value: T } | { ok: false; error: string }
 
@@ -143,7 +136,7 @@ export const watchAgentTool: AgentTool = {
   alwaysLoad: true,
   async execute(args, context): Promise<AgentToolResult> {
     const input = z.object(watchFields).parse(args)
-    const sessionId = callingSessionId(context)
+    const sessionId = context.sessionId()
     if (!sessionId) return { ok: false, text: 'watch must be called from a conversation.' }
     const active = listWatchesForSession(sessionId).filter((watch) => watch.status === 'waiting' || watch.status === 'woken' || watch.status === 'paused')
     if (active.length >= MAX_ACTIVE_WATCHES_PER_SESSION) {
@@ -171,7 +164,7 @@ export const listWatchesAgentTool: AgentTool = {
   inputFields: listFields,
   requiresApproval: false,
   async execute(_input, context): Promise<AgentToolResult> {
-    const sessionId = callingSessionId(context)
+    const sessionId = context.sessionId()
     if (!sessionId) return { ok: false, text: 'list_watches must be called from a conversation.' }
     const watches = listWatchesForSession(sessionId)
     if (watches.length === 0) return { ok: true, text: 'This conversation has no watches.' }
@@ -186,7 +179,7 @@ export const cancelWatchAgentTool: AgentTool = {
   requiresApproval: false,
   async execute(args, context): Promise<AgentToolResult> {
     const input = z.object(cancelFields).parse(args)
-    const sessionId = callingSessionId(context)
+    const sessionId = context.sessionId()
     const watch = loadWatch(input.watch_id)
     // A conversation controls only its own watches.
     if (!watch || watch.sessionId !== sessionId) return { ok: false, text: `No watch "${input.watch_id}" in this conversation.` }

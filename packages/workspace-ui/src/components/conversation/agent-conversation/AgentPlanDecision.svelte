@@ -12,9 +12,9 @@
    */
   interface Props {
     tabId: string;
-    targetAgentSessionId: string;
+    targetSessionId: string;
   }
-  let { tabId, targetAgentSessionId }: Props = $props();
+  let { tabId, targetSessionId }: Props = $props();
 
   const session = getWorkspaceContext();
   const api = $derived(session.apiFor(tabId));
@@ -33,7 +33,7 @@
     try {
       const decided = await api.decideSessionPlan(
         session.ctxFor(tabId),
-        targetAgentSessionId,
+        targetSessionId,
         decision,
         decision === "request_changes" ? comment : undefined,
       );

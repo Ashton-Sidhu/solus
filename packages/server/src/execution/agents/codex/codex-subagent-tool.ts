@@ -48,7 +48,7 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher, seatFo
     requiresApproval: false,
     execute: async (args, context) => {
       // The session whose turn starts the subagent: its person's instructions apply.
-      const parentSessionId = context.solusSessionId()
+      const parentSessionId = context.sessionId()
       const parentToolUseId = context.parentToolUseId()
       let seat: TurnSeat | undefined
       try {

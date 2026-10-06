@@ -66,10 +66,8 @@ const NO_REPLY = '(no final assistant reply available)'
 /** A run of the control plane and the exchanges it answers. */
 export interface RunExchanges {
   runId: string
-  /** Solus id of the session the run belongs to. */
+  /** The session the run belongs to. */
   sessionId: string
-  /** The run's provider thread, once the provider named one. */
-  agentSessionId?: string | null
   exchangeIds: readonly string[]
 }
 
@@ -97,7 +95,7 @@ export interface CreateSessionOrder {
   worktreeBaseBranch?: string | null
   taskId?: string | null
   exchangeIds?: string[]
-  delegation?: { parentAgentSessionId: string; messageId: string; intent: 'delegate' | 'fire_and_forget'; createdAt: number }
+  delegation?: { parentSessionId: string; messageId: string; intent: 'delegate' | 'fire_and_forget'; createdAt: number }
 }
 
 export interface PromptOrder {
@@ -105,36 +103,31 @@ export interface PromptOrder {
   exchangeIds?: string[]
   permissionMode?: PermissionMode
   via?: 'session-report'
-  agentSessionId?: string
-  agentMessageId?: string
 }
 
-/** What the orchestrator needs from the control plane that runs the turns. */
+/** What the orchestrator needs from the control plane that runs the turns.
+ *  Every session is named by its session id (docs/plans/session-identity.md). */
 export interface OrchestratedRuntime {
-  /** Solus's id for a session named by either id, while this process knows it. */
-  sessionIdFor(id: string): string | undefined
   activeExchangeIdsFor(sessionId: string): string[]
   queuedExchanges(): Array<{ sessionId: string; queueId: string; exchangeIds: string[]; reportExchangeIds: string[]; started: boolean }>
-  /** The provider thread a live session runs on. */
-  agentSessionIdFor(sessionId: string): string | undefined
-  sessionMeta(agentSessionId: string): SessionMeta | null
-  createSession(order: CreateSessionOrder): Promise<{ agentSessionId: string; taskId?: string }>
-  promptSession(agentSessionId: string, prompt: string, delivery: PromptDelivery, order: PromptOrder): Promise<{ disposition: 'started' | 'steered' | 'queued'; queueId?: string }>
+  sessionMeta(sessionId: string): SessionMeta | null
+  createSession(order: CreateSessionOrder): Promise<{ sessionId: string; taskId?: string }>
+  promptSession(sessionId: string, prompt: string, delivery: PromptDelivery, order: PromptOrder): Promise<{ disposition: 'started' | 'steered' | 'queued'; queueId?: string }>
   stopSession(id: string): boolean
   /** Answers a permission the asking session is waiting on; false when it is not. */
   respondToPermission(askingSessionId: string, questionId: string, optionId: string, updatedPlan?: string): boolean
-  pendingInputEvents(agentSessionId: string): NormalizedEvent[]
+  pendingInputEvents(sessionId: string): NormalizedEvent[]
   replaceQueuedPrompt(sessionId: string, queueId: string, text: string, reportExchangeIds?: string[], exchangeIds?: string[]): boolean
   hasQueuedPrompt(sessionId: string, queueId: string): boolean
-  cancelQueuedPrompt(agentSessionId: string, queueId: string): boolean
+  cancelQueuedPrompt(sessionId: string, queueId: string): boolean
   /** How the session's last turn ended, read from its transcript. */
-  turnEnding(provider: AgentId, agentSessionId: string, projectScope: string | undefined): Promise<TurnEnding>
-  /** The task a session works on, by its Solus id. */
+  turnEnding(provider: AgentId, sessionId: string, projectScope: string | undefined): Promise<TurnEnding>
+  /** The task a session works on. */
   taskIdFor(sessionId: string): Promise<string | undefined>
-  /** Whether the session, by its Solus id, is a task's lead. */
+  /** Whether the session is a task's lead. */
   isLead(sessionId: string): Promise<boolean>
   emit(sessionId: string, event: NormalizedEvent): void
-  invalidatePlanCaches(agentSessionId: string): void
+  invalidatePlanCaches(sessionId: string): void
   /** Record what a person did to a session as its activity (plans/012 §5). */
   recordActivity(subject: ActivitySubject & { kind: 'session' }, actor: Actor, kind: ActivityKind): Promise<Activity>
   /** Holds a host update until the work settles. */
@@ -148,8 +141,8 @@ export interface OrchestratorDeps {
 
 export interface SpawnedSession {
   exchangeId: string
-  agentSessionId: string
-  /** The provider has not initialized; agentSessionId is the pending card id. */
+  sessionId: string
+  /** The provider has not started the session's thread yet. */
   starting?: boolean
   taskId?: string
   /** With a wait: the report or notice that arrived in time, or null when none did. */
@@ -177,7 +170,7 @@ interface OpenPlan {
 export class SessionOrchestrator {
   private readonly ledger: ExchangeLedger
   private readonly exchanges: Map<string, Exchange>
-  /** Sender Solus id → target Solus ids it has sent a message to. Authorizes a
+  /** Sender session → target sessions it has sent a message to. Authorizes a
    *  person's answer from the sender's conversation. */
   private readonly contacts = new Map<string, Set<string>>()
   private readonly delivery: ParentDelivery
@@ -185,7 +178,7 @@ export class SessionOrchestrator {
   private readonly openNotices = new Set<string>()
   /** Exchanges whose sender stopped the target itself: its own action needs no report. */
   private readonly stoppedBySender = new Set<string>()
-  /** Target Solus id → the last plan its turn wrote, until its next turn starts.
+  /** Target session → the last plan its turn wrote, until its next turn starts.
    *  A plan whose turn already ended (Codex) holds nothing open to answer, so a
    *  person's decision on it comes from here. */
   private readonly openPlans = new Map<string, OpenPlan>()
@@ -217,16 +210,15 @@ export class SessionOrchestrator {
     this.ledger.markDelivery(exchangeIds, 'disposed')
   }
 
-  readExchange(senderAgentSessionId: string, exchangeId: string): Exchange | undefined {
-    const senderSessionId = this.runtime.sessionIdFor(senderAgentSessionId)
-    return senderSessionId ? this.ledger.read(senderSessionId, exchangeId) : undefined
+  readExchange(senderSessionId: string, exchangeId: string): Exchange | undefined {
+    return this.ledger.read(senderSessionId, exchangeId)
   }
 
   private async repeatedSpawn(exchange: Exchange, waitMs: number): Promise<SpawnedSession> {
     const waited = exchange.report ? { type: 'report' as const, report: exchange.report }
       : waitMs > 0 ? await this.waitOn(exchange, waitMs) : undefined
-    return { exchangeId: exchange.exchangeId, agentSessionId: exchange.targetAgentSessionId,
-      starting: exchange.targetAgentSessionId.startsWith('pending:'), taskId: exchange.report?.taskId, waited }
+    return { exchangeId: exchange.exchangeId, sessionId: exchange.targetSessionId,
+      starting: exchange.state === 'dispatched', taskId: exchange.report?.taskId, waited }
   }
 
   private async repeatedSend(exchange: Exchange, waitMs: number): Promise<{ exchangeId: string; disposition: 'started' | 'steered' | 'queued'; waited?: OrchestrationItem | null }> {
@@ -241,7 +233,7 @@ export class SessionOrchestrator {
    *  an exchange and the child is recorded as the sender's delegate; with
    *  `report`, the sender hears its notices and its result. */
   async spawn(
-    senderAgentSessionId: string | undefined,
+    senderSessionId: string | undefined,
     order: Omit<CreateSessionOrder, 'exchangeIds' | 'delegation'>,
     report: boolean,
     waitMs = 0,
@@ -249,28 +241,29 @@ export class SessionOrchestrator {
   ): Promise<SpawnedSession> {
     // The stored delegation keeps the intent names it has always had.
     const intent = report ? 'delegate' : 'fire_and_forget'
-    const senderSessionId = senderAgentSessionId ? this.runtime.sessionIdFor(senderAgentSessionId) : undefined
     const identity = this.ledger.identify(senderSessionId, requestId, JSON.stringify({ kind: 'create', order, report }))
     if (identity.existing) return this.repeatedSpawn(identity.existing, waitMs)
     const { exchangeId } = identity
     const dispatchedAt = Date.now()
-    const exchange = this.openSpawn(senderAgentSessionId, senderSessionId, order, report, identity, dispatchedAt)
+    // The new session's id is chosen now, so the sender's card names it from the start.
+    const targetSessionId = order.sessionId ?? randomUUID()
+    const exchange = this.openSpawn(senderSessionId, targetSessionId, order, report, identity, dispatchedAt)
     const waited = exchange && waitMs > 0 ? this.waitOn(exchange, waitMs) : undefined
 
     const starting = (async (): Promise<SpawnedSession> => {
       try {
         const started = await this.runtime.createSession({
           ...order,
-          sessionId: exchange?.targetSessionId,
+          sessionId: targetSessionId,
           exchangeIds: exchange ? [exchangeId] : undefined,
-          delegation: senderAgentSessionId
-            ? { parentAgentSessionId: senderAgentSessionId, messageId: exchangeId, intent, createdAt: dispatchedAt }
+          delegation: senderSessionId
+            ? { parentSessionId: senderSessionId, messageId: exchangeId, intent, createdAt: dispatchedAt }
             : undefined,
         })
-        if (exchange) this.bindStarted(exchange, started.agentSessionId, this.runtime.sessionMeta(started.agentSessionId)?.cwd)
+        if (exchange) this.attach(exchange, this.runtime.sessionMeta(started.sessionId)?.cwd)
         if (exchange) this.ledger.update(exchange, (draft) => { draft.disposition = 'started' })
         if (senderSessionId) this.recordStartedSession(senderSessionId, order.prompt, started)
-        const created: SpawnedSession = { exchangeId, agentSessionId: started.agentSessionId }
+        const created: SpawnedSession = { exchangeId, sessionId: started.sessionId }
         if (started.taskId) created.taskId = started.taskId
         return created
       } catch (error) {
@@ -283,24 +276,22 @@ export class SessionOrchestrator {
     // host tracks setup while the caller can leave its turn immediately.
     void this.runtime.trackWork(starting.catch(() => {}))
     const result = waited ? await waited : undefined
-    return { exchangeId, agentSessionId: exchange.targetAgentSessionId,
-      starting: exchange.targetAgentSessionId.startsWith('pending:'), taskId: order.taskId ?? undefined, waited: result }
+    return { exchangeId, sessionId: exchange.targetSessionId,
+      starting: exchange.state === 'dispatched', taskId: order.taskId ?? undefined, waited: result }
   }
 
   private openSpawn(
-    senderAgentSessionId: string | undefined, senderSessionId: string | undefined,
+    senderSessionId: string | undefined, targetSessionId: string,
     order: Omit<CreateSessionOrder, 'exchangeIds' | 'delegation'>, report: boolean,
     identity: ExchangeIdentity, dispatchedAt: number,
   ): Exchange | null {
     const { exchangeId, fingerprint } = identity
-    const exchange = senderAgentSessionId && senderSessionId
+    const exchange = senderSessionId
       ? this.open({
           exchangeId,
           kind: 'create',
           senderSessionId,
-          senderAgentSessionId,
-          targetSessionId: order.sessionId ?? randomUUID(),
-          targetAgentSessionId: `pending:${exchangeId}`,
+          targetSessionId,
           provider: order.provider,
           notify: report,
           dispatchedAt, fingerprint,
@@ -310,7 +301,7 @@ export class SessionOrchestrator {
     if (exchange) {
       this.publish(exchange, {
         phase: 'dispatched',
-        agentSessionId: exchange.targetAgentSessionId,
+        sessionId: exchange.targetSessionId,
         messageId: exchangeId,
         origin: 'created',
         prompt: order.prompt,
@@ -329,21 +320,16 @@ export class SessionOrchestrator {
   /** Sends one message to an existing session. The sender's card shows it before
    *  the target can answer, and the result comes back under the same id. */
   async send(
-    senderAgentSessionId: string,
-    targetAgentSessionId: string,
+    senderSessionId: string,
+    targetSessionId: string,
     message: { prompt: string; delivery: PromptDelivery; notify: boolean; permissionMode?: PermissionMode; waitMs?: number; requestId?: string },
   ): Promise<{ exchangeId: string; disposition: 'started' | 'steered' | 'queued'; waited?: OrchestrationItem | null }> {
-    const senderSessionId = this.runtime.sessionIdFor(senderAgentSessionId)
-    if (!senderSessionId) throw new Error('The calling session is not live.')
-    const targetSessionId = this.runtime.sessionIdFor(targetAgentSessionId)
-    if (targetAgentSessionId === senderAgentSessionId || targetSessionId === senderSessionId) {
-      throw new Error('Cannot message your own session.')
-    }
-    const meta = this.runtime.sessionMeta(targetAgentSessionId)
+    if (targetSessionId === senderSessionId) throw new Error('Cannot message your own session.')
+    const meta = this.runtime.sessionMeta(targetSessionId)
     // Refused before the card shows it: there is nothing to send it to.
-    if (!meta && !targetSessionId) throw new Error(`Session ${targetAgentSessionId} not found.`)
+    if (!meta) throw new Error(`Session ${targetSessionId} not found.`)
     const { waitMs: _waitMs, requestId: retryId, ...request } = message
-    const identity = this.ledger.identify(senderSessionId, retryId, JSON.stringify({ kind: 'prompt', targetSessionId: targetSessionId ?? targetAgentSessionId, request }))
+    const identity = this.ledger.identify(senderSessionId, retryId, JSON.stringify({ kind: 'prompt', targetSessionId, request }))
     if (identity.existing) return this.repeatedSend(identity.existing, message.waitMs ?? 0)
     const { exchangeId, fingerprint } = identity
     const parentExchangeIds = message.notify ? this.runtime.activeExchangeIdsFor(senderSessionId).slice() : []
@@ -355,10 +341,8 @@ export class SessionOrchestrator {
       exchangeId,
       kind: 'prompt',
       senderSessionId,
-      senderAgentSessionId,
-      targetSessionId: targetSessionId ?? '',
-      targetAgentSessionId,
-      provider: meta?.provider ?? 'claude-code',
+      targetSessionId,
+      provider: meta.provider,
       notify: message.notify,
       dispatchedAt, fingerprint, parentExchangeIds,
     })
@@ -367,7 +351,7 @@ export class SessionOrchestrator {
     const order: PromptOrder = { exchangeIds: [exchangeId] }
     if (message.permissionMode) order.permissionMode = message.permissionMode
     try {
-      const result = await this.runtime.promptSession(targetAgentSessionId, message.prompt, message.delivery, order)
+      const result = await this.runtime.promptSession(targetSessionId, message.prompt, message.delivery, order)
       this.ledger.update(exchange, (draft) => { draft.disposition = result.disposition })
       return waited
         ? { exchangeId, disposition: result.disposition, waited: await waited }
@@ -380,17 +364,15 @@ export class SessionOrchestrator {
 
   /** Stops the target for the sender. The sender's own messages to it settle
    *  without a report — it asked for the stop — and its card closes. */
-  stop(senderAgentSessionId: string | undefined, targetAgentSessionId: string): boolean {
-    const senderSessionId = senderAgentSessionId ? this.runtime.sessionIdFor(senderAgentSessionId) : undefined
-    const targetSessionId = this.runtime.sessionIdFor(targetAgentSessionId)
+  stop(senderSessionId: string | undefined, targetSessionId: string): boolean {
     const marked: string[] = []
-    if (senderSessionId && targetSessionId) {
+    if (senderSessionId) {
       for (const exchange of this.exchanges.values()) {
         if (exchange.senderSessionId === senderSessionId && exchange.targetSessionId === targetSessionId) marked.push(exchange.exchangeId)
       }
     }
     for (const exchangeId of marked) this.stoppedBySender.add(exchangeId)
-    const stopped = this.runtime.stopSession(targetAgentSessionId)
+    const stopped = this.runtime.stopSession(targetSessionId)
     // Nothing stopped: a later result is not the sender's own doing.
     if (!stopped) for (const exchangeId of marked) this.stoppedBySender.delete(exchangeId)
     return stopped
@@ -401,38 +383,36 @@ export class SessionOrchestrator {
    *  in place; one whose turn ended is carried on by a new message. */
   async decidePlan(
     senderSessionId: string,
-    targetAgentSessionId: string,
+    targetSessionId: string,
     decision: 'approve' | 'request_changes',
     /** Who decided; the note filed on the plan and the `plan_decided` activity are theirs. */
     actor: Actor,
     comment?: string,
   ): Promise<boolean> {
-    const senderAgentSessionId = this.agentSessionIdOf(senderSessionId)
-    const targetSessionId = this.runtime.sessionIdFor(targetAgentSessionId)
-    if (!senderAgentSessionId || !targetSessionId || !this.contacts.get(senderSessionId)?.has(targetSessionId)) return false
-    const pending = this.pendingPlan(targetSessionId, targetAgentSessionId)
+    if (!this.contacts.get(senderSessionId)?.has(targetSessionId)) return false
+    const pending = this.pendingPlan(targetSessionId)
     if (!pending) return false
     const note = comment?.trim() ?? ''
     if (decision === 'request_changes' && !note) return false
     const decided = decision === 'approve'
-      ? await this.approvePlan(pending, senderAgentSessionId, targetSessionId, targetAgentSessionId)
-      : await this.requestPlanChanges(pending, note, senderAgentSessionId, targetSessionId, targetAgentSessionId)
+      ? await this.approvePlan(pending, senderSessionId, targetSessionId)
+      : await this.requestPlanChanges(pending, note, senderSessionId, targetSessionId)
     if (!decided) return false
     this.openPlans.delete(targetSessionId)
     const status = decision === 'approve' ? 'accepted' : 'rejected'
-    const meta = this.runtime.sessionMeta(targetAgentSessionId)
-    if (meta && await recordPlanDecision(meta, pending, status, note || undefined, attributionOf(actor))) {
-      this.runtime.invalidatePlanCaches(meta.sessionId)
+    const meta = this.runtime.sessionMeta(targetSessionId)
+    if (meta && await recordPlanDecision(targetSessionId, meta, pending, status, note || undefined, attributionOf(actor))) {
+      this.runtime.invalidatePlanCaches(targetSessionId)
     }
     if (pending.planToolUseId) {
-      await this.runtime.recordActivity({ kind: 'session', id: targetSessionId }, actor, { kind: 'plan_decided', planId: planKey(targetAgentSessionId, pending.planToolUseId), decision: status })
+      await this.runtime.recordActivity({ kind: 'session', id: targetSessionId }, actor, { kind: 'plan_decided', planId: planKey(targetSessionId, pending.planToolUseId), decision: status })
     }
     return true
   }
 
   /** The plan the target is waiting on, held open or already reported. */
-  private pendingPlan(targetSessionId: string, targetAgentSessionId: string): PendingPlan | null {
-    const held = describePendingInput(this.runtime.pendingInputEvents(targetAgentSessionId))
+  private pendingPlan(targetSessionId: string): PendingPlan | null {
+    const held = describePendingInput(this.runtime.pendingInputEvents(targetSessionId))
     if (held?.kind === 'plan') return held
     const ended = this.openPlans.get(targetSessionId)
     if (!ended) return null
@@ -441,11 +421,11 @@ export class SessionOrchestrator {
     return plan
   }
 
-  private async approvePlan(pending: PendingPlan, senderAgentSessionId: string, targetSessionId: string, targetAgentSessionId: string): Promise<boolean> {
+  private async approvePlan(pending: PendingPlan, senderSessionId: string, targetSessionId: string): Promise<boolean> {
     if (pending.blocking) {
       return !!pending.allowOptionId && this.runtime.respondToPermission(targetSessionId, pending.questionId, pending.allowOptionId)
     }
-    await this.send(senderAgentSessionId, targetAgentSessionId, {
+    await this.send(senderSessionId, targetSessionId, {
       prompt: `${IMPLEMENT_PREFIX}${pending.planContent}`,
       delivery: 'queue',
       notify: true,
@@ -457,15 +437,14 @@ export class SessionOrchestrator {
   private async requestPlanChanges(
     pending: PendingPlan,
     note: string,
-    senderAgentSessionId: string,
+    senderSessionId: string,
     targetSessionId: string,
-    targetAgentSessionId: string,
   ): Promise<boolean> {
     const waiting = [...this.exchanges.values()].filter((exchange) =>
       exchange.targetSessionId === targetSessionId && exchange.state === 'awaiting_input' && exchange.request?.kind === 'plan')
-    if (pending.blocking && waiting.length) return this.reviseInPlace(pending, note, waiting, targetSessionId, targetAgentSessionId)
+    if (pending.blocking && waiting.length) return this.reviseInPlace(pending, note, waiting, targetSessionId)
     if (pending.blocking && pending.denyOptionId) this.runtime.respondToPermission(targetSessionId, pending.questionId, pending.denyOptionId)
-    await this.send(senderAgentSessionId, targetAgentSessionId, {
+    await this.send(senderSessionId, targetSessionId, {
       prompt: `${REVISION_PREFIX}${note}`,
       delivery: 'queue',
       notify: true,
@@ -477,13 +456,13 @@ export class SessionOrchestrator {
   /** The deny ends the run holding the plan. The revision continues the same
    *  exchanges on the run that follows, so the sender hears the revised plan as
    *  the answer to what it asked — not an interruption and a new message. */
-  private async reviseInPlace(pending: PendingPlan, note: string, waiting: Exchange[], targetSessionId: string, targetAgentSessionId: string): Promise<boolean> {
+  private async reviseInPlace(pending: PendingPlan, note: string, waiting: Exchange[], targetSessionId: string): Promise<boolean> {
     if (!pending.denyOptionId) return false
     const answer = `Asked for changes to the plan: ${note}`
     for (const exchange of waiting) {
       this.apply(exchange, { type: 'revision_requested' })
       if (this.apply(exchange, { type: 'input_resolved', outputs: [] })) {
-        this.publish(exchange, { phase: 'answered', agentSessionId: exchange.targetAgentSessionId, messageId: exchange.exchangeId, answerText: answer })
+        this.publish(exchange, { phase: 'answered', sessionId: exchange.targetSessionId, messageId: exchange.exchangeId, answerText: answer })
       }
     }
     if (!this.runtime.respondToPermission(targetSessionId, pending.questionId, pending.denyOptionId)) {
@@ -491,7 +470,7 @@ export class SessionOrchestrator {
       return false
     }
     try {
-      await this.runtime.promptSession(targetAgentSessionId, `${REVISION_PREFIX}${note}`, 'queue', {
+      await this.runtime.promptSession(targetSessionId, `${REVISION_PREFIX}${note}`, 'queue', {
         exchangeIds: waiting.map((exchange) => exchange.exchangeId),
         permissionMode: 'plan',
       })
@@ -509,11 +488,9 @@ export class SessionOrchestrator {
    *  is waiting on: its own session's request, or one a session it sent work to
    *  is waiting on. The control plane then checks the request is that session's. */
   mayAnswer(callerSessionId: string, askingSessionId: string): boolean {
-    const caller = this.runtime.sessionIdFor(callerSessionId) ?? callerSessionId
-    const asking = this.runtime.sessionIdFor(askingSessionId) ?? askingSessionId
-    if (caller === asking) return true
+    if (callerSessionId === askingSessionId) return true
     for (const exchange of this.exchanges.values()) {
-      if (exchange.senderSessionId === caller && exchange.targetSessionId === asking && exchange.state === 'awaiting_input') return true
+      if (exchange.senderSessionId === callerSessionId && exchange.targetSessionId === askingSessionId && exchange.state === 'awaiting_input') return true
     }
     return false
   }
@@ -536,18 +513,18 @@ export class SessionOrchestrator {
   /** Children whose turn the previous process never settled. A parent that
    *  delegated to one gets a report instead of waiting for a reply nothing will
    *  send; boot marks each record interrupted, so a child is reported once. */
-  reportChildrenInterruptedByRestart(childThreadIds: readonly string[]): void {
-    for (const childThreadId of childThreadIds) {
-      const meta = this.runtime.sessionMeta(childThreadId)
+  reportChildrenInterruptedByRestart(childSessionIds: readonly string[]): void {
+    for (const childSessionId of childSessionIds) {
+      const meta = this.runtime.sessionMeta(childSessionId)
       const delegation = meta?.delegation
       if (!meta || delegation?.intent !== 'delegate' || this.exchanges.has(delegation.messageId)) continue
-      log.info('session_child_interrupted_by_restart', { agentSessionId: childThreadId, parentAgentSessionId: delegation.parentSessionId })
+      log.info('session_child_interrupted_by_restart', { sessionId: childSessionId, parentSessionId: delegation.parentSessionId })
       this.delivery.deliver(delegation.parentSessionId, {
         exchangeId: delegation.messageId,
-        targetAgentSessionId: childThreadId,
+        targetSessionId: childSessionId,
         item: { type: 'report', report: {
           messageId: delegation.messageId,
-          agentSessionId: childThreadId,
+          sessionId: childSessionId,
           provider: meta.provider,
           status: 'interrupted',
           outputs: [],
@@ -563,7 +540,7 @@ export class SessionOrchestrator {
   runQueued(run: RunExchanges): void {
     for (const exchange of this.exchangesOf(run)) {
       if (this.apply(exchange, { type: 'queued', runId: run.runId })) {
-        this.publish(exchange, { phase: 'accepted', agentSessionId: exchange.targetAgentSessionId, messageId: exchange.exchangeId, state: 'queued' })
+        this.publish(exchange, { phase: 'accepted', sessionId: exchange.targetSessionId, messageId: exchange.exchangeId, state: 'queued' })
       }
     }
   }
@@ -574,7 +551,7 @@ export class SessionOrchestrator {
     for (const exchange of this.exchangesOf(run)) {
       const wasLimited = exchange.state === 'rate_limited'
       if (this.apply(exchange, { type: 'started', runId: run.runId })) {
-        this.publish(exchange, { phase: 'accepted', agentSessionId: exchange.targetAgentSessionId, messageId: exchange.exchangeId, state: 'running' })
+        this.publish(exchange, { phase: 'accepted', sessionId: exchange.targetSessionId, messageId: exchange.exchangeId, state: 'running' })
         if (wasLimited) {
           exchange.rateLimitResetsAt = undefined
           this.withdrawNotice(exchange, 'limit')
@@ -591,20 +568,20 @@ export class SessionOrchestrator {
     for (const exchange of this.exchangesOf(run)) {
       if (!this.apply(exchange, { type: 'rate_limited' })) continue
       exchange.rateLimitResetsAt = limit.resetsAt
-      const update: AgentConversationUpdate = { phase: 'rate_limited', agentSessionId: exchange.targetAgentSessionId, messageId: exchange.exchangeId }
+      const update: AgentConversationUpdate = { phase: 'rate_limited', sessionId: exchange.targetSessionId, messageId: exchange.exchangeId }
       if (limit.resetsAt) update.resetsAt = limit.resetsAt
       if (limit.limitType) update.limitType = limit.limitType
       this.publish(exchange, update)
-      const notice: SessionNotice = { messageId: exchange.exchangeId, agentSessionId: exchange.targetAgentSessionId, provider: exchange.provider, kind: 'rate_limited' }
+      const notice: SessionNotice = { messageId: exchange.exchangeId, sessionId: exchange.targetSessionId, provider: exchange.provider, kind: 'rate_limited' }
       if (limit.resetsAt) notice.resetsAt = limit.resetsAt
       if (limit.limitType) notice.limitType = limit.limitType
       this.notify(exchange, notice, 'limit')
     }
   }
 
-  /** A created session reported its real thread: its cards rebind to it. */
-  sessionStarted(run: RunExchanges, agentSessionId: string, cwd: string | undefined): void {
-    for (const exchange of this.exchangesOf(run)) this.bindStarted(exchange, agentSessionId, cwd)
+  /** A created session started its thread: its cards show where it runs. */
+  sessionStarted(run: RunExchanges, cwd: string | undefined): void {
+    for (const exchange of this.exchangesOf(run)) this.attach(exchange, cwd)
   }
 
   /** The target's turn stopped for a person. Every sender waiting on that turn
@@ -616,7 +593,7 @@ export class SessionOrchestrator {
     if (!request) return
     for (const exchange of this.exchangesOf(run)) {
       if (this.apply(exchange, { type: 'input_requested', request })) {
-        this.publish(exchange, { phase: 'awaiting_input', agentSessionId: exchange.targetAgentSessionId, messageId: exchange.exchangeId, request })
+        this.publish(exchange, { phase: 'awaiting_input', sessionId: exchange.targetSessionId, messageId: exchange.exchangeId, request })
         this.notify(exchange, requestNotice(exchange, request), `ask:${requestId(request)}`)
       }
     }
@@ -629,7 +606,7 @@ export class SessionOrchestrator {
     for (const exchange of this.exchangesOf(run)) {
       const request = exchange.request
       if (this.apply(exchange, { type: 'input_resolved', outputs })) {
-        this.publish(exchange, { phase: 'answered', agentSessionId: exchange.targetAgentSessionId, messageId: exchange.exchangeId, answerText: answer })
+        this.publish(exchange, { phase: 'answered', sessionId: exchange.targetSessionId, messageId: exchange.exchangeId, answerText: answer })
         if (request) this.withdrawNotice(exchange, `ask:${requestId(request)}`)
       }
     }
@@ -642,7 +619,7 @@ export class SessionOrchestrator {
       if (event.planToolUseId) plan.planToolUseId = event.planToolUseId
       this.openPlans.set(run.sessionId, plan)
     }
-    const output = outputFromEvent(event, run.agentSessionId)
+    const output = outputFromEvent(event, run.sessionId)
     if (!output) return
     for (const exchange of this.exchangesOf(run)) addOutput(exchange.outputs, output)
   }
@@ -655,7 +632,7 @@ export class SessionOrchestrator {
     const ready = exchanges.filter((exchange) => {
       if (run.outcome !== 'completed' || !this.ledger.hasChildren(exchange.exchangeId)) return true
       if (this.apply(exchange, { type: 'children_pending', runId: run.runId })) {
-        this.publish(exchange, { phase: 'accepted', agentSessionId: exchange.targetAgentSessionId, messageId: exchange.exchangeId, state: 'waiting_for_children' })
+        this.publish(exchange, { phase: 'accepted', sessionId: exchange.targetSessionId, messageId: exchange.exchangeId, state: 'waiting_for_children' })
       }
       return false
     })
@@ -688,7 +665,7 @@ export class SessionOrchestrator {
       if (exchange.runId && queuedRunIds.has(exchange.runId)) continue
       if (!senders.has(exchange.senderSessionId)) {
         senders.add(exchange.senderSessionId)
-        this.publish(exchange, { phase: 'stopped', agentSessionId: exchange.targetAgentSessionId })
+        this.publish(exchange, { phase: 'stopped', sessionId: exchange.targetSessionId })
       }
       if (exchange.state === 'waiting_for_children') this.settle(exchange, 'interrupted', 'Stopped while waiting for child work.')
     }
@@ -709,7 +686,7 @@ export class SessionOrchestrator {
     for (const exchange of this.exchanges.values()) {
       if (exchange.senderSessionId !== senderSessionId || !isOpenExchange(exchange)) continue
       // Reports held for a stopped lead would wake it again: drop them.
-      if (!cancelled) this.delivery.dropHeld(exchange.senderAgentSessionId)
+      if (!cancelled) this.delivery.dropHeld(exchange.senderSessionId)
       this.settle(exchange, 'interrupted', '', { silenced: true })
       cancelled = true
     }
@@ -725,20 +702,15 @@ export class SessionOrchestrator {
     return exchange
   }
 
-  /** Binds a created session's card to its real thread, once, from whichever
-   *  point learns it first: the control plane at init, the create call's
-   *  answer, or the run's settlement. */
-  private bindStarted(exchange: Exchange, agentSessionId: string, cwd: string | undefined): void {
-    if (!exchange.targetAgentSessionId.startsWith('pending:')) return
-    this.ledger.update(exchange, (draft) => { draft.targetAgentSessionId = agentSessionId })
-    const attached: AgentConversationUpdate = { phase: 'attached', messageId: exchange.exchangeId, agentSessionId }
-    if (cwd) attached.cwd = cwd
-    this.publish(exchange, attached)
+  /** Tells a created session's card where it runs, once its checkout is known. */
+  private attach(exchange: Exchange, cwd: string | undefined): void {
+    if (exchange.kind !== 'create' || !cwd) return
+    this.publish(exchange, { phase: 'attached', messageId: exchange.exchangeId, sessionId: exchange.targetSessionId, cwd })
   }
 
   /** A session a child started is something the child's open turns produced. */
-  private recordStartedSession(childSessionId: string, prompt: string, started: { agentSessionId: string; taskId?: string }): void {
-    const output: SessionOutput = { kind: 'session', sessionId: started.agentSessionId, title: prompt }
+  private recordStartedSession(childSessionId: string, prompt: string, started: { sessionId: string; taskId?: string }): void {
+    const output: SessionOutput = { kind: 'session', sessionId: started.sessionId, title: prompt }
     if (started.taskId) output.taskId = started.taskId
     for (const exchange of this.exchanges.values()) {
       if (exchange.targetSessionId === childSessionId && isOpenExchange(exchange)) addOutput(exchange.outputs, output)
@@ -775,27 +747,18 @@ export class SessionOrchestrator {
     this.runtime.emit(exchange.senderSessionId, { type: 'agent_conversation_update', update })
   }
 
-  private agentSessionIdOf(sessionId: string): string | undefined {
-    for (const exchange of this.exchanges.values()) {
-      if (exchange.senderSessionId === sessionId) return exchange.senderAgentSessionId
-    }
-    return this.runtime.agentSessionIdFor(sessionId)
-  }
-
   /** Never accepted, so no turn will ever settle it. */
   private settleUnaccepted(exchange: Exchange): void {
     this.settle(exchange, 'failed', '')
   }
 
   private async settleRun(run: SettledRun, exchanges: Exchange[]): Promise<void> {
-    if (run.agentSessionId) for (const exchange of exchanges) this.bindStarted(exchange, run.agentSessionId, undefined)
     let reply = run.resultText?.trim()
     // A run that failed before it wrote its prompt leaves the previous turn last
     // in the transcript; its own error is the only reply that is about this turn.
     if (!reply && run.outcome === 'failed' && run.error) reply = `The turn ended with an error: ${clip(run.error, ORCHESTRATION_LIMITS.questionText)}`
-    const targetAgentSessionId = run.agentSessionId ?? exchanges[0]!.targetAgentSessionId
-    if (!reply && !targetAgentSessionId.startsWith('pending:')) {
-      const ending = await this.runtime.turnEnding(run.provider, targetAgentSessionId, run.projectScope).catch((): TurnEnding => ({}))
+    if (!reply) {
+      const ending = await this.runtime.turnEnding(run.provider, run.sessionId, run.projectScope).catch((): TurnEnding => ({}))
       // A turn that failed with nothing to say reports why, so the parent can act on it.
       reply = ending.reply?.trim() || (run.outcome !== 'completed' && ending.error ? `The turn ended with an error: ${clip(ending.error, ORCHESTRATION_LIMITS.questionText)}` : undefined)
     }
@@ -805,8 +768,8 @@ export class SessionOrchestrator {
     for (const exchange of open) finishOutputs(exchange, run.gitContext?.branch ?? undefined, pullRequest)
     // One run that answers several messages from one sender is one report: the
     // first message carries it and names the others, which settle under it.
-    for (const sender of new Set(open.map((exchange) => exchange.senderAgentSessionId))) {
-      const [first, ...others] = open.filter((exchange) => exchange.senderAgentSessionId === sender)
+    for (const sender of new Set(open.map((exchange) => exchange.senderSessionId))) {
+      const [first, ...others] = open.filter((exchange) => exchange.senderSessionId === sender)
       for (const other of others) this.settle(other, run.outcome, reply ?? '', { run, taskId, reportedBy: first!.exchangeId })
       this.settle(first!, run.outcome, reply ?? '', { run, taskId, alsoMessageIds: others.map((other) => other.exchangeId) })
     }
@@ -847,10 +810,9 @@ export class SessionOrchestrator {
     const changed = this.ledger.update(exchange, (draft) => {
       if (silenced) { draft.notify = false; draft.revising = false }
       if (!applyExchangeEvent(draft, settled)) return false
-      if (draft.targetAgentSessionId.startsWith('pending:')) draft.targetAgentSessionId = draft.targetSessionId
       const report: SessionReport = {
         messageId: draft.exchangeId,
-        agentSessionId: draft.targetAgentSessionId,
+        sessionId: draft.targetSessionId,
         taskId,
         provider: draft.provider,
         status: outcome,
@@ -885,14 +847,14 @@ export class SessionOrchestrator {
     if (!hasReport) {
       // The last message a lead waited on can end without a report of its own;
       // the reports held for it still wake it.
-      if (!awaitingOthers) this.delivery.release(exchange.senderAgentSessionId)
+      if (!awaitingOthers) this.delivery.release(exchange.senderSessionId)
       return
     }
     // A lead hears nothing until every message it waits on has settled.
     const hold = awaitingOthers ? this.runtime.isLead(exchange.senderSessionId).catch(() => false) : Promise.resolve(false)
-    this.delivery.deliver(exchange.senderAgentSessionId, hold.then((held) => ({
+    this.delivery.deliver(exchange.senderSessionId, hold.then((held) => ({
       exchangeId: exchange.exchangeId,
-      targetAgentSessionId: exchange.targetAgentSessionId,
+      targetSessionId: exchange.targetSessionId,
       continuationExchangeIds: exchange.parentExchangeIds,
       item,
       hold: held,
@@ -931,7 +893,7 @@ export class SessionOrchestrator {
     if (this.endWait(exchange, { type: 'notice', notice })) return
     if (!exchange.notify) return
     exchange.notices.push(key)
-    const openKey = `${exchange.senderAgentSessionId}:${exchange.targetSessionId}:${key}`
+    const openKey = `${exchange.senderSessionId}:${exchange.targetSessionId}:${key}`
     if (this.openNotices.has(openKey)) return
     this.openNotices.add(openKey)
     const item: Promise<OrchestrationItem> = this.runtime.taskIdFor(exchange.targetSessionId)
@@ -940,10 +902,10 @@ export class SessionOrchestrator {
     // A lead's person answers on the card and a limit resumes on its own: a
     // notice would only wake the lead to repeat what the card shows.
     const isLead = this.runtime.isLead(exchange.senderSessionId).catch(() => false)
-    this.delivery.deliver(exchange.senderAgentSessionId, Promise.all([item, isLead]).then(([resolved, lead]) => lead ? null : {
+    this.delivery.deliver(exchange.senderSessionId, Promise.all([item, isLead]).then(([resolved, lead]) => lead ? null : {
       item: resolved,
       exchangeId: exchange.exchangeId,
-      targetAgentSessionId: exchange.targetAgentSessionId,
+      targetSessionId: exchange.targetSessionId,
       noticeKey: openKey,
     }))
   }
@@ -953,9 +915,9 @@ export class SessionOrchestrator {
     const at = exchange.notices.indexOf(key)
     if (at === -1) return
     exchange.notices.splice(at, 1)
-    const openKey = `${exchange.senderAgentSessionId}:${exchange.targetSessionId}:${key}`
+    const openKey = `${exchange.senderSessionId}:${exchange.targetSessionId}:${key}`
     if (!this.openNotices.delete(openKey)) return
-    this.delivery.withdraw(exchange.senderAgentSessionId, openKey)
+    this.delivery.withdraw(exchange.senderSessionId, openKey)
   }
 }
 

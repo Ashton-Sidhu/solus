@@ -5,6 +5,7 @@ import { getDatabase } from '../../db/database'
 import { works } from '../works/schema'
 import { planAnnotations } from '../../plans/schema'
 import { scopeClause } from '../scope'
+import { activeThreadOf } from '../sessions/session-lineage'
 import type { RecordScope } from '../../admission/principal'
 
 /**
@@ -99,7 +100,7 @@ export function recentWorktreeSessions(since: number): Array<{ sessionId: string
 export function sessionTitleFor(sessionId: string): string | null {
   const row = z.object({ title: z.string().nullable() }).nullish().parse(getDb().prepare(
     'SELECT COALESCE(custom_title, first_message) AS title FROM sessions WHERE session_id = ?',
-  ).get(sessionId))
+  ).get(activeThreadOf(sessionId) ?? sessionId))
   return row?.title ?? null
 }
 

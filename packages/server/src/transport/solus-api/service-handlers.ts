@@ -67,7 +67,7 @@ export function registerSolusApiHandlers(server: SolusServer, deps: {
     const record = await getSessionRecord(recordScopeOf(ctx.principal), sessionId)
     return record ? sessionMetaFromRecord(record) : null
   })))
-  server.register('describeSession', async ([_provider, sessionId], ctx) => {
+  server.register('describeSession', async ([sessionId], ctx) => {
     const record = await getSessionRecord(recordScopeOf(ctx.principal), sessionId)
     return { lineage: null, meta: record ? sessionMetaFromRecord(record) : null }
   })
@@ -93,13 +93,11 @@ export function registerSolusApiHandlers(server: SolusServer, deps: {
     if (request.keys.length > MAX_SESSION_TOOL_INPUTS || request.keys.some(key => !/^[a-f0-9]{64}$/.test(key))) throw new Error('Invalid session tool input keys')
     return selectSessionToolInputs(await readTranscript(recordScopeOf(ctx.principal), request.sessionId), request.keys)
   })
-  server.register('watchSession', async ([input], ctx) => {
-    const sessionId = input.sessionId ?? input.agentSessionId
-    if (!sessionId) throw new Error('A stored session id is required')
+  server.register('watchSession', async ([{ sessionId }], ctx) => {
     const record = await getSessionRecord(recordScopeOf(ctx.principal), sessionId)
     if (!record) throw new Error('Session not found')
     deps.presence.watch(ctx.clientId, record.sessionId)
-    return { sessionId: record.sessionId }
+    return {}
   })
   server.register('unwatchSession', async ([sessionId], ctx) => { deps.presence.unwatch(ctx.clientId, sessionId) })
 }

@@ -109,15 +109,18 @@ export function resolveSessionLineage(
   return parsed.success ? resolutionFromRows(rowsForLineage(db, parsed.data.session_id)) : null
 }
 
-/** The stable session id behind a provider thread, when the provider is not known.
- *  Provider thread ids are provider-issued uuids, so matching on the id alone is
- *  unambiguous in practice and saves callers guessing which backend owns it. */
-export function stableSessionIdForProviderThread(
-  providerSessionId: string,
+/**
+ * The session a thread belongs to (docs/plans/session-identity.md): its
+ * lineage's session, else the thread's own id. A transcript that never ran in
+ * Solus has no lineage, and its session id is its thread id. Thread ids are
+ * provider-issued uuids, so matching on the id alone is unambiguous.
+ */
+export function sessionIdOfThread(
+  threadId: string,
   db: DatabaseSync = getDb(),
-): string | undefined {
+): string {
   const reads = readsFor(db)
-  const known = reads.byThread.get(providerSessionId)
+  const known = reads.byThread.get(threadId)
   if (known) return known
   const parsed = lineageIdRowSchema.safeParse(db.prepare(`
     SELECT session_id
@@ -126,10 +129,26 @@ export function stableSessionIdForProviderThread(
     UNION ALL
     SELECT session_id FROM session_thread_aliases WHERE provider_session_id = ?
     LIMIT 1
-  `).get(providerSessionId, providerSessionId))
-  if (!parsed.success) return undefined
-  reads.byThread.set(providerSessionId, parsed.data.session_id)
+  `).get(threadId, threadId))
+  // A miss is not remembered: the thread may be bound to a session later.
+  if (!parsed.success) return threadId
+  reads.byThread.set(threadId, parsed.data.session_id)
   return parsed.data.session_id
+}
+
+/** The thread a session runs on now: its lineage's active thread, else the
+ *  session's own id. Undefined while a provider switch waits for its thread. */
+export function activeThreadOf(sessionId: string, db: DatabaseSync = getDb()): string | undefined {
+  const lineage = resolveSessionLineageById(sessionId, db)
+  if (!lineage) return sessionId
+  return lineage.active.providerSessionId ?? undefined
+}
+
+/** Whether a thread is the one its session runs on now. The session's record
+ *  shows this thread; an earlier thread of a provider switch or a fork does
+ *  not write it. */
+export function isActiveThread(threadId: string, db: DatabaseSync = getDb()): boolean {
+  return activeThreadOf(sessionIdOfThread(threadId, db), db) === threadId
 }
 
 export function resolveSessionLineageById(

@@ -3,7 +3,7 @@ import { Database } from 'bun:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { SessionLoadMessage, WireSessionLoadMessage } from '@solus/contracts/session-history'
+import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import type { OrchestrationItem } from '@solus/contracts/session-exchange'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
@@ -55,21 +55,21 @@ beforeAll(async () => {
     }],
   } as never)
   sessionTools.setSessionOrchestration({
-    spawn: async (...args) => { calls.push({ method: 'spawn', args }); return { exchangeId: 'm-created', agentSessionId: startingReceipt ? 'pending:m-created' : 'thread-child', starting: startingReceipt, taskId: 'task-child', waited: startupOutcome } },
+    spawn: async (...args) => { calls.push({ method: 'spawn', args }); return { exchangeId: 'm-created', sessionId: 'solus-child', starting: startingReceipt, taskId: 'task-child', waited: startupOutcome } },
     send: async (...args) => {
       calls.push({ method: 'send', args })
       const waitMs = (args[2] as { waitMs?: number }).waitMs ?? 0
       return waitMs > 0
-        ? { exchangeId: 'm-sent', disposition: 'queued', waited: { type: 'report', report: { messageId: 'm-sent', agentSessionId: 'thread-peer', status: 'completed', outputs: [{ kind: 'work', workId: 'w1', title: 'Notes', workType: 'doc' }], reply: 'checked' } } }
+        ? { exchangeId: 'm-sent', disposition: 'queued', waited: { type: 'report', report: { messageId: 'm-sent', sessionId: 'solus-peer', status: 'completed', outputs: [{ kind: 'work', workId: 'w1', title: 'Notes', workType: 'doc' }], reply: 'checked' } } }
         : { exchangeId: 'm-sent', disposition: 'queued' }
     },
     stop: (...args) => { calls.push({ method: 'stop', args }); return true },
-    readExchange: (sender, exchangeId) => sender === 'thread-parent' && exchangeId === 'saved-result' ? {
-      exchangeId, kind: 'prompt', senderSessionId: 'parent', senderAgentSessionId: sender,
-      targetSessionId: 'peer', targetAgentSessionId: 'thread-peer', provider: 'codex', notify: true,
+    readExchange: (sender, exchangeId) => sender === 'solus-parent' && exchangeId === 'saved-result' ? {
+      exchangeId, kind: 'prompt', senderSessionId: sender,
+      targetSessionId: 'solus-peer', provider: 'codex', notify: true,
       state: 'settled', outcome: 'completed', outputs: [], notices: [], revising: false,
       dispatchedAt: 1, deliveryState: 'queued',
-      report: { messageId: exchangeId, agentSessionId: 'thread-peer', status: 'completed', outputs: [], reply: savedReply },
+      report: { messageId: exchangeId, sessionId: 'solus-peer', status: 'completed', outputs: [], reply: savedReply },
     } : undefined,
 
   })
@@ -82,7 +82,7 @@ afterAll(() => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
-const deps = (sessionId = 'thread-parent') => ({ ctx: { agentProvider: 'codex' as const, cwd: '/repo', sessionId } })
+const deps = (sessionId = 'solus-parent') => ({ ctx: { agentProvider: 'codex' as const, cwd: '/repo', sessionId } })
 const start = { prompt: 'build it', model_id: 'gpt-test' }
 
 /** The history row a tool result becomes, as a reloading client receives it. */
@@ -102,33 +102,33 @@ async function bind(sessionId: string, taskId: string): Promise<void> {
 describe('the acting session tools', () => {
   test('send_session sends from the calling session and returns the message it opened', async () => {
     calls.length = 0
-    const result = await sessionTools.executeSessionTool('send_session', { session_id: 'thread-peer', message: 'next step', delivery: 'steer', report: true }, deps())
+    const result = await sessionTools.executeSessionTool('send_session', { session_id: 'solus-peer', message: 'next step', delivery: 'steer', report: true }, deps())
     expect(result.ok).toBe(true)
-    expect(calls).toEqual([{ method: 'send', args: ['thread-parent', 'thread-peer', { prompt: 'next step', delivery: 'steer', notify: true, waitMs: 0 }] }])
-    expect(reloaded('mcp__solus__send_session', result.text)).toEqual({ agentSessionId: 'thread-peer', messageId: 'm-sent', provider: 'codex' })
+    expect(calls).toEqual([{ method: 'send', args: ['solus-parent', 'solus-peer', { prompt: 'next step', delivery: 'steer', notify: true, waitMs: 0 }] }])
+    expect(reloaded('mcp__solus__send_session', result.text)).toEqual({ sessionId: 'solus-peer', messageId: 'm-sent', provider: 'codex' })
   })
 
   test('send_session with report off asks for nothing back', async () => {
     calls.length = 0
-    await sessionTools.executeSessionTool('send_session', { session_id: 'thread-peer', message: 'fyi', report: false }, deps())
+    await sessionTools.executeSessionTool('send_session', { session_id: 'solus-peer', message: 'fyi', report: false }, deps())
     expect(calls[0]!.args[2]).toEqual({ prompt: 'fyi', delivery: 'queue', notify: false, waitMs: 0 })
   })
 
   test('send_session with wait_seconds returns the report it waited for, and a reload reads it from the result', async () => {
     calls.length = 0
-    const result = await sessionTools.executeSessionTool('send_session', { session_id: 'thread-peer', message: 'check', wait_seconds: 30 }, deps())
+    const result = await sessionTools.executeSessionTool('send_session', { session_id: 'solus-peer', message: 'check', wait_seconds: 30 }, deps())
     expect(calls[0]!.args[2]).toMatchObject({ waitMs: 30_000 })
     expect(result.text).toContain('It finished while you waited')
     expect(result.text.endsWith('Reply:\nchecked')).toBe(true)
     expect(reloaded('send_session', result.text)).toEqual({
-      agentSessionId: 'thread-peer', messageId: 'm-sent', provider: 'codex',
-      report: { messageId: 'm-sent', agentSessionId: 'thread-peer', status: 'completed', outputs: [{ kind: 'work', workId: 'w1', title: 'Notes', workType: 'doc' }], reply: 'checked' },
+      sessionId: 'solus-peer', messageId: 'm-sent', provider: 'codex',
+      report: { messageId: 'm-sent', sessionId: 'solus-peer', status: 'completed', outputs: [{ kind: 'work', workId: 'w1', title: 'Notes', workType: 'doc' }], reply: 'checked' },
     })
   })
 
   test('wait_seconds past the limit is refused', async () => {
     calls.length = 0
-    expect((await sessionTools.executeSessionTool('send_session', { session_id: 'thread-peer', message: 'x', wait_seconds: 601 }, deps())).ok).toBe(false)
+    expect((await sessionTools.executeSessionTool('send_session', { session_id: 'solus-peer', message: 'x', wait_seconds: 601 }, deps())).ok).toBe(false)
     expect(calls).toEqual([])
   })
 
@@ -138,18 +138,18 @@ describe('the acting session tools', () => {
     const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'none', report: false }, deps())
     expect(result.ok).toBe(true)
     expect(calls).toHaveLength(1)
-    expect(calls[0]).toMatchObject({ method: 'spawn', args: ['thread-parent', { prompt: 'build it', provider: 'codex', modelId: 'gpt-test', cwd: '/repo', taskId: null }, false, 0, undefined] })
-    expect(reloaded('start_session', result.text)).toEqual({ agentSessionId: 'thread-child', messageId: 'm-created', provider: 'codex' })
+    expect(calls[0]).toMatchObject({ method: 'spawn', args: ['solus-parent', { prompt: 'build it', provider: 'codex', modelId: 'gpt-test', cwd: '/repo', taskId: null }, false, 0, undefined] })
+    expect(reloaded('start_session', result.text)).toEqual({ sessionId: 'solus-child', messageId: 'm-created', provider: 'codex' })
   })
 
   test('start_session with task=attempt and no task_id runs on the caller\'s own task, never a new subtask', async () => {
     // WHY: a task holds its sessions directly. A started session that minted a
     // subtask filed its works there, out of sight of the task the user opened.
     const root = await taskStore.createTask('local', { title: 'Ship the store', projectKey: '/repo', body: '' })
-    await bind('thread-on-root', root.id)
+    await bind('solus-on-root', root.id)
 
     calls.length = 0
-    expect((await sessionTools.executeSessionTool('start_session', { ...start, task: 'attempt' }, deps('thread-on-root'))).ok).toBe(true)
+    expect((await sessionTools.executeSessionTool('start_session', { ...start, task: 'attempt' }, deps('solus-on-root'))).ok).toBe(true)
     expect(calls[0]!.args[1]).toMatchObject({ taskId: root.id })
     expect(calls[0]!.args[1]).not.toHaveProperty('parentTaskId')
     expect(calls[0]!.args[2]).toBe(true)
@@ -157,7 +157,7 @@ describe('the acting session tools', () => {
 
   test('start_session with task=attempt from a session with no task and no task_id is refused, not filed at the top', async () => {
     calls.length = 0
-    const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'attempt' }, deps('thread-without-task'))
+    const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'attempt' }, deps('solus-without-task'))
     expect(result.ok).toBe(false)
     expect(result.text).toContain("task='none'")
     expect(calls).toEqual([])
@@ -183,21 +183,21 @@ describe('the acting session tools', () => {
 
   test('read_task_sessions shows the caller\'s own task by default, and needs a task otherwise', async () => {
     const root = await taskStore.createTask('local', { title: 'Coordinate the work', projectKey: '/repo', body: '' })
-    await bind('thread-coordinator', root.id)
-    const view = await sessionTools.executeSessionTool('read_task_sessions', {}, deps('thread-coordinator'))
+    await bind('solus-coordinator', root.id)
+    const view = await sessionTools.executeSessionTool('read_task_sessions', {}, deps('solus-coordinator'))
     expect(view.ok).toBe(true)
     expect(view.text).toContain(`Task ${root.id}`)
-    expect(await sessionTools.executeSessionTool('read_task_sessions', {}, deps('thread-without-task'))).toEqual({ ok: false, text: 'This session has no task. Pass task_id.' })
+    expect(await sessionTools.executeSessionTool('read_task_sessions', {}, deps('solus-without-task'))).toEqual({ ok: false, text: 'This session has no task. Pass task_id.' })
   })
 
   test('stop_session stops the target on behalf of the caller', async () => {
     calls.length = 0
-    expect((await sessionTools.executeSessionTool('stop_session', { session_id: 'thread-peer' }, deps())).ok).toBe(true)
-    expect(calls).toEqual([{ method: 'stop', args: ['thread-parent', 'thread-peer'] }])
+    expect((await sessionTools.executeSessionTool('stop_session', { session_id: 'solus-peer' }, deps())).ok).toBe(true)
+    expect(calls).toEqual([{ method: 'stop', args: ['solus-parent', 'solus-peer'] }])
   })
 
   test('a session cannot message itself', async () => {
-    const result = await sessionTools.executeSessionTool('send_session', { session_id: 'thread-parent', message: 'hi' }, deps())
+    const result = await sessionTools.executeSessionTool('send_session', { session_id: 'solus-parent', message: 'hi' }, deps())
     expect(result).toEqual({ ok: false, text: 'Cannot message your own session.' })
   })
 
@@ -206,7 +206,7 @@ describe('the acting session tools', () => {
       'list_agent_targets', 'search_sessions', 'read_session', 'read_session_exchange', 'read_task_sessions', 'start_session', 'send_session', 'stop_session',
     ])
     for (const retired of ['wait_for_session', 'create_session', 'prompt_session', 'find_sessions']) {
-      expect((await sessionTools.executeSessionTool(retired, { session_id: 'thread-peer' }, deps())).ok).toBe(false)
+      expect((await sessionTools.executeSessionTool(retired, { session_id: 'solus-peer' }, deps())).ok).toBe(false)
     }
   })
 })
@@ -216,7 +216,7 @@ describe('the acting session tools', () => {
 // read only what is new, and a page must never skip a message by ending inside
 // a run of messages that share one timestamp.
 describe('read_session with a cursor', () => {
-  const read = async (args: Record<string, unknown>) => (await sessionTools.executeSessionTool('read_session', { session_id: 'thread-peer', ...args }, deps())).text
+  const read = async (args: Record<string, unknown>) => (await sessionTools.executeSessionTool('read_session', { session_id: 'solus-peer', ...args }, deps())).text
   const cursorOf = (text: string) => Number(/cursor: (\d+)/.exec(text)?.[1])
 
   test('a plain read ends with the cursor after the last message', async () => {
@@ -251,7 +251,7 @@ describe('read_session with a cursor', () => {
 
 test('retry keys reach both orchestration commands', async () => {
   calls.length = 0
-  await sessionTools.executeSessionTool('send_session', { session_id: 'thread-peer', message: 'retry me', request_id: 'send-1' }, deps())
+  await sessionTools.executeSessionTool('send_session', { session_id: 'solus-peer', message: 'retry me', request_id: 'send-1' }, deps())
   expect(calls[0]!.args[2]).toMatchObject({ requestId: 'send-1', waitMs: 0, notify: true })
   await sessionTools.executeSessionTool('start_session', { ...start, task: 'none', request_id: 'start-1' }, deps())
   expect(calls[1]!.args[4]).toBe('start-1')
@@ -275,45 +275,25 @@ test('coordination guidance is loaded with the start tool', () => {
   expect(sessionTools.startSessionAgentTool.description).toContain('native subagent')
 })
 
-test('an accepted creation names its exchange without treating the pending card ID as a live session', async () => {
+// WHY: a session's id is chosen before its provider starts, so a receipt
+// accepted during startup already names the session a reloaded card opens. It
+// links nothing yet: there is no transcript to open until the provider starts.
+test('an accepted creation names its session and exchange, and links no transcript yet', async () => {
   startingReceipt = true
   try {
     const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'none' }, deps())
     expect(result.ok).toBe(true)
-    expect(result.text).toContain('Accepted session creation')
     expect(result.text).toContain('Startup continues in the background')
     expect(result.text).toContain('read_session_exchange with exchange_id=m-created')
     expect(result.text).not.toContain('session://open')
-    expect(reloaded('start_session', result.text)).toMatchObject({ agentSessionId: 'pending:m-created', messageId: 'm-created' })
-  } finally { startingReceipt = false }
-})
-
-// WHY: the receipt keeps the pending id forever, but the card rebuilt from it
-// must reach the session that started — or it reads "Starting" and cannot open.
-test('a reloaded pending receipt names the session its exchange started, and a start with no session stays pending', async () => {
-  startingReceipt = true
-  try {
-    const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'none' }, deps())
-    const rows = (receipt: string): WireSessionLoadMessage[] => projection.projectSessionHistory([
-      { role: 'tool', toolName: 'start_session', toolId: 't1', content: '', timestamp: 1 },
-      { role: 'tool_result', toolResultForId: 't1', content: receipt, timestamp: 2 },
-    ])
-    const unstarted = await projection.resolvePendingStarts('local', rows(result.text))
-    expect(unstarted[1]!.agentConversationResult).toMatchObject({ agentSessionId: 'pending:m-created', messageId: 'm-created' })
-
-    const { upsertOwnSessionRecord } = await import('@solus/server/data/sessions/session-records')
-    await upsertOwnSessionRecord({
-      sessionId: 'thread-started', provider: 'codex', projectPath: '-repo', lastActivityAt: 1,
-      delegation: { messageId: 'm-created', depth: 1, intent: 'delegate', createdAt: 1 },
-    })
-    const started = await projection.resolvePendingStarts('local', rows(result.text))
-    expect(started[1]!.agentConversationResult).toMatchObject({ agentSessionId: 'thread-started', messageId: 'm-created' })
+    expect(result.text).toContain('Accepted session solus-child')
+    expect(reloaded('start_session', result.text)).toMatchObject({ sessionId: 'solus-child', messageId: 'm-created' })
   } finally { startingReceipt = false }
 })
 
 test('a startup failure received during an explicit wait is included in the pending receipt', async () => {
   startingReceipt = true
-  startupOutcome = { type: 'report', report: { messageId: 'm-created', agentSessionId: 'pending:m-created', status: 'failed', outputs: [], reply: 'Provider unavailable' } }
+  startupOutcome = { type: 'report', report: { messageId: 'm-created', sessionId: 'solus-child', status: 'failed', outputs: [], reply: 'Provider unavailable' } }
   try {
     const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'none', wait_seconds: 10 }, deps())
     expect(result.text).toContain('Provider startup ended')

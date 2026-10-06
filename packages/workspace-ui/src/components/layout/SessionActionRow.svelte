@@ -103,7 +103,7 @@
     hasAgentSession && !isRunning && !sess?.run.gitContext?.worktreePath,
   );
   const isPinned = $derived(
-    sidebarStore.isPinned(sess?.agentSessionId, sess?.run.serverId),
+    sidebarStore.isPinned(sess?.id, sess?.run.serverId),
   );
 
   // ── Review changes (background generation) ──

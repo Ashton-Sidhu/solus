@@ -133,8 +133,11 @@ function input(): SessionRunInput {
 }
 
 describe.serial('SessionRuntime.promptSession cold start', () => {
-  for (const targetId of ['solus-target', 'thread-1']) {
-    test(`resumes the same provider thread after restart when addressed as ${targetId}`, async () => {
+  // One session id (docs/plans/session-identity.md): the target is named by
+  // its session id; the provider thread is only what resumes.
+  {
+    const targetId = 'solus-target'
+    test('resumes the same provider thread after restart', async () => {
       const backend = new Backend()
       const original = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
       original.on('error', () => {})
@@ -167,9 +170,9 @@ describe.serial('SessionRuntime.promptSession cold start', () => {
               && event.update.phase === 'settled') resolve(event)
           })
         })
-        // A follow-up addressed the same way waits behind the resumed turn and
-        // settles on the sender's card under the id the sender named.
-        const sent = await orchestrator.send('thread-2', targetId, { prompt: 'and then', delivery: 'queue', notify: false })
+        // A follow-up waits behind the resumed turn and settles on the sender's
+        // card under the target's session id.
+        const sent = await orchestrator.send('solus-caller', targetId, { prompt: 'and then', delivery: 'queue', notify: false })
         expect(sent.disposition).toBe('queued')
         resumedBackend.complete('thread-1')
         // Event-loop turns, not wall-clock time: the follow-up starts once the first turn has exited.
@@ -179,14 +182,14 @@ describe.serial('SessionRuntime.promptSession cold start', () => {
         resumedBackend.complete('thread-1')
         expect(await settled).toMatchObject({
           type: 'agent_conversation_update',
-          update: { phase: 'settled', agentSessionId: targetId, messageId: sent.exchangeId, status: 'completed', replyText: 'done' },
+          update: { phase: 'settled', sessionId: targetId, messageId: sent.exchangeId, status: 'completed', replyText: 'done' },
         })
       } finally {
         resumed.shutdown()
       }
     })
 
-    test(`queues on the active session with its reply route using ${targetId}`, async () => {
+    test('queues on the active session with its reply route', async () => {
       const backend = new Backend()
       const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
       plane.on('error', () => {})
@@ -203,10 +206,10 @@ describe.serial('SessionRuntime.promptSession cold start', () => {
         })
         await caller.agentSessionId
 
-        const result = await orchestrator.send('thread-2', targetId, { prompt: 'follow up', delivery: 'queue', notify: false })
+        const result = await orchestrator.send('solus-caller', targetId, { prompt: 'follow up', delivery: 'queue', notify: false })
         expect(result.disposition).toBe('queued')
         expect(backend.requests).toHaveLength(2)
-        await expect(orchestrator.send('thread-1', 'solus-target', { prompt: 'self', delivery: 'queue', notify: false }))
+        await expect(orchestrator.send('solus-target', 'solus-target', { prompt: 'self', delivery: 'queue', notify: false }))
           .rejects.toThrow('Cannot message your own session.')
       } finally {
         plane.shutdown()
@@ -231,7 +234,7 @@ describe.serial('SessionRuntime.promptSession cold start', () => {
       backend.complete('thread-1')
       await created.done
 
-      await plane.dispatch.promptSession('thread-1', 'follow up on that')
+      await plane.dispatch.promptSession('solus-created', 'follow up on that')
 
       expect(backend.requests).toHaveLength(2)
       expect(backend.requests[1].permissionMode).toBe('full-access')
@@ -255,7 +258,7 @@ describe.serial('SessionRuntime.promptSession cold start', () => {
       backend.complete('thread-1')
       await created.done
 
-      await plane.dispatch.promptSession('thread-1', 'review this', 'queue', { permissionMode: 'plan' })
+      await plane.dispatch.promptSession('solus-created-2', 'review this', 'queue', { permissionMode: 'plan' })
 
       expect(backend.requests[1].permissionMode).toBe('plan')
     } finally {

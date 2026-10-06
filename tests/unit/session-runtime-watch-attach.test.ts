@@ -33,6 +33,9 @@ beforeAll(async () => {
 afterEach(() => {
   metricsDb.closeMetricsDb()
   db.closeDb()
+  // Each test's backend names its first thread thread-1; a thread registered by
+  // an earlier test would belong to that test's session.
+  for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
 })
 
 afterAll(() => {
@@ -140,7 +143,7 @@ describe.serial('SessionRuntime watchSession runtime attach', () => {
       expect(await plane.inputRequests.respondToQuestion('async-steer-session', 'codex-async:thread-1:steer-question', { '0': 'pnpm' }, HOST_ACTOR)).toBe(true)
       expect(backend.steeredPrompts).toEqual(['Which package?\npnpm'])
       expect(backend.starts).toBe(1)
-      expect(plane.statuses.liveSessionStatus('thread-1')).toBe('running')
+      expect(plane.statuses.liveSessionStatus('async-steer-session')).toBe('running')
       backend.complete('thread-1')
       await lifecycle.done
     } finally { plane.shutdown() }
@@ -169,19 +172,19 @@ describe.serial('SessionRuntime watchSession runtime attach', () => {
       expect(question?.type).toBe('question_request')
       if (question?.type !== 'question_request') throw new Error('Codex async question was not normalized')
       backend.emit('normalized', 'thread-1', question)
-      expect(plane.statuses.liveSessionStatus('thread-1')).toBe('running')
+      expect(plane.statuses.liveSessionStatus('async-question-session')).toBe('running')
       expect(plane.attention.get('thread-1')?.kind).toBe('question')
-      expect(plane.watchers.watchSession({ sessionId: 'async-question-session', agentSessionId: 'thread-1' }, 'first').pendingQuestions)
+      expect(plane.watchers.watchSession({ sessionId: 'async-question-session'}, 'first').pendingQuestions)
         .toEqual([{ questionId: question.questionId, questions: question.questions, responseMode: 'message' }])
 
       backend.complete('thread-1')
       await lifecycle.done
       expect(plane.attention.get('thread-1')?.kind).toBe('question')
-      expect(plane.watchers.watchSession({ sessionId: 'async-question-session', agentSessionId: 'thread-1', attachRuntime: true }, 'second'))
+      expect(plane.watchers.watchSession({ sessionId: 'async-question-session', attachRuntime: true }, 'second'))
         .toMatchObject({ runtime: null, pendingQuestions: [{ questionId: question.questionId }] })
       expect(await plane.inputRequests.respondToQuestion('async-question-session', question.questionId, { '0': 'pnpm' }, HOST_ACTOR)).toBe(true)
       expect(backend.starts).toBe(2)
-      expect(plane.watchers.watchSession({ sessionId: 'async-question-session', agentSessionId: 'thread-1' }, 'third').pendingQuestions)
+      expect(plane.watchers.watchSession({ sessionId: 'async-question-session'}, 'third').pendingQuestions)
         .toBeUndefined()
       expect(events).toContainEqual(expect.objectContaining({
         type: 'question_answered', answer: expect.objectContaining({ questionId: question.questionId }),
@@ -234,14 +237,13 @@ describe.serial('SessionRuntime watchSession runtime attach', () => {
     await lifecycle.agentSessionId
     await Promise.resolve()
 
-    const plainWatch = plane.watchers.watchSession({ sessionId: 'solus-watch-attach', agentSessionId: 'thread-1' }, 'client-plain')
-    expect(plainWatch).toEqual({ sessionId: 'solus-watch-attach' })
+    const plainWatch = plane.watchers.watchSession({ sessionId: 'solus-watch-attach'}, 'client-plain')
+    expect(plainWatch).toEqual({})
 
     const attached = plane.watchers.watchSession(
-      { sessionId: 'solus-watch-attach', agentSessionId: 'thread-1', attachRuntime: true },
+      { sessionId: 'solus-watch-attach', attachRuntime: true },
       'client-attached',
     )
-    expect(attached.sessionId).toBe('solus-watch-attach')
     expect(attached.runtime).toMatchObject({
       status: 'running',
       permissionMode: 'supervised',
@@ -253,7 +255,7 @@ describe.serial('SessionRuntime watchSession runtime attach', () => {
     backend.complete('thread-1')
     await lifecycle.done
     const afterExit = plane.watchers.watchSession(
-      { sessionId: 'solus-watch-attach', agentSessionId: 'thread-1', attachRuntime: true },
+      { sessionId: 'solus-watch-attach', attachRuntime: true },
       'client-late',
     )
     // Asked and answered: no runtime is a null, never an absent field.
@@ -278,7 +280,7 @@ describe.serial('SessionRuntime watchSession runtime attach', () => {
       backend.emit('normalized', 'thread-1', { type: 'text_chunk', text: 'Complete.\n\nPartial' })
       plane.watchers.unwatchSession('reconnect-text', 'first')
       events.length = 0
-      plane.watchers.watchSession({ sessionId: 'reconnect-text', agentSessionId: 'thread-1', attachRuntime: true }, 'second')
+      plane.watchers.watchSession({ sessionId: 'reconnect-text', attachRuntime: true }, 'second')
       expect(events.filter(item => item.event.type === 'text_chunk')).toEqual([
         { event: { type: 'text_chunk', text: 'Complete.\n\n', streaming: true }, only: 'second' },
       ])

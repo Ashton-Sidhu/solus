@@ -21,6 +21,7 @@ import {
   replaceIndexedPlansForProvider,
   type IndexedPlanInput,
 } from '../../../plans/plan-index'
+import { activeThreadOf } from '../../../data/sessions/session-lineage'
 import { createLogger } from '../../../logger'
 import { recordOtelDuration } from '../../../otel'
 import { resolveHomePath } from '../../../platform/paths'
@@ -251,8 +252,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     const adaptedTools = adaptClaudeTools(request.tools, {
       provider: 'claude-code',
       cwd: resolveHomePath(request.cwd),
-      sessionId: () => handle.agentSessionId ?? sessionRef.current ?? undefined,
-      solusSessionId: () => handle.sessionId,
+      sessionId: () => handle.sessionId,
       abortSignal: abortController.signal,
       parentToolUseId: () => undefined,
       emit: (event) => this.emit('normalized', handle.agentSessionId, event),
@@ -260,19 +260,23 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
 
     this.pendingRuns.push(handle)
     void (async () => {
-      const prepareSnapshots = async (providerSessionId: string) => {
+      // Snapshots belong to the session, not to one provider thread
+      // (docs/plans/session-identity.md), so a provider switch keeps its turns.
+      const prepareSnapshots = async () => {
+        const snapshotSessionId = handle.sessionId
+        if (!snapshotSessionId) return
         const repoRoot = await resolveRepoRoot(workTree)
         if (!repoRoot) return
         const head = await getHeadCommit(workTree)
         if (!head) return
-        await initSessionBase(repoRoot, providerSessionId, head)
-        await prepareTurnSnapshot(workTree, repoRoot, providerSessionId)
+        await initSessionBase(repoRoot, snapshotSessionId, head)
+        await prepareTurnSnapshot(workTree, repoRoot, snapshotSessionId)
       }
       const resumeSessionAt = conversation.kind === 'fork' && conversation.excludeLatestTurn && sessionId
         ? await this.forkResumeId(sessionId, request.cwd)
         : null
       if (request.persistence === 'session' && sessionId && conversation.kind === 'resume') {
-        await prepareSnapshots(sessionId)
+        await prepareSnapshots()
       }
       const { events, result, stopTask } = this.agent.run({
         prompt: handle.input,
@@ -304,10 +308,10 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         onSessionInit: request.persistence === 'session'
           ? prepareSnapshots
           : undefined,
-        onTurnComplete: request.persistence === 'session' ? async (sid, snapOpts) => {
+        onTurnComplete: request.persistence === 'session' ? async (_threadId, snapOpts) => {
           const repoRoot = await resolveRepoRoot(workTree)
-          if (!repoRoot) return null
-          const result = await snapshotTurn(workTree, repoRoot, sid, {
+          if (!repoRoot || !handle.sessionId) return null
+          const result = await snapshotTurn(workTree, repoRoot, handle.sessionId, {
             ...snapOpts,
             traceId: sessionState?.turnTraceId,
             sessionChangedFiles: [...new Set([...(sessionState?.changedFiles ?? []), ...snapOpts.editedFiles])],
@@ -573,6 +577,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
           indexedPlans.push({
             provider: 'claude-code',
             sessionId: plan.sessionId,
+            threadId: plan.threadId,
             planToolUseId: plan.planToolUseId,
             projectPath: plan.projectPath,
             cwd: resolveHomePath(plan.cwd),
@@ -636,7 +641,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
   async loadPlanContent(sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null> {
     const indexed = await loadIndexedPlanContent(ANY_ORGANIZATION, 'claude-code', sessionId, planToolUseId)
     if (indexed !== null) return indexed
-    const filePath = this.sessionFilePath(sessionId, projectPath)
+    const filePath = this.sessionFilePath(activeThreadOf(sessionId) ?? sessionId, projectPath)
     if (!filePath) return null
 
     let content: string | null = null

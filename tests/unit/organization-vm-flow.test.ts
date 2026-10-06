@@ -128,35 +128,35 @@ describe('an organization run on a VM, through the real Solus API', () => {
     const delivery = new RunnerDelivery({ link: () => link, delegations, linker: () => 'alice' })
     delivery.start()
     try {
-      outbox.queueSessionReport({ organizationId: 'org_a', actorUserId: 'bob' }, { sessionId: 'thread-flow', provider: 'codex', projectPath: '-repo', lastActivityAt: Date.now(), title: 'Ship it', ownerUserId: 'mallory', admissionId: 'solus-flow' })
-      delegations.bindRecord('solus-flow', 'thread-flow')
-      const actor = delegations.actorOf('thread-flow')
+      // The record is keyed by the session id the admission accepted, not by the provider thread.
+      outbox.queueSessionReport({ organizationId: 'org_a', actorUserId: 'bob' }, { sessionId: 'solus-flow', provider: 'codex', projectPath: '-repo', lastActivityAt: Date.now(), title: 'Ship it', ownerUserId: 'mallory', admissionId: 'solus-flow' })
+      const actor = delegations.actorOf('solus-flow')
       expect(actor).toEqual({ userId: 'bob', organizationId: 'org_a' })
       const operations = remoteWorkspaceOperations(delegations.apiClient(actor!.userId, actor!.organizationId), (recordId) => delivery.deliverSessionReport(recordId))
 
       // 3. The agent's writes go to the API as Bob, synchronously; the parent session is there by then.
       const context = { principal: { kind: 'system' as const }, home: { kind: 'local' as const, hostId: 'unused' }, scopes: [] }
-      const task = await operations.createTask(context, { title: 'From the VM', originSessionId: 'thread-flow' }, randomUUID())
+      const task = await operations.createTask(context, { title: 'From the VM', originSessionId: 'solus-flow' }, randomUUID())
       expect(task).toMatchObject({ title: 'From the VM', organizationId: 'org_a', ownerUserId: 'bob', source: 'agent', home: { kind: 'organization', organizationId: 'org_a' } })
       expect(await operations.getTask(context, task.id)).toMatchObject({ id: task.id })
       const moved = await operations.updateTask(context, task.id, { status: 'in_review' }, task.version)
       expect(moved.status).toBe('in_review')
-      const work = await operations.createWork(context, { title: 'VM notes', type: 'doc', content: '# Notes about the rollout plan', originSessionId: 'thread-flow' }, randomUUID())
+      const work = await operations.createWork(context, { title: 'VM notes', type: 'doc', content: '# Notes about the rollout plan', originSessionId: 'solus-flow' }, randomUUID())
       expect((await operations.getWork(context, work.id)).content).toBe('# Notes about the rollout plan')
       // Content search answers where the works live, for the works Bob may open.
       expect((await operations.searchWorks(context, { q: 'rollout' })).items.map((hit) => hit.id)).toEqual([work.id])
       expect((await operations.searchWorks(context, { q: 'nothing-like-this' })).items).toEqual([])
       // An import is read with Bob's own account connection on the API; with none connected it says so and creates nothing.
-      await expect(operations.importWork(context, { url: 'https://example.atlassian.net/wiki/spaces/ENG/pages/1/Plan', originSessionId: 'thread-flow' }, randomUUID())).rejects.toMatchObject({ status: 400 })
+      await expect(operations.importWork(context, { url: 'https://example.atlassian.net/wiki/spaces/ENG/pages/1/Plan', originSessionId: 'solus-flow' }, randomUUID())).rejects.toMatchObject({ status: 400 })
       expect((await operations.searchWorks(context, { q: 'ENG' })).items).toEqual([])
       // Publishing and pulling happen where the work lives, and say why they cannot.
       await expect(operations.publishWork(context, work.id, {})).rejects.toMatchObject({ status: 400, message: expect.stringContaining('never been published') })
       await expect(operations.pullWorkUpstream(context, work.id)).rejects.toMatchObject({ status: 400, message: expect.stringContaining('not linked to an upstream document') })
 
       // 4. The API's record of the session: owned by Bob from the admission, never by the report or the linker.
-      expect(await records.getSessionRecord('org_a', 'thread-flow')).toMatchObject({ ownerUserId: 'bob', runnerHostId: VM, title: 'Ship it' })
+      expect(await records.getSessionRecord('org_a', 'solus-flow')).toMatchObject({ ownerUserId: 'bob', runnerHostId: VM, title: 'Ship it' })
       const shares = new shareManager.ShareManager({ db: database.getDatabase() })
-      expect(await shares.ownerOf({ kind: 'session', id: 'thread-flow' })).toBe('bob')
+      expect(await shares.ownerOf({ kind: 'session', id: 'solus-flow' })).toBe('bob')
       expect(await shares.ownerOf({ kind: 'task', id: task.id })).toBe('bob')
       // WHY: nothing was asked of the account plane per prompt or per write — one exchange, no refresh yet.
       expect(tokenRequests).toEqual([{ grantType: TOKEN_EXCHANGE_GRANT_TYPE, organizationId: 'org_a' }])

@@ -33,7 +33,6 @@ function toolContext(sessionId: string) {
   return {
     cwd: process.cwd(),
     sessionId: () => sessionId,
-    solusSessionId: () => sessionId,
     emit: () => {},
   } as never
 }

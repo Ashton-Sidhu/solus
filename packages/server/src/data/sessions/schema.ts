@@ -110,6 +110,8 @@ export const sessionStates = defineTable('session_states', {
   snooze_note: text(),
   /** The last prompt the session received. */
   last_prompt_at: bigint(),
+  /** When the session was last read, so every client agrees on what is unread. */
+  viewed_at: bigint(),
   /**
    * The execution preferences the session's last run carried
    * (`ExecutionPreferences`; plans/018 §6): what a follow-up nobody typed runs

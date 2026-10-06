@@ -38,7 +38,7 @@ async function runOnce(automation: Automation): Promise<ExecutionPreferences | u
   let seen: ExecutionPreferences | undefined
   runner.setAutomationBackgroundSessionDispatcher(async (options) => {
     seen = options.executionPreferences
-    return { agentSessionId: `run-${Date.now()}`, done: Promise.resolve({ output: 'ok' }) }
+    return { sessionId: `run-${Date.now()}`, done: Promise.resolve({ output: 'ok' }) }
   })
   const run = await runner.triggerAutomationRun(automation)
   for (let i = 0; i < 50 && runner.hasActiveRun(automation.id); i++) await new Promise((resolve) => setTimeout(resolve, 1))

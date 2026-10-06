@@ -21,7 +21,6 @@ import {
   type TaskRow,
 } from './task-store'
 import { deleteSessionLink, taskSessions, writeSessionLink, type SessionLinkDetails } from './task-sessions'
-import { stableSessionIdForProviderThread } from '../sessions/session-lineage'
 import { linkSessionPullRequest, unlinkSessionPullRequest } from '../sessions/session-pull-requests'
 import { reopenSessionsSettledByTask, settleSession } from '../sessions/session-states'
 import { scopeClause } from '../scope'
@@ -214,17 +213,13 @@ export class Task implements TaskRecord {
   }
 
   /** Resolve the task that owns a session before invoking task-owned domain
-   * operations such as `linkPullRequest`. Accepts either session id: agent
-   * tools carry the provider thread id, while the attempt row is keyed on the
-   * stable Solus id once the session enters a lineage, so asking with the raw
-   * id alone silently found nothing and the artifact stayed unlinked. */
+   * operations such as `linkPullRequest`. */
   static async forSession(scope: RecordScope, sessionId: string): Promise<Task | null> {
-    const stableSessionId = stableSessionIdForProviderThread(sessionId) ?? sessionId
     const parsed = taskIdRowSchema.safeParse(await database().get(sql`
       SELECT task_id
       FROM ${taskSessionLinks}
       WHERE ${scopeClause(scope, sql`task_session_links.organization_id`)}
-        AND task_session_links.session_id IN (${sessionId}, ${stableSessionId})
+        AND task_session_links.session_id = ${sessionId}
       ORDER BY CASE task_session_links.role WHEN 'working' THEN 0 ELSE 1 END,
         task_session_links.linked_at DESC
       LIMIT 1
@@ -232,7 +227,7 @@ export class Task implements TaskRecord {
     if (!parsed.success) {
       // A task-free session is ordinary, so this is not a warning. It is the
       // only trace a missed artifact link leaves, so it must be greppable.
-      log.debug('task_for_session_unresolved', { sessionId, stableSessionId })
+      log.debug('task_for_session_unresolved', { sessionId })
       return null
     }
     return Task.byId(scope, parsed.data.task_id)
@@ -250,18 +245,17 @@ export class Task implements TaskRecord {
     sessionId: string,
     input: Omit<TaskLinkInput, 'automatic' | 'originSessionId'>,
   ): Promise<TaskDetails | null> {
-    const stableSessionId = stableSessionIdForProviderThread(sessionId) ?? sessionId
     const owner = z.object({ task_id: z.string(), session_id: z.string() }).nullish().parse(await database().get(sql`
       SELECT task_id, session_id
       FROM ${taskSessionLinks}
       WHERE ${scopeClause(scope, sql`task_session_links.organization_id`)}
-        AND task_session_links.session_id IN (${sessionId}, ${stableSessionId})
+        AND task_session_links.session_id = ${sessionId}
         AND task_session_links.role <> 'referenced'
       ORDER BY task_session_links.linked_at DESC
       LIMIT 1
     `))
     if (!owner) {
-      log.debug('task_for_session_unresolved', { sessionId, stableSessionId })
+      log.debug('task_for_session_unresolved', { sessionId })
       return null
     }
     const task = await Task.byId(scope, owner.task_id)
@@ -372,11 +366,10 @@ export class Task implements TaskRecord {
    * does not work on this task: the link then belongs on the task itself.
    */
   async linkWorkingSessionPullRequest(sessionId: string, input: { url: string; title?: string }, by: Attribution): Promise<boolean> {
-    const stableSessionId = stableSessionIdForProviderThread(sessionId) ?? sessionId
     const works = ((await taskSessions(this.#organizationId, this.id))[this.id] ?? []).some((link) =>
-      link.role !== 'referenced' && (link.sessionId === sessionId || link.sessionId === stableSessionId))
+      link.role !== 'referenced' && link.sessionId === sessionId)
     if (!works) return false
-    await linkSessionPullRequest(stableSessionId, { ...input, source: 'agent', by })
+    await linkSessionPullRequest(sessionId, { ...input, source: 'agent', by })
     return true
   }
 

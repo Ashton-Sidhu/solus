@@ -31,8 +31,7 @@ describe('Codex dynamic tool adapter', () => {
     const context: AgentToolContext = {
       provider: 'codex',
       cwd: '/repo',
-      sessionId: () => 'provider-session',
-      solusSessionId: () => 'solus-session',
+      sessionId: () => 'solus-session',
       parentToolUseId: () => undefined,
       abortSignal: new AbortController().signal,
       emit: () => {},

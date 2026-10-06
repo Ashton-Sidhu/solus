@@ -38,7 +38,7 @@ const everyOutput: SessionOutput[] = [
 const report: SessionReport = {
   messageId: '22222222-2222-4222-8222-222222222222',
   alsoMessageIds: ['33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444'],
-  agentSessionId: child,
+  sessionId: child,
   taskId: 'task-1',
   provider: 'claude-code',
   status: 'completed',
@@ -71,7 +71,7 @@ describe('session report v2', () => {
   })
 
   test('older reports without an exchange ID retain a usable transcript hint', () => {
-    const text = formatSessionReport({ agentSessionId: child, status: 'completed', outputs: [], reply: 'x'.repeat(ORCHESTRATION_LIMITS.reply + 1) })
+    const text = formatSessionReport({ sessionId: child, status: 'completed', outputs: [], reply: 'x'.repeat(ORCHESTRATION_LIMITS.reply + 1) })
     expect(text).toContain('read_session for the full reply')
     expect(text).not.toContain('exchange_id=undefined')
   })
@@ -96,7 +96,7 @@ describe('session report v2', () => {
 })
 
 describe('session notice v1', () => {
-  const target = { messageId: 'm1', agentSessionId: child, taskId: 'task-1', provider: 'codex' as const }
+  const target = { messageId: 'm1', sessionId: child, taskId: 'task-1', provider: 'codex' as const }
   const notices: SessionNotice[] = [
     { ...target, kind: 'question', questionId: 'q1', questions: [{ question: 'Which "database"?', options: ['SQLite', 'Postgres, managed'] }, { question: 'Now?', options: [] }] },
     { ...target, kind: 'plan', title: 'Split the store', planToolUseId: 'toolu_9', questionId: 'plan-q' },
@@ -129,7 +129,7 @@ describe('session notice v1', () => {
 
 describe('the prompt a parent receives', () => {
   test('carries reports and notices together, in order', () => {
-    const notice: SessionNotice = { agentSessionId: child, kind: 'rate_limited' }
+    const notice: SessionNotice = { sessionId: child, kind: 'rate_limited' }
     const second: SessionReport = { ...report, messageId: 'm2', status: 'failed', outputs: [], reply: '' }
     expect(round([{ type: 'report', report }, { type: 'notice', notice }, { type: 'report', report: second }])).toEqual([
       { type: 'report', report }, { type: 'notice', notice }, { type: 'report', report: second },
@@ -152,7 +152,7 @@ describe('the prompt a parent receives', () => {
 
 describe('exchange tag on a tool result', () => {
   test('names the message, the session and its provider', () => {
-    const tag = { messageId: 'm1', agentSessionId: 's1', provider: 'codex' as const }
+    const tag = { messageId: 'm1', sessionId: 's1', provider: 'codex' as const }
     expect(parseExchangeTag(`Prompt dispatched to [s1](session://open?sessionId=zzz).\n${formatExchangeTag(tag)}`)).toEqual(tag)
   })
 

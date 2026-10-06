@@ -46,23 +46,22 @@ export function isTransientDeliveryError(error: Error): boolean {
 }
 
 export interface ParentDeliveryRuntime {
-  sessionIdFor(id: string): string | undefined
   promptSession(
-    agentSessionId: string,
+    sessionId: string,
     prompt: string,
     delivery: PromptDelivery,
-    order: { via: 'session-report'; agentSessionId: string; agentMessageId: string; exchangeIds?: string[]; reportExchangeIds?: string[] },
+    order: { via: 'session-report'; exchangeIds?: string[]; reportExchangeIds?: string[] },
   ): Promise<{ disposition: 'started' | 'steered' | 'queued'; queueId?: string }>
   replaceQueuedPrompt(sessionId: string, queueId: string, text: string, reportExchangeIds?: string[], exchangeIds?: string[]): boolean
   hasQueuedPrompt(sessionId: string, queueId: string): boolean
-  cancelQueuedPrompt(agentSessionId: string, queueId: string): boolean
+  cancelQueuedPrompt(sessionId: string, queueId: string): boolean
   trackWork<T>(work: Promise<T>): Promise<T>
 }
 
 export interface DeliveryEntry {
   item: OrchestrationItem
   exchangeId: string
-  targetAgentSessionId: string
+  targetSessionId: string
   /** Names a notice so it can be withdrawn while it still waits. Reports have none. */
   noticeKey?: string
   continuationExchangeIds?: string[]
@@ -77,9 +76,9 @@ interface Outbox {
 }
 
 export class ParentDelivery {
-  /** Parent provider thread → the prompt waiting in its queue. */
+  /** Parent session → the prompt waiting in its queue. */
   private readonly outboxes = new Map<string, Outbox>()
-  /** Parent provider thread → reports held until the parent is woken. */
+  /** Parent session → reports held until the parent is woken. */
   private readonly held = new Map<string, DeliveryEntry[]>()
   private readonly chains = new Map<string, Promise<void>>()
 
@@ -90,129 +89,125 @@ export class ParentDelivery {
   ) {}
 
   /** Reattach reports to an existing held queue entry; never enqueue a copy. */
-  restore(parentAgentSessionId: string, queueId: string, entries: DeliveryEntry[]): void {
-    this.outboxes.set(parentAgentSessionId, { queueId, entries })
+  restore(parentSessionId: string, queueId: string, entries: DeliveryEntry[]): void {
+    this.outboxes.set(parentSessionId, { queueId, entries })
   }
 
   /** Puts an item in front of the parent. `entry` may still be resolving its
    *  facts, and resolves to null when the parent is not to hear it; items
    *  reach the parent in the order they were delivered. */
-  deliver(parentAgentSessionId: string, entry: DeliveryEntry | null | Promise<DeliveryEntry | null>): void {
-    this.serialize(parentAgentSessionId, async () => {
+  deliver(parentSessionId: string, entry: DeliveryEntry | null | Promise<DeliveryEntry | null>): void {
+    this.serialize(parentSessionId, async () => {
       const resolved = await entry
       if (!resolved) return
       if (resolved.hold) {
-        this.held.set(parentAgentSessionId, [...this.held.get(parentAgentSessionId) ?? [], resolved])
-        log.info('session_report_held', { parentAgentSessionId, exchangeId: resolved.exchangeId })
+        this.held.set(parentSessionId, [...this.held.get(parentSessionId) ?? [], resolved])
+        log.info('session_report_held', { parentSessionId, exchangeId: resolved.exchangeId })
         return
       }
-      await this.putOrRetry(parentAgentSessionId, [...this.takeHeld(parentAgentSessionId), resolved], 0)
+      await this.putOrRetry(parentSessionId, [...this.takeHeld(parentSessionId), resolved], 0)
     })
   }
 
   /** Wakes the parent with the reports held for it, if any. */
-  release(parentAgentSessionId: string): void {
-    this.serialize(parentAgentSessionId, async () => {
-      const entries = this.takeHeld(parentAgentSessionId)
-      if (entries.length) await this.putOrRetry(parentAgentSessionId, entries, 0)
+  release(parentSessionId: string): void {
+    this.serialize(parentSessionId, async () => {
+      const entries = this.takeHeld(parentSessionId)
+      if (entries.length) await this.putOrRetry(parentSessionId, entries, 0)
     })
   }
 
   /** Forgets the reports held for a parent that stopped waiting. */
-  dropHeld(parentAgentSessionId: string): void {
-    this.serialize(parentAgentSessionId, async () => {
-      const dropped = this.takeHeld(parentAgentSessionId)
+  dropHeld(parentSessionId: string): void {
+    this.serialize(parentSessionId, async () => {
+      const dropped = this.takeHeld(parentSessionId)
       this.recordDelivery(reportIds(dropped), 'disposed')
-      if (dropped.length) log.info('session_reports_dropped', { parentAgentSessionId, items: dropped.length })
+      if (dropped.length) log.info('session_reports_dropped', { parentSessionId, items: dropped.length })
     })
   }
 
   /** Takes a notice back out of the parent's waiting prompt. A notice the parent
    *  already read stays read; the report that follows says how it ended. */
-  withdraw(parentAgentSessionId: string, noticeKey: string): void {
-    this.serialize(parentAgentSessionId, async () => {
-      const outbox = this.waitingOutbox(parentAgentSessionId)
+  withdraw(parentSessionId: string, noticeKey: string): void {
+    this.serialize(parentSessionId, async () => {
+      const outbox = this.waitingOutbox(parentSessionId)
       if (!outbox || !outbox.entries.some((entry) => entry.noticeKey === noticeKey)) return
       const entries = outbox.entries.filter((entry) => entry.noticeKey !== noticeKey)
       if (entries.length === 0) {
-        if (this.runtime.cancelQueuedPrompt(parentAgentSessionId, outbox.queueId)) this.outboxes.delete(parentAgentSessionId)
-      } else if (this.runtime.replaceQueuedPrompt(this.runtime.sessionIdFor(parentAgentSessionId)!, outbox.queueId, promptFor(entries), reportIds(entries), continuationIds(entries))) {
+        if (this.runtime.cancelQueuedPrompt(parentSessionId, outbox.queueId)) this.outboxes.delete(parentSessionId)
+      } else if (this.runtime.replaceQueuedPrompt(parentSessionId, outbox.queueId, promptFor(entries), reportIds(entries), continuationIds(entries))) {
         outbox.entries = entries
       }
-      log.info('session_notice_withdrawn', { parentAgentSessionId, noticeKey, remaining: entries.length })
+      log.info('session_notice_withdrawn', { parentSessionId, noticeKey, remaining: entries.length })
     })
   }
 
   /** Reports that wait in the parent's queue, by the exchange they settle. */
-  waitingReports(parentAgentSessionId: string): Array<{ exchangeId: string; targetAgentSessionId: string }> {
-    const entries = [...this.held.get(parentAgentSessionId) ?? [], ...this.waitingOutbox(parentAgentSessionId)?.entries ?? []]
-    return entries.filter((entry) => entry.item.type === 'report').map(({ exchangeId, targetAgentSessionId }) => ({ exchangeId, targetAgentSessionId }))
+  waitingReports(parentSessionId: string): Array<{ exchangeId: string; targetSessionId: string }> {
+    const entries = [...this.held.get(parentSessionId) ?? [], ...this.waitingOutbox(parentSessionId)?.entries ?? []]
+    return entries.filter((entry) => entry.item.type === 'report').map(({ exchangeId, targetSessionId }) => ({ exchangeId, targetSessionId }))
   }
 
   /** Puts `entries`, and schedules the next try when a transient error stops it. */
-  private async putOrRetry(parentAgentSessionId: string, entries: DeliveryEntry[], attempt: number): Promise<void> {
+  private async putOrRetry(parentSessionId: string, entries: DeliveryEntry[], attempt: number): Promise<void> {
     try {
-      await this.put(parentAgentSessionId, entries)
+      await this.put(parentSessionId, entries)
     } catch (error) {
       const delayMs = DELIVERY_RETRY_DELAYS_MS[attempt]
       if (delayMs === undefined || !(error instanceof Error) || !isTransientDeliveryError(error)) throw error
-      log.warn('session_report_retry_scheduled', { parentAgentSessionId, attempt: attempt + 1, delayMs, error: String(error) })
-      this.schedule(delayMs, () => this.serialize(parentAgentSessionId, () => this.putOrRetry(parentAgentSessionId, entries, attempt + 1)))
+      log.warn('session_report_retry_scheduled', { parentSessionId, attempt: attempt + 1, delayMs, error: String(error) })
+      this.schedule(delayMs, () => this.serialize(parentSessionId, () => this.putOrRetry(parentSessionId, entries, attempt + 1)))
     }
   }
 
   /** Merges `entries` into the parent's waiting prompt, or wakes it with them. */
-  private async put(parentAgentSessionId: string, entries: DeliveryEntry[]): Promise<void> {
+  private async put(parentSessionId: string, entries: DeliveryEntry[]): Promise<void> {
     const last = entries.at(-1)!
-    const outbox = this.waitingOutbox(parentAgentSessionId)
+    const outbox = this.waitingOutbox(parentSessionId)
     if (outbox) {
-      const parentSessionId = this.runtime.sessionIdFor(parentAgentSessionId)!
       const merged = [...outbox.entries, ...entries]
       if (this.runtime.replaceQueuedPrompt(parentSessionId, outbox.queueId, promptFor(merged), reportIds(merged), continuationIds(merged))) {
         outbox.entries = merged
         this.recordDelivery(reportIds(entries), 'queued', outbox.queueId)
-        log.info('session_report_merged', { parentAgentSessionId, exchangeId: last.exchangeId, items: merged.length })
+        log.info('session_report_merged', { parentSessionId, exchangeId: last.exchangeId, items: merged.length })
         return
       }
     }
-    const result = await this.runtime.promptSession(parentAgentSessionId, promptFor(entries), 'queue', {
+    const result = await this.runtime.promptSession(parentSessionId, promptFor(entries), 'queue', {
       via: 'session-report',
-      agentSessionId: last.targetAgentSessionId,
-      agentMessageId: last.exchangeId,
       reportExchangeIds: reportIds(entries),
       exchangeIds: continuationIds(entries),
     })
-    log.info('session_report_dispatched', { parentAgentSessionId, exchangeId: last.exchangeId, kind: last.item.type, items: entries.length, disposition: result.disposition })
+    log.info('session_report_dispatched', { parentSessionId, exchangeId: last.exchangeId, kind: last.item.type, items: entries.length, disposition: result.disposition })
     this.recordDelivery(reportIds(entries), result.disposition === 'queued' ? 'queued' : 'accepted', result.queueId)
     if (result.disposition === 'queued' && result.queueId) {
-      this.outboxes.set(parentAgentSessionId, { queueId: result.queueId, entries })
+      this.outboxes.set(parentSessionId, { queueId: result.queueId, entries })
     } else {
-      this.outboxes.delete(parentAgentSessionId)
+      this.outboxes.delete(parentSessionId)
     }
   }
 
-  private takeHeld(parentAgentSessionId: string): DeliveryEntry[] {
-    const entries = this.held.get(parentAgentSessionId) ?? []
-    this.held.delete(parentAgentSessionId)
+  private takeHeld(parentSessionId: string): DeliveryEntry[] {
+    const entries = this.held.get(parentSessionId) ?? []
+    this.held.delete(parentSessionId)
     return entries
   }
 
   /** The parent's queued prompt, while it still waits to run. */
-  private waitingOutbox(parentAgentSessionId: string): Outbox | undefined {
-    const outbox = this.outboxes.get(parentAgentSessionId)
-    const parentSessionId = this.runtime.sessionIdFor(parentAgentSessionId)
-    if (!outbox || !parentSessionId || !this.runtime.hasQueuedPrompt(parentSessionId, outbox.queueId)) return undefined
+  private waitingOutbox(parentSessionId: string): Outbox | undefined {
+    const outbox = this.outboxes.get(parentSessionId)
+    if (!outbox || !this.runtime.hasQueuedPrompt(parentSessionId, outbox.queueId)) return undefined
     return outbox
   }
 
-  private serialize(parentAgentSessionId: string, work: () => Promise<void>): void {
-    const previous = this.chains.get(parentAgentSessionId) ?? Promise.resolve()
+  private serialize(parentSessionId: string, work: () => Promise<void>): void {
+    const previous = this.chains.get(parentSessionId) ?? Promise.resolve()
     const next = previous.then(work).catch((error) => {
-      log.warn('session_report_failed', { parentAgentSessionId, error: String(error) })
+      log.warn('session_report_failed', { parentSessionId, error: String(error) })
     })
-    this.chains.set(parentAgentSessionId, next)
+    this.chains.set(parentSessionId, next)
     void this.runtime.trackWork(next).finally(() => {
-      if (this.chains.get(parentAgentSessionId) === next) this.chains.delete(parentAgentSessionId)
+      if (this.chains.get(parentSessionId) === next) this.chains.delete(parentSessionId)
     })
   }
 }

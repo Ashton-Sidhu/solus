@@ -63,7 +63,8 @@ export interface SessionLoadMessage {
 
 /** The exchange an orchestration tool result opened, read by the shared codec. */
 export interface AgentConversationResultProjection {
-  agentSessionId?: string
+  /** The session the tool started or messaged. */
+  sessionId?: string
   /** The exchange the tool opened; live updates and reports name the same id. */
   messageId?: string
   provider?: AgentId

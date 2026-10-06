@@ -1,7 +1,6 @@
 <script lang="ts">
   import { getWorkspaceContext } from "../../contexts";
   import { sessionPullRequestsStore } from "../../contexts/prs/session-pull-requests.store.svelte";
-  import { taskBindingSessionId } from "../../contexts/workspace/session-draft.svelte";
   import { sessionTitle } from "../../lib/sessionUtils";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
@@ -42,7 +41,7 @@
     saving = true;
     try {
       if (owner.kind === "session") {
-        const sessionId = sess ? taskBindingSessionId(sess) : null;
+        const sessionId = sess ? sess.id : null;
         if (!sessionId) throw new Error("The session is not available.");
         await sessionPullRequestsStore.link(session.serverIdFor(owner.tabId), sessionId, check.url);
       } else {

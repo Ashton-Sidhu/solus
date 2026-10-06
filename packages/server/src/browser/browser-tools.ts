@@ -94,7 +94,7 @@ function browserTool<Fields extends BrowserToolFields>(spec: {
       try {
         if (spec.pageOf) {
           releaseAgentUse = browserRegistry()
-            .beginAgentUse(spec.pageOf(parsed), spec.name, context.solusSessionId())
+            .beginAgentUse(spec.pageOf(parsed), spec.name, context.sessionId())
         }
         const work = spec.execute(parsed, context)
         return await Promise.race([
@@ -261,7 +261,7 @@ export const browserOpenAgentTool = browserTool({
     request.profileId = profileForOpen(target.projectRoot, input.profile)
 
     const page = browserRegistry().open(request)
-    browserRegistry().noteAgentUse(page.browserPageId, 'browser_open', context.solusSessionId())
+    browserRegistry().noteAgentUse(page.browserPageId, 'browser_open', context.sessionId())
     return ok(`${describePage(page)}\n\nUse browser_snapshot with this browserPageId to see it.`)
   },
 })
@@ -277,7 +277,7 @@ export const browserCloseAgentTool = browserTool({
     // session is in the middle of driving it.
     const registry = browserRegistry()
     const user = registry.get(input.browserPageId)?.agentUse?.sessionId
-    const own = !user || user === context.solusSessionId()
+    const own = !user || user === context.sessionId()
     const result = await registry.close(input.browserPageId, { force: own })
     if (!result.closed) {
       return fail(`Another session is ${result.agentUse.verb} on ${input.browserPageId} right now. Leave it open.`)

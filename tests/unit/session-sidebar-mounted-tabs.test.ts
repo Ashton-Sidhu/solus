@@ -1,8 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import type { Session, Tab } from '@solus/contracts/types'
+import type { Tab } from '@solus/contracts/types'
 import {
   mountedSidebarTabIds,
-  sidebarSessionIds,
 } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 
 function tab(id: string): Tab {
@@ -33,24 +32,6 @@ describe('session sidebar mounted tabs', () => {
     expect(mountedSidebarTabIds(['first-tab', 'closed-tab', 'second-tab'], tabs)).toEqual([
       'first-tab',
       'second-tab',
-    ])
-  })
-
-  test('keeps a worktree fork source attached to the mounted session', () => {
-    // WHY: moving a session into a worktree forks its provider thread. The
-    // durable task still names the source thread, so omitting that alias makes
-    // the sidebar show the old attempt and the mounted session as two rows.
-    const mountedTab = tab('worktree')
-    const session = {
-      agentSessionId: 'provider-session-in-worktree',
-      forkedFromSessionId: 'provider-session-before-worktree',
-      handoffId: null,
-    } as unknown as Session
-
-    expect(sidebarSessionIds(mountedTab, session)).toEqual([
-      'session-worktree',
-      'provider-session-in-worktree',
-      'provider-session-before-worktree',
     ])
   })
 })

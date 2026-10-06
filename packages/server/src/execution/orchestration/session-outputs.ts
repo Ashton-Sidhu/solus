@@ -31,17 +31,17 @@ export function addOutput(outputs: SessionOutput[], output: SessionOutput): void
 }
 
 /** The output a turn event names, if it names one. */
-export function outputFromEvent(event: NormalizedEvent, agentSessionId: string | null | undefined): SessionOutput | null {
-  if (event.type === 'plan' && event.planToolUseId && agentSessionId) {
-    return { kind: 'plan', sessionId: agentSessionId, planToolUseId: event.planToolUseId, title: extractPlanTitle(event.planContent) }
+export function outputFromEvent(event: NormalizedEvent, sessionId: string): SessionOutput | null {
+  if (event.type === 'plan' && event.planToolUseId) {
+    return { kind: 'plan', sessionId, planToolUseId: event.planToolUseId, title: extractPlanTitle(event.planContent) }
   }
   if (event.type === 'work_created') return { kind: 'work', workId: event.workId, title: event.title, workType: event.docType }
   if (event.type === 'artifact_created' && event.workId) {
     return { kind: 'work', workId: event.workId, title: event.title ?? 'Artifact', workType: 'artifact' }
   }
   // A session reports its changed files even when there are none; that is not an output.
-  if (event.type === 'session_changed_files_updated' && agentSessionId && event.paths.length) {
-    return { kind: 'changed_files', sessionId: agentSessionId, count: event.paths.length, paths: event.paths.slice(0, ORCHESTRATION_LIMITS.cardChangedPaths) }
+  if (event.type === 'session_changed_files_updated' && event.paths.length) {
+    return { kind: 'changed_files', sessionId, count: event.paths.length, paths: event.paths.slice(0, ORCHESTRATION_LIMITS.cardChangedPaths) }
   }
   return null
 }

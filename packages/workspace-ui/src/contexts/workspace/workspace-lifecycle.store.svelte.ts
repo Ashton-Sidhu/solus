@@ -345,7 +345,7 @@ export class WorkspaceLifecycleStore {
 
   private async prependHistoryPage(tabId: string, session: Session, agentSessionId: string, before: string): Promise<void> {
     const transcript = await this.deps.loadTranscript({
-      sessionId: session.handoffId ?? agentSessionId,
+      sessionId: session.id,
       loadPath: session.run.gitContext?.worktreePath || session.run.workingDirectory,
       displayCwd: session.run.workingDirectory,
       provider: session.run.provider ?? this.deps.settings.activeAgent,

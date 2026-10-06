@@ -52,7 +52,7 @@ describe('notification destinations', () => {
     const asked: string[] = []
     const found = await resolveNotificationDestination(row(resource), 'host:mini', async (automationId, runId) => {
       asked.push(`${automationId}/${runId}`)
-      return { id: runId, automationId, startedAt: '', status: 'succeeded', agentSessionId: 's1' }
+      return { id: runId, automationId, startedAt: '', status: 'succeeded', sessionId: 's1' }
     })
     expect(asked).toEqual(['a1/r1'])
     expect(found.route).toEqual({ kind: 'session', sessionId: 's1', serverId: 'host:mini' })

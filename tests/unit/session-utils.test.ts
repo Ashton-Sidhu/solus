@@ -129,28 +129,23 @@ describe('findOpenTabForSession', () => {
     },
   }
 
-  test('reuses the existing tab for a host-scoped provider session', () => {
+  test('reuses the existing tab for the session on its host', () => {
     expect(
-      findOpenTabForSession(
-        'agent-session-1',
-        tabs as any,
-        sessions as any,
-        ['tab-1'],
-        'codex',
-        'host-a',
-      ),
+      findOpenTabForSession('local-session-1', tabs as any, sessions as any, ['tab-1'], 'codex', 'host-a'),
     ).toBe('tab-1')
   })
 
-  test('a provider id never matches without its host, or with the wrong one', () => {
-    // WHY: dispatch-client step 1 — provider ids are host-minted and collide
-    // across hosts (the same repo, cloned twice). A bare provider id must not
-    // steal another host's tab.
+  test('a session on another host does not take this tab', () => {
     expect(
-      findOpenTabForSession('agent-session-1', tabs as any, sessions as any, ['tab-1'], 'codex'),
+      findOpenTabForSession('local-session-1', tabs as any, sessions as any, ['tab-1'], 'codex', 'host-b'),
     ).toBeNull()
+  })
+
+  test('a provider thread id is not a session id, so it never finds a tab', () => {
+    // WHY: one session id names a session everywhere (docs/plans/session-identity.md).
+    // A thread id that matched would let a host-minted id steal a tab.
     expect(
-      findOpenTabForSession('agent-session-1', tabs as any, sessions as any, ['tab-1'], 'codex', 'host-b'),
+      findOpenTabForSession('agent-session-1', tabs as any, sessions as any, ['tab-1'], 'codex', 'host-a'),
     ).toBeNull()
   })
 

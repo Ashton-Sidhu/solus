@@ -78,7 +78,6 @@ import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { sessionPrLink, sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
 import type { SessionPullRequestLink } from '@solus/contracts/session-pull-requests'
 import { sessionStatesStore, type ShelvedSession } from './session-states.store.svelte'
-import { taskBindingSessionId } from './session-draft.svelte'
 import { canDriveSession } from '../sharing/session-drive'
 import {
   prLinkDiscoveryAttempts,
@@ -166,29 +165,6 @@ export function mountedSidebarTabIds(
   return mounted
 }
 
-/** Every durable identity that can describe one mounted conversation. A
- * worktree move forks the provider thread, so its source id must keep resolving
- * to the same tab or the sidebar projects the old attempt beside the live one. */
-export function sidebarSessionIds(
-  tab: Pick<Tab, 'sessionId'>,
-  session: Pick<Session, 'handoffId' | 'agentSessionId' | 'forkedFromSessionId' | 'forked'> | null | undefined,
-): string[] {
-  return [
-    tab.sessionId,
-    session?.handoffId,
-    session?.forked ? null : session?.agentSessionId,
-    session?.forkedFromSessionId,
-  ].filter((sessionId): sessionId is string => !!sessionId)
-}
-
-/** The ids a session's state on its host can be under: Solus's id, and the
- *  provider thread for a session that ran outside Solus first. A fork's source
- *  is a different session and is not one of them. */
-function stateSessionIds(session: Pick<Session, 'id' | 'handoffId' | 'agentSessionId' | 'forked'>): string[] {
-  return [taskBindingSessionId(session), session.forked ? null : session.agentSessionId]
-    .filter((sessionId): sessionId is string => !!sessionId)
-}
-
 /** The homes as the saved-host registry and the live sockets know them, without a reactive store. */
 export function registrySessionHomes(): SessionHomeHosts {
   return {
@@ -217,7 +193,7 @@ export class SessionSidebarStore {
     this.session.tabs,
   ))
 
-  /** Which tab, if any, has a given stable or active provider session mounted. Built once per
+  /** Which tab, if any, has a given session mounted. Built once per
    *  pass: every task row needs this answer for each of its linked sessions, and
    *  scanning the open tabs per lookup made the column O(tasks × sessions × tabs)
    *  on every stream tick. */
@@ -227,10 +203,8 @@ export class SessionSidebarStore {
       const tab = this.session.tabs[tabId]
       const session = this.session.sessionFor(tabId)
       if (!tab) continue
-      for (const sessionId of sidebarSessionIds(tab, session)) {
-        bySessionId.set(sessionId, tabId)
-        if (session?.run.serverId) bySessionId.set(hostKey(session.run.serverId, sessionId), tabId)
-      }
+      bySessionId.set(tab.sessionId, tabId)
+      if (session?.run.serverId) bySessionId.set(hostKey(session.run.serverId, tab.sessionId), tabId)
     }
     return bySessionId
   })
@@ -363,7 +337,7 @@ export class SessionSidebarStore {
       createdAt = Math.min(createdAt, firstActivityAt(session))
       serverId ??= session.run.serverId ?? null
       const nextAttention = getAttentionState(session, tab, this.planStore.plans)
-      const isLead = taskRoleOf(session.task) === 'lead' && (!leadSessionId || sidebarSessionIds(tab, session).includes(leadSessionId))
+      const isLead = taskRoleOf(session.task) === 'lead' && (!leadSessionId || tab.sessionId === leadSessionId)
       attention = maxTaskAttention(attention, isLead || nextAttention !== 'unread' ? nextAttention : null)
       if (isLead) unread ||= tab.hasUnread
       limitResetsAt ??= sessionLimitResetsAt(session) ?? undefined
@@ -454,7 +428,7 @@ export class SessionSidebarStore {
     const environment = this.session.environment.environmentFor(this.session.sessionFor(tabId)?.run)
     const projectKey = environmentProjectKey(environment, session.run.projectGroupPath)
     const attention = getAttentionState(session, tab, this.planStore.plans)
-    const state = sessionStatesStore.stateFor(stateSessionIds(session))
+    const state = sessionStatesStore.stateFor(session.id)
     const isSettled = !!state?.settledAt
     const lifecycle = sessionRowLifecycle(state, attention, this.lifecycleNow)
     return {
@@ -543,8 +517,7 @@ export class SessionSidebarStore {
       const session = this.session.sessionFor(tabId)
       const tab = this.session.tabs[tabId]
       if (!session || !tab) continue
-      const ownerTask = this.session.tasksStore.taskForSession(session.handoffId ?? session.id)
-        ?? this.session.tasksStore.taskForSession(session.agentSessionId)
+      const ownerTask = this.session.tasksStore.taskForSession(session.id)
         ?? this.pendingTaskFor(session)
       if (ownerTask && shownTaskIds.has(ownerTask.id)) continue
 
@@ -563,7 +536,7 @@ export class SessionSidebarStore {
     // either.
     const mountedSessionIds = new Set(this.visibleTabIds.flatMap((tabId) => {
       const session = this.session.sessionFor(tabId)
-      return session ? stateSessionIds(session) : []
+      return session ? [session.id] : []
     }))
     const shelvedSessions = sessionStatesStore.entries
       .filter((entry) => !mountedSessionIds.has(entry.sessionId) && entry.settledBy !== 'task')
@@ -979,7 +952,7 @@ export class SessionSidebarStore {
         ? async () => { await model.unlink('pr', String(choice.number), choice.targetScope) }
         : null
     }
-    const link = sessionPullRequestsStore.linksFor(this.sessionIdsOfRow(task))
+    const link = sessionPullRequestsStore.linksFor(this.sessionIdOfRow(task))
       .find((candidate) => candidate.number === choice.number && candidate.repository === choice.targetScope.toLowerCase())
     if (!link || !task.serverId) return null
     const serverId = task.serverId
@@ -997,16 +970,13 @@ export class SessionSidebarStore {
 
   /** The pull requests the session behind a tab links. A draft has none. */
   pullRequestLinksForTab(tabId: string): SessionPullRequestLink[] {
-    const tab = this.session.tabs[tabId]
-    return tab ? sessionPullRequestsStore.linksFor(sidebarSessionIds(tab, this.session.sessionFor(tabId))) : []
+    return sessionPullRequestsStore.linksFor(this.session.tabs[tabId]?.sessionId)
   }
 
-  /** The stable and provider ids of the one session a session row stands for. */
-  sessionIdsOfRow(task: SidebarTask): string[] {
-    return task.tabIds.flatMap((tabId) => {
-      const tab = this.session.tabs[tabId]
-      return tab ? sidebarSessionIds(tab, this.session.sessionFor(tabId)) : []
-    })
+  /** The one session a session row stands for. */
+  sessionIdOfRow(task: SidebarTask): string | null {
+    const tabId = task.tabIds[0]
+    return (tabId ? this.session.tabs[tabId]?.sessionId : undefined) ?? task.sessionId ?? null
   }
 
   /**
@@ -1016,7 +986,7 @@ export class SessionSidebarStore {
    */
   private sessionPrChoices(task: SidebarTask, serverId: string): TaskPrChoice[] {
     if (task.taskId) return []
-    return sessionPullRequestsStore.linksFor(this.sessionIdsOfRow(task)).flatMap((link) => {
+    return sessionPullRequestsStore.linksFor(this.sessionIdOfRow(task)).flatMap((link) => {
       const pr = this.pullRequestProjects.linkedPr(serverId, sessionPrLink(link), task.projectKey)
       return pr ? [pr] : []
     })
@@ -1100,18 +1070,9 @@ export class SessionSidebarStore {
     return task.tabIds.flatMap((tabId) => {
       const session = this.session.sessionFor(tabId)
       if (!session) return []
-      const aliases = [session.id, session.handoffId, session.agentSessionId]
-        .filter((sessionId): sessionId is string => !!sessionId)
-      const linkedAttempt = task.taskId
-        ? this.session.tasksStore.get(task.taskId).sessions
-          .find((attempt) => this.tabIdBySessionId.get(attempt.sessionId) === tabId)
-        : undefined
-      if (linkedAttempt && !aliases.includes(linkedAttempt.sessionId)) aliases.push(linkedAttempt.sessionId)
       const environment = this.session.environment.environmentFor(session.run)
       const status = environment.status
       return [{
-        sessionIds: aliases,
-        originSessionId: linkedAttempt?.sessionId ?? session.agentSessionId ?? session.handoffId ?? session.id,
         prUrl: status === undefined ? undefined : status?.prUrl ?? null,
         isolatedCheckout: environment.isolated,
       }]
@@ -1215,11 +1176,7 @@ export class SessionSidebarStore {
     }
     const session = this.session.sessionFor(tabId)
     if (!session) return
-    const serverId = serverConnections.resolveId(session.run.serverId)
-    const sessionIds = [session.id, session.handoffId, session.agentSessionId].filter(
-      (sessionId): sessionId is string => !!sessionId,
-    )
-    this.sessionStatusFeed().clear(serverId, sessionIds)
+    this.sessionStatusFeed().clear(serverConnections.resolveId(session.run.serverId), session.id)
   }
 
   /** Hydrate the pinned list by fanning out over every connected host: pins
@@ -1272,7 +1229,7 @@ export class SessionSidebarStore {
   /** One session's attention as its sidebar row states it: a mounted tab
    *  answers for itself, and the host's status feed for a session with none. */
   sessionAttention(serverId: string | null, sessionId: string): AttentionState {
-    const tabId = this.session.tabIdForAgentSession(sessionId, serverId ?? undefined)
+    const tabId = this.session.tabIdForHostSession(sessionId, serverId ?? undefined)
     const tab = tabId ? this.session.tabs[tabId] : undefined
     const sess = tabId ? this.session.sessionFor(tabId) : undefined
     if (tab && sess) return getAttentionState(sess, tab, this.planStore.plans)
@@ -1382,7 +1339,7 @@ export class SessionSidebarStore {
       const tab = this.session.tabs[tabId]
       const session = this.session.sessionFor(tabId)
       if (!tab || !session) return false
-      if (lead) return sidebarSessionIds(tab, session).includes(lead.sessionId)
+      if (lead) return tab.sessionId === lead.sessionId
         && (!leadServerId || session.run.serverId === leadServerId)
       return taskRoleOf(session.task) === 'lead'
     })
@@ -1426,7 +1383,7 @@ export class SessionSidebarStore {
     if (row.sessionId) return row.serverId ? { serverId: row.serverId, sessionId: row.sessionId } : null
     const tabId = row.tabIds[0]
     const session = tabId ? this.session.sessionFor(tabId) : null
-    const sessionId = session?.agentSessionId ? taskBindingSessionId(session) : null
+    const sessionId = session?.agentSessionId ? session.id : null
     return tabId && sessionId ? { serverId: this.session.serverIdFor(tabId), sessionId } : null
   }
 
@@ -1843,10 +1800,10 @@ export class SessionSidebarStore {
     // pin with a fresh timestamp would put it back at the top rather than where
     // the user had it. Undo has to return the row to its own place.
     const existing = this.pinnedSessions.find((row) =>
-      row.sessionId === session.agentSessionId && row.serverId === pinServerId,
+      row.sessionId === session.id && row.serverId === pinServerId,
     )
     const pin: PinnedSession = {
-      sessionId: session.agentSessionId,
+      sessionId: session.id,
       serverId: pinServerId,
       provider: session.run.provider ?? this.settings.activeAgent,
       title: sessionTitle(session),
@@ -1889,7 +1846,7 @@ export class SessionSidebarStore {
   /** Rename from a sidebar row. Pins carry their own label, so a pinned session
    *  needs the manifest re-read for the row to show the new name. */
   async renameSession(tabId: string, title: string): Promise<void> {
-    const sessionId = this.session.sessionFor(tabId)?.agentSessionId
+    const sessionId = this.session.sessionFor(tabId)?.id
     await this.session.metadata.renameTab(tabId, title)
     const serverId = this.session.sessionFor(tabId)?.run.serverId
     if (sessionId && this.isPinned(sessionId, serverId)) await this.loadPinnedSessions()

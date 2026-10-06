@@ -112,8 +112,8 @@ export function implementationMode(defaultMode: PermissionMode): PermissionMode 
 }
 
 /** The prompt that starts an approved plan, as the desktop client writes it. */
-export function implementPlanPrompt(plan: { planId: string; agentSessionId: string; planToolUseId: string; content: string }, note: string): string {
-  const params = new URLSearchParams({ planId: plan.planId, sessionId: plan.agentSessionId, planToolUseId: plan.planToolUseId, status: 'accepted' })
+export function implementPlanPrompt(plan: { planId: string; sessionId: string; planToolUseId: string; content: string }, note: string): string {
+  const params = new URLSearchParams({ planId: plan.planId, sessionId: plan.sessionId, planToolUseId: plan.planToolUseId, status: 'accepted' })
   const title = planTitle(plan.content).replaceAll('[', '\\[').replaceAll(']', '\\]')
   let message = `Implement this plan: [${title}](plan://ref?${params})`
   if (note.trim()) message += `\n\nNotes:\n${note.trim()}`

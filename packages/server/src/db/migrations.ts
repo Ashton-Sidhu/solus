@@ -423,6 +423,11 @@ CREATE TABLE run_exchanges (
   updated_at INTEGER NOT NULL
 );
 `,
+  // A session's read state is the session's, not one thread's
+  // (docs/plans/session-identity.md): it moves to session_states.
+  `
+ALTER TABLE sessions DROP COLUMN viewed_at;
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

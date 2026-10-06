@@ -16,8 +16,8 @@ import { deriveThreadFeedPresentation, type FeedSourceEntry } from '../../apps/m
 import { ThreadDirectory } from '../../apps/mobile/src/features/threads/thread-directory'
 
 const update = (u: AgentConversationUpdate): WireNormalizedEvent => ({ type: 'agent_conversation_update', update: u }) as WireNormalizedEvent
-const dispatched = (messageId: string, agentSessionId = 'child-1', at = 1_000): WireNormalizedEvent => update({
-  phase: 'dispatched', agentSessionId, messageId, origin: 'created', prompt: 'Fix the header favicon. Then report.', provider: 'codex',
+const dispatched = (messageId: string, sessionId = 'child-1', at = 1_000): WireNormalizedEvent => update({
+  phase: 'dispatched', sessionId, messageId, origin: 'created', prompt: 'Fix the header favicon. Then report.', provider: 'codex',
   title: 'Fix the header favicon.', cwd: '/work/app', model: 'gpt-5.5', dispatchedAt: at,
 })
 const agents = (model: TranscriptModel) => model.order.map((id) => model.items.get(id)).filter((item): item is AgentItem => item?.kind === 'agent')
@@ -29,12 +29,12 @@ describe('native agent cards: live', () => {
     model.addOptimisticUser('u1', 'split this up')
     model.apply({ type: 'tool_call', toolName: 'mcp__solus__start_session', toolId: 'call-1', index: 0, toolInput: '{"prompt":"Fix the header favicon."}' })
     model.apply(dispatched('m1'))
-    model.apply(update({ phase: 'accepted', agentSessionId: 'child-1', messageId: 'm1', state: 'running' }))
+    model.apply(update({ phase: 'accepted', sessionId: 'child-1', messageId: 'm1', state: 'running' }))
     expect(kinds(model)).toEqual(['user', 'agent'])
     expect(agentCardStatus(agents(model)[0]!)).toBe('running')
 
     model.apply({ type: 'tool_result', toolUseId: 'call-1', status: 'ok', contentBytes: 10 } as WireNormalizedEvent)
-    model.apply(update({ phase: 'settled', agentSessionId: 'child-1', messageId: 'm1', status: 'completed', replyText: 'Done: favicon shows.', durationMs: 4_000, settledAt: 9_000 }))
+    model.apply(update({ phase: 'settled', sessionId: 'child-1', messageId: 'm1', status: 'completed', replyText: 'Done: favicon shows.', durationMs: 4_000, settledAt: 9_000 }))
     const [card] = agents(model)
     expect(agentCardStatus(card!)).toBe('done')
     expect(card!.reply).toBe('Done: favicon shows.')
@@ -54,13 +54,15 @@ describe('native agent cards: live', () => {
     expect(agents(model)).toHaveLength(2)
   })
 
-  test('a card started before its session existed binds to the real session when the host attaches it', () => {
+  test('a card started before its session started names the session from dispatch', () => {
+    // WHY: a created session's id is chosen at dispatch (docs/plans/session-identity.md),
+    // so the card never changes its id when the provider starts.
     const model = new TranscriptModel('parent')
-    model.apply(dispatched('m1', 'pending:abc'))
-    model.apply(update({ phase: 'attached', messageId: 'm1', agentSessionId: 'child-9' }))
-    expect(agents(model)[0]!.agentSessionId).toBe('child-9')
-    // Later updates name the real session and land in the same card.
-    model.apply(update({ phase: 'awaiting_input', agentSessionId: 'child-9', messageId: 'm1', request: { kind: 'question', questions: [] } as never }))
+    model.apply(dispatched('m1', 'child-9'))
+    model.apply(update({ phase: 'attached', messageId: 'm1', sessionId: 'child-9', cwd: '/w' }))
+    expect(agents(model)[0]!.sessionId).toBe('child-9')
+    // Later updates name the same session and land in the same card.
+    model.apply(update({ phase: 'awaiting_input', sessionId: 'child-9', messageId: 'm1', request: { kind: 'question', questions: [] } as never }))
     expect(agentCardStatus(agents(model)[0]!)).toBe('awaiting_input')
   })
 
@@ -76,14 +78,14 @@ describe('native agent cards: live', () => {
     const model = new TranscriptModel('parent')
     model.apply(dispatched('m1'))
     model.apply(dispatched('m2'))
-    model.apply(update({ phase: 'accepted', agentSessionId: 'child-1', messageId: 'm2', state: 'queued' }))
-    model.apply(update({ phase: 'stopped', agentSessionId: 'child-1' }))
+    model.apply(update({ phase: 'accepted', sessionId: 'child-1', messageId: 'm2', state: 'queued' }))
+    model.apply(update({ phase: 'stopped', sessionId: 'child-1' }))
     expect(agents(model)[0]!.exchanges.map((exchange) => exchange.status)).toEqual(['interrupted', 'queued'])
   })
 })
 
 describe('native agent cards: history', () => {
-  const report: SessionReport = { messageId: 'm1', agentSessionId: 'child-1', provider: 'codex', status: 'completed', outputs: [], reply: 'Favicon fixed.', durationMs: 3_000 }
+  const report: SessionReport = { messageId: 'm1', sessionId: 'child-1', provider: 'codex', status: 'completed', outputs: [], reply: 'Favicon fixed.', durationMs: 3_000 }
   const page = (messages: SessionHistoryPage['messages']): SessionHistoryPage => ({ messages, before: null })
 
   test('a reload rebuilds the card from the tool row and the report turn, and the report is not a bubble', () => {
@@ -92,13 +94,13 @@ describe('native agent cards: history', () => {
       {
         role: 'tool', toolId: 'call-1', toolName: 'mcp__solus__start_session', toolInput: '{"prompt":"Fix the header favicon.","model_id":"gpt-5.5"}',
         toolStatus: 'completed', content: '', messageId: 't1', timestamp: 2,
-        agentConversationResult: { agentSessionId: 'child-1', messageId: 'm1', provider: 'codex', progress: { state: 'running' } },
+        agentConversationResult: { sessionId: 'child-1', messageId: 'm1', provider: 'codex', progress: { state: 'running' } },
       },
       { role: 'user', content: formatParentPrompt([{ type: 'report', report }]), messageId: 'u2', timestamp: 5 },
     ] as SessionHistoryPage['messages']))
     expect(kinds(model)).toEqual(['user', 'agent'])
     const [card] = agents(model)
-    expect(card).toMatchObject({ agentSessionId: 'child-1', provider: 'codex', title: 'Fix the header favicon.', reply: 'Favicon fixed.' })
+    expect(card).toMatchObject({ sessionId: 'child-1', provider: 'codex', title: 'Fix the header favicon.', reply: 'Favicon fixed.' })
     expect(agentCardStatus(card!)).toBe('done')
   })
 
@@ -133,7 +135,7 @@ describe('native agent cards: provider subagents live', () => {
 
 describe('native agent rows', () => {
   const card: AgentItem = {
-    kind: 'agent', id: 'agent:1', agentSessionId: 'child-1', provider: 'codex', title: 'Fix the header favicon.', model: null,
+    kind: 'agent', id: 'agent:1', sessionId: 'child-1', provider: 'codex', title: 'Fix the header favicon.', model: null,
     prompt: 'Fix the header favicon.', reply: null, exchanges: [{ messageId: 'm1', status: 'running' }], startedAt: 1_000, settledAt: null, durationMs: null,
   }
   const record = { sessionId: 'child-1', provider: 'codex', title: 'fix the header', customTitle: 'Header Favicon Fix', model: null } as SessionRecord

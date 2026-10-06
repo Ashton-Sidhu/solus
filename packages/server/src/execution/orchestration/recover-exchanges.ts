@@ -22,11 +22,11 @@ export function recoverExchanges(
       if (!exchange?.report || !ledger.restoredExchangeIds.has(exchangeId)) return []
       covered.add(exchangeId)
       ledger.update(exchange, (draft) => { draft.deliveryState = 'queued'; draft.deliveryQueueId = queue.queueId })
-      return [{ exchangeId, targetAgentSessionId: exchange.targetAgentSessionId,
+      return [{ exchangeId, targetSessionId: exchange.targetSessionId,
         continuationExchangeIds: exchange.parentExchangeIds,
         item: { type: 'report' as const, report: exchange.report } }]
     })
-    const sender = entries.length ? ledger.exchanges.get(entries[0]!.exchangeId)?.senderAgentSessionId : undefined
+    const sender = entries.length ? ledger.exchanges.get(entries[0]!.exchangeId)?.senderSessionId : undefined
     if (sender) delivery.restore(sender, queue.queueId, entries)
   }
   for (const exchange of ledger.exchanges.values()) {

@@ -10,7 +10,7 @@
  * Those are the workspace layout's.
  *
  * A surface that needs to reach a session uses `revealSession`; one that needs
- * the session showing a provider's id uses `sessionForAgentSession`; one that
+ * the open session for a session id on one host uses `sessionForHostSession`; one that
  * needs the person's current session reads `activeSession`.
  *
  * The record surfaces — the task, pull request, and works boards, a task, a
@@ -91,7 +91,7 @@ const WORKSPACE_ONLY_RECORD_FILES = new Set([
 ])
 
 /** Tab-strip state and commands, on any receiver (`session.`, `workspace.`, `ctx.`). */
-const TAB_STATE = /\.(tabs|tabOrder|activeTabId|activeTab|selectTab|tabIdForAgentSession)\b/g
+const TAB_STATE = /\.(tabs|tabOrder|activeTabId|activeTab|selectTab|tabIdForHostSession)\b/g
 
 const WORKSPACE_READ = /\bgetWorkspaceContext\(/g
 
@@ -137,6 +137,6 @@ if (import.meta.main) {
     process.exit(0)
   }
   for (const failure of failures) console.log(`${failure.path}:${failure.line} — ${failure.detail}`)
-  console.log(`\n${failures.length} surface-boundary failure(s). A portable surface reads stores and shell facts, never the tab strip: use revealSession, sessionForAgentSession, or activeSession. A record surface reads getSurfaceContext().`)
+  console.log(`\n${failures.length} surface-boundary failure(s). A portable surface reads stores and shell facts, never the tab strip: use revealSession, sessionForHostSession, or activeSession. A record surface reads getSurfaceContext().`)
   process.exit(1)
 }

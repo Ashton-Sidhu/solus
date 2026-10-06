@@ -12,7 +12,8 @@ const pinnedSessionRowsSchema = z.array(z.object({
   pinned_at: z.number(),
 }))
 
-/** Pinned sessions, most-recently-pinned first. */
+/** Pinned sessions, most-recently-pinned first. A pin names its session id; the
+ *  model is read from the index row of the session's active thread. */
 export async function readManifest(): Promise<PinnedSession[]> {
   const rows = pinnedSessionRowsSchema.parse(getDb().prepare(`
     SELECT
@@ -24,7 +25,11 @@ export async function readManifest(): Promise<PinnedSession[]> {
       pinned_sessions.cwd,
       pinned_sessions.pinned_at
     FROM pinned_sessions
-    LEFT JOIN sessions ON sessions.session_id = pinned_sessions.session_id
+    LEFT JOIN sessions ON sessions.session_id = COALESCE((
+      SELECT provider_session_id FROM session_lineage_members
+      WHERE session_lineage_members.session_id = pinned_sessions.session_id
+      ORDER BY position DESC LIMIT 1
+    ), pinned_sessions.session_id)
     ORDER BY pinned_sessions.pinned_at DESC
   `).all())
   return rows.map((row) => {

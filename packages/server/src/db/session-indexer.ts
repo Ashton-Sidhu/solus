@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { basename, dirname, join, relative } from 'node:path'
 import { z } from 'zod'
 import type { SessionLoadMessage, SessionMessageWindow } from '@solus/contracts/session-history'
-import type { AgentId, ReasoningEffort, SessionMeta, SessionRecord } from '@solus/contracts/types'
+import type { AgentId, ReasoningEffort, SessionMeta } from '@solus/contracts/types'
 import {
   encodePathAsFolder,
   SOLUS_WORKTREE_ENCODED_MARKER,
@@ -13,13 +13,14 @@ import {
 import { readSessionHeadMeta } from '../execution/agents/claude/claude-session-helpers'
 import { scanPlanFile } from '../execution/agents/claude/claude-plan-helpers'
 import {
-  markIndexedPlanSessionUnavailable,
-  replaceIndexedPlansForSession,
+  markIndexedPlanThreadUnavailable,
+  replaceIndexedPlansForThread,
   type IndexedPlanInput,
 } from '../plans/plan-index'
 import { createLogger } from '../logger'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { delegationColumnsFor, type SessionDelegationStart } from '../data/sessions/session-delegations'
+import { activeThreadOf, isActiveThread, sessionIdOfThread } from '../data/sessions/session-lineage'
 import {
   deleteSessionRecord,
   setSessionRecordBranch,
@@ -155,18 +156,21 @@ function deleteSessionFile(filePath: string): void {
   // Plans are durable Workspace artifacts even after Claude's transcript
   // retention removes the source session. Keep the plan, but make resume
   // attempts fail before they create an empty conversation tab.
-  markIndexedPlanSessionUnavailable('claude-code', sessionId).catch((error) => {
+  markIndexedPlanThreadUnavailable('claude-code', sessionId).catch((error) => {
     log.warn('plan_index_session_unavailable_failed', { sessionId, error: String(error) })
   })
   forgetSessionRecordWithRow(sessionId)
 }
 
-/** The record follows the index row: a session the file no longer lists is not in the picker either. */
-function forgetSessionRecordWithRow(sessionId: string): void {
-  const row = getDb().prepare('SELECT 1 AS present FROM sessions WHERE session_id = ?').get(sessionId)
-  if (row) return
+/** The record follows its active thread's index row: a session whose current
+ *  transcript is gone is not in the picker either. An earlier thread of the
+ *  session leaves the record alone. */
+function forgetSessionRecordWithRow(threadId: string): void {
+  const row = getDb().prepare('SELECT 1 AS present FROM sessions WHERE session_id = ?').get(threadId)
+  if (row || !isActiveThread(threadId)) return
+  const sessionId = sessionIdOfThread(threadId)
   deleteSessionRecord(ANY_ORGANIZATION, sessionId).catch((error) => {
-    log.warn('session_record_delete_failed', { sessionId, error: String(error) })
+    log.warn('session_record_delete_failed', { sessionId, threadId, error: String(error) })
   })
 }
 
@@ -431,17 +435,19 @@ function upsertSession(
   )
 }
 
-/** The collaboration plane's record of a session, fed by the same sweep that indexed its file. */
-function recordIndexedClaudeSession(
-  sessionId: string,
+/** The collaboration plane's record of a session, fed by the same sweep that
+ *  indexed its file. Only the session's active thread writes it. */
+async function recordIndexedClaudeSession(
+  threadId: string,
   projectPath: string,
   isWorktree: boolean,
   meta: { cwd: string | null; slug: string | null; firstMessage: string | null },
   mtime: number,
   size: number,
-): Promise<SessionRecord> {
-  return upsertOwnSessionRecord({
-    sessionId,
+): Promise<void> {
+  if (!isActiveThread(threadId)) return
+  await upsertOwnSessionRecord({
+    sessionId: sessionIdOfThread(threadId),
     provider: 'claude-code',
     projectPath,
     title: meta.firstMessage ?? meta.slug ?? undefined,
@@ -537,6 +543,7 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<bo
   const indexedPlans: IndexedPlanInput[] = scannedPlans.map((plan) => ({
     provider: 'claude-code',
     sessionId: plan.sessionId,
+    threadId: plan.threadId,
     planToolUseId: plan.planToolUseId,
     projectPath: plan.projectPath,
     cwd: plan.cwd,
@@ -547,7 +554,7 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<bo
     content: plan.content,
     derivedStatus: plan.derivedStatus,
   }))
-  await replaceIndexedPlansForSession('claude-code', sessionId, indexedPlans)
+  await replaceIndexedPlansForThread('claude-code', sessionId, indexedPlans)
   return true
 }
 
@@ -740,9 +747,10 @@ export function rowToSession(row: SessionRow): SessionMeta {
         createdAt: row.delegation_created_at,
       }
     : undefined
+  // The index row is one thread's; what it describes is named by its session id.
   return {
     provider,
-    sessionId: row.session_id,
+    sessionId: sessionIdOfThread(row.session_id),
     slug: row.slug,
     firstMessage: row.first_message,
     customTitle: row.custom_title ?? undefined,
@@ -767,14 +775,15 @@ const SESSION_SELECT = `
   delegation_depth, delegation_intent, delegation_created_at
 `
 
+/** The index row of a session's active thread. A thread id reads its own row. */
 export function getIndexedSession(sessionId: string): SessionMeta | null {
   const row = sessionRowSchema.nullish().parse(
-    getDb().prepare(`SELECT ${SESSION_SELECT} FROM sessions WHERE session_id = ?`).get(sessionId),
+    getDb().prepare(`SELECT ${SESSION_SELECT} FROM sessions WHERE session_id = ?`).get(activeThreadOf(sessionId) ?? sessionId),
   )
   return row ? rowToSession(row) : null
 }
 
-/** The sessions these sessions started, by provider thread. */
+/** The sessions these sessions started, by the parent session id. */
 export function getChildSessions(parentSessionIds: readonly string[]): SessionMeta[] {
   if (!parentSessionIds.length) return []
   const placeholders = parentSessionIds.map(() => '?').join(', ')
@@ -800,8 +809,10 @@ function delegationRowValues(delegation: SessionDelegationStart | undefined): [s
   return [columns.parentSessionId, columns.rootSessionId, columns.messageId, columns.depth, columns.intent, columns.createdAt]
 }
 
+/** Index a thread a run just started, and write its session's record. The
+ *  lineage binds the thread before this runs, so the record has the session id. */
 export function persistIndexedSessionStart(
-  sessionId: string,
+  threadId: string,
   provider: AgentId,
   cwd: string,
   projectPath: string,
@@ -833,7 +844,7 @@ export function persistIndexedSessionStart(
       delegation_intent = COALESCE(sessions.delegation_intent, excluded.delegation_intent),
       delegation_created_at = COALESCE(sessions.delegation_created_at, excluded.delegation_created_at)
   `).run(
-    sessionId,
+    threadId,
     provider === 'claude-code' ? 'claude' : provider,
     cwd,
     projectPath,
@@ -847,6 +858,7 @@ export function persistIndexedSessionStart(
     ...parent,
   )
   const [parentSessionId, rootSessionId, messageId, depth, intent, createdAt] = parent
+  const sessionId = sessionIdOfThread(threadId)
   void upsertOwnSessionRecord({
     sessionId,
     provider,
@@ -865,8 +877,14 @@ export function persistIndexedSessionStart(
     delegation: messageId !== null && depth !== null && createdAt !== null && (intent === 'delegate' || intent === 'fire_and_forget')
       ? { messageId, depth, intent, createdAt }
       : undefined,
+  }).then((record) => {
+    // The record owns the session's name. The index row keeps a copy for
+    // local reads, and a thread that joins a named session takes it.
+    if (record.customTitle) {
+      getDb().prepare('UPDATE sessions SET custom_title = ? WHERE session_id = ? AND custom_title IS NULL').run(record.customTitle, threadId)
+    }
   }).catch((error) => {
-    log.warn('session_record_start_failed', { sessionId, error: String(error) })
+    log.warn('session_record_start_failed', { sessionId, threadId, error: String(error) })
   })
 }
 
@@ -922,17 +940,7 @@ export function persistRemoteSessionStart(
  * session initialization (or by `persistRemoteSessionStart` on a task host),
  * so metadata never creates a session or any task relationship. */
 export function setSessionBranch(sessionId: string, branch: string): void {
-  getDb().prepare(`
-    UPDATE sessions
-    SET branch = ?
-    WHERE session_id = COALESCE((
-      SELECT provider_session_id
-      FROM session_lineage_members
-      WHERE session_id = ?
-      ORDER BY position DESC
-      LIMIT 1
-    ), ?)
-  `).run(branch, sessionId, sessionId)
+  getDb().prepare('UPDATE sessions SET branch = ? WHERE session_id = ?').run(branch, activeThreadOf(sessionId) ?? sessionId)
   void setSessionRecordBranch(sessionId, branch).catch((error) => {
     log.warn('session_record_branch_failed', { sessionId, error: String(error) })
   })
@@ -942,13 +950,13 @@ export function setSessionBranch(sessionId: string, branch: string): void {
  *  ever an UPDATE: every session that can be renamed is already a row (live
  *  sessions land one at session_init, history sessions come from the index). */
 export async function setSessionCustomTitle(sessionId: string, title: string | null): Promise<void> {
-  getDb().prepare('UPDATE sessions SET custom_title = ? WHERE session_id = ?').run(title, sessionId)
+  getDb().prepare('UPDATE sessions SET custom_title = ? WHERE session_id = ?').run(title, activeThreadOf(sessionId) ?? sessionId)
   await setSessionRecordTitle(ANY_ORGANIZATION, sessionId, title)
 }
 
 /** Set a generated name only while the indexed session has no custom name. */
 export async function setSessionGeneratedTitle(sessionId: string, title: string): Promise<boolean> {
-  const result = getDb().prepare('UPDATE sessions SET custom_title = ? WHERE session_id = ? AND custom_title IS NULL').run(title, sessionId)
+  const result = getDb().prepare('UPDATE sessions SET custom_title = ? WHERE session_id = ? AND custom_title IS NULL').run(title, activeThreadOf(sessionId) ?? sessionId)
   if (result.changes === 0) return false
   await setSessionRecordGeneratedTitle(sessionId, title)
   return true
@@ -992,8 +1000,9 @@ export async function cacheIndexedSessions(sessions: SessionMeta[]): Promise<voi
     }
   })
   for (const session of sessions) {
+    if (!isActiveThread(session.sessionId)) continue
     await upsertOwnSessionRecord({
-      sessionId: session.sessionId,
+      sessionId: sessionIdOfThread(session.sessionId),
       provider: session.provider,
       projectPath: session.projectPath,
       title: session.firstMessage ?? session.slug ?? undefined,

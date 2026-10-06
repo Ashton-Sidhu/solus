@@ -86,13 +86,13 @@ describe('the organization refusal card', () => {
 describe('a rename', () => {
   function sessions() {
     return {
-      open: { run: { serverId: 'host-1', taskServerId: 'host-1' }, agentSessionId: 'agent-1', title: 'Old', titleCustom: false, messages: [] } as unknown as Session,
+      open: { id: 'session-1', run: { serverId: 'host-1', taskServerId: 'host-1' }, agentSessionId: 'agent-1', title: 'Old', titleCustom: false, messages: [] } as unknown as Session,
     }
   }
 
   test('a rename changes the name and writes nothing into the conversation: who renamed it is a `renamed` activity (plans/012 §5)', () => {
     const renamed = sessions()
-    applySessionTitleChange(renamed, 'host-1', { sessionId: 'agent-1', title: 'Fix login', source: 'manual' })
+    applySessionTitleChange(renamed, 'host-1', { sessionId: 'session-1', title: 'Fix login', source: 'manual' })
     expect(renamed.open).toMatchObject({ title: 'Fix login', titleCustom: true, messages: [] })
   })
 })

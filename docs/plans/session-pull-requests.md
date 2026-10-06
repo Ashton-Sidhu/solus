@@ -163,8 +163,8 @@ reads from a session.
 
 ## Host
 
-- `data/sessions/session-pull-requests.ts` — link, unlink, read, rekey, the
-  watch list and the observation write.
+- `data/sessions/session-pull-requests.ts` — link, unlink, read, the watch
+  list and the observation write.
 - `data/tasks/task-links.ts` — the two task reads include session links;
   `recordPullRequestObservation` writes both tables.
 - `data/tasks/sync-engine.ts` — `completeTasksForMergedPullRequest` finds a
@@ -174,8 +174,6 @@ reads from a session.
 - RPC: `sessionPullRequestsList`, `sessionPullRequestLink`,
   `sessionPullRequestUnlink`. Topic: `session.pullRequestsChanged`. A change of
   a session's links also invalidates each task the session belongs to.
-- A handoff that rekeys a session's task links rekeys its pull request links
-  and its state.
 - `data/sessions/session-states.ts` — settle, make active, snooze, the prompt
   record, the shelf read and the two settle rules. `prs/pr-sync.ts` runs the
   settle rules at the end of each tick. `SessionRuntime` records each prompt.
@@ -184,9 +182,9 @@ reads from a session.
   `session.stateChanged`.
 - The agent tool `link` (`execution/agents/tools/task-tools.ts`), in the Tasks
   group.
-- All these rows use Solus's session id. A session that ran outside Solus
-  first has only a provider thread id until it is resumed in Solus; the first
-  prompt moves its links and state to the session id.
+- All these rows use the session id (`docs/plans/session-identity.md`). PR
+  sync finds pull requests through the thread index, so it maps each thread to
+  its session before it writes. A session id does not change, so nothing moves.
 
 ## Renderer
 
@@ -225,13 +223,13 @@ reads from a session.
 ## Verification
 
 - `session-pull-requests`: source rules, the tombstone, two sessions on one
-  pull request, rekey, the task reads, the owned unlink.
+  pull request, the task reads, the owned unlink.
 - `pr-sync`: a session with no task gets its link; a dismissed link stays
   dismissed; a merged session link completes the task.
 - `link-pull-request`: the URL check of the dialog.
 - `session-states`: settle and its reverse, snooze, the prompt rule, the pull
   request rule (open link, busy session, later prompt, removed link), the idle
-  rule, the task rules, rekey.
+  rule, the task rules.
 - `pr-sync`: a session with no task is watched whatever the age of its link,
   its merged pull request settles it, and a settled session is not read again.
 - `session-pull-requests`: the `sessions` and `tasks` outbox ops that make a

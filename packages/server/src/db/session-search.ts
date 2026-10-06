@@ -4,6 +4,7 @@ import type { SessionSearchResult } from '@solus/contracts/types'
 import { markedPassage, queryWords, wordStartIndex } from '@solus/contracts/word-match'
 import { rowToSession, SESSION_ROW_SPAN, sessionRowSchema } from './session-indexer'
 import { getDb } from '.'
+import { sessionIdOfThread } from '../data/sessions/session-lineage'
 
 /** How a session search is narrowed and paged. */
 export interface SessionSearchOptions {
@@ -123,11 +124,15 @@ export function searchSessionIndex(query: string, options: SessionSearchOptions 
   const db = getDb()
   const sessions = sessionsInScope(db, options)
   const hits = queryHits(db, words, options, sessions.length)
-  const matched: MatchedSession[] = []
+  // A session that changed provider has a row per thread; it is one hit, its best thread's.
+  const bySession = new Map<string, MatchedSession>()
   for (const row of sessions) {
-    const score = sessionScore(row, words, hits, options.metadata?.get(row.session_id))
-    if (score !== null) matched.push({ row, score })
+    const sessionId = sessionIdOfThread(row.session_id)
+    const score = sessionScore(row, words, hits, options.metadata?.get(sessionId))
+    const held = bySession.get(sessionId)
+    if (score !== null && (!held || score > held.score)) bySession.set(sessionId, { row, score })
   }
+  const matched = [...bySession.values()]
   matched.sort((a, b) => b.score - a.score || (b.row.last_timestamp ?? 0) - (a.row.last_timestamp ?? 0) || a.row.session_id.localeCompare(b.row.session_id))
   const page = matched.slice(offset, offset + limit).map((session) => ({ ...session, passageIds: passageIdsOf(session.row.number, hits) }))
   return { results: pageResults(db, page, words), total: matched.length }

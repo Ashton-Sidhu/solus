@@ -17,7 +17,6 @@ const code = new Bun.Transpiler({ loader: 'ts' }).transformSync(`class Fixture {
 interface SourceSession {
   id: string
   agentSessionId: string
-  handoffId: string | null
   task: TaskTarget
   prompt: { text: string }
 }
@@ -34,9 +33,9 @@ interface Fixture {
 }
 const FixtureClass: new () => Fixture = new Function('quotedReplyDraft', 'ownedTaskId', 'requestInputFocus', `${code}; return Fixture`)(quotedReplyDraft, ownedTaskId, () => {})
 
-async function ask(task: TaskTarget, boundTask?: { id: string }, handoffId: string | null = null) {
+async function ask(task: TaskTarget, boundTask?: { id: string }) {
   const fixture = new FixtureClass()
-  const original: SourceSession = { id: 'stable-source', agentSessionId: 'provider-source', handoffId, task, prompt: { text: '' } }
+  const original: SourceSession = { id: 'stable-source', agentSessionId: 'provider-source', task, prompt: { text: '' } }
   const forked: SourceSession = { ...original, id: 'new-session', prompt: { text: '' } }
   let requestedTask: TaskTarget | undefined
   let bindingId = ''
@@ -67,10 +66,10 @@ describe('ask in new session task ownership', () => {
     expect(result.bindingId).toBe('stable-source')
   })
 
-  test('keeps the bound task and honors a durable task transfer', async () => {
-    const result = await ask({ kind: 'existing', taskId: 'old-task' }, { id: 'source-task' }, 'handoff-session')
+  test('keeps the bound task over the one the tab was aimed at', async () => {
+    const result = await ask({ kind: 'existing', taskId: 'old-task' }, { id: 'source-task' })
     expect(result.requestedTask).toEqual({ kind: 'existing', taskId: 'source-task' })
-    expect(result.bindingId).toBe('handoff-session')
+    expect(result.bindingId).toBe('stable-source')
   })
 
   test('uses the saved task before the task store has its link', async () => {

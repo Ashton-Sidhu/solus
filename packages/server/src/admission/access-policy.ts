@@ -90,10 +90,7 @@ const resourceRpcRules = {
   loadSessionMessageWindow: viewer(sessionFieldAt(0, 'sessionId')),
   getSessionInfo: viewer(sessionIdAt(0)),
   getSessionInfos: viewer(singleSessionIdAt(0)),
-  // Opening a session by id resolves its lineage first; the share manager canonicalizes
-  // ids through the same table, so a provider thread id names the shared session.
-  describeSession: viewer(sessionIdAt(1)),
-  resolveSessionLineage: viewer(sessionIdAt(1)),
+  describeSession: viewer(sessionIdAt(0)),
   loadPlanContent: viewer(sessionIdAt(0)),
   loadPlanAnnotations: viewer(sessionIdAt(0)),
   getThreadGoal: viewer(sessionIdAt(0)),
@@ -152,7 +149,6 @@ const resourceRpcRules = {
   unlinkPlanUpstream: editor(sessionIdAt(0)),
   tasksLinkSession: editor(sessionIdAt(1)),
   tasksUnlinkSession: editor(sessionIdAt(1)),
-  tasksRekeySession: editor(sessionIdAt(0)),
   watchList: viewer(sessionIdAt(0)),
   watchPause: editor(sessionIdAt(0)),
   watchResume: editor(sessionIdAt(0)),

@@ -1,8 +1,9 @@
 import type { IpcContext } from '@solus/contracts/types'
 import { isHostOwner, LOCAL_ORGANIZATION_ID, type Principal } from '../../admission/principal'
 import { ANY_ORGANIZATION } from '../../admission/principal'
-import { assignSessionOrganization, getSessionRecord, recordSessionId, rememberSessionBirth, type SessionBirth } from '../../data/sessions/session-records'
+import { assignSessionOrganization, getSessionRecord, rememberSessionBirth, type SessionBirth } from '../../data/sessions/session-records'
 import { isOrganizationAttached } from '../../host/organization-attachment'
+import { sessionIdOfThread } from '../../data/sessions/session-lineage'
 import { isChat } from '@solus/contracts/chat'
 import type { HostOrganizations } from '../../host/organizations'
 import { insightsEligible } from '../../sync/mirror/insight-mirror'
@@ -47,8 +48,6 @@ export interface TurnOrganizationDeps {
   hostOrganizations: HostOrganizations
   /** The organization a resource is reserved for by an active publication, if any (§7). */
   reservedOrganization?: (sessionId: string) => string | null
-  /** The record id of a live session (its provider thread id), when the runtime knows it before the lineage does. */
-  recordIdFor?: (sessionId: string) => string | null
   /** Absent where the host cannot run organization work: the desktop's own host, a host with no link. */
   delegations?: DelegationPort
   /** Persists the attachment the first time a member is admitted for organization work (organization-vms §4). */
@@ -62,12 +61,12 @@ export async function admitTurnOrganization(ctx: IpcContext, actor: Actor, deps:
   const principal = actor.principal
   // A member reaches this machine only through a grant its attachment allows: the attachment is recorded before their work is admitted.
   if (principal.kind === 'org-member') deps.markAttached?.()
-  const sessionId = ctx.session.sessionId
-  const recordId = deps.recordIdFor?.(sessionId) ?? ctx.session.agentSessionId ?? recordSessionId(sessionId)
-  const record = await getSessionRecord(ANY_ORGANIZATION, recordId)
+  // A fork follows the record of the session it branches from.
+  const forkSource = ctx.session.forked && ctx.session.agentSessionId ? sessionIdOfThread(ctx.session.agentSessionId) : null
+  const record = await getSessionRecord(ANY_ORGANIZATION, forkSource ?? ctx.session.sessionId)
   const organizationId = isOrganizationAttached()
     ? await admitOnAttachedMachine(ctx, principal, deps, record)
-    : await admitOnPersonalMachine(ctx, principal, deps, recordId, record)
+    : await admitOnPersonalMachine(ctx, principal, deps, record)
   if (organizationId !== LOCAL_ORGANIZATION_ID && !deps.hostOrganizations.mayExecute(organizationId)) {
     throw new TurnRefusedError('PERSONAL_HOSTS_NOT_ALLOWED', `${deps.hostOrganizations.organization(organizationId)?.name ?? 'This organization'} does not allow its work to run on a personal computer. Use a self-hosted server or a cloud host.`)
   }
@@ -106,6 +105,7 @@ async function admitOnAttachedMachine(ctx: IpcContext, principal: Principal, dep
   await deps.adoptSession?.(sessionId, organizationId, userId, { shareWithOrganization: !isChat(ctx.session.workingDirectory) })
   const birth: SessionBirth = { organizationId, published: true, ownerUserId: userId, admissionId: sessionId }
   pendingAssignments.set(sessionId, birth)
+  rememberSessionBirth(sessionId, birth)
   return organizationId
 }
 
@@ -140,33 +140,33 @@ async function actForPerson(principal: Principal, deps: TurnOrganizationDeps, in
 }
 
 /** A person's own machine, and a server not attached: scratch stays Local unless its Insights assignment applies. */
-async function admitOnPersonalMachine(ctx: IpcContext, principal: Principal, deps: TurnOrganizationDeps, recordId: string, record: StoredRecord): Promise<string> {
+async function admitOnPersonalMachine(ctx: IpcContext, principal: Principal, deps: TurnOrganizationDeps, record: StoredRecord): Promise<string> {
   const sessionId = ctx.session.sessionId
   let organizationId = record?.organizationId ?? pendingAssignments.get(sessionId)?.organizationId ?? LOCAL_ORGANIZATION_ID
   if (organizationId !== LOCAL_ORGANIZATION_ID) return organizationId
   const wanted = wantedOrganization(ctx, principal, deps)
   if (wanted && record) {
-    const assigned = await assignSessionOrganization(recordId, wanted)
+    const assigned = await assignSessionOrganization(sessionId, wanted)
     organizationId = assigned?.organizationId ?? organizationId
   } else if (wanted) {
-    // No record yet (a brand-new session): the runtime applies this once it
-    // knows the provider thread id the record is keyed by (`applyPendingAssignment`).
+    // No record yet (a brand-new session): the record is born in it, and the
+    // runtime applies it at session_init (`applyPendingAssignment`).
     pendingAssignments.set(sessionId, { organizationId: wanted })
-    rememberSessionBirth(recordId, { organizationId: wanted })
+    rememberSessionBirth(sessionId, { organizationId: wanted })
     organizationId = wanted
   }
   return organizationId
 }
 
 /**
- * Whether this person may answer a new approval or question of `recordId`
+ * Whether this person may answer a new approval or question of a session
  * (organization-vms §4): on an attached machine the host must be able to act for
  * them in the session's organization, so a person whose membership or the machine's
  * attachment was removed cannot let a run continue past a new question.
  */
-export async function mayAnswerFor(principal: Principal, sessionId: string, recordId: string, deps: TurnOrganizationDeps): Promise<boolean> {
+export async function mayAnswerFor(principal: Principal, sessionId: string, deps: TurnOrganizationDeps): Promise<boolean> {
   if (!isOrganizationAttached()) return true
-  const record = await getSessionRecord(ANY_ORGANIZATION, recordId)
+  const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
   if (!record || record.organizationId === LOCAL_ORGANIZATION_ID || record.publication !== 'published') return true
   try {
     await actForPerson(principal, deps, { sessionId, organizationId: record.organizationId, admit: false })
@@ -193,9 +193,8 @@ function wantedOrganization(ctx: IpcContext, principal: Principal, deps: TurnOrg
 }
 
 /**
- * Sessions admitted for an organization before their record existed, by Solus
- * session id. The runtime calls `applyPendingAssignment` when it first learns
- * the provider thread id a session's record is keyed by.
+ * Sessions admitted for an organization before their record existed. The
+ * runtime calls `applyPendingAssignment` at session_init.
  */
 const pendingAssignments = new Map<string, SessionBirth>()
 
@@ -207,36 +206,23 @@ export function pendingOrganizationFor(sessionId: string): string | null {
 /**
  * A child or a fork works for the organization of the session it came from
  * (plans/018 §6). Its own record takes that organization once (R10), so a
- * restart finds it there and not in memory. Before the record id is known the
- * assignment waits for `applyPendingAssignment`, like an admission's; an
- * admission already pending for the session is left as it is.
+ * restart finds it there and not in memory. An admission already pending for
+ * the session is left as it is.
  */
-export async function inheritSessionOrganization(sessionId: string, organizationId: string, recordId: string | null): Promise<void> {
-  if (!recordId) {
-    if (!pendingAssignments.has(sessionId)) pendingAssignments.set(sessionId, { organizationId })
-    return
-  }
+export async function inheritSessionOrganization(sessionId: string, organizationId: string): Promise<void> {
+  if (pendingAssignments.has(sessionId)) return
   // Whichever comes first: a record not written yet is born in it, a Local one is assigned it.
-  rememberSessionBirth(recordId, { organizationId })
-  await assignSessionOrganization(recordId, organizationId)
+  rememberSessionBirth(sessionId, { organizationId })
+  await assignSessionOrganization(sessionId, organizationId)
 }
 
-/** Listeners that learn which record a Solus session's run is keyed by: the run authority holder. */
-const recordBindings = new Set<(sessionId: string, recordId: string) => void>()
-
-export function onSessionRecordBound(listener: (sessionId: string, recordId: string) => void): () => void {
-  recordBindings.add(listener)
-  return () => { recordBindings.delete(listener) }
-}
-
-export function applyPendingAssignment(sessionId: string, recordId: string): void {
-  for (const listener of recordBindings) listener(sessionId, recordId)
+/** At session_init: the record now exists, so an admission that waited for it is applied. */
+export function applyPendingAssignment(sessionId: string): void {
   const birth = pendingAssignments.get(sessionId)
   if (!birth) return
   pendingAssignments.delete(sessionId)
   // Whichever write comes first wins the same way: a record born now starts in
   // its home, a record the indexer already wrote as Local is assigned it.
-  rememberSessionBirth(recordId, birth)
-  void assignSessionOrganization(recordId, birth.organizationId, birth)
+  void assignSessionOrganization(sessionId, birth.organizationId, birth)
 }
 

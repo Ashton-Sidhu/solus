@@ -236,24 +236,4 @@ describe('publishing a session', () => {
       await h.stop()
     }
   })
-
-  test('a session shared by its Solus id finds the record keyed by its provider thread id', async () => {
-    const h = await harness()
-    // Insights and the tab name the Solus session id; the record carries the thread id.
-    records.useLiveRecordIds((sessionId) => sessionId === 'solus-live' ? 'thread-live' : null)
-    try {
-      await records.upsertOwnSessionRecord({ sessionId: 'thread-live', provider: 'claude-code', projectPath: '-repo', title: 'Live', lastActivityAt: 1 })
-      transcripts.set('solus-live', [{ role: 'user', content: 'hi', timestamp: 1 }])
-      const resource = { kind: 'session', id: 'solus-live' } as const
-      await h.coordinator.start({ resource, organizationId: 'A' }, 'alice')
-
-      const done = await settled(h, resource)
-      expect(done.error ?? null).toBeNull()
-      expect(done.state).toBe('committed')
-      expect(await records.getSessionRecord('A', 'thread-live')).toMatchObject({ organizationId: 'A', publication: 'published' })
-    } finally {
-      records.useLiveRecordIds(() => null)
-      await h.stop()
-    }
-  })
 })

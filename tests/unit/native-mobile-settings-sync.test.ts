@@ -12,7 +12,7 @@ import {
   type OrganizationSettingsResponse,
   type PersonalSettingsDocument,
 } from '@solus/contracts/settings'
-import type { IpcContext, PromptOptions, WatchSessionInput } from '@solus/contracts/types'
+import type { IpcContext, PromptOptions } from '@solus/contracts/types'
 import { SolusApp } from '../../apps/mobile/src/app/solus-app'
 import { ConversationController } from '../../apps/mobile/src/features/conversation/conversation-controller'
 import { DEFAULT_RUN_SETTINGS } from '../../apps/mobile/src/features/conversation/lib/ipc-context'
@@ -219,7 +219,7 @@ describe('prompts carry the person\'s execution preferences', () => {
   async function conversation(prompt: () => unknown) {
     const api = new FakeApi()
       .on('loadSessionPage', () => ({ messages: [], before: null }))
-      .on('watchSession', (input: WatchSessionInput) => ({ sessionId: input.sessionId ?? 's' }))
+      .on('watchSession', () => ({}))
       .on('prompt', prompt)
     const world = await hostWorld(api)
     const connection = world.connections.connection('inst-a')!

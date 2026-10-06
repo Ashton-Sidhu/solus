@@ -1,7 +1,7 @@
 import { reconcileQueuedPromptsForSession } from './session-transcript'
 import { recordQuestionAnswer } from './question-history'
 import type { ContextCompaction, EnrichedError, GitState, Message, Session, ThreadGoal, WireNormalizedEvent } from '@solus/contracts/types'
-import { existingTaskId, taskBindingSessionId, taskRoleOf } from './session-draft.svelte'
+import { existingTaskId, taskRoleOf } from './session-draft.svelte'
 import { encodePathAsFolder } from '@solus/contracts/types'
 import { uuid } from '@solus/contracts/uuid'
 import type { SettingsContext } from '../app/settings.context.svelte'
@@ -289,7 +289,8 @@ export class SessionEventReducer {
       case 'session_init':
         session.run.provider = session.run.provider ?? this.deps.settings.activeAgent
         session.agentSessionId = event.sessionId
-        const taskSessionId = taskBindingSessionId(session) ?? event.sessionId
+        session.handoffPending = false
+        const taskSessionId = session.id ?? event.sessionId
         session.currentActivity = session.currentTurnStart === 'fresh'
           ? 'Connecting...'
           : 'Resuming...'
@@ -301,7 +302,7 @@ export class SessionEventReducer {
           session.forkExcludeLatestTurn = false
         }
         if (session.boundWorkId) {
-          this.deps.worksStore.linkSession(session.boundWorkId, event.sessionId)
+          this.deps.worksStore.linkSession(session.boundWorkId, session.id)
         }
         // The task host owns the durable link, and only now is there a session
         // id to write into it — the execution host issues that, and on a
@@ -679,7 +680,7 @@ export class SessionEventReducer {
         const projectPath = encodePathAsFolder(cwd)
         const planId = this.deps.planStore.upsertFromStream({
           serverId: session.run.serverId,
-          sessionId: session.agentSessionId!,
+          sessionId: session.id,
           planToolUseId: toolUseId,
           projectPath,
           cwd,
@@ -715,7 +716,7 @@ export class SessionEventReducer {
         // that session-owned fact to the task host's session stub. This does
         // not write or recreate any task relationship.
         if (session.agentSessionId && event.gitContext.branch) {
-          const taskSessionId = taskBindingSessionId(session)
+          const taskSessionId = session.id
           const taskServerId = session.run.taskServerId
           // Only a driver of the session copies it; the host refuses a viewer.
           if (
@@ -823,13 +824,12 @@ export class SessionEventReducer {
         session.run.modelConfig = { ...event.modelConfig }
         if (!event.result) break
         session.agentSessionId = event.result.restoredSessionId ?? null
-        session.handoffId = event.result.handoffId
+        session.handoffPending = !event.result.restoredSessionId
         session.handoffFrom = undefined
         session.sessionModel = null
         session.run.sessionSkills = []
         session.pluginCommands = { global: [], project: [] }
         session.rateLimitInfo = null
-        this.deps.tasksStore.rekeySessionBinding(event.result.taskSessionMove.sourceSessionId, event.result.taskSessionMove.targetSessionId, session.run.taskServerId)
         break
 
       case 'prompt_queued': {
@@ -962,7 +962,7 @@ export class SessionEventReducer {
 
       case 'work_created': {
         this.deps.workStreamTracker.finalizeWork(session, event)
-        if (session.agentSessionId) this.deps.worksStore.linkSessionLocal(event.workId, session.agentSessionId)
+        this.deps.worksStore.linkSessionLocal(event.workId, session.id)
         this.deps.playNotificationIfHidden(sessionId, 'work_created')
         break
       }
@@ -975,7 +975,7 @@ export class SessionEventReducer {
 
       case 'artifact_created': {
         this.deps.workStreamTracker.finalizeArtifact(session, event)
-        if (event.workId && session.agentSessionId) this.deps.worksStore.linkSessionLocal(event.workId, session.agentSessionId)
+        if (event.workId) this.deps.worksStore.linkSessionLocal(event.workId, session.id)
         this.deps.playNotificationIfHidden(sessionId, 'artifact_created')
         break
       }

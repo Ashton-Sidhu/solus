@@ -16,7 +16,6 @@ import { ANY_ORGANIZATION, isAnyOrganization, LOCAL_ORGANIZATION_ID, type Record
 import { provisionedOrganizationId } from '../../host/host-category'
 import { scopeClause } from '../scope'
 import { sessionRecords } from './schema'
-import { resolveSessionLineageById } from './session-lineage'
 
 /**
  * The collaboration plane's session records
@@ -133,17 +132,6 @@ export async function getSessionRecords(scope: RecordScope, sessionIds: readonly
     records.set(record.sessionId, record)
   }
   return records
-}
-
-/** The sessions the given exchanges started, by exchange id. A start that never got a session is absent. */
-export async function sessionIdsStartedBy(scope: RecordScope, exchangeIds: readonly string[]): Promise<Map<string, string>> {
-  const unique = [...new Set(exchangeIds)]
-  if (!unique.length) return new Map()
-  const rows = z.object({ session_id: z.string(), delegation_message_id: z.string() }).array().parse(await getDatabase().all(sql`
-    SELECT session_id, delegation_message_id FROM ${sessionRecords}
-    WHERE ${scopeClause(scope)} AND delegation_message_id IN (${sql.join(unique.map((id) => sql`${id}`), sql`, `)})
-  `))
-  return new Map(rows.map((row) => [row.delegation_message_id, row.session_id]))
 }
 
 /** Scoped, authorized seek predicate is applied before LIMIT. */
@@ -433,12 +421,11 @@ export function setSessionRecordStatus(scope: RecordScope, sessionId: string, st
 }
 
 export function setSessionRecordBranch(sessionId: string, branch: string): Promise<void> {
-  const recordId = recordSessionId(sessionId)
-  return serialized(recordId, async () => {
+  return serialized(sessionId, async () => {
     const result = await getDatabase().run(sql`
-      UPDATE ${sessionRecords} SET branch = ${branch} WHERE session_id = ${recordId}
+      UPDATE ${sessionRecords} SET branch = ${branch} WHERE session_id = ${sessionId}
     `)
-    if (result.changes > 0) await emitStored(recordId)
+    if (result.changes > 0) await emitStored(sessionId)
   })
 }
 
@@ -511,44 +498,6 @@ export interface SessionRecordQuery {
 }
 
 /**
- * The organization a session's owned children inherit (organization-scope §3):
- * the record's, or this machine's own when the session has no record yet.
- */
-/**
- * The id a session's record is keyed by: the provider thread id the lineage
- * names for a Solus session id, else the id as given (a record reported into
- * the Solus API is keyed by that same thread id).
- */
-export function recordSessionId(sessionId: string): string {
-  const live = liveRecordId?.(sessionId)
-  if (live) {
-    recordIdBySession.set(sessionId, live)
-    return live
-  }
-  // A session the runtime has let go (its last span ends after the session did) keeps the id it was known by.
-  const remembered = recordIdBySession.get(sessionId)
-  if (remembered) return remembered
-  try {
-    return resolveSessionLineageById(sessionId)?.active.providerSessionId ?? sessionId
-  } catch {
-    return sessionId
-  }
-}
-
-const recordIdBySession = new Map<string, string>()
-
-/**
- * The runtime knows a live session's provider thread id before the lineage
- * table does; boot installs its answer here so a turn's spans and Insights find
- * the record of a session that just started.
- */
-let liveRecordId: ((sessionId: string) => string | null) | null = null
-
-export function useLiveRecordIds(resolver: (sessionId: string) => string | null): void {
-  liveRecordId = resolver
-}
-
-/**
  * Whether this host's records hold every session on its disk yet. Boot
  * installs the transcript indexer's answer; the workspace service keeps the
  * default, because its records arrive from runners and have no first sweep.
@@ -564,8 +513,11 @@ export function sessionRecordsIndexing(): boolean {
   return !indexComplete()
 }
 
-export async function organizationOfSession(sessionIdOrRecordId: string): Promise<string> {
-  const sessionId = recordSessionId(sessionIdOrRecordId)
+/**
+ * The organization a session's owned children inherit (organization-scope §3):
+ * the record's, or this machine's own when the session has no record yet.
+ */
+export async function organizationOfSession(sessionId: string): Promise<string> {
   const known = organizationBySession.get(sessionId)
   // A remembered fallback holds only while this machine's organization is the same one.
   if (known && (known.fromRecord || known.organizationId === machineOrganizationId())) return known.organizationId

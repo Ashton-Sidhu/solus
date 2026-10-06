@@ -7,8 +7,7 @@ import { instructionsFor, unattendedModelInputFor, runInputFromContext } from '.
 import { sessionExecutionPreferences } from '../../data/sessions/session-states'
 import { DEFAULT_EXECUTION_PREFERENCES, type ExecutionPreferences } from '@solus/contracts/settings'
 import { sessionSettings } from './session-settings'
-import { getIndexedSession } from '../../db/session-indexer'
-import { resolveSessionLineage, resolveSessionLineageById } from '../../data/sessions/session-lineage'
+import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { type CreateSessionOrder } from '../orchestration/session-orchestrator'
 import type { AgentId, GitCheckout, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, SessionRunInput, ReasoningEffort } from '@solus/contracts/types'
 import { defaultContextWindowFor } from '@solus/contracts/types'
@@ -99,7 +98,7 @@ export class PromptDispatch {
     // obeying it re-points the binding and splits one conversation into two
     // addresses, so each client then sees only the turns it started. A fork is
     // exempt: it carries the source thread's id but is deliberately a new session.
-    const sessionId = (!input.forked && agentSessionId ? this.rt.sessionIdFor(agentSessionId) : undefined)
+    const sessionId = (!input.forked && agentSessionId ? this.rt.sessionOfThread(agentSessionId) : undefined)
       ?? proposedSessionId
     if (agentSessionId && !input.forked) this.rt.agentSessionToSession.set(agentSessionId, sessionId)
     const target: DispatchTarget = !input.forked && agentSessionId
@@ -155,7 +154,8 @@ export class PromptDispatch {
    * when that turn ends, which is when the watch waits again or ends.
    */
   async dispatchWake(wake: { sessionId: string; watchId: string; prompt: string; displayPrompt: string }): Promise<{ done: Promise<unknown> }> {
-    const { sessionId, input } = await this.unattendedRunInput(wake.sessionId)
+    const sessionId = wake.sessionId
+    const { input } = await this.unattendedRunInput(sessionId)
     const lifecycle = await this.rt.runTurn({
       input,
       target: { kind: 'session', sessionId },
@@ -190,29 +190,24 @@ export class PromptDispatch {
   /**
    * The run input for a prompt nobody at the session's keyboard sent: the
    * resident run's input, or one rebuilt from the session's stored start
-   * configuration. `id` is the stable Solus session or a provider thread.
+   * configuration. The backend gets the session's active thread; a session
+   * with no lineage is its own thread (docs/plans/session-identity.md).
    */
-  private async unattendedRunInput(id: string): Promise<{ sessionId: string; input: SessionRunInput }> {
-    const requestedMeta = getIndexedSession(id)
-    const handoff = resolveSessionLineageById(id) ?? (requestedMeta
-      ? resolveSessionLineage(requestedMeta.provider, id)
-      : null)
-    const agentSessionId = handoff?.active.providerSessionId ?? id
-    // Keep the stable target for dispatch and pass only its thread to the backend.
-    const sessionId = handoff?.sessionId ?? this.rt.sessionIdFor(agentSessionId) ?? crypto.randomUUID()
+  private async unattendedRunInput(sessionId: string): Promise<{ input: SessionRunInput }> {
+    const handoff = resolveSessionLineageById(sessionId)
+    const agentSessionId = handoff?.active.providerSessionId ?? sessionId
     const resident = this.rt.activeSessions.get(sessionId)
-    if (resident?.runInput) return { sessionId, input: { ...resident.runInput, agentSessionId, forked: false } }
+    if (resident?.runInput) return { input: { ...resident.runInput, agentSessionId, forked: false } }
     // The preferences the session's last run carried, kept across idle release and host restart.
     const preferences = sessionSettings(sessionId)?.preferences ?? await sessionExecutionPreferences(sessionId)
-    const meta = await this.rt.history.getSessionInfo(agentSessionId)
-    if (!meta) throw new Error(`Session ${agentSessionId} not found`)
+    const meta = await this.rt.history.getSessionInfo(sessionId)
+    if (!meta) throw new Error(`Session ${sessionId} not found`)
     if (!meta.model || !meta.reasoningEffort) {
-      throw new Error(`Session ${agentSessionId} has no persisted starting model configuration`)
+      throw new Error(`Session ${sessionId} has no persisted starting model configuration`)
     }
     const provider = handoff?.active.provider ?? meta.provider
     const cwd = handoff?.active.cwd ?? meta.cwd
     return {
-      sessionId,
       input: {
         provider,
         agentSessionId,
@@ -239,10 +234,10 @@ export class PromptDispatch {
   }
 
   async promptSession(
-    agentSessionId: string,
+    sessionId: string,
     prompt: string,
     delivery: PromptDelivery = 'queue',
-    origin?: Pick<PromptOptions, 'via' | 'agentSessionId' | 'agentMessageId'> & {
+    origin?: Pick<PromptOptions, 'via'> & {
       /** Replaces the session's stored run mode for this prompt and every later
        *  one. A peer that just planned is still in 'plan' mode: prompting it as
        *  is makes Claude plan again and makes Codex refuse to touch anything, so
@@ -257,7 +252,7 @@ export class PromptDispatch {
     },
   ): Promise<{ disposition: SessionRunLifecycle['disposition']; queueId?: string }> {
     const { permissionMode, actor, exchangeIds, reportExchangeIds, ...promptOrigin } = origin ?? {}
-    const { sessionId, input } = await this.unattendedRunInput(agentSessionId)
+    const { input } = await this.unattendedRunInput(sessionId)
     if (permissionMode) input.permissionMode = permissionMode
     await this.rt.seatForTurn(actor, input.provider)
     const lifecycle = await this.rt.runTurn({
@@ -294,10 +289,10 @@ export class PromptDispatch {
    * session has initialized and returning its id. The caller renders a card,
    * which watches the session when a user opens it.
    */
-  async createSession(req: CreateSessionRequest, actor?: Actor): Promise<{ agentSessionId: string; taskId?: string }> {
+  async createSession(req: CreateSessionRequest, actor?: Actor): Promise<{ sessionId: string; agentSessionId: string; taskId?: string }> {
     // No seat, no session: refused before anything is spawned (Step 2 plan §3.3).
     await this.rt.seatForTurn(actor, req.provider)
-    const parentId = req.delegation ? this.rt.sessionIdFor(req.delegation.parentAgentSessionId) : undefined
+    const parentId = req.delegation?.parentSessionId
     const namingActor = actor ?? (parentId ? this.rt.activeRunRequests.get(parentId)?.actor : undefined)
     const parentMode = parentId ? this.rt.activeSessions.get(parentId)?.runInput?.permissionMode ?? this.rt.sessionPermissionModes.get(parentId) : undefined
     if (req.delegation && !parentMode) throw new Error('The parent permission policy is unavailable. Start the child from an active parent turn.')
@@ -330,8 +325,7 @@ export class PromptDispatch {
     const sessionId = req.sessionId ?? crypto.randomUUID()
     const delegation = req.delegation
       ? {
-          // The index keys sessions by provider thread; so does the parent link.
-          parentSessionId: req.delegation.parentAgentSessionId,
+          parentSessionId: req.delegation.parentSessionId,
           messageId: req.delegation.messageId,
           intent: req.delegation.intent,
           createdAt: req.delegation.createdAt,
@@ -363,13 +357,13 @@ export class PromptDispatch {
     })
     const started = await lifecycle.agentSessionId
     this.rt.emit('background-session-created', {
-      sessionId: started.agentSessionId,
+      sessionId,
       prompt: req.prompt,
       cwd: req.cwd,
       preferences,
       actor: namingActor,
     })
-    return started
+    return { ...started, sessionId }
   }
 
   /** Start an isolated automation as a normal headless session. The session id
@@ -387,7 +381,7 @@ export class PromptDispatch {
     abortSignal?: AbortSignal
     /** The automation's captured preferences (plans/018 §6); absent means the built-in defaults. */
     executionPreferences?: ExecutionPreferences
-  }): Promise<{ agentSessionId: string; done: Promise<{ output?: string }> }> {
+  }): Promise<{ sessionId: string; done: Promise<{ output?: string }> }> {
     const input: SessionRunInput = {
       provider: req.provider,
       agentSessionId: null,
@@ -406,10 +400,11 @@ export class PromptDispatch {
       ...unattendedModelInputFor(req.provider, req.modelId, req.executionPreferences),
       executionPreferences: req.executionPreferences,
     }
+    const sessionId = crypto.randomUUID()
     const lifecycle = await this.rt.runTurn({
       input,
       target: { kind: 'new-session' },
-      sessionId: crypto.randomUUID(),
+      sessionId,
       tools: selectAgentTools(
         solusToolbox.works,
         solusToolbox.docs,
@@ -455,7 +450,7 @@ export class PromptDispatch {
           .join('\n\n')
         return output ? { output } : {}
       })
-      return { agentSessionId, done }
+      return { sessionId, done }
     } catch (err) {
       await trackedDone.catch(() => {})
       throw err

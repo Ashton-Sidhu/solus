@@ -55,10 +55,8 @@ export async function taskOfTurn(
       return { id: options.taskId }
     }
   }
-  const agentSessionId = run.input.agentSessionId
-  if (!agentSessionId) return null
   try {
-    const task = await Task.forSession(ANY_ORGANIZATION, agentSessionId)
+    const task = await Task.forSession(ANY_ORGANIZATION, run.sessionId)
     return task ? { id: task.id, title: task.title } : null
   } catch {
     return null

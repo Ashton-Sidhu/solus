@@ -61,7 +61,7 @@ async function tree() {
     await (await TaskModule.Task.byId('local', task.id)).linkSession(thread, 'working')
   }
   const work = await works.createWork('local', 'Queue design', 'doc', 'the full design text', '', 'thread-child', 'claude-code', cwd)
-  await plans.indexLivePlan({ provider: 'claude-code', sessionId: 'thread-child', planToolUseId: 'toolu_plan', projectPath: cwd, cwd, timestamp: 3, content: PLAN_TEXT })
+  await plans.indexLivePlan({ provider: 'claude-code', sessionId: 'thread-child', threadId: 'thread-child', planToolUseId: 'toolu_plan', projectPath: cwd, cwd, timestamp: 3, content: PLAN_TEXT })
   return { task, work }
 }
 

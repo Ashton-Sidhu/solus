@@ -1,4 +1,4 @@
-import { markUnread, markViewed } from '../../data/sessions/session-read-state'
+import { markSessionUnread, markSessionViewed } from '../../data/sessions/session-states'
 import type { HostEventPublisher } from '../events/host-event-publisher'
 import type { SolusServer } from '../server'
 
@@ -19,11 +19,11 @@ export function registerSessionReadStateHandlers(
   server: SolusServer,
   deps: { events: HostEventPublisher },
 ): void {
-  server.register('setSessionReadState', (args) => {
+  server.register('setSessionReadState', async (args) => {
     const [sessionId, viewedAt] = args
     let settled: number | null = null
-    if (viewedAt !== null) settled = markViewed(sessionId, viewedAt)
-    else markUnread(sessionId)
+    if (viewedAt !== null) settled = await markSessionViewed(sessionId, viewedAt)
+    else await markSessionUnread(sessionId)
     deps.events.broadcast('session.readStateChanged', { sessionId, viewedAt: settled })
     return settled
   })

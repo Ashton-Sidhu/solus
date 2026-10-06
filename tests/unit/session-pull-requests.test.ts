@@ -119,13 +119,6 @@ describe('a session and its pull requests', () => {
     expect((await linksOf('session-1'))[0]?.snapshot).toMatchObject({ state: 'merged', title: 'Ship it' })
     expect(await sessionPrs.sessionPullRequestIsMerged(REPOSITORY, 7)).toBe(true)
   })
-
-  test('links move with the session when it takes its stable id', async () => {
-    await sessionPrs.linkSessionPullRequest('provider-thread', { url: URL_7, source: 'created', by: PERSON })
-    await sessionPrs.rekeySessionPullRequests('provider-thread', 'stable-session')
-    expect(await linksOf('provider-thread')).toEqual([])
-    expect((await linksOf('stable-session')).map((link) => link.number)).toEqual([7])
-  })
 })
 
 describe('a task and the pull requests of its sessions', () => {

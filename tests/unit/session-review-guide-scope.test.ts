@@ -92,7 +92,6 @@ class CapturingDispatcher implements AgentDispatcher {
       provider: request.provider,
       cwd: request.cwd,
       sessionId: () => undefined,
-      solusSessionId: () => undefined,
       parentToolUseId: () => undefined,
       abortSignal: new AbortController().signal,
       emit: () => {},

@@ -147,8 +147,8 @@ export class ProviderEvents {
             this.rt.activeRunRequests.set(initSessionId, initializedRun)
             // A created child's card knew it by its pending message; from here
             // its updates name the real thread.
-            const startedRun = this.rt.runExchanges(initializedRun, event.sessionId)
-            if (startedRun) this.rt.orchestration?.sessionStarted(startedRun, event.sessionId, initializedRun.input.workingDirectory)
+            const startedRun = this.rt.runExchanges(initializedRun)
+            if (startedRun) this.rt.orchestration?.sessionStarted(startedRun, initializedRun.input.workingDirectory)
             const started: Parameters<PendingStart['resolve']>[0] = { agentSessionId: event.sessionId }
             if (pendingStart.run.options.taskId) started.taskId = pendingStart.run.options.taskId
             pendingStart.resolve(started)
@@ -171,11 +171,11 @@ export class ProviderEvents {
         const indexedStart = runReqInput ? `${runReqInput.model}\u0000${runReqInput.reasoningEffort}` : null
         if (runReqInput && indexedStart && this.indexedThreadStarts.get(event.sessionId) !== indexedStart) {
           this.indexedThreadStarts.set(event.sessionId, indexedStart)
-          this.rt.statuses.recordStatusWritten.set(event.sessionId, 'running')
-          // The record id is known now. The status write below is skipped as
-          // already written, so an admitted or inherited organization lands here,
-          // before the record is born, not at the turn's end.
-          applyPendingAssignment(initSessionId, event.sessionId)
+          this.rt.statuses.recordStatusWritten.set(initSessionId, 'running')
+          // The status write below is skipped as already written, so an
+          // admitted or inherited organization lands here, before the record
+          // is born, not at the turn's end.
+          applyPendingAssignment(initSessionId)
           persistIndexedSessionStart(
             event.sessionId,
             backend.id,
@@ -265,7 +265,8 @@ export class ProviderEvents {
             const planToolUseId = event.planToolUseId
             void indexLivePlan({
               provider: backend.id,
-              sessionId: agentSessionId,
+              sessionId: session.sessionId,
+              threadId: agentSessionId,
               planToolUseId,
               projectPath: encodePathAsFolder(cwd),
               cwd,
@@ -276,16 +277,15 @@ export class ProviderEvents {
               log.warn('plan_index_live_failed', { agentSessionId, planToolUseId, error: String(error) })
             })
           }
-          // The task store indexes artifacts by the provider's thread id, which
-          // is what a transcript row on disk carries.
+          // A plan is named by its session and its tool use.
           if (event.planToolUseId) {
-            void Task.linkSessionOutput(ANY_ORGANIZATION, agentSessionId, {
+            void Task.linkSessionOutput(ANY_ORGANIZATION, session.sessionId, {
               kind: 'plan',
-              targetScope: agentSessionId,
+              targetScope: session.sessionId,
               targetKey: event.planToolUseId,
             }).catch((error) => {
               log.warn('task_plan_link_failed', {
-                agentSessionId,
+                sessionId: session.sessionId,
                 planToolUseId: event.planToolUseId,
                 error: error instanceof Error ? error.message : String(error),
               })
@@ -381,7 +381,7 @@ export class ProviderEvents {
           this.rt.statuses.setStatus(session.sessionId, 'rate_limited')
           // The run keeps its exchanges whether it waits in the queue for the
           // reset or on a person's decision; its senders hear it is parked.
-          const parked = run ? this.rt.runExchanges(run, agentSessionId) : null
+          const parked = run ? this.rt.runExchanges(run) : null
           // The event counts seconds; the orchestrator's readers count milliseconds.
           if (parked) this.rt.orchestration?.runRateLimited(parked, { resetsAt: event.resetsAt === null ? undefined : event.resetsAt * 1000, limitType: event.rateLimitType })
         }
@@ -515,7 +515,9 @@ export class ProviderEvents {
     })
 
     backend.on('background-command-completed', (agentSessionId: string, prompt: string) => {
-      void this.rt.dispatch.promptSession(agentSessionId, prompt, 'queue', { via: 'background-command' }).catch((error) => {
+      const sessionId = this.rt.sessionOfThread(agentSessionId)
+      if (!sessionId) return
+      void this.rt.dispatch.promptSession(sessionId, prompt, 'queue', { via: 'background-command' }).catch((error) => {
         log.warn('background_command_wake_failed', { agentSessionId, error: error instanceof Error ? error.message : String(error) })
       })
     })

@@ -346,13 +346,7 @@ export class RunScheduler {
   }
 
   /** Callers outside the renderer name the session by its provider thread. */
-  cancelQueuedPromptForSession(agentSessionId: string, queueId: string): boolean {
-    const sessionId = this.rt.agentSessionToSession.get(agentSessionId)
-    if (!sessionId) return false
-    return this.cancelQueued(sessionId, queueId)
-  }
-
-  private cancelQueued(sessionId: string, queueId: string, actor?: Actor): boolean {
+  cancelQueued(sessionId: string, queueId: string, actor?: Actor): boolean {
     const queue = this.requestQueue.get(sessionId)
     if (!queue) return false
     const idx = queue.findIndex((r) => r.queueId === queueId)

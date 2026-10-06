@@ -1,3 +1,4 @@
+import { reviewedSessionId } from './review-target'
 import { existsSync } from 'node:fs'
 import { mkdir, readdir, rename, stat } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -201,7 +202,7 @@ export async function readLedgerByKey(repoRoot: string, key: string): Promise<Re
 
 /** Read the ledger for the current episode (resolves the key from ctx). */
 export async function readLedger(ctx: IpcContext): Promise<ReviewLedger | null> {
-  const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
+  const review = await resolveReviewContext(reviewCheckout(ctx), reviewedSessionId(ctx))
   if (!review) return null
   return readLedgerByKey(review.repoRoot, review.key)
 }

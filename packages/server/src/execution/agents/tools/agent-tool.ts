@@ -30,12 +30,9 @@ export function agentToolImage(png: Uint8Array): AgentToolImage | null {
 export interface AgentToolContext {
   provider: AgentId
   cwd: string
-  /** The provider's thread id — the currency of durable rows (session links,
-   *  comment provenance, the session index). */
+  /** The session id: what every record the tool writes names
+   *  (docs/plans/session-identity.md). */
   sessionId: () => string | undefined
-  /** Solus's own session id — the key the SessionRuntime holds per-session state
-   *  under, e.g. a dispatched session's foreign task snapshot. */
-  solusSessionId: () => string | undefined
   abortSignal: AbortSignal
   parentToolUseId: () => string | undefined
   emit: (event: NormalizedEvent) => void

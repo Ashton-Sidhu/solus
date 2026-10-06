@@ -15,12 +15,12 @@ test.each([
   const context = {
     tabs: { tab: { sessionId: 'stable' } }, sessions: { byId: { stable: session } },
     settings: { activeAgent: 'claude-code' }, apiFor: () => ({
-      resolveSessionLineage: async () => null,
-      watchSession: async () => ({ sessionId: 'stable', runtime: null }),
+      describeSession: async () => ({ lineage: null, meta: null }),
+      watchSession: async () => ({ runtime: null }),
     }),
     ctxFor: () => ({}), sessionFor: () => session,
     eventReducer: { rebuildAgentConversations() {} }, lifecycle: { recomputeChangedFiles() {}, reconcileQueuedPrompts() {} },
-    planStore: { hydrateAnnotations() {} }, adoptSessionId() {}, applyPendingQuestions() {}, refreshThreadGoal() {},
+    planStore: { hydrateAnnotations() {} }, applyPendingQuestions() {}, refreshThreadGoal() {},
     environment: { refreshEnvironment: async () => {} },
     tasksStore: { ensureSessionBinding: async () => {} },
   }

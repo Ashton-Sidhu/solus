@@ -84,7 +84,7 @@ export class PromptDispatch {
     const reviewAgent = resolveReviewAgent(this.workspace.settings)
     const reviewGuideRef = {
       target: request.target,
-      key: reviewGuideKeyForTarget(request.target, branch, session.agentSessionId ?? null),
+      key: reviewGuideKeyForTarget(request.target, branch, session.agentSessionId ? session.id : null),
       ...reviewAgent,
     }
     session.messages.push({

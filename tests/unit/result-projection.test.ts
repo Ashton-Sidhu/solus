@@ -109,12 +109,12 @@ describe('session result projection', () => {
   })
 
   test('extracts agent-conversation correlation without shipping result text', () => {
-    const agentSessionId = '11111111-1111-1111-1111-111111111111'
+    const sessionId = '11111111-1111-1111-1111-111111111111'
     const projected = projectSessionHistory([
       { role: 'tool', content: '', toolName: 'start_session', toolId: 'create-1', timestamp: 1 },
       {
         role: 'tool_result',
-        content: `Created a session with private provider output.\n${formatExchangeTag({ messageId: 'm1', agentSessionId, provider: 'codex' })}`,
+        content: `Created a session with private provider output.\n${formatExchangeTag({ messageId: 'm1', sessionId, provider: 'codex' })}`,
         toolResultForId: 'create-1',
         timestamp: 2,
       },
@@ -122,7 +122,7 @@ describe('session result projection', () => {
 
     expect(projected[1]).toMatchObject({
       content: '',
-      agentConversationResult: { agentSessionId, messageId: 'm1', provider: 'codex' },
+      agentConversationResult: { sessionId, messageId: 'm1', provider: 'codex' },
     })
   })
 
@@ -130,16 +130,16 @@ describe('session result projection', () => {
     // WHY: a card rebuilt from history must show where its exchange stands now,
     // not where the transcript left it, without a second lookup that can miss.
     const rows = [
-      { role: 'tool' as const, content: '', timestamp: 1, agentConversationResult: { agentSessionId: 'child', messageId: 'running' } },
-      { role: 'tool' as const, content: '', timestamp: 2, agentConversationResult: { agentSessionId: 'child', messageId: 'gone' } },
+      { role: 'tool' as const, content: '', timestamp: 1, agentConversationResult: { sessionId: 'child', messageId: 'running' } },
+      { role: 'tool' as const, content: '', timestamp: 2, agentConversationResult: { sessionId: 'child', messageId: 'gone' } },
       { role: 'assistant' as const, content: 'prose', timestamp: 3 },
     ]
     const stamped = withExchangeProgress(rows, (exchangeId) => exchangeId === 'running' ? { state: 'running' } : undefined)
-    expect(stamped[0]!.agentConversationResult).toEqual({ agentSessionId: 'child', messageId: 'running', progress: { state: 'running' } })
+    expect(stamped[0]!.agentConversationResult).toEqual({ sessionId: 'child', messageId: 'running', progress: { state: 'running' } })
     // One the host no longer carries stays unstamped; the client reads it as lost.
-    expect(stamped[1]!.agentConversationResult).toEqual({ agentSessionId: 'child', messageId: 'gone' })
+    expect(stamped[1]!.agentConversationResult).toEqual({ sessionId: 'child', messageId: 'gone' })
     expect(stamped[2]).toBe(rows[2])
     // A cached page is never changed in place: the next read stamps afresh.
-    expect(rows[0]!.agentConversationResult).toEqual({ agentSessionId: 'child', messageId: 'running' })
+    expect(rows[0]!.agentConversationResult).toEqual({ sessionId: 'child', messageId: 'running' })
   })
 })

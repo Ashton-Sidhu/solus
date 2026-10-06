@@ -94,7 +94,7 @@ const automationMetadataSchema = z.object({
   lastRunAt: z.string().optional(),
 })
 const automationRunDataSchema = z.object({
-  agentSessionId: z.string().nullable().optional(),
+  sessionId: z.string().nullable().optional(),
   branch: z.string().optional(),
   worktreePath: z.string().optional(),
   error: z.string().optional(),
@@ -549,7 +549,7 @@ export async function startRun(automationId: string): Promise<AutomationRun> {
 export async function attachRunSession(
   automationId: string,
   runId: string,
-  agentSessionId: string,
+  sessionId: string,
   branch?: string,
   worktreePath?: string,
 ): Promise<void> {
@@ -562,7 +562,7 @@ export async function attachRunSession(
     `).get(automationId, runId))
     const run = runRow ? runFromRow(runRow) : null
     if (!run || run.status !== 'running') return { automation: null, run: null }
-    run.agentSessionId = agentSessionId
+    run.sessionId = sessionId
     if (branch) run.branch = branch
     if (worktreePath) run.worktreePath = worktreePath
     writeRun(db, run)
@@ -584,7 +584,7 @@ export async function attachRunSession(
 export async function finishRun(
   automationId: string,
   runId: string,
-  outcome: Pick<AutomationRun, 'status' | 'output' | 'agentSessionId' | 'error' | 'branch'>,
+  outcome: Pick<AutomationRun, 'status' | 'output' | 'sessionId' | 'error' | 'branch'>,
 ): Promise<void> {
   if (outcome.output && outcome.output.length > MAX_RUN_OUTPUT_CHARS) {
     outcome = { ...outcome, output: `${outcome.output.slice(0, MAX_RUN_OUTPUT_CHARS)}\n… [output truncated]` }
@@ -632,7 +632,7 @@ export async function finishRun(
         eventId: `automation.finished:${runId}`,
         recipients: [recipient],
         facts: { kind: 'automation.finished', status: outcome.status },
-        resource: { kind: 'automation', automationId, runId, ...(finished.agentSessionId ? { sessionId: finished.agentSessionId } : {}) },
+        resource: { kind: 'automation', automationId, runId, ...(finished.sessionId ? { sessionId: finished.sessionId } : {}) },
         by: { kind: 'automation', automationId, name: responsible.name },
         summary: { title: responsible.name.slice(0, 300) },
       })

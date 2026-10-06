@@ -59,7 +59,7 @@ function approvalContext() {
       acceptPlan: async (_ipc: unknown, request: AcceptPlanRequest): Promise<AcceptPlanResult> => {
         accepts.push(request)
         if (!request.provider) return {}
-        return { handoff: { fromProvider: session.run.provider!, fromSessionId: session.agentSessionId!, handoffId: 'handoff-1', taskSessionMove: { sourceSessionId: 'a', targetSessionId: 'b' } } }
+        return { handoff: { fromProvider: session.run.provider!, fromSessionId: session.agentSessionId! } }
       },
     }),
     ctxFor: () => ({ session: { sessionId: session.id } }),

@@ -43,27 +43,19 @@ export class TabRegistry {
   }
 
   /**
-   * The same index against the *provider's* id rather than ours. A resumed or
-   * moved conversation can retain an older provider identity. A separate fork
-   * must never resolve through its source: that id is only a branching input
-   * until the fork initializes.
-   *
-   * Keys are host-scoped: a dispatched session gives a second host a clone
-   * under the same provider id, and those are two conversations, not one.
+   * The same index, scoped to the host the session runs on: a dispatched
+   * session gives a second host a session under the same id, and those are two
+   * conversations, not one.
    */
-  get tabIdsByAgentSession(): Map<string, string[]> {
+  get tabIdsByHostSession(): Map<string, string[]> {
     const index = new Map<string, string[]>()
     for (const tabId of this.tabOrder) {
       const session = this.sessionFor(tabId)
       if (!session) continue
-      for (const agentId of [session.forked ? null : session.agentSessionId, session.forkedFromSessionId]) {
-        if (!agentId) continue
-        const key = hostKey(session.run.serverId, agentId)
-        const listening = index.get(key)
-        if (listening) {
-          if (!listening.includes(tabId)) listening.push(tabId)
-        } else index.set(key, [tabId])
-      }
+      const key = hostKey(session.run.serverId, session.id)
+      const listening = index.get(key)
+      if (listening) listening.push(tabId)
+      else index.set(key, [tabId])
     }
     return index
   }

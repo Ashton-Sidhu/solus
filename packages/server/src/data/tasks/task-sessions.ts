@@ -1,6 +1,5 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { stableSessionIdForProviderThread } from '../sessions/session-lineage'
 import { getDatabase, type Db } from '../../db/database'
 import { persistRemoteSessionStart } from '../../db/session-indexer'
 import type { Attribution } from '@solus/contracts/user'
@@ -8,7 +7,7 @@ import { diffTaskActivity, taskChanged } from './task-activity'
 import { appendActivity } from '../activity/activity'
 import { agentAttribution, attributionJson, parseStoredAttribution } from '../stored-attribution'
 import { sessionRecordsFor, sessionTitleFor, type SessionRecord } from './host-records'
-import { taskLinks, taskSessionLinks, tasks } from './schema'
+import { taskSessionLinks, tasks } from './schema'
 import { deleteSessionOutputLinks } from './task-links'
 import {
   database,
@@ -46,14 +45,6 @@ const taskSessionLinkRowSchema = z.object({
   pr: z.string().nullable(),
   linked_at: z.number(),
   started_by: z.string().nullable(),
-})
-const rekeySessionLinkRowSchema = z.object({
-  task_id: z.string(),
-  role: taskSessionRoleSchema,
-  pr: z.string().nullable(),
-  linked_at: z.number(),
-  started_by: z.string().nullable(),
-  organization_id: z.string(),
 })
 const taskIdRowSchema = z.object({ task_id: z.string() })
 const sessionIdRowSchema = z.object({ session_id: z.string() })
@@ -259,53 +250,6 @@ export async function deleteSessionLink(
   return true
 }
 
-/** Move the existing task attempt onto the stable Solus id when that session
- * first enters a new handoff chain. Ordinary and older sessions are untouched. */
-export async function rekeyTaskSessionLinks(
-  scope: RecordScope,
-  sourceSessionId: string,
-  targetSessionId: string,
-): Promise<void> {
-  if (sourceSessionId === targetSessionId) return
-  const changed = await database().transaction(async (db) => {
-    const rows = rekeySessionLinkRowSchema.array().parse(await db.all(sql`
-      SELECT task_id, role, pr, linked_at, started_by, organization_id
-      FROM ${taskSessionLinks}
-      WHERE ${scopeClause(scope)} AND session_id = ${sourceSessionId}
-    `))
-    for (const row of rows) {
-      // The moved link keeps its task's organization.
-      await db.run(sql`
-        INSERT INTO ${taskSessionLinks}(task_id, session_id, role, pr, linked_at, started_by, organization_id)
-        VALUES (${row.task_id}, ${targetSessionId}, ${row.role}, ${row.pr}, ${row.linked_at}, ${row.started_by}, ${row.organization_id})
-        ON CONFLICT(task_id, session_id) DO UPDATE SET
-          role = excluded.role,
-          pr = COALESCE(excluded.pr, task_session_links.pr),
-          started_by = COALESCE(task_session_links.started_by, excluded.started_by),
-          linked_at = CASE
-            WHEN excluded.linked_at < task_session_links.linked_at THEN excluded.linked_at
-            ELSE task_session_links.linked_at
-          END
-      `)
-    }
-    if (rows.length) {
-      await db.run(sql`
-        DELETE FROM ${taskSessionLinks} WHERE ${scopeClause(scope)} AND session_id = ${sourceSessionId}
-      `)
-      await db.run(sql`
-        UPDATE ${tasks} SET origin_session_id = ${targetSessionId}
-        WHERE ${scopeClause(scope)} AND origin_session_id = ${sourceSessionId}
-      `)
-      await db.run(sql`
-        UPDATE ${taskLinks} SET output_session_id = ${targetSessionId}
-        WHERE ${scopeClause(scope)} AND output_session_id = ${sourceSessionId}
-      `)
-    }
-    return rows.length > 0
-  })
-  if (changed) emitChanged()
-}
-
 /** A moved task keeps its links as history on this host (cloud-sharing.md §3a);
  *  its sessions are listed by the organization's copy, not here. */
 const ON_A_TASK_HERE = sql`EXISTS (SELECT 1 FROM ${tasks} WHERE tasks.id = task_session_links.task_id AND ${TASK_HERE})`
@@ -353,10 +297,9 @@ export async function sessionIsLead(scope: RecordScope, sessionId: string): Prom
  * to it, and on no other task. Announce those tasks alone; a session with no
  * task changes no task. */
 export async function emitSessionTasksChanged(scope: RecordScope, sessionId: string): Promise<void> {
-  const taskSessionId = stableSessionIdForProviderThread(sessionId) ?? sessionId
   const rows = taskIdRowSchema.array().parse(await getDatabase().all(sql`
     SELECT DISTINCT task_id FROM ${taskSessionLinks}
-    WHERE ${scopeClause(scope)} AND session_id IN (${sessionId}, ${taskSessionId})
+    WHERE ${scopeClause(scope)} AND session_id = ${sessionId}
   `))
   for (const row of rows) emitChanged(row.task_id)
 }

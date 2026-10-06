@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { SendOutbox } from '@solus/client-core/send-outbox'
 import type { AttachmentUploadRequest, AttachmentUploadTokenRequest } from '@solus/contracts/rpc'
-import type { IpcContext, PromptOptions, WatchSessionInput } from '@solus/contracts/types'
+import type { IpcContext, PromptOptions } from '@solus/contracts/types'
 import { ConversationController } from '../../apps/mobile/src/features/conversation/conversation-controller'
 import { DEFAULT_RUN_SETTINGS } from '../../apps/mobile/src/features/conversation/lib/ipc-context'
 import { attachmentLimitProblem, composePrompt, uploadAttachment, type AttachmentIo, type PickedFile, type UploadedAttachment } from '../../apps/mobile/src/features/conversation/lib/attachments'
@@ -79,7 +79,7 @@ describe('native attachments in a conversation', () => {
   test('before the first prompt an upload names a draft; the prompt then carries the files', async () => {
     const uploadContexts: IpcContext[] = []
     const api = new FakeApi()
-      .on('watchSession', (input: WatchSessionInput) => ({ sessionId: input.sessionId! }))
+      .on('watchSession', () => ({}))
       .on('serverGetCapabilities', () => ({ promptImageRefs: true }))
       .on('attachUpload', (ctx: IpcContext, request: AttachmentUploadRequest) => { uploadContexts.push(ctx); return `/h/${request.name}` })
       .on('prompt', () => ({ disposition: 'started' }))

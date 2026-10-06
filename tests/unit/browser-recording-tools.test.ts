@@ -115,8 +115,7 @@ function context(emitted: NormalizedEvent[]): AgentToolContext {
   return {
     provider: 'claude-code',
     cwd: '/repo/wt',
-    sessionId: () => undefined,
-    solusSessionId: () => 'session-1',
+    sessionId: () => 'session-1',
     abortSignal: new AbortController().signal,
     parentToolUseId: () => undefined,
     emit: (event) => emitted.push(event),

@@ -200,7 +200,7 @@ export const importExternalDocAgentTool = docTool(
   async (args, context) => {
     if (!args.url) throw new Error('import_external_doc requires a url.')
     // An imported work is the session's own record: it lands where the session's records live.
-    const { operations, context: home, remote } = await workspaceToolContext(context.sessionId(), context.solusSessionId())
+    const { operations, context: home, remote } = await workspaceToolContext(context.sessionId())
     if (remote) {
       // An organization session's work lives in its Solus API, which reads the link with the run's person's own connection.
       const work = await operations.importWork(home, { url: args.url, projectKey: context.cwd, originSessionId: home.actingAgent?.sessionId }, randomUUID())
@@ -231,7 +231,7 @@ export const publishWorkAgentTool = docTool(
   async (args, context) => {
     if (!args.work_id) throw new Error('publish_work requires a work_id.')
     // An organization session's works live in its Solus API, which publishes with the run's person's own connection.
-    const { operations, context: home, remote } = await workspaceToolContext(context.sessionId(), context.solusSessionId())
+    const { operations, context: home, remote } = await workspaceToolContext(context.sessionId())
     if (remote) {
       const published = await operations.publishWork(home, args.work_id, { provider: args.provider, scope: args.scope, overwrite: args.overwrite })
       if (published.outcome === 'conflict') {
@@ -275,7 +275,7 @@ export const pullWorkUpstreamAgentTool = docTool(
   false,
   async (args, context) => {
     if (!args.work_id) throw new Error('pull_work_upstream requires a work_id.')
-    const { operations, context: home, remote } = await workspaceToolContext(context.sessionId(), context.solusSessionId())
+    const { operations, context: home, remote } = await workspaceToolContext(context.sessionId())
     if (remote) {
       const pulled = await operations.pullWorkUpstream(home, args.work_id)
       return `Refreshed "${pulled.title}" from ${pulled.url}.${pulled.lossyParts.length ? ` Parts of the page could not be converted to markdown: ${pulled.lossyParts.join(', ')}.` : ''}`

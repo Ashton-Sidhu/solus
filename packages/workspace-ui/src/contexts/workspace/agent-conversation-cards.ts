@@ -39,6 +39,8 @@ interface ExchangeOpening {
   provider?: AgentId
   title?: string
   fireAndForget?: boolean
+  /** A created session whose provider has not started. */
+  starting?: boolean
   delivery?: 'queue' | 'steer'
   model?: string
   reasoningEffort?: string
@@ -53,45 +55,45 @@ interface OpenedExchange {
 
 /** One transcript's cards and the lookups that keep each update in its card. */
 class CardIndex {
-  /** agentSessionId → this turn's card for it. Cleared by every genuine user
+  /** Session id → this turn's card for it. Cleared by every genuine user
    *  turn, so each turn gets one card per agent. */
-  private currentByAgent = new Map<string, Message>()
+  private currentBySession = new Map<string, Message>()
   /** Exchange id → its card, so a late result lands in the card that sent it —
    *  including a card from an earlier turn. */
   private cardByExchange = new Map<string, Message>()
-  /** agentSessionId → its cards' exchange count; indices never renumber. */
-  private countByAgent = new Map<string, number>()
+  /** Session id → its cards' exchange count; indices never renumber. */
+  private countBySession = new Map<string, number>()
 
   constructor(private readonly messages: Message[]) {
     for (const message of messages) {
-      if (message.role === 'user' && !isAgentNotice(message.content)) this.currentByAgent.clear()
+      if (message.role === 'user' && !isAgentNotice(message.content)) this.currentBySession.clear()
       const ref = message.agentConversationRef
       if (!ref) continue
-      this.currentByAgent.set(ref.agentSessionId, message)
+      this.currentBySession.set(ref.sessionId, message)
       for (const exchange of ref.exchanges) {
         this.cardByExchange.set(exchange.messageId, message)
-        this.countByAgent.set(ref.agentSessionId, Math.max(this.countByAgent.get(ref.agentSessionId) ?? 0, exchange.index))
+        this.countBySession.set(ref.sessionId, Math.max(this.countBySession.get(ref.sessionId) ?? 0, exchange.index))
       }
     }
   }
 
   closeTurn(): void {
-    this.currentByAgent.clear()
+    this.currentBySession.clear()
   }
 
   /** The exchange opened, and whether it needed a new card. */
-  open(agentSessionId: string, opening: ExchangeOpening): OpenedExchange {
-    const index = (this.countByAgent.get(agentSessionId) ?? 0) + 1
-    this.countByAgent.set(agentSessionId, index)
+  open(sessionId: string, opening: ExchangeOpening): OpenedExchange {
+    const index = (this.countBySession.get(sessionId) ?? 0) + 1
+    this.countBySession.set(sessionId, index)
     const exchange: AgentExchange = {
-      messageId: opening.messageId ?? `rebuilt:${agentSessionId}:${index}`,
+      messageId: opening.messageId ?? `rebuilt:${sessionId}:${index}`,
       index,
       prompt: opening.prompt,
       delivery: opening.delivery,
       dispatchedAt: opening.timestamp,
       status: 'dispatched',
     }
-    const current = this.currentByAgent.get(agentSessionId)
+    const current = this.currentBySession.get(sessionId)
     if (current?.agentConversationRef) {
       const ref = current.agentConversationRef
       ref.exchanges.push(exchange)
@@ -113,30 +115,31 @@ class CardIndex {
       role: 'assistant',
       content: '',
       agentConversationRef: {
-        agentSessionId,
+        sessionId,
         // Unknown until the tool row or the host names it; the status store's
         // index hydration corrects it before the card is read.
         provider: opening.provider ?? 'claude-code',
-        title: opening.title || (opening.prompt ? promptTitle(opening.prompt) : agentSessionId.slice(0, 8)),
+        title: opening.title || (opening.prompt ? promptTitle(opening.prompt) : sessionId.slice(0, 8)),
         cwd: opening.cwd,
         model: opening.model,
         reasoningEffort: opening.reasoningEffort,
         origin: opening.origin,
         fireAndForget: opening.fireAndForget,
+        starting: opening.starting,
         exchanges: [exchange],
       },
       timestamp: opening.timestamp,
     }
     this.messages.push(message)
     const card = this.messages.at(-1)!
-    this.currentByAgent.set(agentSessionId, card)
+    this.currentBySession.set(sessionId, card)
     this.cardByExchange.set(exchange.messageId, card)
     return { exchange: card.agentConversationRef!.exchanges[0]!, newCard: true }
   }
 
-  exchange(messageId: string | undefined, agentSessionId: string): AgentExchange | undefined {
+  exchange(messageId: string | undefined, sessionId: string): AgentExchange | undefined {
     const tracked = messageId ? this.cardByExchange.get(messageId) : undefined
-    const card = tracked?.agentConversationRef ? tracked : this.latestCard(agentSessionId)
+    const card = tracked?.agentConversationRef ? tracked : this.latestCard(sessionId)
     const exchanges = card?.agentConversationRef?.exchanges ?? []
     // A report that names no exchange is older than this format: the oldest
     // unanswered one is its answer, even one the host no longer carries.
@@ -149,28 +152,11 @@ class CardIndex {
     return this.cardByExchange.get(messageId)
   }
 
-  latestCard(agentSessionId: string): Message | undefined {
+  latestCard(sessionId: string): Message | undefined {
     for (let i = this.messages.length - 1; i >= 0; i--) {
-      if (this.messages[i]!.agentConversationRef?.agentSessionId === agentSessionId) return this.messages[i]
+      if (this.messages[i]!.agentConversationRef?.sessionId === sessionId) return this.messages[i]
     }
     return undefined
-  }
-
-  /** A pending card's session started: rebind it to the real id. */
-  rebind(message: Message, agentSessionId: string): void {
-    const ref = message.agentConversationRef
-    if (!ref) return
-    const pendingId = ref.agentSessionId
-    ref.agentSessionId = agentSessionId
-    if (this.currentByAgent.get(pendingId) === message) {
-      this.currentByAgent.delete(pendingId)
-      this.currentByAgent.set(agentSessionId, message)
-    }
-    const count = this.countByAgent.get(pendingId)
-    if (count !== undefined) {
-      this.countByAgent.delete(pendingId)
-      this.countByAgent.set(agentSessionId, count)
-    }
   }
 }
 
@@ -249,13 +235,14 @@ export class AgentConversationCards {
     const index = this.index(session)
     switch (update.phase) {
       case 'dispatched': {
-        const { newCard } = index.open(update.agentSessionId, {
+        const { newCard } = index.open(update.sessionId, {
           messageId: update.messageId,
           prompt: update.prompt,
           origin: update.origin,
           provider: update.provider,
           title: update.title,
           fireAndForget: update.fireAndForget,
+          starting: update.origin === 'created' || undefined,
           delivery: update.delivery,
           model: update.model,
           reasoningEffort: update.reasoningEffort,
@@ -265,15 +252,15 @@ export class AgentConversationCards {
         return { newCard, needsAttention: false }
       }
       case 'attached': {
-        const card = index.card(update.messageId)
-        if (card?.agentConversationRef) {
-          index.rebind(card, update.agentSessionId)
-          if (update.cwd) card.agentConversationRef.cwd = update.cwd
+        const ref = index.card(update.messageId)?.agentConversationRef
+        if (ref) {
+          ref.starting = undefined
+          if (update.cwd) ref.cwd = update.cwd
         }
         return { newCard: false, needsAttention: false }
       }
       case 'accepted': {
-        const exchange = index.exchange(update.messageId, update.agentSessionId)
+        const exchange = index.exchange(update.messageId, update.sessionId)
         if (exchange && OPEN_STATUSES.has(exchange.status)) {
           exchange.status = update.state
           exchange.rateLimitedUntil = undefined
@@ -281,21 +268,21 @@ export class AgentConversationCards {
         return { newCard: false, needsAttention: false }
       }
       case 'awaiting_input': {
-        const exchange = index.exchange(update.messageId, update.agentSessionId)
+        const exchange = index.exchange(update.messageId, update.sessionId)
         if (!exchange) return { newCard: false, needsAttention: false }
         exchange.status = 'awaiting_input'
         exchange.request = update.request
         return { newCard: false, needsAttention: true }
       }
       case 'rate_limited': {
-        const exchange = index.exchange(update.messageId, update.agentSessionId)
+        const exchange = index.exchange(update.messageId, update.sessionId)
         if (!exchange || !OPEN_STATUSES.has(exchange.status)) return { newCard: false, needsAttention: false }
         exchange.status = 'rate_limited'
         exchange.rateLimitedUntil = update.resetsAt
         return { newCard: false, needsAttention: true }
       }
       case 'answered': {
-        const exchange = index.exchange(update.messageId, update.agentSessionId)
+        const exchange = index.exchange(update.messageId, update.sessionId)
         if (!exchange) return { newCard: false, needsAttention: false }
         exchange.status = 'answered'
         ;(exchange.answers ??= []).push(update.answerText)
@@ -305,7 +292,7 @@ export class AgentConversationCards {
         this.settled(index, update)
         return { newCard: false, needsAttention: true }
       case 'stopped':
-        this.stopped(index, update.agentSessionId)
+        this.stopped(index, update.sessionId)
         return { newCard: false, needsAttention: false }
     }
   }
@@ -313,15 +300,17 @@ export class AgentConversationCards {
   private settled(index: CardIndex, update: Extract<AgentConversationUpdate, { phase: 'settled' }>): void {
     // A reload mid-flight lost the card that sent it; the reply still deserves
     // a home in the current turn.
-    const exchange = index.exchange(update.messageId, update.agentSessionId)
-      ?? index.open(update.agentSessionId, { messageId: update.messageId, prompt: '', origin: 'prompted', cwd: '', timestamp: update.settledAt }).exchange
+    const exchange = index.exchange(update.messageId, update.sessionId)
+      ?? index.open(update.sessionId, { messageId: update.messageId, prompt: '', origin: 'prompted', cwd: '', timestamp: update.settledAt }).exchange
     settle(exchange, { status: update.status, reply: update.replyText, outputs: update.outputs ?? [], taskId: update.taskId, durationMs: update.durationMs })
+    const ref = index.card(update.messageId)?.agentConversationRef
+    if (ref) ref.starting = undefined
     exchange.toolCallCount = update.toolCallCount
     exchange.settledAt = update.settledAt
   }
 
-  private stopped(index: CardIndex, agentSessionId: string): void {
-    const ref = index.latestCard(agentSessionId)?.agentConversationRef
+  private stopped(index: CardIndex, sessionId: string): void {
+    const ref = index.latestCard(sessionId)?.agentConversationRef
     if (!ref) return
     for (const exchange of ref.exchanges) {
       // Stop keeps the queue, so a message still waiting will run.
@@ -376,8 +365,8 @@ export class TranscriptAgentConversations {
       return
     }
     if (toolName.endsWith('start_session')) {
-      if (!result?.agentSessionId) return
-      const { exchange } = this.index.open(result.agentSessionId, {
+      if (!result?.sessionId) return
+      const { exchange } = this.index.open(result.sessionId, {
         messageId: result.messageId,
         prompt: input.prompt ?? '',
         origin: 'created',
@@ -430,15 +419,15 @@ export class TranscriptAgentConversations {
   private applyReport(report: SessionReport, timestamp: number): void {
     // A report's dispatching tool row can sit outside the hydrated history
     // window; the reply still gets a card rather than being dropped.
-    const exchange = this.index.exchange(report.messageId, report.agentSessionId)
-      ?? this.index.open(report.agentSessionId, { messageId: report.messageId, prompt: '', origin: 'prompted', provider: report.provider, cwd: '', timestamp }).exchange
-    const ref = (report.messageId ? this.index.card(report.messageId) : this.index.latestCard(report.agentSessionId))?.agentConversationRef
+    const exchange = this.index.exchange(report.messageId, report.sessionId)
+      ?? this.index.open(report.sessionId, { messageId: report.messageId, prompt: '', origin: 'prompted', provider: report.provider, cwd: '', timestamp }).exchange
+    const ref = (report.messageId ? this.index.card(report.messageId) : this.index.latestCard(report.sessionId))?.agentConversationRef
     if (ref && report.provider) ref.provider = report.provider
     settle(exchange, report)
     exchange.settledAt = timestamp
     // The same turn answered these messages too; the report stands for them.
     for (const messageId of report.alsoMessageIds ?? []) {
-      const answered = this.index.exchange(messageId, report.agentSessionId)
+      const answered = this.index.exchange(messageId, report.sessionId)
       if (!answered) continue
       settle(answered, report)
       answered.settledAt = timestamp

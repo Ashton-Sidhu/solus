@@ -5,7 +5,7 @@ import { pendingAsyncQuestions } from '../../data/sessions/async-questions'
 import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { getIndexedSession } from '../../db/session-indexer'
-import { resolveSessionLineage, resolveSessionLineageById } from '../../data/sessions/session-lineage'
+import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import type { NormalizedEvent, IpcContext, SessionRunInput, RuntimeSessionInfo, WatchSessionInput, WatchSessionResult } from '@solus/contracts/types'
 import { sessionActivityStateOf, type SessionActiveTurn, type SessionActivity } from '@solus/contracts/presence'
 import { activeTurnFor } from '../../presence/presence-manager'
@@ -31,20 +31,9 @@ export class SessionWatchers {
    * Returns the authoritative id — which may not be the one passed in.
    */
   watchSession(input: WatchSessionInput, clientId: string): WatchSessionResult {
-    // Main resolves; the client asserts nothing. Two clients resuming one live
-    // session must land on one id, or "one id" is only true within a client.
-    const handoff = input.agentSessionId && input.provider
-      ? resolveSessionLineage(input.provider, input.agentSessionId)
-      : null
-    const sessionId = handoff?.sessionId
-      ?? (input.agentSessionId ? this.rt.agentSessionToSession.get(input.agentSessionId) : undefined)
-      ?? input.sessionId
-      ?? crypto.randomUUID()
-    if (handoff) {
-      for (const member of handoff.members) {
-        if (member.providerSessionId) this.rt.agentSessionToSession.set(member.providerSessionId, sessionId)
-      }
-    } else if (input.agentSessionId) this.rt.agentSessionToSession.set(input.agentSessionId, sessionId)
+    // The client names the session by its session id; a thread never names one
+    // (docs/plans/session-identity.md).
+    const { sessionId } = input
 
     // Drain what is already buffered to the clients that were here first: the
     // Buffered mode drains before joining. Paragraph mode leaves its unfinished
@@ -63,9 +52,10 @@ export class SessionWatchers {
     log.info('session_watched', { sessionId, clientId, watchers: clients.size })
     const pendingQuestions = pendingAsyncQuestions(sessionId).map(({ questionId, questions, responseMode }) => ({ questionId, questions, responseMode }))
     const pending = pendingQuestions.length ? { pendingQuestions } : {}
-    if (!input.attachRuntime || !input.agentSessionId) return { sessionId, ...pending }
+    if (!input.attachRuntime) return pending
+    const agentSessionId = this.rt.agentSessionIdFor(sessionId)
     // Same order a separate bind would follow: drained, joined, then replayed.
-    return { sessionId, runtime: this.attachRuntime(sessionId, input.agentSessionId, clientId), ...pending }
+    return { runtime: agentSessionId ? this.attachRuntime(sessionId, agentSessionId, clientId) : null, ...pending }
   }
 
   unwatchSession(sessionId: string, clientId: string): void {
@@ -134,17 +124,11 @@ export class SessionWatchers {
     }
     if (!agentSessionId) return null
 
-    // Whoever is resuming may not know Solus's id for this provider thread yet;
-    // the live session is authoritative for it.
-    const sessionId = this.rt.sessionIdFor(ctx.session.sessionId)
-      ?? this.rt.agentSessionToSession.get(agentSessionId)
-      ?? ctx.session.sessionId
+    const sessionId = ctx.session.sessionId
     if (!sessionId) return null
     // A watch is the authorization: any paired device watching a session may act
     // on it. Opening a headless session's card is watching it.
-    if (!this.watches.get(sessionId)?.has(clientId)) {
-      this.watchSession({ sessionId, agentSessionId }, clientId)
-    }
+    if (!this.watches.get(sessionId)?.has(clientId)) this.watchSession({ sessionId }, clientId)
     return this.attachRuntime(sessionId, agentSessionId, clientId, contextPreferences(ctx).rateLimitBehavior ?? DEFAULT_EXECUTION_PREFERENCES.rateLimitBehavior)
   }
 

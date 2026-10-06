@@ -80,7 +80,6 @@ export interface SessionConfigControllerDeps {
    *  tab, so a draft on a remote host reaches that host with no session. */
   apiForRun(run: RunConfig | undefined): HostApi
   refreshPluginCommands(dir: string, tabId?: string): void
-  rekeyTaskSessionBinding(sourceSessionId: string, targetSessionId: string, serverId?: string): void
   /** `run` names the host whose checkout the refs describe. */
   refreshGitRefs(run: RunConfig | undefined, projectRoot: string, ctx: IpcContext): void
   refreshGitState(opts: { sourceId?: string; cwd?: string; worktreeRequested?: boolean; force?: boolean }): Promise<GitRefreshResult>
@@ -260,7 +259,7 @@ export class SessionConfigController {
     if (this.handoffInProgress) return
     if (session) {
       if (session.run.provider === agentId && !session.outboundPrompts?.some((prompt) => prompt.kind === 'provider_switch')) return
-      if (agentId !== 'opencode' && (session.agentSessionId || session.handoffId || session.status === 'connecting' || session.status === 'running')) {
+      if (agentId !== 'opencode' && (session.agentSessionId || session.handoffPending || session.status === 'connecting' || session.status === 'running')) {
         try {
           await this.deps.apiFor(targetTabId).sessionQueueChange(this.deps.ctx(targetTabId), { kind: 'switch', provider: agentId, modelConfig: this.pinnedModelConfigFor(agentId) })
         } catch (error) { this.handoffFailed(error instanceof Error ? error.message : String(error)) }
@@ -274,7 +273,7 @@ export class SessionConfigController {
     // A session already holding a provider thread is handed over, not started, so
     // an Auto default never applies to it (`adoptHandoff`) — Auto only routes a
     // first prompt.
-    if (!session?.agentSessionId && !session?.handoffId) {
+    if (!session?.agentSessionId && !session?.handoffPending) {
       const newModelConfig = this.defaultModelConfigFor(agentId)
       track('agent_switched', { from: this.deps.settings.activeAgent, to: agentId, via })
       this.deps.settings.setPersonal('activeAgent', agentId)
@@ -329,16 +328,11 @@ export class SessionConfigController {
     session.sessionModel = null
     session.run.sessionSkills = []
     session.pluginCommands = { global: [], project: [] }
-    session.handoffId = result.handoffId
+    session.handoffPending = !result.restoredSessionId
     session.handoffFrom = undefined
     session.status = 'idle'
     session.currentTurnStartedAt = null
     session.rateLimitInfo = null
-    this.deps.rekeyTaskSessionBinding(
-      result.taskSessionMove.sourceSessionId,
-      result.taskSessionMove.targetSessionId,
-      session.run.taskServerId,
-    )
     this.deps.refreshPluginCommands(session.run.workingDirectory, targetTabId)
   }
 

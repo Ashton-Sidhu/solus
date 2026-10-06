@@ -175,8 +175,7 @@ describe('render_artifact persists a work', () => {
     const result = await artifactTools.renderArtifactAgentTool.execute(
       { html: HTML, title: 'Latency report' },
       {
-        sessionId: () => SESSION_ID,
-        solusSessionId: () => undefined,
+        sessionId: () => undefined,
         provider: 'claude-code',
         parentToolUseId: () => 'artifact-call-1',
         abortSignal: new AbortController().signal,

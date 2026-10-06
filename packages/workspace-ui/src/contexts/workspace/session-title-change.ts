@@ -21,7 +21,7 @@ export function applySessionTitleChange(
   const changed: ChangedSessionTitle[] = []
   for (const [sessionId, session] of Object.entries(sessions)) {
     if (session.forked) continue
-    if (session.run.serverId !== serverId || session.agentSessionId !== event.sessionId) continue
+    if (session.run.serverId !== serverId || session.id !== event.sessionId) continue
     session.title = event.title ?? 'New Tab'
     session.titleCustom = event.title !== null
     changed.push({ sessionId, taskServerId: session.run.taskServerId })

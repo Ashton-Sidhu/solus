@@ -60,9 +60,9 @@ const member = (userId: string, teamIds: string[] = [], organizationRole: 'owner
   kind: 'org-member', userId, organizationId, organizationRole, teamIds, hostKind, displayName: userId, deviceId: `d-${userId}`, expiresAt: 0, deviceLabel: 'Solus cloud',
 })
 
-function manager(canonical?: (id: string) => string): { shares: ShareManagerType; changes: ShareChange[] } {
+function manager(): { shares: ShareManagerType; changes: ShareChange[] } {
   const changes: ShareChange[] = []
-  const shares = new ShareManager({ db: database.getDatabase(), canonicalSessionId: canonical, now: () => 1_000 })
+  const shares = new ShareManager({ db: database.getDatabase(), now: () => 1_000 })
   shares.onChanged((change) => changes.push(change))
   return { shares, changes }
 }
@@ -399,15 +399,12 @@ describe('the link and guests', () => {
     expect((await shares.list(work, member('alice'))).link).toEqual({ role: 'editor' })
   })
 
-  test('ownership and the link on the stable session id also cover the provider thread id', async () => {
-    // WHY: clients and the index name a session by whichever id they hold; access must not depend on which.
-    const { shares } = manager((id) => (id === 'thread-1' ? 's1' : id))
-    await shares.claimOwner({ kind: 'session', id: 'thread-1' }, member('alice'))
+  test('a session is shared by its session id alone; a provider thread id names no shared session', async () => {
+    // WHY: one session id (docs/plans/session-identity.md). A grant keyed by a
+    // thread id would give access to a session nobody shared under its own id.
+    const { shares } = manager()
+    await shares.claimOwner({ kind: 'session', id: 's1' }, member('alice'))
     expect(await shares.roleFor(member('alice'), { kind: 'session', id: 's1' })).toBe('owner')
-    expect(await shares.roleFor(member('bob'), { kind: 'session', id: 'thread-1' })).toBe('editor')
-    const link = (await shares.setLink({ resource: { kind: 'session', id: 's1' }, role: 'viewer' }, member('alice')))!
-    const maya = guest(hashLinkSecret(link.secret))
-    expect(await shares.roleFor(maya, { kind: 'session', id: 'thread-1' })).toBe('viewer')
-    expect(await shares.filterVisible(maya, 'session', [{ sessionId: 'thread-1' }, { sessionId: 'other' }], (session) => session.sessionId)).toHaveLength(1)
+    expect(await shares.ownerOf({ kind: 'session', id: 'thread-1' })).toBeNull()
   })
 })

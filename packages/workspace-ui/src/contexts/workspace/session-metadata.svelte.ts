@@ -124,8 +124,7 @@ export class SessionMetadata {
   async generateSessionMetadata(tabId: string): Promise<void> {
     const tab = this.workspace.tabs[tabId]
     const session = this.workspace.sessionFor(tabId)
-    const agentSessionId = session?.agentSessionId
-    if (!tab || !session || !agentSessionId || session.forked) return
+    if (!tab || !session?.agentSessionId || session.forked) return
     if (this.metadataFinalizedTabs.has(tabId)) return
     // A member who may only read a shared session does not name it: the host
     // requires an editor, and the session's driver names it.
@@ -135,7 +134,7 @@ export class SessionMetadata {
       // A name typed into a session before the provider knew about it had
       // nowhere to persist — this is the first moment there's an id to hang it on.
       this.metadataFinalizedTabs.add(tabId)
-      await this.workspace.apiFor(tabId).setSessionTitle(agentSessionId, session.title, 'manual').catch(() => {})
+      await this.workspace.apiFor(tabId).setSessionTitle(session.id, session.title, 'manual').catch(() => {})
     }
     const renamesSession = !session.titleCustom && this.workspace.settings.autoRenameSessions
     const untitledTask = this.untitledLeadTask(session)
@@ -154,7 +153,7 @@ export class SessionMetadata {
       hasHostCapability(serverConnections.cachedCapabilitiesFor(runServerId), 'promptImageRefs'),
     )
     const metadata = await this.workspace.apiFor(tabId)
-      .generateSessionMetadata(userMessages[0].content, session.run.workingDirectory, { ...metadataContext, sessionId: agentSessionId, executionPreferences: this.workspace.settings.executionPreferences })
+      .generateSessionMetadata(userMessages[0].content, session.run.workingDirectory, { ...metadataContext, sessionId: session.id, executionPreferences: this.workspace.settings.executionPreferences })
       .catch(() => null)
     if (!metadata) return
     if (untitledTask) void untitledTask.nameFromLeadPrompt(metadata).catch(() => {})
@@ -164,10 +163,10 @@ export class SessionMetadata {
     // different session while the naming round trip was in flight.
     const currentSession = this.workspace.sessionFor(tabId)
     if (!this.workspace.tabs[tabId] || !currentSession || currentSession.titleCustom) return
-    if (currentSession.agentSessionId !== agentSessionId) return
+    if (currentSession.id !== session.id) return
     currentSession.title = metadata.title
     await this.workspace.apiFor(tabId)
-      .setSessionTitle(agentSessionId, metadata.title, 'generated', metadata.description)
+      .setSessionTitle(currentSession.id, metadata.title, 'generated', metadata.description)
       .catch(() => {})
   }
 
@@ -195,7 +194,7 @@ export class SessionMetadata {
     // Keep the name local until session_init gives the fork its own ID.
     if (session.agentSessionId && !session.forked) {
       this.metadataFinalizedTabs.add(tabId)
-      await this.workspace.apiFor(tabId).setSessionTitle(session.agentSessionId, trimmed || null, 'manual')
+      await this.workspace.apiFor(tabId).setSessionTitle(session.id, trimmed || null, 'manual')
     }
   }
 
@@ -203,21 +202,20 @@ export class SessionMetadata {
    * conversation: a task linked to it keeps its separately owned title. */
   async regenerateTabTitle(tabId: string): Promise<void> {
     const session = this.workspace.sessionFor(tabId)
-    const agentSessionId = session?.agentSessionId
-    if (!session || !agentSessionId) {
+    if (!session?.agentSessionId) {
       throw new Error("Couldn't find the session's opening prompt.")
     }
-    if (this.regeneratingTitleSessionIds.has(agentSessionId)) {
+    if (this.regeneratingTitleSessionIds.has(session.id)) {
       throw new Error('The session title is already regenerating.')
     }
 
-    this.regeneratingTitleSessionIds.add(agentSessionId)
+    this.regeneratingTitleSessionIds.add(session.id)
     try {
       const api = this.workspace.apiFor(tabId)
       let workingDirectory = session.run.workingDirectory
       let openingPrompt = sessionTitleRegenerationInput(session.messages)
       if (!openingPrompt) {
-        const indexedSession = await api.getSessionInfo(agentSessionId)
+        const indexedSession = await api.getSessionInfo(session.id)
         openingPrompt = sessionTitleRegenerationInput([], indexedSession?.firstMessage)
         workingDirectory = indexedSession?.cwd || workingDirectory
       }
@@ -232,22 +230,22 @@ export class SessionMetadata {
       const metadata = await api.generateSessionMetadata(
         openingPrompt,
         workingDirectory,
-        { ...metadataContext, sessionId: agentSessionId, executionPreferences: this.workspace.settings.executionPreferences },
+        { ...metadataContext, sessionId: session.id, executionPreferences: this.workspace.settings.executionPreferences },
       )
       if (!metadata) throw new Error("Couldn't generate a new session title.")
 
       const currentSession = this.workspace.sessionFor(tabId)
-      if (!currentSession || currentSession.agentSessionId !== agentSessionId) {
+      if (!currentSession || currentSession.id !== session.id) {
         throw new Error('The session changed before its new title was ready.')
       }
       currentSession.title = metadata.title
       currentSession.titleCustom = true
       if (!currentSession.forked) {
         this.metadataFinalizedTabs.add(tabId)
-        await api.setSessionTitle(agentSessionId, metadata.title, 'generated')
+        await api.setSessionTitle(currentSession.id, metadata.title, 'generated')
       }
     } finally {
-      this.regeneratingTitleSessionIds.delete(agentSessionId)
+      this.regeneratingTitleSessionIds.delete(session.id)
     }
   }
 }

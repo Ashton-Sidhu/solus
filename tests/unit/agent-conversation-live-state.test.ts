@@ -37,20 +37,21 @@ const exchangeId = 'exchange-1'
 describe('a card on screen follows its exchange', () => {
   test('a message whose run fails reads failed, not queued', () => {
     const updates: AgentConversationUpdate[] = [
-      { phase: 'dispatched', agentSessionId: child, messageId: exchangeId, origin: 'prompted', prompt: 'fix it', provider: 'claude-code', title: 'Fix', cwd: '/repo', dispatchedAt: 1 },
-      { phase: 'accepted', agentSessionId: child, messageId: exchangeId, state: 'running' },
-      { phase: 'settled', agentSessionId: child, messageId: exchangeId, status: 'failed', replyText: 'The worktree was removed.', settledAt: 2 },
+      { phase: 'dispatched', sessionId: child, messageId: exchangeId, origin: 'prompted', prompt: 'fix it', provider: 'claude-code', title: 'Fix', cwd: '/repo', dispatchedAt: 1 },
+      { phase: 'accepted', sessionId: child, messageId: exchangeId, state: 'running' },
+      { phase: 'settled', sessionId: child, messageId: exchangeId, status: 'failed', replyText: 'The worktree was removed.', settledAt: 2 },
     ]
     expect(cardsSeen(updates).map((seen: { state: string }) => seen.state)).toEqual(['dispatching', 'replying', 'failed'])
   })
 
   test('a created session that starts and finishes reads started and completed', () => {
-    const pendingId = `pending:${exchangeId}`
+    // WHY: the card names the session from dispatch; it is only "starting"
+    // (nothing to open yet) until the host says the provider started it.
     const updates: AgentConversationUpdate[] = [
-      { phase: 'dispatched', agentSessionId: pendingId, messageId: exchangeId, origin: 'created', prompt: 'fix it', provider: 'claude-code', title: 'Fix', cwd: '/repo', dispatchedAt: 1 },
-      { phase: 'accepted', agentSessionId: pendingId, messageId: exchangeId, state: 'running' },
-      { phase: 'attached', agentSessionId: child, messageId: exchangeId },
-      { phase: 'settled', agentSessionId: child, messageId: exchangeId, status: 'completed', replyText: 'done', settledAt: 2 },
+      { phase: 'dispatched', sessionId: child, messageId: exchangeId, origin: 'created', prompt: 'fix it', provider: 'claude-code', title: 'Fix', cwd: '/repo', dispatchedAt: 1 },
+      { phase: 'accepted', sessionId: child, messageId: exchangeId, state: 'running' },
+      { phase: 'attached', sessionId: child, messageId: exchangeId, cwd: '/repo' },
+      { phase: 'settled', sessionId: child, messageId: exchangeId, status: 'completed', replyText: 'done', settledAt: 2 },
     ]
     expect(cardsSeen(updates)).toEqual([
       { state: 'dispatching', pending: true },

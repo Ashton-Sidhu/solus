@@ -13,15 +13,13 @@ import { Task, taskSnapshot } from '../../data/tasks/task'
 import { readTasksLinkingTargets } from '../../data/tasks/task-links'
 import { attachLinkedContent } from '../../data/tasks/linked-content'
 import { attachArtifactToTask } from '../../data/tasks/task-artifacts'
-import { prepareSessionTask, rekeyTaskSessionLinks, taskSessions, tasksForSession } from '../../data/tasks/task-sessions'
+import { prepareSessionTask, taskSessions, tasksForSession } from '../../data/tasks/task-sessions'
 import {
   linkSessionPullRequest,
   readSessionPullRequests,
-  rekeySessionPullRequests,
-  sessionPullRequestOwnerId,
   unlinkSessionPullRequest,
 } from '../../data/sessions/session-pull-requests'
-import { readSessionShelf, rekeySessionState, settleSession, snoozeSession, unsettleSession } from '../../data/sessions/session-states'
+import { readSessionShelf, settleSession, snoozeSession, unsettleSession } from '../../data/sessions/session-states'
 import { markTaskRead, recordTaskActivity } from '../../data/tasks/task-lifecycle'
 import { readTaskSnoozes, snoozeTaskFor } from '../../data/tasks/task-snoozes'
 import { getDatabase } from '../../db/database'
@@ -242,24 +240,11 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
     return (await Task.byId(recordScopeOf(ctx.principal), taskId)).unlinkSession(sessionId, attributionOf(ctx.actor))
   })
 
-  /** A provider handoff happens on the execution host. For a dispatched run,
-   * the task attempt belongs to another host, so the client forwards the stable
-   * identity change here instead of leaving the old provider attempt behind. */
-  server.register('tasksRekeySession', async (args, ctx) => {
-    const [sourceSessionId, targetSessionId] = args
-    await rekeyTaskSessionLinks(recordScopeOf(ctx.principal), sourceSessionId, targetSessionId)
-    await rekeySessionPullRequests(sourceSessionId, targetSessionId)
-    await rekeySessionState(sourceSessionId, targetSessionId)
-  })
-
   // A session owns its pull request links; a task reads the links of its
   // sessions (docs/plans/session-pull-requests.md).
   server.register('sessionPullRequestsList', async (args, ctx) => {
     const [sessionIds] = args
-    const links = await readSessionPullRequests(
-      recordScopeOf(ctx.principal),
-      sessionIds?.map(sessionPullRequestOwnerId),
-    )
+    const links = await readSessionPullRequests(recordScopeOf(ctx.principal), sessionIds)
     if (!deps.shares) return links
     const visible = await deps.shares.filterVisible(ctx.principal, 'session', Object.keys(links), (sessionId) => sessionId)
     return Object.fromEntries(visible.map((sessionId) => [sessionId, links[sessionId] ?? []]))

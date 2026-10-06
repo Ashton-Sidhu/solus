@@ -216,7 +216,6 @@ function session(id: string): Session {
     id,
     status: 'completed',
     task: { kind: 'none' },
-    handoffId: id,
     agentSessionId: id,
     run: { serverId: 'host-a' },
     permissionQueue: [],

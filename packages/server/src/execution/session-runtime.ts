@@ -11,17 +11,16 @@ import { buildHandoff } from './agents/session-handoff'
 import { isWindowClosed } from './rate-limits'
 import { UsageLimitsStore } from '../usage/usage-store'
 import { AttentionService } from '../attention/attention-service'
-import { prepareSessionTask, rekeyTaskSessionLinks } from '../data/tasks/task-sessions'
+import { prepareSessionTask } from '../data/tasks/task-sessions'
 import { captureTaskLeadPreferences, taskLeadPreferences, taskLeadPreferencesOfSession, withTaskLeadPreferences } from '../data/tasks/task-lead-preferences'
-import { rekeySessionPullRequests } from '../data/sessions/session-pull-requests'
-import { recordSessionExecutionPreferences, rekeySessionState } from '../data/sessions/session-states'
+import { recordSessionExecutionPreferences } from '../data/sessions/session-states'
 import { ResponseTextBuffer } from './sessions/response-text-buffer'
-import { inheritedOrganizationOf, parentRecordIdOf, recordSessionSettings } from './sessions/session-settings'
-import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../admission/principal'
-import { organizationOfSession, recordSessionId } from '../data/sessions/session-records'
+import { inheritedOrganizationOf, parentSessionIdOf, recordSessionSettings } from './sessions/session-settings'
+import { LOCAL_ORGANIZATION_ID } from '../admission/principal'
+import { organizationOfSession } from '../data/sessions/session-records'
 import { inheritSessionOrganization, pendingOrganizationFor } from './sessions/turn-organization'
 import { getIndexedSession } from '../db/session-indexer'
-import { cancelProvisionalSessionHandoff, stableSessionIdForProviderThread } from '../data/sessions/session-lineage'
+import { cancelProvisionalSessionHandoff, resolveSessionLineageById, sessionIdOfThread } from '../data/sessions/session-lineage'
 import { type RunExchanges, type SessionOrchestrator } from './orchestration/session-orchestrator'
 import { ClaudeGoalStore } from '../data/sessions/claude-goal-store'
 import type { AgentBackend, RunHandle } from './agents/agent-backend'
@@ -215,36 +214,32 @@ export class SessionRuntime extends EventEmitter {
     this.sessionCheckouts = new SessionCheckouts(this)
   }
 
-  /** The stable id a share list is keyed on, for a session named by either id space. */
-  canonicalSessionId(id: string): string {
-    return this.sessionIdFor(id) ?? id
-  }
-
   /**
-   * Whether this host has any record of a session, by either id: something live on
-   * its behalf, a lineage, or an index row. The share manager treats an unknown id
+   * Whether this host has any record of a session: something live on its
+   * behalf, a lineage, or an index row. The share manager treats an unknown id
    * as a session being started, which its starter may do.
    */
-  isKnownSession(id: string): boolean {
-    return this.sessionIdFor(id) !== undefined || getIndexedSession(id) !== null
+  isKnownSession(sessionId: string): boolean {
+    return this.hasSession(sessionId) || getIndexedSession(sessionId) !== null
   }
 
-  /** Solus's id for a session named by either id space. The provider-id arm is
-   *  seam (b): rows read off disk (the picker, MCP session tools, the session
-   *  index) only ever hold a provider thread id. */
-  sessionIdFor(id: string | null | undefined): string | undefined {
-    if (!id) return undefined
-    // The registered lineage outranks anything held locally. A client that never
-    // adopted the id we answered with still has a watch under its own name, so
-    // trusting "is watched" first would let a stale name win over the durable one.
-    // The two id spaces never collide, so this lookup cannot misfire on a Solus id.
-    const registered = this.agentSessionToSession.get(id) ?? stableSessionIdForProviderThread(id)
-    if (registered) return registered
-    // A session is addressable from the moment anything is happening on its
-    // behalf — a client watching it, or a worktree being prepared for it — not
-    // only once it has a record and a provider thread.
-    if (this.activeSessions.has(id) || this.watchers.watches.has(id) || this.launcher.pendingSetupControllers.has(id) || this.launcher.failedSetupPrompts.has(id)) return id
-    return undefined
+  /** Whether anything is happening on a session's behalf here — a client
+   *  watching it, a worktree being prepared, a run — or its lineage is recorded. */
+  hasSession(sessionId: string): boolean {
+    return this.activeSessions.has(sessionId) || this.watchers.watches.has(sessionId)
+      || this.launcher.pendingSetupControllers.has(sessionId) || this.launcher.failedSetupPrompts.has(sessionId)
+      || resolveSessionLineageById(sessionId) !== null
+  }
+
+  /** The session a provider thread belongs to: its live binding, else its
+   *  lineage. Undefined for a thread no session holds. Only the provider
+   *  boundary — its events and a resume — names a thread
+   *  (docs/plans/session-identity.md). */
+  sessionOfThread(threadId: string): string | undefined {
+    const live = this.agentSessionToSession.get(threadId)
+    if (live) return live
+    const lineaged = sessionIdOfThread(threadId)
+    return lineaged !== threadId || resolveSessionLineageById(threadId) ? lineaged : undefined
   }
 
   /** The provider thread behind a session, for the calls that cross into a
@@ -255,7 +250,7 @@ export class SessionRuntime extends EventEmitter {
 
   /** The organization the session's spans carry (organization-scope §6.1); undefined for Local work. */
   async turnOrganization(sessionId: string): Promise<string | undefined> {
-    const organizationId = await organizationOfSession(this.agentSessionIdFor(sessionId) ?? sessionId)
+    const organizationId = await organizationOfSession(sessionId)
     if (organizationId !== LOCAL_ORGANIZATION_ID) return organizationId
     // A new session has no record yet; the admission already decided its organization.
     return pendingOrganizationFor(sessionId) ?? undefined
@@ -268,18 +263,17 @@ export class SessionRuntime extends EventEmitter {
    */
   async settleRunOrganization(request: SessionRunRequest): Promise<void> {
     // A fork belongs to the session it branches from until its own record says otherwise.
-    const forkSource = request.input.forked && request.input.agentSessionId ? await organizationOfSession(request.input.agentSessionId) : undefined
+    const forkSource = request.input.forked && request.input.agentSessionId ? await organizationOfSession(sessionIdOfThread(request.input.agentSessionId)) : undefined
     const ownOrganization = await this.turnOrganization(request.sessionId) ?? LOCAL_ORGANIZATION_ID
     const recordOrganization = [ownOrganization, forkSource]
       .find((candidate) => candidate !== undefined && candidate !== LOCAL_ORGANIZATION_ID) ?? LOCAL_ORGANIZATION_ID
-    const recordId = this.agentSessionIdFor(request.sessionId) ?? (request.input.forked ? null : request.input.agentSessionId)
     // The session a child came from: named by the request that starts it, and by its record's parent link after that.
-    const originRecordId = recordOrganization !== LOCAL_ORGANIZATION_ID ? null
-      : request.delegation?.parentSessionId ?? await parentRecordIdOf(recordSessionId(recordId ?? request.sessionId))
-    const organizationId = await inheritedOrganizationOf(request.sessionId, recordOrganization, originRecordId, (id) => this.sessionIdFor(id))
+    const originSessionId = recordOrganization !== LOCAL_ORGANIZATION_ID ? null
+      : request.delegation?.parentSessionId ?? await parentSessionIdOf(request.sessionId)
+    const organizationId = await inheritedOrganizationOf(request.sessionId, recordOrganization, originSessionId)
     // A child or fork records the organization it inherits, so a restart finds it in its record.
     if (organizationId !== LOCAL_ORGANIZATION_ID && ownOrganization === LOCAL_ORGANIZATION_ID) {
-      await inheritSessionOrganization(request.sessionId, organizationId, recordId)
+      await inheritSessionOrganization(request.sessionId, organizationId)
     }
     recordSessionSettings(request.sessionId, { organizationId, preferences: request.input.executionPreferences })
   }
@@ -299,11 +293,6 @@ export class SessionRuntime extends EventEmitter {
     let captured = taskId ? await taskLeadPreferences(taskId) : await taskLeadPreferencesOfSession(request.sessionId)
     if (!captured && taskId && taskRole === 'lead' && preferences) captured = await captureTaskLeadPreferences(taskId, preferences)
     if (captured) request.input.executionPreferences = withTaskLeadPreferences(preferences, captured)
-  }
-
-  /** The Solus session a record (a provider thread id) belongs to while it is live; the id itself otherwise. */
-  sessionIdForRecord(recordId: string): string {
-    return this.agentSessionToSession.get(recordId) ?? recordId
   }
 
   /** What the transcript mirror needs to read a session's history: the provider,
@@ -338,14 +327,7 @@ export class SessionRuntime extends EventEmitter {
     log.info('session_reset', { sessionId, agentSessionId: session?.agentSessionId ?? null })
     this.rateLimitPark.rateLimits.clear(sessionId)
     const pendingHandoff = this.handoffs.pendingHandoffFor(sessionId)
-    if (pendingHandoff) {
-      const restoredHandoff = cancelProvisionalSessionHandoff(sessionId)
-      if (!restoredHandoff) {
-        await rekeyTaskSessionLinks(ANY_ORGANIZATION, sessionId, pendingHandoff.fromSessionId)
-        await rekeySessionPullRequests(sessionId, pendingHandoff.fromSessionId)
-        await rekeySessionState(sessionId, pendingHandoff.fromSessionId)
-      }
-    }
+    if (pendingHandoff) cancelProvisionalSessionHandoff(sessionId)
     this.handoffs.pendingHandoffs.delete(sessionId)
 
     if (session) {
@@ -387,14 +369,9 @@ export class SessionRuntime extends EventEmitter {
 
   /** What a run tells the orchestrator: which exchanges it answers. Null when
    *  it answers none, so an ordinary turn never reaches the orchestrator. */
-  runExchanges(run: SessionRunRequest, agentSessionId?: string | null): RunExchanges | null {
+  runExchanges(run: SessionRunRequest): RunExchanges | null {
     if (!run.exchangeIds?.length || !run.runId) return null
-    return {
-      runId: run.runId,
-      sessionId: run.sessionId,
-      agentSessionId: agentSessionId ?? this.activeSessions.get(run.sessionId)?.agentSessionId ?? run.input.agentSessionId,
-      exchangeIds: run.exchangeIds,
-    }
+    return { runId: run.runId, sessionId: run.sessionId, exchangeIds: run.exchangeIds }
   }
 
   /** Something happened in a session's live turn that its senders hear about. */
@@ -420,7 +397,7 @@ export class SessionRuntime extends EventEmitter {
     handle: RunHandle,
     runMeta: { durationMs?: number; toolCallCount?: number; error?: string },
   ): void {
-    const exchanges = this.runExchanges(run, handle.agentSessionId)
+    const exchanges = this.runExchanges(run)
     if (!exchanges || !this.orchestration) return
     const session = this.activeSessions.get(run.sessionId)
     this.orchestration.runSettled({
@@ -603,9 +580,8 @@ export class SessionRuntime extends EventEmitter {
    * settles through the provider's own events, and the session leaves
    * 'background' through the usual turn that follows.
    */
-  async stopBackgroundTasks(id: string): Promise<boolean> {
-    const sessionId = this.sessionIdFor(id)
-    const session = sessionId ? this.activeSessions.get(sessionId) : undefined
+  async stopBackgroundTasks(sessionId: string): Promise<boolean> {
+    const session = this.activeSessions.get(sessionId)
     const agentSessionId = session?.agentSessionId
     const taskIds = [...(session?.backgroundTaskIds ?? [])]
     if (!session || !agentSessionId || taskIds.length === 0) return false
@@ -613,21 +589,18 @@ export class SessionRuntime extends EventEmitter {
     const stopBackgroundTask = backend.stopBackgroundTask?.bind(backend)
     if (!stopBackgroundTask) return false
     log.info('background_tasks_stop_requested', { sessionId, taskIds })
-    this.restarts.restartRuns?.remove(sessionId!)
+    this.restarts.restartRuns?.remove(sessionId)
     const stopped = await Promise.all(taskIds.map((taskId) => stopBackgroundTask(agentSessionId, taskId)))
     return stopped.some(Boolean)
   }
 
   /**
-   * Interrupt a session, whichever id the caller holds: the renderer's Stop
-   * passes Solus's, an MCP `stop_session` passes the provider thread it read off
-   * disk. Covers every phase — a queue waiting its turn, a worktree still being
+   * Interrupt a session. Covers every phase — a queue waiting its turn, a worktree still being
    * prepared, a live provider turn, and a run that has not reached session_init.
    * A person's stop is recorded as a `stopped` activity, inside the turn it ended.
    */
-  stopSession(id: string, actor: Actor): boolean {
-    const sessionId = this.sessionIdFor(id)
-    if (!sessionId) return false
+  stopSession(sessionId: string, actor: Actor): boolean {
+    if (!this.hasSession(sessionId)) return false
     this.restarts.restartRuns?.remove(sessionId)
     for (const entry of [...(this.scheduler.requestQueue.get(sessionId) ?? [])]) {
       if (entry.run.options.clientPromptId?.startsWith('restart:')) this.scheduler.requestQueue.remove(sessionId, entry.queueId)
@@ -694,10 +667,10 @@ export class SessionRuntime extends EventEmitter {
     return !!moveController
   }
 
-  /** The session an IPC context is acting on. A client that only knows the
-   *  provider thread (a resume it has not bound yet) resolves through seam (b). */
+  /** The session an IPC context is acting on. A client resuming a thread it
+   *  has not bound yet names only the thread. */
   sessionIdForCtx(ctx: IpcContext): string | undefined {
-    return ctx.session.sessionId || this.sessionIdFor(ctx.session.agentSessionId)
+    return ctx.session.sessionId || (ctx.session.agentSessionId ? this.sessionOfThread(ctx.session.agentSessionId) : undefined)
   }
 
   getMetadataFor(id: AgentId): AgentMetadata | undefined {
@@ -785,7 +758,7 @@ export class SessionRuntime extends EventEmitter {
    * moment when another record holds it too (a handoff's lineage member).
    */
   async recordActivity(subject: ActivitySubject & { kind: 'session' }, actor: Actor, kind: ActivityKind, at?: number): Promise<Activity> {
-    const sessionId = this.sessionIdFor(subject.id) ?? subject.id
+    const sessionId = subject.id
     const activity = newActivity({ kind: 'session', id: sessionId }, attributionOf(actor), kind, at)
     const session = this.activeSessions.get(sessionId)
     if (session?.activeTurnId && session.settledTurnId !== session.activeTurnId) activity.turnId = session.activeTurnId
@@ -797,11 +770,6 @@ export class SessionRuntime extends EventEmitter {
     }
     this.publish(sessionId, { type: 'activity', activity })
     return activity
-  }
-
-  /** A session's activity for its history read, keyed by either id space. */
-  sessionActivitySubject(id: string): ActivitySubject {
-    return { kind: 'session', id: this.sessionIdFor(id) ?? id }
   }
 
   /**

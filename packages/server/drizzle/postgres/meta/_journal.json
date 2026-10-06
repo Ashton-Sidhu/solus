@@ -78,6 +78,20 @@
       "when": 1791261601521,
       "tag": "0010_share_grant_owner",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791268335641,
+      "tag": "0011_indexed_plans_thread",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791269808637,
+      "tag": "0012_session_read_state",
+      "breakpoints": true
     }
   ]
 }

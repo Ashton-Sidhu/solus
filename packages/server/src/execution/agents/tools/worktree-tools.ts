@@ -35,7 +35,7 @@ export const moveToWorktreeAgentTool: AgentTool = {
     const parsed = moveToWorktreeInput.safeParse(rawInput)
     if (!parsed.success) return { ok: false, text: z.prettifyError(parsed.error) }
     const input = parsed.data
-    const sessionId = context.solusSessionId()
+    const sessionId = context.sessionId()
     if (!sessionId) return { ok: false, text: 'move_to_worktree needs a Solus session. A sub-agent cannot move its parent session.' }
     if (!worktreeMover) return { ok: false, text: 'Worktree moves are not available on this host.' }
     if (input.path && (input.base_branch || input.branch_name)) {

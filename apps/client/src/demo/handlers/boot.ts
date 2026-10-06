@@ -5,13 +5,13 @@ import type {
   RuntimeSessionInfo,
   ServerCapabilities,
   VoiceModelStatus,
+  WatchSessionInput,
 } from '@solus/contracts/types'
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
 import type { DemoBackend } from '../server'
 import { DEMO_USER, type DemoStore } from '../store'
 
 export function registerBootHandlers(backend: DemoBackend, store: DemoStore): void {
-  let sessionCounter = 0
   let config = structuredClone(DEFAULT_HOST_CONFIG)
   backend.register('start', () => store.startInfo())
   backend.register('serverGetCapabilities', (): HostCapabilities => ({
@@ -67,10 +67,8 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     queuedPrompts: [],
   })
   backend.register('watchSession', (args) => {
-    const input = arg<{ sessionId?: string; agentSessionId?: string; attachRuntime?: boolean }>(args, 0)
-    const sessionId = input?.sessionId ?? `demo-runtime-session-${++sessionCounter}`
-    if (!input?.attachRuntime || !input.agentSessionId) return { sessionId }
-    return { sessionId, runtime: runtimeInfo() }
+    const input = arg<WatchSessionInput>(args, 0)
+    return input.attachRuntime ? { runtime: runtimeInfo() } : {}
   })
   backend.register('unwatchSession', () => undefined)
   backend.register('bindRuntimeSession', (args): RuntimeSessionInfo | null => {

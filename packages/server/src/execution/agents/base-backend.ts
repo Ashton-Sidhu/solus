@@ -69,7 +69,7 @@ export class BaseAgentBackend<H extends RunHandle = RunHandle> extends EventEmit
       log.warn('run_session_rekeyed', {
         from: handle.agentSessionId,
         to: sessionId,
-        solusSessionId: handle.sessionId ?? null,
+        sessionId: handle.sessionId ?? null,
       })
     }
     handle.agentSessionId = sessionId

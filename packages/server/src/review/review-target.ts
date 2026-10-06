@@ -1,3 +1,4 @@
+import type { IpcContext } from '@solus/contracts/types'
 import { createHash } from 'node:crypto'
 import {
   reviewGuideKeyFor,
@@ -16,6 +17,13 @@ export function guideKeyFor(
   sessionId: string | null,
 ): string {
   return reviewGuideKeyFor(review.branch, scope, sessionId)
+}
+
+/** The session whose changes a review reads: the context's session, once it
+ *  has run. Its snapshots are stored under its session id
+ *  (docs/plans/session-identity.md). */
+export function reviewedSessionId(ctx: Pick<IpcContext, 'session'>): string | null {
+  return ctx.session.agentSessionId ? ctx.session.sessionId : null
 }
 
 export function normalizedReviewTarget(

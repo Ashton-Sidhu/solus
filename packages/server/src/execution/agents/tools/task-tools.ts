@@ -6,7 +6,7 @@ import type { AgentTool } from './agent-tool'
 import { toolAgentAttribution } from './agent-attribution'
 import { resolveRepoRoot, resolveRepositoryKey } from '../../../git/git-helpers'
 import { Task } from '../../../data/tasks/task'
-import { linkSessionPullRequest, pullRequestIdentityOf, readSessionPullRequests, sessionPullRequestOwnerId } from '../../../data/sessions/session-pull-requests'
+import { linkSessionPullRequest, pullRequestIdentityOf, readSessionPullRequests } from '../../../data/sessions/session-pull-requests'
 import { resolvePullRequestUrl } from '../../../providers/pull-request-url'
 import { applyOpToForeignTask, foreignTaskFor } from '../../../data/tasks/foreign-tasks'
 import { formatTaskEpic, formatTaskLink } from '../../../data/tasks/task-context'
@@ -143,11 +143,8 @@ const LIST_SESSION_PULL_REQUESTS_DESC =
 interface TaskToolCtx {
   /** The calling session's working directory — stamps new tasks with a project. */
   cwd: string
-  /** Provider thread id — provenance on durable rows (comments, links). */
+  /** The calling session; every row the tool writes names it. */
   sessionId?: string
-  /** Solus session id — the key the session's foreign task snapshot is held
-   *  under (see foreign-tasks.ts; the SessionRuntime keys by Solus's id). */
-  solusSessionId?: string
   /** The calling agent, named on what the tool writes. */
   agentProvider?: AgentId
 }
@@ -191,7 +188,7 @@ async function executeTaskTool(
   // the whole disk (docs/plans/project-model.md §4), or the organization's Solus
   // API for a session whose home is there. Reads and writes agree on it.
   const scope = ANY_ORGANIZATION
-  const toolContext = () => workspaceToolContext(deps.ctx.sessionId, deps.ctx.solusSessionId)
+  const toolContext = () => workspaceToolContext(deps.ctx.sessionId)
   try {
     if (name === 'list_tasks') {
       const input = listTasksInputSchema.parse(args)
@@ -219,7 +216,7 @@ async function executeTaskTool(
       if (!id) return { ok: false, text: 'read_task requires a task_id.' }
       // A foreign task (dispatched session) answers from the shipped snapshot,
       // overlaid with this session's own not-yet-delivered writes.
-      const foreign = foreignTaskFor(deps.ctx.solusSessionId, id)
+      const foreign = foreignTaskFor(deps.ctx.sessionId, id)
       if (!foreign) {
         const { operations, context, remote } = await toolContext()
         const task = await operations.getTask(context, id)
@@ -245,7 +242,7 @@ async function executeTaskTool(
       const status = input.status
       // The choice of the person the session's run works for. A call no session
       // stands behind gets the built-in default.
-      const lifecyclePolicy = sessionSettings(deps.ctx.solusSessionId)?.preferences?.agentTaskLifecyclePolicy ?? DEFAULT_EXECUTION_PREFERENCES.agentTaskLifecyclePolicy
+      const lifecyclePolicy = sessionSettings(deps.ctx.sessionId)?.preferences?.agentTaskLifecyclePolicy ?? DEFAULT_EXECUTION_PREFERENCES.agentTaskLifecyclePolicy
       if (lifecyclePolicy === 'none') {
         return {
           ok: false,
@@ -258,10 +255,10 @@ async function executeTaskTool(
           text: 'Agents cannot move tasks to done in Moderate mode. Move the task to in_review or ask the user to close it.',
         }
       }
-      if (foreignTaskFor(deps.ctx.solusSessionId, id)) {
+      if (foreignTaskFor(deps.ctx.sessionId, id)) {
         const payload: TaskSetStatusOpPayload = { status, actor: await toolAgentAttribution(deps.ctx) }
         const op = recordOutboxOp({ domain: 'tasks', resourceId: id, name: 'set-status', payload, sessionId: deps.ctx.sessionId })
-        applyOpToForeignTask(deps.ctx.solusSessionId, op)
+        applyOpToForeignTask(deps.ctx.sessionId, op)
         return { ok: true, text: `Task ${id} is now "${status}".` }
       }
       const { operations, context } = await toolContext()
@@ -306,10 +303,10 @@ async function executeTaskTool(
       const body = input.body.trim()
       if (!body) return { ok: false, text: 'comment_task requires a non-empty body.' }
       const author = await toolAgentAttribution(deps.ctx)
-      if (foreignTaskFor(deps.ctx.solusSessionId, id)) {
+      if (foreignTaskFor(deps.ctx.sessionId, id)) {
         const payload: TaskCommentOpPayload = { body, author, originSessionId: deps.ctx.sessionId }
         const op = recordOutboxOp({ domain: 'tasks', resourceId: id, name: 'comment', payload, sessionId: deps.ctx.sessionId })
-        applyOpToForeignTask(deps.ctx.solusSessionId, op)
+        applyOpToForeignTask(deps.ctx.sessionId, op)
         return { ok: true, text: `Comment added to task ${id}.` }
       }
       const home = await organizationHome(toolContext)
@@ -335,7 +332,7 @@ async function executeTaskTool(
         if (kind !== 'pr') return { ok: false, text: `link requires a task_id for kind=${kind}.` }
         return await linkCallerPullRequest(deps.ctx, toolContext, projectKey, input)
       }
-      if (foreignTaskFor(deps.ctx.solusSessionId, taskId)) {
+      if (foreignTaskFor(deps.ctx.sessionId, taskId)) {
         return { ok: false, text: foreignWriteUnsupported('link', taskId) }
       }
 
@@ -434,7 +431,7 @@ async function linkCallerPullRequest(
   input: { target_id?: string; title?: string },
 ): Promise<TaskToolResult> {
   // Durable rows of a session are keyed by Solus's session id.
-  const callerSessionId = ctx.solusSessionId ?? ctx.sessionId
+  const callerSessionId = ctx.sessionId
   if (!callerSessionId) return { ok: false, text: 'link with kind=pr and no task_id needs a calling session, and this session has no id yet.' }
   const named = input.target_id?.trim() ?? ''
   const number = Number(named.replace(/^#/, ''))
@@ -442,7 +439,7 @@ async function linkCallerPullRequest(
     ?? (Number.isSafeInteger(number) && number > 0 ? await resolvePullRequestUrl(projectKey, number) : null)
   const identity = url ? pullRequestIdentityOf(url) : null
   if (!identity) return { ok: false, text: `link could not find pull request "${named}". Pass its number or URL as target_id.` }
-  const sessionId = sessionPullRequestOwnerId(callerSessionId)
+  const sessionId = callerSessionId
   const actor = await toolAgentAttribution(ctx)
   await linkSessionPullRequest(sessionId, { url: identity.url, title: input.title, source: 'agent', by: actor })
   const home = await organizationHome(toolContext)
@@ -455,10 +452,9 @@ async function linkCallerPullRequest(
 
 /** The pull requests linked to the calling session, as the rail shows them. */
 async function listCallerPullRequests(ctx: TaskToolCtx): Promise<TaskToolResult> {
-  const callerSessionId = ctx.solusSessionId ?? ctx.sessionId
+  const callerSessionId = ctx.sessionId
   if (!callerSessionId) return { ok: false, text: 'list_session_pull_requests needs a calling session, and this session has no id yet.' }
-  const sessionId = sessionPullRequestOwnerId(callerSessionId)
-  const links = (await readSessionPullRequests(ANY_ORGANIZATION, [sessionId]))[sessionId] ?? []
+  const links = (await readSessionPullRequests(ANY_ORGANIZATION, [callerSessionId]))[callerSessionId] ?? []
   if (!links.length) return { ok: true, text: 'No pull requests are linked to this session.' }
   const lines = links.map((link) => {
     const state = link.missing ? 'missing' : link.snapshot ? (link.snapshot.draft && link.snapshot.state === 'open' ? 'draft' : link.snapshot.state) : 'not yet synced'
@@ -532,7 +528,7 @@ function taskAgentTool(
     inputFields,
     requiresApproval,
     execute: async (args, context) => executeTaskTool(name, args, {
-      ctx: { cwd: context.cwd, sessionId: context.sessionId(), solusSessionId: context.solusSessionId(), agentProvider: context.provider },
+      ctx: { cwd: context.cwd, sessionId: context.sessionId(), agentProvider: context.provider },
       onTaskCreated: (task) => context.emit({
         type: 'task_created',
         taskId: task.taskId,

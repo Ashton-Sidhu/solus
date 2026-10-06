@@ -13,13 +13,11 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 type DbModule = typeof import('@solus/server/db')
 type TaskStoreModule = typeof import('@solus/server/data/tasks/task-store')
 type TaskModule = typeof import('@solus/server/data/tasks/task')
-type LineageModule = typeof import('@solus/server/data/sessions/session-lineage')
 
 let dataDir: string
 let db: DbModule
 let taskStore: TaskStoreModule
 let tasks: TaskModule
-let lineage: LineageModule
 const previousDataDir = process.env.SOLUS_DATA_DIR
 
 beforeAll(async () => {
@@ -28,7 +26,6 @@ beforeAll(async () => {
   db = await import('@solus/server/db')
   taskStore = await import('@solus/server/data/tasks/task-store')
   tasks = await import('@solus/server/data/tasks/task')
-  lineage = await import('@solus/server/data/sessions/session-lineage')
 })
 
 afterEach(async () => {
@@ -44,38 +41,11 @@ afterAll(() => {
 })
 
 const SOLUS_SESSION_ID = '70e3ce43-65f7-4210-bb1c-3057f96ee2d8'
-const PROVIDER_SESSION_ID = '97791a59-b0ec-4370-ac1f-9098c8b7f518'
 
-describe('artifact linking across the session id boundary', () => {
-  test('a work created with the provider thread id reaches the task keyed on the Solus id', async () => {
-    // WHY: agent tools carry the provider thread id, while the attempt row is
-    // keyed on the stable Solus id. Without lineage resolution the lookup finds
-    // nothing, the link is skipped without an error, and the created work never
-    // appears on the task that produced it.
-    const record = await taskStore.createTask('local', { title: 'Drive integration' })
-    const task = await tasks.Task.byId('local', record.id)
-    await task.linkSession(SOLUS_SESSION_ID)
-    lineage.registerSessionLineage({
-      sessionId: SOLUS_SESSION_ID,
-      provider: 'claude-code',
-      providerSessionId: PROVIDER_SESSION_ID,
-      cwd: '/repo',
-    })
-
-    const details = await tasks.Task.linkSessionOutput('local', PROVIDER_SESSION_ID, {
-      kind: 'work',
-      targetKey: 'work-613e21e7',
-      title: 'Plan: Drive integration',
-    })
-
-    expect(details?.links).toContainEqual(
-      expect.objectContaining({ kind: 'work', targetKey: 'work-613e21e7' }),
-    )
-  })
-
+describe('artifact linking', () => {
   test('the stable Solus id still resolves its own task', async () => {
-    // WHY: the renderer and SessionRuntime already pass the stable id. Resolving
-    // the provider alias must not cost them their direct match.
+    // WHY: the renderer, SessionRuntime and agent tools all name a session by
+    // its session id (docs/plans/session-identity.md).
     const record = await taskStore.createTask('local', { title: 'Drive integration' })
     const task = await tasks.Task.byId('local', record.id)
     await task.linkSession(SOLUS_SESSION_ID)

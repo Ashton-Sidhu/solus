@@ -139,7 +139,7 @@ export class ConversationController {
     // A session name set anywhere (generated here or on desktop, or typed) is
     // the session's: the header shows it, and a hand rename stops naming.
     this.cleanups.push(connection.events.subscribe('session.titleChanged', (payload) => {
-      if (payload.sessionId !== this.run.sessionId && payload.sessionId !== this.run.agentSessionId) return
+      if (payload.sessionId !== this.run.sessionId) return
       this.run.title = payload.title
       this.openingPrompt = null
       this.flush(true)
@@ -178,7 +178,6 @@ export class ConversationController {
       this.runOptionsLoaded = this.loadRunOptions(generation)
       const model = await this.readHistory(generation)
       if (!model) return
-      model.agentSessionId = this.run.agentSessionId
       // Prompts not yet confirmed stay visible across the rebuild.
       for (const record of this.deps.outbox.entriesFor(this.outboxKey)) {
         model.addOptimisticUser(record.clientPromptId, record.text, record.lastError ? 'failed' : 'queued', queuedMessageAttachments(record.payload))
@@ -254,11 +253,10 @@ export class ConversationController {
   private async readHistory(generation: number): Promise<TranscriptModel | null> {
     if (!this.target.record) return new TranscriptModel(this.run.sessionId)
     const api = this.deps.connection.api
-    const description = await api.describeSession(this.run.provider, this.target.record.sessionId).catch(() => null)
+    const description = await api.describeSession(this.target.record.sessionId).catch(() => null)
     if (generation !== this.loadGeneration) return null
     const lineage = description?.lineage
     if (lineage) {
-      this.run.sessionId = lineage.sessionId
       this.run.agentSessionId = lineage.active.providerSessionId ?? null
       this.run.provider = lineage.active.provider
     }
@@ -492,7 +490,7 @@ export class ConversationController {
    */
   async approvePlan(plan: Extract<TranscriptItem, { kind: 'plan' }>, note = ''): Promise<boolean> {
     const settings = this.settings ?? await this.deps.runSettings()
-    const agentSessionId = this.run.agentSessionId ?? this.run.sessionId
+    const sessionId = this.run.sessionId
     try {
       await this.deps.connection.api.acceptPlan(this.context(), { planId: plan.planId, startNewSession: true })
     } catch (error) {
@@ -503,9 +501,8 @@ export class ConversationController {
     this.model.setPlanDecision(plan.planId, 'accepted')
     this.model.setStatus('idle')
     this.run.agentSessionId = null
-    this.model.agentSessionId = null
     this.flush()
-    await this.send(implementPlanPrompt({ ...plan, agentSessionId }, note), { permissionMode: implementationMode(settings.defaultPermissionMode) })
+    await this.send(implementPlanPrompt({ ...plan, sessionId }, note), { permissionMode: implementationMode(settings.defaultPermissionMode) })
     return true
   }
 
@@ -602,8 +599,6 @@ export class ConversationController {
   private async watch(): Promise<WatchSessionResult> {
     const watched = await this.deps.connection.api.watchSession({
       sessionId: this.run.sessionId,
-      agentSessionId: this.run.agentSessionId ?? undefined,
-      provider: this.run.provider,
       attachRuntime: !!this.run.agentSessionId,
     })
     this.watching = true
@@ -611,9 +606,6 @@ export class ConversationController {
   }
 
   private applyWatch(watched: WatchSessionResult): void {
-    // The host is authoritative on identity: another client may know this
-    // provider thread under the id it answered with.
-    if (watched.sessionId !== this.run.sessionId) this.run.sessionId = watched.sessionId
     for (const question of watched.pendingQuestions ?? []) {
       this.model.apply({ type: 'question_request', questionId: question.questionId, questions: question.questions, responseMode: question.responseMode })
     }
@@ -747,7 +739,7 @@ export class ConversationController {
     if (!metadata || this.run.title || this.run.agentSessionId !== agentSessionId) return
     this.run.title = metadata.title
     this.flush(true)
-    await api.setSessionTitle(agentSessionId, metadata.title, 'generated', metadata.description).catch(() => undefined)
+    await api.setSessionTitle(this.run.sessionId, metadata.title, 'generated', metadata.description).catch(() => undefined)
   }
 
   private flush(meta = false): void {

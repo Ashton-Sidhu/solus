@@ -141,7 +141,7 @@ export async function approvePlanWithModel(
   const providerChanged = !!opts.provider && opts.provider !== session.run.provider
   // A session with no provider thread has nothing to hand over: its agent
   // changes here, and the host only records the decision.
-  if (providerChanged && !session.agentSessionId && !session.handoffId) {
+  if (providerChanged && !session.agentSessionId && !session.handoffPending) {
     await ctx.config.switchActiveAgent(opts.provider!, tabId)
   }
   const handsOver = providerChanged && session.run.provider !== opts.provider

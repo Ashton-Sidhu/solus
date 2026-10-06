@@ -86,15 +86,6 @@ export function taskRoleOf(task: TaskTarget): 'lead' | undefined {
   return task.kind === 'existing' ? task.role : undefined
 }
 
-/** The durable identity that owns a session's task attempt. A handoff keeps one
- * Solus identity while its provider thread changes; a regular session uses the
- * stable id that Solus registered when its first provider thread started. */
-export function taskBindingSessionId(
-  session: Pick<Session, 'id' | 'handoffId'>,
-): string | null {
-  return session.handoffId ?? session.id
-}
-
 /** Read the field a persisted tab stores back into a target. */
 export function taskTargetFrom(fields: { pendingTaskId?: string | null }): TaskTarget {
   return fields.pendingTaskId ? { kind: 'existing', taskId: fields.pendingTaskId } : { kind: 'none' }
@@ -108,7 +99,7 @@ export function taskTargetFrom(fields: { pendingTaskId?: string | null }): TaskT
  * lands, the binding is all there is.
  */
 export function ownedTaskId(tasksStore: { taskForSession(sessionId: string | null | undefined): { id: string } | null }, session: Session): string | undefined {
-  return tasksStore.taskForSession(taskBindingSessionId(session))?.id
+  return tasksStore.taskForSession(session.id)?.id
     ?? existingTaskId(session.task)
     ?? undefined
 }

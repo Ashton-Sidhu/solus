@@ -31,7 +31,6 @@ describe('HTML guidance without a system prompt', () => {
         provider: 'claude-code',
         cwd: '/tmp',
         sessionId: () => undefined,
-        solusSessionId: () => undefined,
         abortSignal: new AbortController().signal,
         parentToolUseId: () => undefined,
         emit: () => {},

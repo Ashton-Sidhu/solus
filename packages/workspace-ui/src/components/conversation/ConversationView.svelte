@@ -152,7 +152,7 @@
   // belongs to — the one-click target. Resolved once here, not per card.
   const conversationTaskId = $derived(
     sess
-      ? (session.tasksStore.taskForSession(sess.handoffId ?? sess.id)?.id ??
+      ? (session.tasksStore.taskForSession(sess.id)?.id ??
         session.tasksStore.taskForSession(sess.agentSessionId)?.id ??
         null)
       : null,
@@ -648,10 +648,10 @@
     return () => ro.disconnect();
   });
 
-  async function navigateToSourceSession(agentSessionId: string) {
+  async function navigateToSourceSession(sourceSessionId: string) {
     // The source session lives on the same host as the transcript citing it.
-    const matchingTabId = session.tabIdForAgentSession(
-      agentSessionId,
+    const matchingTabId = session.tabIdForHostSession(
+      sourceSessionId,
       sess?.run.serverId,
     );
     if (matchingTabId) {
@@ -661,7 +661,7 @@
     // Not open — read it on this conversation's host and resume it. The
     // source session delegated to this one, so it lives on the same host.
     if (!sess) return;
-    const meta = await readSessionMeta(sess.run.serverId, agentSessionId);
+    const meta = await readSessionMeta(sess.run.serverId, sourceSessionId);
     if (meta) {
       await session.opening.resumeSession(meta);
     }

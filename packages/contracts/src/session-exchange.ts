@@ -270,8 +270,8 @@ function head(kind: 'session report v2' | 'session notice v1', values: Array<[st
 
 export interface SessionReport {
   messageId?: string
-  /** The child session's provider thread. */
-  agentSessionId: string
+  /** The child session. */
+  sessionId: string
   taskId?: string
   provider?: AgentId
   status: ExchangeOutcome
@@ -298,7 +298,7 @@ export function formatSessionReport(report: SessionReport): string {
   const lines = [head('session report v2', [
     ['message', report.messageId],
     ['also', report.alsoMessageIds?.join(',')],
-    ['session', report.agentSessionId],
+    ['session', report.sessionId],
     ['task', report.taskId],
     ['provider', report.provider],
     ['status', report.status],
@@ -318,10 +318,10 @@ export function formatSessionReport(report: SessionReport): string {
 
 function parseReport(headText: string, body: string): SessionReport | null {
   const values = fields(headText)
-  const agentSessionId = values.get('session')
+  const sessionId = values.get('session')
   const status = OUTCOMES.find((outcome) => outcome === values.get('status'))
-  if (!agentSessionId || !status) return null
-  const report: SessionReport = { agentSessionId, status, outputs: [], reply: '' }
+  if (!sessionId || !status) return null
+  const report: SessionReport = { sessionId, status, outputs: [], reply: '' }
   const messageId = values.get('message')
   if (messageId) report.messageId = messageId
   const also = values.get('also')?.split(',').filter(Boolean)
@@ -351,7 +351,7 @@ function parseReport(headText: string, body: string): SessionReport | null {
 
 interface NoticeTarget {
   messageId?: string
-  agentSessionId: string
+  sessionId: string
   taskId?: string
   provider?: AgentId
 }
@@ -368,7 +368,7 @@ const NOTICE_KINDS = ['question', 'plan', 'permission', 'rate_limited'] as const
 export function formatSessionNotice(notice: SessionNotice): string {
   const target: Array<[string, string | number | undefined]> = [
     ['message', notice.messageId],
-    ['session', notice.agentSessionId],
+    ['session', notice.sessionId],
     ['task', notice.taskId],
     ['provider', notice.provider],
     ['kind', notice.kind],
@@ -408,10 +408,10 @@ export function formatSessionNotice(notice: SessionNotice): string {
 
 function parseNotice(headText: string, body: string): SessionNotice | null {
   const values = fields(headText)
-  const agentSessionId = values.get('session')
+  const sessionId = values.get('session')
   const kind = NOTICE_KINDS.find((candidate) => candidate === values.get('kind'))
-  if (!agentSessionId || !kind) return null
-  const target: NoticeTarget = { agentSessionId }
+  if (!sessionId || !kind) return null
+  const target: NoticeTarget = { sessionId }
   const messageId = values.get('message')
   if (messageId) target.messageId = messageId
   const taskId = values.get('task')
@@ -538,14 +538,14 @@ export function parseOrchestrationItems(text: string): OrchestrationItem[] | nul
 
 export interface ExchangeTag {
   messageId: string
-  agentSessionId: string
+  sessionId: string
   provider?: AgentId
 }
 
 const TAG_RE = /\[exchange v1 ([^\]\n]*)\]/
 
 export function formatExchangeTag(tag: ExchangeTag): string {
-  return `[exchange v1 message=${tag.messageId} session=${tag.agentSessionId}${tag.provider ? ` provider=${tag.provider}` : ''}]`
+  return `[exchange v1 message=${tag.messageId} session=${tag.sessionId}${tag.provider ? ` provider=${tag.provider}` : ''}]`
 }
 
 /** The exchange a start_session or send_session result opened. */
@@ -555,10 +555,10 @@ export function parseExchangeTag(text: string): Partial<ExchangeTag> | null {
   const values = fields(tag[1]!)
   const result: Partial<ExchangeTag> = {}
   const messageId = values.get('message')
-  const agentSessionId = values.get('session')
+  const sessionId = values.get('session')
   const provider = agentIdOf(values.get('provider'))
   if (messageId) result.messageId = messageId
-  if (agentSessionId) result.agentSessionId = agentSessionId
+  if (sessionId) result.sessionId = sessionId
   if (provider) result.provider = provider
   return result
 }

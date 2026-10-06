@@ -168,20 +168,19 @@ describe('what a session works under survives a host restart', () => {
     const first = await runtimeWith()
     const parent = await sessionIn('A', 'restart-parent')
     await (await first.runtime.runTurn(turn(parent, input('codex', 'full-access', PREFERENCES)))).agentSessionId
-    const { agentSessionId: childThread } = await first.runtime.dispatch.createSession({
+    const { sessionId: childId } = await first.runtime.dispatch.createSession({
       provider: 'codex', modelId: 'model-test', reasoningEffort: 'medium', contextWindow: null, cwd: dataDir, prompt: 'restart-child',
-      delegation: { parentAgentSessionId: `thread-${parent}`, messageId: 'm2', intent: 'fire_and_forget', createdAt: 1 },
+      delegation: { parentSessionId: parent, messageId: 'm2', intent: 'fire_and_forget', createdAt: 1 },
     })
     // The child's record, written Local by its first index row, takes its parent's organization once.
-    await until(async () => (await records.getSessionRecord('A', childThread))?.organizationId === 'A')
-    expect((await records.getSessionRecord('A', childThread))?.organizationId).toBe('A')
+    await until(async () => (await records.getSessionRecord('A', childId))?.organizationId === 'A')
+    expect((await records.getSessionRecord('A', childId))?.organizationId).toBe('A')
     restart(first.runtime)
 
     // A follow-up nobody typed, on a new runtime: the record answers, not memory.
     const second = await runtimeWith()
-    await second.runtime.dispatch.promptSession(childThread, 'after-restart', 'queue')
+    await second.runtime.dispatch.promptSession(childId, 'after-restart', 'queue')
     await until(() => second.backends.codex.requests.length > 0)
-    const childId = second.runtime.sessionIdForRecord(childThread)
     expect(sessionSettings.sessionSettings(childId)?.organizationId).toBe('A')
     restart(second.runtime)
   })
@@ -190,11 +189,10 @@ describe('what a session works under survives a host restart', () => {
     await sessionIn('A', 'legacy-parent')
     await records.upsertSessionRecord('local', { sessionId: 'thread-legacy-child', provider: 'codex', projectPath: '-repo', lastActivityAt: 1, parentSessionId: 'thread-legacy-parent' })
     await records.upsertSessionRecord('local', { sessionId: 'thread-legacy-grandchild', provider: 'codex', projectPath: '-repo', lastActivityAt: 1, parentSessionId: 'thread-legacy-child' })
-    const none = () => undefined
-    expect(await sessionSettings.inheritedOrganizationOf('legacy-grandchild', 'local', 'thread-legacy-child', none)).toBe('A')
-    expect(await sessionSettings.inheritedOrganizationOf('orphan', 'local', 'thread-gone', none)).toBe('local')
+    expect(await sessionSettings.inheritedOrganizationOf('legacy-grandchild', 'local', 'thread-legacy-child')).toBe('A')
+    expect(await sessionSettings.inheritedOrganizationOf('orphan', 'local', 'thread-gone')).toBe('local')
     // A session nobody started stays Local work.
-    expect(await sessionSettings.inheritedOrganizationOf('plain', 'local', undefined, none)).toBe('local')
+    expect(await sessionSettings.inheritedOrganizationOf('plain', 'local', undefined)).toBe('local')
 
     // A child whose origin is gone still runs, as Local work.
     const { runtime, backends } = await runtimeWith()
@@ -216,10 +214,10 @@ describe('what a session works under survives a host restart', () => {
     expect(await states.sessionExecutionPreferences('prefs-local')).toEqual(preferences)
 
     const second = await runtimeWith()
-    await second.runtime.dispatch.promptSession('thread-prefs-local', 'after-restart', 'queue')
+    await second.runtime.dispatch.promptSession('prefs-local', 'after-restart', 'queue')
     await until(() => second.backends.codex.requests.length > 0)
     expect(second.backends.codex.requests.at(-1)?.systemPrompt).toContain('Answer in French.')
-    expect(sessionSettings.sessionSettings(second.runtime.sessionIdForRecord('thread-prefs-local'))?.preferences).toEqual(preferences)
+    expect(sessionSettings.sessionSettings('prefs-local')?.preferences).toEqual(preferences)
     restart(second.runtime)
   })
 })
@@ -277,9 +275,9 @@ function namedTool(name: string): AgentTool {
   return { name, description: name, inputFields: {}, requiresApproval: false, execute: async () => ({ ok: true, text: 'ran' }) }
 }
 
-function toolContext(solusSessionId: string | undefined) {
+function toolContext(sessionId: string | undefined) {
   return {
-    provider: 'codex' as const, cwd: dataDir, sessionId: () => undefined, solusSessionId: () => solusSessionId,
+    provider: 'codex' as const, cwd: dataDir, sessionId: () => sessionId,
     abortSignal: new AbortController().signal, parentToolUseId: () => undefined, emit: () => {},
   }
 }

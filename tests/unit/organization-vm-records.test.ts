@@ -141,18 +141,12 @@ describe('the link transition', () => {
     const authorities = new FakeDelegations()
     expect(await turnOrganization.admitTurnOrganization(ctx('s-new', 'A'), actorFor(ALICE), { hostOrganizations, delegations: authorities })).toBe('A')
     expect(authorities.calls).toEqual([{ sessionId: 's-new', userId: 'alice', organizationId: 'A', admit: true }])
-    // The provider thread id arrives at session start; the record is born in its API home.
-    turnOrganization.applyPendingAssignment('s-new', 'thread-new')
-    expect(await localRecord('thread-new')).toMatchObject({ organizationId: 'A', publication: 'published', ownerUserId: 'alice' })
-    expect(records.admissionIdFor('thread-new')).toBe('s-new')
+    // The record is keyed by the session id, so it is born in its API home whenever it is first written.
+    expect(await localRecord('s-new')).toMatchObject({ organizationId: 'A', publication: 'published', ownerUserId: 'alice' })
+    expect(records.admissionIdFor('s-new')).toBe('s-new')
+    turnOrganization.applyPendingAssignment('s-new')
+    expect(turnOrganization.pendingOrganizationFor('s-new')).toBeNull()
 
-    // The indexer can write the record first, as Local: the admitted home is applied whole.
-    await turnOrganization.admitTurnOrganization(ctx('s-raced', 'B'), actorFor(ALICE), { hostOrganizations, delegations: authorities })
-    await localRecord('thread-raced')
-    turnOrganization.applyPendingAssignment('s-raced', 'thread-raced')
-    // The assignment is queued behind the record's other writes; the next write waits for it.
-    await records.setSessionRecordTitle(principalModule.ANY_ORGANIZATION, 'thread-raced', null)
-    expect(await recordOf('thread-raced')).toMatchObject({ organizationId: 'B', publication: 'published', ownerUserId: 'alice' })
   })
 
   test('an API refusal or outage prevents the start; nothing waits to be born, and the next attempt asks again', async () => {
@@ -180,7 +174,8 @@ describe('the link transition', () => {
     expect(authorities.calls).toEqual([])
     expect(await turnOrganization.admitTurnOrganization(ctx('s-fork-personal', 'A', { forked: true, agentSessionId: 's-before' }), actorFor(ALICE), deps)).toBe('local')
     expect(authorities.calls).toEqual([])
-    expect(await turnOrganization.admitTurnOrganization(ctx('s-fork-org', 'B', { forked: true, agentSessionId: 'thread-new' }), actorFor(ALICE), deps)).toBe('A')
+    // `s-new` is a thread that is its own session, so the fork's source record is `s-new`.
+    expect(await turnOrganization.admitTurnOrganization(ctx('s-fork-org', 'B', { forked: true, agentSessionId: 's-new' }), actorFor(ALICE), deps)).toBe('A')
     expect(authorities.calls).toEqual([{ sessionId: 's-fork-org', userId: 'alice', organizationId: 'A', admit: true }])
   })
 
@@ -189,12 +184,12 @@ describe('the link transition', () => {
     const deps = { hostOrganizations, delegations: authorities }
     expect(await turnOrganization.admitTurnOrganization(ctx('s-new', 'A', { agentSessionId: 'thread-new' }), actorFor(ALICE), deps)).toBe('A')
     expect(authorities.calls).toEqual([{ sessionId: 's-new', userId: 'alice', organizationId: 'A', admit: false }])
-    expect(await turnOrganization.mayAnswerFor(ALICE, 's-new', 'thread-new', deps)).toBe(true)
+    expect(await turnOrganization.mayAnswerFor(ALICE, 's-new', deps)).toBe(true)
     authorities.refusal = { code: 'ORGANIZATION_ACCESS_REFUSED', message: 'You are no longer a member of this organization.' }
     await expect(turnOrganization.admitTurnOrganization(ctx('s-new', 'A', { agentSessionId: 'thread-new' }), actorFor(ALICE), deps)).rejects.toMatchObject({ code: 'ORGANIZATION_ACCESS_REFUSED' })
-    expect(await turnOrganization.mayAnswerFor(ALICE, 's-new', 'thread-new', deps)).toBe(false)
+    expect(await turnOrganization.mayAnswerFor(ALICE, 's-new', deps)).toBe(false)
     // A Local session needs no organization authority to answer.
-    expect(await turnOrganization.mayAnswerFor(ALICE, 's-before', 's-before', deps)).toBe(true)
+    expect(await turnOrganization.mayAnswerFor(ALICE, 's-before', deps)).toBe(true)
   })
 
   test('a member admitted for organization work records the attachment; a person\'s own computer is never attached', async () => {
@@ -268,12 +263,12 @@ describe('record scope on an attached machine', () => {
     expect(principalModule.recordScopeOf(principalModule.INTERNAL_PRINCIPAL)).toBe(principalModule.ANY_ORGANIZATION)
     const scoped = new shareManager.ShareManager({ db: database.getDatabase(), organizationOfResource: async (resource) => (await recordOf(resource.id))?.organizationId ?? null })
     expect(await scoped.roleFor(PAIRED, { kind: 'session', id: 's-before' })).toBe('owner')
-    expect(await scoped.roleFor(PAIRED, { kind: 'session', id: 'thread-new' })).toBe('none')
-    expect(await scoped.roleFor(ALICE, { kind: 'session', id: 'thread-new' })).toBe('owner')
+    expect(await scoped.roleFor(PAIRED, { kind: 'session', id: 's-new' })).toBe('none')
+    expect(await scoped.roleFor(ALICE, { kind: 'session', id: 's-new' })).toBe('owner')
     // An unattached machine keeps the old owner rule.
     attachment.useOrganizationAttachment(() => null)
     expect(principalModule.recordScopeOf(PAIRED)).toBe(principalModule.ANY_ORGANIZATION)
-    expect(await scoped.roleFor(PAIRED, { kind: 'session', id: 'thread-new' })).toBe('owner')
+    expect(await scoped.roleFor(PAIRED, { kind: 'session', id: 's-new' })).toBe('owner')
   })
 })
 
@@ -307,35 +302,36 @@ function fakeOrganizationApi(organizationId: string) {
 }
 
 describe('an agent\'s record tools follow its session\'s home', () => {
-  const agentIn = (recordId: string, solusSessionId: string): AgentToolContext => ({
-    provider: 'claude-code', cwd: dataDir, sessionId: () => recordId, solusSessionId: () => solusSessionId,
+  const agentIn = (sessionId: string): AgentToolContext => ({
+    provider: 'claude-code', cwd: dataDir, sessionId: () => sessionId,
     abortSignal: new AbortController().signal, parentToolUseId: () => undefined, emit: () => {},
   })
 
   test('an organization session reads and writes its Solus API, and the reads agree with the writes; nothing lands on this machine', async () => {
     const api = fakeOrganizationApi('A')
-    const runs: Array<{ recordId: string; solusSessionId?: string }> = []
-    const uninstall = toolContext.installWorkspaceToolOperations(service.createWorkspaceOperations(shares), 'vm', (run) => { runs.push(run); return api.operations })
+    const runs: string[] = []
+    const uninstall = toolContext.installWorkspaceToolOperations(service.createWorkspaceOperations(shares), 'vm', (sessionId) => { runs.push(sessionId); return api.operations })
     try {
-      const created = await taskTools.createTaskAgentTool.execute({ title: 'Ship the VM plan' }, agentIn('thread-new', 's-new'))
+      const created = await taskTools.createTaskAgentTool.execute({ title: 'Ship the VM plan' }, agentIn('s-new'))
       expect(created.ok).toBe(true)
       const taskId = /Task (\S+) —/.exec(created.text)?.[1]
       expect(taskId).toBe('task-1')
-      const read = await taskTools.readTaskAgentTool.execute({ task_id: taskId! }, agentIn('thread-new', 's-new'))
+      const read = await taskTools.readTaskAgentTool.execute({ task_id: taskId! }, agentIn('s-new'))
       expect(read.text).toContain('Ship the VM plan')
-      expect((await taskTools.updateTaskStatusAgentTool.execute({ task_id: taskId!, status: 'in_review' }, agentIn('thread-new', 's-new'))).text).toContain('in_review')
-      const work = await workTools.createWorkAgentTool.execute({ title: 'VM notes', doc_type: 'doc', content: '# Notes' }, agentIn('thread-new', 's-new'))
+      expect((await taskTools.updateTaskStatusAgentTool.execute({ task_id: taskId!, status: 'in_review' }, agentIn('s-new'))).text).toContain('in_review')
+      const work = await workTools.createWorkAgentTool.execute({ title: 'VM notes', doc_type: 'doc', content: '# Notes' }, agentIn('s-new'))
       expect(work.text).toContain("saved in the organization's Solus API")
       const workId = /id: ([^)]+)\)/.exec(work.text)?.[1]
-      expect((await workTools.readWorkAgentTool.execute({ work_id: workId! }, agentIn('thread-new', 's-new'))).text).toContain('# Notes')
-      expect(api.calls).toEqual([`createTask:thread-new:${dataDir}`, `getTask:${taskId}`, `getTask:${taskId}`, `updateTask:${taskId}`, 'createWork:thread-new', `getWork:${workId}`])
-      expect(runs.every((run) => run.recordId === 'thread-new' && run.solusSessionId === 's-new')).toBe(true)
+      expect((await workTools.readWorkAgentTool.execute({ work_id: workId! }, agentIn('s-new'))).text).toContain('# Notes')
+      // Every record the agent writes names its session id, not its provider thread.
+      expect(api.calls).toEqual([`createTask:s-new:${dataDir}`, `getTask:${taskId}`, `getTask:${taskId}`, `updateTask:${taskId}`, 'createWork:s-new', `getWork:${workId}`])
+      expect(runs.every((sessionId) => sessionId === 's-new')).toBe(true)
       // Not one of them is in this machine's own store.
       expect((await taskStore.listTasks(principalModule.ANY_ORGANIZATION)).tasks).toEqual([])
       expect(await works.listWorks(principalModule.ANY_ORGANIZATION)).toEqual([])
 
       // A personal session on the same machine keeps writing here.
-      const personal = await taskTools.createTaskAgentTool.execute({ title: 'Personal note' }, agentIn('s-before', 's-before'))
+      const personal = await taskTools.createTaskAgentTool.execute({ title: 'Personal note' }, agentIn('s-before'))
       expect(personal.ok).toBe(true)
       expect((await taskStore.listTasks('local')).tasks.map((task) => task.title)).toEqual(['Personal note'])
       expect(api.calls.filter((call) => call.startsWith('createTask'))).toHaveLength(1)
@@ -347,7 +343,7 @@ describe('an agent\'s record tools follow its session\'s home', () => {
   test('when the host acts for nobody in an organization session, its tool writes nothing anywhere and says why', async () => {
     const uninstall = toolContext.installWorkspaceToolOperations(service.createWorkspaceOperations(shares), 'vm', () => null)
     try {
-      const refused = await taskTools.createTaskAgentTool.execute({ title: 'Lost?' }, agentIn('thread-new', 's-new'))
+      const refused = await taskTools.createTaskAgentTool.execute({ title: 'Lost?' }, agentIn('s-new'))
       expect(refused.ok).toBe(false)
       expect(refused.text).toContain('holds no authority')
       expect((await taskStore.listTasks(principalModule.ANY_ORGANIZATION)).tasks.map((task) => task.title)).toEqual(['Personal note'])

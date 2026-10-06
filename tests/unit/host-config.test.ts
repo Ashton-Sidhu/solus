@@ -22,7 +22,6 @@ const context = {
   provider: 'claude-code' as const,
   cwd: '/tmp',
   sessionId: () => undefined,
-  solusSessionId: () => undefined,
   abortSignal: new AbortController().signal,
   parentToolUseId: () => undefined,
   emit: () => {},

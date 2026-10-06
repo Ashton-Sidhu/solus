@@ -38,8 +38,7 @@ function contextFor(sessionId: string | undefined) {
   return {
     provider: 'claude-code' as const,
     cwd: '/tmp',
-    sessionId: () => undefined,
-    solusSessionId: () => sessionId,
+    sessionId: () => sessionId,
     abortSignal: new AbortController().signal,
     parentToolUseId: () => undefined,
     emit: () => {},

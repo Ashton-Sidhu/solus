@@ -62,7 +62,7 @@ export class ProviderHandoffs {
     const pendingHandoff = this.pendingHandoffFor(sessionId)
     if (pendingHandoff && newProvider === pendingHandoff.fromProvider) {
       const fromProvider = session?.backendId ?? newProvider
-      const restoredHandoff = cancelProvisionalSessionHandoff(sessionId)
+      cancelProvisionalSessionHandoff(sessionId)
       this.pendingHandoffs.delete(sessionId)
       if (session) {
         session.backendId = newProvider
@@ -74,13 +74,8 @@ export class ProviderHandoffs {
         fromProvider,
         fromSessionId: pendingHandoff.fromSessionId,
         restoredSessionId: pendingHandoff.fromSessionId,
-        taskSessionMove: {
-          sourceSessionId: sessionId,
-          targetSessionId: restoredHandoff?.sessionId ?? pendingHandoff.fromSessionId,
-        },
         handoffFrom: session?.handoffFrom,
       }
-      if (restoredHandoff) result.handoffId = restoredHandoff.sessionId
       await this.rt.recordActivity({ kind: 'session', id: sessionId }, actor, { kind: 'agent_switched', provider: newProvider, fromProvider })
       return result
     }
@@ -136,7 +131,6 @@ export class ProviderHandoffs {
     // Swap the session over immediately — the actual transcript/summary handoff
     // is built lazily in launchRun, right before the next prompt starts the new
     // provider's session, so the switch itself never blocks on an LLM call.
-    const existingHandoff = resolveSessionLineageById(oldAgentSessionId)
     const handoff = beginSessionHandoff({
       sessionId,
       sourceProvider: fromProvider,
@@ -145,9 +139,7 @@ export class ProviderHandoffs {
       cwd: session?.runInput?.workingDirectory ?? indexedSession?.cwd ?? '~',
     })
     this.pendingHandoffs.set(sessionId, { fromProvider, fromSessionId: oldAgentSessionId })
-    // Clear both sidebar aliases before replacing the provider endpoint. The
-    // ordinary attempt still uses the provider id until its task link reloads;
-    // the handoff attempt uses the stable session id immediately after re-key.
+    // Clear the sidebar's view of the old thread before replacing the provider endpoint.
     this.rt.emit('session-status', {
       sessionId,
       agentSessionId: oldAgentSessionId,
@@ -167,11 +159,6 @@ export class ProviderHandoffs {
     return {
       fromProvider,
       fromSessionId: oldAgentSessionId,
-      handoffId: handoff.sessionId,
-      taskSessionMove: {
-        sourceSessionId: existingHandoff?.sessionId ?? oldAgentSessionId,
-        targetSessionId: handoff.sessionId,
-      },
     }
   }
 }

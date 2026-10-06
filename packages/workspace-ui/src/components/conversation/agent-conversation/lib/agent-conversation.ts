@@ -13,10 +13,10 @@ export type AgentConversationCardState = 'dispatching' | 'replying' | 'waiting' 
 
 const OPEN_STATUSES = new Set<AgentExchangeStatus>(['dispatched', 'queued', 'running', 'awaiting_input', 'rate_limited', 'waiting_for_children', 'answered'])
 
-/** A start_session card before its session exists — nothing to open, track or
+/** A start_session card before its provider started — nothing to open, track or
  *  interrupt yet. */
 export function isPendingAgent(ref: AgentConversationRef): boolean {
-  return ref.agentSessionId.startsWith('pending:')
+  return ref.starting === true
 }
 
 /**
@@ -237,7 +237,7 @@ export interface AgentSessionOpener {
  *  live exchange stays watchable while the other side is read — which is why it
  *  resumes in the background first. */
 export async function openAgentSession(
-  ref: Pick<AgentConversationRef, 'agentSessionId' | 'cwd'>,
+  ref: Pick<AgentConversationRef, 'sessionId' | 'cwd'>,
   provider: AgentId,
   sourceServerId: string | undefined,
   opener: AgentSessionOpener,
@@ -245,7 +245,7 @@ export async function openAgentSession(
 ): Promise<void> {
   const meta = await resolveSessionLinkMeta({
     provider,
-    sessionId: ref.agentSessionId,
+    sessionId: ref.sessionId,
     serverId: null,
     cwd: ref.cwd,
   }, sourceServerId)

@@ -6,8 +6,7 @@ import { getDatabase } from '../../db/database'
 import type { RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
 import { sessionPullRequests, sessionStates } from './schema'
-import { stableSessionIdForProviderThread } from './session-lineage'
-import { getSessionRecords, organizationOfSession, recordSessionId } from './session-records'
+import { getSessionRecords, organizationOfSession } from './session-records'
 
 /**
  * Where a session is in a person's list: active, settled, or snoozed
@@ -47,12 +46,6 @@ function emitChanged(sessionId: string): void {
   for (const listener of listeners) listener(sessionId)
 }
 
-/** A state is keyed by the stable Solus session id; callers may hold a
- *  provider thread id. */
-function stateOwnerId(sessionId: string): string {
-  return stableSessionIdForProviderThread(sessionId) ?? sessionId
-}
-
 function stateFromRow(row: Row): SessionState {
   return {
     sessionId: row.session_id,
@@ -85,13 +78,12 @@ async function ensureRow(sessionId: string): Promise<void> {
  * already. A settled session is not snoozed.
  */
 export async function settleSession(sessionId: string, by: SessionSettledBy, at = Date.now()): Promise<boolean> {
-  const ownerId = stateOwnerId(sessionId)
-  await ensureRow(ownerId)
+  await ensureRow(sessionId)
   const changed = (await getDatabase().run(sql`
     UPDATE ${sessionStates} SET settled_at = ${at}, settled_by = ${by}, snoozed_until = NULL, snooze_note = NULL
-    WHERE session_id = ${ownerId} AND settled_at IS NULL
+    WHERE session_id = ${sessionId} AND settled_at IS NULL
   `)).changes > 0
-  if (changed) emitChanged(ownerId)
+  if (changed) emitChanged(sessionId)
   return changed
 }
 
@@ -100,24 +92,22 @@ export async function settleSession(sessionId: string, by: SessionSettledBy, at 
  * settle it again only if one of them ends after this.
  */
 export async function unsettleSession(sessionId: string, at = Date.now()): Promise<boolean> {
-  const ownerId = stateOwnerId(sessionId)
   const changed = (await getDatabase().run(sql`
     UPDATE ${sessionStates} SET settled_at = NULL, settled_by = NULL, unsettled_at = ${at}
-    WHERE session_id = ${ownerId} AND settled_at IS NOT NULL
+    WHERE session_id = ${sessionId} AND settled_at IS NOT NULL
   `)).changes > 0
-  if (changed) emitChanged(ownerId)
+  if (changed) emitChanged(sessionId)
   return changed
 }
 
 /** Snooze a session until a wake time, or wake it now with `until` null. */
 export async function snoozeSession(sessionId: string, until: number | null, note = ''): Promise<void> {
-  const ownerId = stateOwnerId(sessionId)
-  await ensureRow(ownerId)
+  await ensureRow(sessionId)
   await getDatabase().run(sql`
     UPDATE ${sessionStates} SET snoozed_until = ${until}, snooze_note = ${until === null ? null : note.trim() || null}
-    WHERE session_id = ${ownerId}
+    WHERE session_id = ${sessionId}
   `)
-  emitChanged(ownerId)
+  emitChanged(sessionId)
 }
 
 /**
@@ -125,15 +115,14 @@ export async function snoozeSession(sessionId: string, until: number | null, not
  * awake. The time is what its pull requests must end after to settle it.
  */
 export async function recordSessionPrompt(sessionId: string, at = Date.now()): Promise<void> {
-  const ownerId = stateOwnerId(sessionId)
-  const before = await readRow(ownerId)
-  await ensureRow(ownerId)
+  const before = await readRow(sessionId)
+  await ensureRow(sessionId)
   await getDatabase().run(sql`
     UPDATE ${sessionStates} SET
       last_prompt_at = ${at}, settled_at = NULL, settled_by = NULL, snoozed_until = NULL, snooze_note = NULL
-    WHERE session_id = ${ownerId}
+    WHERE session_id = ${sessionId}
   `)
-  if (before && (before.settled_at !== null || before.snoozed_until !== null)) emitChanged(ownerId)
+  if (before && (before.settled_at !== null || before.snoozed_until !== null)) emitChanged(sessionId)
 }
 
 /**
@@ -143,24 +132,56 @@ export async function recordSessionPrompt(sessionId: string, at = Date.now()): P
  * none clears them.
  */
 export async function recordSessionExecutionPreferences(sessionId: string, preferences: ExecutionPreferences | undefined): Promise<void> {
-  const ownerId = stateOwnerId(sessionId)
-  if (preferences) await ensureRow(ownerId)
+  if (preferences) await ensureRow(sessionId)
   await getDatabase().run(sql`
     UPDATE ${sessionStates} SET execution_preferences = ${preferences ? JSON.stringify(preferences) : null}
-    WHERE session_id = ${ownerId}
+    WHERE session_id = ${sessionId}
   `)
 }
 
 /** The execution preferences the session's last run carried; undefined when it carried none. */
 export async function sessionExecutionPreferences(sessionId: string): Promise<ExecutionPreferences | undefined> {
   const row = z.object({ execution_preferences: z.string().nullable() }).nullish().parse(await getDatabase().get(sql`
-    SELECT execution_preferences FROM ${sessionStates} WHERE session_id = ${stateOwnerId(sessionId)}
+    SELECT execution_preferences FROM ${sessionStates} WHERE session_id = ${sessionId}
   `))
   if (!row?.execution_preferences) return undefined
   // Written by this host after the same strict parse; a value that no longer
   // parses is no person's choice, so the run falls back to the defaults.
   const parsed = executionPreferencesSchema.safeParse(JSON.parse(row.execution_preferences))
   return parsed.success ? parsed.data : undefined
+}
+
+/** When a session was last read, or null when it never has been. */
+async function readViewedAt(sessionId: string): Promise<number | null> {
+  const row = z.object({ viewed_at: z.number().nullable() }).nullish().parse(await getDatabase().get(sql`
+    SELECT viewed_at FROM ${sessionStates} WHERE session_id = ${sessionId}
+  `))
+  return row?.viewed_at ?? null
+}
+
+/**
+ * Record that a session has been read, and answer with the boundary now in
+ * force. The host owns this because a client cannot: read state kept in one
+ * client leaves the same session unread on every other device.
+ *
+ * Two rules make this safe to call from several clients at once. The boundary
+ * is capped at server time, so a client with a fast clock cannot mark future
+ * completions read. And it never moves backward, so a view that was in flight
+ * while another device marked the session unread cannot undo that choice.
+ */
+export async function markSessionViewed(sessionId: string, at: number): Promise<number> {
+  const bounded = Math.min(at, Date.now())
+  const current = await readViewedAt(sessionId)
+  if (current !== null && current >= bounded) return current
+  await ensureRow(sessionId)
+  await getDatabase().run(sql`UPDATE ${sessionStates} SET viewed_at = ${bounded} WHERE session_id = ${sessionId}`)
+  return bounded
+}
+
+/** Return a session to unread: the one path that moves the boundary backward,
+ *  because the person says so. */
+export async function markSessionUnread(sessionId: string): Promise<void> {
+  await getDatabase().run(sql`UPDATE ${sessionStates} SET viewed_at = NULL WHERE session_id = ${sessionId}`)
 }
 
 /** The sessions that are settled now, of the ones named. */
@@ -184,7 +205,7 @@ export async function settledSessionIds(sessionIds: readonly string[]): Promise<
 export async function readSessionShelf(scope: RecordScope, sessionIds?: readonly string[], now = Date.now()): Promise<SessionShelfEntry[]> {
   if (sessionIds && !sessionIds.length) return []
   const which = sessionIds
-    ? sql`session_id IN (${sql.join(sessionIds.map((sessionId) => sql`${stateOwnerId(sessionId)}`), sql`, `)})
+    ? sql`session_id IN (${sql.join(sessionIds.map((sessionId) => sql`${sessionId}`), sql`, `)})
         AND (settled_at IS NOT NULL OR snoozed_until IS NOT NULL)`
     : sql`(settled_at >= ${now - SETTLED_SHELF_MS} OR snoozed_until IS NOT NULL)`
   const rows = rowSchema.array().parse(await getDatabase().all(sql`
@@ -193,10 +214,9 @@ export async function readSessionShelf(scope: RecordScope, sessionIds?: readonly
     ORDER BY settled_at DESC, session_id
     LIMIT ${SHELF_LIMIT}
   `))
-  const recordIds = new Map(rows.map((row) => [row.session_id, recordSessionId(row.session_id)]))
-  const records = await getSessionRecords(scope, [...recordIds.values()])
+  const records = await getSessionRecords(scope, rows.map((row) => row.session_id))
   return rows.map((row) => {
-    const record = records.get(recordIds.get(row.session_id)!)
+    const record = records.get(row.session_id)
     return {
       ...stateFromRow(row),
       title: record?.customTitle ?? record?.title ?? record?.slug ?? null,
@@ -279,27 +299,10 @@ export async function settleIdleSessions(isSessionBusy: (sessionId: string) => b
  */
 export async function reopenSessionsSettledByTask(sessionIds: readonly string[], at = Date.now()): Promise<void> {
   for (const sessionId of sessionIds) {
-    const ownerId = stateOwnerId(sessionId)
     const changed = (await getDatabase().run(sql`
       UPDATE ${sessionStates} SET settled_at = NULL, settled_by = NULL, unsettled_at = ${at}
-      WHERE session_id = ${ownerId} AND settled_by = 'task'
+      WHERE session_id = ${sessionId} AND settled_by = 'task'
     `)).changes > 0
-    if (changed) emitChanged(ownerId)
+    if (changed) emitChanged(sessionId)
   }
-}
-
-/** Move a session's state to the stable Solus id when the session first
- *  enters a handoff chain, as its pull request links move. A state the target
- *  already holds stays. */
-export async function rekeySessionState(sourceSessionId: string, targetSessionId: string): Promise<void> {
-  if (sourceSessionId === targetSessionId) return
-  const db = getDatabase()
-  if (await readRow(targetSessionId)) {
-    await db.run(sql`DELETE FROM ${sessionStates} WHERE session_id = ${sourceSessionId}`)
-    return
-  }
-  const moved = (await db.run(sql`
-    UPDATE ${sessionStates} SET session_id = ${targetSessionId} WHERE session_id = ${sourceSessionId}
-  `)).changes > 0
-  if (moved) emitChanged(targetSessionId)
 }

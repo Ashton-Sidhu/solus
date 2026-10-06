@@ -3,8 +3,7 @@ import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 import type { Session } from '@solus/contracts/types'
 import { makeSession, makeTab } from '@solus/workspace-ui/contexts/workspace/session.factories'
-import { existingTaskId, ownedTaskId, taskBindingSessionId, taskRoleOf } from '@solus/workspace-ui/contexts/workspace/session-draft.svelte'
-import { sidebarSessionIds } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
+import { existingTaskId, ownedTaskId, taskRoleOf } from '@solus/workspace-ui/contexts/workspace/session-draft.svelte'
 import { sessionTitleRegenerationInput } from '@solus/workspace-ui/contexts/workspace/session-title-regeneration'
 
 const root = '../../packages/workspace-ui/src/contexts/workspace/'
@@ -23,7 +22,7 @@ function transpile(code: string) {
 const settings = { rateLimitBehavior: 'ask' } as Parameters<typeof makeSession>[0]
 // The fork lives in SessionOpening and the naming in SessionMetadata; each
 // reaches the workspace through `this.workspace`, as in production.
-const { Opening, Metadata } = new Function('makeSession', 'makeTab', 'uuid', 'existingTaskId', 'taskBindingSessionId', 'ownedTaskId', 'requestInputFocus', 'findLastUserIndex', 'sessionTitleRegenerationInput', 'serverConnections', 'hasHostCapability', 'taskRoleOf', 'UNTITLED_TASK_TITLE', transpile(`
+const { Opening, Metadata } = new Function('makeSession', 'makeTab', 'uuid', 'existingTaskId', 'ownedTaskId', 'requestInputFocus', 'findLastUserIndex', 'sessionTitleRegenerationInput', 'serverConnections', 'hasHostCapability', 'taskRoleOf', 'UNTITLED_TASK_TITLE', transpile(`
 class Opening {
   ${methodCode('session-opening.ts', ['forkTab'])}
 }
@@ -33,7 +32,7 @@ class Metadata {
   ${methodCode('session-metadata.svelte.ts', ['renameTab', 'generateSessionMetadata', 'regenerateTabTitle', 'untitledLeadTask'])}
 }
 return { Opening, Metadata }
-`))(makeSession, makeTab, crypto.randomUUID.bind(crypto), existingTaskId, taskBindingSessionId, ownedTaskId, () => {}, (messages: Session['messages']) => messages.findLastIndex((message) => message.role === 'user'), sessionTitleRegenerationInput, {
+`))(makeSession, makeTab, crypto.randomUUID.bind(crypto), existingTaskId, ownedTaskId, () => {}, (messages: Session['messages']) => messages.findLastIndex((message) => message.role === 'user'), sessionTitleRegenerationInput, {
   resolveId: (serverId: string) => serverId,
   cachedCapabilitiesFor: () => ({}),
 }, () => false, taskRoleOf, 'Untitled task')
@@ -155,16 +154,12 @@ describe('fork session ownership and identity', () => {
     expect(fork.id).not.toBe(original.id)
     expect(fork.run.serverId).toBe('run-host')
     expect(fork.run.taskServerId).toBe('task-host')
-    expect(sidebarSessionIds(context.tabs[tabId], fork)).toEqual([fork.id])
+    expect(context.tabs[tabId].sessionId).toBe(fork.id)
     expect(original.agentSessionId).toBe('source-provider')
     // The fork forks the provider thread on its first prompt, and the host
     // records it then; the client writes no divider of its own (plans/012 §5).
     expect(fork.messages.some((message) => message.role === 'system' && !message.content)).toBe(false)
     expect(fork.agentSessionId).toBe('source-provider')
-    // Once the fork starts, its source must still resolve to the source tab.
-    fork.forked = false
-    fork.agentSessionId = 'fork-provider'
-    expect(sidebarSessionIds(context.tabs[tabId], fork)).toEqual([fork.id, 'fork-provider'])
   })
 
   test('keeps the prepared fork usable when environment refresh fails', async () => {

@@ -369,7 +369,8 @@ export function materializeSessionTranscript(
       msg.planToolUseId = toolUseId
       msg.planId = ctx.planStore.upsertFromHistory({
         serverId,
-        sessionId: args.sessionId,
+        // A plan is named by its session, not by the thread the transcript was read from.
+        sessionId: args.ctx.session.sessionId,
         planToolUseId: toolUseId,
         projectPath,
         cwd: args.displayCwd,
@@ -389,7 +390,7 @@ export function materializeSessionTranscript(
         if (input.title) title = input.title
         if (input.doc_type) docType = input.doc_type
       } catch {}
-      const workId = resolveCreatedWork(ctx, title, args.sessionId, claimedWorks)
+      const workId = resolveCreatedWork(ctx, title, args.ctx.session.sessionId, claimedWorks)
       messages.push({
         id: nextMsgId(),
         role: 'assistant' as const,

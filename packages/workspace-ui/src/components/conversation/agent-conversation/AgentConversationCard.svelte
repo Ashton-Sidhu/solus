@@ -57,16 +57,16 @@
   const api = $derived(session.apiFor(tabId));
   const serverId = $derived(session.sessionFor(tabId)?.run.serverId);
 
-  /** No real session id yet (start_session still starting, or it failed) —
+  /** The session's provider has not started yet (or never did) —
    *  nothing to open, prompt, or track. */
   const neverStarted = $derived(isPendingAgent(ref));
 
   $effect(() => {
     if (neverStarted) return;
-    return agentConversationMeta.retain(ref.agentSessionId, api, serverId);
+    return agentConversationMeta.retain(ref.sessionId, api, serverId);
   });
 
-  const meta = $derived(agentConversationMeta.metaFor(ref.agentSessionId));
+  const meta = $derived(agentConversationMeta.metaFor(ref.sessionId));
   let now = $state(Date.now());
   const cardState = $derived(agentConversationCardState(ref));
   const live = $derived(isLiveAgentConversationState(cardState));
@@ -110,7 +110,7 @@
   }
 
   function stop() {
-    void api.stopSession(ref.agentSessionId);
+    void api.stopSession(ref.sessionId);
   }
 
   const link = $derived(agentConversationLink(ref, cardState, neverStarted));
@@ -118,7 +118,7 @@
 
   async function copySessionId() {
     menuOpen = false;
-    await copyText(ref.agentSessionId);
+    await copyText(ref.sessionId);
     toasts.success("Session ID copied");
   }
 
@@ -164,7 +164,7 @@
       >
         {#if planToDecide}
           <div class="pb-0.5">
-            <AgentPlanDecision {tabId} targetAgentSessionId={ref.agentSessionId} />
+            <AgentPlanDecision {tabId} targetSessionId={ref.sessionId} />
           </div>
         {/if}
         {#if request}

@@ -108,7 +108,9 @@ describe('first boot after the JSON receipts', () => {
       run_id TEXT NOT NULL, state TEXT NOT NULL, payload TEXT NOT NULL, updated_at INTEGER NOT NULL)`)
     file.prepare('INSERT INTO session_restart_runs(session_id, run_id, state, payload, updated_at) VALUES (?, ?, ?, ?, ?)')
       .run('legacy', 'original', 'running', JSON.stringify(run('legacy')), 1)
-    file.exec(`PRAGMA user_version = ${version - 1}`)
+    // The ledger migration is second to last; the last one drops sessions.viewed_at.
+    file.exec('ALTER TABLE sessions ADD COLUMN viewed_at INTEGER')
+    file.exec(`PRAGMA user_version = ${version - 2}`)
     runMigrations(legacy)
     expect(file.prepare('SELECT session_id, run_id, state FROM runs').all()).toEqual([{ session_id: 'legacy', run_id: 'original', state: 'running' }])
     expect(file.prepare("SELECT name FROM sqlite_master WHERE name = 'session_restart_runs'").all()).toEqual([])

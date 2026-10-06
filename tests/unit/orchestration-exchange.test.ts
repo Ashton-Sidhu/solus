@@ -8,8 +8,8 @@ import { applyExchangeEvent, type Exchange } from '@solus/server/execution/orche
 
 function exchange(overrides: Partial<Exchange> = {}): Exchange {
   return {
-    exchangeId: 'm1', kind: 'prompt', senderSessionId: 'sender', senderAgentSessionId: 'thread-sender',
-    targetSessionId: 'target', targetAgentSessionId: 'thread-target', provider: 'codex', notify: true,
+    exchangeId: 'm1', kind: 'prompt', senderSessionId: 'sender',
+    targetSessionId: 'target', provider: 'codex', notify: true,
     state: 'dispatched', outputs: [], notices: [], revising: false, dispatchedAt: 0,
     ...overrides,
   }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { SendOutbox } from '@solus/client-core/send-outbox'
-import { providerModelsFor, type ProjectEntry, type PromptOptions, type WatchSessionInput } from '@solus/contracts/types'
+import { providerModelsFor, type ProjectEntry, type PromptOptions } from '@solus/contracts/types'
 import { ConversationController } from '../../apps/mobile/src/features/conversation/conversation-controller'
 import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
 import { createHostWorld, FakeApi, healthFetch, type FakeTransport } from './helpers/native-mobile-fakes'
@@ -166,7 +166,7 @@ describe('native composer follow-up delivery', () => {
     const api = new FakeApi()
       .on('describeSession', () => ({ lineage: null, meta: null }))
       .on('loadSessionPage', () => ({ messages: [], before: null }))
-      .on('watchSession', (input: WatchSessionInput) => ({ sessionId: input.sessionId ?? 'thread-1', runtime: null }))
+      .on('watchSession', () => ({ runtime: null }))
       .on('prompt', () => ({ disposition: 'started' }))
     const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }), api: () => api })
     await world.registry.load()

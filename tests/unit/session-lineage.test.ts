@@ -69,7 +69,30 @@ describe('session lineage', () => {
       { sessionId: 'solus-1', provider: 'codex', providerSessionId: 'codex-1', cwd: '/project', now: 10 },
       db,
     )
-    expect(repository.stableSessionIdForProviderThread('codex-1', db)).toBe('solus-1')
+    expect(repository.sessionIdOfThread('codex-1', db)).toBe('solus-1')
+  })
+
+  test('a thread that never ran in Solus is its own session', () => {
+    // WHY: one session id everywhere (docs/plans/session-identity.md). A transcript
+    // found on disk has no lineage row, and every record of it must still agree
+    // on one id without a write per discovered file.
+    expect(repository.sessionIdOfThread('found-on-disk', db)).toBe('found-on-disk')
+    expect(repository.activeThreadOf('found-on-disk', db)).toBe('found-on-disk')
+    expect(repository.isActiveThread('found-on-disk', db)).toBe(true)
+  })
+
+  test('only the active thread of a session that switched provider writes its record', () => {
+    // WHY: a session that changed provider is one record. The earlier thread's
+    // transcript is still indexed, and it must not overwrite what the record shows.
+    repository.beginSessionHandoff({
+      sessionId: 'solus-1', sourceProvider: 'codex', sourceProviderSessionId: 'codex-1',
+      targetProvider: 'claude-code', cwd: '/project', now: 10,
+    }, db)
+    expect(repository.activeThreadOf('solus-1', db)).toBeUndefined()
+    repository.completeSessionHandoff('solus-1', 'claude-code', 'claude-1', '/project', db, 20)
+    expect(repository.sessionIdOfThread('codex-1', db)).toBe('solus-1')
+    expect(repository.isActiveThread('codex-1', db)).toBe(false)
+    expect(repository.isActiveThread('claude-1', db)).toBe(true)
   })
 
   test('an ordinary session is a lineage of one, so nothing reads as a handoff', () => {
@@ -115,7 +138,8 @@ describe('session lineage', () => {
     }, db)
     expect(fork.members.map((member) => member.providerSessionId)).toEqual(['fork'])
     expect(repository.resolveSessionLineage('codex', 'source', db)?.active.providerSessionId).toBe('fork')
-    expect(repository.stableSessionIdForProviderThread('source', db)).toBe('stable')
+    expect(repository.sessionIdOfThread('source', db)).toBe('stable')
+    expect(repository.isActiveThread('source', db)).toBe(false)
     expect(repository.resolveSessionLineageById('stable', db)?.active.cwd).toBe('/worktree')
     expect(repository.registerSessionLineage({ sessionId: 'stale-client', provider: 'codex', providerSessionId: 'source', cwd: '/project' }, db).sessionId).toBe('stable')
     expect(() => repository.replaceSessionLineageThread({

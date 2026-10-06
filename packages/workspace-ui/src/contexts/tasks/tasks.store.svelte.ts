@@ -332,14 +332,9 @@ export class TasksStore {
       }, INVALIDATION_DEBOUNCE_MS)
     })
     serverConnections.eventsFor(serverId).subscribe('session.statusChanged', (event) => {
-      // A handoff re-keys a link from the provider id to the stable Solus id,
-      // so both names answer for the one session.
-      for (const sessionId of [event.sessionId, event.agentSessionId]) {
-        if (!sessionId) continue
-        const key = hostKey(serverId, sessionId)
-        if (isAgentRunningStatus(event.status)) this.runningSessionKeys.add(key)
-        else this.runningSessionKeys.delete(key)
-      }
+      const key = hostKey(serverId, event.sessionId)
+      if (isAgentRunningStatus(event.status)) this.runningSessionKeys.add(key)
+      else this.runningSessionKeys.delete(key)
     })
   }
 
@@ -949,31 +944,6 @@ export class TasksStore {
   }
 
   // --- Session binding ----------------------------------------------------
-
-  /** Move one mounted attempt from its provider id to the stable handoff id on
-   * the same frame as the provider switch. A dispatched session's execution
-   * host cannot edit the task host, so forward the same re-key to that host. */
-  rekeySessionBinding(
-    sourceSessionId: string,
-    targetSessionId: string,
-    taskServerId?: string,
-  ): void {
-    if (sourceSessionId === targetSessionId) return
-    const taskId = this.taskIdBySessionId.get(sourceSessionId)
-    if (taskId) {
-      this.taskIdBySessionId.delete(sourceSessionId)
-      this.taskIdBySessionId.set(targetSessionId, taskId)
-      this.get(taskId).rekeySession(sourceSessionId, targetSessionId)
-    }
-
-    if (!taskServerId) return
-    void serverConnections.apiFor(taskServerId)
-      .tasksRekeySession(sourceSessionId, targetSessionId)
-      .then(() => this.refreshSessionBinding(targetSessionId, taskServerId))
-      .catch((error) => {
-        console.warn('[Solus] Task session handoff re-key failed on the task host.', error)
-      })
-  }
 
   /** Hydrate an opened session's task and attempts even when the global
    * snapshot already knows its owner. The targeted read carries every linked

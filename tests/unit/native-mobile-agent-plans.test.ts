@@ -1,17 +1,17 @@
 import { describe, expect, test } from 'bun:test'
 import { SendOutbox } from '@solus/client-core/send-outbox'
-import type { AgentConversationUpdate, IpcContext, WatchSessionInput } from '@solus/contracts/types'
+import type { AgentConversationUpdate, IpcContext } from '@solus/contracts/types'
 import { ConversationController } from '../../apps/mobile/src/features/conversation/conversation-controller'
 import { DEFAULT_RUN_SETTINGS } from '../../apps/mobile/src/features/conversation/lib/ipc-context'
 import { AgentPlans } from '../../apps/mobile/src/features/conversation/lib/agent-plans'
 import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
 import { createHostWorld, FakeApi, healthFetch } from './helpers/native-mobile-fakes'
 
-const dispatched = (agentSessionId: string, messageId: string): AgentConversationUpdate => ({
-  phase: 'dispatched', agentSessionId, messageId, origin: 'created', prompt: 'Plan the login', provider: 'claude-code', title: 'Login work', cwd: '/w', dispatchedAt: 1,
+const dispatched = (sessionId: string, messageId: string): AgentConversationUpdate => ({
+  phase: 'dispatched', sessionId, messageId, origin: 'created', prompt: 'Plan the login', provider: 'claude-code', title: 'Login work', cwd: '/w', dispatchedAt: 1,
 })
-const heldPlan = (agentSessionId: string, messageId: string): AgentConversationUpdate => ({
-  phase: 'awaiting_input', agentSessionId, messageId,
+const heldPlan = (sessionId: string, messageId: string): AgentConversationUpdate => ({
+  phase: 'awaiting_input', sessionId, messageId,
   request: { kind: 'plan', plan: { questionId: 'q', planToolUseId: 't', title: 'Add login', content: '# Add login', blocking: true } },
 })
 
@@ -21,29 +21,31 @@ describe('plans of another session', () => {
     plans.apply(dispatched('child', 'm1'))
     plans.apply(heldPlan('child', 'm1'))
     expect(plans.awaiting()).toEqual([{ targetSessionId: 'child', messageId: 'm1', sessionTitle: 'Login work', planTitle: 'Add login', content: '# Add login' }])
-    plans.apply({ phase: 'answered', agentSessionId: 'child', messageId: 'm1', answerText: 'Approved the plan' })
+    plans.apply({ phase: 'answered', sessionId: 'child', messageId: 'm1', answerText: 'Approved the plan' })
     expect(plans.awaiting()).toEqual([])
   })
 
   test('a finished turn with a plan waits by name; new work or a stop ends the wait', () => {
     const plans = new AgentPlans()
     plans.apply(dispatched('child', 'm1'))
-    plans.apply({ phase: 'settled', agentSessionId: 'child', messageId: 'm1', status: 'completed', replyText: 'Done', outputs: [{ kind: 'plan', sessionId: 'child', planToolUseId: 't', title: 'Add login' }], settledAt: 2 })
+    plans.apply({ phase: 'settled', sessionId: 'child', messageId: 'm1', status: 'completed', replyText: 'Done', outputs: [{ kind: 'plan', sessionId: 'child', planToolUseId: 't', title: 'Add login' }], settledAt: 2 })
     expect(plans.awaiting()).toMatchObject([{ planTitle: 'Add login', content: null }])
     plans.apply(dispatched('child', 'm2'))
     expect(plans.awaiting()).toEqual([])
 
     const stopped = new AgentPlans()
     stopped.apply(dispatched('other', 'm1'))
-    stopped.apply({ phase: 'settled', agentSessionId: 'other', messageId: 'm1', status: 'completed', replyText: '', outputs: [{ kind: 'plan', sessionId: 'other', planToolUseId: 't', title: 'P' }], settledAt: 2 })
-    stopped.apply({ phase: 'stopped', agentSessionId: 'other' })
+    stopped.apply({ phase: 'settled', sessionId: 'other', messageId: 'm1', status: 'completed', replyText: '', outputs: [{ kind: 'plan', sessionId: 'other', planToolUseId: 't', title: 'P' }], settledAt: 2 })
+    stopped.apply({ phase: 'stopped', sessionId: 'other' })
     expect(stopped.awaiting()).toEqual([])
   })
 
-  test('a card opened before its session existed follows the session it becomes', () => {
+  test('a card opened before its session started names that session from the start', () => {
+    // WHY: a created session's id is chosen at dispatch (docs/plans/session-identity.md);
+    // its plan is decided against that id, with no rebinding when it starts.
     const plans = new AgentPlans()
-    plans.apply(dispatched('pending:m1', 'm1'))
-    plans.apply({ phase: 'attached', agentSessionId: 'child', messageId: 'm1' })
+    plans.apply(dispatched('child', 'm1'))
+    plans.apply({ phase: 'attached', sessionId: 'child', messageId: 'm1', cwd: '/w' })
     plans.apply(heldPlan('child', 'm1'))
     expect(plans.awaiting().map((plan) => plan.targetSessionId)).toEqual(['child'])
   })
@@ -54,7 +56,7 @@ describe('deciding another session\'s plan', () => {
     const api = new FakeApi()
       .on('describeSession', () => ({ lineage: null, meta: null }))
       .on('loadSessionPage', () => ({ messages: [], before: null }))
-      .on('watchSession', (input: WatchSessionInput) => ({ sessionId: input.sessionId! }))
+      .on('watchSession', () => ({}))
       .on('decideSessionPlan', () => decided)
     const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }), api: () => api })
     await world.registry.load()

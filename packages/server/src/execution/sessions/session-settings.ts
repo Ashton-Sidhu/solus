@@ -39,19 +39,18 @@ export function sessionSettings(sessionId: string | undefined): SessionSettings 
 export async function inheritedOrganizationOf(
   sessionId: string,
   recordOrganizationId: string,
-  originRecordId: string | null | undefined,
-  liveSessionIdFor: (recordId: string) => string | undefined,
+  originSessionId: string | null | undefined,
 ): Promise<string> {
   if (recordOrganizationId !== LOCAL_ORGANIZATION_ID) return recordOrganizationId
   const own = sessionSettings(sessionId)?.organizationId
   if (own && own !== LOCAL_ORGANIZATION_ID) return own
   const seen = new Set<string>()
-  for (let origin = originRecordId; origin && !seen.has(origin);) {
+  for (let origin = originSessionId; origin && !seen.has(origin);) {
     seen.add(origin)
     const record = await getSessionRecord(ANY_ORGANIZATION, origin)
-    if (!record) return sessionSettings(liveSessionIdFor(origin))?.organizationId ?? LOCAL_ORGANIZATION_ID
+    if (!record) return sessionSettings(origin)?.organizationId ?? LOCAL_ORGANIZATION_ID
     if (record.organizationId !== LOCAL_ORGANIZATION_ID) return record.organizationId
-    const live = sessionSettings(liveSessionIdFor(origin))?.organizationId
+    const live = sessionSettings(origin)?.organizationId
     if (live && live !== LOCAL_ORGANIZATION_ID) return live
     origin = record.parentSessionId
   }
@@ -61,11 +60,11 @@ export async function inheritedOrganizationOf(
 /** Each record's parent link, once its record is read: written with the record's first row, it does not change. */
 const parentLinks = new Map<string, string | null>()
 
-/** The record id of the session a record's session was started from; null for a root, undefined before the record exists. */
-export async function parentRecordIdOf(recordId: string): Promise<string | null | undefined> {
-  if (parentLinks.has(recordId)) return parentLinks.get(recordId)
-  const record = await getSessionRecord(ANY_ORGANIZATION, recordId)
-  if (record) parentLinks.set(recordId, record.parentSessionId)
+/** The session a session was started from; null for a root, undefined before the record exists. */
+export async function parentSessionIdOf(sessionId: string): Promise<string | null | undefined> {
+  if (parentLinks.has(sessionId)) return parentLinks.get(sessionId)
+  const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
+  if (record) parentLinks.set(sessionId, record.parentSessionId)
   return record?.parentSessionId
 }
 

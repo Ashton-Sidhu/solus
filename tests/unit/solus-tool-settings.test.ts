@@ -20,8 +20,8 @@ let credentials: typeof import('@solus/server/typesafe/credentials')
 let calls = 0
 const tool: AgentTool = { name: 'read_work', description: 'Read a work', inputFields: {}, requiresApproval: false,
   execute: async () => { calls++; return { ok: true, text: 'work' } } }
-const context: AgentToolContext = { provider: 'codex', cwd: dataDir, sessionId: () => undefined,
-  solusSessionId: () => undefined, abortSignal: new AbortController().signal, parentToolUseId: () => undefined, emit: () => {} }
+const context: AgentToolContext = { provider: 'codex', cwd: dataDir,
+  sessionId: () => undefined, abortSignal: new AbortController().signal, parentToolUseId: () => undefined, emit: () => {} }
 
 beforeAll(async () => {
   process.env.SOLUS_DATA_DIR = dataDir

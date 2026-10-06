@@ -70,8 +70,7 @@ export type DeliveryState = z.infer<typeof deliveryStateSchema>
 
 const exchangeFields = {
   exchangeId: z.string(), kind: z.enum(['create', 'prompt']),
-  senderSessionId: z.string(), senderAgentSessionId: z.string(),
-  targetSessionId: z.string(), targetAgentSessionId: z.string(),
+  senderSessionId: z.string(), targetSessionId: z.string(),
   provider: z.enum(['claude-code', 'codex', 'opencode']), notify: z.boolean(),
   state: z.enum(['dispatched', 'queued', 'running', 'awaiting_input', 'rate_limited', 'waiting_for_children', 'settled']),
   runId: z.string().optional(), parentExchangeIds: z.array(z.string()),

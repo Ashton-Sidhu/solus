@@ -25,11 +25,11 @@ export const requestWorkReviewAgentTool: AgentTool<typeof requestWorkReviewField
   inputFields: requestWorkReviewFields,
   requiresApproval: false,
   async execute(args, context) {
-    if (foreignLinkedItemFor(context.solusSessionId(), 'work', args.work_id)) {
+    if (foreignLinkedItemFor(context.sessionId(), 'work', args.work_id)) {
       return { ok: false, text: 'This work lives on the task\'s host, which this session cannot ask for a review. Ask the user to request the review in Solus.' }
     }
     try {
-      const { operations, context: home } = await workspaceToolContext(context.sessionId(), context.solusSessionId())
+      const { operations, context: home } = await workspaceToolContext(context.sessionId())
       const review = await operations.requestWorkReview(home, args.work_id, {
         reviewerIds: args.reviewer_ids,
         message: args.message,

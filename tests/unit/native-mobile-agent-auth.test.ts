@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import { SendOutbox } from '@solus/client-core/send-outbox'
-import type { WatchSessionInput } from '@solus/contracts/types'
 import { HOST_LOGIN_SEAT as seat } from '@solus/contracts/seats'
 import { ConversationController } from '../../apps/mobile/src/features/conversation/conversation-controller'
 import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
@@ -10,7 +9,7 @@ function api(): FakeApi {
   return new FakeApi()
     .on('describeSession', () => ({ lineage: null, meta: null }))
     .on('loadSessionPage', () => ({ messages: [], before: null }))
-    .on('watchSession', (input: WatchSessionInput) => ({ sessionId: input.sessionId ?? 'solus-1', runtime: null }))
+    .on('watchSession', () => ({ runtime: null }))
     .on('unwatchSession', () => undefined)
     .on('prompt', () => ({ disposition: 'started' }))
     .on('agentAuthStart', () => ({ state: 'waiting', flowId: 'flow-1', url: 'https://mcp.example/authorize', input: 'redirect-url' }))

@@ -454,7 +454,6 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
       provider: this.id,
       cwd: request.cwd,
       sessionId: () => handle.agentSessionId ?? MOCK_SESSION_ID,
-      solusSessionId: () => handle.sessionId,
       abortSignal: handle.abortController.signal,
       parentToolUseId: () => undefined,
       emit: (event: NormalizedEvent) => this.emit('normalized', MOCK_SESSION_ID, event),

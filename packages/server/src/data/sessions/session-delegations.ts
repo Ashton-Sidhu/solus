@@ -2,10 +2,11 @@ import type { SessionDelegation } from '@solus/contracts/types'
 import type { DatabaseSync } from 'node:sqlite'
 import { z } from 'zod'
 import { getDb } from '../../db'
+import { activeThreadOf } from './session-lineage'
 
 /** What a child records about the session that created it, known before it starts. */
 export interface SessionDelegationStart {
-  /** The parent's provider thread, the key the session index uses. */
+  /** The parent session (docs/plans/session-identity.md). */
   parentSessionId: string
   messageId: string
   intent: SessionDelegation['intent']
@@ -38,7 +39,7 @@ export function delegationColumnsFor(start: SessionDelegationStart, db: Database
     SELECT root_session_id, delegation_depth
     FROM sessions
     WHERE session_id = ?
-  `).get(start.parentSessionId))
+  `).get(activeThreadOf(start.parentSessionId, db) ?? start.parentSessionId))
   return {
     parentSessionId: start.parentSessionId,
     rootSessionId: parent?.root_session_id ?? start.parentSessionId,

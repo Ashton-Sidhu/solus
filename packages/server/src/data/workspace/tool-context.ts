@@ -4,7 +4,7 @@ import { ANY_ORGANIZATION, INTERNAL_PRINCIPAL, LOCAL_ORGANIZATION_ID, organizati
 import type { WorkspaceRequestContext } from '../../admission/workspace-credentials'
 import { SolusApiError } from '../../admission/workspace-error'
 import { isOrganizationAttached } from '../../host/organization-attachment'
-import { getSessionRecord, recordSessionId } from '../sessions/session-records'
+import { getSessionRecord } from '../sessions/session-records'
 
 /**
  * Where an organization run's records are read and written: its Solus API, as the
@@ -12,7 +12,7 @@ import { getSessionRecord, recordSessionId } from '../sessions/session-records'
  * null when the run holds no valid authority, which the tool reports rather than
  * writing a Local record in its place.
  */
-export type RemoteToolOperations = (run: { recordId: string; solusSessionId?: string }) => WorkspaceOperations | null
+export type RemoteToolOperations = (sessionId: string) => WorkspaceOperations | null
 
 interface Installed { operations: WorkspaceOperations; hostId: string; remote?: RemoteToolOperations }
 
@@ -38,24 +38,23 @@ export interface WorkspaceToolContext {
  * store with its admitted authority. The host's own work retains host authority;
  * member turns retain their admitted principal.
  */
-export async function workspaceToolContext(sessionId?: string, solusSessionId?: string): Promise<WorkspaceToolContext> {
+export async function workspaceToolContext(sessionId?: string): Promise<WorkspaceToolContext> {
   if (!installed) throw new Error('Workspace operations are not initialized.')
   const principal = workspaceToolAuthority() ?? INTERNAL_PRINCIPAL
-  const recordId = sessionId ? recordSessionId(sessionId) : undefined
-  const home = recordId ? await getSessionRecord(ANY_ORGANIZATION, recordId) : null
-  if (recordId && home && isOrganizationAttached() && home.organizationId !== LOCAL_ORGANIZATION_ID && home.publication === 'published') {
-    const operations = installed.remote?.({ recordId, solusSessionId })
+  const home = sessionId ? await getSessionRecord(ANY_ORGANIZATION, sessionId) : null
+  if (sessionId && home && isOrganizationAttached() && home.organizationId !== LOCAL_ORGANIZATION_ID && home.publication === 'published') {
+    const operations = installed.remote?.(sessionId)
     if (!operations) throw new SolusApiError(503, 'CAPABILITY_UNAVAILABLE', 'This organization session holds no authority for its Solus API right now. Send the next message from Solus to continue; nothing was saved on this machine.')
     return { operations, remote: true, deliveryActor: home.ownerUserId ?? '', context: {
       principal, home: { kind: 'organization', serviceId: 'remote', organizationId: home.organizationId },
       scopes: ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read'],
-      actingAgent: { sessionId: recordId, organizationId: home.organizationId },
+      actingAgent: { sessionId, organizationId: home.organizationId },
     } }
   }
-  const session = recordId ? await getSessionRecord(recordScopeOf(principal), recordId) : null
+  const session = sessionId ? await getSessionRecord(recordScopeOf(principal), sessionId) : null
   return { operations: installed.operations, remote: false, context: {
     principal, home: { kind: 'local', hostId: installed.hostId },
     scopes: ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read'],
-    actingAgent: { sessionId: recordId, organizationId: session?.organizationId ?? organizationForNew(principal) },
+    actingAgent: { sessionId, organizationId: session?.organizationId ?? organizationForNew(principal) },
   } }
 }

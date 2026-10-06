@@ -985,8 +985,9 @@ export interface Session {
   id: string
   run: RunConfig
   agentSessionId: string | null
-  /** Present only when this session belongs to a new Solus handoff chain. */
-  handoffId?: string
+  /** A provider switch waits for the new provider's first thread: the host
+   *  holds the session although it has no thread now. */
+  handoffPending?: boolean
   handoffFrom?: SessionHandoffLineage
   status: SessionStatus
   messages: Message[]
@@ -1553,6 +1554,8 @@ export interface PlanReference {
   status: 'pending' | 'accepted' | 'rejected'
 }
 
+/** A plan's id: its session and its tool use (docs/plans/session-identity.md).
+ *  Never the provider thread that holds it. */
 export function planKey(sessionId: string, planToolUseId: string): string {
   return `${sessionId}__${planToolUseId}`
 }
@@ -1746,8 +1749,11 @@ export interface AgentExchange {
  *  Live-updated in place by `agent_conversation_update` events; reconstructed from the
  *  transcript (tool rows + [session report] user turns) on history reload. */
 export interface AgentConversationRef {
-  /** `pending:<messageId>` until a created session reports its real id. */
-  agentSessionId: string
+  /** The other session. Known from dispatch, before its provider starts. */
+  sessionId: string
+  /** A session start_session created, before its provider started: there is
+   *  nothing to open, prompt or track yet. */
+  starting?: boolean
   provider: AgentId
   /** Prompt-derived at dispatch; upgraded to the CLI slug once it lands. */
   title: string
@@ -1785,21 +1791,20 @@ export interface ExchangeProgress {
  *  tabs by the host's session orchestrator — the only thing that emits them.
  *  The model-facing [session report] text is separate and never rendered. */
 export type AgentConversationUpdate =
-  | { phase: 'dispatched'; agentSessionId: string; messageId: string; origin: AgentConversationOrigin; prompt: string; delivery?: PromptDelivery; provider: AgentId; title: string; cwd: string; model?: string; reasoningEffort?: string; fireAndForget?: boolean; dispatchedAt: number }
-  /** A card dispatched against a not-yet-existing session (start_session) binds
-   *  to its real agent session id once startup resolves. Keyed by messageId. */
-  | { phase: 'attached'; messageId: string; agentSessionId: string; cwd?: string }
+  | { phase: 'dispatched'; sessionId: string; messageId: string; origin: AgentConversationOrigin; prompt: string; delivery?: PromptDelivery; provider: AgentId; title: string; cwd: string; model?: string; reasoningEffort?: string; fireAndForget?: boolean; dispatchedAt: number }
+  /** A started session's checkout is known: the card shows where it runs. */
+  | { phase: 'attached'; messageId: string; sessionId: string; cwd?: string }
   /** The target accepted the message: its turn started, it waits behind the
    *  target's current turn, or it joined that turn as a steer. */
-  | { phase: 'accepted'; agentSessionId: string; messageId: string; state: 'queued' | 'running' | 'waiting_for_children' }
-  | { phase: 'awaiting_input'; agentSessionId: string; messageId: string; request: ExchangeRequest }
+  | { phase: 'accepted'; sessionId: string; messageId: string; state: 'queued' | 'running' | 'waiting_for_children' }
+  | { phase: 'awaiting_input'; sessionId: string; messageId: string; request: ExchangeRequest }
   /** A person answered what the message's turn was waiting on, from any surface. */
-  | { phase: 'answered'; agentSessionId: string; messageId: string; answerText: string }
+  | { phase: 'answered'; sessionId: string; messageId: string; answerText: string }
   /** The target's turn is parked on a provider limit and resumes on its own at
    *  `resetsAt`; `accepted` with `running` follows when it does. */
-  | { phase: 'rate_limited'; agentSessionId: string; messageId: string; resetsAt?: number; limitType?: string }
-  | { phase: 'settled'; agentSessionId: string; messageId: string; status: ExchangeOutcome; replyText: string; outputs?: SessionOutput[]; taskId?: string; durationMs?: number; toolCallCount?: number; settledAt: number }
-  | { phase: 'stopped'; agentSessionId: string }
+  | { phase: 'rate_limited'; sessionId: string; messageId: string; resetsAt?: number; limitType?: string }
+  | { phase: 'settled'; sessionId: string; messageId: string; status: ExchangeOutcome; replyText: string; outputs?: SessionOutput[]; taskId?: string; durationMs?: number; toolCallCount?: number; settledAt: number }
+  | { phase: 'stopped'; sessionId: string }
 
 // ─── Canonical Events (normalized from raw stream) ───
 
@@ -1864,7 +1869,7 @@ export type NormalizedEvent =
   | { type: 'progress'; todos: TodoItem[]; parentToolUseId?: string }
   | { type: 'git_context'; gitContext: GitCheckout }
   | { type: 'git_status'; cwd: string; state: GitState | null }
-  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; automationId?: string; automationName?: string; watchId?: string; agentSessionId?: string; agentMessageId?: string; author?: User }
+  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; automationId?: string; automationName?: string; watchId?: string; author?: User }
   | { type: 'prompt_queued'; text: string; queueId: string; clientPromptId?: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }>; imageRefs?: PromptImageRef[]; via?: PromptVia; author?: User }
   | { type: 'prompt_dequeued'; queueId: string }
   | { type: 'session_queue'; held: boolean; entries: QueuedPromptSnapshot[] }
@@ -1970,10 +1975,6 @@ export interface PromptOptions {
   /** Marks the prompt as injected by an automation firing in-thread (badged on
    *  the bubble) or as an agent conversation report (suppressed from rendering). */
   via?: PromptVia
-  /** Present when `via === 'session-report'`: the agent session and exchange the
-   *  report settles, so the renderer can correlate without parsing prose. */
-  agentSessionId?: string
-  agentMessageId?: string
   /** Source automation id/name, present when `via === 'automation'`. */
   automationId?: string
   automationName?: string
@@ -2185,18 +2186,15 @@ export interface RuntimeSessionInfo {
 }
 
 export interface WatchSessionInput {
-  sessionId?: string
-  agentSessionId?: string
-  provider?: AgentId
+  /** The session's id. A thread id never names a session
+   *  (docs/plans/session-identity.md). */
+  sessionId: string
   /** Also attach to the live runtime, as `bindRuntimeSession` would, so a
-   *  client joining a session pays one round trip rather than two. Needs
-   *  `agentSessionId`. */
+   *  client joining a session pays one round trip rather than two. */
   attachRuntime?: boolean
 }
 
 export interface WatchSessionResult {
-  /** The host's id for the session, which may differ from the one asked for. */
-  sessionId: string
   /** Set when `attachRuntime` was asked for: null means no live runtime. */
   runtime?: RuntimeSessionInfo | null
   /** Questions that remain open after their Codex turn has ended. */
@@ -2206,17 +2204,9 @@ export interface WatchSessionResult {
 export interface SessionProviderSwitchResult {
   fromProvider: AgentId
   fromSessionId: string
-  /** The one durable task-attempt identity change caused by this switch. The
-   * client applies it to the task host, which can differ from the runtime host. */
-  taskSessionMove: {
-    sourceSessionId: string
-    targetSessionId: string
-  }
   /** Present when switching back before the target provider has started. The
-   *  original session is restored instead of creating a redundant handoff. */
+   *  original thread is restored instead of creating a redundant handoff. */
   restoredSessionId?: string
-  /** Present while the session belongs to the new ordered handoff lookup. */
-  handoffId?: string
   handoffFrom?: SessionHandoffLineage
 }
 
@@ -3346,8 +3336,8 @@ export interface AutomationRun {
   status: AutomationRunStatus
   /** Final assistant text captured from the run. */
   output?: string
-  /** Session id of the spawned agent run, for opening it as a session later. */
-  agentSessionId?: string | null
+  /** The session the run started, for opening it later. */
+  sessionId?: string | null
   /** Branch the run's isolated worktree was created on (useWorktree runs only),
    *  so the user can find the work the run produced. */
   branch?: string

@@ -69,7 +69,7 @@ describe('a session that joins a task', () => {
     )
     const { indexLivePlan } = await import('@solus/server/plans/plan-index')
     await indexLivePlan({
-      provider: 'claude-code', sessionId: SESSION, planToolUseId: 'plan-1', projectPath: '/repo', cwd: '/repo',
+      provider: 'claude-code', sessionId: SESSION, threadId: SESSION, planToolUseId: 'plan-1', projectPath: '/repo', cwd: '/repo',
       timestamp: 1, content: '# The plan\n\nDo it.',
     })
     const task = await newTask('Ship billing')

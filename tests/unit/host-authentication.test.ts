@@ -218,9 +218,8 @@ describe('the host acting for a person', () => {
     await held.actFor({ sessionId: 'solus-1', userId: 'bob', organizationId: 'org_a', admit: false })
     await held.actFor({ sessionId: 'solus-1', userId: 'bob', organizationId: 'org_a', admit: false })
     expect(plane.calls).toHaveLength(3)
-    // Its tools find who they act for by the Solus session, and by the record once the runtime names it.
-    held.bindRecord('solus-1', 'thread-1')
-    expect(held.actorOf('thread-1')).toEqual({ userId: 'bob', organizationId: 'org_a' })
+    // Its tools find who they act for by the session id.
+    expect(held.actorOf('solus-1')).toEqual({ userId: 'bob', organizationId: 'org_a' })
   })
 
   test('a person with no token here cannot start organization work, and nothing is sent', async () => {

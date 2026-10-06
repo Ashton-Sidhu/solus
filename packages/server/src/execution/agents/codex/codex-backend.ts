@@ -17,9 +17,10 @@ import {
   listIndexedPlans,
   loadIndexedPlanContent,
   replaceIndexedPlansForProvider,
-  replaceIndexedPlansForSession,
+  replaceIndexedPlansForThread,
   type IndexedPlanInput,
 } from '../../../plans/plan-index'
+import { activeThreadOf } from '../../../data/sessions/session-lineage'
 import { getHeadCommit } from '../../../git/worktree-manager'
 import { resolveRepoRoot } from '../../../git/git-helpers'
 import { initSessionBase, prepareTurnSnapshot, snapshotTurn } from '../../../git/session-snapshots'
@@ -377,8 +378,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     const toolDispatcher = new CodexToolDispatcher(request.tools, {
       provider: 'codex',
       cwd: resolveHomePath(request.cwd),
-      sessionId: () => handle?.agentSessionId ?? undefined,
-      solusSessionId: () => handle?.sessionId,
+      sessionId: () => handle?.sessionId,
       abortSignal: abortController.signal,
       parentToolUseId: () => undefined,
       emit: (event) => this.emit('normalized', handle?.agentSessionId ?? null, event),
@@ -507,7 +507,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       this.permissionResponder().setCurrentSessionId(threadId)
       this.emitThreadSessionInit(threadId, threadId, model, response)
 
-      if (request.persistence === 'session') await this.initSnapshots(handle, threadId)
+      if (request.persistence === 'session') await this.initSnapshots(handle)
 
       if (handle.abortController.signal.aborted) {
         this.emit('exit', threadId, null, 'SIGINT')
@@ -715,7 +715,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           const thread = threadsById.get(session.sessionId)
           if (thread) {
             const plans = await scanCodexPlans(thread, planAnnotations)
-            await replaceIndexedPlansForSession('codex', session.sessionId, plans.map(indexedCodexPlan))
+            await replaceIndexedPlansForThread('codex', session.sessionId, plans.map(indexedCodexPlan))
           }
           const response: CodexThreadReadResponse = await this.client.request('thread/read', {
             threadId: session.sessionId,
@@ -869,8 +869,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   async loadPlanContent(sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null> {
     const indexed = await loadIndexedPlanContent(ANY_ORGANIZATION, 'codex', sessionId, planToolUseId)
     if (indexed !== null) return indexed
+    const threadId = activeThreadOf(sessionId) ?? sessionId
     const threads = await this.listAllThreads(projectPath.replace(/\/$/, ''))
-    const thread = threads.find((candidate) => candidate.id === sessionId)
+    const thread = threads.find((candidate) => candidate.id === threadId)
     if (!thread) return null
     const plans = await scanCodexPlans(thread, {})
     return plans.find((plan) => plan.planToolUseId === planToolUseId)?.planContent ?? null
@@ -1225,9 +1226,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     return changes?.length ? { ...params, changes } : params
   }
 
-  private async initSnapshots(handle: CodexRunHandle, sessionId: string): Promise<void> {
-    const workTree = handle.workTree
-    if (!workTree || workTree === '~') return
+  /** Snapshots belong to the session, not to one provider thread
+   *  (docs/plans/session-identity.md), so a provider switch keeps its turns. */
+  private async initSnapshots(handle: CodexRunHandle): Promise<void> {
+    const { workTree, sessionId } = handle
+    if (!workTree || workTree === '~' || !sessionId) return
     try {
       const repoRoot = await resolveRepoRoot(workTree)
       if (!repoRoot) return
@@ -1242,7 +1245,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   private async snapshotOnTurnComplete(handle: CodexRunHandle, partial: boolean): Promise<string[] | null> {
-    const { workTree, repoRoot, agentSessionId: sessionId } = handle
+    const { workTree, repoRoot, sessionId } = handle
     if (!workTree || !repoRoot || !sessionId) return null
     try {
       const result = await snapshotTurn(workTree, repoRoot, sessionId, {
@@ -1454,6 +1457,7 @@ function indexedCodexPlan(plan: ScannedCodexPlan): IndexedPlanInput {
   return {
     provider: 'codex',
     sessionId: plan.sessionId,
+    threadId: plan.threadId,
     planToolUseId: plan.planToolUseId,
     projectPath: plan.projectPath,
     cwd: resolveHomePath(plan.cwd),

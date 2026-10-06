@@ -33,6 +33,9 @@ let dataDir = ''
 beforeEach(async () => { await installTestWorkspaceTools() })
 
 beforeAll(async () => {
+  // An earlier file may leave the shared connection open on a folder it removed.
+  ;({ closeDb } = await import('@solus/server/db'))
+  closeDb()
   dataDir = mkdtempSync(join(tmpdir(), 'solus-dispatch-parity-'))
   process.env.SOLUS_DATA_DIR = dataDir
   ;({ createTask } = await import('@solus/server/data/tasks/task-store'))
@@ -56,10 +59,6 @@ afterAll(() => {
   rmSync(dataDir, { recursive: true, force: true })
   if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
   else process.env.SOLUS_DATA_DIR = previousDataDir
-})
-
-beforeAll(async () => {
-  ;({ closeDb } = await import('@solus/server/db'))
 })
 
 beforeEach(() => {
@@ -94,11 +93,10 @@ function shippedSnapshot(taskId: string, overrides: Partial<TaskSnapshot['detail
  *  provider's thread id, a DIFFERENT string from the Solus session id the
  *  SessionRuntime keys the foreign snapshot under. Using one string for both
  *  hid a keying bug that broke every foreign lookup in production. */
-function toolContext(solusSessionId: string) {
+function toolContext(sessionId: string) {
   return {
     cwd: process.cwd(),
-    sessionId: () => `provider-thread-for-${solusSessionId}`,
-    solusSessionId: () => solusSessionId,
+    sessionId: () => sessionId,
     parentToolUseId: () => undefined,
     emit: () => {},
   } as never
@@ -107,9 +105,9 @@ function toolContext(solusSessionId: string) {
 describe('agent task lifecycle policy', () => {
   /** The policy is the one the session's dispatch carried in its person's
    *  preferences (plans/018 §3.3), not the host's config. */
-  async function dispatchedWith(solusSessionId: string, agentTaskLifecyclePolicy: 'none' | 'moderate' | 'autonomous'): Promise<void> {
+  async function dispatchedWith(sessionId: string, agentTaskLifecyclePolicy: 'none' | 'moderate' | 'autonomous'): Promise<void> {
     const { recordSessionSettings } = await import('@solus/server/execution/sessions/session-settings')
-    recordSessionSettings(solusSessionId, { organizationId: 'local', preferences: { agentTaskLifecyclePolicy } })
+    recordSessionSettings(sessionId, { organizationId: 'local', preferences: { agentTaskLifecyclePolicy } })
   }
 
   test('none prevents every agent status change', async () => {
@@ -480,7 +478,7 @@ describe('linked-item tools on a dispatched session', () => {
   })
 
   test('read_automation serves linked facts and writes fail honestly', async () => {
-    const ctx = { agentProvider: 'claude-code' as const, cwd: '/p', sessionId: 'thread-1', solusSessionId: sessionId }
+    const ctx = { agentProvider: 'claude-code' as const, cwd: '/p', sessionId }
     const read = await automationTools.executeAutomationTool('read_automation', { automation_id: 'automation-on-task-host' }, { ctx })
     expect(read.ok).toBe(true)
     expect(read.text).toContain('Nightly triage')

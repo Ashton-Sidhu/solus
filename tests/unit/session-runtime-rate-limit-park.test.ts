@@ -205,7 +205,7 @@ async function park(
 
 function statusOf(plane: Parked['plane'], clientId: string): string | null {
   const watch = plane.watchers.watchSession(
-    { sessionId: SESSION_ID, agentSessionId: 'thread-1', attachRuntime: true },
+    { sessionId: SESSION_ID, attachRuntime: true },
     clientId,
   )
   return watch.runtime?.status ?? null
@@ -255,7 +255,7 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
       try {
         expect(events.some((event) => event.type === 'prompt_queued')).toBe(false)
         expect(plane.watchers.watchSession(
-          { sessionId: SESSION_ID, agentSessionId: 'thread-1', attachRuntime: true }, 'queue-client',
+          { sessionId: SESSION_ID, attachRuntime: true }, 'queue-client',
         ).runtime?.queuedPrompts).toHaveLength(0)
       } finally {
         plane.shutdown()
@@ -271,7 +271,7 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
       try {
         expect(events.some((event) => event.type === 'prompt_queued')).toBe(false)
         const watch = () => plane.watchers.watchSession(
-          { sessionId: SESSION_ID, agentSessionId: 'thread-1', attachRuntime: true }, 'queue-client',
+          { sessionId: SESSION_ID, attachRuntime: true }, 'queue-client',
         ).runtime!
         // A client whose person chose Queue: explicitly, or by rejoining with that preference.
         if (trigger === 'decision') plane.rateLimitPark.queueHeldRateLimitedPrompts('queue')
@@ -331,7 +331,7 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
         type: 'rate_limit', status: 'limited', resetsAt: null, rateLimitType: 'usageLimitExceeded',
       } satisfies NormalizedEvent)
       const runtime = plane.watchers.watchSession(
-        { sessionId: SESSION_ID, agentSessionId: 'thread-1', attachRuntime: true }, 'terminal-client',
+        { sessionId: SESSION_ID, attachRuntime: true }, 'terminal-client',
       ).runtime!
       expect(runtime.rateLimitInfo?.resetsAt).toBe(releaseAt)
       expect(runtime.queuedPrompts).toHaveLength(1)
@@ -360,7 +360,7 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
       expect(limit?.type === 'rate_limit' && limit.info?.resetsAt).toBe(releaseAt)
       expect(queued?.type === 'prompt_queued' && queued.releaseAt).toBe(releaseAt)
       const runtime = plane.watchers.watchSession(
-        { sessionId: SESSION_ID, agentSessionId: 'thread-1', attachRuntime: true }, 'timer-client',
+        { sessionId: SESSION_ID, attachRuntime: true }, 'timer-client',
       ).runtime!
       expect(runtime.rateLimitInfo?.resetsAt).toBe(releaseAt)
       expect(runtime.queuedPrompts[0].releaseAt).toBe(releaseAt)
@@ -378,7 +378,7 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
     const { plane } = await park(null, 'ask')
     try {
       const watch = (clientId: string) => plane.watchers.watchSession(
-        { sessionId: SESSION_ID, agentSessionId: 'thread-1', attachRuntime: true }, clientId,
+        { sessionId: SESSION_ID, attachRuntime: true }, clientId,
       ).runtime!
       const held = watch('other-client')
       expect(held.status).toBe('rate_limited')

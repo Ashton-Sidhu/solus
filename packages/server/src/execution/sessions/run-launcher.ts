@@ -15,8 +15,7 @@ import { unattendedModelInputFor, providerConversationFor } from '../agents/run-
 import { composeHandoffSeed } from '../agents/session-handoff'
 import { buildSystemPrompt } from '../agents/system-hint'
 import { tasksForSession } from '../../data/tasks/task-sessions'
-import { rekeySessionPullRequests } from '../../data/sessions/session-pull-requests'
-import { recordSessionPrompt, rekeySessionState } from '../../data/sessions/session-states'
+import { recordSessionPrompt } from '../../data/sessions/session-states'
 import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { setForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
@@ -104,10 +103,6 @@ export class RunLauncher {
       event.automationName = options.automationName
       event.watchId = options.watchId
     }
-    if (options.agentSessionId) {
-      event.agentSessionId = options.agentSessionId
-      event.agentMessageId = options.agentMessageId
-    }
     return event
   }
 
@@ -132,11 +127,11 @@ export class RunLauncher {
       const activeRun = this.rt.activeRunRequests.get(request.sessionId)
       if (activeRun?.runId) {
         (activeRun.exchangeIds ??= []).push(...steeredIds)
-        this.rt.orchestration?.runStarted({ runId: activeRun.runId, sessionId: request.sessionId, agentSessionId, exchangeIds: steeredIds })
+        this.rt.orchestration?.runStarted({ runId: activeRun.runId, sessionId: request.sessionId, exchangeIds: steeredIds })
       } else {
         // A backgrounded turn has already released its run record.
         request.exchangeIds = steeredIds
-        const steered = this.rt.runExchanges(request, agentSessionId)
+        const steered = this.rt.runExchanges(request)
         if (steered) this.rt.orchestration?.runStarted(steered)
         void handle.runPromise.then(
           () => this.rt.settleRunExchanges(request, handle.abortController.signal.aborted ? 'interrupted' : 'completed', handle, {}),
@@ -229,7 +224,7 @@ export class RunLauncher {
       throw error
     }
     const { handle, run } = startedRun
-    const startedExchanges = this.rt.runExchanges(request, handle.agentSessionId)
+    const startedExchanges = this.rt.runExchanges(request)
     // The provider can refuse the turn on a limit before its launch finishes
     // reporting; a parked run has not started, and its release starts it again.
     const parkedBeforeStart = this.rt.activeSessions.get(request.sessionId)?.status === 'rate_limited'
@@ -669,13 +664,6 @@ export class RunLauncher {
     })
     this.rt.statuses.setStatus(sessionId, newStatus)
     this.rt.statuses.notifyActiveWork()
-    // A session that ran outside Solus first has no Solus id until it is
-    // resumed here. What PR sync wrote under its provider thread moves to the
-    // session.
-    if (dispatchAgentSessionId) {
-      await rekeySessionPullRequests(dispatchAgentSessionId, sessionId)
-      await rekeySessionState(dispatchAgentSessionId, sessionId)
-    }
     // A prompt is work: a settled or snoozed session is active again.
     await recordSessionPrompt(sessionId)
 

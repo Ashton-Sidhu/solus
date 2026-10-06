@@ -92,7 +92,7 @@
 
   const tabId = $derived(
     givenTabId ??
-      (sessionId && serverId ? (session.tabIdForAgentSession(sessionId, serverId) ?? null) : null),
+      (sessionId && serverId ? (session.tabIdForHostSession(sessionId, serverId) ?? null) : null),
   );
   const sess = $derived(tabId ? session.sessionFor(tabId) : null);
   // A member who may only read a shared session gets the menu's reading

@@ -57,9 +57,6 @@ export interface WorkCreateCtx {
   sessionId: string | undefined
   agentProvider: AgentId
   cwd: string
-  /** Solus session id — keys the dispatched session's shipped task snapshot,
-   *  whose linked works answer reads this host's own store cannot. */
-  solusSessionId?: string
 }
 
 /** Side-effects + creation context threaded into the executor per call. */
@@ -180,7 +177,7 @@ export async function createAgentWork(
    *  session's works are created on the task by construction either way. */
   linkToTask = true,
 ): Promise<AgentWorkCreated> {
-  const foreignTaskId = foreignTaskIdFor(ctx?.solusSessionId)
+  const foreignTaskId = foreignTaskIdFor(ctx?.sessionId)
   if (foreignTaskId) {
     const workId = randomUUID()
     const payload: WorkCreateOpPayload = {
@@ -193,11 +190,11 @@ export async function createAgentWork(
       cwd: ctx?.cwd,
     }
     const op = recordOutboxOp({ domain: 'works', resourceId: workId, name: 'create', payload, sessionId: ctx?.sessionId })
-    applyWorkOpToForeignTask(ctx?.solusSessionId, op)
+    applyWorkOpToForeignTask(ctx?.sessionId, op)
     return { workId, title, foreignTaskId, organizationOwned: false }
   }
 
-  const { operations, context, remote } = await workspaceToolContext(ctx?.sessionId, ctx?.solusSessionId)
+  const { operations, context, remote } = await workspaceToolContext(ctx?.sessionId)
   if (context.actingAgent) context.actingAgent.linkWorkToTask = linkToTask
   // The Solus API files a work that names its session on that session's task; one the
   // reader did not ask to link names no session there, so it is not filed.
@@ -241,12 +238,12 @@ export async function executeWorkTool(
       // No query is the list: every open work, titles only. A query searches
       // content too, which is the only way to answer "that doc about X".
       if (!query) {
-        const { operations, context } = await workspaceToolContext(deps.ctx?.sessionId, deps.ctx?.solusSessionId)
+        const { operations, context } = await workspaceToolContext(deps.ctx?.sessionId)
         const page = await operations.listWorks(context, { limit: 200, cursor: args.cursor })
         const works = page.items
         // A dispatched session's linked works live on the task's host; the
         // shipped copies are the only view of them this host has.
-        const foreignWorks = foreignLinkedItemsFor(deps.ctx?.solusSessionId).filter((item) => item.kind === 'work')
+        const foreignWorks = foreignLinkedItemsFor(deps.ctx?.sessionId).filter((item) => item.kind === 'work')
         if (works.length === 0 && foreignWorks.length === 0) {
           return { ok: true, text: 'No works are currently open.' }
         }
@@ -266,7 +263,7 @@ export async function executeWorkTool(
       const limit = args.limit === undefined ? 10 : Math.min(20, Math.max(1, Math.floor(args.limit)))
 
       // Searched where the session's works live: this host's store, or its organization's Solus API.
-      const { operations, context } = await workspaceToolContext(deps.ctx?.sessionId, deps.ctx?.solusSessionId)
+      const { operations, context } = await workspaceToolContext(deps.ctx?.sessionId)
       const hits = (await operations.searchWorks(context, { q: query, type, limit })).items
       if (!hits.length) return { ok: true, text: `No works match "${query}".` }
       const lines = hits.map(
@@ -280,14 +277,14 @@ export async function executeWorkTool(
     if (name === 'read_work') {
       const workId = String(args.work_id ?? '')
       if (!workId) return { ok: false, text: 'read_work requires a work_id.' }
-      const { operations, context, remote } = await workspaceToolContext(deps.ctx?.sessionId, deps.ctx?.solusSessionId)
+      const { operations, context, remote } = await workspaceToolContext(deps.ctx?.sessionId)
       const loaded = await operations.getWork(context, workId).catch(error => {
         if (error instanceof SolusApiError && error.status === 404 && error.code !== 'MOVED') return null
         throw error
       })
       const work = loaded ? workRecord(loaded) : null
       if (!work) {
-        const foreign = foreignLinkedItemFor(deps.ctx?.solusSessionId, 'work', workId)
+        const foreign = foreignLinkedItemFor(deps.ctx?.sessionId, 'work', workId)
         if (foreign) {
           return {
             ok: true,
@@ -360,7 +357,7 @@ export async function executeWorkTool(
       const expectedContentVersion = args.expected_content_version
       if (expectedContentVersion === undefined) return { ok: false, text: 'update_work requires expected_content_version: the content_version read_work returned.' }
 
-      const { operations, context } = await workspaceToolContext(deps.ctx?.sessionId, deps.ctx?.solusSessionId)
+      const { operations, context } = await workspaceToolContext(deps.ctx?.sessionId)
       const current = await operations.getWork(context, workId).catch(error => {
         if (error instanceof SolusApiError && error.status === 404 && error.code !== 'MOVED') return null
         throw error
@@ -369,8 +366,8 @@ export async function executeWorkTool(
       if (!existing) {
         // A shipped (or op-created) work on a dispatched session: the row
         // lives on the task's host, so the update travels as an outbox op.
-        const foreign = foreignLinkedItemFor(deps.ctx?.solusSessionId, 'work', workId)
-        const foreignTaskId = foreignTaskIdFor(deps.ctx?.solusSessionId)
+        const foreign = foreignLinkedItemFor(deps.ctx?.sessionId, 'work', workId)
+        const foreignTaskId = foreignTaskIdFor(deps.ctx?.sessionId)
         if (foreign && foreignTaskId) {
           if (args.html_path && foreign.workType !== 'artifact') return htmlPathNotArtifact(foreign.title)
           // The owner validates again; refusing here saves a dead-lettered op.
@@ -388,7 +385,7 @@ export async function executeWorkTool(
           }
           if (title !== undefined) payload.title = title
           const op = recordOutboxOp({ domain: 'works', resourceId: workId, name: 'update', payload, sessionId: deps.ctx?.sessionId })
-          applyWorkOpToForeignTask(deps.ctx?.solusSessionId, op)
+          applyWorkOpToForeignTask(deps.ctx?.sessionId, op)
           deps.onWorkUpdated?.({
             workId,
             title: title ?? foreign.title,
@@ -457,7 +454,6 @@ function workAgentTool(
         sessionId: context.sessionId(),
         agentProvider: context.provider,
         cwd: context.cwd,
-        solusSessionId: context.solusSessionId(),
       },
       onWorkCreated: (work) => context.emit({
         type: 'work_created',

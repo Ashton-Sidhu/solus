@@ -583,16 +583,6 @@ export class Task implements TaskRecord {
     this.unbindSession(sessionId)
   }
 
-  /** Move one mounted attempt from its provider id to the stable handoff id, on
-   *  the same frame as the provider switch. */
-  rekeySession(sourceSessionId: string, targetSessionId: string): void {
-    const sourceIndex = this.#sessions.findIndex((attempt) => attempt.sessionId === sourceSessionId)
-    if (sourceIndex === -1) return
-    const targetIndex = this.#sessions.findIndex((attempt) => attempt.sessionId === targetSessionId)
-    if (targetIndex === -1) this.#sessions[sourceIndex].sessionId = targetSessionId
-    else this.#sessions.splice(sourceIndex, 1)
-  }
-
   replaceSessions(sessions: TaskSessionLink[]): void {
     this.#sessions = sessions
   }

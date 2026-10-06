@@ -86,7 +86,7 @@
         ? session.tasksStore.get(link.taskId).serverId
         : null;
       const linkServerId = attemptServerId({ link, taskServerId });
-      const open = session.sessionForAgentSession(link.sessionId, linkServerId ?? undefined);
+      const open = session.sessionForHostSession(link.sessionId, linkServerId ?? undefined);
       const serverId = attemptServerId({
         link,
         liveServerId: open?.run.serverId,

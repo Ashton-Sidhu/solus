@@ -53,9 +53,7 @@ export class InputRequests {
 
   constructor(private readonly rt: SessionRuntime) {}
 
-  pendingInputEventsForSession(agentSessionId: string): NormalizedEvent[] {
-    const sessionId = this.rt.sessionIdFor(agentSessionId)
-    if (!sessionId) return []
+  pendingInputEventsForSession(sessionId: string): NormalizedEvent[] {
     return [...(this.rt.activeSessions.get(sessionId)?.pendingInputEvents ?? []), ...pendingAsyncQuestions(sessionId)]
   }
 
@@ -131,7 +129,7 @@ export class InputRequests {
 
   /** Answers a question `askingSessionId` is waiting on; refused like a permission. */
   async respondToQuestion(askingSessionId: string, questionId: string, answers: Record<string, string>, actor: Actor): Promise<boolean> {
-    const sessionId = this.rt.sessionIdFor(askingSessionId) ?? askingSessionId
+    const sessionId = askingSessionId
     const asyncQuestion = claimAsyncQuestion(sessionId, questionId)
     if (asyncQuestion) {
       const answer = { questionId, questions: asyncQuestion.questions, answers }
@@ -145,7 +143,7 @@ export class InputRequests {
       }
       try {
         saveAsyncAnswer(questionId, answers)
-        await this.rt.dispatch.promptSession(asyncQuestion.agentSessionId, reply, 'steer', { actor, via: 'question-answer' })
+        await this.rt.dispatch.promptSession(sessionId, reply, 'steer', { actor, via: 'question-answer' })
       } catch (error) {
         settleAsyncQuestion(questionId, 'pending')
         throw error
@@ -185,9 +183,9 @@ export class InputRequests {
     askingSessionId: string,
     questionId: string,
   ): { sessionId: string; backend: AgentBackend; event: NormalizedEvent } | null {
-    const sessionId = this.rt.sessionIdFor(askingSessionId)
+    const sessionId = askingSessionId
     const owner = this.questionIdToSession.get(questionId)
-    if (!sessionId || owner !== sessionId) {
+    if (owner !== sessionId) {
       log.warn('answer_refused', { askingSessionId, questionId, ownerSessionId: owner ?? null, reason: owner ? 'other_session' : 'not_pending' })
       return null
     }

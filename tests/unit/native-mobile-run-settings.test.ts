@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { SendOutbox } from '@solus/client-core/send-outbox'
-import type { AgentMetadata, IpcContext, PromptOptions, WatchSessionInput } from '@solus/contracts/types'
+import type { AgentMetadata, IpcContext, PromptOptions } from '@solus/contracts/types'
 import type { HostConfigSnapshot } from '@solus/contracts/host-config'
 import { ConversationController, type ConversationTarget } from '../../apps/mobile/src/features/conversation/conversation-controller'
 import { DEFAULT_RUN_SETTINGS, type RunSettings } from '../../apps/mobile/src/features/conversation/lib/ipc-context'
@@ -38,8 +38,7 @@ async function controllerFor(target: ConversationTarget, settings: RunSettings, 
   const api = new FakeApi()
     .on('describeSession', () => ({ lineage: null, meta: null }))
     .on('loadSessionPage', () => ({ messages: [], before: null }))
-    .on('watchSession', (input: WatchSessionInput) => ({
-      sessionId: input.sessionId ?? 's',
+    .on('watchSession', () => ({
       runtime: status === 'running' ? { status: 'running', modelConfig: null, permissionMode: null, queuedPrompts: [], rateLimitInfo: null } : null,
     }))
     .on('prompt', () => ({ disposition: 'started' }))
@@ -198,8 +197,7 @@ describe('native reopened session fast mode', () => {
   })
 
   test('a live run\'s own fast mode wins over the remembered one', async () => {
-    const api = (fake: FakeApi) => fake.on('watchSession', (input: WatchSessionInput) => ({
-      sessionId: input.sessionId ?? 't',
+    const api = (fake: FakeApi) => fake.on('watchSession', () => ({
       runtime: { status: 'running', modelConfig: { modelId: 'gpt-5.5', reasoningEffort: 'high', contextWindow: null, fastMode: false }, permissionMode: null, queuedPrompts: [], rateLimitInfo: null },
     }))
     const { controller } = await controllerFor(codexRecord, fastSaved(true), 'idle', api)

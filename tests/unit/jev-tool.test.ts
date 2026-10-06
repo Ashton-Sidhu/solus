@@ -8,8 +8,8 @@ import { adaptClaudeTools } from '../../packages/server/src/execution/agents/cla
 import { solusAgentToolName } from '../../packages/contracts/src/agent-tools'
 
 const context: AgentToolContext = {
-  provider: 'codex', cwd: '/repo', sessionId: () => 'provider-session',
-  solusSessionId: () => 'solus-session', parentToolUseId: () => undefined,
+  provider: 'codex', cwd: '/repo',
+  sessionId: () => 'solus-session', parentToolUseId: () => undefined,
   abortSignal: new AbortController().signal, emit: () => {},
 }
 const input = {

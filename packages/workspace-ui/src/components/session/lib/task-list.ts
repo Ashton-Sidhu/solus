@@ -472,12 +472,10 @@ export function shouldShowDurableSidebarTask(
  * offer the same session under "Open" beside sessions still being worked on.
  * A snoozed task is deliberately deferred, not finished, and keeps its place. */
 export function isCompletedTaskSession(
-  session: Pick<Session, 'id' | 'agentSessionId' | 'handoffId'>,
+  session: Pick<Session, 'id'>,
   tasks: TaskBySessionLookup,
 ): boolean {
-  const task = tasks.taskForSession(session.handoffId ?? session.id)
-    ?? tasks.taskForSession(session.agentSessionId)
-  return task?.status === 'done'
+  return tasks.taskForSession(session.id)?.status === 'done'
 }
 
 /**
@@ -779,8 +777,6 @@ export function dedupePrChoices(choices: readonly TaskPrChoice[]): TaskPrChoice[
 }
 
 export interface MountedPrObservation {
-  sessionIds: readonly string[]
-  originSessionId: string
   /** Undefined Git status is still loading. Null is a completed “no PR” answer. */
   prUrl: string | null | undefined
   /** The observed checkout is this session's own worktree. Git state is keyed

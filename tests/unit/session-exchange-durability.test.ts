@@ -36,20 +36,19 @@ afterAll(() => {
 })
 
 function exchange(fields: Partial<Exchange> = {}): Exchange {
-  return { exchangeId: 'request', kind: 'prompt', senderSessionId: 'A', senderAgentSessionId: 'thread-A',
-    targetSessionId: 'B', targetAgentSessionId: 'thread-B', provider: 'codex', notify: true,
+  return { exchangeId: 'request', kind: 'prompt', senderSessionId: 'A',
+    targetSessionId: 'B', provider: 'codex', notify: true,
     state: 'running', runId: 'run-B', dispatchedAt: Date.now(), outputs: [], notices: [], revising: false, parentExchangeIds: [], ...fields }
 }
 function savedResult(fields: Partial<Exchange> = {}): Exchange {
   return exchange({ state: 'settled', outcome: 'completed', settledAt: Date.now(), deliveryState: 'pending',
-    report: { messageId: 'request', agentSessionId: 'thread-B', status: 'completed', outputs: [], reply: 'Reviewed and done.' }, ...fields })
+    report: { messageId: 'request', sessionId: 'B', status: 'completed', outputs: [], reply: 'Reviewed and done.' }, ...fields })
 }
 function delivery(schedule?: RetrySchedule) {
   const prompts: string[] = []
   const work: Promise<unknown>[] = []
   const recorded: Array<[string[], string]> = []
   const runtime: ParentDeliveryRuntime = {
-    sessionIdFor: (id) => id,
     promptSession: async (_id, prompt) => { prompts.push(prompt); return { disposition: 'queued', queueId: 'report-queue' } },
     replaceQueuedPrompt: () => true, hasQueuedPrompt: () => true, cancelQueuedPrompt: () => true,
     trackWork: (promise) => { work.push(promise); return promise },
@@ -85,7 +84,7 @@ describe('durable session exchanges', () => {
     const reply = `${'Finding. '.repeat(555)}The last line matters.`
     expect(reply.length).toBeGreaterThan(5_000)
     new ExchangeLedger(new RunLedger()).open(savedResult({
-      report: { messageId: 'request', agentSessionId: 'thread-B', status: 'completed', outputs: [], reply } }))
+      report: { messageId: 'request', sessionId: 'B', status: 'completed', outputs: [], reply } }))
     const restored = new ExchangeLedger(new RunLedger()).read('A', 'request')
     expect(restored?.report?.reply).toBe(reply)
     const row = db.getDb().prepare('SELECT report, reply FROM run_exchanges').get() as { report: string; reply: string }
@@ -159,7 +158,7 @@ describe('durable session exchanges', () => {
     const ledger = new ExchangeLedger(new RunLedger())
     const recovery = recover(ledger, [{ sessionId: 'A', queueId: 'held-report', exchangeIds: [], reportExchangeIds: ['request'], started: false }])
     expect(recovery.delivered).toEqual([])
-    expect(recovery.parent.waitingReports('thread-A')).toEqual([{ exchangeId: 'request', targetAgentSessionId: 'thread-B' }])
+    expect(recovery.parent.waitingReports('A')).toEqual([{ exchangeId: 'request', targetSessionId: 'B' }])
     expect(ledger.read('A', 'request')).toMatchObject({ deliveryState: 'queued', deliveryQueueId: 'held-report' })
     expect(recovery.prompts).toEqual([])
   })
@@ -186,8 +185,8 @@ describe('durable session exchanges', () => {
   test('a restored parent waits for the child report that is still queued', () => {
     const ledger = new ExchangeLedger(new RunLedger())
     ledger.open(exchange({ state: 'waiting_for_children' }))
-    ledger.open(savedResult({ exchangeId: 'child', senderSessionId: 'B', senderAgentSessionId: 'thread-B', targetSessionId: 'C',
-      targetAgentSessionId: 'thread-C', parentExchangeIds: ['request'], report: { messageId: 'child', agentSessionId: 'thread-C', status: 'completed', outputs: [], reply: 'Review passed.' } }))
+    ledger.open(savedResult({ exchangeId: 'child', senderSessionId: 'B', targetSessionId: 'C',
+      parentExchangeIds: ['request'], report: { messageId: 'child', sessionId: 'C', status: 'completed', outputs: [], reply: 'Review passed.' } }))
     const restored = new ExchangeLedger(new RunLedger())
     const recovery = recover(restored, [{ sessionId: 'B', queueId: 'followup', exchangeIds: ['request'], reportExchangeIds: ['child'], started: false }])
     expect(recovery.interrupted).toEqual([])
@@ -246,8 +245,8 @@ describe('durable session exchanges', () => {
 })
 
 describe('report delivery retries while the host runs', () => {
-  const report = { exchangeId: 'child', targetAgentSessionId: 'thread-B',
-    item: { type: 'report' as const, report: { messageId: 'child', agentSessionId: 'thread-B', status: 'completed' as const, outputs: [], reply: 'Done.' } } }
+  const report = { exchangeId: 'child', targetSessionId: 'B',
+    item: { type: 'report' as const, report: { messageId: 'child', sessionId: 'B', status: 'completed' as const, outputs: [], reply: 'Done.' } } }
   const locked = () => Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY' })
 
   test('a transient failure is tried again after a growing delay, then delivered once', async () => {
@@ -259,7 +258,7 @@ describe('report delivery retries while the host runs', () => {
       if (failures-- > 0) throw locked()
       return submit(...args)
     }
-    outbox.parent.deliver('thread-A', report)
+    outbox.parent.deliver('A', report)
     await outbox.drain()
     expect(retries.map((retry) => retry.delayMs)).toEqual([DELIVERY_RETRY_DELAYS_MS[0]])
     expect(outbox.recorded).toEqual([])
@@ -277,7 +276,7 @@ describe('report delivery retries while the host runs', () => {
     const retries: Array<() => void> = []
     const outbox = delivery((_delayMs, retry) => { retries.push(retry) })
     outbox.runtime.promptSession = async () => { throw locked() }
-    outbox.parent.deliver('thread-A', report)
+    outbox.parent.deliver('A', report)
     await outbox.drain()
     for (let attempt = 0; attempt < DELIVERY_RETRY_DELAYS_MS.length; attempt++) {
       retries.shift()!()
@@ -287,8 +286,8 @@ describe('report delivery retries while the host runs', () => {
     expect(outbox.recorded).toEqual([])
 
     const permanent = delivery((_delayMs, retry) => { retries.push(retry) })
-    permanent.runtime.promptSession = async () => { throw new Error('Session thread-A not found') }
-    permanent.parent.deliver('thread-A', report)
+    permanent.runtime.promptSession = async () => { throw new Error('Session A not found') }
+    permanent.parent.deliver('A', report)
     await permanent.drain()
     expect(retries).toEqual([])
   })

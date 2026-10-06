@@ -187,9 +187,6 @@ export interface AutomationToolCtx {
   agentProvider: AgentId
   cwd: string
   sessionId: string | undefined
-  /** Solus session id — keys a dispatched session's shipped task snapshot,
-   *  whose automation links answer for rows that live on the task's host. */
-  solusSessionId?: string
 }
 
 /** Fired when create_automation/update_automation persists, so the calling
@@ -208,8 +205,8 @@ export interface AutomationToolResult {
 
 /** The task-snapshot link for an automation id the local store cannot resolve
  *  — present exactly when this session was dispatched and its task links one. */
-function foreignAutomationLink(solusSessionId: string | undefined, automationId: string) {
-  return foreignTaskLinksFor(solusSessionId).find(
+function foreignAutomationLink(sessionId: string | undefined, automationId: string) {
+  return foreignTaskLinksFor(sessionId).find(
     (link) => link.kind === 'automation' && link.targetKey === automationId,
   ) ?? null
 }
@@ -241,7 +238,7 @@ export async function executeAutomationTool(
       if (!a) {
         // A dispatched session's task may link an automation whose row lives
         // on the task's host; the link's snapshot facts are all this host has.
-        const link = foreignAutomationLink(deps.ctx?.solusSessionId, id)
+        const link = foreignAutomationLink(deps.ctx?.sessionId, id)
         if (link) {
           return {
             ok: true,
@@ -277,7 +274,7 @@ export async function executeAutomationTool(
       const triggerResult = toTrigger(args.trigger)
       if (!triggerResult.ok) return { ok: false, text: `create_automation: ${triggerResult.error}` }
       // The automation runs with the preferences of the person this session works for (plans/018 §6).
-      const preferences = sessionSettings(deps.ctx?.solusSessionId)?.preferences
+      const preferences = sessionSettings(deps.ctx?.sessionId)?.preferences
       const created = await createAutomation(name_, action, await toolAgentAttribution(deps.ctx), enabled, triggerResult.trigger, preferences)
       const when =
         created.trigger.type === 'manual'
@@ -305,7 +302,7 @@ export async function executeAutomationTool(
       if (!id) return { ok: false, text: 'update_automation requires an automation_id.' }
       const existing = await loadAutomation(id)
       if (!existing) {
-        if (foreignAutomationLink(deps.ctx?.solusSessionId, id)) {
+        if (foreignAutomationLink(deps.ctx?.sessionId, id)) {
           return { ok: false, text: foreignAutomationError('update_automation', id) }
         }
         return { ok: false, text: `No automation found with id "${id}".` }
@@ -356,7 +353,7 @@ export async function executeAutomationTool(
     if (name === 'delete_automation') {
       const id = String(args.automation_id ?? '')
       if (!id) return { ok: false, text: 'delete_automation requires an automation_id.' }
-      if (foreignAutomationLink(deps.ctx?.solusSessionId, id)) {
+      if (foreignAutomationLink(deps.ctx?.sessionId, id)) {
         return { ok: false, text: foreignAutomationError('delete_automation', id) }
       }
       const ok = await deleteAutomation(id)
@@ -370,7 +367,7 @@ export async function executeAutomationTool(
       if (!id) return { ok: false, text: 'run_automation requires an automation_id.' }
       const a = await loadAutomation(id)
       if (!a) {
-        if (foreignAutomationLink(deps.ctx?.solusSessionId, id)) {
+        if (foreignAutomationLink(deps.ctx?.sessionId, id)) {
           return { ok: false, text: foreignAutomationError('run_automation', id) }
         }
         return { ok: false, text: `No automation found with id "${id}".` }
@@ -424,7 +421,6 @@ function automationAgentTool(
         agentProvider: context.provider,
         cwd: context.cwd,
         sessionId: context.sessionId(),
-        solusSessionId: context.solusSessionId(),
       },
       onAutomationSaved: (automation) => context.emit({
         type: 'automation_saved',

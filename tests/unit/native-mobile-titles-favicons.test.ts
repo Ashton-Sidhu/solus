@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { SendOutbox } from '@solus/client-core/send-outbox'
-import type { SessionRecord, WatchSessionInput } from '@solus/contracts/types'
+import type { SessionRecord } from '@solus/contracts/types'
 import { ConversationController, type ConversationTarget } from '../../apps/mobile/src/features/conversation/conversation-controller'
 import { threadFaviconRoot } from '../../apps/mobile/src/features/threads/threadListV2'
 import { resolveProjectFaviconUrl } from '../../apps/mobile/src/lib/project-favicon-url'
@@ -44,7 +44,7 @@ function namingApi(): FakeApi {
     .on('configGet', () => ({}))
     .on('describeSession', () => ({ lineage: null, meta: null }))
     .on('loadSessionPage', () => ({ messages: [], before: null }))
-    .on('watchSession', (input: WatchSessionInput) => ({ sessionId: input.sessionId!, runtime: null }))
+    .on('watchSession', () => ({ runtime: null }))
     .on('unwatchSession', () => undefined)
     .on('prompt', () => ({ disposition: 'started' }))
     .on('generateSessionMetadata', () => ({ title: 'Mobile session titles', description: 'Names sessions started on the phone.' }))
@@ -59,7 +59,7 @@ describe('native session titles', () => {
     transport.emitSession('new-1', { type: 'session_init', sessionId: 'provider-1', model: 'm', skills: [] })
     await flushPromises()
     expect(api.callsOf('generateSessionMetadata')[0]?.slice(0, 2)).toEqual(['mobile does not read our generated titles', '/work/app'])
-    expect(api.callsOf('setSessionTitle')).toEqual([['provider-1', 'Mobile session titles', 'generated', 'Names sessions started on the phone.']])
+    expect(api.callsOf('setSessionTitle')).toEqual([['new-1', 'Mobile session titles', 'generated', 'Names sessions started on the phone.']])
     expect(controller.run.title).toBe('Mobile session titles')
 
     // A later init (a resume) does not name it again.
@@ -75,7 +75,7 @@ describe('native session titles', () => {
     await controller.send('fix the header')
     transport.emitSession('new-1', { type: 'session_init', sessionId: 'provider-1', model: 'm', skills: [] })
     await flushPromises()
-    transport.emit('session.titleChanged', { sessionId: 'provider-1', title: 'My name', source: 'manual' })
+    transport.emit('session.titleChanged', { sessionId: 'new-1', title: 'My name', source: 'manual' })
     answer({ title: 'Generated', description: '' })
     await flushPromises()
     expect(controller.run.title).toBe('My name')

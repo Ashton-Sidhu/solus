@@ -36,24 +36,15 @@ export interface WorktreeDeps {
 }
 
 /**
- * A context that names only its Solus session gets the provider thread and the
- * checkout from the session's lineage. Snapshots are stored under the provider
- * thread, and a surface with no tab — Insights opening a turn's change — knows
- * only the Solus id. The active lineage member answers: after a provider
- * handoff, turns from an earlier member are not reachable this way.
+ * A context that names only its session — Insights opening a turn's change —
+ * gets the session's checkout from its lineage. Snapshots are stored under the
+ * session id, so every turn of the session is reachable, whatever its provider.
  */
 function withSessionCheckout(ctx: IpcContext): IpcContext {
-  if (ctx.session.agentSessionId || !ctx.session.sessionId) return ctx
+  if (ctx.session.workingDirectory || !ctx.session.sessionId) return ctx
   const active = resolveSessionLineageById(ctx.session.sessionId)?.active
-  if (!active?.providerSessionId) return ctx
-  return {
-    ...ctx,
-    session: {
-      ...ctx.session,
-      agentSessionId: active.providerSessionId,
-      workingDirectory: ctx.session.workingDirectory || active.cwd,
-    },
-  }
+  if (!active) return ctx
+  return { ...ctx, session: { ...ctx.session, workingDirectory: active.cwd } }
 }
 
 async function resolveGitCheckout(ctx: IpcContext) {
@@ -127,7 +118,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const repoRoot = await checkoutRepoRoot(ctx)
     if (!repoRoot) return null
     const workTree = await workTreeForCtx(ctx)
-    const sid = ctx.session.agentSessionId ?? null
+    const sid = ctx.session.sessionId ?? null
     const livePaths = request.livePaths?.filter(Boolean) ?? []
     return await getDiff(workTree, repoRoot, request.scope, sid, livePaths)
   })
@@ -138,7 +129,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const repoRoot = await checkoutRepoRoot(ctx)
     if (!repoRoot) return null
     const workTree = await workTreeForCtx(ctx)
-    const sid = ctx.session.agentSessionId ?? null
+    const sid = ctx.session.sessionId ?? null
     return getDiffFileContents(workTree, repoRoot, sid, request)
   })
 
@@ -148,14 +139,14 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const repoRoot = await checkoutRepoRoot(ctx)
     if (!repoRoot) return []
     const workTree = await workTreeForCtx(ctx)
-    const sid = ctx.session.agentSessionId ?? null
+    const sid = ctx.session.sessionId ?? null
     const livePaths = request.livePaths?.filter(Boolean) ?? []
     return getDiffStats(workTree, repoRoot, request.scope, sid, livePaths)
   })
 
   server.register('listTurnSnapshots', async (args) => {
     const ctx = withSessionCheckout(args[0])
-    const sid = ctx.session.agentSessionId
+    const sid = ctx.session.sessionId
     if (!sid) return []
     const repoRoot = await checkoutRepoRoot(ctx)
     if (!repoRoot) return []
@@ -223,7 +214,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
       )
     }
     const pullRequest = result.pullRequest
-    const sessionId = ctx.session.agentSessionId
+    const sessionId = ctx.session.agentSessionId ? ctx.session.sessionId : null
     if (sessionId && pullRequest.status !== 'skipped' && pullRequest.url) {
       // Solus opened this pull request from the session, so the session owns
       // the link; its task, when it has one, reads it from there.

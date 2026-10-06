@@ -29,7 +29,7 @@ function session(): Session {
 
 function cardRef(exchange: Partial<AgentExchange>): AgentConversationRef {
   return {
-    agentSessionId: child,
+    sessionId: child,
     provider: 'codex',
     title: 't',
     cwd: '',
@@ -43,28 +43,28 @@ describe('a card, live', () => {
     const tab = session()
     const cards = new AgentConversationCards()
     expect(cards.apply(tab, {
-      phase: 'dispatched', agentSessionId: child, messageId: first, origin: 'prompted', prompt: 'ship it',
+      phase: 'dispatched', sessionId: child, messageId: first, origin: 'prompted', prompt: 'ship it',
       provider: 'codex', title: 'Ship', cwd: '/repo', dispatchedAt: 1,
     }).newCard).toBe(true)
     const ref = () => tab.messages[0]!.agentConversationRef!
     expect(agentConversationCardState(ref())).toBe('dispatching')
 
-    cards.apply(tab, { phase: 'accepted', agentSessionId: child, messageId: first, state: 'queued' })
+    cards.apply(tab, { phase: 'accepted', sessionId: child, messageId: first, state: 'queued' })
     expect(agentConversationCardState(ref())).toBe('dispatching')
-    cards.apply(tab, { phase: 'accepted', agentSessionId: child, messageId: first, state: 'running' })
+    cards.apply(tab, { phase: 'accepted', sessionId: child, messageId: first, state: 'running' })
     expect(agentConversationCardState(ref())).toBe('replying')
 
     const request = { kind: 'question' as const, question: { questionId: 'q1', questions: [{ id: 'branch', question: 'Which branch?', options: [], multiSelect: false }] } }
-    expect(cards.apply(tab, { phase: 'awaiting_input', agentSessionId: child, messageId: first, request }).needsAttention).toBe(true)
+    expect(cards.apply(tab, { phase: 'awaiting_input', sessionId: child, messageId: first, request }).needsAttention).toBe(true)
     expect(agentConversationCardState(ref())).toBe('waiting')
     expect(pendingRequest(ref())).toEqual(request)
 
-    cards.apply(tab, { phase: 'answered', agentSessionId: child, messageId: first, answerText: 'Which branch? → main' })
+    cards.apply(tab, { phase: 'answered', sessionId: child, messageId: first, answerText: 'Which branch? → main' })
     expect(agentConversationCardState(ref())).toBe('replying')
     expect(pendingRequest(ref())).toBeNull()
 
     cards.apply(tab, {
-      phase: 'settled', agentSessionId: child, messageId: first, status: 'completed', replyText: 'shipped',
+      phase: 'settled', sessionId: child, messageId: first, status: 'completed', replyText: 'shipped',
       outputs: [
         { kind: 'question', question: 'Which branch?', answer: 'main' },
         { kind: 'pull_request', number: 7, url: 'https://example.test/pr/7' },
@@ -91,12 +91,12 @@ describe('a card whose other session is stopped', () => {
   test('closes the running message and keeps a queued one open', () => {
     const tab = session()
     const cards = new AgentConversationCards()
-    cards.apply(tab, { phase: 'dispatched', agentSessionId: child, messageId: first, origin: 'prompted', prompt: 'long job', provider: 'codex', title: 'Job', cwd: '/repo', dispatchedAt: 1 })
-    cards.apply(tab, { phase: 'accepted', agentSessionId: child, messageId: first, state: 'running' })
-    cards.apply(tab, { phase: 'dispatched', agentSessionId: child, messageId: second, origin: 'prompted', prompt: 'then this', provider: 'codex', title: 'Job', cwd: '/repo', dispatchedAt: 2 })
-    cards.apply(tab, { phase: 'accepted', agentSessionId: child, messageId: second, state: 'queued' })
+    cards.apply(tab, { phase: 'dispatched', sessionId: child, messageId: first, origin: 'prompted', prompt: 'long job', provider: 'codex', title: 'Job', cwd: '/repo', dispatchedAt: 1 })
+    cards.apply(tab, { phase: 'accepted', sessionId: child, messageId: first, state: 'running' })
+    cards.apply(tab, { phase: 'dispatched', sessionId: child, messageId: second, origin: 'prompted', prompt: 'then this', provider: 'codex', title: 'Job', cwd: '/repo', dispatchedAt: 2 })
+    cards.apply(tab, { phase: 'accepted', sessionId: child, messageId: second, state: 'queued' })
 
-    cards.apply(tab, { phase: 'stopped', agentSessionId: child })
+    cards.apply(tab, { phase: 'stopped', sessionId: child })
 
     const exchanges = tab.messages.flatMap((message) => message.agentConversationRef?.exchanges ?? [])
     expect(exchanges.find((exchange) => exchange.messageId === first)?.status).toBe('interrupted')
@@ -110,16 +110,16 @@ describe('a card whose other session is rate limited', () => {
     const tab = session()
     const cards = new AgentConversationCards()
     cards.apply(tab, {
-      phase: 'dispatched', agentSessionId: child, messageId: first, origin: 'prompted', prompt: 'long job',
+      phase: 'dispatched', sessionId: child, messageId: first, origin: 'prompted', prompt: 'long job',
       provider: 'codex', title: 'Job', cwd: '/repo', dispatchedAt: 1,
     })
-    cards.apply(tab, { phase: 'accepted', agentSessionId: child, messageId: first, state: 'running' })
+    cards.apply(tab, { phase: 'accepted', sessionId: child, messageId: first, state: 'running' })
     const ref = () => tab.messages[0]!.agentConversationRef!
-    expect(cards.apply(tab, { phase: 'rate_limited', agentSessionId: child, messageId: first, resetsAt: 5_000, limitType: 'Codex 5h' }).needsAttention).toBe(true)
+    expect(cards.apply(tab, { phase: 'rate_limited', sessionId: child, messageId: first, resetsAt: 5_000, limitType: 'Codex 5h' }).needsAttention).toBe(true)
     expect(agentConversationCardState(ref())).toBe('limited')
     expect(rateLimitedUntil(ref())).toBe(5_000)
 
-    cards.apply(tab, { phase: 'accepted', agentSessionId: child, messageId: first, state: 'running' })
+    cards.apply(tab, { phase: 'accepted', sessionId: child, messageId: first, state: 'running' })
     expect(agentConversationCardState(ref())).toBe('replying')
     expect(rateLimitedUntil(ref())).toBeUndefined()
   })
@@ -143,7 +143,7 @@ describe('a card rebuilt from its transcript', () => {
     transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), { messageId: first }, 1)
     transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'two' }), { messageId: second }, 2)
     const report = formatParentPrompt([{ type: 'report', report: {
-      messageId: second, agentSessionId: child, taskId: 'task-1', provider: 'codex', status: 'completed', durationMs: 4_200,
+      messageId: second, sessionId: child, taskId: 'task-1', provider: 'codex', status: 'completed', durationMs: 4_200,
       outputs: [
         { kind: 'question', question: 'Which branch?', answer: 'main' },
         { kind: 'work', workId: 'w1', title: 'Notes', workType: 'doc' },
@@ -166,7 +166,7 @@ describe('a card rebuilt from its transcript', () => {
     const transcript = new TranscriptAgentConversations(messages)
     transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'check' }), {
       messageId: first,
-      report: { messageId: first, agentSessionId: child, status: 'completed', outputs: [], reply: 'checked' },
+      report: { messageId: first, sessionId: child, status: 'completed', outputs: [], reply: 'checked' },
     }, 1)
     const exchange = messages[0]!.agentConversationRef!.exchanges[0]!
     expect(exchange).toMatchObject({ status: 'done', reply: 'checked' })
@@ -178,7 +178,7 @@ describe('a card rebuilt from its transcript', () => {
     transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), { messageId: first }, 1)
     transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'two' }), { messageId: second }, 2)
     const merged = formatParentPrompt([first, second].map((messageId, index) => ({ type: 'report' as const, report: {
-      messageId, agentSessionId: child, status: 'completed' as const, outputs: [], reply: `reply ${index + 1}`,
+      messageId, sessionId: child, status: 'completed' as const, outputs: [], reply: `reply ${index + 1}`,
     } })))
     expect(transcript.applyUserRow(merged, 3)).toBe(true)
     expect(messages[0]!.agentConversationRef!.exchanges.map((exchange) => exchange.reply)).toEqual(['reply 1', 'reply 2'])
@@ -192,7 +192,7 @@ describe('a card rebuilt from its transcript', () => {
     transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), { messageId: first }, 1)
     transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'two' }), { messageId: second }, 2)
     const report = formatParentPrompt([{ type: 'report', report: {
-      messageId: first, alsoMessageIds: [second], agentSessionId: child, status: 'completed', outputs: [], reply: 'both done',
+      messageId: first, alsoMessageIds: [second], sessionId: child, status: 'completed', outputs: [], reply: 'both done',
     } }])
     expect(transcript.applyUserRow(report, 3)).toBe(true)
     expect(messages[0]!.agentConversationRef!.exchanges.map((exchange) => [exchange.status, exchange.reply])).toEqual([
@@ -206,7 +206,7 @@ describe('a card rebuilt from its transcript', () => {
     const transcript = new TranscriptAgentConversations(messages)
     const request = { kind: 'question' as const, question: { questionId: 'q1', questions: [] } }
     transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), { messageId: first, progress: { state: 'awaiting_input', request } }, 1)
-    const notice = formatSessionNotice({ messageId: first, agentSessionId: child, kind: 'question', questionId: 'q1', questions: [{ question: 'Which branch?', options: [] }] })
+    const notice = formatSessionNotice({ messageId: first, sessionId: child, kind: 'question', questionId: 'q1', questions: [{ question: 'Which branch?', options: [] }] })
     expect(transcript.applyUserRow(notice, 2)).toBe(true)
     expect(messages).toHaveLength(1)
     expect(messages[0]!.agentConversationRef!.exchanges[0]).toMatchObject({ status: 'awaiting_input', request })
@@ -247,14 +247,14 @@ describe('a card rebuilt from its transcript', () => {
   test('a rebuilt card follows the live feed like a card that was shown live', () => {
     const tab = session()
     new TranscriptAgentConversations(tab.messages)
-      .applyToolRow('start_session', JSON.stringify({ prompt: 'snooze tasks' }), { agentSessionId: child, messageId: first, progress: { state: 'queued' } }, 1)
+      .applyToolRow('start_session', JSON.stringify({ prompt: 'snooze tasks' }), { sessionId: child, messageId: first, progress: { state: 'queued' } }, 1)
     const cards = new AgentConversationCards()
     cards.rebuild(tab)
     const ref = () => tab.messages[0]!.agentConversationRef!
     expect(agentConversationCardState(ref())).toBe('dispatching')
-    cards.apply(tab, { phase: 'accepted', agentSessionId: child, messageId: first, state: 'running' })
+    cards.apply(tab, { phase: 'accepted', sessionId: child, messageId: first, state: 'running' })
     expect(agentConversationCardState(ref())).toBe('replying')
-    cards.apply(tab, { phase: 'settled', agentSessionId: child, messageId: first, status: 'completed', replyText: 'done', settledAt: 2 })
+    cards.apply(tab, { phase: 'settled', sessionId: child, messageId: first, status: 'completed', replyText: 'done', settledAt: 2 })
     expect(agentConversationCardState(ref())).toBe('replied')
   })
 
@@ -262,7 +262,7 @@ describe('a card rebuilt from its transcript', () => {
     const messages: Message[] = []
     const transcript = new TranscriptAgentConversations(messages)
     transcript.applyToolRow('send_session', JSON.stringify({ session_id: child, message: 'one' }), undefined, 1)
-    const report = formatParentPrompt([{ type: 'report', report: { agentSessionId: child, status: 'completed', outputs: [], reply: 'done' } }])
+    const report = formatParentPrompt([{ type: 'report', report: { sessionId: child, status: 'completed', outputs: [], reply: 'done' } }])
     expect(transcript.applyUserRow(report, 2)).toBe(true)
     expect(messages[0]!.agentConversationRef!.exchanges.map((exchange) => [exchange.status, exchange.reply])).toEqual([['done', 'done']])
   })

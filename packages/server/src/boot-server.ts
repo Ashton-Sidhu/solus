@@ -28,7 +28,6 @@ import { readStoredLink, UplinkLinkManager } from './transport/uplink/link'
 import { RunnerDelivery } from './sync/runner-delivery'
 import { Delegations } from './sync/delegations'
 import { remoteWorkspaceOperations } from './sync/remote-operations'
-import { onSessionRecordBound } from './execution/sessions/turn-organization'
 import { useOrganizationAttachment } from './host/organization-attachment'
 import { applyRunnerMirror, applyRunnerOutbox, applyRunnerSessionRecords } from './sync/runner-intake'
 import { PublicationCoordinator } from './sync/publication'
@@ -66,7 +65,7 @@ import { AgentAuthFlows } from './execution/seats/agent-auth'
 import { attentionVisibleTo, eventVisibleTo } from './sharing/event-audience'
 import { getDb } from './db'
 import { closeDatabase, getDatabase } from './db/database'
-import { getSessionRecord, markOwnRunningSessionRecordsInterrupted, recordSessionId, useLiveRecordIds, useSessionIndexState } from './data/sessions/session-records'
+import { getSessionRecord, markOwnRunningSessionRecordsInterrupted, useSessionIndexState } from './data/sessions/session-records'
 import { sessionIndexComplete } from './db/session-indexer'
 import { assertRpcAccess } from './admission/access-policy'
 import { LOCAL_ORGANIZATION_ID } from './admission/principal'
@@ -428,15 +427,13 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // manager holds a member's scope against, and what its rows are written under.
   const organizationOfResource = async (resource: ShareResource): Promise<string | null> => {
     switch (resource.kind) {
-      // The record is keyed by the provider thread id, not the Solus id a share names.
-      case 'session': return (await getSessionRecord(ANY_ORGANIZATION, recordSessionId(resource.id)))?.organizationId ?? null
+      case 'session': return (await getSessionRecord(ANY_ORGANIZATION, resource.id))?.organizationId ?? null
       case 'work': return workOrganizationId(resource.id)
       case 'task': return taskOrganizationId(resource.id)
     }
   }
   const shares = new ShareManager({
     db: getDatabase(),
-    canonicalSessionId: (sessionId) => opts.sessionRuntime.canonicalSessionId(sessionId),
     sessionExists: (sessionId) => opts.sessionRuntime.isKnownSession(sessionId),
     organizationOfResource: organizationOfResource,
     hasLeftOrganization: (organizationId, userId) => hasLeftOrganization(hostOrganizations.current(), organizationId, userId),
@@ -450,8 +447,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // control plane's answer, asked for once the link is known below, and the one
   // place a policy is held against — by the Insights producer, the turn
   // admission, and the clients.
-  // A session that just started has a record before the lineage names it: the runtime's live thread id resolves it.
-  useLiveRecordIds((sessionId) => opts.sessionRuntime.sessionTranscriptSource(sessionId)?.agentSessionId ?? null)
   useSessionIndexState(sessionIndexComplete)
   const hostOrganizationsDeps: { link: () => UplinkLinkConfig | null; hostToken: () => string | null } = { link: () => null, hostToken: () => null }
   const hostOrganizations = new HostOrganizations({ link: () => hostOrganizationsDeps.link(), hostToken: () => hostOrganizationsDeps.hostToken() })
@@ -484,11 +479,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // that mirrors nowhere, and on the service itself, a touch does nothing.
   const transcriptMirror = new TranscriptMirror({
     loadSession: (provider, sessionId, projectPath) => opts.sessionRuntime.history.loadSession(provider, sessionId, projectPath),
-    activitySubjectId: (sessionId) => opts.sessionRuntime.sessionActivitySubject(sessionId).id,
   })
   const touchTranscript = (sessionId: string): void => {
     const source = opts.sessionRuntime.sessionTranscriptSource(sessionId)
-    if (source) transcriptMirror.touch(source.agentSessionId, source)
+    if (source) transcriptMirror.touch(sessionId, source)
   }
   opts.sessionRuntime.useSeats(seats)
   const seatConnector = new SeatConnector({ seats })
@@ -615,7 +609,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const worktreeOffers = new WorktreeOffers({
     mover: worktreeMover,
     recordActivity: (sessionId, actor, kind) => opts.sessionRuntime.recordActivity({ kind: 'session', id: sessionId }, actor, kind),
-    sessionActivity: (sessionId) => activityFor(ANY_ORGANIZATION, opts.sessionRuntime.sessionActivitySubject(sessionId)),
+    sessionActivity: (sessionId) => activityFor(ANY_ORGANIZATION, { kind: 'session', id: sessionId }),
     hostActor: HOST_ACTOR,
   })
   opts.sessionRuntime.on('event', (sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
@@ -879,7 +873,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     if (presence.isSessionFocused(event.sessionId)) publishHostPresence()
     // A settled turn is mirrored at once, so the cloud copy is whole when the session goes quiet.
     touchTranscript(event.sessionId)
-    if (event.agentSessionId && !isSessionBusyStatus(event.status)) void transcriptMirror.flushNow(event.agentSessionId)
+    if (event.agentSessionId && !isSessionBusyStatus(event.status)) void transcriptMirror.flushNow(event.sessionId)
   })
   opts.sessionRuntime.on('watchers-changed', (sessionId: string) => publishSessionPresence(sessionId))
 
@@ -1004,8 +998,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     const coordinator = new PublicationCoordinator({
       delivery: runnerDelivery,
       transcriptMirror,
-      // A publication names the record (the provider thread id); the runtime's live session is found through it.
-      transcriptSource: (recordId) => opts.sessionRuntime.sessionTranscriptSource(opts.sessionRuntime.sessionIdForRecord(recordId)),
+      transcriptSource: (sessionId) => opts.sessionRuntime.sessionTranscriptSource(sessionId),
       hostId: () => uplinkManager.currentLink()?.hostId ?? null,
       onChanged: (publication) => events.broadcast('publication.changed', publication),
     })
@@ -1023,11 +1016,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // Organization runs on an attached machine (organization-vms §3, §4): the host acts
     // for the person behind each turn, and its tools use the Solus API as them.
     const delivery = runnerDelivery
-    domainEventUnsubscribes.push(onSessionRecordBound((sessionId, recordId) => hostDelegations.bindRecord(sessionId, recordId)))
     sessionDeps.delegations = hostDelegations
     sessionDeps.markAttached = () => { uplinkManager.markAttached() }
-    remoteToolOperations = ({ recordId, solusSessionId }) => {
-      const actor = (solusSessionId ? hostDelegations.actorOf(solusSessionId) : null) ?? hostDelegations.actorOf(recordId)
+    remoteToolOperations = (sessionId) => {
+      const actor = hostDelegations.actorOf(sessionId)
       if (!actor) return null
       return remoteWorkspaceOperations(hostDelegations.apiClient(actor.userId, actor.organizationId), (sessionRecordId) => delivery.deliverSessionReport(sessionRecordId))
     }
@@ -1091,7 +1083,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     ws.disconnectWhere((principal) => principal.kind === 'guest'
       && scopeAdmits(recordScopeOf(principal), organizationId)
       && principal.share.resource.kind === change.resource.kind
-      && shares.canonical(principal.share.resource).id === change.resource.id, 'share-link-revoked')
+      && principal.share.resource.id === change.resource.id, 'share-link-revoked')
   }))
   // A seat changes for one member; only that member's clients hear it.
   domainEventUnsubscribes.push(seats.onChanged((event) => {

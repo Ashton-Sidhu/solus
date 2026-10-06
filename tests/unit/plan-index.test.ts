@@ -41,6 +41,7 @@ function plan(planToolUseId: string, timestamp: number) {
   return {
     provider: 'codex' as const,
     sessionId: 'session-1',
+    threadId: 'session-1',
     planToolUseId,
     projectPath: '-Users-test-solus',
     cwd: '/Users/test/solus',
@@ -95,13 +96,28 @@ describe('persistent plan index', () => {
     expect(descriptor.bookmarked).toBe(true)
   })
 
+  test('a session that switched provider is one plan group; reindexing one thread keeps the other thread\'s plans', async () => {
+    // WHY: a plan belongs to its session (docs/plans/session-identity.md). The
+    // thread only says which transcript holds it, so the gallery shows one
+    // session and a transcript read replaces only its own plans.
+    await planIndex.replaceIndexedPlansForProvider('codex', [
+      plan('before-switch', 10),
+      { ...plan('after-switch', 20), threadId: 'thread-after-switch' },
+    ])
+    const [descriptor] = await planIndex.listIndexedPlans('local', 'codex', undefined, true)
+    expect(descriptor.sessionId).toBe('session-1')
+    expect(descriptor.revisions.map((revision) => revision.planToolUseId)).toEqual(['after-switch', 'before-switch'])
+    await planIndex.replaceIndexedPlansForThread('codex', 'thread-after-switch', [])
+    expect((await planIndex.listIndexedPlans('local', 'codex', undefined, true))[0].planToolUseId).toBe('before-switch')
+  })
+
   test('replaces only the changed session during incremental indexing', async () => {
     // WHY: one completed turn must not rescan or erase unrelated sessions.
     await planIndex.replaceIndexedPlansForProvider('codex', [
       plan('old', 10),
-      { ...plan('other', 15), sessionId: 'session-2' },
+      { ...plan('other', 15), sessionId: 'session-2', threadId: 'session-2' },
     ])
-    await planIndex.replaceIndexedPlansForSession('codex', 'session-1', [plan('new', 30)])
+    await planIndex.replaceIndexedPlansForThread('codex', 'session-1', [plan('new', 30)])
 
     const descriptors = await planIndex.listIndexedPlans('local', 'codex', undefined, true)
     expect(descriptors.map((descriptor) => descriptor.planToolUseId).sort()).toEqual(['new', 'other'])
@@ -115,7 +131,7 @@ describe('persistent plan index', () => {
       { ...plan('saved', 10), provider: 'claude-code' },
     ])
 
-    await planIndex.markIndexedPlanSessionUnavailable('claude-code', 'session-1')
+    await planIndex.markIndexedPlanThreadUnavailable('claude-code', 'session-1')
 
     const descriptor = (await planIndex.listIndexedPlans('local', 'claude-code', undefined, true))[0]
     expect(descriptor.planToolUseId).toBe('saved')
@@ -125,7 +141,7 @@ describe('persistent plan index', () => {
     await planIndex.replaceIndexedPlansForProvider('claude-code', [])
     expect((await planIndex.listIndexedPlans('local', 'claude-code', undefined, true))[0].planToolUseId).toBe('saved')
 
-    await planIndex.replaceIndexedPlansForSession('claude-code', 'session-1', [
+    await planIndex.replaceIndexedPlansForThread('claude-code', 'session-1', [
       { ...plan('saved', 10), provider: 'claude-code' },
     ])
     expect((await planIndex.listIndexedPlans('local', 'claude-code', undefined, true))[0].sessionAvailable).toBe(true)

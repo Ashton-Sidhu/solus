@@ -2,26 +2,15 @@ import { describe, expect, test } from 'bun:test'
 import { SidebarSessionStatusFeed } from '@solus/workspace-ui/components/session/lib/sidebar-session-status'
 
 describe('sidebar session status feed', () => {
-  test('keeps provider and stable session aliases on one timer', () => {
-    // WHY: start_session rows are keyed by the provider session id, while the
-    // global event is addressed by a different Solus session id.
+  test('names a row by its session id, never by its provider thread', () => {
+    // WHY: one session id (docs/plans/session-identity.md). A row with no tab
+    // reads this feed by the session id its record and task link hold.
     const feed = new SidebarSessionStatusFeed()
 
-    feed.apply('studio', {
-      sessionId: 'solus-session',
-      agentSessionId: 'provider-session',
-      status: 'running',
-      at: 1_000,
-    })
+    feed.apply('studio', { sessionId: 'solus-session', agentSessionId: 'provider-session', status: 'running', at: 1_000 })
 
-    expect(feed.stateFor('studio', 'provider-session')).toEqual({
-      attention: 'running',
-      runStartedAt: 1_000,
-    })
-    expect(feed.stateFor('studio', 'solus-session')).toEqual({
-      attention: 'running',
-      runStartedAt: 1_000,
-    })
+    expect(feed.stateFor('studio', 'solus-session')).toEqual({ attention: 'running', runStartedAt: 1_000 })
+    expect(feed.stateFor('studio', 'provider-session')).toBeNull()
   })
 
   test('a session with no tab still reports a background task after its turn ends', () => {
@@ -32,10 +21,10 @@ describe('sidebar session status feed', () => {
 
     feed.apply('studio', { ...event, status: 'running', at: 1_000 })
     feed.apply('studio', { ...event, status: 'background', at: 2_000 })
-    expect(feed.stateFor('studio', 'provider-session')?.attention).toBe('background')
+    expect(feed.stateFor('studio', 'solus-session')?.attention).toBe('background')
 
     feed.apply('studio', { ...event, status: 'completed', at: 3_000 })
-    expect(feed.stateFor('studio', 'provider-session')).toBeNull()
+    expect(feed.stateFor('studio', 'solus-session')).toBeNull()
   })
 
   test('keeps the same timer start across one busy turn and clears it on settlement', () => {
@@ -47,44 +36,26 @@ describe('sidebar session status feed', () => {
     feed.apply('studio', { ...event, status: 'running', at: 1_000 })
     feed.apply('studio', { ...event, status: 'awaiting_input', at: 2_000 })
     feed.apply('studio', { ...event, status: 'running', at: 3_000 })
-    expect(feed.stateFor('studio', 'provider-session')?.runStartedAt).toBe(1_000)
+    expect(feed.stateFor('studio', 'solus-session')?.runStartedAt).toBe(1_000)
 
     feed.apply('studio', { ...event, status: 'completed', at: 4_000 })
-    expect(feed.stateFor('studio', 'provider-session')).toBeNull()
     expect(feed.stateFor('studio', 'solus-session')).toBeNull()
   })
 
-  test('clears a provider timer when a handoff settles the stable session', () => {
-    // WHY: the provider id becomes null during a handoff. The stable id must
-    // still stop the row that has just moved to the handoff identity.
+  test('a provider switch keeps the row on its session', () => {
+    // WHY: the thread goes away during a switch; the session id does not, so
+    // the row that was running stops when the session settles.
     const feed = new SidebarSessionStatusFeed()
-    feed.apply('studio', {
-      sessionId: 'solus-session',
-      agentSessionId: 'provider-session',
-      status: 'running',
-      at: 1_000,
-    })
-    feed.apply('studio', {
-      sessionId: 'solus-session',
-      agentSessionId: null,
-      status: 'idle',
-      at: 2_000,
-    })
+    feed.apply('studio', { sessionId: 'solus-session', agentSessionId: 'provider-session', status: 'running', at: 1_000 })
+    feed.apply('studio', { sessionId: 'solus-session', agentSessionId: null, status: 'idle', at: 2_000 })
 
     expect(feed.stateFor('studio', 'solus-session')).toBeNull()
   })
 
-  test('does not mix equal provider session ids from different hosts', () => {
+  test('does not mix equal session ids from different hosts', () => {
     const feed = new SidebarSessionStatusFeed()
-
-    feed.apply('studio', {
-      sessionId: 'one',
-      agentSessionId: 'provider-session',
-      status: 'running',
-      at: 1_000,
-    })
-
-    expect(feed.stateFor('laptop', 'provider-session')).toBeNull()
+    feed.apply('studio', { sessionId: 'one', agentSessionId: 'provider-session', status: 'running', at: 1_000 })
+    expect(feed.stateFor('laptop', 'one')).toBeNull()
   })
 
   test('starts a new timer when a failed session runs again', () => {
@@ -94,10 +65,7 @@ describe('sidebar session status feed', () => {
     feed.apply('studio', { ...event, status: 'failed', at: 1_000 })
     feed.apply('studio', { ...event, status: 'running', at: 5_000 })
 
-    expect(feed.stateFor('studio', 'provider-session')).toEqual({
-      attention: 'running',
-      runStartedAt: 5_000,
-    })
+    expect(feed.stateFor('studio', 'solus-session')).toEqual({ attention: 'running', runStartedAt: 5_000 })
   })
 
   test('clears every attention status when its tab closes', () => {
@@ -108,9 +76,8 @@ describe('sidebar session status feed', () => {
 
     for (const status of ['awaiting_input', 'awaiting_plan', 'rate_limited', 'failed', 'running'] as const) {
       feed.apply('studio', { ...event, status, at: 1_000 })
-      feed.clear('studio', ['solus-session', 'provider-session'])
+      feed.clear('studio', 'solus-session')
       expect(feed.stateFor('studio', 'solus-session')).toBeNull()
-      expect(feed.stateFor('studio', 'provider-session')).toBeNull()
     }
   })
 })

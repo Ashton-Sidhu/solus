@@ -63,7 +63,7 @@ export function useAgentPresentations(store: ConversationStore, ids: readonly st
     void listed;
     const parent = app.threads.thread(hostId, store.controller.run.sessionId)?.record ?? null;
     return items.flatMap((item) => {
-      const child = item.kind === "agent" ? (app.threads.thread(hostId, item.agentSessionId)?.record ?? null) : null;
+      const child = item.kind === "agent" ? (app.threads.thread(hostId, item.sessionId)?.record ?? null) : null;
       const presentation = agentPresentation(item, child, parent);
       return presentation ? [presentation] : [];
     });

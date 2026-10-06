@@ -24,8 +24,7 @@ let insightsTools: InsightsToolsModule
 const agentToolContext: AgentToolContext = {
   provider: 'codex',
   cwd: '/tmp/project',
-  sessionId: () => 'session-1',
-  solusSessionId: () => 'solus-session-1',
+  sessionId: () => 'solus-session-1',
   abortSignal: new AbortController().signal,
   parentToolUseId: () => undefined,
   emit: () => {},

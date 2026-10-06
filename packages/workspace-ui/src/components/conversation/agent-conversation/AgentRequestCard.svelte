@@ -44,7 +44,7 @@
     request={request.question}
     provider={ref.provider}
     {shortcuts}
-    respond={(questionId, answers) => api.respondQuestion(ctx, ref.agentSessionId, questionId, answers).catch(answerRefused)}
+    respond={(questionId, answers) => api.respondQuestion(ctx, ref.sessionId, questionId, answers).catch(answerRefused)}
   />
 {:else if request.kind === "permission"}
   <PermissionCard
@@ -52,19 +52,19 @@
     permission={request.permission}
     cwd={ref.cwd}
     {shortcuts}
-    respond={(questionId, optionId) => void api.respondPermission(ctx, ref.agentSessionId, questionId, optionId).catch(answerRefused)}
+    respond={(questionId, optionId) => void api.respondPermission(ctx, ref.sessionId, questionId, optionId).catch(answerRefused)}
   />
 {:else}
   <div class="flex flex-col gap-2" data-testid="agent-plan-request">
     <PlanMessageItem
       ref={{
         kind: "plan",
-        id: request.plan.planToolUseId ? planKey(ref.agentSessionId, request.plan.planToolUseId) : undefined,
+        id: request.plan.planToolUseId ? planKey(ref.sessionId, request.plan.planToolUseId) : undefined,
         title: request.plan.title,
         content: request.plan.content,
         status: "pending",
       }}
     />
-    <AgentPlanDecision {tabId} targetAgentSessionId={ref.agentSessionId} />
+    <AgentPlanDecision {tabId} targetSessionId={ref.sessionId} />
   </div>
 {/if}

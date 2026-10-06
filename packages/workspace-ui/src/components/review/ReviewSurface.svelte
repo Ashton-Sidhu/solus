@@ -362,7 +362,7 @@
     target ??
       (guideScope === "session"
         ? sourceSession?.agentSessionId
-          ? { kind: "session", sessionId: sourceSession.agentSessionId }
+          ? { kind: "session", sessionId: sourceSession.id }
           : null
         : { kind: "branch" }),
   );

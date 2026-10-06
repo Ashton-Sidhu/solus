@@ -200,14 +200,14 @@ describe('durable queue controls', () => {
     await Promise.resolve()
     const order = { provider: 'claude-code' as const, prompt: 'Inspect the parser', modelId: 'claude-sonnet-5',
       reasoningEffort: 'medium' as const, contextWindow: 1_000_000, cwd: projectDir,
-      delegation: { parentAgentSessionId: 'permission-thread-1', messageId: 'delegate', intent: 'delegate' as const, createdAt: 1 } }
+      delegation: { parentSessionId: 'permission-parent', messageId: 'delegate', intent: 'delegate' as const, createdAt: 1 } }
     await expect(plane.dispatch.createSession({ ...order, permissionMode: 'full-access' }, HOST_ACTOR)).rejects.toThrow('cannot change permissions')
     const child = await plane.dispatch.createSession(order, HOST_ACTOR)
     expect(backend.requests[1]?.permissionMode).toBe('plan')
     backend.releaseOne()
     backend.releaseOne()
     await Promise.resolve()
-    await plane.dispatch.promptSession(child.agentSessionId, 'Inspect the next file', 'queue')
+    await plane.dispatch.promptSession(child.sessionId, 'Inspect the next file', 'queue')
     expect(backend.requests[2]?.permissionMode).toBe('plan')
   })
 

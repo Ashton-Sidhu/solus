@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { SendOutbox } from '@solus/client-core/send-outbox'
 import { HostRpcError, TransportDisconnectedError } from '@solus/client-core/rpc-error'
 import { REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText } from '@solus/contracts/types'
-import type { IpcContext, PromptOptions, WatchSessionInput, WireNormalizedEvent } from '@solus/contracts/types'
+import type { IpcContext, PromptOptions, WireNormalizedEvent } from '@solus/contracts/types'
 import type { SessionHistoryPage, SessionHistoryPageRequest } from '@solus/contracts/session-history'
 import { ConversationController, type ConversationTarget } from '../../apps/mobile/src/features/conversation/conversation-controller'
 import { memoryKeyValueStore } from '../../apps/mobile/src/platform/ports'
@@ -48,7 +48,7 @@ function baseApi(): FakeApi {
   return new FakeApi()
     .on('describeSession', () => ({ lineage: null, meta: null }))
     .on('loadSessionPage', () => page([userRow('hello', 'm1'), assistantRow('hi there', 'm2')]))
-    .on('watchSession', (input: WatchSessionInput) => ({ sessionId: input.sessionId ?? 'solus-1', runtime: null }))
+    .on('watchSession', () => ({ runtime: null }))
     .on('unwatchSession', () => undefined)
     .on('prompt', () => ({ disposition: 'started' }))
 }
@@ -79,22 +79,23 @@ describe('native conversation: history and live events', () => {
     releasePage(page([userRow('hello', 'm1')]))
     await loading
     expect(conversationCalls(api)).toEqual(['describeSession', 'loadSessionPage', 'watchSession'])
-    expect(api.callsOf('watchSession')[0]?.[0]).toEqual({ sessionId: 'thread-1', agentSessionId: 'thread-1', provider: 'claude-code', attachRuntime: true })
+    expect(api.callsOf('watchSession')[0]?.[0]).toEqual({ sessionId: 'thread-1', attachRuntime: true })
     expect(texts(controller)).toEqual(['user:hello', 'assistant:later'])
     expect(controller.phase).toEqual({ kind: 'ready' })
   })
 
-  test('adopts the id the host answers with and streams into one assistant row', async () => {
-    const api = baseApi().on('watchSession', () => ({ sessionId: 'solus-9', runtime: { status: 'running', modelConfig: null, permissionMode: null, queuedPrompts: [], rateLimitInfo: null } }))
+  test('keeps the session id it opened and streams into one assistant row', async () => {
+    // WHY: a session has one id everywhere (docs/plans/session-identity.md);
+    // the watch never renames it.
+    const api = baseApi().on('watchSession', () => ({ runtime: { status: 'running', modelConfig: null, permissionMode: null, queuedPrompts: [], rateLimitInfo: null } }))
     const { controller, transport, changes } = await open({ api })
     await controller.load()
-    expect(controller.run.sessionId).toBe('solus-9')
+    expect(controller.run.sessionId).toBe('thread-1')
     expect(controller.model.status).toBe('running')
 
-    transport.emitSession('thread-1', { type: 'text_chunk', text: 'ignored: old id' })
     changes.length = 0
-    transport.emitSession('solus-9', { type: 'text_chunk', text: 'Hel' })
-    transport.emitSession('solus-9', { type: 'text_chunk', text: 'lo' })
+    transport.emitSession('thread-1', { type: 'text_chunk', text: 'Hel' })
+    transport.emitSession('thread-1', { type: 'text_chunk', text: 'lo' })
     expect(texts(controller)).toEqual(['user:hello', 'assistant:hi there', 'assistant:Hello'])
     // The second token changes one row and does not re-order the list.
     expect(changes[1]).toEqual({ items: [controller.model.order[2]!], order: false, meta: false })
@@ -152,9 +153,8 @@ describe('native conversation: history and live events', () => {
     const api = baseApi()
     const { controller } = await open({ api, target: { hostId: 'inst-a', record: record('codex') } })
     await controller.load()
-    expect(api.callsOf('describeSession')[0]).toEqual(['codex', 'thread-1'])
+    expect(api.callsOf('describeSession')[0]).toEqual(['thread-1'])
     expect(api.callsOf('loadSessionPage')[0]?.[0]).toMatchObject({ provider: 'codex' })
-    expect(api.callsOf('watchSession')[0]?.[0]).toMatchObject({ provider: 'codex' })
     await controller.send('go')
     const [ctx] = api.callsOf('prompt')[0] as [IpcContext, PromptOptions]
     expect(ctx.session.provider).toBe('codex')
@@ -175,7 +175,7 @@ describe('native conversation: history and live events', () => {
 describe('native conversation: sending', () => {
   test('a new session watches, then prompts with no provider thread, and learns it from session_init', async () => {
     const api = new FakeApi()
-      .on('watchSession', (input: WatchSessionInput) => ({ sessionId: input.sessionId! }))
+      .on('watchSession', () => ({}))
       .on('prompt', () => ({ disposition: 'started' }))
     const { controller, transport } = await open({ api, target: { hostId: 'inst-a', newSession: { sessionId: 'new-1', provider: 'claude-code', workingDirectory: '/work/app' } } })
     await controller.load()

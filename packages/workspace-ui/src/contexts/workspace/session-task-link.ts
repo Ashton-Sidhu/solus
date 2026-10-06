@@ -1,30 +1,18 @@
-import type { Session, Tab } from '@solus/contracts/types'
 import type { Task } from '@solus/contracts/task-types'
-import { existingTaskId, taskBindingSessionId } from './session-draft.svelte'
+import { existingTaskId } from './session-draft.svelte'
 import type { WorkspaceContext } from './workspace.context.svelte'
 
 /** The workspace members these commands read or call, and no others. */
-type SessionTaskLinkWorkspace = Pick<WorkspaceContext, 'sessionFor' | 'tabs' | 'tasksStore'>
-
-/** Every id a task link can hold for one mounted session. */
-function sessionIdsOf(tab: Pick<Tab, 'sessionId'>, session: Session): string[] {
-  return [taskBindingSessionId(session), tab.sessionId, session.agentSessionId, session.forkedFromSessionId]
-    .filter((sessionId): sessionId is string => !!sessionId)
-}
+type SessionTaskLinkWorkspace = Pick<WorkspaceContext, 'sessionFor' | 'tasksStore'>
 
 /**
  * The task a mounted session belongs to: the task that links it, or, before
  * its first prompt, the task it will join. Null for a session with no task.
  */
 export function taskOfTab(workspace: SessionTaskLinkWorkspace, tabId: string): Task | null {
-  const tab = workspace.tabs[tabId]
   const session = workspace.sessionFor(tabId)
-  if (!tab || !session) return null
-  for (const sessionId of sessionIdsOf(tab, session)) {
-    const task = workspace.tasksStore.taskForSession(sessionId)
-    if (task) return task
-  }
-  return workspace.tasksStore.peek(existingTaskId(session.task))
+  if (!session) return null
+  return workspace.tasksStore.taskForSession(session.id) ?? workspace.tasksStore.peek(existingTaskId(session.task))
 }
 
 /**
@@ -39,8 +27,8 @@ export async function linkTabToTask(workspace: SessionTaskLinkWorkspace, tabId: 
     ? ticket
     : await workspace.tasksStore.get(ticket.id, ticket.projectKey ?? undefined).promote()
   const model = workspace.tasksStore.get(task.id)
-  const sessionId = taskBindingSessionId(session)
-  if (session.agentSessionId && sessionId) {
+  const sessionId = session.id
+  if (session.agentSessionId) {
     const taskServerId = model.serverId ?? session.run.taskServerId
     // Where the agent ran, when that is not the task's own host.
     const execution = session.run.serverId === taskServerId
@@ -58,14 +46,10 @@ export async function linkTabToTask(workspace: SessionTaskLinkWorkspace, tabId: 
 /** Take a mounted session out of its task. The session keeps its pull
  *  requests; the task stops reading them. */
 export async function unlinkTabFromTask(workspace: SessionTaskLinkWorkspace, tabId: string): Promise<void> {
-  const tab = workspace.tabs[tabId]
   const session = workspace.sessionFor(tabId)
   const task = taskOfTab(workspace, tabId)
-  if (!tab || !session || !task) return
+  if (!session || !task) return
   const model = workspace.tasksStore.get(task.id)
-  const ids = new Set(sessionIdsOf(tab, session))
-  for (const link of model.sessions.filter((candidate) => ids.has(candidate.sessionId))) {
-    await model.unlinkSession(link.sessionId)
-  }
+  if (model.sessions.some((link) => link.sessionId === session.id)) await model.unlinkSession(session.id)
   session.task = { kind: 'none' }
 }

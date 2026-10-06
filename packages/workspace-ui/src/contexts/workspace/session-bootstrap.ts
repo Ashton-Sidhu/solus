@@ -256,20 +256,14 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
         return
       }
 
-      // Re-register with the server so event routing is alive again. Send the
-      // provider thread too: without it main cannot recognise the session and
-      // simply opens a watch under whatever id we hand it, which is the stale
-      // one whenever another client named this thread first.
-      // The same round trip attaches to the live runtime when there is a
-      // provider thread to attach to.
+      // Re-register with the server so event routing is alive again. The same
+      // round trip attaches to the live runtime when there is a provider thread
+      // to attach to.
       const api = ctx.apiFor(tabId)
       const watched = await api.watchSession({
         sessionId,
-        agentSessionId: session.agentSessionId ?? undefined,
-        provider: session.run.provider ?? undefined,
         attachRuntime: !!session.agentSessionId,
       }).catch(() => null)
-      if (watched) ctx.adoptSessionId(tabId, watched.sessionId)
 
       // Registration needs the watch above, hence not earlier.
       const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: tabId, level: 'status', force: false }).catch(() => null)
@@ -484,34 +478,31 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   const api = ctx.apiFor(snapTab.tabId)
   const snapshotProvider = snapTab.provider ?? ctx.settings.activeAgent
   const displayCwd = snapTab.workingDirectory || ctx.staticInfo?.projectPath || NEW_CHAT_DIRECTORY
-  // Provider ids already resolve to the complete lineage inside loadSession.
-  // Read the bytes alongside identity, but build cards using resolved identity
-  // below. A worktree transcript lives under its checkout, not the repo root.
+  // The host reads the session's whole lineage from its session id. Read the
+  // bytes alongside the lineage, but build cards using the lineage below. A
+  // worktree transcript lives under its checkout, not the repo root.
   const loadPath = snapTab.gitContext?.worktreePath || displayCwd
   const history = snapTab.agentSessionId
     ? requestSessionHistoryPage(api, {
-        sessionId: snapTab.agentSessionId, projectPath: loadPath, provider: snapshotProvider,
+        sessionId: session.id, projectPath: loadPath, provider: snapshotProvider,
         turnLimit: INITIAL_HISTORY_TURNS,
       })
     : undefined
   // Observe an early rejection while lineage is pending; awaiting history below
   // still propagates it so selection/reconnect can retry the hydration.
   void history?.catch(() => null)
-  const handoff = await api.resolveSessionLineage(
-    snapshotProvider,
-    snapTab.agentSessionId ?? session.id,
-  ).catch(() => null)
+  const handoff = (await api.describeSession(session.id).catch(() => null))?.lineage ?? null
   if (ctx.sessionFor(snapTab.tabId) !== session) return false
   const activeMember = handoff?.active
   if (activeMember) {
-    session.handoffId = handoff?.sessionId
+    session.handoffPending = !activeMember.providerSessionId
     session.run.provider = activeMember.provider
     session.agentSessionId = activeMember.providerSessionId
   }
 
 
   if (snapTab.agentSessionId || handoff) {
-    const sessionId = handoff?.sessionId ?? snapTab.agentSessionId
+    const sessionId = session.id
     const provider = activeMember?.provider ?? snapshotProvider
     const tabId = snapTab.tabId
     session.loadingHistory = session.messages.length === 0
@@ -578,26 +569,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   void afterPaint().then(async () => {
     if (ctx.sessionFor(snapTab.tabId) !== session) return
     const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: snapTab.tabId, force: false }).catch(() => null)
-    const taskSessionId = handoff?.sessionId ?? session.id
-    const providerTaskSessionId = activeMember?.providerSessionId ?? snapTab.agentSessionId
-    const taskHydration = taskSessionId
-      ? ctx.tasksStore.ensureSessionBinding(taskSessionId, snapTab.taskServerId)
-          .then(async (task) => {
-            if (task || !providerTaskSessionId || providerTaskSessionId === taskSessionId) return task
-            const legacyTask = await ctx.tasksStore.ensureSessionBinding(
-              providerTaskSessionId,
-              snapTab.taskServerId,
-            )
-            if (!legacyTask) return null
-            ctx.tasksStore.rekeySessionBinding(
-              providerTaskSessionId,
-              taskSessionId,
-              snapTab.taskServerId,
-            )
-            return legacyTask
-          })
-          .catch(() => null)
-      : Promise.resolve(null)
+    const taskHydration = ctx.tasksStore.ensureSessionBinding(session.id, snapTab.taskServerId).catch(() => null)
     await Promise.all([environmentRefresh, taskHydration])
   })
 
@@ -605,19 +577,9 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
     // Join the live event stream only after durable history is in memory.
     // Otherwise an event that arrives during loadSession makes the successful
     // history response look stale and the restored session can stay blank.
-    // Main is authoritative on identity: this snapshot minted its own uuid for a
-    // provider thread that another client may already have open under a different
-    // one. Adopt what main answers with, or events published under its id never
-    // reach this client's reducer and the tab sits frozen while the other streams.
     // The same round trip attaches to the live runtime, which a separate bind
     // used to do after the watch.
-    const watched = await api.watchSession({
-      sessionId: handoff?.sessionId ?? session.id,
-      agentSessionId: session.agentSessionId,
-      provider: session.run.provider ?? undefined,
-      attachRuntime: true,
-    })
-    ctx.adoptSessionId(snapTab.tabId, watched.sessionId)
+    const watched = await api.watchSession({ sessionId: session.id, attachRuntime: true })
     ctx.applyPendingQuestions(snapTab.tabId, watched.pendingQuestions)
     const info = watched.runtime ?? null
     if (info && session) {

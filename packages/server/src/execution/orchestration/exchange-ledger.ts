@@ -146,14 +146,13 @@ function draftOf(exchange: Exchange): Exchange {
 function record(exchange: Exchange): SavedExchange {
   return {
     exchangeId: exchange.exchangeId, kind: exchange.kind,
-    senderSessionId: exchange.senderSessionId, senderAgentSessionId: exchange.senderAgentSessionId,
-    targetSessionId: exchange.targetSessionId, targetAgentSessionId: exchange.targetAgentSessionId,
+    senderSessionId: exchange.senderSessionId, targetSessionId: exchange.targetSessionId,
     provider: exchange.provider, notify: exchange.notify, state: exchange.state, runId: exchange.runId,
     parentExchangeIds: exchange.parentExchangeIds ?? [], fingerprint: exchange.fingerprint,
     disposition: exchange.disposition, dispatchedAt: exchange.dispatchedAt, settledAt: exchange.settledAt,
     outcome: exchange.outcome, deliveryState: exchange.deliveryState, deliveryQueueId: exchange.deliveryQueueId,
     outputsText: formatSessionReport({
-      messageId: exchange.exchangeId, agentSessionId: exchange.targetAgentSessionId,
+      messageId: exchange.exchangeId, sessionId: exchange.targetSessionId,
       status: exchange.outcome ?? 'completed', outputs: exchange.outputs, reply: '',
     }),
     reportText: exchange.report ? formatSessionReport(exchange.report) : undefined,

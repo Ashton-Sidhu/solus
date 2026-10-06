@@ -84,7 +84,6 @@ async function makeController(
     }) as any,
     apiForRun: (worktreeHarness?.apiForRun ?? (() => ({}))) as any,
     refreshPluginCommands: () => {},
-    rekeyTaskSessionBinding: () => {},
     refreshGitRefs: () => {},
     refreshGitState: worktreeHarness?.refreshGitState
       ?? (async () => ({ status: true, details: true, refs: true, registration: true, ok: true })),
@@ -221,11 +220,6 @@ describe('default model preference', () => {
     const controller = await makeController(settings, session, {
       fromProvider: 'claude-code',
       fromSessionId: 'claude-session',
-      handoffId: 'stable-session',
-      taskSessionMove: {
-        sourceSessionId: 'claude-session',
-        targetSessionId: 'stable-session',
-      },
     }, undefined, { queueChanges })
 
     await controller.switchActiveAgent('codex')
@@ -265,11 +259,6 @@ describe('default model preference', () => {
     const controller = await makeController(settings, session, {
       fromProvider: 'claude-code',
       fromSessionId: 'claude-session',
-      handoffId: 'stable-session',
-      taskSessionMove: {
-        sourceSessionId: 'claude-session',
-        targetSessionId: 'stable-session',
-      },
     }, undefined, { queueChanges })
 
     await controller.switchActiveAgent('codex')

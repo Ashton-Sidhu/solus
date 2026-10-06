@@ -7,6 +7,7 @@ import { LOCAL_ORGANIZATION_ID, provisionedOrganizationId } from '../host/host-c
 import { scopeClause } from '../data/scope'
 import { organizationOfSession, organizationsOfSessions } from '../data/sessions/session-records'
 import { extractPlanTitle } from '../execution/agents/plan-text'
+import { sessionIdOfThread } from '../data/sessions/session-lineage'
 import { indexedPlans, planAnnotations, planIndexProviders } from './schema'
 
 const planStatusSchema = z.enum(['pending', 'accepted', 'rejected'])
@@ -35,7 +36,10 @@ type IndexedPlanRow = z.infer<typeof indexedPlanRowSchema>
 
 export interface IndexedPlanInput {
   provider: AgentId
+  /** The session the plan belongs to. */
   sessionId: string
+  /** The thread whose transcript holds it. */
+  threadId: string
   planToolUseId: string
   projectPath: string
   cwd: string
@@ -72,14 +76,15 @@ export async function indexLivePlan(
 async function insertPlan(db: Db, organizationId: string, input: IndexedPlanInput): Promise<void> {
   await db.run(sql`
     INSERT INTO ${indexedPlans} (
-      provider, session_id, plan_tool_use_id, project_path, cwd, project_root,
+      provider, session_id, thread_id, plan_tool_use_id, project_path, cwd, project_root,
       timestamp, title, excerpt, plan_file_path, content, derived_status, session_available, organization_id
     ) VALUES (
-      ${input.provider}, ${input.sessionId}, ${input.planToolUseId}, ${input.projectPath}, ${input.cwd},
+      ${input.provider}, ${input.sessionId}, ${input.threadId}, ${input.planToolUseId}, ${input.projectPath}, ${input.cwd},
       ${worktreeProjectRoot(input.cwd)}, ${input.timestamp}, ${input.title}, ${input.excerpt},
       ${input.planFilePath ?? null}, ${input.content}, ${input.derivedStatus}, 1, ${organizationId}
     )
     ON CONFLICT(provider, session_id, plan_tool_use_id) DO UPDATE SET
+      thread_id = excluded.thread_id,
       project_path = excluded.project_path,
       cwd = excluded.cwd,
       project_root = excluded.project_root,
@@ -94,16 +99,17 @@ async function insertPlan(db: Db, organizationId: string, input: IndexedPlanInpu
   `)
 }
 
-export async function replaceIndexedPlansForSession(
+/** Replace what one transcript holds: the plans of one thread. */
+export async function replaceIndexedPlansForThread(
   provider: AgentId,
-  sessionId: string,
+  threadId: string,
   plans: IndexedPlanInput[],
 ): Promise<void> {
-  const organizationId = await organizationOfSession(sessionId)
+  const organizationId = await organizationOfSession(sessionIdOfThread(threadId))
   await getDatabase().transaction(async (db) => {
     await db.run(sql`
       DELETE FROM ${indexedPlans}
-      WHERE provider = ${provider} AND session_id = ${sessionId}
+      WHERE provider = ${provider} AND thread_id = ${threadId}
     `)
     for (const plan of plans) await insertPlan(db, organizationId, plan)
   })
@@ -133,13 +139,14 @@ export async function replaceIndexedPlansForProvider(
   })
 }
 
-export async function markIndexedPlanSessionUnavailable(
+/** The thread's transcript is gone: its plans stay, but cannot be resumed. */
+export async function markIndexedPlanThreadUnavailable(
   provider: AgentId,
-  sessionId: string,
+  threadId: string,
 ): Promise<void> {
   await getDatabase().run(sql`
     UPDATE ${indexedPlans} SET session_available = 0
-    WHERE provider = ${provider} AND session_id = ${sessionId}
+    WHERE provider = ${provider} AND thread_id = ${threadId}
   `)
 }
 

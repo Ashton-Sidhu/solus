@@ -150,7 +150,7 @@ for (const provider of ['claude-code', 'codex'] as const) {
     test('the host tells the provider no and broadcasts each request as expired', async () => {
       const { backend, plane, events, lifecycle, sessionId, threadId, asyncId } = await askingRun(provider)
       try {
-        expect(plane.statuses.liveSessionStatus(threadId)).toBe('awaiting_input')
+        expect(plane.statuses.liveSessionStatus(sessionId)).toBe('awaiting_input')
         backend.stop(threadId)
         await lifecycle.done
 
@@ -191,7 +191,7 @@ for (const provider of ['claude-code', 'codex'] as const) {
       try {
         backend.stop(threadId)
         await lifecycle.done
-        expect(plane.watchers.watchSession({ sessionId: sessionId, agentSessionId: threadId }, 'late').pendingQuestions)
+        expect(plane.watchers.watchSession({ sessionId: sessionId}, 'late').pendingQuestions)
           .toContainEqual(expect.objectContaining({ questionId: asyncId }))
 
         expect(await plane.inputRequests.respondToQuestion(sessionId, asyncId, { '0': 'pnpm' }, HOST_ACTOR)).toBe(true)

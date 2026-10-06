@@ -57,7 +57,7 @@ export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher, seatF
     requiresApproval: false,
     execute: async (rawArgs, context) => {
       // The session whose turn starts the subagent: its person's instructions apply.
-      const parentSessionId = context.solusSessionId()
+      const parentSessionId = context.sessionId()
       const args = claudeSubagentInputSchema.parse(rawArgs)
       const model = args.model && claudeProfiles[args.model] ? args.model : DEFAULT_CLAUDE_MODEL
       const reasoningEffort =

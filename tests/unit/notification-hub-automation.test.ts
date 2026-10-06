@@ -62,7 +62,7 @@ describe.skipIf(Boolean(process.env.DATABASE_URL))('automation results', () => {
   test('the row names the conversation the run started, so the hub can open it', async () => {
     const automation = await automations.createAutomation('Nightly', action, dana)
     const run = await automations.startRun(automation.id)
-    await automations.finishRun(automation.id, run.id, { status: 'succeeded', agentSessionId: 'agent-session-1' })
+    await automations.finishRun(automation.id, run.id, { status: 'succeeded', sessionId: 'agent-session-1' })
     expect((await inbox('dana'))[0]?.resource).toEqual({ kind: 'automation', automationId: automation.id, runId: run.id, sessionId: 'agent-session-1' })
   })
 

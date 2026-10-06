@@ -69,8 +69,7 @@ export class RestartRecovery {
         this.restartRuns.remove(saved.sessionId, saved.runId)
         continue
       }
-      const sourceThread = saved.input.agentSessionId
-      if (await organizationOfSession(sourceThread ?? saved.sessionId) !== LOCAL_ORGANIZATION_ID) {
+      if (await organizationOfSession(saved.sessionId) !== LOCAL_ORGANIZATION_ID) {
         this.restartRuns.remove(saved.sessionId, saved.runId)
         continue
       }

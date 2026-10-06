@@ -154,11 +154,6 @@ export interface ShareChange extends ShareChangedEvent {
 export interface ShareManagerDeps {
   db: Db
   /**
-   * A session is addressed by its stable Solus id, but some calls carry a provider
-   * thread id. The lineage table maps one to the other; identity when it has no row.
-   */
-  canonicalSessionId?: (sessionId: string) => string
-  /**
    * Whether the host has any record of a session. A session nobody has recorded
    * yet is new, and the member starting it may: the access check runs before the
    * first prompt claims ownership. Without it every unowned session is closed.
@@ -195,17 +190,10 @@ export class ShareManager {
     return () => { this.listeners.delete(listener) }
   }
 
-  /** Session ids are normalized so a share made on the stable id also covers the provider id. */
-  canonical(resource: ShareResource): ShareResource {
-    if (resource.kind !== 'session' || !this.deps.canonicalSessionId) return resource
-    const id = this.deps.canonicalSessionId(resource.id)
-    return id === resource.id ? resource : { kind: 'session', id }
-  }
-
   // ── Ownership ───────────────────────────────────────────────────────────
 
   async ownerOf(resource: ShareResource): Promise<string | null> {
-    return (await this.ownerRow(this.canonical(resource)))?.subject_id ?? null
+    return (await this.ownerRow(resource))?.subject_id ?? null
   }
 
   /** Owner metadata for a bounded page that has already passed resource visibility. */
@@ -268,15 +256,14 @@ export class ShareManager {
   ): Promise<string | null> {
     const ownerUserId = ownerKeyOf(actorFor(principal))
     if (!ownerUserId) return this.ownerOf(resource)
-    const canonical = this.canonical(resource)
-    const organizationId = await this.recordOrganization(canonical) ?? organizationForNew(principal)
-    const inserted = await this.insertOwner(canonical, ownerUserId, organizationId)
+    const organizationId = await this.recordOrganization(resource) ?? organizationForNew(principal)
+    const inserted = await this.insertOwner(resource, ownerUserId, organizationId)
     if (inserted && options.shareWithOrganization !== false && isOrganizationSpace(principal)) {
-      await this.insertOrganizationGrant(canonical, principal.organizationId, ownerUserId)
+      await this.insertOrganizationGrant(resource, principal.organizationId, ownerUserId)
     }
     if (inserted) return scopeAdmits(recordScopeOf(principal), organizationId) ? ownerUserId : null
     // A resource another organization owns is not this caller's to see: the claim changed nothing and answers nothing.
-    const row = await this.ownerRow(canonical)
+    const row = await this.ownerRow(resource)
     if (!row || !scopeAdmits(recordScopeOf(principal), row.organization_id)) return null
     return row.subject_id
   }
@@ -290,10 +277,9 @@ export class ShareManager {
   async shareWithOrganization(resource: ShareResource, principal: Principal): Promise<void> {
     const ownerUserId = ownerKeyOf(actorFor(principal))
     if (!ownerUserId || !isOrganizationSpace(principal)) return
-    const canonical = this.canonical(resource)
-    const owner = await this.ownerRow(canonical)
+    const owner = await this.ownerRow(resource)
     if (owner?.subject_id !== ownerUserId) return
-    await this.insertOrganizationGrant(canonical, principal.organizationId, ownerUserId)
+    await this.insertOrganizationGrant(resource, principal.organizationId, ownerUserId)
   }
 
   /**
@@ -304,9 +290,8 @@ export class ShareManager {
    * it is a chat (plan 004 D14). A resource that already has an owner is left as it is.
    */
   async claimForRunner(resource: ShareResource, runner: Extract<Principal, { kind: 'runner' }>, options: { shareWithOrganization: boolean } = { shareWithOrganization: true }): Promise<void> {
-    const canonical = this.canonical(resource)
-    const inserted = await this.insertOwner(canonical, runner.ownerUserId, runner.organizationId)
-    if (inserted && options.shareWithOrganization) await this.insertOrganizationGrant(canonical, runner.organizationId, runner.ownerUserId)
+    const inserted = await this.insertOwner(resource, runner.ownerUserId, runner.organizationId)
+    if (inserted && options.shareWithOrganization) await this.insertOrganizationGrant(resource, runner.organizationId, runner.ownerUserId)
   }
 
   /**
@@ -320,21 +305,20 @@ export class ShareManager {
    * touched. Called once, at admission, before the provider starts.
    */
   async adoptForOrganization(resource: ShareResource, organizationId: string, ownerUserId: string, options: { shareWithOrganization: boolean }): Promise<void> {
-    const canonical = this.canonical(resource)
     await this.deps.db.transaction(async (db) => {
-      const owner = await this.ownerRow(canonical)
+      const owner = await this.ownerRow(resource)
       if (owner && owner.organization_id !== LOCAL_ORGANIZATION_ID && owner.organization_id !== organizationId) return
       // The new owner's own named row would duplicate the owner row.
       await db.run(sql`
         DELETE FROM ${shareGrant}
-        WHERE resource_kind = ${canonical.kind} AND resource_id = ${canonical.id} AND subject_kind = 'user' AND subject_id = ${ownerUserId} AND role <> 'owner'
+        WHERE resource_kind = ${resource.kind} AND resource_id = ${resource.id} AND subject_kind = 'user' AND subject_id = ${ownerUserId} AND role <> 'owner'
       `)
       if (owner) {
         await db.run(sql`UPDATE ${shareGrant} SET subject_id = ${ownerUserId}, granted_by_user_id = ${ownerUserId}, organization_id = ${organizationId} WHERE id = ${owner.id}`)
       } else {
-        await this.insertOwner(canonical, ownerUserId, organizationId)
+        await this.insertOwner(resource, ownerUserId, organizationId)
       }
-      if (options.shareWithOrganization) await this.insertOrganizationGrant(canonical, organizationId, ownerUserId)
+      if (options.shareWithOrganization) await this.insertOrganizationGrant(resource, organizationId, ownerUserId)
     })
   }
 
@@ -395,8 +379,7 @@ export class ShareManager {
    * The resource's rows, in one read, and its organization. The organization is
    * the owner row's; only the two checks no row can answer ask the record.
    */
-  private async access(principal: Principal, requested: ShareResource): Promise<ResourceAccess> {
-    const resource = this.canonical(requested)
+  private async access(principal: Principal, resource: ShareResource): Promise<ResourceAccess> {
     const standing = await this.standing(resource)
     // A Local-only host owner must not open an organization record through a
     // stale or missing row: a fork or an Insights assignment moves a session into
@@ -427,7 +410,7 @@ export class ShareManager {
     // A record of another organization is not this member's to see, whatever the rows say (§3).
     if (!admitted) return 'none'
     if (principal.kind === 'guest') {
-      const bound = this.canonical(principal.share.resource)
+      const bound = principal.share.resource
       if (bound.kind === 'task' || !sameResource(bound, access.resource)) return 'none'
       // The link the guest arrived with must still exist unchanged, in the guest's organization.
       const row = linkRowOf(access.standing)
@@ -472,7 +455,7 @@ export class ShareManager {
    */
   async visibleIds(principal: Principal, kind: ShareResourceKind): Promise<'all' | Set<string>> {
     if (principal.kind === 'guest') {
-      const bound = this.canonical(principal.share.resource)
+      const bound = principal.share.resource
       if (await this.roleFor(principal, bound) === 'none') return new Set()
       return new Set(bound.kind === kind ? [bound.id] : [])
     }
@@ -498,9 +481,8 @@ export class ShareManager {
       : null
     return items.filter((item) => {
       const id = idOf(item)
-      const canonicalId = this.canonical({ kind, id }).id
-      if (visible.has(id) || visible.has(canonicalId)) return true
-      return owned !== null && !owned.has(canonicalId)
+      if (visible.has(id)) return true
+      return owned !== null && !owned.has(id)
     })
   }
 
@@ -684,10 +666,9 @@ export class ShareManager {
 
   /** Removes every row, the owner row included, when a resource is deleted. */
   async forget(resource: ShareResource): Promise<void> {
-    const canonical = this.canonical(resource)
     await this.deps.db.run(sql`
       DELETE FROM ${shareGrant}
-      WHERE resource_kind = ${canonical.kind} AND resource_id = ${canonical.id}
+      WHERE resource_kind = ${resource.kind} AND resource_id = ${resource.id}
     `)
   }
 

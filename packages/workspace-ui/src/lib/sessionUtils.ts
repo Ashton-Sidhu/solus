@@ -447,17 +447,14 @@ export function findOpenTabForSession(
     if (!sess) continue
     if (provider && sess.run.provider !== provider) continue
     if (serverId && sess.run.serverId !== serverId) continue
-    // Our own session ids are client-minted and collision-free, so they match
-    // without a host. Provider ids are host-minted and can collide across
-    // hosts, so an agent-session match requires the caller to name the host.
+    // A tab names its session by the session id (docs/plans/session-identity.md).
     if (tab.sessionId === sessionId) return tabId
-    if (sess.agentSessionId === sessionId && serverId) return tabId
   }
   return null
 }
 
-/** What the attempt surfaces need from the workspace to resolve a provider
- *  session id onto a mounted tab. `sessionFor` rather than a `sessions` index
+/** What the attempt surfaces need from the workspace to resolve a session id
+ *  onto a mounted tab. `sessionFor` rather than a `sessions` index
  *  read: the workspace registry can answer for tabs the plain record can't. */
 export interface OpenSessionLookup {
   tabs: Record<string, Tab>
@@ -466,10 +463,10 @@ export interface OpenSessionLookup {
   sessionFor(tabId: string): Session | undefined
 }
 
-/** The mounted tab running a provider session, paired with its live state.
+/** The mounted tab running a session, paired with its live state.
  *  Null when the session has no tab open — the ordinary case for a task's
  *  earlier attempts, which are read from their durable link instead. The
- *  caller names the attempt's host: provider ids only match host-scoped. */
+ *  caller names the attempt's host: a dispatched session has the same id on two hosts. */
 export function openSessionFor(
   sessionId: string,
   serverId: string | null,

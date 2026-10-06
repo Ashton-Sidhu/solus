@@ -42,8 +42,7 @@ function context(provider: 'claude-code' | 'codex', emitted: NormalizedEvent[] =
   return {
     provider,
     cwd: '/tmp/project',
-    sessionId: () => 'parent',
-    solusSessionId: () => 'solus-parent',
+    sessionId: () => 'solus-parent',
     abortSignal: new AbortController().signal,
     parentToolUseId: () => 'tool-1',
     emit: (event) => emitted.push(event),

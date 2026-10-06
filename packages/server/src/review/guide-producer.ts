@@ -8,7 +8,7 @@ import { readGuideByKey, readLedgerByKey, resolveReviewContext, reviewCheckout, 
 import { runReviewAgent } from './review-agent'
 import { contextPreferences } from '../execution/agents/run-input'
 import { normalizeGuide } from './review-guide-tool'
-import { fingerprintReviewPatch, guideKeyForTarget, normalizedReviewTarget } from './review-target'
+import { fingerprintReviewPatch, guideKeyForTarget, normalizedReviewTarget, reviewedSessionId } from './review-target'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
 import type { SeatResolver } from '../execution/seats/seat-manager'
 import { runAsync } from '../git/exec'
@@ -91,7 +91,7 @@ function branchGuideBase(ctx: Pick<IpcContext, 'session'>, review: ReviewContext
  * apart instead of coalescing onto one run. Session fallback keeps its requested
  * key; stacked generation resolves the parent/child merge-base once, up front. */
 export async function resolveTargetBase(ctx: Pick<IpcContext, 'session'>, review: ReviewContext, opts: GenerateGuideOptions): Promise<Omit<GuideTarget, 'patch' | 'changeFingerprint'>> {
-  const sessionId = ctx.session.agentSessionId
+  const sessionId = reviewedSessionId(ctx)
   const target = normalizedReviewTarget(opts, sessionId)
   if (target.kind === 'session') return resolveSessionGuideTarget(review, target, sessionId)
   let branchBase = opts.regenerationBaseSha
@@ -226,7 +226,7 @@ export async function generateGuide(
   // Resolve from the actual checkout (the worktree, for PR review / isolation) so
   // the guide is keyed on that branch — matching the key the renderer reads.
   // Storage still re-roots at the main project root (see ReviewContext.repoRoot).
-  const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
+  const review = await resolveReviewContext(reviewCheckout(ctx), reviewedSessionId(ctx))
   if (!review) return null
 
   const target = await resolveTarget(ctx, review, opts)
@@ -303,7 +303,7 @@ export async function requestReviewGuide(
   onStatus?: EmitStatus,
   seatFor?: SeatResolver,
 ): Promise<ReviewGuideStatusEvent | null> {
-  const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
+  const review = await resolveReviewContext(reviewCheckout(ctx), reviewedSessionId(ctx))
   if (!review) return null
   const target = await resolveTarget(ctx, review, opts)
   const statusKey = `${review.repoRoot}::${target.guideKey}`
@@ -344,7 +344,7 @@ export async function getReviewGuideStatus(
   opts: Pick<GenerateGuideOptions, 'scope' | 'target'> = {},
   factsCache?: CheckoutFactsCache,
 ): Promise<ReviewGuideStatusEvent | null> {
-  const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId, factsCache)
+  const review = await resolveReviewContext(reviewCheckout(ctx), reviewedSessionId(ctx), factsCache)
   if (!review) return null
   const base = await resolveTargetBase(ctx, review, opts)
   const statusKey = `${review.repoRoot}::${base.guideKey}`
@@ -402,7 +402,7 @@ export function getSessionGuideStatuses(sessions: SessionCtx[]): Promise<(Review
     try {
       return await getReviewGuideStatus({ session }, { scope: 'session' }, factsCache)
     } catch (error) {
-      log.warn('session_guide_status_failed', { agentSessionId: session.agentSessionId, error: String(error) })
+      log.warn('session_guide_status_failed', { sessionId: session.sessionId, error: String(error) })
       return null
     }
   }), SESSION_GUIDE_PROBE_CONCURRENCY)
@@ -413,7 +413,7 @@ export async function cancelGenerateGuide(
   opts: Pick<GenerateGuideOptions, 'scope' | 'target'> = {},
   onStatus?: EmitStatus,
 ): Promise<boolean> {
-  const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
+  const review = await resolveReviewContext(reviewCheckout(ctx), reviewedSessionId(ctx))
   if (!review) return false
   const target = await resolveTargetBase(ctx, review, opts)
   const statusKey = `${review.repoRoot}::${target.guideKey}`
@@ -439,7 +439,7 @@ export async function authorPrGuide(
   emit: EmitProgress,
   seatFor?: SeatResolver,
 ): Promise<GeneratedGuide | null> {
-  const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
+  const review = await resolveReviewContext(reviewCheckout(ctx), reviewedSessionId(ctx))
   if (!review || signal.aborted) return null
   const target = await resolveTarget(ctx, review, opts)
   if (signal.aborted) return null

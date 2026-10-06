@@ -133,7 +133,6 @@ export const renderArtifactAgentTool: AgentTool = {
       sessionId: context.sessionId(),
       agentProvider: context.provider,
       cwd: context.cwd,
-      solusSessionId: context.solusSessionId(),
     },
     onArtifact: (artifact) => context.emit({
       type: 'artifact_created',

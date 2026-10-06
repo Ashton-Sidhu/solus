@@ -77,14 +77,14 @@ function onManagedHost(organizationId: string | null): void {
  * the organization, and its tools answer the Solus API, which these tests never reach
  * for a create or read, so the installed operations refuse every call.
  */
-async function installOrganizationSession(recordId: string, organizationId: string): Promise<() => void> {
+async function installOrganizationSession(sessionId: string, organizationId: string): Promise<() => void> {
   const { installWorkspaceToolOperations } = await import('@solus/server/data/workspace/tool-context')
   const { useOrganizationAttachment } = await import('@solus/server/host/organization-attachment')
   const { createWorkspaceOperations } = await import('@solus/server/data/workspace/service')
   const { ShareManager } = await import('@solus/server/sharing/share-manager')
   const { getDatabase } = await import('@solus/server/db/database')
-  records.rememberSessionBirth(recordId, { organizationId, published: true, ownerUserId: 'user-alice', admissionId: 'solus-org' })
-  await records.upsertOwnSessionRecord({ sessionId: recordId, provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
+  records.rememberSessionBirth(sessionId, { organizationId, published: true, ownerUserId: 'user-alice', admissionId: sessionId })
+  await records.upsertOwnSessionRecord({ sessionId, provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
   useOrganizationAttachment(() => 1)
   const unreachable = new Proxy(createWorkspaceOperations(new ShareManager({ db: getDatabase() })), { get: () => () => Promise.reject(new Error('the test API is not called')) })
   const uninstall = installWorkspaceToolOperations(createWorkspaceOperations(new ShareManager({ db: getDatabase() })), 'test-host', () => unreachable)
@@ -221,8 +221,7 @@ function startDelivery(api: FakeApi, delegations = new FakeDelegations(), linked
 const toolContext = (): AgentToolContext => ({
   provider: 'claude-code',
   cwd: dataDir,
-  sessionId: () => 'thread-1',
-  solusSessionId: () => 'solus-1',
+  sessionId: () => 'solus-1',
   abortSignal: new AbortController().signal,
   parentToolUseId: () => undefined,
   emit: () => {},
@@ -256,8 +255,8 @@ describe('runner delivery', () => {
     const delegations = new FakeDelegations()
     const runner = startDelivery(api, delegations)
     const recordReported = api.next('reports')
-    const stopTools = await installOrganizationSession('thread-org', 'org1')
-    const inOrganizationSession = (): AgentToolContext => ({ ...toolContext(), sessionId: () => 'thread-org', solusSessionId: () => 'solus-org' })
+    const stopTools = await installOrganizationSession('solus-org', 'org1')
+    const inOrganizationSession = (): AgentToolContext => ({ ...toolContext(), sessionId: () => 'solus-org' })
     try {
       // The published session's own record goes first, as its owner.
       await recordReported

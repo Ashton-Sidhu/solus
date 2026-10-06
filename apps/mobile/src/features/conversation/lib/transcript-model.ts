@@ -103,7 +103,6 @@ export class TranscriptModel {
   private metaChanged = false
 
   status: SessionStatus = 'idle'
-  agentSessionId: string | null = null
   permissions: readonly PendingPermission[] = []
   questions: readonly PendingQuestion[] = []
   rateLimit: RateLimitInfo | null = null
@@ -253,7 +252,6 @@ export class TranscriptModel {
   private applyStream(event: WireNormalizedEvent): boolean {
     switch (event.type) {
       case 'session_init':
-        this.agentSessionId = event.sessionId
         this.metaChanged = true
         return true
       case 'text_chunk':
@@ -564,7 +562,8 @@ export class TranscriptModel {
   }
 
   private addPlanItem(id: string, plan: Omit<Extract<TranscriptItem, { kind: 'plan' }>, 'kind' | 'id' | 'planId'>, append: boolean): string {
-    const planId = planKey(this.agentSessionId ?? this.sessionId, plan.planToolUseId)
+    // A plan is named by its session, not by the provider thread (docs/plans/session-identity.md).
+    const planId = planKey(this.sessionId, plan.planToolUseId)
     for (const [existingId, item] of this.items) {
       if (item.kind === 'plan' && item.planId === planId) {
         // A live plan event for a plan history already showed makes it pending again.

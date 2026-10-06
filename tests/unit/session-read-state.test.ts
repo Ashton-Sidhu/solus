@@ -1,107 +1,73 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
+import { resetTestDatabase } from './helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type DbModule = typeof import('@solus/server/db')
-type ReadStateModule = typeof import('@solus/server/data/sessions/session-read-state')
-
 let dataDir: string
-let db: DbModule
-let readState: ReadStateModule
+let states: typeof import('@solus/server/data/sessions/session-states')
+let db: typeof import('@solus/server/db')
 const previousDataDir = process.env.SOLUS_DATA_DIR
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-session-read-state-'))
   process.env.SOLUS_DATA_DIR = dataDir
   db = await import('@solus/server/db')
-  readState = await import('@solus/server/data/sessions/session-read-state')
-})
-
-beforeEach(() => {
-  db.getDb().prepare(`
-    INSERT INTO sessions(session_id, provider) VALUES ('s1', 'claude-code')
-  `).run()
-})
-
-afterEach(() => {
   db.closeDb()
-  for (const suffix of ['', '-wal', '-shm']) {
-    rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
-  }
+  states = await import('@solus/server/data/sessions/session-states')
+})
+
+afterEach(async () => {
+  await resetTestDatabase()
 })
 
 afterAll(() => {
+  db.closeDb()
   rmSync(dataDir, { recursive: true, force: true })
   if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
 describe('session read state', () => {
-  test('a session nobody has opened is unread', () => {
-    expect(readState.readViewedAt('s1')).toBeNull()
-  })
-
-  test('a session that does not exist is unread rather than an error', () => {
-    // A client can hold a session id the host has since forgotten; that must
-    // read as unread, not throw and break the sidebar.
-    expect(readState.readViewedAt('missing')).toBeNull()
-  })
-
-  test('reading a session records the boundary', () => {
+  test('reading a session records the boundary, by its session id', async () => {
+    // WHY: read state is the session's (docs/plans/session-identity.md). It
+    // lives with the session's state, so a provider switch keeps it.
     const at = Date.now() - 1_000
-    expect(readState.markViewed('s1', at)).toBe(at)
-    expect(readState.readViewedAt('s1')).toBe(at)
+    expect(await states.markSessionViewed('s1', at)).toBe(at)
+    expect(await states.markSessionViewed('s1', at - 1)).toBe(at)
   })
 
-  test('a client clock ahead of the host cannot mark future work read', () => {
+  test('a client clock ahead of the host cannot mark future work read', async () => {
     // WHY: the boundary decides what counts as already seen. A client an hour
     // fast would silently mark the next hour of completions read.
     const future = Date.now() + 60 * 60 * 1000
-    const settled = readState.markViewed('s1', future)
-    expect(settled).toBeLessThanOrEqual(Date.now())
+    expect(await states.markSessionViewed('s1', future)).toBeLessThanOrEqual(Date.now())
   })
 
-  test('the boundary never moves backward', () => {
+  test('the boundary never moves backward', async () => {
     // WHY: two devices reading the same session race. An older view arriving
     // second must not rewind what the newer one already established.
     const newer = Date.now() - 1_000
-    const older = newer - 5_000
-    readState.markViewed('s1', newer)
-    expect(readState.markViewed('s1', older)).toBe(newer)
-    expect(readState.readViewedAt('s1')).toBe(newer)
+    await states.markSessionViewed('s2', newer)
+    expect(await states.markSessionViewed('s2', newer - 5_000)).toBe(newer)
   })
 
-  test('marking unread is the one thing that clears the boundary', () => {
-    readState.markViewed('s1', Date.now() - 1_000)
-    readState.markUnread('s1')
-    expect(readState.readViewedAt('s1')).toBeNull()
-  })
-
-  test('a view in flight during a mark-unread does not silently undo it', () => {
-    // The user said unread; a view that was already on its way is older than
-    // that choice, and re-reading it would contradict them.
+  test('marking unread is the one thing that clears the boundary', async () => {
     const viewedAt = Date.now() - 1_000
-    readState.markViewed('s1', viewedAt)
-    readState.markUnread('s1')
-    // The late view carries its own original timestamp, not "now".
-    readState.markViewed('s1', viewedAt)
-    // It does land — the session was genuinely read at that moment — but the
-    // boundary is the old one, so anything completed since stays unread.
-    expect(readState.readViewedAt('s1')).toBe(viewedAt)
+    await states.markSessionViewed('s3', viewedAt)
+    await states.markSessionUnread('s3')
+    // A late view of an earlier moment lands again: it is older than nothing now.
+    const earlier = viewedAt - 5_000
+    expect(await states.markSessionViewed('s3', earlier)).toBe(earlier)
   })
 
-  test('reading a session does not reorder it', () => {
-    // WHY: `last_timestamp` orders the sidebar. Reading a session must never
-    // move it in the list the user is reading it from.
-    db.getDb().prepare('UPDATE sessions SET last_timestamp = 500 WHERE session_id = ?').run('s1')
-    readState.markViewed('s1', Date.now() - 1_000)
-    const row = db.getDb()
-      .prepare('SELECT last_timestamp FROM sessions WHERE session_id = ?')
-      .get('s1') as { last_timestamp: number }
-    expect(row.last_timestamp).toBe(500)
+  test('a read session is not on the shelf', async () => {
+    // WHY: the shelf lists settled and snoozed sessions. A row that exists only
+    // to hold read state must not put an active session there.
+    await states.markSessionViewed('s1', Date.now() - 1_000)
+    expect(await states.readSessionShelf('local')).toEqual([])
   })
 })

@@ -5,7 +5,8 @@ import { bigint, defineTable, integer, json, text } from '../db/schema/define-ta
  * (docs/plans/cloud-service-model.md). `plan_annotations` is the review state
  * a person owns; `indexed_plans` is the query model the provider transcript
  * readers keep in step, and `plan_index_providers` records which providers
- * have been indexed in full. Column names and nullability are the ones the
+ * have been indexed in full. A plan is named by its session and its tool use;
+ * the thread only says which transcript holds it. Column names and nullability are the ones the
  * hand-written SQLite migrations established; `organization_id` is new.
  */
 
@@ -30,7 +31,10 @@ export const planAnnotations = defineTable('plan_annotations', {
 
 export const indexedPlans = defineTable('indexed_plans', {
   provider: text({ notNull: true }),
+  /** The session the plan belongs to (docs/plans/session-identity.md). */
   session_id: text({ notNull: true }),
+  /** The provider thread whose transcript holds the plan: where the index reads it, not who owns it. */
+  thread_id: text({ notNull: true, default: '' }),
   plan_tool_use_id: text({ notNull: true }),
   project_path: text({ notNull: true }),
   cwd: text({ notNull: true }),
@@ -48,6 +52,7 @@ export const indexedPlans = defineTable('indexed_plans', {
   indexes: [
     { name: 'indexed_plans_by_project', columns: ['provider', 'project_root', 'timestamp'], descending: ['timestamp'] },
     { name: 'indexed_plans_by_session', columns: ['session_id'] },
+    { name: 'indexed_plans_by_thread', columns: ['provider', 'thread_id'] },
   ],
 })
 

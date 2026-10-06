@@ -200,12 +200,3 @@ describe('a task and the state of its sessions', () => {
     expect(await stateOf('shared')).toBeNull()
   })
 })
-
-describe('a session that takes its stable id', () => {
-  test('keeps its state', async () => {
-    await states.settleSession('provider-thread', 'person', 100)
-    await states.rekeySessionState('provider-thread', 'stable-session')
-    expect(await stateOf('stable-session')).toMatchObject({ settledAt: 100 })
-    expect(await stateOf('provider-thread')).toBeNull()
-  })
-})

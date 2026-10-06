@@ -77,7 +77,8 @@ export function sessionGuideIdentity(
   session: Session | undefined,
 ): ReviewGuideIdentity | null {
   const repoRoot = session?.run.gitContext?.repoRoot
-  const sessionId = session?.agentSessionId
+  // A session's review is keyed by its session id, once it has run.
+  const sessionId = session?.agentSessionId ? session.id : null
   return repoRoot && sessionId
     ? { repoRoot: worktreeProjectRoot(repoRoot), key: reviewGuideKeyFor('', 'session', sessionId) }
     : null
