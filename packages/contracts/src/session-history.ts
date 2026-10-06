@@ -1,4 +1,4 @@
-import type { AgentId, ContextCompaction, ExchangeProgress, QuestionAnswer } from './types'
+import type { AgentId, ContextCompaction, ExchangeProgress, PromptImageRef, QuestionAnswer, ToolResultImage } from './types'
 import type { SessionReport } from './session-exchange'
 import type { Activity } from './activity'
 
@@ -37,8 +37,15 @@ export interface SessionLoadMessage {
   messageId?: string
   role: string
   content: string
-  /** Inline provider-history images needed to rebuild a user turn after reload. */
+  /** Inline provider-history images needed to rebuild a user turn after reload.
+   *  A host that stores them sends `imageAttachmentRefs` instead; a row a
+   *  runner mirrored earlier may still carry these. */
   imageAttachments?: Array<{ mimeType: string; dataUrl: string }>
+  /** A user turn's images as files in the host asset store. */
+  imageAttachmentRefs?: PromptImageRef[]
+  /** Images a tool returned: on a `tool_result` row, or on a `tool` row that
+   *  carries its own output (Codex). */
+  toolImages?: ToolResultImage[]
   toolName?: string
   toolId?: string
   toolInput?: string

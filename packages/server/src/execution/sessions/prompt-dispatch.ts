@@ -121,7 +121,6 @@ export class PromptDispatch {
           solusToolbox.docs,
           solusToolbox.artifact,
           solusToolbox.automations,
-          solusToolbox.watches,
           solusToolbox.connections,
           solusToolbox.insights,
           solusToolbox.intelligence,
@@ -144,47 +143,6 @@ export class PromptDispatch {
     }
     if (lifecycle.queueId) dispatch.queueId = lifecycle.queueId
     return dispatch
-  }
-
-  /**
-   * Wake a session for one of its watches (docs/plans/watches.md): queue the
-   * wake prompt behind any active turn, resuming the session from disk when it
-   * is not resident. No source client is named, so the wake reaches every client
-   * watching the session. Resolves once the turn is accepted; `done` settles
-   * when that turn ends, which is when the watch waits again or ends.
-   */
-  async dispatchWake(wake: { sessionId: string; watchId: string; prompt: string; displayPrompt: string }): Promise<{ done: Promise<unknown> }> {
-    const sessionId = wake.sessionId
-    const { input } = await this.unattendedRunInput(sessionId)
-    const lifecycle = await this.rt.runTurn({
-      input,
-      target: { kind: 'session', sessionId },
-      sessionId,
-      tools: selectAgentTools(
-        solusToolbox.works,
-        solusToolbox.docs,
-        solusToolbox.artifact,
-        solusToolbox.automations,
-        solusToolbox.watches,
-        solusToolbox.connections,
-        solusToolbox.insights,
-        solusToolbox.intelligence,
-        solusToolbox.browser,
-        solusToolbox.devices,
-        solusToolbox.sessions,
-        solusToolbox.tasks,
-        solusToolbox.config,
-      ),
-      options: {
-        prompt: wake.prompt,
-        promptSource: 'watch',
-        displayPrompt: wake.displayPrompt,
-        delivery: 'queue',
-        via: 'watch',
-        watchId: wake.watchId,
-      },
-    })
-    return { done: lifecycle.done }
   }
 
   /**
@@ -267,7 +225,6 @@ export class PromptDispatch {
         solusToolbox.docs,
         solusToolbox.artifact,
         solusToolbox.automations,
-        solusToolbox.watches,
         solusToolbox.connections,
         solusToolbox.insights,
         solusToolbox.intelligence,
@@ -343,7 +300,6 @@ export class PromptDispatch {
         solusToolbox.docs,
         solusToolbox.artifact,
         solusToolbox.automations,
-        solusToolbox.watches,
         solusToolbox.connections,
         solusToolbox.insights,
         solusToolbox.intelligence,
@@ -409,7 +365,6 @@ export class PromptDispatch {
         solusToolbox.works,
         solusToolbox.docs,
         solusToolbox.artifact,
-        solusToolbox.watches,
         solusToolbox.connections,
         solusToolbox.insights,
         solusToolbox.intelligence,
@@ -477,7 +432,6 @@ export class PromptDispatch {
       solusToolbox.docs,
       solusToolbox.artifact,
       solusToolbox.automations,
-      solusToolbox.watches,
       solusToolbox.connections,
       solusToolbox.insights,
       solusToolbox.intelligence,

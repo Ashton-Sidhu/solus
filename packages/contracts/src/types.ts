@@ -1249,6 +1249,9 @@ export interface ContextCompaction {
   trigger?: 'manual' | 'auto'
   preTokens?: number
   postTokens?: number
+  /** Live only: the compaction started and has not stopped. A client sets it
+   *  from the `context_compaction` start event; history never carries it. */
+  isRunning?: boolean
 }
 
 export interface Message {
@@ -1346,17 +1349,14 @@ export interface Message {
   /** Reference to an automation the agent created or updated in this thread,
    *  rendered as a card with an Open action. */
   automationRef?: { automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
-  /** Reference to a watch the agent created in this thread, rendered as a card
-   *  that shows the watch's live state and controls. A card rebuilt from
-   *  history has no id: the id was in the tool result, which history drops, so
-   *  the card finds its watch by reason and command. */
-  watchRef?: { watchId?: string; reason: string; command?: string }
   /** Reference to a task the agent created in this thread, rendered as a card
    *  that opens the task board focused on the new task. */
   taskRef?: { taskId: string; title: string; url: string | null }
   /** A capture the agent took of a browser page, rendered as the picture it saw
    *  rather than a line saying it looked. */
   browserSnapshot?: BrowserSnapshotRef
+  /** Images this tool call returned, shown under its step. */
+  toolImages?: ToolResultImage[]
   /** A recording the agent made of a browser page, rendered as a player. */
   browserRecording?: BrowserRecordingRef
   /** Agent-conversation card for another agent this thread is driving
@@ -1377,14 +1377,12 @@ export interface Message {
   workRefs?: WorkReference[]
   /** Session references attached via & autocomplete */
   sessionRefs?: SessionReference[]
-  /** Set on a user message that an automation or a watch injected into this
+  /** Set on a user message that an automation injected into this
    *  thread, so the bubble can render its origin badge. Live-only (not persisted
    *  to the transcript), so it's lost on a history reload. */
   via?: PromptVia
   automationId?: string
   automationName?: string
-  /** Source watch, present when `via === 'watch'`. */
-  watchId?: string
   /** Correlates the committed transcript entry with its optimistic outbox row. */
   clientPromptId?: string
   /** Who wrote this prompt, as the host stamped it. Live-only, like `via`: a
@@ -1808,6 +1806,20 @@ export type AgentConversationUpdate =
 
 // ─── Canonical Events (normalized from raw stream) ───
 
+/**
+ * An image a tool returned (an MCP image block, a Read of a picture, a device
+ * screenshot). The host keeps the bytes in its asset store; the transcript
+ * carries only this reference, and a client loads the picture through a signed
+ * asset URL when it is on screen. `width` and `height` are the pixel size when
+ * the host could read it, so a client can reserve the box before it loads.
+ */
+export interface ToolResultImage {
+  assetId: string
+  mimeType: string
+  width?: number
+  height?: number
+}
+
 export type NormalizedEvent =
   | { type: 'model_routed'; provider: AgentId; modelConfig: ModelConfig; usedFallback: boolean }
   | { type: 'session_init'; sessionId: string; model: string; skills: string[]; handoffFrom?: SessionHandoffLineage }
@@ -1818,12 +1830,12 @@ export type NormalizedEvent =
    *  `text` is the span's reasoning, on `stop` only, when the provider sent any. */
   | { type: 'thinking'; state: 'start' | 'stop'; parentToolUseId?: string; text?: string }
   | { type: 'tool_call'; toolName: string; toolId: string; index: number; toolInput?: string; content?: string; parentToolUseId?: string; isSubagent?: boolean; subagentType?: string; startedAtMs?: number }
-  | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; content?: string; parentToolUseId?: string }
+  | { type: 'tool_call_update'; toolId: string; index?: number; toolInput?: string; content?: string; parentToolUseId?: string; toolImages?: ToolResultImage[] }
   /** With an outcome or completedAtMs, the tool execution completed. Without
    *  either field, Claude only finished streaming the tool input; tool_result
    *  is the later execution boundary. */
   | { type: 'tool_call_complete'; index: number; toolId?: string; toolInput?: string; parentToolUseId?: string; completedAtMs?: number; outcome?: { status?: string; exitCode?: number; error?: string; declined?: boolean; durationMs?: number } }
-  | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string; isAsyncLaunch?: boolean; isSubagentReport?: boolean }
+  | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string; isAsyncLaunch?: boolean; isSubagentReport?: boolean; toolImages?: ToolResultImage[] }
   | { type: 'subagent_report'; toolUseId: string; text: string; isError?: boolean }
   | { type: 'subagent_running'; toolUseId: string }
   | { type: 'assistant_message'; text: string; parentToolUseId?: string; isFinal?: boolean }
@@ -1869,7 +1881,7 @@ export type NormalizedEvent =
   | { type: 'progress'; todos: TodoItem[]; parentToolUseId?: string }
   | { type: 'git_context'; gitContext: GitCheckout }
   | { type: 'git_status'; cwd: string; state: GitState | null }
-  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; automationId?: string; automationName?: string; watchId?: string; author?: User }
+  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; automationId?: string; automationName?: string; author?: User }
   | { type: 'prompt_queued'; text: string; queueId: string; clientPromptId?: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }>; imageRefs?: PromptImageRef[]; via?: PromptVia; author?: User }
   | { type: 'prompt_dequeued'; queueId: string }
   | { type: 'session_queue'; held: boolean; entries: QueuedPromptSnapshot[] }
@@ -1890,7 +1902,6 @@ export type NormalizedEvent =
    *  `artifact` work; image artifacts (Codex ImageGeneration) carry neither. */
   | { type: 'artifact_created'; toolId?: string; kind: 'html' | 'image'; html?: string; path?: string; workId?: string; title?: string }
   | { type: 'automation_saved'; automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
-  | { type: 'watch_saved'; watchId: string; reason: string; command?: string }
   | { type: 'task_created'; taskId: string; title: string; url: string | null }
   | { type: 'browser_snapshot_captured'; snapshot: BrowserSnapshotRef }
   | { type: 'browser_recording_captured'; recording: BrowserRecordingRef }
@@ -1905,21 +1916,21 @@ export type WireNormalizedEvent =
   | Exclude<NormalizedEvent, ToolCallEvent | ToolCallUpdateEvent | ToolResultEvent>
   | Omit<ToolCallEvent, 'content'>
   | Omit<ToolCallUpdateEvent, 'content'>
-  | { type: 'tool_result'; toolUseId: string; parentToolUseId?: string; status: 'ok' | 'error'; errorHead?: string; contentBytes: number }
+  | { type: 'tool_result'; toolUseId: string; parentToolUseId?: string; status: 'ok' | 'error'; errorHead?: string; contentBytes: number; toolImages?: ToolResultImage[] }
   | { type: 'status_card'; card: StatusCardState }
 
 // ─── Prompt Options ───
 
 export type PromptDelivery = 'steer' | 'queue'
 
-export type PromptSource = 'typed' | 'queued' | 'automation' | 'watch' | 'agent' | 'dispatch'
+export type PromptSource = 'typed' | 'queued' | 'automation' | 'agent' | 'dispatch'
 
 /** Origin of a prompt delivered outside the normal input bar. 'session-report' marks another agent's
  *  session's report — turn input for the model, never rendered as a bubble.
  *  'background-command' is a command the agent left running that finished
  *  after its turn ended. 'question-answer' delivers an async answer whose
  *  visible receipt is the structured Q&A row. */
-export type PromptVia = 'automation' | 'watch' | 'background-command' | 'session-report' | 'question-answer'
+export type PromptVia = 'automation' | 'background-command' | 'session-report' | 'question-answer'
 
 export interface PromptDispatchResult {
   /** `duplicate`: this session already accepted the same `clientPromptId` —
@@ -1978,8 +1989,6 @@ export interface PromptOptions {
   /** Source automation id/name, present when `via === 'automation'`. */
   automationId?: string
   automationName?: string
-  /** Source watch id, present when `via === 'watch'`. */
-  watchId?: string
 }
 
 // ─── IPC Context ───

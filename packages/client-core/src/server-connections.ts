@@ -594,7 +594,7 @@ export class ServerConnections {
     // Only a successful health response can establish or reject identity. A
     // transient HTTP failure must not turn a working socket into a false match.
     if (!health) return true
-    return installationIdDecision(saved.installationId, health.installationId) === 'match'
+    return installationIdDecision(saved.installationId, health.installationId, saved.uplink) === 'match'
   }
 
   async projectIdentities(serverId: string, force = false): Promise<Awaited<ReturnType<SolusAPI['listProjectIdentities']>>> {

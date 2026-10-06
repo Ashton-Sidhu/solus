@@ -30,6 +30,15 @@ export class ProviderEvents {
 
   constructor(private readonly rt: SessionRuntime) {}
 
+  /** Settle a session that waits in 'background' with no query open (Codex)
+   *  once nothing is left running and no turn takes over. */
+  private endBackgroundWait(sessionId: string): void {
+    const session = this.rt.activeSessions.get(sessionId)
+    if (session?.status !== 'background' || session.backgroundTaskIds?.size) return
+    this.rt.statuses.setStatus(sessionId, 'completed')
+    this.rt.activeSessions.delete(sessionId)
+  }
+
   wire(backend: AgentBackend): void {
     backend.on('session-index-updated', (event) => {
       this.rt.emit('session-index-updated', event)
@@ -329,8 +338,11 @@ export class ProviderEvents {
         if (event.type === 'background_task_settled') {
           session.backgroundTaskIds?.delete(event.taskId)
           log.info('task_settled', { taskId: event.taskId, status: event.status, sessionId: session.sessionId, inFlight: session.backgroundTaskIds?.size ?? 0 })
-          // Don't force idle here — the still-open query drives the real terminal
-          // status via its next task_complete (set now empty) or its exit event.
+          // A still-open query (Claude) drives the real terminal status via its
+          // next task_complete or its exit. A provider whose turn already ended
+          // (Codex) has no query: a task that finished wakes the agent with a
+          // new turn, and one that was stopped or killed ends the wait here.
+          if (!eventHandle && (event.status === 'stopped' || event.status === 'killed')) this.endBackgroundWait(session.sessionId)
         }
 
         if (event.type === 'task_complete') {
@@ -472,10 +484,17 @@ export class ProviderEvents {
               : code === null
               ? 'dead'
               : 'failed'
-        const newStatus: SessionStatus = settledStatus === 'completed'
-          && this.rt.orchestration?.isAwaitingReplies(sessionId)
-          ? 'running'
-          : settledStatus
+        // A provider whose background work outlives the turn (Codex) settles
+        // into 'background', as Claude's open query does. Claude's tasks end
+        // with its query, so its exit never leaves any.
+        const hasBackgroundWork = !!agentSessionId && !!backend.hasBackgroundTasks?.(agentSessionId)
+        const newStatus: SessionStatus = settledStatus !== 'completed'
+          ? settledStatus
+          : this.rt.orchestration?.isAwaitingReplies(sessionId)
+            ? 'running'
+            : hasBackgroundWork
+              ? 'background'
+              : settledStatus
         this.rt.sessionEmitter.recordTerminal(
           sessionId,
           settledStatus === 'completed' || settledStatus === 'rate_limited'
@@ -502,7 +521,8 @@ export class ProviderEvents {
         if (!queueWillTakeOver && !wasStarting) this.rt.statuses.setStatus(sessionId, newStatus)
 
         if (!hasPendingRateLimit) {
-          this.rt.activeSessions.delete(sessionId)
+          // A session in 'background' stays resident: its tasks settle and stop through it.
+          if (newStatus !== 'background') this.rt.activeSessions.delete(sessionId)
           this.rt.activeRunRequests.delete(sessionId)
         }
 
@@ -519,6 +539,9 @@ export class ProviderEvents {
       if (!sessionId) return
       void this.rt.dispatch.promptSession(sessionId, prompt, 'queue', { via: 'background-command' }).catch((error) => {
         log.warn('background_command_wake_failed', { agentSessionId, error: error instanceof Error ? error.message : String(error) })
+        // No turn takes over, so the wait the command held ends here.
+        const sessionId = this.rt.agentSessionToSession.get(agentSessionId)
+        if (sessionId) this.endBackgroundWait(sessionId)
       })
     })
 

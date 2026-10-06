@@ -46,9 +46,9 @@ function renderPreview() {
 ```
 
 ```css
-.kw  { color: var(--chart-1); }  /* keywords — one consistent colour */
-.tbl { color: var(--chart-4); }  /* identifiers */
-.str { color: var(--chart-3); }  /* literals */
+.kw  { color: var(--chart-5); }  /* keywords — one consistent colour */
+.tbl { color: var(--chart-2); }  /* identifiers */
+.str { color: var(--chart-6); }  /* literals */
 ```
 
 For pipeline-style playgrounds, render a horizontal or vertical flow using positioned divs with arrow connectors; colour each stage type consistently from the palette.

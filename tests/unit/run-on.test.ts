@@ -309,10 +309,10 @@ describe('returning a dispatched run to its project home', () => {
 })
 
 describe('choosing a remote host', () => {
-  test('selects a fresh worktree with the pending dispatch', () => {
-    // WHY: a remote dispatch runs in an unattended clone. The host choice must
-    // select isolation at the same time instead of leaving the local checkout
-    // selected until Send changes hosts.
+  test('keeps a checkout run on the checkout', () => {
+    // WHY: choosing a cloud host is a choice of where to run, not of
+    // isolation. A run on `main` must stay on `main` on the target host
+    // instead of switching to a new worktree.
     const next = withRemoteDispatch(
       {
         serverId: 'local',
@@ -330,7 +330,25 @@ describe('choosing a remote host', () => {
       intent: 'dispatch',
       repoKey: 'github.com/openai/solus',
     })
-    expect(next.worktree).toEqual({ baseBranch: 'main' })
+    expect(next.worktree).toBeNull()
+  })
+
+  test('keeps a worktree request but drops the old host\'s base branch', () => {
+    // WHY: the user asked for isolation, so the move must not undo it. The
+    // base branch named a branch on the old host and means nothing there.
+    const next = withRemoteDispatch(
+      {
+        serverId: 'local',
+        taskServerId: 'local',
+        workingDirectory: '/home/dev/solus',
+        gitContext: { repoRoot: '/home/dev/solus', branch: 'main', targetBranch: 'main' },
+        worktree: { baseBranch: 'feature' },
+        pendingHostDispatch: null,
+      } as RunConfig,
+      { serverId: 'studio', intent: 'dispatch', repoKey: 'github.com/openai/solus' },
+    )
+
+    expect(next.worktree).toEqual({ baseBranch: null })
   })
 
   test('records an exact remote worktree without changing the local checkout', () => {

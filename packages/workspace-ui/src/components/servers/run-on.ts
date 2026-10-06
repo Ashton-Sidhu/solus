@@ -9,7 +9,6 @@ import {
   withHost,
   withPendingHost,
   withProjectHost,
-  withWorktreeToggled,
 } from '../../contexts/workspace/run-config'
 
 /** Exactly what moving a tab to another host needs from the workspace context. */
@@ -190,17 +189,18 @@ export function withCheckoutOnHost(
 }
 
 /**
- * Queue a repository dispatch and select a fresh worktree by default.
+ * Queue a repository dispatch without changing the run's worktree mode.
  *
- * Selecting an existing target worktree later changes this from creation to
- * reuse, but the dispatched session remains isolated in either case.
+ * A run in its checkout stays there: the target host works on the branch its
+ * clone holds. A run that asked for a worktree keeps that request, but the old
+ * host's base branch names a branch over there, so its answer is dropped.
  */
 export function withRemoteDispatch(
   run: RunConfig,
   target: Extract<PendingHostDispatch, { intent: 'dispatch' }>,
 ): RunConfig {
   const next = withPendingHost(run, target)
-  return startsWorktree(next) ? next : withWorktreeToggled(next)
+  return { ...next, worktree: run.worktree ? { baseBranch: null } : null }
 }
 
 /**

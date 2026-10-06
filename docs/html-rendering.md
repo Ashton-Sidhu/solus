@@ -53,8 +53,9 @@ HTML blocks, artifact works, document embeds, and HTML file previews share
 `SandboxFrame`. The frame gets t3code's theme token set (`--background`, `--card`,
 `--primary`, `--chart-1` … `--chart-6`, and the others in `artifactSandbox.ts`),
 filled from the live Solus theme, so a page matches the conversation around it.
-The chart series is the Solus data palette: lime, amber, green, teal, blue,
-plum. Warning and info, which Solus has no token for, are fixed values. The
+The chart series is the Solus orange accent first, then teal, blue, purple,
+rose, and green. Inside the app, `--chart-N` keeps its hue meaning instead
+(chart-2 amber for warnings, chart-3 green for done). Warning and info, which Solus has no token for, are fixed values. The
 older `--solus-*` names are still supplied for renders that use them. Theme changes update the injected stylesheet through a message
 from its parent; they do not assign `srcdoc`. Changing the HTML or selecting Reload
 still reloads the document. A frame starts at the height its markup last
@@ -106,3 +107,22 @@ provisional cards. Native image artifacts do not consume HTML placeholders.
 
 The PR artifacts section matches the PR URL's repository, PR number, and task
 host. It never matches a PR number alone across the shared task collection.
+
+## Checking a page before it is shown
+
+`render_artifact` with `preview: true` renders the HTML in the server's headless
+browser and saves nothing. It builds the same page the conversation frame
+builds (`@solus/contracts/artifact-sandbox`), with the theme taken from
+`SOLUS_THEME_SNAPSHOT`, because the server has no document to read the live
+theme from. `tests/unit/artifact-theme-snapshot.test.ts` keeps the snapshot equal
+to `workspace.css`. Local images are written in, the viewport grows to the
+page's height (up to 4,000px), and the agent gets a screenshot path, the height,
+the console output with uncaught errors and failed loads, and the local images
+it could not load. `preview_width` (320–1440, default 760) and
+`preview_appearance` (light or dark) choose the reading.
+
+A save without `preview` runs the same render as a check, for up to 8 seconds,
+and reports console errors and missing images in the tool result. A host with no
+headless browser saves without the check, and a preview there returns an error
+that says why.
+

@@ -11,7 +11,6 @@ import type { LastRoute } from "../../app/solus-app";
 import { EmptyState } from "../../components/EmptyState";
 import { LoadingScreen } from "../../components/LoadingScreen";
 import { ScreenHeader } from "../../components/ScreenHeader";
-import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 import { deriveLayout } from "../../lib/layout";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import type { RootStackParamList, ScreenProps } from "../../navigation/routes";
@@ -189,7 +188,6 @@ function ThreadRouteContent(props: {
   );
   const window = useWindowDimensions();
   const layout = deriveLayout(window);
-  const { panes } = useAdaptiveWorkspaceLayout();
   const chat = isChat(props.projectPath);
   const title = props.shellTitle || runTitle || "New thread";
   const headerSubtitle = [chat ? null : lastFolderName(props.projectPath), props.hostLabel]
@@ -202,7 +200,6 @@ function ThreadRouteContent(props: {
     hostId,
     projectPath: chat || !props.projectPath ? null : props.projectPath,
     faviconRoot: props.faviconRoot,
-    headerWidth: panes.contentPaneWidth > 0 ? panes.contentPaneWidth : window.width,
   });
 
   const historyControls = useMemo<ThreadFeedHistoryControls | undefined>(

@@ -5,6 +5,7 @@
   import ActivityRow from "./ActivityRow.svelte";
   import ToolInputStatus from "./ToolInputStatus.svelte";
   import ThoughtStep from "./ThoughtStep.svelte";
+  import ToolResultImages from "./ToolResultImages.svelte";
   import type { ToolHistoryStore } from "../../contexts/workspace/tool-history.store";
   import { KIND_ICONS } from "./lib/activity-icons";
   import {
@@ -273,6 +274,9 @@
               </span>
             {/if}
           </div>
+          {#if step.toolImages?.length}
+            <ToolResultImages images={step.toolImages} label={`Image from ${describe(step, parsed)}`} />
+          {/if}
         {/if}
       {/each}
     {/snippet}

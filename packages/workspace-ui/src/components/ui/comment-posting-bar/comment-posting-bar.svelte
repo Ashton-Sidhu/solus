@@ -59,7 +59,7 @@
   )}
 >
   <div
-    class="flex items-center gap-1 rounded-2xl bg-card px-3.5 py-2.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_1px_2px_rgba(24,20,16,.05)] transition-shadow focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_0_0_3px_color-mix(in_oklab,var(--ring)_14%,transparent)]"
+    class="flex items-center gap-1 rounded-2xl bg-card px-3.5 py-2.5 shadow-[shadow:0_0_0_1px_var(--border),0_1px_2px_rgba(24,20,16,.05)] transition-shadow focus-within:shadow-[shadow:0_0_0_1px_color-mix(in_oklab,var(--ring)_45%,var(--border)),0_0_0_3px_color-mix(in_oklab,var(--ring)_14%,transparent)]"
   >
     {#if leading}{@render leading()}{/if}
     <CommentEditor

@@ -446,9 +446,23 @@ describe('auto-merge', () => {
     })
     const armed = { ...waiting, autoMergeEnabled: true, autoMergeMethod: 'squash' as const }
     expect(prMenuHostActions(armed, null)).toMatchObject({ enableAutoMerge: false, disableAutoMerge: true, mergeNow: true })
-    // A ready pull request merges from the card; the menu can still arm the host.
+    // A ready pull request merges from the card, and the menu does not offer
+    // to arm the host: GitHub refuses auto-merge on a pull request it could
+    // merge now ("Pull request is in clean status").
     expect(prMenuHostActions(autoMergeDetail(), { kind: 'merge', label: 'Squash and merge', method: 'squash' }))
-      .toMatchObject({ enableAutoMerge: true, mergeNow: false })
+      .toMatchObject({ enableAutoMerge: false, mergeNow: false })
+  })
+
+  test('only offered while the host holds the merge', () => {
+    // WHY: GitHub arms auto-merge only on a `blocked` or `behind` pull request.
+    // Pending optional checks leave it `unstable`, which it would merge now and
+    // so refuses to arm — offering the button there only produced an error.
+    for (const mergeStateStatus of ['clean', 'unstable', 'has_hooks', 'unknown', null]) {
+      const detail = autoMergeDetail({ mergeStateStatus })
+      expect(mergeReadiness({ detail, checks: checksOf('pending'), ...quiet }).action).toBeNull()
+      expect(prMenuHostActions(detail, null).enableAutoMerge).toBe(false)
+    }
+    expect(prMenuHostActions(autoMergeDetail({ mergeStateStatus: 'blocked' }), null).enableAutoMerge).toBe(true)
   })
 
   test('revert is offered on a merged pull request to a viewer who may write', () => {

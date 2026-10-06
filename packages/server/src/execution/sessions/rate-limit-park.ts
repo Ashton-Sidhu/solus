@@ -24,7 +24,7 @@ export class RateLimitPark {
     if (behavior !== 'queue') return
     for (const [sessionId, run] of this.rt.activeRunRequests) {
       if (onlySessionId && sessionId !== onlySessionId) continue
-      if (run.exchangeIds?.length || run.options.promptSource === 'agent' || run.options.promptSource === 'automation' || run.options.promptSource === 'watch') continue
+      if (run.exchangeIds?.length || run.options.promptSource === 'agent' || run.options.promptSource === 'automation') continue
       if (!this.hasUndecidedHeldPrompt(sessionId)) continue
       const event = this.rateLimits.peek(sessionId)
       if (!event) continue

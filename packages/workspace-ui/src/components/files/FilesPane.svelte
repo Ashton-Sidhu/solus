@@ -10,6 +10,7 @@
     RotateCw as ArrowClockwiseIcon,
     ChevronRight as CaretRightIcon,
     FilePlus as FilePlusIcon,
+    FileText as FileTextIcon,
     Save as FloppyDiskIcon,
     Folder as FolderIcon,
     FolderPlus as FolderPlusIcon,
@@ -68,7 +69,7 @@
     type FileTreeEntryKind,
   } from "./lib/file-tree-mutations";
   import { toasts } from "../../lib/toasts";
-  import { runtime } from "../../contexts";
+  import { getWorkspaceContext, runtime } from "../../contexts";
   import { isStackedPane } from "../../lib/pane-width";
   import { underStrip } from "../ui/lib/pane-strip";
   import * as Resizable from "../ui/resizable";
@@ -91,6 +92,14 @@
   }
 
   let { serverId, api, ctx, cwd, isDark, requestedFile, bordered = true, onClose }: Props = $props();
+
+  const session = getWorkspaceContext();
+
+  function saveSelectedAsWork() {
+    if (!selectedPath || selectedContents === null) return;
+    const content = markdownSurfaceRef?.currentContents() ?? selectedContents;
+    void session.saveFileAsWork({ serverId, cwd: root || cwd, path: selectedPath }, content);
+  }
   // Under the companion strip there is no floating cluster to reserve room for.
   const isUnderStrip = underStrip();
   // Register the small offline icon subset used by file-type badges.
@@ -670,6 +679,7 @@
 {#snippet newFileIcon()}<FilePlusIcon size={15} strokeWidth={1.5} />{/snippet}
 {#snippet newFolderIcon()}<FolderPlusIcon size={15} strokeWidth={1.5} />{/snippet}
 {#snippet refreshIcon()}<ArrowClockwiseIcon size={15} strokeWidth={1.5} />{/snippet}
+{#snippet saveAsWorkIcon()}<FileTextIcon size={15} strokeWidth={1.5} />{/snippet}
 
 {#snippet chromeAction(label: string, onclick: () => void, icon: Snippet)}
   <TooltipUI.Root>
@@ -747,6 +757,9 @@
       </div>
     {/if}
     {#if isSelectedMarkdown}
+      {#if selectedContents !== null && !selectedTruncated}
+        {@render chromeAction("Save as work", saveSelectedAsWork, saveAsWorkIcon)}
+      {/if}
       <SettingsSelect
         options={MARKDOWN_FILE_VIEW_OPTIONS}
         value={markdownViewMode}

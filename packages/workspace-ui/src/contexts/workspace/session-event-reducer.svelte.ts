@@ -74,6 +74,8 @@ export class SessionEventReducer {
   // say "Thought for 6s" and open what the agent thought.
   // Transport state, not domain state, so it lives here rather than on Session.
   private thinkingSpans = new WeakMap<Session, ThinkingSpan>()
+  /** The divider of a compaction that started and has not stopped, per session. */
+  private runningCompactions = new WeakMap<Session, Message>()
   /** Last authoritative settlement applied per mounted session. Transport
    *  retries must not replay unread state, sounds, or final refresh work. */
   private settledTurnIds = new WeakMap<Session, string>()
@@ -135,6 +137,24 @@ export class SessionEventReducer {
     else session.messages.push(message)
   }
 
+  /** A compaction that starts draws its divider at once, marked as running, so
+   *  a long compaction shows where it happens in the thread. */
+  private startCompactionDivider(session: Session, event: Extract<WireNormalizedEvent, { type: 'context_compaction' }>): void {
+    if (this.runningCompactions.has(session)) return
+    session.messages.push({ id: nextMsgId(), role: 'system', content: '', timestamp: event.startedAtMs ?? Date.now(), compaction: { isRunning: true } })
+    this.runningCompactions.set(session, session.messages.at(-1)!)
+  }
+
+  /** A compaction that failed, or a turn that ended before it stopped, leaves no
+   *  divider: a running divider must not stay after the work stops. */
+  private dropRunningCompaction(session: Session): void {
+    const running = this.runningCompactions.get(session)
+    if (!running) return
+    this.runningCompactions.delete(session)
+    const index = session.messages.lastIndexOf(running)
+    if (index !== -1) session.messages.splice(index, 1)
+  }
+
   /**
    * The divider a finished context compaction draws, where a reload reads it
    * from the provider's transcript. Claude settles one compaction twice — its
@@ -142,11 +162,20 @@ export class SessionEventReducer {
    * stop updates the divider just drawn. The record carries the token counts
    * and the real trigger, so its fields win.
    */
-  private appendCompactionDivider(session: Session, event: Extract<WireNormalizedEvent, { type: 'context_compaction' }>): void {
+  private finishCompactionDivider(session: Session, event: Extract<WireNormalizedEvent, { type: 'context_compaction' }>): void {
     const compaction: ContextCompaction = {}
     if (event.trigger) compaction.trigger = event.trigger
     if (event.preTokens !== undefined) compaction.preTokens = event.preTokens
     if (event.postTokens !== undefined) compaction.postTokens = event.postTokens
+    const running = this.runningCompactions.get(session)
+    this.runningCompactions.delete(session)
+    // A history reload during the compaction drops the running row; then the
+    // finished divider is appended like one that never showed its start.
+    if (running && session.messages.lastIndexOf(running) !== -1) {
+      running.compaction = compaction
+      running.timestamp = event.completedAtMs ?? Date.now()
+      return
+    }
     const last = session.messages.at(-1)
     if (last?.compaction) {
       last.compaction = event.preTokens !== undefined
@@ -241,7 +270,9 @@ export class SessionEventReducer {
     if (event.type === 'context_compaction') {
       if (parentToolUseId) return
       session.currentActivity = event.state === 'start' ? 'Compacting...' : 'Thinking...'
-      if (event.state === 'stop' && !event.failed) this.appendCompactionDivider(session, event)
+      if (event.state === 'start') this.startCompactionDivider(session, event)
+      else if (event.failed) this.dropRunningCompaction(session)
+      else this.finishCompactionDivider(session, event)
       return
     }
 
@@ -390,6 +421,7 @@ export class SessionEventReducer {
               m.toolInput = event.toolInput
               this.deps.workStreamTracker.updateStreamingArtifact(session, m.toolName, event.toolInput, m.toolId)
             }
+            if (event.toolImages) m.toolImages = event.toolImages
             break
           }
         }
@@ -806,7 +838,6 @@ export class SessionEventReducer {
           message.via = event.via
           message.automationId = event.automationId
           message.automationName = event.automationName
-          if (event.watchId) message.watchId = event.watchId
         }
         // The host names the author; the bubble shows it when it is someone else.
         if (event.author) message.author = event.author
@@ -999,13 +1030,6 @@ export class SessionEventReducer {
         break
       }
 
-      case 'watch_saved': {
-        const watchRef: NonNullable<Message['watchRef']> = { watchId: event.watchId, reason: event.reason }
-        if (event.command) watchRef.command = event.command
-        session.messages.push({ id: nextMsgId(), role: 'assistant', content: '', watchRef, timestamp: Date.now() })
-        break
-      }
-
       case 'task_created': {
         session.messages.push({
           id: nextMsgId(),
@@ -1150,6 +1174,7 @@ export class SessionEventReducer {
     if (!target) return
     target.errorHead = event.errorHead
     target.contentBytes = event.contentBytes
+    if (event.toolImages) target.toolImages = event.toolImages
     target.toolStatus = event.status === 'error' ? 'error' : 'completed'
     if (event.status === 'error' && !event.parentToolUseId) {
       this.deps.workStreamTracker.failArtifact(session, event.toolUseId)
@@ -1305,7 +1330,6 @@ export class SessionEventReducer {
       !lastMessage.artifact &&
       !lastMessage.workRef &&
       !lastMessage.automationRef &&
-      !lastMessage.watchRef &&
       !lastMessage.agentConversationRef
       ? '\n\n'
       : ''
@@ -1319,7 +1343,6 @@ export class SessionEventReducer {
       !lastMessage.artifact &&
       !lastMessage.workRef &&
       !lastMessage.automationRef &&
-      !lastMessage.watchRef &&
       !lastMessage.agentConversationRef
     ) {
       lastMessage.content += nextText
@@ -1339,6 +1362,7 @@ export class SessionEventReducer {
    *  elapsed turn clock stays live until `turn_settled`. */
   private finishProviderResultState(session: Session): void {
     session.currentActivity = ''
+    this.dropRunningCompaction(session)
     session.currentTurnStart = null
     session.isStreamingText = false
     session.isReconnecting = false

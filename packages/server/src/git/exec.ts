@@ -11,6 +11,11 @@ const DEFAULT_TIMEOUT = 60_000
  *  metadata output is cheap to hold, so the default is raised well above any
  *  realistic status/commit/push report. */
 const DEFAULT_MAX_BUFFER = 64 * 1024 * 1024
+/** Background reads (status refresh, snapshots) run beside the user's own git
+ *  commands. Without this, `git status` takes `.git/index.lock` to save its
+ *  refreshed index, and the user's `git checkout` or `git commit` fails. Commands
+ *  that must write the index take the lock regardless. A caller's env wins. */
+const GIT_DEFAULT_ENV: NodeJS.ProcessEnv = { GIT_OPTIONAL_LOCKS: '0' }
 
 export interface GitExecOptions {
   /** Extra env vars merged over the inherited CLI env. */
@@ -33,7 +38,7 @@ export function git(args: string[], cwd: string, opts: GitExecOptions = {}): str
     encoding: 'utf-8',
     timeout: opts.timeout ?? DEFAULT_TIMEOUT,
     maxBuffer: opts.maxBuffer ?? DEFAULT_MAX_BUFFER,
-    env: getCliEnv(opts.env),
+    env: getCliEnv({ ...GIT_DEFAULT_ENV, ...opts.env }),
   }).trim()
 }
 
@@ -44,7 +49,7 @@ export async function runAsync(bin: string, args: string[], cwd: string, opts: G
     encoding: 'utf-8',
     timeout: opts.timeout ?? DEFAULT_TIMEOUT,
     maxBuffer: opts.maxBuffer ?? DEFAULT_MAX_BUFFER,
-    env: getCliEnv(opts.env),
+    env: getCliEnv(bin === 'git' ? { ...GIT_DEFAULT_ENV, ...opts.env } : opts.env),
     signal: opts.signal,
   })
   return opts.raw ? stdout : stdout.trim()

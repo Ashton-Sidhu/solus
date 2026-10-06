@@ -455,10 +455,13 @@ export interface DeviceRun {
   profileName: string
   /** The checkout folder name and branch the build ran in. */
   checkout: string
+  /** The checkout as the run was started for it, `~` resolved: what a client matches its own checkout against. */
+  checkoutPath: string
   branch: string | null
-  deviceHostId: string
-  deviceId: string
-  deviceName: string
+  /** The device it installs on; all null for a build that is only added under Builds. */
+  deviceHostId: string | null
+  deviceId: string | null
+  deviceName: string | null
   stage: DeviceRunStage
   /** The newest log line, for a one-line status. */
   lastLine: string | null
@@ -472,7 +475,10 @@ export function isDeviceRunActive(run: Pick<DeviceRun, 'stage'>): boolean {
   return run.stage === 'building' || run.stage === 'installing'
 }
 
-export const deviceRunStartRequestSchema = deviceTargetSchema.extend({
+export const deviceRunStartRequestSchema = z.object({
+  /** The device to install on and open. Without one, the build is only added under Builds. */
+  deviceHostId: deviceHostIdSchema.optional(),
+  deviceId: deviceIdSchema.optional(),
   /** The conversation's checkout. Resolved on the host. */
   checkoutPath: z.string().trim().min(1).max(4096),
   profileName: z.string().trim().min(1).max(60),

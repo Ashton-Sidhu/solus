@@ -25,4 +25,14 @@ export function restartContinuationError(saved: RestartRun, owner: User | null,
   if (saved.author && (!owner || !sameUser(owner.id, saved.author.id))) return 'The host owner changed. The original author must review this recovery.'
 }
 
-export const RESTART_CONTINUATION_PROMPT = 'Continue where you left off'
+const RESTART_CONTINUATION_PROMPT = 'Continue where you left off'
+
+/** The continuation for a restarted run. The host lost track of the tools and
+ *  background work the run had going, so the agent is told which, rather than
+ *  waiting for a result that may never come. Names only: tool inputs can hold
+ *  private data. */
+export function restartContinuationPrompt(saved: Pick<RestartRun, 'backgroundTools'>): string {
+  if (saved.backgroundTools.length === 0) return RESTART_CONTINUATION_PROMPT
+  const names = [...new Set(saved.backgroundTools.map((tool) => tool.name))].join(', ')
+  return `${RESTART_CONTINUATION_PROMPT}. The host restarted while these tools or child agents were running: ${names}. Check whether they still run before you start them again.`
+}

@@ -18,7 +18,6 @@ import {
   runAutomationAgentTool,
   updateAutomationAgentTool,
 } from './automation-tools'
-import { cancelWatchAgentTool, listWatchesAgentTool, watchAgentTool } from '../../../watches/watch-tools'
 import {
   listAgentTargetsAgentTool,
   readSessionAgentTool,
@@ -114,11 +113,6 @@ export const solusToolbox = {
     run: runAutomationAgentTool,
     listRuns: listAutomationRunsAgentTool,
     readRun: readAutomationRunAgentTool,
-  },
-  watches: {
-    watch: watchAgentTool,
-    list: listWatchesAgentTool,
-    cancel: cancelWatchAgentTool,
   },
   connections: {
     status: connectionStatusAgentTool,

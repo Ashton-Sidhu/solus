@@ -16,13 +16,16 @@ import {
   sessionKnowsPullRequest,
 } from '../data/sessions/session-pull-requests'
 import { attachReviewAttention } from '../transport/handlers/review-attention'
+import { GitHubRateLimitedError } from '../providers/github/rate-limit'
 import { codeHostFor, type CodeHost } from './code-host'
 import { prIndex, repoKeyOf } from './pr-index'
 
 const log = createLogger('main', 'pr-sync')
 /** How often the clock looks for a repository that is due. */
 const CLOCK_MS = 5_000
-/** Cadence of a repository with interest (docs/plans/pr-sync.md §11). */
+/** Cadence of a repository with interest (docs/plans/pr-sync.md §11). The
+ *  recent list keeps this cadence; a faster pass for a review pane reads only
+ *  check runs. */
 const REPOSITORY_MS = 60_000
 const REVIEW_MS = 15_000
 const CHECKS_IN_FLIGHT_MS = 10_000
@@ -89,6 +92,8 @@ interface RepositorySync {
   /** When a tick last read this repository; 0 before the first. */
   syncedAt: number
   nextAt: number
+  /** When the recent list is next read; 0 reads it on the next pass. */
+  listAt: number
   /** Check runs last published, as JSON, by number. */
   checks: Map<number, string>
   checksInFlight: boolean
@@ -128,6 +133,9 @@ export interface PrSyncDeps {
 export class PrSync {
   private readonly repositories = new Map<string, RepositorySync>()
   private readonly clientInterests = new Map<string, ClientInterest>()
+  /** Code hosts that answered with a rate limit, until when. One account's
+   *  quota serves every repository on the host, so none is read before then. */
+  private readonly rateLimitedUntil = new Map<string, number>()
   private taskInterests = new Map<string, TaskInterest>()
   private taskInterestsAt = 0
   private readonly codeHost: NonNullable<PrSyncDeps['codeHost']>
@@ -219,6 +227,7 @@ export class PrSync {
     const sync = this.syncFor(repoKeyOf(host.repo).toLowerCase(), host)
     sync.needsReviewAt = 0
     sync.nextAt = 0
+    sync.listAt = 0
     void this.tick()
   }
 
@@ -238,7 +247,7 @@ export class PrSync {
     if (!sync) {
       sync = {
         host, records: new Map(), byBranch: new Map(), linkedBranches: new Set(),
-        watermark: null, syncedAt: 0, nextAt: 0, checks: new Map(), checksInFlight: false, needsReview: null, needsReviewAt: 0,
+        watermark: null, syncedAt: 0, nextAt: 0, listAt: 0, checks: new Map(), checksInFlight: false, needsReview: null, needsReviewAt: 0,
       }
       this.repositories.set(key, sync)
     }
@@ -258,13 +267,19 @@ export class PrSync {
       const host = this.clientInterests.get(key)?.host ?? this.taskInterests.get(key)?.host
       if (!host) continue
       const sync = this.syncFor(key, host)
-      if (sync.nextAt > this.now()) continue
+      if (sync.nextAt > this.now() || (this.rateLimitedUntil.get(host.repo.host) ?? 0) > this.now()) continue
       const wanted = this.wantedIn(key)
       try {
         await this.syncRepository(key, sync, wanted)
         sync.syncedAt = this.now()
         sync.nextAt = this.now() + cadenceOf(sync, wanted)
       } catch (error) {
+        if (error instanceof GitHubRateLimitedError) {
+          sync.nextAt = error.retryAt ?? this.now() + FAILURE_BACKOFF_MS
+          this.rateLimitedUntil.set(host.repo.host, sync.nextAt)
+          log.warn('pr_sync_rate_limited', { repository: key, retryAt: new Date(sync.nextAt).toISOString() })
+          continue
+        }
         sync.nextAt = this.now() + FAILURE_BACKOFF_MS
         log.warn('pr_sync_repository_failed', { repository: key, error: String(error) })
       }
@@ -337,8 +352,9 @@ export class PrSync {
   }
 
   /**
-   * One tick's reads: what changed since the last one and linked numbers never
-   * seen. Branches match these stored rows; an unmatched branch costs no read.
+   * One tick's reads: what changed since the last list read, when the list is
+   * due, and linked numbers never seen. Branches match these stored rows; an
+   * unmatched branch costs no read.
    */
   private async readChanges(sync: RepositorySync, wanted: Wanted): Promise<Observation[]> {
     const { repo, provider } = sync.host
@@ -357,9 +373,12 @@ export class PrSync {
       observations.set(number, { number, pullRequest, isNews: heldBefore.has(number) })
     }
 
-    for (const pullRequest of await provider.review.listRecentPullRequests(repo, sync.watermark)) {
-      observe(pullRequest.number, pullRequest)
-      if (!sync.watermark || pullRequest.updatedAt > sync.watermark) sync.watermark = pullRequest.updatedAt
+    if (this.now() >= sync.listAt) {
+      for (const pullRequest of await provider.review.listRecentPullRequests(repo, sync.watermark)) {
+        observe(pullRequest.number, pullRequest)
+        if (!sync.watermark || pullRequest.updatedAt > sync.watermark) sync.watermark = pullRequest.updatedAt
+      }
+      sync.listAt = this.now() + REPOSITORY_MS
     }
     const unknown = [...wanted.numbers].filter((number) => !sync.records.has(number))
     if (unknown.length) {

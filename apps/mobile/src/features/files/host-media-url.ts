@@ -12,11 +12,14 @@ import type { HostConnection } from '../hosts/host-connections'
 
 const REFRESH_WINDOW_MS = 60_000
 
-export interface HostMediaRequest {
-  /** A path on the host: absolute, `~`-relative, or relative to the project `ctx` names. */
-  path: string
-  ctx?: IpcContext
-}
+export type HostMediaRequest =
+  | {
+      /** A path on the host: absolute, `~`-relative, or relative to the project `ctx` names. */
+      path: string
+      ctx?: IpcContext
+    }
+  /** A file in the host asset store, such as a picture a tool returned. */
+  | { assetId: string; ctx?: undefined }
 
 interface SignedUrl {
   url: string
@@ -27,13 +30,17 @@ const signedUrls = new Map<string, SignedUrl>()
 const pendingMints = new Map<string, Promise<SignedUrl>>()
 
 const cacheKey = (hostId: string, request: HostMediaRequest) =>
-  `${hostId}\u0000${request.ctx?.session.workingDirectory ?? ''}\u0000${request.path}`
+  'assetId' in request
+    ? `${hostId}\u0000asset\u0000${request.assetId}`
+    : `${hostId}\u0000${request.ctx?.session.workingDirectory ?? ''}\u0000${request.path}`
 
 async function mint(connection: HostConnection, request: HostMediaRequest): Promise<SignedUrl> {
   if (!hasHostCapability(await connection.supervisor.whenCapabilities(), 'assetUrls')) {
     throw new Error('Update the host to show media from it.')
   }
-  const signed = await connection.api.assetCreateUrl(request.ctx, { path: request.path })
+  const signed = 'assetId' in request
+    ? await connection.api.assetCreateUrl(undefined, { assetId: request.assetId })
+    : await connection.api.assetCreateUrl(request.ctx, { path: request.path })
   const origin = new URL(connection.transport.serverUrl).origin
   return { url: new URL(signed.relativeUrl, `${origin}/`).toString(), expiresAt: signed.expiresAt }
 }

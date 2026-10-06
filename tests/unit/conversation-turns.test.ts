@@ -10,6 +10,7 @@ import {
   runIsLive,
   shouldAnimateTurnEntry,
   visibleTurnBody,
+  withoutProviderRoundTrips,
 } from '@solus/workspace-ui/components/conversation/lib/turns'
 
 let clock = 1_000
@@ -866,5 +867,27 @@ describe('who stopped a turn', () => {
       msg({ role: 'system', content: '[Request interrupted by user]' }),
     ])
     expect(unnamed.end?.by).toBeUndefined()
+  })
+})
+
+describe('withoutProviderRoundTrips', () => {
+  // WHY: switching Claude → Codex → Claude before any message changes nothing,
+  // so the reader must not see two dividers that cancel out.
+  const switched = (fromProvider: 'claude-code' | 'codex', provider: 'claude-code' | 'codex') =>
+    msg({ role: 'system', content: '', activity: divider({ kind: 'agent_switched', provider, fromProvider }) })
+
+  test('hides a switch and the switch back when nothing happened between them', () => {
+    const answer = msg({ role: 'assistant', content: 'Done.' })
+    expect(withoutProviderRoundTrips([answer, switched('claude-code', 'codex'), switched('codex', 'claude-code')])).toEqual([answer])
+  })
+
+  test('keeps the last switch of an odd run', () => {
+    const last = switched('claude-code', 'codex')
+    expect(withoutProviderRoundTrips([switched('claude-code', 'codex'), switched('codex', 'claude-code'), last])).toEqual([last])
+  })
+
+  test('keeps both switches when a message came between them', () => {
+    const messages = [switched('claude-code', 'codex'), msg({ role: 'user', content: 'hi' }), switched('codex', 'claude-code')]
+    expect(withoutProviderRoundTrips(messages)).toBe(messages)
   })
 })

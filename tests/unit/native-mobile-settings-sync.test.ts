@@ -71,6 +71,14 @@ function manualClock(): SettingsSyncClock & { runAll(): void } {
 }
 
 describe('appearance becomes the personal theme', () => {
+  test('Show me is available by default and stays deleted after reload', () => {
+    const storage = memoryKeyValueStore()
+    const personal = new PersonalSettingsStore(storage)
+    expect(personal.current().savedLenses.map((lens) => lens.name)).toEqual(['Show me'])
+    personal.set({ savedLenses: [] })
+    expect(new PersonalSettingsStore(storage).current().savedLenses).toEqual([])
+  })
+
   test('the Appearance screen writes the personal store only, and a synced change is applied the same way', () => {
     const storage = memoryKeyValueStore()
     const personal = new PersonalSettingsStore(storage)

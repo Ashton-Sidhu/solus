@@ -1,6 +1,5 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { serverConnections } from "@solus/client-core/server-connections";
   import {
     getWorkspaceContext,
     getPullRequestsContext,
@@ -34,9 +33,7 @@
   import GitSetupSection from "./GitSetupSection.svelte";
   import LinkedSection from "./LinkedSection.svelte";
   import SubagentsSection from "./SubagentsSection.svelte";
-  import WatchesSection from "./WatchesSection.svelte";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
-  import { isWatchEnded } from "@solus/contracts/watch-types";
   import { sessionSubagents } from "./lib/rail-subagents";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import { comboHint } from "../../lib/keybindings/manifest";
@@ -167,9 +164,6 @@
 
   const panelSession = $derived(session.sessionFor(sourceId));
   const panelRun = $derived(session.runFor(sourceId));
-  const panelServerId = $derived(
-    panelRun?.serverId ? serverConnections.resolveId(panelRun.serverId) : null,
-  );
   // Linking a pull request is an editor's; a member who may only read sees the links.
   const canDrive = $derived(canDriveSession(panelRun?.serverId, panelSession?.id));
   const panelEnvironment = $derived(environmentStore.environmentFor(panelRun));
@@ -197,20 +191,6 @@
   const panelSubagents = $derived(
     panelSession ? sessionSubagents(panelSession.messages) : [],
   );
-
-  // The Watches card exists only while the session has a watch that has not
-  // ended. The rail holds the session's watches loaded while it shows them.
-  const panelWatches = $derived(
-    panelSession
-      ? session.watchesStore.forSession(panelSession.id).filter((watch) => !isWatchEnded(watch.status))
-      : [],
-  );
-  $effect(() => {
-    const sessionId = panelSession?.id;
-    const serverId = panelServerId;
-    if (!sessionId || !serverId || !active) return;
-    return untrack(() => session.watchesStore.watchSession(serverId, sessionId));
-  });
 
   // A split chat mounts a second rail, so both instances register these ids and
   // the dispatcher fires only the first enabled handler. Each rail arms its
@@ -462,17 +442,6 @@
         onToggle={() => toggleSection("subagents")}
         onResizePointerDown={startResize}
       />
-    {/if}
-    {#if panelWatches.length > 0}
-      <PanelSection
-        title="Watches"
-        headerDetail={`${panelWatches.length} active`}
-        collapsed={collapsedSections.watches}
-        onToggle={() => toggleSection("watches")}
-        onResizePointerDown={startResize}
-      >
-        <WatchesSection watches={panelWatches} />
-      </PanelSection>
     {/if}
   </div>
 </SidePanel>

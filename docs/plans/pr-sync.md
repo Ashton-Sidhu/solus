@@ -97,6 +97,16 @@ each isolated-checkout session branch of such a task. This replaces
 
 Each repository sync with interest runs every 60 s. A `review` interest makes it
 run every 15 s, and every 10 s while that pull request has a check in progress.
+A faster pass reads only the check runs (step 4); the recent list keeps the 60 s
+cadence. The first list read asks for 50 rows a page; after a watermark exists,
+10 rows a page.
+
+A rate limit from the code host (REST 403 or 429 with
+`x-ratelimit-remaining: 0` or `retry-after`, or GraphQL `RATE_LIMITED`) is not
+a credential failure: the request does not go to the next credential. The
+repository, and every other repository on the same code host, waits until the
+reset time that the host gives, or 5 minutes when it gives none.
+
 A tick:
 
 1. **Recent changes — 1 GraphQL request.** List the repository's pull requests by

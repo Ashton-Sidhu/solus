@@ -1,7 +1,7 @@
 import { HostSupervisor, type BlockedReason, type DialOutcome, type HostPhase, type SupervisedTransport } from '@solus/client-core/host-supervisor'
 import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { asHostApi, type HostApi } from '@solus/client-core/host-api'
-import { awaitsManagedCompute, dialableRoutes, nextRouteUrl } from '@solus/client-core/server-registry'
+import { awaitsManagedCompute, dialableRoutes, installationIdDecision, nextRouteUrl } from '@solus/client-core/server-registry'
 import { classifyVisibilityReturn, type WakeSignal } from '@solus/client-core/wake-signals'
 import type { ConnectionStatus, WsTransportOptions } from '@solus/client-core/ws-transport'
 import { Listeners } from '../../lib/listeners'
@@ -119,7 +119,7 @@ export class HostConnections {
       sessionToken: this.deps.registry.credential(host.id),
       acquireGrant: host.paired ? undefined : (options) => this.deps.acquireHostAccessToken(host, options),
       onSessionTokenRefreshed: (sessionToken) => { void this.deps.registry.updateCredential(host.id, sessionToken) },
-      verifyConnectedHost: () => this.verifyIdentity(host.id, connection?.transport.serverUrl ?? route.url),
+      verifyConnectedHost: () => this.verifyIdentity(host, connection?.transport.serverUrl ?? route.url),
       organizationId: this.deps.organizationId,
     })
     const supervisor = new HostSupervisor({
@@ -216,11 +216,11 @@ export class HostConnections {
 
   /** A socket that answers must be the host we saved. Only a successful health
    *  read can reject it; a transient failure does not. */
-  private async verifyIdentity(hostId: string, url: string): Promise<boolean> {
+  private async verifyIdentity(host: NativeHost, url: string): Promise<boolean> {
     const result = await previewHost(this.deps.fetch, url)
     if (result.kind !== 'found') return true
-    if (result.preview.installationId !== hostId) return false
-    this.deps.registry.touch(hostId, { os: result.preview.os, reportedName: result.preview.name })
+    if (installationIdDecision(host.id, result.preview.installationId, host.uplink) === 'mismatch') return false
+    this.deps.registry.touch(host.id, { os: result.preview.os, reportedName: result.preview.name })
     return true
   }
 }

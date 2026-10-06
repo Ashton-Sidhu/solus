@@ -35,6 +35,7 @@ export type ThreadFeedRow =
   | { readonly type: 'run-fold'; readonly id: string; readonly turnId: string; readonly label: string; readonly expanded: boolean }
   | { readonly type: 'thinking'; readonly id: string; readonly continuesWorkLog: boolean }
   | { readonly type: 'notice'; readonly id: string }
+  | { readonly type: 'compaction'; readonly id: string }
   | { readonly type: 'plan'; readonly id: string }
   | { readonly type: 'worktree-offer'; readonly id: string }
   /** Consecutive agents of one turn: other Solus sessions and provider subagents. */
@@ -101,11 +102,12 @@ function appendTurnRows(rows: ThreadFeedRow[], turn: Turn, active: boolean, inpu
   const terminalAssistantId = assistants.at(-1)?.id ?? null
   const failed = turn.entries.some((entry) => entry.kind === 'notice' && entry.tone === 'error')
   // A finished turn folds its work behind one row, keeping the first and last
-  // prose and anything that asks for attention (plans, notices, worktree offers).
+  // prose and anything that asks for attention (plans, notices, compaction
+  // dividers, worktree offers).
   const hidden = active || failed
     ? new Set<string>()
     : new Set(turn.entries
-        .filter((entry) => entry.id !== firstAssistantId && entry.id !== terminalAssistantId && entry.kind !== 'plan' && entry.kind !== 'notice' && entry.kind !== 'worktree_offer')
+        .filter((entry) => entry.id !== firstAssistantId && entry.id !== terminalAssistantId && entry.kind !== 'plan' && entry.kind !== 'notice' && entry.kind !== 'compaction' && entry.kind !== 'worktree_offer')
         .map((entry) => entry.id))
   const expandedFold = input.expandedTurnIds.has(turn.id)
   let foldPlaced = false
@@ -162,6 +164,8 @@ function appendTurnRows(rows: ThreadFeedRow[], turn: Turn, active: boolean, inpu
       rows.push({ type: 'plan', id: entry.id })
     } else if (entry.kind === 'notice') {
       rows.push({ type: 'notice', id: entry.id })
+    } else if (entry.kind === 'compaction') {
+      rows.push({ type: 'compaction', id: entry.id })
     } else if (entry.kind === 'worktree_offer') {
       rows.push({ type: 'worktree-offer', id: entry.id })
     }

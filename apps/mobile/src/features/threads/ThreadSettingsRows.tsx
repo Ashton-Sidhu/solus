@@ -8,6 +8,7 @@ import { ProviderIcon } from "../../components/ProviderIcon";
 import { ThemedSwitch } from "../../components/ThemedSwitch";
 import { cn } from "../../lib/cn";
 import type { AppSymbolName } from "../../components/AppSymbol";
+import { RowLeadingSymbol } from "../../components/RowLeadingSymbol";
 import type { ModelOption } from "./thread-settings-options";
 
 /** Provider catalog header with its harness logo and disclosure state. */
@@ -158,12 +159,7 @@ export function AutoRow(props: {
       disabled={props.needsKey}
       onPress={props.onPress}
     >
-      <SymbolView
-        name={{ ios: "sparkles", android: "auto_awesome" }}
-        size={16}
-        tintColorClassName={props.needsKey ? "accent-icon-subtle" : "accent-icon"}
-        type="monochrome"
-      />
+      <RowLeadingSymbol name="sparkles" muted={props.needsKey} />
       <View className="min-w-0 flex-1">
         <Text className={cn("text-base font-t3-medium", props.needsKey ? "text-foreground-muted" : "text-foreground")}>
           Auto
@@ -245,11 +241,7 @@ export function ChoiceRow(props: {
         !props.isLast && "border-b border-border-subtle",
       )}
     >
-      {props.icon ? (
-        <View className="size-8 shrink-0 items-center justify-center rounded-lg bg-subtle">
-          <SymbolView name={props.icon} size={16} tintColorClassName="accent-icon-muted" type="monochrome" />
-        </View>
-      ) : null}
+      {props.icon ? <RowLeadingSymbol name={props.icon} /> : null}
       <View className="min-w-0 flex-1 gap-0.5">
         <Text className="text-base font-t3-medium text-foreground">{props.label}</Text>
         {props.description ? (

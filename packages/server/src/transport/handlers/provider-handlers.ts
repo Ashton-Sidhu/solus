@@ -703,6 +703,10 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
         throw new Error('This pull request changed. Refresh it before turning on auto-merge.')
       }
       if (current.state !== 'open' || current.draft) throw new Error('Only an open pull request that is ready for review can merge on its own.')
+      // GitHub refuses to arm auto-merge on a pull request it could merge now.
+      if (current.mergeStateStatus && ['clean', 'unstable', 'has_hooks'].includes(current.mergeStateStatus)) {
+        throw new Error('This pull request can merge now, so auto-merge has nothing to wait for. Merge it instead.')
+      }
       if (!current.viewerPermissions.actions.includes('enable-auto-merge')) {
         throw new Error('You do not have permission to turn on auto-merge for this pull request.')
       }

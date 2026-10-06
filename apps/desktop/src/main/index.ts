@@ -1,5 +1,5 @@
 import { DesktopActivityBadges } from './activity-badges'
-import { selectedConversationLinkAction } from './conversation-link-action'
+import { conversationLinkAction } from './conversation-link-action'
 // Electron's bundled Node.js doesn't use the macOS system keychain for TLS.
 // Point it at the macOS root CA bundle so the Anthropic SDK can verify certs.
 if (!process.env.NODE_EXTRA_CA_CERTS) {
@@ -377,7 +377,8 @@ function createMainWindow(): BrowserWindow {
   // Edge-to-edge content with native traffic lights on macOS.
   if (process.platform === 'darwin') {
     windowOptions.titleBarStyle = 'hiddenInset'
-    windowOptions.trafficLightPosition = { x: 16, y: 18 }
+    // Centred on the 40px titlebar row (`--solus-titlebar-height`).
+    windowOptions.trafficLightPosition = { x: 16, y: 13 }
   }
   mainWindow = new BrowserWindow(windowOptions)
   const mainContents = mainWindow.webContents
@@ -535,7 +536,7 @@ function designModeCaptureRegion(): Electron.Rectangle {
   return display.workArea
 }
 
-/** Only http(s) links get a "Copy Link" item — never file:, javascript:, or our own solus-img: scheme. */
+/** Only http(s) links get link items — never file:, javascript:, or our own solus-img: scheme. */
 function isSafeExternalUrl(url: string): boolean {
   if (!url) return false
   try {
@@ -551,13 +552,23 @@ function attachContextMenu(win: BrowserWindow): void {
   win.webContents.on('context-menu', (_event, params) => {
     const menuItems: Electron.MenuItemConstructorOptions[] = []
 
-    const openLink = selectedConversationLinkAction(
+    const linkUrl = isSafeExternalUrl(params.linkURL) ? params.linkURL : null
+    const openLink = conversationLinkAction(
+      linkUrl,
       params.selectionText,
       quoteContextTabId,
       params.isEditable,
       (url, sourceTabId) => win.webContents.send('solus:open-selected-link', url, sourceTabId),
     )
-    if (openLink) menuItems.push(openLink, { type: 'separator' })
+    if (openLink) menuItems.push(openLink)
+    if (linkUrl) {
+      menuItems.push(
+        { label: 'Open in default browser', click: () => void shell.openExternal(linkUrl) },
+        { type: 'separator' },
+        { label: 'Copy Link', click: () => clipboard.writeText(linkUrl) },
+      )
+    }
+    if (openLink || linkUrl) menuItems.push({ type: 'separator' })
 
     // Corrections come first — a right-click on a red-underlined word is asking
     // for the suggestion, not for the clipboard.
@@ -571,11 +582,6 @@ function attachContextMenu(win: BrowserWindow): void {
       if (params.dictionarySuggestions.length === 0) {
         menuItems.push({ label: 'No suggestions', enabled: false })
       }
-      menuItems.push({ type: 'separator' })
-    }
-
-    if (isSafeExternalUrl(params.linkURL)) {
-      menuItems.push({ label: 'Copy Link', click: () => clipboard.writeText(params.linkURL) })
       menuItems.push({ type: 'separator' })
     }
 

@@ -327,9 +327,13 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     freeze.set(false);
   }, [freeze, props.threadKey]);
 
+  const isBackground = meta.status === "background";
   const stopThread = useCallback(() => {
-    void store.controller.stop();
-  }, [store]);
+    // The turn already ended: Stop ends the work it left running, as the
+    // desktop and web background row does.
+    if (isBackground) void store.controller.stopBackgroundWork();
+    else void store.controller.stop();
+  }, [store, isBackground]);
   // Stop applies only to a running turn; otherwise the command passes on.
   useKeyboardCommand("stop", () => {
     if (!canStop) return false;

@@ -33,6 +33,9 @@
      *  request's worktree — so the composer offers no project or host. */
     destinationFixed?: boolean;
     label?: string;
+    /** Where the folded glyph docks, when the page has its own bar at its
+     *  foot for the glyph to line up with. */
+    class?: string;
   }
   let {
     paneId,
@@ -41,6 +44,7 @@
     sendFirstPrompt,
     destinationFixed = false,
     label = "Work with this page",
+    class: glyphClass,
     onAttachFile,
     onScreenshot,
     onDesignMode,
@@ -161,7 +165,7 @@
   </div>
 {:else}
   <div
-    class="absolute right-3 bottom-[max(0.75rem,env(safe-area-inset-bottom,0px))] z-30"
+    class={cn("absolute right-3 bottom-[max(0.75rem,env(safe-area-inset-bottom,0px))] z-30", glyphClass)}
     in:scale={{ start: 0.6, opacity: 0, duration: prefersReducedMotion.current ? 0 : 140, delay: prefersReducedMotion.current ? 0 : 100, easing: cubicOut }}
   >
     <Button

@@ -106,6 +106,7 @@ const resourceRpcRules = {
   sharedSessionAvailable: viewer(sessionIdAt(0)),
   sharedSessionPrompt: editor(sessionFieldAt(0, 'sessionId')),
   prompt: editor(ctxAt(0)),
+  compactSession: editor(ctxAt(0)),
   retry: editor(ctxAt(0)),
   decideSessionPlan: editor(ctxAt(0)),
   stopSession: editor(sessionIdAt(0)),
@@ -149,10 +150,6 @@ const resourceRpcRules = {
   unlinkPlanUpstream: editor(sessionIdAt(0)),
   tasksLinkSession: editor(sessionIdAt(1)),
   tasksUnlinkSession: editor(sessionIdAt(1)),
-  watchList: viewer(sessionIdAt(0)),
-  watchPause: editor(sessionIdAt(0)),
-  watchResume: editor(sessionIdAt(0)),
-  watchCancel: editor(sessionIdAt(0)),
   // Works — reading
   loadWorkRevisions: viewer(workIdAt(0)),
   loadWorkRevision: viewer(workIdAt(0)),

@@ -7,10 +7,9 @@ export type ClaudeToolResultContent = string | readonly ClaudeToolResultTextBloc
 export function claudeToolResultText(content: ClaudeToolResultContent): string {
   if (!content) return ''
   if (!Array.isArray(content)) return content
+  // An image block has no text; its picture goes to the asset store instead.
   return content
-    .map((block) =>
-      block.text ?? '',
-    )
+    .flatMap((block) => block.text === undefined ? [] : [block.text])
     .join('\n')
 }
 

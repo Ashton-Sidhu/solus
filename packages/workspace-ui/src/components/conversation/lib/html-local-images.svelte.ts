@@ -1,6 +1,6 @@
 import type { IpcContext } from "@solus/contracts/types";
 import { resolveHostMediaUrl } from "../../../lib/host-media-url.svelte";
-import { inlineLocalImages, localImageReferences } from "./html-local-images";
+import { inlineLocalImages, localImageReferences } from "@solus/contracts/html-local-images";
 
 /** The host an HTML block's local images are read from. */
 export interface HtmlImageHost {
@@ -37,7 +37,7 @@ export class HtmlWithLocalImages {
       if (!target || !this.hasLocalImages) return;
       let cancelled = false;
       void inlineLocalImages(html, (path) => loadHostImage(target, path)).then((inlined) => {
-        if (!cancelled) this.inlined = { source: html, html: inlined };
+        if (!cancelled) this.inlined = { source: html, html: inlined.html };
       });
       return () => {
         cancelled = true;

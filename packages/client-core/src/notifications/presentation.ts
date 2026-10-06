@@ -49,10 +49,11 @@ export function kindsForGroups(groups: readonly NotificationKindGroup[]): Notifi
 
 /**
  * The unread count as a label that does not overstate what is known: capped at
- * 99, and marked with `+` when a source has not answered.
+ * 99, and marked with `+` when a source has not answered. No unread means no
+ * label, even while a source has not answered: the panel's source strip shows that.
  */
 export function unreadCountLabel(count: { unread: number; isCapped: boolean; isComplete: boolean }): string | null {
-  if (count.unread === 0 && count.isComplete) return null
+  if (count.unread === 0) return null
   if (count.isCapped || count.unread > 99) return '99+'
   return count.isComplete ? String(count.unread) : `${count.unread}+`
 }

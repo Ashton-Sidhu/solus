@@ -188,10 +188,18 @@ export function onDirectoryAnswered(listener: () => void): () => void {
 
 export type InstallationIdDecision = 'match' | 'mismatch'
 
+/**
+ * Whether the host on a saved address is still the one saved there. A managed host
+ * is saved under its directory id, never the id its server makes at first boot, so
+ * the two are not compared: the directory owns its route, and the host refuses a
+ * grant minted for another host id.
+ */
 export function installationIdDecision(
   storedInstallationId: string,
   reportedInstallationId: string,
+  uplink?: SavedServerUplink,
 ): InstallationIdDecision {
+  if (uplink?.kind === 'managed') return 'match'
   return storedInstallationId === reportedInstallationId ? 'match' : 'mismatch'
 }
 

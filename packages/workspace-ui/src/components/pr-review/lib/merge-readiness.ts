@@ -133,9 +133,16 @@ function mergeAction(detail: PullRequest): MergeAction | null {
   return { kind: 'merge', label, method }
 }
 
-/** Whether the host can arm its auto-merge here and this viewer may do it. */
+/**
+ * Whether the host can arm its auto-merge here and this viewer may do it.
+ * GitHub arms it only while the merge is held — `blocked` by a requirement or
+ * `behind` its base. A pull request it could merge now (`clean`, `unstable`,
+ * `has_hooks`) is refused with "Pull request is in clean status", and a status
+ * still computing says nothing either way.
+ */
 function viewerMayAutoMerge(detail: PullRequest): boolean {
   return (
+    (detail.mergeStateStatus === 'blocked' || detail.mergeStateStatus === 'behind') &&
     detail.capabilities.actions.includes('enable-auto-merge') &&
     detail.viewerPermissions.actions.includes('enable-auto-merge') &&
     detail.capabilities.mergeMethods.length > 0

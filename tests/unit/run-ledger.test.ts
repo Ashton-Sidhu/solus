@@ -11,12 +11,13 @@ let RunLedger: typeof import('@solus/server/data/sessions/run-ledger')['RunLedge
 let closeDb: typeof import('@solus/server/db')['closeDb']
 let getDb: typeof import('@solus/server/db')['getDb']
 let runMigrations: typeof import('@solus/server/db/migrations')['runMigrations']
+let migrations: typeof import('@solus/server/db/migrations')['migrations']
 beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'solus-run-ledger-'))
   process.env.SOLUS_DATA_DIR = directory
   ;({ RunLedger } = await import('@solus/server/data/sessions/run-ledger'))
   ;({ closeDb, getDb } = await import('@solus/server/db'))
-  ;({ runMigrations } = await import('@solus/server/db/migrations'))
+  ;({ runMigrations, migrations } = await import('@solus/server/db/migrations'))
 })
 afterEach(() => closeDb())
 afterAll(() => {
@@ -102,15 +103,15 @@ describe('first boot after the JSON receipts', () => {
     // SAFETY: bun:sqlite answers the calls the migration runner makes on a node:sqlite handle.
     const legacy = file as unknown as import('node:sqlite').DatabaseSync
     runMigrations(legacy)
-    const version = (file.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
+    const ledgerSlot = migrations.findIndex((sql) => sql.includes('CREATE TABLE runs ('))
     file.exec('DROP TABLE runs; DROP TABLE run_queue; DROP TABLE run_exchanges')
     file.exec(`CREATE TABLE session_restart_runs (session_id TEXT PRIMARY KEY, organization_id TEXT NOT NULL DEFAULT 'local',
       run_id TEXT NOT NULL, state TEXT NOT NULL, payload TEXT NOT NULL, updated_at INTEGER NOT NULL)`)
     file.prepare('INSERT INTO session_restart_runs(session_id, run_id, state, payload, updated_at) VALUES (?, ?, ?, ?, ?)')
       .run('legacy', 'original', 'running', JSON.stringify(run('legacy')), 1)
-    // The ledger migration is second to last; the last one drops sessions.viewed_at.
+    // Every migration after the ledger runs again; the one that drops sessions.viewed_at needs the column.
     file.exec('ALTER TABLE sessions ADD COLUMN viewed_at INTEGER')
-    file.exec(`PRAGMA user_version = ${version - 2}`)
+    file.exec(`PRAGMA user_version = ${ledgerSlot}`)
     runMigrations(legacy)
     expect(file.prepare('SELECT session_id, run_id, state FROM runs').all()).toEqual([{ session_id: 'legacy', run_id: 'original', state: 'running' }])
     expect(file.prepare("SELECT name FROM sqlite_master WHERE name = 'session_restart_runs'").all()).toEqual([])

@@ -169,9 +169,17 @@ development team (`-allowProvisioningUpdates` in the Xcode preset).
   opens on the phone. The **…** menu shows the app id, size, project,
   conversation and last install, runs the build on another device,
   downloads an APK, and deletes the build from the host (see below).
-  **Add a build…** opens the host's folder browser at the conversation's
-  folder. It lists folders and build outputs; an `.app` bundle or an `.apk`
-  is chosen with a click, not opened.
+  **New build** builds one of the project's Build & run profiles in the
+  conversation's checkout and adds the output under Builds; it installs
+  nothing, so it needs no open simulator. The menu says what each profile
+  builds for: **iPhone or iPad**, **iOS Simulator** or **Android**. Use an
+  iPhone or iPad profile for a phone, then **Run** puts the build on it.
+  With no profile saved, **Set up a build…** opens the profile editor.
+  While it builds, a row above the list shows the stage with **Log** and
+  **Cancel**; a failed build stays there until dismissed. **Add existing…**
+  opens the host's folder browser at the conversation's folder instead. It
+  lists folders and build outputs; an `.app` bundle or an `.apk` is chosen
+  with a click, not opened.
 - **Project panel → Environment → Devices.** The row shows how many builds
   the host has, and opens Builds when there is at least one.
 
@@ -223,7 +231,17 @@ of an APK in the host's assets. The APK that the project built stays.
 Adding and deleting builds is for the host's administrator, like device
 setup. On mobile, **Run** opens the device choice, the **…** menu says what
 the build is and has **Install on this phone** (Android, APK builds) and
-**Delete**, and **Add a build** browses the host's folders the same way. Builds install only on devices connected to the Solus host
+**Delete**, and **Add existing** browses the host's folders the same way.
+On mobile, **New build** asks which of the host's projects to build, then
+which of its saved profiles (each says what it builds for). The build
+shows on the Builds screen with **Log** and **Cancel**, and a failed one
+stays until **Dismiss**. With no profile saved, **Set up a build** opens
+the project's build profiles; **Edit build profiles** opens them too. The
+phone edits the same profiles as the Devices pane: add one from the same
+presets (Xcode for an iPhone or iPad, Xcode for the simulator, Gradle's
+debug APK), then edit its name, platform, kind, folder, command, output
+and app id. **Save** checks them the same way and writes them to the
+project's `.solus/config.json`. Builds install only on devices connected to the Solus host
 itself, not on an SSH device host.
 
 ## Control

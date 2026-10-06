@@ -104,8 +104,9 @@ describe('installed Claude executable', () => {
     expect(queries).toHaveLength(0)
     const executable = installClaude()
     await agent.readUsageReport()
-    expect(queries).toHaveLength(1)
-    expect(queries[0].pathToClaudeCodeExecutable).toBe(executable)
+    // This SDK stub has no usage API, so the `/usage` text fallback runs too.
+    expect(queries).toHaveLength(2)
+    expect(queries.map((q) => q.pathToClaudeCodeExecutable)).toEqual([executable, executable])
   })
 
   test('cancellation during PATH discovery does not start a CLI process', async () => {

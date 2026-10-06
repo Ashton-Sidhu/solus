@@ -1,15 +1,13 @@
 <script lang="ts">
-  import WebLink from "./WebLink.svelte";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { MessageCircleMore as ChatCircleDotsIcon, FileText as FileTextIcon, GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
   import { getClientShellContext, getSurfaceContext } from "../../contexts";
-  import { toasts } from "../../lib/toasts";
   import { parseFileHref, requestFilePreview } from "../../lib/filePreview";
   import { routeForHref } from "../../lib/agent-links";
   import { FILE_ICON_VIEWBOX, getFileIconPath } from "../editor/fileIcons";
   import { tokenClassName } from "../editor/tokenStyle";
-  import { faviconUrlForHref, isWebUrl } from "./lib/external-link";
+  import { faviconUrlForHref } from "./lib/external-link";
   import { codeFileLinkLabel } from "./lib/assistant-markdown";
   import { fileLinkTooltip } from "./lib/file-link-path";
   import { assetUrlCache } from "../artifact/lib/asset-url";
@@ -98,26 +96,6 @@
 
   const faviconUrl = $derived(faviconUrlForHref(href));
   let failedFaviconUrl = $state<string | null>(null);
-
-  /** An ordinary web address with nowhere better to go. A plan, a work, a pull
-   *  request, a session, a file, or a stored asset already has a destination,
-   *  and a browser pane would be the worse one. */
-  const isPlainWebLink = $derived(
-    !(assetId || linkRoute || sessionParams || fileRef) && isWebUrl(href),
-  );
-
-  /** The host that would render it: the session that wrote the link, not the
-   *  device showing it. A remote session's `localhost:5173` lives there. */
-  const openInSolusBrowser = session
-    ? () => {
-        const linkServerId = sessionLinkContext?.serverId() ?? session.fallbackServerId;
-        void session.openUrlInBrowser(href, linkServerId).catch((error: Error) => {
-          toasts.error("Couldn't open that page in the browser", {
-            description: error.message,
-          });
-        });
-      }
-    : null;
 
   function basename(path: string): string {
     const stripped = path.replace(/\/+$/, "");
@@ -236,13 +214,7 @@
       onerror={() => (failedFaviconUrl = faviconUrl)}
     />{/if}{@render children?.()}
   {/snippet}
-  {#if isPlainWebLink}
-    <WebLink {href} {title} onclick={handleClick} onOpenInSolus={openInSolusBrowser}>
-      {@render linkContents()}
-    </WebLink>
-  {:else}
-    <a href={assetId ? assetHref || undefined : href} {title} class="solus-link" onclick={handleClick}>
-      {@render linkContents()}
-    </a>
-  {/if}
+  <a href={assetId ? assetHref || undefined : href} {title} class="solus-link" onclick={handleClick}>
+    {@render linkContents()}
+  </a>
 {/if}

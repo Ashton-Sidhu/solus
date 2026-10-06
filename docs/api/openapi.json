@@ -11407,6 +11407,10 @@
                                   "runId": {
                                     "type": "string",
                                     "minLength": 1
+                                  },
+                                  "sessionId": {
+                                    "type": "string",
+                                    "minLength": 1
                                   }
                                 },
                                 "required": [
@@ -20613,6 +20617,10 @@
                     "minLength": 1
                   },
                   "runId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "sessionId": {
                     "type": "string",
                     "minLength": 1
                   }

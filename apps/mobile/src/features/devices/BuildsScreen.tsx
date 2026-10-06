@@ -1,7 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/features/archive/ArchivedThreadsScreen.tsx (MIT, see UPSTREAM.md).
 import { useState } from 'react'
 import { ActionSheetIOS, ActivityIndicator, Alert, Linking, Platform, RefreshControl, ScrollView, View } from 'react-native'
-import type { DeviceBuild, DeviceSummary } from '@solus/contracts/device-types'
+import { isDeviceRunActive, type DeviceBuild, type DeviceRun, type DeviceSummary } from '@solus/contracts/device-types'
 import { buildCardSummary, buildDetails, buildDownloadName, deviceBuildTargets, installDeviceBuild } from '@solus/client-core/device-builds'
 import { useApp } from '../../app/app-context'
 import { SymbolView } from '../../components/AppSymbol'
@@ -31,6 +31,8 @@ export function BuildsScreen({ navigation, route }: ScreenProps<'Builds'>) {
   const { view, refresh } = useDeviceState(hostId)
   /** The build being downloaded, installed or deleted. One at a time. */
   const [busy, setBusy] = useState<{ buildId: string; action: BuildAction } | null>(null)
+  /** Failed New builds the person has read and put away. */
+  const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set())
   const state = view.kind === 'loaded' ? view.state : undefined
   const now = Date.now()
 
@@ -105,6 +107,19 @@ export function BuildsScreen({ navigation, route }: ScreenProps<'Builds'>) {
     ])
   }
 
+  const cancelRun = (run: DeviceRun) => {
+    app.connections.connection(hostId)?.api.deviceRunCancel(run.runId).catch((cause: unknown) => Alert.alert('Could not cancel the build', deviceErrorText(cause)))
+  }
+
+  const showLog = (run: DeviceRun) => {
+    app.connections.connection(hostId)?.api.deviceRunLog(run.runId).then(
+      (log) => Alert.alert(`${run.profileName} log`, log.text.slice(-1500) || 'No output yet.'),
+      (cause: unknown) => Alert.alert('Could not read the log', deviceErrorText(cause)),
+    )
+  }
+
+  // New builds (runs that install nowhere), from this phone or any client, while they run or after they failed.
+  const newBuilds = (state?.runs ?? []).filter((run) => run.deviceId === null && (isDeviceRunActive(run) || run.stage === 'failed') && !dismissed.has(run.runId))
   const builds = state?.builds ?? []
   const unavailableDevices = state?.devices.filter((device) => device.physical && device.unavailableReason) ?? []
   return (
@@ -122,10 +137,35 @@ export function BuildsScreen({ navigation, route }: ScreenProps<'Builds'>) {
           <Text className="mt-3 text-sm text-foreground-muted">Loading builds...</Text>
         </View>
       ) : null}
+      {state?.settings.enabled ? (
+        <View className="flex-row flex-wrap gap-2">
+          <ControlPill variant="primary" label="New build" accessibilityLabel="Build one of a project's build profiles" onPress={() => navigation.push('NewBuild', { hostId })} />
+          <ControlPill variant="pill" label="Add existing" accessibilityLabel="Add a build that is already on the host" onPress={() => navigation.push('BuildFolder', { hostId })} />
+        </View>
+      ) : null}
+      {newBuilds.map((run) => {
+        const isActive = isDeviceRunActive(run)
+        return (
+          <View key={run.runId} className="gap-1.5 rounded-[20px] bg-grouped-card px-4 py-3" accessibilityLiveRegion="polite">
+            <Text className={cn('text-base font-t3-bold leading-snug', isActive ? 'text-foreground' : 'text-danger-foreground')} numberOfLines={1}>
+              {isActive ? `Building ${run.profileName}...` : `${run.profileName} failed`}
+            </Text>
+            <Text className="text-2xs text-foreground-tertiary" numberOfLines={2}>{[run.checkout, isActive ? run.lastLine : run.error].filter(Boolean).join(' · ')}</Text>
+            <View className="flex-row flex-wrap gap-2 pt-1">
+              <ControlPill variant="pill" label="Log" accessibilityLabel={`Show the log of ${run.profileName}`} onPress={() => showLog(run)} />
+              {isActive ? (
+                <ControlPill variant="pill" label="Cancel" accessibilityLabel={`Cancel ${run.profileName}`} onPress={() => cancelRun(run)} />
+              ) : (
+                <ControlPill variant="pill" label="Dismiss" accessibilityLabel={`Dismiss ${run.profileName}`} onPress={() => setDismissed((current) => new Set([...current, run.runId]))} />
+              )}
+            </View>
+          </View>
+        )
+      })}
       {state && !state.settings.enabled ? (
         <EmptyState title="Device support is off" detail="Turn on device support for this host in Solus on your computer: Settings → Devices." />
       ) : state && builds.length === 0 ? (
-        <EmptyState title="No builds yet" detail="Ask the agent to build the app and put it on your phone, or add a build below. Its builds appear here." />
+        <EmptyState title="No builds yet" detail="Make one with New build, or ask the agent to build the app. Its builds appear here." />
       ) : builds.length > 0 ? (
         <View className="overflow-hidden rounded-[20px] bg-grouped-card">
           {builds.map((build, index) => {
@@ -174,16 +214,6 @@ export function BuildsScreen({ navigation, route }: ScreenProps<'Builds'>) {
           {device.unavailableReason}
         </Text>
       ))}
-      {state?.settings.enabled ? (
-        <View className="flex-row">
-          <ControlPill
-            variant="pill"
-            label="Add a build"
-            accessibilityLabel="Add a build that is on the host"
-            onPress={() => navigation.push('BuildFolder', { hostId })}
-          />
-        </View>
-      ) : null}
       {Platform.OS === 'android' ? (
         <Text className="px-1 text-xs leading-snug text-foreground-muted">
           The first time, Android asks you to allow installs from your browser.

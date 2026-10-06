@@ -47,6 +47,8 @@ export interface AgentRunRequest {
   /** Background utility runs must never park on an interaction no surface can answer. */
   unattended?: boolean
   conversation?: ProviderConversation
+  /** A manual Codex context compaction uses the normal run and Stop lifecycle. */
+  operation?: 'compact'
   additionalDirectories?: string[]
   imageAttachments?: PromptOptions['imageAttachments']
   contextWindow?: number | null

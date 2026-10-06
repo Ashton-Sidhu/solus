@@ -1,17 +1,24 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { threadTitleMaxWidth } from '../../apps/mobile/src/lib/layout'
 
 const mobile = join(import.meta.dir, '../../apps/mobile')
 const read = (path: string) => readFileSync(join(mobile, path), 'utf8')
 
 describe('native thread header (T3 parity)', () => {
-  test('grouped actions leave the title more room than a 44pt circle each', () => {
-    // A 390pt phone with Back and three actions in one shared glass group.
-    expect(threadTitleMaxWidth(390, 3, true)).toBe(390 - 32 - 52 - (16 + 40 * 3))
-    expect(threadTitleMaxWidth(390, 3, true)).toBeGreaterThan(390 - 64 - 44 * 4)
-    expect(threadTitleMaxWidth(100, 3, true)).toBe(0)
+  test('the title is UIKit\'s own string, so the bar bounds and truncates it before the actions', () => {
+    const header = read('src/features/threads/useThreadHeaderOptions.tsx')
+    // A custom title view keeps its own size and is centred over the bar items.
+    expect(header).not.toMatch(/headerTitle:\s*\(/)
+    expect(header).toContain('headerTitle: props.title')
+    expect(header).toContain('unstable_headerSubtitle: subtitle')
+  })
+
+  test('the favicon is a left bar item beside Back, without a glass background', () => {
+    const header = read('src/features/threads/useThreadHeaderOptions.tsx')
+    expect(header).toMatch(/unstable_headerLeftItems: \(\) => \[\s*\{\s*type: "custom" as const/)
+    expect(header).toContain('hidesSharedBackground: true')
+    expect(header).toContain('headerBackVisible: canGoBack')
   })
 
   test('the thread header asks for one shared group, as T3 sets sharesBackground', () => {

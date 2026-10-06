@@ -16,7 +16,6 @@
   import PlanMessageItem from "../plan/PlanMessageItem.svelte";
   import DocumentStackCard from "../work/DocumentStackCard.svelte";
   import AutomationRefCard from "../automations/AutomationRefCard.svelte";
-  import WatchRefCard from "../watches/WatchRefCard.svelte";
   import TaskRefCard from "./TaskRefCard.svelte";
   import BrowserSnapshotCard from "../browser/BrowserSnapshotCard.svelte";
   import BrowserSnapshotGallery from "../browser/BrowserSnapshotGallery.svelte";
@@ -39,7 +38,9 @@
   import HtmlBlock from "./HtmlBlock.svelte";
   import { assistantMarkdownOptions, assistantMarkdownExtensions } from "./lib/assistant-markdown";
   import { noticeText } from "./lib/transient";
-  import { compactionDividerText } from "./lib/compaction-divider";
+  import { compactionDividerText } from "@solus/contracts/context-compaction";
+  import { pauseWhenOffscreen } from "./lib/visible-animation";
+  import { Minimize2 as Minimize2Icon } from "@lucide/svelte";
   import type { DocumentStackEntry } from "../work/lib/document-stack";
 
   let { item, skipMotion, tabId, linkContext, activeHandoffDivider, activeHandoffTargetModel,
@@ -153,7 +154,12 @@
   {:else if item.message.compaction}
     {@const compaction = compactionDividerText(item.message.compaction)}
     <TranscriptDivider timestamp={item.message.timestamp} testid="context-compaction-message" {skipMotion}>
-      {compaction.label}{#if compaction.detail}{` · ${compaction.detail}`}{/if}
+      {#snippet glyph()}<Minimize2Icon size={12} />{/snippet}
+      {#if item.message.compaction.isRunning}
+        <span class="activity-shimmer" {@attach pauseWhenOffscreen}>{compaction.label}</span>
+      {:else}
+        {compaction.label}{#if compaction.detail}{` · ${compaction.detail}`}{/if}
+      {/if}
     </TranscriptDivider>
   {:else}
     <!-- Cancellations, interrupts and errors alike: centred between
@@ -221,13 +227,6 @@
       {skipMotion}
     />
   {/if}
-{:else if item.kind === "watch" && item.message.watchRef}
-  <WatchRefCard
-    ref={item.message.watchRef}
-    sessionId={sess?.id}
-    serverId={sess ? session.serverIdForSession(sess.id) : linkContext.serverId}
-    {skipMotion}
-  />
 {:else if item.kind === "automation" && item.message.automationRef}
   <AutomationRefCard
     ref={item.message.automationRef}

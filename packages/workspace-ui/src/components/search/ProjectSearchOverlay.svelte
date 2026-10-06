@@ -358,7 +358,7 @@
                   {#each lineSegments(line, lineHighlighter.tokens(line.text, language, theme)) as segment, i (i)}
                     {#if segment.isMatch}
                       <mark
-                        class="rounded-[0.125rem] bg-(--solus-accent-light) text-inherit"
+                        class="rounded-[0.125rem] bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] text-inherit"
                         style={segmentStyle(segment)}>{segment.text}</mark>
                     {:else}<span style={segmentStyle(segment)}>{segment.text}</span>{/if}
                   {/each}

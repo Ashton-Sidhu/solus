@@ -1,5 +1,5 @@
 import type { DirectoryEntry } from '@solus/contracts/types'
-import { deviceBuildFits, type DeviceBuild, type DeviceControlState, type DeviceState, type DeviceSummary, type DeviceTarget } from '@solus/contracts/device-types'
+import { deviceBuildFits, isDeviceRunActive, parseDeviceError, type DeviceRunStartRequest, type DeviceRun, type DeviceRunProfile, type DeviceBuild, type DeviceControlState, type DeviceState, type DeviceSummary, type DeviceTarget } from '@solus/contracts/device-types'
 import { notificationAge } from './notifications/presentation'
 import type { HostApi } from './host-api'
 
@@ -80,6 +80,49 @@ export function buildDetails(
 export function buildCardSummary(build: DeviceBuild, now: number): string {
   const kind = build.platform === 'android' ? 'Android' : build.runsOn === 'device' ? 'iPhone or iPad' : build.runsOn === 'simulator' ? 'iOS Simulator' : 'iOS'
   return `${kind} · ${notificationAge(build.createdAt, now)}`
+}
+
+/**
+ * Start a build profile, on a device or (without one) only into Builds. The
+ * host asks once per command, because profiles come from the repository:
+ * `confirm` shows that question, and null means the person declined.
+ */
+export async function startDeviceRun(
+  api: Pick<HostApi, 'deviceRunStart'>,
+  request: DeviceRunStartRequest,
+  confirm: (question: string) => boolean | Promise<boolean>,
+): Promise<DeviceRun | null> {
+  try {
+    return await api.deviceRunStart(request)
+  } catch (cause) {
+    const parsed = parseDeviceError(cause instanceof Error ? cause.message : String(cause))
+    if (parsed?.code !== 'confirmation_required') throw cause
+    if (!(await confirm(parsed.message))) return null
+    return api.deviceRunStart({ ...request, approve: true })
+  }
+}
+
+/** What a build profile builds for, as a person picks between them. A simulator build cannot go on a phone. */
+export function profileTargetLabel(profile: Pick<DeviceRunProfile, 'platform' | 'target'>): string {
+  if (profile.platform === 'android') return 'Android'
+  return profile.target === 'device' ? 'iPhone or iPad' : profile.target === 'simulator' ? 'iOS Simulator' : 'iOS'
+}
+
+/**
+ * The newest New build (a run that installs nowhere) of this exact checkout,
+ * while it runs or after it failed. Matched on the path the run was started
+ * for, so two checkouts with the same folder name never share it.
+ */
+export function shownNewBuild(runs: readonly DeviceRun[], checkoutPath: string | null): DeviceRun | null {
+  if (!checkoutPath) return null
+  const latest = runs.find((run) => run.deviceId === null && run.checkoutPath === checkoutPath)
+  if (!latest) return null
+  return isDeviceRunActive(latest) || latest.stage === 'failed' ? latest : null
+}
+
+/** Profiles of this checkout with a New build running now: starting one again only watches it. */
+export function newBuildsRunning(runs: readonly DeviceRun[], checkoutPath: string | null): Set<string> {
+  return new Set(runs.filter((run) => run.deviceId === null && run.checkoutPath === checkoutPath && isDeviceRunActive(run)).map((run) => run.profileName))
 }
 
 /** Builds the device on screen can run, newest first: what its Run button offers. */

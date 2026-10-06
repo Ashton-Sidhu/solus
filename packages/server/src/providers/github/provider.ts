@@ -492,8 +492,11 @@ interface RecentPullRequestsResponse {
   repository: { pullRequests: GqlNeedsReviewPage } | null
 }
 
-/** Rows per page of the tick. One page covers a quiet repository's minute. */
+/** Rows per page of the first tick. One page covers a quiet repository's minute. */
 const RECENT_PAGE_SIZE = 50
+/** Rows per page once a watermark exists: few rows change between ticks, and
+ *  a full page reads the next one. */
+const WARM_PAGE_SIZE = 10
 /** The most numbers one aliased read names. */
 const BY_NUMBER_BATCH_SIZE = 50
 
@@ -1402,7 +1405,7 @@ export class GitHubProvider implements ReviewProvider {
       for (;;) {
         const response: RecentPullRequestsResponse = await client.graphql<RecentPullRequestsResponse>(
           RECENT_PULL_REQUESTS_QUERY,
-          { owner: repo.owner, repo: repo.repo, first: RECENT_PAGE_SIZE, after },
+          { owner: repo.owner, repo: repo.repo, first: since === null ? RECENT_PAGE_SIZE : WARM_PAGE_SIZE, after },
         )
         const page = response.repository?.pullRequests
         if (!page) break

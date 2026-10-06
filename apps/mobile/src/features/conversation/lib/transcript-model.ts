@@ -1,5 +1,5 @@
 import type { Activity, WorktreeOfferResolution } from '@solus/contracts/activity'
-import type { PermissionOption, QuestionItem, RateLimitInfo, RequestExpiry, SessionStatus, WireNormalizedEvent } from '@solus/contracts/types'
+import type { ContextCompaction, PermissionOption, QuestionItem, RateLimitInfo, RequestExpiry, SessionStatus, ToolResultImage, WireNormalizedEvent } from '@solus/contracts/types'
 import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { planKey } from '@solus/contracts/types'
 import { AgentCards, isAgentConversationTool, type AgentItem } from './agent-cards'
@@ -34,10 +34,14 @@ export type TranscriptItem =
       subagent: string | null
       /** The subagent's answer, apart from ordinary tool output. */
       report: string | null
+      /** Pictures the call returned, stored on the host. */
+      images?: readonly ToolResultImage[]
     }
   /** Another Solus session this conversation sent work to (`agent-cards.ts`). */
   | AgentItem
   | { kind: 'notice'; id: string; text: string; tone: 'error' | 'info' }
+  /** A context compaction: running from its start event, settled by its stop. */
+  | { kind: 'compaction'; id: string; compaction: ContextCompaction }
   | {
       kind: 'plan'
       id: string
@@ -126,6 +130,8 @@ export class TranscriptModel {
     update: (item) => this.replace(item),
   })
   private streamTarget: string | null = null
+  /** The compaction that started and has not stopped. */
+  private runningCompactionId: string | null = null
   private proseSinceUser = false
   private readonly settledTurns = new Set<string>()
 
@@ -184,12 +190,16 @@ export class TranscriptModel {
   private historyItem(row: WireSessionLoadMessage): string | null {
     if (row.activity) return row.activity.kind === 'worktree_offered' ? this.addWorktreeOffer(row.activity, false) : null
     const id = row.messageId ?? this.mintId('h')
+    if (row.compaction) {
+      this.items.set(id, { kind: 'compaction', id, compaction: row.compaction })
+      return id
+    }
     if (row.role === 'user') {
       // A [session report] or notice is the orchestrator's, not the person's: it settles a card.
       if (this.agentCards.applyUserRow(row.content, row.timestamp)) return null
       this.agentCards.closeTurn()
       const { text, files } = splitAttachedFiles(row.content)
-      this.items.set(id, { kind: 'user', id, text, delivery: 'sent', error: null, attachments: [...promptImageAttachments(row.imageAttachments, undefined), ...files] })
+      this.items.set(id, { kind: 'user', id, text, delivery: 'sent', error: null, attachments: [...promptImageAttachments(row.imageAttachments, row.imageAttachmentRefs), ...files] })
       return id
     }
     if (row.role === 'assistant' && row.content.trim()) {
@@ -206,6 +216,7 @@ export class TranscriptModel {
         errorHead: null, childCount: 0,
         subagent: row.isSubagent ? row.subagentType ?? 'agent' : subagentFromToolName(toolName),
         report: row.report ?? null,
+        images: row.toolImages,
       })
       if (!isAgentConversationTool(toolName)) return id
       this.agentCards.applyToolRow(toolName, row.toolInput, row.agentConversationResult, row.timestamp)
@@ -233,6 +244,7 @@ export class TranscriptModel {
       ...tool,
       status: row.status === 'error' ? 'error' : 'completed',
       errorHead: row.errorHead ?? null,
+      images: row.toolImages ?? tool.images,
     }))
   }
 
@@ -280,6 +292,7 @@ export class TranscriptModel {
       }
       case 'tool_call_update':
         this.updateToolInput(event.toolId, event.toolInput)
+        if (event.toolImages) this.patchToolById(event.toolId, true, (tool) => ({ ...tool, images: event.toolImages }))
         return true
       case 'tool_call_complete':
         this.completeTool(event)
@@ -289,6 +302,7 @@ export class TranscriptModel {
           ...tool,
           status: event.status === 'error' ? 'error' : 'completed',
           errorHead: event.errorHead ?? null,
+          images: event.toolImages ?? tool.images,
         }))
         return true
       case 'subagent_report':
@@ -296,6 +310,9 @@ export class TranscriptModel {
         return true
       case 'user_message':
         this.applyUserMessage(event)
+        return true
+      case 'context_compaction':
+        this.applyCompaction(event)
         return true
       case 'activity':
         if (event.activity.kind === 'worktree_offered') this.addWorktreeOffer(event.activity, true)
@@ -312,6 +329,7 @@ export class TranscriptModel {
         this.setStatus(event.status)
         return true
       case 'task_complete':
+        this.dropRunningCompaction()
         this.addProseOnce(event.result)
         this.clearRequests()
         return true
@@ -486,12 +504,66 @@ export class TranscriptModel {
     if (this.status === status) return
     this.status = status
     if (status === 'idle') this.clearRequests()
+    // A running divider must not stay after the work stops.
+    if (status !== 'running' && status !== 'connecting') this.dropRunningCompaction()
     // A new turn: cards closed before it have said why; they leave.
     if (status === 'running' || status === 'connecting') {
       this.permissions = this.permissions.filter((request) => !request.expired)
       this.questions = this.questions.filter((question) => !question.expired)
     }
     this.metaChanged = true
+  }
+
+  /**
+   * The same divider rules as the desktop reducer (`session-event-reducer`): a
+   * start draws a running divider, its stop settles it in place, and a failed
+   * compaction leaves none. Claude settles one compaction twice, so a stop with
+   * no running divider updates the divider just drawn; the record's token
+   * counts win.
+   */
+  private applyCompaction(event: Extract<WireNormalizedEvent, { type: 'context_compaction' }>): void {
+    if (event.state === 'start') {
+      if (this.runningCompactionId) return
+      this.streamTarget = null
+      const id = this.mintId('c')
+      this.runningCompactionId = id
+      this.append({ kind: 'compaction', id, compaction: { isRunning: true } })
+      return
+    }
+    if (event.failed) {
+      this.dropRunningCompaction()
+      return
+    }
+    const compaction: ContextCompaction = {}
+    if (event.trigger) compaction.trigger = event.trigger
+    if (event.preTokens !== undefined) compaction.preTokens = event.preTokens
+    if (event.postTokens !== undefined) compaction.postTokens = event.postTokens
+    const runningId = this.runningCompactionId
+    this.runningCompactionId = null
+    if (runningId && this.items.has(runningId)) {
+      this.replace({ kind: 'compaction', id: runningId, compaction })
+      return
+    }
+    const lastId = this.order.at(-1)
+    const last = lastId ? this.items.get(lastId) : undefined
+    if (last?.kind === 'compaction') {
+      this.replace({
+        ...last,
+        compaction: event.preTokens !== undefined ? { ...last.compaction, ...compaction } : { ...compaction, ...last.compaction },
+      })
+      return
+    }
+    this.streamTarget = null
+    this.append({ kind: 'compaction', id: this.mintId('c'), compaction })
+  }
+
+  private dropRunningCompaction(): void {
+    const id = this.runningCompactionId
+    if (!id) return
+    this.runningCompactionId = null
+    this.items.delete(id)
+    this.order = this.order.filter((each) => each !== id)
+    this.orderChanged = true
   }
 
   setRateLimit(info: RateLimitInfo | null): void {

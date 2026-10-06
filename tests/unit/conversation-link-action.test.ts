@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import { selectedConversationLinkAction } from '@solus/desktop-main/conversation-link-action'
+import { conversationLinkAction } from '@solus/desktop-main/conversation-link-action'
 
 describe('native conversation link action', () => {
   test('opens the selected address from the original conversation', () => {
     let sourceTabId = 'remote-tab'
     const opened: { url: string; sourceTabId: string }[] = []
-    const action = selectedConversationLinkAction(
-      'http://localhost:5173/', sourceTabId, false,
+    const action = conversationLinkAction(
+      null, 'http://localhost:5173/', sourceTabId, false,
       (url, tabId) => opened.push({ url, sourceTabId: tabId }),
     )
     expect(action?.label).toBe('Open link')
@@ -16,10 +16,21 @@ describe('native conversation link action', () => {
     expect(opened).toEqual([{ url: 'http://localhost:5173/', sourceTabId: 'remote-tab' }])
   })
 
+  test('opens the link under the pointer, not the selected text', () => {
+    const opened: string[] = []
+    const action = conversationLinkAction(
+      'https://developers.cloudflare.com/containers/', 'Container API', 'tab', false,
+      (url) => opened.push(url),
+    )
+    Reflect.apply(action!.click!, undefined, [])
+    expect(opened).toEqual(['https://developers.cloudflare.com/containers/'])
+  })
+
   test('does not add a conversation action to input fields or other selections', () => {
     const onOpen = () => { throw new Error('No action should open') }
-    expect(selectedConversationLinkAction('https://example.com', null, false, onOpen)).toBeNull()
-    expect(selectedConversationLinkAction('https://example.com', 'tab', true, onOpen)).toBeNull()
-    expect(selectedConversationLinkAction('See https://example.com', 'tab', false, onOpen)).toBeNull()
+    expect(conversationLinkAction(null, 'https://example.com', null, false, onOpen)).toBeNull()
+    expect(conversationLinkAction('https://example.com', '', null, false, onOpen)).toBeNull()
+    expect(conversationLinkAction(null, 'https://example.com', 'tab', true, onOpen)).toBeNull()
+    expect(conversationLinkAction(null, 'See https://example.com', 'tab', false, onOpen)).toBeNull()
   })
 })

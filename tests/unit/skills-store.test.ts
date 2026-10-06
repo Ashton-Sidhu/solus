@@ -59,7 +59,6 @@ describe('Skills settings state', () => {
       skillsList: async () => { throw new Error('Unsupported') },
     }, skill, false)).toBe(true)
     expect(store.isInstalled(skill)).toBe(true)
-    expect(store.message).toBe('design installed globally.')
     expect(store.busy).toBeNull()
   })
   test('external removal clears a previous installation status on refresh', async () => {

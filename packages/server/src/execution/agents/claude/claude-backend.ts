@@ -704,13 +704,11 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
   }
 
   async readUsageLimits(seat?: TurnSeat): Promise<AgentUsageLimits | null> {
-    const windows = await this.agent.readUsageReport(seat ? claudeSeatOf(seat) : undefined)
-    if (!windows) return null
+    const report = await this.agent.readUsageReport(seat ? claudeSeatOf(seat) : undefined)
+    if (!report) return null
     return {
       provider: this.id,
-      ...windows,
-      // `/usage` names no plan tier, only the two windows.
-      planType: null,
+      ...report,
       fetchedAt: Date.now(),
       stale: false,
     }

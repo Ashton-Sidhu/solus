@@ -37,7 +37,6 @@
   import { devicesStore } from "@solus/workspace-ui/contexts/devices/devices.store.svelte";
   import { deviceCommands, revealDeviceSurface } from "@solus/workspace-ui/components/devices/lib/device-entry";
   import { settingsOwnerCommands } from "@solus/workspace-ui/components/settings/lib/settings-commands";
-  import { subscribeWatchChanges } from "@solus/workspace-ui/contexts/watches/watch-changes";
   import { subscribeWorkReviewChanges } from "@solus/workspace-ui/contexts/works/work-review-changes";
   import {
     browserRecordingCommands,
@@ -73,6 +72,7 @@
   import { newChatCommand } from "@solus/workspace-ui/components/command-palette/lib/new-chat-command";
   import { openChatDraft } from "@solus/workspace-ui/contexts/workspace/new-chat";
   import { workReviewPaletteCommands } from "@solus/workspace-ui/components/work/lib/work-review-commands";
+  import { saveFileAsWorkCommands } from "@solus/workspace-ui/components/files/lib/save-file-as-work";
   import { comboHint } from "@solus/workspace-ui/lib/keybindings/manifest";
   import { createWebAttachments } from "./components/input/lib/attachments";
   import { createProjectPicker } from "@solus/workspace-ui/components/servers/project-picker.svelte";
@@ -268,8 +268,6 @@
           });
         }
       });
-      // Watches wait on a host and change state with no client in the loop.
-      const unsubWatches = subscribeWatchChanges(session.watchesStore);
       // Review requests and decisions reach the reader on every client.
       const unsubWorkReviews = subscribeWorkReviewChanges(session.worksStore, (workId) => session.openWork(workId));
       const unsubUsage = subscribeAllHosts('usage.limitsChanged', (_serverId, { snapshots }) =>
@@ -296,7 +294,6 @@
         unsubSessionStatuses();
         unsubProjectDirectory();
         unsubAutomations();
-        unsubWatches();
         unsubWorkReviews();
         unsubUsage();
         unsubSeats();
@@ -562,6 +559,7 @@
   }, { enabled: () => serversStore.organizations.length > 0 });
   const paletteCommands = $derived.by((): Command[] => [
     ...workReviewPaletteCommands(session),
+    ...saveFileAsWorkCommands(session),
     ...(shareTarget ? [{
       id: "share-session", label: "Share…", group: "General",
       hint: comboHint("global.share"), keywords: ["share", "access", "link", "team", "guest"],

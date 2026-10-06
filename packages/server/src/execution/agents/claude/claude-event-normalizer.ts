@@ -4,6 +4,7 @@ import type { TurnNormalizer, TurnSummary } from '../turn-normalizer'
 import { isRateLimitMessage, normalizeResetNumber } from '../../rate-limits'
 import { parentSubagentEvent, type SubagentTranscriptEvent } from '../subagent-events'
 import { claudeToolResultText } from './claude-subagent-protocol'
+import { storeToolResultImages } from '../../../data/assets/transcript-images'
 import { z } from 'zod'
 
 const SDK_TO_UI_PERMISSION_MODE = {
@@ -524,6 +525,8 @@ function normalizeUser(event: UserEvent): NormalizedEvent[] {
       parentToolUseId,
     }
     if (isAsyncLaunch) result.isAsyncLaunch = true
+    const toolImages = storeToolResultImages(block.content)
+    if (toolImages) result.toolImages = toolImages
     events.push(result)
   }
   return events

@@ -3,6 +3,7 @@ import { Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../../components/AppText";
 import { SymbolView, type AppSymbolName } from "../../../components/AppSymbol";
+import { RowLeadingSymbol } from "../../../components/RowLeadingSymbol";
 
 export function SettingsChoiceRow(props: {
   readonly label: string;
@@ -29,11 +30,7 @@ export function SettingsChoiceRow(props: {
       disabled={props.disabled}
       onPress={props.onPress}
     >
-      {props.icon ? (
-        <View className="size-8 shrink-0 items-center justify-center rounded-lg bg-subtle">
-          <SymbolView name={props.icon} size={16} tintColorClassName="accent-icon-muted" type="monochrome" />
-        </View>
-      ) : null}
+      {props.icon ? <RowLeadingSymbol name={props.icon} /> : null}
       <View className="min-w-0 flex-1 gap-1">
         <Text className="text-lg text-foreground android:text-base">{props.label}</Text>
         {props.description ? (

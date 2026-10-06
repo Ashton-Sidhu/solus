@@ -444,7 +444,9 @@ async function stageLivePaths(
 
 async function listLiveChangedPaths(workTree: string): Promise<string[]> {
   const [tracked, untracked] = await Promise.all([
-    runAsync('git', ['diff', 'HEAD', '--name-only', '-z'], workTree, { raw: true }),
+    // Plumbing: porcelain `git diff` rewrites the index under index.lock, even
+    // with GIT_OPTIONAL_LOCKS=0, and races the user's own git commands.
+    runAsync('git', ['diff-index', '--name-only', '-z', 'HEAD', '--'], workTree, { raw: true }),
     runAsync('git', ['ls-files', '--others', '--exclude-standard', '-z'], workTree, { raw: true }),
   ])
   return [...new Set(`${tracked}${untracked}`.split('\0').filter(Boolean))]

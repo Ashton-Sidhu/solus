@@ -36,6 +36,7 @@ import type { Command } from "@solus/workspace-ui/components/command-palette/lib
 import { browserRecordingCommands, focusLeadingComposer } from "@solus/workspace-ui/components/browser/lib/recording-actions";
 import { newChatCommand } from "@solus/workspace-ui/components/command-palette/lib/new-chat-command";
 import { workReviewPaletteCommands } from "@solus/workspace-ui/components/work/lib/work-review-commands";
+import { saveFileAsWorkCommands } from "@solus/workspace-ui/components/files/lib/save-file-as-work";
 import {
   activeSessionShareTarget,
   projectsStore,
@@ -430,7 +431,7 @@ export function createDesktopPalette(
   }
 
   const paletteCommands = $derived.by(() => {
-    const commands: Command[] = [...baseCommands, ...workReviewPaletteCommands(session)];
+    const commands: Command[] = [...baseCommands, ...workReviewPaletteCommands(session), ...saveFileAsWorkCommands(session)];
 
     if (updatesStore.isAvailable) {
       commands.push({

@@ -93,6 +93,13 @@ describe('a personal key', () => {
     expect(settings.showToolCalls).toBe(true)
   })
 
+  test('Show me is available by default and stays deleted after reload', async () => {
+    const { settings, storage } = await load()
+    expect(settings.savedLenses.map((lens) => lens.name)).toEqual(['Show me'])
+    settings.setPersonal('savedLenses', [])
+    expect((await load(storage)).settings.savedLenses).toEqual([])
+  })
+
   test('a change reads back and persists in the personal profile, never on a host', async () => {
     const { settings, storage } = await load()
     expect(settings.setPersonal('showToolCalls', false)).toBe(true)

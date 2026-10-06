@@ -66,6 +66,9 @@ new saved lens. A single ticked lens keeps its own source.
 - Starter templates: "Architecture delta", "Risk by file", "Data flow", and
   "Show me" (tells the agent to read and follow the humanlayer show-me skill).
   The user can start from a template and edit it.
+- A profile with no saved-lens choice starts with "Show me". An existing saved
+  list, including an empty list, keeps the person's choice. After deletion,
+  the "Show me" template can add it again.
 - Saved lenses are global in v1. Saved lenses for one project are a later
   change.
 

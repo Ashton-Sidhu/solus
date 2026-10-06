@@ -3,6 +3,7 @@ import { graphql as octokitGraphql } from '@octokit/graphql'
 import { z } from 'zod'
 import { createLogger } from '../../logger'
 import { clearToken } from './token-store'
+import { githubRateLimitOf } from './rate-limit'
 import type { GithubCredential } from './credentials'
 import type { GitHubAuth } from './auth'
 
@@ -71,8 +72,10 @@ function graphqlOperation(document: string): string {
 /** True when GitHub rejected this credential rather than the operation itself.
  * REST reports status 403/404. GraphQL returns HTTP 200 and puts FORBIDDEN or
  * repository-hiding NOT_FOUND in its errors array, so both shapes must advance
- * the same credential chain. */
+ * the same credential chain. A rate-limited 403 is not one of them. */
 export function isGithubCredentialAccessFailure<Failure>(error: Failure): boolean {
+  // A spent quota is the account's, not the credential's (rate-limit.ts).
+  if (githubRateLimitOf(error)) return false
   return error instanceof GitHubReauthRequiredError
     || credentialAccessFailureSchema.safeParse(error).success
     || graphqlCredentialAccessFailureSchema.safeParse(error).success
@@ -138,7 +141,7 @@ function createClient(credential: GithubCredential): GitHubClient {
       error: errorMessage(error),
     })
     if (unauthorizedSchema.safeParse(error).success) rejected()
-    throw error
+    throw githubRateLimitOf(error) ?? error
   })
 
   const query = octokitGraphql.defaults({
@@ -162,7 +165,7 @@ function createClient(credential: GithubCredential): GitHubClient {
         error: errorMessage(error),
       })
       if (unauthorizedSchema.safeParse(error).success) rejected()
-      throw error
+      throw githubRateLimitOf(error) ?? error
     }
   }
 

@@ -8,6 +8,7 @@
     FileText as FileTextIcon,
     Image as ImageIcon,
     List as ListIcon,
+    Minimize2 as Minimize2Icon,
     Presentation as PresentationIcon,
     Workflow as WorkflowIcon,
     X as XIcon,
@@ -22,7 +23,7 @@
   import AnsweredQuestion from "../../conversation/AnsweredQuestion.svelte";
   import TranscriptCard from "../../conversation/TranscriptCard.svelte";
   import TranscriptDivider from "../../conversation/TranscriptDivider.svelte";
-  import { compactionDividerText } from "../../conversation/lib/compaction-divider";
+  import { compactionDividerText } from "@solus/contracts/context-compaction";
   import TurnEndDivider from "../../conversation/TurnEndDivider.svelte";
   import FencedBlock from "../../conversation/FencedBlock.svelte";
   import MarkdownLink from "../../conversation/MarkdownLink.svelte";
@@ -136,7 +137,7 @@
         <ToolGroupItem tools={item.messages} skipMotion />
       {:else if item.kind === "system" && item.message.compaction}
         {@const compaction = compactionDividerText(item.message.compaction)}
-        <TranscriptDivider timestamp={item.message.timestamp} skipMotion>{compaction.label}{#if compaction.detail}{` · ${compaction.detail}`}{/if}</TranscriptDivider>
+        <TranscriptDivider timestamp={item.message.timestamp} skipMotion>{#snippet glyph()}<Minimize2Icon size={12} />{/snippet}{compaction.label}{#if compaction.detail}{` · ${compaction.detail}`}{/if}</TranscriptDivider>
       {:else if item.kind === "system"}
         <TranscriptDivider timestamp={item.message.timestamp} skipMotion>{noticeText(item.message.content)}</TranscriptDivider>
       {:else if item.kind === "plan"}

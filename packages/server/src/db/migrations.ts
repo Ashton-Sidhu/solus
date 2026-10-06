@@ -263,19 +263,6 @@ CREATE TABLE activity_mirror_rows (
   PRIMARY KEY (session_id, activity_id)
 );
 
--- Watches (docs/plans/watches.md) wait on the host and then wake one session.
-CREATE TABLE watches (
-  id TEXT PRIMARY KEY,
-  session_id TEXT NOT NULL,
-  status TEXT NOT NULL,
-  next_run_at INTEGER,
-  data TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-);
-CREATE INDEX watches_by_session ON watches(session_id, created_at DESC);
-CREATE INDEX watches_due ON watches(status, next_run_at);
-
 -- A person's mark on a turn (docs/plans/insights-turn-analysis.md), one per turn.
 CREATE TABLE turn_flags (
   trace_id TEXT PRIMARY KEY,
@@ -422,6 +409,11 @@ CREATE TABLE run_exchanges (
   settled_at INTEGER,
   updated_at INTEGER NOT NULL
 );
+`,
+  // Watches were removed (agents wait with their own background work); a file
+  // made before then still has their table.
+  `
+DROP TABLE IF EXISTS watches;
 `,
   // A session's read state is the session's, not one thread's
   // (docs/plans/session-identity.md): it moves to session_states.

@@ -92,7 +92,7 @@
       <div class="flex min-w-0 flex-1 flex-col">
         <span class="text-workspace-chrome truncate font-medium {run.stage === 'failed' ? 'text-[var(--failure)]' : 'text-(--solus-text-primary)'}" role="status" aria-live="polite">{runStageLabel(run)}</span>
         <span class="text-chrome-dense truncate text-(--solus-text-tertiary)">
-          {#if isActive && currentStep}{currentStep.text}{currentStep.target ? ` · ${currentStep.target}` : ""}{:else}{run.checkout}{run.branch ? ` · ${run.branch}` : ""} · {run.deviceName}{/if}
+          {#if isActive && currentStep}{currentStep.text}{currentStep.target ? ` · ${currentStep.target}` : ""}{:else}{run.checkout}{run.branch ? ` · ${run.branch}` : ""}{run.deviceName ? ` · ${run.deviceName}` : ""}{/if}
         </span>
       </div>
       {#if errors > 0 || warnings > 0}

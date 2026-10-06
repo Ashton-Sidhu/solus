@@ -101,7 +101,6 @@ export class RunLauncher {
       event.via = options.via
       event.automationId = options.automationId
       event.automationName = options.automationName
-      event.watchId = options.watchId
     }
     return event
   }

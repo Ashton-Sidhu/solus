@@ -26,7 +26,7 @@ describe('notification presentation', () => {
     expect(unreadCountLabel({ unread: 0, isCapped: false, isComplete: true })).toBeNull()
     expect(unreadCountLabel({ unread: 3, isCapped: false, isComplete: true })).toBe('3')
     expect(unreadCountLabel({ unread: 3, isCapped: false, isComplete: false })).toBe('3+')
-    expect(unreadCountLabel({ unread: 0, isCapped: false, isComplete: false })).toBe('0+')
+    expect(unreadCountLabel({ unread: 0, isCapped: false, isComplete: false })).toBeNull()
     expect(unreadCountLabel({ unread: 100, isCapped: true, isComplete: true })).toBe('99+')
   })
 

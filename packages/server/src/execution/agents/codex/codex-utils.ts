@@ -16,6 +16,7 @@ import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import type { ApprovalsReviewer, AskForApproval, SandboxPolicy } from './generated/v2'
 import { resolveHomePath } from '../../../platform/paths'
 import { sessionIdOfThread } from '../../../data/sessions/session-lineage'
+import { storeToolResultImages } from '../../../data/assets/transcript-images'
 
 const stringValueSchema = z.string()
 const finiteNumberSchema = z.number().finite()
@@ -45,6 +46,8 @@ const toolResultSchema = z.object({
   contentItems: z.array(messageContentPartSchema).optional(),
   content: z.array(messageContentPartSchema).optional(),
 })
+/** An MCP result's content blocks, kept whole so their images can be stored. */
+const mcpResultContentSchema = z.object({ content: z.array(z.unknown()) })
 const planItemSchema = z.object({
   step: z.string().optional(),
   text: z.string().optional(),
@@ -686,6 +689,7 @@ export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): S
     toolInput: codexToolInputFromArguments(item.arguments),
     isSubagent: isCodexSubagent || undefined,
     subagentType: isCodexSubagent ? 'codex' : undefined,
+    toolImages: storeToolResultImages(mcpResultContentSchema.safeParse(item.result).data?.content ?? item.contentItems),
     timestamp,
   }
 }

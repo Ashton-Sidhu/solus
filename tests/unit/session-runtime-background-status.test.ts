@@ -252,3 +252,114 @@ describe.serial('SessionRuntime background status', () => {
     }
   })
 })
+
+/** A provider whose turn ends while the agent's commands run on, as Codex's
+ *  does: no query stays open, so the run exits and the tasks outlive it. */
+class TurnEndingBackend extends Backend {
+  readonly liveTasks = new Set<string>()
+
+  hasBackgroundTasks(): boolean { return this.liveTasks.size > 0 }
+
+  endTurnWithTask(taskId: string): void {
+    this.liveTasks.add(taskId)
+    this.startTask(taskId)
+    this.result()
+    this.handles.delete(THREAD_ID)
+    this.emit('exit', THREAD_ID, 0, null)
+  }
+
+  settle(taskId: string, status: 'completed' | 'stopped'): void {
+    this.liveTasks.delete(taskId)
+    this.emit('normalized', THREAD_ID, { type: 'background_task_settled', taskId, status } satisfies NormalizedEvent)
+  }
+
+  override async stopBackgroundTask(_sessionId: string, taskId: string): Promise<boolean> {
+    this.stoppedTasks.push(taskId)
+    return this.liveTasks.has(taskId)
+  }
+
+  /** With no run left, cancelling stops the commands the agent left running. */
+  override cancelSession(sessionId: string): boolean {
+    this.cancelled.push(sessionId)
+    this.stoppedTasks.push(...this.liveTasks)
+    return this.liveTasks.size > 0
+  }
+}
+
+async function endCodexTurnWithCommandRunning() {
+  const backend = new TurnEndingBackend()
+  const plane = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend]]))
+  plane.on('error', () => {})
+  const events: NormalizedEvent[] = []
+  plane.on('event', (_sessionId: string, event: NormalizedEvent) => { events.push(event) })
+  const lifecycle = await plane.runTurn({
+    target: { kind: 'new-session' }, sessionId: SESSION_ID, input: input(), tools: [],
+    options: { prompt: 'watch the deploy', promptSource: 'typed' },
+  })
+  lifecycle.done.catch(() => {})
+  await lifecycle.agentSessionId
+  await flush()
+  backend.endTurnWithTask('deploy')
+  await flush()
+  return { backend, plane, events }
+}
+
+describe.serial('SessionRuntime background status when the turn ends first', () => {
+  // WHY: Codex ends the turn while its command runs. Settling as completed
+  // notified "finished" and offered no Stop for work still going.
+  test('the exit settles into background, not completed', async () => {
+    const { plane, events } = await endCodexTurnWithCommandRunning()
+    try {
+      expect(statuses(events).at(-1)).toBe('background')
+      expect(settlements(events)).toEqual([])
+      expect(plane.statuses.isSessionBusy(SESSION_ID)).toBe(false)
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('stopping the background work settles the finished turn once, as completed', async () => {
+    const { backend, plane, events } = await endCodexTurnWithCommandRunning()
+    try {
+      expect(await plane.stopBackgroundTasks(SESSION_ID)).toBe(true)
+      expect(backend.stoppedTasks).toEqual(['deploy'])
+      // A stopped command wakes no agent turn, so its settle ends the wait.
+      backend.settle('deploy', 'stopped')
+      await flush()
+      expect(statuses(events)).not.toContain('interrupted')
+      expect(statuses(events).at(-1)).toBe('completed')
+      expect(settlements(events).map((event) => event.outcome)).toEqual(['completed'])
+      expect(await plane.stopBackgroundTasks(SESSION_ID)).toBe(false)
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('Stop in background stops the commands, as it ends Claude\'s query', async () => {
+    const { backend, plane, events } = await endCodexTurnWithCommandRunning()
+    try {
+      expect(plane.stopSession(SESSION_ID, HOST_ACTOR)).toBe(true)
+      expect(backend.stoppedTasks).toEqual(['deploy'])
+      expect(statuses(events).at(-1)).toBe('interrupted')
+      // The command's later settle does not settle the turn a second time.
+      backend.settle('deploy', 'stopped')
+      await flush()
+      expect(settlements(events).map((event) => event.outcome)).toEqual(['interrupted'])
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('a command that finishes on its own leaves the session waiting for the wake turn', async () => {
+    const { backend, plane, events } = await endCodexTurnWithCommandRunning()
+    try {
+      backend.settle('deploy', 'completed')
+      await flush()
+      // The agent's wake turn settles the session, not the command's end.
+      expect(statuses(events).at(-1)).toBe('background')
+      expect(settlements(events)).toEqual([])
+    } finally {
+      plane.shutdown()
+    }
+  })
+})

@@ -173,7 +173,7 @@
     class="min-w-0 flex-[3] truncate text-workspace-chrome font-normal @max-[30rem]/pane:col-start-2 @max-[30rem]/pane:row-start-1 @max-[30rem]/pane:overflow-visible @max-[30rem]/pane:text-sm/[1.35] @max-[30rem]/pane:text-clip @max-[30rem]/pane:font-medium @max-[30rem]/pane:whitespace-normal @max-[30rem]/pane:text-pretty"
   >
     {#each titleRuns as run, i (i)}{#if run.hit}<mark
-          class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
+          class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] px-px text-inherit"
           >{run.text}</mark
         >{:else}{run.text}{/if}{/each}
   </span>

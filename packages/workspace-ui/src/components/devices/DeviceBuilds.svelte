@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Download, Ellipsis, Smartphone, Trash2 } from "@lucide/svelte";
-  import type { DeviceBuild, DeviceState, DeviceSummary } from "@solus/contracts/device-types";
-  import { buildCardSummary, buildDetails, buildDownloadName, deviceBuildTargets, isBuildOutput } from "@solus/client-core/device-builds";
+  import { isDeviceRunActive, type DeviceBuild, type DeviceState, type DeviceSummary } from "@solus/contracts/device-types";
+  import { buildCardSummary, buildDetails, buildDownloadName, deviceBuildTargets, isBuildOutput, shownNewBuild } from "@solus/client-core/device-builds";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { getWorkspaceContext } from "../../contexts";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
@@ -11,7 +11,11 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { RowCard } from "../ui/row-card";
   import DirectoryPicker from "../pickers/DirectoryPicker.svelte";
+  import DeviceNewBuild from "./DeviceNewBuild.svelte";
+  import DeviceRunLog from "./DeviceRunLog.svelte";
+  import DeviceRunProfiles from "./DeviceRunProfiles.svelte";
   import { runDeviceBuild } from "./lib/run-build";
+  import { runStageLabel } from "./lib/run-profiles";
 
   /**
    * App builds on this host (plan 016, S02), one row each in a Settings-style
@@ -108,9 +112,55 @@
     const folder = sessionId ? session.sessions.byId[sessionId]?.run.workingDirectory : undefined;
     return folder && folder !== "~" ? folder : undefined;
   });
+
+  // New build runs in the conversation's own checkout (its worktree, if it has one), as Build & run does.
+  const checkoutPath = $derived.by(() => {
+    const run = sessionId ? session.sessions.byId[sessionId]?.run : undefined;
+    return run ? (run.gitContext?.worktreePath ?? run.workingDirectory) || null : null;
+  });
+  let editingProfiles = $state(false);
+  /** The New build shown above the list while it runs, or after it failed until dismissed. */
+  let dismissedRunId = $state<string | null>(null);
+  let logRunId = $state<string | null>(null);
+  const newBuild = $derived.by(() => {
+    const run = shownNewBuild(devicesStore.runs(serverId), checkoutPath);
+    return run && run.runId !== dismissedRunId ? run : null;
+  });
 </script>
 
 <div class="flex flex-col gap-4" data-testid="device-builds">
+  <div class="flex items-center gap-2">
+    <h2 class="min-w-0 flex-1 truncate text-(--solus-text-primary)">Builds</h2>
+    <DeviceNewBuild {serverId} {sessionId} {checkoutPath} onEditProfiles={() => (editingProfiles = true)} />
+    <Button size="sm" variant="ghost" disabled={importing} title="Add a build that is already on {hostLabel}" onclick={() => (browsing = true)}>
+      {importing ? "Adding…" : "Add existing…"}
+    </Button>
+  </div>
+  {#if editingProfiles && checkoutPath}
+    <DeviceRunProfiles {serverId} {checkoutPath} onDone={() => (editingProfiles = false)} />
+  {:else}
+  {#if newBuild}
+    {@const isActive = isDeviceRunActive(newBuild)}
+    <RowCard>
+      <div class="flex min-w-0 items-center gap-2 py-2.5 pr-2.5 pl-4" role="status" aria-live="polite">
+        <div class="flex min-w-0 flex-1 flex-col">
+          <span class="truncate font-medium {isActive ? 'text-(--solus-text-primary)' : 'text-(--failure)'}">{isActive ? runStageLabel(newBuild) : `${newBuild.profileName} failed`}</span>
+          {#if (isActive ? newBuild.lastLine : newBuild.error)}
+            <span class="truncate text-chrome-dense text-(--solus-text-tertiary)">{isActive ? newBuild.lastLine : newBuild.error}</span>
+          {/if}
+        </div>
+        <Button size="xs" variant="ghost" onclick={() => (logRunId = logRunId === newBuild.runId ? null : newBuild.runId)}>{logRunId === newBuild.runId ? "Hide log" : "Log"}</Button>
+        {#if isActive}
+          <Button size="xs" variant="ghost" onclick={() => void devicesStore.cancelRun(serverId, newBuild.runId).catch((cause: unknown) => toasts.error("Couldn't cancel the build", { description: deviceErrorMessage(cause) }))}>Cancel</Button>
+        {:else}
+          <Button size="xs" variant="ghost" onclick={() => { dismissedRunId = newBuild.runId; logRunId = null; }}>Dismiss</Button>
+        {/if}
+      </div>
+    </RowCard>
+    {#if logRunId === newBuild.runId}
+      <DeviceRunLog {serverId} runId={newBuild.runId} visible onClose={() => (logRunId = null)} />
+    {/if}
+  {/if}
   {#if deviceState.builds.length > 0}
     <!-- One card of rows, as Settings draws it. A row says what the build is
          and how old it is; the rest is in its … menu. -->
@@ -181,15 +231,13 @@
       {/each}
     </RowCard>
   {:else}
-    <p class="text-(--solus-text-tertiary)">No builds yet. Builds the agent makes appear here.</p>
+    <p class="text-(--solus-text-tertiary)">No builds yet. Make one with New build, or ask the agent.</p>
   {/if}
   {#if installing}<span class="sr-only" role="status" aria-live="polite">Installing on {installing.deviceName}</span>{/if}
   {#each deviceState.devices.filter((device) => device.physical && device.unavailableReason) as device (`${device.deviceHostId}:${device.deviceId}`)}
     <p class="text-(--solus-text-tertiary)">{device.unavailableReason}</p>
   {/each}
-  <Button size="sm" variant="outline" class="self-start" disabled={importing} onclick={() => (browsing = true)}>
-    {importing ? "Adding…" : "Add a build…"}
-  </Button>
+  {/if}
 </div>
 
 <!-- The host's folder browser: an .app bundle or an .apk is chosen, not opened. -->
@@ -198,7 +246,7 @@
   onClose={() => (browsing = false)}
   onSelect={(path) => void importBuild(path)}
   initialPath={browseFrom}
-  title="Add a build"
+  title="Add an existing build"
   actionLabel={importing ? "Adding…" : "Add"}
   api={serverConnections.apiFor(serverId)}
   {serverId}

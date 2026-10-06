@@ -270,7 +270,7 @@
     <div
       class={cn(
         "relative w-full",
-        isAside || isPhone ? "max-w-(--solus-reading-max)" : "max-w-[min(55%,46rem)]",
+        isAside || isPhone ? "max-w-(--solus-reading-max)" : "max-w-[min(60%,50rem)]",
         isPhone && "mt-auto",
       )}
     >
@@ -304,7 +304,7 @@
     <!-- What cloud onboarding asked and was skipped. Cloud only; renders nothing
          when setup is complete. -->
     {#if !isAside && !isPhone}
-      <GetStartedList class="max-w-[min(55%,46rem)]" />
+      <GetStartedList class="max-w-[min(60%,50rem)]" />
     {/if}
 
     <!-- Full-page draft only: the narrow split composer has its own chrome, so

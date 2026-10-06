@@ -103,9 +103,6 @@ import { ensureBackgroundSessionTitle, type BackgroundSessionTitleRequest } from
 import { registerFolioHandlers } from './transport/handlers/folio-handlers'
 import { registerReviewHandlers } from './transport/handlers/review-handlers'
 import { registerAutomationHandlers } from './transport/handlers/automation-handlers'
-import { registerWatchHandlers } from './transport/handlers/watch-handlers'
-import { onWatchesChanged } from './watches/watches-store'
-import { WatchService } from './watches/watch-service'
 import { startAutomationScheduler, stopAutomationScheduler } from './execution/automations/automation-scheduler'
 import { hasAutomationWork, setAutomationUpdatesPaused, setAutomationBackgroundSessionDispatcher, setAutomationWorktreeCreator } from './execution/automations/automation-runner'
 import { nextAutomationDueAt, onAutomationsChanged, pauseAutomationsOf } from './data/automations/automations-store'
@@ -528,7 +525,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const domainEventUnsubscribes = [
     codeIntel.onStatusChanged((status) => events.broadcast('codeIntel.statusChanged', status)),
     onAutomationsChanged((event) => events.broadcast('automation.changed', event)),
-    onWatchesChanged((event) => events.broadcast('watch.changed', event)),
     onAnnotationsChanged((change) => events.broadcast('annotations.changed', change)),
     onWorksChanged((change) => events.broadcast('works.changed', change)),
     onWorkDeleted((change) => events.prepareBroadcast('works.changed', change)),
@@ -653,9 +649,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerPresenceHandlers(server, { presence, onHostChanged: (clientId) => publishHostPresence(presence.organizationOf(clientId)), onSessionChanged: publishSessionPresence })
   registerReviewHandlers(server, opts.sessionRuntime, events)
   registerAutomationHandlers(server)
-  registerWatchHandlers(server)
-  // Watches wait on this host and wake their session through the control plane.
-  const watches = new WatchService({ dispatchWake: (wake) => opts.sessionRuntime.dispatch.dispatchWake(wake) })
   // Isolated automations use the same headless SessionRuntime lifecycle as normal
   // background sessions, so their live transcript can be opened mid-run.
   setAutomationBackgroundSessionDispatcher((o) => opts.sessionRuntime.dispatch.startAutomationSession(o))
@@ -756,8 +749,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const remoteUpdates = new RemoteUpdateService({
     status: () => hostUpdates.status,
     publish: (support) => hostUpdates.setServerUpdate(support),
-    blockNewTurns: (blocked) => { opts.sessionRuntime.setUpdatePending(blocked); setAutomationUpdatesPaused(blocked); watches.setPaused(blocked) },
-    hasWork: () => activeSetupSteps > 0 || hasAutomationWork() || watches.hasWork() || opts.sessionRuntime.hasWorkForUpdate(),
+    blockNewTurns: (blocked) => { opts.sessionRuntime.setUpdatePending(blocked); setAutomationUpdatesPaused(blocked) },
+    hasWork: () => activeSetupSteps > 0 || hasAutomationWork() || opts.sessionRuntime.hasWorkForUpdate(),
     send: (message) => { if (!supervisor) throw new Error('No update supervisor.'); supervisor.send(message) },
   }, supervisor?.support ?? { supported: false, reason: 'Start a supported installation through solus start or solus-server to enable remote updates.', operation: null })
   const stopSupervisor = supervisor?.subscribe((message) => {
@@ -773,7 +766,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   orchestrator.recover()
   if (interruptedSessions) orchestrator.reportChildrenInterruptedByRestart(interruptedSessions)
   startAutomationScheduler()
-  watches.start()
   server.register('hostInstallUpdate', () => { remoteUpdates.install(); return structuredClone(hostUpdates.status) })
   server.register('hostCancelUpdate', () => { remoteUpdates.cancel(); return structuredClone(hostUpdates.status) })
   server.register('hostUpdateStatus', () => structuredClone(hostUpdates.status))
@@ -1364,7 +1356,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       if (shutdownPromise) return shutdownPromise
       shutdownPromise = (async () => {
         stopAutomationScheduler()
-        watches.stop()
         stopMetricsRollover()
         prSync.stop()
         hostUpdates.stop()

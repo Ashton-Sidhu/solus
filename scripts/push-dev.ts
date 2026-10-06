@@ -62,7 +62,6 @@ async function buildArchive(options: Options, workDir: string): Promise<string> 
   if (options.client) builds.push(run('bun', ['run', 'build:client']))
   await Promise.all(builds)
 
-  cpSync(join(repoRoot, 'packages', 'server', 'drizzle'), join(staging, 'libexec', 'server', 'drizzle'), { recursive: true })
   if (options.client) {
     rmSync(join(staging, 'libexec', 'client'), { recursive: true, force: true })
     cpSync(join(repoRoot, 'dist', 'client'), join(staging, 'libexec', 'client'), { recursive: true })

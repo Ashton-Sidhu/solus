@@ -58,14 +58,14 @@ Give each connection type a distinct dash pattern and a palette colour (used con
 
 | Type | Colour | Style | Use for |
 |---|---|---|---|
-| `data-flow` | `--chart-5` (blue) | Solid | request/response, data passing |
-| `tool-call` | `--chart-3` (green) | Dashed (6,3) | function calls, API invocations |
-| `event` | `--chart-1` (lime) | Short dash (4,4) | async events, pub/sub |
+| `data-flow` | `--chart-1` (orange) | Solid | request/response, data passing |
+| `tool-call` | `--chart-6` (green) | Dashed (6,3) | function calls, API invocations |
+| `event` | `--chart-5` (rose) | Short dash (4,4) | async events, pub/sub |
 | `dependency` | `--input` | Dotted | import/require relationships |
 
 ```html
 <marker id="arrow-dataflow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
-  <polygon points="0 0, 8 3, 0 6" fill="var(--chart-5)"/>
+  <polygon points="0 0, 8 3, 0 6" fill="var(--chart-1)"/>
 </marker>
 ```
 
@@ -75,15 +75,15 @@ Assign each layer one palette colour, used consistently for every node in that l
 
 | Layer | Fill |
 |---|---|
-| Client/UI | `--chart-5` (blue) |
-| Server/API | `--chart-2` (amber) |
-| SDK/Core | `--chart-6` (plum) |
-| Agent/Logic | `--chart-3` (green) |
-| Data | `--chart-1` (lime) |
-| External | `--chart-4` (teal) |
+| Client/UI | `--chart-1` (orange) |
+| Server/API | `--chart-3` (blue) |
+| SDK/Core | `--chart-4` (purple) |
+| Agent/Logic | `--chart-6` (green) |
+| Data | `--chart-5` (rose) |
+| External | `--chart-2` (teal) |
 
 ```css
-.node-client { fill: color-mix(in srgb, var(--chart-5) 18%, transparent); }
+.node-client { fill: color-mix(in srgb, var(--chart-1) 18%, transparent); }
 ```
 
 ## Comment system

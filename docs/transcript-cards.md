@@ -197,11 +197,23 @@ point: "Context compacted". The divider also shows the trigger (automatic or on
 request) and the token counts before and after, when the provider reports them.
 Claude reports all three. Codex reports only that a compaction occurred.
 
-The live `context_compaction` stop event draws the divider. A failed
-compaction draws no divider. After a reload, the history read draws the same
-divider from the provider transcript: Claude's `compact_boundary` system line,
-or Codex's `contextCompaction` item. Desktop, web, and mobile all render it
-through the shared transcript, and the read-only session record shows it too.
+In a Codex session, use `/compact` to compact the context without sending a
+message to the model. Desktop, web, and mobile use the same command. Send a
+first message before you use it. If a turn is active, wait for it to finish.
+Stop interrupts the compaction. An interrupted compaction adds no divider.
+
+The live `context_compaction` start event draws the divider at once, with the
+label "Compacting context". The label shimmers while the compaction runs. The
+shimmer stops when the divider is off screen, and it does not move when the
+device asks for reduced motion. The stop event changes the same divider to the
+result. A failed compaction removes the divider. If the turn ends before the
+compaction stops, the divider is removed too. After a reload, the history read
+draws the finished divider from the provider transcript: Claude's
+`compact_boundary` system line, or Codex's `contextCompaction` item.
+
+Desktop, web, and native mobile show the same divider and the same words
+(`@solus/contracts/context-compaction`). The read-only session record shows the
+finished divider.
 
 ## Tokens
 

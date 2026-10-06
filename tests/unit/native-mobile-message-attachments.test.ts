@@ -48,6 +48,24 @@ describe('native sent-prompt attachments', () => {
     expect(item?.kind === 'user' && item.attachments).toEqual([{ kind: 'host-image', key: 'ref:0:/h/up/shot.png', name: 'shot.png', hostPath: '/h/up/shot.png' }])
   })
 
+  // A host stores history pictures as assets; a row a runner mirrored earlier
+  // still carries a data URL. Both show, and a tool's pictures land on its row.
+  test('history shows stored prompt pictures, legacy inline ones, and tool images', () => {
+    const toolImage = { assetId: `${'a'.repeat(64)}.png`, mimeType: 'image/png', width: 390, height: 844 }
+    const model = TranscriptModel.fromHistory('s', {
+      messages: [
+        { role: 'user', content: 'look', messageId: 'u1', timestamp: 1, imageAttachmentRefs: [{ mimeType: 'image/png', hostPath: '/h/.solus/assets/x.png' }], imageAttachments: [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,AA' }] },
+        { role: 'tool', content: '', messageId: 't1', toolId: 'tool-1', toolName: 'mcp__solus__device_screenshot', timestamp: 2 },
+        { role: 'tool_result', content: '', toolResultForId: 'tool-1', status: 'ok', toolImages: [toolImage], timestamp: 3 },
+      ],
+      before: null,
+    })
+    const user = model.items.get('u1')
+    expect(user?.kind === 'user' && user.attachments.map((attachment) => attachment.kind)).toEqual(['image', 'host-image'])
+    const tool = model.items.get('t1')
+    expect(tool?.kind === 'tool' && tool.images).toEqual([toolImage])
+  })
+
   test('this phone\'s own uploads show at once: bytes for pictures, host paths for files', () => {
     const shown = uploadedMessageAttachments([
       { id: 'a', kind: 'image', name: 'p.png', hostPath: '/h/p.png', mimeType: 'image/png', size: 1, dataUrl: 'data:image/png;base64,AA' },

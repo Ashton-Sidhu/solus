@@ -16,7 +16,6 @@ import type { SessionHistoryPageRequest, SessionHistoryPage, SessionMessageWindo
 import type { AttentionEntry } from './attention-types'
 import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewGuideStatusEvent, ReviewGuideRequestOptions, PrGuideMetadata, PrGuideMetadataRequest, PrGuideStatusRequest, ReviewTarget, ReviewLensSnapshot, ReviewLensGenerateRequest, ReviewLensEditRequest, ReviewLensCommentChange, ReviewLensCommentsResult } from './review'
 import type { PrChecksSnapshot } from './checks-rpc-types'
-import type { Watch } from './watch-types'
 import type { AssetCreateUrlRequest, AssetCreateUrlResult, AssetFindUrlRequest, AssetFindUrlResult, AssetUploadRequest, AssetUploadResult, AttachmentUploadRequest, AttachmentUploadTokenRequest, AttachmentUploadTokenResult } from './rpc'
 import type { MetricsNlCompileResult, MetricsQueryResult, MetricsQuerySpec, MetricsSchema, MetricsSessionSummary, MetricsSqlValidation, MetricsTurnFilter, MetricsTurnPageRequest, MetricsTurnPageResult, MetricsTurnListingSummary, MetricsTurnTrace, MetricsValue, SavedMetricsQuery, TurnFlag, TurnFlagKind } from './observability-types'
 import type { ClientNotificationRequest, NotificationSoundLog } from './notification-types'
@@ -235,6 +234,8 @@ export interface SolusAPI {
   getThreadGoal(threadId: string, ctx?: IpcContext, provider?: AgentId): Promise<ThreadGoal | null>
   setThreadGoal(request: ThreadGoalSetRequest, ctx?: IpcContext, provider?: AgentId): Promise<ThreadGoal>
   clearThreadGoal(threadId: string, ctx?: IpcContext, provider?: AgentId): Promise<boolean>
+  /** Compact the existing Codex thread addressed by this session. */
+  compactSession(ctx: IpcContext): Promise<void>
   loadPlanAnnotations(sessionId: string, planToolUseId: string, ctx?: IpcContext): Promise<PlanAnnotations | null>
   savePlanAnnotations(annotations: PlanAnnotations, ctx?: IpcContext): Promise<{ ok: boolean }>
   toggleBookmarkPlan(sessionId: string, projectPath: string, cwd: string, planToolUseId: string, title: string, ctx?: IpcContext): Promise<PlanAnnotations>
@@ -711,14 +712,6 @@ export interface SolusAPI {
   automationCancel(id: string): Promise<boolean>
   automationListRuns(id: string): Promise<AutomationRun[]>
   automationReadRun(automationId: string, runId: string): Promise<AutomationRun | null>
-
-  /** Every watch of one session, newest first, ended watches included. */
-  watchList(sessionId: string): Promise<Watch[]>
-  /** The session is named so access is checked against it; a watch of another
-   *  session is refused. Null when the watch cannot make that change. */
-  watchPause(sessionId: string, watchId: string): Promise<Watch | null>
-  watchResume(sessionId: string, watchId: string): Promise<Watch | null>
-  watchCancel(sessionId: string, watchId: string): Promise<Watch | null>
 
   skillsList(): Promise<import('./skill-types').SkillListResult>
   skillsRemove(name: string): Promise<import('./skill-types').SkillRemoveResult>

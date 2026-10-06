@@ -22,8 +22,9 @@
    * the overflow's contents follow it. The band does not spend a slot saying
    * where in the list's order you are.
    *
-   * The number is the one fact the band states about the pull request: as its
-   * one move, in the colour of its state. The refs and the check detail are
+   * The number is the one fact the band states about the pull request: a quiet
+   * pill with the same geometry as its neighbours. The merge move lives in the
+   * status card on Activity, not here. The refs and the check detail are
    * read on Activity — beside the title and in its rail — rather than repeated
    * in chrome that every tab has to carry.
    *
@@ -45,7 +46,6 @@
     guide,
     headRef,
     tabs,
-    numberAction,
     actions,
   }: {
     number: number;
@@ -70,9 +70,6 @@
     headRef?: string;
     /** Map · Guide · Diff, pinned left. */
     tabs?: Snippet;
-    /** The number as the pull request's one move (PrPrimaryAction). In its
-     *  place the band names the number only. */
-    numberAction?: Snippet;
     /** The surface's own actions — Review and Check out. */
     actions?: Snippet;
   } = $props();
@@ -108,24 +105,25 @@
      full screen is the only state there is — and the tabs take a row of their
      own underneath, where four of them fit. -->
 <div class="@container/band workspace-titlebar shrink-0" data-testid="pr-panel-header">
+<!-- `--band-lead` is the row's left inset. On the record rung the row stops
+     padding itself, so the rule over the tabs runs edge to edge; the top row
+     takes the inset instead, and the first tab label starts under the back chevron. -->
 <div
-  class="flex h-(--solus-chrome-row-h,2.75rem) items-center gap-1.5 pr-3 @max-[30rem]/band:h-auto @max-[30rem]/band:flex-col @max-[30rem]/band:items-stretch @max-[30rem]/band:gap-0 @max-[30rem]/band:pr-0"
-  style={fullScreen
-    ? "padding-left: max(0.75rem, var(--solus-chrome-lead-inset, 0px))"
-    : "padding-left: 0.75rem"}
+  class="flex h-(--solus-chrome-row-h,2.75rem) items-center gap-1.5 pr-3 pl-(--band-lead) @max-[30rem]/band:h-auto @max-[30rem]/band:flex-col @max-[30rem]/band:items-stretch @max-[30rem]/band:gap-0 @max-[30rem]/band:pr-0 @max-[30rem]/band:pl-0"
+  style:--band-lead={fullScreen ? "max(0.75rem, var(--solus-chrome-lead-inset, 0px))" : "0.75rem"}
 >
   <!-- Above the rung these two wrappers are not boxes at all, so the desktop
        band is the same single row of slots it has always been. -->
   {#if tabs}
     <span
-      class="contents @max-[30rem]/band:order-2 @max-[30rem]/band:flex @max-[30rem]/band:h-11 @max-[30rem]/band:items-stretch @max-[30rem]/band:gap-[18px] @max-[30rem]/band:border-t @max-[30rem]/band:border-[var(--hairline)] @max-[30rem]/band:px-4"
+      class="contents @max-[30rem]/band:order-2 @max-[30rem]/band:flex @max-[30rem]/band:h-11 @max-[30rem]/band:items-stretch @max-[30rem]/band:gap-[18px] @max-[30rem]/band:border-t @max-[30rem]/band:border-[var(--hairline)] @max-[30rem]/band:px-3"
     >
       {@render tabs()}
     </span>
   {/if}
 
   <span
-    class="contents @max-[30rem]/band:order-1 @max-[30rem]/band:flex @max-[30rem]/band:h-14 @max-[30rem]/band:items-center @max-[30rem]/band:gap-1 @max-[30rem]/band:px-2"
+    class="contents @max-[30rem]/band:order-1 @max-[30rem]/band:flex @max-[30rem]/band:h-(--solus-chrome-row-h,2.75rem) @max-[30rem]/band:items-center @max-[30rem]/band:gap-1.5 @max-[30rem]/band:pr-3 @max-[30rem]/band:pl-[calc(var(--band-lead)-0.75rem)]"
   >
   <!-- The way out, and at this rung the only one. It is the same `onClose` the
        ✕ carries, drawn where a thumb expects to find it. -->
@@ -141,25 +139,19 @@
 
   <span class="flex-1 @max-[30rem]/band:hidden"></span>
 
-  <!-- Identity: the number, which never gives. It is also the pull request's
-       one move — merge, update the branch, resolve conflicts — coloured by its
-       state; its label drops before the number does. On a record it takes the
-       slack instead of the spacer above, so the number sits in the middle of
-       the band the way every other phone title does. -->
-  {#if numberAction}
+  <!-- Identity: the number, which never gives. The same pill as Review and
+       Check out beside it, so the row reads as one set. On a record it takes
+       the slack instead of the spacer above, so the number sits in the middle
+       of the band the way every other phone title does. -->
+  <span class="mr-1.5 flex shrink-0 items-center @max-[30rem]/band:mr-0 @max-[30rem]/band:min-w-0 @max-[30rem]/band:flex-1 @max-[30rem]/band:justify-center">
     <span
-      class="mr-1.5 flex min-w-0 shrink items-center @max-[30rem]/band:mr-0 @max-[30rem]/band:flex-1 @max-[30rem]/band:justify-center"
+      class="inline-flex h-6.5 items-center gap-1.5 rounded-full bg-background px-2.5 text-workspace-chrome tabular-nums text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] pointer-coarse:h-10 pointer-coarse:px-3.5"
+      data-testid="pr-panel-number"
     >
-      {@render numberAction()}
+      <GitPullRequestIcon class="size-[15px] text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
+      #{number}
     </span>
-  {:else}
-    <span
-      class="mr-1.5 flex shrink-0 items-center gap-1.5 text-workspace-chrome tabular-nums text-muted-foreground @max-[30rem]/band:mr-0 @max-[30rem]/band:min-w-0 @max-[30rem]/band:flex-1 @max-[30rem]/band:justify-center"
-    >
-      <GitPullRequestIcon size={12} aria-hidden="true" />
-      <span>#{number}</span>
-    </span>
-  {/if}
+  </span>
 
   {#if actions}{@render actions()}{/if}
 

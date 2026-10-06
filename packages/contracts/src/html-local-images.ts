@@ -1,13 +1,13 @@
-import { mediaTypeFor } from "@solus/contracts/media-types";
+import { mediaTypeFor } from "./media-types";
 
 /**
  * Local images in agent HTML. An agent points a page at a screenshot it just
  * took by its absolute path on the host. The sandbox frame cannot load that
  * path: it names a file on the host, the client may be on another device, and
- * the frame's CSP loads images only from data:, blob:, and https:. So the
- * client asks the host for each file and writes it into the page as a data:
- * URL. The page is then self-contained, which is also what Save as HTML and
- * Save as artifact keep.
+ * the frame's CSP loads images only from data:, blob:, and https:. So each
+ * file is read from the host and written into the page as a data: URL: by the
+ * client for an HTML block, and by the server for a preview or a saved
+ * artifact. The page is then self-contained.
  */
 
 /** `src="…"` on an element or in a script, and `url(…)` in a stylesheet. */
@@ -68,6 +68,13 @@ function base64Of(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+/** The markup with its local images written in, and the paths that could not be. */
+export interface InlinedHtml {
+  html: string;
+  /** Host paths that failed to load or were too large; they stay as written. */
+  missing: string[];
+}
+
 /**
  * The markup with every local image it can load written in as a data: URL.
  * An image that fails to load, or is too large, stays as written, so the page
@@ -76,22 +83,30 @@ function base64Of(bytes: Uint8Array): string {
 export async function inlineLocalImages(
   html: string,
   loadImage: (path: string) => Promise<Blob | null>,
-): Promise<string> {
+): Promise<InlinedHtml> {
   const references = localImageReferences(html);
-  if (references.size === 0) return html;
+  if (references.size === 0) return { html, missing: [] };
   const urls = new Map<string, string>();
+  const missing: string[] = [];
   await Promise.all(
     [...references].map(async ([reference, path]) => {
       try {
         const image = await loadImage(path);
-        if (!image || image.size > MAX_IMAGE_BYTES) return;
+        if (!image || image.size > MAX_IMAGE_BYTES) {
+          missing.push(path);
+          return;
+        }
         // The extension names the type: the host may serve a file generically.
         const mime = mediaTypeFor(path)!.mime;
         urls.set(reference, `data:${mime};base64,${base64Of(new Uint8Array(await image.arrayBuffer()))}`);
       } catch {
         // The host refused or the file is gone; the reference stays as written.
+        missing.push(path);
       }
     }),
   );
-  return urls.size === 0 ? html : rewriteReferences(html, (reference) => urls.get(reference));
+  return {
+    html: urls.size === 0 ? html : rewriteReferences(html, (reference) => urls.get(reference)),
+    missing: missing.sort(),
+  };
 }
