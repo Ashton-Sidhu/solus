@@ -6,7 +6,7 @@ import { Alert, Platform } from "react-native";
 import { useApp } from "../../app/app-context";
 import { showTextInputDialog } from "../../components/ConfirmDialogHost";
 import type { SolusThreadShell } from "../threads/thread-directory";
-import { threadTitle } from "../threads/threadListV2";
+import { threadTitle, watchRefusalMessage, type ThreadPrWatchTarget } from "../threads/threadListV2";
 import { useThreadListState } from "../threads/use-thread-list";
 import { withThreadDismissal } from "./thread-dismissal";
 
@@ -31,6 +31,7 @@ export function useThreadListActions(): {
   readonly snoozeThread: (thread: SolusThreadShell, snoozedUntil: number) => Promise<boolean>;
   readonly unsnoozeThread: (thread: SolusThreadShell) => Promise<boolean>;
   readonly renameThread: (thread: SolusThreadShell) => void;
+  readonly setPullRequestWatch: (thread: SolusThreadShell, target: ThreadPrWatchTarget, watching: boolean) => void;
 } {
   const app = useApp();
   const list = useThreadListState();
@@ -136,5 +137,26 @@ export function useThreadListActions(): {
     [app, list],
   );
 
-  return { settleThread, unsettleThread, snoozeThread, unsnoozeThread, renameThread };
+  // The row stays where it is: watching changes what wakes the agent, not
+  // where the thread sits in the list.
+  const setPullRequestWatch = useCallback(
+    (thread: SolusThreadShell, target: ThreadPrWatchTarget, watching: boolean) => {
+      selectionHaptic();
+      void list.setWatching(thread.hostId, thread.record.sessionId, target, watching).then(
+        (outcome) => {
+          const refusal = watchRefusalMessage(outcome);
+          if (refusal) Alert.alert("Could not watch pull request", refusal);
+        },
+        (error: Error) => {
+          Alert.alert(
+            watching ? "Could not watch pull request" : "Could not stop watching",
+            failureMessage(error, "The host did not answer."),
+          );
+        },
+      );
+    },
+    [list],
+  );
+
+  return { settleThread, unsettleThread, snoozeThread, unsnoozeThread, renameThread, setPullRequestWatch };
 }

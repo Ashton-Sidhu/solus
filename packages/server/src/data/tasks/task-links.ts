@@ -75,7 +75,7 @@ const sessionOwnedPrRowSchema = z.object({
 })
 type SessionOwnedPrRow = z.infer<typeof sessionOwnedPrRowSchema>
 
-const prLinkWatchRowSchema = z.object({
+const prLinkInterestRowSchema = z.object({
   target_scope: z.string(),
   target_key: z.string(),
   pr_state: z.enum(['open', 'closed', 'merged', 'missing']).nullable(),
@@ -111,7 +111,7 @@ export interface PrLinkTarget {
 export type PrLinkState = 'open' | 'closed' | 'merged' | 'missing'
 
 /** One linked pull request as PR sync reads it (docs/plans/pr-sync.md §3.1). */
-export interface PrLinkWatch extends PrLinkTarget {
+export interface PrLinkInterest extends PrLinkTarget {
   /** A task that is not done or dropped links it. */
   isActive: boolean
   /** Null until PR sync first answers. */
@@ -418,10 +418,10 @@ export async function readTasksLinkingTargets(
  * Every pull request linked on a task itself, with whether live work links it
  * and what PR sync last saw. Distinct, because several tasks commonly link one
  * pull request and it is one question either way. The links that sessions own
- * are a separate read (`readSessionPullRequestWatchList`).
+ * are a separate read (`readSessionPullRequestInterests`).
  */
-export async function readPrLinkWatchList(db: Db, scope: RecordScope): Promise<PrLinkWatch[]> {
-  const rows = prLinkWatchRowSchema.array().parse(await db.all(sql`
+export async function readPrLinkInterests(db: Db, scope: RecordScope): Promise<PrLinkInterest[]> {
+  const rows = prLinkInterestRowSchema.array().parse(await db.all(sql`
     SELECT task_links.target_scope, task_links.target_key, MAX(task_links.pr_state) AS pr_state,
       MAX(task_links.pr_updated_at) AS pr_updated_at,
       MAX(CASE WHEN tasks.status NOT IN ('done', 'dropped') THEN 1 ELSE 0 END) AS active
@@ -432,16 +432,16 @@ export async function readPrLinkWatchList(db: Db, scope: RecordScope): Promise<P
       AND task_links.target_scope <> ''
     GROUP BY task_links.target_scope, task_links.target_key
   `))
-  const watched: PrLinkWatch[] = []
+  const interests: PrLinkInterest[] = []
   for (const row of rows) {
     const number = Number(row.target_key)
     if (!Number.isSafeInteger(number) || number <= 0) continue
-    watched.push({
+    interests.push({
       projectScope: row.target_scope, number, isActive: row.active === 1,
       state: row.pr_state, updatedAt: row.pr_updated_at,
     })
   }
-  return watched
+  return interests
 }
 
 /**

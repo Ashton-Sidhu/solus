@@ -19,6 +19,8 @@ import {
   readSessionPullRequests,
   unlinkSessionPullRequest,
 } from '../../data/sessions/session-pull-requests'
+import { stopPullRequestWatch } from '../../data/sessions/pull-request-watches'
+import { startSessionPullRequestWatch } from '../../prs/start-pull-request-watch'
 import { readSessionShelf, settleSession, snoozeSession, unsettleSession } from '../../data/sessions/session-states'
 import { markTaskRead, recordTaskActivity } from '../../data/tasks/task-lifecycle'
 import { readTaskSnoozes, snoozeTaskFor } from '../../data/tasks/task-snoozes'
@@ -258,6 +260,15 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
   server.register('sessionPullRequestUnlink', async (args) => {
     const [sessionId, repository, number] = args
     await unlinkSessionPullRequest(sessionId, repository, number)
+  })
+
+  server.register('sessionPullRequestWatch', async (args) => {
+    const [sessionId, repository, number, watching] = args
+    if (!watching) {
+      await stopPullRequestWatch(sessionId, repository, number)
+      return 'stopped'
+    }
+    return startSessionPullRequestWatch(sessionId, repository, number)
   })
 
   // Where a session is in a person's list: active, settled, or snoozed.

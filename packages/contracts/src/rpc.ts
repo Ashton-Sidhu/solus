@@ -169,6 +169,7 @@ export const RPC_INVOKE_METHODS = [
   'sessionPullRequestsList',
   'sessionPullRequestLink',
   'sessionPullRequestUnlink',
+  'sessionPullRequestWatch',
   'sessionShelfList',
   'sessionSetSettled',
   'sessionSnooze',

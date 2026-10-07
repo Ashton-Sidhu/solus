@@ -1,7 +1,7 @@
 // Shaping for the rail's Linked card: the pull requests a session links
 // (docs/plans/session-pull-requests.md). The .svelte holds markup and thin
 // handlers; the row grammar lives here.
-import type { SessionPullRequestLink, SessionPullRequestSource } from '@solus/contracts/session-pull-requests'
+import type { SessionPullRequestLink, SessionPullRequestSource, SessionPullRequestWatchOutcome } from '@solus/contracts/session-pull-requests'
 import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
 import { attributionLabel } from '@solus/contracts/user'
 import type { LinkedPr } from '../../../contexts/prs/linked-pr'
@@ -17,6 +17,8 @@ export interface LinkedPullRequestRow {
   state: string
   /** Merged, closed, or missing: the work is over, so the row sits back. */
   isSettled: boolean
+  /** The session watches it, and its agent wakes on news (docs/plans/pr-watch.md). */
+  isWatched: boolean
   /** Full row meaning for hover, focus, and assistive technology. */
   detailLabel: string
 }
@@ -56,7 +58,8 @@ export function linkedPullRequestRows(
       title,
       state,
       isSettled: state === 'merged' || state === 'closed' || state === 'missing',
-      detailLabel: `${title}\n${link.repository}#${link.number} · ${sourceLabel(link)}`,
+      isWatched: !!link.watch,
+      detailLabel: `${title}\n${link.repository}#${link.number} · ${sourceLabel(link)}${link.watch ? '\nWatched: the agent wakes on checks, reviews and conflicts' : ''}`,
     }
   })
   return [...rows.filter((row) => !row.isSettled), ...rows.filter((row) => row.isSettled)]
@@ -70,5 +73,22 @@ export function pullRequestOpenTarget(link: SessionPullRequestLink): PullRequest
     title: link.title || undefined,
     url: link.url,
     expectedRepo: parseGitHubPullRequestUrl(link.url)?.baseRepo,
+  }
+}
+
+/** Why the host did not start a watch a person asked for, or null when it
+ *  did. Shared with no other surface: the phone words its own. */
+export function watchRefusal(outcome: SessionPullRequestWatchOutcome): string | null {
+  switch (outcome) {
+    case 'started':
+    case 'already-watching':
+    case 'stopped':
+      return null
+    case 'session-settled': return 'This session is settled. Make it active to watch its pull requests.'
+    case 'not-linked': return 'This pull request is no longer linked to the session.'
+    case 'missing': return 'The code host no longer has this pull request.'
+    case 'merged':
+    case 'closed':
+      return `This pull request is ${outcome}, so there is nothing to watch.`
   }
 }

@@ -125,6 +125,7 @@ import { isLanDiscoveryDisabled, startLanDiscoveryService, type LanDiscoveryServ
 import { registerGoogleHandlers } from './transport/handlers/google-handlers'
 import { registerProviderHandlers } from './transport/handlers/provider-handlers'
 import { PrSync } from './prs/pr-sync'
+import { PrWatcher } from './prs/pr-watcher'
 import { registerCloudflareHandlers } from './transport/handlers/cloudflare-handlers'
 import { registerAtlassianHandlers } from './transport/handlers/atlassian-handlers'
 import { setOAuthCompletedListener as setAtlassianOAuthCompletedListener } from './atlassian/oauth'
@@ -148,6 +149,7 @@ import { dataDir, solusDir } from './platform/paths'
 import { onTasksChanged } from './data/tasks/task-store'
 import { emitSessionTasksChanged } from './data/tasks/task-sessions'
 import { onSessionPullRequestsChanged } from './data/sessions/session-pull-requests'
+import { onPullRequestWatchesChanged, stopSessionPullRequestWatches } from './data/sessions/pull-request-watches'
 import { onSessionStateChanged } from './data/sessions/session-states'
 import { deliveryBacklog, dropQueuedFor, onOutboxChanged } from './sync/outbox/outbox-store'
 import { registerOutboxHandlers } from './transport/handlers/outbox-handlers'
@@ -549,6 +551,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // A task reads the pull requests of its sessions, so a session's change is
     // also a change of each task the session belongs to.
     onSessionStateChanged((sessionId) => events.broadcast('session.stateChanged', { sessionId })),
+    // A link carries whether it is watched (docs/plans/pr-watch.md).
+    onPullRequestWatchesChanged((sessionId) => events.broadcast('session.pullRequestsChanged', { sessionId })),
     onSessionPullRequestsChanged((sessionId) => {
       events.broadcast('session.pullRequestsChanged', { sessionId })
       void emitSessionTasksChanged(ANY_ORGANIZATION, sessionId).catch((error) => {
@@ -573,6 +577,13 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     observeNeedingAttention: (repo, viewer, pullRequests) => prObserver.observe(repo, viewer, pullRequests),
   })
   prSync.start()
+  // Watched pull requests wake their sessions with news (docs/plans/pr-watch.md).
+  const prWatcher = new PrWatcher({
+    wake: async (sessionId, text) => {
+      await opts.sessionRuntime.dispatch.promptSession(sessionId, text, 'queue', { via: 'pull-request-watch' })
+    },
+  })
+  void prWatcher.start().catch((error) => log.warn('pr_watcher_start_failed', { error: String(error) }))
   const hasDesktopHandlers = !!opts.windowDeps && !!opts.registerHostHandlers
 
   // Register handlers. Each group only registers what its deps support — the
@@ -697,6 +708,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   server.register('stopSession', async (args, ctx) => {
     const [sessionId] = args
     if (!sessionId.trim()) throw new Error('stopSession requires a session id')
+    // A person's Stop also ends what would wake the agent later
+    // (docs/plans/pr-watch.md §7). A host stop, as when a plan is accepted, does not.
+    await stopSessionPullRequestWatches(sessionId)
     return opts.sessionRuntime.stopSession(sessionId, ctx.actor)
   })
   server.register('stopBackgroundTasks', async (args) => {
@@ -1364,6 +1378,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         stopAutomationScheduler()
         stopMetricsRollover()
         prSync.stop()
+        prWatcher.stop()
         hostUpdates.stop()
         modelProfiles.stop()
         remoteUpdates.stop()

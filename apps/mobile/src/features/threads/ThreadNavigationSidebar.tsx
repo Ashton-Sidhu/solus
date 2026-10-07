@@ -128,7 +128,7 @@ function ThreadNavigationSidebarPane(
   const searchBarRef = useRef<SearchBarCommands>(null);
   const openSwipeableRef = useRef<SwipeableMethods | null>(null);
   const sidebarScrollGesture = useNativeGesture();
-  const { settleThread, snoozeThread, unsnoozeThread, unsettleThread, renameThread } =
+  const { settleThread, snoozeThread, unsnoozeThread, unsettleThread, renameThread, setPullRequestWatch } =
     useThreadListActions();
   const handleSnoozeThread = useCallback(
     (thread: SolusThreadShell, snoozedUntil: number) => void snoozeThread(thread, snoozedUntil),
@@ -477,6 +477,7 @@ function ThreadNavigationSidebarPane(
               onSnoozeThread={handleSnoozeThread}
               onUnsnoozeThread={handleUnsnoozeThread}
               onUnsettleThread={handleUnsettleThread}
+              onSetPullRequestWatch={setPullRequestWatch}
               onSwipeableClose={handleSwipeableClose}
               onSwipeableWillOpen={handleSwipeableWillOpen}
               simultaneousSwipeGesture={sidebarScrollGesture}

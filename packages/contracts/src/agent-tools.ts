@@ -105,6 +105,7 @@ export const SOLUS_TOOL_GROUPS = [
     'comment_task',
     'link',
     'list_session_pull_requests',
+    'watch_pull_request',
   ] },
 ] as const
 

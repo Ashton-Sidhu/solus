@@ -4,6 +4,7 @@ import type { TaskPrSnapshot } from '@solus/contracts/task-types'
 import {
   linkedPullRequestRows,
   pullRequestOpenTarget,
+  watchRefusal,
 } from '@solus/workspace-ui/components/project-panel/lib/linked-pull-requests'
 
 const REPOSITORY = 'github.com/acme/solus'
@@ -82,5 +83,26 @@ describe('the Linked card rows', () => {
 
   test('opening a link names its repository, so another repository\'s number is not opened', () => {
     expect(pullRequestOpenTarget(link(9)).expectedRepo).toEqual({ host: 'github.com', owner: 'acme', repo: 'solus' })
+  })
+})
+
+describe('watched rows', () => {
+  // WHY: the eye is the only place a person sees that the agent will wake on
+  // this pull request, and the reverse state needs it to offer Stop Watching.
+  test('a watched link says so, in the row and in its label', () => {
+    const [watched, plain] = linkedPullRequestRows([
+      link(1, { snapshot: snapshot(1, 'open'), watch: { startedAt: 1 } }),
+      link(2, { snapshot: snapshot(2, 'open') }),
+    ], noLive)
+    expect([watched?.isWatched, plain?.isWatched]).toEqual([true, false])
+    expect(watched?.detailLabel).toContain('Watched')
+    expect(plain?.detailLabel).not.toContain('Watched')
+  })
+
+  test('a refused watch tells the person why; a done one says nothing', () => {
+    expect(watchRefusal('started')).toBeNull()
+    expect(watchRefusal('stopped')).toBeNull()
+    expect(watchRefusal('merged')).toContain('merged')
+    expect(watchRefusal('session-settled')).toContain('settled')
   })
 })

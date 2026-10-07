@@ -138,6 +138,7 @@ const resourceRpcRules = {
   setSessionBranch: editor(sessionIdAt(0)),
   sessionPullRequestLink: editor(sessionIdAt(0)),
   sessionPullRequestUnlink: editor(sessionIdAt(0)),
+  sessionPullRequestWatch: editor(sessionIdAt(0)),
   sessionSetSettled: editor(sessionIdAt(0)),
   sessionSnooze: editor(sessionIdAt(0)),
   setThreadGoal: editor(sessionFieldAt(0, 'threadId')),

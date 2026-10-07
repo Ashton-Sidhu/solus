@@ -74,6 +74,7 @@ import {
 import { readConfigAgentTool, updateConfigAgentTool } from './config-tools'
 import { moveToWorktreeAgentTool } from './worktree-tools'
 import { askJevAgentTool } from '../../../typesafe/jev-tool'
+import { watchPullRequestAgentTool } from './pull-request-watch-tool'
 
 export const solusToolbox = {
   intelligence: {
@@ -163,6 +164,7 @@ export const solusToolbox = {
     comment: commentTaskAgentTool,
     link: linkAgentTool,
     listSessionPullRequests: listSessionPullRequestsAgentTool,
+    watchPullRequest: watchPullRequestAgentTool,
   },
   config: {
     read: readConfigAgentTool,

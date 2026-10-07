@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
+  import { Eye as WatchedIcon, GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
   import type { SessionPullRequestLink } from "@solus/contracts/session-pull-requests";
   import { serverConnections } from "@solus/client-core/server-connections";
   import {
@@ -16,7 +16,7 @@
   import { copyText, toasts } from "../../lib/toasts";
   import * as TooltipUI from "../ui/tooltip";
   import LinkedArtifactContextMenu from "./LinkedArtifactContextMenu.svelte";
-  import { linkedPullRequestRows, pullRequestOpenTarget } from "./lib/linked-pull-requests";
+  import { linkedPullRequestRows, pullRequestOpenTarget, watchRefusal } from "./lib/linked-pull-requests";
 
   interface Props {
     /** The tab whose session owns these links. */
@@ -79,12 +79,27 @@
     requestInputFocus();
   }
 
-  let menu = $state<{ link: SessionPullRequestLink; x: number; y: number } | null>(null);
+  function setWatching(link: SessionPullRequestLink, watching: boolean) {
+    if (serverId) {
+      void sessionPullRequestsStore.setWatching(serverId, link, watching).then((outcome) => {
+        const refusal = watchRefusal(outcome);
+        if (refusal) toasts.error("Couldn't watch this pull request", { description: refusal });
+      }, (error) =>
+        toasts.error(watching ? "Couldn't watch this pull request" : "Couldn't stop watching this pull request", {
+          description: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+    requestInputFocus();
+  }
+
+  let menu = $state<{ link: SessionPullRequestLink; x: number; y: number; isWatched: boolean; canWatch: boolean } | null>(null);
 
   function openMenu(event: MouseEvent, link: SessionPullRequestLink) {
     event.preventDefault();
     event.stopPropagation();
-    menu = { link, x: event.clientX, y: event.clientY };
+    const row = rows.find((candidate) => candidate.link === link);
+    menu = { link, x: event.clientX, y: event.clientY, isWatched: !!row?.isWatched, canWatch: !row?.isSettled };
   }
 
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -148,6 +163,11 @@ does not push the rest of the rail off screen. -->
             </span>
             <span class="shrink-0 text-chrome-dense text-(--solus-text-tertiary)">#{row.number}</span>
             <span class="min-w-0 flex-1 truncate text-left">{row.title}</span>
+            {#if row.isWatched}
+              <span class="inline-flex shrink-0 text-(--solus-text-tertiary)" aria-hidden="true">
+                <WatchedIcon size={14} />
+              </span>
+            {/if}
             {#if row.state}
               <span class="shrink-0 text-chrome-dense text-(--solus-text-tertiary)">{row.state}</span>
             {/if}
@@ -167,6 +187,9 @@ does not push the rest of the rail off screen. -->
     onOpen={() => open(current.link)}
     onCopyReference={() => void copyReference(current.link)}
     onUnlink={() => unlink(current.link)}
+    watch={current.isWatched || current.canWatch
+      ? { isWatched: current.isWatched, onToggle: () => setWatching(current.link, !current.isWatched) }
+      : undefined}
     onClose={() => (menu = null)}
   />
 {/if}

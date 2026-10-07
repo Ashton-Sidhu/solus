@@ -7,7 +7,7 @@ of its sessions and holds no copy of them. The host also holds where a session
 is in a person's list: active, settled, or snoozed. This follows
 `docs/plans/task-conversation.md` decision 8: a session has a task only when it
 joins one, so most sessions have none, and their pull requests must still be
-found, watched and shown.
+found, kept fresh and shown.
 
 The model follows T3 Code, where a thread owns its pull request links
 (`projection_thread_pull_requests`, read at commit `0fcd5f90`) and its settled
@@ -77,9 +77,10 @@ The Completed shelf is the name of the place in the list.
    list a session with no conversation open on the client. A session that its
    task's finish settled has no shelf row of its own unless its conversation
    is open: the finished task is the row.
-9. **PR sync watches a session link until its session is settled.** There is
-   no time limit on the link. A task that is not finished keeps the links of
-   its sessions watched, because the task reads them.
+9. **PR sync keeps a session link fresh until its session is settled.** There
+   is no time limit on the link. A task that is not finished keeps the links of
+   its sessions fresh, because the task reads them. This is PR sync's
+   interest, not a watch: a watch wakes the agent (`docs/plans/pr-watch.md`).
 10. **Menus.** A session row opens the session menu, a task row the task menu,
    and a pull request chip its own menu. The session menu links the session to
    a task and links a pull request to the session. The task menu has no session
@@ -106,7 +107,7 @@ The Completed shelf is the name of the place in the list.
 PR sync asks about the branch of a session of a task that is not finished, and
 of a session that is not settled and was active in the last 30 days
 (`BRANCH_LOOKUP_MS`). The 30 days limit only the branch lookup. A link, once
-made, is watched until its session is settled.
+made, is kept fresh until its session is settled.
 
 `link` with `kind=pr` for a task the calling session does not work on, the
 task page's link picker, and a pull request review session's first prompt write
@@ -137,7 +138,7 @@ row.
 
 The session of an organization run has two hosts: the machine that runs it and
 the organization's Solus API, where a person opens it. `link` with no task
-writes the link on the machine, whose PR sync watches the pull request, and
+writes the link on the machine, whose PR sync keeps the pull request fresh, and
 records an op in the delivery queue (outbox domain `sessions`, verb
 `link-pull-request`, resource id = the session id).
 The Solus API applies it to the same session (`data/sessions/session-applier.ts`).
@@ -163,16 +164,19 @@ reads from a session.
 
 ## Host
 
-- `data/sessions/session-pull-requests.ts` — link, unlink, read, the watch
-  list and the observation write.
+- `data/sessions/session-pull-requests.ts` — link, unlink, read, PR sync's
+  interest (`readSessionPullRequestInterests`) and the observation write.
 - `data/tasks/task-links.ts` — the two task reads include session links;
   `recordPullRequestObservation` writes both tables.
 - `data/tasks/sync-engine.ts` — `completeTasksForMergedPullRequest` finds a
   task through either link.
 - `prs/pr-sync.ts` — live checkouts come from live tasks and from the session
-  index (`recentWorktreeSessions`); interest comes from both watch lists.
+  index (`recentWorktreeSessions`); interest comes from both interest reads
+  (`readPrLinkInterests`, `readSessionPullRequestInterests`).
 - RPC: `sessionPullRequestsList`, `sessionPullRequestLink`,
-  `sessionPullRequestUnlink`. Topic: `session.pullRequestsChanged`. A change of
+  `sessionPullRequestUnlink`, and `sessionPullRequestWatch`
+  (`docs/plans/pr-watch.md`). Topic: `session.pullRequestsChanged`. Unlinking
+  a pull request, or settling the session, stops its watch. A change of
   a session's links also invalidates each task the session belongs to.
 - `data/sessions/session-states.ts` — settle, make active, snooze, the prompt
   record, the shelf read and the two settle rules. `prs/pr-sync.ts` runs the
@@ -230,7 +234,7 @@ reads from a session.
 - `session-states`: settle and its reverse, snooze, the prompt rule, the pull
   request rule (open link, busy session, later prompt, removed link), the idle
   rule, the task rules.
-- `pr-sync`: a session with no task is watched whatever the age of its link,
+- `pr-sync`: a session with no task is kept fresh whatever the age of its link,
   its merged pull request settles it, and a settled session is not read again.
 - `session-pull-requests`: the `sessions` and `tasks` outbox ops that make a
   session link.

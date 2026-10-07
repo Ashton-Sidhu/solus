@@ -323,6 +323,8 @@ export interface ReviewComment {
   authorAvatarUrl?: string
   body: string
   createdAt: string
+  /** When the author last edited it; absent when it was never edited. */
+  editedAt?: string
   /**
    * Unified-diff snippet GitHub anchors this comment to (a few lines ending at
    * the commented line). Only the thread's first comment carries one; replies
@@ -389,6 +391,8 @@ interface PrActivityItemBase {
   /** The author's GitHub avatar; absent for a deleted/ghost account. */
   authorAvatarUrl?: string
   createdAt: string
+  /** When the author last edited it; absent when it was never edited. */
+  editedAt?: string
   url?: string
 }
 

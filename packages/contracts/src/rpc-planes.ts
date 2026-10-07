@@ -114,6 +114,8 @@ export const RPC_PLANES = {
   sessionPullRequestsList: 'collaboration',
   sessionPullRequestLink: 'collaboration',
   sessionPullRequestUnlink: 'collaboration',
+  // A watch wakes the agent, so the host that runs the session holds it.
+  sessionPullRequestWatch: 'execution',
   sessionShelfList: 'collaboration',
   sessionSetSettled: 'collaboration',
   sessionSnooze: 'collaboration',

@@ -1,6 +1,6 @@
 import type { HostApi } from "@solus/client-core/host-api";
 import type { HostEventSubscriber } from "@solus/client-core/host-event-subscriber";
-import type { SessionPullRequestLink } from "@solus/contracts/session-pull-requests";
+import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from "@solus/contracts/session-pull-requests";
 import type { SessionState } from "@solus/contracts/session-state";
 import type { SessionStatus } from "@solus/contracts/types";
 
@@ -21,7 +21,12 @@ import type { ThreadListV2Facts } from "./threadListV2";
 export interface ThreadListConnection {
   readonly api: Pick<
     HostApi,
-    "sessionShelfList" | "sessionPullRequestsList" | "sessionSetSettled" | "sessionSnooze" | "setSessionTitle"
+    | "sessionShelfList"
+    | "sessionPullRequestsList"
+    | "sessionPullRequestWatch"
+    | "sessionSetSettled"
+    | "sessionSnooze"
+    | "setSessionTitle"
   >;
   readonly events: Pick<HostEventSubscriber, "subscribe">;
   onReset(listener: () => void): () => void;
@@ -116,6 +121,20 @@ export class ThreadListState {
     const connection = this.requireConnection(hostId);
     await connection.api.sessionSnooze(sessionId, until);
     await this.refreshShelf(hostId, sessionId);
+  }
+
+  /** Watch a session's pull request, or stop: its agent wakes on news
+      (docs/plans/pr-watch.md). Answers what the host did. */
+  async setWatching(
+    hostId: string,
+    sessionId: string,
+    target: { readonly repository: string; readonly number: number },
+    watching: boolean,
+  ): Promise<SessionPullRequestWatchOutcome> {
+    const connection = this.requireConnection(hostId);
+    const outcome = await connection.api.sessionPullRequestWatch(sessionId, target.repository, target.number, watching);
+    await this.refreshPullRequests(hostId, sessionId);
+    return outcome;
   }
 
   /** Name a session; an empty name goes back to the derived title. */

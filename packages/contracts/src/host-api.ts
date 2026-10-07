@@ -9,7 +9,7 @@ import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, S
 import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrFilter, PrInterest, PrLabel, PrListPage, PrProjectListing, PrRevertResult, PrStateAction, PrSyncChange, PrReviewer, PrReviewerCandidate, PrReviewerKind, PrReviewTarget, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderRepository, ProviderViewer } from './providers'
 import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCommentHit, TaskCommentSearchQuery, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarFilter, TaskSidebarSnapshot, TaskSnapshot, TaskSnooze, TaskTransfer, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
-import type { SessionPullRequestsBySession } from './session-pull-requests'
+import type { SessionPullRequestsBySession, SessionPullRequestWatchOutcome } from './session-pull-requests'
 import type { SessionShelfEntry } from './session-state'
 import type { WorkspaceProject, WorkspaceProjectAddRequest, WorkspaceProjectPatch } from './workspace-projects'
 import type { SessionHistoryPageRequest, SessionHistoryPage, SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult, WireSessionLoadMessage, SessionToolInputsRequest, SessionToolInput } from './session-history'
@@ -220,6 +220,9 @@ export interface SolusAPI {
   sessionPullRequestLink(sessionId: string, url: string): Promise<void>
   /** Remove a pull request from a session. PR sync does not link it again. */
   sessionPullRequestUnlink(sessionId: string, repository: string, number: number): Promise<void>
+  /** Watch a pull request the session links, or stop watching it. The agent
+   *  wakes on news (docs/plans/pr-watch.md). Answers what starting did. */
+  sessionPullRequestWatch(sessionId: string, repository: string, number: number, watching: boolean): Promise<SessionPullRequestWatchOutcome>
   /** The settled and snoozed sessions: the named ones, or every session
    *  settled recently or snoozed now. */
   sessionShelfList(sessionIds?: string[]): Promise<SessionShelfEntry[]>

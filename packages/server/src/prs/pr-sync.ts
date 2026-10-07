@@ -6,13 +6,13 @@ import { ANY_ORGANIZATION } from '../admission/principal'
 import { completeTasksForMergedPullRequest } from '../data/tasks/sync-engine'
 import { settledSessionIds, settleIdleSessions, settleSessionsWithEndedPullRequests } from '../data/sessions/session-states'
 import { sessionIdOfThread } from '../data/sessions/session-lineage'
-import { readPrLinkWatchList, recordPullRequestObservation, type PrLinkWatch } from '../data/tasks/task-links'
+import { readPrLinkInterests, recordPullRequestObservation, type PrLinkInterest } from '../data/tasks/task-links'
 import { unfinishedTaskProjects } from '../data/tasks/task-store'
 import { taskSessions } from '../data/tasks/task-sessions'
 import { recentWorktreeSessions } from '../data/tasks/host-records'
 import {
   linkSessionPullRequest,
-  readSessionPullRequestWatchList,
+  readSessionPullRequestInterests,
   sessionKnowsPullRequest,
 } from '../data/sessions/session-pull-requests'
 import { attachReviewAttention } from '../transport/handlers/review-attention'
@@ -36,7 +36,7 @@ const TASK_INTEREST_MS = 60_000
 /** A repository the code host would not answer for waits this long. */
 const FAILURE_BACKOFF_MS = 5 * 60_000
 /** A branch is asked about for a session that was active this recently. A
- *  link, once made, is watched until its session is settled. */
+ *  link, once made, is kept fresh until its session is settled. */
 const BRANCH_LOOKUP_MS = 30 * 24 * 60 * 60_000
 
 /** What PR sync knows about one pull request. `missing`: the code host says
@@ -506,8 +506,8 @@ export class PrSync {
     }
 
     const links = [
-      ...await readPrLinkWatchList(getDatabase(), ANY_ORGANIZATION),
-      ...await sessionLinkWatchList(),
+      ...await readPrLinkInterests(getDatabase(), ANY_ORGANIZATION),
+      ...await sessionLinkInterests(),
     ]
     for (const link of links) {
       if (!link.isActive || link.state === 'closed' || link.state === 'missing') continue
@@ -575,13 +575,13 @@ async function liveCheckouts(now: number): Promise<LiveCheckout[]> {
 }
 
 /**
- * The pull requests sessions link, as PR sync watches them. A link is live
+ * The pull requests sessions link, as PR sync's interest reads them. A link is live
  * work until its session is settled; a task that is not finished keeps the
  * links of its sessions live, because the task reads them.
  */
-async function sessionLinkWatchList(): Promise<PrLinkWatch[]> {
+async function sessionLinkInterests(): Promise<PrLinkInterest[]> {
   const { sessionIds: ofLiveTask } = await liveTaskSessions()
-  const links = await readSessionPullRequestWatchList(ANY_ORGANIZATION)
+  const links = await readSessionPullRequestInterests(ANY_ORGANIZATION)
   const settled = await settledSessionIds([...new Set(links.map((link) => link.sessionId))])
   return links.map((link) => ({
     projectScope: link.repository,

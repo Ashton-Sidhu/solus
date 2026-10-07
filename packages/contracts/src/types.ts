@@ -1933,7 +1933,7 @@ export type PromptSource = 'typed' | 'queued' | 'automation' | 'agent' | 'dispat
  *  'background-command' is a command the agent left running that finished
  *  after its turn ended. 'question-answer' delivers an async answer whose
  *  visible receipt is the structured Q&A row. */
-export type PromptVia = 'automation' | 'background-command' | 'session-report' | 'question-answer'
+export type PromptVia = 'automation' | 'background-command' | 'session-report' | 'question-answer' | 'pull-request-watch'
 
 export interface PromptDispatchResult {
   /** `duplicate`: this session already accepted the same `clientPromptId` —

@@ -32,7 +32,22 @@ export interface SessionPullRequestLink {
   snapshot?: TaskPrSnapshot
   /** The code host says that this pull request does not exist. */
   missing?: boolean
+  /** The session watches this pull request and its agent wakes on news
+   *  (docs/plans/pr-watch.md). Absent when it is not watched. */
+  watch?: { startedAt: number }
 }
+
+/** What a request to watch, or stop watching, a session's pull request did.
+ *  Only `started`, `already-watching` and `stopped` leave the request done. */
+export type SessionPullRequestWatchOutcome =
+  | 'started'
+  | 'already-watching'
+  | 'stopped'
+  | 'not-linked'
+  | 'session-settled'
+  | 'merged'
+  | 'closed'
+  | 'missing'
 
 /** A session's links, by stable session id. A session with none has no key. */
 export interface SessionPullRequestsBySession {

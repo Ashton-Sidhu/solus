@@ -30,6 +30,7 @@ import {
   threadTitle,
   type ThreadListV2Status,
   type ThreadPrPresentation,
+  type ThreadPrWatchTarget,
 } from "./threadListV2";
 
 /**
@@ -239,6 +240,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly onSnoozeThread: (thread: SolusThreadShell, snoozedUntil: number) => void;
   readonly onUnsnoozeThread: (thread: SolusThreadShell) => void;
   readonly onUnsettleThread: (thread: SolusThreadShell) => void;
+  readonly onSetPullRequestWatch: (thread: SolusThreadShell, target: ThreadPrWatchTarget, watching: boolean) => void;
   readonly onSwipeableWillOpen: (methods: SwipeableMethods) => void;
   readonly onSwipeableClose: (methods: SwipeableMethods) => void;
   /** List key checked against the Home swipe row activation. */
@@ -257,6 +259,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     onSnoozeThread,
     onUnsnoozeThread,
     onUnsettleThread,
+    onSetPullRequestWatch,
   } = props;
   const record = thread.record;
   const title = threadTitle(record);
@@ -303,9 +306,17 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       })),
     [snoozePresets],
   );
+  const watchTarget = pr?.watchTarget ?? null;
   const titleMenuItems = useMemo<MenuAction[]>(
-    () => [{ id: "rename", title: "Rename", image: "square.and.pencil" }],
-    [],
+    () => [
+      ...(watchTarget
+        ? [watchTarget.isWatched
+          ? { id: "stop-watching-pr", title: `Stop Watching #${watchTarget.number}`, image: "eye.slash" }
+          : { id: "watch-pr", title: `Watch #${watchTarget.number}`, subtitle: "Wake the agent on checks and reviews", image: "eye" }]
+        : []),
+      { id: "rename", title: "Rename", image: "square.and.pencil" },
+    ],
+    [watchTarget],
   );
   const snoozableCardMenuActions = useMemo<MenuAction[]>(
     () => [
@@ -341,6 +352,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       if (nativeEvent.event === "unsettle") handleUnsettle();
       if (nativeEvent.event === "unsnooze") handleUnsnooze();
       if (nativeEvent.event === "rename") handleRename();
+      if (watchTarget && nativeEvent.event === "watch-pr") onSetPullRequestWatch(thread, watchTarget, true);
+      if (watchTarget && nativeEvent.event === "stop-watching-pr") onSetPullRequestWatch(thread, watchTarget, false);
       if (nativeEvent.event === "copy-thread-id") {
         copyTextWithHaptic(record.sessionId, { target: "thread-id" });
       }
@@ -361,8 +374,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       handleSnooze,
       handleUnsettle,
       handleUnsnooze,
+      onSetPullRequestWatch,
       record.sessionId,
       snoozePresets,
+      thread,
+      watchTarget,
     ],
   );
   const primaryAction = useMemo(() => {
@@ -526,6 +542,14 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
             >
               {pr.label}
             </Text>
+            {pr.isWatched ? (
+              <SymbolView
+                name="eye"
+                size={12}
+                accessibilityLabel="Watched pull request"
+                tintColorClassName={rowAppearance.mutedIconTintClassName}
+              />
+            ) : null}
           </View>
         ) : null}
         <ProviderInstanceIcon

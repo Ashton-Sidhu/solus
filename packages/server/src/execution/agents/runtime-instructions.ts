@@ -26,6 +26,12 @@ Use the Solus link tool to register every pull request that you create or work o
 
 const PULL_REQUEST_CHECK_INSTRUCTION = 'Before you finish pull request work, call list_session_pull_requests and link each pull request from your work that is missing.'
 
+/** Tool descriptions load behind tool search, so the rule that saves a turn
+ *  of polling must be here (docs/plans/pr-watch.md §2). */
+const PULL_REQUEST_WATCH_INSTRUCTIONS = `## Waiting on a pull request
+
+To wait for CI checks or review on a pull request, call watch_pull_request and end your turn. Solus wakes you with a message when a check fails, the required checks pass, someone comments or reviews, the branch conflicts, or the pull request closes. Do not poll with gh, sleep, or a watch loop. Before you hand the work back, call watch_pull_request with watching=false.`
+
 const ORCHESTRATION_INSTRUCTIONS = `## Solus orchestration
 
 Use a native subagent for brief same-provider work when it supports the chosen model. Use start_session for another provider or model, a durable Solus conversation, or nested async work. File related work as task=attempt on the current task. Start an unrelated conversation only when the user asks for it.
@@ -84,5 +90,6 @@ You can embed images and videos in your response with Markdown and absolute file
     has('link') && (has('list_session_pull_requests')
       ? `${PULL_REQUEST_LINKING_INSTRUCTIONS} ${PULL_REQUEST_CHECK_INSTRUCTION}`
       : PULL_REQUEST_LINKING_INSTRUCTIONS),
+    has('watch_pull_request') && PULL_REQUEST_WATCH_INSTRUCTIONS,
   ].filter(Boolean).join('\n\n')
 }

@@ -140,7 +140,7 @@ const LIST_SESSION_PULL_REQUESTS_DESC =
 
 // ─── Executor (one implementation behind every agent backend's tool surface) ───
 
-interface TaskToolCtx {
+export interface TaskToolCtx {
   /** The calling session's working directory — stamps new tasks with a project. */
   cwd: string
   /** The calling session; every row the tool writes names it. */
@@ -154,7 +154,7 @@ interface TaskToolDeps {
   onTaskCreated?: (task: { taskId: string; title: string; url: string | null }) => void
 }
 
-interface TaskToolResult {
+export interface TaskToolResult {
   ok: boolean
   text: string
 }
@@ -417,6 +417,16 @@ async function executeTaskTool(
   }
 }
 
+/** The pull request an agent names by number or URL, or null when the
+ *  project's code host has none by that name. */
+export async function namedPullRequest(projectKey: string, named: string): Promise<{ repository: string; number: number; url: string } | null> {
+  const trimmed = named.trim()
+  const number = Number(trimmed.replace(/^#/, ''))
+  const url = parseGitHubPullRequestUrl(trimmed)?.url
+    ?? (Number.isSafeInteger(number) && number > 0 ? await resolvePullRequestUrl(projectKey, number) : null)
+  return url ? pullRequestIdentityOf(url) : null
+}
+
 /**
  * Link a pull request to the calling session. The machine that runs the
  * session always holds the link, because its PR sync watches the pull request.
@@ -424,7 +434,7 @@ async function executeTaskTool(
  * API holds the session too, so the same link travels there in the delivery
  * queue.
  */
-async function linkCallerPullRequest(
+export async function linkCallerPullRequest(
   ctx: TaskToolCtx,
   toolContext: () => ReturnType<typeof workspaceToolContext>,
   projectKey: string,
@@ -434,10 +444,7 @@ async function linkCallerPullRequest(
   const callerSessionId = ctx.sessionId
   if (!callerSessionId) return { ok: false, text: 'link with kind=pr and no task_id needs a calling session, and this session has no id yet.' }
   const named = input.target_id?.trim() ?? ''
-  const number = Number(named.replace(/^#/, ''))
-  const url = parseGitHubPullRequestUrl(named)?.url
-    ?? (Number.isSafeInteger(number) && number > 0 ? await resolvePullRequestUrl(projectKey, number) : null)
-  const identity = url ? pullRequestIdentityOf(url) : null
+  const identity = await namedPullRequest(projectKey, named)
   if (!identity) return { ok: false, text: `link could not find pull request "${named}". Pass its number or URL as target_id.` }
   const sessionId = callerSessionId
   const actor = await toolAgentAttribution(ctx)

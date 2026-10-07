@@ -3,7 +3,8 @@ import { GitHubReauthRequiredError, isGithubNotFound, type GitHubClient } from '
 import { githubClients, runGithubRequest } from './request'
 import { resolveUploadTarget, uploadGithubAsset } from './asset-upload'
 import type { ChangedFileStat, MergeMethod } from '@solus/contracts/types'
-import type { Provider, ReviewProvider } from '../types'
+import type { Provider, PullRequestWatchFingerprint, ReviewProvider } from '../types'
+import { buildWatchFingerprintsQuery, decodeWatchFingerprints, WATCH_FINGERPRINTS_PER_REQUEST, type WatchFingerprintsResponse } from './watch-fingerprints'
 import type {
   DraftReview,
   PrDiffFileContents,
@@ -176,7 +177,7 @@ const REVIEW_THREADS_QUERY = `
             line
             diffSide
             comments(first: 100) {
-              nodes { id author { login avatarUrl } body createdAt diffHunk }
+              nodes { id author { login avatarUrl } body createdAt lastEditedAt diffHunk }
             }
           }
         }
@@ -227,11 +228,11 @@ const PR_CONVERSATION_QUERY = `
       pullRequest(number: $number) {
         comments(first: 100, after: $commentsCursor) @include(if: $includeComments) {
           pageInfo { hasNextPage endCursor }
-          nodes { id author { login avatarUrl } body createdAt url }
+          nodes { id author { login avatarUrl } body createdAt lastEditedAt url }
         }
         reviews(first: 100, after: $reviewsCursor) @include(if: $includeReviews) {
           pageInfo { hasNextPage endCursor }
-          nodes { id author { login avatarUrl } body createdAt submittedAt state url }
+          nodes { id author { login avatarUrl } body createdAt lastEditedAt submittedAt state url }
         }
         timelineItems(
           first: 100
@@ -333,6 +334,7 @@ interface GqlComment {
   author: { login: string; avatarUrl: string } | null
   body: string
   createdAt: string
+  lastEditedAt?: string | null
   diffHunk?: string
 }
 
@@ -362,6 +364,7 @@ interface GqlConversationNode {
   author: { login: string; avatarUrl: string } | null
   body: string
   createdAt: string
+  lastEditedAt?: string | null
   url?: string
 }
 
@@ -974,6 +977,7 @@ function toComment(c: GqlComment): ReviewComment {
     createdAt: c.createdAt,
   }
   if (c.author?.avatarUrl) comment.authorAvatarUrl = c.author.avatarUrl
+  if (c.lastEditedAt) comment.editedAt = c.lastEditedAt
   if (c.diffHunk) comment.diffHunk = c.diffHunk
   return comment
 }
@@ -1819,6 +1823,7 @@ export class GitHubProvider implements ReviewProvider {
               createdAt: comment.createdAt,
             }
             if (comment.author?.avatarUrl) item.authorAvatarUrl = comment.author.avatarUrl
+            if (comment.lastEditedAt) item.editedAt = comment.lastEditedAt
             if (comment.url) item.url = comment.url
             items.push(item)
           }
@@ -1837,6 +1842,7 @@ export class GitHubProvider implements ReviewProvider {
               reviewState: review.state,
             }
             if (review.author?.avatarUrl) item.authorAvatarUrl = review.author.avatarUrl
+            if (review.lastEditedAt) item.editedAt = review.lastEditedAt
             if (review.url) item.url = review.url
             items.push(item)
           }
@@ -1910,6 +1916,19 @@ export class GitHubProvider implements ReviewProvider {
         results.push(...normalizeChecksResponse(response, batch, (message) => log.warn('pr_checks_normalize_warning', { message })))
       }
       return results
+    })
+  }
+
+  async readWatchFingerprints(repo: RepoRef, numbers: number[]): Promise<Map<number, PullRequestWatchFingerprint>> {
+    const fingerprints = new Map<number, PullRequestWatchFingerprint>()
+    if (numbers.length === 0) return fingerprints
+    return this.withClient('read_pull_request_watch_fingerprints', repo.host, async ({ graphql }) => {
+      for (let offset = 0; offset < numbers.length; offset += WATCH_FINGERPRINTS_PER_REQUEST) {
+        const batch = numbers.slice(offset, offset + WATCH_FINGERPRINTS_PER_REQUEST)
+        const response = await graphql<WatchFingerprintsResponse>(buildWatchFingerprintsQuery(batch), { owner: repo.owner, repo: repo.repo })
+        for (const [number, fingerprint] of decodeWatchFingerprints(response, batch)) fingerprints.set(number, fingerprint)
+      }
+      return fingerprints
     })
   }
 }
