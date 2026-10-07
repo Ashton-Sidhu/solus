@@ -3,6 +3,7 @@ import { Database } from 'bun:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -36,6 +37,9 @@ function git(cwd: string, args: string[]): string {
   if (result.status !== 0) throw new Error(result.stderr || `git ${args.join(' ')} failed`)
   return result.stdout.trim()
 }
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 test('restoring a worktree answers its checkout without a synchronous spawn', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'solus-worktree-restore-'))

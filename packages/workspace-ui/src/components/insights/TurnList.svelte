@@ -52,6 +52,7 @@
   import { modelName, providerMark } from "./lib/provider";
   import ProviderMark from "../ui/ProviderMark.svelte";
   import { turnHostValue, type TurnHostChoice } from "./lib/turn-hosts";
+  import type { TurnUserChoice } from "./lib/turn-users";
   import { TURN_STATUS_CHOICES, statusFilterFor } from "./lib/rail-filters";
   import type { TurnFlag } from "@solus/contracts/observability-types";
   import { flagChoice, flagColor, flagTitle } from "./lib/turn-flags";
@@ -108,6 +109,11 @@
     hostChoices?: TurnHostChoice[];
     hostFilter?: string | null;
     onHostFilterChange?: (hostId: string | null | undefined) => void;
+    /** The User filter's choices, for a listing of many people's turns. */
+    userChoices?: TurnUserChoice[];
+    /** The chosen user's id; absent for everyone. */
+    userFilter?: string | null;
+    onUserFilterChange?: (userId: string | undefined) => void;
     /** The host is pulling turns other hosts ran: rows may still arrive. */
     pulling?: boolean;
     /** Why the last pull of other hosts' turns failed. */
@@ -144,12 +150,16 @@
     hostChoices = [],
     hostFilter,
     onHostFilterChange,
+    userChoices = [],
+    userFilter,
+    onUserFilterChange,
     pulling = false,
     pullError = null,
   }: Props = $props();
 
   const hostValue = $derived(turnHostValue(hostFilter));
   const activeHost = $derived(hostChoices.find((choice) => choice.value === hostValue));
+  const activeUser = $derived(userChoices.find((choice) => choice.id === userFilter));
 
   const serverPaged = $derived(totalRows !== undefined);
 
@@ -501,6 +511,35 @@
   </DropdownMenu.Root>
 {/snippet}
 
+{#snippet userMenu(change: (userId: string | undefined) => void)}
+  <DropdownMenu.Root>
+    <DropdownMenu.Trigger>
+      {#snippet child({ props })}
+        <button
+          {...props}
+          type="button"
+          class="flex h-6.5 max-w-48 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-background pr-2.5 pl-3 text-insights-chrome text-foreground outline-none shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[background-color,scale] hover:bg-[var(--wash-1)] focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] data-[state=open]:bg-[var(--wash-1)] pointer-coarse:h-10"
+          aria-label="Filter by user"
+        >
+          <span class="truncate">{activeUser?.label ?? "All users"}</span>
+          <CaretDownIcon class="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.5} aria-hidden="true" />
+        </button>
+      {/snippet}
+    </DropdownMenu.Trigger>
+    <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-64">
+      <DropdownMenu.RadioGroup value={userFilter ?? ""} onValueChange={(value) => change(value || undefined)}>
+        <DropdownMenu.RadioItem value="">All users</DropdownMenu.RadioItem>
+        {#each userChoices as choice (choice.id)}
+          <DropdownMenu.RadioItem value={choice.id}>
+            <span class="min-w-0 flex-1 truncate">{choice.label}</span>
+            <span class="text-muted-foreground tabular-nums">{choice.count}</span>
+          </DropdownMenu.RadioItem>
+        {/each}
+      </DropdownMenu.RadioGroup>
+    </DropdownMenu.Content>
+  </DropdownMenu.Root>
+{/snippet}
+
 {#snippet groupToggle()}
   <button
     type="button"
@@ -698,6 +737,10 @@
     {/if}
     {#if hostChoices.length > 2 && onHostFilterChange}
       {@render hostMenu(onHostFilterChange)}
+    {/if}
+    <!-- A chosen user stays offered when alone in the window, so the filter can be cleared. -->
+    {#if onUserFilterChange && (userChoices.length > 1 || activeUser)}
+      {@render userMenu(onUserFilterChange)}
     {/if}
     {@render statusFilters()}
     <DataTableColumnsMenu table={dataTable} />

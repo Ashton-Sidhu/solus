@@ -5,6 +5,7 @@ import type { AgentDispatcher } from '../execution/agents/agent-runner'
 import type { SeatResolver } from '../execution/seats/seat-manager'
 import { authorPrGuide, type GeneratedGuide } from './guide-producer'
 import { currentPrGuideTarget, prepareReviewGuidePrContext, type PrGuideTarget, type ResolvedPrGuideTarget } from './pr-guide-context'
+import { requireActingScope, withActingScope } from '../vault/acting-scope'
 import { prGuideKey, readPrGuide, writePrGuide } from './pr-guide-store'
 
 export interface PrGuideJobRequest {
@@ -70,9 +71,11 @@ export class PrGuideJobs {
     const job: PrGuideJob = {
       request, event, controller: new AbortController(), completion: Promise.resolve(null),
     }
+    // The queue runs jobs one at a time; each acts for whoever asked for it (plans/019).
+    const scope = requireActingScope('a review guide')
     this.jobs.set(key, job)
     request.onStatus(event)
-    job.completion = this.tail.then(() => this.run(job))
+    job.completion = this.tail.then(() => withActingScope(scope, () => this.run(job)))
     this.tail = job.completion.catch(() => {})
     return { status: event, completion: job.completion }
   }

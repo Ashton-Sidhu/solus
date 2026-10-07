@@ -49,6 +49,7 @@ interface AuthSessionCreateOptions extends CommonOptions {
 
 interface GitCredentialOptions extends CommonOptions {
   delegationDeviceId?: string
+  memberHome?: boolean
 }
 
 interface ChildExit {
@@ -124,7 +125,7 @@ Usage:
   solus connect remove ORGANIZATION_ID [--data-dir PATH]
   solus connect unlink [--data-dir PATH]
   solus auth session create --json [--device-label LABEL] [--data-dir PATH]
-  solus git-credential <get|store|erase> [--data-dir PATH] [--delegation DEVICE_ID]
+  solus git-credential <get|store|erase> [--data-dir PATH] [--delegation DEVICE_ID | --member-home]
   solus update [--data-dir PATH]
   solus --version
   solus --help`)
@@ -339,6 +340,7 @@ async function gitCredential(args: string[]): Promise<void> {
       'git-credential', action,
       '--data-dir', opts.dataDir,
       ...(opts.delegationDeviceId ? ['--delegation', opts.delegationDeviceId] : []),
+      ...(opts.memberHome ? ['--member-home'] : []),
     ],
     { stdio: 'inherit' },
   )
@@ -410,6 +412,7 @@ function parseGitCredentialOptions(args: string[]): GitCredentialOptions {
       },
       missingValueMessage: '--delegation requires a device ID',
     },
+    '--member-home': { set: () => { opts.memberHome = true } },
   }, (arg) => new Error(`Unknown git-credential option: ${arg}`))
   return opts
 }

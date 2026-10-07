@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 import type { AgentBackend, RunHandle } from '@solus/server/execution/agents/agent-backend'
 import type { IpcContext, NormalizedEvent, QueuedPromptSnapshot } from '@solus/contracts/types'
+import { installTestIdentities } from './helpers/acting-identities'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -120,6 +121,9 @@ function ctx(sessionId: string, agentSessionId: string | null = null): IpcContex
     statusBar: { model: 'claude-sonnet-5', reasoningEffort: 'medium', permissionMode: 'full-access', fastMode: false },
   } as unknown as IpcContext
 }
+
+// Members act from homes of their own, as on a booted server (plans/019).
+installTestIdentities()
 
 describe('queue author', () => {
   test('a member\'s held prompt is stamped with their identity; the host\'s own is not', async () => {

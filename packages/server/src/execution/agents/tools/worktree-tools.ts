@@ -1,14 +1,17 @@
 import { z } from 'zod'
 import type { AgentTool } from './agent-tool'
-import { HOST_ACTOR } from '../../../admission/actor'
+import { HOST_ACTOR, type Actor } from '../../../admission/actor'
 import { resolveHomePath } from '../../../platform/paths'
 import { sessionSettings } from '../../sessions/session-settings'
 import type { WorktreeMover } from '../../sessions/worktree-move'
 
 /** Wired once the host boots (`boot-server.ts`). */
 let worktreeMover: WorktreeMover | null = null
-export function setWorktreeMover(mover: WorktreeMover): void {
+/** Whom a session's turn acts for, so the move names its branch as that person (plans/019). */
+let actorOfSession: (sessionId: string) => Actor | undefined = () => undefined
+export function setWorktreeMover(mover: WorktreeMover, sessionActor: (sessionId: string) => Actor | undefined): void {
   worktreeMover = mover
+  actorOfSession = sessionActor
 }
 
 const MOVE_TO_WORKTREE_DESC = [
@@ -47,7 +50,7 @@ export const moveToWorktreeAgentTool: AgentTool = {
       target: input.path
         ? { kind: 'existing', path: input.path }
         : { kind: 'new', baseBranch: input.base_branch, branchName: input.branch_name, namePrompt: input.purpose },
-      actor: HOST_ACTOR,
+      actor: actorOfSession(sessionId) ?? HOST_ACTOR,
       preferences: sessionSettings(sessionId)?.preferences,
       signal: context.abortSignal,
     })

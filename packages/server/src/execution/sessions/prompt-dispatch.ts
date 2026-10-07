@@ -211,7 +211,9 @@ export class PromptDispatch {
       reportExchangeIds?: string[]
     },
   ): Promise<{ disposition: SessionRunLifecycle['disposition']; queueId?: string }> {
-    const { permissionMode, actor, exchangeIds, reportExchangeIds, ...promptOrigin } = origin ?? {}
+    const { permissionMode, actor: originActor, exchangeIds, reportExchangeIds, ...promptOrigin } = origin ?? {}
+    // An agent's prompt acts for the person the target session works for.
+    const actor = originActor ?? this.rt.actorOfSession(sessionId)
     const { input } = await this.unattendedRunInput(sessionId)
     if (permissionMode) input.permissionMode = permissionMode
     await this.rt.seatForTurn(actor, input.provider)
@@ -249,10 +251,11 @@ export class PromptDispatch {
    * which watches the session when a user opens it.
    */
   async createSession(req: CreateSessionRequest, actor?: Actor): Promise<{ sessionId: string; agentSessionId: string; taskId?: string }> {
-    // No seat, no session: refused before anything is spawned (Step 2 plan §3.3).
-    await this.rt.seatForTurn(actor, req.provider)
     const parentId = req.delegation?.parentSessionId
-    const namingActor = actor ?? (parentId ? this.rt.activeRunRequests.get(parentId)?.actor : undefined)
+    // A child works for the person its parent works for, on their seat (plans/019 decision 5).
+    const runActor = actor ?? (parentId ? this.rt.actorOfSession(parentId) : undefined)
+    // No seat, no session: refused before anything is spawned (Step 2 plan §3.3).
+    await this.rt.seatForTurn(runActor, req.provider)
     const parentMode = parentId ? this.rt.activeSessions.get(parentId)?.runInput?.permissionMode ?? this.rt.sessionPermissionModes.get(parentId) : undefined
     if (req.delegation && !parentMode) throw new Error('The parent permission policy is unavailable. Start the child from an active parent turn.')
     // A child works for the person its parent works for, with that person's preferences.
@@ -294,7 +297,7 @@ export class PromptDispatch {
       input,
       target: { kind: 'new-session' },
       sessionId,
-      actor,
+      actor: runActor,
       exchangeIds: req.exchangeIds,
       delegation,
       startedBy: req.startedBy,
@@ -320,7 +323,7 @@ export class PromptDispatch {
       prompt: req.prompt,
       cwd: req.cwd,
       preferences,
-      actor: namingActor,
+      actor: runActor,
     })
     return { ...started, sessionId }
   }
@@ -340,7 +343,11 @@ export class PromptDispatch {
     abortSignal?: AbortSignal
     /** The automation's captured preferences (plans/018 §6); absent means the built-in defaults. */
     executionPreferences?: ExecutionPreferences
+    /** The person the automation runs for (plans/019 decision 4). */
+    actor: Actor
   }): Promise<{ sessionId: string; done: Promise<{ output?: string }> }> {
+    // No seat, no run: a creator whose seat is not connected fails the run with SEAT_REQUIRED.
+    await this.rt.seatForTurn(req.actor, req.provider)
     const input: SessionRunInput = {
       provider: req.provider,
       agentSessionId: null,
@@ -364,6 +371,7 @@ export class PromptDispatch {
       input,
       target: { kind: 'new-session' },
       sessionId,
+      actor: req.actor,
       tools: selectAgentTools(
         solusToolbox.works,
         solusToolbox.docs,

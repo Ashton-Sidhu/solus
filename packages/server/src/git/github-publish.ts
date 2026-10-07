@@ -1,4 +1,3 @@
-import { rm } from 'fs/promises'
 import { z } from 'zod'
 import type {
   GithubPublishPushStep,
@@ -11,7 +10,7 @@ import type { GitHubClient } from '../providers/github/octokit'
 import { githubApiErrorMessage } from '../providers/github/provider'
 import { applyCloneProtocol } from '../transport/handlers/setup-commands'
 import { runAsync } from './exec'
-import { createGitAskpassHelper, gitAuthEnv } from './git-auth-env'
+import { gitCommandAuth } from './git-auth-env'
 import { parseRemoteUrl } from './git-helpers'
 import { hasAnyCommit } from './git-init'
 
@@ -93,23 +92,19 @@ async function pushInitialCommits(
 ): Promise<GithubPublishPushStep> {
   if (!await hasAnyCommit(cwd)) return { status: 'skipped_no_commits' }
 
-  const isHttps = protocol === 'https'
-  const askpass = isHttps && token ? await createGitAskpassHelper() : null
-  const env = gitAuthEnv({ isHttps, token, askpassPath: askpass?.path ?? null })
+  const { args, env } = gitCommandAuth({ isHttps: protocol === 'https', token })
   try {
-    await runAsync('git', ['push', '-u', remoteName, branch], cwd, { env })
+    await runAsync('git', [...args, 'push', '-u', remoteName, branch], cwd, { env })
     return { status: 'pushed', branch }
   } catch (err) {
     return { status: 'failed', error: err instanceof Error ? err.message : String(err) }
-  } finally {
-    if (askpass) await rm(askpass.directory, { recursive: true, force: true }).catch(() => {})
   }
 }
 
 export interface PublishRepositoryToGithubOptions extends GithubPublishRepositoryRequest {
   client: GitHubClient
   cwd: string
-  /** Owner's GitHub OAuth token, used only for an HTTPS push's askpass helper. */
+  /** The GitHub token the host's HTTPS push uses; a member's push uses their own home. */
   token: string | null
 }
 

@@ -7,6 +7,7 @@ import { ensureManagedPrCheckout, managedPrCheckoutPath } from '@solus/server/re
 import { readGuideFileContentsAt, readGuidePatchAt } from '@solus/server/review/pr-guide-diff'
 import type { PrDiffFileContentsRequest } from '@solus/contracts/providers'
 import { reviewGuidePath, writeJsonAtomic } from '@solus/server/review/review-store'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 const temporaryDirectories: string[] = []
 
@@ -19,6 +20,9 @@ afterEach(() => {
     rmSync(directory, { recursive: true, force: true })
   }
 })
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('managed pull-request checkout', () => {
   test('creates an exact full-history partial checkout under a path-safe review identity', async () => {

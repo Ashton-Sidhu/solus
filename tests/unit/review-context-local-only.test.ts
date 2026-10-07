@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { Database } from 'bun:sqlite'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 // bun has no node:sqlite; the ledger's import chain reaches the metrics db.
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
@@ -53,6 +54,9 @@ function createRepo() {
   git(cwd, ['commit', '-am', 'work'])
   return { cwd, baseSha, headSha: git(cwd, ['rev-parse', 'HEAD']) }
 }
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('review context', () => {
   test('resolves the branch and its base from local git alone', async () => {

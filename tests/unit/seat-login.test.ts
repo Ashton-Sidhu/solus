@@ -1,4 +1,5 @@
 import { expect, mock, test } from 'bun:test'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 // The login probe is a whole CLI process starting up. Count synchronous spawns
 // at the module boundary: one here is one main-thread stall per status read.
@@ -15,6 +16,9 @@ mock.module('child_process', countedChildProcess)
 mock.module('node:child_process', countedChildProcess)
 
 const { providerLoginConnected } = await import('@solus/server/execution/seats/seat-login')
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 test('the host login probe never spawns synchronously', async () => {
   // WHY: `claude auth status` took ~200 ms of main thread on every usage read

@@ -5,7 +5,7 @@ import { basename, dirname, join, sep } from 'path'
 import { homedir } from 'os'
 import type { CloneProtocol, PackageInstallCommand, SetupAgent } from '@solus/contracts/types'
 import { safeProjectDirName } from '@solus/contracts/project-folder-name'
-import { getCliEnv } from '../../cli-env'
+import { hostCliEnv } from '../../cli-env'
 
 /**
  * The commands host setup runs, and the parsing that decides them. Everything
@@ -33,7 +33,7 @@ const GH_APT_INSTALL_SCRIPT = [
 
 export function commandExists(command: string): boolean {
   try {
-    execFileSync('which', [command], { encoding: 'utf8', env: getCliEnv(), timeout: 3000 })
+    execFileSync('which', [command], { encoding: 'utf8', env: hostCliEnv(), timeout: 3000 })
     return true
   } catch {
     return false
@@ -75,7 +75,7 @@ export interface PackageInstallCommandSpec extends PackageInstallCommand {
 export function canSudoNonInteractive(): boolean {
   try {
     execFileSync('sudo', ['-n', 'true'], {
-      env: getCliEnv(),
+      env: hostCliEnv(),
       stdio: 'ignore',
       timeout: 3000,
     })
@@ -168,7 +168,7 @@ export interface AgentOwnershipOptions {
 /** `which`, but a miss returns null instead of throwing. */
 export function resolveCommandPath(command: string): string | null {
   try {
-    return execFileSync('which', [command], { encoding: 'utf8', env: getCliEnv(), timeout: 3000 }).trim() || null
+    return execFileSync('which', [command], { encoding: 'utf8', env: hostCliEnv(), timeout: 3000 }).trim() || null
   } catch {
     return null
   }
@@ -176,7 +176,7 @@ export function resolveCommandPath(command: string): string | null {
 
 export function npmGlobalBinDir(): string | null {
   try {
-    const prefix = execFileSync('npm', ['config', 'get', 'prefix'], { encoding: 'utf8', env: getCliEnv(), timeout: 5000 }).trim()
+    const prefix = execFileSync('npm', ['config', 'get', 'prefix'], { encoding: 'utf8', env: hostCliEnv(), timeout: 5000 }).trim()
     return prefix ? join(prefix, 'bin') : null
   } catch {
     return null

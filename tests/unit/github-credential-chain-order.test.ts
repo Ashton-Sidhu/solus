@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 // The dispatch-checkout layout module reaches the database; this Bun has no
 // `node:sqlite`. The real module is loaded so the mock below can keep every
@@ -67,6 +68,9 @@ const { githubCredentialChain } = await import('@solus/server/providers/github/c
 
 // Each test names its own host: the answer from `gh` is cached per host, so a
 // shared one would read the previous test's state.
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
+
 describe('which credentials a GitHub request may use', () => {
   test('the host connection leads and gh follows', async () => {
     state.hostToken = 'host-token'

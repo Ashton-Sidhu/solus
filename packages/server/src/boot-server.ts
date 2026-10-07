@@ -16,7 +16,7 @@ import { ModelProfilesService, downloadModelProfiles } from './updates/model-pro
 import { detectInstallKind } from './updates/install-kind'
 import { fetchLatestRelease } from './updates/release-sources'
 import { readProviderVersion } from './updates/provider-versions'
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { z } from 'zod'
 import { createServer as createNodeHttpServer, type IncomingMessage, type Server as HttpServer } from 'http'
@@ -51,14 +51,14 @@ import { registerSeatHandlers } from './transport/handlers/seat-handlers'
 import { AgentProfileManager, hostProfileHomes } from './execution/seats/agent-profile'
 import { publishPresenceRoom, registerPresenceHandlers } from './transport/handlers/presence-handlers'
 import { PresenceManager } from './presence/presence-manager'
-import { SeatManager, seatKey } from './execution/seats/seat-manager'
+import { SeatManager, memberHomeDirectory, seatKey } from './execution/seats/seat-manager'
+import { ActingIdentities, useActingIdentities } from './execution/seats/acting-identity'
 import { actorFor, HOST_ACTOR, memberSeat, seatFor } from './admission/actor'
-import { GitIdentityManager } from './git/git-identity-manager'
 import { MemberFolders, useMemberFolders } from './host/member-folders'
 import { setupProjectsRoot } from './workspace'
 import { fetchLogin } from './providers/github/auth'
 import { loadToken } from './providers/github/token-store'
-import { withCredentialScope } from './vault/credential-scope'
+import { solusGitHelper } from './providers/github/git-credential'
 import { SeatConnector } from './execution/seats/seat-connect'
 import { AgentAuthFlows } from './execution/seats/agent-auth'
 import { attentionVisibleTo, eventVisibleTo } from './sharing/event-audience'
@@ -463,16 +463,21 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Provider seats (Step 2 plan): every turn runs on its author's own login.
   // The workspace service
   // VAULT_NOT_CONFIGURED to every seat call.
-  // Who each member's Git work acts as (plans/011-cloud-coding-primitives.md stage 1).
-  const gitIdentities = new GitIdentityManager({
-    memberToken: (userId) => withCredentialScope(userId, () => loadToken()),
+  const seats = new SeatManager({ db: getDb() })
+  // Who every process acts as (plans/019-acting-identity.md): a member's run in
+  // their own home, with their own GitHub connection.
+  const identities = new ActingIdentities({
+    memberToken: () => loadToken(),
     fetchLogin: async (accessToken) => (await fetchLogin(accessToken)).login,
-    credentialsDir: join(dataDir(), 'git-credentials'),
+    memberHome: (seat) => memberHomeDirectory(seats.seatsRoot, seat),
+    gitHelper: () => solusGitHelper(['--member-home']),
     now: Date.now,
   })
-  const seats = new SeatManager({ db: getDb(), gitIdentities })
-  // Every member folder on this host — projects, seats, dispatch checkouts, Git credentials — is named after its member.
-  useMemberFolders(new MemberFolders({ db: getDb(), roots: () => [setupProjectsRoot(), join(seats.seatsRoot, 'claude'), join(seats.seatsRoot, 'codex')] }))
+  useActingIdentities(identities)
+  // The credential files the previous design kept per process; nothing reads them now.
+  rmSync(join(dataDir(), 'git-credentials'), { recursive: true, force: true })
+  // Every member folder on this host — projects, seats, homes, dispatch checkouts — is named after its member.
+  useMemberFolders(new MemberFolders({ db: getDb(), roots: () => [setupProjectsRoot(), join(seats.seatsRoot, 'claude'), join(seats.seatsRoot, 'codex'), join(seats.seatsRoot, 'home')] }))
   // A record this host left `running` names a turn the previous process never settled.
   const interruptSweep = markOwnRunningSessionRecordsInterrupted().catch((error) => {
     log.warn('session_records_interrupt_sweep_failed', { error: String(error) })
@@ -616,7 +621,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     recordActivity: (subject, actor, kind) => opts.sessionRuntime.recordActivity(subject, actor, kind),
     nameWorktreeBranch: (...args) => sessionCheckouts.nameWorktreeBranch(...args),
   })
-  setWorktreeMover(worktreeMover)
+  setWorktreeMover(worktreeMover, (sessionId) => opts.sessionRuntime.actorOfSession(sessionId))
   const worktreeOffers = new WorktreeOffers({
     mover: worktreeMover,
     recordActivity: (sessionId, actor, kind) => opts.sessionRuntime.recordActivity({ kind: 'session', id: sessionId }, actor, kind),
@@ -626,7 +631,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   opts.sessionRuntime.on('event', (sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
     if (!to) worktreeOffers.observe(sessionId, event)
   })
-  registerWorktreeHandlers(server, { sessionRuntime: opts.sessionRuntime, events, gitIdentities, worktreeMover, worktreeOffers })
+  registerWorktreeHandlers(server, { sessionRuntime: opts.sessionRuntime, events, worktreeMover, worktreeOffers })
   registerGitPublishHandlers(server)
   // Browsing a host's filesystem must work headless — that is the whole point
   // of pairing a server that has no window.
@@ -805,7 +810,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   server.register('modelProfilesStatus', () => modelProfiles.status)
   server.register('modelProfilesRefresh', () => modelProfiles.refresh())
   modelProfiles.start()
-  registerSetupHandlers(server, { gitIdentities, events, checkouts: opts.sessionRuntime.checkouts,
+  registerSetupHandlers(server, { events, checkouts: opts.sessionRuntime.checkouts,
     assertNewWorkAllowed: () => opts.sessionRuntime.assertNewWorkAllowed(),
     onActiveStepsChanged: (count) => { activeSetupSteps = count },
     onProviderInstalled: (agent) => hostUpdates.providerInstalled(agent),
@@ -975,7 +980,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         return hostId && userId === hostOrganizations.owner()?.userId ? await opts.ownerAccessToken?.(hostId) ?? null : null
       },
       onRevoked: (userId, organizationId) => {
-        gitIdentities.revoke(userId)
+        identities.revoke(userId)
         const sessions = hostDelegations.sessionsActingFor(userId, organizationId)
         for (const sessionId of sessions) opts.sessionRuntime.stopSession(sessionId, HOST_ACTOR)
         const dropped = dropQueuedFor({ organizationId, actorUserId: userId })

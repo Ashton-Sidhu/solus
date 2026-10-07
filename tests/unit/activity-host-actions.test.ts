@@ -268,7 +268,6 @@ describe('a move into a worktree', () => {
     registerWorktreeHandlers({ register: (method: string, handler: (args: unknown[], ctx: unknown) => Promise<unknown>) => { handlers.set(method, handler) } } as never, {
       sessionRuntime: runtime as never,
       events: { broadcast: () => {} } as never,
-      gitIdentities: {} as never,
       worktreeMover: new WorktreeMover(runtime as never),
       worktreeOffers: {} as never,
     })

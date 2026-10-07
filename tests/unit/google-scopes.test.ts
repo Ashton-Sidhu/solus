@@ -7,6 +7,7 @@ import {
   parseGoogleScopes,
 } from '@solus/contracts/google-auth'
 import type { SecretStore } from '@solus/server/platform/secrets'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 const records = new Map<string, unknown>()
 const store: SecretStore = {
@@ -23,6 +24,9 @@ let grantedGoogleScopes: typeof import('@solus/server/google/oauth')['grantedGoo
 beforeAll(async () => {
   ;({ grantedGoogleScopes } = await import('@solus/server/google/oauth'))
 })
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('Google scope drift', () => {
   test('a grant holding both scopes needs no reconnect', () => {

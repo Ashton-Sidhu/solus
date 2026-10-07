@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { createLogger } from '../logger'
 import { GOOGLE_CLIENT_ID } from './client-id'
 import { GOOGLE_CLIENT_SECRET } from './client-secret'
-import { currentCredentialUserId, withCredentialScope } from '../vault/credential-scope'
+import { requireActingScope, withActingScope, type ActingScope } from '../vault/acting-scope'
 import { clearProviderCredential, usesAccountIntegration, EncryptionUnavailableError, readProviderCredential, writeProviderCredential } from '../vault/provider-credentials'
 import { hostForUrl } from '@solus/contracts/entrypoint'
 import { GOOGLE_DRIVE_FILE_SCOPE, GOOGLE_OAUTH_SCOPES, parseGoogleScopes } from '@solus/contracts/google-auth'
@@ -42,8 +42,8 @@ interface PendingOAuthFlow {
   verifier: string
   redirectUri: string
   expiresAt: number
-  /** Whose connection this becomes: the callback carries no principal, so the flow remembers (cloud-service-model.md §22). */
-  userId: string | null
+  /** Whose connection this becomes: the callback carries no principal, so the flow remembers its scope (cloud-service-model.md §22). */
+  scope: ActingScope
 }
 
 export interface GoogleOAuthStartOptions {
@@ -154,9 +154,9 @@ export async function startGoogleOAuthFlow(opts: GoogleOAuthStartOptions): Promi
   cleanupExpiredPendingFlows()
 
   const redirectUri = buildRedirectUri(opts)
-  const userId = currentCredentialUserId()
+  const scope = requireActingScope('a Google connection')
   // One flow per person and callback: two people on the service must not share a URL.
-  const existing = [...pendingFlows.values()].find(flow => flow.redirectUri === redirectUri && flow.userId === userId)
+  const existing = [...pendingFlows.values()].find(flow => flow.redirectUri === redirectUri && flow.scope.credentialUserId === scope.credentialUserId)
   if (existing) return { authUrl: existing.authUrl, expiresAt: existing.expiresAt }
 
   const client = oauthClient(redirectUri)
@@ -173,7 +173,7 @@ export async function startGoogleOAuthFlow(opts: GoogleOAuthStartOptions): Promi
     state,
   })
 
-  pendingFlows.set(state, { authUrl, verifier: codeVerifier, redirectUri, expiresAt, userId })
+  pendingFlows.set(state, { authUrl, verifier: codeVerifier, redirectUri, expiresAt, scope })
   return { authUrl, expiresAt }
 }
 
@@ -215,7 +215,7 @@ export async function completeGoogleOAuthCallback(params: URLSearchParams): Prom
     }
     if (granted.length) token.scopes = granted
     // The browser's request names nobody; the flow does.
-    await withCredentialScope(flow!.userId, () => persist(token))
+    await withActingScope(flow!.scope, () => persist(token))
     return callbackPage(200, "You're connected", 'Return to Solus to continue.')
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -283,7 +283,7 @@ export async function getAccessToken(): Promise<string | null> {
   // Google rotates the refresh token on some refreshes; persist whatever the
   // library obtains so we never fall back to a stale/revoked grant. The
   // listener fires inside the library, so the caller's scope is carried in by hand.
-  const userId = currentCredentialUserId()
+  const scope = requireActingScope('a Google token refresh')
   client.on('tokens', (tokens) => {
     const granted = parseGoogleScopes(tokens.scope)
     const refreshed: StoredToken = {
@@ -295,7 +295,7 @@ export async function getAccessToken(): Promise<string | null> {
     // keep what was recorded rather than losing the record of it.
     const scopes = granted.length ? granted : stored.scopes
     if (scopes) refreshed.scopes = scopes
-    void withCredentialScope(userId, () => persistRefreshed(refreshed))
+    void withActingScope(scope, () => persistRefreshed(refreshed))
   })
 
   try {

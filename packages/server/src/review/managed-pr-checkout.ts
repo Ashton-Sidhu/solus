@@ -6,7 +6,8 @@ import type { PrCheckoutContext } from '@solus/contracts/types'
 import type { RepoRef } from '@solus/contracts/providers'
 import type { ReviewTarget } from '@solus/contracts/review'
 import { runAsync } from '../git/exec'
-import { createGitAskpassHelper, gitAuthEnv } from '../git/git-auth-env'
+import { gitCommandAuth } from '../git/git-auth-env'
+import { currentIdentity } from '../vault/acting-scope'
 import { PARTIAL_CLONE_ARGS } from '../git/partial-clone'
 import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
@@ -21,12 +22,19 @@ export interface ManagedPrCheckoutOptions {
   cloneUrl?: string
 }
 
+/**
+ * One checkout per revision and per person who fetched it: a member's checkout
+ * holds what their own connection could read, and nobody else reads it
+ * (plans/019-acting-identity.md). The host's keeps the path it always had.
+ */
 export function managedPrCheckoutPath(
   repo: RepoRef,
   target: PrTarget,
   root = join(dataDir(), 'review-checkouts'),
 ): string {
-  const identity = `${repo.host.toLowerCase()}/${repo.owner.toLowerCase()}/${repo.repo.toLowerCase()}/${target.number}/${target.baseSha}/${target.headSha}`
+  const acting = currentIdentity('a review checkout')
+  const revision = `${repo.host.toLowerCase()}/${repo.owner.toLowerCase()}/${repo.repo.toLowerCase()}/${target.number}/${target.baseSha}/${target.headSha}`
+  const identity = acting.isHost ? revision : `${revision}\0${acting.cacheKey}`
   return join(root, createHash('sha256').update(identity).digest('hex'))
 }
 
@@ -105,11 +113,7 @@ async function materializeManagedPrCheckout(
   const credentials = isHttps ? await githubCredentialChain(repo.host) : []
   for (let attempt = 0; ; attempt++) {
     const credential = credentials[attempt]
-    const token = credential?.token ?? null
-    const askpass = token ? await createGitAskpassHelper() : null
-    const env = gitAuthEnv({ isHttps, token, askpassPath: askpass?.path ?? null })
-    // Prevent a configured credential helper from overriding the selected token.
-    const authArgs = token ? ['-c', 'credential.helper='] : []
+    const { args: authArgs, env } = gitCommandAuth({ isHttps, token: credential?.token ?? null })
     try {
       await runAsync(
         'git',
@@ -159,8 +163,6 @@ async function materializeManagedPrCheckout(
         failedSource: credential?.source,
         nextSource: next.source,
       })
-    } finally {
-      if (askpass) await rm(askpass.directory, { recursive: true, force: true }).catch(() => {})
     }
   }
 }

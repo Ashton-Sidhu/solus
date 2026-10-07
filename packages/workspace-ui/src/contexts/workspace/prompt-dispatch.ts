@@ -31,6 +31,7 @@ import { GITHUB_CONNECTION_REQUIRED_CODE } from '@solus/contracts/providers'
 import { cloudAccount } from '@solus/client-core/cloud-account'
 import { seatProviderOf, seatsStore } from '../seats/seats.store.svelte'
 import { turnRefusalStore } from '../connections/turn-refusal.store.svelte'
+import { clearSettledCards } from './settled-cards'
 import { hasHostCapability } from '@solus/client-core/host-capabilities'
 import { moveTabToHost, prepareHostCheckout } from '../../components/servers/run-on'
 import { buildRemoteDispatchCard } from '../../lib/remote-dispatch-card'
@@ -205,8 +206,6 @@ export class PromptDispatch {
           .then(() => {
             // The host accepted the prompt: its durable copy has done its job.
             if (options.clientPromptId) sendOutbox.remove(outboxServerId, options.clientPromptId)
-            // A refusal this send answered is over.
-            if (turnRefusalStore.visibleFor(session.run.serverId, session.id)) turnRefusalStore.dismiss()
           })
       })
       .catch((err: Error) => {
@@ -406,9 +405,7 @@ export class PromptDispatch {
       return false
     }
 
-    // A failed setup card is kept so its error stays visible, but a new send
-    // starts over. Without this, the old failure stays under the new turn.
-    if (session.statusCard?.status === 'error') session.statusCard = null
+    clearSettledCards(session)
 
     if (session.run.pendingHostDispatch) {
       // Host checkout can take several seconds. The turn starts when the user

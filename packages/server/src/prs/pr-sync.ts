@@ -20,6 +20,8 @@ import { GitHubRateLimitedError } from '../providers/github/rate-limit'
 import { asBackgroundWork } from '../providers/github/request-budget'
 import { codeHostFor, type CodeHost } from './code-host'
 import { prIndex, repoKeyOf } from './pr-index'
+import { HOST_SCOPE } from '../execution/seats/acting-identity'
+import { requireActingScope, withActingScope, type ActingScope } from '../vault/acting-scope'
 
 const log = createLogger('main', 'pr-sync')
 /** How often the clock looks for a repository that is due. */
@@ -71,7 +73,10 @@ interface TaskInterest {
 interface ClientInterest {
   host: CodeHost
   owners: Map<string, PrInterest[]>
+  /** Whom the repository is read as: the person who last said what they want from it (plans/019). */
+  scope: ActingScope
 }
+
 
 /** Everything wanted from one repository this tick. */
 interface Wanted {
@@ -170,7 +175,8 @@ export class PrSync {
       this.rerun = true
       return this.running
     }
-    const run = this.runTick().catch((error) => {
+    // The tick's own work is the host's; each repository then runs as whoever wants it.
+    const run = withActingScope(HOST_SCOPE, () => this.runTick()).catch((error) => {
       log.warn('pr_sync_tick_failed', { error: String(error) })
     }).finally(() => {
       this.running = null
@@ -190,7 +196,9 @@ export class PrSync {
    */
   setInterest(ownerId: string, host: CodeHost, interests: PrInterest[]): PrSyncChange {
     const key = repoKeyOf(host.repo).toLowerCase()
-    const entry = this.clientInterests.get(key) ?? { host, owners: new Map<string, PrInterest[]>() }
+    const scope = requireActingScope('pull request sync')
+    const entry = this.clientInterests.get(key) ?? { host, owners: new Map<string, PrInterest[]>(), scope }
+    entry.scope = scope
     if (interests.length) {
       entry.owners.set(ownerId, interests)
       this.clientInterests.set(key, entry)
@@ -271,8 +279,11 @@ export class PrSync {
       const sync = this.syncFor(key, host)
       if (sync.nextAt > this.now() || (this.rateLimitedUntil.get(host.repo.host) ?? 0) > this.now()) continue
       const wanted = this.wantedIn(key)
+      // Each repository is read as the person who wants it, whatever started this
+      // tick; one only tasks want is read as the host, as the task sync's own clock is.
+      const scope = this.clientInterests.get(key)?.scope ?? HOST_SCOPE
       try {
-        await this.syncRepository(key, sync, wanted)
+        await withActingScope(scope, () => this.syncRepository(key, sync, wanted))
         sync.syncedAt = this.now()
         sync.nextAt = this.now() + cadenceOf(sync, wanted)
       } catch (error) {

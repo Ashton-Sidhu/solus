@@ -8,6 +8,7 @@ import { resetTestDatabase } from './helpers/test-db'
 import type { WorkspaceRequestContext } from '@solus/server/admission/workspace-credentials'
 import type { WorkspaceOperations } from '@solus/server/data/workspace/operations'
 import { workspaceTaskSchema, workspaceWorkSchema, workspaceTranscriptPageSchema } from '@solus/contracts/solus-api'
+import { installTestIdentities } from './helpers/acting-identities'
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 let operations: WorkspaceOperations
 let dataDir: string
@@ -24,6 +25,9 @@ beforeAll(async () => {
   operations = (await import('@solus/server/data/workspace/service')).createWorkspaceOperations(shares)
 })
 afterAll(async () => { await resetTestDatabase(); rmSync(dataDir, { recursive: true, force: true }); if (previous === undefined) delete process.env.SOLUS_DATA_DIR; else process.env.SOLUS_DATA_DIR = previous })
+
+// Members act from homes of their own, as on a booted server (plans/019).
+installTestIdentities()
 
 test('create retries return one task; conflicting input and stale writes cannot change it', async () => {
   const input = { title: 'One task', body: 'Original' }

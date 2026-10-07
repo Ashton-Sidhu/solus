@@ -4,6 +4,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { git } from '@solus/server/git/exec'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 // The Git helpers reach the server's database module, which Bun loads only
 // through its own SQLite.
@@ -26,6 +27,9 @@ function repository(): string {
   git(['commit', '-m', 'base'], directory)
   return directory
 }
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 test('the file count covers every change, past the listed entries', () => {
   const raw = [

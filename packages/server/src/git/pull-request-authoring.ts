@@ -3,7 +3,6 @@ import type { AgentTool } from '../execution/agents/tools/agent-tool'
 import type { WritingBackend } from '../execution/agents/writing-backend'
 import type { TextGenerator } from '../execution/agents/text-generator'
 import { runAsync } from './exec'
-import type { GitIdentityEnv } from './git-identity-manager'
 
 const MAX_COMMIT_SUMMARY_CHARS = 12_000
 const MAX_DIFF_STAT_CHARS = 12_000
@@ -54,10 +53,10 @@ async function resolveBaseRef(cwd: string, baseBranch: string): Promise<string> 
   return exists ? remoteRef : baseBranch
 }
 
-async function readTemplate(cwd: string, baseRef: string, gitEnv: GitIdentityEnv | undefined): Promise<string | null> {
+async function readTemplate(cwd: string, baseRef: string): Promise<string | null> {
   for (const templatePath of TEMPLATE_PATHS) {
     // A template is optional: a path the base does not hold is not an error.
-    const template = await runAsync('git', ['show', `${baseRef}:${templatePath}`], cwd, { raw: true, env: gitEnv })
+    const template = await runAsync('git', ['show', `${baseRef}:${templatePath}`], cwd, { raw: true })
       .catch(() => '')
     if (template.trim()) return limit(template.trim(), MAX_TEMPLATE_CHARS)
   }
@@ -65,8 +64,8 @@ async function readTemplate(cwd: string, baseRef: string, gitEnv: GitIdentityEnv
 }
 
 /**
- * What the branch changes, read as `gitEnv` (the acting member, or none for the
- * host): in a partial clone a diff fetches file contents it does not hold yet.
+ * What the branch changes, read as the acting identity: in a partial clone a
+ * diff fetches file contents it does not hold yet.
  * A failed log or diff is an error, never an empty change; only a patch too
  * large to read is left out, and its stat still describes it.
  */
@@ -75,22 +74,20 @@ export async function readPullRequestAuthoringContext(
   baseBranch: string,
   headBranch: string,
   followPullRequestTemplate = true,
-  gitEnv?: GitIdentityEnv,
 ): Promise<PullRequestAuthoringContext> {
   const baseRef = await resolveBaseRef(cwd, baseBranch)
   const range = `${baseRef}..HEAD`
   const diffRange = `${baseRef}...HEAD`
   const [commitSummary, diffStat, diffPatch, template] = await Promise.all([
-    runAsync('git', ['log', '--no-merges', '--pretty=format:%s', range], cwd, { env: gitEnv }),
-    runAsync('git', ['diff', '--stat', diffRange], cwd, { env: gitEnv }),
+    runAsync('git', ['log', '--no-merges', '--pretty=format:%s', range], cwd),
+    runAsync('git', ['diff', '--stat', diffRange], cwd),
     runAsync('git', ['diff', '--no-ext-diff', '--unified=3', diffRange], cwd, {
       maxBuffer: MAX_DIFF_PATCH_BYTES,
-      env: gitEnv,
     }).catch((error) => {
       if (error instanceof Error && 'code' in error && error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return ''
       throw error
     }),
-    followPullRequestTemplate ? readTemplate(cwd, baseRef, gitEnv) : Promise.resolve(null),
+    followPullRequestTemplate ? readTemplate(cwd, baseRef) : Promise.resolve(null),
   ])
   return {
     baseBranch,
@@ -202,14 +199,12 @@ export async function authorPullRequest(
   baseBranch: string,
   headBranch: string,
   writer: PullRequestWriter,
-  gitEnv?: GitIdentityEnv,
 ): Promise<PullRequestDraft> {
   const context = await readPullRequestAuthoringContext(
     cwd,
     baseBranch,
     headBranch,
     writer.followPullRequestTemplate,
-    gitEnv,
   )
   const { backend } = writer
   if (!backend) return fallbackPullRequestDraft(context)

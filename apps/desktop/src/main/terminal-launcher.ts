@@ -2,7 +2,7 @@ import { execFile, execFileSync } from 'child_process'
 import { basename } from 'path'
 import { createLogger } from '@solus/server/logger'
 import type { ResolvedTerminal, TerminalAppId, TerminalLaunchRequest } from '@solus/contracts/types'
-import { getCliEnv } from '@solus/server/cli-env'
+import { hostCliEnv } from '@solus/server/cli-env'
 import { TERMINAL_APPS, terminalApp, type TerminalApp } from '@solus/desktop-main/terminal-apps'
 import { findAppBundle } from '@solus/desktop-main/mac-apps'
 
@@ -14,7 +14,7 @@ const ATTACH_COMMAND = `exec tmux attach-session -t ${TMUX_SESSION_NAME}`
 function createTmuxWindow(command: string, cwd?: string): boolean {
   try {
     execFileSync('tmux', ['has-session', '-t', TMUX_SESSION_NAME], {
-      env: getCliEnv(),
+      env: hostCliEnv(),
       timeout: 2000,
       stdio: 'ignore',
     })
@@ -23,7 +23,7 @@ function createTmuxWindow(command: string, cwd?: string): boolean {
       const args = ['new-session', '-d', '-s', TMUX_SESSION_NAME]
       if (cwd) args.push('-c', cwd)
       args.push(command)
-      execFileSync('tmux', args, { env: getCliEnv(), timeout: 5000 })
+      execFileSync('tmux', args, { env: hostCliEnv(), timeout: 5000 })
       log.info('tmux_session_created', { sessionName: TMUX_SESSION_NAME, command, cwd })
       return true
     } catch (createErr) {
@@ -38,7 +38,7 @@ function createTmuxWindow(command: string, cwd?: string): boolean {
     const args = ['new-window', '-t', TMUX_SESSION_NAME]
     if (cwd) args.push('-c', cwd)
     args.push(command)
-    execFileSync('tmux', args, { env: getCliEnv(), timeout: 5000 })
+    execFileSync('tmux', args, { env: hostCliEnv(), timeout: 5000 })
     log.info('tmux_window_opened', { sessionName: TMUX_SESSION_NAME, command, cwd })
     return true
   } catch (err) {
@@ -52,7 +52,7 @@ function createTmuxWindow(command: string, cwd?: string): boolean {
  *  transcript page, and a synchronous spawn here held that page. */
 function probeOutput(file: string, args: string[], timeout: number): Promise<string | null> {
   return new Promise((resolve) => {
-    execFile(file, args, { env: getCliEnv(), timeout, encoding: 'utf8' }, (error, stdout) => {
+    execFile(file, args, { env: hostCliEnv(), timeout, encoding: 'utf8' }, (error, stdout) => {
       resolve(error ? null : stdout)
     })
   })
@@ -146,7 +146,7 @@ async function useAttachedTerminal(): Promise<boolean> {
   const bundle = await attachedTerminalBundle()
   if (bundle) {
     try {
-      execFileSync('open', [bundle], { timeout: 5000, env: getCliEnv() })
+      execFileSync('open', [bundle], { timeout: 5000, env: hostCliEnv() })
       log.info('attached_terminal_raised', { bundle })
     } catch (err) {
       log.warn('attached_terminal_raise_failed', {
@@ -167,20 +167,20 @@ function launchTerminalApp(app: TerminalApp): boolean {
       if (app.macAppleScript) {
         execFileSync('/usr/bin/osascript', ['-e', app.macAppleScript(ATTACH_COMMAND)], {
           timeout: 5000,
-          env: getCliEnv(),
+          env: hostCliEnv(),
         })
       } else if (app.macOpenArgs && app.macAppBundle) {
         const bundle = findAppBundle(app.macAppBundle) ?? app.macAppBundle
         execFileSync('open', ['-na', bundle, '--args', ...app.macOpenArgs(ATTACH_COMMAND)], {
           timeout: 5000,
-          env: getCliEnv(),
+          env: hostCliEnv(),
         })
       } else {
         log.warn('terminal_app_not_launchable', { terminalId: app.id })
         return false
       }
     } else {
-      execFileSync(app.linuxBin, app.linuxArgs(ATTACH_COMMAND), { timeout: 5000, env: getCliEnv() })
+      execFileSync(app.linuxBin, app.linuxArgs(ATTACH_COMMAND), { timeout: 5000, env: hostCliEnv() })
     }
     return true
   } catch (err) {

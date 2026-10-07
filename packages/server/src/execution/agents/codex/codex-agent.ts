@@ -1,10 +1,9 @@
 import { EventEmitter } from 'events'
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { join } from 'node:path'
-import { findOnPath, getCliEnv, warmCliPath } from '../../../cli-env'
+import { findOnPath, hostCliEnv, warmCliPath } from '../../../cli-env'
 import { SOLUS_PLUGINS_DIR } from '../plugins'
 import { createLogger } from '../../../logger'
-import type { GitIdentityEnv } from '../../../git/git-identity-manager'
 import type {
   CodexResponseFor,
   CodexClientParams,
@@ -51,8 +50,12 @@ export class CodexAppServerClient extends EventEmitter {
    * member's seat therefore gets its own process with `CODEX_HOME` set to the
    * seat's directory (Step 2 plan §3.3); the host's own login passes nothing.
    */
-  /** `gitEnv` is a member's Git identity and credential helper, for a seat's app-server. */
-  constructor(private readonly options: { codexHome?: string; gitEnv?: GitIdentityEnv } = {}) {
+  /**
+   * A seat's app-server names its `codexHome` and the member's `env` from their
+   * acting identity. With neither, it is the host's own: it may start inside any
+   * caller's scope, so it takes the host environment by name.
+   */
+  constructor(private readonly options: { codexHome?: string; env?: NodeJS.ProcessEnv } = {}) {
     super()
   }
 
@@ -128,6 +131,8 @@ export class CodexAppServerClient extends EventEmitter {
   private async start(): Promise<void> {
     this.stopped = false
     const codexHome = this.options.codexHome
+    // A member's app-server never borrows the host's environment.
+    if (codexHome && !this.options.env) throw new Error('A Codex seat started without its member environment.')
     // The login-shell PATH, resolved off the main thread: a version-managed
     // codex lives on it, and asking synchronously here blocks every request.
     // Check it on every start so an install after boot works without a restart.
@@ -141,7 +146,7 @@ export class CodexAppServerClient extends EventEmitter {
       '--enable',
       'default_mode_request_user_input',
     ], {
-      env: getCliEnv(codexHome ? { ...this.options.gitEnv, CODEX_HOME: codexHome } : undefined),
+      env: codexHome ? { ...this.options.env, CODEX_HOME: codexHome } : hostCliEnv(),
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     this.proc = proc

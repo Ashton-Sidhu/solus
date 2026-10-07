@@ -9,6 +9,7 @@ import {
   prepareTurnSnapshot,
   snapshotTurn,
 } from '@solus/server/git/session-snapshots'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 const dirs: string[] = []
 
@@ -41,6 +42,9 @@ function addWorkTree(repoRoot: string) {
   git(repoRoot, ['worktree', 'add', '-b', 'feature', workTree])
   return workTree
 }
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('turn diff stats', () => {
   test('exclude edits that were already present when the turn started', async () => {

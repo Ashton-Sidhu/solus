@@ -18,7 +18,10 @@ const secrets: SecretStore = {
   remove: (key) => { values.delete(key) },
 }
 mock.module('@solus/server/platform/secrets', () => ({ secretStore: () => secrets }))
-const { withCredentialScope } = await import('@solus/server/vault/credential-scope')
+const { withUserScope } = await import('@solus/server/vault/acting-scope')
+const { installTestIdentities } = await import('./helpers/acting-identities')
+// Members act from homes of their own, as on a booted server (plans/019).
+installTestIdentities()
 const { readProviderCredential, writeProviderCredential, clearProviderCredential } = await import('@solus/server/vault/provider-credentials')
 const { useIntegrationExecutor, rememberPersonToken, useDelegatedTokens, resetAccountIntegrationsForTests } = await import('@solus/server/vault/account-integrations')
 const { actorFor, credentialUserFor } = await import('@solus/server/admission/actor')
@@ -60,10 +63,10 @@ describe('account integration identity', () => {
     values.set('github-oauth', JSON.stringify({ accessToken: 'wrong-host-user' }))
     let connected = true
     linkAccount(() => connected ? Response.json({ accessToken: 'alice-only', scope: 'repo', login: 'alice' }) : Response.json({}, { status: 404 }))
-    expect(await withCredentialScope('alice', () => githubCredentialChain('github.com', '/unrelated/checkout'))).toEqual([{ source: 'account', token: 'alice-only' }])
+    expect(await withUserScope('alice', () => githubCredentialChain('github.com', '/unrelated/checkout'))).toEqual([{ source: 'account', token: 'alice-only' }])
     connected = false
-    expect(await withCredentialScope('alice', () => githubCredentialChain('github.com', '/unrelated/checkout'))).toEqual([])
-    expect(await withCredentialScope('alice', () => githubCredentialChain('enterprise.example'))).toEqual([])
+    expect(await withUserScope('alice', () => githubCredentialChain('github.com', '/unrelated/checkout'))).toEqual([])
+    expect(await withUserScope('alice', () => githubCredentialChain('enterprise.example'))).toEqual([])
     expect(touches).toEqual([])
   })
   test('after the person\'s token expires, the host keeps their own connection with its delegation for them, and nobody else\'s', async () => {
@@ -79,18 +82,18 @@ describe('account integration identity', () => {
       return Response.json({ accessToken: 'carol-only', scope: 'repo', login: 'carol' })
     }) as typeof fetch
     // No live token and no delegation for carol: nothing is sent, and the call says so.
-    await expect(withCredentialScope('carol', () => githubCredentialChain('github.com'))).rejects.toThrow('Reconnect')
+    await expect(withUserScope('carol', () => githubCredentialChain('github.com'))).rejects.toThrow('Reconnect')
     expect(bodies).toEqual([])
     useDelegatedTokens(async (userId) => (userId === 'carol' ? 'carol-delegated' : null))
-    expect(await withCredentialScope('carol', () => githubCredentialChain('github.com'))).toEqual([{ source: 'account', token: 'carol-only' }])
+    expect(await withUserScope('carol', () => githubCredentialChain('github.com'))).toEqual([{ source: 'account', token: 'carol-only' }])
     expect(JSON.parse(bodies.at(-1)!)).toEqual({ accessToken: 'carol-delegated' })
     // Another person's call does not borrow it.
-    await expect(withCredentialScope('dave', () => githubCredentialChain('github.com'))).rejects.toThrow('Reconnect')
+    await expect(withUserScope('dave', () => githubCredentialChain('github.com'))).rejects.toThrow('Reconnect')
     expect(bodies).toHaveLength(1)
   })
   test('host-scoped calls keep their host connection', async () => {
-    await withCredentialScope(null, () => writeProviderCredential('github', { accessToken: 'host-only' }))
-    expect(await withCredentialScope(null, () => readProviderCredential('github', token))).toEqual({ accessToken: 'host-only' })
+    await withUserScope(null, () => writeProviderCredential('github', { accessToken: 'host-only' }))
+    expect(await withUserScope(null, () => readProviderCredential('github', token))).toEqual({ accessToken: 'host-only' })
   })
   test('the owner of a personal host connects on that host, not on the account website', async () => {
     // Signed in or not, locally or remotely: each host keeps its owner's own
@@ -100,7 +103,7 @@ describe('account integration identity', () => {
     for (const owner of [localOwner, remoteOwner]) {
       const userId = credentialKeyFor(owner)
       expect(userId).toBeNull()
-      expect(await withCredentialScope(userId, () => readProviderCredential('google', token))).toEqual({ accessToken: 'host-only' })
+      expect(await withUserScope(userId, () => readProviderCredential('google', token))).toEqual({ accessToken: 'host-only' })
     }
     expect(calls).toEqual([])
   })
@@ -112,22 +115,22 @@ describe('account integration identity', () => {
   })
   test('missing account authority never falls back to another local login', async () => {
     values.set('github-oauth', JSON.stringify({ accessToken: 'host-only' }))
-    await expect(withCredentialScope('bob', () => readProviderCredential('github', token))).rejects.toThrow('Reconnect')
+    await expect(withUserScope('bob', () => readProviderCredential('github', token))).rejects.toThrow('Reconnect')
     expect(touches).toEqual([])
   })
   test('an account-scoped call never writes or clears the host store', async () => {
-    await expect(withCredentialScope('bob', () => writeProviderCredential('google', { accessToken: 'x' }))).rejects.toThrow('account website')
-    await expect(withCredentialScope('bob', () => clearProviderCredential('google'))).rejects.toThrow('account website')
+    await expect(withUserScope('bob', () => writeProviderCredential('google', { accessToken: 'x' }))).rejects.toThrow('account website')
+    await expect(withUserScope('bob', () => clearProviderCredential('google'))).rejects.toThrow('account website')
     expect(touches).toEqual([])
   })
   test('disconnect and outage are checked on the next call without a stale token cache', async () => {
     let status = 200
     const calls = linkAccount(() => Response.json({ accessToken: 'alice' }, { status }))
-    expect(await withCredentialScope('alice', () => readProviderCredential('github', token))).toEqual({ accessToken: 'alice' })
+    expect(await withUserScope('alice', () => readProviderCredential('github', token))).toEqual({ accessToken: 'alice' })
     status = 404
-    expect(await withCredentialScope('alice', () => readProviderCredential('github', token))).toBeNull()
+    expect(await withUserScope('alice', () => readProviderCredential('github', token))).toBeNull()
     status = 503
-    await expect(withCredentialScope('alice', () => readProviderCredential('github', token))).rejects.toThrow('unavailable')
+    await expect(withUserScope('alice', () => readProviderCredential('github', token))).rejects.toThrow('unavailable')
     expect(calls).toEqual(Array(3).fill('/v1/integrations/github/credential'))
   })
 })

@@ -4,7 +4,7 @@ import { join } from 'path'
 import { createLogger, flushLogs } from '@solus/server/logger'
 import { shutdownAnalytics } from '@solus/server/analytics'
 import { shutdownOtel } from '@solus/server/otel'
-import { coerceGitCredentialAction, runGitCredentialHelper, type GitCredentialAction } from '@solus/server/providers/github/git-credential'
+import { coerceGitCredentialAction, runGitCredentialHelper, useServerEntry, type GitCredentialAction, type GitCredentialSource } from '@solus/server/providers/github/git-credential'
 import { bestEndpoint, extractGitCredentialAction, formatPairBlock, hostForUrl, parseFlags, parsePort } from '@solus/contracts/entrypoint'
 import type { BootCore } from '@solus/server/boot-core'
 
@@ -19,6 +19,7 @@ interface StandaloneArgs {
   deviceLabel?: string
   credentialAction?: GitCredentialAction
   delegationDeviceId?: string
+  memberHome?: boolean
 }
 
 function parseArgs(argv: string[]): StandaloneArgs {
@@ -62,9 +63,22 @@ function parseArgs(argv: string[]): StandaloneArgs {
       },
       missingValueMessage: '--delegation requires a device ID',
     },
+    '--member-home': { set: () => { out.memberHome = true } },
   }, (arg) => new Error(`Unknown argument: ${arg}`))
 
   return out
+}
+
+/** The Solus git helper runs this same entry, so git needs no `solus` on PATH. */
+function nameServerEntry(): void {
+  if (process.argv[1]) useServerEntry({ runtime: process.execPath, entry: process.argv[1] })
+}
+
+/** Whose credential one helper invocation serves: a member's home, a paired device, or the host. */
+function credentialSourceOf(args: StandaloneArgs): GitCredentialSource {
+  if (args.memberHome) return { kind: 'member-home' }
+  if (args.delegationDeviceId) return { kind: 'delegation', deviceId: args.delegationDeviceId }
+  return { kind: 'host' }
 }
 
 async function main(): Promise<void> {
@@ -72,9 +86,10 @@ async function main(): Promise<void> {
   if (args.dataDir) process.env.SOLUS_DATA_DIR = args.dataDir
 
   if (args.command === 'git-credential') {
-    await runGitCredentialHelper(args.credentialAction ?? 'get', process.stdin, process.stdout, args.delegationDeviceId)
+    await runGitCredentialHelper(args.credentialAction ?? 'get', process.stdin, process.stdout, credentialSourceOf(args))
     return
   }
+  nameServerEntry()
 
   if (args.command === 'auth-session-create') {
     const auth = await import('@solus/server/admission/auth')

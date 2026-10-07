@@ -1,7 +1,7 @@
 import { usesAccountIntegration } from '../../vault/provider-credentials'
 import { createLogger } from '../../logger'
 import { GITHUB_OAUTH_SCOPES, parseGithubScopes } from '@solus/contracts/github-auth'
-import { currentCredentialUserId } from '../../vault/credential-scope'
+import { currentCredentialUserId } from '../../vault/acting-scope'
 import { GITHUB_CLIENT_ID } from './client-id'
 import { githubCredentialChain } from './credentials'
 import { loadToken, persistToken, clearToken, type GithubStoredToken } from './token-store'

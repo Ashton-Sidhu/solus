@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { getDiff, getDiffStats, getSessionSnapshotRange, initSessionBase, prepareTurnSnapshot, snapshotTurn } from '@solus/server/git/session-snapshots'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 const dirs: string[] = []
 
@@ -43,6 +44,9 @@ function addWorkTree(repoRoot: string) {
  * In the session's own worktree that filter can only hide the session's own
  * work, which is why the scope must ignore it there.
  */
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
+
 describe('session-scoped diff in the session’s own worktree', () => {
   test('saved snapshots retain unreported shell changes and their later removal', async () => {
     const { repoRoot, baseSha } = createRepo()

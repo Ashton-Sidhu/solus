@@ -8,6 +8,7 @@ import type { GitCheckout, NormalizedEvent, SessionRunInput } from '@solus/contr
 import { ulid } from '@solus/contracts/ulid'
 import type { Actor } from '@solus/server/admission/actor'
 import type { WorktreeMoveRuntime } from '@solus/server/execution/sessions/worktree-move'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 // The host's git probe asks `xcode-select`, which a sandbox can refuse. These
@@ -96,6 +97,9 @@ function fakeRuntime(options: { create?: WorktreeMoveRuntime['checkouts']['creat
   bindings.set('s1', { repoRoot: repo, branch: 'main', targetBranch: 'main' })
   return { runtime, bindings, activity, moves }
 }
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('worktreeAddPaths reads the paths a shell command creates worktrees at', () => {
   test.each([

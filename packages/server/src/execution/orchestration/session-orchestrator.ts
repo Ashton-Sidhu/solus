@@ -103,6 +103,8 @@ export interface CreateSessionOrder {
 }
 
 export interface PromptOrder {
+  /** The session whose agent sent the prompt: the turn acts for the person it works for (plans/019 decision 5). */
+  senderSessionId?: string
   reportExchangeIds?: string[]
   exchangeIds?: string[]
   permissionMode?: PermissionMode
@@ -403,7 +405,7 @@ export class SessionOrchestrator {
     })
     const waited = message.waitMs && message.waitMs > 0 ? this.waitOn(exchange, message.waitMs) : undefined
     this.publish(exchange, promptedUpdate(exchange, meta, message))
-    const order: PromptOrder = { exchangeIds: [exchangeId] }
+    const order: PromptOrder = { exchangeIds: [exchangeId], senderSessionId }
     if (message.permissionMode) order.permissionMode = message.permissionMode
     try {
       const result = await this.runtime.promptSession(targetSessionId, message.prompt, message.delivery, order)
@@ -544,6 +546,7 @@ export class SessionOrchestrator {
     }
     try {
       await this.runtime.promptSession(targetSessionId, `${REVISION_PREFIX}${note}`, 'queue', {
+        senderSessionId: waiting[0]?.senderSessionId,
         exchangeIds: waiting.map((exchange) => exchange.exchangeId),
         permissionMode: 'plan',
       })

@@ -1,5 +1,5 @@
 import { spawn } from 'child_process'
-import { findOnPath, getCliEnv, getCliPath } from '../cli-env'
+import { findOnPath, hostCliEnv, getCliPath } from '../cli-env'
 import { resolveToolBinary, type CodeIntelAdapter } from './adapters'
 
 const INSTALL_TIMEOUT_MS = 10 * 60_000
@@ -39,7 +39,7 @@ export async function installCodeIntelTool(
 function runInstaller(binary: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, args, {
-      env: getCliEnv({ FORCE_COLOR: '0' }),
+      env: hostCliEnv({ FORCE_COLOR: '0' }),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let outputTail = ''
