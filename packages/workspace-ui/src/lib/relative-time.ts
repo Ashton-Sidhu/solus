@@ -1,7 +1,7 @@
 import { DAY, HOUR, MINUTE } from './duration'
 
-export function relativeTime(timestamp: number): string {
-  const difference = Date.now() - timestamp
+export function relativeTime(timestamp: number, now = Date.now()): string {
+  const difference = now - timestamp
   if (difference < MINUTE) return 'just now'
   if (difference < HOUR) return `${Math.floor(difference / MINUTE)}m ago`
   if (difference < DAY) return `${Math.floor(difference / HOUR)}h ago`

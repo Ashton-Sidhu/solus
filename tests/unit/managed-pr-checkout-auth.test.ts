@@ -38,6 +38,8 @@ mock.module('@solus/server/git/exec', () => ({
     helpers.push(helper)
     attempts.push(`${command}:${token}`)
     if (command === 'clone') {
+      // `--` ends options, so a destination that starts with `-` stays a path.
+      expect(args.at(-3)).toBe('--')
       checkoutPath = args.at(-1)!
       // A failed clone/fetch must not leave a destination that blocks the retry.
       expect(existsSync(checkoutPath)).toBe(false)

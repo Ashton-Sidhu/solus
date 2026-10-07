@@ -26,8 +26,9 @@ import { projectsStore } from '../projects/projects.store.svelte'
 import { workspaceProjectsStore } from '../projects/workspace-projects.store.svelte'
 import { serversStore } from '../connections/servers.store.svelte'
 import { presenceStore } from '../presence/presence.store.svelte'
+import { seatProviderOf, seatsStore } from '../seats/seats.store.svelte'
 import { hostIsManaged } from '../../components/servers/lib/managed-host'
-import { projectScopeOptions, scopeForProject, type LogicalProject, type ProjectPageScope, type ProjectRef } from '../projects/project-catalog'
+import { projectOptionsFor, projectScopeOptions, scopeForProject, type LogicalProject, type ProjectPageScope, type ProjectRef } from '../projects/project-catalog'
 import type { ListProjectOption } from '../../components/ui/list-page/list-page'
 import { toasts } from '../../lib/toasts'
 import { RouterStore } from './routing/router.store.svelte'
@@ -385,6 +386,10 @@ export class WorkspaceContext implements SurfaceContext {
         void this.metadata.generateSessionMetadata(tabId)
       },
       handlePendingInputSync: (session, events) => syncPendingInputFromEvent(this, session, events),
+      onLoginRefused: (sessionId, session) => {
+        const provider = seatProviderOf(session.run.provider)
+        if (provider && session.run.serverId) seatsStore.noteLoginRefused(session.run.serverId, sessionId, provider)
+      },
       currentUserId: (serverId) => presenceStore.currentUserId(serverId),
       log: (eventType, session) => logDevSessionState(eventType, session),
     })
@@ -502,6 +507,16 @@ export class WorkspaceContext implements SurfaceContext {
       serversStore.activeCloudServerId,
     ),
   )
+
+  projectOptionsFor(projectKeys: Iterable<string>): ListProjectOption[] {
+    return projectOptionsFor(
+      projectKeys,
+      this.logicalProjects,
+      (serverId) => serversStore.statusFor(serverId) === 'online',
+      (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
+      serversStore.activeCloudServerId,
+    )
+  }
 
   scopePageToProject(projectKey: string): void {
     const project = this.logicalProjects.find((candidate) => candidate.key === projectKey)

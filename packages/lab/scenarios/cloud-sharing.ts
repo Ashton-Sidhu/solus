@@ -28,10 +28,10 @@ async function prove(ctx: ScenarioContext, engine: SolusApiEngine, databaseUrl?:
     const localWork = await source.records.createWork('Push with history', 'doc', 'before', '', undefined, 'claude-code', ctx.cwd)
     await source.rpc('agentSaveWork', localWork.id, { content: 'after' }, localWork.contentVersion)
     await source.rpc('applyWorkComment', localWork.id, { kind: 'add', comment: { id: 'push-comment', selectedText: 'after', comment: 'Keep the comment' } })
-    const resource = { kind: 'work', id: localWork.id } as const
-    const publication = await source.rpc('publicationStart', { resource, organizationId: ORGANIZATION_ID })
-    const settled = await source.waitForEvent('publication.changed', (event) => event.payload.id === publication.id && (event.payload.state === 'committed' || event.payload.state === 'failed'), 15_000)
-    ctx.check(`${engine}: publication committed`, settled.payload.state === 'committed', settled.payload.error)
+    // The client reads the Local work from its host, uploads it with its own sign-in, then marks it moved (cloud-sharing.md §3).
+    const transfer = await source.rpc('workExportForCloud', localWork.id)
+    await alice.rpc('workUpload', transfer)
+    await source.rpc('workMarkMoved', localWork.id, transfer.fingerprint, ORGANIZATION_ID)
     ctx.check(`${engine}: cloud push retains comments`, (await alice.rpc('loadWorkAnnotations', localWork.id))?.comments[0]?.comment === 'Keep the comment')
     const history = await alice.rpc('loadWorkRevisions', localWork.id)
     const firstBody = history[0] ? (await alice.rpc('loadWorkRevision', localWork.id, history[0].revisionId)).content : null

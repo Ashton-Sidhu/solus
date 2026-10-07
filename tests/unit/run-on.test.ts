@@ -268,6 +268,32 @@ describe('the project chip lists projects, not checkouts', () => {
     )
     expect(options.map((option) => option.key)).toEqual(['j'])
   })
+
+  test('two projects with one name are told apart the way every project list tells them apart', () => {
+    // WHY: two rows reading "web" give no way to choose the right one. The chip
+    // names them as the Tasks, Pull requests, Automations and Works pages do.
+    const options = projectChipOptions(
+      [
+        project('github.com/acme/web', [{ serverId: 'local', projectRoot: '/acme/web' }]),
+        project('github.com/other/web', [{ serverId: 'local', projectRoot: '/other/web' }]),
+        project('local:/scratch/web', [{ serverId: 'local', projectRoot: '/scratch/web' }]),
+      ],
+      'local', online, label,
+    )
+    expect(options.map((option) => option.label)).toEqual(['acme/web', 'other/web', 'web · LOCAL'])
+  })
+
+  test('the folder the composer is in leads the list and shares the naming rule', () => {
+    const options = projectChipOptions(
+      [project('github.com/acme/web', [{ serverId: 'local', projectRoot: '/acme/web' }])],
+      'local', online, label,
+      { key: 'studio:/srv/web', label: 'web', checkout: { serverId: 'studio', projectRoot: '/srv/web' }, hostLabel: null },
+    )
+    expect(options.map((option) => [option.key, option.label])).toEqual([
+      ['studio:/srv/web', 'web · STUDIO'],
+      ['github.com/acme/web', 'acme/web'],
+    ])
+  })
 })
 
 describe('returning a dispatched run to its project home', () => {
@@ -309,10 +335,11 @@ describe('returning a dispatched run to its project home', () => {
 })
 
 describe('choosing a remote host', () => {
-  test('keeps a checkout run on the checkout', () => {
+  test('puts a checkout run on the default branch, not in a new worktree', () => {
     // WHY: choosing a cloud host is a choice of where to run, not of
-    // isolation. A run on `main` must stay on `main` on the target host
-    // instead of switching to a new worktree.
+    // isolation. The target host's clone may hold any branch, so the run
+    // names the default branch: the chip shows it, and the host works on it
+    // in its checkout instead of a new worktree.
     const next = withRemoteDispatch(
       {
         serverId: 'local',
@@ -329,6 +356,7 @@ describe('choosing a remote host', () => {
       serverId: 'studio',
       intent: 'dispatch',
       repoKey: 'github.com/openai/solus',
+      baseBranch: 'main',
     })
     expect(next.worktree).toBeNull()
   })

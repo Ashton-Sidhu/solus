@@ -1,6 +1,7 @@
 import {
   accountResponseSchema,
   directoryResponseSchema,
+  enrollmentTicketResponseSchema,
   hostAccessTokenResponseSchema,
   managedHostStartResponseSchema,
   type AccountResponse,
@@ -8,6 +9,7 @@ import {
   type HostAccessTokenResponse,
   type ManagedHostLifecycle,
   type UplinkDirectory,
+  type UplinkEnrollmentTicket,
 } from '@solus/contracts/uplink'
 import type { z } from 'zod'
 import type { AccountProfile } from '@solus/contracts/account-types'
@@ -80,6 +82,12 @@ export class CloudAccountClient {
   async startManagedHost(sessionToken: string, hostId: string): Promise<ManagedHostLifecycle | null> {
     const response = await this.call(sessionToken, `/v1/hosts/${encodeURIComponent(hostId)}/start`, { method: 'POST' })
     return (await parseResponse(managedHostStartResponseSchema, response, 'host start')).lifecycle
+  }
+
+  /** A one-use ticket a host redeems with `uplinkLink` to link itself to this account. */
+  async enrollmentTicket(sessionToken: string): Promise<UplinkEnrollmentTicket> {
+    const response = await this.call(sessionToken, '/v1/enrollment-tickets', { method: 'POST' })
+    return { ...(await parseResponse(enrollmentTicketResponseSchema, response, 'link ticket')), directoryUrl: this.origin }
   }
 
   async nameDevice(sessionToken: string, deviceLabel: string): Promise<void> {

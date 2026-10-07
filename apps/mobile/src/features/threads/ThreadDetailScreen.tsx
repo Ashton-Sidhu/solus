@@ -6,7 +6,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../../navigation/routes";
 import * as Haptics from "expo-haptics";
-import { isSessionBusyStatus, type SessionStatus } from "@solus/contracts/types";
+import { isSessionBusyStatus, type SessionOrigin, type SessionStatus } from "@solus/contracts/types";
 import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AppState,
@@ -68,6 +68,7 @@ export interface ThreadDetailScreenProps {
   readonly hostLabel: string | null;
   readonly connectionState: HostConnectionPhase | null;
   readonly historyControls?: ThreadFeedHistoryControls;
+  readonly startedBy?: SessionOrigin | null;
   readonly layoutVariant?: LayoutVariant;
   readonly usesAutomaticContentInsets?: boolean;
   readonly onReconnectHost: () => void;
@@ -461,6 +462,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               estimatedOverlayHeight + (showFloatingStatus ? FLOATING_WORKING_CONTROL_COVERAGE : 0)
             }
             historyControls={props.historyControls}
+            startedBy={props.startedBy}
             layoutVariant={props.layoutVariant}
             usesAutomaticContentInsets={props.usesAutomaticContentInsets}
             onEndFollowEnabledChange={setEndFollowEnabled}

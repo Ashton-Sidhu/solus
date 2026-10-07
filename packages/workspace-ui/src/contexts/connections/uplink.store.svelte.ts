@@ -2,6 +2,7 @@ import type { UplinkStatus } from '@solus/contracts/uplink'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { uplinkAccountSource } from '@solus/client-core/uplink-account'
+import { uplinkControl, type UplinkControl } from '@solus/client-core/uplink-control'
 import { SvelteMap } from 'svelte/reactivity'
 import { toasts } from '../../lib/toasts'
 import { accountStore } from '../account/account.store.svelte'
@@ -10,11 +11,12 @@ import { serversStore } from './servers.store.svelte'
 /**
  * A host's link to the owner's Solus cloud account (docs/plans/personal-uplink.md,
  * C4). Read per host from `uplinkStatus`; changed through `uplinkLink` and
- * `uplinkUnlink`, which only a local connection may call — the Access tab shows the
- * control only when the connected principal is the local owner.
+ * `uplinkUnlink`, which only a local connection may call — `controlFor` says
+ * whether this client is one for that host.
  */
 class UplinkStore {
   readonly statusByServer = new SvelteMap<string, UplinkStatus>()
+  private readonly controlByServer = new SvelteMap<string, UplinkControl>()
   busyServerId = $state<string | null>(null)
   private stopListening: (() => void) | null = null
 
@@ -36,6 +38,11 @@ class UplinkStore {
     return this.statusByServer.get(serverId)
   }
 
+  /** `none` until the host says how this client was admitted. */
+  controlFor(serverId: string): UplinkControl {
+    return this.controlByServer.get(serverId) ?? 'none'
+  }
+
   /** Called once at boot: `uplinkLink` answers before the tunnel registers, so the
    *  "online" that follows — and every later change — arrives from the host as a snapshot. */
   listen(): () => void {
@@ -51,6 +58,9 @@ class UplinkStore {
 
   async refresh(serverId: string): Promise<void> {
     try {
+      const control = uplinkControl(await serverConnections.serverInfoFor(serverId))
+      this.controlByServer.set(serverId, control)
+      if (control === 'none') return
       this.statusByServer.set(serverId, await serverConnections.apiFor(serverId).uplinkStatus())
     } catch {
       // An older host without the method; the section shows "checking" until it answers.

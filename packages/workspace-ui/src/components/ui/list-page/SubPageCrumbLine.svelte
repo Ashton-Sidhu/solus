@@ -16,6 +16,7 @@
     SUB_PAGE_CRUMB_TEXT,
     SUB_PAGE_ROUND_BTN,
   } from "./sub-page-styles";
+  import { underStrip } from "../lib/pane-strip";
 
   /**
    * The head of every sub page — a task, a pull request, an Insights turn, an
@@ -92,6 +93,9 @@
     stepper?.position && stepper.total ? `${stepper.position} of ${stepper.total}` : "",
   );
   const hint = (key: string | undefined) => (key ? ` (${key})` : "");
+  // Under the companion strip the band is a second header row; at the full
+  // chrome height its centred 26px controls left a wide gap below the tabs.
+  const isUnderStrip = underStrip();
 </script>
 
 <!-- One row, one height, one seam, whichever record it heads. The right
@@ -104,7 +108,9 @@
      40px band and overflowed it. Both insets are marked `!` so the desktop
      pair above cannot win them back on a phone. -->
 <div
-  class="workspace-titlebar flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center gap-1.5 text-workspace-chrome @max-[30rem]/pane:h-14! @max-[30rem]/pane:pl-2! @max-[30rem]/pane:pr-2! {clearsWindowControls
+  class="workspace-titlebar flex {isUnderStrip()
+    ? 'h-8 pointer-coarse:h-10'
+    : 'h-(--solus-chrome-row-h,2.5rem)'} shrink-0 items-center gap-1.5 text-workspace-chrome @max-[30rem]/pane:h-14! @max-[30rem]/pane:pl-2! @max-[30rem]/pane:pr-2! {clearsWindowControls
     ? `${divided ? 'border-b border-[var(--hairline)]' : ''} pl-[max(1rem,var(--solus-chrome-lead-inset,0px))]`
     : 'pl-3'} {hasWindowControls
     ? 'pr-3.5'

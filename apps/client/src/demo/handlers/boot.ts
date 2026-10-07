@@ -108,10 +108,6 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
   })
   backend.register('hostOrganizations', hostOrganizations)
   backend.register('hostSetInsightsOptIn', hostOrganizations)
-  backend.register('publicationList', () => [])
-  backend.register('publicationStart', () => {
-    throw new Error('Publishing is not available in the demo.')
-  })
   backend.register('workExportForCloud', () => {
     throw new Error('Sharing is not available in the demo.')
   })

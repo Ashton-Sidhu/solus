@@ -437,7 +437,7 @@
       {/await}
     {/if}
 
-    <ConnectionStatusOverlay dimBackdrop />
+    <ConnectionStatusOverlay />
 
     <LazyDialog
       open={serversStore.addServerOpen}

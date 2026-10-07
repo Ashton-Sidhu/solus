@@ -169,12 +169,19 @@ development team (`-allowProvisioningUpdates` in the Xcode preset).
   opens on the phone. The **…** menu shows the app id, size, project,
   conversation and last install, runs the build on another device,
   downloads an APK, and deletes the build from the host (see below).
-  **New build** builds one of the project's Build & run profiles in the
-  conversation's checkout and adds the output under Builds; it installs
-  nothing, so it needs no open simulator. The menu says what each profile
-  builds for: **iPhone or iPad**, **iOS Simulator** or **Android**. Use an
-  iPhone or iPad profile for a phone, then **Run** puts the build on it.
-  With no profile saved, **Set up a build…** opens the profile editor.
+  Builds opens without a conversation too. **New build** builds one of a
+  project's Build & run profiles and adds the output under Builds; it
+  installs nothing, so it needs no open simulator. It builds in the
+  conversation's checkout, or asks **Build which project?** when there is
+  none; **Project:** in its menu changes it. The menu says what each
+  profile builds for: **iPhone or iPad**, **iOS Simulator** or
+  **Android**. Use an iPhone or iPad profile for a phone, then **Run** puts
+  the build on it. With no profile saved, **Set up a build…** opens the
+  profile editor. A preset starts in the folder detection found the app in
+  (an Expo app in `apps/mobile` builds in `apps/mobile/ios`) and names the
+  Xcode workspace there and its scheme. Save needs at least one profile.
+  When a build has nowhere to run, its row says why: for example, a
+  simulator build with only a phone connected.
   While it builds, a row above the list shows the stage with **Log** and
   **Cancel**; a failed build stays there until dismissed. **Add existing…**
   opens the host's folder browser at the conversation's folder instead. It

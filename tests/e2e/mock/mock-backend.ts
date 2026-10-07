@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { z } from 'zod'
 import { BaseAgentBackend } from '@solus/server/execution/agents/base-backend'
 import { solusDir } from '@solus/server/platform/paths'
 import { createWork } from '@solus/server/data/works/works'
@@ -21,6 +22,20 @@ import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runne
 
 const MOCK_SESSION_ID = 'mock-session-001'
 const MOCK_PLAN_TOOL_USE_ID = 'mock-plan-tool-001'
+
+/** The flat input a `__MOCK_TOOL__` prompt gives one host tool. */
+type MockToolInput = Record<string, string | number | boolean>
+const mockToolCallSchema = z.object({
+  name: z.string().min(1),
+  input: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+})
+
+/** The tool call a `__MOCK_TOOL__ {json}` prompt names, or null. */
+function mockToolCall(prompt: string): { name: string; input: MockToolInput } | null {
+  const at = prompt.indexOf('__MOCK_TOOL__')
+  if (at === -1) return null
+  return mockToolCallSchema.parse(JSON.parse(prompt.slice(at + '__MOCK_TOOL__'.length).trim()))
+}
 /**
  * Every run this backend is handed, one JSON line each, under the host's data
  * directory. The Lab runs the host in another process, so this file is how a
@@ -214,6 +229,15 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     // A cloud session keeps a transcript on disk from its first prompt on.
     const keepsTranscript = prompt.includes('__MOCK_CLOUD__') || existsSync(transcriptFile(MOCK_SESSION_ID))
     if (keepsTranscript) appendTranscript(MOCK_SESSION_ID, { role: 'user', content: prompt, timestamp: Date.now() })
+
+    // `__MOCK_TOOL__ {"name": "<tool>", "input": {...}}`: run that one host tool
+    // with that input, as a provider adapter would, and answer with its result.
+    // First: the input may itself carry another trigger, such as a child's prompt.
+    const toolCall = mockToolCall(prompt)
+    if (toolCall) {
+      void this._runToolCalls(handle, request, [[toolCall.name, toolCall.input]])
+      return
+    }
 
     // A turn long enough to be killed in the middle: one assistant row per chunk
     // lands in the transcript as it streams, as a provider's file would grow.
@@ -450,19 +474,25 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
    *  host's own tool executors, with the context a provider adapter builds. The
    *  completion text carries both results, so a reader can see the ids. */
   private async _runAgentTools(handle: RunHandle, request: AgentRunRequest): Promise<void> {
+    await this._runToolCalls(handle, request, [
+      ['create_task', { title: 'Runner task from the mock agent', body: 'Filed by __MOCK_AGENT_TOOLS__.' }],
+      ['create_work', { title: 'Runner work from the mock agent', doc_type: 'doc', content: '# Runner work\n\nWritten by __MOCK_AGENT_TOOLS__.' }],
+    ])
+  }
+
+  /** Runs host tools in order with the context a provider adapter builds, then
+   *  completes the turn with each result. */
+  private async _runToolCalls(handle: RunHandle, request: AgentRunRequest, calls: Array<[string, MockToolInput]>): Promise<void> {
     const context = {
       provider: this.id,
       cwd: request.cwd,
-      sessionId: () => handle.agentSessionId ?? MOCK_SESSION_ID,
+      // The Solus session id, as the real adapters pass it.
+      sessionId: () => handle.sessionId,
       abortSignal: handle.abortController.signal,
       parentToolUseId: () => undefined,
       emit: (event: NormalizedEvent) => this.emit('normalized', MOCK_SESSION_ID, event),
     }
     const results: string[] = []
-    const calls: Array<[string, Record<string, string>]> = [
-      ['create_task', { title: 'Runner task from the mock agent', body: 'Filed by __MOCK_AGENT_TOOLS__.' }],
-      ['create_work', { title: 'Runner work from the mock agent', doc_type: 'doc', content: '# Runner work\n\nWritten by __MOCK_AGENT_TOOLS__.' }],
-    ]
     for (const [index, [name, input]] of calls.entries()) {
       if (handle.abortController.signal.aborted) return
       const agentTool = request.tools.find((candidate) => candidate.name === name)

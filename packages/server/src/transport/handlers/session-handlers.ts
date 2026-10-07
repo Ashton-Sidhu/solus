@@ -14,7 +14,7 @@ import { AGENT_BIN } from '@solus/contracts/types'
 import { userKey } from '@solus/contracts/user'
 import { findOnPath, getCliEnv, warmCliPath } from '../../cli-env'
 import { createLogger } from '../../logger'
-import { appVersion, solusDir } from '../../platform/paths'
+import { appVersion, resolveHomePath, solusDir } from '../../platform/paths'
 import { warmFinder } from '../../files/file-finder'
 import type { SolusServer } from '../server'
 import type { HandlerCtx } from '../server'
@@ -28,9 +28,16 @@ import { chatFolderFor, projectsRootFor } from './setup-handlers'
 import { parseExecutionPreferences } from '../../execution/agents/run-input'
 import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { recordingRetention } from '../../browser/recording-retention'
+import { getIndexedSession } from '../../db/session-indexer'
 
 const log = createLogger('main', 'session-handlers')
 const execFileAsync = promisify(execFile)
+
+/** The agent session on another host that starts a session here; only shown, never trusted. */
+const sessionOriginSchema = z.object({
+  hostLabel: z.string().trim().min(1).max(200),
+  sessionId: z.string().trim().min(1).max(200),
+})
 
 export interface SessionDeps {
   sessionRuntime: SessionRuntime
@@ -41,8 +48,6 @@ export interface SessionDeps {
   shares?: ShareManager
   /** This host's standing in its organizations (organization-scope §3.1, §6.1); absent on the Solus API. */
   hostOrganizations?: HostOrganizations
-  /** The organization a session is reserved for by an active publication (§7). */
-  reservedOrganization?: (sessionId: string) => string | null
   /** How this host acts for people in organizations (plans/010-standard-oauth.md); set once the link exists. */
   delegations?: DelegationPort
   /** Persists the organization attachment before organization work is admitted. */
@@ -167,7 +172,6 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
    */
   const turnOrganizationDeps = (hostOrganizations: HostOrganizations) => ({
     hostOrganizations,
-    reservedOrganization: deps.reservedOrganization,
     delegations: deps.delegations,
     markAttached: deps.markAttached,
     adoptSession: (sessionId: string, organizationId: string, ownerUserId: string, options: { shareWithOrganization: boolean }) =>
@@ -287,8 +291,16 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
 
   server.register('createHeadlessSession', async (args, handlerCtx) => {
     const [request] = args
-    log.info('rpc_create_headless_session', { provider: request.provider })
-    if (request.cwd === NEW_CHAT_DIRECTORY) request.cwd = chatFolderFor(randomUUID(), handlerCtx.principal)
+    log.info('rpc_create_headless_session', { provider: request.provider, sessionId: request.sessionId, startedBy: request.startedBy?.hostLabel })
+    // A chosen id names a new session only: it never takes over one this host has.
+    if (request.sessionId !== undefined) {
+      if (!z.uuid().safeParse(request.sessionId).success) throw new Error('createHeadlessSession: sessionId must be a UUID.')
+      if (getIndexedSession(request.sessionId) || sessionRuntime.activeSessions.has(request.sessionId)) {
+        throw new Error(`Session ${request.sessionId} already exists on this host.`)
+      }
+    }
+    request.startedBy = request.startedBy === undefined ? undefined : sessionOriginSchema.parse(request.startedBy)
+    request.cwd = request.cwd === NEW_CHAT_DIRECTORY ? chatFolderFor(randomUUID(), handlerCtx.principal) : resolveHomePath(request.cwd)
     request.executionPreferences = parseExecutionPreferences(request.executionPreferences)
     const created = await sessionRuntime.dispatch.createSession(request, handlerCtx.actor)
     await claimSession(created.sessionId, handlerCtx, request.cwd)

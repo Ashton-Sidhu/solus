@@ -167,7 +167,7 @@
         {#each recordDocuments(item.messages, workFor) as document (document.workId)}
           <TranscriptCard
             title={document.title}
-            type={document.workType === "insights-report" ? "report" : document.workType}
+            type={document.workType}
             actionLabel={document.isReadable && openWork ? "Open" : undefined}
             ariaLabel={`Open document: ${document.title}`}
             onOpen={document.isReadable && openWork ? () => openWork(document.workId) : undefined}

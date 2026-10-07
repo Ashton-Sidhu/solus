@@ -185,10 +185,18 @@ describe('home project filter', () => {
     const scopes = buildHomeProjectScopes({ projects, hostId: null })
     expect(scopes.map((scope) => [scope.title, scope.projects.length])).toEqual([['a', 2], ['notes', 1]])
     expect(buildHomeProjectScopes({ projects, hostId: 'h2' }).map((scope) => scope.projects.length)).toEqual([1])
+    // The Home filter and the new-task picker name one project by one key.
+    expect(scopes.map((scope) => scope.key)).toEqual(['github.com/o/a', 'h1:/notes'])
     // The project with the newest thread comes first; a session in a worktree counts toward its git root.
     const known = new Set(projects.map((entry) => entry.key))
     const thread = shell('h1', 't', { projectPath: '/notes/.worktrees/x', projectRoot: '/notes', lastActivityAt: NOW })
     expect(sortHomeProjectScopes({ scopes, threads: [thread], knownProjectKeys: known }).map((scope) => scope.title)).toEqual(['notes', 'a'])
+  })
+
+  test('a name two projects share is told apart only among the projects the host filter keeps', () => {
+    const projects = [project('h1', '/x/a', 'github.com/o/a'), project('h2', '/y/a', 'github.com/p/a')]
+    expect(buildHomeProjectScopes({ projects, hostId: null }).map((scope) => scope.title)).toEqual(['o/a', 'p/a'])
+    expect(buildHomeProjectScopes({ projects, hostId: 'h2' }).map((scope) => scope.title)).toEqual(['a'])
   })
 })
 

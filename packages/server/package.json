@@ -5,6 +5,7 @@
   "exports": { "./*": "./src/*.ts" },
   "scripts": { "check": "tsc --noEmit -p tsconfig.json" },
   "dependencies": {
+    "@solus/client-core": "workspace:*",
     "@solus/contracts": "workspace:*",
     "@solus/document-model": "workspace:*",
     "@tiptap/core": "^3.31.3",

@@ -27,6 +27,16 @@ export class PrChecksStore {
       .find((item) => item.number === number)?.summary
   }
 
+  /** This pull request's checks from any project of its repository, for a
+   *  surface that holds identity but no host context — a sidebar row. */
+  summaryIn(serverId: string, repositoryKey: string, number: number): PrChecksSummary | undefined {
+    for (const project of this.prs.projectsReading(serverId, repositoryKey)) {
+      const summary = this.byProject.get(project.key)?.checks.find((item) => item.number === number)?.summary
+      if (summary) return summary
+    }
+    return undefined
+  }
+
   loadFailedFor(serverId: string, ctx: IpcContext): boolean {
     return this.byProject.get(projectPrsKey(serverId, ctx))?.loadFailed ?? false
   }

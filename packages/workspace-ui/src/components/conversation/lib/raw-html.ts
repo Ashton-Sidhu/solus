@@ -1,4 +1,4 @@
-import type { MarkedExtension } from 'marked'
+import { Lexer, type MarkedExtension, type Token } from 'marked'
 import { needsSandbox } from '../../artifact/lib/artifact-view'
 
 /**
@@ -161,6 +161,79 @@ export const rawHtmlMarkedExtension: MarkedExtension = {
         const run = rawHtmlRun(src)
         if (!run) return undefined
         return { type: RAW_HTML_TOKEN, raw: run.raw, html: run.html }
+      },
+    },
+  ],
+}
+
+/** A tag with no attributes, such as the `<A>` a reply writes as a placeholder. */
+const BARE_TAG_RE = /^<(\/?)([a-zA-Z][\w-]*)\s*>/
+
+/** Whether an element named `name` is still open among the html tokens
+ *  already lexed at this level. */
+function hasOpenElement(tokens: Token[], name: string): boolean {
+  let depth = 0
+  for (const token of tokens) {
+    if (token.type !== 'html' || token.raw.trimEnd().endsWith('/>')) continue
+    const tag = /^<(\/?)([a-zA-Z][\w-]*)/.exec(token.raw.trimStart())
+    if (tag?.[2].toLowerCase() === name) depth += tag[1] ? -1 : 1
+  }
+  return depth > 0
+}
+
+/** Whether `src` closes the element named `name` that was opened just before it. */
+function hasClosingTag(src: string, name: string): boolean {
+  let depth = 1
+  for (const tag of src.matchAll(new RegExp(`<(/?)${name}(?=[\\s/>])[^>]*>`, 'gi'))) {
+    if (tag[0].endsWith('/>')) continue
+    depth += tag[1] ? -1 : 1
+    if (depth === 0) return true
+  }
+  return false
+}
+
+/** The bare tag at the head of `src` when nothing pairs with it, or null.
+ *  The markdown library pairs an opening and closing html token at one level
+ *  and renders a tag left alone as nothing, so `Use <A> and <B>` would lose
+ *  both placeholders. */
+function unpairedBareTag(src: string, tokens: Token[]): string | null {
+  const tag = BARE_TAG_RE.exec(src)
+  if (!tag) return null
+  const name = tag[2].toLowerCase()
+  if (VOID_TAGS.has(name) || RAW_TEXT_TAGS.has(name)) return null
+  const paired = tag[1]
+    ? hasOpenElement(tokens, name)
+    : hasClosingTag(src.slice(tag[0].length), name)
+  return paired ? null : tag[0]
+}
+
+/** Shows an unpaired bare tag as the text it was written as. Paired markup
+ *  such as `<kbd>K</kbd>` or a `<details>` block is left to the library. */
+export const bareTagMarkedExtension: MarkedExtension = {
+  extensions: [
+    {
+      name: 'solusBareTagBlock',
+      level: 'block',
+      tokenizer(src: string, tokens: Token[]) {
+        // A tag alone on its line is an html block, as in `- <A>`.
+        const indent = /^ {0,3}/.exec(src)![0].length
+        if (!unpairedBareTag(src.slice(indent), tokens)) return undefined
+        const block = Lexer.rules.block.gfm.html.exec(src)
+        if (!block) return undefined
+        const text = block[0].trim()
+        return { type: 'paragraph', raw: block[0], text, tokens: this.lexer.inline(text) }
+      },
+    },
+    {
+      name: 'solusBareTag',
+      level: 'inline',
+      start(src: string) {
+        const index = src.indexOf('<')
+        return index === -1 ? undefined : index
+      },
+      tokenizer(src: string, tokens: Token[]) {
+        const tag = unpairedBareTag(src, tokens)
+        return tag ? { type: 'text', raw: tag, text: tag } : undefined
       },
     },
   ],

@@ -217,10 +217,9 @@ function describeProfiles(targets: BrowserDiscoveredTarget[]): string {
 export const browserOpenAgentTool = browserTool({
   name: 'browser_open',
   description:
-    'Open a browser page on a URL. It fills the pane showing it unless you name a device preset. '
-    + 'The page is rendered on this host and is yours to drive whether or not anyone is looking at '
-    + 'it, so opening one to check something puts nothing on the user\'s screen. Pass show: true only '
-    + 'when the user asked to look at the page themselves.',
+    'Open a browser page on a URL and show it in the user\'s browser pane. It fills the pane unless '
+    + 'you name a device preset. Pass show: false for a background check the user does not need to '
+    + 'watch: the page is rendered on this host and is yours to drive whether or not anyone is looking.',
   inputFields: {
     url: z.string().describe('The dev-server URL to browser, e.g. http://localhost:5173/'),
     preset: z.string().optional().describe(
@@ -230,8 +229,8 @@ export const browserOpenAgentTool = browserTool({
     appearance: z.enum(['system', 'light', 'dark']).optional(),
     label: z.string().optional().describe('Page-strip label. Defaults to the worktree branch or the port.'),
     show: z.boolean().optional().describe(
-      'Put the page in front of the user, opening their browser pane. Default false. Only when they '
-      + 'asked to see it — a page you opened to verify something is not something they asked for.',
+      'Put the page in front of the user, opening their browser pane. Default true. Pass false for '
+      + 'background automation.',
     ),
     profile: z.string().optional().describe(
       'Browser profile id, when the check is about a particular signed-in identity — a project can '
@@ -247,11 +246,9 @@ export const browserOpenAgentTool = browserTool({
     if (match?.branch) target.branch = match.branch
     if (match?.projectRoot) target.projectRoot = match.projectRoot
 
-    // Asking for a surface takes over the user's pane and pins the page to the
-    // client's `<webview>`. Both were unavoidable before the headless host
-    // existed — a page with no surface could not be driven at all — and both are
-    // now costs paid for nothing unless the user actually wants to look.
-    const request: BrowserOpenRequest = { target, requestSurface: input.show === true }
+    // An agent that opens a page is usually working where the user can watch,
+    // so the page is shown unless the agent says the check is background work.
+    const request: BrowserOpenRequest = { target, requestSurface: input.show !== false }
     if (input.preset) request.presetId = input.preset
     if (input.orientation) request.orientation = input.orientation
     if (input.appearance) request.appearance = input.appearance

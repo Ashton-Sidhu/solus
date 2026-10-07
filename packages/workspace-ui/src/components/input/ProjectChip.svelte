@@ -74,21 +74,20 @@
   // One row per project across every host. The current folder is offered even
   // before the catalog knows it, unless a person removed it from the list.
   const projects = $derived.by((): ProjectChipOption[] => {
-    const options = projectChipOptions(
-      projectsStore.logicalProjects([]),
-      selectedHostId,
-      (serverId) => serversStore.statusFor(serverId) === "online",
-      (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
-    );
     const offersCurrent =
       !!projectDir &&
       projectDir !== "~" &&
       !inChat &&
-      !options.some((option) => option.key === currentKey) &&
       !projectsStore.isRemoved({ serverId: hostId, projectRoot: projectDir });
-    return offersCurrent
-      ? [{ key: currentKey, label, checkout: { serverId: hostId, projectRoot: projectDir }, hostLabel: null }, ...options]
-      : options;
+    return projectChipOptions(
+      projectsStore.logicalProjects([]),
+      selectedHostId,
+      (serverId) => serversStore.statusFor(serverId) === "online",
+      (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
+      offersCurrent
+        ? { key: currentKey, label, checkout: { serverId: hostId, projectRoot: projectDir }, hostLabel: null }
+        : null,
+    );
   });
 
   let tooltipOpen = $state(false);

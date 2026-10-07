@@ -49,6 +49,8 @@ export interface SessionEventReducerDeps {
   applyGoalUpdated?(sessionId: string, goal: ThreadGoal): boolean
   applyGoalCleared?(sessionId: string, threadId: string): void
   onSessionInitialized?(sessionId: string): void
+  /** The provider refused the turn's login: the conversation offers sign-in again. */
+  onLoginRefused?(sessionId: string, session: Session): void
   handlePendingInputSync(session: Session, events: Extract<WireNormalizedEvent, { type: 'pending_input_sync' }>['pendingInputEvents']): void
   /** The reader's user on a host, so a notice names only someone else. Unset or null, no one is named. */
   currentUserId?(serverId: string): UserId | null
@@ -625,6 +627,7 @@ export class SessionEventReducer {
           role: 'system',
           ...session.terminalFailure,
         })
+        if (event.kind === 'auth') this.deps.onLoginRefused?.(sessionId, session)
         break
 
       case 'session_dead':

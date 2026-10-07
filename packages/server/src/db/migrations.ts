@@ -420,6 +420,16 @@ DROP TABLE IF EXISTS watches;
   `
 ALTER TABLE sessions DROP COLUMN viewed_at;
 `,
+  // The agent session on another host that started a session here, as JSON
+  // (docs/plans/cross-host-sessions.md). Written with the thread's first row.
+  `
+ALTER TABLE sessions ADD COLUMN started_by TEXT;
+`,
+  // A session stays on its host, and works and tasks upload with the person's
+  // sign-in: nothing publishes from this host any more (organization-scope §4).
+  `
+DROP TABLE IF EXISTS publications;
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

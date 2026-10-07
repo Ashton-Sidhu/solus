@@ -8,7 +8,7 @@
   import { onboardingStore as store } from "./onboarding.store.svelte";
   import OnboardingRow from "./OnboardingRow.svelte";
   import ProviderMark from "../ui/ProviderMark.svelte";
-  import DevicePrompt from "../servers/DevicePrompt.svelte";
+  import SignInSteps from "../seats/SignInSteps.svelte";
   import type { ProviderRow } from "../servers/lib/host-onboarding";
   import type { SetupAgent } from "@solus/contracts/types";
 
@@ -25,25 +25,6 @@
   const failure = $derived(
     setup.stepError?.provider === agent ? setup.stepError.message : null,
   );
-
-  /**
-   * A CLI either shows a code to enter on its sign-in page, or wants one pasted
-   * back. On touch the browser is never opened for the user: the CLI runs on
-   * the host, so the only way through is the prompt's own Open action. Saying
-   * "it opened your browser" there sends a phone user looking for a window that
-   * was never going to appear.
-   */
-  const why = $derived.by(() => {
-    const openedForYou = store.surface === "pointer";
-    if (verification?.requiresCodeInput) {
-      return openedForYou
-        ? "Sign in on the page that opened, then paste the code it shows."
-        : "Open the sign-in page, sign in, then paste the code it shows.";
-    }
-    return openedForYou
-      ? `Enter this code on the ${row.label} sign-in page in your browser.`
-      : `Open the ${row.label} sign-in page below and enter this code.`;
-  });
 </script>
 
 <OnboardingRow
@@ -60,14 +41,13 @@
   {/snippet}
   {#snippet expansion()}
     {#if verification}
-      <!-- The same prompt Settings shows: the one-time code some CLIs want
-           entered on the page, or the field for a code the page hands back. -->
-      <DevicePrompt
-        url={verification.verificationUrl}
-        code={verification.userCode}
+      <!-- The same steps Settings and the conversation show: the code some
+           CLIs want entered on their page, or the field for a code the page
+           hands back. -->
+      <SignInSteps
         label={row.label}
-        requiresCodeInput={verification.requiresCodeInput}
-        {why}
+        {verification}
+        browserOpened={store.surface === "pointer"}
         onsubmit={(code) => setup.submitAgentSignInCode(agent, code)}
         oncancel={() => void setup.cancelAgentSignIn(agent)}
       />

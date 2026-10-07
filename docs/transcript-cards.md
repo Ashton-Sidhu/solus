@@ -82,8 +82,38 @@ rejoins. The decision card disappears only after the host confirms a queued retr
 | Resolved interrupt | quiet, header only, check glyph, Done |
 | Closed or superseded | `superseded`: 0.85 opacity, 1 on hover |
 
-Attention applies to Connect, Seat, RateLimit, Permission, and blocking Question
-cards. `AttentionCard` and `InterruptCard` use the same `TranscriptCard` shell.
+Attention applies to Connect, RateLimit, Permission, and blocking Question
+cards.
+
+### Sign-in panel
+
+The Claude and Codex sign-in card (`SeatConnectCard`) is the one card that does
+not open as a 40px line. A person who is not a developer must sign in before
+any turn can run, so the card is the provider's own panel: the provider's mark
+in a 36px plate, "Sign in to Claude" with a plain subtitle, and two numbered
+steps (`SignInSteps`). The first step opens the provider's page; the second
+moves a short code across: Claude's page shows a code to paste back, and Codex
+shows a code here to enter on its page. The current step carries a 1px
+`--solus-accent` outline at 45% with no fill; a done step shows a check. It
+keeps the attention lift and the transcript card radius, and once the seat
+connects it collapses to the quiet resolved line, like every other interrupt.
+The same steps show in Settings, host setup, onboarding, and the phone's
+sign-in sheet, with their words in `@solus/client-core/sign-in-steps`. The
+words avoid developer terms such as host, seat, and token; the pasted-token
+fallback stays in Settings only.
+
+The card also opens when a provider refuses a turn's login: a Codex 401, or a
+Claude "Invalid API key", expired OAuth token, or `authentication_error`. The
+normalizers mark that `error` event `kind: 'auth'`
+(`execution/agents/auth-failure.ts`). The host expires the author's member seat,
+so the next prompt asks to reconnect. The host login keeps no state, because
+its CLI answers for it. The card says "Sign in to Codex again" and stays open
+until a new login ends, even when the seat still reads as connected. On a Solus
+Cloud host the panel opens the account's cloud connections. On every other host
+it runs the provider's login there. The phone's sign-in sheet offers the same
+choice. It does not start a sign-in until the person asks for one.
+
+`AttentionCard` and `InterruptCard` use the same `TranscriptCard` shell.
 Permission and question bodies stay open, with their decision controls in the
 wrapping footer. Their header uses a glyph, a lowercase type word, and a time
 rail. Message-mode questions use the quiet shell because they do not stop a turn.

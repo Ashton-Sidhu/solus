@@ -37,7 +37,7 @@
 {#snippet optionRow(option: QuestionOption, chosen: boolean)}
   {@const label = optionLabelParts(option.label)}
   <div
-    class="flex items-start gap-2.5 rounded-lg border px-[0.6875rem] py-[0.5rem] {chosen ? 'border-border bg-card' : 'border-(--solus-tx-rule-strong) bg-transparent'}"
+    class="flex items-start gap-2.5 rounded-lg border px-[0.6875rem] py-[0.5rem] border-border/50 {chosen ? 'bg-card' : 'bg-transparent'}"
   >
     {#if chosen}
       <span class="mt-[0.1875rem] inline-flex size-[0.9375rem] shrink-0 items-center justify-center rounded-full bg-[color-mix(in_oklch,var(--chart-3)_18%,transparent)] text-[color-mix(in_oklch,var(--chart-3)_70%,var(--foreground))]" aria-hidden="true">
@@ -124,7 +124,7 @@
              it is the answer. -->
         <div class="flex min-w-0 flex-col gap-1">
           <span class="text-transcript-meta text-(--muted-foreground)">Answer, from the transcript</span>
-          <p class="m-0 rounded-lg border border-border bg-card px-[0.6875rem] py-[0.5rem] leading-relaxed break-words whitespace-pre-wrap">{message.questionResult}</p>
+          <p class="m-0 rounded-lg border border-border/50 bg-card px-[0.6875rem] py-[0.5rem] leading-relaxed break-words whitespace-pre-wrap">{message.questionResult}</p>
         </div>
       {:else}
         <p class="m-0 text-transcript-meta text-(--muted-foreground)">

@@ -138,13 +138,11 @@
     <CaretLeftIcon size={19} />
   </button>
 
-  <span class="flex-1 @max-[30rem]/band:hidden"></span>
+  <span class="flex-1"></span>
 
   <!-- Identity: the number, which never gives. The same pill as Review and
-       Check out beside it, so the row reads as one set. On a record it takes
-       the slack instead of the spacer above, so the number sits in the middle
-       of the band the way every other phone title does. -->
-  <span class="mr-1.5 flex shrink-0 items-center @max-[30rem]/band:mr-0 @max-[30rem]/band:min-w-0 @max-[30rem]/band:flex-1 @max-[30rem]/band:justify-center">
+       Check out beside it, so the row reads as one set, at every width. -->
+  <span class="mr-1.5 flex shrink-0 items-center @max-[30rem]/band:mr-0">
     <span
       class="inline-flex h-6.5 items-center gap-1.5 rounded-full bg-background px-2.5 text-workspace-chrome tabular-nums text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_1px_6px_color-mix(in_oklch,var(--foreground)_6%,transparent)] pointer-coarse:h-10 pointer-coarse:px-3.5"
       data-testid="pr-panel-number"

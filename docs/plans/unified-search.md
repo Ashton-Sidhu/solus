@@ -27,8 +27,13 @@ pause in typing.
 - **page** — one part of a host's answer to a query. The first page comes with
   the query; the next comes when the list reaches its end.
 - **filters** — Updated (any time, 24 hours, 7 days, 30 days), Task status (any,
-  open, done) and Agent (any, Claude, Codex). Updated narrows both kinds; Task
-  status narrows tasks only; Agent narrows sessions only.
+  open, done), Agent (any, Claude, Codex) and Host (any, or one machine).
+  Updated narrows both kinds; Task status narrows tasks only; Agent and Host
+  narrow sessions only. A Host filter asks only that machine and the workspace
+  service, because a service record opens on the machine that ran it. Host is a
+  submenu with its own scrolling list, so the menu does not grow with the
+  number of machines. It shows only when there is more than one machine, or
+  when a host is selected.
 
 ## Decisions
 

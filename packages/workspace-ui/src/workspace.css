@@ -476,8 +476,8 @@
   --solus-art-border: #ebe5d8;
   --solus-art-border-strong: #d9d0bd;
   --solus-art-1: #e11d48; /* rose */
-  --solus-art-2: #d97706; /* amber */
-  --solus-art-3: #2f9a5a; /* green */
+  --solus-art-2: #f59e0b; /* amber */
+  --solus-art-3: #34c26f; /* green */
   --solus-art-4: #0d9488; /* teal */
   --solus-art-5: #1b4ed8; /* blue */
   --solus-art-6: #9333ea; /* purple */
@@ -3154,8 +3154,9 @@ button.solus-token {
   padding-left: 1.125rem;
 }
 .prose-transcript ul { list-style: none; }
-/* Wide enough that a two-digit numeral still hangs inside the gutter. */
-.prose-transcript ol { padding-left: 1.625rem; list-style: decimal; }
+/* Wide enough that a two-digit numeral still hangs inside the gutter. It
+   scales with the marker's font, so a larger font scale cannot clip "10.". */
+.prose-transcript ol { padding-left: calc(1.625rem * var(--solus-font-scale, 1)); list-style: decimal; }
 .prose-transcript li {
   position: relative;
   margin: 0 0 0.25rem;

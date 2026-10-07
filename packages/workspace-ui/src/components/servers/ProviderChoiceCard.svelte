@@ -8,11 +8,56 @@
     /** Built by `gitHostRows` / `codingProviderRows` — this only draws them. */
     rows: ProviderRow[];
     label: string;
+    /** Rows sit between hairlines on the surface instead of inside a card. */
+    flush?: boolean;
   }
 
-  let { rows, label }: Props = $props();
+  let { rows, label, flush = false }: Props = $props();
 </script>
 
+{#if flush}
+  <div class="flex flex-col" role="list" aria-label={label}>
+    {#each rows as row (row.id)}
+      <div
+        class="flex min-h-13 items-center gap-3 border-foreground/8 not-first:border-t"
+        role="listitem"
+      >
+        <ProviderLogo provider={row.id} />
+        <span class="flex min-w-0 flex-1 items-baseline gap-2">
+          <span class="shrink-0 font-medium text-foreground">{row.label}</span>
+          <span class="min-w-0 truncate text-[0.8125rem] text-muted-foreground">{row.detail}</span>
+        </span>
+        {#if row.state !== "busy" && row.secondary}
+          <Button
+            variant="ghost"
+            size="sm"
+            class="shrink-0 text-muted-foreground"
+            aria-label="{row.secondary.label} to {row.label}"
+            disabled={row.disabled}
+            onclick={row.secondary.run}
+          >
+            {row.secondary.label}
+          </Button>
+        {/if}
+        {#if row.state === "busy"}
+          <CircleNotchIcon size={14} class="shrink-0 animate-spin text-primary" />
+        {:else if row.state === "done"}
+          <CheckIcon size={14} strokeWidth={2.6} class="shrink-0 text-(--success)" aria-label="Done" />
+        {:else}
+          <Button
+            variant="outline"
+            size="sm"
+            class="shrink-0"
+            disabled={row.disabled}
+            onclick={row.run}
+          >
+            {row.actionLabel}
+          </Button>
+        {/if}
+      </div>
+    {/each}
+  </div>
+{:else}
 <div
   class="mt-3.5 overflow-hidden rounded-2xl border border-(--solus-container-border) bg-card shadow-[0_0.0625rem_0.125rem_rgba(0,0,0,0.04)]"
   role="list"
@@ -74,3 +119,4 @@
     </div>
   {/each}
 </div>
+{/if}

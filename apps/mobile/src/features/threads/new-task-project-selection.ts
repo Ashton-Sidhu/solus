@@ -1,38 +1,43 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/new-task-project-selection.ts (MIT, see UPSTREAM.md).
+import { distinctProjectLabels, groupByProject } from '@solus/client-core/project-identity'
 import { isChat } from '@solus/contracts/chat'
 import type { SolusProjectShell } from './thread-directory'
 
 /**
  * T3 groups the same repository on several machines into one project "scope".
- * A Solus project names its repository by `repositoryKey`; a folder with no
- * hosted remote is a scope of its own.
+ * Solus uses the one project rule every client shares
+ * (`@solus/client-core/project-identity`): a project is a repository with every
+ * checkout of it on any host, and a folder with no hosted remote is a project
+ * of its own. The new-task picker and the Home project filter both list these.
  */
 export interface ProjectScope {
+  /** The project key: the repository key, or `<hostId>:<path>` for a local-only folder. */
   readonly key: string
+  /** The project's name, told apart from another scope in the same list that shares it. */
   readonly title: string
   readonly projects: readonly SolusProjectShell[]
   readonly representative: SolusProjectShell
-}
-
-function scopeKey(project: SolusProjectShell): string {
-  return project.project.repositoryKey ? `repo:${project.project.repositoryKey}` : `path:${project.hostId}\u0000${project.project.path}`
+  /** `SolusProjectShell.key` of every member. */
+  readonly projectKeys: ReadonlySet<string>
 }
 
 /** Projects grouped by repository, in the order the directory lists them. Chat folders are not projects. */
 export function groupProjectScopes(projects: readonly SolusProjectShell[]): ProjectScope[] {
-  const scopes = new Map<string, SolusProjectShell[]>()
-  for (const project of projects) {
-    if (isChat(project.project.path)) continue
-    const key = scopeKey(project)
-    const members = scopes.get(key)
-    if (members) members.push(project)
-    else scopes.set(key, [project])
-  }
-  return [...scopes].map(([key, members]) => ({
-    key,
-    title: members[0]!.project.folderName,
-    projects: members,
-    representative: members[0]!,
+  const groups = groupByProject(
+    projects.filter((project) => !isChat(project.project.path)),
+    (project) => ({ serverId: project.hostId, path: project.project.path, repositoryKey: project.project.repositoryKey }),
+  )
+  const hostLabels = new Map(projects.map((project) => [project.hostId, project.hostLabel]))
+  const titles = distinctProjectLabels(
+    groups.map((group) => ({ key: group.key, label: group.checkouts[0]!.project.folderName })),
+    (hostId) => hostLabels.get(hostId) ?? hostId,
+  )
+  return groups.map((group, index) => ({
+    key: group.key,
+    title: titles[index]!,
+    projects: group.checkouts,
+    representative: group.checkouts[0]!,
+    projectKeys: new Set(group.checkouts.map((project) => project.key)),
   }))
 }
 

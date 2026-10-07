@@ -1,4 +1,3 @@
-import type { SharedPromptPoll, SharedPromptResult } from '../sharing/shared-prompt'
 import { z } from 'zod'
 import type { OutboxOp } from '@solus/contracts/outbox-types'
 import type { SessionRecordUpsert } from '@solus/contracts/types'
@@ -172,8 +171,6 @@ export type InsightsMirrorPayload = z.infer<typeof insightsMirrorPayloadSchema>
 
 /** Every body a runner posts to the service; the delivery's one authenticated door takes nothing else. */
 export type RunnerRequestBody =
-  | SharedPromptPoll
-  | SharedPromptResult
   | RunnerOutboxRequest
   | RunnerSessionRecordsRequest
   | RunnerMirrorRequest

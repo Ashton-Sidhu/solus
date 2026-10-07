@@ -98,16 +98,16 @@
       (w) => session.worksStore.pendingWorkDelete?.id !== w.id,
     ),
   );
-  // Known projects only name the rows; a work outside all of them still shows.
-  const catalogProjects = $derived(
-    session.logicalProjects.map((project) => ({
-      key: project.key,
-      label: project.label,
-      roots: project.checkouts.map((checkout) => checkout.projectRoot),
-    })),
-  );
+  // A work belongs to the project its host and folder name; a work outside
+  // every known project still shows, under its own folder.
   const items: WorkspaceItem[] = $derived(
-    buildWorkspaceItems(worksList, catalogProjects, {
+    buildWorkspaceItems(worksList, {
+      keyOf: (work) => {
+        const serverId = session.worksStore.hostFor(work.id);
+        return serverId && work.cwd ? projectsStore.projectKeyFor(serverId, work.cwd) : work.cwd;
+      },
+      optionsFor: (projectKeys) => session.projectOptionsFor(projectKeys),
+    }, {
       summaryOf: (workId) => session.worksStore.reviews.summaries.get(workId),
       awaitsMe: (workId) => !!session.worksStore.reviews.inboxItem(workId),
     }),

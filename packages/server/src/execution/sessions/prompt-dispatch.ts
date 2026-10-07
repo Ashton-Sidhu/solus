@@ -9,7 +9,7 @@ import { DEFAULT_EXECUTION_PREFERENCES, type ExecutionPreferences } from '@solus
 import { sessionSettings } from './session-settings'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { type CreateSessionOrder } from '../orchestration/session-orchestrator'
-import type { AgentId, GitCheckout, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, SessionRunInput, ReasoningEffort } from '@solus/contracts/types'
+import type { AgentId, GitCheckout, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, SessionOrigin, SessionRunInput, ReasoningEffort } from '@solus/contracts/types'
 import { defaultContextWindowFor } from '@solus/contracts/types'
 import { SeatRequiredError } from '../seats/seat-manager'
 import { type Actor } from '../../admission/actor'
@@ -26,6 +26,8 @@ export interface CreateSessionRequest extends Omit<CreateSessionOrder, 'modelId'
   modelId: string | null
   /** The requester's preferences; a child session takes its parent's when absent. */
   executionPreferences?: ExecutionPreferences
+  /** The agent session on another host that starts this one. */
+  startedBy?: SessionOrigin
 }
 
 function buildCreatedSessionPromptOptions(request: CreateSessionRequest): PromptOptions {
@@ -295,6 +297,7 @@ export class PromptDispatch {
       actor,
       exchangeIds: req.exchangeIds,
       delegation,
+      startedBy: req.startedBy,
       tools: selectAgentTools(
         solusToolbox.works,
         solusToolbox.docs,

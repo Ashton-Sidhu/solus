@@ -31,6 +31,7 @@
         "postgres": "^3.4.9",
         "posthog-node": "^5.51.7",
         "socket.io": "^4.8.3",
+        "socket.io-client": "^4.8.3",
         "ws": "^8.21.0",
         "zod": "^4.5.4",
       },
@@ -129,7 +130,6 @@
         "remark-parse": "^11.0.0",
         "remark-rehype": "^11.1.2",
         "shiki": "^4.4.3",
-        "socket.io-client": "^4.8.3",
         "sql-formatter": "^15.8.2",
         "svelte": "^5.57.0",
         "svelte-sonner": "^1.1.1",
@@ -334,6 +334,7 @@
     "packages/server": {
       "name": "@solus/server",
       "dependencies": {
+        "@solus/client-core": "workspace:*",
         "@solus/contracts": "workspace:*",
         "@solus/document-model": "workspace:*",
         "@tiptap/core": "^3.31.3",

@@ -1,6 +1,6 @@
 import path from 'path'
 import type { BranchChanges, GitIdentity, GitState, GitStateOptions, UncommittedFile } from '@solus/contracts/types'
-import type { RepoRef } from '../providers/types'
+import type { RepoRef } from '@solus/contracts/providers'
 import { createLogger } from '../logger'
 import { runAsync } from './exec'
 import { GitUnavailableError } from './git-availability'

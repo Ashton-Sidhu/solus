@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import type { PullRequest } from '@solus/contracts/providers'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import type { Task } from '@solus/contracts/task-types'
+import type { ListProjectOption } from '@solus/workspace-ui/components/ui/list-page/list-page'
 import {
   completedTasksWithinRetention,
 } from '@solus/workspace-ui/lib/completed-task-retention'
@@ -420,6 +421,11 @@ describe('sortTasks', () => {
   })
 })
 
+/** Project rows named by the last segment of their key, as the shared row builder would name them. */
+function optionsFor(keys: string[]): ListProjectOption[] {
+  return keys.map((key) => ({ key, projectKey: key, serverId: '', label: key.split('/').at(-1)!, available: true }))
+}
+
 describe('buildProjectSummaries', () => {
   it('counts every project and names what each one wants, in the list\u2019s own words', () => {
     const [solus, routing] = buildProjectSummaries([
@@ -429,16 +435,27 @@ describe('buildProjectSummaries', () => {
         projectKey: '/repos/model-routing',
         projectLabel: 'model-routing',
       }),
-    ], noActivity)
-    expect(solus).toMatchObject({ label: 'solus', count: 2, waiting: 1, failed: 0 })
-    expect(routing).toMatchObject({ label: 'model-routing', count: 1, waiting: 0, failed: 1 })
+    ], noActivity, optionsFor)
+    expect(solus).toMatchObject({ project: { label: 'solus' }, count: 2, waiting: 1, failed: 0 })
+    expect(routing).toMatchObject({ project: { label: 'model-routing' }, count: 1, waiting: 0, failed: 1 })
   })
 
   it('leads each project with its most urgent task, so picking one lands on the decision', () => {
     // The picker exists to move you somewhere useful. Landing on whatever task
     // happens to be first in tab order would make it a navigation dead end.
-    const [summary] = buildProjectSummaries([task('idle', 'idle'), task('asks', 'question')], noActivity)
+    const [summary] = buildProjectSummaries([task('idle', 'idle'), task('asks', 'question')], noActivity, optionsFor)
     expect(summary.leadTaskKey).toBe('asks')
+  })
+
+  it('lists every checkout of one project once, the way the column filters', () => {
+    // The menu grouped by folder, so one repository checked out at two paths
+    // was two rows, while the filter beside it showed one.
+    const summaries = buildProjectSummaries([
+      task('a', 'idle', { projectKey: '/Users/me/web', groupKey: 'github.com/acme/web' }),
+      task('b', 'idle', { projectKey: '/home/me/web', groupKey: 'github.com/acme/web' }),
+    ], noActivity, optionsFor)
+    expect(summaries).toHaveLength(1)
+    expect(summaries[0]).toMatchObject({ project: { key: 'github.com/acme/web' }, count: 2 })
   })
 })
 
@@ -473,7 +490,7 @@ describe('projectFilterChoices', () => {
         projectLabel: 'model-routing',
         lifecycle: 'active',
       }),
-    ])
+    ], optionsFor)
     expect(choices.map((choice) => choice.label)).toEqual(['model-routing', 'solus'])
     expect(choices.map((choice) => choice.count)).toEqual([2, 1])
   })
@@ -485,7 +502,7 @@ describe('projectFilterChoices', () => {
       task('a', 'idle', { lifecycle: 'active' }),
       task('b', 'idle', { lifecycle: 'snoozed' }),
       task('c', 'idle', { lifecycle: 'completed' }),
-    ])
+    ], optionsFor)
     expect(choices).toHaveLength(1)
     expect(choices[0].count).toBe(1)
   })
@@ -614,6 +631,18 @@ describe('prChipForChoices', () => {
       url: null,
       pullRequest: null,
     }])).toEqual({ number: 65, count: 1, state: 'unknown' })
+  })
+
+  it('leads with a pull request a failing required check holds back', () => {
+    // WHY: the chip must turn red when a pull request cannot merge, even when
+    // another pull request in the set asks for your review.
+    expect(prChipForChoices([
+      choice(44, 'approvalRequested'),
+      { ...choice(45, 'open'), requiredChecksFail: true },
+    ])?.state).toBe('checksFailing')
+    // A draft or a settled pull request is not waiting to merge.
+    expect(prChipForChoices([{ ...choice(46, 'draft'), requiredChecksFail: true }])?.state).toBe('draft')
+    expect(prChipForChoices([{ ...choice(47, 'merged'), requiredChecksFail: true }])?.state).toBe('merged')
   })
 
   it('keeps an incomplete merged set unknown', () => {

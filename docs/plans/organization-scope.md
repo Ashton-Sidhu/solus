@@ -19,7 +19,7 @@ The existing host/service split in `workspace-and-machines.md` remains valid.
 | Host category and standing | `host/host-category.ts`, `host/organizations.ts` (`GET /v1/hosts/:id/organizations`) | `host.category`, `host_organization` shares, `uplink/hosts.ts readHostOrganizations` |
 | Organization policy | held against in `execution/sessions/turn-organization.ts` and `sync/mirror/insight-mirror.ts` | `organization_host_policy.allow_personal_hosts`, `sync_all_insights`; owner-only edit |
 | Per-organization delivery | `sync/mirror/mirror-log.ts`, `sync/outbox/outbox-store.ts`, `sync/runner-delivery.ts` (one queue per organization and person), `sync/delegations.ts` | OAuth token endpoint: token exchange and refresh for the host's client (plans/010-standard-oauth.md) |
-| Publication on Share/Move | `sync/publication.ts`, `publication-store.ts`, `/runner/works` intake | — |
+| Share on a Local work or task | client upload with the person's sign-in (`cloud-sharing.md`); `workExportForCloud`, `workMarkMoved`, `taskExportForCloud`, `taskMarkMoved` | — |
 | Insights attribution | `spans.user_id/user_email/organization_id`, `insight_spans` copies, `data/insights/api-turns.ts` | — |
 | Client window scope | `packages/client-core/src/organization-selection.ts`, `workspace-ui/src/lib/organization-filter.ts`, the switcher, Share on submit, Insights settings | console: organization settings and host shares |
 
@@ -160,18 +160,17 @@ dialog shows the upload until the receipt, then the usual people, general
 access, and Copy link (maintainer decision 2026-09-30, like a document's Share).
 Closing the dialog does not cancel an upload that started.
 Do not return a working-looking link before its content is available.
-When the machine cannot send as the publisher until they connect again (their
-sign-in expired, or Solus answered 403), the publication stays `sent` and its
-error gives the reason. The dialog shows that reason with Retry instead of the
-upload. The publication finishes by itself after the publisher connects.
+A failed upload keeps the dialog on the upload with its reason and a Retry.
 
-A work, a task, or an Insights report does not use this operation: the
-client uploads it with the person's sign-in, and the host link plays no part
-(`cloud-sharing.md`). For a session, Share and Publish use one server
-publication operation. Concurrent actions for
-one resource follow the same operation and keep its original destination. An
-uploaded work or task leaves its host only after the Solus API has it, and only
-if it did not change after it was read.
+A session stays on its host for now (maintainer decision 2026-10-07): Share on a
+session uploads nothing and opens the host's own share list at once. There is
+no server publication operation.
+
+A work or a task uploads with the person's sign-in, and the host link plays no
+part (`cloud-sharing.md`). Concurrent actions for one resource join the same
+upload and keep its original destination. An uploaded work or task leaves its
+host only after the Solus API has it, and only if it did not change after it
+was read. Insights reports are not shared (`cloud-sharing.md` §8, decision 7).
 
 Sharing an individual work publishes that work and the assets needed to read
 it. It does not publish its surrounding scratch conversation. Task sharing
@@ -188,6 +187,10 @@ published, its organization home is fixed. A change of execution host does not
 change that home. Existing organization references and links must not be retargeted.
 
 ### Session publication and movement
+
+Not implemented (maintainer decision 2026-10-07): a session stays on its host,
+and the publication operation below was removed. This section is the design
+to start from if sessions move to the cloud later.
 
 “Move session to Acme” publishes the selected session's history and its
 session-owned Solus content, records its cloud home, and continues to sync

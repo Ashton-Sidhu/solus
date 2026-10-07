@@ -1,9 +1,15 @@
 <script lang="ts">
-  /** Who else can reach this host. Only rendered for the host this client is
-   *  actually connected to — `connectionsStore` describes that server and no
-   *  other, so on any other host these devices would be listed under the
-   *  wrong name. */
-  import { Monitor as MonitorIcon, Trash2 as TrashIcon } from "@lucide/svelte";
+  /** How this host is reached, and who reaches it: its Solus Cloud link, the
+   *  organizations it stands in, its network, pairing, and the devices with
+   *  access. `connectionsStore` is read for this host by the Hosts page. Only a
+   *  local owner (the desktop on the machine or a paired device) may change how
+   *  the host is reached; anyone else sees the state and where to change it. */
+  import {
+    Check as CheckIcon,
+    Copy as CopyIcon,
+    Monitor as MonitorIcon,
+    Trash2 as TrashIcon,
+  } from "@lucide/svelte";
   import { connectionsStore } from "../../contexts";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";
@@ -12,6 +18,7 @@
   import { relativeTime } from "../../lib/relative-time";
   import PairCodePanel from "./PairCodePanel.svelte";
   import UplinkSection from "./UplinkSection.svelte";
+  import OrganizationsSection from "./OrganizationsSection.svelte";
 
   interface Props {
     serverId: string;
@@ -20,22 +27,123 @@
   let { serverId }: Props = $props();
 
   const connections = connectionsStore;
+  let addressCopied = $state(false);
+
+  const info = $derived(connections.serverInfo);
+  // Pairing does not exist on a managed host or the workspace service: Solus cloud owns how they are reached.
+  const hasPairing = $derived(info?.hostKind === "personal");
+  const canChangeNetwork = $derived(info?.principal === "local-owner");
+  const networkDescription = $derived(
+    info
+      ? `Listening on ${info.host}:${info.port} · ${info.allowLan ? "reachable on your network" : "this computer only"}${canChangeNetwork ? "" : ". Change these from the host itself or from a paired device."}`
+      : "Reading this host…",
+  );
+
+  // The address worth handing to another device is the one that isn't loopback:
+  // copying 127.0.0.1 to a phone pairs it with the phone.
+  const reachableAddress = $derived.by(() => {
+    const endpoint =
+      connections.endpoints.find((candidate) => candidate.kind !== "loopback") ??
+      connections.endpoints[0];
+    return endpoint ? `http://${endpoint.host}:${endpoint.port}` : "";
+  });
+
+  async function toggleRemoteAccess() {
+    if (!info || connections.refreshing || connections.remoteAccessUpdating) return;
+    await connections.setRemoteAccess(serverId, !info.remoteAccess);
+  }
+
+  async function toggleTrustLocalNetwork() {
+    if (!info || connections.refreshing || connections.trustLocalNetworkUpdating) return;
+    await connections.setTrustLocalNetwork(serverId, !info.trustLocalNetwork);
+  }
+
+  function copyAddress() {
+    void navigator.clipboard.writeText(reachableAddress);
+    addressCopied = true;
+    setTimeout(() => (addressCopied = false), 1500);
+  }
 </script>
 
 <UplinkSection {serverId} />
 
-<SettingsSection label="Pairing">
-  <PairCodePanel {serverId} />
-  <SettingsRow
-    label="Approve new devices"
-    description="Ask before a paired device is allowed to connect."
-    comingSoon
-  >
-    {#snippet control()}
-      <Switch checked={false} size="default" aria-label="Approve new devices" />
-    {/snippet}
-  </SettingsRow>
-</SettingsSection>
+<!-- Where this host stands in each organization, and its Insights choice
+     (organization-scope §6.1). Keyed so another host is read afresh. -->
+{#key serverId}
+  <OrganizationsSection {serverId} />
+{/key}
+
+{#if hasPairing}
+  <SettingsSection label="Network" description={networkDescription}>
+    <SettingsRow
+      label="Allow remote connections"
+      description="Bind to your network interfaces. Remote devices must pair before connecting."
+    >
+      {#snippet control()}
+        <Switch
+          checked={info?.remoteAccess ?? false}
+          onclick={toggleRemoteAccess}
+          disabled={!canChangeNetwork || connections.refreshing || connections.remoteAccessUpdating}
+          size="default"
+          aria-label="Allow remote connections"
+        />
+      {/snippet}
+    </SettingsRow>
+
+    <SettingsRow
+      label="Trust my local network"
+      description="Devices on your local network connect without a pairing code. Only enable on a network you control."
+      visible={info?.remoteAccess ?? false}
+    >
+      {#snippet control()}
+        <Switch
+          checked={info?.trustLocalNetwork ?? false}
+          onclick={toggleTrustLocalNetwork}
+          disabled={!canChangeNetwork || connections.refreshing || connections.trustLocalNetworkUpdating}
+          size="default"
+          aria-label="Trust my local network"
+        />
+      {/snippet}
+    </SettingsRow>
+
+    <SettingsRow
+      label="Network address"
+      description={reachableAddress}
+      visible={(info?.remoteAccess ?? false) && !!reachableAddress}
+    >
+      {#snippet control()}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onclick={copyAddress}
+          class="text-(--solus-text-tertiary)"
+          aria-label="Copy network address"
+        >
+          {#if addressCopied}
+            <CheckIcon size={13} class="text-(--solus-status-complete)" />
+          {:else}
+            <CopyIcon size={13} />
+          {/if}
+        </Button>
+      {/snippet}
+    </SettingsRow>
+  </SettingsSection>
+
+  {#if canChangeNetwork}
+    <SettingsSection label="Pairing">
+      <PairCodePanel {serverId} />
+      <SettingsRow
+        label="Approve new devices"
+        description="Ask before a paired device is allowed to connect."
+        comingSoon
+      >
+        {#snippet control()}
+          <Switch checked={false} size="default" aria-label="Approve new devices" />
+        {/snippet}
+      </SettingsRow>
+    </SettingsSection>
+  {/if}
+{/if}
 
 <SettingsSection label="Devices with access">
   {#if connections.sessions.length === 0}

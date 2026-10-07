@@ -2,7 +2,8 @@ import { describe, expect, mock, test } from 'bun:test'
 import { localOwnerCtx } from './helpers/handler-ctx'
 import { Database } from 'bun:sqlite'
 import type { IpcContext } from '@solus/contracts/types'
-import type { Provider, RepoRef } from '@solus/server/providers/types'
+import type { Provider } from '@solus/server/providers/types'
+import type { RepoRef } from '@solus/contracts/providers'
 import { SolusServer } from '@solus/server/transport/server'
 
 // The handler's default provider resolver reaches the production database

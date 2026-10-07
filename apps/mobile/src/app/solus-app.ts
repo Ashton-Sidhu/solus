@@ -20,6 +20,8 @@ import { ThreadListState } from '../features/threads/thread-list-state'
 import { NativeNotificationHub } from '../features/notifications/notification-hub'
 import { AppearancePreference, type AppearanceMode } from '../features/settings/appearance'
 import { HostSettings } from '../features/settings/host-settings'
+import { HostCloudLink } from '../features/settings/host-cloud-link'
+import { HostAccess } from '../features/settings/host-access'
 import { LiveActivityPreference } from '../features/live-activity/live-activity-preference'
 import { PersonalSettingsStore } from '../features/settings/personal-settings'
 import { alwaysOnlineEnvironment, PersonalSync, timerClock } from '../features/settings/personal-sync'
@@ -104,6 +106,10 @@ export class SolusApp {
   readonly appearance: AppearancePreference
   /** Each host's own, host-owned settings. */
   readonly hostSettings: HostSettings
+  /** Each host's link to the person's Solus Cloud account. */
+  readonly hostCloudLink: HostCloudLink
+  /** How each host is reached and who reaches it. */
+  readonly hostAccess: HostAccess
   readonly pullRequests: PullRequestDirectory
   readonly files: ProjectFiles
   private readonly conversations = new Map<string, ConversationStore>()
@@ -149,6 +155,8 @@ export class SolusApp {
     this.organizationSettings = new OrganizationSettingsStore(new OrganizationSettingsClient(this.account.settingsRequests()))
     this.account.changes.subscribe(() => this.followAccount())
     this.hostSettings = new HostSettings((hostId) => this.connections.connection(hostId))
+    this.hostAccess = new HostAccess((hostId) => this.connections.connection(hostId))
+    this.hostCloudLink = new HostCloudLink((hostId) => this.connections.connection(hostId), () => this.account.issueEnrollmentTicket())
     this.pullRequests = new PullRequestDirectory((hostId) => this.connections.connection(hostId), () => this.account.organizationId)
     this.files = new ProjectFiles((hostId) => this.connections.connection(hostId), () => this.account.organizationId)
     this.outbox = new SendOutbox(() => storage)
@@ -302,6 +310,8 @@ export class SolusApp {
     this.threads.forgetHost(hostId)
     this.threadList.forgetHost(hostId)
     this.hostSettings.forgetHost(hostId)
+    this.hostCloudLink.forgetHost(hostId)
+    this.hostAccess.forgetHost(hostId)
     this.pullRequests.forgetHost(hostId)
     this.files.forgetHost(hostId)
     this.modelProfiles.delete(hostId)

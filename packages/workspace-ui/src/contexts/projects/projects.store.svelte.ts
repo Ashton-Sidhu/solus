@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import type { WorkspaceProject } from '@solus/contracts/workspace-projects'
 import { localProjectKey } from '@solus/contracts/repository-key'
+import { localProjectParts } from '@solus/client-core/project-identity'
 import {
   groupLogicalProjects,
   logicalProjectKeyFor,
@@ -113,6 +114,16 @@ export class ProjectsStore {
   /** The checkouts of one project across hosts, most recently touched first. */
   checkoutsOf(projectKey: string): ProjectCatalogEntry[] {
     return this.entries.filter((entry) => logicalProjectKeyFor(entry) === projectKey)
+  }
+
+  /** The folder that holds a project on one host: its catalogued checkout
+   *  there, or the folder a local-only key names on it. Null when the host
+   *  holds none. */
+  checkoutPathOn(serverId: string, projectKey: string): string | null {
+    const checkout = this.checkoutsOf(projectKey).find((entry) => entry.serverId === serverId)
+    if (checkout) return checkout.projectRoot
+    const local = localProjectParts(projectKey)
+    return local?.serverId === serverId ? local.path : null
   }
 
   /** List each execution host's checkouts as it connects, so every page can

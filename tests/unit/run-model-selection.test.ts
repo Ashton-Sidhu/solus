@@ -190,13 +190,13 @@ describe('working in a checkout on a managed host', () => {
   test('a run on another host than its task home starts in the checkout unless a worktree was asked for', async () => {
     // WHY: a cloud task's home is the workspace service, so every run of it is a
     // dispatch. Forcing a worktree there kept people off their default branch.
-    const { startsWorktree, withDispatchCheckout, withDispatchWorktree } = await import('@solus/workspace-ui/contexts/workspace/run-config')
+    const { startsWorktree, withDispatchDefaultBranch, withDispatchWorktree } = await import('@solus/workspace-ui/contexts/workspace/run-config')
     const cloudTask = { ...run('codex', 'gpt-5.6-sol'), serverId: 'managed', taskServerId: 'workspace', worktree: null }
     expect(startsWorktree(cloudTask)).toBe(false)
     const pending = { ...cloudTask, pendingHostDispatch: { serverId: 'managed', intent: 'dispatch' as const, repoKey: 'github.com/acme/web' } }
     const worktree = withDispatchWorktree(pending, null)
     expect(startsWorktree(worktree)).toBe(true)
-    const checkout = withDispatchCheckout(worktree)
+    const checkout = withDispatchDefaultBranch(worktree)
     expect(startsWorktree(checkout)).toBe(false)
     expect(checkout.pendingHostDispatch).toEqual({ serverId: 'managed', intent: 'dispatch', repoKey: 'github.com/acme/web' })
   })

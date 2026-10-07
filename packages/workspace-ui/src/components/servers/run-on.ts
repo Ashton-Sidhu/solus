@@ -6,6 +6,7 @@ import { hasSessionStarted } from '../../lib/sessionUtils'
 import {
   startsWorktree,
   withCheckout,
+  withDispatchDefaultBranch,
   withHost,
   withPendingHost,
   withProjectHost,
@@ -191,16 +192,16 @@ export function withCheckoutOnHost(
 /**
  * Queue a repository dispatch without changing the run's worktree mode.
  *
- * A run in its checkout stays there: the target host works on the branch its
- * clone holds. A run that asked for a worktree keeps that request, but the old
- * host's base branch names a branch over there, so its answer is dropped.
+ * A run in its checkout works on the default branch over there, in the target
+ * host's checkout. A run that asked for a worktree keeps that request, but the
+ * old host's base branch names a branch over there, so its answer is dropped.
  */
 export function withRemoteDispatch(
   run: RunConfig,
   target: Extract<PendingHostDispatch, { intent: 'dispatch' }>,
 ): RunConfig {
   const next = withPendingHost(run, target)
-  return { ...next, worktree: run.worktree ? { baseBranch: null } : null }
+  return run.worktree ? { ...next, worktree: { baseBranch: null } } : withDispatchDefaultBranch(next)
 }
 
 /**

@@ -97,11 +97,13 @@ export async function createSolusApiService(options: SolusApiServiceOptions): Pr
   const uninstallWorkLive = installWorkLiveBridge(workLive.bridge())
   const presence = workspacePresence(server, events)
   registerSolusApiHandlers(server, { shares, presence, events, workLive, serviceId: settings.serviceId, host: options.host, port: options.port })
-  const sharedPrompts = new SharedPromptRelay(shares)
+  const sharedPrompts = new SharedPromptRelay(shares, (clientId, event, command, receipt, timeoutMs) => {
+    if (!socket) throw new Error('The live transport is not attached.')
+    return socket.request(clientId, event, command, receipt, timeoutMs)
+  })
   server.register('sharedSessionAvailable', ([sessionId], ctx) => sharedPrompts.available(ctx.principal, sessionId))
   server.register('sharedSessionPrompt', ([request], ctx) => sharedPrompts.prompt(ctx.principal, sharedPromptRequestSchema.parse(request)))
   const { requestListener, routes } = buildHttpServer({
-    sharedPrompts,
     host: options.host, port: options.port(), getPort: options.port, staticDir: options.staticDir, pairingDisabled: true, isApiMode: true, requireAuth: () => true,
     solusApi: { ...settings, operations: createWorkspaceOperations(shares) },
     verifyAccessToken: (token) => tokens.verify(token),
@@ -144,8 +146,14 @@ export async function createSolusApiService(options: SolusApiServiceOptions): Pr
     attachLiveTransport(http) {
       if (socket || liveClosed) throw new Error('The live transport is already attached or closed.')
       socket = attachWebSocketTransport(http, server, { clientEvents: clients, requireAuth: true,
-        onClientConnected: ({ clientId }) => { const principal = socket?.principalOf(clientId); if (principal) presence.connected(clientId, principal) },
-        onClientDisconnected: ({ clientId }) => { presence.disconnected(clientId); workLive.disconnected(clientId) },
+        onClientConnected: ({ clientId }) => {
+          const principal = socket?.principalOf(clientId)
+          if (!principal) return
+          // A runner's socket carries shared prompts to its host; it is not a person in the room.
+          if (principal.kind === 'runner') sharedPrompts.runnerConnected(clientId, principal)
+          else presence.connected(clientId, principal)
+        },
+        onClientDisconnected: ({ clientId }) => { sharedPrompts.runnerDisconnected(clientId); presence.disconnected(clientId); workLive.disconnected(clientId) },
         onClientExpired: ({ clientId }) => presence.expired(clientId),
       })
     },

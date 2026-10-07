@@ -123,9 +123,8 @@ describe('transcript mirror', () => {
       { domain: 'transcripts', key: 's1:1', payload: { sessionId: 's1', position: 1, message: message('b') } },
       { domain: 'transcripts', key: 's1:2', payload: { sessionId: 's1', position: 2, message: message('c') } },
     ])
-    // The flush answers the highest sequence it appended: what a publication waits for.
+    // The flush answers the highest sequence it appended.
     expect(lastSeq).toBeGreaterThan(0)
-    expect(mirrorLog.mirrorPendingThrough('org1', lastSeq)).toBe(false)
     expect(rememberedPositions('s1')).toEqual([0, 1, 2])
 
     // Nothing changed: nothing is appended.
@@ -221,8 +220,6 @@ describe('transcript mirror', () => {
       { domain: 'activity', key: stopped.id, payload: { activity: { ...stopped, subject: { kind: 'session', id: 'act-pub' } } } },
       { domain: 'activity', key: renamed.id, payload: { activity: { ...renamed, subject: { kind: 'session', id: 'act-pub' } } } },
     ])
-    // A publication waits for the activity too.
-    expect(mirrorLog.mirrorPendingThrough('org1', lastSeq)).toBe(false)
 
     // Nothing new: nothing is sent again. A new activity, while the transcript stays, is sent alone.
     expect(await flush('act-pub')).toBe(0)

@@ -31,6 +31,7 @@
   import { Button } from "../ui/button";
   import VirtualList from "../ui/list-page/VirtualList.svelte";
   import PrAvatar from "../prs/PrAvatar.svelte";
+  import { AvatarBadge } from "../ui/avatar-badge";
   import { checkDuration, orderedChecks } from "../prs/lib/checks";
   import { checkVerdict, checksSummary } from "./lib/check-verdict";
   import {
@@ -380,10 +381,10 @@
           </div>
         </div>
       {:else if inline}
-        <!-- One line: state on the left, the move that changes it on the
-             right. The actions may shrink; the text column may truncate. -->
-        <div class="flex flex-wrap items-center gap-x-4 gap-y-3">
-          <div class="flex min-w-0 flex-[1_1_14rem] items-start gap-2.5">
+        <!-- One line at every width: state on the left, the move that changes
+             it on the right. It never wraps; the text truncates first. -->
+        <div class="flex items-center gap-4">
+          <div class="flex min-w-0 flex-1 items-start gap-2.5">
             {@render readinessGlyph()}
             {@render readinessText()}
           </div>
@@ -466,23 +467,17 @@
               <!-- The verdict as an icon on the avatar's corner, in its own
                    colour; the word stays on the title and in the
                    accessibility tree. A pending request carries no badge. -->
-              <span
-                class="relative grid size-5 shrink-0 place-items-center"
-                title={reviewerStateLabel(reviewer.state)}
-              >
-                <PrAvatar
-                  name={reviewer.login}
-                  url={reviewer.avatarUrl ?? ""}
-                  size="size-5 text-xs"
-                />
-                {#if reviewer.state !== null}
-                  <span
-                    class="absolute -right-1 -bottom-1 grid size-3 place-items-center rounded-full bg-background"
-                    aria-hidden="true"
-                  >
-                    <ReviewerVerdictIcon state={reviewer.state} size={10} />
-                  </span>
-                {/if}
+              {#snippet verdict()}
+                <ReviewerVerdictIcon state={reviewer.state} size={10} />
+              {/snippet}
+              <span class="flex shrink-0" title={reviewerStateLabel(reviewer.state)}>
+                <AvatarBadge badge={reviewer.state !== null ? verdict : undefined}>
+                  <PrAvatar
+                    name={reviewer.login}
+                    url={reviewer.avatarUrl ?? ""}
+                    size="size-5 text-xs"
+                  />
+                </AvatarBadge>
               </span>
               <span class="min-w-0 flex-1 truncate">
                 {reviewer.login}

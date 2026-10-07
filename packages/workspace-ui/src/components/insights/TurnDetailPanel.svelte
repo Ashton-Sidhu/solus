@@ -1,6 +1,6 @@
 <script lang="ts">
   import TaskIcon from "../ui/TaskIcon.svelte";
-  import { getWorkspaceContext, serversStore, accountStore, sharesStore } from "../../contexts";
+  import { getWorkspaceContext, serversStore } from "../../contexts";
   import type { MetricsSpan, TurnFlagKind } from "@solus/contracts/observability-types";
   import {
     Download as ExportIcon,
@@ -8,7 +8,6 @@
     MessageSquare as SessionIcon,
     PenLine as ComposeIcon,
     Rows3 as SessionPageIcon,
-    Share as ShareIcon,
   } from "@lucide/svelte";
   import { onDestroy, tick } from "svelte";
   import { toasts } from "../../lib/toasts";
@@ -20,13 +19,6 @@
   import { promptsByTrace } from "./lib/session-summary";
   import { traceExportFileName, traceExportJson, turnBaselines } from "./lib/turn-analysis";
   import { turnStatusBadge } from "./lib/turn-status";
-  import {
-    reportAgent,
-    turnReportContent,
-    turnReportSubject,
-    turnReportTitle,
-    type TurnReport,
-  } from "./lib/turn-report";
   import { downloadText } from "./lib/trace-export";
   import { insightsStore, type TurnChangeReading } from "./insights.store.svelte";
   import { turnHostLabel, turnHostServerId } from "./lib/turn-hosts";
@@ -253,36 +245,6 @@
     if (sessionId) workspace.openInsightsSession(sessionId);
   }
 
-  /** A running turn has no settled readings to report yet. */
-  const canShareReport = $derived(
-    !!insightsStore.serverId && !!root && !isLive && (!accountStore.isSignedIn || sharesStore.canShareFrom(insightsStore.serverId, "work")),
-  );
-
-  async function shareReport(): Promise<void> {
-    const serverId = insightsStore.serverId;
-    if (!serverId || !root || !trace) return;
-    // The diff is part of the report: a share made before git's answer lands
-    // waits for it rather than leaving the change out.
-    if (sessionRecordCtx) await insightsStore.loadTurnChange(sessionRecordCtx, traceId);
-    const change = insightsStore.turnChange(traceId);
-    const capturedAt = new Date();
-    const report: TurnReport = {
-      version: 1,
-      capturedAt: capturedAt.getTime(),
-      trace,
-      session,
-      sessionName,
-      taskTitle,
-      baselines,
-      prompts: Object.fromEntries(promptsByTrace(insightsStore.volumeRows.filter((row) => row.sessionId === sessionId))),
-      patch: change?.status === "ready" && !pulledHostId ? change.patch : null,
-    };
-    const title = turnReportTitle({ subject: turnReportSubject({ sessionName, taskTitle, prompt }), capturedAt });
-    // The sharer's mark goes with the report as their own mark on it.
-    const mark = flag ? { kind: flag.kind, note: flag.note } : null;
-    void sharesStore.shareReport(serverId, { title, content: turnReportContent(report), agentProvider: reportAgent(root.provider), mark });
-  }
-
   function exportTrace(): void {
     if (!trace || !view || !root) return;
     downloadText(traceExportFileName(traceId), traceExportJson(trace, view, root));
@@ -318,46 +280,34 @@
   {/if}
 {/snippet}
 
+<!-- Two rungs keep the row on one line as the panel narrows: below 44rem
+     the session and task verbs are icons, below 30rem the mark is too. -->
 {#snippet turnActions()}
   <TurnFlagMenu {flag} onSet={setFlag} onClear={clearFlag} />
   <Button
     variant="ghost"
     size="sm"
-    class="h-6.5 gap-2 rounded-full px-3 text-insights-chrome bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[color,background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] pointer-coarse:h-10"
+    class="h-6.5 gap-2 rounded-full px-3 text-insights-chrome bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[color,background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] pointer-coarse:h-10 @max-[44rem]:w-6.5 @max-[44rem]:px-0 @max-[44rem]:pointer-coarse:w-10"
     disabled={!sessionId}
     title="Open the conversation this turn belongs to"
+    aria-label="Open session"
     onclick={() => void revealSession()}
   >
     <SessionIcon class="size-4" strokeWidth={1.5} aria-hidden="true" />
-    Open session
+    <span class="@max-[44rem]:hidden">Open session</span>
   </Button>
   <Button
     variant="ghost"
     size="sm"
-    class="h-6.5 gap-2 rounded-full px-3 text-insights-chrome bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[color,background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] pointer-coarse:h-10"
+    class="h-6.5 gap-2 rounded-full px-3 text-insights-chrome bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[color,background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] pointer-coarse:h-10 @max-[44rem]:w-6.5 @max-[44rem]:px-0 @max-[44rem]:pointer-coarse:w-10"
     disabled={!sessionId}
     title={taskTitle ? `Open task: ${taskTitle}` : "Open the task this turn ran under"}
+    aria-label="Open task"
     onclick={() => void openSessionTask()}
   >
     <TaskIcon size={16} aria-hidden="true" />
-    Open task
+    <span class="@max-[44rem]:hidden">Open task</span>
   </Button>
-  <!-- Sharing a turn shares a report of it: a work captured now, which
-       reads the same while this computer is off (cloud-sharing.md §4).
-       The session itself is shared from its own Share. -->
-  {#if canShareReport}
-    <Button
-      variant="ghost"
-      size="icon"
-      class="size-6.5 shrink-0 rounded-full bg-background text-foreground shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[color,background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] pointer-coarse:size-10"
-      title={accountStore.isSignedIn ? "Share a report of this turn" : "Sign in to share"}
-      aria-label="Share a report of this turn"
-      disabled={!accountStore.isSignedIn || sharesStore.busy}
-      onclick={() => void shareReport()}
-    >
-      <ShareIcon size={16} strokeWidth={1.5} aria-hidden="true" />
-    </Button>
-  {/if}
   <DropdownMenu.Root bind:open={moreOpen}>
     <DropdownMenu.Trigger>
       {#snippet child({ props })}

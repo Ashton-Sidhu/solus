@@ -7,7 +7,8 @@
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { Input } from "../ui/input";
-  import { RUN_PROFILE_PRESETS, profileDraft, profilesFromDrafts, type RunProfileDraft } from "@solus/client-core/device-run-profiles";
+  import { RUN_PROFILE_PRESETS, fitPresetToProject, profileDraft, profilesFromDrafts, type RunProfileDraft } from "@solus/client-core/device-run-profiles";
+  import { serverConnections } from "@solus/client-core/server-connections";
 
   /**
    * How this project builds its app, for Build & run (plan 016, S02). The
@@ -28,6 +29,9 @@
   let loaded = $state(false);
   let saving = $state(false);
   let problem = $state<string | null>(null);
+  let adding = $state(false);
+  /** Saving nothing over nothing would only look like a setup. Removing every saved profile still saves. */
+  const canSave = $derived(drafts.length > 0 || (saved?.length ?? 0) > 0);
 
   // The form starts from what the project saved, once that arrives.
   $effect(() => {
@@ -39,10 +43,16 @@
     });
   });
 
-  function add(index: number) {
+  // A preset starts in the folder the app is in (a monorepo's `apps/mobile/ios`), with the Xcode workspace there.
+  async function add(index: number) {
     const preset = RUN_PROFILE_PRESETS[index];
-    if (!preset) return;
-    drafts.push(profileDraft(preset.profile));
+    if (!preset || adding) return;
+    adding = true;
+    try {
+      drafts.push(profileDraft(await fitPresetToProject(serverConnections.apiFor(serverId), checkoutPath, preset.profile)));
+    } finally {
+      adding = false;
+    }
   }
 
   async function save() {
@@ -70,7 +80,7 @@
   <div class="flex flex-col gap-1">
     <h3 class="text-workspace-chrome text-(--solus-text-primary)">Build & run</h3>
     <p class="text-(--solus-text-secondary)">
-      Say how this project builds its app. Build & run builds it in the conversation's checkout, then installs and opens it on the device on screen.
+      Say how this project builds its app. New build and Build & run build it in this checkout.
       Profiles are saved in <code>.solus/config.json</code>.
     </p>
   </div>
@@ -118,18 +128,18 @@
       <DropdownMenu.Root>
         <DropdownMenu.Trigger>
           {#snippet child({ props })}
-            <Button {...props} size="xs" variant="outline"><Plus />Add a profile</Button>
+            <Button {...props} size="xs" variant="outline" disabled={adding}><Plus />{adding ? "Adding…" : "Add a profile"}</Button>
           {/snippet}
         </DropdownMenu.Trigger>
         <DropdownMenu.Content align="start">
           {#each RUN_PROFILE_PRESETS as preset, index (preset.label)}
-            <DropdownMenu.Item onSelect={() => add(index)}>{preset.label}</DropdownMenu.Item>
+            <DropdownMenu.Item onSelect={() => void add(index)}>{preset.label}</DropdownMenu.Item>
           {/each}
         </DropdownMenu.Content>
       </DropdownMenu.Root>
       <span class="flex-1"></span>
       <Button size="xs" variant="ghost" onclick={onDone}>Cancel</Button>
-      <Button size="xs" disabled={saving} onclick={() => void save()}>{saving ? "Saving…" : "Save"}</Button>
+      <Button size="xs" disabled={saving || !canSave} title={canSave ? undefined : "Add a profile first"} onclick={() => void save()}>{saving ? "Saving…" : "Save"}</Button>
     </div>
     {#if problem}<p class="text-[var(--failure)]" role="alert">{problem}</p>{/if}
   {/if}

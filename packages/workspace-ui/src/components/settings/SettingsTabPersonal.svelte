@@ -1,13 +1,15 @@
 <script module lang="ts">
   /** Search words, read by the settings page to find this page from any other. */
-  export const searchWords = ["account", "sync", "personal", "cloud", "sign", "devices", "conflict", "clear"];
+  export const searchWords = ["account", "sync", "personal", "cloud", "sign", "devices", "conflict", "clear", "link", "computer"];
 </script>
 
 <script lang="ts">
-  /** Personal: who is signed in and whether this device syncs their settings.
-   *  It needs no host: the profile lives on this device and in the account. */
+  /** Personal: who is signed in, whether this computer is linked to their
+   *  Solus Cloud account, and whether this device syncs their settings. The
+   *  profile needs no host: it lives on this device and in the account. */
   import { untrack } from "svelte";
-  import { accountStore } from "../../contexts";
+  import { accountStore, serversStore } from "../../contexts";
+  import UplinkSection from "../connections/UplinkSection.svelte";
   import { settingsSyncStore } from "../../contexts/app/settings-sync.store.svelte";
   import { relativeTime } from "../../lib/relative-time";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -24,6 +26,8 @@
   const syncOn = $derived(isSyncOn(status));
   const account = $derived(accountStore.state);
   const conflicts = $derived(conflictRows(status.conflicts));
+  // Only the desktop hosts a server on this computer; a browser has none to link.
+  const localServerId = $derived(serversStore.servers.find((server) => server.local)?.id ?? null);
 
   // Settings opened: read the account now rather than at the next poll.
   $effect(() => untrack(() => sync.refresh()));
@@ -63,6 +67,10 @@
     {/snippet}
   </SettingsRow>
 </SettingsSection>
+
+{#if localServerId && isVisible}
+  <UplinkSection serverId={localServerId} label="This computer" />
+{/if}
 
 <SettingsSection
   label="Settings sync"

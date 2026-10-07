@@ -16,7 +16,7 @@ import { workRevisions, works } from './schema'
  */
 
 const agentProviderSchema = z.enum(['claude-code', 'codex', 'opencode'])
-export const workTypeSchema = z.enum(['doc', 'slides', 'diagram', 'artifact', 'insights-report'])
+export const workTypeSchema = z.enum(['doc', 'slides', 'diagram', 'artifact'])
 const workExtraSchema = z.object({
   sessionIds: z.array(z.string()).optional(),
   mirroredDoc: workExternalLinkSchema.optional(),

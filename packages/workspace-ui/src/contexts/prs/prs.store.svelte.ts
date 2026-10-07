@@ -140,11 +140,16 @@ export class PrsStore {
     }
   }
 
+  /** The projects on this host that read this repository. */
+  projectsReading(serverId: string | null | undefined, repositoryKey: string): ProjectPrs[] {
+    return [...this.byProject.values()].filter((project) =>
+      project.serverId === serverId && project.repositoryKey === repositoryKey)
+  }
+
   /** File a change in every project on that host that reads its repository. */
   private applyChange(serverId: string, change: PrSyncChange, origin?: ProjectPrs): void {
     if (origin) origin.repositoryKey ??= change.repo
-    const projects = [...this.byProject.values()].filter((project) =>
-      project.serverId === serverId && project.repositoryKey === change.repo)
+    const projects = this.projectsReading(serverId, change.repo)
     for (const project of projects) {
       for (const pullRequest of change.pullRequests) project.absorbSynced(pullRequest)
     }
@@ -186,7 +191,14 @@ export class PrsStore {
   linkedPr(serverId: string | null | undefined, link: PrLink, fallbackScope: string | null): LinkedPr | null {
     const identity = linkedPrIdentity(link, fallbackScope)
     if (!identity) return null
+    // A URL names the repository, but a project files its pull requests under
+    // its local path. When no surface watches the repository itself, any
+    // project of that repository answers.
     const live = this.at(serverId, identity.targetScope)?.prFor(identity.number)
+      ?? this.projectsReading(serverId, identity.targetScope)
+        .map((project) => project.prFor(identity.number))
+        .find((pullRequest) => pullRequest !== null)
+      ?? null
     const pullRequest = latestPrObservation(live, 'snapshot' in link ? link.snapshot : undefined)
     return {
       ...identity,

@@ -3,6 +3,7 @@ import { GitHubReauthRequiredError, isGithubNotFound, type GitHubClient } from '
 import { githubClients, runGithubRequest } from './request'
 import { resolveUploadTarget, uploadGithubAsset } from './asset-upload'
 import type { ChangedFileStat, MergeMethod } from '@solus/contracts/types'
+import type { Provider, ReviewProvider } from '../types'
 import type {
   DraftReview,
   PrDiffFileContents,
@@ -12,16 +13,12 @@ import type {
   PrCommit,
   PrReviewer,
   PrReviewerCandidate,
-  Provider,
   PrFilter,
   PullRequest,
   PullRequestUpdate,
   RepoRef,
   ReviewComment,
-  ReviewProvider,
   ReviewThread,
-} from '../types'
-import type {
   PrConversationItem,
   PrLabel,
   PrRequestedReviewer,

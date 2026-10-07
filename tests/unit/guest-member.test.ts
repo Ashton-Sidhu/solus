@@ -20,7 +20,7 @@ describe('a signed-in visitor on a guest link', () => {
     // WHY: an editor through the organization who opens a "can view" link must
     // not be reduced to a guest viewer.
     const link = await memberLinkFor(share, member, 'https://app.solus.sh', deps(workspace, 'editor'))
-    expect(link?.startsWith('https://app.solus.sh/#')).toBe(true)
+    expect(link?.startsWith('https://app.solus.sh/work/')).toBe(true)
     expect(link).toContain('w1')
   })
 

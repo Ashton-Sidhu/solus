@@ -61,7 +61,8 @@ import { ThreadAgentGroup } from "./ThreadAgents";
 import { ThreadPlanCard } from "./ThreadPlanCard";
 import { WorktreeOfferCard } from "./WorktreeOfferCard";
 import { useTranscriptItem } from "./use-transcript-items";
-import { CompactionDivider } from "./thread-context-divider";
+import { CompactionDivider, SessionOriginDivider } from "./thread-context-divider";
+import type { SessionOrigin } from "@solus/contracts/types";
 
 const TURN_FOLD_HEIGHT = 42; // min-h-11 (38.5) + mb-1 (3.5), with the mobile 14px rem
 // Let neighboring rows move out of the new rows' space before showing their text.
@@ -96,6 +97,8 @@ export interface ThreadFeedProps {
   readonly contentInsetEndAdjustment: SharedValue<number>;
   readonly contentBottomInset?: number;
   readonly historyControls?: ThreadFeedHistoryControls;
+  /** The agent session on another host that started this one; shown above the first message. */
+  readonly startedBy?: SessionOrigin | null;
   readonly contentMaxWidth?: number;
   readonly layoutVariant?: LayoutVariant;
   readonly usesAutomaticContentInsets?: boolean;
@@ -433,6 +436,17 @@ function ThreadFeedPlaceholder(props: {
       </View>
     </View>
   );
+}
+
+/** Above the first loaded row: the control for earlier history or, at the
+ *  start of the session, who started it. */
+function ThreadFeedListHeader(props: {
+  readonly historyControls?: ThreadFeedHistoryControls;
+  readonly startedBy?: SessionOrigin | null;
+  readonly iconSubtleColor: ColorValue;
+}) {
+  if (props.historyControls) return <ThreadFeedLoadEarlierControl {...props.historyControls} />;
+  return props.startedBy ? <SessionOriginDivider origin={props.startedBy} iconSubtleColor={props.iconSubtleColor} /> : null;
 }
 
 export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
@@ -800,7 +814,11 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             onMomentumScrollEnd={handleMomentumScrollEnd}
             scrollEventThrottle={16}
             ListHeaderComponent={
-              props.historyControls ? <ThreadFeedLoadEarlierControl {...props.historyControls} /> : null
+              <ThreadFeedListHeader
+                historyControls={props.historyControls}
+                startedBy={props.startedBy}
+                iconSubtleColor={iconSubtleColor}
+              />
             }
             contentContainerStyle={{
               paddingTop: 12,

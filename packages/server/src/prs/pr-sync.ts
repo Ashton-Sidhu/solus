@@ -17,6 +17,7 @@ import {
 } from '../data/sessions/session-pull-requests'
 import { attachReviewAttention } from '../transport/handlers/review-attention'
 import { GitHubRateLimitedError } from '../providers/github/rate-limit'
+import { asBackgroundWork } from '../providers/github/request-budget'
 import { codeHostFor, type CodeHost } from './code-host'
 import { prIndex, repoKeyOf } from './pr-index'
 
@@ -153,7 +154,8 @@ export class PrSync {
 
   start(): void {
     if (this.timer) return
-    this.timer = setInterval(() => void this.tick(), CLOCK_MS)
+    // Nobody waits on a clock tick, so it leaves GitHub's reserve to people.
+    this.timer = setInterval(() => void asBackgroundWork(() => this.tick()), CLOCK_MS)
     this.timer.unref?.()
   }
 

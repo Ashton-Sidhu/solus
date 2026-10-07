@@ -42,6 +42,25 @@ export interface PairServerResult {
   installationId: string
 }
 
+/** An address a host listens on, as `connectionsListEndpoints` answers it. */
+export interface PairEndpoint {
+  kind: 'loopback' | 'lan' | 'tailnet'
+  host: string
+  port: number
+}
+
+const ENDPOINT_REACH = { tailnet: 0, lan: 1, loopback: 2 } satisfies Record<PairEndpoint['kind'], number>
+
+/** The address worth handing to another device: the widest reach first; loopback only when there is nothing else. */
+export function bestPairEndpoint<E extends PairEndpoint>(endpoints: readonly E[]): E | null {
+  return [...endpoints].sort((a, b) => ENDPOINT_REACH[a.kind] - ENDPOINT_REACH[b.kind])[0] ?? null
+}
+
+/** The link another device opens or scans to pair; `parsePairLink` reads it back. */
+export function pairLink(endpoint: PairEndpoint, pairToken: string): string {
+  return `http://${endpoint.host}:${endpoint.port}/pair#token=${pairToken}`
+}
+
 export function parsePairLink(link: string): ParsedPairLink | null {
   try {
     const u = new URL(link.trim())

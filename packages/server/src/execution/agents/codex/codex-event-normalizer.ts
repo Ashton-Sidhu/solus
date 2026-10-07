@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { codexSubagentTurnResult } from './codex-subagent-history'
 import type { ContextUsage, NormalizedEvent, ThreadGoal, UsageData, UsageWindowUpdate } from '@solus/contracts/types'
 import { normalizeResetNumber } from '../../rate-limits'
+import { isAuthFailureMessage } from '../auth-failure'
 import { storeToolResultImages, withoutImageBytes } from '../../../data/assets/transcript-images'
 import {
   codexImageArtifactPath,
@@ -1027,8 +1028,15 @@ function normalizeTurnCompleted(params: any): NormalizedEvent[] {
     const rateLimitEvent = codexRateLimitEvent(turn.error)
     if (rateLimitEvent) events.push(rateLimitEvent)
 
-    const message = codexErrorPayload(turn.error)?.message
-    events.push({ type: 'error', message: message || 'Codex turn failed', isError: true, sessionId: params?.threadId })
+    const payload = codexErrorPayload(turn.error)
+    const message = payload?.message
+    events.push({
+      type: 'error',
+      message: message || 'Codex turn failed',
+      isError: true,
+      sessionId: params?.threadId,
+      ...(isCodexAuthFailure(payload) && { kind: 'auth' as const }),
+    })
 
     return events
   }
@@ -1078,6 +1086,13 @@ function codexRateLimitEvent<ErrorValue>(error: ErrorValue): NormalizedEvent | n
       : httpStatusCode ? `HTTP ${httpStatusCode}` : 'Codex',
     isUsingOverage: false
   }
+}
+
+function isCodexAuthFailure(payload: z.infer<typeof codexErrorPayloadSchema> | null): boolean {
+  if (!payload) return false
+  return codexErrorKind(payload.codexErrorInfo) === 'unauthorized' ||
+    codexHttpStatusCode(payload.codexErrorInfo) === 401 ||
+    (!!payload.message && isAuthFailureMessage(payload.message))
 }
 
 function codexErrorKind(info: z.infer<typeof codexErrorInfoSchema> | null | undefined): string | null {

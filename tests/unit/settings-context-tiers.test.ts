@@ -100,6 +100,27 @@ describe('a personal key', () => {
     expect((await load(storage)).settings.savedLenses).toEqual([])
   })
 
+  test('an existing saved list gains Show me once, keeping its prompts and order', async () => {
+    const original = [
+      { id: 'architecture', name: 'Architecture delta', prompt: 'My architecture prompt.' },
+      { id: 'risk', name: 'Risk by file', prompt: 'My risk prompt.' },
+      { id: 'flow', name: 'Data flow', prompt: 'My flow prompt.' },
+    ]
+    const storage = memoryStorage({ 'solus.personal-settings.v1:anonymous': JSON.stringify({ savedLenses: original }) })
+    const { settings } = await load(storage)
+    expect(settings.savedLenses.slice(0, 3)).toEqual(original)
+    expect(settings.savedLenses[3].name).toBe('Show me')
+    expect((await load(storage)).settings.savedLenses).toHaveLength(4)
+    settings.setPersonal('savedLenses', original)
+    expect((await load(storage)).settings.savedLenses).toEqual(original)
+  })
+
+  test('an existing Show me prompt is kept without a duplicate', async () => {
+    const original = [{ id: 'user-show-me', name: 'Show me', prompt: 'My edited prompt.' }]
+    const storage = memoryStorage({ 'solus.personal-settings.v1:anonymous': JSON.stringify({ savedLenses: original }) })
+    expect((await load(storage)).settings.savedLenses).toEqual(original)
+  })
+
   test('a change reads back and persists in the personal profile, never on a host', async () => {
     const { settings, storage } = await load()
     expect(settings.setPersonal('showToolCalls', false)).toBe(true)

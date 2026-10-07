@@ -11,7 +11,7 @@ import type { StatusBarContext } from '../app/status-bar.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import type { SessionDraft } from './session-draft.svelte'
 import { toasts } from '../../lib/toasts'
-import { startsWorktree, withCheckout, withDispatchBaseBranch, withDispatchCheckout, withDispatchWorktree, withWorktreeToggled } from './run-config'
+import { startsWorktree, withCheckout, withDispatchBaseBranch, withDispatchDefaultBranch, withDispatchWorktree, withWorktreeToggled } from './run-config'
 import type { HostApi } from '@solus/client-core/host-api'
 
 /** What a destination command edits: the run a source owns, and the started
@@ -361,13 +361,6 @@ export class SessionConfigController {
     owner.apply(withDispatchWorktree(owner.run, worktree))
   }
 
-  /** A pending dispatch works in the target host's checkout, not a worktree. */
-  setDispatchCheckout(sourceId?: string): void {
-    const owner = this.ownerFor(sourceId)
-    if (!owner) return
-    owner.apply(withDispatchCheckout(owner.run))
-  }
-
   setDispatchBaseBranch(branch: string, sourceId?: string): void {
     const owner = this.ownerFor(sourceId)
     if (!owner) return
@@ -392,7 +385,7 @@ export class SessionConfigController {
     // A pending dispatch keeps its target-host choice in the pending record, so
     // the flip goes through the same commands as its branch menu.
     if (owner.run.pendingHostDispatch?.intent === 'dispatch') {
-      owner.apply(startsWorktree(owner.run) ? withDispatchCheckout(owner.run) : withDispatchWorktree(owner.run, null))
+      owner.apply(startsWorktree(owner.run) ? withDispatchDefaultBranch(owner.run) : withDispatchWorktree(owner.run, null))
       return
     }
     const next = withWorktreeToggled(owner.run)

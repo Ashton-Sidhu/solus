@@ -22,7 +22,7 @@
   import DeviceRunProfiles from "./DeviceRunProfiles.svelte";
   import DeviceToolbar from "./DeviceToolbar.svelte";
   import DeviceTools from "./DeviceTools.svelte";
-  import { deviceLiveState, liveStateLabel, previewGroups, screenshotFileName, selectedPreview, type DeviceLiveState } from "./lib/device-pane";
+  import { deviceLiveState, devicesPaneView, liveStateLabel, previewGroups, screenshotFileName, selectedPreview, type DeviceLiveState } from "./lib/device-pane";
   import { deviceViewState } from "./lib/device-view-state.svelte";
   import { pendingKey } from "./lib/device-tools";
 
@@ -71,6 +71,7 @@
   const canInteract = $derived(liveState === "live" && !!control && !(control.lease?.holder.kind === "agent" && !control.agentPaused));
 
   let adding = $state(false);
+  const view = $derived(devicesPaneView({ isReady: !unavailable && !!deviceState?.settings.enabled, hasSession: !!sessionId, showBuilds, adding, hasPreview: !!preview }));
   let toolsOpen = $state(false);
   /** The build log shown under the toolbar, and whether the profile editor replaces the stage. */
   let runLogId = $state<string | null>(null);
@@ -312,7 +313,7 @@
     </TooltipUI.Root>
   </div>
 
-  {#if unavailable || !deviceState || !deviceState.settings.enabled || !sessionId}
+  {#if view === "status"}
     <div class="text-workspace-chrome flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center" role="status">
       <p class="text-(--solus-text-tertiary)">
         {#if unavailable}{unavailable}{:else if !deviceState}Loading devices…{:else if !deviceState.settings.enabled}Device support is off on this host.{:else}Open a conversation to show its devices.{/if}
@@ -321,16 +322,16 @@
         <Button size="sm" variant="outline" onclick={openDeviceSettings}>Open device settings</Button>
       {/if}
     </div>
-  {:else if showBuilds}
+  {:else if view === "builds" && deviceState}
     <div class="text-workspace-chrome flex min-h-0 flex-1 justify-center overflow-y-auto px-6 py-8">
       <div class="w-full max-w-md">
         <DeviceBuilds {serverId} {sessionId} {deviceState} onInstalled={refocusComposer} />
       </div>
     </div>
-  {:else if adding || !preview}
+  {:else if view === "picker" && deviceState && sessionId}
     <DevicePicker {serverId} {deviceState} {sessionId} {opening} onOpen={openDevice}
       onCancel={preview ? () => { adding = false; refocusComposer(); } : undefined} />
-  {:else}
+  {:else if preview}
     {#if runLogId}
       <DeviceRunLog {serverId} runId={runLogId} visible={surfaceVisible} onClose={() => { runLogId = null; refocusComposer(); }} />
     {/if}

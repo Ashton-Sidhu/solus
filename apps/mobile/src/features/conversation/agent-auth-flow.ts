@@ -19,6 +19,8 @@ export type AgentAuthView =
   | {
       step: 'waiting'
       title: string
+      /** Who the person signs in to: `Claude`, `Codex`, `Claude Design`, or the MCP server. */
+      label: string
       url: string
       /** The device code to type on the page (Codex `/login`). */
       userCode: string | null
@@ -30,6 +32,8 @@ export type AgentAuthView =
     }
   /** `url` is set when the sign-in finishes on the provider's site. */
   | { step: 'finished'; title: string; ok: boolean; message: string; url: string | null }
+  /** The provider refused a turn's login; the person chooses to sign in again. */
+  | { step: 'refused'; title: string; label: string; provider: SeatProvider }
 
 type Flow = { kind: 'seat'; provider: SeatProvider } | { kind: 'agent'; flowId: string }
 
@@ -82,8 +86,8 @@ export class AgentAuthFlow {
     }
     await this.cancelLive()
     const attempt = ++this.attempt
-    const title = command.kind === 'login' ? `Sign in to ${providerName(command.provider)}`
-      : command.kind === 'design-login' ? 'Sign in to Claude Design' : `Sign in to ${command.server}`
+    const label = signInLabel(command)
+    const title = `Sign in to ${label}`
     this.set({ step: 'starting', title })
     try {
       if (command.kind === 'login') {
@@ -91,7 +95,7 @@ export class AgentAuthFlow {
         // Dismissed while it started: the host stops waiting too.
         if (attempt !== this.attempt) return void this.deps.connection.api.seatConnectCancel({ provider: command.provider }).catch(() => undefined)
         this.flow = { kind: 'seat', provider: command.provider }
-        this.set({ step: 'waiting', title, url: started.verificationUrl, userCode: started.userCode ?? null,
+        this.set({ step: 'waiting', title, label, url: started.verificationUrl, userCode: started.userCode ?? null,
           input: started.requiresCodeInput ? 'code' : null, submitted: false, busy: false, error: null })
         return
       }
@@ -104,13 +108,20 @@ export class AgentAuthFlow {
       }
       if (result.state === 'waiting') {
         this.flow = { kind: 'agent', flowId: result.flowId }
-        this.set({ step: 'waiting', title, url: result.url, userCode: null, input: result.input, submitted: false, busy: false, error: null })
+        this.set({ step: 'waiting', title, label, url: result.url, userCode: null, input: result.input, submitted: false, busy: false, error: null })
       } else {
         this.set({ step: 'finished', title, ok: true, message: result.message, url: result.state === 'external' ? result.url : null })
       }
     } catch (error) {
       if (attempt === this.attempt) this.set({ step: 'finished', title, ok: false, message: errorText(error), url: null })
     }
+  }
+
+  /** A turn failed because the provider refused its login. A sign-in already open stays as it is. */
+  noteLoginRefused(provider: SeatProvider): void {
+    if (this.view.step !== 'closed' && this.view.step !== 'finished') return
+    const label = providerName(provider)
+    this.set({ step: 'refused', title: `Sign in to ${label} again`, label, provider })
   }
 
   /** Hands the host the code, or the address the browser ended on. */
@@ -201,6 +212,12 @@ export class AgentAuthFlow {
     this.view = view
     this.changes.notify()
   }
+}
+
+/** Who a sign-in command signs the person in to. */
+function signInLabel(command: AgentAuthCommand): string {
+  if (command.kind === 'login') return providerName(command.provider)
+  return command.kind === 'design-login' ? 'Claude Design' : command.server ?? ''
 }
 
 function providerName(provider: SeatProvider): string {

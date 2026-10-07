@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import {
   EXECUTION_PREFERENCE_KEYS,
+  addShowMeLens,
   PERSONAL_SETTING_KEYS,
   PERSONAL_SETTING_SCHEMAS,
   personalSettingsWithDefaults,
@@ -168,10 +169,23 @@ export class PersonalSettingsStore {
   // ── Internals ──
 
   private load(accountKey: string): Profile | null {
+    const migrationKey = `${profileKey(accountKey)}:show-me.v1`
     const raw = this.storage.getItem(profileKey(accountKey))
-    if (!raw) return null
+    if (!raw) {
+      this.storage.setItem(migrationKey, 'done')
+      return null
+    }
     const parsed = profileJsonSchema.safeParse(raw)
-    return parsed.success ? parsed.data : null
+    if (!parsed.success) return null
+    const profile = parsed.data
+    if (this.storage.getItem(migrationKey) === 'done') return profile
+    const settings = addShowMeLens(profile.settings)
+    if (settings !== profile.settings) {
+      profile.settings = settings
+      this.storage.setItem(profileKey(accountKey), JSON.stringify(profile))
+    }
+    this.storage.setItem(migrationKey, 'done')
+    return profile
   }
 
   private save(): void {

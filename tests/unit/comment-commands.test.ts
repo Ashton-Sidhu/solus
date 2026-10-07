@@ -8,11 +8,10 @@
  * Run with `bun run test:unit`.
  */
 import { describe, expect, test } from 'bun:test'
-import type { PlanComment, WorkAnnotations } from '@solus/contracts/types'
+import type { PlanComment } from '@solus/contracts/types'
 import type { Attribution, User } from '@solus/contracts/user'
 import {
   applyCommentCommand,
-  applyWorkCommand,
   CommentCommandError,
   mayChangeThread,
   workCommentCommandSchema,
@@ -128,40 +127,3 @@ describe('resolving every open thread', () => {
   })
 })
 
-describe('marks on a shared Insights report', () => {
-  const empty: WorkAnnotations = { version: 1, workId: 'w1', comments: [thread()], updatedAt: 0 }
-
-  test('each person keeps their own mark, and a second mark replaces only theirs', () => {
-    // WHY: a mark is one reader's judgement; Bob marking the turn must not
-    // overwrite Alice's, and Alice changing her mind must not add a second one.
-    let ann = applyWorkCommand(empty, { kind: 'mark', mark: { kind: 'too_slow', note: ' Waited on the build ' } }, actor(ALICE))
-    ann = applyWorkCommand(ann, { kind: 'mark', mark: { kind: 'good', note: '' } }, actor(BOB, false, 2000))
-    ann = applyWorkCommand(ann, { kind: 'mark', mark: { kind: 'expensive', note: '' } }, actor(ALICE, false, 3000))
-    expect(ann.marks).toEqual([
-      { by: BOB, kind: 'good', note: '', updatedAt: 2000 },
-      { by: ALICE, kind: 'expensive', note: '', updatedAt: 3000 },
-    ])
-    expect(ann.comments).toBe(empty.comments)
-  })
-
-  test('clearing a mark clears only the caller\'s', () => {
-    let ann = applyWorkCommand(empty, { kind: 'mark', mark: { kind: 'good', note: '' } }, actor(ALICE))
-    ann = applyWorkCommand(ann, { kind: 'mark', mark: { kind: 'bad_answer', note: '' } }, actor(BOB))
-    ann = applyWorkCommand(ann, { kind: 'unmark' }, actor(BOB))
-    expect(ann.marks?.map((mark) => mark.by)).toEqual([ALICE])
-  })
-
-  test('only a person marks: the host or an agent has no judgement to give', () => {
-    expect(() => applyWorkCommand(empty, { kind: 'mark', mark: { kind: 'good', note: '' } }, actor(null))).toThrow(CommentCommandError)
-  })
-
-  test('a thread command leaves the marks as they are', () => {
-    const marked = applyWorkCommand(empty, { kind: 'mark', mark: { kind: 'good', note: '' } }, actor(ALICE))
-    const replied = applyWorkCommand(marked, { kind: 'reply', commentId: 'c1', reply: { id: 'r1', text: 'Agreed' } }, actor(BOB))
-    expect(replied.marks).toBe(marked.marks)
-  })
-
-  test('the wire rejects a mark kind the report does not know', () => {
-    expect(workCommentCommandSchema.safeParse({ kind: 'mark', mark: { kind: 'great', note: '' } }).success).toBe(false)
-  })
-})

@@ -24,13 +24,15 @@
    * it, so the whole dialog steps with the display like the settings rows do.
    */
   const target = $derived(sharesStore.dialog);
-  /** Set while the resource is still on a machine: Share uploads it first (organization-scope §7). */
+  /** Set while a Local work uploads: Share uploads it first (cloud-sharing.md §3). */
   const publication = $derived(target?.publication ?? null);
   const publishProblem = $derived(
     publication && target ? publishProblemMessage(publication.status, target.resource.kind, publication.organizationName) : null,
   );
   const list = $derived(target ? sharesStore.listFor(target.serverId, target.resource) : undefined);
   const directory = $derived(target ? (sharesStore.directories.get(target.serverId) ?? null) : null);
+  /** Until the first answer, a person the list names cannot be told from a former member. */
+  const peopleLoaded = $derived(target ? sharesStore.directories.has(target.serverId) : false);
   const identity = $derived(target ? sharesStore.identities.get(target.serverId) : undefined);
   const canShare = $derived(list?.callerRole === "editor" || list?.callerRole === "owner");
   const useSheet = $derived(runtime.isTouchDevice && !runtime.hasKeyboardPointer);
@@ -178,7 +180,7 @@
         <p class="text-pretty text-(--solus-status-error)" role="alert">{publishProblem}</p>
       {/if}
       <p class="text-pretty text-[0.875em] text-muted-foreground">
-        Sharing keeps this {kindWord} in {publication.organizationName}. The work keeps running on the computer that holds it.
+        Sharing puts this {kindWord} in {publication.organizationName} on Solus Cloud, where the people you choose can open it.
       </p>
     </section>
   {:else if !list}
@@ -283,19 +285,23 @@
          a person named here keeps it whatever the link access above says. -->
     <section class="flex flex-col gap-2.5" aria-label="Who has access">
       <h3 class="font-medium text-foreground">Who has access</h3>
-      <ul class="flex flex-col gap-1" data-testid="share-people">
-        {#each people as person (person.userId)}
-          <li class="flex min-h-10 items-center gap-3 pointer-coarse:min-h-12" data-testid="share-person" data-user-id={person.userId} data-role={person.role}>
-            <UserAvatar user={person.user} size={32} />
-            <span class="min-w-0 flex-1 truncate text-foreground" title={person.detail || undefined}>{person.user.displayName}{person.isSelf ? " (you)" : ""}</span>
-            {#if person.role === "owner" || !canShare}
-              <span class="mr-2 shrink-0 text-muted-foreground">{roleLabel(person.role)}</span>
-            {:else}
-              {@render roleMenu(person.role, (role) => void setRole(person, role), () => void remove(person), "share-person-role")}
-            {/if}
-          </li>
-        {/each}
-      </ul>
+      {#if !peopleLoaded}
+        <p class="flex min-h-10 items-center text-muted-foreground pointer-coarse:min-h-12" role="status">Loading people…</p>
+      {:else}
+        <ul class="flex flex-col gap-1" data-testid="share-people">
+          {#each people as person (person.userId)}
+            <li class="flex min-h-10 items-center gap-3 pointer-coarse:min-h-12" data-testid="share-person" data-user-id={person.userId} data-role={person.role}>
+              <UserAvatar user={person.user} size={32} />
+              <span class="min-w-0 flex-1 truncate text-foreground" title={person.detail || undefined}>{person.user.displayName}{person.isSelf ? " (you)" : ""}</span>
+              {#if person.role === "owner" || !canShare}
+                <span class="mr-2 shrink-0 text-muted-foreground">{roleLabel(person.role)}</span>
+              {:else}
+                {@render roleMenu(person.role, (role) => void setRole(person, role), () => void remove(person), "share-person-role")}
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      {/if}
     </section>
   {/if}
 {/snippet}
@@ -304,7 +310,7 @@
      and the way out. The URL itself never needs to be read, so it is not shown. -->
 {#snippet dialogFooter()}
   {#if publication}
-    {#if publication.status.kind === "failed" || publication.status.kind === "offline" || publication.status.kind === "waiting"}
+    {#if publication.status.kind === "failed" || publication.status.kind === "offline"}
       <Button variant="outline" class="h-10 rounded-full px-4 text-workspace-chrome" onclick={() => void sharesStore.publish()} data-testid="share-publish-retry">Retry</Button>
     {:else}
       <span></span>
@@ -350,7 +356,7 @@
         data-kind={target.resource.kind}
         bind:this={dialogEl}
       >
-        <div class="flex shrink-0 items-center gap-2 px-6 pt-6 pb-5">
+        <div class="flex shrink-0 items-center gap-2 px-6 pt-6 pb-4">
           <h2 class="min-w-0 flex-1 truncate text-[1.25em] font-semibold text-foreground" title={`Share this ${kindWord}`}>Share {target.title}</h2>
           <button
             type="button"
@@ -362,7 +368,7 @@
             <XIcon size={18} />
           </button>
         </div>
-        <div class="flex flex-col gap-6 overflow-y-auto px-6 pb-2">{@render dialogBody()}</div>
+        <div class="flex flex-col gap-6 overflow-y-auto px-6 pt-1 pb-2">{@render dialogBody()}</div>
         <div class="flex shrink-0 items-center justify-between gap-3 px-6 pt-6 pb-6">
           {@render dialogFooter()}
         </div>

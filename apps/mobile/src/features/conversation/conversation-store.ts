@@ -1,4 +1,4 @@
-import type { AgentId, AgentMetadata, PermissionMode, RateLimitInfo, ReasoningEffort, SessionStatus } from '@solus/contracts/types'
+import type { AgentId, AgentMetadata, PermissionMode, RateLimitInfo, ReasoningEffort, SessionOrigin, SessionStatus } from '@solus/contracts/types'
 import type { SessionQueueSnapshot } from '@solus/contracts/session-queue'
 import { Listeners } from '../../lib/listeners'
 import { ConversationController, type ConversationDeps, type ConversationPhase, type ConversationTarget } from './conversation-controller'
@@ -23,6 +23,8 @@ export interface ConversationMeta {
   queue: SessionQueueSnapshot
   hasOlder: boolean
   loadingOlder: boolean
+  /** The agent session on another host that started this one. */
+  startedBy: SessionOrigin | null
   pendingPlan: Extract<TranscriptItem, { kind: 'plan' }> | null
   /** Plans of sessions this one sent work to, waiting on its decision. */
   agentPlans: readonly AgentPlanAwaiting[]
@@ -99,6 +101,7 @@ export class ConversationStore {
       queue: this.controller.queue,
       hasOlder: model.olderCursor !== null,
       loadingOlder: this.controller.loadingOlder,
+      startedBy: this.controller.startedBy,
       pendingPlan: model.pendingPlan(),
       agentPlans: model.agentPlans.awaiting(),
       attachments: this.controller.attachments,

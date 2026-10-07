@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { uuid } from "@solus/contracts/uuid";
-import { SHOW_ME_LENS } from "@solus/contracts/settings";
 import type {
   ReviewDraftComment,
   ReviewLensCodeAnchor,
@@ -222,10 +221,6 @@ export const LENS_TEMPLATES: Omit<SavedLens, "id">[] = [
     name: "Data flow",
     prompt:
       "Trace how one request or event moves through the changed code, step by step. Show where data is read, transformed, and written, and link each step to its line.",
-  },
-  {
-    name: SHOW_ME_LENS.name,
-    prompt: SHOW_ME_LENS.prompt,
   },
 ];
 

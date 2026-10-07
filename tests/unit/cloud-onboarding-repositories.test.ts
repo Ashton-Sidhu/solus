@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { ProviderRepository } from '@solus/contracts/providers'
-import { repositoryKeyOf, repositoryRows, REPOSITORY_ROWS } from '@solus/workspace-ui/components/onboarding/lib/onboarding-repositories'
+import { repositoryKeyOf } from '@solus/contracts/repository-key'
+import { repositoryRows, REPOSITORY_ROWS } from '@solus/workspace-ui/components/onboarding/lib/onboarding-repositories'
 
 // The project stage (docs/plans/cloud-onboarding.md §3.4): a project is a repository,
 // named by the same key project identity uses everywhere.

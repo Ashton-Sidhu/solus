@@ -11,6 +11,8 @@ export type OnboardingStepId =
 export interface OnboardingStep {
   id: OnboardingStepId
   label: string
+  /** The step as one noun, for the line that lists what is already done. */
+  name: string
   /** What this step buys, in the user's terms rather than the command's. */
   detail: string
   /**
@@ -215,8 +217,9 @@ export function hostOnboardingSteps(input: HostOnboardingInput): OnboardingStep[
     {
       id: 'github',
       label: 'Connect GitHub',
+      name: 'GitHub',
       detail: 'A token of its own — nothing carries over from this machine.',
-      why: 'This host needs a token of its own — nothing carries over from this machine. It also finishes the two carried-over items still waiting on GitHub.',
+      why: 'So this server can clone, push and open pull requests as you.',
       automatic: false,
       done: hasCliToken,
       blockedBy: null,
@@ -224,6 +227,7 @@ export function hostOnboardingSteps(input: HostOnboardingInput): OnboardingStep[
     {
       id: 'credential-helper',
       label: 'Teach git to use it',
+      name: 'Git credentials',
       detail: 'So pushes from this host stop asking for a password.',
       why: 'Hands the GitHub token to git so pushes from this host stop asking for a password.',
       automatic: true,
@@ -233,6 +237,7 @@ export function hostOnboardingSteps(input: HostOnboardingInput): OnboardingStep[
     {
       id: 'gh-cli',
       label: 'Install the GitHub CLI',
+      name: 'GitHub CLI',
       detail: 'The binary the next step signs in.',
       why: 'Installs the GitHub CLI, which is what the agent runs to open a pull request.',
       automatic: true,
@@ -242,6 +247,7 @@ export function hostOnboardingSteps(input: HostOnboardingInput): OnboardingStep[
     {
       id: 'gh-auth',
       label: 'Authorize the gh CLI',
+      name: 'gh auth',
       detail: 'What the agent uses to open a pull request.',
       why: 'Signs the gh CLI in with the same token, which is what the agent uses to open a pull request.',
       automatic: true,
@@ -251,8 +257,9 @@ export function hostOnboardingSteps(input: HostOnboardingInput): OnboardingStep[
     {
       id: 'providers',
       label: 'Add a coding provider',
+      name: 'Agent',
       detail: 'Claude Code or Codex — the CLI a session runs through.',
-      why: 'Sessions run through Claude Code or Codex. Adding one installs its CLI if the host is missing it and signs it in — once, in your browser. You can add the other later.',
+      why: 'One is enough to start. Add the other whenever you like.',
       automatic: false,
       done: hasSignedInProvider,
       blockedBy: null,
@@ -417,3 +424,45 @@ export function hostReadinessSummary(steps: OnboardingStep[]): HostReadinessSumm
 
 /** Without these a hosted session either can't start or can't return its work. */
 const BLOCKING_STEPS = new Set<OnboardingStepId>(['github', 'providers'])
+
+/** Where the SSH handshake is. Each one is a different thing to ask the user for. */
+export type PairingView = 'connecting' | 'ssh-target' | 'ssh-password' | 'fallback' | 'error'
+
+export interface OnboardingHeadingInput {
+  hostName: string
+  /** Set while the host is still being paired; null once it is in setup. */
+  pairingView: PairingView | null
+  /** The decision the rail is asking about, or null when nothing is left. */
+  current: OnboardingStep | null
+}
+
+export interface OnboardingHeading {
+  title: string
+  /** One short line of why, never a paragraph. */
+  subtitle: string
+}
+
+/**
+ * The one question the stage asks right now, as a title and one short line.
+ * Kept short on purpose: the stage shows a single question, not an explanation.
+ */
+export function onboardingHeading(input: OnboardingHeadingInput): OnboardingHeading {
+  const { hostName, pairingView, current } = input
+  switch (pairingView) {
+    case 'connecting':
+      return {
+        title: `Reach ${hostName}`,
+        subtitle: 'Solus signs in with your SSH keys. Nothing is installed until it joins.',
+      }
+    case 'ssh-target':
+      return { title: `Reach ${hostName}`, subtitle: 'Enter the SSH address you use for it.' }
+    case 'ssh-password':
+      return { title: `Reach ${hostName}`, subtitle: 'It is used once and never stored.' }
+    case 'fallback':
+      return { title: 'Pair with a code', subtitle: `Enter the six-digit code ${hostName} shows.` }
+    case 'error':
+      return { title: `Couldn't reach ${hostName}`, subtitle: 'Check that it is on and reachable, then try again.' }
+  }
+  if (current) return { title: current.label, subtitle: current.why }
+  return { title: `${hostName} is ready`, subtitle: 'Start a session here now, or switch to it any time.' }
+}

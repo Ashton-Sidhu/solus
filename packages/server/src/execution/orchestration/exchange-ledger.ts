@@ -146,7 +146,7 @@ function draftOf(exchange: Exchange): Exchange {
 function record(exchange: Exchange): SavedExchange {
   return {
     exchangeId: exchange.exchangeId, kind: exchange.kind,
-    senderSessionId: exchange.senderSessionId, targetSessionId: exchange.targetSessionId,
+    senderSessionId: exchange.senderSessionId, targetSessionId: exchange.targetSessionId, targetHostId: exchange.targetHostId,
     provider: exchange.provider, notify: exchange.notify, state: exchange.state, runId: exchange.runId,
     parentExchangeIds: exchange.parentExchangeIds ?? [], fingerprint: exchange.fingerprint,
     disposition: exchange.disposition, dispatchedAt: exchange.dispatchedAt, settledAt: exchange.settledAt,

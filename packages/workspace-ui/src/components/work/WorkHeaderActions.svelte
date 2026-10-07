@@ -1,7 +1,6 @@
 <script lang="ts">
   import {
     Copy as CopyIcon,
-    CloudUpload as CloudUploadIcon,
     Download as DownloadSimpleIcon,
     FileOutput as FileOutputIcon,
     Folder as FolderIcon,
@@ -16,7 +15,7 @@
   import WorkPresence from "./WorkPresence.svelte";
   import { getWorkPaneContext } from "./lib/work-pane-context";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import { getClientShellContext, getSurfaceContext, serversStore, accountStore, sharesStore } from "../../contexts";
+  import { getClientShellContext, getSurfaceContext, accountStore, sharesStore } from "../../contexts";
   import { exportFileName } from "../pickers/lib/export-file-name";
   import {
     downloadPayload,
@@ -127,14 +126,6 @@
   const shareServerId = $derived(workId ? session.worksStore.hostFor(workId) ?? null : null);
   const shareResource = $derived(workId ? ({ kind: "work", id: workId } as const) : null);
   const canShare = $derived(!!shareServerId && !!shareResource && sharesStore.canShareFrom(shareServerId, "work"));
-  // Publish into the window's organization (docs/plans/organization-scope.md §7):
-  // offered on a work that lives on a machine while the window works in one.
-  const organizationName = $derived(serversStore.activeOrganizationName ?? "your organization");
-  // Publication moves the work, so the host takes it from the owner alone; a
-  // Local work keeps no share list and is its host owner's.
-  const isOwner = $derived(!shareServerId || !shareResource || [undefined, "owner"].includes(sharesStore.listFor(shareServerId, shareResource)?.callerRole));
-  const canPublish = $derived(!!workId && isOwner && sharesStore.canPublishWork(shareServerId));
-  const publishing = $derived(!!shareServerId && !!shareResource && sharesStore.isPublishing(shareServerId, shareResource));
 
   function openShare() {
     if (!shareServerId || !shareResource) return;
@@ -237,11 +228,6 @@
       {#if shell.canOpenResource("workspace") && (canShare || (shareServerId && shareResource && !accountStore.isSignedIn))}
         <DropdownMenu.Item data-testid="share-work" disabled={!accountStore.isSignedIn} title={!accountStore.isSignedIn ? "Sign in to share" : undefined} onSelect={openShare}>
           <UsersIcon size={14} /><span class="flex-1 text-left">Share…</span>
-        </DropdownMenu.Item>
-      {/if}
-      {#if canPublish}
-        <DropdownMenu.Item data-testid="publish-work" disabled={publishing} onSelect={() => { if (shareServerId && workId) void sharesStore.publishWork(shareServerId, workId); }}>
-          <CloudUploadIcon size={14} /><span class="flex-1 text-left">{publishing ? "Publishing…" : `Publish to ${organizationName}`}</span>
         </DropdownMenu.Item>
       {/if}
 

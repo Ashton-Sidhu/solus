@@ -9,7 +9,7 @@ if (!process.env.NODE_EXTRA_CA_CERTS) {
 import { app, BrowserWindow, ipcMain, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, safeStorage, shell, powerSaveBlocker, protocol, clipboard } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs'
-import { warmCliPath } from '@solus/server/cli-env'
+import { importLoginShellEnv, warmCliPath } from '@solus/server/cli-env'
 import { createLogger, flushLogs } from '@solus/server/logger'
 import type { AppGlobalShortcuts, AppShortcutCombo } from '@solus/contracts/types'
 import { clampZoomFactor } from '@solus/contracts/zoom'
@@ -37,6 +37,7 @@ import { consumeClientAttachmentRead } from '@solus/desktop-main/client-attachme
 import { configurePlatformServices } from '@solus/server/platform/services'
 import { registerAccountIpc } from '@solus/desktop-main/account/ipc'
 import type { AccountSession } from '@solus/desktop-main/account/account-session'
+import { listDirectory } from '@solus/desktop-main/account/uplink-client'
 import { desktopServerPort } from '@solus/desktop-main/server-port'
 import { ensureScreenCaptureAccess, handleMicrophoneRequests } from '@solus/desktop-main/mac-permissions'
 import { markStartup, traceRendererMarks } from '@solus/desktop-main/startup-trace'
@@ -881,6 +882,15 @@ if (isPairUrl) {
     // costs a persistent child process even for Claude-only workspaces.
     void warmCliPath()
       .catch((err) => log.warn('cli_path_warmup_failed', { error: err instanceof Error ? err.message : String(err) }))
+    // A Dock launch has none of the user's shell profile. Take the allowed
+    // variables (SOLUS_DATA_DIR, SSH_AUTH_SOCK, ...) from the login shell; the
+    // server graph is awaited on it below, because its modules read them as
+    // they evaluate. Tests keep the environment they were launched with.
+    const loginShellEnv = isTestMode
+      ? Promise.resolve()
+      : importLoginShellEnv()
+        .then((names) => { if (names.length > 0) log.info('login_shell_env_imported', { names }) })
+        .catch((err) => log.warn('login_shell_env_import_failed', { error: err instanceof Error ? err.message : String(err) }))
 
     if (process.platform === 'darwin' && app.dock) {
       app.dock.setIcon(join(__dirname, '../../resources/icon.png'))
@@ -935,6 +945,7 @@ if (isPairUrl) {
     // Transcription comes with it: both of its exports are used only from here
     // down, and its model downloader reaches posthog-node — the one heavy
     // dependency still eager once the server graph moved.
+    await loginShellEnv
     const serverGraphLoadStartedAt = performance.now()
     const [
       { bootCore },
@@ -960,6 +971,8 @@ if (isPairUrl) {
         transcribeAudio,
         // The owner of this machine works here without a token; their account session gets one (plans/010-standard-oauth.md).
         ownerAccessToken: async (hostId) => (await accountSession?.acquireHostAccessToken(hostId))?.accessToken ?? null,
+        // The owner's other hosts, where this host's agents may start sessions (docs/plans/cross-host-sessions.md).
+        ownerHosts: async () => accountSession ? (await listDirectory(accountSession))?.hosts ?? null : null,
         // A window paints first; a headless app has none and sweeps at once.
         deferSessionIndex: !isHeadless,
       })

@@ -7,10 +7,10 @@
   import type { SeatProvider } from "@solus/contracts/seats";
   import { seatsStore } from "../../contexts/seats/seats.store.svelte";
   import { cloudAgentSeatsStore as cloudSeats, usesCloudAgentSeats } from "../../contexts/seats/cloud-agent-seats.store.svelte";
-  import DevicePrompt from "../servers/DevicePrompt.svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
-  import { seatAction, seatLabel, seatTokenHint, seatVerificationWhy } from "./lib/seat-copy";
+  import SignInSteps from "./SignInSteps.svelte";
+  import { seatAction, seatLabel, seatTokenHint } from "./lib/seat-copy";
 
   interface Props {
     serverId: string;
@@ -53,14 +53,13 @@
       {cloudSeats.connected(provider) ? "Manage cloud connection" : `Connect ${label}`}
     </Button>
   {:else if status?.state === "connecting" && verification}
-    <DevicePrompt
-      url={verification.verificationUrl}
-      code={verification.userCode}
+    <SignInSteps
       {label}
-      requiresCodeInput={verification.requiresCodeInput}
-      why={seatVerificationWhy(provider, verification.requiresCodeInput)}
+      {verification}
+      error={seatsStore.errorFor(serverId, provider)}
       onsubmit={(code) => seatsStore.submitCode(serverId, provider, code)}
       oncancel={() => void seatsStore.cancel(serverId, provider)}
+      {autofocus}
     />
   {:else if action !== "disconnect" || signInAgain}
     <div class="flex flex-wrap items-center gap-2">

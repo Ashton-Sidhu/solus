@@ -308,6 +308,7 @@ export function applyRestoredSessionMeta(session: Session, meta: SessionMeta): v
     session.run.modelConfig.modelId = meta.model
   }
   if (meta.reasoningEffort) session.run.modelConfig.reasoningEffort = meta.reasoningEffort
+  session.startedBy = meta.startedBy
   session.currentTurnStartedAt = isSessionBusyStatus(session.status)
     ? meta.currentTurnStartedAt ?? session.currentTurnStartedAt
     : null

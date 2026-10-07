@@ -13,6 +13,7 @@ import { hostKey } from '@solus/client-core/host-key'
 import type { GitPullRequestStep } from '@solus/contracts/git-types'
 import type * as Contracts from '@solus/contracts/providers'
 import type { PrFilter, PrListPage, PrProjectListing } from '@solus/contracts/providers'
+import { repositoryKeyOf } from '@solus/contracts/repository-key'
 import { projectScopeOf, worktreeProjectRoot, type IpcContext } from '@solus/contracts/types'
 import { SvelteMap } from 'svelte/reactivity'
 import { prSurfaceError, prUnavailable, type PrSurfaceError } from '../../components/prs/lib/pr-surface-error'
@@ -156,8 +157,7 @@ export class ProjectPrs {
    * reading one cannot be left behind by another that read it some other way.
    */
   absorb(source: Contracts.PullRequest): PullRequest {
-    const { host, owner, repo } = source.baseRepo
-    this.repositoryKey ??= `${host}/${owner}/${repo}`.toLowerCase()
+    this.repositoryKey ??= repositoryKeyOf(source.baseRepo)
     const pr = this.get(source.number)
     pr.apply(source)
     this.byBranch.set(source.headRef, source.number)

@@ -1,7 +1,6 @@
 import type { AuthStatus, ChangedFileStat, DeviceCodePrompt, MergeMethod, ProviderId } from '@solus/contracts/types'
 import type {
   DraftReview,
-  DraftReviewComment,
   PrDiffFileContents,
   PrDiffFileContentsRequest,
   PrDiffRequest,
@@ -13,44 +12,17 @@ import type {
   PrListPage,
   PrReviewer,
   PrReviewerCandidate,
-  PrLifecycleAction,
   PrRevertResult,
   PrStateAction,
   ProviderRepository,
   ProviderViewer,
   PullRequest,
-  PullRequestOverview,
   PullRequestUpdate,
   RepoRef,
   ReviewComment,
   ReviewThread,
 } from '@solus/contracts/providers'
 import type { NumberedPrChecksSummary } from '@solus/contracts/checks-rpc-types'
-
-export type { AuthStatus, DeviceCodePrompt, ProviderId }
-// Host-neutral review DTOs now live in shared/ so preload + renderer can type
-// them too; re-export here so existing `../providers/types` imports keep working.
-export type {
-  DraftReview,
-  DraftReviewComment,
-  PrDiffFileContents,
-  PrDiffFileContentsRequest,
-  PrDiffRequest,
-  PrDiffSlice,
-  PrCommit,
-  PrConversationItem,
-  PrFilter,
-  PrListPage,
-  PrReviewer,
-  PrReviewerCandidate,
-  PrLifecycleAction,
-  PullRequest,
-  PullRequestOverview,
-  PullRequestUpdate,
-  RepoRef,
-  ReviewComment,
-  ReviewThread,
-}
 
 // ─── Auth ───────────────────────────────────────────────────────────────────
 

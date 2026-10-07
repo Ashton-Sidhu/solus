@@ -3,11 +3,15 @@
   import { onMount, tick } from "svelte";
   import { HostlessHostsStore } from "./lib/hostless-hosts.store.svelte";
   import {
-    ArrowRight as ArrowRightIcon,
+    ChevronRight as ChevronIcon,
+    Cloud as CloudIcon,
     Database as HardDrivesIcon,
     Link2 as LinkSimpleIcon,
+    Wifi as NearbyIcon,
     X as XIcon,
   } from "@lucide/svelte";
+  import { cn } from "@solus/workspace-ui/lib/utils";
+  import { cardClass, fieldClass } from "./lib/hostless-styles";
   import { urlHost } from "@solus/client-core/pairing";
   import { defaultDeviceLabel } from "@solus/client-core/device-label";
   import { preferredRouteUrl } from "@solus/client-core/server-connection";
@@ -33,6 +37,13 @@
   let busy = $state(false);
   let smartInputEl: HTMLInputElement | null = $state(null);
   let codeInputEl: HTMLInputElement | null = $state(null);
+  let mainEl: HTMLElement | null = $state(null);
+
+  /** The pairing form is open: chosen from its card, or the only way in. */
+  let isPairing = $state(false);
+  const showsPairingForm = $derived(
+    isPairing || !!selectedHost || (savedServers.length === 0 && !servingHost),
+  );
 
   // A pasted pairing link carries its own token; a bare address (typed or
   // offered) still needs the 6-digit code the host shows in Settings.
@@ -42,7 +53,9 @@
 
   onMount(() => hosts.start(location.origin));
   onMount(() => {
-    if (!window.matchMedia("(max-width: 767px)").matches) smartInputEl?.focus();
+    // The pairing field when it is the only way in, else the first card.
+    if (window.matchMedia("(max-width: 767px)").matches) return;
+    (smartInputEl ?? mainEl?.querySelector<HTMLElement>("button, a"))?.focus();
   });
 
   async function selectHost(host: OfferedHost) {
@@ -55,6 +68,12 @@
   async function clearSelectedHost() {
     selectedHost = null;
     codeInput = "";
+    await tick();
+    smartInputEl?.focus();
+  }
+
+  async function openPairing() {
+    isPairing = true;
     await tick();
     smartInputEl?.focus();
   }
@@ -79,261 +98,194 @@
   }
 </script>
 
-<!-- Same posture as the workspace's new-tab home: one headline, then the one
-     thing this screen exists for. -->
+<!-- The same page a draft shows when no host can run it
+     (docs/plans/draft-connect-host.md): one headline, then one card for each
+     way in. -->
 <div
-  class="text-sm flex min-h-dvh w-full flex-col items-center justify-center gap-8 overflow-y-auto bg-(--solus-bg) px-5 py-10"
+  class="@container flex min-h-dvh w-full flex-col items-center justify-center overflow-y-auto bg-(--solus-bg) px-5 py-10"
   data-solus-ui
 >
-  <header class="flex max-w-[26rem] flex-col items-center gap-2 text-center">
+  <div class="flex w-full max-w-[32rem] flex-col">
     <h1
-      class="text-pretty text-2xl font-medium leading-[1.25] text-(--solus-text-primary)"
+      class="text-center text-pretty text-2xl leading-[1.3] font-medium tracking-[-0.018em] text-(--solus-text-primary) @min-[36rem]:text-3xl @min-[36rem]:font-normal @min-[36rem]:tracking-tight"
     >
-      Connect a host to get started
+      {savedServers.length > 0 ? "Choose a host to start" : "Connect a host to start"}
     </h1>
-    <p class="leading-relaxed text-(--solus-text-tertiary)">
-      Sessions run on a host — your computer or a machine you pair once. After
-      that, Solus reconnects on its own.
+    <p class="mt-2 mb-6 text-center text-workspace-chrome text-pretty text-(--solus-text-tertiary)">
+      A host is a machine that has your code. Solus runs agents there and
+      reconnects on its own.
     </p>
-  </header>
 
-  <main class="flex w-full max-w-[26rem] flex-col gap-4">
-    {#if cloudOrigin.kind === "signed-out" || cloudOrigin.kind === "signed-in"}
-      <!-- Served by the account origin: the directory is one sign-in away, and a
-           signed-in account with nothing listed is told where linking happens. -->
-      <section>
-        <span
-          class="mb-1 block px-1 font-semibold uppercase tracking-[0.03em] text-(--solus-text-tertiary)"
-          >Solus cloud</span
-        >
-        <div
-          class="flex flex-col gap-2 rounded-2xl border border-(--solus-container-border) bg-(--solus-surface-hover)/40 p-3"
-        >
-          {#if cloudOrigin.kind === "signed-out"}
-            <p class="leading-relaxed text-(--solus-text-tertiary)">
-              Sign in to see the hosts linked to your account.
-            </p>
-            <a
-              href={cloudOrigin.signInUrl}
-              class="inline-flex items-center justify-center gap-2 rounded-lg bg-(--solus-accent) px-3 py-2 font-medium text-(--solus-text-on-accent) transition-[opacity,transform] active:scale-[0.98]"
-            >
-              Sign in
-            </a>
-          {:else if savedServers.length === 0}
-            <p class="leading-relaxed text-(--solus-text-tertiary)">
-              No hosts are linked to your account yet. On your computer, open Solus and
-              go to <strong class="font-medium text-(--solus-text-secondary)"
-                >Settings → Connections → Access → Link to Solus cloud</strong
-              >, or
-              <a href={cloudOrigin.linkMachineUrl} class="underline underline-offset-2 text-(--solus-text-secondary)"
-                >get a link code</a
-              > to paste there.
-            </p>
-          {/if}
-        </div>
-      </section>
-    {/if}
-
-    {#if servingHost && !selectedHost}
-      <section>
-        <span
-          class="mb-1 block px-1 font-semibold uppercase tracking-[0.03em] text-(--solus-text-tertiary)"
-          >On this address</span
-        >
-        <div
-          class="flex flex-col overflow-hidden rounded-2xl border border-(--solus-container-border) bg-(--solus-surface-hover)/40 p-1"
-        >
+    <main bind:this={mainEl} class="flex flex-col gap-2">
+      {#each savedServers as server (server.id)}
+        {@const reachable = hosts.reachable.get(server.id)}
+        <div class={cn(cardClass, "pr-2")}>
           <button
             type="button"
-            class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors duration-[var(--duration-quick)] hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-surface-hover) focus-visible:outline-none"
-            onclick={() => selectHost(servingHost!)}
+            class="flex min-w-0 flex-1 items-center gap-3.5 overflow-hidden py-3.5 pl-4 text-left focus-visible:outline-none"
+            onclick={() => activateServer(server)}
           >
-            <HardDrivesIcon
-              size={14}
-              class="shrink-0 text-(--solus-text-tertiary)"
-            />
-            <span class="flex min-w-0 flex-1 flex-col">
-              <span
-                class="truncate  font-medium text-(--solus-text-primary)"
-                >{servingHost.name}</span
-              >
-              <span class="truncate font-mono text-(--solus-text-tertiary)"
-                >{urlHost(servingHost.url)}</span
-              >
-            </span>
-            <span class="shrink-0 font-medium text-(--solus-accent)"
-              >Connect</span
-            >
+            {@render tile(HardDrivesIcon, reachable === true ? "online" : reachable === false ? "offline" : "unknown")}
+            {@render text(
+              server.label,
+              `${reachable === false ? "Offline · " : ""}${urlHost(preferredRouteUrl(server))}`,
+            )}
+            {@render pill("Open")}
+          </button>
+          <button
+            type="button"
+            class="flex size-7 shrink-0 items-center justify-center rounded-md text-(--solus-text-quaternary) opacity-0 transition-[opacity,color] group-hover/card:opacity-100 hover:text-(--solus-text-primary) focus-visible:opacity-100 focus-visible:outline-none pointer-coarse:opacity-100"
+            aria-label={`Forget ${server.label}`}
+            onclick={() => removeServer(server.id)}
+          >
+            <XIcon size={12} />
           </button>
         </div>
-      </section>
-    {/if}
+      {/each}
 
-    {#if savedServers.length > 0}
-      <section>
-        <span
-          class="mb-1 block px-1 font-semibold uppercase tracking-[0.03em] text-(--solus-text-tertiary)"
-          >Your hosts</span
-        >
-        <div
-          class="flex flex-col overflow-hidden rounded-2xl border border-(--solus-container-border) bg-(--solus-surface-hover)/40 p-1"
-        >
-          {#each savedServers as server (server.id)}
-            <div class="group flex items-center">
+      {#if servingHost && !selectedHost}
+        <button type="button" class={cn(cardClass, "px-4 py-3.5 text-left")} onclick={() => selectHost(servingHost!)}>
+          {@render tile(NearbyIcon, null)}
+          {@render text(servingHost.name, `On this address · ${urlHost(servingHost.url)}`)}
+          {@render pill("Connect")}
+        </button>
+      {/if}
+
+      {#if cloudOrigin.kind === "signed-out"}
+        <!-- Served by the account origin: the directory is one sign-in away. -->
+        <a href={cloudOrigin.signInUrl} class={cn(cardClass, "px-4 py-3.5")}>
+          {@render tile(CloudIcon, null)}
+          {@render text("Solus Cloud", "Sign in to see the hosts linked to your account.")}
+          {@render pill("Sign in")}
+        </a>
+      {:else if cloudOrigin.kind === "signed-in" && savedServers.length === 0}
+        <!-- Signed in with nothing listed: say where linking happens. -->
+        <a href={cloudOrigin.linkMachineUrl} class={cn(cardClass, "px-4 py-3.5")}>
+          {@render tile(CloudIcon, null)}
+          {@render text(
+            "Link a computer to your account",
+            "In Solus on your computer, open Settings → Account & sync → Link to Solus Cloud, or get a link code to paste there.",
+            true,
+          )}
+          <ChevronIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
+        </a>
+      {/if}
+
+      {#if showsPairingForm}
+        <form class={cn(cardClass, "flex-col items-stretch gap-3 p-4")} onsubmit={submit}>
+          {#if selectedHost}
+            <div class="flex items-center gap-3.5">
+              {@render tile(NearbyIcon, null)}
+              {@render text(selectedHost.name, urlHost(selectedHost.url))}
               <button
                 type="button"
-                class="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors duration-[var(--duration-quick)] hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-surface-hover) focus-visible:outline-none"
-                onclick={() => activateServer(server)}
+                class="shrink-0 rounded-md px-1.5 py-1 text-xs font-medium text-(--solus-text-tertiary) transition-colors hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
+                onclick={clearSelectedHost}
               >
-                <span
-                  class="size-2 shrink-0 rounded-full {hosts.reachable.get(server.id) ===
-                  true
-                    ? 'bg-emerald-500'
-                    : hosts.reachable.get(server.id) === false
-                      ? 'bg-(--solus-text-quaternary)'
-                      : 'animate-pulse bg-(--solus-text-quaternary)'}"
-                  aria-hidden="true"
-                ></span>
-                <span class="flex min-w-0 flex-1 flex-col">
-                  <span
-                    class="truncate  font-medium text-(--solus-text-primary)"
-                    >{server.label}</span
-                  >
-                  <span
-                    class="truncate font-mono text-(--solus-text-tertiary)"
-                    >{urlHost(preferredRouteUrl(server))}</span
-                  >
-                </span>
-                <ArrowRightIcon
-                  size={14}
-                  class="shrink-0 text-(--solus-text-quaternary) opacity-0 transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100"
-                />
-              </button>
-              <button
-                type="button"
-                class="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-(--solus-text-quaternary) opacity-0 transition-[opacity,color] hover:text-(--solus-text-primary) focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100 pointer-coarse:opacity-100"
-                aria-label={`Forget ${server.label}`}
-                onclick={() => removeServer(server.id)}
-              >
-                <XIcon size={12} />
+                Change
               </button>
             </div>
-          {/each}
-        </div>
-      </section>
-    {/if}
-
-    <section>
-      <span
-        class="mb-1 block px-1 font-semibold uppercase tracking-[0.03em] text-(--solus-text-tertiary)"
-        >{savedServers.length > 0 || servingHost
-          ? "Add a host"
-          : "Connect"}</span
-      >
-      <form
-        class="flex flex-col gap-2.5 rounded-2xl border border-(--solus-container-border) bg-(--solus-surface-hover)/40 p-3"
-        onsubmit={submit}
-      >
-        {#if selectedHost}
-          <p
-            class="rounded-lg bg-(--solus-surface-hover) px-3 py-2 leading-relaxed text-(--solus-text-tertiary)"
-          >
-            On {selectedHost.name}, open Solus and go to <strong
-              class="font-medium text-(--solus-text-secondary)"
-              >Settings → Connections</strong
-            > for the 6-digit code. On a server without a screen, run
-            <code class="font-mono text-(--solus-text-secondary)">solus pair</code>.
-          </p>
-          <div
-            class="flex items-center gap-3 rounded-lg border border-(--solus-container-border) bg-(--solus-accent-light) px-3 py-2.5"
-          >
-            <HardDrivesIcon size={14} class="shrink-0 text-(--solus-accent)" />
-            <span class="flex min-w-0 flex-1 flex-col">
-              <span
-                class="truncate  font-medium text-(--solus-text-primary)"
-                >{selectedHost.name}</span
-              >
-              <span class="truncate font-mono text-(--solus-text-tertiary)"
-                >{urlHost(selectedHost.url)}</span
-              >
-            </span>
-            <button
-              type="button"
-              class="shrink-0 rounded-md px-1.5 py-1 font-medium text-(--solus-text-tertiary) transition-colors hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
-              onclick={clearSelectedHost}
-            >
-              Change
-            </button>
-          </div>
-        {:else}
-          <p
-            class="rounded-lg bg-(--solus-surface-hover) px-3 py-2 leading-relaxed text-(--solus-text-tertiary)"
-          >
-            On your computer, open Solus and go to <strong
-              class="font-medium text-(--solus-text-secondary)"
-              >Settings → Connections</strong
-            >. On a server without a screen, run
-            <code class="font-mono text-(--solus-text-secondary)">solus pair</code>. Scan the QR code, or paste the
-            pairing link or address here.
-          </p>
-          <label class="block">
-            <span class="text-xs font-medium text-(--solus-text-secondary)"
-              >Pairing link or address</span
-            >
+            <p class="text-chrome-dense leading-relaxed text-pretty text-(--solus-text-tertiary)">
+              On {selectedHost.name}, open Solus and go to
+              <strong class="font-medium text-(--solus-text-secondary)">Settings → Hosts → this computer → Access</strong>
+              for the 6-digit code. On a server without a screen, run
+              <code class="font-mono text-(--solus-text-secondary)">solus pair</code>.
+            </p>
+          {:else}
+            <div class="flex items-center gap-3.5">
+              {@render tile(LinkSimpleIcon, null)}
+              {@render text(
+                "Pair another machine",
+                "Paste the pairing link or address from Settings → Hosts → Access on that computer, or run solus pair on a server.",
+                true,
+              )}
+            </div>
             <input
               bind:this={smartInputEl}
               bind:value={smartInput}
               type="text"
-              class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2  text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"
+              aria-label="Pairing link or address"
+              class={fieldClass}
               placeholder="192.168.1.42:3000 or pairing link"
               autocomplete="off"
               autocapitalize="off"
               spellcheck="false"
             />
-          </label>
-        {/if}
+          {/if}
 
-        {#if needsCode}
-          <label class="block">
-            <span class="text-xs font-medium text-(--solus-text-secondary)"
-              >Code</span
-            >
+          {#if needsCode}
             <input
               bind:this={codeInputEl}
               bind:value={codeInput}
               type="text"
-              class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2  tracking-[0.16em] text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"
-              placeholder="000000"
+              aria-label="Code"
+              class={cn(fieldClass, "tracking-[0.16em]")}
+              placeholder="6-digit code"
               inputmode="numeric"
               maxlength="6"
               autocomplete="one-time-code"
             />
-          </label>
-        {/if}
+          {/if}
 
-        <label class="block">
-          <span class="text-xs font-medium text-(--solus-text-secondary)">
-            Device name
-            <span class="font-normal text-(--solus-text-tertiary)">optional</span>
-          </span>
           <input
             bind:value={labelInput}
             type="text"
-            class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2  text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"
-            placeholder={defaultDeviceLabel()}
+            aria-label="Device name (optional)"
+            class={fieldClass}
+            placeholder={`Device name · ${defaultDeviceLabel()}`}
             autocomplete="off"
           />
-        </label>
 
-        <button
-          type="submit"
-          disabled={busy}
-          class="inline-flex items-center justify-center gap-2 rounded-lg bg-(--solus-accent) px-3 py-2  font-medium text-(--solus-text-on-accent) transition-[opacity,transform] active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
-        >
-          <LinkSimpleIcon size={14} />
-          {busy ? "Connecting…" : "Connect"}
+          <button
+            type="submit"
+            disabled={busy}
+            class="inline-flex items-center justify-center gap-2 self-end rounded-full bg-(--solus-accent) px-4 py-1.5 text-workspace-chrome font-medium text-(--solus-text-on-accent) transition-[opacity,scale] active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
+          >
+            {busy ? "Connecting…" : "Connect"}
+          </button>
+        </form>
+      {:else}
+        <button type="button" class={cn(cardClass, "px-4 py-3.5 text-left")} onclick={openPairing}>
+          {@render tile(LinkSimpleIcon, null)}
+          {@render text("Pair another machine", "Enter its pairing link or address.")}
+          <ChevronIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
         </button>
-      </form>
-    </section>
-  </main>
+      {/if}
+    </main>
+  </div>
 </div>
+
+{#snippet tile(Icon: typeof CloudIcon, status: "online" | "offline" | "unknown" | null)}
+  <span class="relative grid size-8 shrink-0 place-items-center rounded-[0.5625rem] bg-(--solus-surface-hover) text-(--solus-text-tertiary)">
+    <Icon size={15} />
+    {#if status}
+      <span
+        class={cn(
+          "absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-(--solus-input-pill-bg)",
+          status === "online"
+            ? "bg-(--solus-status-complete)"
+            : status === "offline"
+              ? "bg-(--solus-status-error)"
+              : "bg-(--solus-text-quaternary)",
+        )}
+        aria-hidden="true"
+      ></span>
+    {/if}
+  </span>
+{/snippet}
+
+{#snippet text(label: string, detail: string, wraps = false)}
+  <span class="min-w-0 flex-1">
+    <span class="block truncate text-workspace-chrome font-medium text-(--solus-text-primary)">{label}</span>
+    <span
+      class={cn(
+        "mt-0.5 block text-chrome-dense text-(--solus-text-tertiary)",
+        wraps ? "leading-relaxed text-pretty" : "truncate",
+      )}>{detail}</span
+    >
+  </span>
+{/snippet}
+
+{#snippet pill(label: string)}
+  <span class="shrink-0 rounded-full bg-(--solus-accent-soft) px-2.5 py-0.5 text-xs text-(--solus-accent)">{label}</span>
+{/snippet}

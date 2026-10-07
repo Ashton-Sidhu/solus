@@ -138,7 +138,7 @@ export const SOLUS_THEME_SNAPSHOT = {
     '--solus-art-5': '#1b4ed8',
     '--solus-art-6': '#9333ea',
     '--solus-art-1': '#e11d48',
-    '--solus-art-3': '#2f9a5a',
+    '--solus-art-3': '#34c26f',
     '--solus-font-family': "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif",
     '--solus-container-bg-collapsed': '#faf9f4',
     '--solus-surface-primary': '#f3f3f3',
@@ -149,7 +149,7 @@ export const SOLUS_THEME_SNAPSHOT = {
     '--solus-accent-border': 'rgba(217, 119, 87, 0.19)',
     '--solus-accent-border-medium': 'rgba(217, 119, 87, 0.25)',
     '--solus-tool-border': '#dddad2',
-    '--solus-art-2': '#d97706',
+    '--solus-art-2': '#f59e0b',
   },
   dark: {
     '--solus-container-bg': '#262522fa',

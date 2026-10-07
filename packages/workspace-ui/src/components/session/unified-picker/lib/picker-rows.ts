@@ -8,7 +8,6 @@ import type { SidebarSessionChild } from '../../../../contexts/workspace/session
 import type { PreviewHitTarget } from '../../../../lib/preview.svelte'
 import { taskPickerSections } from '../../../tasks/lib/task-picker-sections'
 import { isDone } from '../../../tasks/lib/tasks-list-view'
-import type { ProjectFilterChoice } from '../../lib/task-list'
 import {
   firstWordIndex,
   flattenedLower,
@@ -18,7 +17,7 @@ import {
   type PickerSort,
 } from './picker-search'
 import { activityScore, compareRelevance, nameScore, topHits, type Relevance } from './picker-relevance'
-import { activeSince, keepsSession, keepsTask, NO_PICKER_FILTERS, type PickerFilters } from './picker-filters'
+import { activeSince, keepsHost, keepsSession, keepsTask, NO_PICKER_FILTERS, type PickerFilters } from './picker-filters'
 import {
   compareListings,
   matchedSessions,
@@ -156,36 +155,30 @@ export function conversationProjectLabel(meta: SessionMeta): string {
 }
 
 /**
- * Every project the picker can scope to, with how many tasks each holds.
+ * The projects the picker can scope to, by project key, each once.
  *
  * Built from the picker's own list rather than from the sidebar's columns: a
  * project can hold plenty of work and still have no sidebar row on this
  * client, and a scope you cannot reach is not a scope. The composer's own
  * project leads and is always offered — a fresh project with no task yet must
- * still be nameable, which is the case that sent the user looking here. Every
- * known project follows, task or not: a project whose work is all sessions
- * must still be a scope.
+ * still be nameable. Every project with a task follows, then every known
+ * project: a project whose work is all sessions must still be a scope.
  */
-export function pickerProjectChoices(
+export function pickerProjectKeys(
+  currentProjectKey: string | null,
   tasks: readonly Task[],
-  current: { projectKey: string; label: string } | null,
-  knownProjects: readonly { projectKey: string; label: string }[] = [],
-): ProjectFilterChoice[] {
-  const choices = new Map<string, ProjectFilterChoice>()
-  if (current) choices.set(current.projectKey, { ...current, count: 0 })
+  projectKeyOf: (task: Task) => string | null,
+  knownProjectKeys: Iterable<string>,
+): string[] {
+  const keys = new Set<string>()
+  if (currentProjectKey) keys.add(currentProjectKey)
   for (const task of tasks) {
-    // Narrowing only: the contract still types the key as optional, though
-    // nothing writes a task without one.
-    const projectKey = task.projectKey
-    if (!projectKey) continue
-    const existing = choices.get(projectKey)
-    if (existing) existing.count += 1
-    else choices.set(projectKey, { projectKey, label: projectLabel(task), count: 1 })
+    if (isChat(task.projectKey)) continue
+    const projectKey = projectKeyOf(task)
+    if (projectKey) keys.add(projectKey)
   }
-  for (const project of knownProjects) {
-    if (!choices.has(project.projectKey)) choices.set(project.projectKey, { ...project, count: 0 })
-  }
-  return [...choices.values()]
+  for (const projectKey of knownProjectKeys) keys.add(projectKey)
+  return [...keys]
 }
 
 /**
@@ -229,6 +222,9 @@ export interface PickerRowsInput {
   /** Scope the list to one project, or null to list every project. Every task
    *  has a project, so a scope is a plain equality test with no exception. */
   projectKey?: string | null
+  /** The project a task belongs to (`tasksStore.projectKeyOf`), so every
+   *  checkout of a project is in its scope. The task's own key by default. */
+  projectKeyOf?: (task: Task) => string | null
   /** How each section under a query is ordered. Relevance by default. */
   sort?: PickerSort
   sessionsFor: (task: Task) => SidebarSessionChild[]
@@ -339,6 +335,7 @@ function rememberOwners(owners: Map<string, SessionOwner>, task: Task, sessions:
 /** The tasks the query and scope keep, and the sessions a query's words name. */
 function keepMatches(input: PickerRowsInput, words: readonly string[]) {
   const scope = input.projectKey ?? null
+  const projectKeyOf = input.projectKeyOf ?? ((task: Task) => task.projectKey ?? null)
   const kept: KeptTask[] = []
   const nameHits: TaskSession[] = []
   // Every task's sessions are read anyway; remember whose each is so a
@@ -348,13 +345,13 @@ function keepMatches(input: PickerRowsInput, words: readonly string[]) {
   const { filters, since } = narrowing(input)
   for (const task of input.tasks) {
     const sessions = input.sessionsFor(task).filter((session) => session.sessionId || session.tabId)
-    const inScope = !scope || task.projectKey === scope
+    const inScope = !scope || projectKeyOf(task) === scope
     rememberOwners(ownerBySessionId, task, sessions, inScope)
     const matchedIn = input.resultType === 'sessions' || !keepsTask(task, filters, since)
       ? null
       : taskMatchField(task, words, input.commentPassages?.get(task.id))
     const matchingSessions = input.resultType !== 'tasks' && (words.length || input.resultType === 'sessions')
-      ? sessions.filter((session) => sessionMatches(session, words) && keepsSession(session.provider, session.lastActivityAt, filters, since))
+      ? sessions.filter((session) => sessionMatches(session, words) && keepsSession(session, session.lastActivityAt, filters, since))
       : []
     if (!matchedIn && matchingSessions.length === 0) continue
     if (!inScope) {
@@ -517,6 +514,7 @@ function queryList(
 ): PickerList {
   const sort = words.length ? input.sort ?? 'relevance' : 'recency'
   const now = input.now ?? Date.now()
+  const { filters } = narrowing(input)
   // Input order is newest first. Relevance ranks with a stable sort, so
   // recency stays the tiebreak; recency keeps the input order as it is.
   const scoredTasks: RankedTask[] = kept.map((item) => ({ ...item, relevance: taskRelevance(item, words, now) }))
@@ -525,7 +523,9 @@ function queryList(
     : scoredTasks
   const listings = input.resultType === 'tasks' ? [] : matchedSessions(
     nameHits,
-    words.length ? input.conversations ?? [] : [],
+    // A host's record can open on another machine, so the Host filter is
+    // checked against the machine each hit opens on.
+    words.length ? (input.conversations ?? []).filter((result) => keepsHost(result.session.serverId, filters)) : [],
     ownerBySessionId,
     sort,
     words,
@@ -699,6 +699,11 @@ export function pickerSessionTaskTitle(row: Exclude<PickerEntry, { kind: 'task' 
 
 export function pickerSessionProject(row: Exclude<PickerEntry, { kind: 'task' }>): string {
   return row.kind === 'session' ? projectLabel(row.task) : conversationProjectLabel(row.meta)
+}
+
+/** The host the session ran on. */
+export function pickerSessionServerId(row: Exclude<PickerEntry, { kind: 'task' }>): string | null | undefined {
+  return row.kind === 'session' ? row.session.serverId : row.meta.serverId
 }
 
 export function pickerSessionActivity(row: Exclude<PickerEntry, { kind: 'task' }>): number {

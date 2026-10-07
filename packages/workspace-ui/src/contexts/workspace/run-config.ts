@@ -381,16 +381,20 @@ export function withDispatchWorktree(run: RunConfig, worktree: WorktreeEntry | n
   }
 }
 
-/** Work directly in the target host's checkout of the repository, on the
- * branch it holds, as a person does in their own clone. */
-export function withDispatchCheckout(run: RunConfig): RunConfig {
+/** Work on the repository's default branch on the target host: in its
+ * checkout when that holds the branch, so no worktree is made by default. With
+ * no known default branch, the target host resolves it on Send. */
+export function withDispatchDefaultBranch(run: RunConfig): RunConfig {
   const pending = run.pendingHostDispatch
   if (pending?.intent !== 'dispatch') return run
-  return {
-    ...run,
-    worktree: null,
-    pendingHostDispatch: { serverId: pending.serverId, intent: 'dispatch', repoKey: pending.repoKey },
+  const pendingHostDispatch: PendingHostDispatch = {
+    serverId: pending.serverId,
+    intent: 'dispatch',
+    repoKey: pending.repoKey,
   }
+  const baseBranch = run.gitContext?.targetBranch
+  if (baseBranch) pendingHostDispatch.baseBranch = baseBranch
+  return { ...run, worktree: null, pendingHostDispatch }
 }
 
 /** Materialize an origin branch as a target-host worktree. This records only

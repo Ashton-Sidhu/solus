@@ -3,7 +3,7 @@ import type { SessionMeta, SessionSearchHit, SessionSearchResult } from '@solus/
 import { snippetWindow } from '@solus/contracts/search-snippet'
 import type { SidebarSessionChild } from '../../../../contexts/workspace/session-sidebar.store.svelte'
 import { isDone } from '../../../tasks/lib/tasks-list-view'
-import { activeSince, type PickerFilters } from './picker-filters'
+import { activeSince, keepsHost, type PickerFilters } from './picker-filters'
 import { activityScore, compareRelevance, nameScore, type Relevance } from './picker-relevance'
 import { matchesEveryWord, type PickerSort } from './picker-search'
 import type { ConversationHit } from './picker-rows'
@@ -153,6 +153,7 @@ export function unclaimedSessions(
     if (ownerBySessionId.has(sessionIdentity(meta))) return []
     if (since !== undefined && ts < since) return []
     if (filters.agent !== 'any' && meta.provider !== filters.agent) return []
+    if (!keepsHost(meta.serverId, filters)) return []
     return [{ kind: 'conversation', meta, ts, relevance: { tier: 'evidence', score: 0 } }]
   })
 }

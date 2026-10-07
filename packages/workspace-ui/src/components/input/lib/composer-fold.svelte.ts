@@ -1,5 +1,6 @@
 import { untrack } from "svelte";
 import { getSettingsContext, runtime } from "../../../contexts";
+import { FOCUS_INPUT_EVENT } from "../../../lib/inputFocus";
 import {
   COMPOSER_REFOCUS_GRACE_MS,
   floatingLayerOf,
@@ -124,12 +125,18 @@ export function useComposerFold(options: ComposerFoldOptions) {
       if (outsidePointerReleaseTimer !== null) clearTimeout(outsidePointerReleaseTimer);
       outsidePointerReleaseTimer = setTimeout(releaseOutsidePointer, 1500);
     };
+    // A focus request is the keyboard on its way back: a sidebar row or a
+    // panel control took focus for a click and hands it to the bar a frame or
+    // two later. Folding in between grows the bar again at once.
+    const handleFocusRequest = () => scheduleSettle(COMPOSER_REFOCUS_GRACE_MS);
     document.addEventListener("focusin", handleFocusChange, true);
     document.addEventListener("focusout", handleFocusChange, true);
     document.addEventListener("pointerdown", handlePointerDown, true);
     document.addEventListener("pointerup", releaseOutsidePointer, true);
     document.addEventListener("pointercancel", releaseOutsidePointer, true);
+    window.addEventListener(FOCUS_INPUT_EVENT, handleFocusRequest);
     return () => {
+      window.removeEventListener(FOCUS_INPUT_EVENT, handleFocusRequest);
       document.removeEventListener("focusin", handleFocusChange, true);
       document.removeEventListener("focusout", handleFocusChange, true);
       document.removeEventListener("pointerdown", handlePointerDown, true);

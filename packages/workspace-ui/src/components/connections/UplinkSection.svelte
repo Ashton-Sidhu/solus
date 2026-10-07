@@ -1,12 +1,13 @@
 <script lang="ts">
   /** The host's link to the owner's Solus cloud account (personal Uplink, C4).
-   *  Shown to a local owner whenever this client can hold an account: signed out
-   *  it offers sign-in, signed in it links. Unlinking needs no account — the host
-   *  holds its own token for that — so a linked host always offers it. A device
-   *  arriving through the tunnel never sees it: linking changes how the host is reached.
-   *  A managed host never shows it either: its link is system-owned (managed-hosts.md §1). */
+   *  A local owner — the desktop on the machine or a paired device — changes it:
+   *  signed out it offers sign-in, signed in it links. Unlinking needs no account
+   *  (the host holds its own token for that), so a linked host always offers it.
+   *  An owner who arrived through the tunnel sees the link and cannot change it:
+   *  linking changes how the host is reached. A managed host never shows it: its
+   *  link is system-owned (managed-hosts.md §1). */
   import { localApi } from "@solus/client-core/local-api";
-  import { accountStore, connectionsStore, uplinkStatusDescription, uplinkStore } from "../../contexts";
+  import { accountStore, uplinkStatusDescription, uplinkStore } from "../../contexts";
   import { hostWebsiteUrl } from "../../contexts/connections/host-routes";
   import { Button } from "../ui/button";
   import SettingsSection from "../settings/SettingsSection.svelte";
@@ -14,21 +15,21 @@
 
   interface Props {
     serverId: string;
+    label?: string;
   }
 
-  let { serverId }: Props = $props();
+  let { serverId, label = "Solus Cloud" }: Props = $props();
 
-  const showSection = $derived(
-    connectionsStore.serverInfo?.principal === "local-owner" &&
-      connectionsStore.serverInfo.hostKind !== "managed" &&
-      uplinkStore.accountAvailable,
-  );
+  const linkControl = $derived(uplinkStore.controlFor(serverId));
+  // Linking takes an account to issue the ticket; a client without one (a web
+  // client served by a host, not by Solus cloud) can only say where to link.
+  const canChange = $derived(linkControl === "manage" && uplinkStore.accountAvailable);
   const uplink = $derived(uplinkStore.statusFor(serverId));
   const uplinkBusy = $derived(uplinkStore.busyServerId === serverId);
   const account = $derived(accountStore.state);
 
   $effect(() => {
-    if (showSection) void uplinkStore.refresh(serverId);
+    void uplinkStore.refresh(serverId);
   });
 
   const linked = $derived(uplink?.linked === true);
@@ -40,28 +41,33 @@
   const rowLabel = $derived(
     linked
       ? "Linked to your account"
-      : uplinkStore.canLink
-        ? "Link to Solus cloud"
+      : !canChange || uplinkStore.canLink
+        ? "Link to Solus Cloud"
         : account.kind === "signing-in"
           ? "Confirm in your browser"
-          : "Sign in to Solus cloud",
+          : "Sign in to Solus Cloud",
   );
   const rowDescription = $derived(
-    linked || uplinkStore.canLink
-      ? uplinkStatusDescription(uplink)
-      : account.kind === "signing-in"
-        ? `Enter ${account.userCode} on the approval page to sign this Mac in.`
-        : account.kind === "unavailable"
-          ? "The system keychain is unavailable, so an account cannot be stored on this Mac."
-          : "Sign in to reach this host from your other devices through your Solus account.",
+    linkControl === "view"
+      ? `${uplinkStatusDescription(uplink)} Change the link from the host itself or from a paired device.`
+      : !canChange && !linked
+        ? "Open Solus from your Solus Cloud account or from the desktop app to link this host."
+        : linked || uplinkStore.canLink
+          ? uplinkStatusDescription(uplink)
+          : account.kind === "signing-in"
+            ? `Enter ${account.userCode} on the approval page to sign this Mac in.`
+            : account.kind === "unavailable"
+              ? "The system keychain is unavailable, so an account cannot be stored on this Mac."
+              : "Sign in to reach this host from your other devices through your Solus account.",
   );
 </script>
 
-{#if showSection}
-  <SettingsSection label="Solus cloud">
+{#if linkControl !== "none"}
+  <SettingsSection {label}>
     <SettingsRow label={rowLabel} description={rowDescription}>
       {#snippet control()}
-        {#if linked}
+        <!-- Without a button, the description says where to change the link. -->
+        {#if linkControl !== "manage" || (!canChange && !linked)}{:else if linked}
           <Button
             variant="outline"
             size="sm"

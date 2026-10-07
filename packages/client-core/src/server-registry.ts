@@ -301,7 +301,3 @@ export function getActiveServerId(): string {
 export function setActiveServerId(id: string): void {
   localStorage.setItem(ACTIVE_KEY, id || LOCAL_SERVER_ID)
 }
-
-export function clearActiveServerId(): void {
-  localStorage.removeItem(ACTIVE_KEY)
-}

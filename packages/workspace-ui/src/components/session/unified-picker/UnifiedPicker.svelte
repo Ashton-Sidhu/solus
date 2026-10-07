@@ -36,7 +36,6 @@
   import TaskPreviewPane from "./TaskPreviewPane.svelte";
   import UnifiedPickerRow from "./UnifiedPickerRow.svelte";
   import { ListProjectSwitcher } from "../../ui/list-page";
-  import type { ListProjectOption } from "../../ui/list-page/list-page";
   import { resolvePickerScope, scopeForChoice } from "./lib/picker-scope";
   import { PickerSearches } from "./lib/conversation-search.svelte";
   import { mergeSessionHomes, type SessionHomeHosts } from "../lib/session-home";
@@ -135,31 +134,21 @@
   }
   // The picker opens where the user already is. Without this it listed every
   // root task on every connected host, so ⌘P from a project's own composer
-  // answered with everyone else's work. `currentProject` is the same rule the
-  // sidebar uses to decide what project a draft belongs to.
-  const currentProjectKey = $derived(sidebarStore.currentProject?.projectKey ?? null);
+  // answered with everyone else's work. `currentProjectKey` is the same rule
+  // the sidebar uses to decide what project a draft belongs to.
+  const currentProjectKey = $derived(sidebarStore.currentProjectKey);
   const scopeProjectKey = $derived(resolvePickerScope(session.ui.pickerScope, currentProjectKey));
-  const projectChoices = $derived(sidebarStore.pickerProjectChoices);
+  // One row per project, built by the same rule as every other project list.
+  const projectOptions = $derived(sidebarStore.pickerProjectOptions);
   const scopeProject = $derived(
-    projectChoices.find((choice) => choice.projectKey === scopeProjectKey) ?? null,
-  );
-  // The same scope control every list page uses. The picker scopes by project
-  // path across hosts, so an option's key is its path and its host is only
-  // the one its favicon is read from.
-  const projectOptions = $derived(
-    projectChoices.map<ListProjectOption>((choice) => ({
-      key: choice.projectKey,
-      projectKey: choice.projectKey,
-      serverId: serverConnections.defaultMachineId() ?? "",
-      label: choice.label,
-      available: true,
-    })),
+    projectOptions.find((option) => option.key === scopeProjectKey) ?? null,
   );
   const list = $derived(
     buildPickerRows({
       tasks, query, sessionsFor, expandedTaskIds,
       resultType: session.ui.pickerResultType,
       projectKey: scopeProjectKey,
+      projectKeyOf: (task) => session.tasksStore.projectKeyOf(task),
       sort: session.ui.pickerSort,
       openTaskIds: new Set(sidebarStore.activeTasks.flatMap((row) => row.taskId ?? [])),
       conversations: conversationHits,
@@ -338,7 +327,7 @@
   // underneath the picker also claims.
   useScope("task-picker", { active: () => open });
   useKeybinding("task-picker.choose-project", () => (scopeMenuOpen = true), {
-    enabled: () => open && projectChoices.length > 0,
+    enabled: () => open && projectOptions.length > 0,
   });
   useKeybinding("task-picker.result-type", () => (resultMenuOpen = true), { enabled: () => open });
   useKeybinding("task-picker.search-options", () => (searchOptionsOpen = true), {
@@ -664,7 +653,7 @@
          in its crumb form, which opens its menu from its own left edge — the
          chip form hangs its menu to the right and the card clipped it. Hidden
          only when there is no project to offer, where it would do nothing. -->
-    {#if projectChoices.length > 0}
+    {#if projectOptions.length > 0}
       <!-- The crumb yields width to its neighbours, and the search field takes
            every pixel it is offered, so unboxed the label shrank to two letters.
            A box that will not shrink gives the name its full width, capped so
@@ -674,7 +663,7 @@
           projects={projectOptions}
           activeKey={scopeProjectKey ?? undefined}
           emptyLabel="All projects"
-          onSelect={(option) => chooseProject(option.projectKey)}
+          onSelect={(option) => chooseProject(option.key)}
           onSelectAll={() => chooseProject(null)}
           footerNote="Switching keeps your search"
           bind:menuOpen={scopeMenuOpen}

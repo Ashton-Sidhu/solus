@@ -7,7 +7,6 @@
     type ProjectPanelSectionId,
     getSessionEnvironmentStore,
     getSessionSidebarStore,
-    serversStore,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { isProjectRailOpen, projectRailWidth } from "./lib/rail-width";
@@ -168,14 +167,6 @@
   const canDrive = $derived(canDriveSession(panelRun?.serverId, panelSession?.id));
   const panelEnvironment = $derived(environmentStore.environmentFor(panelRun));
 
-  // Where this session runs. Local is the unmarked case — the machine under the
-  // user's hands never needs stating — so the chip appears only for a remote
-  // host, and states its reachability in the same breath.
-  const remoteHost = $derived(serversStore.hostFor(panelRun?.serverId));
-  const remoteHostAffinity = $derived(
-    serversStore.affinityFor(panelRun?.serverId),
-  );
-
   const gitCtx = $derived(panelEnvironment.checkout);
   const gitCwd = $derived(panelEnvironment.cwd);
 
@@ -272,23 +263,6 @@
 
 </script>
 
-{#snippet environmentHeaderBadge()}
-  {#if remoteHostAffinity && remoteHost}
-    {@const HostIcon = remoteHostAffinity.icon}
-    <!-- Read-only: the host is chosen before the session starts and locked
-         after, so the chip states a fact rather than offering a picker. -->
-    <span
-      class="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--solus-text-primary)_6%,transparent)] px-1.5 py-0.5 font-medium tracking-normal text-(--solus-text-secondary) normal-case dark:bg-[color-mix(in_srgb,var(--solus-text-primary)_10%,transparent)]"
-      title={remoteHostAffinity.tooltip}
-    >
-      <HostIcon size={11} class={remoteHostAffinity.className} />
-      <span class="max-w-24 truncate @max-[17rem]:max-w-16"
-        >{remoteHost.label}</span
-      >
-    </span>
-  {/if}
-{/snippet}
-
 {#snippet linkedHeaderExtra()}
   <span class="header-extra">
     <button
@@ -375,7 +349,6 @@
       titlebar
       collapsed={collapsedSections.environment}
       onToggle={() => toggleSection("environment")}
-      headerBadge={environmentHeaderBadge}
       headerExtra={environmentHeaderExtra}
       onResizePointerDown={startResize}
     >

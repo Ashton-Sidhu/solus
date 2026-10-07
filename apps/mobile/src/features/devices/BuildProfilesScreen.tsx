@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Alert, View } from 'react-native'
-import { RUN_PROFILE_PRESETS, profileDraft, profilesFromDrafts, saveRunProfiles, type RunProfileDraft } from '@solus/client-core/device-run-profiles'
+import { RUN_PROFILE_PRESETS, fitPresetToProject, profileDraft, profilesFromDrafts, saveRunProfiles, type RunProfileDraft } from '@solus/client-core/device-run-profiles'
+import type { DeviceRunProfile } from '@solus/contracts/device-types'
 import { AppText as Text, AppTextInput as TextInput } from '../../components/AppText'
 import { ControlPill } from '../../components/ControlPill'
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -27,6 +28,9 @@ export function BuildProfilesScreen({ navigation, route }: ScreenProps<'BuildPro
   const [loaded, setLoaded] = useState<Loaded>({ kind: 'loading' })
   const [drafts, setDrafts] = useState<RunProfileDraft[]>([])
   const [saving, setSaving] = useState(false)
+  const [adding, setAdding] = useState(false)
+  /** How many profiles the project had: saving nothing over nothing would only look like a setup. */
+  const [savedCount, setSavedCount] = useState(0)
 
   useEffect(() => {
     if (!api) return
@@ -35,6 +39,7 @@ export function BuildProfilesScreen({ navigation, route }: ScreenProps<'BuildPro
       (config) => {
         if (!live) return
         setDrafts((config?.deviceRuns ?? []).map(profileDraft))
+        setSavedCount(config?.deviceRuns?.length ?? 0)
         setLoaded({ kind: 'loaded' })
       },
       (cause: unknown) => { if (live) setLoaded({ kind: 'error', message: errorText(cause) }) },
@@ -44,6 +49,18 @@ export function BuildProfilesScreen({ navigation, route }: ScreenProps<'BuildPro
 
   const change = (index: number, fields: Partial<RunProfileDraft>) => {
     setDrafts((current) => current.map((draft, at) => (at === index ? { ...draft, ...fields } : draft)))
+  }
+
+  // A preset starts in the folder the app is in (a monorepo's apps/mobile/ios), with the Xcode workspace there.
+  const add = async (profile: DeviceRunProfile) => {
+    if (!api || adding) return
+    setAdding(true)
+    try {
+      const fitted = await fitPresetToProject(api, projectPath, profile)
+      setDrafts((current) => [...current, profileDraft(fitted)])
+    } finally {
+      setAdding(false)
+    }
   }
 
   const save = async () => {
@@ -98,11 +115,11 @@ export function BuildProfilesScreen({ navigation, route }: ScreenProps<'BuildPro
           <SectionTitle>Add a profile</SectionTitle>
           <View className="flex-row flex-wrap gap-2">
             {RUN_PROFILE_PRESETS.map((preset) => (
-              <ControlPill key={preset.label} variant="pill" label={preset.label} accessibilityLabel={`Add the ${preset.label} profile`} onPress={() => setDrafts((current) => [...current, profileDraft(preset.profile)])} />
+              <ControlPill key={preset.label} variant="pill" label={preset.label} accessibilityLabel={`Add the ${preset.label} profile`} disabled={adding} onPress={() => void add(preset.profile)} />
             ))}
           </View>
           <View className="flex-row pt-2">
-            <ControlPill variant="primary" label={saving ? 'Saving...' : 'Save'} accessibilityLabel="Save the build profiles" disabled={saving} onPress={() => void save()} />
+            <ControlPill variant="primary" label={saving ? 'Saving...' : 'Save'} accessibilityLabel="Save the build profiles" disabled={saving || (drafts.length === 0 && savedCount === 0)} onPress={() => void save()} />
           </View>
           <Text className="px-1 text-xs leading-snug text-foreground-muted">The command runs in the folder without a shell. A * in the output matches within one folder name; the newest match wins.</Text>
         </>

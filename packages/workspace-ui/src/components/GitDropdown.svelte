@@ -42,8 +42,6 @@
     onSelectBranch: (branch: string) => void;
     onSelectWorktree: (worktree: WorktreeEntry) => void;
     onSelectNewWorktree?: (baseBranch?: string) => void;
-    /** A pending dispatch works in the target host's checkout, not a worktree. */
-    onSelectDispatchCheckout?: () => void;
     /** Whether the next session branches its own worktree. Set with
      *  `onSelectStartIn` where this menu also chooses the checkout type
      *  for a session that has not started. */
@@ -67,7 +65,6 @@
     onSelectBranch,
     onSelectWorktree,
     onSelectNewWorktree,
-    onSelectDispatchCheckout,
     startsNewWorktree = false,
     worktreeBlockedNote = null,
     onSelectStartIn,
@@ -96,11 +93,8 @@
       ? run.pendingHostDispatch
       : null,
   );
-  // A dispatch works in the target host's checkout, a new worktree there, or an
-  // existing one (`pendingDispatch.worktree`); an origin branch is a new worktree too.
-  const dispatchInCheckout = $derived(
-    !!pendingDispatch && !run?.worktree && !pendingDispatch.worktree,
-  );
+  // A dispatch works on an origin branch (the default branch unless one is
+  // picked), in a new worktree there, or in an existing one (`pendingDispatch.worktree`).
   const dispatchNewWorktree = $derived(
     !!pendingDispatch && !!run?.worktree && !pendingDispatch.baseBranch,
   );
@@ -163,11 +157,6 @@
   function selectNewWorktree() {
     open = false;
     onSelectNewWorktree?.();
-  }
-
-  function selectDispatchCheckout() {
-    open = false;
-    onSelectDispatchCheckout?.();
   }
 
   function selectStartIn(worktree: boolean) {
@@ -269,20 +258,6 @@
             <Command.Empty class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)">No worktrees found</Command.Empty>
             {@render startIn()}
             <Command.Group heading="Worktrees">
-              {#if pendingDispatch && onSelectDispatchCheckout}
-                <Command.Item
-                  value="Checkout"
-                  onSelect={selectDispatchCheckout}
-                  data-menu-current={dispatchInCheckout ? "" : undefined}
-                  class="menu-item-stagger"
-                >
-                  <GitBranchIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
-                  <span class="min-w-0 flex-1 truncate">Checkout</span>
-                  {#if dispatchInCheckout}
-                    <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
-                  {/if}
-                </Command.Item>
-              {/if}
               {#if pendingDispatch}
                 <Command.Item
                   value="New worktree"

@@ -3,6 +3,7 @@ import { parseGitHubPullRequestUrl, type PullRequest } from '@solus/contracts/pr
 import type { Session } from '@solus/contracts/types'
 import type { Task, TaskPrSnapshot } from '@solus/contracts/task-types'
 import type { AttentionState } from '../../../lib/sessionUtils'
+import type { ListProjectOption } from '../../ui/list-page/list-page'
 
 /** The sidebar's state vocabulary. Narrower than `AttentionState`: the column
  *  reports what a task wants from a person, so "finished but unread" is not a
@@ -629,8 +630,8 @@ export function sortTasks(tasks: SidebarTask[], activityAt: RowActivity): Sideba
 }
 
 export interface ProjectSummary {
-  projectKey: string
-  label: string
+  /** The project's row: its key, name and favicon. */
+  project: ListProjectOption
   count: number
   /** Tasks in this project that stopped and asked, and tasks whose run died.
    *  The picker names them in the same words the list uses. */
@@ -641,21 +642,27 @@ export interface ProjectSummary {
 }
 
 /**
- * The projects behind the breadcrumb's picker.
+ * The projects behind the breadcrumb's picker: one per project, grouped the
+ * way the column filters (`SidebarTask.groupKey`), each named by its row in
+ * `optionsFor`.
  */
-export function buildProjectSummaries(allTasks: SidebarTask[], activityAt: RowActivity): ProjectSummary[] {
+export function buildProjectSummaries(
+  allTasks: SidebarTask[],
+  activityAt: RowActivity,
+  optionsFor: (projectKeys: string[]) => ListProjectOption[],
+): ProjectSummary[] {
   const byProject = new Map<string, SidebarTask[]>()
   for (const task of allTasks) {
-    const tasks = byProject.get(task.projectKey)
+    const tasks = byProject.get(task.groupKey)
     if (tasks) tasks.push(task)
-    else byProject.set(task.projectKey, [task])
+    else byProject.set(task.groupKey, [task])
   }
 
-  return [...byProject.entries()].map(([projectKey, tasks]) => {
+  return optionsFor([...byProject.keys()]).map((project) => {
+    const tasks = byProject.get(project.key)!
     const ranked = sortTasks(tasks, activityAt)
     return {
-      projectKey,
-      label: tasks[0].projectLabel,
+      project,
       count: tasks.length,
       waiting: tasks.filter((task) => task.status === 'question' || task.status === 'plan').length,
       failed: tasks.filter((task) => task.status === 'error').length,
@@ -680,9 +687,8 @@ export function resolveProjectFilter(
   return allTasks.some((task) => task.groupKey === savedFilter) ? savedFilter : null
 }
 
-export interface ProjectFilterChoice {
-  projectKey: string
-  label: string
+/** A row of the column's project filter. `key` is the filter's value. */
+export interface ProjectFilterChoice extends ListProjectOption {
   /** Active tasks only, so the figure beside a project agrees with the list the
    *  filter produces. Snoozed and completed live on their own shelves. */
   count: number
@@ -691,25 +697,21 @@ export interface ProjectFilterChoice {
 /** The filter menu's projects, in the order their tasks already sit in the
  *  column, so picking one never reorders what you were reading. Every project
  *  the column knows about is offered, including one whose work has all been
- *  snoozed or completed — it is still a scope, and it still reads 0. */
-export function projectFilterChoices(allTasks: readonly SidebarTask[]): ProjectFilterChoice[] {
-  const choices = new Map<string, ProjectFilterChoice>()
+ *  snoozed or completed — it is still a scope, and it still reads 0. Each is
+ *  named by its row in `optionsFor`. */
+export function projectFilterChoices(
+  allTasks: readonly SidebarTask[],
+  optionsFor: (projectKeys: string[]) => ListProjectOption[],
+): ProjectFilterChoice[] {
+  const counts = new Map<string, number>()
   for (const task of allTasks) {
-    const active = task.lifecycle === 'active' ? 1 : 0
-    const key = task.groupKey
-    const existing = choices.get(key)
-    if (existing) existing.count += active
-    else
-      choices.set(key, {
-        projectKey: key,
-        label: task.projectLabel,
-        count: active,
-      })
+    counts.set(task.groupKey, (counts.get(task.groupKey) ?? 0) + (task.lifecycle === 'active' ? 1 : 0))
   }
-  return [...choices.values()]
+  return optionsFor([...counts.keys()]).map((option) => ({ ...option, count: counts.get(option.key) ?? 0 }))
 }
 
-export type PrChipState = 'unknown' | 'draft' | 'open' | 'approvalRequested' | 'closed' | 'merged'
+/** `checksFailing`: open, and a required check fails, so it cannot merge. */
+export type PrChipState = 'unknown' | 'draft' | 'open' | 'approvalRequested' | 'checksFailing' | 'closed' | 'merged'
 
 export interface PrChip {
   number: number
@@ -734,6 +736,9 @@ export interface TaskPrChoice {
   title: string
   url: string | null
   pullRequest: PullRequest | TaskPrSnapshot | null
+  /** A required check fails on the current head, so it cannot merge. Absent
+   *  when this client has not read the checks. */
+  requiredChecksFail?: boolean
 }
 
 /** The set a task's chip is built from: every pull request linked to it, plus
@@ -804,7 +809,8 @@ export function prChipState(pr: Pick<PullRequest, 'state' | 'draft'> & { needsMy
   return 'open'
 }
 
-/** The token represents the whole linked set. Attention leads, then active
+/** The token represents the whole linked set. A pull request that cannot
+ * merge because a required check fails leads, then attention, then active
  * work; only an entirely merged set reads as merged.
  *
  * Missing status remains unknown, so an incomplete set cannot claim all PRs
@@ -812,18 +818,23 @@ export function prChipState(pr: Pick<PullRequest, 'state' | 'draft'> & { needsMy
 export function prChipForChoices(choices: readonly TaskPrChoice[]): PrChip | null {
   const first = choices[0]
   if (!first) return null
-  const states = choices.map((choice) => (choice.pullRequest ? prChipState(choice.pullRequest) : 'unknown'))
-  const state = states.includes('approvalRequested')
-    ? 'approvalRequested'
-    : states.includes('open')
-      ? 'open'
-      : states.includes('draft')
-        ? 'draft'
-        : states.includes('unknown')
-          ? 'unknown'
-          : states.every((candidate) => candidate === 'merged')
-            ? 'merged'
-            : 'closed'
+  const states = choices.map((choice): PrChipState => {
+    const state = choice.pullRequest ? prChipState(choice.pullRequest) : 'unknown'
+    return (state === 'open' || state === 'approvalRequested') && choice.requiredChecksFail ? 'checksFailing' : state
+  })
+  const state = states.includes('checksFailing')
+    ? 'checksFailing'
+    : states.includes('approvalRequested')
+      ? 'approvalRequested'
+      : states.includes('open')
+        ? 'open'
+        : states.includes('draft')
+          ? 'draft'
+          : states.includes('unknown')
+            ? 'unknown'
+            : states.every((candidate) => candidate === 'merged')
+              ? 'merged'
+              : 'closed'
   return { number: first.number, count: choices.length, state }
 }
 

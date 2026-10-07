@@ -154,14 +154,30 @@ a lead: any session that starts another is its parent.
 
 | Tool | Does |
 | --- | --- |
-| `start_session` | Starts a session. `task` is required: `attempt` (another session on `task_id`, or on the caller's own task when `task_id` is omitted) or `none` (a session with no task). A task holds its sessions directly; Solus has no subtasks. `report` (default on) asks for notices and the report. `wait_seconds` (up to 600) waits in the call. |
+| `start_session` | Starts a session. `task` is required: `attempt` (another session on `task_id`, or on the caller's own task when `task_id` is omitted) or `none` (a session with no task). A task holds its sessions directly; Solus has no subtasks. `report` (default on) asks for notices and the report. `wait_seconds` (up to 600) waits in the call. `host` starts it on another of the owner's hosts (see below). |
 | `send_session` | Sends a message to a session: `queue` (default) or `steer`. Same `report` and `wait_seconds`. |
 | `stop_session` | Stops a session and clears its queue. |
 | `read_session_exchange` | Reads the caller's saved request state, report delivery state, and result by `exchange_id`. Reading does not consume a report or resume held work. |
 | `read_session` | A session's status, task and messages. `since` returns only what came after a cursor. |
 | `read_task_sessions` | The task view: the task and every session working on it — whoever started it — with its status, what it waits on, its last message and its outputs. It reads durable records, so it works after a restart. |
 | `search_sessions` | Search past conversations by title, branch, pull request and what was said. Every word must be somewhere in the session (docs/plans/unified-search.md). |
-| `list_agent_targets` | Providers and models this host can run. |
+| `list_agent_targets` | Providers and models this host can run, and the other hosts it can start sessions on. With `host`, what that host offers. |
+
+### Sessions on another host
+
+On a host signed in to the owner's Solus account (the desktop app),
+`start_session` can take `host`: a host id or name from `list_agent_targets`.
+The session starts on that host as if the owner started it there. This host
+gets a short-lived token for that host from the owner's account, which checks
+that the owner may use it. The other host shows "Started by an agent on
+<host>" at the top of the session, on every client.
+
+The parent gets the same card, notices, wait and report as for a local child.
+`stop_session` stops it there. In this version `task` must be `none`, `cwd` is
+a path on the other host (default: a new chat folder there), and `send_session`
+and `read_session` do not reach another host. After a restart of this host, an
+open request to another host is reported as interrupted. The design is in
+`docs/plans/cross-host-sessions.md`.
 
 ## Queue and provider changes
 

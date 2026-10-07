@@ -66,15 +66,16 @@
           <CheckIcon size={13} weight="bold" class="shrink-0 text-primary" />
         {/if}
       </button>
-      {#each choices as choice (choice.projectKey)}
+      {#each choices as choice (choice.key)}
         <button
           type="button"
           title={choice.projectKey}
           class={cn(menuRowVariants(), "w-full")}
-          onclick={() => onFilter(choice.projectKey)}
+          onclick={() => onFilter(choice.key)}
         >
           <ProjectFavicon
             projectRoot={choice.projectKey}
+            serverId={choice.serverId || null}
             class="size-[0.875rem]"
           />
           <span class="min-w-0 flex-1 truncate text-left">{choice.label}</span>
@@ -82,7 +83,7 @@
             class="shrink-0 text-xs tabular-nums opacity-50"
             >{choice.count}</span
           >
-          {#if projectFilter === choice.projectKey}
+          {#if projectFilter === choice.key}
             <CheckIcon size={13} weight="bold" class="shrink-0 text-primary" />
           {/if}
         </button>

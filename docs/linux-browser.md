@@ -10,7 +10,7 @@ server archive includes the Playwright driver, but needs the following setup.
 
 ## Install the browser
 
-From any Solus client, open **Settings → Connections → your host → Environment**
+From any Solus client, open **Settings → Hosts → your host → Environment**
 and select **Install browser**. Installation runs on that host and continues if
 the client disconnects. Solus tests Chromium before it reports that it is ready.
 The action is available to the host administrator. Desktop hosts already include

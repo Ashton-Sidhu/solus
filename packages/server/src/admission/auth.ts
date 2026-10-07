@@ -290,7 +290,18 @@ export interface GuestWsTicket {
   jti: string
 }
 
-export type VerifiedWsTicket = PairingWsTicket | GrantWsTicket | GuestWsTicket
+/** A linked host's live channel to its organization's Solus API, from the delegated token it delivers with. */
+export interface RunnerWsTicket {
+  kind: 'runner'
+  hostId: string
+  organizationId: string
+  ownerUserId: string
+  expiresAt: number
+  issuedAt: number
+  jti: string
+}
+
+export type VerifiedWsTicket = PairingWsTicket | GrantWsTicket | GuestWsTicket | RunnerWsTicket
 
 const grantMembershipSchema = z.object({
   organizationId: z.string().min(1),
@@ -333,6 +344,15 @@ const wsTicketPayloadSchema = z.discriminatedUnion('kind', [
       sharedByUserId: z.string().min(1),
       linkSecretHash: z.string().min(1),
     }).strict(),
+    expiresAt: z.number(),
+    issuedAt: z.number(),
+    jti: z.string().min(1),
+  }).strict(),
+  z.object({
+    kind: z.literal('runner'),
+    hostId: z.string().min(1),
+    organizationId: z.string().min(1),
+    ownerUserId: z.string().min(1),
     expiresAt: z.number(),
     issuedAt: z.number(),
     jti: z.string().min(1),
@@ -385,6 +405,13 @@ export type GuestTicketSubject = Omit<GuestWsTicket, 'kind' | 'issuedAt' | 'jti'
 /** A guest grant plus a matching share secret earn a ticket bound to that one resource (§3.4). */
 export function issueGuestWsTicket(guest: GuestTicketSubject, now = Date.now()): string {
   return signWsTicket({ kind: 'guest', ...guest, issuedAt: now, jti: randomBytes(12).toString('hex') })
+}
+
+export type RunnerTicketSubject = Omit<RunnerWsTicket, 'kind' | 'issuedAt' | 'jti'>
+
+/** A host's delegated token earns a runner socket on the Solus API: the channel shared prompts arrive on. */
+export function issueRunnerWsTicket(runner: RunnerTicketSubject, now = Date.now()): string {
+  return signWsTicket({ kind: 'runner', ...runner, issuedAt: now, jti: randomBytes(12).toString('hex') })
 }
 
 /** Checks a ticket without spending it. Admission uses `consumeWsTicket`. */

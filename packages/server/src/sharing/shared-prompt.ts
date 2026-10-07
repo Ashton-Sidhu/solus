@@ -14,86 +14,86 @@ export const sharedPromptCommandSchema = sharedPromptRequestSchema.extend({
   expiresAt: z.number(),
   actor: z.object({ userId: z.string(), seatUserId: z.string(), displayName: z.string() }),
 })
-export const sharedPromptPollSchema = z.object({ hostId: z.string() })
-export const sharedPromptPollResponseSchema = z.object({ commands: z.array(sharedPromptCommandSchema) })
-export const sharedPromptResultSchema = z.object({ hostId: z.string(), requestId: z.string(), error: z.string().nullable() })
-export const sharedPromptAckSchema = z.object({ ok: z.boolean() })
+/** What the runner acknowledges a command with: null when the prompt was dispatched. */
+export const sharedPromptReceiptSchema = z.object({ error: z.string().nullable() })
 export type SharedPromptCommand = z.infer<typeof sharedPromptCommandSchema>
-export type SharedPromptPoll = z.infer<typeof sharedPromptPollSchema>
-export type SharedPromptResult = z.infer<typeof sharedPromptResultSchema>
-type Runner = Extract<Principal, { kind: 'runner' }>
+export type SharedPromptReceipt = z.infer<typeof sharedPromptReceiptSchema>
 
-interface PendingPrompt {
-  organizationId: string
-  hostId: string
-  principal: Extract<Principal, { kind: 'guest' }>
-  command: SharedPromptCommand
-  sent: boolean
-  finish(error: string | null): void
-}
+/** The event a command travels on, down the runner's socket to the Solus API. */
+export const SHARED_PROMPT_EVENT = 'shared-prompt'
+/** How long a command stays dispatchable on the runner. */
+const COMMAND_TTL_MS = 10_000
+/** How long the service waits for the runner's receipt. */
+const RECEIPT_TIMEOUT_MS = 12_000
+const MAX_IN_FLIGHT = 100
+
+/** Sends a command down a runner's socket and resolves with its receipt (`WebSocketTransport.request`). */
+export type RunnerRequest = (clientId: string, event: typeof SHARED_PROMPT_EVENT, command: SharedPromptCommand, receipt: typeof sharedPromptReceiptSchema, timeoutMs: number) => Promise<SharedPromptReceipt>
 
 /** Live request forwarding only. No accepted prompt is stored on the service.
- * The caller waits for the runner's receipt; a stopped runner refuses immediately.
- * A lost receipt has an explicit uncertain result and is never retried here. */
+ * A command goes down the socket the runner holds open to the service, and the
+ * caller waits for the runner's receipt; a runner without a socket refuses
+ * immediately. A lost receipt has an explicit uncertain result and is never retried here. */
 export class SharedPromptRelay {
-  private readonly pending = new Map<string, PendingPrompt>()
-  private readonly seen = new Map<string, number>()
-  constructor(private readonly shares: ShareManager) {}
+  /** `organizationId:hostId` → the runner's socket client ids, oldest first. */
+  private readonly runners = new Map<string, string[]>()
+  private readonly inFlight = new Set<string>()
+  /** `request` is the live transport the commands travel on. */
+  constructor(private readonly shares: ShareManager, private readonly request: RunnerRequest) {}
+
+  runnerConnected(clientId: string, principal: Principal): void {
+    if (principal.kind !== 'runner') return
+    const key = runnerKey(principal.organizationId, principal.hostId)
+    this.runners.set(key, [...(this.runners.get(key) ?? []).filter(id => id !== clientId), clientId])
+  }
+
+  runnerDisconnected(clientId: string): void {
+    for (const [key, clientIds] of this.runners) {
+      const remaining = clientIds.filter(id => id !== clientId)
+      if (remaining.length) this.runners.set(key, remaining)
+      else this.runners.delete(key)
+    }
+  }
 
   async available(principal: Principal, sessionId: string): Promise<boolean> {
     await this.shares.assertRole(principal, { kind: 'session', id: sessionId }, 'viewer')
     const record = await getSessionRecord(recordScopeOf(principal), sessionId)
-    return !!record?.runnerHostId && Date.now() - (this.seen.get(`${record.organizationId}:${record.runnerHostId}`) ?? 0) <= 6_000
+    return !!record?.runnerHostId && !!this.runnerFor(record.organizationId, record.runnerHostId)
   }
 
   async prompt(principal: Principal, request: z.infer<typeof sharedPromptRequestSchema>): Promise<{ accepted: true }> {
     if (principal.kind !== 'guest') throw new Error('This action is for a shared session visitor.')
     await this.shares.assertRole(principal, { kind: 'session', id: request.sessionId }, 'editor')
     const record = await getSessionRecord(recordScopeOf(principal), request.sessionId)
-    const organizationId = record?.organizationId
-    if (!record?.runnerHostId || !organizationId || Date.now() - (this.seen.get(`${organizationId}:${record.runnerHostId}`) ?? 0) > 6_000) {
-      throw new Error('This session’s runner is offline. No prompt was sent.')
-    }
-    if (this.pending.size >= 100 || [...this.pending.values()].some((item) => item.principal.guestId === principal.guestId)) {
+    const clientId = record?.runnerHostId ? this.runnerFor(record.organizationId, record.runnerHostId) : undefined
+    if (!clientId) throw new Error('This session’s runner is offline. No prompt was sent.')
+    if (this.inFlight.size >= MAX_IN_FLIGHT || this.inFlight.has(principal.guestId)) {
       throw new Error('A prompt is already being sent. Wait for its result.')
     }
-    const requestId = randomUUID()
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const item = this.pending.get(requestId)
-        this.pending.delete(requestId)
-        reject(new Error(item?.sent ? 'The runner did not confirm receipt. Check the transcript before sending again.' : 'The runner disconnected. No prompt was sent.'))
-      }, 12_000)
-      this.pending.set(requestId, {
-        organizationId, hostId: record.runnerHostId!, principal, sent: false,
-        command: { ...request, requestId, expiresAt: Date.now() + 10_000, actor: { userId: principal.accountUserId ?? `guest:${principal.guestId}`, seatUserId: principal.accountUserId ?? principal.share.sharedByUserId, displayName: principal.displayName } },
-        finish: (error) => { clearTimeout(timer); this.pending.delete(requestId); if (error) reject(new Error(error)); else resolve() },
-      })
-    })
+    const command: SharedPromptCommand = {
+      ...request,
+      requestId: randomUUID(),
+      expiresAt: Date.now() + COMMAND_TTL_MS,
+      actor: { userId: principal.accountUserId ?? `guest:${principal.guestId}`, seatUserId: principal.accountUserId ?? principal.share.sharedByUserId, displayName: principal.displayName },
+    }
+    this.inFlight.add(principal.guestId)
+    let receipt: SharedPromptReceipt
+    try {
+      receipt = await this.request(clientId, SHARED_PROMPT_EVENT, command, sharedPromptReceiptSchema, RECEIPT_TIMEOUT_MS)
+    } catch {
+      throw new Error('The runner did not confirm receipt. Check the transcript before sending again.')
+    } finally {
+      this.inFlight.delete(principal.guestId)
+    }
+    if (receipt.error) throw new Error(receipt.error)
     return { accepted: true }
   }
 
-  async poll(runner: Runner): Promise<z.infer<typeof sharedPromptPollResponseSchema>> {
-    const now = Date.now()
-    for (const [key, at] of this.seen) if (now - at > 60_000) this.seen.delete(key)
-    this.seen.set(`${runner.organizationId}:${runner.hostId}`, now)
-    const commands: SharedPromptCommand[] = []
-    for (const item of this.pending.values()) {
-      if (item.organizationId !== runner.organizationId || item.hostId !== runner.hostId || item.sent) continue
-      if (item.command.expiresAt <= now || item.principal.expiresAt <= now) { item.finish('The request expired. No prompt was sent.'); continue }
-      if (await this.shares.roleFor(item.principal, { kind: 'session', id: item.command.sessionId }) !== 'editor') {
-        item.finish('This link no longer permits prompts.'); continue
-      }
-      item.sent = true
-      commands.push(item.command)
-    }
-    return { commands }
+  private runnerFor(organizationId: string, hostId: string): string | undefined {
+    return this.runners.get(runnerKey(organizationId, hostId))?.at(-1)
   }
+}
 
-  result(runner: Runner, result: SharedPromptResult) {
-    const item = this.pending.get(result.requestId)
-    if (!item || !item.sent || item.organizationId !== runner.organizationId || item.hostId !== runner.hostId) return { ok: false }
-    item.finish(result.error)
-    return { ok: true }
-  }
+function runnerKey(organizationId: string, hostId: string): string {
+  return `${organizationId}:${hostId}`
 }

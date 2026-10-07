@@ -120,13 +120,15 @@
   const selectedDispatchBaseBranch = $derived(
     pendingDispatch?.baseBranch ?? null,
   );
+  // A dispatch in the target host's checkout works on the default branch.
+  const dispatchCheckoutBranch = $derived(env.targetBranch ?? "Default branch");
   const displayBranch = $derived(
     selectedDispatchWorktree?.branch ??
       selectedDispatchBaseBranch ??
       (pendingDispatch
         ? run?.worktree
           ? "New worktree"
-          : "Checkout"
+          : dispatchCheckoutBranch
         : (env.branch ?? env.name)),
   );
   const branchLabel = $derived(
@@ -145,7 +147,7 @@
         : pendingDispatch
           ? run?.worktree
             ? "Creates a new worktree on the selected host"
-            : "Works in your checkout on the selected host"
+            : `Works on ${env.targetBranch ?? "the default branch"} on the selected host`
           : startsNewWorktree
             ? `Branches into its own worktree from ${gitHome.baseBranch}`
             : `Working in ${displayBranch} directly`,
@@ -284,12 +286,6 @@
       () => requestInputFocus(focusTarget),
       () => {},
     );
-  }
-
-  /** The checkout type of the next session, chosen in the branch menu. */
-  function selectDispatchCheckout() {
-    session.config.setDispatchCheckout(source);
-    requestInputFocus(focusTarget);
   }
 
   function selectStartIn(worktree: boolean) {
@@ -488,7 +484,6 @@
     onSelectBranch={selectBranch}
     onSelectWorktree={selectWorktree}
     onSelectNewWorktree={selectNewDispatchWorktree}
-    onSelectDispatchCheckout={selectDispatchCheckout}
     {startsNewWorktree}
     worktreeBlockedNote={worktreeBlockedReason(gitHome.canToggleWorktree)}
     onSelectStartIn={selectStartIn}

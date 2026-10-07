@@ -60,6 +60,9 @@ export interface WsTransportOptions {
   organizationId?: () => string | null
 }
 
+/** A server request as Socket.IO delivers it: the payload, then the acknowledgement the server waits on. */
+type ServerRequestListener = Parameters<Socket['on']>[1]
+
 interface RequestEntry {
   method: RpcInvokeMethod
   args: unknown[]
@@ -144,6 +147,8 @@ export class WsTransport {
   private isAcceptedConnection = false
   private pendingHostEvents: HostEvent[] = []
   private dialPreparation: DialPreparation | null = null
+  /** Requests the server sends and waits on, by event; installed on every socket this transport opens. */
+  private readonly serverRequests = new Map<string, ServerRequestListener>()
 
   constructor(private opts: WsTransportOptions) {
     this.socket = this.createSocket()
@@ -191,6 +196,24 @@ export class WsTransport {
     this.opts.serverUrl = serverUrl
     this.socket = this.createSocket()
     this.installSocketListeners()
+  }
+
+  /** Answers one kind of request the server sends down this socket and waits on
+   *  (the Solus API's shared prompts to a runner). The payload is wire input: one
+   *  the schema refuses is answered with `unreadable`, and the handler never runs. */
+  onServerRequest<Payload, Reply>(event: string, payload: z.ZodType<Payload>, handle: (payload: Payload) => Promise<Reply>, unreadable: Reply): () => void {
+    const listener: ServerRequestListener = (wire, reply) => {
+      const parsed = payload.safeParse(wire)
+      if (!parsed.success) { reply(unreadable); return }
+      void handle(parsed.data).then(reply)
+    }
+    this.serverRequests.set(event, listener)
+    this.socket.on(event, listener)
+    return () => {
+      if (this.serverRequests.get(event) !== listener) return
+      this.serverRequests.delete(event)
+      this.socket.off(event, listener)
+    }
   }
 
   start(): void {
@@ -325,6 +348,7 @@ export class WsTransport {
   }
 
   private installSocketListeners(): void {
+    for (const [event, listener] of this.serverRequests) this.socket.on(event, listener)
     this.socket.on('connect', () => {
       const generation = ++this.connectedGeneration
       void this.acceptConnectedSocket(generation)

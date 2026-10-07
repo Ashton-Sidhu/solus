@@ -4,6 +4,8 @@ import { z } from 'zod'
 import { createLogger } from '../../logger'
 import { clearToken } from './token-store'
 import { githubRateLimitOf } from './rate-limit'
+import { ConditionalReads } from './conditional-reads'
+import { RequestBudget, restResourceOf, withRequestSlot } from './request-budget'
 import type { GithubCredential } from './credentials'
 import type { GitHubAuth } from './auth'
 
@@ -125,27 +127,45 @@ function createClient(credential: GithubCredential): GitHubClient {
     throw new GitHubReauthRequiredError()
   }
 
-  const rest = new Octokit({ auth: credential.token, userAgent: 'Solus' })
-  rest.hook.before('request', (options) => {
+  // Every request of this account shares one quota, one set of remembered
+  // answers, and the process-wide limit on concurrent requests.
+  const budget = new RequestBudget()
+  const rest = new Octokit({ auth: credential.token, userAgent: 'Solus', request: { fetch: budget.fetch } })
+  const conditionalReads = new ConditionalReads<Awaited<ReturnType<Octokit['request']>>>()
+  rest.hook.wrap('request', async (request, options) => {
+    const endpoint = rest.request.endpoint(options)
     log.info('github_rest_request_started', {
       source: credential.source,
-      method: options.method,
-      path: requestPath(options.url),
+      method: endpoint.method,
+      path: requestPath(endpoint.url),
     })
-  })
-  rest.hook.error('request', (error) => {
-    const facts = failureFacts(error)
-    log.warn('github_rest_request_failed', {
-      source: credential.source,
-      status: facts.status,
-      error: errorMessage(error),
-    })
-    if (unauthorizedSchema.safeParse(error).success) rejected()
-    throw githubRateLimitOf(error) ?? error
+    try {
+      budget.admit(restResourceOf(endpoint.url))
+      if (endpoint.method !== 'GET') return await withRequestSlot(async () => request(options))
+      return await conditionalReads.read(
+        `${endpoint.url}\0${endpoint.headers.accept ?? ''}`,
+        (etag) => withRequestSlot(async () => {
+          // The inner hooks are bound to these options and ignore a new
+          // object, so the header goes on the request's own options.
+          if (etag) options.headers['if-none-match'] = etag
+          return request(options)
+        }),
+      )
+    } catch (error) {
+      const facts = failureFacts(error)
+      log.warn('github_rest_request_failed', {
+        source: credential.source,
+        status: facts.status,
+        error: errorMessage(error),
+      })
+      if (unauthorizedSchema.safeParse(error).success) rejected()
+      throw githubRateLimitOf(error) ?? error
+    }
   })
 
   const query = octokitGraphql.defaults({
     headers: { authorization: `Bearer ${credential.token}`, 'user-agent': 'Solus' },
+    request: { fetch: budget.fetch },
   })
   const graphql: GraphQLClient = async <ResponseData>(
     document: string,
@@ -154,7 +174,8 @@ function createClient(credential: GithubCredential): GitHubClient {
     const operation = graphqlOperation(document)
     log.info('github_graphql_request_started', { source: credential.source, operation })
     try {
-      return await query<ResponseData>(document, parameters)
+      budget.admit('graphql')
+      return await withRequestSlot(() => query<ResponseData>(document, parameters))
     } catch (error) {
       const facts = failureFacts(error)
       log.warn('github_graphql_request_failed', {

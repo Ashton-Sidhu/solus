@@ -165,6 +165,51 @@ describe('an organization run on a VM, through the real Solus API', () => {
     }
   })
 
+  test("a link visitor's prompt reaches the VM down the socket its delegated token opens, and the VM's receipt answers them", async () => {
+    // WHY: the API reaches a runner only through the socket the runner holds open to
+    // it, dialed with the same client transport a host dials another host with.
+    const { Delegations } = await import('@solus/server/sync/delegations')
+    const { RunnerDelivery } = await import('@solus/server/sync/runner-delivery')
+    const { startSharedPromptRunner } = await import('@solus/server/sharing/shared-prompt-runner')
+    const records = await import('@solus/server/data/sessions/session-records')
+    const shareManager = await import('@solus/server/sharing/share-manager')
+    const database = await import('@solus/server/db/database')
+    const link = vmLink()
+    const resource = { kind: 'session', id: 'shared-on-vm' } as const
+    const bob = { kind: 'org-member', userId: 'bob', organizationId: 'org_a', organizationRole: 'member', teamIds: [], hostKind: 'cloud', displayName: 'Bob', deviceId: 'bob-session', expiresAt: Date.now() + 60_000, deviceLabel: 'Solus cloud' } as const
+    const shares = new shareManager.ShareManager({ db: database.getDatabase() })
+    await shares.claimOwner(resource, { ...bob, teamIds: [] })
+    const shared = (await shares.setLink({ resource, role: 'editor' }, { ...bob, teamIds: [] }))!
+    await records.upsertSessionRecord('org_a', { sessionId: resource.id, provider: 'codex', projectPath: '-repo', lastActivityAt: Date.now(), runnerHostId: VM })
+    const visitor = {
+      clientId: 'ws:maya:visitor', deviceLabel: 'Guest link', deviceId: 'maya',
+      principal: { kind: 'guest', organizationId: 'org_a', guestId: 'maya', displayName: 'Maya', deviceId: 'maya', deviceLabel: 'Guest link', share: (await shares.resolveLinkSecret(shared.secret))!, expiresAt: Date.now() + 60_000 } as const,
+    }
+    const available = () => service!.server.handle('sharedSessionAvailable', [resource.id], visitor)
+    const until = async (wanted: boolean) => {
+      for (const deadline = Date.now() + 5_000; (await available()) !== wanted && Date.now() < deadline;) await new Promise<void>((resolve) => setTimeout(resolve, 10))
+      expect(await available()).toBe(wanted)
+    }
+
+    const delegations = new Delegations({ link: () => link, client: () => CLIENT, personToken: (userId) => (userId === 'bob' ? bobsTokenForVm() : null), onRevoked: () => {} })
+    await delegations.actFor({ sessionId: resource.id, userId: 'bob', organizationId: 'org_a', admit: false })
+    const delivery = new RunnerDelivery({ link: () => link, delegations, linker: () => 'bob' })
+    const dispatched: Array<{ sessionId: string; text: string; author: string }> = []
+    const runtime = { dispatch: { promptSession: async (sessionId: string, text: string, _mode: string, options: { actor: { user: { displayName: string } } }) => { dispatched.push({ sessionId, text, author: options.actor.user.displayName }) } } }
+    // SAFETY: the runner reads only `dispatch.promptSession` of the session runtime.
+    const stop = startSharedPromptRunner(delivery, runtime as never, () => VM)
+    try {
+      await until(true)
+      expect(await service!.server.handle('sharedSessionPrompt', [{ sessionId: resource.id, text: 'from the link' }], visitor)).toEqual({ accepted: true })
+      expect(dispatched).toEqual([{ sessionId: resource.id, text: 'from the link', author: 'Maya' }])
+    } finally {
+      stop()
+    }
+    // The socket closed with the runner: the API says so before a visitor types.
+    await until(false)
+    await expect(service!.server.handle('sharedSessionPrompt', [{ sessionId: resource.id, text: 'again' }], visitor)).rejects.toThrow('offline')
+  })
+
   test('the API refuses a token meant for a host, and its runner routes refuse a person\'s token that no host acts with', async () => {
     // A person's token for the VM is not a credential at the API: wrong resource.
     const forVm = await fetch(`${apiOrigin}/v1/auth/session`, { method: 'POST', headers: { authorization: `Bearer ${bobsTokenForVm()}`, 'content-type': 'application/json' }, body: JSON.stringify({ scopes: ['tasks:write'] }) })

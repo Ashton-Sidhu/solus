@@ -393,12 +393,6 @@ export function dropQueuedFor(destination: DeliveryDestination): number {
   return dropped
 }
 
-/** Whether a report at or below `seq` is still queued for the organization. */
-export function sessionReportPendingThrough(organizationId: string, seq: number): boolean {
-  const row = z.object({ count: z.number() }).parse(getDb().prepare('SELECT COUNT(*) AS count FROM runner_session_reports WHERE organization_id = ? AND seq <= ?').get(organizationId, seq))
-  return row.count > 0
-}
-
 /** Whether a record's report still waits for its organization's Solus API. */
 export function sessionReportQueued(sessionId: string): boolean {
   return !!getDb().prepare('SELECT 1 FROM runner_session_reports WHERE session_id = ? LIMIT 1').get(sessionId)

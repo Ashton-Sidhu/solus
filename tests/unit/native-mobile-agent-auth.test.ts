@@ -98,4 +98,20 @@ describe('native conversation: sign-in commands', () => {
     expect(api.callsOf('agentAuthCancel')).toEqual([[{ flowId: 'flow-1' }]])
     expect(controller.auth.view.step).toBe('closed')
   })
+
+  test('a turn the provider failed for a refused login offers sign-in again, and nothing starts until the person asks', async () => {
+    const { api, controller, transport } = await open('codex')
+    transport.emit('session.eventReceived', { sessionId: 'thread-1', event: { type: 'error', message: 'unexpected status 401 Unauthorized', isError: true } })
+    expect(controller.auth.view.step).toBe('closed')
+
+    transport.emit('session.eventReceived', { sessionId: 'thread-1', event: { type: 'error', message: 'unexpected status 401 Unauthorized', isError: true, kind: 'auth' } })
+    expect(controller.auth.view).toEqual({ step: 'refused', title: 'Sign in to Codex again', label: 'Codex', provider: 'codex' })
+    expect(api.callsOf('seatConnectStart')).toEqual([])
+
+    await controller.auth.run({ kind: 'login', provider: 'codex' }, '/work/app')
+    expect(api.callsOf('seatConnectStart')).toEqual([[{ provider: 'codex' }]])
+    // A sign-in already open is not replaced by a later refusal.
+    transport.emit('session.eventReceived', { sessionId: 'thread-1', event: { type: 'error', message: 'refused', isError: true, kind: 'auth' } })
+    expect(controller.auth.view.step).toBe('waiting')
+  })
 })

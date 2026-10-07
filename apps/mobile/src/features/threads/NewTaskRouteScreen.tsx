@@ -58,6 +58,7 @@ import {
 } from "./NewTaskContextPickerScreens";
 import { COMPOSER_LAYOUT_TRANSITION, ComposerSurface } from "./ThreadComposer";
 import { ThreadSettingsSheet } from "./ThreadSettingsSheet";
+import { NewTaskConnectHost, useNewTaskHostGate } from "./NewTaskConnectHost";
 
 type Navigation = NativeStackNavigationProp<RootStackParamList>;
 
@@ -65,12 +66,36 @@ const DRAFT_SAVE_DELAY_MS = 400;
 
 /** The new-task sheet: choose a project, then write the first prompt. */
 export function NewTaskRouteScreen({ route }: ScreenProps<"NewTask">) {
+  const app = useApp();
+  const navigation = useNavigation<Navigation>();
+  const hostGate = useNewTaskHostGate();
   const hostId = route.params?.hostId;
   const projectPath = route.params?.projectPath;
+  // No host can run a task, so there is no composer: ask for a host, and keep
+  // the draft's text until one connects (docs/plans/draft-connect-host.md).
+  if (hostGate === "connect") {
+    return (
+      <NewTaskConnectHost
+        draftText={hostId && projectPath ? app.draft(hostId, `new-task:${projectPath}`).trim() : ""}
+        onClose={() => closeNewTaskSheet(navigation)}
+      />
+    );
+  }
   if (hostId && projectPath) {
     return <NewTaskDraftScreen hostId={hostId} projectPath={projectPath} />;
   }
   return <NewTaskProjectScreen preferredHostId={hostId ?? null} />;
+}
+
+/** Leave the whole new-task sheet, however many of its screens are stacked. */
+function closeNewTaskSheet(navigation: Navigation) {
+  const state = navigation.getState();
+  const firstNewTask = state?.routes.findIndex((candidate) => candidate.name === "NewTask") ?? -1;
+  if (state && firstNewTask > 0) {
+    navigation.dispatch(StackActions.pop(state.routes.length - firstNewTask));
+    return;
+  }
+  navigation.goBack();
 }
 
 /* ─── Choose project ──────────────────────────────────────────────────── */
@@ -565,13 +590,7 @@ function NewTaskDraftContent(props: {
 
   const closeNewTask = () => {
     void KeyboardController.dismiss({ animated: true });
-    const state = navigation.getState();
-    const firstNewTask = state?.routes.findIndex((candidate) => candidate.name === "NewTask") ?? -1;
-    if (state && firstNewTask > 0) {
-      navigation.dispatch(StackActions.pop(state.routes.length - firstNewTask));
-      return;
-    }
-    navigation.goBack();
+    closeNewTaskSheet(navigation);
   };
   const chooseProject = () => {
     if (isComposerInteractionLocked) {

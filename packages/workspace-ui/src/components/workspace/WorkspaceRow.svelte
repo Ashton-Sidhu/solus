@@ -7,18 +7,15 @@
     Network as ArchitectureIcon,
     AppWindow as ArtifactIcon,
     Presentation as PresentationIcon,
-    ChartNoAxesGantt as InsightsReportIcon,
     Cloud as CloudIcon,
     Pin as PushPinIcon,
-    CircleCheck as CircleCheckIcon,
-    CircleAlert as CircleAlertIcon,
     Clock as ClockIcon,
     Eye as EyeIcon,
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
   import DocProviderLogo from "../work/DocProviderLogo.svelte";
   import ReviewerAvatars from "../work/ReviewerAvatars.svelte";
-  import { PR_CHECKS_TONE, PR_STATUS_TONE, PR_VERDICT_TONE } from "../prs/lib/pr-row-styles";
+  import { PR_CHECKS_TONE, PR_STATUS_TONE } from "../prs/lib/pr-row-styles";
   import type { WorkspaceItem } from "./lib/workspace-items";
   import {
     formatGeneratedDate,
@@ -121,7 +118,6 @@
     diagram: "text-[color-mix(in_oklch,var(--chart-5)_66%,var(--foreground))]",
     // An artifact is drawn, not written, so it takes the diagram's hue.
     artifact: "text-[color-mix(in_oklch,var(--chart-5)_66%,var(--foreground))]",
-    "insights-report": "text-[color-mix(in_oklch,var(--chart-5)_66%,var(--foreground))]",
   } as const;
 </script>
 
@@ -155,8 +151,6 @@
       <ArchitectureIcon size={14} />
     {:else if item.glyph === "artifact"}
       <ArtifactIcon size={14} />
-    {:else if item.glyph === "insights-report"}
-      <InsightsReportIcon size={14} />
     {:else if item.glyph === "slides"}
       <PresentationIcon size={14} />
     {:else}
@@ -322,7 +316,7 @@
       {/if}
     </span>
 
-    <!-- Reviewers: who reviews a work, ringed in the verdict they gave. Hover
+    <!-- Reviewers: who reviews a work, badged with the verdict they gave. Hover
          names who decided what, and when. A fixed slot, so rows without
          reviewers keep the status and time columns aligned. -->
     <span class="flex w-[3rem] shrink-0 items-center justify-end @max-[30rem]/pane:w-auto @max-[30rem]/pane:empty:hidden">
@@ -330,16 +324,15 @@
     </span>
 
     <!-- Status is an icon in a fixed slot: a work's review state. Its word is
-         the hover text and the screen-reader name. The one that needs the reader, a requested review, is amber. The tones are
-         the pull request list's, so a verdict reads the same on both pages. -->
+         the hover text and the screen-reader name. The one that needs the reader, a requested review, is amber.
+         A verdict is not drawn here: it sits on the avatar of the reviewer who
+         gave it, so the slot keeps only the word for screen readers. -->
     <span class="flex w-4 shrink-0 items-center justify-center @max-[30rem]/pane:w-auto @max-[30rem]/pane:empty:hidden">
-      {#if status}
+      {#if status?.kind === "approved" || status?.kind === "changes_requested"}
+        <span class="sr-only" data-testid="workspace-row-status" data-status={status.kind}>{status.label}</span>
+      {:else if status}
         <span class="flex" role="img" aria-label={status.label} title={status.label} data-testid="workspace-row-status" data-status={status.kind}>
-          {#if status.kind === "approved"}
-            <CircleCheckIcon size={14} class={PR_VERDICT_TONE.approved} />
-          {:else if status.kind === "changes_requested"}
-            <CircleAlertIcon size={14} class={PR_VERDICT_TONE["changes-requested"]} />
-          {:else if status.kind === "review_requested"}
+          {#if status.kind === "review_requested"}
             <EyeIcon size={14} class={PR_CHECKS_TONE.pending} />
           {:else}
             <ClockIcon size={14} class={PR_STATUS_TONE.draft} />

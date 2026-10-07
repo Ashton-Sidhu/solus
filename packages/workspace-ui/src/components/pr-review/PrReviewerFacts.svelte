@@ -8,6 +8,7 @@
   } from "@lucide/svelte";
   import type { PrReviewer, PrReviewerCandidate } from "@solus/contracts/providers";
   import PrAvatar from "../prs/PrAvatar.svelte";
+  import { AvatarBadge } from "../ui/avatar-badge";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { Skeleton } from "../ui/skeleton";
   import ReviewerRequestMenu from "./ReviewerRequestMenu.svelte";
@@ -74,15 +75,13 @@
 <!-- The verdict as an icon on the avatar's corner, as the rail shows it
      beside the name. A pending request carries no badge: the bare avatar
      already reads as "not answered yet". -->
-{#snippet verdictBadge(state: PrReviewer["state"])}
-  {#if state !== null}
-    <span
-      class="absolute -right-1 -bottom-1 grid size-3.5 place-items-center rounded-full bg-background"
-      aria-hidden="true"
-    >
-      <ReviewerVerdictIcon {state} size={12} />
-    </span>
-  {/if}
+{#snippet verdictAvatar(reviewer: PrReviewer)}
+  {#snippet verdict()}
+    <ReviewerVerdictIcon state={reviewer.state} size={12} />
+  {/snippet}
+  <AvatarBadge badge={reviewer.state !== null ? verdict : undefined}>
+    <PrAvatar name={reviewer.login} url={reviewer.avatarUrl ?? ""} size="size-6 text-xs" />
+  </AvatarBadge>
 {/snippet}
 
 <dt class="flex items-center gap-2">
@@ -125,12 +124,7 @@
                     class="animate-spin text-muted-foreground [animation-duration:0.9s]"
                   />
                 {:else}
-                  <PrAvatar
-                    name={reviewer.login}
-                    url={reviewer.avatarUrl ?? ""}
-                    size="size-6 text-xs"
-                  />
-                  {@render verdictBadge(reviewer.state)}
+                  {@render verdictAvatar(reviewer)}
                 {/if}
               </button>
             {/snippet}
@@ -160,12 +154,7 @@
           role="img"
           aria-label={`${reviewer.login}, ${verdict}`}
         >
-          <PrAvatar
-            name={reviewer.login}
-            url={reviewer.avatarUrl ?? ""}
-            size="size-6 text-xs"
-          />
-          {@render verdictBadge(reviewer.state)}
+          {@render verdictAvatar(reviewer)}
         </span>
       {/if}
     {/each}

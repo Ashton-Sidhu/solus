@@ -1,10 +1,11 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
-  import { ChevronDown as ChevronDownIcon, GitMerge as GitMergeIcon, GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
+  import { ChevronDown as ChevronDownIcon, GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
+  import { prStatusBadge, REQUIRED_CHECKS_FAILING_BADGE } from "../prs/lib/pr-utils";
   import TaskPrMenuLabel from "./TaskPrMenuLabel.svelte";
   import { taskPrMenuTitle } from "./lib/task-pr-menu";
-  import type { PrChip, PrChipState, TaskPrChoice } from "./lib/task-list";
+  import type { PrChip, TaskPrChoice } from "./lib/task-list";
 
   interface Props {
     chip: PrChip;
@@ -17,31 +18,31 @@
   let { chip, choices, onOpen, onMore }: Props = $props();
   let menuOpen = $state(false);
 
-  // Match Git host conventions: open is green and merged is purple. Review
-  // requests also use purple as an attention state; drafts stay neutral.
-  function toneFor(state: PrChipState): string {
-    switch (state) {
-      case "approvalRequested":
-        return "color-mix(in oklch, var(--review) 58%, var(--foreground))";
-      case "merged":
-        return "var(--review)";
-      case "open":
-        return "var(--success)";
-      case "closed":
-        return "var(--solus-status-error)";
-      default:
-        return "var(--muted-foreground)";
-    }
-  }
-
-  const tone = $derived(toneFor(chip.state));
+  // The menu's rows and the PR surfaces draw each state with these badges, so
+  // the chip takes its tone and icon from them too. Review requests use a
+  // purple attention tone; a state not known yet stays neutral.
+  const badge = $derived(
+    chip.state === "checksFailing"
+      ? REQUIRED_CHECKS_FAILING_BADGE
+      : chip.state === "approvalRequested" || chip.state === "unknown"
+        ? null
+        : prStatusBadge({ state: chip.state === "draft" ? "open" : chip.state, draft: chip.state === "draft" }),
+  );
+  const tone = $derived(
+    chip.state === "approvalRequested"
+      ? "color-mix(in oklch, var(--review) 58%, var(--foreground))"
+      : (badge?.tone ?? "var(--muted-foreground)"),
+  );
+  const StateIcon = $derived(badge?.Icon ?? GitPullRequestIcon);
 
   const label = $derived(
     chip.state === "approvalRequested"
       ? `Pull request #${chip.number} — your review requested`
-      : chip.state === "unknown"
-        ? `Pull request #${chip.number} — status unavailable`
-      : `Pull request #${chip.number} — ${chip.state}`,
+      : chip.state === "checksFailing"
+        ? `Pull request #${chip.number} — required checks failing`
+        : chip.state === "unknown"
+          ? `Pull request #${chip.number} — status unavailable`
+          : `Pull request #${chip.number} — ${chip.state}`,
   );
   const actionLabel = $derived(
     chip.count > 1
@@ -93,11 +94,7 @@
             menuOpen = true;
           }}
         >
-          {#if chip.state === "merged"}
-            <GitMergeIcon size={12.5} class="shrink-0" />
-          {:else}
-            <GitPullRequestIcon size={12.5} weight={chip.state === "draft" ? "light" : "regular"} class="shrink-0" />
-          {/if}
+          <StateIcon size={12.5} class="shrink-0" />
           <span class="tabular-nums">{chip.count} PRs</span>
           <ChevronDownIcon size={11} aria-hidden="true" />
         </button>
@@ -146,11 +143,7 @@
       onMore(event, choices[0]);
     }}
   >
-    {#if chip.state === "merged"}
-      <GitMergeIcon size={12.5} class="shrink-0" />
-    {:else}
-      <GitPullRequestIcon size={12.5} weight={chip.state === "draft" ? "light" : "regular"} class="shrink-0 {chip.state === 'draft' ? 'opacity-70' : ''}" />
-    {/if}
+    <StateIcon size={12.5} class="shrink-0" />
     <span class="tabular-nums">#{chip.number}</span>
   </button>
 {/if}

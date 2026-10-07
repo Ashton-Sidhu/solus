@@ -9,7 +9,7 @@
     SlidersHorizontal as SlidersHorizontalIcon,
     Wrench as WrenchIcon,
     Sparkles as SparkleIcon,
-    Cable as PlugsConnectedIcon,
+    Monitor as HostsIcon,
     Keyboard as KeyboardIcon,
     Mic as MicrophoneIcon,
     Binoculars as BinocularsIcon,
@@ -110,7 +110,7 @@
     {
       id: "personal",
       label: "Account & sync",
-      description: "Your account and settings sync on this device.",
+      description: "Your account, this computer's Solus Cloud link, and settings sync.",
       icon: PersonIcon,
       group: "Account",
     },
@@ -210,12 +210,12 @@
       group: "Capabilities",
     },
     // Web-visible: a phone or browser manages its hosts through the same
-    // Connections page, driven entirely by RPC against the connected server.
+    // Hosts page, driven entirely by RPC against each host.
     {
       id: "api-access",
-      label: "Connections",
-      description: "Reach this Solus server from your other devices.",
-      icon: PlugsConnectedIcon,
+      label: "Hosts",
+      description: "The computers your agents run on, and how each one is reached.",
+      icon: HostsIcon,
       group: "Capabilities",
     },
     {
@@ -379,7 +379,7 @@
     }
   }
 
-  // Connections is the one tab with a page under it, so the crumb trail grows a
+  // Hosts is the one tab with a page under it, so the crumb trail grows a
   // third step rather than the host page having to draw its own header.
   const openHostLabel = $derived(
     session.settingsTab === "api-access" && connectionsNav.hostId
@@ -401,8 +401,8 @@
   <button
     type="button"
     onclick={goBack}
-    aria-label={openHostLabel ? "Back to Connections" : "Back to workspace"}
-    title={openHostLabel ? "Back to Connections" : "Back to workspace"}
+    aria-label={openHostLabel ? "Back to Hosts" : "Back to workspace"}
+    title={openHostLabel ? "Back to Hosts" : "Back to workspace"}
     class={PAGE_SOFT_ICON_BTN}
   >
     <ArrowLeftIcon size={16} strokeWidth={1.5} />

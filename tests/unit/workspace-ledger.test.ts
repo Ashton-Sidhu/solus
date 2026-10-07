@@ -15,8 +15,10 @@ import {
   upstreamProviderFor,
   workItem,
   type WorkspaceItem,
-  type WorkspaceProject,
+  type WorkspaceProjects,
 } from '@solus/workspace-ui/components/workspace/lib/workspace-items'
+import { projectOptionsFor, type LogicalProject } from '@solus/workspace-ui/contexts/projects/project-catalog'
+import { localProjectKey } from '@solus/contracts/repository-key'
 import { highlightRuns } from '@solus/workspace-ui/lib/searchHighlight'
 
 const DAY = 86_400_000
@@ -67,22 +69,50 @@ describe('the ledger orders and groups what the reader asked for', () => {
 })
 
 describe('the Workspace is global', () => {
-  const KNOWN: WorkspaceProject = { key: '/known', label: 'known', roots: ['/known'] }
-  const work = (id: string, cwd: string) =>
-    ({ id, type: 'doc', title: id, preview: '', createdAt: '', updatedAt: '', cwd }) as Work
+  // The catalog as the page reads it: a work belongs to the project its host
+  // and folder name, and rows take the names the shared row builder gives.
+  const checkout = (serverId: string, projectRoot: string, repositoryKey: string | null) =>
+    ({ serverId, projectRoot, label: projectRoot.split('/').at(-1)!, lastSeenAt: 1, repositoryKey })
+  const catalog: LogicalProject[] = [
+    { key: 'github.com/acme/web', label: 'web', cloudProject: null, checkouts: [checkout('laptop', '/code/web', 'github.com/acme/web'), checkout('studio', '/srv/web', 'github.com/acme/web')] },
+    { key: 'github.com/other/web', label: 'web', cloudProject: null, checkouts: [checkout('laptop', '/forks/web', 'github.com/other/web')] },
+  ]
+  const hostOf = new Map<string, string>()
+  const projects: WorkspaceProjects = {
+    keyOf: (w) => {
+      const serverId = hostOf.get(w.id)!
+      const entry = catalog.flatMap((project) => project.checkouts).find((c) => c.serverId === serverId && w.cwd.startsWith(c.projectRoot))
+      return entry?.repositoryKey ?? localProjectKey(serverId, w.cwd)
+    },
+    optionsFor: (keys) => projectOptionsFor(keys, catalog, () => true, (serverId) => serverId.toUpperCase(), null),
+  }
+  const work = (id: string, serverId: string, cwd: string) => {
+    hostOf.set(id, serverId)
+    return { id, type: 'doc', title: id, preview: '', createdAt: '', updatedAt: '', cwd } as Work
+  }
 
-  it('shows works from every project, not only the one in focus', () => {
-    const other: WorkspaceProject = { key: '/other', label: 'other', roots: ['/other'] }
-    const built = buildWorkspaceItems([work('a', '/known/sub'), work('b', '/other')], [KNOWN, other])
-    expect(built.map((entry) => [entry.id, entry.projectLabel])).toEqual([
-      ['a', 'known'],
-      ['b', 'other'],
-    ])
+  it('files works from every checkout of one repository, on any host, under one project', () => {
+    // WHY: one repository on two machines is one project. The filter must not
+    // offer it twice, and choosing it must show the works from both.
+    const built = buildWorkspaceItems([work('a', 'laptop', '/code/web'), work('b', 'studio', '/srv/web')], projects)
+    expect(new Set(built.map((entry) => entry.projectKey))).toEqual(new Set(['github.com/acme/web']))
+    expect(projectOptions(built)).toEqual([{ value: 'github.com/acme/web', label: 'web', count: 2 }])
+  })
+
+  it('tells two repositories with one name apart, in the rows and in the filter', () => {
+    const built = buildWorkspaceItems([work('a', 'laptop', '/code/web'), work('b', 'laptop', '/forks/web')], projects)
+    expect(projectOptions(built).map((option) => option.label)).toEqual(['acme/web', 'other/web'])
+    expect(built.map((entry) => entry.projectLabel).sort()).toEqual(['acme/web', 'other/web'])
+  })
+
+  it('never joins the same path on two hosts when no repository joins them', () => {
+    const built = buildWorkspaceItems([work('a', 'laptop', '/notes'), work('b', 'studio', '/notes')], projects)
+    expect(projectOptions(built).map((option) => option.label)).toEqual(['notes · LAPTOP', 'notes · STUDIO'])
   })
 
   it('keeps a work that no known project claims, filed under its own folder', () => {
-    const [built] = buildWorkspaceItems([work('stray', '/elsewhere/notes/')], [KNOWN])
-    expect(built.projectKey).toBe('/elsewhere/notes/')
+    const [built] = buildWorkspaceItems([work('stray', 'laptop', '/elsewhere/notes')], projects)
+    expect(built.projectKey).toBe(localProjectKey('laptop', '/elsewhere/notes'))
     expect(built.projectLabel).toBe('notes')
   })
 })

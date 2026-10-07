@@ -237,10 +237,14 @@ describe('the member link', () => {
   test('the member link opens the resource as a page of the app, with no secret', () => {
     // WHY: it admits only the people the resource is shared with, so it must not
     // carry the bearer secret, and it must land on the resource after sign-in.
-    const work = appLinkUrl('https://app.solus.sh/', { kind: 'work', id: 'w1' }, 'solus-api:org1')
-    expect(work.startsWith('https://app.solus.sh/#')).toBe(true)
-    expect(parseRoute(work.slice(work.indexOf('#') + 1))).toEqual({ name: 'work', params: { workId: 'w1', serverId: 'solus-api:org1' } })
-    const session = appLinkUrl('https://app.solus.sh', { kind: 'session', id: 's1' }, 'solus-api:org1')
-    expect(parseRoute(session.slice(session.indexOf('#') + 1))).toEqual({ name: 'sessionRecord', params: { sessionId: 's1', serverId: 'solus-api:org1' } })
+    // The route is the path: the server sees it and keeps it as `next` when it
+    // sends a signed-out visitor to sign-in. A fragment never reaches the server.
+    const work = new URL(appLinkUrl('https://app.solus.sh/', { kind: 'work', id: 'w1' }, 'solus-api:org1'))
+    expect(work.origin).toBe('https://app.solus.sh')
+    expect(work.hash).toBe('')
+    expect(parseRoute(work.pathname)).toEqual({ name: 'work', params: { workId: 'w1', serverId: 'solus-api:org1' } })
+    const session = new URL(appLinkUrl('https://app.solus.sh', { kind: 'session', id: 's1' }, 'solus-api:org1'))
+    expect(session.hash).toBe('')
+    expect(parseRoute(session.pathname)).toEqual({ name: 'sessionRecord', params: { sessionId: 's1', serverId: 'solus-api:org1' } })
   })
 })

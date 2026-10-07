@@ -134,7 +134,7 @@ async function fileEvidence(
   // The checkout's own credential counts here — a dispatched worktree publishes
   // as the device that owns it, and may be the only credential this host has.
   if (!await provider.auth.hasCredential(repo.host, target.cwd)) {
-    throw new Error('GitHub is not connected — connect it in Settings → Connections.')
+    throw new Error('GitHub is not connected — connect it in Settings → Hosts → your host → Git.')
   }
 
   // The bytes go to the host's own attachment endpoint — the one its web

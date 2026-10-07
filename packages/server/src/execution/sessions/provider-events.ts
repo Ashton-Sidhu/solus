@@ -195,6 +195,7 @@ export class ProviderEvents {
             firstDispatchRun?.options.displayPrompt ?? firstDispatchRun?.options.prompt ?? null,
             runReqInput.gitContext?.branch ?? null,
             firstDispatchRun?.delegation,
+            firstDispatchRun?.startedBy,
           )
         }
         if (existingSession) {
@@ -252,6 +253,10 @@ export class ProviderEvents {
       const session = sessionId ? this.rt.activeSessions.get(sessionId) : undefined
       if (session) {
         session.lastActivityAt = Date.now()
+
+        if (event.type === 'error' && event.kind === 'auth') {
+          this.rt.expireSeatForTurn(this.rt.activeRunRequests.get(session.sessionId)?.actor, backend.id, event.message)
+        }
 
         if (event.type === 'session_changed_files_updated') {
           if (session.runInput) session.runInput.sessionChangedFiles = [...event.paths]

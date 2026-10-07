@@ -11,11 +11,15 @@
   import SessionStatusGlyph from "../SessionStatusGlyph.svelte";
   import PresenceStack from "../../presence/PresenceStack.svelte";
   import { presenceStore } from "../../../contexts/presence/presence.store.svelte";
+  import { serversStore } from "../../../contexts/connections/servers.store.svelte";
+  import HostOperatingSystemIcon from "../../servers/HostOperatingSystemIcon.svelte";
+  import { hostIsManaged } from "../../servers/lib/managed-host";
   import { peopleOnSessions, pickerRowSessions } from "./lib/picker-presence";
   import {
     pickerSessionTitle,
     pickerSessionProject,
     pickerSessionActivity,
+    pickerSessionServerId,
     pickerSessionTaskTitle,
     isTaskGroup,
     projectLabel,
@@ -74,6 +78,14 @@
       ? []
       : peopleOnSessions(pickerRowSessions(row), (serverId, focus) => presenceStore.peopleFocusedOn(serverId, focus)),
   );
+
+  // The machine a session ran on, when it is not this one. A local session
+  // carries no mark, so the remote ones stand out in a mixed list.
+  const remoteHost = $derived.by(() => {
+    if (row.kind !== "session" && row.kind !== "conversation") return null;
+    const host = serversStore.hostFor(pickerSessionServerId(row));
+    return host && !host.local ? host : null;
+  });
 </script>
 
 {#snippet marked(runs: TextRun[])}
@@ -83,12 +95,29 @@
       >{:else}{run.text}{/if}{/each}
 {/snippet}
 
+<!-- The remote host a session ran on: its operating system's mark and name,
+     as the sidebar row shows it. -->
+{#snippet hostMark()}
+  {#if remoteHost}
+    <span class="flex min-w-0 items-center gap-1" title={remoteHost.label} data-testid="picker-session-host">
+      <HostOperatingSystemIcon
+        os={"os" in remoteHost ? remoteHost.os : undefined}
+        managed={hostIsManaged(remoteHost)}
+        size={11}
+        class="shrink-0"
+      />
+      <span class="min-w-0 truncate">{remoteHost.label}</span>
+    </span>
+  {/if}
+{/snippet}
+
 <!-- The trailing byline of a two-line row: a name that yields, then a date
      that does not. Capped, so a long task title can never squeeze the row's
      own title out of its column. -->
 {#snippet byline(name: string | null, when: string)}
   <span class="flex max-w-[45%] shrink-0 items-center gap-1 whitespace-nowrap text-micro tabular-nums text-(--solus-text-tertiary)">
     {#if name}<span class="min-w-0 truncate">{name}</span><span class="shrink-0">·</span>{/if}
+    {#if remoteHost}{@render hostMark()}<span class="shrink-0">·</span>{/if}
     <span class="shrink-0">{when}</span>
   </span>
 {/snippet}
@@ -258,6 +287,9 @@
         >
       </span>
       <PresenceStack {people} size={14} max={2} />
+      {#if remoteHost}
+        <span class="flex max-w-[35%] min-w-0 shrink-0 text-micro text-(--solus-text-tertiary)">{@render hostMark()}</span>
+      {/if}
       <span class="min-w-11 shrink-0 whitespace-nowrap text-right text-micro tabular-nums text-(--solus-text-tertiary)">
         {relativeTime(child.lastActivityAt || row.task.updatedAt)}
       </span>

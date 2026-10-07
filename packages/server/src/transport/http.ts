@@ -3,7 +3,6 @@ import { workspaceCredentialsForHttp } from './solus-api/admission'
 import type { WorkspaceOperations } from '../data/workspace/operations'
 import { solusApiOpenApi } from '@solus/contracts/solus-api/openapi'
 import { rememberPersonToken } from '../vault/account-integrations'
-import { sharedPromptPollSchema, sharedPromptResultSchema, type SharedPromptRelay } from '../sharing/shared-prompt'
 import { createServer, type RequestListener, type Server as HttpServer, type IncomingMessage, type ServerResponse } from 'http'
 import { createReadStream, existsSync, realpathSync } from 'fs'
 import { stat as readFileStat } from 'fs/promises'
@@ -19,7 +18,7 @@ import formidable, { type File as FormidableFile } from 'formidable'
 import { resolve as pathResolve, isAbsolute } from 'path'
 import { tmpdir } from 'os'
 import { z } from 'zod'
-import { consumePairToken, generatePairToken, getInstallationId, getServerFingerprint, isDeviceRevoked, issueGrantWsTicket, issueGuestWsTicket, issueSessionToken, issueWsTicket, listRevokedDevices, refreshSessionToken, revokeDevice, verifyPairOpenAdminRequest, verifySessionToken, type GrantMembership } from '../admission/auth'
+import { consumePairToken, generatePairToken, getInstallationId, getServerFingerprint, isDeviceRevoked, issueGrantWsTicket, issueGuestWsTicket, issueRunnerWsTicket, issueSessionToken, issueWsTicket, listRevokedDevices, refreshSessionToken, revokeDevice, verifyPairOpenAdminRequest, verifySessionToken, type GrantMembership } from '../admission/auth'
 import { listReachableEndpoints } from './endpoints'
 import type { TokenVerdict } from '../admission/access-tokens'
 import { runnerPrincipalFor, type Principal } from '../admission/principal'
@@ -79,7 +78,6 @@ export interface HttpServerOptions {
   /** A guest grant is worth nothing without the share secret naming one resource (§3.4). */
   resolveShareSecret?: (secret: string) => Promise<ResolvedLinkShare | null>
   /** The workspace service's runner routes (cloud-service-model.md §16); mounted in API mode only, so the routes exist nowhere else. */
-  sharedPrompts?: SharedPromptRelay
   runner?: {
     applyOutbox: (runner: RunnerPrincipal, request: RunnerOutboxRequest) => Promise<RunnerOutboxResponse>
     applySessionRecords: (runner: RunnerPrincipal, request: RunnerSessionRecordsRequest) => Promise<RunnerSessionRecordsResponse>
@@ -141,10 +139,6 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   let voiceTranscriptionActive = false
 
   const app = new Hono<Env>()
-  app.use('*', async (c, next) => {
-    if (opts.isVerifyingUpdate?.()) return c.json({ error: 'Solus is verifying an update. Try again shortly.' }, 503)
-    await next()
-  })
 
   // Every route below is authenticated (if at all) by an `Authorization`
   // bearer header, never cookies, so a cross-origin caller can't ride on an
@@ -172,6 +166,11 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   app.use('/auth/ws-ticket', publicCors)
   app.use('/auth/revoke', publicCors)
   app.use('/runner/*', publicCors)
+  // After CORS, so a cross-origin client reads the 503 and its preflight still passes.
+  app.use('*', async (c, next) => {
+    if (opts.isVerifyingUpdate?.()) return c.json({ error: 'Solus is verifying an update. Try again shortly.' }, 503)
+    await next()
+  })
 
   app.onError((err, c) => {
     log.error('http_handler_error', { error: err instanceof Error ? err.message : String(err) })
@@ -436,20 +435,6 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
       }
       return runnerPrincipalFor({ hostId: claims.act.host_id, organizationId: claims.organizationId, ownerUserId: person.id, expiresAt: claims.exp * 1000 })
     }
-    app.post('/runner/shared-prompts/poll', async (c) => {
-      const principal = await admitRunner(c)
-      if (!principal) return c.json({ error: 'Unauthorized' }, 401)
-      const body = await readJson(c, sharedPromptPollSchema)
-      if (!body || body.hostId !== principal.hostId || !opts.sharedPrompts) return c.json({ error: 'forbidden' }, 403)
-      return c.json(await opts.sharedPrompts.poll(principal))
-    })
-    app.post('/runner/shared-prompts/result', async (c) => {
-      const principal = await admitRunner(c)
-      if (!principal) return c.json({ error: 'Unauthorized' }, 401)
-      const body = await readJson(c, sharedPromptResultSchema)
-      if (!body || body.hostId !== principal.hostId || !opts.sharedPrompts) return c.json({ error: 'forbidden' }, 403)
-      return c.json(opts.sharedPrompts.result(principal, body))
-    })
     app.post(RUNNER_OUTBOX_PATH, async (c) => {
       const principal = await admitRunner(c)
       if (!principal) return c.json({ error: 'Unauthorized' }, 401)
@@ -526,7 +511,8 @@ type GrantTicketOutcome =
  * become a grant ticket; a guest grant becomes a guest ticket only together with a
  * share secret the Solus API recognizes. Guest admission exists only on the API.
  * Personal and managed hosts never accept a guest ticket. A host's delegated token
- * opens the runner routes, never a socket.
+ * opens the runner routes and, on the API, the runner's own socket: the channel
+ * shared prompts reach the host on. A host never admits one.
  */
 export async function ticketForGrant(
   claims: AccessTokenClaims,
@@ -536,7 +522,7 @@ export async function ticketForGrant(
 ): Promise<GrantTicketOutcome> {
   const subject = parseGrantSubject(claims.sub)
   const expiresAt = claims.exp * 1000
-  if (claims.act) return { ok: false, reason: 'delegated-token' }
+  if (claims.act) return runnerTicketFor(claims, subject, options.workspace ?? false)
   if (isGuestGrant(claims, subject)) {
     if (!options.workspace || claims.hostKind !== 'cloud') return { ok: false, reason: 'member-required' }
     if (isDeviceRevoked(claims.deviceId)) return { ok: false, reason: 'device-revoked' }
@@ -558,6 +544,12 @@ export async function ticketForGrant(
     ok: true,
     ticket: issueGrantWsTicket({ userId: subject.id, deviceId: claims.deviceId, expiresAt, membership: grantMembership(claims), displayName }),
   }
+}
+
+/** A host acting for a person in one organization: its socket on the Solus API, and nowhere else. */
+function runnerTicketFor(claims: AccessTokenClaims, subject: GrantSubject, workspace: boolean): GrantTicketOutcome {
+  if (!workspace || !claims.act || !claims.organizationId || subject.kind !== 'user') return { ok: false, reason: 'delegated-token' }
+  return { ok: true, ticket: issueRunnerWsTicket({ hostId: claims.act.host_id, organizationId: claims.organizationId, ownerUserId: subject.id, expiresAt: claims.exp * 1000 }) }
 }
 
 /** A member's standing in the organization the token names; undefined for anyone else. */

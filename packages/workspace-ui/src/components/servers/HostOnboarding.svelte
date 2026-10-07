@@ -1,8 +1,6 @@
 <script lang="ts">
-  import { slide } from "svelte/transition";
   import {
     ArrowRight as ArrowRightIcon,
-    ChevronLeft as CaretLeftIcon,
     Check as CheckIcon,
     LoaderCircle as CircleNotchIcon,
     X as XIcon,
@@ -14,14 +12,9 @@
   import ProviderPanel from "./ProviderPanel.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { hostOnboardingStore as store } from "./host-onboarding.store.svelte";
-  import {
-    onboardingRailModel,
-    type OnboardingStep,
-  } from "./lib/host-onboarding";
+  import { onboardingHeading, onboardingRailModel } from "./lib/host-onboarding";
 
-  let carriedOpen = $state(false);
-
-  // The setup act lives on the host, not on this modal — everything the rail
+  // The setup act lives on the host, not on this modal — everything the stage
   // runs or reports is read straight off the host's session.
   const setup = $derived(store.setup);
   const isPairing = $derived(store.phase === "pairing");
@@ -30,30 +23,36 @@
     onboardingRailModel({
       readiness: setup?.readiness ?? null,
       hostName,
-      hostUrl: serversStore.servers.find((server) => server.id === store.host?.id)?.url,
       fingerprint: store.host?.fingerprint,
       stepError: setup?.stepError,
     }),
   );
-  const decisions = $derived(rail.decisions);
-  const automaticSteps = $derived(rail.automaticSteps);
-  const facts = $derived(rail.facts);
-  const carriedTotal = $derived(rail.carriedTotal);
-  const carriedDone = $derived(rail.carriedDone);
   const current = $derived(rail.current);
-  const currentNumber = $derived(rail.currentNumber);
-  const doneDecisions = $derived(rail.doneDecisions);
-  const upcoming = $derived(rail.upcoming);
-  const percentDone = $derived(rail.percentDone);
-  const hostMeta = $derived(rail.hostMeta);
+  const heading = $derived(
+    onboardingHeading({
+      hostName,
+      pairingView: isPairing ? store.pairingView : null,
+      current,
+    }),
+  );
+  const isChecking = $derived(!isPairing && !!setup?.readinessLoading && !setup.readiness);
+  // A host in setup has been paired by definition, so that leads the done line.
+  const doneNames = $derived(
+    isPairing ? [] : ["Paired", ...rail.doneDecisions.map((step) => step.name)],
+  );
+  // Automatic steps are never asked about, but a failed one still needs a way
+  // to be seen and run again.
+  const automaticFailure = $derived(
+    rail.automaticSteps.find((step) => setup?.stepError?.step === step.id) ?? null,
+  );
 
   const isActiveHost = $derived(
     !!store.host && serversStore.activeServer?.id === store.host.id,
   );
   // One primary button carries the whole handshake, so each pairing view names
   // what pressing it does rather than the modal sprouting a button per state.
+  // While the first attempt is connecting there is nothing to press.
   const pairingAction = $derived.by(() => {
-    if (store.pairingBusy) return { label: "Connecting", disabled: true };
     switch (store.pairingView) {
       case "ssh-target":
         return { label: "Next", disabled: !store.sshTarget.trim() };
@@ -64,7 +63,7 @@
       case "error":
         return { label: "Try again", disabled: false };
       default:
-        return { label: "Connecting", disabled: true };
+        return null;
     }
   });
 
@@ -73,347 +72,149 @@
     requestInputFocus();
   }
 
-  function retryAutomatic(step: OnboardingStep) {
-    void setup?.runStep(step.id);
-  }
-
   function startWorking() {
     serversStore.switchTo(store.host!.id);
     close();
-  }
-
-  function automaticDetail(step: OnboardingStep): string {
-    if (!step.blockedBy) return step.detail;
-    return step.blockedBy === "gh-cli"
-      ? "waiting on the GitHub CLI"
-      : "waiting on GitHub";
   }
 </script>
 
 {#if store.isOpen && (store.host || store.pairingTarget)}
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4 text-workspace-chrome backdrop-blur-[2px] sm:p-6"
+    class="picker-backdrop fixed inset-0 z-50 flex items-center justify-center p-4 text-workspace-chrome"
     role="presentation"
     onkeydown={(event) => {
       if (event.key === "Escape") close();
     }}
   >
     <div
-      class="flex max-h-[calc(100vh-2rem)] min-h-[26rem] w-full max-w-[58.75rem] overflow-hidden rounded-2xl border border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[0_40px_90px_-24px_rgba(0,0,0,0.34)] sm:max-h-[calc(100vh-3rem)]"
+      class="flex max-h-[calc(100vh-2rem)] w-full max-w-[30rem] flex-col overflow-hidden rounded-[1.125rem] bg-popover text-popover-foreground shadow-[0_1.5rem_4rem_-1.25rem_rgba(0,0,0,0.28)] ring-1 ring-foreground/10"
       role="dialog"
       aria-modal="true"
       aria-labelledby="host-onboarding-title"
     >
-      <aside
-        class="flex w-[18rem] shrink-0 flex-col bg-[color-mix(in_srgb,var(--solus-accent)_4%,var(--solus-popover-bg))] px-[1.875rem] pb-6 pt-[1.875rem]"
-      >
-        <p
-          class="font-medium uppercase text-(--solus-text-tertiary)"
+      <header class="flex shrink-0 items-center gap-3 pt-4 pr-3.5 pl-7">
+        <span
+          class="h-[3px] flex-1 overflow-hidden rounded-full bg-foreground/12"
+          role="progressbar"
+          aria-label="Setup progress"
+          aria-valuenow={isPairing ? 10 : rail.percentDone}
+          aria-valuemin={0}
+          aria-valuemax={100}
         >
-          Set up a server
+          <span
+            class="block h-full rounded-full bg-primary transition-[width] duration-300 motion-reduce:transition-none"
+            style="width: {isPairing ? 10 : rail.percentDone}%"
+          ></span>
+        </span>
+        <Button variant="ghost" size="icon-sm" class="text-muted-foreground" aria-label="Close" onclick={close}>
+          <XIcon size={14} />
+        </Button>
+      </header>
+
+      <!-- flex-auto, not flex-1: the stage sizes to its content, and a
+           zero-basis item would collapse in an auto-height container. It only
+           scrolls once the viewport cap actually bites. -->
+      <div class="min-h-0 flex-auto overflow-y-auto px-7 pt-7 pb-2">
+        <p class="text-[0.8125rem] text-muted-foreground">
+          {isPairing ? "New server" : `Setting up ${hostName}`}
         </p>
         <h2
           id="host-onboarding-title"
-          class="mt-[1.125rem] text-pretty text-[2em] font-medium leading-[1.12] text-(--solus-text-primary)"
+          class="mt-2.5 text-[1.375rem] leading-7 font-medium tracking-[-0.01em] text-pretty"
         >
-          {hostName}
-          {isPairing || current ? "is joining" : "is ready"}
+          {heading.title}
         </h2>
-        <p
-          class="mt-3 text-pretty leading-[1.6] text-(--solus-text-tertiary)"
-        >
-          {#if isPairing}
-            Solus copies this Mac's setup across so {hostName} behaves exactly the
-            same. Confirm how to reach it and the rest follows on its own.
-          {:else if current}
-            Your settings are already copied across. What's left are the accounts
-            and installs only you can approve — a couple of minutes, once.
-          {:else}
-            {hostName} has everything it needs to clone, run a session and push the
-            work back.
-          {/if}
-        </p>
+        <p class="mt-1.5 leading-[1.5] text-pretty text-muted-foreground">{heading.subtitle}</p>
 
-        <span class="flex-1"></span>
-
-        <div class="flex items-center gap-2">
-          <span
-            class="h-0.5 w-[5.5rem] overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--solus-text-primary)_14%,transparent)]"
-            aria-hidden="true"
-          >
-            <span
-              class="block h-full rounded-full bg-(--solus-accent) transition-[width] duration-300"
-              style="width: {isPairing ? 50 : percentDone}%"
-            ></span>
-          </span>
-          <span class="tabular-nums text-(--solus-text-tertiary)">
-            {#if isPairing}
-              Step 1 of 2
-            {:else if setup?.readinessLoading && !setup.readiness}
-              Checking…
-            {:else}
-              {doneDecisions.length} of {decisions.length} handled
-            {/if}
-          </span>
-        </div>
-      </aside>
-
-      <div class="flex min-w-0 flex-1 flex-col">
-        <header class="flex h-[3.125rem] shrink-0 items-center gap-2 px-[1.375rem]">
-          {#if isPairing && store.pairingView === "fallback"}
-            <button
-              type="button"
-              class="-ml-1.5 flex items-center gap-1.5 rounded-md px-1.5 py-1  text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)"
-              onclick={() => void store.startSshBootstrap()}
-            >
-              <CaretLeftIcon size={11} />
-              Back to SSH
-            </button>
-          {/if}
-          <span class="flex-1"></span>
-          <button
-            type="button"
-            class="-mr-2 flex size-10 items-center justify-center rounded-lg text-(--solus-text-tertiary) transition-[background-color,color,transform] duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-input-focus-ring)"
-            aria-label="Close"
-            onclick={close}
-          >
-            <XIcon size={14} />
-          </button>
-        </header>
-
-        <!-- flex-auto, not flex-1: the stage sizes to its content, and a
-             zero-basis item would collapse in an auto-height container. It only
-             scrolls once the viewport cap actually bites. -->
-        <div class="min-h-0 flex-auto overflow-y-auto px-[1.375rem] pb-5">
+        <div class="mt-6">
           {#if isPairing && store.pairingTarget}
             <HostPairingPanel target={store.pairingTarget} />
-          {:else}
-            <div class="flex items-baseline gap-2.5">
-              <p
-                class="shrink-0 text-[2em] font-medium text-(--solus-text-primary)"
-              >
-                {hostName}
-              </p>
-              {#if hostMeta}
-                <p
-                  class="min-w-0 flex-1 truncate  text-(--solus-text-tertiary)"
-                  style="font-family: 'Geist Mono', ui-monospace, monospace"
-                >
-                  {hostMeta}
-                </p>
-              {/if}
-            </div>
-
-            <!-- One step at a time: the rail asks for exactly one thing, and
-                 what is left is a list rather than four open panels. -->
-            {#if current}
-              <div class="mt-[1.625rem] max-w-[30rem]">
-                <p
-                  class="font-medium uppercase text-(--solus-accent)"
-                >
-                  Step {currentNumber} of {decisions.length}
-                </p>
-                <h3
-                  class="mt-2.5 text-[2em] font-medium text-(--solus-text-primary)"
-                >
-                  {current.label}
-                </h3>
-                <p
-                  class="mt-2 text-pretty leading-[1.55] text-(--solus-text-tertiary)"
-                >
-                  {current.why}
-                </p>
-
-                {#if current.id === "github"}
-                  {#if setup}<GitHostPanel {setup} />{/if}
-                {:else if current.id === "providers"}
-                  {#if setup}<ProviderPanel {setup} />{/if}
-                {/if}
-              </div>
+          {:else if setup}
+            <!-- One question at a time; with nothing left, the providers stay
+                 here so the other one can still be added. -->
+            {#if current?.id === "github"}
+              <GitHostPanel {setup} flush />
             {:else}
-              <div class="mt-[1.625rem] max-w-[30rem]">
-                <p
-                  class="font-medium uppercase text-(--solus-text-tertiary)"
-                >
-                  All clear
-                </p>
-                <h3
-                  class="mt-2.5 text-[2em] font-medium text-(--solus-text-primary)"
-                >
-                  {hostName} is fully set up
-                </h3>
-                <p
-                  class="mt-2 text-pretty leading-[1.55] text-(--solus-text-tertiary)"
-                >
-                  Nothing else needs you. Start a session whenever you like.
-                </p>
-                <!-- The rail is satisfied by one provider, so this is where the
-                     other one is added later. -->
-                {#if setup}<ProviderPanel {setup} />{/if}
-              </div>
+              <ProviderPanel {setup} flush />
             {/if}
-
-            <div
-              class="mt-8 max-w-[30rem] border-t border-(--solus-container-border) pt-[0.8125rem]"
-            >
-              {#if upcoming.length > 0}
-                <p
-                  class="font-medium uppercase text-(--solus-text-tertiary)"
-                >
-                  After this
+            {#if automaticFailure}
+              <div class="mt-4 flex items-center gap-2">
+                <p class="min-w-0 flex-1 cursor-text select-text text-pretty text-[0.8125rem] text-destructive">
+                  {automaticFailure.label}: {setup.stepError?.message}
                 </p>
-                <div class="mt-[0.3125rem] flex flex-col">
-                  {#each upcoming as step (step.id)}
-                    <div class="flex items-baseline gap-2.5 py-[0.1875rem]">
-                      <span
-                        class="shrink-0  tabular-nums text-(--solus-text-tertiary)"
-                      >
-                        {decisions.indexOf(step) + 1}
-                      </span>
-                      <span class="text-(--solus-text-tertiary)">
-                        {step.label}
-                      </span>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-
-              {#if doneDecisions.length > 0}
-                <div class="mt-2.5 flex flex-col">
-                  {#each doneDecisions as step (step.id)}
-                    <div class="flex items-baseline gap-2 py-[0.1875rem]">
-                      <CheckIcon
-                        size={10}
-                        weight="bold"
-                        class="shrink-0 translate-y-px text-(--solus-text-tertiary)"
-                      />
-                      <span class="text-(--solus-text-tertiary)">
-                        {step.label} · {step.detail}
-                      </span>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-
-              <div class="mt-2.5 flex items-baseline gap-1.5">
-                <span class="text-(--solus-text-tertiary)">
-                  {carriedDone} of {carriedTotal} carried over from this Mac · nothing
-                  for you to do here
-                </span>
                 <Button
                   variant="ghost"
                   size="sm"
-                  class="px-1 text-workspace-chrome text-(--solus-accent)"
-                  onclick={() => (carriedOpen = !carriedOpen)}
+                  class="shrink-0"
+                  disabled={!!setup.runningStep}
+                  onclick={() => void setup.runStep(automaticFailure.id)}
                 >
-                  {carriedOpen ? "Hide" : "Show"}
+                  Retry
                 </Button>
               </div>
-
-              {#if carriedOpen}
-                <div class="flex flex-col pt-[0.3125rem]" transition:slide={{ duration: 160 }}>
-                  {#each facts as fact (fact.id)}
-                    {@render carriedRow(fact.title, fact.detail, fact.done ? "done" : "wait")}
-                  {/each}
-                  {#each automaticSteps as step (step.id)}
-                    {@const stepRunning = setup?.runningStep === step.id}
-                    {@render carriedRow(
-                      step.label,
-                      automaticDetail(step),
-                      step.done ? "done" : stepRunning ? "busy" : "wait",
-                    )}
-                    {#if setup?.stepError?.step === step.id}
-                      <div class="flex items-center gap-2 pb-1 pl-[1.125rem]">
-                        <p
-                          class="min-w-0 flex-1 text-pretty  leading-relaxed text-(--solus-status-error)"
-                        >
-                          {setup.stepError.message}
-                        </p>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          class="shrink-0 px-1 text-workspace-chrome text-(--solus-accent)"
-                          disabled={!!setup?.runningStep}
-                          onclick={() => retryAutomatic(step)}
-                        >
-                          Retry
-                        </Button>
-                      </div>
-                    {/if}
-                  {/each}
-                </div>
-              {/if}
-            </div>
+            {/if}
           {/if}
         </div>
+      </div>
 
-        <footer
-          class="flex h-16 shrink-0 items-center gap-2 border-t border-(--solus-popover-border) px-[1.375rem]"
+      <footer class="flex min-h-[4.625rem] shrink-0 items-center gap-2 py-5 pr-5 pl-7">
+        <!-- One line, always: names only, never sentences. -->
+        <span
+          class="flex min-w-0 flex-1 items-center gap-3 overflow-hidden text-[0.8125rem] whitespace-nowrap text-muted-foreground"
         >
-          {#if isPairing}
-            <p class="max-w-[13rem] text-pretty  leading-[1.45] text-(--solus-text-tertiary)">
-              Nothing is installed on {hostName} until it has joined.
-            </p>
-            <span class="flex-1"></span>
-            {#if store.pairingView !== "fallback"}
-              <Button
-                variant="ghost"
-                class="text-(--solus-text-tertiary)"
-                onclick={() => store.useCodeFallback()}
-              >
-                Use a code instead
-              </Button>
-            {/if}
+          {#if isChecking}
+            <span class="flex items-center gap-1.5" role="status">
+              <CircleNotchIcon size={12} class="shrink-0 animate-spin" />
+              Checking {hostName}…
+            </span>
+          {:else}
+            {#each doneNames as name (name)}
+              <span class="flex shrink-0 items-center gap-1.5">
+                <CheckIcon size={12} strokeWidth={2.6} class="text-(--success)" />
+                {name}
+              </span>
+            {/each}
+          {/if}
+        </span>
+
+        {#if isPairing}
+          {#if pairingAction}
+            <Button variant="ghost" class="h-[2.125rem] px-3 text-muted-foreground" onclick={close}>
+              Later
+            </Button>
             <Button
-              class="h-[2.125rem] px-4"
-              disabled={pairingAction.disabled}
+              class="h-[2.125rem] rounded-[0.625rem] px-3.5"
+              disabled={pairingAction.disabled || store.pairingBusy}
               onclick={() => store.submitCurrentPairingView()}
             >
-              {#if store.pairingBusy || store.pairingView === "connecting"}
+              {#if store.pairingBusy}
                 <CircleNotchIcon size={12} class="animate-spin" />
               {/if}
               {pairingAction.label}
             </Button>
           {:else}
-            <span class="flex-1"></span>
-            {#if isActiveHost}
-              <Button class="h-[2.125rem] px-4" onclick={close}>Done</Button>
-            {:else}
-              <Button variant="ghost" class="text-(--solus-text-tertiary)" onclick={close}>
-                Finish later
-              </Button>
-              <Button class="h-[2.125rem] px-4" onclick={startWorking}>
-                Start working on {hostName}
-                <ArrowRightIcon size={12} />
-              </Button>
-            {/if}
+            <Button variant="ghost" class="h-[2.125rem] px-3 text-muted-foreground" onclick={close}>
+              Cancel
+            </Button>
           {/if}
-        </footer>
-      </div>
+        {:else if current}
+          <Button variant="ghost" class="h-[2.125rem] px-3 text-muted-foreground" onclick={close}>
+            Later
+          </Button>
+          {#if !isActiveHost}
+            <Button variant="outline" class="h-[2.125rem] rounded-[0.625rem] px-3.5" onclick={startWorking}>
+              Open {hostName}
+            </Button>
+          {/if}
+        {:else if isActiveHost}
+          <Button class="h-[2.125rem] rounded-[0.625rem] px-3.5" onclick={close}>Done</Button>
+        {:else}
+          <Button class="h-[2.125rem] rounded-[0.625rem] px-3.5" onclick={startWorking}>
+            Open {hostName}
+            <ArrowRightIcon size={13} />
+          </Button>
+        {/if}
+      </footer>
     </div>
   </div>
 {/if}
-
-{#snippet carriedRow(title: string, detail: string, state: "done" | "busy" | "wait")}
-  <div class="flex items-baseline gap-2 py-[0.125rem] text-[0.875em]">
-    {#if state === "busy"}
-      <CircleNotchIcon
-        size={10}
-        class="shrink-0 translate-y-px animate-spin text-(--solus-accent)"
-      />
-    {:else if state === "done"}
-      <CheckIcon
-        size={10}
-        weight="bold"
-        class="shrink-0 translate-y-px text-(--solus-text-tertiary)"
-      />
-    {:else}
-      <span
-        class="size-[0.5625rem] shrink-0 translate-y-px rounded-full border border-[color-mix(in_srgb,var(--solus-text-primary)_16%,transparent)]"
-      ></span>
-    {/if}
-    <span class="min-w-0 flex-1  text-(--solus-text-tertiary)">
-      {title} · {detail}
-    </span>
-  </div>
-{/snippet}

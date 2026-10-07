@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import type { Provider, RepoRef } from '@solus/server/providers/types'
+import type { Provider } from '@solus/server/providers/types'
+import type { RepoRef } from '@solus/contracts/providers'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -78,7 +79,7 @@ describe('publishing evidence gates on the credential chain, not the host connec
 
     await expect(
       attachEvidence('asset-1', { kind: 'pr', number: 42, cwd: '/work/checkout' }, { page }),
-    ).rejects.toThrow('Settings → Connections')
+    ).rejects.toThrow('Settings → Hosts')
     expect(publishedAssets).toBe(0)
   })
 })

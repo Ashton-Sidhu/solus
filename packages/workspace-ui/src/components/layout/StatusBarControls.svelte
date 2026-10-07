@@ -86,7 +86,7 @@
   const selectedDispatchBaseBranch = $derived(pendingDispatch?.baseBranch ?? null);
   const displayBranch = $derived(
     selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? (pendingDispatch
-      ? run?.worktree ? "New worktree" : "Checkout"
+      ? run?.worktree ? "New worktree" : (env.targetBranch ?? "Default branch")
       : creatingWorktree
       ? "Creating worktree"
       : worktreeModePending
@@ -186,12 +186,6 @@
     requestInputFocus(focusTarget);
   }
 
-  function selectDispatchCheckout() {
-    if (!source) return;
-    session.config.setDispatchCheckout(source);
-    requestInputFocus(focusTarget);
-  }
-
   /** Every destination choice this row offers lands on whichever the source is:
    *  a started session's run, or the draft's, which stays inert until Send. */
   function applyRun(next: RunConfig) {
@@ -281,7 +275,6 @@
     onSelectBranch={selectBranch}
     onSelectWorktree={selectWorktree}
     onSelectNewWorktree={selectNewDispatchWorktree}
-    onSelectDispatchCheckout={selectDispatchCheckout}
   />
 {/if}
 

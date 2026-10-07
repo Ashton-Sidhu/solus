@@ -1,10 +1,7 @@
 import { isSolusApiId, organizationIdOfSolusApiId, solusApiId } from '@solus/contracts/uplink'
-import type { AgentId } from '@solus/contracts/types'
-import type { TurnFlagKind } from '@solus/contracts/observability-types'
 import type { WorksStore } from '../works/works.store.svelte'
 import { SvelteMap } from 'svelte/reactivity'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
-import type { Publication } from '@solus/contracts/organization-scope'
 import type { ShareLink, ShareList, ShareResource, ShareResourceKind, ShareRole, ShareSetRequest } from '@solus/contracts/sharing'
 import type { User } from '@solus/contracts/user'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -24,33 +21,35 @@ import { accountStore } from '../account/account.store.svelte'
 import { appLinkUrl } from './app-link'
 import { uplinkStore } from '../connections/uplink.store.svelte'
 import { organizationPeople, type OrganizationPeople } from '../../components/users/lib/organization-people'
+import { LOCAL_ORGANIZATION_ID } from '../../lib/organization-filter'
 
 /**
  * Share lists per host (docs/plans/multiplayer-sharing.md §4). The host owns every
  * row; this store caches what it answered, re-reads on `share.changed`, and holds
  * the one share dialog every surface opens.
  *
- * A share lives in an organization on Solus Cloud. A resource still on a machine
- * is published there first (docs/plans/organization-scope.md §7): the Share
- * action is the opt-in, so opening Share starts the upload into the organization
- * this window works in, with no second confirmation. Once the machine reports the
- * publication `committed`, the dialog continues on the organization's workspace
- * service as it always did.
+ * The dialog opens on the list of the server that holds the resource
+ * (docs/plans/organization-scope.md §4). A session stays on its host. A work or
+ * task in an organization lives on its workspace service. A Local work uploads
+ * there first with this client's sign-in (docs/plans/cloud-sharing.md §3): the
+ * Share action is the opt-in, so opening Share starts the upload into the
+ * organization this window works in, with no second confirmation.
  */
 
-/** Where a Local resource's publication stands, as the dialog shows it. */
-export type PublishStatus =
-  | { kind: 'pending' }
+/** How putting a Local work or task into an organization ended. */
+export type PublishOutcome =
+  | { kind: 'committed'; cloudServerId: string }
   | { kind: 'failed'; error: string }
   /** The machine holding the resource is not connected; nothing can be sent. */
   | { kind: 'offline' }
-  /** The host refused: this account may not publish there. */
+  /** The organization refused: this account may not publish there. */
   | { kind: 'denied'; error: string }
-  /** The machine holds it, sent, until the publisher connects again; it finishes then. */
-  | { kind: 'waiting'; error: string }
+
+/** Where a Local work's upload stands, as the dialog shows it. */
+export type PublishStatus = { kind: 'pending' } | Exclude<PublishOutcome, { kind: 'committed' }>
 
 export interface SharePublication {
-  /** The machine the resource lives on, whose API starts the publication. */
+  /** The machine the resource lives on, which gives the upload its content. */
   sourceServerId: string
   organizationId: string
   organizationName: string
@@ -61,7 +60,7 @@ export interface ShareDialogTarget {
   serverId: string
   resource: ShareResource
   title: string
-  /** Set while the resource is still on a machine: the dialog shows its upload before any share. */
+  /** Set while a Local work uploads: the dialog shows its upload before any share. */
   publication?: SharePublication
 }
 
@@ -71,13 +70,6 @@ export interface PublishRequest {
   resource: ShareResource
   organizationId: string
 }
-
-export type PublishOutcome =
-  | { kind: 'committed'; cloudServerId: string }
-  | { kind: 'failed'; error: string }
-  | { kind: 'offline' }
-  | { kind: 'denied'; error: string }
-  | { kind: 'waiting'; error: string }
 
 /** Who this client is to one host, as the host told it. */
 export interface HostIdentity {
@@ -89,22 +81,8 @@ export interface HostIdentity {
   organizationId: string | null
 }
 
-/** How soon a publication is first re-read while no `publication.changed` arrives; each later read waits twice as long. */
-const PUBLICATION_POLL_MS = 500
-/** The longest wait between two re-reads. */
-const PUBLICATION_POLL_MAX_MS = 10_000
-
 function listKey(serverId: string, resource: ShareResource): string {
   return `${serverId}|${resource.kind}|${resource.id}`
-}
-
-function isSettled(publication: Publication): boolean {
-  return publication.state === 'committed' || publication.state === 'failed'
-}
-
-/** Settled, or sent and held by the machine for a reason the publisher must act on. */
-function isAnswered(publication: Publication): boolean {
-  return isSettled(publication) || (publication.state === 'sent' && !!publication.error)
 }
 
 export class SharesStore {
@@ -114,15 +92,11 @@ export class SharesStore {
   readonly directories = new SvelteMap<string, OrganizationPeople | null>()
   dialog = $state<ShareDialogTarget | null>(null)
   busy = $state(false)
-  private readonly publications = new SvelteMap<string, { organizationId: string; result: Promise<PublishOutcome> }>()
+  /** One upload per resource at a time: a second Share or Copy link joins the first. */
+  private readonly uploads = new Map<string, { organizationId: string; result: Promise<PublishOutcome> }>()
   private readonly loads = new Map<string, Promise<ShareList | null>>()
   private readonly linkStatusAsked = new Set<string>()
   private stopWatching: (() => void) | null = null
-  private readonly pollMs: number
-
-  constructor(options: { pollMs?: number } = {}) {
-    this.pollMs = options.pollMs ?? PUBLICATION_POLL_MS
-  }
 
   /** Subscribe once; every host's `share.changed` refreshes the cached list. */
   watch(): void {
@@ -208,10 +182,11 @@ export class SharesStore {
    * The organization's people and teams, once per host; null when this client has
    * no account or the host has no organization. The one member list (plans/012 §6):
    * the account plane's directory becomes `User`s here, once, and every people
-   * choice reads them.
+   * choice reads them. `refresh` reads it again and keeps the last answer until
+   * the new one arrives.
    */
-  async directoryFor(serverId: string): Promise<OrganizationPeople | null> {
-    if (this.directories.has(serverId)) return this.directories.get(serverId) ?? null
+  async directoryFor(serverId: string, refresh = false): Promise<OrganizationPeople | null> {
+    if (!refresh && this.directories.has(serverId)) return this.directories.get(serverId) ?? null
     const identity = await this.identityFor(serverId)
     const source = uplinkAccountSource()
     const directory = identity.organizationId && source ? await source.loadOrganizationDirectory(identity.organizationId) : null
@@ -237,14 +212,14 @@ export class SharesStore {
   /**
    * Whether this resource can be shared from where it lives. A work becomes a
    * cloud copy with this client's sign-in (docs/plans/cloud-sharing.md), so it
-   * needs an organization, not a linked host. A session runs on its host, which
-   * sends its later turns, so it needs the host linked. A task is not shared: it
+   * needs an organization, not a linked host. A session stays on its host, and
+   * its link opens there, so it needs the host linked. A task is not shared: it
    * is seen by its whole organization, and offers its link (`copyTaskLink`).
    */
   canShareFrom(serverId: string, kind: ShareResourceKind): boolean {
     if (kind === 'task') return false
     if (kind === 'session') return this.isHostLinked(serverId)
-    return isSolusApiId(serverId) || this.canPublishWork(serverId)
+    return isSolusApiId(serverId) || !!serversStore.activeOrganizationId
   }
 
   /**
@@ -259,24 +234,6 @@ export class SharesStore {
     return this.linkContext(serverId).kind === 'linked'
   }
 
-  /**
-   * An Insights report (docs/plans/cloud-sharing.md §4): the report becomes a
-   * Local work on the computer the readings came from, and Share uploads it like
-   * any work. Each Share captures a new report, labelled with when it was taken.
-   */
-  async shareReport(serverId: string, report: { title: string; content: string; agentProvider: AgentId; mark: { kind: TurnFlagKind; note: string } | null }): Promise<void> {
-    if (accountStore.state.kind !== 'signed-in' || this.busy) return
-    try {
-      const api = serverConnections.apiFor(serverId)
-      const work = await api.createWork(report.title, 'insights-report', report.content, undefined, undefined, report.agentProvider)
-      // Set before the dialog uploads the work, so the copy carries it.
-      if (report.mark) await api.applyWorkComment(work.id, { kind: 'mark', mark: report.mark })
-      await this.open({ serverId, resource: { kind: 'work', id: work.id }, title: report.title })
-    } catch (error) {
-      toasts.error('Could not share this report', { description: error instanceof Error ? error.message : undefined })
-    }
-  }
-
   /** Opens the dialog; resolves once it is on screen or the attempt was explained. */
   open(target: ShareDialogTarget): Promise<void> {
     if (accountStore.state.kind !== 'signed-in' || this.busy) return Promise.resolve()
@@ -287,22 +244,21 @@ export class SharesStore {
   }
 
   /**
-   * A resource on the workspace service, or one a machine already published,
-   * opens on its organization's share list. A Local resource opens in the
-   * publish state and its upload into the window's organization starts at once
-   * (§7): Share is the opt-in. The dialog resolves on screen; the list follows
-   * the receipt.
+   * The dialog opens on the list of the server that holds the resource. A Local
+   * work opens in the upload state, and its upload into the window's
+   * organization starts at once: Share is the opt-in. The dialog resolves on
+   * screen; the list follows the upload.
    */
   private async openTarget(target: ShareDialogTarget): Promise<void> {
-    if (isSolusApiId(target.serverId)) {
-      await this.openCloud(target.serverId, target)
+    const cloudServerId = this.cloudHomeOf(target)
+    if (cloudServerId) {
+      await this.reachCloud(cloudServerId)
+      await this.openList(cloudServerId, target)
       return
     }
-    const committed = await this.committedPublication(target.serverId, target.resource)
-    if (committed) {
-      const cloudServerId = solusApiId(committed.organizationId)
-      if (target.resource.kind === 'work') this.works?.markPublished(target.resource.id, committed.organizationId, cloudServerId)
-      await this.openCloud(cloudServerId, target)
+    // A session stays on its host for now: Share opens the host's own list and uploads nothing.
+    if (target.resource.kind === 'session') {
+      await this.openList(target.serverId, target)
       return
     }
     const organizationId = serversStore.activeOrganizationId
@@ -326,17 +282,29 @@ export class SharesStore {
     void this.publishDialog(this.dialog)
   }
 
-  /** The dialog on a resource that lives on the workspace service: it opens on its list; its people load beside it. */
-  private async openCloud(cloudServerId: string, target: ShareDialogTarget): Promise<void> {
-    await this.reachCloud(cloudServerId)
-    this.identities.delete(cloudServerId)
-    this.directories.delete(cloudServerId)
-    void this.directoryFor(cloudServerId).catch(() => {
-      // No people to invite; the list still opens.
+  /** The workspace service that holds the resource: the server it is on, or the organization a work moved to; null while it is Local. */
+  private cloudHomeOf(target: ShareDialogTarget): string | null {
+    if (isSolusApiId(target.serverId)) return target.serverId
+    if (target.resource.kind !== 'work') return null
+    const organizationId = this.works?.works[target.resource.id]?.organizationId
+    return organizationId && organizationId !== LOCAL_ORGANIZATION_ID ? solusApiId(organizationId) : null
+  }
+
+  /** The dialog on the list of the server that holds the resource; its people load beside it. */
+  private async openList(serverId: string, target: ShareDialogTarget): Promise<void> {
+    // The last answer stays on screen while a new one loads, so a person the
+    // dialog already knows is never shown as a former member in between.
+    void this.directoryFor(serverId, true).catch(() => {
+      // No people to invite; the list still opens, and stops waiting for them.
+      if (!this.directories.has(serverId)) this.directories.set(serverId, null)
     })
-    const list = await this.load(cloudServerId, target.resource, { force: true })
-    if (!list) throw new Error('This resource has not reached Solus Cloud yet. Open its cloud copy before sharing.')
-    this.dialog = { serverId: cloudServerId, resource: target.resource, title: target.title }
+    const list = await this.load(serverId, target.resource, { force: true })
+    if (!list) {
+      throw new Error(isSolusApiId(serverId)
+        ? 'This resource has not reached Solus Cloud yet. Open its cloud copy before sharing.'
+        : 'This host could not open sharing for this session.')
+    }
+    this.dialog = { serverId, resource: target.resource, title: target.title }
   }
 
   /** The organization's workspace service is reached through the account's directory; read it only when this client does not know the service yet. */
@@ -344,17 +312,7 @@ export class SharesStore {
     if (!savedWorkspaceFor(cloudServerId)) await serversStore.refreshDirectory()
   }
 
-  /** A publication of this resource the machine already committed, if any; an older host that cannot say has none. */
-  private async committedPublication(serverId: string, resource: ShareResource): Promise<Publication | null> {
-    try {
-      const publications = await serverConnections.apiFor(serverId).publicationList(resource)
-      return publications.find((publication) => publication.state === 'committed') ?? null
-    } catch {
-      return null
-    }
-  }
-
-  /** The dialog's Retry after a publication that did not commit: the same destination, the same operation. */
+  /** The dialog's Retry after an upload that did not finish: the same destination, the same operation. */
   async publish(): Promise<void> {
     const dialog = this.dialog
     const publication = dialog?.publication
@@ -368,17 +326,16 @@ export class SharesStore {
   }
 
   /**
-   * Publish the dialog's Local resource into its organization, wait for the
-   * receipt, then continue on the organization's list. A failure keeps the
-   * dialog in the publish state with a Retry. Closing the dialog meanwhile
-   * leaves it closed; the publication itself still finishes on the machine.
+   * Upload the dialog's Local work into its organization, then continue on the
+   * organization's list. A failure keeps the dialog in the upload state with a
+   * Retry. Closing the dialog meanwhile leaves it closed; the upload finishes.
    */
   private async publishDialog(dialog: ShareDialogTarget): Promise<void> {
     const publication = dialog.publication
     if (!publication) return
     publication.status = { kind: 'pending' }
     try {
-      const outcome = await this.publishResource({
+      const outcome = await this.upload({
         serverId: publication.sourceServerId,
         resource: dialog.resource,
         organizationId: publication.organizationId,
@@ -389,40 +346,10 @@ export class SharesStore {
         publication.status = outcome
         return
       }
-      await this.openCloud(outcome.cloudServerId, dialog)
+      await this.openList(outcome.cloudServerId, dialog)
     } catch (error) {
       if (this.dialog === dialog) publication.status = { kind: 'failed', error: error instanceof Error ? error.message : String(error) }
     }
-  }
-
-  /**
-   * Publishes one Local resource into one organization (organization-scope §7):
-   * the machine reserves the destination, sends the resource and what it needs,
-   * and reports `committed` once the Solus API has it. The client follows the
-   * receipt — `publication.changed`, or a re-read that backs off when the
-   * event does not arrive — and then treats the organization's workspace service
-   * as the record's home. A publication the machine holds until the publisher
-   * connects again answers `waiting` with the machine's reason; it finishes on
-   * its own once they do. Nothing is sent from a machine that is not connected.
-   */
-  canPublishWork(serverId: string | null | undefined): boolean {
-    return !!serverId && !!serversStore.activeOrganizationId && !isSolusApiId(serverId)
-  }
-
-  isPublishing(serverId: string, resource: ShareResource): boolean {
-    return this.publications.has(listKey(serverId, resource))
-  }
-
-  /** Shared command for the work header and workspace menu. One action, one notification. */
-  async publishWork(serverId: string, workId: string): Promise<void> {
-    const organizationId = serversStore.activeOrganizationId
-    const organizationName = serversStore.activeOrganizationName ?? 'your organization'
-    const resource = { kind: 'work', id: workId } as const
-    if (!organizationId || !this.canPublishWork(serverId) || this.isPublishing(serverId, resource)) return
-    const outcome = await this.publishResource({ serverId, resource, organizationId })
-    if (outcome.kind === 'committed') toasts.success(`Published to ${organizationName}`)
-    else if (outcome.kind === 'waiting') toasts.info(`Publishing to ${organizationName} continues after you reconnect`, { description: outcome.error })
-    else toasts.error(`Couldn't publish this work to ${organizationName}`, { description: publishProblemMessage(outcome, 'work', organizationName) ?? undefined })
   }
 
   /** Whether a task on this host can have a link: it is in an organization, or can be put in one. */
@@ -453,7 +380,7 @@ export class SharesStore {
         })
         return
       }
-      const outcome = await this.publishResource({ serverId, resource: { kind: 'task', id: taskId }, organizationId })
+      const outcome = await this.upload({ serverId, resource: { kind: 'task', id: taskId }, organizationId })
       if (outcome.kind !== 'committed') {
         toasts.error(`Couldn't put this task in ${organizationName}`, { description: publishProblemMessage(outcome, 'task', organizationName) ?? undefined })
         return
@@ -480,34 +407,28 @@ export class SharesStore {
     return appLinkUrl(account.consoleUrl, resource, serverId)
   }
 
-  publishResource(request: PublishRequest): Promise<PublishOutcome> {
+  /** Put one Local work or task into one organization; a second request for the same resource joins the first. */
+  private upload(request: PublishRequest): Promise<PublishOutcome> {
     const key = listKey(request.serverId, request.resource)
-    const pending = this.publications.get(key)
-    if (pending) {
-      return pending.organizationId === request.organizationId
-        ? pending.result
+    const running = this.uploads.get(key)
+    if (running) {
+      return running.organizationId === request.organizationId
+        ? running.result
         : Promise.resolve({ kind: 'failed', error: 'This resource is already being published to another organization.' })
     }
-    const result = this.runPublication(request).finally(() => { this.publications.delete(key) })
-    this.publications.set(key, { organizationId: request.organizationId, result })
+    const result = this.runUpload(request).finally(() => { this.uploads.delete(key) })
+    this.uploads.set(key, { organizationId: request.organizationId, result })
     return result
   }
 
-  private async runPublication(request: PublishRequest): Promise<PublishOutcome> {
+  private async runUpload(request: PublishRequest): Promise<PublishOutcome> {
     const { serverId, resource, organizationId } = request
+    if (resource.kind === 'session') return { kind: 'failed', error: 'A session stays on its host.' }
     if (serverConnections.statusFor(serverId) !== 'connected') return { kind: 'offline' }
     try {
-      if (resource.kind === 'work') return await this.uploadWork(serverId, resource.id, organizationId)
-      if (resource.kind === 'task') return await this.uploadTask(serverId, resource.id, organizationId)
-      const api = serverConnections.apiFor(serverId)
-      const started = await api.publicationStart({ resource, organizationId })
-      const settled = await this.awaitAnswer(serverId, started)
-      if (settled.state === 'sent') return { kind: 'waiting', error: settled.error ?? 'Publishing did not finish.' }
-      if (settled.state !== 'committed') return { kind: 'failed', error: settled.error ?? 'Publishing did not finish.' }
-      const cloudServerId = solusApiId(organizationId)
-      // The machine's share list, if one was cached, described a Local resource that is gone from there.
-      this.lists.delete(listKey(serverId, resource))
-      return { kind: 'committed', cloudServerId }
+      return resource.kind === 'work'
+        ? await this.uploadWork(serverId, resource.id, organizationId)
+        : await this.uploadTask(serverId, resource.id, organizationId)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (error instanceof Error && rpcErrorCode(error) === 'FORBIDDEN') return { kind: 'denied', error: message }
@@ -554,48 +475,6 @@ export class SharesStore {
     }
     this.lists.delete(listKey(serverId, { kind: 'task', id: taskId }))
     return { kind: 'committed', cloudServerId }
-  }
-
-  /**
-   * The publication once the machine calls it `committed` or `failed`, or holds it
-   * `sent` with a reason the publisher must act on. The event is the answer; the
-   * re-read is the fallback for a missed event, and backs off so a long upload
-   * costs a few requests, not two a second.
-   */
-  private awaitAnswer(serverId: string, publication: Publication): Promise<Publication> {
-    if (isAnswered(publication)) return Promise.resolve(publication)
-    return new Promise((resolve) => {
-      const api = serverConnections.apiFor(serverId)
-      let done = false
-      let timer: ReturnType<typeof setTimeout> | null = null
-      let delayMs = this.pollMs
-      const finish = (answered: Publication) => {
-        if (done) return
-        done = true
-        unsubscribe()
-        if (timer) clearTimeout(timer)
-        resolve(answered)
-      }
-      const unsubscribe = serverConnections.eventsFor(serverId).subscribe('publication.changed', (changed) => {
-        if (changed.id === publication.id && isAnswered(changed)) finish(changed)
-      })
-      const reread = () => {
-        void api.publicationList(publication.resource)
-          .then((publications) => {
-            const current = publications.find((candidate) => candidate.id === publication.id)
-            if (current && isAnswered(current)) finish(current)
-          })
-          .catch(() => {
-            // The next read asks again; the event may still arrive first.
-          })
-          .finally(() => {
-            if (done) return
-            delayMs = Math.min(delayMs * 2, PUBLICATION_POLL_MAX_MS)
-            timer = setTimeout(reread, delayMs)
-          })
-      }
-      timer = setTimeout(reread, delayMs)
-    })
   }
 
   close(): void {

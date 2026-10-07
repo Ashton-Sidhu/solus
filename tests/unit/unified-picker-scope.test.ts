@@ -4,7 +4,7 @@ import {
   resolvePickerScope,
   scopeForChoice,
 } from '@solus/workspace-ui/components/session/unified-picker/lib/picker-scope'
-import { pickerProjectChoices } from '@solus/workspace-ui/components/session/unified-picker/lib/picker-rows'
+import { pickerProjectKeys } from '@solus/workspace-ui/components/session/unified-picker/lib/picker-rows'
 
 function task(id: string, projectKey: string): Task {
   return {
@@ -50,43 +50,34 @@ describe('picker scope', () => {
   })
 })
 
-describe('picker project choices', () => {
+describe('picker project keys', () => {
   const tasks = [
-    task('a', 'model-routing'),
-    task('b', 'solus'),
-    task('c', 'model-routing'),
+    task('a', '/Users/me/model-routing'),
+    task('b', '/Users/me/solus'),
+    task('c', '/home/me/solus'),
   ]
+  // Both checkouts of solus belong to one repository.
+  const projectKeyOf = (item: Task) => item.projectKey?.endsWith('/solus') ? 'github.com/me/solus' : item.projectKey ?? null
 
-  test('every project the picker can list is offered, with its task count', () => {
-    expect(pickerProjectChoices(tasks, null)).toEqual([
-      { projectKey: 'model-routing', label: 'model-routing', count: 2 },
-      { projectKey: 'solus', label: 'solus', count: 1 },
-    ])
+  test('every checkout of a project is one scope', () => {
+    // A project checked out in several folders or on several hosts was offered
+    // once per folder, every row with the same name.
+    expect(pickerProjectKeys(null, tasks, projectKeyOf, [])).toEqual(['/Users/me/model-routing', 'github.com/me/solus'])
   })
 
   test('the composer’s project leads and is offered even with no task yet', () => {
-    // The case that sent us here: a fresh composer in a project whose first
-    // task does not exist. Leaving it out would make the default scope
-    // unnameable in its own menu.
-    const choices = pickerProjectChoices(tasks, { projectKey: 'fresh', label: 'fresh' })
-    expect(choices[0]).toEqual({ projectKey: 'fresh', label: 'fresh', count: 0 })
-    expect(choices.map((choice) => choice.projectKey)).toEqual(['fresh', 'model-routing', 'solus'])
-  })
-
-  test('the composer’s project is not listed twice when it already has work', () => {
-    const choices = pickerProjectChoices(tasks, { projectKey: 'solus', label: 'solus' })
-    expect(choices.filter((choice) => choice.projectKey === 'solus')).toHaveLength(1)
-    expect(choices[0]).toEqual({ projectKey: 'solus', label: 'solus', count: 1 })
+    // Leaving it out would make the default scope unnameable in its own menu.
+    expect(pickerProjectKeys('github.com/me/fresh', tasks, projectKeyOf, [])[0]).toBe('github.com/me/fresh')
+    expect(pickerProjectKeys('github.com/me/solus', tasks, projectKeyOf, [])).toEqual(['github.com/me/solus', '/Users/me/model-routing'])
   })
 
   test('a known project with no task is still offered, once', () => {
-    // A project whose work is all sessions has no task to name it, so the
-    // menu listed only the projects that happened to hold a task.
-    const choices = pickerProjectChoices(tasks, null, [
-      { projectKey: 'solus', label: 'solus' },
-      { projectKey: 'sessions-only', label: 'sessions-only' },
-    ])
-    expect(choices.map((choice) => choice.projectKey)).toEqual(['model-routing', 'solus', 'sessions-only'])
-    expect(choices.at(-1)).toEqual({ projectKey: 'sessions-only', label: 'sessions-only', count: 0 })
+    // A project whose work is all sessions has no task to name it.
+    expect(pickerProjectKeys(null, tasks, projectKeyOf, ['github.com/me/solus', 'github.com/me/sessions-only']))
+      .toEqual(['/Users/me/model-routing', 'github.com/me/solus', 'github.com/me/sessions-only'])
+  })
+
+  test('a chat is not a project to scope to', () => {
+    expect(pickerProjectKeys(null, [task('chat', '/Users/me/.solus-chats/abc')], (item) => item.projectKey ?? null, [])).toEqual([])
   })
 })

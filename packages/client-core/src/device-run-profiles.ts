@@ -1,5 +1,5 @@
 import type { z } from 'zod'
-import { MAX_DEVICE_RUN_PROFILES, deviceRunProfileSchema, type DeviceRunProfile } from '@solus/contracts/device-types'
+import { MAX_DEVICE_RUN_PROFILES, deviceRunProfileSchema, type DeviceProjectInfo, type DeviceRunProfile } from '@solus/contracts/device-types'
 import type { HostApi } from './host-api'
 
 /**
@@ -50,6 +50,55 @@ export const RUN_PROFILE_PRESETS: RunProfilePreset[] = [
     },
   },
 ]
+
+/**
+ * The folder a preset builds in, from what project detection found: a
+ * monorepo's app lives below the checkout root (`apps/mobile/package.json`
+ * makes `apps/mobile/ios`), not in `ios` at the root.
+ */
+export function presetFolder(profile: Pick<DeviceRunProfile, 'platform'>, info: DeviceProjectInfo | null | undefined): string {
+  const native = profile.platform === 'ios' ? 'ios' : 'android'
+  for (const marker of info?.markers ?? []) {
+    if (profile.platform === 'ios' && /\.(xcworkspace|xcodeproj)$/.test(marker)) return marker.split('/').slice(0, -1).join('/') || '.'
+    if (profile.platform === 'android' && (marker === 'android' || marker.endsWith('/android'))) return marker
+  }
+  const marker = info?.markers.find((candidate) => /(^|\/)(package\.json|pubspec\.yaml|capacitor\.config)$/.test(candidate))
+  const app = marker ? marker.split('/').slice(0, -1).join('/') : ''
+  return app ? `${app}/${native}` : native
+}
+
+/**
+ * A preset fitted to the project: its folder from detection, and for Xcode
+ * the workspace or project found there, named in the command with its scheme
+ * (the scheme is guessed from the name and stays editable).
+ */
+export function projectPreset(profile: DeviceRunProfile, info: DeviceProjectInfo | null | undefined, folderEntries: readonly string[] = []): DeviceRunProfile {
+  const cwd = presetFolder(profile, info)
+  if (profile.platform !== 'ios') return { ...profile, cwd }
+  const container = folderEntries.find((name) => name.endsWith('.xcworkspace')) ?? folderEntries.find((name) => name.endsWith('.xcodeproj'))
+  if (!container) return { ...profile, cwd }
+  const scheme = container.replace(/\.(xcworkspace|xcodeproj)$/, '')
+  const flag = container.endsWith('.xcworkspace') ? '-workspace' : '-project'
+  const rest = profile.command.slice(1).filter((word, index, words) => word !== '-scheme' && words[index - 1] !== '-scheme')
+  return { ...profile, cwd, command: ['xcodebuild', flag, container, '-scheme', scheme, ...rest] }
+}
+
+/**
+ * Fit a preset to a checkout on its host: detect where the app is, and for
+ * Xcode find the workspace in that folder. A host that cannot answer leaves
+ * the preset's own folder, which the person edits.
+ */
+export async function fitPresetToProject(
+  api: Pick<HostApi, 'deviceProjectDetect' | 'listDirectory'>,
+  checkoutPath: string,
+  profile: DeviceRunProfile,
+): Promise<DeviceRunProfile> {
+  const info = await api.deviceProjectDetect(checkoutPath).catch(() => null)
+  if (profile.platform !== 'ios') return projectPreset(profile, info)
+  const folder = presetFolder(profile, info)
+  const listing = await api.listDirectory(`${checkoutPath.replace(/\/+$/, '')}/${folder}`).catch(() => null)
+  return projectPreset(profile, info, listing?.entries.map((entry) => entry.name) ?? [])
+}
 
 /** Split a command line into arguments. Quotes group words; nothing is expanded. */
 export function splitCommand(text: string): string[] {

@@ -4,6 +4,7 @@ import type { Task } from '@solus/contracts/task-types'
 import type { SessionMeta, SessionSearchResult } from '@solus/contracts/types'
 import type { PickerSort } from '@solus/workspace-ui/components/session/unified-picker/lib/picker-search'
 import type { SidebarSessionChild } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
+import { NO_PICKER_FILTERS } from '@solus/workspace-ui/components/session/unified-picker/lib/picker-filters'
 import {
   buildPickerRows,
   collapseTarget,
@@ -500,11 +501,12 @@ describe('unified picker project scope', () => {
     inProject('c', 'Route more models', 'model-routing'),
   ]
 
-  function scoped(projectKey: string | null, query = '') {
+  function scoped(projectKey: string | null, query = '', projectKeyOf?: (task: Task) => string | null) {
     return buildPickerRows({
       tasks: mixed,
       query,
       projectKey,
+      projectKeyOf,
       sessionsFor: () => [],
       expandedTaskIds: new Set<string>(),
     })
@@ -514,6 +516,14 @@ describe('unified picker project scope', () => {
     const list = scoped('model-routing')
     expect(list.entries.map((entry) => entry.task.id)).toEqual(['a', 'c'])
     expect(list.hiddenTaskCount).toBe(1)
+  })
+
+  test('a scope lists the tasks of every checkout of its project', () => {
+    // One row stands for the project, so choosing it must not keep only the
+    // checkout its row happens to be named by.
+    const list = scoped('github.com/acme/app', '', () => 'github.com/acme/app')
+    expect(list.entries.map((entry) => entry.task.id)).toEqual(['a', 'b', 'c'])
+    expect(list.hiddenTaskCount).toBe(0)
   })
 
   test('no scope lists every project and withholds nothing', () => {
@@ -702,12 +712,34 @@ describe('search across tasks and sessions', () => {
     const build = (filters: { updated?: 'any' | 'day'; status?: 'any' | 'open' | 'done'; agent?: 'any' | 'codex' }) => buildPickerRows({
       tasks: [fresh, stale, done], query: '', now, sessionsFor: () => [], expandedTaskIds: new Set(),
       recentSessions: [session('claude-new', 'claude-code', now - day / 4), session('codex-old', 'codex', now - 40 * day)],
-      filters: { updated: 'any', status: 'any', agent: 'any', ...filters },
+      filters: { updated: 'any', status: 'any', agent: 'any', host: 'any', ...filters },
     }).entries.map((entry) => entry.kind === 'task' ? entry.task.id : entry.kind === 'conversation' ? entry.meta.sessionId : null)
     expect(build({ updated: 'day' })).toEqual(['claude-new', 'fresh', 'done'])
     expect(build({ status: 'open' })).toEqual(['claude-new', 'fresh', 'stale', 'codex-old'])
     expect(build({ status: 'done' })).toEqual(['claude-new', 'done', 'codex-old'])
     expect(build({ agent: 'codex' })).toEqual(['fresh', 'done', 'stale', 'codex-old'])
+  })
+
+  test('Host narrows sessions to one machine and leaves tasks alone', () => {
+    // WHY: the reader asks "what ran on that machine". Every way a session
+    // reaches the list — its name under a task, a passage a host found, or the
+    // newest unclaimed sessions — must answer the same way, and a task is not
+    // on any one machine.
+    const fixTask = { ...task('fix', 'Fix deploy'), updatedAt: now }
+    const onLaptop = { ...child('named-laptop', 'deploy on laptop'), serverId: 'laptop' }
+    const onLocal = child('named-local', 'deploy here')
+    const meta = (sessionId: string, serverId: string) =>
+      ({ sessionId, serverId, customTitle: null, firstMessage: sessionId, lastTimestamp: new Date(now).toISOString() }) as unknown as SessionMeta
+    const hit = (sessionId: string, serverId: string) => ({ session: meta(sessionId, serverId), snippet: 'deploy', messageId: 1, rank: -1, ts: now })
+    const ids = (query: string, host: string) => buildPickerRows({
+      tasks: [fixTask], query, now, sessionsFor: () => [onLaptop, onLocal], expandedTaskIds: new Set(),
+      conversations: [hit('said-laptop', 'laptop'), hit('said-local', 'local')],
+      recentSessions: [meta('recent-laptop', 'laptop'), meta('recent-local', 'local')],
+      filters: { ...NO_PICKER_FILTERS, host },
+    }).entries.flatMap((entry) => entry.kind === 'task' ? [entry.task.id] : entry.kind === 'session' ? [entry.session.sessionId] : entry.kind === 'conversation' ? [entry.meta.sessionId] : [])
+    expect(ids('deploy', 'laptop').sort()).toEqual(['fix', 'named-laptop', 'said-laptop'].sort())
+    expect(ids('', 'laptop').sort()).toEqual(['fix', 'recent-laptop'].sort())
+    expect(ids('', 'any').sort()).toEqual(['fix', 'recent-laptop', 'recent-local'].sort())
   })
 
   test('a session a host found by its name alone is listed with no passage', () => {

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { hostUpdatesStore } from "../../contexts/updates/host-updates.store.svelte";
   import { providerUpdateRows } from "../connections/lib/host-update-rows";
-  import DevicePrompt from "./DevicePrompt.svelte";
+  import SignInSteps from "../seats/SignInSteps.svelte";
   import ProviderChoiceCard from "./ProviderChoiceCard.svelte";
   import type { HostSetupSession } from "./host-setup.store.svelte";
   import {
@@ -11,9 +11,11 @@
 
   interface Props {
     setup: HostSetupSession;
+    /** Draw the rows flush on the surface, as host onboarding does. */
+    flush?: boolean;
   }
 
-  let { setup }: Props = $props();
+  let { setup, flush = false }: Props = $props();
 
   const rows = $derived(
     providerUpdateRows(codingProviderRows({
@@ -22,28 +24,21 @@
       add: (provider, opts) => void setup.addProvider(provider, opts),
     }), hostUpdatesStore.providerUpdatesFor(setup.serverId), (agent) => void setup.updateProvider(agent)),
   );
-
-  /** A host CLI can't reach this browser, so signing one in ends with a code coming back by hand. */
-  const why = (label: string, requiresCodeInput: boolean | undefined) =>
-    requiresCodeInput
-      ? `Finish signing in with ${label}, then paste the returned code here.`
-      : `Confirm this ${label} code in your browser, then come back.`;
 </script>
 
 <div>
-  <ProviderChoiceCard {rows} label="Coding providers" />
+  <ProviderChoiceCard {rows} {flush} label="Coding providers" />
   {#each SETUP_PROVIDERS as { id: provider, label } (provider)}
     {@const verification = setup.verificationFor(provider)}
     {#if verification}
-      <DevicePrompt
-        url={verification.verificationUrl}
-        code={verification.userCode}
-        {label}
-        requiresCodeInput={verification.requiresCodeInput}
-        why={why(label, verification.requiresCodeInput)}
-        onsubmit={(code) => setup.submitAgentSignInCode(provider, code)}
-        oncancel={() => void setup.cancelAgentSignIn(provider)}
-      />
+      <div class="mt-3">
+        <SignInSteps
+          {label}
+          {verification}
+            onsubmit={(code) => setup.submitAgentSignInCode(provider, code)}
+          oncancel={() => void setup.cancelAgentSignIn(provider)}
+        />
+      </div>
     {/if}
   {/each}
   {#if setup.stepError?.step === "providers"}

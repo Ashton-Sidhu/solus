@@ -61,7 +61,7 @@
         {...props}
         variant="ghost"
         size="sm"
-        class="h-6.5 max-w-56 gap-2 overflow-hidden rounded-full px-3 text-insights-chrome bg-background shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[color,background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] aria-expanded:bg-[var(--wash-3)] pointer-coarse:h-10 {flag
+        class="h-6.5 max-w-56 gap-2 overflow-hidden rounded-full px-3 text-insights-chrome bg-background shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_5%,transparent),0_2px_10px_color-mix(in_oklch,var(--foreground)_7%,transparent)] transition-[color,background-color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] aria-expanded:bg-[var(--wash-3)] pointer-coarse:h-10 @max-[30rem]:w-6.5 @max-[30rem]:px-0 @max-[30rem]:pointer-coarse:w-10 {flag
           ? ''
           : 'text-foreground'}"
         style={flag ? `color:${flagColor(flag.kind)}` : undefined}
@@ -70,14 +70,15 @@
           : flag
             ? flagTitle(flag.kind, flag.note)
             : "Mark this turn"}
+        aria-label={chosen ? `Marked: ${chosen.label}` : "Mark this turn"}
         disabled={readOnly}
       >
         {#if chosen}
           <chosen.icon class="size-4 shrink-0" strokeWidth={1.5} aria-hidden="true" />
-          <span class="truncate">{chosen.label}</span>
+          <span class="truncate @max-[30rem]:hidden">{chosen.label}</span>
         {:else}
           <FlagIcon class="size-4 shrink-0" strokeWidth={1.5} aria-hidden="true" />
-          <span class="truncate">Mark</span>
+          <span class="truncate @max-[30rem]:hidden">Mark</span>
         {/if}
       </Button>
     {/snippet}

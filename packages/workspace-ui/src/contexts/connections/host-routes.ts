@@ -13,7 +13,7 @@ export function hostWebsiteUrl(directoryUrl: string, hostId: string): string {
   return `${directoryUrl.replace(/\/$/, '')}/hosts/${encodeURIComponent(hostId)}`
 }
 
-/** The one line under the Solus cloud control on a host's Access tab. */
+/** The one line under the Solus Cloud control on a host's Access tab and on Account & sync. */
 export function uplinkStatusDescription(status: UplinkStatus | undefined): string {
   if (!status) return 'Checking the link…'
   if (!status.linked) {
