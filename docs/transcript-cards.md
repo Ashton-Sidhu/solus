@@ -112,6 +112,14 @@ mobile.
   `closed` ("No longer answerable — it was answered elsewhere or closed.").
 - A message-mode question is saved on the host and never expires with its run.
 
+The cards at the tail of the transcript answer the previous send: a done or
+failed setup card (worktree, host, or pull request checkout), and the Connect,
+Seat, turn refusal, and finished sign-in cards of that conversation. When the
+person sends a new prompt, these cards leave (`clearSettledCards`). Two kinds
+of card stay because their work is still in progress: an active setup card and
+a sign-in that waits on the browser. If the new prompt still needs a card, the
+host refuses the prompt again and the card comes back.
+
 ### Agent rows
 
 Sub-agents and the sessions another agent starts follow T3 Code's subagent
