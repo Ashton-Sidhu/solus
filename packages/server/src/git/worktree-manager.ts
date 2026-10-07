@@ -2,11 +2,11 @@ import { randomBytes } from 'crypto'
 import { existsSync, realpathSync, statSync } from 'fs'
 import { copyFile, mkdir, stat as fsStat } from 'fs/promises'
 import path from 'path'
-import type { GitIdentityEnv } from './git-identity-manager'
 import { isSolusWorktreePath, worktreeProjectRoot, type GitCheckout, type GitDiscardResult, type GitSyncResult, type WorktreeEntry } from '@solus/contracts/types'
 import { createLogger } from '../logger'
 import { dispatchStep } from '../execution/observability/session-emitter'
 import { git, gitCommitExists, runAsync } from './exec'
+import { currentIdentity } from '../vault/acting-scope'
 // `git-helpers` imports this module back for the branch and default-branch
 // helpers. Both sides only reach across inside function bodies, so the cycle
 // resolves at call time.
@@ -160,7 +160,6 @@ export async function fetchPrHead(
 export async function ensureBranchWorktree(
   projectPath: string,
   branch: string,
-  gitEnv?: GitIdentityEnv,
 ): Promise<GitCheckout> {
   await runAsync('git', ['check-ref-format', '--branch', branch], projectPath)
   const existing = otherWorktreeHoldingBranch(projectPath, branch)
@@ -180,7 +179,7 @@ export async function ensureBranchWorktree(
   }
 
   const remoteRef = `origin/${branch}`
-  await runAsync('git', ['fetch', 'origin', branch], projectPath, { env: gitEnv })
+  await runAsync('git', ['fetch', 'origin', branch], projectPath)
   await runAsync('git', ['rev-parse', '--verify', remoteRef], projectPath)
 
   const worktreePath = worktreePathFor(projectPath, branch.replace(/\//g, '-'))
@@ -193,15 +192,9 @@ export async function ensureBranchWorktree(
     // No worktree owns this local branch (the reuse check above proved that),
     // so make the origin selection exact rather than starting from stale state.
     await runAsync('git', ['branch', '--force', branch, remoteRef], projectPath)
-    await runAsync('git', ['worktree', 'add', worktreePath, branch], projectPath, { env: gitEnv })
+    await runAsync('git', ['worktree', 'add', worktreePath, branch], projectPath)
   } else {
-    // Checking out a partial clone fetches file contents, so it acts as the member too.
-    await runAsync(
-      'git',
-      ['worktree', 'add', '--track', '-b', branch, worktreePath, remoteRef],
-      projectPath,
-      { env: gitEnv },
-    )
+    await runAsync('git', ['worktree', 'add', '--track', '-b', branch, worktreePath, remoteRef], projectPath)
   }
   await copyIncludedWorktreeFiles(projectPath, worktreePath)
   log.info('dispatch_branch_worktree_ready', { branch, worktreePath, remoteRef })
@@ -528,10 +521,11 @@ async function queryExistingPR(branch: string, cwd: string): Promise<string | nu
 }
 
 /** Pull request discovery is a network call used by detailed status consumers. TTL-cache
- *  the result per (cwd, branch) for both hits and misses, and share the in-flight
- *  promise so multiple visible clients collapse to a single spawn. */
+ *  the result per (cwd, branch, acting identity) for both hits and misses, and share
+ *  the in-flight promise so multiple visible clients of one person collapse to a
+ *  single read. Another person asks with their own connection (plans/019). */
 export function getExistingPR(branch: string, cwd: string, bypassCache = false): Promise<string | null> {
-  const key = `${cwd}\0${branch}`
+  const key = `${currentIdentity('a pull request lookup').cacheKey}\0${cwd}\0${branch}`
   if (bypassCache) existingPrCache.delete(key)
   const cached = existingPrCache.get(key)
   if (cached && Date.now() - cached.at < EXISTING_PR_TTL_MS) return cached.url

@@ -10,6 +10,7 @@ import type { McpServerStatus } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentAuthFinishedEvent } from '@solus/contracts/agent-auth'
 import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
 import type { ClaudeMcpAuthSession, McpAuthenticateResponse } from '@solus/server/execution/agents/claude/claude-mcp-auth'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 const BOB: Seat = { kind: 'user', userId: { kind: 'account', accountId: 'bob' } }
 const EVE: Seat = { kind: 'user', userId: { kind: 'account', accountId: 'eve' } }
@@ -77,6 +78,9 @@ function harness(mcpSession?: FakeMcpSession) {
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 5))
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('AgentAuthFlows: Claude Design', () => {
   test('runs in the member seat, outside any Claude Code session, and relays the JSON-lines sign-in', async () => {

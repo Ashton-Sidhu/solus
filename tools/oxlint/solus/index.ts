@@ -1,5 +1,6 @@
 import { definePlugin } from '@oxlint/plugins'
 
+import { actingIdentityRule } from './rules/acting-identity.ts'
 import { noBroadUnknownRecordsRule } from './rules/no-broad-unknown-records.ts'
 import { noGithubTaskEscapesRule } from './rules/no-github-task-escapes.ts'
 import { noHostApiEscapesRule } from './rules/no-host-api-escapes.ts'
@@ -12,6 +13,7 @@ import { requireResolvedCwdRule } from './rules/require-resolved-cwd.ts'
 const solusPlugin = definePlugin({
   meta: { name: 'solus' },
   rules: {
+    'acting-identity': actingIdentityRule,
     'no-broad-unknown-records': noBroadUnknownRecordsRule,
     'no-github-task-escapes': noGithubTaskEscapesRule,
     'no-host-api-escapes': noHostApiEscapesRule,

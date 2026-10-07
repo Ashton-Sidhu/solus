@@ -10,6 +10,7 @@ import type { IpcContext } from '@solus/contracts/types'
 import type { ReviewGuide, ReviewGuideStatusEvent } from '@solus/contracts/review'
 import type { PrGuideJobDependencies, PrGuideJobRequest } from '@solus/server/review/pr-guide-jobs'
 import type { ResolvedPrGuideTarget } from '@solus/server/review/pr-guide-context'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 let PrGuideJobs: typeof import('@solus/server/review/pr-guide-jobs')['PrGuideJobs']
 let prGuideKey: typeof import('@solus/server/review/pr-guide-store')['prGuideKey']
@@ -70,6 +71,9 @@ function fixture(overrides: Partial<PrGuideJobDependencies> = {}) {
     setCurrent: (value: ResolvedPrGuideTarget) => { current = value },
   }
 }
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('one host job per pull request', () => {
   test('queued state is readable before provider or checkout preparation', async () => {

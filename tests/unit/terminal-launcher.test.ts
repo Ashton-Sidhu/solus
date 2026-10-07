@@ -37,7 +37,7 @@ const execFile = mock((file: string, args: string[], _options: unknown, callback
 })
 
 mock.module('child_process', () => ({ execFileSync, execFile }))
-mock.module('@solus/server/cli-env', () => ({ getCliEnv: () => ({ PATH: '/usr/bin:/bin' }) }))
+mock.module('@solus/server/cli-env', () => ({ hostCliEnv: () => ({ PATH: '/usr/bin:/bin' }) }))
 mock.module('@solus/server/logger', () => ({
   createLogger: () => ({ info() {}, warn() {}, error() {} }),
 }))

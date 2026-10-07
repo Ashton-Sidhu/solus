@@ -4,7 +4,7 @@ import { createServer, type Server } from 'http'
 import { z } from 'zod'
 import type { AtlassianOAuthCompleted } from '@solus/contracts/atlassian'
 import { createLogger } from '../logger'
-import { currentCredentialUserId, withCredentialScope } from '../vault/credential-scope'
+import { currentCredentialUserId, requireActingScope, withActingScope, type ActingScope } from '../vault/acting-scope'
 import { ATLASSIAN_CLIENT_ID } from './client-id'
 import { ATLASSIAN_CLIENT_SECRET } from './client-secret'
 import {
@@ -97,8 +97,8 @@ interface PendingFlow {
   expiresAt: number
   /** The exact URI the authorize request named; the exchange must repeat it. */
   redirectUri: string
-  /** Whose connection this becomes: the callback carries no principal, so the flow remembers (§22). */
-  userId: string | null
+  /** Whose connection this becomes: the callback carries no principal, so the flow remembers its scope (§22). */
+  scope: ActingScope
   timer: ReturnType<typeof setTimeout>
 }
 
@@ -174,7 +174,7 @@ export async function startOAuthFlow(
   if (usesAccountIntegration()) throw new Error('Connect Atlassian on your account website.')
   if (!isOAuthConfigured()) throw new AtlassianOAuthUnconfiguredError()
   cleanupExpiredFlows()
-  const userId = currentCredentialUserId()
+  const scope = requireActingScope('an Atlassian connection')
   const routeMode = options.callbackBaseUrl !== undefined
   if (routeMode) {
     // The service serves many people at once; only this person's earlier attempt is superseded.
@@ -202,7 +202,7 @@ export async function startOAuthFlow(
     })
   }, PENDING_FLOW_TTL_MS)
   timer.unref?.()
-  pendingFlows.set(state, { verifier, expiresAt, redirectUri, userId, timer })
+  pendingFlows.set(state, { verifier, expiresAt, redirectUri, scope, timer })
 
   const authUrl = new URL(AUTHORIZE_URL)
   authUrl.search = new URLSearchParams({
@@ -271,7 +271,7 @@ export function cancelOAuthFlow(): void {
   stopListening()
   const userId = currentCredentialUserId()
   for (const [state, flow] of pendingFlows) {
-    if (flow.userId === userId) dropFlow(state)
+    if (flow.scope.credentialUserId === userId) dropFlow(state)
   }
 }
 
@@ -322,7 +322,7 @@ export async function completeOAuthCallback(params: URLSearchParams): Promise<At
     }
     if (site.name) credential.siteName = site.name
     // The browser's request names nobody; the flow does.
-    await withCredentialScope(flow.userId, () => persistCredential(credential))
+    await withActingScope(flow.scope, () => persistCredential(credential))
     return { kind: 'connected', siteUrl: site.url, products: credential.products }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)

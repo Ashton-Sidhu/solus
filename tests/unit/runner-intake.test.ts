@@ -6,6 +6,8 @@ import { Database } from 'bun:sqlite'
 import type { OutboxOp } from '@solus/contracts/outbox-types'
 type Principal = import('@solus/server/admission/principal').Principal
 import { resetTestDatabase } from './helpers/test-db'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
+import { installTestIdentities } from './helpers/acting-identities'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -59,6 +61,12 @@ function op(domain: OutboxOp['domain'], resourceId: string, name: string, payloa
   opCounter += 1
   return { id: `op-${String(opCounter).padStart(4, '0')}`, domain, resourceId, name, payload, sessionId: 'thread-1', recordedAt: opCounter, state: 'pending' }
 }
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
+
+// Members act from homes of their own, as on a booted server (plans/019).
+installTestIdentities()
 
 describe('runner intake', () => {
   test('ops land in the runner\'s organization in order; a redelivery applies nothing twice', async () => {

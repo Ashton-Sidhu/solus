@@ -26,14 +26,14 @@ describe('Git action manager', () => {
         number: 51,
         title: 'Publish Git actions',
       }
+      const { actAsHostForTests } = await import('./packages/server/src/execution/seats/acting-identity')
+      actAsHostForTests()
       const { runGitAction } = await import('./packages/server/src/git/git-action-manager')
       const result = await runGitAction(
         { actionId: 'action-branch', action: 'commit_push_pull_request', createFeatureBranch: true },
         { branch: 'main', targetBranch: 'main' },
         '/tmp/solus-semantic-branch',
         {
-          identity: { kind: 'host' },
-          holdIdentity: () => () => {},
           generateCommitSubject: async () => 'feat(git): publish Git actions',
           findPullRequest: async () => providerPullRequest,
           publish: (event) => events.push(event),
@@ -94,6 +94,8 @@ describe('Git action manager', () => {
         title: 'fix(git): use credential fallback',
         headRef: 'feature/provider',
       }
+      const { actAsHostForTests } = await import('./packages/server/src/execution/seats/acting-identity')
+      actAsHostForTests()
       const { runGitAction } = await import('./packages/server/src/git/git-action-manager')
       const result = await runGitAction(
         { actionId: 'action-provider', action: 'create_pull_request' },
@@ -105,8 +107,6 @@ describe('Git action manager', () => {
             createInputs.push(input)
             return providerPullRequest
           },
-          identity: { kind: 'host' },
-          holdIdentity: () => () => {},
           generateCommitSubject: async () => 'unused',
           publish: () => {},
           writer: {

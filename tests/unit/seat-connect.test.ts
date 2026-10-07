@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import type { ChildProcess } from 'node:child_process'
 import type { DatabaseSync } from 'node:sqlite'
 import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 const BOB: Seat = { kind: 'user', userId: { kind: 'account', accountId: 'bob' } }
 
@@ -58,6 +59,9 @@ function harness(verified = true) {
   })
   return { seats, connector, spawned, events }
 }
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('SeatConnector', () => {
   test('Claude: the login runs in the seat directory with the shim first on PATH and no host credential; the printed URL comes back needing a code', async () => {

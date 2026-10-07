@@ -9,6 +9,7 @@ import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runne
 import type { AgentTool } from '@solus/server/execution/agents/tools/agent-tool'
 import type { AgentId, AgentMetadata, NormalizedEvent, PermissionMode, SessionRunInput } from '@solus/contracts/types'
 import type { ExecutionPreferences } from '@solus/contracts/settings'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -162,6 +163,9 @@ function restart(runtime: { shutdown(): void }): void {
   runtime.shutdown()
   sessionSettings.resetSessionSettingsForTests()
 }
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('what a session works under survives a host restart', () => {
   test("a child's organization is in its own record, so after a restart it is not Local work", async () => {

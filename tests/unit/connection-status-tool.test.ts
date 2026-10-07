@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ConnectionConnectNeeded } from '@solus/contracts/connections'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 /**
  * The tool an agent reaches for when it needs an external account. What matters
@@ -67,6 +68,9 @@ afterAll(() => {
   if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('connection_status', () => {
   test('a missing account raises the interrupt for the waiting conversation', async () => {

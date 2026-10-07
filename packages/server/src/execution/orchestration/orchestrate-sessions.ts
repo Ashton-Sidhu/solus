@@ -14,7 +14,11 @@ export function orchestrateSessions(sessionRuntime: SessionRuntime): SessionOrch
     queuedExchanges: () => sessionRuntime.scheduler.queuedExchanges(),
     sessionMeta: (sessionId) => getIndexedSession(sessionId),
     createSession: (order) => sessionRuntime.dispatch.createSession(order),
-    promptSession: (sessionId, prompt, delivery, order) => sessionRuntime.dispatch.promptSession(sessionId, prompt, delivery, order),
+    // A prompt one agent sends acts for the person the sender works for; with no sender, the target's.
+    promptSession: (sessionId, prompt, delivery, { senderSessionId, ...order }) => sessionRuntime.dispatch.promptSession(sessionId, prompt, delivery, {
+      ...order,
+      actor: senderSessionId ? sessionRuntime.actorOfSession(senderSessionId) : undefined,
+    }),
     // The orchestrator acts as the host until P7 names whose turn it is (plans/012 §4).
     stopSession: (id) => sessionRuntime.stopSession(id, HOST_ACTOR),
     respondToPermission: (askingSessionId, questionId, optionId, updatedPlan) => sessionRuntime.inputRequests.respondToPermission(askingSessionId, questionId, optionId, updatedPlan, HOST_ACTOR),

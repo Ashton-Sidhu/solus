@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { isGitOperationInProgress } from '@solus/server/git/git-operation-state'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 const repositories: string[] = []
 
@@ -22,6 +23,9 @@ function repository(): string {
   execFileSync('git', ['commit', '-m', 'initial'], { cwd })
   return cwd
 }
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('Git operation state', () => {
   test('ignores REBASE_HEAD after Git has finished the rebase', async () => {

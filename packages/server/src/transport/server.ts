@@ -4,7 +4,8 @@ import type { PlanPublishRequest, WorkPublishRequest } from '@solus/contracts/do
 import { createLogger, isDebugEnabled } from '../logger'
 import { assertRpcAccess, type ResourceAccess } from '../admission/access-policy'
 import type { Principal } from '../admission/principal'
-import { actorFor, HOST_ACTOR, withActorCredentials, type Actor } from '../admission/actor'
+import { actorFor, HOST_ACTOR, type Actor } from '../admission/actor'
+import { withActorScope } from '../execution/seats/acting-identity'
 import { ALL_ROLES, assertPlaneServed, type SolusRole } from '../host/roles'
 
 const log = createLogger('server', 'server.ts')
@@ -95,9 +96,9 @@ export class SolusServer {
     }
     const handler = this.handlers.get(method)
     if (!handler) throw new Error(`SolusServer: no handler for "${method}"`)
-    // Whose provider connections the handler acts with (cloud-service-model.md
-    // §22): the calling person's, or the host's own for its owner and itself.
-    const run = () => withActorCredentials(ctx.actor, () => handler(args, ctx))
+    // Who the handler acts as (plans/019-acting-identity.md): the calling
+    // person's seat and connections, or the host's own for its owner and itself.
+    const run = () => withActorScope(ctx.actor, () => handler(args, ctx))
     if (!isDebugEnabled()) return await run()
     // The part of a handler that runs before its first await is the part that
     // blocks every other request. Debug builds report it when it is long

@@ -3,7 +3,11 @@ import { makeChatFolder, setupProjectsRoot } from '../../workspace'
 import { expandHome } from '../../files/host-path'
 import { createLogger } from '../../logger'
 import { captureServerEvent } from '../../analytics'
-import { startRun, attachRunSession, finishRun } from '../../data/automations/automations-store'
+import { startRun, attachRunSession, finishRun, creatorKeyOf } from '../../data/automations/automations-store'
+import { HOST_ACTOR, unattendedActorFor, type Actor } from '../../admission/actor'
+import { LOCAL_ORGANIZATION_ID } from '../../admission/principal'
+import { withActorScope } from '../seats/acting-identity'
+import { parseUserKey, type User } from '@solus/contracts/user'
 import { DEFAULT_EXECUTION_PREFERENCES, type ExecutionPreferences } from '@solus/contracts/settings'
 import { composeAutomationPrompt } from './compose-prompt'
 import type { Automation, AutomationRun, AgentId, GitCheckout, ReasoningEffort } from '@solus/contracts/types'
@@ -24,6 +28,8 @@ export type AutomationBackgroundSessionDispatcher = (opts: {
   gitContext?: GitCheckout | null
   abortSignal?: AbortSignal
   executionPreferences?: ExecutionPreferences
+  /** The person the automation runs for: its turn uses their seat and connections. */
+  actor: Actor
 }) => Promise<{ sessionId: string; done: Promise<{ output?: string }> }>
 
 let backgroundSessionDispatcher: AutomationBackgroundSessionDispatcher | null = null
@@ -142,7 +148,40 @@ function automationPreferences(automation: Automation): ExecutionPreferences {
   return automation.executionPreferences?.preferences ?? DEFAULT_EXECUTION_PREFERENCES
 }
 
+/**
+ * The person an automation runs for (plans/019-acting-identity.md decision 4):
+ * whoever made it, or whom its agent worked for. A system automation is the
+ * host's own. Throws for a creator who cannot work unattended.
+ */
+async function automationActor(automation: Automation): Promise<Actor> {
+  const { createdBy } = automation
+  let user: User | null = createdBy.kind === 'user' ? createdBy.user
+    : (createdBy.kind === 'agent' || createdBy.kind === 'automation') && createdBy.for ? createdBy.for
+    : null
+  if (!user) {
+    const key = await creatorKeyOf(createdBy)
+    if (!key) return HOST_ACTOR
+    user = { id: parseUserKey(key), displayName: key }
+  }
+  const actor = unattendedActorFor(user, automation.organizationId ?? LOCAL_ORGANIZATION_ID, 'Automation')
+  if (!actor) throw new Error('This automation was made by a guest, and a guest’s work does not run unattended.')
+  return actor
+}
+
 async function executeRun(automation: Automation, run: AutomationRun, entry: ActiveRun): Promise<void> {
+  // Resolved before the run starts, so a creator who cannot run fails this run, not a later one.
+  let actor: Actor
+  try {
+    actor = await automationActor(automation)
+  } catch (err) {
+    await finishRun(automation.id, run.id, { status: 'failed', error: err instanceof Error ? err.message : String(err) })
+    return
+  }
+  // The worktree, the fetch it makes, and the turn act as the creator.
+  return withActorScope(actor, () => executeRunAs(automation, run, entry, actor))
+}
+
+async function executeRunAs(automation: Automation, run: AutomationRun, entry: ActiveRun, actor: Actor): Promise<void> {
   const { action } = automation
   const runId = run.id
   let sessionId: string | undefined
@@ -183,6 +222,7 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
       gitContext,
       abortSignal: entry.abort.signal,
       executionPreferences: preferences,
+      actor,
     })
     sessionId = session.sessionId
     await attachRunSession(automation.id, runId, sessionId, branch, gitContext?.worktreePath)

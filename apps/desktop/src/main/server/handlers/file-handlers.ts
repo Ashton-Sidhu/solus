@@ -16,7 +16,7 @@ import { launchInTerminal, resolveTerminal, terminalDisplayName } from '@solus/d
 import { findAppBundle } from '@solus/desktop-main/mac-apps'
 import { EDITOR_APPS, editorApp } from '@solus/desktop-main/editor-apps'
 import { TERMINAL_APPS } from '@solus/desktop-main/terminal-apps'
-import { getCliEnv } from '@solus/server/cli-env'
+import { hostCliEnv } from '@solus/server/cli-env'
 import { createLogger } from '@solus/server/logger'
 import { solusDir } from '@solus/server/platform/paths'
 import type { SolusServer } from '@solus/server/transport/server'
@@ -93,7 +93,7 @@ function shellQuote(value: string): string {
 /** The resolved path of a shell command, or null when it is not installed. */
 function whichBin(bin: string): string | null {
   try {
-    return execFileSync('/usr/bin/which', [bin], { encoding: 'utf8', timeout: 2000, env: getCliEnv() }).trim() || null
+    return execFileSync('/usr/bin/which', [bin], { encoding: 'utf8', timeout: 2000, env: hostCliEnv() }).trim() || null
   } catch {
     return null
   }

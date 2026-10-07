@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -20,6 +21,9 @@ afterEach(() => {
     rmSync(directory, { recursive: true, force: true })
   }
 })
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('pull-request checkout fetch', () => {
   test('uses the provider diff base in a shallow single-branch clone, including on retry', async () => {

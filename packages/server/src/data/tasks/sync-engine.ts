@@ -14,7 +14,7 @@ import { isHostUserKey } from '../../host/host-user'
 import { sql } from 'drizzle-orm'
 import { getDatabase } from '../../db/database'
 import { shareGrant } from '../../sharing/schema'
-import { withCredentialScope } from '../../vault/credential-scope'
+import { withUserScope } from '../../vault/acting-scope'
 import { taskLinks, taskSessionLinks, tasks } from './schema'
 import { sessionPullRequests } from '../sessions/schema'
 import { createLogger } from '../../logger'
@@ -328,7 +328,7 @@ export class TaskSyncEngine {
       .catch(() => null)
       .then((task) => task
         ? taskOwnerCredentialUserId(task.organizationId, taskId)
-          .then((userId) => withCredentialScope(userId, () => this.performSync(task.organizationId, taskId, options)))
+          .then((userId) => withUserScope(userId, () => this.performSync(task.organizationId, taskId, options)))
         : null)
       .finally(() => {
         if (this.syncs.get(taskId) === pending) this.syncs.delete(taskId)

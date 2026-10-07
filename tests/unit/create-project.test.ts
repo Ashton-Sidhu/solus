@@ -7,6 +7,7 @@ import type { SetupAdoptProjectResult } from '@solus/contracts/types'
 import { safeProjectDirName } from '@solus/contracts/project-folder-name'
 import type { HandlerCtx } from '@solus/server/transport/server'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
+import { installTestIdentities } from './helpers/acting-identities'
 
 // bun has no node:sqlite; the handlers' import chain reaches the db even though
 // these tests never open it (registerProject is injected).
@@ -30,6 +31,9 @@ const memberCtx: HandlerCtx = {
     deviceLabel: 'Solus cloud',
   },
 }
+
+// Members act from homes of their own, as on a booted server (plans/019).
+installTestIdentities()
 
 describe('New project', () => {
   let root: string

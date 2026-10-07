@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { git, runAsync } from '@solus/server/git/exec'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 const directories: string[] = []
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }) })
@@ -21,6 +22,9 @@ function staleIndexRepository(): string {
   utimesSync(join(directory, 'file.txt'), later, later)
   return directory
 }
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 test('background git status does not rewrite the index', async () => {
   // WHY: the status refresh runs beside the user's own git commands. If it

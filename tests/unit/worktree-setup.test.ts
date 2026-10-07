@@ -9,6 +9,7 @@ let createWorktree: typeof import('@solus/server/git/worktree-manager')['createW
 beforeAll(async () => { ({ createWorktree } = await import('@solus/server/git/worktree-manager')) })
 import { worktreePathFor } from '@solus/server/git/worktree-path'
 import { git } from '@solus/server/git/exec'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 const directories: string[] = []
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }) })
@@ -21,6 +22,9 @@ function repository(commit = true): string {
   if (commit) git(['commit', '--allow-empty', '-m', 'Initial'], directory)
   return directory
 }
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 test('an empty repository fails before a setup branch is created', async () => {
   const directory = repository(false)

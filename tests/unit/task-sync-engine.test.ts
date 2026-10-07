@@ -17,6 +17,7 @@ import type {
 import { TASKS_AUTH_ERROR_PREFIX } from '@solus/contracts/task-types'
 import type { TaskSyncAdapter } from '@solus/server/data/tasks/adapters/types'
 import type { MergedPullRequestCompletion } from '@solus/server/data/tasks/sync-engine'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 /** Solus itself, as the doer of what it found or did on its own. */
 const SYSTEM_ATTRIBUTION = { kind: 'system' as const }
@@ -228,6 +229,9 @@ async function linkedTask() {
 function engine(): InstanceType<SyncEngineModule['TaskSyncEngine']> {
   return new syncEngine.TaskSyncEngine({ adapterFor: () => adapter, now: () => 10 })
 }
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('task sync engine', () => {
   test('does not invalidate a no-change pull but invalidates a newly imported comment', async () => {

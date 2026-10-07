@@ -15,24 +15,7 @@ beforeAll(async () => {
 // so a member's seat gets its own process keyed by member, reused across their
 // turns, and the pool is capped.
 
-type Pool = Map<string, { client: CodexAppServerClient; activeRuns: number; gitRevision: string | null }>
-
-/** A member's seat with a Git identity at `revision`; `held` counts the credential holds still open. */
-function seatWithIdentity(revision: string, held: { count: number }): TurnSeat {
-  return {
-    seat: { kind: 'user', userId: { kind: 'account', accountId: 'bob' } },
-    provider: 'codex',
-    home: '/seats/codex/bob',
-    git: {
-      revision,
-      env: {} as NonNullable<TurnSeat['git']>['env'],
-      hold: () => {
-        held.count += 1
-        return () => { held.count -= 1 }
-      },
-    },
-  }
-}
+type Pool = Map<string, { client: CodexAppServerClient; activeRuns: number }>
 
 function backendWithPool() {
   const backend = new CodexBackend()
@@ -67,30 +50,6 @@ describe('the Codex app-server pool', () => {
     for (const entry of pool.values()) entry.activeRuns = 1
     expect(() => clientFor({ seat: { kind: 'user', userId: { kind: 'account', accountId: 'u9' } }, provider: 'codex', home: '/seats/codex/u9' })).toThrow(/Too many Codex seats/)
     backend.shutdown()
-  })
-
-  test('a changed Git identity replaces an idle server and refuses a busy one', () => {
-    // WHY: an app-server's Git environment is fixed at start, so reusing it after
-    // the member's account changes would commit as the old account.
-    const { backend, clientFor, pool } = backendWithPool()
-    const held = { count: 0 }
-    const first = clientFor(seatWithIdentity('work', held))
-    expect(held.count).toBe(1)
-    expect(clientFor(seatWithIdentity('work', held))).toBe(first)
-    expect(held.count).toBe(1)
-
-    pool.get('bob')!.activeRuns = 1
-    expect(() => clientFor(seatWithIdentity('personal', held))).toThrow(/GitHub account changed/)
-    expect(pool.get('bob')!.client).toBe(first)
-
-    pool.get('bob')!.activeRuns = 0
-    const second = clientFor(seatWithIdentity('personal', held))
-    expect(second).not.toBe(first)
-    expect(pool.get('bob')!.gitRevision).toBe('personal')
-    // The old server let its credential go; the new one holds its own.
-    expect(held.count).toBe(1)
-    backend.shutdown()
-    expect(held.count).toBe(0)
   })
 
   test('a seat\'s usage is read from its own server', async () => {
