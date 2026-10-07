@@ -494,6 +494,7 @@ export const RPC_PLANES = {
   browserClearProfile: 'execution',
   browserSubscribeFrames: 'execution',
   browserUnsubscribeFrames: 'execution',
+  browserSetFrameCaps: 'execution',
   browserCaptureEvidence: 'execution',
   browserRecordingStart: 'execution',
   browserRecordingStop: 'execution',

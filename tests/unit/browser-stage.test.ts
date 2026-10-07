@@ -141,6 +141,14 @@ describe('browser stage', () => {
     })
   })
 
+  test('a sized page renders at 2x, whatever screen shows it', () => {
+    // WHY: at 1x a retina pane shows a low-resolution picture stretched to
+    // twice its size. A ratio taken from the viewing screen instead would flip
+    // the page's emulation each time a 1x and a 2x screen took turns at it.
+    expect(resolveViewport({ mode: 'fill', width: 900, height: 600 }).deviceScaleFactor).toBe(2)
+    expect(resolveViewport({ mode: 'custom', width: 900, height: 600 }).deviceScaleFactor).toBe(2)
+  })
+
   test('a dragged edge moves twice as far as the pointer, in device pixels', () => {
     // WHY: the stage is centred, so the held edge is only half the change — a
     // drag that grew the page by the pointer's travel would lag behind the

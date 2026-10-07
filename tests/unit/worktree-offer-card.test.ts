@@ -20,9 +20,13 @@ function transcript(activity: WorktreeOffer): Message[] {
 }
 
 describe('worktree offer card', () => {
-  test('an open offer asks the question with both actions', () => {
+  test('an open offer is one line: the worktree shows once, as the target', () => {
     const view = worktreeOfferView(offer())
-    expect(view).toMatchObject({ title: 'The agent is working in worktree feature', target: '…/worktrees/feature', detail: 'Switch this session to it?', canDecide: true })
+    expect(view).toMatchObject({ title: 'The agent is working in another worktree', target: 'feature', detail: '', canDecide: true })
+  })
+
+  test('a worktree with no branch is named by its short path', () => {
+    expect(worktreeOfferView({ ...offer(), branch: '' }).target).toBe('…/worktrees/feature')
   })
 
   test('the answer folds onto its offer and closes the actions', () => {

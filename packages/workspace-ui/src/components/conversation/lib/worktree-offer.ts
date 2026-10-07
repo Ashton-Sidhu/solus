@@ -43,7 +43,7 @@ export interface WorktreeOfferView {
   /** Lowercase type word: what became of the offer. */
   type: string
   target: string
-  /** The question, or why the switch failed. */
+  /** Why the switch failed; empty otherwise, so the card stays one line. */
   detail: string
   /** Switch and Keep current are offered. A failed switch can be tried again. */
   canDecide: boolean
@@ -51,10 +51,10 @@ export interface WorktreeOfferView {
 }
 
 export function worktreeOfferView(offer: WorktreeOffer): WorktreeOfferView {
-  const name = offer.branch || shortWorktreePath(offer.path)
+  // The title names no path: the target shows the branch, or the path when there is none.
   const base = {
-    title: `The agent is working in worktree ${name}`,
-    target: shortWorktreePath(offer.path),
+    title: 'The agent is working in another worktree',
+    target: offer.branch || shortWorktreePath(offer.path),
   }
   switch (offer.resolution?.decision) {
     case 'switched':
@@ -64,6 +64,6 @@ export function worktreeOfferView(offer: WorktreeOffer): WorktreeOfferView {
     case 'failed':
       return { ...base, type: 'failed', detail: `The switch failed: ${offer.resolution.error}`, canDecide: true, failed: true }
     default:
-      return { ...base, type: 'worktree', detail: 'Switch this session to it?', canDecide: true, failed: false }
+      return { ...base, type: 'worktree', detail: '', canDecide: true, failed: false }
   }
 }

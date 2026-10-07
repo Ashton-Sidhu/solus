@@ -63,6 +63,14 @@ class FakeDriver implements BrowserSurfaceDriver {
   async insertText(): Promise<void> {}
   async pressKey(): Promise<void> {}
   async scrollAt(): Promise<void> {}
+  async dispatchMouse(): Promise<void> {}
+  async setFileInputFiles(): Promise<void> {}
+  async answerDialog(): Promise<null> {
+    return null
+  }
+  dialogs() {
+    return { open: null, last: null }
+  }
 
   screencasts: BrowserScreencastOptions[] = []
   screencastStops = 0

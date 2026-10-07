@@ -1,9 +1,13 @@
 import { describe, expect, jest, test } from 'bun:test'
-import { initBrowserRegistry, type BrowserEventSink } from '@solus/server/browser/browser-registry'
+import { initBrowserRegistry, screencastOptionsFor, type BrowserEventSink } from '@solus/server/browser/browser-registry'
 import { BrowserFrameChannel } from '@solus/server/browser/browser-frame-channel'
 import {
+  BrowserDialogTracker,
   setBrowserProfileHost,
   setBrowserWebviewHost,
+  type BrowserDialog,
+  type BrowserDialogAnswer,
+  type BrowserDialogState,
   type BrowserEmulation,
   type BrowserFrameListener,
   type BrowserScreencastOptions,
@@ -12,6 +16,7 @@ import {
 import {
   BROWSER_MARK_TOOLS,
   browserPartition,
+  resolveViewport,
   type BrowserConsoleEntry,
   type BrowserNavigateOp,
   type BrowserNetworkEntry,
@@ -68,6 +73,30 @@ class FakeDriver implements BrowserSurfaceDriver {
 
   async insertText(text: string): Promise<void> {
     this.typed.push(text)
+  }
+
+  mouse: string[] = []
+  async dispatchMouse(type: 'move' | 'down' | 'up', x: number, y: number): Promise<void> {
+    this.mouse.push(`${type}:${Math.round(x)},${Math.round(y)}`)
+  }
+
+  fileInputs: { expression: string; paths: string[] }[] = []
+  async setFileInputFiles(expression: string, paths: string[]): Promise<void> {
+    this.fileInputs.push({ expression, paths })
+  }
+
+  /** The real bookkeeping: a test opens a dialog the way a guest event does. */
+  readonly dialogTracker = new BrowserDialogTracker()
+  answerDialog(answer: BrowserDialogAnswer): Promise<BrowserDialog | null> {
+    return this.dialogTracker.answer(answer)
+  }
+  dialogs(): BrowserDialogState {
+    return this.dialogTracker.state()
+  }
+  /** Answers the guest got, in order. */
+  dialogAnswers: BrowserDialogAnswer[] = []
+  openDialog(type: BrowserDialog['type'], message: string, fallback: BrowserDialogAnswer | null = null): Promise<void> {
+    return this.dialogTracker.opened(type, message, async (answer) => { this.dialogAnswers.push(answer) }, fallback)
   }
 
   async pressKey(): Promise<void> {}
@@ -268,7 +297,8 @@ describe('browser registry', () => {
     const applied = driver.emulations.at(-1)
     expect(applied?.viewport.width).toBe(913)
     expect(applied?.viewport.height).toBe(640)
-    expect(applied?.viewport.deviceScaleFactor).toBe(1)
+    // The fixed 2x every sized page renders at, not the preset's 3x.
+    expect(applied?.viewport.deviceScaleFactor).toBe(2)
     expect(applied?.viewport.hasTouch).toBe(false)
     expect(applied?.userAgent).toBeUndefined()
     expect(registry.get(page.browserPageId)?.viewport.presetId).toBeUndefined()
@@ -351,6 +381,109 @@ describe('browser registry', () => {
 
     expect(result.ok).toBe(true)
     expect(driver.clicks).toEqual([{ x: 54, y: 28 }])
+  })
+
+  test('hover moves the mouse over the element without a click or focus', async () => {
+    // WHY: a tooltip or hover menu shows on pointer movement alone. A click
+    // would also activate the element, and focus would show focus styles.
+    const { registry, driver } = harness()
+    const page = registry.open({ target: TARGET })
+    await registry.attachSurface(page.browserPageId, 1)
+    driver.answers.set('getBoundingClientRect', JSON.stringify({ x: 40, y: 20 }))
+
+    const result = await registry.interact(page.browserPageId, { kind: 'hover', ref: '#tip' })
+
+    expect(result.ok).toBe(true)
+    expect(driver.mouse).toEqual(['move:40,20'])
+    expect(driver.clicks).toEqual([])
+  })
+
+  test('a pointer drag holds the button down and moves in steps to the target', async () => {
+    // WHY: pointer-based drag libraries start a drag only after the pointer
+    // moves some distance while the button is held. A jump from press to
+    // release is a click to them.
+    const { registry, driver } = harness()
+    const page = registry.open({ target: TARGET })
+    await registry.attachSurface(page.browserPageId, 1)
+    driver.answers.set('node.draggable', 'false')
+    driver.answers.set('if (true)', JSON.stringify({ x: 0, y: 0 }))
+    driver.answers.set('if (false)', JSON.stringify({ x: 100, y: 50 }))
+
+    const result = await registry.interact(page.browserPageId, { kind: 'drag', ref: '#card', toRef: '#column' })
+
+    expect(result.ok).toBe(true)
+    expect(driver.mouse[0]).toBe('move:0,0')
+    expect(driver.mouse[1]).toBe('down:0,0')
+    expect(driver.mouse.filter((event) => event.startsWith('move')).length).toBeGreaterThan(5)
+    expect(driver.mouse.at(-1)).toBe('up:100,50')
+  })
+
+  test('an HTML drag source is dragged with drag events, not the mouse', async () => {
+    // WHY: mouse events from CDP do not start an HTML drag, so the mouse path
+    // would report success for a drop that never happened.
+    const { registry, driver } = harness()
+    const page = registry.open({ target: TARGET })
+    await registry.attachSurface(page.browserPageId, 1)
+    driver.answers.set('DataTransfer', 'false')
+    driver.answers.set('node.draggable', 'true')
+    driver.answers.set('if (true)', JSON.stringify({ x: 0, y: 0 }))
+    driver.answers.set('if (false)', JSON.stringify({ x: 100, y: 50 }))
+
+    const result = await registry.interact(page.browserPageId, { kind: 'drag', ref: '#file', toRef: '#bin' })
+
+    expect(driver.mouse).toEqual([])
+    expect(result).toEqual({ ok: false, message: '#bin did not accept the drop.' })
+  })
+
+  test('an action that opens a dialog says what the page asked and how it was answered', async () => {
+    // WHY: without this an agent sees "ok" after a click whose confirm was
+    // dismissed, and cannot tell why nothing changed.
+    const { registry, driver } = harness()
+    const page = registry.open({ target: TARGET })
+    await registry.attachSurface(page.browserPageId, 1)
+    driver.answers.set('getBoundingClientRect', JSON.stringify({ x: 5, y: 5 }))
+    driver.clickAt = async () => { await driver.openDialog('confirm', 'Delete it?', { accept: false }) }
+
+    const result = await registry.interact(page.browserPageId, { kind: 'click', ref: '#delete' })
+
+    expect(result.ok).toBe(true)
+    expect(result.message).toBe('A confirm dialog opened: "Delete it?". It was dismissed.')
+  })
+
+  test('an answer given first settles the next dialog as it opens', async () => {
+    // WHY: a dialog stops the page. With the answer given first, the action
+    // that opens the dialog does not stop on it.
+    const { registry, driver } = harness()
+    const page = registry.open({ target: TARGET })
+    await registry.attachSurface(page.browserPageId, 1)
+
+    expect(await registry.answerDialog(page.browserPageId, { accept: true, promptText: 'yes' })).toBeNull()
+    await driver.openDialog('prompt', 'Type yes')
+
+    expect(driver.dialogAnswers).toEqual([{ accept: true, promptText: 'yes' }])
+    expect(registry.openDialog(page.browserPageId)).toBeNull()
+  })
+
+  test('a dialog that stays open is named in the error of the action that waited on it', async () => {
+    // WHY: on the desktop a dialog waits for an answer, and the action that
+    // opened it times out. The error must say which dialog, so the agent can
+    // answer it with browser_dialog.
+    const { registry, driver } = harness()
+    const page = registry.open({ target: TARGET })
+    await registry.attachSurface(page.browserPageId, 1)
+    driver.answers.set('getBoundingClientRect', JSON.stringify({ x: 5, y: 5 }))
+    driver.clickAt = async () => {
+      await driver.openDialog('alert', 'Saved')
+      throw new Error('The browser guest did not answer Input.dispatchMouseEvent within 10000ms.')
+    }
+
+    await expect(registry.interact(page.browserPageId, { kind: 'click', ref: '#save' }))
+      .rejects.toThrow('A alert dialog is open: "Saved". Answer it with browser_dialog.')
+    expect(registry.openDialog(page.browserPageId)?.message).toBe('Saved')
+
+    const answered = await registry.answerDialog(page.browserPageId, { accept: true })
+    expect(answered?.message).toBe('Saved')
+    expect(registry.openDialog(page.browserPageId)).toBeNull()
   })
 
   test('a stale ref is reported rather than clicked at an arbitrary point', async () => {
@@ -659,7 +792,65 @@ describe('browser registry', () => {
     await registry.setViewport(page.browserPageId, { mode: 'custom', width: 500, height: 900 })
 
     expect(driver.screencasts.length).toBeGreaterThan(1)
-    expect(driver.screencasts.at(-1)).toEqual({ maxWidth: 500, maxHeight: 900, quality: 60 })
+    // No pane size named, so the page's own device pixels at 2x.
+    expect(driver.screencasts.at(-1)).toEqual({ maxWidth: 1000, maxHeight: 1800, quality: 75 })
+  })
+
+  test('a page streams no more pixels than its largest viewer can show', async () => {
+    // WHY: the page renders at 2x so a retina pane is sharp, but a phone
+    // watching alone must not be sent a desktop's pixels. A larger pane joining
+    // grows the stream, and the stream shrinks again when it leaves.
+    const { registry, driver } = harness()
+    const page = registry.open({ target: TARGET })
+    await registry.attachSurface(page.browserPageId, 1)
+
+    await registry.subscribeFrames(page.browserPageId, 'phone', { maxWidth: 390, maxHeight: 600 })
+    expect(driver.screencasts.at(-1)).toEqual({ maxWidth: 390, maxHeight: 600, quality: 75 })
+
+    await registry.subscribeFrames(page.browserPageId, 'desktop', { maxWidth: 2000, maxHeight: 1200 })
+    expect(driver.screencasts.at(-1)).toEqual({ maxWidth: 2000, maxHeight: 1200, quality: 75 })
+
+    await registry.unsubscribeFrames(page.browserPageId, 'desktop')
+    expect(driver.screencasts.at(-1)).toEqual({ maxWidth: 390, maxHeight: 600, quality: 75 })
+  })
+
+  test('a pane that grows restarts the stream once, and an unchanged one never', async () => {
+    // WHY: every restart is a fresh keyframe on every viewer, so only a change
+    // the stream can show is worth one.
+    const { registry, driver } = harness()
+    const page = registry.open({ target: TARGET })
+    await registry.attachSurface(page.browserPageId, 1)
+    await registry.subscribeFrames(page.browserPageId, 'web', { maxWidth: 800, maxHeight: 600 })
+    const started = driver.screencasts.length
+
+    await registry.setFrameCaps(page.browserPageId, 'web', { maxWidth: 1600, maxHeight: 1000 })
+    await registry.setFrameCaps(page.browserPageId, 'web', { maxWidth: 1600, maxHeight: 1000 })
+
+    expect(driver.screencasts.length).toBe(started + 1)
+    expect(driver.screencasts.at(-1)).toEqual({ maxWidth: 1600, maxHeight: 1000, quality: 75 })
+  })
+
+  test('a viewer that names no pane, or a malformed one, gets the page pixels', async () => {
+    // WHY: caps cross the wire. A client from before pane sizes, or a bad
+    // value, must still see a full picture rather than a thumbnail or an error.
+    const { registry, driver } = harness()
+    const page = registry.open({ target: TARGET })
+    await registry.attachSurface(page.browserPageId, 1)
+    await registry.subscribeFrames(page.browserPageId, 'phone', { maxWidth: 390, maxHeight: 600 })
+
+    await registry.subscribeFrames(page.browserPageId, 'older-client')
+    expect(driver.screencasts.at(-1)).toEqual({ maxWidth: 2560, maxHeight: 1600, quality: 75 })
+
+    await registry.unsubscribeFrames(page.browserPageId, 'older-client')
+    await registry.setFrameCaps(page.browserPageId, 'phone', { maxWidth: Number.NaN, maxHeight: -1 })
+    expect(driver.screencasts.at(-1)).toEqual({ maxWidth: 2560, maxHeight: 1600, quality: 75 })
+  })
+
+  test('a large viewport stays within the frame ceiling', () => {
+    // WHY: past the ceiling a frame costs wire budget and encode time on every
+    // repaint, and no pane is that large.
+    const wide = resolveViewport({ mode: 'fill', width: 2400, height: 1400 })
+    expect(screencastOptionsFor(wide, null)).toEqual({ maxWidth: 2560, maxHeight: 2560, quality: 75 })
   })
 
   test('a coordinate click and scroll go straight to the guest', async () => {

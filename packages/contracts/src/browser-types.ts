@@ -272,9 +272,12 @@ export function viewportFor(
 /**
  * Resolve a request into the viewport a page will emulate.
  *
- * A sized mode keeps a pixel ratio of 1: the user asked for a rectangle, not for
- * a device, and inventing a retina ratio for it would make screenshots twice the
- * size they were asked for. Touch stays off unless it was requested, because a
+ * A sized mode renders at a fixed 2x, whatever screen shows it. At 1x a retina
+ * pane shows a low-resolution picture stretched to twice its size, and a ratio
+ * taken from the viewing screen would flip the page's emulation whenever two
+ * screens with different ratios watch it. Each viewer's stream is scaled to its
+ * own pane instead (`BrowserFrameCaps`), so a 1x screen pays nothing for the
+ * extra pixels on the wire. Touch stays off unless it was requested, because a
  * narrow desktop window is not a phone.
  */
 export function resolveViewport(request: BrowserViewportRequest): BrowserViewport {
@@ -290,10 +293,13 @@ export function resolveViewport(request: BrowserViewportRequest): BrowserViewpor
     orientation: width > height ? 'landscape' : 'portrait',
     width,
     height,
-    deviceScaleFactor: 1,
+    deviceScaleFactor: BROWSER_RENDER_SCALE,
     hasTouch: request.mode === 'custom' ? (request.hasTouch ?? false) : false,
   }
 }
+
+/** The pixel ratio a sized page renders at. */
+export const BROWSER_RENDER_SCALE = 2
 
 /**
  * What a page opens at: the space it is given.
@@ -792,6 +798,10 @@ export type BrowserInteractOp =
   | { kind: 'scroll'; ref?: string; deltaY: number }
   | { kind: 'evaluate'; expression: string }
   | { kind: 'waitFor'; expression: string; timeoutMs?: number }
+  | { kind: 'hover'; ref: string }
+  /** Chooses options of a native `<select>` by value or visible label. */
+  | { kind: 'select'; ref: string; values: string[] }
+  | { kind: 'drag'; ref: string; toRef: string }
   // Coordinate-addressed input. The agent verbs above name an element; a person
   // interacting with a streamed surface points at a pixel, so these carry the
   // CSS-viewport coordinate the client mapped its pointer to. `insertText` types
@@ -1068,11 +1078,29 @@ export interface BrowserFrameHeader {
 /**
  * Caps on a streamed frame, applied at the source.
  *
- * A phone pane has no use for a 2560×1440 desktop browser streamed at full
- * device-pixel resolution — it is wire budget spent on pixels no one can see.
- * The host caps the frame to CSS-viewport size bounded by this dimension, and
- * encodes JPEG rather than PNG because a browser is a moving picture, not an
- * asset to pixel-diff.
+ * The host streams at most the device pixels each viewer's pane can show
+ * (`BrowserFrameCaps`), bounded by this dimension, so a phone watching a
+ * desktop page is not sent a desktop's pixels. It encodes JPEG rather than PNG
+ * because a browser is a moving picture, not an asset to pixel-diff.
  */
-export const BROWSER_FRAME_MAX_DIMENSION = 1600
-export const BROWSER_FRAME_QUALITY = 60
+export const BROWSER_FRAME_MAX_DIMENSION = 2560
+export const BROWSER_FRAME_QUALITY = 75
+
+/** The device pixels one viewer's pane can show: its CSS size times its
+ *  screen's pixel ratio. A stream is never larger than its largest viewer. */
+export interface BrowserFrameCaps {
+  maxWidth: number
+  maxHeight: number
+}
+
+/** The smallest caps that still serve every viewer: the widest and the tallest
+ *  any of them asked for. Null when none did. */
+export function largestFrameCaps(all: Iterable<BrowserFrameCaps>): BrowserFrameCaps | null {
+  let maxWidth = 0
+  let maxHeight = 0
+  for (const caps of all) {
+    maxWidth = Math.max(maxWidth, caps.maxWidth)
+    maxHeight = Math.max(maxHeight, caps.maxHeight)
+  }
+  return maxWidth > 0 && maxHeight > 0 ? { maxWidth, maxHeight } : null
+}

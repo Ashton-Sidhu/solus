@@ -109,6 +109,12 @@ new path for the rest of that turn. The next turn forks the provider thread into
 the worktree, as a user move always did. Stop cancels a move that is still
 creating its worktree.
 
+**`worktree_status`.** This read-only tool (Sessions group) tells the agent
+where the session is bound: the directory, if it is the main checkout or a
+linked worktree, the branch and target branch, and every checkout of the
+repository from `git worktree list`. It reads the binding, not the process
+directory, so it gives the new worktree after a move in the same turn.
+
 **Detection and the card.** Solus does not block `EnterWorktree` or any other
 agent tool. When a Claude `EnterWorktree` call, a Claude `Bash` call, or a Codex
 command that runs `git worktree add` succeeds, the host finds the path, then asks

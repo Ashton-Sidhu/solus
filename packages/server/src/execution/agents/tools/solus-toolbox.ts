@@ -57,8 +57,11 @@ import { queryInsightsAgentTool } from './insights-tools'
 import {
   browserAppearanceAgentTool,
   browserClickAgentTool,
+  browserDialogAgentTool,
+  browserDragAgentTool,
   browserCloseAgentTool,
   browserEvaluateAgentTool,
+  browserHoverAgentTool,
   browserNavigateAgentTool,
   browserOpenAgentTool,
   browserPressAgentTool,
@@ -66,13 +69,15 @@ import {
   browserRecordStopAgentTool,
   browserResizeAgentTool,
   browserScrollAgentTool,
+  browserSelectAgentTool,
   browserSnapshotAgentTool,
   browserStatusAgentTool,
   browserTypeAgentTool,
+  browserUploadAgentTool,
   browserWaitForAgentTool,
 } from '../../../browser/browser-tools'
 import { readConfigAgentTool, updateConfigAgentTool } from './config-tools'
-import { moveToWorktreeAgentTool } from './worktree-tools'
+import { moveToWorktreeAgentTool, worktreeStatusAgentTool } from './worktree-tools'
 import { askJevAgentTool } from '../../../typesafe/jev-tool'
 import { watchPullRequestAgentTool } from './pull-request-watch-tool'
 
@@ -132,9 +137,14 @@ export const solusToolbox = {
     recordStart: browserRecordStartAgentTool,
     recordStop: browserRecordStopAgentTool,
     click: browserClickAgentTool,
+    hover: browserHoverAgentTool,
     type: browserTypeAgentTool,
+    select: browserSelectAgentTool,
     press: browserPressAgentTool,
     scroll: browserScrollAgentTool,
+    drag: browserDragAgentTool,
+    upload: browserUploadAgentTool,
+    dialog: browserDialogAgentTool,
     evaluate: browserEvaluateAgentTool,
     waitFor: browserWaitForAgentTool,
   },
@@ -154,6 +164,7 @@ export const solusToolbox = {
     start: startSessionAgentTool,
     send: sendSessionAgentTool,
     stop: stopSessionAgentTool,
+    worktreeStatus: worktreeStatusAgentTool,
     moveToWorktree: moveToWorktreeAgentTool,
   },
   tasks: {

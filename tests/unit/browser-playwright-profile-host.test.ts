@@ -104,9 +104,13 @@ class FakeContext {
 }
 
 const contexts: FakeContext[] = []
+let chromiumMissing = false
 mock.module('playwright-core', () => ({
   chromium: {
     launchPersistentContext: async (userDataDir: string) => {
+      if (chromiumMissing) {
+        throw new Error("browserType.launchPersistentContext: Executable doesn't exist at /home/dev/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell\n╔══╗\n║ Looks like Playwright was just installed or updated. ║\n╚══╝")
+      }
       // Playwright creates the directory on launch; the profile is its contents.
       mkdirSync(userDataDir, { recursive: true })
       const context = new FakeContext(userDataDir)
@@ -138,6 +142,7 @@ beforeAll(async () => {
 })
 
 afterEach(async () => {
+  chromiumMissing = false
   await disposeHost?.()
   disposeHost = null
   contexts.length = 0
@@ -177,6 +182,22 @@ test('resizing a streamed Playwright page replaces the active screencast', async
     expect(methods).toEqual(['Page.startScreencast', 'Page.stopScreencast', 'Page.startScreencast'])
     expect(registry.get(page.browserPageId)?.viewport.width).toBe(390)
     await registry.unsubscribeFrames(page.browserPageId, 'remote-client')
+  } finally {
+    await registry.shutdown()
+  }
+})
+
+test('a host without Chromium says so in one line, not as a terminal banner', async () => {
+  // WHY: the page card shows the problem message as prose. Playwright's boxed
+  // install banner wraps into broken box-drawing characters there.
+  chromiumMissing = true
+  const { registry, published } = await harness()
+  const page = registry.open({ target: TARGET })
+  try {
+    await registry.navigate(page.browserPageId, { kind: 'reload' }).catch(() => {})
+    const problem = published.findLast((entry) => entry.browserPageId === page.browserPageId)?.problem
+    expect(problem?.kind).toBe('load-failed')
+    expect(problem?.message).toBe('Chromium is not installed on this host. Run `npx playwright install chromium` on the host, then retry.')
   } finally {
     await registry.shutdown()
   }

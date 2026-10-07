@@ -40,6 +40,21 @@ export interface BrowserSurfaceDriver {
   /** Evaluates in the guest and returns the JSON string it produced. */
   evaluate(expression: string): Promise<string>
   clickAt(x: number, y: number): Promise<void>
+  /** One mouse event. Between `down` and `up` the left button is held, so a
+   *  `move` drags. */
+  dispatchMouse(type: 'move' | 'down' | 'up', x: number, y: number): Promise<void>
+  /** Give host files to the `<input type=file>` the expression evaluates to.
+   *  The guest fires `input` and `change` as for a person's choice. */
+  setFileInputFiles(inputExpression: string, paths: string[]): Promise<void>
+  /**
+   * Answer a JavaScript dialog: the one open now, or else the next one.
+   *
+   * The next one is answered as it opens, so the action that opens it does not
+   * stop on it. Returns the dialog it answered now, or null when it waits.
+   */
+  answerDialog(answer: BrowserDialogAnswer): Promise<BrowserDialog | null>
+  /** The dialog open now and the last one that opened, answered or not. */
+  dialogs(): BrowserDialogState
   insertText(text: string): Promise<void>
   pressKey(key: string): Promise<void>
   scrollAt(x: number, y: number, deltaY: number): Promise<void>
@@ -59,6 +74,90 @@ export interface BrowserSurfaceDriver {
   consoleEntries(): BrowserConsoleEntry[]
   networkEntries(): BrowserNetworkEntry[]
   dispose(): Promise<void>
+}
+
+export interface BrowserDialog {
+  type: 'alert' | 'confirm' | 'prompt' | 'beforeunload'
+  message: string
+  /** Counts up per guest, so a caller sees whether its action opened one. */
+  sequence: number
+}
+
+const DIALOG_TYPES: readonly BrowserDialog['type'][] = ['alert', 'confirm', 'prompt', 'beforeunload']
+
+/** A dialog type as the guest named it. An unknown name reads as an alert. */
+export function browserDialogType(raw: string): BrowserDialog['type'] {
+  return DIALOG_TYPES.find((type) => type === raw) ?? 'alert'
+}
+
+export interface BrowserDialogAnswer {
+  accept: boolean
+  /** The text a `prompt` returns when accepted. */
+  promptText?: string
+}
+
+export interface BrowserDialogState {
+  open: BrowserDialog | null
+  last: (BrowserDialog & { answer: 'accepted' | 'dismissed' | null }) | null
+}
+
+/**
+ * The dialog bookkeeping both drivers share. A driver reports what its guest
+ * does (`opened`, `closed`); how it answers a dialog is the driver's own
+ * `respond`.
+ */
+export class BrowserDialogTracker {
+  private sequence = 0
+  private waiting: BrowserDialogAnswer | null = null
+  private current: { dialog: BrowserDialog; respond: (answer: BrowserDialogAnswer) => Promise<void> } | null = null
+  private last: BrowserDialogState['last'] = null
+
+  /** A dialog opened. A waiting answer settles it at once; else `fallback`
+   *  does, when the driver has one; else it stays open for `answer`. */
+  async opened(
+    type: BrowserDialog['type'],
+    message: string,
+    respond: (answer: BrowserDialogAnswer) => Promise<void>,
+    fallback: BrowserDialogAnswer | null,
+  ): Promise<void> {
+    const dialog: BrowserDialog = { type, message, sequence: ++this.sequence }
+    this.last = { ...dialog, answer: null }
+    const answer = this.waiting ?? fallback
+    this.waiting = null
+    if (answer) await this.settle(dialog, respond, answer)
+    else this.current = { dialog, respond }
+  }
+
+  /** The guest closed the open dialog, for example because a person answered it. */
+  closed(accepted: boolean): void {
+    if (!this.current) return
+    if (this.last?.sequence === this.current.dialog.sequence) this.last.answer = accepted ? 'accepted' : 'dismissed'
+    this.current = null
+  }
+
+  async answer(answer: BrowserDialogAnswer): Promise<BrowserDialog | null> {
+    const current = this.current
+    if (!current) {
+      this.waiting = answer
+      return null
+    }
+    this.current = null
+    await this.settle(current.dialog, current.respond, answer)
+    return current.dialog
+  }
+
+  state(): BrowserDialogState {
+    return { open: this.current?.dialog ?? null, last: this.last }
+  }
+
+  private async settle(
+    dialog: BrowserDialog,
+    respond: (answer: BrowserDialogAnswer) => Promise<void>,
+    answer: BrowserDialogAnswer,
+  ): Promise<void> {
+    await respond(answer)
+    if (this.last?.sequence === dialog.sequence) this.last.answer = answer.accept ? 'accepted' : 'dismissed'
+  }
 }
 
 export interface BrowserEmulation {

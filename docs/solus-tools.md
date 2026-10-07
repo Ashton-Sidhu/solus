@@ -30,6 +30,24 @@ entry for a removed tool (`wait_for_session`, `answer_session`, `review_plan`,
 `create_session`, `prompt_session`, `find_sessions`) is dropped when the host
 reads its settings; any other unknown name is refused.
 
+The Browser group drives the pages in the user's browser pane. Besides open,
+navigate, snapshot, click, type, press, scroll, evaluate and wait, it has five
+controls for things a click cannot do:
+
+- `browser_hover` moves the mouse over an element, for tooltips and hover menus.
+- `browser_select` chooses options of a native `<select>` by value or label.
+- `browser_drag` drags one element onto another. A `draggable` source gets HTML
+  drag events from a page script, because mouse events from CDP do not start an
+  HTML drag. Any other source gets a held mouse that moves in steps.
+- `browser_upload` gives files on the host to a file input. The agent names the
+  input, its label, or the upload button beside it, and does not click the
+  button, because that opens the system file chooser.
+- `browser_dialog` answers an alert, confirm or prompt. It answers the dialog
+  that is open, or else the next one, so the action that opens it does not stop
+  on it. An action that opens a dialog says what the page asked and how it was
+  answered. On a headless host an unanswered dialog is dismissed, as before; on
+  the desktop it stays open for the user. `browser_status` shows an open dialog.
+
 The Devices group holds `device_list`, `device_open`, `device_screenshot`,
 `device_close` and `device_install`. They work only when device support and
 agent access are on for the host, and each call checks both again.
@@ -44,7 +62,9 @@ The Sessions group holds the orchestration tools: `start_session`,
 [Session orchestration](session-orchestration.md). It also holds
 `move_to_worktree`, which moves the calling session into a new or an existing
 worktree of its repository, so the diff, Git status, and branch follow. A
-sub-agent cannot call it for its parent. See
+sub-agent cannot call it for its parent. `worktree_status` reports the
+directory the session is bound to, its branch and target branch, and every
+checkout of its repository. See
 [Agent worktrees](worktree-names.md#agent-worktrees).
 
 The Tasks group holds one tool for links, `link`. With a `task_id` it attaches

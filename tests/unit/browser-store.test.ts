@@ -1,5 +1,5 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
-import { defaultViewport, type BrowserPage, type BrowserSnapshotRef } from '@solus/contracts/browser-types'
+import { afterAll, beforeAll, beforeEach, describe, expect, jest, mock, test } from 'bun:test'
+import { defaultViewport, type BrowserFrameCaps, type BrowserPage, type BrowserSnapshotRef } from '@solus/contracts/browser-types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const connections = singleHostServerConnections()
@@ -111,13 +111,13 @@ describe('BrowserStore streamed frame cache', () => {
     const store = new BrowserStore()
     const key = store.keyOf('host-a', 'page-one')
     const data = new Uint8Array([1, 2, 3]).buffer
-    const stop = store.subscribeFrames(key, () => {}, () => {})
+    const watch = store.subscribeFrames(key, () => {}, () => {}, null)
 
     connections.framesFor('host-a').receive(
       { browserPageId: 'page-one', seq: 7 },
       data,
     )
-    stop()
+    watch.stop()
 
     // WHY: switching away must stop network work, but switching back should
     // still have a useful picture before the next remote frame arrives.
@@ -139,17 +139,17 @@ describe('BrowserStore streamed frame cache', () => {
     const store = new BrowserStore()
     const key = store.keyOf('host-a', 'page-one')
 
-    const stopEditor = store.subscribeFrames(key, () => {}, () => {})
-    const stopPill = store.subscribeFrames(key, () => {}, () => {})
+    const editor = store.subscribeFrames(key, () => {}, () => {}, null)
+    const pill = store.subscribeFrames(key, () => {}, () => {}, null)
     await Promise.resolve()
 
     // WHY: the client-side frame channel already fans one frame out to both
     // canvases. Two remote references make reconnect restoration ambiguous and
     // can leave the host streaming after both surfaces are gone.
     expect(subscribeCalls).toBe(1)
-    stopEditor()
+    editor.stop()
     expect(unsubscribeCalls).toBe(0)
-    stopPill()
+    pill.stop()
     await Promise.resolve()
     expect(unsubscribeCalls).toBe(1)
   })
@@ -163,10 +163,11 @@ describe('BrowserStore streamed frame cache', () => {
     })
     const store = new BrowserStore()
     const stopStore = store.subscribe()
-    const stopFrames = store.subscribeFrames(
+    const frames = store.subscribeFrames(
       store.keyOf('host-a', 'page-one'),
       () => {},
       () => {},
+      null,
     )
     await Promise.resolve()
 
@@ -180,8 +181,43 @@ describe('BrowserStore streamed frame cache', () => {
     // disconnect whose old watch still exists.
     expect(calls).toEqual(['subscribe', 'unsubscribe', 'subscribe'])
 
-    stopFrames()
+    frames.stop()
     stopStore()
+  })
+
+  test('tells the host the largest pane, and only when it grows', () => {
+    // WHY: every caps change the host acts on restarts the stream. A drag back
+    // and forth, or a second smaller surface, must not restart it; a pane that
+    // grows must, or the larger pane shows a stretched picture.
+    jest.useFakeTimers()
+    try {
+      const subscribed: Array<BrowserFrameCaps | undefined> = []
+      const sent: BrowserFrameCaps[] = []
+      connections.registerPrimary('host-a', {
+        browserSubscribeFrames: async (_id: string, caps?: BrowserFrameCaps) => { subscribed.push(caps) },
+        browserUnsubscribeFrames: async () => {},
+        browserSetFrameCaps: async (_id: string, caps: BrowserFrameCaps) => { sent.push(caps) },
+      })
+      const store = new BrowserStore()
+      const key = store.keyOf('host-a', 'page-one')
+
+      const editor = store.subscribeFrames(key, () => {}, () => {}, { maxWidth: 1600, maxHeight: 1000 })
+      const pill = store.subscribeFrames(key, () => {}, () => {}, { maxWidth: 400, maxHeight: 300 })
+      editor.setCaps({ maxWidth: 1200, maxHeight: 900 })
+      jest.advanceTimersByTime(1000)
+      expect(subscribed).toEqual([{ maxWidth: 1600, maxHeight: 1000 }])
+      expect(sent).toEqual([])
+
+      editor.setCaps({ maxWidth: 1800, maxHeight: 1000 })
+      editor.setCaps({ maxWidth: 2000, maxHeight: 1100 })
+      jest.advanceTimersByTime(1000)
+      expect(sent).toEqual([{ maxWidth: 2000, maxHeight: 1100 }])
+
+      editor.stop()
+      pill.stop()
+    } finally {
+      jest.useRealTimers()
+    }
   })
 })
 

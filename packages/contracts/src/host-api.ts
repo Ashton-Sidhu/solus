@@ -20,7 +20,7 @@ import type { AssetCreateUrlRequest, AssetCreateUrlResult, AssetFindUrlRequest, 
 import type { MetricsNlCompileResult, MetricsQueryResult, MetricsQuerySpec, MetricsSchema, MetricsSessionSummary, MetricsSqlValidation, MetricsTurnFilter, MetricsTurnPageRequest, MetricsTurnPageResult, MetricsTurnListingSummary, MetricsTurnTrace, MetricsValue, SavedMetricsQuery, TurnFlag, TurnFlagKind } from './observability-types'
 import type { ClientNotificationRequest, NotificationSoundLog } from './notification-types'
 import type { NotificationCount, NotificationHubCapability, NotificationListRequest, NotificationPage, NotificationSetArchived, NotificationSetRead, NotificationStateResult } from './notification-hub'
-import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, BrowserAppearance, BrowserCaptureRequest, BrowserCloseResult, BrowserCookieImportRequest, BrowserCookieImportResult, BrowserCookieSourceScan, BrowserDetachReason, BrowserDiscoveredTarget, BrowserEvidence, BrowserEvidenceOptions, BrowserInteractOp, BrowserInteractResult, BrowserNavigateOp, BrowserOpenRequest, BrowserPage, BrowserProfileSet, BrowserRecordingResult, BrowserRecordingState, BrowserRecordingStopRequest, BrowserSnapshot, BrowserSnapshotOptions, BrowserSurfaceReport, BrowserViewportRequest } from './browser-types'
+import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, BrowserAppearance, BrowserCaptureRequest, BrowserCloseResult, BrowserCookieImportRequest, BrowserCookieImportResult, BrowserCookieSourceScan, BrowserDetachReason, BrowserDiscoveredTarget, BrowserEvidence, BrowserEvidenceOptions, BrowserFrameCaps, BrowserInteractOp, BrowserInteractResult, BrowserNavigateOp, BrowserOpenRequest, BrowserPage, BrowserProfileSet, BrowserRecordingResult, BrowserRecordingState, BrowserRecordingStopRequest, BrowserSnapshot, BrowserSnapshotOptions, BrowserSurfaceReport, BrowserViewportRequest } from './browser-types'
 import type { DeviceActionRequest, DeviceBuild, DeviceBuildImportRequest, DeviceInstallRequest, DeviceProjectInfo, DeviceRun, DeviceRunLog, DeviceRunStartRequest, DeviceCloseRequest, DeviceConfigureRequest, DeviceControlRequest, DeviceControlResult, DeviceDetail, DeviceHostTestResult, DeviceOpenRequest, DevicePreview, DeviceScreenshotRequest, DeviceScreenshotResult, DeviceShutdownRequest, DeviceState, DeviceStreamUrl, DeviceTarget, DeviceToolUpdateRequest, SshDeviceHostConfig } from './device-types'
 import type { AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus } from './atlassian'
 import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest, CodeIntelInstallResult, CodeIntelReferencesRequest, CodeIntelReferencesResult, CodeIntelReindexRequest, CodeIntelReindexResult, CodeIntelStatus, CodeIntelStatusRequest, CodeIntelSymbolRequest, CodeIntelSymbolResult } from './code-intel'
@@ -817,9 +817,12 @@ export interface SolusAPI {
   /** Start receiving streamed frames for a page: how a client with no native
    *  surface (web, mobile) sees it. The host streams only while at least one
    *  client is subscribed, so a hidden pane costs no frames. The subscribing
-   *  client is taken from the connection, not an argument. */
-  browserSubscribeFrames(browserPageId: string): Promise<void>
+   *  client is taken from the connection, not an argument. `caps` are the
+   *  device pixels the client's pane can show; absent means the page's own. */
+  browserSubscribeFrames(browserPageId: string, caps?: BrowserFrameCaps): Promise<void>
   browserUnsubscribeFrames(browserPageId: string): Promise<void>
+  /** A subscribed client's pane grew: stream up to these device pixels. */
+  browserSetFrameCaps(browserPageId: string, caps: BrowserFrameCaps): Promise<void>
   /**
    * Capture the page and file the result.
    *

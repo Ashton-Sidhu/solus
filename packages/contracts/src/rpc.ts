@@ -549,6 +549,7 @@ export const RPC_INVOKE_METHODS = [
   'browserClearProfile',
   'browserSubscribeFrames',
   'browserUnsubscribeFrames',
+  'browserSetFrameCaps',
   'browserCaptureEvidence',
   'browserRecordingStart',
   'browserRecordingStop',

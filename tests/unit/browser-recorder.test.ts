@@ -284,7 +284,7 @@ describe('browser recorder', () => {
     const page = registry.open({ target: TARGET })
     await registry.attachSurface(page.browserPageId, 1)
     await registry.subscribeFrames(page.browserPageId, 'phone')
-    expect(driver.screencasts.at(-1)?.quality).toBe(60)
+    expect(driver.screencasts.at(-1)?.quality).toBe(75)
 
     await recorder.start(page.browserPageId, 'user')
     // Recording caps while recording: device pixels at a higher quality.
@@ -311,7 +311,7 @@ describe('browser recorder', () => {
     await settle()
 
     expect(driver.screencastStops).toBe(0)
-    expect(driver.screencasts.at(-1)?.quality).toBe(60)
+    expect(driver.screencasts.at(-1)?.quality).toBe(75)
   })
 
   test('a host that cannot stream to clients can still record', async () => {

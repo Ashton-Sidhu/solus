@@ -14,6 +14,8 @@ import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
 import { browserGuestStyleScript } from './guest-style'
 import {
+  BrowserDialogTracker,
+  browserDialogType,
   emulationChanges,
   emulationRecord,
   setBrowserHeadlessHost,
@@ -21,6 +23,9 @@ import {
   type AppliedEmulation,
   type BrowserEmulation,
   type BrowserFrameListener,
+  type BrowserDialog,
+  type BrowserDialogAnswer,
+  type BrowserDialogState,
   type BrowserHeadlessOpenRequest,
   type BrowserProfileCookie,
   type BrowserScreencastOptions,
@@ -76,7 +81,15 @@ interface PlaywrightPage {
   title(): Promise<string>
   close(): Promise<void>
   isClosed(): boolean
+  on(event: 'dialog', handler: (dialog: PlaywrightDialog) => void): void
   on(event: string, handler: () => void): void
+}
+
+interface PlaywrightDialog {
+  type(): string
+  message(): string
+  accept(promptText?: string): Promise<void>
+  dismiss(): Promise<void>
 }
 
 interface PlaywrightContext {
@@ -117,6 +130,7 @@ type CdpCommandParams =
   | { format: 'jpeg'; quality: number; maxWidth: number; maxHeight: number; everyNthFrame: number }
   | { sessionId: number }
   | { expression: string; returnByValue: boolean; awaitPromise: boolean }
+  | { files: string[]; objectId: string }
   | { type: string; x: number; y: number; button?: string; buttons?: number; clickCount?: number; deltaX?: number; deltaY?: number }
   | { type: string; key: string; code: string; windowsVirtualKeyCode: number; nativeVirtualKeyCode: number }
   | { text: string }
@@ -146,12 +160,18 @@ const evaluateResultSchema = z.object({
   exceptionDetails: z.object({ text: z.string().optional() }).optional(),
 })
 
+const remoteObjectResultSchema = z.object({
+  result: z.object({ objectId: z.string().optional(), subtype: z.string().optional() }).optional(),
+  exceptionDetails: z.object({ text: z.string().optional() }).optional(),
+})
+
 /** Every reply this driver reads back, before validation. A command whose reply
  *  nobody reads still lands here and simply fails to parse, which is the same
  *  as ignoring it. */
 type CdpCommandReply =
   | z.input<typeof screenshotResultSchema>
   | z.input<typeof evaluateResultSchema>
+  | z.input<typeof remoteObjectResultSchema>
   | null
 
 type CdpEventParams =
@@ -321,10 +341,17 @@ function contextFor(
     args: ['--disable-background-timer-throttling', '--disable-renderer-backgrounding'],
   }).catch((error) => {
     contexts.delete(partition)
-    throw error
+    throw launchFailure(error)
   })
   contexts.set(partition, opening)
   return opening
+}
+
+/** Playwright reports a missing Chromium with a boxed banner drawn for a
+ *  terminal. The page card shows the message as prose, so say it in one line. */
+function launchFailure(error: unknown): unknown {
+  if (!(error instanceof Error) || !error.message.includes("Executable doesn't exist")) return error
+  return new Error('Chromium is not installed on this host. Run `npx playwright install chromium` on the host, then retry.')
 }
 
 async function openPlaywrightGuest(
@@ -389,6 +416,9 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
   private appliedEmulation: AppliedEmulation | null = null
   private screencastFrame: BrowserFrameListener | null = null
   private disposed = false
+  private readonly dialogTracker = new BrowserDialogTracker()
+  /** The left button between a `down` and an `up`. */
+  private mouseButtons = 0
 
   constructor(
     private readonly page: PlaywrightPage,
@@ -400,6 +430,9 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
     this.cdp.on('Network.responseReceived', this.onResponse)
     this.cdp.on('Network.loadingFailed', this.onFailure)
     this.cdp.on('Page.screencastFrame', this.onScreencastFrame)
+    // Playwright dismisses a dialog when nothing listens for one. This listener
+    // keeps that default, except when an agent gave the answer first.
+    this.page.on('dialog', this.onDialog)
     await Promise.all(
       ['Runtime.enable', 'Network.enable', 'Page.enable'].map((method) => this.send(method)),
     )
@@ -524,6 +557,41 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
     }
   }
 
+  async dispatchMouse(type: 'move' | 'down' | 'up', x: number, y: number): Promise<void> {
+    const buttons = type === 'down' ? 1 : type === 'up' ? 0 : this.mouseButtons
+    this.mouseButtons = buttons
+    await this.send('Input.dispatchMouseEvent', {
+      type: MOUSE_EVENT_TYPES[type],
+      x,
+      y,
+      button: type === 'move' && !buttons ? 'none' : 'left',
+      buttons,
+      clickCount: type === 'move' ? 0 : 1,
+    })
+  }
+
+  async setFileInputFiles(inputExpression: string, paths: string[]): Promise<void> {
+    const outcome = await this.ask(
+      'Runtime.evaluate',
+      { expression: inputExpression, returnByValue: false, awaitPromise: false },
+      remoteObjectResultSchema,
+    )
+    if (outcome?.exceptionDetails) {
+      throw new Error(outcome.exceptionDetails.text ?? 'The browser page threw while finding the file input.')
+    }
+    const objectId = outcome?.result?.subtype === 'node' ? outcome.result.objectId : undefined
+    if (!objectId) throw new Error('No file input matches that element.')
+    await this.send('DOM.setFileInputFiles', { files: paths, objectId })
+  }
+
+  answerDialog(answer: BrowserDialogAnswer): Promise<BrowserDialog | null> {
+    return this.dialogTracker.answer(answer)
+  }
+
+  dialogs(): BrowserDialogState {
+    return this.dialogTracker.state()
+  }
+
   async insertText(text: string): Promise<void> {
     await this.send('Input.insertText', { text })
   }
@@ -613,6 +681,15 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
     return parsed.success ? parsed.data : null
   }
 
+  private onDialog = (dialog: PlaywrightDialog): void => {
+    void this.dialogTracker.opened(
+      browserDialogType(dialog.type()),
+      dialog.message(),
+      (answer) => (answer.accept ? dialog.accept(answer.promptText) : dialog.dismiss()),
+      { accept: false },
+    ).catch(() => {})
+  }
+
   private onConsoleApi = (params: CdpEventParams): void => {
     const parsed = consoleApiSchema.safeParse(params)
     if (!parsed.success) return
@@ -699,6 +776,8 @@ function consoleLevel(raw: string | undefined): BrowserConsoleEntry['level'] {
       return 'log'
   }
 }
+
+const MOUSE_EVENT_TYPES = { move: 'mouseMoved', down: 'mousePressed', up: 'mouseReleased' } as const
 
 const KEY_DESCRIPTORS = new Map([
   ['Enter', { key: 'Enter', code: 'Enter', keyCode: 13 }],
