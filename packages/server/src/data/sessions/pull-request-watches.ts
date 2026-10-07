@@ -34,6 +34,8 @@ export interface PullRequestWatch {
   watchId: string
   startedAt: number
   state: PullRequestWatchState
+  /** Whose account the watcher reads with; null for the host. */
+  actingUserKey: string | null
 }
 
 const rowSchema = z.object({
@@ -43,6 +45,7 @@ const rowSchema = z.object({
   watch_id: z.string(),
   started_at: z.coerce.number(),
   state: z.string(),
+  acting_user_key: z.string().nullable(),
 })
 
 type ChangeListener = (sessionId: string) => void
@@ -59,23 +62,26 @@ function emitChanged(sessionId: string): void {
 }
 
 /** Start watching, or start over: a watch that exists gets a new id and a
- *  new state, so a read in flight for the old one writes nothing. */
+ *  new state, so a read in flight for the old one writes nothing.
+ *  `actingUserKey` is the person whose account reads the pull request. */
 export async function startPullRequestWatch(
   sessionId: string,
   repository: string,
   number: number,
   state: PullRequestWatchState,
+  actingUserKey: string | null,
   startedAt = Date.now(),
 ): Promise<PullRequestWatch> {
   const watch: PullRequestWatch = {
-    sessionId, repository: repository.toLowerCase(), number, watchId: randomUUID(), startedAt, state,
+    sessionId, repository: repository.toLowerCase(), number, watchId: randomUUID(), startedAt, state, actingUserKey,
   }
   const organizationId = await organizationOfSession(sessionId)
   await getDatabase().run(sql`
-    INSERT INTO ${sessionPullRequestWatches}(session_id, repository, number, watch_id, started_at, state, organization_id)
-    VALUES (${sessionId}, ${watch.repository}, ${number}, ${watch.watchId}, ${startedAt}, ${JSON.stringify(state)}, ${organizationId})
+    INSERT INTO ${sessionPullRequestWatches}(session_id, repository, number, watch_id, started_at, state, acting_user_key, organization_id)
+    VALUES (${sessionId}, ${watch.repository}, ${number}, ${watch.watchId}, ${startedAt}, ${JSON.stringify(state)}, ${actingUserKey}, ${organizationId})
     ON CONFLICT(session_id, repository, number) DO UPDATE SET
-      watch_id = excluded.watch_id, started_at = excluded.started_at, state = excluded.state
+      watch_id = excluded.watch_id, started_at = excluded.started_at, state = excluded.state,
+      acting_user_key = excluded.acting_user_key
   `)
   emitChanged(sessionId)
   return watch
@@ -126,7 +132,7 @@ export async function readPullRequestWatches(sessionIds?: readonly string[]): Pr
     ? sql` WHERE session_id IN (${sql.join(sessionIds.map((sessionId) => sql`${sessionId}`), sql`, `)})`
     : sql``
   const rows = rowSchema.array().parse(await getDatabase().all(sql`
-    SELECT session_id, repository, number, watch_id, started_at, state FROM ${sessionPullRequestWatches}${onlySessions}
+    SELECT session_id, repository, number, watch_id, started_at, state, acting_user_key FROM ${sessionPullRequestWatches}${onlySessions}
   `))
   return rows.map((row) => ({
     sessionId: row.session_id,
@@ -135,5 +141,6 @@ export async function readPullRequestWatches(sessionIds?: readonly string[]): Pr
     watchId: row.watch_id,
     startedAt: row.started_at,
     state: pullRequestWatchStateSchema.parse(JSON.parse(row.state)),
+    actingUserKey: row.acting_user_key,
   }))
 }

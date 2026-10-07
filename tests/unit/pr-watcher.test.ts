@@ -6,6 +6,7 @@ import { Database } from 'bun:sqlite'
 import type { CheckItem } from '@solus/contracts/checks-types'
 import type { PrConversationItem, PullRequest } from '@solus/contracts/providers'
 import { resetTestDatabase } from './helpers/test-db'
+import { installTestIdentities } from './helpers/acting-identities'
 
 /**
  * The watcher reads a watched pull request only when its fingerprint moved,
@@ -26,6 +27,7 @@ let watches: typeof import('@solus/server/data/sessions/pull-request-watches')
 let rules: typeof import('@solus/server/prs/pr-watch-rules')
 let watcherModule: typeof import('@solus/server/prs/pr-watcher')
 let rateLimit: typeof import('@solus/server/providers/github/rate-limit')
+let actingScope: typeof import('@solus/server/vault/acting-scope')
 const previousDataDir = process.env.SOLUS_DATA_DIR
 
 beforeAll(async () => {
@@ -36,6 +38,8 @@ beforeAll(async () => {
   rules = await import('@solus/server/prs/pr-watch-rules')
   watcherModule = await import('@solus/server/prs/pr-watcher')
   rateLimit = await import('@solus/server/providers/github/rate-limit')
+  actingScope = await import('@solus/server/vault/acting-scope')
+  installTestIdentities()
 })
 
 beforeEach(() => {
@@ -76,6 +80,8 @@ class FakeHost {
   readFailure: Error | null = null
   fullReads = 0
   fingerprintReads = 0
+  /** Whose account each fingerprint read used. */
+  readAs: Array<string | null> = []
 
   fingerprint() {
     return {
@@ -87,6 +93,7 @@ class FakeHost {
   readonly review = {
     readWatchFingerprints: async (_repo: object, numbers: number[]) => {
       this.fingerprintReads++
+      this.readAs.push(actingScope.currentCredentialUserId())
       if (this.fingerprintFailure) throw this.fingerprintFailure
       return new Map(numbers.map((number) => [number, this.fingerprint()]))
     },
@@ -109,16 +116,18 @@ class FakeHost {
 }
 
 function setup(host: FakeHost) {
-  const woke: Array<{ sessionId: string; text: string }> = []
+  const woke: Array<{ sessionId: string; text: string; actorUserId: string | null }> = []
   const watcher = new watcherModule.PrWatcher({
-    wake: async (sessionId, text) => { woke.push({ sessionId, text }) },
+    wake: async (sessionId, text, actor) => {
+      woke.push({ sessionId, text, actorUserId: actor?.user?.id.kind === 'account' ? actor.user.id.accountId : null })
+    },
     codeHost: codeHostOf(host),
   })
   return { watcher, woke }
 }
 
-async function watch(sessionId: string, startedAt = Date.now() - 60_000) {
-  return watches.startPullRequestWatch(sessionId, REPOSITORY, 7, rules.initialWatchState(startedAt), startedAt)
+async function watch(sessionId: string, startedAt = Date.now() - 60_000, actingUserKey: string | null = null) {
+  return watches.startPullRequestWatch(sessionId, REPOSITORY, 7, rules.initialWatchState(startedAt), actingUserKey, startedAt)
 }
 
 describe('PR watcher', () => {
@@ -201,6 +210,33 @@ describe('PR watcher', () => {
     watcher.stop()
     expect(woke).toHaveLength(2)
     expect(woke[1]?.text).toContain('reviewer: "Please rename this"')
+  })
+
+  test('each person\'s watches are read with their own account', async () => {
+    // WHY: two people may watch one pull request, and only one of them may be
+    // able to see it. Each reads as themselves, never as the host for them.
+    const host = new FakeHost()
+    host.checks = [check('build', 'success')]
+    await watch('session-1', undefined, 'member-1')
+    await watch('session-2', undefined, null)
+    const { watcher } = setup(host)
+    await watcher.start()
+    await watcher.sweep()
+    watcher.stop()
+    expect([...new Set(host.readAs)].sort()).toEqual([null, 'member-1'].sort())
+  })
+
+  test('a member\'s watch wakes the session as that member, after a restart too', async () => {
+    // WHY: after a restart the session's live actor is gone. A wake with no
+    // actor would run the member's agent as the host.
+    const host = new FakeHost()
+    host.checks = [check('build', 'failure')]
+    await watch('session-1', undefined, 'member-1')
+    const { watcher, woke } = setup(host)
+    await watcher.start()
+    await watcher.sweep()
+    watcher.stop()
+    expect(woke.map(({ actorUserId }) => actorUserId)).toEqual(['member-1'])
   })
 
   test('a merge ends the watch without a wake', async () => {

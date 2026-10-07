@@ -21,6 +21,9 @@ let watches: typeof import('@solus/server/data/sessions/pull-request-watches')
 let sessionPrs: typeof import('@solus/server/data/sessions/session-pull-requests')
 let states: typeof import('@solus/server/data/sessions/session-states')
 let closeDb: typeof import('@solus/server/db')['closeDb']
+let acting: typeof import('@solus/server/execution/seats/acting-identity')
+let actingScope: typeof import('@solus/server/vault/acting-scope')
+let start: typeof import('@solus/server/prs/start-pull-request-watch')
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir = ''
 
@@ -38,6 +41,11 @@ beforeAll(async () => {
   sessionPrs = await import('@solus/server/data/sessions/session-pull-requests')
   states = await import('@solus/server/data/sessions/session-states')
   ;({ closeDb } = await import('@solus/server/db'))
+  acting = await import('@solus/server/execution/seats/acting-identity')
+  actingScope = await import('@solus/server/vault/acting-scope')
+  start = await import('@solus/server/prs/start-pull-request-watch')
+  // An agent tool call runs in its turn's scope; these calls are the host's.
+  acting.actAsHostForTests()
 })
 
 afterEach(async () => {
@@ -81,5 +89,14 @@ describe('watch_pull_request', () => {
     const settled = await tool.watchPullRequestAgentTool.execute({ pull_request: URL_7 }, toolContext('session-2'))
     expect(settled).toMatchObject({ ok: false })
     expect(await watches.readPullRequestWatches()).toEqual([])
+  })
+
+  test('a watch reads with the account of the person it was started for', async () => {
+    // WHY: the watcher reads later, from its own clock, where nobody is acting.
+    // Reading as the host would use the host's GitHub for a member's pull request.
+    await sessionPrs.linkSessionPullRequest('session-1', { url: URL_7, source: 'manual', by: { kind: 'system' } })
+    const member = { identity: acting.HOST_IDENTITY, credentialUserId: 'member-1' }
+    expect(await actingScope.withActingScope(member, () => start.startSessionPullRequestWatch('session-1', REPOSITORY, 7))).toBe('started')
+    expect((await watches.readPullRequestWatches(['session-1']))[0]?.actingUserKey).toBe('member-1')
   })
 })

@@ -48,7 +48,7 @@ afterAll(() => {
 
 async function watchSeven(sessionId = 'session-1') {
   await sessionPrs.linkSessionPullRequest(sessionId, { url: URL_7, source: 'manual', by: PERSON })
-  return watches.startPullRequestWatch(sessionId, REPOSITORY, 7, rules.initialWatchState(1_000), 1_000)
+  return watches.startPullRequestWatch(sessionId, REPOSITORY, 7, rules.initialWatchState(1_000), null, 1_000)
 }
 
 describe('pull request watches', () => {
@@ -62,7 +62,7 @@ describe('pull request watches', () => {
     // WHY: the read runs for seconds. A person's Stop in that time must win,
     // and a new watch must not get the old watch's state.
     const first = await watchSeven()
-    const restarted = await watches.startPullRequestWatch('session-1', REPOSITORY, 7, rules.initialWatchState(2_000), 2_000)
+    const restarted = await watches.startPullRequestWatch('session-1', REPOSITORY, 7, rules.initialWatchState(2_000), null, 2_000)
     expect(await watches.recordPullRequestWatchState(first, { ...first.state, conflicting: true })).toBe(false)
     expect(await watches.endPullRequestWatch(first)).toBe(false)
     expect((await watches.readPullRequestWatches(['session-1']))[0]?.watchId).toBe(restarted.watchId)

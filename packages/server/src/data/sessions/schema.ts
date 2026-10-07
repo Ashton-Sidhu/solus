@@ -105,6 +105,9 @@ export const sessionPullRequestWatches = defineTable('session_pull_request_watch
   started_at: bigint({ notNull: true }),
   /** `PullRequestWatchState` as JSON: what the agent was told. */
   state: text({ notNull: true }),
+  /** Whose account reads the pull request: the person the watch was started
+   *  for (plans/019-acting-identity.md). Null reads as the host. */
+  acting_user_key: text(),
   organization_id: text({ notNull: true, default: 'local' }),
 }, {
   primaryKey: ['session_id', 'repository', 'number'],

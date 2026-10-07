@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "4439d69f-f7b5-400c-b0e7-3b967761ef5a",
+  "id": "4f9f2cd9-a530-49b9-89ef-f57fcc1ce9d7",
   "prevId": "0654cf6c-9e6a-4ccd-b02a-7a0944ceda36",
   "tables": {
     "activity": {
@@ -1115,6 +1115,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "acting_user_key": {
+          "name": "acting_user_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "organization_id": {

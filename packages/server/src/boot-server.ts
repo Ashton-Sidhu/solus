@@ -584,8 +584,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   prSync.start()
   // Watched pull requests wake their sessions with news (docs/plans/pr-watch.md).
   const prWatcher = new PrWatcher({
-    wake: async (sessionId, text) => {
-      await opts.sessionRuntime.dispatch.promptSession(sessionId, text, 'queue', { via: 'pull-request-watch' })
+    wake: async (sessionId, text, actor) => {
+      await opts.sessionRuntime.dispatch.promptSession(sessionId, text, 'queue', { via: 'pull-request-watch', actor })
     },
   })
   void prWatcher.start().catch((error) => log.warn('pr_watcher_start_failed', { error: String(error) }))

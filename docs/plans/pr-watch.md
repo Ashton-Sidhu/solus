@@ -108,7 +108,15 @@ belongs to a session, not to a task.
     characters with HTML comments removed. It ends with what to do and how to
     stop the watch. Desktop and web label the bubble "Pull request watch", as
     they label a background command.
-13. **One host.** A watch is a record of the host that runs the session. It is
+13. **A watch acts for a person** (`docs/plans/019-acting-identity.md` when
+    present; `vault/acting-scope.ts`). Starting a watch stores the acting
+    person's user key (`acting_user_key`; null is the host). The watcher reads
+    each person's watches inside `withUserScope`, with that person's GitHub
+    account, and keeps its read state per person and pull request. A wake runs
+    as that person through `unattendedActorFor`, as an automation runs as its
+    creator, so a restart does not turn a member's wake into the host's. A
+    guest's watch cannot wake an agent, and ends.
+14. **One host.** A watch is a record of the host that runs the session. It is
     not sent through the delivery queue. A client that reads an organization
     session through the Solus API sees no watch on it.
 

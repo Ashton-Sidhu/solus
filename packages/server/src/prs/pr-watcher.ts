@@ -1,5 +1,8 @@
 import type { PrConversationItem, PullRequest, ReviewThread } from '@solus/contracts/providers'
+import { parseUserKey } from '@solus/contracts/user'
 import { createLogger } from '../logger'
+import { unattendedActorFor, type Actor } from '../admission/actor'
+import { organizationOfSession } from '../data/sessions/session-records'
 import {
   endPullRequestWatch,
   onPullRequestWatchesChanged,
@@ -14,6 +17,7 @@ import { asBackgroundWork } from '../providers/github/request-budget'
 import type { PullRequestWatchFingerprint } from '../providers/types'
 import { codeHostFor, type CodeHost } from './code-host'
 import { prIndex } from './pr-index'
+import { withUserScope } from '../vault/acting-scope'
 import { evaluateWatch, wakeText, type WatchEndReason, type WatchRead, type WatchRemark } from './pr-watch-rules'
 
 const log = createLogger('main', 'pr-watcher')
@@ -30,8 +34,8 @@ const READ_FAILURE_LIMIT = 8
 const RATE_LIMIT_FALLBACK_MS = 5 * 60_000
 
 export interface PrWatcherDeps {
-  /** Queue a prompt on the session, after its running turn. */
-  wake: (sessionId: string, text: string) => Promise<void>
+  /** Queue a prompt on the session, after its running turn, as `actor`. */
+  wake: (sessionId: string, text: string, actor: Actor | undefined) => Promise<void>
   codeHost?: (repository: string) => Promise<CodeHost | null>
   now?: () => number
 }
@@ -131,27 +135,29 @@ export class PrWatcher {
   }
 
   private async runSweep(): Promise<void> {
-    const byRepository = new Map<string, Map<number, PullRequestWatch[]>>()
+    // A repository is read once per person who watches in it: each reads with
+    // their own account, which can see what another cannot.
+    const groups = new Map<string, { group: ReadGroup; numbers: Map<number, PullRequestWatch[]> }>()
     for (const watch of this.watches.values()) {
-      const numbers = byRepository.get(watch.repository) ?? new Map<number, PullRequestWatch[]>()
-      numbers.set(watch.number, [...numbers.get(watch.number) ?? [], watch])
-      byRepository.set(watch.repository, numbers)
+      const group = { actingUserKey: watch.actingUserKey, repository: watch.repository }
+      const entry = groups.get(groupKey(group)) ?? { group, numbers: new Map<number, PullRequestWatch[]>() }
+      entry.numbers.set(watch.number, [...entry.numbers.get(watch.number) ?? [], watch])
+      groups.set(groupKey(group), entry)
     }
-    for (const key of this.lastReads.keys()) {
-      const [repository, number] = splitPullRequestKey(key)
-      if (!byRepository.get(repository)?.has(number)) {
-        this.lastReads.delete(key)
-        this.readFailures.delete(key)
-      }
+    const watched = new Set([...groups.values()].flatMap(({ group, numbers }) => [...numbers.keys()].map((number) => pullRequestKey(group, number))))
+    for (const key of this.lastReads.keys()) if (!watched.has(key)) this.lastReads.delete(key)
+    for (const key of this.readFailures.keys()) if (!watched.has(key)) this.readFailures.delete(key)
+    for (const { group, numbers } of groups.values()) {
+      // A timer acts for whoever the work is for (plans/019-acting-identity.md).
+      await withUserScope(group.actingUserKey, () => this.sweepGroup(group, numbers))
     }
-    for (const [repository, numbers] of byRepository) await this.sweepRepository(repository, numbers)
   }
 
-  private async sweepRepository(repository: string, numbers: Map<number, PullRequestWatch[]>): Promise<void> {
-    if ((this.pausedUntil.get(repository) ?? 0) > this.now()) return
-    const host = await this.codeHost(repository).catch(() => null)
+  private async sweepGroup(group: ReadGroup, numbers: Map<number, PullRequestWatch[]>): Promise<void> {
+    if ((this.pausedUntil.get(groupKey(group)) ?? 0) > this.now()) return
+    const host = await this.codeHost(group.repository).catch(() => null)
     if (!host) {
-      for (const [number, watches] of numbers) await this.readFailed(repository, number, watches, 'no code host')
+      for (const [number, watches] of numbers) await this.readFailed(group, number, watches, 'no code host')
       return
     }
     let fingerprints: Map<number, PullRequestWatchFingerprint>
@@ -159,12 +165,12 @@ export class PrWatcher {
       fingerprints = await host.provider.review.readWatchFingerprints(host.repo, [...numbers.keys()])
     } catch (error) {
       const limited = githubRateLimitOf(error)
-      if (limited) return this.pause(repository, limited)
-      for (const [number, watches] of numbers) await this.readFailed(repository, number, watches, error instanceof Error ? error.message : String(error))
+      if (limited) return this.pause(group, limited)
+      for (const [number, watches] of numbers) await this.readFailed(group, number, watches, error instanceof Error ? error.message : String(error))
       return
     }
     for (const [number, watches] of numbers) {
-      if (await this.readPullRequest(host, repository, number, watches, fingerprints.get(number) ?? null) === 'paused') return
+      if (await this.readPullRequest(host, group, number, watches, fingerprints.get(number) ?? null) === 'paused') return
     }
   }
 
@@ -172,12 +178,12 @@ export class PrWatcher {
    *  of its watches. 'paused' when the code host rate limited the read. */
   private async readPullRequest(
     host: CodeHost,
-    repository: string,
+    group: ReadGroup,
     number: number,
     watches: PullRequestWatch[],
     fingerprint: PullRequestWatchFingerprint | null,
   ): Promise<'paused' | void> {
-    const key = pullRequestKey(repository, number)
+    const key = pullRequestKey(group, number)
     const plan = this.planRead(key, fingerprint, watches)
     if (!plan) return
     let answer: { read: WatchRead; pullRequest: PullRequest }
@@ -186,10 +192,10 @@ export class PrWatcher {
     } catch (error) {
       const limited = githubRateLimitOf(error)
       if (limited) {
-        this.pause(repository, limited)
+        this.pause(group, limited)
         return 'paused'
       }
-      await this.readFailed(repository, number, watches, error instanceof Error ? error.message : String(error))
+      await this.readFailed(group, number, watches, error instanceof Error ? error.message : String(error))
       return
     }
     const { read, pullRequest } = answer
@@ -283,7 +289,7 @@ export class PrWatcher {
 
   private async wake(watch: PullRequestWatch, text: string): Promise<void> {
     try {
-      await this.deps.wake(watch.sessionId, text)
+      await this.deps.wake(watch.sessionId, text, await wakeActor(watch))
     } catch (error) {
       // A session that cannot take a prompt cannot act on news either.
       log.warn('pr_watch_wake_failed', { sessionId: watch.sessionId, number: watch.number, error: (error instanceof Error ? error.message : String(error)) })
@@ -291,8 +297,9 @@ export class PrWatcher {
     }
   }
 
-  private async readFailed(repository: string, number: number, watches: PullRequestWatch[], error: string): Promise<void> {
-    const key = pullRequestKey(repository, number)
+  private async readFailed(group: ReadGroup, number: number, watches: PullRequestWatch[], error: string): Promise<void> {
+    const { repository } = group
+    const key = pullRequestKey(group, number)
     const failures = (this.readFailures.get(key) ?? 0) + 1
     this.readFailures.set(key, failures)
     log.warn('pr_watch_read_failed', { repository, number, failures, error })
@@ -305,11 +312,25 @@ export class PrWatcher {
 
   /** A rate limit pauses the repository until the reset; it never counts as
    *  a failed read. */
-  private pause(repository: string, limited: GitHubRateLimitedError): void {
+  private pause(group: ReadGroup, limited: GitHubRateLimitedError): void {
     const until = limited.retryAt ?? this.now() + RATE_LIMIT_FALLBACK_MS
-    this.pausedUntil.set(repository, until)
-    log.warn('pr_watch_rate_limited', { repository, retryAt: new Date(until).toISOString() })
+    this.pausedUntil.set(groupKey(group), until)
+    log.warn('pr_watch_rate_limited', { repository: group.repository, retryAt: new Date(until).toISOString() })
   }
+}
+
+/**
+ * Whom a wake runs for: the person the watch reads for (plans/019-acting-identity.md),
+ * as the automation runner turns its creator into an actor. Undefined is the
+ * host's own work, or lets the session's live turn name its person. A guest's
+ * work does not run unattended, so the wake fails and the watch ends.
+ */
+async function wakeActor(watch: PullRequestWatch): Promise<Actor | undefined> {
+  if (watch.actingUserKey === null) return undefined
+  const user = { id: parseUserKey(watch.actingUserKey), displayName: watch.actingUserKey }
+  const actor = unattendedActorFor(user, await organizationOfSession(watch.sessionId), 'Pull request watch')
+  if (!actor) throw new Error('This watch was started by a guest, and a guest’s work does not run unattended.')
+  return actor
 }
 
 /** Comments, review bodies and review thread comments, as the rules read them. */
@@ -336,13 +357,19 @@ function watchKey(watch: Pick<PullRequestWatch, 'sessionId' | 'repository' | 'nu
   return `${watch.sessionId}\0${watch.repository}\0${watch.number}`
 }
 
-function pullRequestKey(repository: string, number: number): string {
-  return `${repository}\0${number}`
+/** The watches of one repository read with one person's account. */
+interface ReadGroup {
+  /** Null reads as the host. */
+  actingUserKey: string | null
+  repository: string
 }
 
-function splitPullRequestKey(key: string): [string, number] {
-  const [repository, number] = key.split('\0')
-  return [repository, Number(number)]
+function groupKey(group: ReadGroup): string {
+  return `${group.actingUserKey ?? ''}\0${group.repository}`
+}
+
+function pullRequestKey(group: ReadGroup, number: number): string {
+  return `${groupKey(group)}\0${number}`
 }
 
 function sameState(a: PullRequestWatchState, b: PullRequestWatchState): boolean {

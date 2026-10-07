@@ -5,6 +5,7 @@ CREATE TABLE "session_pull_request_watches" (
 	"watch_id" text NOT NULL,
 	"started_at" bigint NOT NULL,
 	"state" text NOT NULL,
+	"acting_user_key" text,
 	"organization_id" text DEFAULT 'local' NOT NULL,
 	CONSTRAINT "session_pull_request_watches_session_id_repository_number_pk" PRIMARY KEY("session_id","repository","number")
 );
