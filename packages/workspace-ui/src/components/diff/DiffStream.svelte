@@ -34,6 +34,7 @@
   import { ensureIconCollections } from "../diagram/iconify";
   import { CommentComposer } from "../ui/comment-composer";
   import { DiffAnnotations, type AnnotationMeta } from "./lib/diff-annotations.svelte";
+  import { structuralItemVersion } from "./lib/diff-stream-items";
   import { getInlineCommentDraft } from "./diff-comment-draft.store.svelte";
   import {
     DiffCollapseState,
@@ -240,12 +241,14 @@
           isBinaryFile(fileDiff.name) ? "binary" : "empty",
         );
       }
+      const displayed = collapseState.displayFile(fileDiff);
       return {
         id: fileDiff.name,
         type: "diff" as const,
-        fileDiff: collapseState.displayFile(fileDiff),
+        fileDiff: displayed,
         annotations: [],
         collapsed: untrack(() => collapsed),
+        version: structuralItemVersion(codeView?.getItem(fileDiff.name), displayed, collapsed),
       };
     });
   }

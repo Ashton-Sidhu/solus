@@ -1,6 +1,6 @@
 import type { SendOutbox } from '@solus/client-core/send-outbox'
 import { INITIAL_HISTORY_TURNS, OLDER_HISTORY_TURNS } from '@solus/client-core/session-history-page'
-import type { AgentId, AgentMetadata, PermissionMode, ReasoningEffort, SessionRecord, WatchSessionResult, WireNormalizedEvent } from '@solus/contracts/types'
+import type { AgentId, AgentMetadata, PermissionMode, ReasoningEffort, SessionOrigin, SessionRecord, WatchSessionResult, WireNormalizedEvent } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import type { ExecutionPreferences } from '@solus/contracts/settings'
 import type { ModelOptions } from '@solus/contracts/settings'
@@ -25,6 +25,7 @@ import type { AgentPlanAwaiting } from './lib/agent-plans'
 import { TranscriptModel, type TranscriptItem } from './lib/transcript-model'
 import type { QueueAttachment, SessionQueueMutation, SessionQueueSnapshot } from '@solus/contracts/session-queue'
 import { parseAgentAuthCommand } from '@solus/contracts/agent-auth'
+import { seatProviderSchema } from '@solus/contracts/seats'
 import { AgentAuthFlow } from './agent-auth-flow'
 
 /**
@@ -86,6 +87,8 @@ export class ConversationController {
   phase: ConversationPhase = { kind: 'loading' }
   run: ConversationRun
   loadingOlder = false
+  /** The agent session on another host that started this one, from the host's description. */
+  startedBy: SessionOrigin | null = null
   /** Uploaded to the host, waiting for the next prompt. */
   attachments: readonly UploadedAttachment[] = []
   uploading = 0
@@ -255,6 +258,7 @@ export class ConversationController {
     const api = this.deps.connection.api
     const description = await api.describeSession(this.target.record.sessionId).catch(() => null)
     if (generation !== this.loadGeneration) return null
+    this.startedBy = description?.meta?.startedBy ?? null
     const lineage = description?.lineage
     if (lineage) {
       this.run.agentSessionId = lineage.active.providerSessionId ?? null
@@ -601,6 +605,10 @@ export class ConversationController {
     if (event.type === 'session_init') {
       this.run.agentSessionId = event.sessionId
       void this.nameSession(event.sessionId)
+    }
+    if (event.type === 'error' && event.kind === 'auth') {
+      const provider = seatProviderSchema.safeParse(this.run.provider)
+      if (provider.success) this.auth.noteLoginRefused(provider.data)
     }
     // The provider changed its own mode (Claude leaving plan mode): the next prompt keeps it.
     if (event.type === 'permission_mode_changed') this.run.permissionMode = event.permissionMode

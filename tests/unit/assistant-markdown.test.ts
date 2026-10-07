@@ -16,6 +16,6 @@ test("uses stable parser configuration for prose and fenced HTML, and a full pas
   expect(assistantMarkdownExtensions("A paragraph.\n\nAnother.")).toBe(prose)
   expect(assistantMarkdownExtensions("```html\n<style>body{}</style>\n```\n")).toBe(prose)
   const raw = assistantMarkdownExtensions("<style>body{}</style>\n<div>body</div>")
-  expect(raw).toHaveLength(1)
+  expect(raw).toHaveLength(2)
   expect(assistantMarkdownExtensions("<style>body{}</style>\n<div>changed</div>")).toBe(raw)
 })

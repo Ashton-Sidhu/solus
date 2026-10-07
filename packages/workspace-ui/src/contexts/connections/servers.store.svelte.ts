@@ -119,7 +119,7 @@ class ServersStore {
   /** The organizations' workspace services, as the account directory last listed them. */
   workspaces = $state<SavedWorkspace[]>(loadWorkspaces())
   private readonly organizationListeners = new Set<OrganizationListener>()
-  activeServerId = $state(connectionState.target?.id ?? getActiveServerId())
+  activeServerId = $state(serverConnections.defaultServerId() ?? connectionState.target?.id ?? getActiveServerId())
   addServerOpen = $state(false)
   addServerUrl = $state('')
   /** Which Run-on picker opened the add-server dialog, so a host paired from
@@ -819,6 +819,11 @@ class ServersStore {
     return this.itemStatus(this.connectionStatus)
   }
 
+  /** When this host last stopped being connected; null while it is up or before it was dialed. */
+  offlineSinceFor(serverId: string): number | null {
+    return this.connectionStatesByServer[serverId]?.offlineSince ?? null
+  }
+
   setConnectionStatus(serverId: string, status: ConnectionStatus, attempt = 0): void {
     const state = this.connectionStateFor(serverId)
     state.transportStatus = status
@@ -903,7 +908,7 @@ class ServersStore {
       duration: 5_000,
       action: {
         label: 'Show',
-        // Settings → Connections → Nearby is the surface that can actually act
+        // Settings → Hosts → Nearby is the surface that can actually act
         // on this, and unlike the switcher chip it exists in every view mode.
         onAction: () => {
           window.dispatchEvent(new CustomEvent('solus:show-connections'))

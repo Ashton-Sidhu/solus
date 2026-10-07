@@ -79,6 +79,29 @@ describe('appearance becomes the personal theme', () => {
     expect(new PersonalSettingsStore(storage).current().savedLenses).toEqual([])
   })
 
+  test('an existing saved list gains Show me once, keeping its prompts and order', () => {
+    const original = [
+      { id: 'architecture', name: 'Architecture delta', prompt: 'My architecture prompt.' },
+      { id: 'risk', name: 'Risk by file', prompt: 'My risk prompt.' },
+      { id: 'flow', name: 'Data flow', prompt: 'My flow prompt.' },
+    ]
+    const storage = memoryKeyValueStore()
+    storage.setItem('solus.mobile.personal.v1:anonymous', JSON.stringify({ settings: { savedLenses: original } }))
+    const personal = new PersonalSettingsStore(storage)
+    expect(personal.current().savedLenses.slice(0, 3)).toEqual(original)
+    expect(personal.current().savedLenses[3].name).toBe('Show me')
+    expect(new PersonalSettingsStore(storage).current().savedLenses).toHaveLength(4)
+    personal.set({ savedLenses: original })
+    expect(new PersonalSettingsStore(storage).current().savedLenses).toEqual(original)
+  })
+
+  test('an existing Show me prompt is kept without a duplicate', () => {
+    const original = [{ id: 'user-show-me', name: 'Show me', prompt: 'My edited prompt.' }]
+    const storage = memoryKeyValueStore()
+    storage.setItem('solus.mobile.personal.v1:anonymous', JSON.stringify({ settings: { savedLenses: original } }))
+    expect(new PersonalSettingsStore(storage).current().savedLenses).toEqual(original)
+  })
+
   test('the Appearance screen writes the personal store only, and a synced change is applied the same way', () => {
     const storage = memoryKeyValueStore()
     const personal = new PersonalSettingsStore(storage)

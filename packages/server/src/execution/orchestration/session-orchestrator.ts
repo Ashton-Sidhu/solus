@@ -20,11 +20,13 @@ import type {
   AgentId,
   ExchangeProgress,
   GitCheckout,
+  HeadlessSessionRequest,
   NormalizedEvent,
   PermissionMode,
   PromptDelivery,
   ReasoningEffort,
   SessionMeta,
+  SessionOrigin,
 } from '@solus/contracts/types'
 import { planKey } from '@solus/contracts/types'
 import { attributionOf, type Actor } from '../../admission/actor'
@@ -34,6 +36,8 @@ import { applyExchangeEvent, isOpenExchange, type Exchange, type ExchangeEvent }
 import { recordPlanDecision } from './plan-decisions'
 import { addOutput, answerText, outputFromEvent, outputsFromAnswer, type ResolvedInput } from './session-outputs'
 import { ParentDelivery } from './parent-delivery'
+import type { RemoteHost } from './remote-hosts'
+import { followRemoteRun } from './remote-runs'
 
 const log = createLogger('orchestration', 'session-orchestrator.ts')
 
@@ -149,6 +153,14 @@ export interface SpawnedSession {
   waited?: OrchestrationItem | null
 }
 
+/** Where a created session runs when it is not this host
+ *  (docs/plans/cross-host-sessions.md). */
+export interface RemoteTarget {
+  host: RemoteHost
+  /** This host's session that starts it, as the target host shows it. */
+  origin: SessionOrigin
+}
+
 /** The longest a tool call may wait on a session, in milliseconds. */
 export const MAX_WAIT_MS = 600_000
 
@@ -182,6 +194,8 @@ export class SessionOrchestrator {
    *  A plan whose turn already ended (Codex) holds nothing open to answer, so a
    *  person's decision on it comes from here. */
   private readonly openPlans = new Map<string, OpenPlan>()
+  /** Exchange → the target host whose session it follows, until it settles. */
+  private readonly remoteFollows = new Map<string, { host: RemoteHost; stop: () => void }>()
 
   constructor(
     private readonly runtime: OrchestratedRuntime,
@@ -231,26 +245,28 @@ export class SessionOrchestrator {
 
   /** Starts a new session running `order.prompt`. With a sender, the message is
    *  an exchange and the child is recorded as the sender's delegate; with
-   *  `report`, the sender hears its notices and its result. */
+   *  `report`, the sender hears its notices and its result. With `target`, the
+   *  session runs on that host instead of this one. */
   async spawn(
     senderSessionId: string | undefined,
     order: Omit<CreateSessionOrder, 'exchangeIds' | 'delegation'>,
     report: boolean,
     waitMs = 0,
     requestId?: string,
+    target?: RemoteTarget,
   ): Promise<SpawnedSession> {
     // The stored delegation keeps the intent names it has always had.
     const intent = report ? 'delegate' : 'fire_and_forget'
-    const identity = this.ledger.identify(senderSessionId, requestId, JSON.stringify({ kind: 'create', order, report }))
+    const identity = this.ledger.identify(senderSessionId, requestId, JSON.stringify({ kind: 'create', order, report, hostId: target?.host.hostId }))
     if (identity.existing) return this.repeatedSpawn(identity.existing, waitMs)
     const { exchangeId } = identity
     const dispatchedAt = Date.now()
     // The new session's id is chosen now, so the sender's card names it from the start.
     const targetSessionId = order.sessionId ?? randomUUID()
-    const exchange = this.openSpawn(senderSessionId, targetSessionId, order, report, identity, dispatchedAt)
+    const exchange = this.openSpawn(senderSessionId, targetSessionId, order, report, identity, dispatchedAt, target?.host.hostId)
     const waited = exchange && waitMs > 0 ? this.waitOn(exchange, waitMs) : undefined
 
-    const starting = (async (): Promise<SpawnedSession> => {
+    const starting = target ? this.startRemote(target, order, exchangeId, targetSessionId, exchange) : (async (): Promise<SpawnedSession> => {
       try {
         const started = await this.runtime.createSession({
           ...order,
@@ -280,10 +296,48 @@ export class SessionOrchestrator {
       starting: exchange.state === 'dispatched', taskId: order.taskId ?? undefined, waited: result }
   }
 
+  /** Starts the session on another host, as its owner would from a client
+   *  there, and follows its run with the hooks a local run calls. The watch
+   *  comes first, so a turn that ends at once is not missed. */
+  private async startRemote(
+    target: RemoteTarget,
+    order: Omit<CreateSessionOrder, 'exchangeIds' | 'delegation'>,
+    exchangeId: string,
+    targetSessionId: string,
+    exchange: Exchange | null,
+  ): Promise<SpawnedSession> {
+    const { host } = target
+    const follow = exchange
+      ? followRemoteRun(host, { runId: `remote:${exchangeId}`, sessionId: targetSessionId, exchangeIds: [exchangeId] }, order.provider, this)
+      : null
+    if (follow) this.remoteFollows.set(exchangeId, { host, stop: follow.stop })
+    const request: HeadlessSessionRequest = {
+      sessionId: targetSessionId,
+      prompt: order.prompt,
+      provider: order.provider,
+      modelId: order.modelId,
+      reasoningEffort: order.reasoningEffort,
+      contextWindow: order.contextWindow,
+      cwd: order.cwd,
+      startedBy: target.origin,
+    }
+    if (order.worktreeBaseBranch) request.worktreeBaseBranch = order.worktreeBaseBranch
+    try {
+      await follow?.watching
+      await host.call('the session start', () => host.api.createHeadlessSession(request))
+    } catch (error) {
+      if (exchange) this.settle(exchange, 'failed', `Session startup on ${host.label} failed: ${error instanceof Error ? error.message : String(error)}`)
+      throw error
+    }
+    log.info('remote_session_started', { exchangeId, sessionId: targetSessionId, hostId: host.hostId })
+    if (exchange && isOpenExchange(exchange)) this.ledger.update(exchange, (draft) => { draft.disposition = 'started' })
+    return { exchangeId, sessionId: targetSessionId }
+  }
+
   private openSpawn(
     senderSessionId: string | undefined, targetSessionId: string,
     order: Omit<CreateSessionOrder, 'exchangeIds' | 'delegation'>, report: boolean,
-    identity: ExchangeIdentity, dispatchedAt: number,
+    identity: ExchangeIdentity, dispatchedAt: number, targetHostId?: string,
   ): Exchange | null {
     const { exchangeId, fingerprint } = identity
     const exchange = senderSessionId
@@ -292,6 +346,7 @@ export class SessionOrchestrator {
           kind: 'create',
           senderSessionId,
           targetSessionId,
+          targetHostId,
           provider: order.provider,
           notify: report,
           dispatchedAt, fingerprint,
@@ -372,10 +427,28 @@ export class SessionOrchestrator {
       }
     }
     for (const exchangeId of marked) this.stoppedBySender.add(exchangeId)
+    const remote = marked.map((exchangeId) => this.remoteFollows.get(exchangeId)?.host).find((host) => host !== undefined)
+    if (remote) {
+      // The stopped turn settles through the follow, as interrupted.
+      void remote.call('the stop', () => remote.api.stopSession(targetSessionId)).catch((error) => {
+        for (const exchangeId of marked) this.stoppedBySender.delete(exchangeId)
+        log.warn('remote_stop_failed', { sessionId: targetSessionId, hostId: remote.hostId, error: String(error) })
+      })
+      return true
+    }
     const stopped = this.runtime.stopSession(targetSessionId)
     // Nothing stopped: a later result is not the sender's own doing.
     if (!stopped) for (const exchangeId of marked) this.stoppedBySender.delete(exchangeId)
     return stopped
+  }
+
+  /** The host the sender's session `targetSessionId` runs on, when it is not this host. */
+  remoteHostOf(senderSessionId: string, targetSessionId: string): string | undefined {
+    for (const exchange of this.exchanges.values()) {
+      if (exchange.senderSessionId !== senderSessionId || exchange.targetSessionId !== targetSessionId || !exchange.targetHostId) continue
+      return this.remoteFollows.get(exchange.exchangeId)?.host.label ?? exchange.targetHostId
+    }
+    return undefined
   }
 
   /** A person's decision on a plan a target session wrote, from the conversation
@@ -828,6 +901,8 @@ export class SessionOrchestrator {
     if (!changed) return
     log.debug('exchange_changed', { exchangeId: exchange.exchangeId, event: 'settled', state: exchange.state })
     this.stoppedBySender.delete(exchange.exchangeId)
+    this.remoteFollows.get(exchange.exchangeId)?.stop()
+    this.remoteFollows.delete(exchange.exchangeId)
     const update = settledUpdate(exchange, outcome, reply, run, taskId)
     update.settledAt = settledAt
     // Whatever the turn was still waiting on ended with it; the report says how.

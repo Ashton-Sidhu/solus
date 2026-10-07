@@ -294,10 +294,6 @@ export function formatDiffInlineComments(comments: DiffComment[]): string {
     .join('\n')
 }
 
-export function hasConversation(session: Session): boolean {
-  return session.messages.some(m => m.role === 'user' || m.role === 'assistant')
-}
-
 /** Reattach hands back the live run's config so a restored tab stops guessing.
  *  A session whose run contract was lost still reattaches, reporting the config
  *  as null — the tab then keeps the values it restored from its own snapshot

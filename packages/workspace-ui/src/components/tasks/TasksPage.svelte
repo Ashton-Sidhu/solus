@@ -156,7 +156,7 @@
   const sidebarProjectKeys = $derived(
     new Set(
       sessionSidebar
-        ? sessionSidebar.projectFilterChoices.map((choice) => choice.projectKey)
+        ? sessionSidebar.projectFilterChoices.map((choice) => choice.key)
         : session.logicalProjects.map((project) => project.key),
     ),
   );
@@ -167,8 +167,8 @@
   );
   const projectLabels = $derived(
     new Map([
-      ...(sessionSidebar?.projectFilterChoices.map((choice) => [choice.projectKey, choice.label] as const) ?? []),
       ...session.logicalProjects.map((project) => [project.key, project.label] as const),
+      ...(sessionSidebar?.projectFilterChoices.map((choice) => [choice.key, choice.label] as const) ?? []),
     ]),
   );
   function projectLabelFor(taskId: string): string | null {

@@ -2,6 +2,7 @@ import { FIVE_HOUR_WINDOW_MINS, WEEKLY_WINDOW_MINS, type ContextUsage, type Norm
 import type { ClaudeEvent, StreamEvent, InitEvent, StatusEvent, CompactBoundaryEvent, AssistantEvent, UserEvent, ResultEvent, RateLimitEvent, PermissionEvent, ContentBlock, ContentDelta, ClaudeUsageData } from '@solus/contracts/claude-types'
 import type { TurnNormalizer, TurnSummary } from '../turn-normalizer'
 import { isRateLimitMessage, normalizeResetNumber } from '../../rate-limits'
+import { isAuthFailureMessage } from '../auth-failure'
 import { parentSubagentEvent, type SubagentTranscriptEvent } from '../subagent-events'
 import { claudeToolResultText } from './claude-subagent-protocol'
 import { storeToolResultImages } from '../../../data/assets/transcript-images'
@@ -586,6 +587,7 @@ function normalizeResult(event: ResultEvent): NormalizedEvent[] {
       message,
       isError: true,
       sessionId: event.session_id,
+      ...(isAuthFailureMessage(message) && { kind: 'auth' as const }),
     }]
   }
 

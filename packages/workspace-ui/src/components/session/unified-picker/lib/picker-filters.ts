@@ -4,20 +4,24 @@ import { isDone } from '../../../tasks/lib/tasks-list-view'
 
 /**
  * The picker's filters (docs/plans/unified-search.md): how recently a row was
- * active, a task's status, and a session's agent. Updated narrows both kinds;
- * Task status narrows tasks only; Agent narrows sessions only.
+ * active, a task's status, and a session's agent and host. Updated narrows
+ * both kinds; Task status narrows tasks only; Agent and Host narrow sessions
+ * only.
  */
 export type PickerUpdatedFilter = 'any' | 'day' | 'week' | 'month'
 export type PickerStatusFilter = 'any' | 'open' | 'done'
 export type PickerAgentFilter = 'any' | Extract<AgentId, 'claude-code' | 'codex'>
+/** The server id of the machine a session ran on, or 'any'. */
+export type PickerHostFilter = 'any' | (string & {})
 
 export interface PickerFilters {
   updated: PickerUpdatedFilter
   status: PickerStatusFilter
   agent: PickerAgentFilter
+  host: PickerHostFilter
 }
 
-export const NO_PICKER_FILTERS: PickerFilters = { updated: 'any', status: 'any', agent: 'any' }
+export const NO_PICKER_FILTERS: PickerFilters = { updated: 'any', status: 'any', agent: 'any', host: 'any' }
 
 export const PICKER_UPDATED_LABELS = {
   any: 'Any time',
@@ -49,6 +53,7 @@ export function activeSince(filters: PickerFilters, now: number): number | undef
 /** How many filters narrow the list, for the chip that opens them. */
 export function activeFilterCount(filters: PickerFilters): number {
   return (filters.updated !== 'any' ? 1 : 0) + (filters.status !== 'any' ? 1 : 0) + (filters.agent !== 'any' ? 1 : 0)
+    + (filters.host !== 'any' ? 1 : 0)
 }
 
 /** Whether the filters keep a task: its last update, and its status. */
@@ -57,9 +62,20 @@ export function keepsTask(task: Task, filters: PickerFilters, since: number | un
   return filters.status === 'any' || (filters.status === 'done') === isDone(task)
 }
 
-/** Whether the filters keep a session: its last activity, and its agent. A
- *  session whose agent is not known yet is kept. */
-export function keepsSession(provider: AgentId | null | undefined, lastActivityAt: number, filters: PickerFilters, since: number | undefined): boolean {
+/** Whether the filters keep a session: its last activity, its agent, and its
+ *  host. A session whose agent is not known yet is kept. */
+export function keepsSession(
+  session: { provider?: AgentId | null; serverId?: string | null },
+  lastActivityAt: number,
+  filters: PickerFilters,
+  since: number | undefined,
+): boolean {
   if (since !== undefined && lastActivityAt < since) return false
-  return filters.agent === 'any' || !provider || provider === filters.agent
+  if (!keepsHost(session.serverId, filters)) return false
+  return filters.agent === 'any' || !session.provider || session.provider === filters.agent
+}
+
+/** Whether the Host filter keeps a session that ran on `serverId`. */
+export function keepsHost(serverId: string | null | undefined, filters: PickerFilters): boolean {
+  return filters.host === 'any' || serverId === filters.host
 }

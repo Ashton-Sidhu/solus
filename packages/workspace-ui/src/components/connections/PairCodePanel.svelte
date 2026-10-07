@@ -1,8 +1,7 @@
 <script lang="ts">
   /** The pairing act, as rows inside a `SettingsSection`: an invitation to
    *  generate a code, and then the live code with its QR and direct links.
-   *  One component because both the Connections list and a host's Access tab
-   *  hand out access to the same server. */
+   *  Shown on a host's Access tab to the host's local owner. */
   import {
     RefreshCw as ArrowsClockwiseIcon,
     Check as CheckIcon,
@@ -16,6 +15,7 @@
   import { Button } from "../ui/button";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import { pairQrSvgPath } from "./lib/qrcode";
+  import { bestPairEndpoint, pairLink } from "@solus/client-core/pairing";
   import { liveActivityClock } from "../../lib/shared-clock";
 
   interface Props {
@@ -33,16 +33,9 @@
     tailnet: GlobeIcon,
   } as const;
 
-  const endpointPriority = {
-    tailnet: 0,
-    lan: 1,
-    loopback: 2,
-  } satisfies Record<ConnectionEndpoint["kind"], number>;
-
   function pairLinkFor(endpoint: ConnectionEndpoint): string {
     const pair = connections.activePair;
-    if (!pair) return "";
-    return `http://${endpoint.host}:${endpoint.port}/pair#token=${pair.token}`;
+    return pair ? pairLink(endpoint, pair.token) : "";
   }
 
   function copy(value: string, field: string) {
@@ -73,11 +66,7 @@
   let pairCountdown = $derived(
     connections.activePair ? formatTimeRemaining(pairMsLeft) : "",
   );
-  let bestEndpoint = $derived(
-    [...connections.endpoints].sort(
-      (a, b) => endpointPriority[a.kind] - endpointPriority[b.kind],
-    )[0] ?? null,
-  );
+  let bestEndpoint = $derived(bestPairEndpoint(connections.endpoints));
   let bestPairLink = $derived(bestEndpoint ? pairLinkFor(bestEndpoint) : "");
   let bestPairQr = $derived.by(() => {
     if (!bestPairLink) return null;

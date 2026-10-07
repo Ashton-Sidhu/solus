@@ -34,11 +34,8 @@
   /**
    * One turn's readings, laid out: the page under the turn panel's band.
    *
-   * The Insights page draws it from the host's live answers; a shared Insights
-   * report draws it from the readings captured at Share (`lib/turn-report.ts`),
-   * so a person the report was shared with reads the same page. Where the
-   * readings lead elsewhere — another turn, the task — the caller passes the way
-   * there; a report, whose turn stayed on its computer, passes none.
+   * The Insights page draws it from the host's live answers. Where the readings
+   * lead elsewhere — another turn, the task — the caller passes the way there.
    *
    * The page is ordered by the question a reader opens a turn with: what
    * happened, and why did it take this long or cost this much. So the result
@@ -145,12 +142,11 @@
 </script>
 
 <div class="mx-auto flex w-full max-w-[87.5rem] flex-col gap-4 pt-2 pb-16">
-  <!-- The title column grows from a zero basis: sized by its prompt, a
-       long one claimed the whole line and pushed the actions under it
-       while a short one did not. Now the actions wrap only when the
-       panel cannot hold them beside a 15rem title. -->
-  <div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-    <div class="flex min-w-[min(15rem,100%)] flex-[1_1_0%] flex-col gap-1.5">
+  <!-- One line, at every width: the title truncates and the actions stay
+       beside it. As the panel narrows, the actions give up their labels
+       (the rungs in `turnActions`) rather than wrap under the title. -->
+  <div class="flex items-start justify-between gap-x-6">
+    <div class="flex min-w-0 flex-[1_1_0%] flex-col gap-1.5">
       <!-- The prompt is a message, not a title: one line names the turn,
            and the Summary card below holds the whole text. -->
       <h1
@@ -183,7 +179,7 @@
       </span>
     </div>
     {#if actions}
-      <div class="flex shrink-0 flex-wrap items-center gap-2 select-none" role="group" aria-label="Open elsewhere">
+      <div class="flex shrink-0 items-center gap-2 select-none" role="group" aria-label="Open elsewhere">
         {@render actions()}
       </div>
     {/if}

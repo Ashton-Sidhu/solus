@@ -26,7 +26,7 @@ chat moves to the host you select as a new chat there. See
 
 The Run on picker lists every host, and ends with **Add a host…**. It shows only
 when another host is connected, or when the session already names a remote
-host. To add the first remote host, use Settings → Connections. Each row says
+host. To add the first remote host, use Settings → Hosts. Each row says
 what that host will use for the project:
 
 | Row note | What Send does |
@@ -77,9 +77,11 @@ The branch chip chooses the branch and where the session starts: **This
 checkout** or **New worktree**. `⌥⇧B` toggles the same choice. The same choice
 applies on every host, a cloud host too: each member has their own checkout
 there, so working on the default branch is safe. A session sent to another host
-starts in a new worktree by default; choose **Checkout** in its branch menu to
-work in that host's checkout. An origin branch that the checkout already holds
-is worked on in the checkout.
+from a checkout works on the repository's default branch there, and the chip
+shows that branch. A session that asked for a worktree gets a new worktree
+there. The branch menu also offers that host's worktrees and its origin
+branches. An origin branch that the checkout already holds is worked on in the
+checkout; any other branch gets its own worktree.
 
 A new worktree starts on a temporary branch, `solus/<8 hex digits>`, so the
 first prompt does not wait for a name. During the first turn, Solus renames the

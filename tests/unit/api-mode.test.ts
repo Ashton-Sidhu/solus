@@ -135,9 +135,15 @@ describe('the ticket door of the workspace service', () => {
     expect(principalModule.isHostAdmin(member('bob', 'org1'))).toBe(false)
   })
 
-  test("a host's delegated token opens no socket; it is the host acting for a person at the API's routes only", async () => {
+  test("a host's delegated token opens only the runner's socket on the API; it is the host acting for a person", async () => {
     // WHY: plans/010-standard-oauth.md — there is no machine identity that writes organization records.
-    expect(await http.ticketForGrant(claims({ access: 'org-member', organizationId: 'org1', organizationRole: 'member', act: { sub: 'host_runner-1', host_id: 'runner-1' } }), null, undefined, { workspace: true })).toEqual({ ok: false, reason: 'delegated-token' })
+    // The socket is how the API reaches the runner with shared prompts; a host admits none.
+    const delegated = claims({ access: 'org-member', organizationId: 'org1', organizationRole: 'member', act: { sub: 'host_runner-1', host_id: 'runner-1' } })
+    expect(await http.ticketForGrant(delegated, null, undefined, { workspace: false })).toEqual({ ok: false, reason: 'delegated-token' })
+    const admitted = await http.ticketForGrant(delegated, null, undefined, { workspace: true })
+    if (!admitted.ok) throw new Error('Expected a runner ticket')
+    const { consumeWsTicket } = await import('@solus/server/admission/auth')
+    expect(principalModule.principalFor({ kind: 'ticket', ticket: consumeWsTicket(admitted.ticket)! })).toMatchObject({ kind: 'runner', hostId: 'runner-1', organizationId: 'org1' })
     const runner = principalModule.runnerPrincipalFor({ hostId: 'runner-1', organizationId: 'org1', ownerUserId: 'bob', expiresAt: Date.now() + 60_000 })
     expect(principalModule.recordScopeOf(runner)).toBe('org1')
     expect(principalModule.organizationForNew(runner)).toBe('org1')

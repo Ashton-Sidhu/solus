@@ -66,8 +66,6 @@ describe('the queues name their organization', () => {
 
     // The ack is A's and reaches past B's row without touching it.
     expect(mirrorLog.ackMirrorThrough(to('A'), a2)).toBe(2)
-    expect(mirrorLog.mirrorPendingThrough('A', a2)).toBe(false)
-    expect(mirrorLog.mirrorPendingThrough('B', b1)).toBe(true)
     expect(mirrorLog.mirrorDestinations()).toEqual([to('B')])
     expect(mirrorLog.ackMirrorThrough(to('B'), b1)).toBe(1)
     expect(mirrorLog.mirrorDestinations()).toEqual([])
@@ -105,9 +103,7 @@ describe('the queues name their organization', () => {
     expect(outbox.listSessionReports(to('B'), 10).map((entry) => entry.record.sessionId)).toEqual(['s-b'])
     // An ack through the first seq is stale for the re-queued report: it stays.
     expect(outbox.ackSessionReportsThrough(to('A'), a)).toBe(0)
-    expect(outbox.sessionReportPendingThrough('A', a2)).toBe(true)
     expect(outbox.ackSessionReportsThrough(to('A'), a2)).toBe(1)
-    expect(outbox.sessionReportPendingThrough('B', b)).toBe(true)
     expect(outbox.sessionReportDestinations()).toEqual([to('B')])
     expect(outbox.ackSessionReportsThrough(to('B'), b)).toBe(1)
     expect(outbox.sessionReportDestinations()).toEqual([])

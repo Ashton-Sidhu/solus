@@ -1,4 +1,5 @@
 import { parseGitHubPullRequestUrl, type PullRequest } from '@solus/contracts/providers'
+import { repositoryKeyOf } from '@solus/contracts/repository-key'
 import type { TaskLink, TaskPrSnapshot, TaskSidebarPrLink } from '@solus/contracts/task-types'
 
 export type PrLink = TaskLink | TaskSidebarPrLink
@@ -21,7 +22,7 @@ export function linkedPrIdentity(link: PrLink, fallbackScope: string | null): Om
   const parsed = link.url ? parseGitHubPullRequestUrl(link.url) : null
   const number = parsed?.number ?? ('number' in link ? link.number : Number(link.targetKey))
   const targetScope = parsed
-    ? `${parsed.baseRepo.host}/${parsed.baseRepo.owner}/${parsed.baseRepo.repo}`.toLowerCase()
+    ? repositoryKeyOf(parsed.baseRepo)
     : link.targetScope || fallbackScope
   if (!targetScope || !Number.isSafeInteger(number) || number <= 0) return null
   return {

@@ -1,5 +1,7 @@
 import { makeGitHubProvider } from './github/provider'
-import type { Provider, ProviderId, RepoRef } from './types'
+import type { Provider } from './types'
+import type { ProviderId } from '@solus/contracts/types'
+import type { RepoRef } from '@solus/contracts/providers'
 
 /**
  * Production code-host providers, mirroring `createBackends()`. GitHub is the

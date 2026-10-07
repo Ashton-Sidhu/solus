@@ -1,14 +1,15 @@
 <script lang="ts">
   import { parseUserKey } from "@solus/contracts/user";
   import type { WorkReviewerSummary } from "@solus/contracts/work-review";
+  import { AvatarBadge } from "../ui/avatar-badge";
   import * as TooltipUI from "../ui/tooltip";
   import UserAvatar from "../users/UserAvatar.svelte";
   import ReviewDecisionIcon from "./ReviewDecisionIcon.svelte";
-  import { reviewerActivity } from "./lib/work-review";
+  import { isVerdict, reviewerActivity } from "./lib/work-review";
 
-  // The reviewers of a work as a small avatar stack. A current approval or
-  // change request rings the avatar faintly in the pull request list's
-  // verdict color (emerald, amber); hover lists
+  // The reviewers of a work as a small avatar row. A current approval or
+  // change request sits on that reviewer's avatar as a badge in the pull
+  // request list's verdict color, so the mark names who gave it; hover lists
   // who decided what, and when.
   let { reviewers, size = 16, max = 3, nameOf = (reviewer) => reviewer.displayName, class: className = "" }: {
     reviewers: WorkReviewerSummary[];
@@ -24,20 +25,19 @@
   <TooltipUI.Root>
     <TooltipUI.Trigger>
       {#snippet child({ props })}
-        <span {...props} class="inline-flex shrink-0 items-center -space-x-1 {className}" data-testid="reviewer-avatars">
+        <!-- Spaced rather than overlapped: a badge hangs past its avatar's rim
+             and must not slide under the next face. -->
+        <span {...props} class="inline-flex shrink-0 items-center gap-1.5 {className}" data-testid="reviewer-avatars">
           {#each reviewers.slice(0, max) as reviewer (reviewer.reviewerId)}
-            <UserAvatar
-              user={{ id: parseUserKey(reviewer.reviewerId), displayName: nameOf(reviewer) }}
-              {size}
-              class="ring-1 {reviewer.isStale || !reviewer.decision || reviewer.decision === 'commented'
-                ? 'ring-background'
-                : reviewer.decision === 'approved'
-                  ? 'ring-emerald-600/40 dark:ring-emerald-300/40'
-                  : 'ring-amber-600/40 dark:ring-amber-400/40'}"
-            />
+            {#snippet verdict()}
+              <ReviewDecisionIcon decision={reviewer.decision} size={10} />
+            {/snippet}
+            <AvatarBadge badge={isVerdict(reviewer) ? verdict : undefined}>
+              <UserAvatar user={{ id: parseUserKey(reviewer.reviewerId), displayName: nameOf(reviewer) }} {size} />
+            </AvatarBadge>
           {/each}
           {#if reviewers.length > max}
-            <span class="pl-1.5 text-(--solus-text-tertiary) tabular-nums">+{reviewers.length - max}</span>
+            <span class="text-(--solus-text-tertiary) tabular-nums">+{reviewers.length - max}</span>
           {/if}
         </span>
       {/snippet}

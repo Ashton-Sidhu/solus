@@ -205,8 +205,6 @@ const resourceRpcRules = {
   // Owner only. A host admin may also transfer what a departed member owned, which
   // the share manager decides from the organization standing (plan 004 item 10).
   shareTransfer: { ...owner(sharedResourceAt(0)), hostAdminDecidedByDomain: true },
-  // Publication into an organization moves the resource: its owner's decision (organization-scope §7).
-  publicationStart: owner(sharedResourceAt(0)),
   // A Local work leaves its host by its owner's Share (docs/plans/cloud-sharing.md).
   workExportForCloud: owner(workIdAt(0)),
   workMarkMoved: owner(workIdAt(0)),

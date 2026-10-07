@@ -4,7 +4,7 @@ import type { NumberedPrChecksSummary } from './checks-rpc-types'
 // never leak Octokit/GraphQL response types — that is the whole point of the
 // provider adapter. The main-side `Provider`/`ProviderAuth`/`ReviewProvider`
 // interfaces (which carry Promise-returning methods) stay in
-// `src/main/providers/types.ts` and re-export these.
+// `packages/server/src/providers/types.ts`.
 
 /** owner/repo + host, derived from the local `origin` remote. */
 export interface RepoRef {

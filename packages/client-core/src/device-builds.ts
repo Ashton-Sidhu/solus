@@ -23,6 +23,25 @@ export function deviceBuildTargets(state: DeviceState | undefined, build: Device
     .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
 }
 
+/**
+ * Why a build has nowhere to run, in words a person can act on, or null when
+ * `deviceBuildTargets` offers a device. A connected phone that cannot take a
+ * simulator build is named, so the person knows to make a device build.
+ */
+export function buildRunBlocker(state: DeviceState | undefined, build: DeviceBuild, options: { canBoot?: boolean } = {}): string | null {
+  if (deviceBuildTargets(state, build, options).length > 0) return null
+  const devices = (state?.devices ?? []).filter((device) => device.platform === build.platform)
+  const phone = devices.find((device) => device.physical)
+  if (phone && build.runsOn === 'simulator') return `This is a simulator build. Make an iPhone or iPad build with New build to put it on ${phone.name}.`
+  if (phone?.unavailableReason) return phone.unavailableReason
+  const stopped = devices.find((device) => !device.physical && !device.booted && deviceBuildFits(build, { ...device, booted: true }).fits)
+  if (stopped) return `Start ${stopped.name} first, or open a conversation so Solus can start it.`
+  const kind = build.platform === 'ios' ? 'simulator' : 'emulator'
+  return build.runsOn === 'device'
+    ? 'This is an iPhone or iPad build. Connect an iPhone or iPad to this host.'
+    : `No ${kind} or phone on this host can take this build.`
+}
+
 /** A build output a folder browser offers: an iOS `.app` bundle (a folder) or an Android `.apk` file. */
 export function isBuildOutput(entry: Pick<DirectoryEntry, 'name' | 'isDir'>): boolean {
   return entry.isDir ? entry.name.endsWith('.app') : entry.name.endsWith('.apk')

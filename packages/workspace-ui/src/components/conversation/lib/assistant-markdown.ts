@@ -1,6 +1,6 @@
 import type { SvelteMarkdownOptions } from "@humanspeak/svelte-markdown";
 import type { MarkedExtension } from "marked";
-import { rawHtmlMarkedExtension } from "./raw-html";
+import { bareTagMarkedExtension, rawHtmlMarkedExtension } from "./raw-html";
 import {
   SPACED_IMAGE_PATH_RE,
   alertMarkedExtension,
@@ -44,7 +44,7 @@ function extensionSet(
   let set = extensionSets.get(key);
   if (!set) {
     set = [
-      ...(rawHtml ? [rawHtmlMarkedExtension] : []),
+      ...(rawHtml ? [rawHtmlMarkedExtension, bareTagMarkedExtension] : []),
       ...(alert ? [alertMarkedExtension] : []),
       ...(footnote ? [footnoteMarkedExtension] : []),
       ...(spacedImagePath ? [spacedImagePathMarkedExtension] : []),

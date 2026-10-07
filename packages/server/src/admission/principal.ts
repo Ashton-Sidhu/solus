@@ -167,6 +167,7 @@ export function principalFor(evidence: AdmissionEvidence): Principal {
   if (ticket.kind === 'pairing') {
     return { kind: 'local-owner', deviceId: ticket.deviceId, deviceLabel: ticket.deviceLabel }
   }
+  if (ticket.kind === 'runner') return runnerPrincipalFor(ticket)
   if (ticket.kind === 'guest') {
     return {
       kind: 'guest',

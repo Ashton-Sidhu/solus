@@ -63,12 +63,14 @@ new saved lens. A single ticked lens keeps its own source.
 ### Settings → Review → Lenses
 
 - Add, edit, reorder, and delete saved lenses. Each has a name and a prompt.
-- Starter templates: "Architecture delta", "Risk by file", "Data flow", and
-  "Show me" (tells the agent to read and follow the humanlayer show-me skill).
+- Starter templates: "Architecture delta", "Risk by file", and "Data flow".
   The user can start from a template and edit it.
-- A profile with no saved-lens choice starts with "Show me". An existing saved
-  list, including an empty list, keeps the person's choice. After deletion,
-  the "Show me" template can add it again.
+- A profile with no saved-lens choice starts with "Show me". Each client adds
+  it to an existing saved list once per profile, unless the list already has
+  it. Existing prompts and order stay unchanged. A local migration marker
+  keeps a later deletion from adding it again. "Show me" tells the agent to
+  read and follow the humanlayer show-me skill. It is a saved lens, not a
+  starter template.
 - Saved lenses are global in v1. Saved lenses for one project are a later
   change.
 

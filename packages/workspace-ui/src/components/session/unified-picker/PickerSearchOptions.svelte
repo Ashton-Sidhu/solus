@@ -3,7 +3,9 @@
     ArrowDownUp as SortIcon,
     ChevronDown as CaretDownIcon,
   } from "@lucide/svelte";
+  import { BitsConfig } from "bits-ui";
   import * as DropdownMenu from "../../ui/dropdown-menu";
+  import { ListFilterGroup } from "../../ui/list-page";
   import {
     PICKER_SORT_LABELS,
     type PickerSearchMode,
@@ -19,6 +21,7 @@
     type PickerStatusFilter,
     type PickerUpdatedFilter,
   } from "./lib/picker-filters";
+  import { serversStore } from "../../../contexts/connections/servers.store.svelte";
 
   /**
    * The choices a reader makes about a query, to the right of the box it is
@@ -46,6 +49,19 @@
   const filterCount = $derived(activeFilterCount(filters));
   /** Tinted while the list is narrowed, as it is while names only are searched. */
   const narrowed = $derived(keywordsOnly || filterCount > 0);
+  // The machines sessions run on. Offered once there is more than one to tell
+  // apart, or while one is chosen, so the filter can always be cleared.
+  const hosts = $derived(serversStore.executionServers);
+  const offersHosts = $derived(hosts.length > 1 || filters.host !== "any");
+  // A chosen host Solus no longer lists stays an option, so the reader can see
+  // why the list is narrowed.
+  const hostOptions = $derived([
+    { value: "any", label: "Any host" },
+    ...hosts.map((host) => ({ value: host.id, label: host.label })),
+    ...(filters.host === "any" || hosts.some((host) => host.id === filters.host)
+      ? []
+      : [{ value: filters.host, label: serversStore.hostFor(filters.host)?.label ?? filters.host }]),
+  ]);
 </script>
 
 <DropdownMenu.Root bind:open>
@@ -133,5 +149,19 @@
         <DropdownMenu.RadioItem {value}><span class="flex-1">{label}</span></DropdownMenu.RadioItem>
       {/each}
     </DropdownMenu.RadioGroup>
+    {#if offersHosts}
+      <DropdownMenu.Separator />
+      <!-- A submenu, because the hosts are as many as the person has saved:
+           the list scrolls in its own bounded panel instead of lengthening
+           this one. It portals into the picker's layer, as this menu does. -->
+      <BitsConfig defaultPortalTo={portalTarget ?? undefined}>
+        <ListFilterGroup
+          label="Session host"
+          options={hostOptions}
+          selected={[filters.host]}
+          onChange={([host]) => onFilters({ ...filters, host: host ?? "any" })}
+        />
+      </BitsConfig>
+    {/if}
   </DropdownMenu.Content>
 </DropdownMenu.Root>

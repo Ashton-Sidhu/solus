@@ -44,7 +44,8 @@
   const selectedDispatchWorktree = $derived(pendingDispatch?.worktree ?? null);
   const selectedDispatchBaseBranch = $derived(pendingDispatch?.baseBranch ?? null);
   const isWorktree = $derived(env.isolated);
-  const dispatchStartLabel = $derived(sectionRun?.worktree ? "New worktree" : "Checkout");
+  // A dispatch in the target host's checkout works on the default branch.
+  const dispatchStartLabel = $derived(sectionRun?.worktree ? "New worktree" : (env.targetBranch ?? "Default branch"));
   const displayedBranch = $derived.by(() => {
     const branch = selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ??
       (pendingDispatch ? dispatchStartLabel : env.pending ? env.name : (currentBranch ?? "detached HEAD"));
@@ -107,11 +108,6 @@
     requestInputFocus();
   }
 
-  function selectDispatchCheckout() {
-    session.config.setDispatchCheckout(destinationDraft().id);
-    requestInputFocus();
-  }
-
   async function copyBranchName() {
     if (!copyableBranch) return;
     await copyText(copyableBranch);
@@ -170,7 +166,6 @@
       onSelectBranch={selectBranch}
       onSelectWorktree={selectWorktree}
       onSelectNewWorktree={selectNewDispatchWorktree}
-      onSelectDispatchCheckout={selectDispatchCheckout}
     />
   {/if}
 {/if}

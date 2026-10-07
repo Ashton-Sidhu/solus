@@ -9,7 +9,6 @@ import type { BrowserRecordingRef, BrowserSnapshotRef } from './browser-types'
 import type { DeviceRunProfile } from './device-types'
 import type { WorkExternalLink } from './docs'
 import type { Attribution, User } from './user'
-import type { TurnFlagKind } from './observability-types'
 import type { Activity } from './activity'
 import type { MediaType } from './media-types'
 import type { WorktreeBranchNaming } from './worktree-branch-naming'
@@ -171,7 +170,8 @@ export interface SetupPrepareProjectRequest {
   credential?: GithubDelegatedCredential
   /** Exact existing worktree to use after the target repository is ready. */
   worktreePath?: string
-  /** Origin branch to materialize as an isolated target worktree. */
+  /** Origin branch to work on. The checkout is used when it holds the branch;
+   *  otherwise the branch gets its own worktree. Absent: the default branch. */
   baseBranch?: string
 }
 
@@ -394,14 +394,28 @@ export interface ModelConfig {
 
 /** A background agent session created without any tab ownership or routing state. */
 export interface HeadlessSessionRequest {
+  /** The id the new session takes. A caller that watches the session before it
+   *  starts chooses it; absent, the host chooses one. */
+  sessionId?: string
   prompt: string
   provider: AgentId
   modelId: string | null
   reasoningEffort: ReasoningEffort
   contextWindow: number | null
   cwd: string
+  /** Start the session in a new worktree from this branch. */
+  worktreeBaseBranch?: string | null
   /** The requester's preferences for this session (plans/018 §6); absent means the built-in defaults. */
   executionPreferences?: ExecutionPreferences
+  /** The agent session on another host that started this one (docs/plans/cross-host-sessions.md). */
+  startedBy?: SessionOrigin
+}
+
+/** The agent session on another host that started a session. The host it names
+ *  is shown by its label; the session id is that host's own. */
+export interface SessionOrigin {
+  hostLabel: string
+  sessionId: string
 }
 
 // ─── Model Profiles ───
@@ -984,6 +998,8 @@ export interface Session {
   queueHeld?: boolean
   id: string
   run: RunConfig
+  /** The agent session on another host that started this one (docs/plans/cross-host-sessions.md). */
+  startedBy?: SessionOrigin
   agentSessionId: string | null
   /** A provider switch waits for the new provider's first thread: the host
    *  holds the session although it has no thread now. */
@@ -1401,10 +1417,8 @@ export interface Message {
 
 /** How a work's `content` renders: markdown for `doc` and `slides`, serialized
  *  diagram JSON for `diagram`, and a self-contained HTML document for
- *  `artifact` (the `render_artifact` tool's output, shown in a sandbox), and
- *  one turn's captured Insights readings as JSON for `insights-report`
- *  (docs/plans/cloud-sharing.md §4). */
-export type WorkType = 'doc' | 'slides' | 'diagram' | 'artifact' | 'insights-report'
+ *  `artifact` (the `render_artifact` tool's output, shown in a sandbox). */
+export type WorkType = 'doc' | 'slides' | 'diagram' | 'artifact'
 
 export interface WorkMeta {
   /** The canonical organization (organization-scope §3, R10): `local` while unassigned, else an organization id that never changes. */
@@ -1593,18 +1607,6 @@ export interface WorkAnnotations {
   version: 1
   workId: string
   comments: PlanComment[]
-  /** Each reader's own mark on the turn an Insights report shows: one per
-   *  person, set by anyone who may comment. */
-  marks?: WorkMark[]
-  updatedAt: number
-}
-
-/** One person's mark on a shared Insights report. */
-export interface WorkMark {
-  by: User
-  kind: TurnFlagKind
-  /** Why, in the person's words. Empty when they marked without saying. */
-  note: string
   updatedAt: number
 }
 
@@ -1846,7 +1848,8 @@ export type NormalizedEvent =
   | { type: 'background_task_started'; taskId: string; toolUseId?: string }
   | { type: 'background_task_progress'; taskId: string; toolUseId?: string; description?: string; toolUses?: number; totalTokens?: number; durationMs?: number; lastToolName?: string }
   | { type: 'background_task_settled'; taskId: string; status: 'completed' | 'failed' | 'stopped' | 'killed'; toolUseId?: string }
-  | { type: 'error'; message: string; isError: boolean; sessionId?: string }
+  /** `kind: 'auth'`: the provider refused the turn's login. The client offers sign-in again. */
+  | { type: 'error'; message: string; isError: boolean; sessionId?: string; kind?: 'auth' }
   | { type: 'session_dead'; exitCode: number | null; signal: string | null; stderrTail: string[] }
   /** `resetsAt` is epoch seconds from the provider. The server fills missing
    * resets from cached usage and applies its retry buffer before publication.
@@ -2401,6 +2404,8 @@ export interface SessionMeta {
    *  history remains the source of conversation content; this relationship is
    *  local orchestration metadata that survives provider index refreshes. */
   delegation?: SessionDelegation
+  /** The agent session on another host that started this one (docs/plans/cross-host-sessions.md). */
+  startedBy?: SessionOrigin
 }
 
 export interface SessionDelegation {

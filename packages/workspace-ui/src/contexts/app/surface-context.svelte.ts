@@ -74,6 +74,10 @@ export interface SurfaceContext {
   readonly logicalProjects: LogicalProject[]
   /** The same projects as rows of a page's project selector. */
   readonly projectScopeOptions: ListProjectOption[]
+  /** The selector rows for these project keys, in order, each once: every
+   *  project list builds its rows here, so a project has one row and one
+   *  name everywhere. */
+  projectOptionsFor(projectKeys: Iterable<string>): ListProjectOption[]
   // ── The boards (docs/plans/cloud-console-native-pages.md §9) ──
   /** The project authority the boards share. A board owns it while open. */
   readonly projectPageScope: ProjectPageScope

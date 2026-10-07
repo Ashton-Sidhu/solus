@@ -284,6 +284,7 @@
       const unsubUplink = uplinkStore.listen();
       // Browser pages are host state; the pane, a recording's running time,
       // and a recording a limit stopped all follow the host's page events.
+      browserStore.onSurfaceRequested = () => session.openBrowser(undefined, undefined, { automatic: true });
       browserStore.onRecordingSaved = (serverId, result) =>
         deliverRecording(session.leadingInput, serverId, result);
       const unsubBrowser = browserStore.subscribe();
@@ -299,6 +300,7 @@
         unsubSeats();
         unsubPresence();
         unsubUplink();
+        browserStore.onSurfaceRequested = null;
         browserStore.onRecordingSaved = null;
         unsubBrowser();
         unsubDevices();

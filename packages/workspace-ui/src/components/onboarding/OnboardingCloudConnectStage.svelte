@@ -18,7 +18,7 @@
     class="onboarding-title mt-3 w-full max-w-[28.25rem] shrink-0 text-center text-sm leading-[1.6] text-muted-foreground"
     style="animation-delay: 0.06s"
   >
-    Optional. You can also do this later in Settings → Connections.
+    Optional. You can also do this later in Settings → Account & sync.
   </p>
 
   <div class="mt-8 flex w-full max-w-[28.25rem] shrink-0 flex-col gap-2.5 sm:mt-10">

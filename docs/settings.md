@@ -93,6 +93,34 @@ preferences of the person who started it. If a run has no preferences, the host 
 the built-in defaults, not its owner's settings. The host refuses a request whose
 preferences contain an unknown key or a bad value. It does not drop the bad value.
 
+## Hosts and the Solus Cloud link
+
+Settings → Hosts lists every host. Each host has its own page:
+
+- **Overview**: whether the host answers, its address, and a summary row for each
+  setup step. Each row opens the tab that changes it.
+- **Access**: how the host is reached and who reaches it. It has the host's Solus
+  Cloud link, its organizations, its network (remote connections, local network
+  trust, address), pairing, and the devices with access.
+- **Git**, **AI providers**, and **Environment**.
+
+On mobile, a host's settings screen opens an **Access** screen with the same
+sections in the same order (`HostAccessScreen`). The pairing code shows as a code,
+a QR code, and a link to copy. The rules for the organization rows and the pairing
+link are shared in `@solus/client-core` (`organization-rows.ts`, `pairing.ts`).
+
+Settings → Account & sync also shows the Solus Cloud link of this computer, when the
+desktop app hosts a server here. A browser has no computer to link, so web does not
+show it.
+
+The host accepts `uplinkLink` and `uplinkUnlink` only from a local owner: the desktop
+on the machine or a paired device (`LOCAL_ONLY_RPC_METHODS`). Thus desktop, web, and
+mobile can link any host they are paired with. The ticket comes from the client's own
+account. A client that arrived through the Solus Cloud tunnel sees the link but
+cannot change it, because an unlink would cut its own connection. A managed host
+and the workspace service show no link: Solus Cloud owns how they are reached
+(`uplinkControl` in `packages/client-core/src/uplink-control.ts`).
+
 ## Release order
 
 Deploy the control plane with the settings tables and API before the clients. Clients

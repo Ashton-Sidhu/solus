@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { hostKey } from "@solus/client-core/host-key";
+  import { NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
   import { tick, untrack } from "svelte";
   import { Star as StarIcon } from "@lucide/svelte";
   import type { Automation } from "@solus/contracts/types";
@@ -9,6 +9,7 @@
     runtime,
     serversStore,
     projectsStore,
+    normalizeProjectRoot,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import {
@@ -37,9 +38,9 @@
   import AutomationLaunchpad from "./AutomationLaunchpad.svelte";
   import AutomationRow from "./AutomationRow.svelte";
   import {
-    automationProject,
-    automationProjects,
-    type AutomationProject,
+    automationProjectKey,
+    automationProjectOptions,
+    automationsInScope,
   } from "./lib/automation-projects";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import type { InlinePageProps } from "../ui/lib/pane-surface";
@@ -50,20 +51,19 @@
   const pane = paneActions(() => paneId);
   const shell = getClientShellContext();
   const store = session.automationsStore;
-  // Automations run on a host, so this page reads the scope's checkout: the
-  // host and folder an automation of this project runs in.
-  const pageProject = $derived(
+  // The project the page is scoped to, one row for every checkout of it on
+  // any host (docs/plans/project-model.md §5); null for every project.
+  const scopeKey = $derived(
     session.projectPageScope.kind === "project"
-      ? session.projectPageScope.checkout
+      ? session.projectPageScope.key
       : null,
   );
   // Automations live on execution machines, never on the Solus API that is
-  // the primary at a Solus Cloud origin (plan 004, item 2). A project scope
-  // reads its checkout's machine; the full catalog merges every connected one.
+  // the primary at a Solus Cloud origin (plan 004, item 2). A project can be
+  // checked out on more than one of them, so the page lists from every
+  // connected one and a project scope filters by project.
   const machineIds = $derived(
-    pageProject
-      ? [pageProject.serverId]
-      : automationListMachineIds(serversStore.executionServers),
+    automationListMachineIds(serversStore.executionServers),
   );
   // One key per machine set, so a status tick that rebuilds the same list
   // does not reload it.
@@ -84,52 +84,49 @@
   // ── Project filter ──
   // The page starts with the complete catalog. Its project facet comes from
   // that catalog, not from open tabs, so every automation always has a choice.
-  const projects = $derived.by(() => {
-    const base = automationProjects(
-      hostItems,
-      session.openProjects,
-      (automation) => store.hostFor(automation.id),
-      (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
-    );
-    // The catalog knows about projects on this host with no automations yet —
-    // union them in at zero count, so the filter also offers "jump scope to a
-    // project before automating it," not only ones the list already spans.
-    const extra: AutomationProject[] = [];
-    for (const entry of projectsStore.entries) {
-      if (!machineIds.includes(entry.serverId)) continue;
-      const key = hostKey(entry.serverId, entry.projectRoot);
-      if (base.some((project) => project.key === key)) continue;
-      extra.push({
-        key,
-        projectPath: entry.projectRoot,
-        serverId: entry.serverId,
-        label: entry.label,
-        roots: [entry.projectRoot],
-        count: 0,
-      });
-    }
-    return extra.length === 0
-      ? base
-      : [...base, ...extra].sort((a, b) => a.label.localeCompare(b.label));
-  });
-  const selectedProjectKey = $derived(
-    pageProject ? hostKey(pageProject.serverId, pageProject.projectRoot) : null,
+  const projectKeyByAutomationId = $derived(
+    new Map(
+      hostItems.map((automation) => [
+        automation.id,
+        automationProjectKey(
+          automation.action.cwd,
+          store.hostFor(automation.id),
+          (serverId, path) => projectsStore.projectKeyFor(serverId, path),
+        ),
+      ]),
+    ),
   );
-  const selectedProject = $derived(
-    projects.find((project) => project.key === selectedProjectKey) ?? null,
-  );
-  // The page's own project shape, said in the vocabulary the shared scope
-  // switcher speaks. A project the catalog carries with nothing automated on it
-  // yet is the history-only row — the only kind the switcher offers to forget.
+  const projectKeyOf = (automation: Automation) =>
+    projectKeyByAutomationId.get(automation.id) ?? automation.action.cwd;
+  // The catalog also knows projects these machines hold with no automations
+  // yet, so the filter offers "scope to a project before automating it".
   const projectOptions = $derived(
-    projects.map<ListProjectOption>((project) => ({
-      key: project.key,
-      projectKey: project.projectPath,
-      serverId: project.serverId ?? "",
-      label: project.label,
-      available: true,
-      historyOnly: project.count === 0,
-    })),
+    automationProjectOptions(
+      projectKeyByAutomationId.values(),
+      [
+        ...session.logicalProjects
+          .filter((project) =>
+            project.checkouts.some((checkout) =>
+              machineIds.includes(checkout.serverId),
+            ),
+          )
+          .map((project) => project.key),
+        ...(scopeKey ? [scopeKey] : []),
+      ],
+      (projectKeys) => session.projectOptionsFor(projectKeys),
+    ),
+  );
+  const projectLabelByKey = $derived(
+    new Map(projectOptions.map((option) => [option.key, option.label])),
+  );
+  // A new automation needs a folder on a host: the scope's checkout of its
+  // project, the Chat marker under Chat, else the input bar's folder.
+  const launchpadProjectPath = $derived(
+    scopeKey === NEW_CHAT_DIRECTORY
+      ? NEW_CHAT_DIRECTORY
+      : (session.projectPageScope.kind === "project"
+          ? session.projectPageScope.checkout?.projectRoot
+          : null) ?? session.galleryProjectPath,
   );
 
   // ── Command bar: search + status filter + favourites + sort ──
@@ -185,13 +182,7 @@
   // Paths and automation ids are host-local data, so each row keeps its own
   // machine (`store.hostFor`) and a project scope keeps only its machine's rows.
   const scoped = $derived(
-    selectedProject
-      ? hostItems.filter(
-          (a) =>
-            automationProject(a, store.hostFor(a.id), projects)?.key ===
-            selectedProject.key,
-        )
-      : hostItems,
+    automationsInScope(hostItems, session.projectPageScope, projectKeyOf),
   );
 
   const counts = $derived.by(() => {
@@ -246,11 +237,7 @@
         if (statusFilter === "paused" && a.enabled) return false;
         if (showStarred && !a.favorite) return false;
         if (!q) return true;
-        const projectLabel = automationProject(
-          a,
-          store.hostFor(a.id),
-          projects,
-        )?.label;
+        const projectLabel = projectLabelByKey.get(projectKeyOf(a));
         return (
           a.name.toLowerCase().includes(q) ||
           folderLabel(a.action.cwd).toLowerCase().includes(q) ||
@@ -391,15 +378,10 @@
     startEdit(a);
   }
 
-  function selectProject(projectKey: string | null) {
-    const project = projectKey
-      ? (projects.find((candidate) => candidate.key === projectKey) ?? null)
-      : null;
-    if (project?.serverId) {
-      session.scopeOpenProjectPage({ serverId: project.serverId, projectRoot: project.projectPath });
-    } else {
-      session.setProjectPageScope({ kind: "all" });
-    }
+  function selectProject(option: ListProjectOption | null) {
+    if (option && !option.available) return;
+    if (option) session.scopePageToProject(option.key);
+    else session.setProjectPageScope({ kind: "all" });
     selectedId = null;
     // The search was written against the project being left, so it goes with
     // it — the same trade Tasks, Pull requests and the Workspace make.
@@ -409,7 +391,7 @@
   let observedProjectKey = "";
   $effect(() => {
     if (!open) return;
-    const nextKey = selectedProjectKey ?? "all";
+    const nextKey = scopeKey ?? "all";
     if (!observedProjectKey) {
       observedProjectKey = nextKey;
       return;
@@ -422,11 +404,7 @@
   });
 
   function removeProjectHistory(option: ListProjectOption) {
-    if (!option.serverId) return;
-    projectsStore.remove({
-      serverId: option.serverId,
-      projectRoot: option.projectKey,
-    });
+    projectsStore.removeProject(option.key);
   }
 
   function clearFilters() {
@@ -441,7 +419,7 @@
   function clearMenuFilters() {
     statusFilter = "all";
     showStarred = false;
-    if (selectedProject) selectProject(null);
+    if (scopeKey) selectProject(null);
   }
 
   async function toggleEnabled(a: Automation, e?: Event) {
@@ -519,15 +497,15 @@
     compactText
     placeholder="Search automations…"
     filters={listFilters}
-    activeCount={Number(statusFilter !== "all") + Number(!!selectedProject)}
+    activeCount={Number(statusFilter !== "all") + Number(!!scopeKey)}
     onClearFilters={clearMenuFilters}
   >
     {#snippet filterContent()}
       <ListProjectFilter
         projects={projectOptions}
-        activeKey={selectedProject?.key ?? ""}
+        activeKey={scopeKey ?? ""}
         emptyLabel="All projects"
-        onSelect={(option) => selectProject(option.key)}
+        onSelect={selectProject}
         onSelectAll={() => selectProject(null)}
         onSelectCurrent={() => session.scopePageToCurrentProject()}
         onRemoveHistory={removeProjectHistory}
@@ -618,17 +596,12 @@
                   aria-label={section.label}
                 >
                   {#each section.items as a (a.id)}
-                    {@const project = automationProject(
-                      a,
-                      store.hostFor(a.id),
-                      projects,
-                    )}
                     <li>
                       <AutomationRow
                         automation={a}
-                        projectLabel={project?.label ??
+                        projectLabel={projectLabelByKey.get(projectKeyOf(a)) ??
                           folderLabel(a.action.cwd)}
-                        projectPath={project?.projectPath ?? a.action.cwd}
+                        projectPath={normalizeProjectRoot(a.action.cwd)}
                         serverId={store.hostFor(a.id)}
                         {now}
                         selected={selectedId === a.id}
@@ -656,8 +629,7 @@
                 : "pt-[30px]"}
             >
               <AutomationLaunchpad
-                projectPath={selectedProject?.projectPath ??
-                  session.galleryProjectPath}
+                projectPath={launchpadProjectPath}
                 onOpen={openSeeded}
                 onCreateBlank={startCreate}
               />

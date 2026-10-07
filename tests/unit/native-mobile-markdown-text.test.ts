@@ -194,6 +194,45 @@ describe("nativeMarkdownTextRuns", () => {
     expect(nativeMarkdownTextRuns(node)).toEqual([{ text: "Less than: < ⌘\nhighlighted" }]);
   });
 
+  it("keeps an unpaired bare tag as the placeholder text the reply wrote", () => {
+    // WHY: inline HTML is flattened to text, and stripping every tag turned
+    // "Use <A> and <B>" into "Use  and ". Paired markup is still stripped.
+    const node: MarkdownNode = {
+      type: "paragraph",
+      children: [
+        { type: "text", content: "Use " },
+        { type: "html_inline", content: "<A>" },
+        { type: "text", content: " and " },
+        { type: "html_inline", content: "<B>" },
+        { type: "text", content: ", press " },
+        { type: "html_inline", content: "<kbd>" },
+        { type: "text", content: "K" },
+        { type: "html_inline", content: "</kbd>" },
+        { type: "html_inline", content: "<br>" },
+        { type: "text", content: "end at " },
+        { type: "html_inline", content: "</C>" },
+        { type: "text", content: "." },
+      ],
+    };
+
+    expect(nativeMarkdownTextRuns(node)).toEqual([
+      { text: "Use <A> and <B>, press K\nend at </C>." },
+    ]);
+  });
+
+  it("strips a paired anchor even when its opening tag has attributes", () => {
+    const node: MarkdownNode = {
+      type: "paragraph",
+      children: [
+        { type: "html_inline", content: '<a href="https://example.com">' },
+        { type: "text", content: "label" },
+        { type: "html_inline", content: "</a>" },
+      ],
+    };
+
+    expect(nativeMarkdownTextRuns(node)).toEqual([{ text: "label" }]);
+  });
+
   it("normalizes double-encoded entities and inline tags emitted as text", () => {
     const node: MarkdownNode = {
       type: "paragraph",

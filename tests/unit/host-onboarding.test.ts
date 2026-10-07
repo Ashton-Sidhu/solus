@@ -6,6 +6,7 @@ import {
   hostCarriedOverFacts,
   hostOnboardingSteps,
   hostReadinessSummary,
+  onboardingHeading,
   onboardingRailModel,
   providerSetupActions,
 } from '@solus/workspace-ui/components/servers/lib/host-onboarding'
@@ -257,6 +258,33 @@ describe('onboarding rail model', () => {
     expect(model.carriedDone).toBe(4)
     expect(model.carriedTotal).toBe(7)
     expect(model.percentDone).toBe(36)
+  })
+})
+
+describe('onboarding stage heading', () => {
+  test('the done line names each step in a word or two so it never wraps', () => {
+    // WHY: the stage footer lists every finished step on one line beside the
+    // buttons. A sentence per step ("Signed in as …") wrapped it onto two.
+    for (const step of hostOnboardingSteps({ readiness: readiness() })) {
+      expect(step.name.split(' ').length).toBeLessThanOrEqual(2)
+    }
+  })
+
+  test('a failed handshake says so instead of repeating the reach prompt', () => {
+    // WHY: the error view keeps the same control area, so the title is the
+    // only place that tells the user the attempt failed.
+    const reaching = onboardingHeading({ hostName: 'atlas', pairingView: 'connecting', current: null })
+    const failed = onboardingHeading({ hostName: 'atlas', pairingView: 'error', current: null })
+    expect(reaching.title).toBe('Reach atlas')
+    expect(failed.title).not.toBe(reaching.title)
+    expect(failed.title).toContain('atlas')
+  })
+
+  test('setup asks the current decision, and says ready only when none is left', () => {
+    const steps = hostOnboardingSteps({ readiness: readiness() })
+    const github = stepFor(steps, 'github')
+    expect(onboardingHeading({ hostName: 'atlas', pairingView: null, current: github }).title).toBe(github.label)
+    expect(onboardingHeading({ hostName: 'atlas', pairingView: null, current: null }).title).toBe('atlas is ready')
   })
 })
 

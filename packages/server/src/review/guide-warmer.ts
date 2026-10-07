@@ -1,6 +1,6 @@
 import type { CheckoutService } from '../git/checkout-service'
 import path from 'path'
-import type { PullRequest } from '@solus/contracts/providers'
+import type { PullRequest, RepoRef } from '@solus/contracts/providers'
 import {
   type PrGuideMetadata,
   type PrGuideMetadataRequest,
@@ -9,7 +9,7 @@ import {
 import { SOLUS_WORKTREE_DIR, type IpcContext } from '@solus/contracts/types'
 import { listProjectWorktrees } from '../git/worktree-manager'
 import { createLogger } from '../logger'
-import type { Provider, RepoRef } from '../providers/types'
+import type { Provider } from '../providers/types'
 import { prIndex } from '../prs/pr-index'
 import { prGuideJobs } from './pr-guide-jobs'
 import { readPrGuide } from './pr-guide-store'

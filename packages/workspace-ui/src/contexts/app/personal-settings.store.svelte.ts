@@ -12,6 +12,7 @@
 
 import {
   DEFAULT_PERSONAL_SETTINGS,
+  addShowMeLens,
   EXECUTION_PREFERENCE_KEYS,
   MAX_SIDEBAR_MOTION_MS,
   MIN_ASSISTANT_TEXT_OPACITY,
@@ -224,10 +225,21 @@ export class PersonalSettingsStore {
   }
 
   private readProfile(accountKey: string): PersonalSettingsDocument | null {
+    const migrationKey = `${personalProfileStorageKey(accountKey)}:show-me.v1`
     const stored = this.storage.getItem(personalProfileStorageKey(accountKey))
-    if (stored === null) return null
+    if (stored === null) {
+      try { this.storage.setItem(migrationKey, 'done') } catch {}
+      return null
+    }
     const parsed = storedProfileSchema.safeParse(stored)
-    return parsed.success ? parsed.data : {}
+    const document = parsed.success ? parsed.data : {}
+    if (this.storage.getItem(migrationKey) === 'done') return document
+    const migrated = addShowMeLens(document)
+    try {
+      if (migrated !== document) this.storage.setItem(personalProfileStorageKey(accountKey), JSON.stringify(migrated))
+      this.storage.setItem(migrationKey, 'done')
+    } catch {}
+    return migrated
   }
 
   private writeProfile(accountKey: string, document: PersonalSettingsDocument): void {

@@ -28,6 +28,11 @@ export function repositoryKeyFromRemoteUrl(remoteUrl: string): string | null {
   return scp ? `${scp[1]}/${scp[2]}` : null
 }
 
+/** The key of a repository a code host names by host, owner, and name. */
+export function repositoryKeyOf(repository: { host: string; owner: string; repo: string }): string {
+  return `${repository.host}/${repository.owner}/${repository.repo}`.toLowerCase()
+}
+
 /** The remote that names the repository: `upstream` for a fork, then
  *  `origin`, then the first remote by name. The push remote is a property of
  *  the checkout and plays no part here. */

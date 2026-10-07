@@ -37,7 +37,7 @@ import type { HostAccessTokenResponse, HostKind, ManagedHostLifecycle, Organizat
 import type { WorkLiveAwarenessRequest, WorkLiveCloseRequest, WorkLiveOpenRequest, WorkLiveOpenResult, WorkLivePushRequest, WorkLivePushResult } from './work-live'
 import type { WorkReview, WorkReviewDecide, WorkReviewInboxItem, WorkReviewRequest, WorkReviewStateEntry } from './work-review'
 import type { ShareLink, ShareList, ShareResource, ShareRole, ShareSetLinkRequest, ShareSetRequest, ShareTransferRequest } from './sharing'
-import type { HostOrganizationsStatus, Publication, PublicationStartRequest } from './organization-scope'
+import type { HostOrganizationsStatus } from './organization-scope'
 import type { WorkTransfer } from './work-transfer'
 import type { AgentAuthFlowRequest, AgentAuthMcpTarget, AgentAuthStartResult, AgentAuthSubmitRequest, AgentAuthTarget } from './agent-auth'
 import type { SeatConnectCodeRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
@@ -279,10 +279,6 @@ export interface SolusAPI {
   hostOrganizations(): Promise<HostOrganizationsStatus>
   /** Host administrator only: opt this machine's work for one organization into its Insights while that organization's policy is off. */
   hostSetInsightsOptIn(organizationId: string, enabled: boolean): Promise<HostOrganizationsStatus>
-  /** The resource's owner publishes it, and what it needs, into one organization; the client mints the link once it is `committed`. */
-  publicationStart(request: PublicationStartRequest): Promise<Publication>
-  /** The publications of one resource, newest first; every publication of this host when no resource is named. */
-  publicationList(resource?: ShareResource): Promise<Publication[]>
   /** A Local work, whole, for its upload into an organization (docs/plans/cloud-sharing.md §3). */
   workExportForCloud(workId: string): Promise<WorkTransfer>
   /** The Local work after its upload into `organizationId`: points at that organization, with its content kept, only when it did not change since that export (cloud-sharing.md §3a). */

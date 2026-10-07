@@ -46,8 +46,6 @@ export interface DelegationPort {
 
 export interface TurnOrganizationDeps {
   hostOrganizations: HostOrganizations
-  /** The organization a resource is reserved for by an active publication, if any (§7). */
-  reservedOrganization?: (sessionId: string) => string | null
   /** Absent where the host cannot run organization work: the desktop's own host, a host with no link. */
   delegations?: DelegationPort
   /** Persists the attachment the first time a member is admitted for organization work (organization-vms §4). */
@@ -178,12 +176,10 @@ export async function mayAnswerFor(principal: Principal, sessionId: string, deps
 
 /**
  * The organization an unassigned session would be assigned to, or null to leave
- * it Local: a publication's reservation first; else the window's selection when
- * the caller may name it and that organization's Insights apply here.
+ * it Local: the window's selection when the caller may name it and that
+ * organization's Insights apply here.
  */
 function wantedOrganization(ctx: IpcContext, principal: Principal, deps: TurnOrganizationDeps): string | null {
-  const reserved = deps.reservedOrganization?.(ctx.session.sessionId)
-  if (reserved) return reserved
   const selected = ctx.session.organizationId
   if (!selected || selected === LOCAL_ORGANIZATION_ID) return null
   if (principal.kind === 'org-member') return principal.organizationId === selected && insightsEligible(selected) ? selected : null

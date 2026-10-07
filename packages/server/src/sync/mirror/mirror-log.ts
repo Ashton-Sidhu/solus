@@ -100,12 +100,6 @@ export function mirrorDestinations(): DeliveryDestination[] {
   return rows.map((row) => ({ organizationId: row.organization_id, actorUserId: row.actor_user_id }))
 }
 
-/** Whether anything at or below `seq` is still queued for the organization: how a publication learns it has been received. */
-export function mirrorPendingThrough(organizationId: string, seq: number): boolean {
-  const row = z.object({ count: z.number() }).parse(getDb().prepare('SELECT COUNT(*) AS count FROM mirror_log WHERE organization_id = ? AND seq <= ?').get(organizationId, seq))
-  return row.count > 0
-}
-
 /** How many items wait; a diagnostic for the status surfaces. */
 export function mirrorBacklog(): number {
   const row = z.object({ count: z.number() }).parse(getDb().prepare('SELECT COUNT(*) AS count FROM mirror_log').get())

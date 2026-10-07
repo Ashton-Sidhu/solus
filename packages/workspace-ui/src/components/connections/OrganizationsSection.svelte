@@ -12,7 +12,7 @@
   import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import { organizationsStore } from "./organizations.store.svelte";
-  import { attachmentSummary, deliverySummary, hostCategoryLabel, insightsDetail, organizationDetail, organizationRows } from "./lib/organization-rows";
+  import { attachmentSummary, deliverySummary, hostCategoryLabel, insightsDetail, organizationDetail, organizationRows } from "@solus/client-core/organization-rows";
 
   interface Props {
     serverId: string;

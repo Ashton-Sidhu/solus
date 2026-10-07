@@ -41,7 +41,8 @@
     existingTaskId,
     type SessionDraft,
   } from "../../contexts/workspace/session-draft.svelte";
-  import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
+  import { groupKeyFor, type SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
+  import { projectsStore } from "../../contexts/projects/projects.store.svelte";
   import * as Breadcrumb from "../ui/breadcrumb";
   import * as Command from "../ui/command";
   import { MenuSearch } from "../ui/menu";
@@ -166,10 +167,18 @@
           "~")
       : (task?.projectKey ?? "~"),
   );
-  const projectLabel = $derived(
-    draft ? projectDirLabel(projectKey) : (task?.projectLabel ?? "~"),
+  // The project the crumb names, grouped as the column groups it: every
+  // checkout of one repository is one project.
+  const projectGroupKey = $derived(
+    draft ? groupKeyFor(draft.run.serverId, projectKey) : (task?.groupKey ?? "~"),
   );
-  const tasksInProject = $derived(sidebarStore.tasksForProject(projectKey));
+  const projectOption = $derived(
+    sidebarStore.projectSummaries.find((summary) => summary.project.key === projectGroupKey)?.project ?? null,
+  );
+  const projectLabel = $derived(
+    projectOption?.label ?? (draft ? projectDirLabel(projectKey) : (task?.projectLabel ?? "~")),
+  );
+  const tasksInProject = $derived(sidebarStore.tasksForProject(projectGroupKey));
   const filteredTasksInProject = $derived(
     tasksInProject.filter((item) =>
       breadcrumbTaskMatches(item.title, taskQuery),
@@ -395,11 +404,14 @@
 
   /** Choosing a project lands on its most urgent task — or, on a draft, moves
    *  the draft itself into that project. */
-  function pickProject(leadTaskKey: string, nextProjectKey: string) {
+  function pickProject(leadTaskKey: string, nextGroupKey: string) {
     menu = null;
-    if (draft) {
-      draft.run = withCheckout(draft.run, nextProjectKey, null);
-      void session.environment.refresh(draft.run.serverId, nextProjectKey);
+    // A draft moves to the project's checkout on its own host; with none
+    // there, it lands on the project's task like any other crumb.
+    const nextPath = draft ? projectsStore.checkoutPathOn(draft.run.serverId, nextGroupKey) : null;
+    if (draft && nextPath) {
+      draft.run = withCheckout(draft.run, nextPath, null);
+      void session.environment.refresh(draft.run.serverId, nextPath);
     } else {
       const lead = sidebarStore.allTasks.find(
         (item) => item.key === leadTaskKey,
@@ -549,22 +561,23 @@
                 class="menu-surface w-[min(18.25rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense"
               >
                 <div class={MENU_HEADING}>Projects</div>
-                {#each sidebarStore.projectSummaries as project (project.projectKey)}
-                  {@const note = projectNote(project.waiting, project.failed)}
+                {#each sidebarStore.projectSummaries as summary (summary.project.key)}
+                  {@const note = projectNote(summary.waiting, summary.failed)}
                   <button
                     type="button"
                     class={MENU_ROW}
                     onclick={() =>
-                      pickProject(project.leadTaskKey, project.projectKey)}
+                      pickProject(summary.leadTaskKey, summary.project.key)}
                   >
                     <ProjectFavicon
-                      projectRoot={project.projectKey}
+                      projectRoot={summary.project.projectKey}
+                      serverId={summary.project.serverId || null}
                       class="size-[1.125rem]"
                     />
                     <span
-                      class="{MENU_LABEL} {project.projectKey === projectKey
+                      class="{MENU_LABEL} {summary.project.key === projectGroupKey
                         ? 'font-medium'
-                        : ''}">{project.label}</span
+                        : ''}">{summary.project.label}</span
                     >
                     {#if note}
                       <span
@@ -576,7 +589,7 @@
                     {/if}
                     <span
                       class="shrink-0 text-xs text-muted-foreground opacity-50 tabular-nums"
-                      >{project.count}</span
+                      >{summary.count}</span
                     >
                   </button>
                 {/each}

@@ -307,7 +307,7 @@ export function PairHostScreen({ navigation }: ScreenProps<"PairHost">) {
           )}
           {!target && !showScanner ? (
             <SettingsNote>
-              On the computer running Solus, open Settings → Connections → Pair a device. Scan its
+              On the computer running Solus, open Settings → Hosts → this computer → Access → Pairing. Scan its
               QR code with the camera button, or type the address and code it shows.
             </SettingsNote>
           ) : null}

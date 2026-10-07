@@ -9,6 +9,7 @@
   import { Button } from "../ui/button";
   import CommentBody from "../comments/CommentBody.svelte";
   import UserAvatar from "../users/UserAvatar.svelte";
+  import { AvatarBadge } from "../ui/avatar-badge";
   import { getClientShellContext, getSurfaceContext, presenceStore, sharesStore } from "../../contexts";
   import { getMentionContext } from "../mentions/lib/mention-context";
   import { toasts } from "../../lib/toasts";
@@ -209,11 +210,13 @@
             <TooltipUI.Root>
               <TooltipUI.Trigger>
                 {#snippet child({ props })}
-                  <span {...props} class="relative mt-0.5 shrink-0">
-                    <UserAvatar user={reviewerUser(reviewer.reviewerId, name)} size={24} />
-                    <span class="absolute -right-1 -bottom-1 flex rounded-full bg-(--solus-popover-bg) p-px">
-                      <ReviewDecisionIcon decision={reviewer.decision} isStale={reviewer.isStale} size={12} />
-                    </span>
+                  <span {...props} class="mt-0.5 flex shrink-0">
+                    <AvatarBadge surface="bg-(--solus-popover-bg)">
+                      <UserAvatar user={reviewerUser(reviewer.reviewerId, name)} size={24} />
+                      {#snippet badge()}
+                        <ReviewDecisionIcon decision={reviewer.decision} isStale={reviewer.isStale} size={12} />
+                      {/snippet}
+                    </AvatarBadge>
                   </span>
                 {/snippet}
               </TooltipUI.Trigger>

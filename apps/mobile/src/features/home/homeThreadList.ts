@@ -1,54 +1,26 @@
 // Adapted from T3 Code apps/mobile/src/features/home/homeThreadList.ts (MIT, see UPSTREAM.md).
 import type { SolusProjectShell, SolusThreadShell } from "../threads/thread-directory";
+import { groupProjectScopes, type ProjectScope } from "../threads/new-task-project-selection";
 import { threadProjectKey } from "../threads/threadListV2";
 
-/**
- * One entry of the Home project filter. T3 groups an environment's projects
- * by repository; Solus does the same with `ProjectEntry.repositoryKey`, so
- * one repository checked out on two hosts is one scope. A folder with no
- * hosted remote is its own scope.
- */
-export interface HomeProjectScope {
-  readonly key: string;
-  readonly title: string;
-  readonly representative: SolusProjectShell;
-  readonly projects: ReadonlyArray<SolusProjectShell>;
-  /** `SolusProjectShell.key` of every member. */
-  readonly projectKeys: ReadonlySet<string>;
-}
-
+/** The Home project filter's scopes: every project, or only those on one host. */
 export function buildHomeProjectScopes(input: {
   readonly projects: ReadonlyArray<SolusProjectShell>;
   readonly hostId: string | null;
-}): ReadonlyArray<HomeProjectScope> {
-  const groups = new Map<string, SolusProjectShell[]>();
-  for (const project of input.projects) {
-    if (input.hostId !== null && project.hostId !== input.hostId) continue;
-    const key = project.project.repositoryKey
-      ? `repository:${project.project.repositoryKey}`
-      : `project:${project.key}`;
-    const members = groups.get(key) ?? [];
-    members.push(project);
-    groups.set(key, members);
-  }
-  return Array.from(groups, ([key, members]) => {
-    const representative = members[0]!;
-    return {
-      key,
-      title: representative.project.folderName,
-      representative,
-      projects: members,
-      projectKeys: new Set(members.map((member) => member.key)),
-    };
-  });
+}): ReadonlyArray<ProjectScope> {
+  return groupProjectScopes(
+    input.hostId === null
+      ? input.projects
+      : input.projects.filter((project) => project.hostId === input.hostId),
+  );
 }
 
 /** Most recently active project first; a project with no thread sorts by when it was added. */
 export function sortHomeProjectScopes(input: {
-  readonly scopes: ReadonlyArray<HomeProjectScope>;
+  readonly scopes: ReadonlyArray<ProjectScope>;
   readonly threads: ReadonlyArray<SolusThreadShell>;
   readonly knownProjectKeys: ReadonlySet<string>;
-}): ReadonlyArray<HomeProjectScope> {
+}): ReadonlyArray<ProjectScope> {
   const scopeKeyByProjectKey = new Map(
     input.scopes.flatMap((scope) =>
       Array.from(scope.projectKeys, (projectKey) => [projectKey, scope.key] as const),
@@ -63,7 +35,7 @@ export function sortHomeProjectScopes(input: {
       Math.max(latestActivityByScope.get(scopeKey) ?? Number.NEGATIVE_INFINITY, thread.record.lastActivityAt),
     );
   }
-  const addedAt = (scope: HomeProjectScope) =>
+  const addedAt = (scope: ProjectScope) =>
     Math.max(...scope.projects.map((project) => Date.parse(project.project.addedAt) || 0));
   return [...input.scopes].sort((left, right) => {
     const byActivity =

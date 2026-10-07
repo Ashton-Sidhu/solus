@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { hostCategorySchema, hostOrganizationSchema, hostOwnerIdentitySchema } from './uplink'
-import { shareResourceSchema, type ShareResource } from './sharing'
 
 /**
  * Organization scope on a host (docs/plans/organization-scope.md §3, §6.1, §7):
@@ -53,39 +52,4 @@ export const hostOrganizationsStatusSchema = z.object({
   deliveryError: z.string().nullable(),
 })
 export type HostOrganizationsStatus = z.infer<typeof hostOrganizationsStatusSchema>
-
-/**
- * `publicationStart` and `publication.changed` (§7). A publication moves one
- * Local resource and its required assets into one organization on the Solus
- * API, then the client mints the cloud link. `pending` reserves the destination
- * before any byte is sent; `sent` waits for the service's receipt; `committed`
- * is the record's new home; `failed` keeps the reservation's story so a retry
- * cannot pick another organization.
- */
-export const publicationStateSchema = z.enum(['pending', 'sent', 'committed', 'failed'])
-export type PublicationState = z.infer<typeof publicationStateSchema>
-
-export const publicationSchema = z.object({
-  id: z.string().min(1),
-  resource: shareResourceSchema,
-  organizationId: z.string().min(1),
-  /** The account that asked; the host owner sentinel when the owner's account is not known. */
-  actorUserId: z.string().min(1),
-  state: publicationStateSchema,
-  /** On `failed`, why it did not commit; on `sent`, what the delivery waits for, such as the person connecting again. */
-  error: z.string().optional(),
-  createdAt: z.number(),
-  updatedAt: z.number(),
-})
-export type Publication = z.infer<typeof publicationSchema>
-
-export const publicationStartRequestSchema = z.object({
-  resource: shareResourceSchema,
-  organizationId: z.string().min(1),
-})
-export type PublicationStartRequest = z.infer<typeof publicationStartRequestSchema>
-
-export function samePublicationResource(a: ShareResource, b: ShareResource): boolean {
-  return a.kind === b.kind && a.id === b.id
-}
 

@@ -351,28 +351,6 @@
               onRetry={() => (renderKey += 1)}
             />
           {/await}
-        {:else if work.type === "insights-report"}
-          {#await import("../insights/InsightsReportShell.svelte")}
-            <DocumentModalSkeleton inline title={work.title} />
-          {:then reportModule}
-            <reportModule.default
-              content={draft.content}
-              title={work.title}
-              workId={work.id}
-              onOpenWorkspace={canOpenWorkspace ? openWorkspacePage : undefined}
-              onRename={viewerReadOnly ? undefined : handleRename}
-              onDelete={canDelete ? handleDelete : undefined}
-              onDuplicate={canOpenWorkspace ? handleDuplicate : undefined}
-              onExport={exportStartPath ? handleExport : undefined}
-              {hostIsRemote}
-            />
-          {:catch error}
-            <RouteLoadError
-              {error}
-              compact
-              onRetry={() => (renderKey += 1)}
-            />
-          {/await}
         {:else if work.type === "artifact"}
           <ArtifactShell
             content={draft.content}
@@ -455,9 +433,7 @@
           ? "Close diagram"
           : work.type === "artifact"
             ? "Close artifact"
-            : work.type === "insights-report"
-              ? "Close report"
-              : "Close document"}
+            : "Close document"}
         closeTestId={work.type === "doc" || work.type === "slides" ? "document-modal-close" : undefined}
         raised="strong"
       />

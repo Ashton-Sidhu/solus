@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import {
   groupLogicalProjects,
   normalizeProjectRoot,
+  projectOptionsFor,
   projectRefKey,
   projectScopeOptions,
 } from '@solus/workspace-ui/contexts/projects/project-catalog'
@@ -214,5 +215,45 @@ describe('projectScopeOptions', () => {
       fresh: false,
       web: false,
     })
+  })
+})
+
+describe('projectOptionsFor', () => {
+  const checkout = (serverId: string, projectRoot: string, repositoryKey: string | null) =>
+    ({ serverId, projectRoot, label: projectRoot.split('/').at(-1)!, lastSeenAt: 1, repositoryKey })
+  const hostLabel = (serverId: string) => (serverId === 'laptop' ? 'Laptop' : 'Build box')
+
+  test('a project checked out on two hosts is one row', () => {
+    const projects = groupLogicalProjects([
+      checkout('laptop', '/Users/me/web', 'github.com/acme/web'),
+      checkout('box', '/srv/web', 'github.com/acme/web'),
+    ], [])
+    const options = projectOptionsFor(['github.com/acme/web', 'github.com/acme/web'], projects, () => true, hostLabel, null)
+    expect(options.map((option) => [option.key, option.label])).toEqual([['github.com/acme/web', 'web']])
+  })
+
+  test('projects that share a name are told apart within the list', () => {
+    // WHY: two rows reading "web" give no way to pick the right one.
+    const projects = groupLogicalProjects([
+      checkout('laptop', '/Users/me/web', 'github.com/acme/web'),
+      checkout('laptop', '/Users/me/other/web', 'github.com/other/web'),
+      checkout('laptop', '/Users/me/scratch/api', null),
+      checkout('box', '/srv/api', null),
+    ], [])
+    const options = projectOptionsFor(projects.map((project) => project.key), projects, () => true, hostLabel, null)
+    expect(Object.fromEntries(options.map((option) => [option.key, option.label]))).toEqual({
+      'github.com/acme/web': 'acme/web',
+      'github.com/other/web': 'other/web',
+      'laptop:/Users/me/scratch/api': 'api · Laptop',
+      'box:/srv/api': 'api · Build box',
+    })
+    // Alone in its list, a project keeps its plain name.
+    expect(projectOptionsFor(['github.com/acme/web'], projects, () => true, hostLabel, null)[0]!.label).toBe('web')
+  })
+
+  test('a key the catalog does not hold is still a row, named by its folder', () => {
+    // A task filed in a folder no host has listed yet must still be a scope.
+    const [option] = projectOptionsFor(['laptop:/Users/me/fresh'], [], (serverId) => serverId === 'laptop', hostLabel, null)
+    expect(option).toMatchObject({ key: 'laptop:/Users/me/fresh', projectKey: '/Users/me/fresh', serverId: 'laptop', label: 'fresh', available: true })
   })
 })

@@ -1,7 +1,8 @@
 # Cloud sharing without the host link
 
 Status: done, 2026-09-30. Replaces the "one server publication operation"
-rule in `organization-scope.md` §4 for works, tasks, and Insights reports.
+rule in `organization-scope.md` §4 for works and tasks. Since 2026-10-07 no
+session is published either, and Insights reports are not shared (§8).
 
 Where it lives:
 
@@ -10,9 +11,9 @@ Where it lives:
   `data/works/works.ts` and `data/tasks/task-transfer.ts`).
 - Solus API: `workUpload` and `taskUpload`
   (`transport/solus-api/cloud-uploads.ts`).
-- Client: `SharesStore.uploadWork`, `uploadTask`, and `shareReport`; the report
-  document is built by `components/insights/lib/turn-report.ts`.
-- `PublicationCoordinator` publishes sessions only.
+- Client: `SharesStore.uploadWork` and `uploadTask`.
+- A session stays on its host: Share opens the host's own share list. The
+  host has no publication operation.
 
 ## 1. Problem
 
@@ -47,8 +48,8 @@ There are two kinds of share.
 
 | Kind | Resources | Needs the host link | Path |
 |---|---|---|---|
-| **Cloud copy** | work, task, Insights report | No | The client writes a copy to the Solus API with the person's sign-in. The link points at the cloud copy. |
-| **Live session** | session | Yes | Unchanged. The session runs on the host, and the host sends its later turns. |
+| **Cloud copy** | work, task | No | The client writes a copy to the Solus API with the person's sign-in. The link points at the cloud copy. |
+| **Live session** | session | Yes | The session stays on its host. Share opens the host's own share list and uploads nothing. |
 
 For a cloud copy, the host is only a source of content. The client reads the
 content from the host over the ordinary host RPC, then writes it to the Solus
@@ -132,7 +133,6 @@ lets that host answer "this work is in organization X" instead of "not found".
 |---|---|---|---|
 | Work | `workExportForCloud` (history, annotations, fingerprint) | `workUpload`: the logic of the old runner work route, admitted with the person's sign-in | `workMarkMoved`: a location only, the content kept (same fingerprint, or kept). |
 | Task | `taskExportForCloud`: the task, its local comments, its linked Local works, and its sessions' title, agent, role, and host installation id | `workUpload` for each linked work first, then `taskUpload` (task and comments under their ids, linked to the uploaded works and to the sessions on their host) | `taskMarkMoved`: a location on the task and on each uploaded work, each only if unchanged |
-| Insights report | The turn panel's readings, captured at Share as an `insights-report` work (JSON) | Filed as a Local work with `createWork` on the host, then the Work row | As the Work row |
 
 `importWork` and `createTask` are not used: `importWork` reads a Google Doc or
 Confluence page from a URL, and `createTask` cannot keep the local id. The
@@ -301,7 +301,7 @@ host keeps a local copy that changed after it was read.
 2. **2026-09-30:** on a host that is not linked, session Share is disabled.
 3. **2026-10-01:** a shared Insights report is the turn page, not a Markdown
    document; the share page is the app's page without the workspace, not a
-   separate guest layout.
+   separate guest layout. Superseded by decision 7.
 4. **2026-10-01:** a task is not shared (§4b). Share on a task becomes Copy
    link, which still uploads a Local task with everything linked to it.
 5. **2026-10-01:** a shared work keeps its row with a location (§3a), so a
@@ -321,3 +321,14 @@ host keeps a local copy that changed after it was read.
 The guest shell measures its access badge and reserves that width in the work
 header. Work panes keep this inherited space on mouse and touch clients. Only
 workspace panes set a fixed space for their close and pane controls.
+7. **2026-10-07:** Insights reports are not shared. The turn panel has no
+   Share, the `insights-report` work type and its reader marks are removed, and
+   migration `0013_remove_insights_reports` deletes the report works.
+8. **2026-10-07:** a session stays on its host for now. Share on a session
+   opens the host's own share list. `PublicationCoordinator`, the
+   `publicationStart` and `publicationList` RPCs, the `publication.changed`
+   event, and the `publications` table are removed.
+9. **2026-10-07:** Share is the one way to put a Local work in an
+   organization. The separate "Publish to <organization>" menu command is
+   removed. A work already in an organization opens on that organization's
+   list, read from the work's own record.

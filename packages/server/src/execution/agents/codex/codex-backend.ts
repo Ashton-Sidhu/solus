@@ -584,7 +584,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
       if (request.persistence === 'session') await this.initSnapshots(handle)
 
+      // Stop landed while the thread was starting: settle the run so its seat
+      // app-server and the launcher's wait on runPromise are released.
       if (handle.abortController.signal.aborted) {
+        this.finishRun(handle)
+        handle._resolveRun()
         this.emit('exit', threadId, null, 'SIGINT')
         return
       }
@@ -616,6 +620,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
       handle.turnId = turn.turn.id
       this.sessionByTurn.set(turn.turn.id, threadId)
+      // Stop during turn/start had no turn id to interrupt; interrupt it now.
+      if (handle.abortController.signal.aborted) this.cancelSession(threadId)
     } catch (err: any) {
       const sessionId = handle.agentSessionId
       if (sessionId) this.forgetRoutingForSession(sessionId)

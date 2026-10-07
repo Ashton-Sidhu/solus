@@ -35,6 +35,8 @@ export type RootStackParamList = {
   /** One organization's settings; `organizationId` preselects it. */
   OrganizationSettings: { organizationId?: string } | undefined
   HostSettings: { hostId: string }
+  /** How one host is reached: Solus Cloud link, organizations, network, pairing, and devices. */
+  HostAccess: { hostId: string }
   GitHubConnection: { hostId: string }
   About: undefined
   PullRequests: { hostId: string }

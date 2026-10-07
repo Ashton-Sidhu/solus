@@ -145,6 +145,25 @@ describe('native new-task project picker', () => {
   test('one repository on two hosts is one project; chat folders are not projects', () => {
     const scopes = groupProjectScopes(projects)
     expect(scopes.map((scope) => [scope.title, scope.projects.length])).toEqual([['solus', 2], ['notes', 1]])
+    // The key is the one project key every client uses, so a row means the same project everywhere.
+    expect(scopes.map((scope) => scope.key)).toEqual(['github.com/solus/solus', 'mac:/Users/a/notes'])
+  })
+
+  test('two projects with one folder name get names that tell them apart', () => {
+    const onHost = (hostId: string, hostLabel: string, path: string, repositoryKey: string | null) => ({ ...project(hostId, path, repositoryKey), hostLabel })
+    const scopes = groupProjectScopes([
+      onHost('mac', 'MacBook', '/Users/a/web', 'github.com/acme/web'),
+      onHost('box', 'Build box', '/src/web', 'github.com/acme/web'),
+      onHost('mac', 'MacBook', '/Users/a/forks/web', 'github.com/other/web'),
+      onHost('mac', 'MacBook', '/Users/a/scratch/api', null),
+      onHost('box', 'Build box', '/src/api', null),
+    ])
+    expect(scopes.map((scope) => [scope.title, scope.projects.length])).toEqual([
+      ['acme/web', 2],
+      ['other/web', 1],
+      ['api · MacBook', 1],
+      ['api · Build box', 1],
+    ])
   })
 
   test('picking a project prefers the host the sheet opened on', () => {

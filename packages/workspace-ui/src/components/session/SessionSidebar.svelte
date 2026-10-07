@@ -387,6 +387,10 @@
     );
     sidebarStore.acknowledgeRow(task);
     timing.mark("row_acknowledged");
+    // Asked for now, not after the deferred switch: the composer holds its
+    // shape while the keyboard is on its way back, instead of folding for the
+    // two frames the switch waits and growing again.
+    requestInputFocus();
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         // A fast double-click can enter rename mode before the first click's

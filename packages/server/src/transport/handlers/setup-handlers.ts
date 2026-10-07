@@ -46,6 +46,7 @@ import {
 } from './setup-commands'
 import { safeProjectDirName } from '@solus/contracts/project-folder-name'
 import { initRepository } from '../../git/git-init'
+import { getDefaultBranch } from '../../git/worktree-manager'
 import { GITHUB_CREDENTIAL_KEY, resolveSolusCli } from '../../providers/github/git-credential'
 import { dispatchCheckoutOwnerKey, dispatchCheckoutPath, resolveDispatchHistoryRoots, resolveDispatchWorktree } from '../../project-config/dispatch-checkouts'
 import type { CheckoutService } from '../../git/checkout-service'
@@ -530,7 +531,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     const ownerKey = dispatchCheckoutOwnerKey(ctx.principal, requireDeviceScopedSetupContext(ctx))
     const [request] = args
     const { cloneUrl, credential: rawCredential, worktreePath, baseBranch } = setupPrepareProjectSchema.parse(request)
-    if (baseBranch && !checkouts) throw new Error('The checkout service is not available')
+    if (!worktreePath && !checkouts) throw new Error('The checkout service is not available')
     const credential = coerceDelegatedCredential(rawCredential)
     const parsed = validateCloneUrl(cloneUrl)
     const repoKey = cloneRepoKey(parsed.cloneUrl)
@@ -548,8 +549,11 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
       try {
         // A checkout cloned with `--depth=1` before partial clones gets its full history once, here.
         await ensureFullHistory(path, gitEnv)
-        if (!baseBranch) return resolveDispatchWorktree(path, worktreePath)
-        return (await checkouts!.ensureBranch(path, baseBranch, gitEnv)).worktreePath ?? path
+        if (worktreePath) return resolveDispatchWorktree(path, worktreePath)
+        // A dispatch that names no branch works on the default branch: in the
+        // checkout when it holds that branch, else where the branch is held.
+        const branch = baseBranch ?? await getDefaultBranch(path)
+        return (await checkouts!.ensureBranch(path, branch, gitEnv)).worktreePath ?? path
       } finally {
         release()
       }
@@ -938,8 +942,9 @@ async function attemptClone(opts: {
   // lines on the stream; a full destination path suppresses them.
   const spec: ProcessCommandSpec = {
     command: 'git',
-    args: ['clone', '--progress', ...cloneArgs, attemptUrl, basename(targetPath)],
-    display: ['git clone --progress', ...cloneArgs, attemptUrl, basename(targetPath)].join(' '),
+    // `--` keeps a destination folder named like `-x` from being read as an option.
+    args: ['clone', '--progress', ...cloneArgs, '--', attemptUrl, basename(targetPath)],
+    display: ['git clone --progress', ...cloneArgs, '--', attemptUrl, basename(targetPath)].join(' '),
   }
   const env = gitAuthEnv({
     isHttps,

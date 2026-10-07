@@ -6,8 +6,6 @@
   import { connectionOverlayMode } from "./lib/connection-overlay";
   import { liveActivityClock } from "../../lib/shared-clock";
 
-  let { dimBackdrop = false }: { dimBackdrop?: boolean } = $props();
-
   const reduceMotion = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
   ).matches;
@@ -86,24 +84,6 @@
   }
 </script>
 
-{#if dimBackdrop && (mode === "reconnecting" || mode === "escalated" || mode === "blocked" || mode === "identity-mismatch")}
-  <!--
-    Stale panes stay readable but stop reading as live. Purely decorative: it
-    never swallows a click, so the user can keep navigating what they already
-    have while the socket comes back.
-  -->
-  <div
-    class="text-xs pointer-events-none fixed inset-0 z-[10016] bg-(--solus-edge-bg) opacity-35 transition-opacity duration-500"
-    aria-hidden="true"
-  ></div>
-  {#if mode !== "blocked" && mode !== "identity-mismatch"}
-    <div
-      class="text-xs connection-hairline pointer-events-none fixed inset-x-0 top-0 z-[10017] h-0.5 overflow-hidden"
-      aria-hidden="true"
-    ></div>
-  {/if}
-{/if}
-
 {#if mode === "reconnecting"}
   <div
     class="text-xs pointer-events-auto fixed left-1/2 top-3 z-[10018] flex -translate-x-1/2 items-center gap-2 rounded-full border border-(--solus-popover-border) bg-(--solus-popover-bg) py-1.5 pl-3 pr-2 text-xs font-secondary text-(--solus-text-secondary) shadow-(--solus-popover-shadow) backdrop-blur-xl"
@@ -165,39 +145,3 @@
     </span>
   </div>
 {/if}
-
-<style>
-  /*
-    A sweep rather than a spinner: it reads as the app still working on your
-    behalf without claiming to know how far along the retry is.
-  */
-  .connection-hairline::after {
-    content: "";
-    position: absolute;
-    inset-block: 0;
-    left: -38%;
-    width: 38%;
-    background: linear-gradient(
-      90deg,
-      transparent,
-      var(--solus-accent),
-      transparent
-    );
-    animation: connection-sweep 1.5s ease-in-out infinite;
-  }
-
-  @keyframes connection-sweep {
-    to {
-      left: 100%;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .connection-hairline::after {
-      animation: none;
-      left: 0;
-      width: 100%;
-      opacity: 0.4;
-    }
-  }
-</style>

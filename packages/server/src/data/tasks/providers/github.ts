@@ -1,6 +1,6 @@
 import type { GitHubClient } from '../../../providers/github/octokit'
 import { githubClients, runGithubRequest } from '../../../providers/github/request'
-import type { RepoRef } from '../../../providers/types'
+import type { RepoRef } from '@solus/contracts/providers'
 import type { Task, TaskAssigneeCandidate, TaskCommentData, TaskEpic, TaskList, TaskPriority, TaskStatus, TaskUpdatePatch } from '@solus/contracts/task-types'
 import { z } from 'zod'
 

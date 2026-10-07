@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { PrCheckoutContext } from '@solus/contracts/types'
-import type { RepoRef } from '../providers/types'
+import type { RepoRef } from '@solus/contracts/providers'
 import type { ReviewTarget } from '@solus/contracts/review'
 import { runAsync } from '../git/exec'
 import { createGitAskpassHelper, gitAuthEnv } from '../git/git-auth-env'
@@ -113,7 +113,7 @@ async function materializeManagedPrCheckout(
     try {
       await runAsync(
         'git',
-        [...authArgs, 'clone', '--no-checkout', ...PARTIAL_CLONE_ARGS, cloneUrl, checkoutPath],
+        [...authArgs, 'clone', '--no-checkout', ...PARTIAL_CLONE_ARGS, '--', cloneUrl, checkoutPath],
         dirname(checkoutPath),
         { env, timeout: 120_000 },
       )

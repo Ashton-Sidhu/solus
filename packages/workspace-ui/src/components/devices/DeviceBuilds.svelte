@@ -1,11 +1,13 @@
 <script lang="ts">
   import { Download, Ellipsis, Smartphone, Trash2 } from "@lucide/svelte";
   import { isDeviceRunActive, type DeviceBuild, type DeviceState, type DeviceSummary } from "@solus/contracts/device-types";
-  import { buildCardSummary, buildDetails, buildDownloadName, deviceBuildTargets, isBuildOutput, shownNewBuild } from "@solus/client-core/device-builds";
+  import { buildCardSummary, buildDetails, buildDownloadName, buildRunBlocker, deviceBuildTargets, isBuildOutput, shownNewBuild } from "@solus/client-core/device-builds";
+  import { isChat } from "@solus/contracts/chat";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { getWorkspaceContext } from "../../contexts";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { devicesStore, deviceErrorMessage } from "../../contexts/devices/devices.store.svelte";
+  import { projectsStore } from "../../contexts/projects/projects.store.svelte";
   import { toasts } from "../../lib/toasts";
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -15,6 +17,7 @@
   import DeviceRunLog from "./DeviceRunLog.svelte";
   import DeviceRunProfiles from "./DeviceRunProfiles.svelte";
   import { runDeviceBuild } from "./lib/run-build";
+  import { conversationCheckout } from "./lib/device-pane";
   import { runStageLabel } from "./lib/run-profiles";
 
   /**
@@ -113,10 +116,15 @@
     return folder && folder !== "~" ? folder : undefined;
   });
 
-  // New build runs in the conversation's own checkout (its worktree, if it has one), as Build & run does.
-  const checkoutPath = $derived.by(() => {
-    const run = sessionId ? session.sessions.byId[sessionId]?.run : undefined;
-    return run ? (run.gitContext?.worktreePath ?? run.workingDirectory) || null : null;
+  // New build runs in the conversation's own checkout (its worktree, if it has one), as Build & run does,
+  // or in the project the person chose: Builds also opens without a conversation.
+  const sessionCheckout = $derived(conversationCheckout(sessionId ? session.sessions.byId[sessionId]?.run : undefined));
+  let chosenCheckout = $state<string | null>(null);
+  const checkoutPath = $derived(chosenCheckout ?? sessionCheckout);
+  /** The host's projects, for choosing what New build builds. */
+  const projects = $derived(projectsStore.projectsFor(serverId).filter((project) => !isChat(project.path)));
+  $effect(() => {
+    void projectsStore.loadProjectsFor(serverId, serverConnections.apiFor(serverId));
   });
   let editingProfiles = $state(false);
   /** The New build shown above the list while it runs, or after it failed until dismissed. */
@@ -131,7 +139,7 @@
 <div class="flex flex-col gap-4" data-testid="device-builds">
   <div class="flex items-center gap-2">
     <h2 class="min-w-0 flex-1 truncate text-(--solus-text-primary)">Builds</h2>
-    <DeviceNewBuild {serverId} {sessionId} {checkoutPath} onEditProfiles={() => (editingProfiles = true)} />
+    <DeviceNewBuild {serverId} {sessionId} {checkoutPath} {projects} onChooseProject={(path) => { chosenCheckout = path; editingProfiles = false; }} onEditProfiles={() => (editingProfiles = true)} />
     <Button size="sm" variant="ghost" disabled={importing} title="Add a build that is already on {hostLabel}" onclick={() => (browsing = true)}>
       {importing ? "Adding…" : "Add existing…"}
     </Button>
@@ -172,6 +180,10 @@
           <div class="flex min-w-0 flex-1 flex-col">
             <span class="truncate font-medium text-(--solus-text-primary)">{build.name}</span>
             <span class="truncate text-chrome-dense text-(--solus-text-tertiary)">{buildCardSummary(build, now)}</span>
+            {#if !targets[0]}
+              <!-- Shown, not a tooltip: a disabled button shows no tooltip. -->
+              <span class="text-chrome-dense text-(--solus-text-secondary)">{buildRunBlocker(deviceState, build, { canBoot: !!sessionId })}</span>
+            {/if}
           </div>
           {#if targets[0]}
             {@const best = targets[0]}
@@ -181,7 +193,7 @@
               {isInstalling ? "Installing…" : "Run"}
             </Button>
           {:else}
-            <Button size="xs" variant="outline" disabled title="No device can take this build. Connect a phone, or add a {build.platform === 'ios' ? 'simulator' : 'emulator'} on this host.">Run</Button>
+            <Button size="xs" variant="outline" disabled>Run</Button>
           {/if}
           <DropdownMenu.Root>
             <DropdownMenu.Trigger>

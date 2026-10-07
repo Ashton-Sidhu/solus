@@ -206,4 +206,51 @@ describe('pr.changed', () => {
     expect(checks.summaryFor('host-a', ctx, 33)).toBe(summary as never)
     release()
   })
+
+  test('a sidebar row reads the checks of its repository only', async () => {
+    // WHY: a sidebar row has a pull request, not a host context. It must find
+    // the checks the PR surfaces read, and the same number in another
+    // repository must not borrow them.
+    const { api } = host('host-a')
+    const store = await newStore()
+    const { PrChecksStore } = await import('@solus/workspace-ui/contexts/prs/pr-checks.store.svelte')
+    const checks = new PrChecksStore(store)
+    const project = store.get(api, 'host-a', ctx)
+    await readFirstPage(store, project)
+    const release = store.want(api, 'host-a', ctx, [{ kind: 'review', number: 33 }])
+    await settle()
+
+    const summary = { state: 'failing', required: [], optional: [], headSha: 'head-33', inFlight: false }
+    serverConnectionsMock.emit('host-a', 'pr.changed', emptyChange({ checks: [{ number: 33, summary } as never] }))
+
+    expect(checks.summaryIn('host-a', REPO, 33)).toBe(summary as never)
+    expect(checks.summaryIn('host-a', 'github.com/acme/other', 33)).toBeUndefined()
+    release()
+  })
+})
+
+describe('linked pull requests', () => {
+  test('a URL-named link reads the live state of the project it was found in', async () => {
+    // WHY: a link names its repository (`github.com/acme/repo`), but a project
+    // files its pull requests under its local path. The sidebar chip must take
+    // its colour from the live record there, not from an old snapshot or from
+    // nothing — a merged pull request must not stay green.
+    const { api } = host('host-a')
+    const store = await newStore()
+    const project = store.get(api, 'host-a', ctx)
+    await readFirstPage(store, project)
+    const release = store.want(api, 'host-a', ctx, [{ kind: 'repository' }])
+    await settle()
+    serverConnectionsMock.emit('host-a', 'pr.changed', emptyChange({
+      pullRequests: [pullRequestFixture(33, { state: 'merged', updatedAt: '2026-02-01T00:00:00Z' })],
+    }))
+    const url = 'https://github.com/acme/repo/pull/33'
+    const snapshot = { ...pullRequestFixture(33), state: 'open' as const }
+
+    expect(store.linkedPr('host-a', { number: 33, url }, '/repo')?.pullRequest?.state).toBe('merged')
+    expect(store.linkedPr('host-a', { number: 33, url, snapshot }, '/repo')?.pullRequest?.state).toBe('merged')
+    // The same number in another repository is another pull request.
+    expect(store.linkedPr('host-a', { number: 33, url: 'https://github.com/acme/other/pull/33' }, '/repo')?.pullRequest).toBeNull()
+    release()
+  })
 })

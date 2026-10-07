@@ -33,6 +33,8 @@ test('ordinary blur folds without delay while menus, selections and recording st
     import {
       COMPOSER_COLLAPSED_ATTRIBUTE, composerSurfaceOf, measureFold, tweenComposerFold,
     } from ${helperUrl('composer-fold')};
+    // lib/inputFocus.ts reads the runtime store, so its event name is restated.
+    const FOCUS_INPUT_EVENT = 'solus:focus-input';
 
     // ─── A clock the test turns by hand ───
     let now = 0;
@@ -149,6 +151,28 @@ test('ordinary blur folds without delay while menus, selections and recording st
     el('editor').focus(); flush();
     advance(0); flush();
     neverFoldedSince(since);
+
+    // ─── A click that hands the keyboard back ───
+    // A sidebar row takes focus for its click and asks for the bar's focus at
+    // once, but the switch it starts gives the keyboard back frames later.
+    // The bar keeps its shape for that wait instead of folding and growing.
+    since = paints.length;
+    press(el('row')); el('row').focus(); flush();
+    release(el('row'));
+    window.dispatchEvent(new window.CustomEvent(FOCUS_INPUT_EVENT)); flush();
+    advance(50); flush();
+    el('editor').focus(); flush();
+    advance(COMPOSER_REFOCUS_GRACE_MS * 3); flush();
+    neverFoldedSince(since);
+    // A request that never lands is a leave once the grace is up.
+    press(el('row')); el('row').focus(); flush();
+    release(el('row'));
+    window.dispatchEvent(new window.CustomEvent(FOCUS_INPUT_EVENT)); flush();
+    advance(COMPOSER_REFOCUS_GRACE_MS - 1); flush();
+    assert.equal(fold.collapsed, false, 'a focus request holds the bar for the grace');
+    advance(1); flush();
+    assert.equal(fold.collapsed, true, 'it folds when the keyboard never came back');
+    el('editor').focus(); flush();
 
     // ─── A menu opened from the bar ───
     since = paints.length;

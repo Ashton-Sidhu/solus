@@ -23,12 +23,12 @@ export const workspaceWorkQuerySchema = z.strictObject({
   ...page,
   projectId: workspaceIdSchema.optional(),
   sessionId: workspaceIdSchema.optional(),
-  type: z.enum(['doc', 'slides', 'diagram', 'artifact', 'insights-report']).optional(),
+  type: z.enum(['doc', 'slides', 'diagram', 'artifact']).optional(),
 })
 /** Content search over the works a caller may open, most relevant first. One bounded answer: no cursor. */
 export const workspaceWorkSearchQuerySchema = z.strictObject({
   q: z.string().trim().min(1).max(500),
-  type: z.enum(['doc', 'slides', 'diagram', 'artifact', 'insights-report']).optional(),
+  type: z.enum(['doc', 'slides', 'diagram', 'artifact']).optional(),
   limit: z.coerce.number().int().min(1).max(20).default(10),
 })
 export const workspaceSessionQuerySchema = z.strictObject({

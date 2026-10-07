@@ -198,12 +198,10 @@ export const RPC_PLANES = {
   uplinkDetachOrganization: 'collaboration',
   uplinkStatus: 'collaboration',
 
-  // Organization scope: a machine's standing and its publications are execution-host facts;
+  // Organization scope: a machine's standing is an execution-host fact;
   // an organization's Insights are read where they are stored, on the Solus API.
   hostOrganizations: 'execution',
   hostSetInsightsOptIn: 'execution',
-  publicationStart: 'execution',
-  publicationList: 'execution',
   // Cloud sharing: the host gives and removes the Local work; the Solus API stores the upload.
   workExportForCloud: 'execution',
   workMarkMoved: 'execution',

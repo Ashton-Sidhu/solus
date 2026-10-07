@@ -127,6 +127,17 @@ test('a candidate server refuses HTTP mutations until its update is committed', 
   const url = `http://127.0.0.1:${address.port}`
   expect((await fetch(`${url}/pair/open`, { method: 'POST' })).status).toBe(503)
   expect((await fetch(`${url}/health`)).status).toBe(503)
+  // A cross-origin client (web, mobile, the Electron renderer) must read the 503, not an opaque failure.
+  const origin = 'http://client.example'
+  const refused = await fetch(`${url}/health`, { headers: { origin } })
+  expect(refused.status).toBe(503)
+  expect(refused.headers.get('access-control-allow-origin')).toBe('*')
+  const preflight = await fetch(`${url}/upload`, {
+    method: 'OPTIONS',
+    headers: { origin, 'access-control-request-method': 'POST', 'access-control-request-headers': 'authorization' },
+  })
+  expect(preflight.status).toBe(204)
+  expect(preflight.headers.get('access-control-allow-origin')).toBe('*')
   trial = false
   expect((await fetch(`${url}/health`)).status).toBe(200)
 })

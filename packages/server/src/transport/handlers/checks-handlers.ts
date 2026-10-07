@@ -1,6 +1,7 @@
 import type { PrChecksSnapshot } from '@solus/contracts/checks-rpc-types'
 import { createLogger } from '../../logger'
-import type { Provider, RepoRef } from '../../providers/types'
+import type { Provider } from '../../providers/types'
+import type { RepoRef } from '@solus/contracts/providers'
 import { reviewTargetFor } from './provider-handlers'
 import { prIndex } from '../../prs/pr-index'
 import type { SolusServer } from '../server'

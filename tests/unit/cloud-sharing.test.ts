@@ -6,10 +6,11 @@ import { Database } from 'bun:sqlite'
 import { resetTestDatabase } from './helpers/test-db'
 import type { Principal } from '@solus/server/admission/principal'
 import type { Attribution } from '@solus/contracts/user'
+import type { SharedPromptCommand, SharedPromptReceipt } from '@solus/server/sharing/shared-prompt'
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 const { getDatabase } = await import('@solus/server/db/database')
 const { ShareManager } = await import('@solus/server/sharing/share-manager')
-const { SharedPromptRelay } = await import('@solus/server/sharing/shared-prompt')
+const { SharedPromptRelay, SHARED_PROMPT_EVENT } = await import('@solus/server/sharing/shared-prompt')
 const { upsertSessionRecord } = await import('@solus/server/data/sessions/session-records')
 const { ticketForGrant } = await import('@solus/server/transport/http')
 
@@ -27,7 +28,19 @@ async function fixture() {
   const resolved = (await shares.resolveLinkSecret(link.secret))!
   const guest: Extract<Principal, { kind: 'guest' }> = { kind: 'guest', organizationId: resolved.organizationId, guestId: 'maya', displayName: 'Maya', deviceId: 'maya', deviceLabel: 'Guest', share: resolved, expiresAt: Date.now() + 60_000 }
   await upsertSessionRecord('org1', { sessionId: resource.id, provider: 'claude-code', projectPath: '/fixture', lastActivityAt: Date.now(), runnerHostId: runner.hostId })
-  return { shares, guest, relay: new SharedPromptRelay(shares), link }
+  // The runner's socket as the relay sees it: what it was sent, answered by `wire.receipt`.
+  const wire = {
+    sent: [] as Array<{ clientId: string; event: string; command: SharedPromptCommand }>,
+    receipt: async (): Promise<SharedPromptReceipt> => ({ error: null }),
+  }
+  const relay = new SharedPromptRelay(shares, async (clientId, event, command) => { wire.sent.push({ clientId, event, command }); return wire.receipt() })
+  return { shares, guest, relay, link, wire }
+}
+/** The session's runner connects; its socket answers with `receipt`. */
+function connectRunner({ relay, wire }: Awaited<ReturnType<typeof fixture>>, receipt?: () => Promise<SharedPromptReceipt>) {
+  if (receipt) wire.receipt = receipt
+  relay.runnerConnected('ws:runner1:a', runner)
+  return wire.sent
 }
 
 test('guest access follows the resolved organization, cannot reach other records, and follows revocation', async () => {
@@ -41,41 +54,67 @@ test('guest access follows the resolved organization, cannot reach other records
   expect(await shares.roleFor(guest, resource)).toBe('none')
 })
 
-test('a stopped runner gets no accepted prompt or retained work', async () => {
-  const { guest, relay } = await fixture()
+test('a runner without a socket gets no accepted prompt or retained work', async () => {
+  const { guest, relay, wire } = await fixture()
   expect(await relay.available(guest, resource.id)).toBe(false)
   await expect(relay.prompt(guest, { sessionId: resource.id, text: 'hello' })).rejects.toThrow('offline')
-  expect((await relay.poll(runner)).commands).toEqual([])
+  relay.runnerConnected('ws:runner1:a', runner)
+  expect(await relay.available(guest, resource.id)).toBe(true)
+  relay.runnerDisconnected('ws:runner1:a')
+  expect(await relay.available(guest, resource.id)).toBe(false)
+  await expect(relay.prompt(guest, { sessionId: resource.id, text: 'hello' })).rejects.toThrow('offline')
+  expect(wire.sent).toEqual([])
 })
 
 test('only the selected runner receives the prompt; its receipt uses the sharer seat and never dispatches twice', async () => {
-  const { guest, relay } = await fixture()
-  await relay.poll(runner)
-  const pending = relay.prompt(guest, { sessionId: resource.id, text: 'hello' })
-  let commands = (await relay.poll(runner)).commands
-  for (const deadline = Date.now() + 5_000; !commands.length && Date.now() < deadline;) {
-    await new Promise<void>((resolve) => setImmediate(resolve))
-    commands = (await relay.poll(runner)).commands
-  }
-  expect(commands).toHaveLength(1)
-  const command = commands[0]!
-  expect(command.actor).toEqual({ userId: 'guest:maya', seatUserId: 'alice', displayName: 'Maya' })
-  expect((await relay.poll(runner)).commands).toEqual([])
-  expect(relay.result({ ...runner, organizationId: 'org2' }, { hostId: runner.hostId, requestId: command.requestId, error: null }).ok).toBe(false)
-  expect(relay.result(runner, { hostId: runner.hostId, requestId: command.requestId, error: null }).ok).toBe(true)
-  expect(await pending).toEqual({ accepted: true })
+  const f = await fixture()
+  const { guest, relay } = f
+  // The same host in another organization, and another host in this one, are not the session's runner.
+  relay.runnerConnected('ws:runner1:org2', { ...runner, organizationId: 'org2' })
+  relay.runnerConnected('ws:runner2:a', { ...runner, hostId: 'runner2', deviceId: 'runner2' })
+  const sent = connectRunner(f)
+  expect(await relay.prompt(guest, { sessionId: resource.id, text: 'hello' })).toEqual({ accepted: true })
+  expect(sent).toHaveLength(1)
+  expect(sent[0]!.clientId).toBe('ws:runner1:a')
+  expect(sent[0]!.event).toBe(SHARED_PROMPT_EVENT)
+  expect(sent[0]!.command).toMatchObject({ sessionId: resource.id, text: 'hello', actor: { userId: 'guest:maya', seatUserId: 'alice', displayName: 'Maya' } })
+})
+
+test("a runner's refusal reaches the visitor, and a lost receipt is uncertain and never retried", async () => {
+  const f = await fixture()
+  const sent = connectRunner(f, async () => ({ error: 'This runner does not hold the session.' }))
+  await expect(f.relay.prompt(f.guest, { sessionId: resource.id, text: 'hello' })).rejects.toThrow('does not hold the session')
+  expect(sent).toHaveLength(1)
+  connectRunner(f, async () => { throw new Error('operation has timed out') })
+  await expect(f.relay.prompt(f.guest, { sessionId: resource.id, text: 'hello' })).rejects.toThrow('did not confirm receipt')
+  expect(sent).toHaveLength(2)
+})
+
+test('a visitor has one prompt in flight at a time', async () => {
+  const f = await fixture()
+  const { guest, relay } = f
+  let answer: (receipt: SharedPromptReceipt) => void = () => {}
+  const sent = connectRunner(f, () => new Promise((resolve) => { answer = resolve }))
+  const first = relay.prompt(guest, { sessionId: resource.id, text: 'one' })
+  for (const deadline = Date.now() + 5_000; !sent.length && Date.now() < deadline;) await new Promise<void>((resolve) => setImmediate(resolve))
+  await expect(relay.prompt(guest, { sessionId: resource.id, text: 'two' })).rejects.toThrow('already being sent')
+  answer({ error: null })
+  expect(await first).toEqual({ accepted: true })
+  expect(sent).toHaveLength(1)
 })
 
 test('a viewer cannot submit and a host refuses guest grants before looking up the secret', async () => {
-  const { shares, guest, relay, link } = await fixture()
+  const f = await fixture()
+  const { shares, guest, relay, link } = f
   await shares.setLink({ resource, role: 'viewer' }, alice)
-  await relay.poll(runner)
+  const sent = connectRunner(f)
   await expect(relay.prompt(guest, { sessionId: resource.id, text: 'no' })).rejects.toThrow('not shared')
   const now = Math.floor(Date.now() / 1000)
   let lookedUp = false
   const result = await ticketForGrant({ iss: 'https://cloud.test', aud: 'runner1', sub: 'guest:maya', deviceId: 'maya', access: 'guest', hostKind: 'personal', jti: 'j', iat: now, exp: now + 60 }, { shareSecret: link.secret }, async () => { lookedUp = true; return { ...guest.share, organizationId: 'org1' } }, { workspace: false })
   expect(result).toEqual({ ok: false, reason: 'member-required' })
   expect(lookedUp).toBe(false)
+  expect(sent).toEqual([])
 })
 
 
@@ -323,7 +362,8 @@ test('a work from before versions transfers with its unknown authors and null so
 })
 
 test('an authenticated link visitor uses the verified account identity, never a typed name as a seat id', async () => {
-  const { shares, link } = await fixture()
+  const f = await fixture()
+  const { shares, link } = f
   const now = Math.floor(Date.now() / 1000)
   const outcome = await ticketForGrant({ iss: 'https://cloud.test', aud: 'urn:solus:api', sub: 'bob', deviceId: 'account-session', access: 'guest', hostKind: 'cloud', displayName: 'Bob', jti: 'j', iat: now, exp: now + 60 }, { shareSecret: link.secret }, (secret) => shares.resolveLinkSecret(secret), { workspace: true })
   if (!outcome.ok) throw new Error('Expected a resource ticket')
@@ -333,14 +373,9 @@ test('an authenticated link visitor uses the verified account identity, never a 
   const principal = principalFor({ kind: 'ticket', ticket })
   expect(principal.kind === 'guest' && principal.accountUserId).toBe('bob')
   expect(principal.deviceId).toBe('account-session')
-  const relay = new SharedPromptRelay(shares)
-  await relay.poll(runner)
-  const pending = relay.prompt(principal, { sessionId: resource.id, text: 'my seat' })
-  let commands = (await relay.poll(runner)).commands
-  for (const deadline = Date.now() + 5_000; !commands.length && Date.now() < deadline;) { await new Promise<void>((resolve) => setImmediate(resolve)); commands = (await relay.poll(runner)).commands }
-  expect(commands[0]?.actor).toEqual({ userId: 'bob', seatUserId: 'bob', displayName: 'Bob' })
-  relay.result(runner, { hostId: runner.hostId, requestId: commands[0]!.requestId, error: null })
-  await pending
+  const sent = connectRunner(f)
+  await f.relay.prompt(principal, { sessionId: resource.id, text: 'my seat' })
+  expect(sent[0]?.command).toMatchObject({ actor: { userId: 'bob', seatUserId: 'bob', displayName: 'Bob' } })
 })
 
 test.skipIf(process.env.SOLUS_DB === 'postgres')('a Local task uploads with its comments, works, and sessions, and its host keeps a row that points to the organization', async () => {

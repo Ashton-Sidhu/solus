@@ -391,6 +391,7 @@ export class SessionOpening {
       session.loadingHistory = true
       session.title = title
       session.titleCustom = !!meta.customTitle
+      session.startedBy = meta.startedBy
       if (shouldActivate) {
         if (this.workspace.settings.activeAgent !== provider) {
           this.workspace.config.followActiveSessionAgent(provider)
@@ -412,6 +413,7 @@ export class SessionOpening {
       session.loadingHistory = true
       session.title = title
       session.titleCustom = !!meta.customTitle
+      session.startedBy = meta.startedBy
 
       if (!background && !intoTabId) {
         this.workspace.setActiveTab(targetTab!.id)

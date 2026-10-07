@@ -22,7 +22,7 @@ import { useHostSettings } from "./use-host-settings";
 import { useHostUpdateStatus } from "./use-host-update-status";
 
 /**
- * One host: its connection, its Solus version, and its own settings, which
+ * One host: its connection, a way into its Access screen, its Solus version, and its own settings, which
  * every device using the host shares. Your agent defaults and notifications
  * are personal and live under Personal; a host never holds them (plans/018).
  */
@@ -85,6 +85,15 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
               </SettingsSection>
               {!connected ? <SettingsNote>Connect this host to manage it.</SettingsNote> : null}
             </View>
+
+            <SettingsSection title="Access">
+              <SettingsRow
+                icon="person.2"
+                label="Access"
+                value="Solus Cloud, network, pairing, and devices"
+                onPress={() => navigation.navigate("HostAccess", { hostId })}
+              />
+            </SettingsSection>
 
             <SettingsSection title="Devices">
               <SettingsRow

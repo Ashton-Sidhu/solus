@@ -10,6 +10,7 @@ import type { SolusAPI } from '@solus/contracts/host-api'
 import type { DiscoveredServer } from '@solus/contracts/types'
 import { hostSetupStore, type HostSetupSession } from './host-setup.store.svelte'
 import { messageFor } from './lib/setup-rpc'
+import type { PairingView } from './lib/host-onboarding'
 
 export interface OnboardingHost {
   id: string
@@ -24,8 +25,6 @@ export interface OnboardingHost {
  */
 export type StagePhase = 'pairing' | 'setup'
 
-/** Where the SSH handshake is. Each one is a different thing to ask the user for. */
-export type PairingView = 'connecting' | 'ssh-target' | 'ssh-password' | 'fallback' | 'error'
 
 type ResolveApi = (serverId: string) => SolusAPI
 

@@ -7,9 +7,11 @@
 
   interface Props {
     setup: HostSetupSession;
+    /** Draw the rows flush on the surface, as host onboarding does. */
+    flush?: boolean;
   }
 
-  let { setup }: Props = $props();
+  let { setup, flush = false }: Props = $props();
 
   const rows = $derived(
     gitHostRows({
@@ -22,7 +24,7 @@
 </script>
 
 <div>
-  <ProviderChoiceCard {rows} label="Git hosts" />
+  <ProviderChoiceCard {rows} {flush} label="Git hosts" />
   {#if setup.deviceCode}
     <DevicePrompt
       url={setup.deviceCode.verificationUri}

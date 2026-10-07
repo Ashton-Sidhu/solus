@@ -212,8 +212,19 @@ export class RunnerDelivery {
     return { kind: 'ok', body: parsed.data }
   }
 
-  /** One destination per organization this host acts for someone in: where the shared-prompt poller asks. */
-  pollTargets(): DeliveryDestination[] {
+  /** The Solus API the link names, or null while the host is not linked to one. */
+  apiUrl(): string | null {
+    return this.deps.link()?.apiUrl ?? null
+  }
+
+  /** The delegated token a destination's person lends this host now, or null while there is none to be had. */
+  async accessToken(destination: DeliveryDestination): Promise<string | null> {
+    const token = await this.tokenFor(destination)
+    return token.kind === 'ok' ? token.token : null
+  }
+
+  /** One destination per organization this host acts for someone in: where the runner holds a socket. */
+  socketTargets(): DeliveryDestination[] {
     const byOrganization = new Map<string, DeliveryDestination>()
     for (const holder of this.deps.delegations.holders()) {
       if (!byOrganization.has(holder.organizationId)) byOrganization.set(holder.organizationId, { organizationId: holder.organizationId, actorUserId: holder.userId })

@@ -178,6 +178,41 @@ function inlineHtmlText(value: string): string {
   return decodeHtmlEntities(value.replace(/<[^>]+>/g, ""));
 }
 
+const BARE_TAG_PATTERN = /^<(\/?)([a-z][\w-]*)\s*>$/i;
+const HTML_TAG_PATTERN = /<(\/?)([a-z][\w-]*)(?:\s[^>]*)?>/gi;
+const VOID_TAG_NAMES = new Set([
+  "area", "base", "br", "col", "embed", "hr", "img", "input",
+  "link", "meta", "param", "source", "track", "wbr",
+]);
+
+/**
+ * Inline HTML siblings that are a bare tag with no partner, such as the `<A>`
+ * in "Use <A> and <B>". They are placeholders the reply wrote as text, not
+ * markup, so they must not be stripped with the real tags.
+ */
+function unpairedBareTags(children: ReadonlyArray<MarkdownNode>): Set<MarkdownNode> {
+  const unpaired = new Set<MarkdownNode>();
+  const open = new Map<string, Array<MarkdownNode | null>>();
+  for (const child of children) {
+    if (child.type !== "html_inline") continue;
+    const content = nodeTextContent(child);
+    const bare = BARE_TAG_PATTERN.test(content.trim()) ? child : null;
+    for (const [tag, closing, rawName] of content.matchAll(HTML_TAG_PATTERN)) {
+      const name = rawName.toLowerCase();
+      if (VOID_TAG_NAMES.has(name) || tag.endsWith("/>")) continue;
+      const stack = open.get(name) ?? [];
+      open.set(name, stack);
+      if (!closing) stack.push(bare);
+      else if (stack.length > 0) stack.pop();
+      else if (bare) unpaired.add(bare);
+    }
+  }
+  for (const stack of open.values()) {
+    for (const node of stack) if (node) unpaired.add(node);
+  }
+  return unpaired;
+}
+
 function sameRunStyle(left: NativeMarkdownTextRun, right: NativeMarkdownTextRun): boolean {
   return (
     left.bold === right.bold &&
@@ -337,8 +372,11 @@ function appendChildren(
   node: MarkdownNode,
   context: RunContext,
 ): NativeMarkdownTextRun[] {
-  for (const child of node.children ?? []) {
-    appendNode(runs, child, context);
+  const children = node.children ?? [];
+  const placeholders = unpairedBareTags(children);
+  for (const child of children) {
+    if (placeholders.has(child)) appendRun(runs, nodeTextContent(child), context);
+    else appendNode(runs, child, context);
   }
   return runs;
 }
@@ -468,8 +506,11 @@ function appendInlineChildren(
   node: MarkdownNode,
   context: RunContext,
 ): NativeMarkdownTextRun[] {
-  for (const child of node.children ?? []) {
-    appendNode(runs, child, context);
+  const children = node.children ?? [];
+  const placeholders = unpairedBareTags(children);
+  for (const child of children) {
+    if (placeholders.has(child)) appendRun(runs, nodeTextContent(child), context);
+    else appendNode(runs, child, context);
   }
   return runs;
 }

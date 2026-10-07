@@ -103,25 +103,3 @@ export function onDiffWorkerPoolReady(callback: (pool: WorkerPoolManager) => voi
   maybeFire()
   return unsubscribe
 }
-
-let warmScheduled = false
-
-/**
- * Spin up the worker pool (spawn workers + load Shiki themes/languages) during
- * the first idle window after launch, so the *first* diff open of a session
- * doesn't pay the cold-start cost on the critical path. Scheduled on idle — not
- * at boot — so it never competes with app startup; the `timeout` still warms it
- * if the app stays busy. Idempotent: an on-demand open before the idle callback
- * fires creates the singleton, making this a no-op. Tradeoff: the workers exist
- * even if no diff is ever opened this session.
- */
-export function warmDiffWorkerPool(): void {
-  if (warmScheduled) return
-  warmScheduled = true
-  const warm = () => void getDiffWorkerPool()
-  if ('requestIdleCallback' in window) {
-    requestIdleCallback(warm, { timeout: 2000 })
-  } else {
-    setTimeout(warm, 1000)
-  }
-}

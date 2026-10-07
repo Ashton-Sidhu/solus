@@ -39,7 +39,8 @@ import { draftTitle, sessionDraftTitle, type DraftRow } from '../../components/s
 import { projectsStore } from '../projects/projects.store.svelte'
 import { CHAT_LABEL } from '../../lib/paths'
 import { isChat } from '@solus/contracts/chat'
-import { pickerProjectChoices as buildPickerProjectChoices } from '../../components/session/unified-picker/lib/picker-rows'
+import type { ListProjectOption } from '../../components/ui/list-page/list-page'
+import { pickerProjectKeys } from '../../components/session/unified-picker/lib/picker-rows'
 import { SidebarSessionStatusFeed } from '../../components/session/lib/sidebar-session-status'
 import { SidebarReturnOrder } from '../../components/session/lib/sidebar-return-order'
 import {
@@ -56,6 +57,9 @@ import type { PlanStore } from '../plans/plan.store.svelte'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import type { PrsStore } from '../prs/prs.store.svelte'
+import type { PrChecksStore } from '../prs/pr-checks.store.svelte'
+import { repositoryKeyOf } from '@solus/contracts/repository-key'
+import { checksPresentation } from '../../components/prs/lib/checks'
 import type { Via } from '@solus/contracts/analytics-events'
 import { nextOpenSidebarTabAfterClose } from './session-sidebar-selection'
 import {
@@ -142,7 +146,7 @@ function projectLabel(projectKey: string): string {
 const CHATS_GROUP_KEY = 'solus:chats'
 
 /** The project a row groups and filters under: the repository key, or the chats. */
-function groupKeyFor(serverId: string, projectKey: string): string {
+export function groupKeyFor(serverId: string, projectKey: string): string {
   if (isChat(projectKey)) return CHATS_GROUP_KEY
   return projectKey === '~' ? projectKey : projectsStore.projectKeyFor(serverId, projectKey)
 }
@@ -555,8 +559,23 @@ export class SessionSidebarStore {
   /** Every open project, with the counts and the lead task the breadcrumb's
    *  picker lands on. */
   projectSummaries: ProjectSummary[] = $derived(
-    buildProjectSummaries(this.catalogTasks, (task) => this.activityAtFor(task)),
+    buildProjectSummaries(this.catalogTasks, (task) => this.activityAtFor(task), (keys) => this.projectOptionsFor(keys)),
   )
+
+  /** The rows these group keys stand for, in order: the shared project rows
+   *  (`WorkspaceContext.projectOptionsFor`), and the chats under their own name. */
+  private projectOptionsFor(groupKeys: readonly string[]): ListProjectOption[] {
+    const projects = new Map(
+      this.session.projectOptionsFor(groupKeys.filter((key) => key !== CHATS_GROUP_KEY && key !== '~'))
+        .map((option) => [option.key, option]),
+    )
+    return groupKeys.flatMap((key): ListProjectOption[] => {
+      const project = projects.get(key)
+      if (project) return [project]
+      if (key !== CHATS_GROUP_KEY && key !== '~') return []
+      return [{ key, projectKey: key, serverId: '', label: key === CHATS_GROUP_KEY ? CHAT_LABEL : '~', available: true }]
+    })
+  }
 
   /**
    * When a row last did anything: the latest change to its task or a
@@ -587,7 +606,7 @@ export class SessionSidebarStore {
    * placeholder for a working directory nobody has chosen, so it is not a
    * scope — the picker must stay wide there rather than scope to nothing.
    */
-  currentProject: ProjectFilterChoice | null = $derived.by(() => {
+  currentProjectKey: string | null = $derived.by(() => {
     const sourceId = this.session.focusedSourceId
     const draft = sourceId ? this.session.drafts.sessionDrafts.get(sourceId) : undefined
     const run = draft?.run ?? (sourceId ? this.session.sessionFor(sourceId)?.run : undefined)
@@ -597,18 +616,19 @@ export class SessionSidebarStore {
       run.projectGroupPath,
     )
     if (!projectKey || projectKey === '~' || isChat(projectKey)) return null
-    return { projectKey, label: projectLabel(projectKey), count: 0 }
+    return groupKeyFor(run.serverId, projectKey)
   })
 
-  /** The projects the task picker offers as a scope. Built from what that
-   *  picker can actually list, not from the sidebar's columns. */
-  pickerProjectChoices: ProjectFilterChoice[] = $derived.by(() =>
-    buildPickerProjectChoices(
+  /** The projects the task picker offers as a scope (`pickerProjectKeys`),
+   *  one row per project. Every row is available: the picker lists what this
+   *  client already holds, whether or not its host is connected. */
+  pickerProjectOptions: ListProjectOption[] = $derived.by(() =>
+    this.session.projectOptionsFor(pickerProjectKeys(
+      this.currentProjectKey,
       this.session.tasksStore.tasks,
-      this.currentProject,
-      this.session.logicalProjects.flatMap((project) =>
-        project.checkouts.map((checkout) => ({ projectKey: checkout.projectRoot, label: project.label }))),
-    ),
+      (task) => this.session.tasksStore.projectKeyOf(task),
+      this.session.logicalProjects.map((project) => project.key),
+    )).map((option) => ({ ...option, available: true })),
   )
 
   /** The project the list is scoped to, or null for all of them. Resolved
@@ -622,7 +642,7 @@ export class SessionSidebarStore {
   scopedProject: ProjectFilterChoice | null = $derived.by(() => {
     const filter = this.openProjectFilter
     if (!filter) return null
-    return this.projectFilterChoices.find((choice) => choice.projectKey === filter) ?? null
+    return this.projectFilterChoices.find((choice) => choice.key === filter) ?? null
   })
 
   /** Every open task, before the filter. The order tasks arrived in, held:
@@ -723,10 +743,12 @@ export class SessionSidebarStore {
   )
 
   /** The filter's own choices, over every project the column knows about. */
-  projectFilterChoices: ProjectFilterChoice[] = $derived(projectFilterChoices(this.catalogTasks))
+  projectFilterChoices: ProjectFilterChoice[] = $derived(
+    projectFilterChoices(this.catalogTasks, (keys) => this.projectOptionsFor(keys)),
+  )
 
   private inFilter(tasks: SidebarTask[]): SidebarTask[] {
-    const filter = this.scopedProject?.projectKey ?? null
+    const filter = this.scopedProject?.key ?? null
     return filter ? tasks.filter((task) => task.groupKey === filter) : tasks
   }
 
@@ -793,7 +815,7 @@ export class SessionSidebarStore {
    *  here. */
   draftRows: DraftRow[] = $derived.by(() => {
     const composing = this.session.drafts.composingDraftIds
-    const filter = this.scopedProject?.projectKey ?? null
+    const filter = this.scopedProject?.key ?? null
     const rows: DraftRow[] = []
     for (const draft of this.session.drafts.sessionDrafts.values()) {
       if (draft.isEmpty || composing.has(draft.id)) continue
@@ -886,10 +908,10 @@ export class SessionSidebarStore {
   }
 
   /** The task choices for a breadcrumb scoped to either conversation pane. */
-  tasksForProject(projectKey: string | null | undefined): SidebarTask[] {
-    if (!projectKey) return []
+  tasksForProject(groupKey: string | null | undefined): SidebarTask[] {
+    if (!groupKey) return []
     return sortTasks(
-      this.catalogTasks.filter((task) => task.projectKey === projectKey),
+      this.catalogTasks.filter((task) => task.groupKey === groupKey),
       (task) => this.activityAtFor(task),
     )
   }
@@ -929,12 +951,30 @@ export class SessionSidebarStore {
       ? this.session.tasksStore.get(task.taskId).serverId ?? task.serverId
       : task.serverId
     if (!serverId) return []
-    return dedupePrChoices([
+    const choices = dedupePrChoices([
       ...this.linkedPrChoices(task, serverId),
       ...this.sessionPrChoices(task, serverId),
       ...this.branchPrChoices(task, serverId),
       ...this.mountedPrChoices(task, serverId),
     ])
+    for (const choice of choices) choice.requiredChecksFail = this.requiredChecksFail(serverId, choice)
+    return choices
+  }
+
+  /**
+   * Whether a required check fails on the pull request's current head, so it
+   * cannot merge. The same reading as the checks chip on the PR surfaces
+   * (`checksPresentation`), including its refusal to trust a result for a head
+   * the branch has moved past. Checks this client has not read are not a
+   * failure.
+   */
+  private requiredChecksFail(serverId: string, choice: TaskPrChoice): boolean {
+    const pullRequest = choice.pullRequest
+    if (!pullRequest) return false
+    const summary = this.pullRequestChecks.summaryIn(serverId, repositoryKeyOf(pullRequest.baseRepo), choice.number)
+    if (!summary) return false
+    const headSha = 'headSha' in pullRequest ? pullRequest.headSha : null
+    return checksPresentation(summary, headSha, false).state === 'failing'
   }
 
   /**
@@ -1094,6 +1134,7 @@ export class SessionSidebarStore {
     private session: WorkspaceContext,
     private planStore: PlanStore,
     private pullRequestProjects: PrsStore,
+    private pullRequestChecks: PrChecksStore,
     /** Which hosts are the cloud and which are up, for one row per session across
      *  its homes. The app core hands in the reactive servers store; the registry
      *  answers on its own for a store built without one. */

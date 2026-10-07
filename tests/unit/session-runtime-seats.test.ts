@@ -24,9 +24,10 @@ beforeAll(async () => {
 // Step 2 plan §3.3 and exit criterion 2: a member with no seat is refused with
 // SEAT_REQUIRED and no process is spawned; with one, the run request carries it.
 
-function backend() {
-  const emitter = new EventEmitter() as EventEmitter & Pick<AgentBackend, 'id' | 'metadata' | 'permissions' | 'startRun' | 'getPendingHandles' | 'shutdown' | 'getEnrichedError' | 'cancelSession'>
+function backend(beforeExit?: (emit: (event: object) => void) => void) {
+  const emitter = new EventEmitter() as EventEmitter & Pick<AgentBackend, 'id' | 'metadata' | 'permissions' | 'startRun' | 'getPendingHandles' | 'getSessionHandle' | 'shutdown' | 'getEnrichedError' | 'cancelSession'>
   const started: AgentRunRequest[] = []
+  const handles = new Map<string, RunHandle>()
   emitter.id = 'claude-code'
   emitter.metadata = { id: 'claude-code', label: 'Claude', models: [], defaultModel: '' }
   emitter.permissions = { getPendingInfo: () => undefined, respondToPermission: () => false, respondToQuestion: () => false, clearPendingForSession: () => {}, setCurrentSessionId: () => {} }
@@ -49,13 +50,16 @@ function backend() {
       _resolveRun: resolve,
       _rejectRun: () => {},
     }
+    handles.set(threadId, handle)
     setImmediate(() => {
+      beforeExit?.((event) => emitter.emit('normalized', threadId, event))
       resolve()
       emitter.emit('exit', threadId, 0, null)
     })
     return handle
   }
   emitter.getPendingHandles = () => []
+  emitter.getSessionHandle = (threadId) => handles.get(threadId)
   emitter.shutdown = () => {}
   emitter.cancelSession = () => false
   return { value: emitter, started }
@@ -64,8 +68,8 @@ function backend() {
 const cleanups: Array<() => void> = []
 afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup() })
 
-function harness() {
-  const fake = backend()
+function harness(beforeExit?: Parameters<typeof backend>[0]) {
+  const fake = backend(beforeExit)
   const plane = new SessionRuntime(new Map([['claude-code', fake.value as never]]))
   const root = mkdtempSync(join(tmpdir(), 'plane-seats-'))
   const db = new Database(':memory:') as unknown as DatabaseSync
@@ -104,6 +108,30 @@ describe('seats at dispatch', () => {
     seats.storeToken({ kind: 'user', userId: { kind: 'account', accountId: 'bob' } }, 'claude-code', 'bob-token')
     await plane.dispatch.submitPrompt(ctx('s-guest'), { prompt: 'hi from a guest', clientPromptId: 'p-guest' }, { clientId: 'c2', actor: actorFor({ kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1', share: { resource: { kind: 'session', id: 's-guest' }, role: 'editor', sharedByUserId: 'bob', linkSecretHash: 'h' }, expiresAt: 0, deviceLabel: 'Guest link' }) })
     expect(started[1]?.seat).toMatchObject({ seat: { kind: 'user', userId: { kind: 'account', accountId: 'bob' } }, provider: 'claude-code', envToken: 'bob-token' })
+  })
+
+  test('a provider that refuses the member\'s login expires their seat, so the next prompt asks them to reconnect', async () => {
+    // Seat plan §3.7: a refused credential stops reading as connected. The
+    // clients show the sign-in card from the same error event.
+    const { plane, seats, started } = harness((emit) => {
+      emit({ type: 'session_init', sessionId: 'thread-1', model: '', tools: [], mcpServers: [], skills: [], agents: [], slashCommands: [] })
+      emit({ type: 'error', message: 'Invalid API key · Please run /login', isError: true, kind: 'auth' })
+    })
+    const bob = { kind: 'user', userId: { kind: 'account', accountId: 'bob' } } as const
+    await seats.storeToken(bob, 'claude-code', 'bob-token')
+    const actor = memberActor('bob', 'Bob')
+    await plane.dispatch.submitPrompt(ctx('s-refused'), { prompt: 'hello' }, { clientId: 'c1', actor })
+    expect(started).toHaveLength(1)
+    await new Promise((resolve) => setImmediate(resolve))
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(await seats.status(bob, 'claude-code')).toMatchObject({ state: 'expired', error: 'Invalid API key · Please run /login' })
+    let refusal: unknown
+    try {
+      await plane.dispatch.submitPrompt(ctx('s-refused-2'), { prompt: 'again' }, { clientId: 'c1', actor })
+    } catch (error) { refusal = error }
+    expect((refusal as { code?: string }).code).toBe('SEAT_REQUIRED')
+    expect(started).toHaveLength(1)
   })
 
   test('a prompt id seen in another session is not a duplicate', async () => {

@@ -3,6 +3,7 @@
     getWorkspaceContext,
     getSessionSidebarStore,
     runtime,
+    serversStore,
   } from "../../contexts";
   import { projectDirLabel } from "../../lib/paths";
   import { isChat } from "@solus/contracts/chat";
@@ -14,6 +15,9 @@
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import AsidePaneShell from "../layout/AsidePaneShell.svelte";
   import DraftComposer from "./DraftComposer.svelte";
+  import ConnectHostPage from "./ConnectHostPage.svelte";
+  import { draftHostGate, type GatedHost } from "./lib/host-gate";
+  import { liveActivityClock } from "../../lib/shared-clock";
   import SolusTips from "../layout/SolusTips.svelte";
   import GetStartedList from "../onboarding/GetStartedList.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
@@ -64,6 +68,23 @@
     }
   });
   let composerInput = $state<ReturnType<typeof DraftComposer> | null>(null);
+
+  // A draft no host can run has no composer: the pane asks for a host instead
+  // (docs/plans/draft-connect-host.md). The clock runs only while no host is
+  // online, to end the reconnect grace and keep "last seen" current.
+  const gatedHosts = $derived<GatedHost[]>(
+    serversStore.executionServers.map((server) => ({
+      ...server,
+      offlineSince: serversStore.offlineSinceFor(server.id),
+    })),
+  );
+  const hasOnlineHost = $derived(gatedHosts.some((host) => host.status === "online"));
+  let now = $state(Date.now());
+  $effect(() => {
+    if (hasOnlineHost) return;
+    return liveActivityClock.subscribe((value) => (now = value));
+  });
+  const hostGate = $derived(draftHostGate(gatedHosts, now));
 
   // A draft is its own routed surface, so it owns the focus transition into its
   // own composer. Address the mounted InputBar directly rather than broadcasting
@@ -317,6 +338,20 @@
   </div>
 {/snippet}
 
+{#snippet surface(current: SessionDraft)}
+  {#if hostGate === "connect"}
+    <ConnectHostPage
+      hosts={gatedHosts}
+      draftText={current.prompt.text.trim()}
+      {surfaceVisible}
+      compact={isAside}
+      {now}
+    />
+  {:else}
+    {@render composer(current)}
+  {/if}
+{/snippet}
+
 {#if draft}
   {#if isAside}
     <!-- Beside another pane the draft is a surface among surfaces, so it carries
@@ -333,9 +368,9 @@
       onClose={discard}
       closeLabel="Discard draft"
     >
-      {#snippet body()}{@render composer(draft)}{/snippet}
+      {#snippet body()}{@render surface(draft)}{/snippet}
     </AsidePaneShell>
   {:else}
-    {@render composer(draft)}
+    {@render surface(draft)}
   {/if}
 {/if}

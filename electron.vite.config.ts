@@ -84,6 +84,7 @@ export default defineConfig(({ mode }) => {
           'electron-updater',
           'onnxruntime-node',
           'socket.io',
+          'socket.io-client',
           // Optional, and resolved at runtime by the standalone server only.
           // Following it would pull a browser driver into the desktop bundle
           // and make an absent package a build failure instead of a state.

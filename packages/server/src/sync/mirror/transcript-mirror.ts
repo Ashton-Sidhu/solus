@@ -13,7 +13,6 @@ import type { ActivityMirrorPayload, TranscriptMirrorPayload } from '../runner-p
 import type { Activity } from '@solus/contracts/activity'
 import { activityFor } from '../../data/activity/activity'
 import { sessionRecords } from '../../data/sessions/schema'
-import { activePublication } from '../publication-store'
 import { appendMirror } from './mirror-log'
 import type { DeliveryDestination } from '../outbox/outbox-store'
 
@@ -69,18 +68,14 @@ function hashOf(message: WireSessionLoadMessage): string {
 
 /**
  * The organization a session's transcript is mirrored to, or null when it stays
- * on this machine: a published record's own, or — while a publication into that
- * organization is on its way (§7) — the reserved one, so the transcript the
- * publication reads is appended before the record says `published`.
+ * on this machine: a published record's own.
  */
 export async function transcriptDestination(sessionId: string): Promise<DeliveryDestination | null> {
   const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
   if (!record || record.organizationId === LOCAL_ORGANIZATION_ID) return null
   // The session's owner delivers its transcript, with their delegated token (plans/010-standard-oauth.md).
   const destination = { organizationId: record.organizationId, actorUserId: record.ownerUserId ?? '' }
-  if (record.publication === 'published') return destination
-  const reserved = activePublication({ kind: 'session', id: sessionId })
-  return reserved?.organizationId === record.organizationId ? destination : null
+  return record.publication === 'published' ? destination : null
 }
 
 export class TranscriptMirror {

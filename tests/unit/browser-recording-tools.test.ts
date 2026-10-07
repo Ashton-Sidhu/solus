@@ -4,7 +4,8 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { NormalizedEvent } from '@solus/contracts/types'
-import type { Provider, RepoRef } from '@solus/server/providers/types'
+import type { Provider } from '@solus/server/providers/types'
+import type { RepoRef } from '@solus/contracts/providers'
 import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 import type {
   BrowserEmulation,

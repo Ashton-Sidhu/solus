@@ -94,7 +94,7 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   // The shell opens resources in the workspace it now has.
   shell.attachWorkspace(session)
   sharesStore.works = session.worksStore
-  const sessionSidebarStore = new SessionSidebarStore(settings, session, planStore, pullRequests.projects, {
+  const sessionSidebarStore = new SessionSidebarStore(settings, session, planStore, pullRequests.projects, pullRequests.checks, {
     // Reactive: a runner coming back or a cloud row appearing re-merges the rows.
     isSolusApi: isSolusApiId,
     isConnected: (serverId) => !!serverId && serversStore.statusFor(serverId) === 'online',

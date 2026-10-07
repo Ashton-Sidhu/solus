@@ -47,6 +47,8 @@ interface WebSocketTransport {
   disconnectWhere: (predicate: (principal: Principal) => boolean, reason: string) => number
   /** The principal behind a client id, for event audiences. */
   principalOf: (clientId: string) => Principal | null
+  /** Sends one event to a client's newest socket and resolves with its parsed acknowledgement; rejects when it has none, the ack is late, or unreadable. */
+  request: <Payload, Answer>(clientId: string, event: string, payload: Payload, answer: z.ZodType<Answer>, timeoutMs: number) => Promise<Answer>
 }
 
 /** Set by the engine middleware from the listener the request arrived on; never by a client. */
@@ -164,7 +166,8 @@ export function attachWebSocketTransport(
     const admit = (evidence: AdmissionEvidence): void => {
       const instanceId = auth.clientInstanceId ?? randomBytes(16).toString('hex')
       const principal = principalFor(evidence)
-      if (principal.kind === 'guest' && !isApiMode()) {
+      // Guests and runners meet on the Solus API only: a host admits neither.
+      if ((principal.kind === 'guest' || principal.kind === 'runner') && !isApiMode()) {
         next(Object.assign(new Error('unauthorized'), { data: { code: 'UNAUTHORIZED' } }))
         return
       }
@@ -323,6 +326,14 @@ export function attachWebSocketTransport(
       for (const session of sessions.values()) if (session.clientId === clientId) return session.principal
       return null
     },
+    request: async (clientId, event, payload, answer, timeoutMs) => {
+      let newest: ClientSession | undefined
+      for (const session of sessions.values()) {
+        if (session.clientId === clientId && (!newest || session.connectedAt >= newest.connectedAt)) newest = session
+      }
+      if (!newest) throw new Error(`No socket for ${clientId}`)
+      return answer.parse(await newest.socket.timeout(timeoutMs).emitWithAck(event, payload))
+    },
     close: () => {
       if (closing) return
       closing = true
@@ -397,7 +408,9 @@ function getCachedResponse(
       if (err instanceof WorkMovedError) return { error: { message: err.message, code: err.code } }
       // A permission or question the host no longer holds: the client closes the card.
       if (err instanceof RequestNotAnswerableError) return { error: { message: err.message, code: err.code } }
-      return { error: { message: err instanceof Error ? err.message : String(err) } }
+      const message = err instanceof Error ? err.message : String(err)
+      log.warn('rpc_handler_error', { clientId, method: request.method, error: message })
+      return { error: { message } }
     }
   })
 }

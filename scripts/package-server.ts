@@ -12,6 +12,7 @@ const SUPPORTED_TARGETS = new Set(['darwin-arm64', 'linux-x64', 'linux-arm64'])
 interface Target {
   platform: 'darwin' | 'linux'
   arch: 'x64' | 'arm64'
+  headless: boolean
 }
 
 const repoRoot = resolve(import.meta.dir, '..')
@@ -20,8 +21,6 @@ async function main(): Promise<void> {
   const target = parseTarget(process.argv.slice(2))
   const targetName = `${target.platform}-${target.arch}`
   if (!SUPPORTED_TARGETS.has(targetName)) throw new Error(`Unsupported server target: ${targetName}`)
-
-  assertBuildExists()
 
   const releaseDir = join(repoRoot, 'release')
   mkdirSync(releaseDir, { recursive: true })
@@ -32,10 +31,9 @@ async function main(): Promise<void> {
   mkdirSync(staging, { recursive: true })
 
   try {
+    copyClient(staging, target.headless)
     await installNodeRuntime(target, staging)
-    await buildServerBundle(staging)
-    await buildCliBundle(staging)
-    copyClient(staging)
+    await buildHeadless(staging)
     copyBundledPlugins(staging)
     copyPreviewBrowserDriver(staging)
     writeLaunchers(staging)
@@ -49,7 +47,7 @@ async function main(): Promise<void> {
       storage: createHash('sha256').update(String(SERVER_STORAGE_EPOCH)).update(readFileSync(join(repoRoot, 'packages/server/src/db/migrations.ts'))).digest('hex'),
     }))
 
-    const out = join(releaseDir, `solus-server-${targetName}.tar.gz`)
+    const out = join(releaseDir, `solus-server-${target.headless ? 'headless-' : ''}${targetName}.tar.gz`)
     rmSync(out, { force: true })
     await run('tar', ['--no-xattrs', '-czf', out, '-C', staging, '.'])
     writeSha256Sums(releaseDir)
@@ -59,18 +57,20 @@ async function main(): Promise<void> {
   }
 }
 
-function parseTarget(args: string[]): Target {
+export function parseTarget(args: string[]): Target {
   let platform = normalizePlatform(process.platform)
   let arch = normalizeArch(process.arch)
+  let headless = false
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
-    if (arg === '--platform') platform = normalizePlatform(takeValue(args, ++i, arg))
+    if (arg === '--headless') headless = true
+    else if (arg === '--platform') platform = normalizePlatform(takeValue(args, ++i, arg))
     else if (arg.startsWith('--platform=')) platform = normalizePlatform(arg.slice('--platform='.length))
     else if (arg === '--arch') arch = normalizeArch(takeValue(args, ++i, arg))
     else if (arg.startsWith('--arch=')) arch = normalizeArch(arg.slice('--arch='.length))
     else throw new Error(`Unknown package-server option: ${arg}`)
   }
-  return { platform, arch }
+  return { platform, arch, headless }
 }
 
 function normalizePlatform(value: string): Target['platform'] {
@@ -89,16 +89,6 @@ function takeValue(args: string[], index: number, flag: string): string {
   const value = args[index]
   if (!value) throw new Error(`${flag} requires a value`)
   return value
-}
-
-function assertBuildExists(): void {
-  const missing = [
-    join(repoRoot, 'dist', 'main', 'standalone.js'),
-    join(repoRoot, 'dist', 'client', 'index.html'),
-  ].filter((file) => !existsSync(file))
-  if (missing.length > 0) {
-    throw new Error(`Build output missing. Run "bun run build" first.\n${missing.join('\n')}`)
-  }
 }
 
 async function installNodeRuntime(target: Target, staging: string): Promise<void> {
@@ -137,6 +127,12 @@ export async function buildServerBundle(staging: string): Promise<void> {
   const drizzle = join(outdir, 'drizzle')
   rmSync(drizzle, { recursive: true, force: true })
   cpSync(join(repoRoot, 'packages', 'server', 'drizzle'), drizzle, { recursive: true })
+}
+
+/** Compile the standalone runtime and CLI from source without Electron or a client build. */
+export async function buildHeadless(staging: string): Promise<void> {
+  await buildServerBundle(staging)
+  await buildCliBundle(staging)
 }
 
 /** One self-contained CommonJS file for Node; the cloud application bundles the record service the same way (scripts/build-record-service.ts). */
@@ -180,8 +176,12 @@ async function buildCliBundle(staging: string): Promise<void> {
   ])
 }
 
-function copyClient(staging: string): void {
-  cpSync(join(repoRoot, 'dist', 'client'), join(staging, 'libexec', 'client'), { recursive: true })
+export function copyClient(staging: string, headless: boolean, clientDir = join(repoRoot, 'dist', 'client')): void {
+  if (headless) return
+  if (!existsSync(join(clientDir, 'index.html'))) {
+    throw new Error('Web client build missing. Run "bun run build:client" first, or package with --headless.')
+  }
+  cpSync(clientDir, join(staging, 'libexec', 'client'), { recursive: true })
 }
 
 /**

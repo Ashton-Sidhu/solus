@@ -3,7 +3,7 @@
   /** Where a host stands, at a glance — each summary row is a way into the tab
    *  that can actually change it. */
   import { Check as CheckIcon, Copy as CopyIcon } from "@lucide/svelte";
-  import { hostStatusLabel, serversStore, type ServerItem } from "../../contexts";
+  import { hostStatusLabel, serversStore, uplinkStore, type ServerItem } from "../../contexts";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";
   import SettingsSection from "../settings/SettingsSection.svelte";
@@ -24,6 +24,7 @@
   let testing = $state(false);
 
   const github = $derived(setup.readiness?.github);
+  const uplink = $derived(uplinkStore.statusFor(host.id));
   const reachability = $derived(
     [
       hostStatusLabel(serversStore.statusFor(host.id)),
@@ -114,6 +115,21 @@
 </SettingsSection>
 
 <SettingsSection label="Setup">
+  {#if uplinkStore.controlFor(host.id) !== "none"}
+    <SettingsRow
+      label="Solus Cloud"
+      description={!uplink
+        ? "Checking the link…"
+        : uplink.linked
+          ? `Linked · ${uplink.link.hostname}`
+          : "Not linked to your account"}
+    >
+      {#snippet control()}
+        {@render openTab("access", uplink?.linked === true)}
+      {/snippet}
+    </SettingsRow>
+  {/if}
+
   <SettingsRow
     label="GitHub"
     description={github?.solusToken

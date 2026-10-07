@@ -84,16 +84,16 @@ describe('the folder a project scope sends to each home', () => {
   const organizationMachines = new Set(['org-vm'])
 
   test('a machine is asked for its own checkout, and passed over without one', () => {
-    expect(scopePathFromCheckouts('laptop', '/Users/me/web', checkouts, organizationMachines)).toBe('/Users/me/web')
-    expect(scopePathFromCheckouts('scratch-box', '/Users/me/web', checkouts, organizationMachines)).toBeNull()
+    expect(scopePathFromCheckouts('laptop', checkouts, organizationMachines)).toBe('/Users/me/web')
+    expect(scopePathFromCheckouts('scratch-box', checkouts, organizationMachines)).toBeNull()
   })
 
   test('the workspace service is asked at the organization machine\'s checkout, never passed over', () => {
     // WHY: the service holds no checkout, and the organization's machine is not
     // asked. Passing the service over left History empty on the web for every
     // project scope, though the service held the sessions.
-    expect(scopePathFromCheckouts(SERVICE, '/Users/me/web', checkouts, organizationMachines)).toBe('/workspace/web')
-    expect(scopePathFromCheckouts(SERVICE, '/Users/me/web', checkouts.slice(0, 1), organizationMachines)).toBe('/Users/me/web')
+    expect(scopePathFromCheckouts(SERVICE, checkouts, organizationMachines)).toBe('/workspace/web')
+    expect(scopePathFromCheckouts(SERVICE, checkouts.slice(0, 1), organizationMachines)).toBe('/Users/me/web')
   })
 })
 
@@ -255,6 +255,18 @@ describe('ConversationSearch', () => {
     expect(requests[0]).toMatchObject({ namesOnly: true, activeSince: 5, provider: 'codex' })
   })
 
+  test('a host filter asks only that machine and the workspace service', async () => {
+    // WHY: another machine cannot hold a session that ran on the chosen one,
+    // so asking it only inflates the count of matches still to read. The
+    // service keeps records that open on their runner, so it is still asked.
+    const asked: string[] = []
+    const answer = (serverId: string) => async () => { asked.push(serverId); return found([]) }
+    const search = new ConversationSearch(homes({ local: answer('local'), laptop: answer('laptop'), [SERVICE]: answer(SERVICE) }), 0)
+    search.search('word', null, { namesOnly: false, serverId: 'laptop' })
+    await settle()
+    expect(asked.sort()).toEqual(['laptop', SERVICE].sort())
+  })
+
   test('clearing the query clears the hits at once, without asking a host', async () => {
     let asked = 0
     const hosts = homes({ local: async () => { asked += 1; return found([{ sessionId: 'found', ts: 1 }]) } })
@@ -382,5 +394,23 @@ describe('TaskCommentSearch', () => {
     expect([...search.passages.keys()].sort()).toEqual(['laptop-second', 'local-second'])
     search.search('x', null)
     expect(search.passages.size).toBe(0)
+  })
+
+  test('a project scope asks each host for its own checkout, and skips a host with none', async () => {
+    // WHY: one picker row stands for every checkout of a project. A task
+    // commented on in the laptop's checkout must be found from the desktop's.
+    const asked: Array<[string, string | undefined]> = []
+    const search = new TaskCommentSearch({
+      serverIds: () => ['desktop', 'laptop', 'server'],
+      apiFor: (serverId) => ({
+        tasksSearchComments: (query: TaskCommentSearchQuery) => {
+          asked.push([serverId, query.projectKey])
+          return Promise.resolve([])
+        },
+      }),
+    }, 0, (serverId) => ({ desktop: '/Users/me/solus', laptop: '/home/me/solus' })[serverId] ?? null)
+    search.search('auth', 'github.com/me/solus')
+    await settle()
+    expect(asked).toEqual([['desktop', '/Users/me/solus'], ['laptop', '/home/me/solus']])
   })
 })

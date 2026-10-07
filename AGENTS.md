@@ -513,8 +513,7 @@ dispatches to them; `tests/unit/server-module-boundaries.test.ts` names every ex
   `observability/` (emitters, tracer, exporter), and `rate-limits.ts`.
 - `sync/` — the mirror log and sinks (`mirror/`), the outbox (`outbox/`), runner
   delivery (one queue per organization and person, sent with that person's
-  delegated token), protocol, and intake, `publication.ts` (the recoverable
-  Share/Move of a Local work, session, or task into one organization),
+  delegated token), protocol, and intake,
   `delegations.ts` (the tokens this host holds to act for a person in an
   organization: OAuth token exchange, refresh, and the API admission;
   plans/010-standard-oauth.md), and `remote-operations.ts` (the record operations

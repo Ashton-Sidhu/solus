@@ -1,7 +1,7 @@
 import { worktreeProjectRoot } from '@solus/contracts/types'
-import { isRepositoryKey, localProjectKey } from '@solus/contracts/repository-key'
 import type { WorkspaceProject } from '@solus/contracts/workspace-projects'
 import { hostKey } from '@solus/client-core/host-key'
+import { distinctProjectLabels, localProjectParts, projectKeyLabel, projectKeyOf } from '@solus/client-core/project-identity'
 import type { ListProjectOption } from '../../components/ui/list-page/list-page'
 
 /**
@@ -94,8 +94,7 @@ export function scopeForProject(project: LogicalProject, isConnected: (serverId:
  * The project selector of every project page (docs/plans/project-model.md §5):
  * one row per project, never one per host. A project is available when a
  * connected host holds a checkout of it or the organization has it in the
- * cloud; the rest stay listed and inert. Two local-only folders with one name
- * on different hosts are told apart by their host.
+ * cloud; the rest stay listed and inert.
  */
 export function projectScopeOptions(
   projects: readonly LogicalProject[],
@@ -103,33 +102,77 @@ export function projectScopeOptions(
   hostLabelFor: (serverId: string) => string,
   cloudServerId: string | null,
 ): ListProjectOption[] {
-  const options = projects.flatMap((project): ListProjectOption[] => {
-    const checkout = representativeCheckout(project, isConnected)
-    const serverId = checkout?.serverId ?? (project.cloudProject ? cloudServerId : null)
-    if (!serverId) return []
-    return [{
-      key: project.key,
-      projectKey: checkout?.projectRoot ?? project.key,
-      serverId,
-      label: project.label,
-      available: !!project.cloudProject || project.checkouts.some((entry) => isConnected(entry.serverId)),
-      historyOnly: !project.cloudProject,
-      localOnly: !project.cloudProject && project.checkouts.every((entry) => entry.repositoryKey === null),
-    }]
-  })
-  const labelCounts = new Map<string, number>()
-  for (const option of options) labelCounts.set(option.label, (labelCounts.get(option.label) ?? 0) + 1)
-  for (const option of options) {
-    if ((labelCounts.get(option.label) ?? 0) > 1 && !isRepositoryKey(option.key)) {
-      option.label = `${option.label} · ${hostLabelFor(option.serverId)}`
-    }
+  return projectOptionsFor(projects.map((project) => project.key), projects, isConnected, hostLabelFor, cloudServerId)
+}
+
+/**
+ * The selector rows for these project keys, in order, each once — the one
+ * row builder every project list uses. A known project is listed as the
+ * catalog holds it; a key the catalog does not hold (a task filed under a
+ * folder no host has listed yet) is its own row, named by its last segment.
+ * Names two rows share are told apart within the list (`distinctProjectLabels`).
+ */
+export function projectOptionsFor(
+  projectKeys: Iterable<string>,
+  projects: readonly LogicalProject[],
+  isConnected: (serverId: string) => boolean,
+  hostLabelFor: (serverId: string) => string,
+  cloudServerId: string | null,
+): ListProjectOption[] {
+  const byKey = new Map(projects.map((project) => [project.key, project]))
+  const options: ListProjectOption[] = []
+  const listed = new Set<string>()
+  for (const key of projectKeys) {
+    if (listed.has(key)) continue
+    listed.add(key)
+    const project = byKey.get(key)
+    const option = project
+      ? knownProjectOption(project, isConnected, cloudServerId)
+      : unknownProjectOption(key, isConnected, cloudServerId)
+    if (option) options.push(option)
   }
+  const labels = distinctProjectLabels(options, hostLabelFor)
+  options.forEach((option, index) => { option.label = labels[index]! })
   return options
+}
+
+function knownProjectOption(
+  project: LogicalProject,
+  isConnected: (serverId: string) => boolean,
+  cloudServerId: string | null,
+): ListProjectOption | null {
+  const checkout = representativeCheckout(project, isConnected)
+  const serverId = checkout?.serverId ?? (project.cloudProject ? cloudServerId : null)
+  if (!serverId) return null
+  return {
+    key: project.key,
+    projectKey: checkout?.projectRoot ?? project.key,
+    serverId,
+    label: project.label,
+    available: !!project.cloudProject || project.checkouts.some((entry) => isConnected(entry.serverId)),
+    historyOnly: !project.cloudProject,
+    localOnly: !project.cloudProject && project.checkouts.every((entry) => entry.repositoryKey === null),
+  }
+}
+
+function unknownProjectOption(
+  key: string,
+  isConnected: (serverId: string) => boolean,
+  cloudServerId: string | null,
+): ListProjectOption {
+  const local = localProjectParts(key)
+  return {
+    key,
+    projectKey: local?.path ?? key,
+    serverId: local?.serverId ?? cloudServerId ?? '',
+    label: projectKeyLabel(key),
+    available: local ? isConnected(local.serverId) : true,
+  }
 }
 
 /** The project a checkout belongs to: its repository, or itself when it has none. */
 export function logicalProjectKeyFor(checkout: Pick<ProjectCatalogEntry, 'serverId' | 'projectRoot' | 'repositoryKey'>): string {
-  return checkout.repositoryKey ?? localProjectKey(checkout.serverId, checkout.projectRoot)
+  return projectKeyOf({ serverId: checkout.serverId, path: checkout.projectRoot, repositoryKey: checkout.repositoryKey })
 }
 
 /** Strips Solus worktree-marker segments and a trailing slash so a worktree

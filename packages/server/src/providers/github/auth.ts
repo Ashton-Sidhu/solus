@@ -5,7 +5,8 @@ import { currentCredentialUserId } from '../../vault/credential-scope'
 import { GITHUB_CLIENT_ID } from './client-id'
 import { githubCredentialChain } from './credentials'
 import { loadToken, persistToken, clearToken, type GithubStoredToken } from './token-store'
-import type { AuthStatus, DeviceCodePrompt, ProviderAuth } from '../types'
+import type { ProviderAuth } from '../types'
+import type { AuthStatus, DeviceCodePrompt } from '@solus/contracts/types'
 import { z } from 'zod'
 
 const log = createLogger('main', 'github-auth')

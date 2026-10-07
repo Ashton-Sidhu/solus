@@ -594,7 +594,7 @@
      surface on the card. Hover moves the border only — a fill shift on hover
      would read as a second selected row. */
   .option-row {
-    border: 0.0625rem solid var(--solus-tx-divider);
+    border: 0.0625rem solid color-mix(in oklab, var(--border) 50%, transparent);
     background: transparent;
     cursor: pointer;
     transition:
@@ -603,7 +603,7 @@
       box-shadow var(--duration-quick) var(--ease-premium);
   }
   .option-row:hover:not(:disabled) {
-    border-color: color-mix(in oklch, var(--primary) 25%, var(--solus-tx-divider));
+    border-color: color-mix(in oklch, var(--primary) 25%, color-mix(in oklab, var(--border) 50%, transparent));
   }
   .option-row.is-selected {
     border-color: color-mix(in oklch, var(--primary) 60%, transparent);
@@ -654,7 +654,7 @@
   }
 
   .answer-field {
-    border: 0.0625rem solid var(--solus-tx-divider);
+    border: 0.0625rem solid color-mix(in oklab, var(--border) 50%, transparent);
     background: transparent;
     transition: border-color var(--duration-quick) var(--ease-premium);
   }

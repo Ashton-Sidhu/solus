@@ -4,7 +4,6 @@ import {
     LoaderCircle as SpinnerGapIcon,
     CircleCheck as CheckCircleIcon,
     CircleX as XCircleIcon,
-    CircleStop as StopCircleIcon,
     Hourglass as HourglassIcon,
     Activity as ActivityIcon,
   } from "@lucide/svelte";
@@ -187,57 +186,6 @@ export function sessionTitle(sess: Session): string {
   }
 }
 
-export function projectByline(sess: Session | undefined): string {
-  const root = sess?.run.gitContext?.repoRoot ?? sess?.run.workingDirectory
-  const dir = root?.replace(/\/$/, '')
-  if (!dir || dir === '~') return '~'
-  return dir.split('/').at(-1) ?? '~'
-}
-
-/** Display title for a picker entry — tab/session title for open entries, first
- *  message (or slug) for history entries. */
-export function entryTitle(entry: PickerEntry): string {
-  if (entry.kind === 'open') return sessionTitle(entry.session)
-  return (
-    entry.meta.customTitle ||
-    entry.meta.firstMessage?.replace(/\s+/g, ' ') ||
-    entry.meta.slug ||
-    'Unnamed session'
-  )
-}
-
-/** Project/folder byline for a picker entry. */
-export function entryByline(entry: PickerEntry): string {
-  if (entry.kind === 'open') return projectByline(entry.session)
-  const dir = entry.meta.cwd?.replace(/\/$/, '')
-  if (!dir || dir === '~') return '~'
-  const parts = dir.split('/')
-  return parts[parts.length - 1] || '~'
-}
-
-/** First user message of a picker entry — used for query matching. */
-export function entryFirstMessage(entry: PickerEntry): string {
-  if (entry.kind === 'open') {
-    for (const m of entry.session.messages) {
-      if (m.role === 'user' && m.content) return m.content
-    }
-    return ''
-  }
-  return entry.meta.firstMessage || ''
-}
-
-/** Last-activity timestamp (ms) for a picker entry. */
-export function entryTimestamp(entry: PickerEntry): number {
-  if (entry.kind === 'open') {
-    const msgs = entry.session.messages
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i].timestamp) return msgs[i].timestamp
-    }
-    return 0
-  }
-  return new Date(entry.meta.lastTimestamp).getTime()
-}
-
 /** Relative time label from a numeric timestamp (ms). Returns null for 0/unset. */
 export function formatTimeAgoFromTimestamp(ts: number): string | null {
   if (!ts) return null
@@ -270,27 +218,6 @@ export function branchKeyFor(sess: Session | undefined): string {
   const branch = sess?.run.gitContext?.branch ?? 'no branch'
   const worktreeSuffix = sess?.run.gitContext?.worktreePath ? ' (worktree)' : ''
   return `${root}::${branch}${worktreeSuffix}`
-}
-
-export function getStatusIcon(status: SessionStatus): StatusIcon | null {
-  if (status === 'awaiting_input')
-    return { component: ChatTeardropIcon, color: 'var(--solus-status-permission)', spin: false }
-  if (status === 'awaiting_plan')
-    return { component: FileTextIcon, color: 'var(--solus-status-running)', spin: false }
-  if (status === 'rate_limited')
-    return { component: HourglassIcon, color: 'var(--warning)', spin: false }
-  if (status === 'running' || status === 'connecting')
-    return { component: SpinnerGapIcon, color: 'var(--solus-status-running-icon)', spin: true }
-  if (status === 'failed' || status === 'dead')
-    return { component: XCircleIcon, color: 'var(--solus-status-error)', spin: false }
-  if (status === 'completed')
-    return { component: CheckCircleIcon, color: 'var(--solus-status-complete)', spin: false }
-  // Still, unlike the running spinner: the agent is not working, its task is.
-  if (status === 'background')
-    return { component: ActivityIcon, color: 'var(--solus-status-running-icon)', spin: false }
-  if (status === 'interrupted')
-    return { component: StopCircleIcon, color: 'var(--solus-status-permission)', spin: false }
-  return null
 }
 
 /** The status in words, for a row that states it rather than drawing it.
@@ -398,38 +325,6 @@ export function buildTabSections(
 
 export function formatMessageTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-}
-
-export function formatTimeAgo(isoDate: string): string {
-  const diff = Date.now() - new Date(isoDate).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  if (days < 7) return `${days}d ago`
-  return new Date(isoDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
-
-export type DateGroup = 'Today' | 'Yesterday' | 'This week' | 'This month' | 'Older'
-
-export function getDateGroup(timestamp: number): DateGroup {
-  const now = new Date()
-  const date = new Date(timestamp)
-
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  const startOfYesterday = startOfToday - 86_400_000
-  const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay()
-  const startOfWeek = startOfToday - (dayOfWeek - 1) * 86_400_000
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime()
-
-  const ts = date.getTime()
-  if (ts >= startOfToday) return 'Today'
-  if (ts >= startOfYesterday) return 'Yesterday'
-  if (ts >= startOfWeek) return 'This week'
-  if (ts >= startOfMonth) return 'This month'
-  return 'Older'
 }
 
 export function findOpenTabForSession(

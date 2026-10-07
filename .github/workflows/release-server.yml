@@ -30,34 +30,30 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
 
-      # setup-bun caches the bun binary, not the packages it downloads. Without
-      # these, every run refetches the whole dependency set plus the ~100 MB
-      # Electron binary that `postinstall` pulls down.
+      # The headless package does not need Electron or desktop postinstall hooks.
       - name: Cache dependency downloads
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.bun/install/cache
-            ~/.cache/electron
-            ~/.cache/electron-builder
+          path: ~/.bun/install/cache
           key: deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
           restore-keys: |
             deps-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Build app and web client
-        run: bun run build
-
-      - name: Package server
+      - name: Package headless server
         env:
           SOLUS_GOOGLE_CLIENT_ID: ${{ secrets.SOLUS_GOOGLE_CLIENT_ID }}
           SOLUS_GOOGLE_CLIENT_SECRET: ${{ secrets.SOLUS_GOOGLE_CLIENT_SECRET }}
           SOLUS_GITHUB_CLIENT_ID: ${{ secrets.SOLUS_GITHUB_CLIENT_ID }}
           SOLUS_ATLASSIAN_CLIENT_ID: ${{ secrets.SOLUS_ATLASSIAN_CLIENT_ID }}
           SOLUS_ATLASSIAN_CLIENT_SECRET: ${{ secrets.SOLUS_ATLASSIAN_CLIENT_SECRET }}
-        run: bun scripts/package-server.ts --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
+        run: bun scripts/package-server.ts --headless --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
+
+      # Keep the public names used by the installer and server updater.
+      - name: Use the standard release archive name
+        run: mv release/solus-server-headless-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz release/solus-server-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz
 
       - name: Upload packaged server
         uses: actions/upload-artifact@v4

@@ -18,6 +18,8 @@ export interface Exchange {
   senderSessionId: string
   /** The target session, known from dispatch: a created session's id is chosen before its provider starts. */
   targetSessionId: string
+  /** The host the target session runs on, when it is not this host (docs/plans/cross-host-sessions.md). */
+  targetHostId?: string
   provider: AgentId
   /** Whether the result wakes the sender's model, or is only shown on its card. */
   notify: boolean

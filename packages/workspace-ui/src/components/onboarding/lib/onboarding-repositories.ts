@@ -1,4 +1,5 @@
 import type { ProviderRepository } from '@solus/contracts/providers'
+import { repositoryKeyOf } from '@solus/contracts/repository-key'
 
 /** How many repositories the project stage lists at once; search narrows the rest. */
 export const REPOSITORY_ROWS = 6
@@ -9,11 +10,6 @@ export interface RepositoryRow {
   detail: string
   /** Already a project of the organization in Solus Cloud. */
   isProject: boolean
-}
-
-/** A repository's key in the form project identity uses: `github.com/owner/repo`, lowercase. */
-export function repositoryKeyOf(repository: ProviderRepository): string {
-  return `${repository.host}/${repository.owner}/${repository.repo}`.toLowerCase()
 }
 
 /**

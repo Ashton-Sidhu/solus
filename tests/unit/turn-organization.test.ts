@@ -120,13 +120,6 @@ describe('admitting a turn', () => {
     expect(await organizationOf('s-c')).toBe('A')
   })
 
-  test('a publication\'s reservation decides before the window does', async () => {
-    await localRecord('s-reserved')
-    const admitted = await turnOrganization.admitTurnOrganization(ctx('s-reserved', 'B'), actorFor(OWNER), { hostOrganizations, reservedOrganization: (sessionId) => (sessionId === 's-reserved' ? 'A' : null) })
-    expect(admitted).toBe('A')
-    expect(await organizationOf('s-reserved')).toBe('A')
-  })
-
   test('a session with no record yet is born in the window\'s organization when its first write lands', async () => {
     expect(await turnOrganization.admitTurnOrganization(ctx('s-fresh', 'A'), actorFor(OWNER), { hostOrganizations })).toBe('A')
     expect(await organizationOf('s-fresh')).toBeNull()

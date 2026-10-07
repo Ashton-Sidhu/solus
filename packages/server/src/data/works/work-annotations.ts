@@ -67,8 +67,6 @@ export async function saveWorkAnnotations(scope: RecordScope, ann: WorkAnnotatio
       workId: ann.workId,
       comments: ann.comments,
       updatedAt: ann.updatedAt,
-      // A save of the threads leaves the readers' marks as they are.
-      marks: current?.marks,
       externalComments: current?.externalComments,
       googleComments: current?.googleComments,
     })

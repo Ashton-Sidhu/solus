@@ -25,6 +25,8 @@ export interface SeatRequest {
   requested?: boolean
   /** A login finished while a requested card was open. */
   completed?: boolean
+  /** The provider refused the turn's login, so the seat may still read as connected. */
+  refused?: boolean
 }
 
 /** A login the person called off, so the wizard reports no failure for the cancel it asked for. */
@@ -220,6 +222,12 @@ class SeatsStore {
   /** `/login`: the connect card stands in this conversation on request. */
   requestSignIn(serverId: string, sessionId: string, provider: SeatProvider): void {
     this.required = { serverId, sessionId, provider, requested: true }
+    void this.load(serverId)
+  }
+
+  /** A turn failed because the provider refused its login: the card asks for a new sign-in. */
+  noteLoginRefused(serverId: string, sessionId: string, provider: SeatProvider): void {
+    this.required = { serverId, sessionId, provider, requested: true, refused: true }
     void this.load(serverId)
   }
 

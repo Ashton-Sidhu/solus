@@ -3,7 +3,7 @@
   /** One host, in full. The onboarding rail is for arrival and asks one thing
    *  at a time; this is where a host set up last week can be looked at, and
    *  every part of it changed, in whatever order the user wants. */
-  import { serversStore, type ServerItem } from "../../contexts";
+  import { uplinkStore, type ServerItem } from "../../contexts";
   import * as Tabs from "../ui/tabs";
   import { hostSetupStore } from "../servers/host-setup.store.svelte";
   import HostDetailOverview from "./HostDetailOverview.svelte";
@@ -19,7 +19,6 @@
   let { host }: Props = $props();
 
   const setup = $derived(hostSetupStore.sessionFor(host.id));
-  const isActive = $derived(serversStore.activeServer?.id === host.id);
 
   // Setup events belong to the host, so the page holds its subscription open
   // for as long as it is showing that host — and hands it back on the way out.
@@ -27,6 +26,7 @@
     const session = hostSetupStore.sessionFor(host.id);
     session.retain();
     void session.refreshReadiness();
+    void uplinkStore.refresh(host.id);
     return () => session.release();
   });
 
@@ -54,19 +54,17 @@
   <Tabs.Root bind:value={connectionsNav.tab}>
     <Tabs.List variant="line" class="w-full justify-start gap-4 border-b border-border pb-1">
       <Tabs.Trigger value="overview" class="flex-none px-0">Overview</Tabs.Trigger>
+      <Tabs.Trigger value="access" class="flex-none px-0">Access</Tabs.Trigger>
       <Tabs.Trigger value="git" class="flex-none px-0">Git</Tabs.Trigger>
       <Tabs.Trigger value="providers" class="flex-none px-0">AI providers</Tabs.Trigger>
       <Tabs.Trigger value="environment" class="flex-none px-0">Environment</Tabs.Trigger>
-      {#if isActive}
-        <!-- Access describes the server this client is connected to. On any
-             other host it would list the wrong machine's devices under this
-             host's name, so it is hidden rather than made to guess. -->
-        <Tabs.Trigger value="access" class="flex-none px-0">Access</Tabs.Trigger>
-      {/if}
     </Tabs.List>
 
     <Tabs.Content value="overview" class="mt-5 flex flex-col gap-7">
       <HostDetailOverview {host} {setup} onOpenTab={(next) => (connectionsNav.tab = next)} />
+    </Tabs.Content>
+    <Tabs.Content value="access" class="mt-5 flex flex-col gap-7">
+      <HostDetailAccess serverId={host.id} />
     </Tabs.Content>
     <Tabs.Content value="git" class="mt-5 flex flex-col gap-7">
       <HostDetailGit {setup} />
@@ -77,10 +75,5 @@
     <Tabs.Content value="environment" class="mt-5 flex flex-col gap-7">
       <HostDetailEnvironment {setup} serverId={host.id} />
     </Tabs.Content>
-    {#if isActive}
-      <Tabs.Content value="access" class="mt-5 flex flex-col gap-7">
-        <HostDetailAccess serverId={host.id} />
-      </Tabs.Content>
-    {/if}
   </Tabs.Root>
 </div>

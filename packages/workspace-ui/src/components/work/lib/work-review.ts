@@ -29,6 +29,13 @@ export function reviewerStatus(reviewer: Pick<WorkReviewer, 'decision' | 'isStal
   return reviewer.isAwaiting ? `${status} · review requested again` : status
 }
 
+/** A decision that counts against the current version: an approval or a
+ * request for changes the author has not since revised past. A comment, a
+ * stale decision, or none is not a verdict. */
+export function isVerdict(reviewer: Pick<WorkReviewer, 'decision' | 'isStale'>): boolean {
+  return !reviewer.isStale && (reviewer.decision === 'approved' || reviewer.decision === 'changes_requested')
+}
+
 /** What a reviewer did and when, for the hover text that stands in for the words the icons replace. */
 export function reviewerActivity(reviewer: Pick<WorkReviewer, 'decision' | 'isStale' | 'isAwaiting' | 'decidedAt' | 'requestedAt'>): string {
   const at = reviewer.decision ? reviewer.decidedAt : reviewer.requestedAt

@@ -107,6 +107,15 @@ a credential failure: the request does not go to the next credential. The
 repository, and every other repository on the same code host, waits until the
 reset time that the host gives, or 5 minutes when it gives none.
 
+Every GitHub answer carries its quota in `x-ratelimit-*` headers, and each
+account's client records them (`providers/github/request-budget.ts`). A clock
+tick is background work: when less than 10% of a quota is left, its requests
+stop before they are sent, as if GitHub had answered with a rate limit, so the
+rest is left for the requests a person waits on. The process sends at most 8
+GitHub requests at once, because GitHub's secondary limits punish bursts. A
+repeated REST read sends `If-None-Match`; GitHub answers an unchanged resource
+with a 304, which does not count against the quota.
+
 A tick:
 
 1. **Recent changes — 1 GraphQL request.** List the repository's pull requests by

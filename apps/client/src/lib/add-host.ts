@@ -29,7 +29,7 @@ function unreachableMessage(url: string): string {
   if (location.protocol === 'https:' && url.startsWith('http://')) {
     return `This page is served over https, so it cannot reach ${urlHost(url)} over plain http. Open Solus from the host's own address instead.`
   }
-  return `No Solus server answered at ${urlHost(url)}. Check the address and port shown in Settings → Connections on the host.`
+  return `No Solus server answered at ${urlHost(url)}. Check the address and port shown in Settings → Hosts → Access on the host.`
 }
 
 export interface AddHostRequest {

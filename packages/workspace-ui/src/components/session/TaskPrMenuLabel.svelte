@@ -1,11 +1,13 @@
 <script lang="ts">
   import { GitPullRequest } from "@lucide/svelte";
-  import { prStatusBadge } from "../prs/lib/pr-utils";
+  import { prStatusBadge, REQUIRED_CHECKS_FAILING_BADGE } from "../prs/lib/pr-utils";
   import { taskPrMenuTitle } from "./lib/task-pr-menu";
   import type { TaskPrChoice } from "./lib/task-list";
 
   let { choice }: { choice: TaskPrChoice } = $props();
-  const badge = $derived(prStatusBadge(choice.pullRequest));
+  const badge = $derived(
+    choice.requiredChecksFail ? REQUIRED_CHECKS_FAILING_BADGE : prStatusBadge(choice.pullRequest),
+  );
   const StateIcon = $derived(badge?.Icon ?? GitPullRequest);
 </script>
 

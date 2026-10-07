@@ -340,7 +340,7 @@
             </Button>
           </div>
           <p class="leading-relaxed text-muted-foreground">
-            On a Mac with the Solus app, sign in to Solus Cloud in Settings → Connections instead.
+            On a Mac with the Solus app, sign in to Solus Cloud in Settings → Account & sync instead.
           </p>
           <Button
             size="sm"

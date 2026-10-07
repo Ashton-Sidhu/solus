@@ -1,8 +1,9 @@
 <script lang="ts">
-  /** Connections is two pages: the list of everything, and one host. */
-  import { serverConnections } from "@solus/client-core/server-connections";
+  /** Hosts is two pages: the list of hosts, and one host. Everything about how
+   *  one host is reached — its network, pairing, devices, and Solus Cloud link —
+   *  is on that host's page, so the list stays a list. */
   import { connectionsStore, serversStore } from "../../contexts";
-  import ConnectionsList from "./ConnectionsList.svelte";
+  import HostDirectory from "../servers/HostDirectory.svelte";
   import HostDetail from "./HostDetail.svelte";
   import { connectionsNav } from "./connections-nav.svelte";
 
@@ -12,10 +13,9 @@
     serversStore.servers.find((server) => server.id === connectionsNav.hostId) ??
       null,
   );
-  const serverId = $derived(host?.id ?? serverConnections.defaultServerId());
 
   $effect(() => {
-    const targetServerId = serverId;
+    const targetServerId = host?.id;
     if (!targetServerId) return;
     void connectionsStore.refreshServerMetadata(targetServerId);
     const interval = setInterval(
@@ -28,6 +28,6 @@
 
 {#if host}
   <HostDetail {host} />
-{:else if serverId}
-  <ConnectionsList {serverId} />
+{:else}
+  <HostDirectory />
 {/if}

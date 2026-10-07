@@ -70,7 +70,7 @@
 
 {#if menuOpen && triggerEl && onFilter}
   <ProjectFilterMenu
-    projectFilter={scopedProject?.projectKey ?? null}
+    projectFilter={scopedProject?.key ?? null}
     choices={projectChoices}
     anchor={triggerEl}
     onFilter={(projectKey) => {

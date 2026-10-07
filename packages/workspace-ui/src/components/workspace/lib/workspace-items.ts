@@ -1,7 +1,7 @@
 import type { WorkListing } from '../../../contexts/works/works.store.svelte'
 import type { DocProviderId } from '@solus/contracts/docs'
 import type { WorkReviewerSummary, WorkReviewState, WorkReviewStateEntry } from '@solus/contracts/work-review'
-import { matchesOpenProjects } from '../../../lib/sessionUtils'
+import { projectKeyLabel } from '@solus/client-core/project-identity'
 
 /** Facet type of a ledger item. Slides works fold into `doc` — the Workspace
  *  ledger distinguishes docs, diagrams, and HTML artifacts. */
@@ -13,7 +13,7 @@ export type WorkspaceItemType = 'doc' | 'diagram' | 'artifact'
  * already uses for them in the project panel, slides included, even though
  * slides file under the Docs facet.
  */
-export type WorkspaceGlyph = 'doc' | 'slides' | 'diagram' | 'artifact' | 'insights-report'
+export type WorkspaceGlyph = 'doc' | 'slides' | 'diagram' | 'artifact'
 
 /** One row of the Workspace ledger — a work, normalized to a single shape so
  *  grouping, filtering, and keyboard nav treat every artifact identically.
@@ -38,8 +38,9 @@ export type WorkspaceItem = {
   /** Sort key inside the Pinned group (newest pin first). */
   pinnedAt: number
   cwd: string
-  /** The project this artifact belongs to: a known project's key, or the
-   *  work's own directory when no known project claims it. */
+  /** The logical project this artifact belongs to (docs/plans/project-model.md
+   *  §1): its repository, with every checkout on any host, or its folder as a
+   *  local-only project. */
   projectKey: string
   projectLabel: string
   /** The review state, when the work has reviewers. */
@@ -51,9 +52,13 @@ export type WorkspaceItem = {
   work: WorkListing
 }
 
-/** Structural shape of `OpenProject` — the ledger only needs identity, a label,
- *  and the path roots that attribute an artifact to it. */
-export type WorkspaceProject = { key: string; label: string; roots: string[] }
+/** How the ledger names projects, from the shared project model
+ *  (docs/plans/project-model.md §5): the project a work belongs to, and the
+ *  rows a list of projects shows, one per project with distinct names. */
+export interface WorkspaceProjects {
+  keyOf(work: WorkListing): string
+  optionsFor(projectKeys: Iterable<string>): { key: string; label: string }[]
+}
 
 /** What the ledger knows about each work's review, from the review store. */
 export interface WorkReviewLookup {
@@ -63,7 +68,7 @@ export interface WorkReviewLookup {
 
 const NO_REVIEWS: WorkReviewLookup = { summaryOf: () => undefined, awaitsMe: () => false }
 
-export function workItem(w: WorkListing, project: Pick<WorkspaceProject, 'key' | 'label'>, reviews: WorkReviewLookup = NO_REVIEWS): WorkspaceItem {
+export function workItem(w: WorkListing, project: { key: string; label: string }, reviews: WorkReviewLookup = NO_REVIEWS): WorkspaceItem {
   const updated = new Date(w.updatedAt).getTime() || 0
   // The newest collaborator is the session a reader wants to land in; the
   // legacy single `sessionId` covers works written before that list existed.
@@ -119,27 +124,21 @@ export function upstreamProviderFor(item: WorkspaceItem): DocProviderId | null {
   return item.work.mirroredDoc?.provider ?? null
 }
 
-/** The project an artifact belongs to (worktrees and subfolders count as
- *  their project). A work outside every known project files under its own
- *  directory, so the global ledger never drops it. */
-function projectFor(cwd: string, projects: WorkspaceProject[]): Pick<WorkspaceProject, 'key' | 'label'> {
-  const known = projects.find((p) => matchesOpenProjects(cwd, p.roots))
-  if (known) return known
-  const label = cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop()
-  return { key: cwd, label: label || 'No project' }
-}
-
 /** Every work on every host, newest first. The Workspace is global: it spans
- *  all projects, and each item names the project it came from. */
+ *  all projects, and each item names the project it came from — by the name
+ *  every other project list gives it, so two projects never share one. */
 export function buildWorkspaceItems(
   works: WorkListing[],
-  projects: WorkspaceProject[],
+  projects: WorkspaceProjects,
   reviews: WorkReviewLookup = NO_REVIEWS,
 ): WorkspaceItem[] {
+  const keys = works.map((w) => projects.keyOf(w))
+  const labels = new Map(projects.optionsFor(keys).map((option) => [option.key, option.label]))
   const items: WorkspaceItem[] = []
   const seenRowKeys = new Set<string>()
-  for (const w of works) {
-    const item = workItem(w, projectFor(w.cwd, projects), reviews)
+  for (const [index, w] of works.entries()) {
+    const key = keys[index]!
+    const item = workItem(w, { key, label: labels.get(key) || projectKeyLabel(key) || 'No project' }, reviews)
     if (seenRowKeys.has(item.rowKey)) continue
     seenRowKeys.add(item.rowKey)
     items.push(item)
@@ -288,8 +287,8 @@ export function applyFilter(items: WorkspaceItem[], filter: WorkspaceFilter): Wo
   })
 }
 
-/** The Project filter's options: every project that holds a work, by name,
- *  each with its count. */
+/** The Project filter's options: every project that holds a work, by the
+ *  name its rows show, each with its count. */
 export function projectOptions(items: WorkspaceItem[]): { value: string; label: string; count: number }[] {
   const byKey = new Map<string, { value: string; label: string; count: number }>()
   for (const item of items) {

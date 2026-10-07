@@ -5,6 +5,7 @@
   import TranscriptItem from "./TranscriptItem.svelte";
   import ConversationTurn from "./ConversationTurn.svelte";
   import VirtualTranscript from "./VirtualTranscript.svelte";
+  import SessionOriginDivider from "./SessionOriginDivider.svelte";
   import { revealTranscriptMatch } from "./lib/transcript-navigation";
   import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { tick, untrack } from "svelte";
@@ -777,6 +778,10 @@
                 Load earlier turns
               </button>
             </div>
+          {/if}
+
+          {#if sess.startedBy && !hasOlderTurnsToLoad}
+            <SessionOriginDivider origin={sess.startedBy} />
           {/if}
 
           <VirtualTranscript {tabId}

@@ -11,12 +11,12 @@ export function seatDescription(status: SeatStatus | undefined, error: string | 
   if (error && (!status || status.state === 'none')) return error
   if (!status || status.state === 'none') {
     return status?.hostLogin
-      ? 'Not signed in on this host. Sign in to run turns.'
-      : 'Not connected. Your turns on this host run on your own login once you connect it.'
+      ? 'Not signed in yet. Sign in so Solus can work on this computer.'
+      : 'Not connected yet. Connect your own account so Solus can work for you here.'
   }
   switch (status.state) {
     case 'connecting':
-      return 'Waiting on your browser…'
+      return 'Finish signing in below.'
     case 'connected':
       if (status.method === 'token') return 'Connected with a pasted token. The usage meter cannot read this seat.'
       return status.hostLogin
@@ -25,14 +25,6 @@ export function seatDescription(status: SeatStatus | undefined, error: string | 
     case 'expired':
       return `${status.error ?? 'The provider refused this login.'} Reconnect to continue.`
   }
-}
-
-/** What the device prompt asks the person to do, by provider flow. */
-export function seatVerificationWhy(provider: SeatProvider, requiresCodeInput: boolean): string {
-  const label = seatLabel(provider)
-  return requiresCodeInput
-    ? `Finish signing in with ${label}, then paste the returned code here.`
-    : `Confirm this ${label} code in your browser, then come back.`
 }
 
 /** The pasted-credential fallback, named by what the person has to paste. */

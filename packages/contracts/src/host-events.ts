@@ -30,7 +30,7 @@ import type { ShareChangedEvent } from './sharing'
 import type { SeatChangedEvent } from './seats'
 import type { AgentAuthFinishedEvent } from './agent-auth'
 import type { HostPresenceSnapshot, SessionPresenceSnapshot, WorkPresenceSnapshot } from './presence'
-import type { HostOrganizationsStatus, Publication } from './organization-scope'
+import type { HostOrganizationsStatus } from './organization-scope'
 import type { UplinkStatus } from './uplink'
 import type { WorkReviewsChanged } from './work-review'
 import type { NotificationsChanged } from './notification-hub'
@@ -168,8 +168,6 @@ export interface HostEventMap {
   /** This host's standing changed: linked or unlinked, an organization shared or withdrawn, a policy edited, an opt-in
    *  changed. The whole status, as `hostOrganizations` answers it. */
   'host.organizationsChanged': HostOrganizationsStatus
-  /** A publication moved on: reserved, sent, committed, or failed. The whole record. */
-  'publication.changed': Publication
 }
 
 export type HostEventName = keyof HostEventMap
@@ -245,7 +243,6 @@ export const HOST_EVENT_DEFINITIONS = {
   'host.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people connected to this host, or what they have focused, changed.' },
   'host.uplinkStatusChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: "This host's cloud link or its tunnel changed state." },
   'host.organizationsChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: "This host's organizations, their policies, or its Insights opt-ins changed." },
-  'publication.changed': { owner: 'sharing', category: 'delta', recovery: 'reload', description: 'A publication of a Local resource into an organization changed state.' },
 } as const satisfies Record<HostEventName, HostEventDefinition>
 
 const hostEventEnvelopeSchema = z.object({

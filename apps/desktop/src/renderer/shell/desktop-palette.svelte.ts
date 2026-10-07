@@ -339,7 +339,7 @@ export function createDesktopPalette(
       group: "Servers",
       icon: PlugsIcon,
       keywords: ["discover", "scan", "lan", "tailscale", "nearby"],
-      // Settings → Connections owns the fuller version of this: a scan button,
+      // Settings → Hosts owns the fuller version of this: a scan button,
       // last-seen times and connect. The old switcher chip is not rendered in
       // the workspace.
       run: () => {

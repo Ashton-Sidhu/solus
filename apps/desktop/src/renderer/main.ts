@@ -1,10 +1,10 @@
 import { prefetchStartupTranscript } from '@solus/workspace-ui/contexts/workspace/startup-transcript'
 import '@solus/workspace-ui/index.css'
-import { TransportDisconnectedError, type ConnectionStatus } from '@solus/client-core/ws-transport'
+import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
 import { setConnectionState } from '@solus/client-core/connection-state'
 import { installWsBackedSolusApi, localServerTarget, resolveActiveServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { renderConnecting, renderFatal } from './boot-scene'
+import { renderFatal } from './boot-scene'
 import { startScrollReveal } from '@solus/workspace-ui/lib/scroll-reveal'
 import type { LocalConnectionInfo, NativeSolusAPI } from '@solus/contracts/host-api'
 
@@ -26,7 +26,6 @@ let bootTarget: SolusServerTarget | null = null
 function renderBootError(err: Parameters<typeof String>[0]): void {
   renderFatal(root, {
     hostLabel: bootTarget?.label ?? 'Solus',
-    isLocalHost: bootTarget?.local ?? true,
     error: err,
   })
   requestAnimationFrame(() => {
@@ -52,22 +51,18 @@ async function boot(): Promise<void> {
   if (!nativeApi) throw new Error('Native Solus bootstrap bridge is unavailable')
   const local = await getLocalConnection(nativeApi)
   performance.mark('solus.boot.connection')
-  const target = resolveActiveServerTarget(local)
+  // The window always boots on its own machine. A saved remote is only the
+  // default for new work (dispatch-client step 5), so it must not gate first
+  // paint behind its network handshake; it dials beside the others below.
+  const target = localServerTarget(local)
+  const defaultTarget = resolveActiveServerTarget(local)
   bootTarget = target
-  serverConnections.registerTarget(localServerTarget(local), () => nativeApi.refreshLocalSessionToken())
+  serverConnections.registerTarget(target, () => nativeApi.refreshLocalSessionToken())
 
   // The local server accepts the socket instantly, and RPC calls made before it
   // opens queue and flush automatically (see WsTransport.invoke/send) — so there
-  // is nothing to wait for locally. Leave the boot shell up and mount straight
-  // into the app, letting its own per-surface skeletons cover in-flight data
-  // instead of gating first paint on a "Connecting" splash. Only a remote target,
-  // where the WebSocket handshake is a genuine network round trip, grows the
-  // shell into the staged connecting scene.
-  const showConnecting = (status: ConnectionStatus, attempt: number) => {
-    renderConnecting(root, { hostLabel: target.label, hostUrl: target.url, status, attempt })
-  }
-  if (!target.local) showConnecting('connecting', 0)
-
+  // is nothing to wait for. Leave the boot shell up and mount straight into the
+  // app, letting its own per-surface skeletons cover in-flight data.
   setConnectionState({ status: 'connecting', attempt: 0, target })
 
   let appMounted = false
@@ -76,13 +71,13 @@ async function boot(): Promise<void> {
     onStatusChange: (status, attempt) => {
       serverConnections.updateStatus(target.id, status, attempt)
       setConnectionState({ status, attempt, target })
-      if (!appMounted && !target.local) showConnecting(status, attempt)
     },
     onAuthFailed: () => {
       if (!appMounted) renderBootError(new Error(`${target.label} rejected the saved session token`))
     },
   })
   serverConnections.registerPrimary(target.id, api, transport, target)
+  if (!defaultTarget.local) serverConnections.setPrimary(defaultTarget.id)
 
   transport.start()
   void prefetchStartupTranscript()

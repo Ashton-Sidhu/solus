@@ -257,6 +257,7 @@ function ThreadRouteContent(props: {
             hostLabel={props.hostLabel}
             connectionState={connectionState}
             historyControls={historyControls}
+            startedBy={meta.startedBy}
             layoutVariant={layout.variant}
             usesAutomaticContentInsets={NATIVE_LIQUID_GLASS_SUPPORTED}
             onReconnectHost={() => app.connections.retry(hostId)}

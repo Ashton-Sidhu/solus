@@ -24,11 +24,11 @@ import { cancelProvisionalSessionHandoff, resolveSessionLineageById, sessionIdOf
 import { type RunExchanges, type SessionOrchestrator } from './orchestration/session-orchestrator'
 import { ClaudeGoalStore } from '../data/sessions/claude-goal-store'
 import type { AgentBackend, RunHandle } from './agents/agent-backend'
-import type { AgentId, AgentMetadata, BackendSession, NormalizedEvent, IpcContext, PromptOptions, SessionRunInput, AcceptPlanRequest, AcceptPlanResult } from '@solus/contracts/types'
+import type { AgentId, AgentMetadata, BackendSession, NormalizedEvent, IpcContext, PromptOptions, SessionOrigin, SessionRunInput, AcceptPlanRequest, AcceptPlanResult } from '@solus/contracts/types'
 import { isSessionBusyStatus, isSteerableStatus, projectScopeOf } from '@solus/contracts/types'
 import { activityLeases } from './activity-leases'
 import { SessionEmitter } from './observability/session-emitter'
-import type { SeatStore, TurnSeat } from './seats/seat-manager'
+import { isSeatProvider, type SeatStore, type TurnSeat } from './seats/seat-manager'
 import { attributionOf, HOST_ACTOR, seatFor, type Actor } from '../admission/actor'
 import type { Activity, ActivityKind, ActivitySubject } from '@solus/contracts/activity'
 import { appendActivity, newActivity } from '../data/activity/activity'
@@ -97,6 +97,9 @@ export interface SessionRunRequest {
   /** The session that created this one, recorded with the new thread's first
    *  index row so the child is never indexed without its parent. */
   delegation?: { parentSessionId: string; messageId: string; intent: 'delegate' | 'fire_and_forget'; createdAt: number }
+  /** The agent session on another host that started this one, recorded with the
+   *  new thread's first index row (docs/plans/cross-host-sessions.md). */
+  startedBy?: SessionOrigin
   /** Who asked and whose provider seat the turn runs on (Step 2 plan §3.3). Unset
    *  for the host's own work: automations, agent follow-ups, and local prompts. */
   actor?: Actor
@@ -437,6 +440,18 @@ export class SessionRuntime extends EventEmitter {
     // turn they are, so they still fall back to the host login here.
     if (!this.seats || !actor) return null
     return this.seats.resolveForTurn(seatFor(actor), provider)
+  }
+
+  /**
+   * The provider refused a turn's login (seat plan §3.7): the author's seat
+   * expires, so the next prompt asks them to reconnect. The host login keeps
+   * no state here; the CLI answers for it.
+   */
+  expireSeatForTurn(actor: Actor | undefined, provider: AgentId, error: string): void {
+    if (!this.seats || !actor || !isSeatProvider(provider)) return
+    this.seats.markExpired(seatFor(actor), provider, error).catch((err) => {
+      log.warn('seat_expire_failed', { provider, error: err instanceof Error ? err.message : String(err) })
+    })
   }
 
   /** The only execution entry point. Every caller supplies an explicit target

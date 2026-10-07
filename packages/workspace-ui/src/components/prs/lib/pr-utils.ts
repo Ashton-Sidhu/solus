@@ -67,6 +67,14 @@ export interface PrStatusBadge {
   tone: string
 }
 
+/** An open pull request a failing required check holds back. It reads as
+ *  merge conflicts do: it cannot merge until someone acts. */
+export const REQUIRED_CHECKS_FAILING_BADGE: PrStatusBadge = {
+  label: 'Required checks failing',
+  Icon: WarningCircleIcon,
+  tone: 'var(--solus-art-negative)',
+}
+
 /** Status chip facts for a PR — shared by the PRs page sidebar and the PR
  *  review activity rail. */
 /** A linked pull request the code host says does not exist. The link stays

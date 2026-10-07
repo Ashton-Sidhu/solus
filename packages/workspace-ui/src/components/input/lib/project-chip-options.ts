@@ -1,3 +1,4 @@
+import { distinctProjectLabels } from '@solus/client-core/project-identity'
 import type { LogicalProject, ProjectRef } from '../../../contexts/projects/project-catalog'
 
 /** One row of the project chip: a project, never one of its checkouts. */
@@ -19,14 +20,18 @@ export interface ProjectChipOption {
  * used checkout on another online host. A project whose every checkout is on an
  * offline host is not listed: nothing could open it, and on a client that
  * reaches a host from afar it is often a machine the person is not using now.
+ * `current`, the folder the composer is in when the catalog does not hold it
+ * yet, leads the list. Names two rows share are told apart by the rule every
+ * project list uses (`distinctProjectLabels`).
  */
 export function projectChipOptions(
   projects: readonly LogicalProject[],
   selectedHostId: string,
   isOnline: (serverId: string) => boolean,
   hostLabelFor: (serverId: string) => string,
+  current: ProjectChipOption | null = null,
 ): ProjectChipOption[] {
-  return projects.flatMap((project): ProjectChipOption[] => {
+  const options = projects.flatMap((project): ProjectChipOption[] => {
     const online = project.checkouts.filter((checkout) => isOnline(checkout.serverId))
     const chosen = online.find((checkout) => checkout.serverId === selectedHostId) ?? online[0]
     if (!chosen) return []
@@ -38,4 +43,8 @@ export function projectChipOptions(
       hostLabel: checkout.serverId !== selectedHostId ? hostLabelFor(checkout.serverId) : null,
     }]
   })
+  if (current && !options.some((option) => option.key === current.key)) options.unshift({ ...current })
+  const labels = distinctProjectLabels(options, hostLabelFor)
+  options.forEach((option, index) => { option.label = labels[index]! })
+  return options
 }

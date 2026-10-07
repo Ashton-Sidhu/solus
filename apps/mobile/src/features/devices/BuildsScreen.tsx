@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { ActionSheetIOS, ActivityIndicator, Alert, Linking, Platform, RefreshControl, ScrollView, View } from 'react-native'
 import { isDeviceRunActive, type DeviceBuild, type DeviceRun, type DeviceSummary } from '@solus/contracts/device-types'
-import { buildCardSummary, buildDetails, buildDownloadName, deviceBuildTargets, installDeviceBuild } from '@solus/client-core/device-builds'
+import { buildCardSummary, buildDetails, buildDownloadName, buildRunBlocker, deviceBuildTargets, installDeviceBuild } from '@solus/client-core/device-builds'
 import { useApp } from '../../app/app-context'
 import { SymbolView } from '../../components/AppSymbol'
 import { AppText as Text } from '../../components/AppText'
@@ -90,7 +90,7 @@ export function BuildsScreen({ navigation, route }: ScreenProps<'Builds'>) {
   const chooseDevice = (build: DeviceBuild) => {
     const targets = deviceBuildTargets(state, build)
     if (targets.length === 0) {
-      Alert.alert('No device can take this build', `Connect a phone to the host, or open a ${build.platform === 'ios' ? 'simulator' : 'emulator'} there first.`)
+      Alert.alert('No device can take this build', buildRunBlocker(state, build) ?? undefined)
       return
     }
     const labels = targets.map((device) => `${device.name}${device.physical ? '' : ' (simulator)'}`)

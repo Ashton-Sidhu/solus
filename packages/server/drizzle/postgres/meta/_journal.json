@@ -92,6 +92,13 @@
       "when": 1791269808637,
       "tag": "0012_session_read_state",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791347535774,
+      "tag": "0013_remove_insights_reports",
+      "breakpoints": true
     }
   ]
 }

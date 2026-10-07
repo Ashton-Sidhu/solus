@@ -109,8 +109,10 @@ describe('first boot after the JSON receipts', () => {
       run_id TEXT NOT NULL, state TEXT NOT NULL, payload TEXT NOT NULL, updated_at INTEGER NOT NULL)`)
     file.prepare('INSERT INTO session_restart_runs(session_id, run_id, state, payload, updated_at) VALUES (?, ?, ?, ?, ?)')
       .run('legacy', 'original', 'running', JSON.stringify(run('legacy')), 1)
-    // Every migration after the ledger runs again; the one that drops sessions.viewed_at needs the column.
+    // Every migration after the ledger runs again; the one that drops sessions.viewed_at needs the column,
+    // and the one that adds sessions.started_by needs it gone.
     file.exec('ALTER TABLE sessions ADD COLUMN viewed_at INTEGER')
+    file.exec('ALTER TABLE sessions DROP COLUMN started_by')
     file.exec(`PRAGMA user_version = ${ledgerSlot}`)
     runMigrations(legacy)
     expect(file.prepare('SELECT session_id, run_id, state FROM runs').all()).toEqual([{ session_id: 'legacy', run_id: 'original', state: 'running' }])

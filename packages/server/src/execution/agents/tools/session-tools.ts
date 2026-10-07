@@ -14,8 +14,12 @@ import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import { Task } from '../../../data/tasks/task'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
 import type { Exchange } from '../../orchestration/exchange'
-import { MAX_WAIT_MS, type SpawnedSession } from '../../orchestration/session-orchestrator'
+import { MAX_WAIT_MS, type RemoteTarget, type SpawnedSession } from '../../orchestration/session-orchestrator'
 import { formatTaskSessions } from '../../orchestration/task-view'
+import type { RemoteHost, RemoteHosts } from '../../orchestration/remote-hosts'
+import { agentTargetFromMetadata } from '../agent-targets'
+import { hostDisplayName } from '../../../platform/host-display-name'
+import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 
 const log = createLogger('sessions', 'session-tools.ts')
 
@@ -51,6 +55,7 @@ export interface SessionOrchestration {
     report: boolean,
     waitMs?: number,
     requestId?: string,
+    target?: RemoteTarget,
   ): Promise<{ exchangeId: string; sessionId: string; starting?: boolean; taskId?: string; waited?: OrchestrationItem | null }>
   send(
     senderSessionId: string,
@@ -59,6 +64,8 @@ export interface SessionOrchestration {
   ): Promise<{ exchangeId: string; disposition: 'started' | 'steered' | 'queued'; waited?: OrchestrationItem | null }>
   readExchange?(senderSessionId: string, exchangeId: string): Exchange | undefined
   stop(senderSessionId: string | undefined, targetSessionId: string): boolean
+  /** The host a session the sender started runs on, when it is not this host. */
+  remoteHostOf?(senderSessionId: string, targetSessionId: string): string | undefined
 }
 
 let sessionOrchestration: SessionOrchestration | null = null
@@ -66,8 +73,17 @@ export function setSessionOrchestration(orchestration: SessionOrchestration): vo
   sessionOrchestration = orchestration
 }
 
+/** The owner's other hosts, on a host that holds the owner's account session
+ *  (docs/plans/cross-host-sessions.md). Null elsewhere. */
+let remoteHosts: RemoteHosts | null = null
+export function setRemoteHosts(hosts: RemoteHosts | null): void {
+  remoteHosts = hosts
+}
+
 export interface SessionController {
   listAgentTargets?(): Promise<AgentTarget[]>
+  /** Whether the session's current turn works for this host's owner, or for the host itself. */
+  actsForHostOwner?(sessionId: string): boolean
   getSessionInfo(sessionId: string): Promise<SessionMeta | null>
   /** The last `limit` messages; without a limit, the whole transcript. */
   loadSessionTail(provider: AgentId, sessionId: string, projectPath: string | undefined, limit?: number): Promise<SessionLoadMessage[]>
@@ -120,6 +136,7 @@ interface SessionToolArgs {
   report?: unknown
   request_id?: unknown
   exchange_id?: unknown
+  host?: unknown
   reply_offset?: unknown
   role?: unknown
   session_id?: unknown
@@ -148,8 +165,11 @@ const WAIT_FIELD = z
 const REQUEST_ID_FIELD = z.string().trim().min(1).max(200).optional()
   .describe('Stable ID for this request, scoped to the calling session. Reuse it when retrying the same work; use a new ID for a new request or review round. A retry returns the original exchange and never starts duplicate work. Closed receipts are kept for 30 days.')
 
+const HOST_FIELD = z.string().trim().min(1).optional()
+
 const startSessionFields = {
   prompt: z.string().describe('The prompt the new session starts running immediately.'),
+  host: HOST_FIELD.describe("Optional. Start the session on another of your hosts, by its id or name from list_agent_targets. Omit to start it on this host. On another host, task must be 'none', cwd is a path on that host (default: a new chat folder there), and the provider and model must be ones that host offers."),
   task: z
     .enum(['attempt', 'none'])
     .describe("Required; no default. 'attempt': another session on an existing task — the one in task_id, or your own task when task_id is omitted. Use it to break your task into parts. 'none': a session with no task."),
@@ -179,7 +199,9 @@ const startSessionFields = {
   wait_seconds: WAIT_FIELD,
 }
 
-const listAgentTargetsFields = {}
+const listAgentTargetsFields = {
+  host: HOST_FIELD.describe('Optional. List what another of your hosts offers, by its id or name. Omit for this host, which also lists the other hosts you can start sessions on.'),
+}
 
 const readTaskSessionsFields = {
   task_id: z.string().optional().describe('The task to show. Defaults to the task this session works on.'),
@@ -240,9 +262,10 @@ const START_SESSION_DESC = [
   "Prefer async work: keep wait_seconds=0 and report=true, end your turn, and let the report wake you. A request stays open while its nested reported work or completion follow-up is pending. read_session_exchange reads the stored state and result by exchange id when needed mid-turn; do not poll in a loop.",
   "Use a native subagent for brief same-provider work when it supports the selected model. Use start_session for work that needs a durable Solus conversation, another provider or model, or nested async coordination. Use send_session to continue an existing session; each new request and review round has its own exchange. Include the full brief, prior findings, responses, and unresolved issues for each review round.",
   "Choose the workspace before starting: worktree_base_branch creates an isolated worktree, otherwise cwd selects the checkout. A shell command in the prompt does not change the session's workspace binding. Use request_id for safe retries. Prefer reported work owned by the current task; start an unrelated conversation only when the user asks for it.",
+  "Use `host` only when the user asks for the work to run on another of their machines; list_agent_targets names them. A session on another host reports back here like any other, and stop_session stops it.",
 ].join(' ')
 const LIST_AGENT_TARGETS_DESC =
-  'List the agent providers and models currently configured on this Solus host for start_session, including runtime availability and supported reasoning levels. Use this before choosing a worker provider or model, including same-provider models a native subagent tool may not support.'
+  'List the agent providers and models currently configured on this Solus host for start_session, including runtime availability and supported reasoning levels, and the other hosts you can start sessions on. Use this before choosing a worker provider or model, including same-provider models a native subagent tool may not support. With `host`, list what that host offers instead.'
 const SEARCH_SESSIONS_DESC =
   "Full-text search over ALL your past Solus conversations (every project and its worktrees). Reach for it WHENEVER the user refers to a prior discussion — 'the X thread', 'when we talked about Y', 'like we decided before' — instead of answering from memory. Put the topic in `query` and leave `project` unset (topic and working directory routinely differ). Every result carries a clickable session link and a `session id`; call `read_session` with that id (pass your query as `match`) to load the conversation before you answer. When you cite one of these sessions, copy its link exactly as returned."
 const READ_SESSION_DESC =
@@ -376,6 +399,12 @@ function outcomeNote(report: boolean, waitMs: number, waited: OrchestrationItem 
  *  tag, so a report's reply runs to the end of the text. */
 function waitedBlock(waited: OrchestrationItem | null | undefined): string {
   return waited ? `\n\n${formatOrchestrationItem(waited)}` : ''
+}
+
+/** The other host a session the caller started runs on, if any. */
+function remoteHostOf(deps: SessionToolDeps, sessionId: string): string | undefined {
+  const caller = deps.ctx?.sessionId
+  return caller ? sessionOrchestration?.remoteHostOf?.(caller, sessionId) : undefined
 }
 
 export async function findSession(sessionId: string): Promise<SessionMeta | null> {
@@ -533,9 +562,51 @@ export async function executeSessionTool(
 
 type SessionToolHandler = (args: SessionToolArgs, deps: SessionToolDeps) => Promise<SessionToolResult>
 
-async function listAgentTargetsTool(): Promise<SessionToolResult> {
+async function listAgentTargetsTool(args: SessionToolArgs): Promise<SessionToolResult> {
+  const parsed = z.object(listAgentTargetsFields).safeParse(args)
+  if (!parsed.success) return { ok: false, text: 'list_agent_targets received invalid arguments.' }
+  if (parsed.data.host) {
+    const remote = await connectRemoteHost(parsed.data.host)
+    if ('error' in remote) return { ok: false, text: remote.error }
+    const targets = await remoteAgentTargets(remote)
+    if ('error' in targets) return { ok: false, text: targets.error }
+    return { ok: true, text: JSON.stringify({ host: remote.label, targets }, null, 2) }
+  }
   const targets = await listAgentTargets()
-  return { ok: true, text: JSON.stringify({ targets }, null, 2) }
+  const hosts = remoteHosts ? await remoteHosts.list() : null
+  if (!hosts || 'error' in hosts) return { ok: true, text: JSON.stringify({ targets }, null, 2) }
+  const otherHosts = hosts.map((host) => {
+    const listed: OtherHost = { id: host.hostId, name: host.label }
+    if (host.managedState) listed.state = host.managedState
+    return listed
+  })
+  return { ok: true, text: JSON.stringify({ targets, otherHosts }, null, 2) }
+}
+
+/** One of the owner's other hosts, as list_agent_targets names it. */
+interface OtherHost {
+  id: string
+  name: string
+  /** A managed host's lifecycle; work starts only on a `ready` one. */
+  state?: string
+}
+
+/** The connection to one of the owner's other hosts, by id or name. */
+async function connectRemoteHost(ref: string): Promise<RemoteHost | { error: string }> {
+  if (!remoteHosts) return { error: 'This host cannot reach your other hosts. Only a host signed in to your Solus account (the desktop app) can start sessions on other hosts.' }
+  const found = await remoteHosts.find(ref)
+  if ('error' in found) return found
+  return remoteHosts.connect(found)
+}
+
+/** What another host offers, read the way a client reads it. */
+async function remoteAgentTargets(remote: RemoteHost): Promise<AgentTarget[] | { error: string }> {
+  try {
+    const info = await remote.call('the agent list', () => remote.api.start())
+    return info.agents.map(agentTargetFromMetadata)
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) }
+  }
 }
 
 async function readSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Promise<SessionToolResult> {
@@ -545,7 +616,11 @@ async function readSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Pr
   const tail = parsed.data.tail ?? 10
   const match = parsed.data.match?.trim() ?? ''
   const meta = await findSession(parsed.data.session_id.trim())
-  if (!meta) return { ok: false, text: `Session ${parsed.data.session_id.trim()} not found.` }
+  if (!meta) {
+    const remoteHost = remoteHostOf(deps, parsed.data.session_id.trim())
+    if (remoteHost) return { ok: false, text: `Session ${parsed.data.session_id.trim()} runs on ${remoteHost}. read_session cannot read another host yet; its report comes back here, and read_session_exchange reads it.` }
+    return { ok: false, text: `Session ${parsed.data.session_id.trim()} not found.` }
+  }
   // The session read may name a thread; everything below names the session.
   const sessionId = meta.sessionId
   const status = sessionController.liveStatus(sessionId) ?? meta.status ?? 'idle'
@@ -661,6 +736,8 @@ async function sendSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Pr
   if (sessionId === callerSessionId) return { ok: false, text: 'Cannot message your own session.' }
   const message = parsed.data.message
   if (!message.trim()) return { ok: false, text: 'send_session requires a non-empty message.' }
+  const remoteHost = remoteHostOf(deps, sessionId)
+  if (remoteHost) return { ok: false, text: `Session ${sessionId} runs on ${remoteHost}. send_session cannot reach a session on another host yet; tell the user to continue it there.` }
   const meta = await findSession(sessionId)
   if (!meta) return { ok: false, text: `Session ${sessionId} not found.` }
   if (meta.sessionId === callerSessionId) return { ok: false, text: 'Cannot message your own session.' }
@@ -712,6 +789,12 @@ async function stopSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Pr
   if (!parsed.success) return { ok: false, text: 'stop_session requires session_id.' }
   const sessionId = parsed.data.session_id.trim()
   if (sessionId === deps.ctx?.sessionId) return { ok: false, text: 'Cannot stop your own session.' }
+  const remoteHost = remoteHostOf(deps, sessionId)
+  if (remoteHost) {
+    return sessionOrchestration.stop(deps.ctx?.sessionId, sessionId)
+      ? { ok: true, text: `Asked ${remoteHost} to stop session ${sessionId}. Its report says when it stopped.` }
+      : { ok: true, text: `Session ${sessionId} on ${remoteHost} is not running a turn you sent.` }
+  }
   const meta = await findSession(sessionId)
   if (!meta) return { ok: false, text: `Session ${sessionId} not found.` }
   return sessionOrchestration.stop(deps.ctx?.sessionId, meta.sessionId)
@@ -727,7 +810,8 @@ async function startSessionTool(args: SessionToolArgs, deps: SessionToolDeps): P
   if (!sessionOrchestration) {
     return { ok: false, text: 'start_session is unavailable — it requires the app to be running with an active control plane.' }
   }
-  const runner = await chooseRunner(input.agent_provider ?? deps.ctx?.agentProvider ?? 'claude-code', input.model_id, input.reasoning_effort)
+  if (input.host) return startRemoteSessionTool(sessionOrchestration, input, input.host, deps)
+  const runner = chooseRunner(await listAgentTargets(), input.agent_provider ?? deps.ctx?.agentProvider ?? 'claude-code', input.model_id, input.reasoning_effort)
   if ('error' in runner) return { ok: false, text: runner.error }
   const binding = await resolveStartTask(input.task, input.task_id, deps.ctx?.sessionId)
   if ('error' in binding) return { ok: false, text: binding.error }
@@ -756,6 +840,49 @@ async function startSessionTool(args: SessionToolArgs, deps: SessionToolDeps): P
   }
 }
 
+/** `start_session` with `host`: the session starts on another of the owner's
+ *  hosts, as if the owner started it there (docs/plans/cross-host-sessions.md). */
+async function startRemoteSessionTool(
+  orchestration: SessionOrchestration,
+  input: z.infer<z.ZodObject<typeof startSessionFields>>,
+  hostRef: string,
+  deps: SessionToolDeps,
+): Promise<SessionToolResult> {
+  const callerSessionId = deps.ctx?.sessionId
+  if (!callerSessionId) return { ok: false, text: 'start_session on another host is unavailable before the calling session is initialized.' }
+  if (input.task !== 'none') return { ok: false, text: "A session on another host cannot join a task yet. Use task='none'." }
+  if (sessionController?.actsForHostOwner && !sessionController.actsForHostOwner(callerSessionId)) {
+    return { ok: false, text: "Only this host's owner can start sessions on their other hosts." }
+  }
+  const remote = await connectRemoteHost(hostRef)
+  if ('error' in remote) return { ok: false, text: remote.error }
+  const targets = await remoteAgentTargets(remote)
+  if ('error' in targets) return { ok: false, text: targets.error }
+  const runner = chooseRunner(targets, input.agent_provider ?? deps.ctx?.agentProvider ?? 'claude-code', input.model_id, input.reasoning_effort)
+  if ('error' in runner) return { ok: false, text: `${runner.error} (on ${remote.label})` }
+  const { provider, modelId, reasoningEffort, contextWindow } = runner
+  // A path on the other host: it is resolved there, never here.
+  const cwd = input.cwd?.trim() || NEW_CHAT_DIRECTORY
+  const waitMs = input.wait_seconds * 1000
+  const target: RemoteTarget = { host: remote, origin: { hostLabel: hostDisplayName(), sessionId: callerSessionId } }
+  const created = await orchestration.spawn(callerSessionId, {
+    prompt: input.prompt,
+    provider,
+    modelId,
+    reasoningEffort,
+    contextWindow,
+    cwd,
+    worktreeBaseBranch: input.worktree_base_branch?.trim() || null,
+    taskId: null,
+  }, input.report, waitMs, input.request_id, target)
+  // A client opens it on its host, which knows where it runs.
+  const link = sessionLink({ provider, sessionId: created.sessionId, slug: null, cwd: '', serverId: remote.installationId })
+  return {
+    ok: true,
+    text: `Session ${link} on ${remote.label}, ${provider}/${modelId} (reasoning: ${reasoningEffort}).${outcomeNote(input.report, waitMs, created.waited)}\n${formatExchangeTag({ messageId: created.exchangeId, sessionId: created.sessionId, provider })}${waitedBlock(created.waited)}`,
+  }
+}
+
 /** A session whose provider has not started yet: its id is real, but there is no transcript to read. */
 function formatPendingSessionReceipt(created: SpawnedSession, runner: Runner, report: boolean, waitMs: number): string {
   const startup = created.waited?.type === 'report' ? 'Provider startup ended.' : 'Startup continues in the background.'
@@ -780,9 +907,9 @@ interface Runner {
   contextWindow: number | null
 }
 
-/** Checks the requested provider, model and reasoning level against what this host offers. */
-async function chooseRunner(requestedProvider: string, requestedModel: string, requestedEffort: ReasoningEffort | undefined): Promise<Runner | { error: string }> {
-  const target = (await listAgentTargets()).find((candidate) => candidate.provider === requestedProvider)
+/** Checks the requested provider, model and reasoning level against what the host offers. */
+function chooseRunner(targets: readonly AgentTarget[], requestedProvider: string, requestedModel: string, requestedEffort: ReasoningEffort | undefined): Runner | { error: string } {
+  const target = targets.find((candidate) => candidate.provider === requestedProvider)
   if (!target) return { error: `Unknown agent provider "${requestedProvider}". Call list_agent_targets for current choices.` }
   if (!target.available) {
     return { error: `Agent provider "${requestedProvider}" is unavailable${target.unavailableReason ? `: ${target.unavailableReason}` : '.'}` }

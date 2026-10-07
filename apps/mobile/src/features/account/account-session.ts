@@ -6,7 +6,7 @@ import type { SettingsCloudRequests } from '@solus/client-core/settings-requests
 import type { SyncAccount } from '@solus/client-core/settings-sync'
 import { managedHostNeedsStart } from '@solus/client-core/server-registry'
 import type { AccountProfile } from '@solus/contracts/account-types'
-import type { AccountOrganization, DirectoryWorkspace } from '@solus/contracts/uplink'
+import type { AccountOrganization, DirectoryWorkspace, UplinkEnrollmentTicket } from '@solus/contracts/uplink'
 import { Listeners } from '../../lib/listeners'
 import type { KeyValueStore, SecretStore } from '../../platform/ports'
 import type { HostRegistry, NativeHost } from '../hosts/host-registry'
@@ -252,6 +252,18 @@ export class AccountSession {
       return true
     } catch {
       return false
+    }
+  }
+
+  /** A ticket to link a host to this account; null when signed out. A 401 ends the session. */
+  async issueEnrollmentTicket(): Promise<UplinkEnrollmentTicket | null> {
+    const stored = this.stored
+    if (!stored) return null
+    try {
+      return await this.deps.client.enrollmentTicket(stored.sessionToken)
+    } catch (error) {
+      if (error instanceof AccountUnauthorizedError && this.stored === stored) await this.endSession('Your Solus session ended. Sign in again.')
+      throw error
     }
   }
 

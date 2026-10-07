@@ -3,7 +3,7 @@ import type { PlanComment } from '@solus/contracts/types'
 import type { User } from '@solus/contracts/user'
 import { deriveWorkReviewState, type WorkReview, type WorkReviewer } from '@solus/contracts/work-review'
 import { workReviewNotice } from '@solus/workspace-ui/contexts/works/work-review-notice'
-import { openThreadsPrompt, reviewCandidates, reviewerActivity, reviewerStatus } from '@solus/workspace-ui/components/work/lib/work-review'
+import { isVerdict, openThreadsPrompt, reviewCandidates, reviewerActivity, reviewerStatus } from '@solus/workspace-ui/components/work/lib/work-review'
 import { DEFAULT_FILTER, applyFilter, parseToken, rowStatus, type WorkspaceItem } from '@solus/workspace-ui/components/workspace/lib/workspace-items'
 
 /**
@@ -21,6 +21,16 @@ function reviewer(over: Partial<WorkReviewer> = {}): WorkReviewer {
     requestedRevisionId: 2, decision: null, decisionSummary: null, decidedAt: null, decidedRevisionId: null, isStale: false, isAwaiting: true, ...over,
   }
 }
+
+describe('the verdict badge', () => {
+  test('only a current approval or change request marks the reviewer who gave it', () => {
+    expect(isVerdict(reviewer({ decision: 'approved' }))).toBe(true)
+    expect(isVerdict(reviewer({ decision: 'changes_requested' }))).toBe(true)
+    expect(isVerdict(reviewer({ decision: 'approved', isStale: true }))).toBe(false)
+    expect(isVerdict(reviewer({ decision: 'commented' }))).toBe(false)
+    expect(isVerdict(reviewer())).toBe(false)
+  })
+})
 
 describe('the review state', () => {
   test('a current request for changes wins, a stale approval does not count', () => {

@@ -205,7 +205,7 @@
         >
           On your computer, open Solus and go to <strong
             class="font-medium text-(--solus-text-secondary)"
-            >Settings → Connections</strong
+            >Settings → Hosts → this computer → Access</strong
           >. Scan the QR code, or paste the pairing link or address here.
         </p>
 

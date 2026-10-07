@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { Info as InfoIcon } from "@lucide/svelte";
+  import { LoaderCircle as CircleNotchIcon } from "@lucide/svelte";
+  import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import { hostOnboardingStore as store } from "./host-onboarding.store.svelte";
   import type { DiscoveredServer } from "@solus/contracts/types";
@@ -32,128 +33,80 @@
   }
 </script>
 
-<p class="text-[2em] font-medium text-(--solus-text-primary)">
-  {target.name}
-</p>
-<p
-  class="mt-1 truncate text-[0.875em] text-(--solus-text-tertiary)"
-  style="font-family: 'Geist Mono', ui-monospace, monospace"
->
-  {target.host}:{target.port}
-  {target.source === "lan" ? " · LAN" : " · Tailnet"}
-</p>
-
-<div class="mt-[0.8125rem] flex items-center gap-2.5">
-  <span
-    class="h-0.5 flex-1 overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--solus-text-primary)_12%,transparent)]"
-  >
-    {#if store.pairingView === "connecting" || store.pairingBusy}
-      <span
-        class="block h-full w-2/5 rounded-full bg-(--solus-accent) animate-[connect-progress-slide_1.5s_ease-in-out_infinite] motion-reduce:w-full motion-reduce:animate-none motion-reduce:opacity-40"
-      ></span>
-    {:else if store.pairingView === "error"}
-      <span class="block h-full w-full rounded-full bg-(--solus-status-error)/40"></span>
-    {/if}
-  </span>
-  <span class="shrink-0 text-[0.875em] tabular-nums text-(--solus-text-tertiary)">
-    {store.pairingView === "error" ? "Not connected" : "Connecting"}
-  </span>
-</div>
-
+<!-- The stage owns the title and the one-line why; this is only the control. -->
 <form onsubmit={submit}>
   {#if store.pairingView === "connecting"}
-    <p class="mt-4 text-pretty leading-[1.6] font-secondary text-(--solus-text-secondary)">
-      Solus is using your existing SSH access to pair with the server on
-      {target.name}. Nothing is installed on this Mac.
+    <p class="flex items-center gap-2.5" role="status">
+      <CircleNotchIcon size={14} class="shrink-0 animate-spin text-primary" />
+      Pairing with {target.name}…
     </p>
   {:else if store.pairingView === "error"}
-    <p class="mt-4 text-pretty leading-[1.6] text-(--solus-status-error)">
-      {store.pairingError}
-    </p>
+    <p class="cursor-text select-text text-pretty text-destructive">{store.pairingError}</p>
   {:else if store.pairingView === "ssh-target"}
-    <p
-      class="mt-4 flex items-start gap-2 text-pretty text-[0.875em] leading-[1.55] font-secondary text-(--solus-text-secondary)"
-    >
-      <InfoIcon size={14} class="mt-[0.1875rem] shrink-0 text-(--solus-text-quaternary)" />
-      <span>
-        {store.pairingError ||
-          `Solus connects over your existing SSH access to set up ${target.name}.`}
-      </span>
-    </p>
-    <label class="mt-3.5 block">
-      <span
-        class="text-[0.875em] font-medium uppercase text-(--solus-text-tertiary)"
-        >SSH target</span
-      >
+    <label class="block">
+      <span class="mb-2 block text-[0.8125rem] text-muted-foreground">SSH address</span>
       <Input
         bind:ref={sshTargetInput}
         bind:value={store.sshTarget}
         disabled={store.pairingBusy}
-        class="mt-1.5 h-10 w-full rounded-lg border-(--solus-input-border) px-3 text-[length:inherit] text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[length:inherit]"
+        class="h-10 rounded-[0.6875rem] px-3.5"
         placeholder="user@host"
         autocomplete="off"
         spellcheck={false}
+        dictation={false}
       />
     </label>
+    {#if store.pairingError}
+      <p class="mt-2.5 text-pretty text-[0.8125rem] text-muted-foreground">{store.pairingError}</p>
+    {/if}
   {:else if store.pairingView === "ssh-password"}
-    <p
-      class="mt-4 flex items-start gap-2 text-pretty text-[0.875em] leading-[1.55] font-secondary text-(--solus-text-secondary)"
-    >
-      <InfoIcon size={14} class="mt-[0.1875rem] shrink-0 text-(--solus-text-quaternary)" />
-      <span>
-        Enter the SSH password or key passphrase for
-        <span
-          class="rounded-md bg-(--solus-surface-hover) px-1 py-0.5 text-[length:inherit] text-(--solus-text-primary)"
-          >{store.sshTarget}</span
-        >. It is used once and never stored.
+    <label class="block">
+      <span class="mb-2 block truncate text-[0.8125rem] text-muted-foreground">
+        Password or passphrase for {store.sshTarget}
       </span>
-    </p>
-    <label class="mt-3.5 block">
-      <span
-        class="text-[0.875em] font-medium uppercase text-(--solus-text-tertiary)"
-        >Password or passphrase</span
-      >
       <Input
         bind:ref={sshPasswordInput}
         bind:value={store.sshPassword}
         disabled={store.pairingBusy}
-        class="mt-1.5 h-10 w-full rounded-lg border-(--solus-input-border) px-3 text-[length:inherit] text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[length:inherit]"
+        class="h-10 rounded-[0.6875rem] px-3.5"
         type="password"
-        placeholder="••••••••"
         autocomplete="current-password"
+        dictation={false}
       />
     </label>
   {:else}
-    <p
-      class="mt-4 flex items-start gap-2 text-pretty text-[0.875em] leading-[1.55] font-secondary text-(--solus-text-secondary)"
-    >
-      <InfoIcon size={14} class="mt-[0.1875rem] shrink-0 text-(--solus-text-quaternary)" />
-      <span>
-        Use the one-time code only for web, mobile, or environments without SSH.
-      </span>
-    </p>
-    <label class="mt-3.5 block">
-      <span
-        class="text-[0.875em] font-medium uppercase text-(--solus-text-tertiary)"
-        >Pair code</span
-      >
+    <label class="block">
+      <span class="mb-2 block text-[0.8125rem] text-muted-foreground">Pair code</span>
       <Input
         bind:ref={codeInput}
         bind:value={store.pairCode}
         disabled={store.pairingBusy}
-        class="mt-1.5 h-10 w-full max-w-[12rem] rounded-lg border-(--solus-input-border) px-3 text-center text-[length:inherit] tabular-nums text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[length:inherit]"
+        class="h-10 max-w-[10rem] rounded-[0.6875rem] px-3.5 text-center tracking-[0.2em] tabular-nums"
         placeholder="000000"
         inputmode="numeric"
-        maxlength="6"
+        maxlength={6}
         autocomplete="one-time-code"
+        dictation={false}
       />
     </label>
     {#if store.pairingError}
-      <p class="mt-2 text-pretty text-[0.875em] leading-relaxed text-(--solus-status-error)">
-        {store.pairingError}
-      </p>
+      <p class="mt-2.5 text-pretty text-[0.8125rem] text-destructive">{store.pairingError}</p>
     {/if}
   {/if}
+
+  <p class="mt-2.5 text-[0.8125rem] text-muted-foreground">
+    {#if store.pairingView === "fallback"}
+      Have SSH access?
+      <Button variant="link" class="h-auto px-0 text-[length:inherit]" onclick={() => void store.startSshBootstrap()}>
+        Use SSH
+      </Button>
+    {:else}
+      No SSH?
+      <Button variant="link" class="h-auto px-0 text-[length:inherit]" onclick={() => store.useCodeFallback()}>
+        Pair with a code
+      </Button>
+    {/if}
+  </p>
   <!-- Submits on Enter; the visible control lives in the stage footer. -->
   <button type="submit" class="sr-only" tabindex="-1" aria-hidden="true">Continue</button>
 </form>
