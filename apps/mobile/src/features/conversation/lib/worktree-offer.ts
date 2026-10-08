@@ -21,7 +21,7 @@ export interface WorktreeOfferText {
 
 /** The same words as the desktop card (`worktree-offer.ts` in workspace-ui). */
 export function worktreeOfferText(offer: WorktreeOfferItem): WorktreeOfferText {
-  const title = `The agent is working in worktree ${offer.branch || shortWorktreePath(offer.path)} (${shortWorktreePath(offer.path)})`
+  const title = `The agent is working in worktree ${offer.branch || shortWorktreePath(offer.path)}`
   switch (offer.resolution?.decision) {
     case 'switched':
       return { eyebrow: 'Switched to the worktree', title, detail: '', canDecide: false, failed: false }

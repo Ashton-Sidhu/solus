@@ -1,4 +1,5 @@
 import { createLogger } from '../../logger'
+import type { SessionRuntime } from '../../execution/session-runtime'
 import { getProvider, providerForRepo } from '../../providers/registry'
 import { ConnectCancelledError } from '../../providers/github/auth'
 import { loadToken } from '../../providers/github/token-store'
@@ -228,7 +229,7 @@ export interface ProviderHandlerDeps {
   isWorktreeInUse: (path: string) => boolean
   /** Whether a Solus session is still mid-turn; a merge does not finish a task under one. */
   isSessionBusy: (sessionId: string) => boolean
-  dispatcher: AgentDispatcher
+  dispatcher: AgentDispatcher & Pick<SessionRuntime, 'seatForTurn'>
   events: HostEventPublisher
   prSync: PrSync
 }
@@ -359,6 +360,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       if (!isOpenPage || page !== 1 || result.hasMore) return
       scheduleGuideWarming({
         dispatcher: deps.dispatcher,
+        seatFor: (agent) => deps.dispatcher.seatForTurn(handlerCtx.actor, agent),
         checkouts,
         ctx,
         repoRoot,
@@ -868,12 +870,14 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
 
   // Explicit opt-in guide generation: queue the PRs and return immediately;
   // progress is published as typed host events.
-  server.register('prGenerateGuides', async (args) => {
+  server.register('prGenerateGuides', async (args, handlerCtx) => {
     const [ctx, numbers] = args
     const { repo, provider } = await reviewTargetFor(ctx)
     const repoRoot = await repoRootOrScope(ctx)
     requestPrGuides({
       dispatcher: deps.dispatcher,
+      // Guides run on the requester's own provider login, as their turns do.
+      seatFor: (agent) => deps.dispatcher.seatForTurn(handlerCtx.actor, agent),
       checkouts,
       ctx,
       repoRoot,

@@ -7,6 +7,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 import { git } from '@solus/server/git/exec'
 import { PARTIAL_CLONE_ARGS, ensureFullHistory } from '@solus/server/git/partial-clone'
 import { readPullRequestAuthoringContext } from '@solus/server/git/pull-request-authoring'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 let ensureBranchWorktree: typeof import('@solus/server/git/worktree-manager')['ensureBranchWorktree']
 beforeAll(async () => {
   ({ ensureBranchWorktree } = await import('@solus/server/git/worktree-manager'))
@@ -63,6 +64,9 @@ function missingObjects(checkout: string): string[] {
   return git(['rev-list', '--objects', '--all', '--missing=print'], checkout)
     .split('\n').filter((line) => line.startsWith('?')).map((line) => line.slice(1))
 }
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 test('a dispatch checkout has full history and every branch, and fetches old file contents only when read', async () => {
   // WHY: a shallow clone of diverged branches has no merge base, so reviews

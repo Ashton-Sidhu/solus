@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { NormalizedEvent } from '@solus/contracts/types'
 import { git } from '@solus/server/git/exec'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 mock.module('@solus/server/git/worktree-name', () => ({ generateWorktreeName: async () => 'Fix Layout' }))
@@ -24,6 +25,9 @@ afterAll(() => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
   rmSync(directory, { recursive: true, force: true })
 })
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 test('naming before session registration updates the checkout retained by dispatch', async () => {
   const { createWorktree } = await import('@solus/server/git/worktree-manager')

@@ -18,6 +18,7 @@
     File as FileIcon,
     Zap as LightningIcon,
     SquareTerminal as TerminalIcon,
+    GitPullRequest as GitPullRequestIcon,
   } from "@lucide/svelte";
   import { getSurfaceContext, runtime } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -68,10 +69,10 @@
 
   const text = $derived(content ?? message?.content ?? "");
   const isPending = $derived(deliveryState !== 'sent');
-  // Sent by the host's own work, not a person: an automation, or a background
-  // command that finished after the agent's turn.
+  // Sent by the host's own work, not a person: an automation, a background
+  // command that finished after the agent's turn, or a watched pull request's news.
   const isHostSent = $derived(
-    message?.via === "automation" || message?.via === "background-command",
+    message?.via === "automation" || message?.via === "background-command" || message?.via === "pull-request-watch",
   );
   const hasControls = $derived(isPending && (!!onEditSubmit || !!onRemove || !!actions));
   const canCollapse = $derived(!isPending && shouldCollapseUserMessage(text));
@@ -349,6 +350,12 @@
           <span class="mb-[0.1875rem] flex items-center gap-1 text-xs font-medium text-(--solus-text-tertiary) uppercase">
             <TerminalIcon size={9} />
             <span>Background command</span>
+          </span>
+        {:else if message?.via === "pull-request-watch"}
+          <!-- Required origin label. The pull request's link is in the text. -->
+          <span class="mb-[0.1875rem] flex items-center gap-1 text-xs font-medium text-(--solus-text-tertiary) uppercase">
+            <GitPullRequestIcon size={9} />
+            <span>Pull request watch</span>
           </span>
         {:else if isHostSent}
           <!-- Required origin label: the only thing separating an agent-sent

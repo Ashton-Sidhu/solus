@@ -381,22 +381,22 @@
            Solus does not own, so the card names the state, the branch whose
            worktree serves it, and the one action that is actually the user's. -->
       <div
-        class="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-(--solus-container-bg)/95 p-8"
+        class="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-[var(--card)] p-8"
       >
-        <div class="flex w-full max-w-[26rem] flex-col items-start gap-3">
+        <div class="flex w-full min-w-0 max-w-[26rem] flex-col items-start gap-3">
           <span
             class="rounded-full bg-[color-mix(in_oklch,var(--failure)_14%,transparent)] px-2 py-0.5 font-medium text-[color:color-mix(in_oklch,var(--failure)_72%,var(--foreground))]"
           >
             {problemCode}
           </span>
-          <div>
+          <div class="w-full min-w-0">
             <p
               class="font-semibold text-[length:calc(var(--text-workspace-chrome)+0.25rem)] text-(--solus-text-primary)"
             >
               {problemHeadline}
             </p>
             <p
-              class="mt-1.5 leading-relaxed text-(--solus-text-tertiary)"
+              class="mt-1.5 leading-relaxed wrap-anywhere text-(--solus-text-tertiary)"
             >
               {page.problem.message}
             </p>

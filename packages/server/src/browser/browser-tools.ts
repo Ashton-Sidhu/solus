@@ -1,5 +1,6 @@
 import { toolAgentAttribution } from '../execution/agents/tools/agent-attribution'
-import { join } from 'path'
+import { statSync } from 'node:fs'
+import { isAbsolute, join, resolve } from 'path'
 import { z } from 'zod'
 import {
   DEVICE_PRESETS,
@@ -20,12 +21,13 @@ import {
 } from '@solus/contracts/browser-types'
 import type { AgentTool, AgentToolContext, AgentToolResult } from '../execution/agents/tools/agent-tool'
 import { createLogger } from '../logger'
-import { dataDir } from '../platform/paths'
+import { dataDir, resolveHomePath } from '../platform/paths'
 import { writeAssetUpload } from '../data/assets/assets'
 import { attachEvidence, stopAndFileRecording } from './browser-evidence'
 import { browserRecorder } from './browser-recorder'
 import { browserProfiles, profileForOpen } from './browser-profiles'
 import { browserRegistry } from './browser-registry'
+import type { BrowserDialogAnswer } from './surface-driver'
 import { discoverBrowserTargets } from './target-scanner'
 
 /**
@@ -157,6 +159,8 @@ function describePage(page: BrowserPage): string {
     `  profile: ${page.profileId}`,
   ]
   if (page.problem) lines.push(`  problem: ${page.problem.kind} — ${page.problem.message}`)
+  const dialog = browserRegistry().openDialog(page.browserPageId)
+  if (dialog) lines.push(`  dialog: ${dialog.type} "${dialog.message}" is open — answer it with browser_dialog`)
   // The one page state that makes every other verb fail, so it is stated where
   // an agent reads the page rather than discovered by a refused command.
   if (page.devToolsOpen) {
@@ -579,10 +583,107 @@ export const browserWaitForAgentTool = browserTool({
   },
 })
 
+export const browserHoverAgentTool = browserTool({
+  name: 'browser_hover',
+  description: 'Move the mouse over an element in a browser page, to show its tooltip, hover menu, or hover style.',
+  inputFields: {
+    browserPageId: z.string(),
+    ref: z.string().describe('An element ref from browser_snapshot.'),
+  },
+  pageOf: (input) => input.browserPageId,
+  execute: async (input) => interact(input.browserPageId, { kind: 'hover', ref: input.ref }),
+})
+
+export const browserSelectAgentTool = browserTool({
+  name: 'browser_select',
+  description:
+    'Choose options in a native <select> in a browser page, by option value or visible label. A click '
+    + 'cannot do this: the browser draws the option list outside the page. A custom dropdown is not a '
+    + '<select>: click it open, then click the option.',
+  inputFields: {
+    browserPageId: z.string(),
+    ref: z.string().describe('The ref of the <select> from browser_snapshot.'),
+    values: z.array(z.string()).min(1).describe('One value or label, or more for a <select multiple>.'),
+  },
+  pageOf: (input) => input.browserPageId,
+  execute: async (input) => interact(input.browserPageId, { kind: 'select', ref: input.ref, values: input.values }),
+})
+
+export const browserDragAgentTool = browserTool({
+  name: 'browser_drag',
+  description:
+    'Drag an element onto another element in a browser page, for example a card to another column or '
+    + 'an item to a new place in a list. Both elements must show on screen together.',
+  inputFields: {
+    browserPageId: z.string(),
+    ref: z.string().describe('The ref of the element to drag, from browser_snapshot.'),
+    toRef: z.string().describe('The ref of the element to drop it on.'),
+  },
+  pageOf: (input) => input.browserPageId,
+  execute: async (input) => interact(input.browserPageId, { kind: 'drag', ref: input.ref, toRef: input.toRef }),
+})
+
+export const browserUploadAgentTool = browserTool({
+  name: 'browser_upload',
+  description:
+    'Give files on this host to a file input in a browser page, as if the user chose them. Name the '
+    + '<input type=file>, its label, or the upload button beside it. Do not click the upload button '
+    + 'first: that opens the system file chooser, which you cannot use.',
+  inputFields: {
+    browserPageId: z.string(),
+    ref: z.string().describe('The ref of the file input, its label, or the upload button, from browser_snapshot.'),
+    paths: z.array(z.string()).min(1).describe('Files on this host. A relative path is read from your working directory.'),
+  },
+  pageOf: (input) => input.browserPageId,
+  execute: async (input, context) => {
+    const paths = input.paths.map((path) => {
+      const expanded = resolveHomePath(path)
+      return isAbsolute(expanded) ? expanded : resolve(resolveHomePath(context.cwd), expanded)
+    })
+    const missing = paths.filter((path) => !isFile(path))
+    if (missing.length) return fail(`These are not files on this host: ${missing.join(', ')}`)
+    await browserRegistry().setInputFiles(input.browserPageId, input.ref, paths)
+    return ok(`Gave ${paths.length === 1 ? paths[0] : `${paths.length} files`} to the file input.`)
+  },
+})
+
+export const browserDialogAgentTool = browserTool({
+  name: 'browser_dialog',
+  description:
+    'Answer a JavaScript alert, confirm, or prompt in a browser page. A dialog stops the page until it '
+    + 'is answered. When a dialog is open, this answers it. Otherwise it gives the answer for the next '
+    + 'dialog: call it before the action that opens one, and that action does not stop on it. Without an '
+    + 'answer given first, a page on a headless host dismisses each dialog.',
+  inputFields: {
+    browserPageId: z.string(),
+    accept: z.boolean().describe('True accepts (OK), false dismisses (Cancel).'),
+    promptText: z.string().optional().describe('The text a prompt returns when accepted.'),
+  },
+  // Not `pageOf`: the action that opened the dialog can still be in use of the page.
+  execute: async (input) => {
+    const answer: BrowserDialogAnswer = { accept: input.accept }
+    if (input.promptText !== undefined) answer.promptText = input.promptText
+    const answered = await browserRegistry().answerDialog(input.browserPageId, answer)
+    const verb = input.accept ? 'Accepted' : 'Dismissed'
+    return ok(answered
+      ? `${verb} the ${answered.type} dialog "${answered.message}".`
+      : `No dialog is open. The next dialog on ${input.browserPageId} will be ${input.accept ? 'accepted' : 'dismissed'}.`)
+  },
+})
+
 async function interact(browserPageId: string, op: BrowserInteractOp): Promise<AgentToolResult> {
   const result = await browserRegistry().interact(browserPageId, op)
   if (!result.ok) return fail(result.message ?? 'The browser page rejected that operation.')
-  return ok(result.value ? `ok — ${result.value}` : 'ok')
+  const done = result.value ? `ok — ${result.value}` : 'ok'
+  return ok(result.message ? `${done}\n${result.message}` : done)
+}
+
+function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile()
+  } catch {
+    return false
+  }
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   BROWSER_MARK_TOOLS,
   BROWSER_FRAME_MAX_DIMENSION,
   BROWSER_FRAME_QUALITY,
+  largestFrameCaps,
   BROWSER_DEFAULT_PROFILE_ID,
   BROWSER_RING_LIMIT,
   isBrowserProfileId,
@@ -21,6 +22,7 @@ import {
   type BrowserAnnotationTool,
   type BrowserAppearance,
   type BrowserCloseResult,
+  type BrowserFrameCaps,
   type BrowserDetachReason,
   type BrowserInteractOp,
   type BrowserInteractResult,
@@ -42,7 +44,12 @@ import {
   clearFieldExpression,
   elementRectExpression,
   elementSnapshotExpression,
+  fileInputExpression,
   guardedExpression,
+  htmlDragExpression,
+  isHtmlDragSourceExpression,
+  selectOptionsExpression,
+  visiblePointExpression,
   webVitalsExpression,
 } from './page-script'
 import { emitBrowserCapture, emitBrowserLoad, type BrowserCaptureSpanInput } from './browser-emitter'
@@ -50,6 +57,9 @@ import {
   browserHeadlessHost,
   browserProfileHost,
   browserWebviewHost,
+  type BrowserDialog,
+  type BrowserDialogAnswer,
+  type BrowserDialogState,
   type BrowserEmulation,
   type BrowserHeadlessHost,
   type BrowserScreencastOptions,
@@ -136,6 +146,9 @@ export class BrowserRegistry {
    *  page produces no frames — the "hidden panes stream nothing" rule lives
    *  here, at the source, not in a filter on the wire. */
   private frameWatchers = new Map<string, Map<string, number>>()
+  /** The device pixels each watching client's pane can show. A page streams at
+   *  the largest of them, so a phone watching alone is sent a phone's pixels. */
+  private frameCaps = new Map<string, Map<string, BrowserFrameCaps>>()
   /** A second subscriber that arrives during a slow first open waits for the
    *  same startup result instead of returning before a stream exists. */
   private streamStarts = new Map<string, Promise<void>>()
@@ -250,6 +263,7 @@ export class BrowserRegistry {
     this.stopAgentUseExpiry(browserPageId)
     this.recorders.get(browserPageId)?.pageClosing()
     this.frameWatchers.delete(browserPageId)
+    this.frameCaps.delete(browserPageId)
     this.streamStarts.delete(browserPageId)
     this.frameSeq.delete(browserPageId)
     await this.queueDriver(record, async () => {
@@ -671,7 +685,41 @@ export class BrowserRegistry {
   async interact(browserPageId: string, op: BrowserInteractOp): Promise<BrowserInteractResult> {
     const record = this.require(browserPageId)
     return this.withDriver(record, async (driver) => {
+      const dialogBefore = driver.dialogs().last?.sequence
+      try {
+        return withDialogNote(await this.interactWith(driver, record, op), driver.dialogs(), dialogBefore)
+      } catch (error) {
+        throw withOpenDialog(error, driver.dialogs())
+      }
+    })
+  }
 
+  /** Give host files to the file input that an element names. */
+  async setInputFiles(browserPageId: string, ref: string, paths: string[]): Promise<void> {
+    const record = this.require(browserPageId)
+    await this.withDriver(record, (driver) => driver.setFileInputFiles(fileInputExpression(ref), paths))
+  }
+
+  /** Answer the page's open dialog, or else the next one it opens. Returns
+   *  the dialog answered now, or null when the answer waits. */
+  async answerDialog(browserPageId: string, answer: BrowserDialogAnswer): Promise<BrowserDialog | null> {
+    const record = this.require(browserPageId)
+    // Not in the driver lane: the action that opened the dialog can hold the
+    // lane while it waits for this answer.
+    const driver = record.driver ?? await this.withDriver(record, async (opened) => opened)
+    return driver.answerDialog(answer)
+  }
+
+  /** The dialog that waits for an answer on this page, if any. */
+  openDialog(browserPageId: string): BrowserDialog | null {
+    return this.records.get(browserPageId)?.driver?.dialogs().open ?? null
+  }
+
+  private async interactWith(
+    driver: BrowserSurfaceDriver,
+    record: PageRecord,
+    op: BrowserInteractOp,
+  ): Promise<BrowserInteractResult> {
     if (op.kind === 'evaluate') return runGuarded(driver, op.expression)
 
     // Coordinate-addressed input from a streamed surface: the client already
@@ -716,6 +764,21 @@ export class BrowserRegistry {
       return { ok: true }
     }
 
+    if (op.kind === 'hover') {
+      const point = parseJson(pointSchema, await driver.evaluate(visiblePointExpression(op.ref, true)))
+      if (!point) return { ok: false, message: `No visible element matches ${op.ref}` }
+      await driver.dispatchMouse('move', point.x, point.y)
+      return { ok: true }
+    }
+
+    if (op.kind === 'select') {
+      const outcome = parseJson(selectOutcomeSchema, await driver.evaluate(selectOptionsExpression(op.ref, op.values)))
+      if (!outcome) return { ok: false, message: 'The page returned nothing.' }
+      return 'error' in outcome ? { ok: false, message: outcome.error } : { ok: true, value: JSON.stringify(outcome.selected) }
+    }
+
+    if (op.kind === 'drag') return this.drag(driver, op.ref, op.toRef)
+
     const point = await this.pointOf(driver, op.ref)
     if (!point) return { ok: false, message: `No visible element matches ${op.ref}` }
 
@@ -729,8 +792,39 @@ export class BrowserRegistry {
     if (op.clear) await driver.evaluate(clearFieldExpression(op.ref))
     await driver.clickAt(point.x, point.y)
     await driver.insertText(op.text)
-      return { ok: true }
-    })
+    return { ok: true }
+  }
+
+  /**
+   * Drag one element onto another.
+   *
+   * An HTML drag (`draggable`) gets its drag events from the page script,
+   * because mouse events from CDP do not start one. Any other drag is a held
+   * mouse moved in steps, which pointer-based drag libraries need to pass
+   * their activation distance.
+   */
+  private async drag(driver: BrowserSurfaceDriver, ref: string, toRef: string): Promise<BrowserInteractResult> {
+    const from = parseJson(pointSchema, await driver.evaluate(visiblePointExpression(ref, true)))
+    if (!from) return { ok: false, message: `No visible element matches ${ref}` }
+    const to = parseJson(pointSchema, await driver.evaluate(visiblePointExpression(toRef, false)))
+    if (!to) {
+      return { ok: false, message: `${toRef} is not on screen while ${ref} is. Scroll or resize so both show, then drag again.` }
+    }
+    if (parseJson(z.boolean(), await driver.evaluate(isHtmlDragSourceExpression(ref)))) {
+      const dropped = parseJson(z.boolean(), await driver.evaluate(htmlDragExpression(ref, to)))
+      return dropped ? { ok: true } : { ok: false, message: `${toRef} did not accept the drop.` }
+    }
+    await driver.dispatchMouse('move', from.x, from.y)
+    await driver.dispatchMouse('down', from.x, from.y)
+    for (let step = 1; step <= DRAG_STEPS; step++) {
+      await driver.dispatchMouse(
+        'move',
+        from.x + ((to.x - from.x) * step) / DRAG_STEPS,
+        from.y + ((to.y - from.y) * step) / DRAG_STEPS,
+      )
+    }
+    await driver.dispatchMouse('up', to.x, to.y)
+    return { ok: true }
   }
 
   /**
@@ -775,7 +869,7 @@ export class BrowserRegistry {
    * the headless host exists for — so this walks the same `ensureDriver` path a
    * drive op does, and fails the same way where nothing can host.
    */
-  async subscribeFrames(browserPageId: string, clientId: string): Promise<void> {
+  async subscribeFrames(browserPageId: string, clientId: string, caps?: BrowserFrameCaps): Promise<void> {
     const record = this.require(browserPageId)
     if (!this.frames) throw new Error('This host cannot stream browser frames.')
     let watchers = this.frameWatchers.get(browserPageId)
@@ -784,7 +878,13 @@ export class BrowserRegistry {
       this.frameWatchers.set(browserPageId, watchers)
     }
     const wasEmpty = watchers.size === 0
+    const before = wasEmpty ? null : this.viewerOptions(record)
     watchers.set(clientId, (watchers.get(clientId) ?? 0) + 1)
+    this.storeFrameCaps(browserPageId, clientId, caps)
+    // A viewer joining a running stream may need more pixels than it carries.
+    if (before && !sameScreencastOptions(before, this.viewerOptions(record))) {
+      await this.restartViewerStream(record)
+    }
     let startup = this.streamStarts.get(browserPageId)
     if (wasEmpty) {
       startup = this.startStreaming(record)
@@ -814,6 +914,52 @@ export class BrowserRegistry {
     return this.dropWatcher(browserPageId, clientId)
   }
 
+  /** A watching client's pane changed size. The stream restarts only when the
+   *  largest pane does, because a restart is a fresh keyframe on every viewer. */
+  async setFrameCaps(browserPageId: string, clientId: string, caps: BrowserFrameCaps): Promise<void> {
+    const record = this.require(browserPageId)
+    if (!this.frameWatchers.get(browserPageId)?.has(clientId)) return
+    const before = this.viewerOptions(record)
+    this.storeFrameCaps(browserPageId, clientId, caps)
+    if (!sameScreencastOptions(before, this.viewerOptions(record))) {
+      await this.restartViewerStream(record)
+    }
+  }
+
+  /** Caps cross the wire from a client, so they are checked here: a malformed
+   *  or absent value means the page's own pixels. */
+  private storeFrameCaps(browserPageId: string, clientId: string, caps: BrowserFrameCaps | undefined): void {
+    let byClient = this.frameCaps.get(browserPageId)
+    if (!byClient) {
+      byClient = new Map()
+      this.frameCaps.set(browserPageId, byClient)
+    }
+    const parsed = frameCapsSchema.safeParse(caps)
+    if (parsed.success) byClient.set(clientId, parsed.data)
+    else byClient.delete(clientId)
+  }
+
+  /** The caps the page streams at for its viewers right now. A viewer that
+   *  named no caps gets the page's own pixels, so everyone is served. */
+  private viewerOptions(record: PageRecord): BrowserScreencastOptions {
+    const { browserPageId } = record.page
+    const clientIds = [...(this.frameWatchers.get(browserPageId)?.keys() ?? [])]
+      .filter((id) => id !== RECORDER_WATCHER_ID)
+    const byClient = this.frameCaps.get(browserPageId)
+    const named = clientIds.flatMap((id) => {
+      const caps = byClient?.get(id)
+      return caps ? [caps] : []
+    })
+    const viewer = named.length === clientIds.length ? largestFrameCaps(named) : null
+    return screencastOptionsFor(record.page.viewport, viewer)
+  }
+
+  /** A recording keeps its own caps, and a page with no guest has no stream. */
+  private async restartViewerStream(record: PageRecord): Promise<void> {
+    if (!record.driver || this.recorders.has(record.page.browserPageId)) return
+    await this.startStreaming(record)
+  }
+
   /** A client's connection expired. It cannot unsubscribe for itself, so the
    *  transport drops it from every page — otherwise a disconnected phone would
    *  keep a guest painting frames into the void. */
@@ -832,11 +978,20 @@ export class BrowserRegistry {
       watchers.set(clientId, count - 1)
       return
     }
-    watchers.delete(clientId)
-    if (watchers.size > 0) return
-    this.frameWatchers.delete(browserPageId)
-    this.frameSeq.delete(browserPageId)
     const record = this.records.get(browserPageId)
+    const before = record && watchers.size > 1 ? this.viewerOptions(record) : null
+    watchers.delete(clientId)
+    this.frameCaps.get(browserPageId)?.delete(clientId)
+    if (watchers.size > 0) {
+      // The largest pane leaving lets the stream shrink to the ones still open.
+      if (record && before && !sameScreencastOptions(before, this.viewerOptions(record))) {
+        await this.restartViewerStream(record)
+      }
+      return
+    }
+    this.frameWatchers.delete(browserPageId)
+    this.frameCaps.delete(browserPageId)
+    this.frameSeq.delete(browserPageId)
     if (record) {
       await this.queueDriver(record, async () => {
         await record.driver?.stopScreencast().catch(() => {})
@@ -869,7 +1024,7 @@ export class BrowserRegistry {
     if (!this.frameWatchers.get(browserPageId)?.size) return
     const options = this.recorders.has(browserPageId)
       ? recordingScreencastOptions(record.page.viewport)
-      : screencastOptionsFor(record.page.viewport)
+      : this.viewerOptions(record)
     await driver.startScreencast(options, (frame) => {
       // Read per frame, not captured: a recording that starts or stops while
       // the stream runs must not need a second stream.
@@ -1175,18 +1330,32 @@ function stageTimer(browserPageId: string): (name: string, detail: string) => vo
 /**
  * The caps a page streams at.
  *
- * Bounded to CSS-viewport size, not the emulated device-pixel size: a phone
- * preset composites at 3x, and streaming those pixels to a remote screen that
- * then scales the picture down anyway is wire budget spent on detail no one
- * sees. The dimension ceiling then keeps even a large desktop viewport from
- * streaming an oversized frame.
+ * The page's device pixels, cut down to what the largest viewer's pane can
+ * show: a phone watching a desktop page, or a 1x screen watching a 2x page, is
+ * not sent pixels it would only scale away. Chromium keeps the aspect ratio
+ * inside both caps and never scales a frame up. The dimension ceiling keeps
+ * even a large desktop viewport from streaming an oversized frame.
  */
-function screencastOptionsFor(viewport: BrowserViewport): BrowserScreencastOptions {
+export function screencastOptionsFor(
+  viewport: BrowserViewport,
+  viewer: BrowserFrameCaps | null,
+): BrowserScreencastOptions {
+  const width = Math.round(viewport.width * viewport.deviceScaleFactor)
+  const height = Math.round(viewport.height * viewport.deviceScaleFactor)
   return {
-    maxWidth: Math.min(viewport.width, BROWSER_FRAME_MAX_DIMENSION),
-    maxHeight: Math.min(viewport.height, BROWSER_FRAME_MAX_DIMENSION),
+    maxWidth: Math.min(width, viewer?.maxWidth ?? width, BROWSER_FRAME_MAX_DIMENSION),
+    maxHeight: Math.min(height, viewer?.maxHeight ?? height, BROWSER_FRAME_MAX_DIMENSION),
     quality: BROWSER_FRAME_QUALITY,
   }
+}
+
+const frameCapsSchema = z.object({
+  maxWidth: z.number().finite().positive().transform(Math.ceil),
+  maxHeight: z.number().finite().positive().transform(Math.ceil),
+})
+
+function sameScreencastOptions(a: BrowserScreencastOptions, b: BrowserScreencastOptions): boolean {
+  return a.maxWidth === b.maxWidth && a.maxHeight === b.maxHeight && a.quality === b.quality
 }
 
 /** The longest side a recording frame may have, in device pixels. */
@@ -1240,6 +1409,11 @@ function labelFor(request: BrowserOpenRequest): string {
  * treats it as a value.
  */
 const pointSchema = z.object({ x: z.number(), y: z.number() }).nullable()
+
+const selectOutcomeSchema = z.union([z.object({ error: z.string() }), z.object({ selected: z.array(z.string()) })])
+
+/** Mouse moves between the press and the release of a pointer drag. */
+const DRAG_STEPS = 10
 
 const guardedSchema = z.discriminatedUnion('ok', [
   z.object({ ok: z.literal(true), value: z.json().nullable() }),
@@ -1306,6 +1480,28 @@ function parseJson<Schema extends z.ZodType>(schema: Schema, raw: string): z.out
   }
   const parsed = schema.safeParse(decoded)
   return parsed.success ? parsed.data : null
+}
+
+/** Tell the caller when its action opened a dialog: what the page asked, and
+ *  the answer it got. */
+function withDialogNote(
+  result: BrowserInteractResult,
+  dialogs: BrowserDialogState,
+  sequenceBefore: number | undefined,
+): BrowserInteractResult {
+  const { last } = dialogs
+  if (!last || last.sequence === sequenceBefore) return result
+  const note = `A ${last.type} dialog opened: "${last.message}". `
+    + (last.answer ? `It was ${last.answer}.` : 'It is still open. Answer it with browser_dialog.')
+  return { ...result, message: result.message ? `${result.message} ${note}` : note }
+}
+
+/** An action that failed while a dialog waits most likely waited on it. */
+function withOpenDialog(error: unknown, dialogs: BrowserDialogState): unknown {
+  const { open } = dialogs
+  if (!open) return error
+  const reason = error instanceof Error ? error.message : String(error)
+  return new Error(`${reason} A ${open.type} dialog is open: "${open.message}". Answer it with browser_dialog.`)
 }
 
 async function runGuarded(driver: BrowserSurfaceDriver, expression: string): Promise<BrowserInteractResult> {

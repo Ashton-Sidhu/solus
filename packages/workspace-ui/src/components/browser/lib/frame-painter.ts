@@ -1,3 +1,5 @@
+import type { BrowserFrameCaps } from '@solus/contracts/browser-types'
+
 /**
  * Paints streamed JPEG frames onto a canvas, newest-frame-wins.
  *
@@ -72,4 +74,12 @@ async function decodeFrame(data: ArrayBuffer): Promise<ImageBitmap | null> {
     // A truncated or malformed frame is skipped; the next one repaints.
     return null
   }
+}
+
+/** The device pixels a canvas of this CSS size can show on this screen — the
+ *  most a stream to it is worth. Null before the canvas has a size. */
+export function paneFrameCaps(cssWidth: number, cssHeight: number, pixelRatio: number): BrowserFrameCaps | null {
+  if (cssWidth < 1 || cssHeight < 1) return null
+  const ratio = Number.isFinite(pixelRatio) && pixelRatio > 0 ? pixelRatio : 1
+  return { maxWidth: Math.ceil(cssWidth * ratio), maxHeight: Math.ceil(cssHeight * ratio) }
 }

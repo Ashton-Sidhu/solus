@@ -1,6 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/threadListV2.ts (MIT, see UPSTREAM.md).
 import { isChat } from "@solus/contracts/chat";
-import type { SessionPullRequestLink } from "@solus/contracts/session-pull-requests";
+import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from "@solus/contracts/session-pull-requests";
 import type { SessionState } from "@solus/contracts/session-state";
 import { worktreeProjectRoot, type SessionRecord, type SessionStatus } from "@solus/contracts/types";
 
@@ -156,6 +156,18 @@ export interface ThreadPrPresentation {
   /** Full label for assistive technologies. */
   readonly accessibilityLabel: string;
   readonly textClassName: string;
+  /** A link of the session is watched: its agent wakes on news
+      (docs/plans/pr-watch.md). */
+  readonly isWatched: boolean;
+  /** What the row menu's Watch or Stop Watching acts on: the watched link,
+      else the badge's link while it may still be open. */
+  readonly watchTarget: ThreadPrWatchTarget | null;
+}
+
+export interface ThreadPrWatchTarget {
+  readonly repository: string;
+  readonly number: number;
+  readonly isWatched: boolean;
 }
 
 const PR_STATE_TEXT_CLASS = {
@@ -180,6 +192,8 @@ export function presentThreadPullRequests(
   const state = link.snapshot?.state ?? null;
   const isDraft = state === "open" && link.snapshot?.draft === true;
   const multiple = present.length > 1;
+  const watched = present.find((candidate) => candidate.watch !== undefined);
+  const watchable = watched ?? (state === "open" || state === null ? link : undefined);
   return {
     number: link.number,
     state,
@@ -190,7 +204,30 @@ export function presentThreadPullRequests(
       : `#${link.number} pull request ${state === null ? "status pending" : isDraft ? "draft" : state}`,
     textClassName:
       state === null || isDraft ? "text-foreground-muted" : PR_STATE_TEXT_CLASS[state],
+    isWatched: watched !== undefined,
+    watchTarget: watchable
+      ? { repository: watchable.repository, number: watchable.number, isWatched: watchable === watched }
+      : null,
   };
+}
+
+/** Why the host did not start a watch, or null when the request is done. */
+export function watchRefusalMessage(outcome: SessionPullRequestWatchOutcome): string | null {
+  switch (outcome) {
+    case "started":
+    case "already-watching":
+    case "stopped":
+      return null;
+    case "session-settled":
+      return "This thread is settled. Un-settle it to watch its pull request.";
+    case "not-linked":
+      return "This pull request is no longer linked to the thread.";
+    case "missing":
+      return "The code host no longer has this pull request.";
+    case "merged":
+    case "closed":
+      return `This pull request is ${outcome}, so there is nothing to watch.`;
+  }
 }
 
 /* ─── List model ─────────────────────────────────────────────────────── */

@@ -1,4 +1,5 @@
-import { actorFor, ownerKeyOf, withActorCredentials } from '../../admission/actor'
+import { actorFor, ownerKeyOf } from '../../admission/actor'
+import { withActorScope } from '../../execution/seats/acting-identity'
 import { createLogger } from '../../logger'
 import { createHash, randomUUID } from 'node:crypto'
 import { Hono, type Context } from 'hono'
@@ -93,7 +94,7 @@ export function createSolusApiRouter(options: SolusApiRouterOptions): Hono<ApiEn
     c.set('authority', authority)
     const actor = actorFor(authority.principal)
     const release = budgets.enter(ownerKeyOf(actor) ?? 'unowned')
-    try { await withActorCredentials(actor, next) } finally { release() }
+    try { await withActorScope(actor, next) } finally { release() }
   })
   const authority = (c: ApiContext) => c.get('authority')
 

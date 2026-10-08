@@ -91,6 +91,29 @@ export const sessionPullRequests = defineTable('session_pull_requests', {
 })
 
 /**
+ * The pull requests a session watches (docs/plans/pr-watch.md): the watcher
+ * reads each in the background and wakes the session's agent when there is
+ * news. A watch belongs to a session link; `watch_id` is new at each start, so
+ * a read that finishes after a stop or a restart writes nothing.
+ */
+export const sessionPullRequestWatches = defineTable('session_pull_request_watches', {
+  session_id: text({ notNull: true }),
+  /** `host/owner/repo`, lower case, as on the session link. */
+  repository: text({ notNull: true }),
+  number: integer({ notNull: true }),
+  watch_id: text({ notNull: true }),
+  started_at: bigint({ notNull: true }),
+  /** `PullRequestWatchState` as JSON: what the agent was told. */
+  state: text({ notNull: true }),
+  /** Whose account reads the pull request: the person the watch was started
+   *  for (plans/019-acting-identity.md). Null reads as the host. */
+  acting_user_key: text(),
+  organization_id: text({ notNull: true, default: 'local' }),
+}, {
+  primaryKey: ['session_id', 'repository', 'number'],
+})
+
+/**
  * Where a session is in a person's list (docs/plans/session-pull-requests.md):
  * settled when its work is finished, snoozed until a wake time. The host holds
  * this so every client shows the same list, and so PR sync knows which
@@ -123,4 +146,4 @@ export const sessionStates = defineTable('session_states', {
   indexes: [{ name: 'session_states_settled', columns: ['settled_at'] }],
 })
 
-export const SESSION_TABLES = [sessionRecords, sessionAdmissions, sessionPullRequests, sessionStates]
+export const SESSION_TABLES = [sessionRecords, sessionAdmissions, sessionPullRequests, sessionPullRequestWatches, sessionStates]

@@ -138,7 +138,7 @@ export function claudeSeatOf(seat: TurnSeat): ClaudeSeat {
   const claudeSeat: ClaudeSeat = { home: seat.home }
   if (seat.seat.kind === 'host-login') claudeSeat.isHostLogin = true
   if (seat.envToken) claudeSeat.envToken = seat.envToken
-  if (seat.git) claudeSeat.gitEnv = seat.git.env
+  if (seat.env) claudeSeat.env = seat.env
   return claudeSeat
 }
 
@@ -222,9 +222,6 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     let _resolveRun!: () => void
     let _rejectRun!: (err: Error) => void
     const runPromise = new Promise<void>((res, rej) => { _resolveRun = res; _rejectRun = rej })
-    // Each turn is a fresh process, so it takes the member's identity as resolved for this turn and holds its credential until the run ends.
-    const releaseGit = request.seat?.git?.hold()
-    if (releaseGit) void runPromise.finally(releaseGit).catch(() => {})
 
     const handle: ClaudeRunHandle = {
       // The source is only a branch input; the fork has no provider id yet.

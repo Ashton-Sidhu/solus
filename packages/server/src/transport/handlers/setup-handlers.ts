@@ -17,7 +17,8 @@ import type { HostEventPublisher } from '../events/host-event-publisher'
 import { getCliEnv } from '../../cli-env'
 import { runAsync } from '../../git/exec'
 import { isGitUsable } from '../../git/git-availability'
-import { createGitAskpassHelper, gitAuthEnv, type GitAuthEnv } from '../../git/git-auth-env'
+import { gitCommandAuth } from '../../git/git-auth-env'
+import { currentIdentity } from '../../vault/acting-scope'
 import { loadToken as loadGithubToken } from '../../providers/github/token-store'
 import { saveDelegation } from '../../providers/github/delegation-store'
 import { GitHubAuth } from '../../providers/github/auth'
@@ -47,10 +48,9 @@ import {
 import { safeProjectDirName } from '@solus/contracts/project-folder-name'
 import { initRepository } from '../../git/git-init'
 import { getDefaultBranch } from '../../git/worktree-manager'
-import { GITHUB_CREDENTIAL_KEY, resolveSolusCli } from '../../providers/github/git-credential'
+import { GITHUB_CREDENTIAL_KEY, solusGitHelper } from '../../providers/github/git-credential'
 import { dispatchCheckoutOwnerKey, dispatchCheckoutPath, resolveDispatchHistoryRoots, resolveDispatchWorktree } from '../../project-config/dispatch-checkouts'
 import type { CheckoutService } from '../../git/checkout-service'
-import type { GitIdentityManager } from '../../git/git-identity-manager'
 import { PARTIAL_CLONE_ARGS, ensureFullHistory } from '../../git/partial-clone'
 
 const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g')
@@ -113,8 +113,6 @@ export type SpawnProcess = (
 ) => ChildProcess
 
 export interface SetupHandlerDeps extends AgentAuthProbeDeps {
-  /** Who a caller's clone and fetches act as: a member never uses the host's credentials. */
-  gitIdentities: GitIdentityManager
   checkouts?: CheckoutService
   events?: HostEventPublisher
   spawnProcess?: SpawnProcess
@@ -416,13 +414,13 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
   })
 
   server.register('setupHostReadiness', async (_args, ctx): Promise<HostReadiness> => {
-    const [readiness, identity] = await Promise.all([
+    const [readiness, github] = await Promise.all([
       probeHostReadiness(hasCommand, agentDepsFor(ctx), projectsRootOf(ctx)),
-      deps.gitIdentities.resolve(seatFor(ctx.actor)),
+      currentIdentity().github(),
     ])
-    if (identity.kind === 'host') return readiness
+    if (!github) return readiness
     // A member commits as their own GitHub account, never as the host's global config.
-    const memberIdentity = identity.kind === 'member' ? { name: identity.name, email: identity.email } : null
+    const memberIdentity = github.kind === 'connected' ? { name: github.login, email: `${github.login}@users.noreply.github.com` } : null
     return { ...readiness, git: { ...readiness.git, identity: memberIdentity } }
   })
 
@@ -514,11 +512,9 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
   })
 
   server.register('setupInstallGitCredentialHelper', () => {
-    const solusPath = resolveSolusCli()
-    if (!solusPath) throw new Error('The Solus CLI was not found on this host, so git has nothing to ask for credentials.')
-    // The leading "!" makes git run this as a shell command rather than looking
-    // for a `git-credential-<name>` binary — so the path has to survive a shell.
-    execFileSync('git', ['config', '--global', GITHUB_CREDENTIAL_KEY, `!'${solusPath}' git-credential`], {
+    const helper = solusGitHelper([])
+    if (!helper) throw new Error('The Solus CLI was not found on this host, so git has nothing to ask for credentials.')
+    execFileSync('git', ['config', '--global', GITHUB_CREDENTIAL_KEY, helper], {
       env: getCliEnv(),
       timeout: PROBE_TIMEOUT_MS,
     })
@@ -538,25 +534,18 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     if (!repoKey) throw new Error('The clone URL must name both an owner and repository.')
 
     // Only the host's own work keeps an identity in checkout config (the paired
-    // device's helper and author); a member's processes take theirs per process.
-    const identity = await deps.gitIdentities.resolve(seatFor(ctx.actor))
+    // device's helper and author); a member's processes act from their own home.
     const configure = (path: string) => {
-      if (credential && identity.kind === 'host') configureDelegatedCheckout(path, ownerKey, credential)
+      if (credential && currentIdentity().isHost) configureDelegatedCheckout(path, ownerKey, credential)
     }
     const prepare = async (path: string): Promise<string> => {
-      const gitEnv = identity.kind === 'host' ? undefined : identity.env
-      const release = deps.gitIdentities.hold(identity)
-      try {
-        // A checkout cloned with `--depth=1` before partial clones gets its full history once, here.
-        await ensureFullHistory(path, gitEnv)
-        if (worktreePath) return resolveDispatchWorktree(path, worktreePath)
-        // A dispatch that names no branch works on the default branch: in the
-        // checkout when it holds that branch, else where the branch is held.
-        const branch = baseBranch ?? await getDefaultBranch(path)
-        return (await checkouts!.ensureBranch(path, branch, gitEnv)).worktreePath ?? path
-      } finally {
-        release()
-      }
+      // A checkout cloned with `--depth=1` before partial clones gets its full history once, here.
+      await ensureFullHistory(path)
+      if (worktreePath) return resolveDispatchWorktree(path, worktreePath)
+      // A dispatch that names no branch works on the default branch: in the
+      // checkout when it holds that branch, else where the branch is held.
+      const branch = baseBranch ?? await getDefaultBranch(path)
+      return (await checkouts!.ensureBranch(path, branch)).worktreePath ?? path
     }
 
     const checkoutPath = dispatchCheckoutPath(projectsRootOf(ctx), ownerKey, repoKey)
@@ -588,8 +577,8 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     const credential = coerceDelegatedCredential(rawCredential)
     const parsed = validateCloneUrl(cloneUrl)
     const selectedProtocol = coerceCloneProtocol(protocol)
-    // A member clones with their own token alone: not the host's SSH key, and not a helper the host configured.
-    const actsAsMember = seatFor(ctx.actor).kind === 'user'
+    // A member clones from their own home: over HTTPS, with their own connection.
+    const actsAsMember = !currentIdentity().isHost
     const cloneUrls = credential || actsAsMember
       ? [applyCloneProtocol(parsed.cloneUrl, 'https')]
       : selectedProtocol
@@ -636,7 +625,6 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
             : null
         )
         if (isGithubHttps && !token) githubAttemptWithoutToken = true
-        const askpass = token ? await createGitAskpassHelper() : null
         try {
           auth = await attemptClone({
             step,
@@ -645,8 +633,6 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
             targetPath,
             isHttps,
             token,
-            askpass,
-            isolateHelpers: actsAsMember,
             partialClone: partialClone === true,
             spawnProcess,
             emitStatus,
@@ -674,8 +660,6 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
             throw cleanupErr
           }
           emitLog({ step, line: 'SSH clone failed; trying HTTPS.' })
-        } finally {
-          if (askpass) await rm(askpass.directory, { recursive: true, force: true }).catch(() => {})
         }
       }
 
@@ -691,15 +675,15 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     credential: GithubDelegatedCredential,
   ): void {
     saveDelegation(ownerKey, credential)
-    const solusPath = resolveSolusCli()
-    if (!solusPath) throw new Error('The Solus CLI was not found on this host, so git has nothing to ask for credentials.')
+    const helper = solusGitHelper(['--delegation', ownerKey])
+    if (!helper) throw new Error('The Solus CLI was not found on this host, so git has nothing to ask for credentials.')
     const config = (key: string, value: string) => execFileSync(
       'git',
       ['-C', checkoutPath, 'config', '--local', key, value],
       { env: getCliEnv(), timeout: PROBE_TIMEOUT_MS },
     )
     // Local config is shared by linked worktrees, so every dispatched worktree inherits the caller's identity and helper.
-    config(GITHUB_CREDENTIAL_KEY, `!'${solusPath}' git-credential --delegation ${ownerKey}`)
+    config(GITHUB_CREDENTIAL_KEY, helper)
     config('user.name', credential.login)
     config('user.email', `${credential.login}@users.noreply.github.com`)
   }
@@ -724,10 +708,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
       // Dispatch must never create a surprise merge on an unattended host.
       // Fast-forward updates are automatic; dirty, divergent, or conflicted
       // checkouts stop here with Git's own actionable error.
-      await runAsync('git', ['pull', '--ff-only'], checkoutPath, {
-        timeout: 120_000,
-        env: { GIT_TERMINAL_PROMPT: '0' },
-      })
+      await runAsync('git', ['pull', '--ff-only'], checkoutPath, { timeout: 120_000, env: { GIT_TERMINAL_PROMPT: '0' } })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       throw new Error(`Couldn’t update ${checkoutPath}: ${message}`)
@@ -925,8 +906,6 @@ async function attemptClone(opts: {
   targetPath: string
   isHttps: boolean
   token: { accessToken: string } | null
-  askpass: { path: string } | null
-  isolateHelpers: boolean
   partialClone: boolean
   spawnProcess: SpawnProcess
   emitStatus(event: SetupStatusEvent): void
@@ -934,24 +913,19 @@ async function attemptClone(opts: {
   emitFailureStatus: boolean
 }): Promise<CloneAuth> {
   const {
-    step, attemptUrl, parent, targetPath, isHttps, token, askpass, isolateHelpers, partialClone,
+    step, attemptUrl, parent, targetPath, isHttps, token, partialClone,
     spawnProcess, emitStatus, emitLog, emitFailureStatus,
   } = opts
   const cloneArgs = partialClone ? PARTIAL_CLONE_ARGS : []
+  const auth = gitCommandAuth({ isHttps, token: token?.accessToken ?? null })
   // Cloning into a basename from the parent keeps git's counting/receiving
   // lines on the stream; a full destination path suppresses them.
   const spec: ProcessCommandSpec = {
     command: 'git',
     // `--` keeps a destination folder named like `-x` from being read as an option.
-    args: ['clone', '--progress', ...cloneArgs, '--', attemptUrl, basename(targetPath)],
+    args: [...auth.args, 'clone', '--progress', ...cloneArgs, '--', attemptUrl, basename(targetPath)],
     display: ['git clone --progress', ...cloneArgs, '--', attemptUrl, basename(targetPath)].join(' '),
   }
-  const env = gitAuthEnv({
-    isHttps,
-    token: token?.accessToken ?? null,
-    askpassPath: askpass?.path ?? null,
-    isolateHelpers,
-  })
   emitLog({ step, line: `Cloning ${attemptUrl} into ${targetPath}` })
   await runSetupProcess({
     step,
@@ -961,7 +935,7 @@ async function attemptClone(opts: {
     emitLog,
     cwd: parent,
     emitFailureStatus,
-    env,
+    env: auth.env,
   })
   return isHttps ? (token ? 'token' : 'anonymous') : 'ssh'
 }
@@ -1000,7 +974,7 @@ async function runSetupProcess(opts: {
   emitLog(event: SetupLogEvent): void
   cwd?: string
   /** Secrets belong here, never in `spec.args` — argv is world-readable. */
-  env?: GitAuthEnv
+  env?: NodeJS.ProcessEnv
   /** A fallback attempt is not a failed setup step until its final attempt fails. */
   emitFailureStatus?: boolean
   /** Returns a user-facing error when a zero exit did not achieve the intended state. */
@@ -1022,7 +996,8 @@ async function runSetupProcess(opts: {
   const child = spawnProcess(spec.command, spec.args, {
     cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: getCliEnv({ FORCE_COLOR: '0', ...env }),
+    // Waits for a member's GitHub connection, so their home's helper can answer a clone.
+    env: await currentIdentity('a setup step').env({ FORCE_COLOR: '0', ...env }),
   })
 
   let settled = false

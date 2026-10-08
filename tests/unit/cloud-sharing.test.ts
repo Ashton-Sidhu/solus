@@ -7,6 +7,7 @@ import { resetTestDatabase } from './helpers/test-db'
 import type { Principal } from '@solus/server/admission/principal'
 import type { Attribution } from '@solus/contracts/user'
 import type { SharedPromptCommand, SharedPromptReceipt } from '@solus/server/sharing/shared-prompt'
+import { installTestIdentities } from './helpers/acting-identities'
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 const { getDatabase } = await import('@solus/server/db/database')
 const { ShareManager } = await import('@solus/server/sharing/share-manager')
@@ -42,6 +43,9 @@ function connectRunner({ relay, wire }: Awaited<ReturnType<typeof fixture>>, rec
   relay.runnerConnected('ws:runner1:a', runner)
   return wire.sent
 }
+
+// Members act from homes of their own, as on a booted server (plans/019).
+installTestIdentities()
 
 test('guest access follows the resolved organization, cannot reach other records, and follows revocation', async () => {
   const { shares, guest } = await fixture()

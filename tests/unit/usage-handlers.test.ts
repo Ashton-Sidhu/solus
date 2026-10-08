@@ -6,8 +6,12 @@ import type { HandlerCtx } from '@solus/server/transport/server'
 import { registerUsageHandlers } from '@solus/server/transport/handlers/usage-handlers'
 import { SolusServer } from '@solus/server/transport/server'
 import { UsageLimitsStore } from '@solus/server/usage/usage-store'
+import { installTestIdentities } from './helpers/acting-identities'
 
 const BOB_SEAT: Seat = { kind: 'user', userId: { kind: 'account', accountId: 'bob' } }
+
+// Members act from homes of their own, as on a booted server (plans/019).
+installTestIdentities()
 
 describe('usage handlers', () => {
   test('one shared refresh emits one limits event for concurrent callers', async () => {

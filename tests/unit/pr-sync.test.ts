@@ -7,6 +7,7 @@ import type { PullRequest, RepoRef } from '@solus/contracts/providers'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import type { Provider } from '@solus/server/providers/types'
 import { GitHubRateLimitedError } from '@solus/server/providers/github/rate-limit'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 /** The person every change in this file is made by. */
 const BY = { kind: 'user' as const, user: { id: { kind: 'account' as const, accountId: 'user-1' }, displayName: 'Test User' } }
@@ -109,6 +110,9 @@ async function linksOf(taskId: string) {
 }
 
 const later = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString()
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('cost', () => {
   test('a warm tick is one request per repository, however many tasks link it', async () => {

@@ -9,6 +9,7 @@ import { getHostConfig, getServerSettings } from './host/settings'
 import { createLogger, isDebugEnabled } from './logger'
 import { warmCliPath } from './cli-env'
 import { startSessionIndexer, stopSessionIndexer } from './db/session-indexer'
+import { withHostScope } from './execution/seats/acting-identity'
 import type { AgentId, IpcContext } from '@solus/contracts/types'
 
 const DEFAULT_AGENT_ID: AgentId = 'claude-code'
@@ -49,7 +50,16 @@ function watchEventLoopStalls(): void {
   }, TICK_MS).unref()
 }
 
-export async function bootCore(opts: BootCoreOptions = {}): Promise<BootCore> {
+/**
+ * Boot is the host's own work (plans/019-acting-identity.md): every process it
+ * starts, and every timer it leaves, acts as the host. A request, a turn, or an
+ * automation sets its own scope.
+ */
+export function bootCore(opts: BootCoreOptions = {}): Promise<BootCore> {
+  return withHostScope(() => bootCoreAsHost(opts))
+}
+
+async function bootCoreAsHost(opts: BootCoreOptions): Promise<BootCore> {
   watchEventLoopStalls()
   // The login-shell PATH probe runs off the main thread from here, so it is
   // warm before the first RPC spawns a provider. A caller that beats it pays a
@@ -92,7 +102,8 @@ export async function bootCore(opts: BootCoreOptions = {}): Promise<BootCore> {
   const startSessionIndex = () => {
     if (sessionIndexStarted) return
     sessionIndexStarted = true
-    startSessionIndexer()
+    // The desktop calls this after first paint, outside boot's scope.
+    withHostScope(startSessionIndexer)
   }
   if (!opts.deferSessionIndex) startSessionIndex()
 

@@ -26,7 +26,8 @@ import type { BackendSession, SessionStatus, NormalizedEvent, GitCheckout, Promp
 import { gitCheckoutFromState, projectScopeOf } from '@solus/contracts/types'
 import { annotateDispatch, dispatchStep, dispatchStepSync } from '../observability/session-emitter'
 import { SeatRequiredError } from '../seats/seat-manager'
-import { HOST_ACTOR, insightsAccountOf, withActorCredentials, type Actor } from '../../admission/actor'
+import { HOST_ACTOR, insightsAccountOf, type Actor } from '../../admission/actor'
+import { withActorScope } from '../seats/acting-identity'
 import { userKey } from '@solus/contracts/user'
 import { SPAN_SERVICES } from '../../data/insights/registries'
 import type { SessionRuntime, SessionRunRequest, SessionRunLifecycle } from '../session-runtime'
@@ -54,7 +55,7 @@ function startedSession(agentSessionId: string, taskId?: string): Parameters<Pen
 function credentialScopedAgentTools(tools: AgentTool[], actor: Actor = HOST_ACTOR): AgentTool[] {
   return tools.map((agentTool) => ({
     ...agentTool,
-    execute: (input, context) => withActorCredentials(actor, () => withWorkspaceToolAuthority(actor.principal, () => agentTool.execute(input, context))),
+    execute: (input, context) => withActorScope(actor, () => withWorkspaceToolAuthority(actor.principal, () => agentTool.execute(input, context))),
   }))
 }
 
@@ -162,7 +163,17 @@ export class RunLauncher {
     }
   }
 
-  async startRunLifecycle(request: SessionRunRequest): Promise<SessionRunLifecycle> {
+  /**
+   * A turn acts as its own author (plans/019-acting-identity.md): its worktree,
+   * its fetches, and its provider run in their scope. A queued turn can start
+   * inside someone else's call, so the scope is set here, not inherited.
+   */
+  startRunLifecycle(request: SessionRunRequest): Promise<SessionRunLifecycle> {
+    return withActorScope(request.actor ?? HOST_ACTOR, () => this.startRunLifecycleInScope(request))
+  }
+
+  private async startRunLifecycleInScope(request: SessionRunRequest): Promise<SessionRunLifecycle> {
+    if (request.actor) this.rt.rememberSessionActor(request.sessionId, request.actor)
     await this.rt.useTaskLeadPreferences(request)
     await this.rt.settleRunOrganization(request)
     // Every prepared/initialized view of a run shares this one exchange array.

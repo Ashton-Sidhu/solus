@@ -8,6 +8,7 @@ import type { GitCheckout, NormalizedEvent, SessionRunInput } from '@solus/contr
 import { ulid } from '@solus/contracts/ulid'
 import type { Actor } from '@solus/server/admission/actor'
 import type { WorktreeMoveRuntime } from '@solus/server/execution/sessions/worktree-move'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 // The host's git probe asks `xcode-select`, which a sandbox can refuse. These
@@ -21,12 +22,14 @@ let WorktreeMover: typeof import('@solus/server/execution/sessions/worktree-move
 let worktreeOfRepository: typeof import('@solus/server/execution/sessions/worktree-move')['worktreeOfRepository']
 let WorktreeOffers: typeof import('@solus/server/execution/sessions/worktree-offers')['WorktreeOffers']
 let worktreeAddPaths: typeof import('@solus/server/execution/sessions/worktree-offers')['worktreeAddPaths']
+let worktreeStatusText: typeof import('@solus/server/execution/agents/tools/worktree-tools')['worktreeStatusText']
 type WorktreeOffersInstance = InstanceType<typeof WorktreeOffers>
 
 beforeAll(async () => {
   ;({ HOST_ACTOR } = await import('@solus/server/admission/actor'))
   ;({ WorktreeMover, worktreeOfRepository } = await import('@solus/server/execution/sessions/worktree-move'))
   ;({ WorktreeOffers, worktreeAddPaths } = await import('@solus/server/execution/sessions/worktree-offers'))
+  ;({ worktreeStatusText } = await import('@solus/server/execution/agents/tools/worktree-tools'))
 })
 
 /**
@@ -96,6 +99,9 @@ function fakeRuntime(options: { create?: WorktreeMoveRuntime['checkouts']['creat
   bindings.set('s1', { repoRoot: repo, branch: 'main', targetBranch: 'main' })
   return { runtime, bindings, activity, moves }
 }
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('worktreeAddPaths reads the paths a shell command creates worktrees at', () => {
   test.each([
@@ -183,6 +189,40 @@ describe('WorktreeMover', () => {
     expect(result.success).toBe(true)
     expect(created).toEqual([{ base: 'main', name: 'fix' }])
     expect(bindings.get('s1')?.worktreePath).toBe(worktree)
+  })
+})
+
+describe('worktree_status', () => {
+  // An agent picks between a new and an existing worktree from this answer, and
+  // after a move in the same turn its process directory no longer says where the
+  // session is bound. The answer must come from the binding, not from the cwd.
+  test('names the binding and every checkout of the repository', async () => {
+    const { runtime } = fakeRuntime()
+    const status = await new WorktreeMover(runtime).status('s1', repo)
+    expect(status?.directory).toBe(repo)
+    expect(status?.checkouts.map(({ path, branch, holdsSession }) => ({ path: realpathSync(path), branch, holdsSession }))).toEqual([
+      { path: repo, branch: 'main', holdsSession: true },
+      { path: worktree, branch: 'feature', holdsSession: false },
+    ])
+    expect(worktreeStatusText(status!)).toContain(`Bound directory: ${repo} (the main checkout)`)
+  })
+
+  test('after a move, reports the new worktree while the caller still runs in the old directory', async () => {
+    const { runtime } = fakeRuntime()
+    const mover = new WorktreeMover(runtime)
+    await mover.move({ sessionId: 's1', cwd: repo, target: { kind: 'existing', path: worktree }, actor: HOST_ACTOR })
+    const status = await mover.status('s1', repo)
+    expect(status?.directory).toBe(worktree)
+    expect(status?.checkouts.find((checkout) => checkout.holdsSession)?.branch).toBe('feature')
+    expect(worktreeStatusText(status!)).toContain(`Bound directory: ${worktree} (a linked worktree)`)
+  })
+
+  test('outside a git repository there is no status', async () => {
+    const { runtime, bindings } = fakeRuntime()
+    bindings.delete('s1')
+    const outside = join(root, 'not-a-repo')
+    mkdirSync(outside, { recursive: true })
+    expect(await new WorktreeMover(runtime).status('s1', outside)).toBeNull()
   })
 })
 

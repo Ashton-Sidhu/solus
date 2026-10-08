@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 const { resolvePrimaryRepoRef, resolveRepositoryKey } = await import('@solus/server/git/git-helpers')
@@ -21,6 +22,9 @@ function repoWithRemotes(remotes: Record<string, string>): string {
 afterAll(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true })
 })
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('resolveRepositoryKey', () => {
   test('names a fork checkout by its upstream', async () => {

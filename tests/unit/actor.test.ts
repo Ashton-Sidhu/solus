@@ -5,6 +5,7 @@ import type { Principal } from '@solus/server/admission/principal'
 import { useHostUser } from '@solus/server/host/host-user'
 import { SolusServer, type HandlerCtx } from '@solus/server/transport/server'
 import { memberPrincipal } from './helpers/actors'
+import { installTestIdentities } from './helpers/acting-identities'
 
 // plans/012-user-actor-and-activity.md §4: admission resolves the actor once. Its
 // user is the one person every surface names; its seat and its credential user
@@ -21,6 +22,9 @@ const guestOf = (sharedByUserId: string, accountUserId?: string): Principal => (
 const RUNNER: Principal = { kind: 'runner', hostId: 'host-1', organizationId: 'org-1', ownerUserId: 'bob', deviceId: 'host-1', expiresAt: 0, deviceLabel: 'Runner' }
 
 afterEach(() => useHostUser(null))
+
+// Members act from homes of their own, as on a booted server (plans/019).
+installTestIdentities()
 
 describe('actorFor', () => {
   test('the owner of an unlinked host is its local user, on the host login, with the host\'s own connections', () => {

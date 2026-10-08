@@ -4,7 +4,6 @@ import type { CheckoutChange, CheckoutSnapshot, CheckoutState } from '@solus/con
 import { gitCheckoutFromState, sameGitCheckout, type GitCheckout, type GitState } from '@solus/contracts/types'
 import { computeGitState } from './git-helpers'
 import { runAsync } from './exec'
-import type { GitIdentityEnv } from './git-identity-manager'
 import { createWorktree, ensureBranchWorktree, fetchAndCheckoutPr, renameWorktreeBranch, type CreateWorktreeOptions } from './worktree-manager'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
 import type { SeatResolver } from '../execution/seats/seat-manager'
@@ -85,9 +84,8 @@ export class CheckoutService {
     }
   }
 
-  /** `gitEnv` is the acting member's identity, for the fetch and checkout; the host's own work passes none. */
-  async ensureBranch(projectRoot: string, branch: string, gitEnv?: GitIdentityEnv): Promise<GitCheckout> {
-    const checkout = await ensureBranchWorktree(resolveHomePath(projectRoot), branch, gitEnv)
+  async ensureBranch(projectRoot: string, branch: string): Promise<GitCheckout> {
+    const checkout = await ensureBranchWorktree(resolveHomePath(projectRoot), branch)
     // The checkout that already holds the branch keeps the state it has.
     if (!checkout.worktreePath) return checkout
     return this.commit(checkout.worktreePath, checkout, 'observed').checkout!

@@ -10,6 +10,7 @@ import type { Principal } from '@solus/server/admission/principal'
 import { hostUserKey, useHostUser } from '@solus/server/host/host-user'
 import { MemberFolders, useMemberFolders } from '@solus/server/host/member-folders'
 import { HOST_LOGIN_SEAT, type Seat, type SeatChangedEvent } from '@solus/contracts/seats'
+import { installTestIdentities } from './helpers/acting-identities'
 
 /** The key a host wrote for its owner before plan 012 stage 1; old rows and links may still hold it. */
 const LEGACY_HOST_OWNER_KEY = 'host-owner'
@@ -56,6 +57,9 @@ function manager(now = () => 1_000_000, hostLoginConnected = async () => true, m
   seats.onChanged((event) => events.push(event))
   return { seats, events, root, db }
 }
+
+// Members act from homes of their own, as on a booted server (plans/019).
+installTestIdentities()
 
 describe('whose seat a prompt runs on', () => {
   test('the owner and the host run on the host login; a member on their own; a guest on the sharer\'s', async () => {

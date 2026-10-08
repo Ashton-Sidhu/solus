@@ -143,6 +143,22 @@ export class SessionRuntime extends EventEmitter {
   agentSessionToSession = new Map<string, string>()
   activeRunRequests = new Map<string, SessionRunRequest>()
   /**
+   * Whom each session's latest turn acted for (plans/019-acting-identity.md). An
+   * agent's follow-up — a child it starts, a prompt it sends, a report it
+   * receives — acts for the same person, on their seat.
+   */
+  private readonly sessionActors = new Map<string, Actor>()
+
+  /** Remember whom a session's turn acts for. */
+  rememberSessionActor(sessionId: string, actor: Actor): void {
+    this.sessionActors.set(sessionId, actor)
+  }
+
+  /** Whom a session acts for: its running turn's person, else its latest turn's. */
+  actorOfSession(sessionId: string): Actor | undefined {
+    return this.activeRunRequests.get(sessionId)?.actor ?? this.sessionActors.get(sessionId)
+  }
+  /**
    * Every event the in-flight turn has broadcast, in order, per session. Replayed
    * by bindRuntimeSession so a client that opens a running session mid-turn is
    * level with the clients that were already watching — the same tool calls, not
@@ -435,9 +451,9 @@ export class SessionRuntime extends EventEmitter {
    * in an organization leases a member's credential from the vault (§5).
    */
   async seatForTurn(actor: Actor | undefined, provider: AgentId): Promise<TurnSeat | null> {
-    // Plan 012 §3 refuses a turn with no actor (SEAT_REQUIRED). Automations and
-    // agent-started turns have no actor until plan 004 item 1 / P7 names whose
-    // turn they are, so they still fall back to the host login here.
+    // A turn with no actor is the host's own work. Automations run as their
+    // creator, and an agent's follow-up as the person its session works for
+    // (plans/019-acting-identity.md), so they arrive with one.
     if (!this.seats || !actor) return null
     return this.seats.resolveForTurn(seatFor(actor), provider)
   }

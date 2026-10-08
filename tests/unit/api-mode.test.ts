@@ -10,6 +10,7 @@ import { SOLUS_API_AUDIENCE } from '@solus/contracts/uplink'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
 import type { HostEventPublisher } from '@solus/server/transport/events/host-event-publisher'
 import { resetTestDatabase } from './helpers/test-db'
+import { installTestIdentities } from './helpers/acting-identities'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -94,6 +95,9 @@ function runner(hostId: string, organizationId: string): Principal {
 }
 
 const ctx = (principal: Principal): HandlerCtx => ({ clientId: `ws:${principal.kind === 'system' ? 'system' : principal.deviceId}`, principal })
+
+// Members act from homes of their own, as on a booted server (plans/019).
+installTestIdentities()
 
 describe('booting in API mode', () => {
   test('the mode is read from the environment, needs its issuer, and needs Postgres unless a test says sqlite', () => {

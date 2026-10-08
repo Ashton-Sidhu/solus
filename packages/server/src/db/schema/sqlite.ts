@@ -34,6 +34,7 @@ export const share_grant = sharingSchema.shareGrant.sqlite
 export const session_records = sessionsSchema.sessionRecords.sqlite
 export const session_admissions = sessionsSchema.sessionAdmissions.sqlite
 export const session_pull_requests = sessionsSchema.sessionPullRequests.sqlite
+export const session_pull_request_watches = sessionsSchema.sessionPullRequestWatches.sqlite
 export const session_states = sessionsSchema.sessionStates.sqlite
 export const runner_cursors = outboxSchema.runnerCursors.sqlite
 export const session_transcripts = transcriptSchema.sessionTranscripts.sqlite

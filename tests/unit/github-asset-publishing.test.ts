@@ -7,6 +7,7 @@ import { sql } from 'drizzle-orm'
 import { resetTestDatabase } from './helpers/test-db'
 import type { ExternalTicketRef } from '@solus/contracts/task-types'
 import { githubClientState, installGithubClientMock, mockedGithubClient, mockedRepository } from './helpers/github-client-mock.ts'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -124,6 +125,9 @@ afterAll(() => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
   rmSync(dataDir, { recursive: true, force: true })
 })
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('github asset upload request', () => {
   test('sends the octet-stream request the endpoint requires', async () => {

@@ -49,6 +49,15 @@ export interface WorktreeMoveRuntime {
   nameWorktreeBranch(sessionId: string, checkout: GitCheckout, prompt: string, actor: Actor | undefined, preferences?: ExecutionPreferences): Promise<void>
 }
 
+export interface WorktreeStatus {
+  /** The directory the session is bound to. */
+  directory: string
+  /** The host's binding; null before the session's first checkout. */
+  checkout: GitCheckout | null
+  /** The main checkout first. `holdsSession` marks the one the session is bound to. */
+  checkouts: Array<RepositoryCheckout & { holdsSession: boolean }>
+}
+
 export class WorktreeMover {
   /** The last move per session. A move waits for the one before it. */
   private readonly tails = new Map<string, Promise<GitCheckoutBranchResult>>()
@@ -61,6 +70,22 @@ export class WorktreeMover {
     const directory = bound?.worktreePath ?? bound?.repoRoot ?? fallback
     // `~` and a new chat's placeholder name no folder yet.
     return directory && directory !== '~' && directory !== NEW_CHAT_DIRECTORY ? resolveHomePath(directory) : null
+  }
+
+  /** Where the session is bound and the checkouts of its repository, or null
+   *  when the session is not in a git repository. */
+  async status(sessionId: string, fallback: string): Promise<WorktreeStatus | null> {
+    const directory = this.boundDirectory(sessionId, fallback)
+    if (!directory) return null
+    const checkouts = await repositoryCheckouts(directory)
+    if (checkouts.length === 0) return null
+    const realDirectory = await realpathOrNull(directory)
+    const realPaths = await Promise.all(checkouts.map((checkout) => realpathOrNull(checkout.path)))
+    return {
+      directory,
+      checkout: this.runtime.getGitContext(sessionId) ?? null,
+      checkouts: checkouts.map((checkout, index) => ({ ...checkout, holdsSession: !!realDirectory && realPaths[index] === realDirectory })),
+    }
   }
 
   move(request: WorktreeMoveRequest): Promise<GitCheckoutBranchResult> {
@@ -149,12 +174,30 @@ async function realpathOrNull(path: string): Promise<string | null> {
   return realpath(path).catch(() => null)
 }
 
+export interface RepositoryCheckout {
+  path: string
+  /** Null for a detached HEAD. */
+  branch: string | null
+}
+
+/** The checkouts of the repository at `repoDirectory` as `git worktree list`
+ *  names them, the main checkout first. Empty outside a repository. */
+export async function repositoryCheckouts(repoDirectory: string): Promise<RepositoryCheckout[]> {
+  const output = await runAsync('git', ['worktree', 'list', '--porcelain'], repoDirectory).catch(() => '')
+  return output.split('\n\n').flatMap((entry) => {
+    const lines = entry.split('\n')
+    const path = lines.find((line) => line.startsWith('worktree '))?.slice('worktree '.length)
+    if (!path) return []
+    const ref = lines.find((line) => line.startsWith('branch '))?.slice('branch '.length)
+    return [{ path, branch: ref ? ref.replace(/^refs\/heads\//, '') : null }]
+  })
+}
+
 /** The real paths of the linked worktrees of the repository at `repoDirectory`.
  *  The main checkout, the first entry, is not one. */
 export async function linkedWorktrees(repoDirectory: string): Promise<string[]> {
-  const output = await runAsync('git', ['worktree', 'list', '--porcelain'], repoDirectory).catch(() => '')
-  const paths = output.split('\n').filter((line) => line.startsWith('worktree ')).map((line) => line.slice('worktree '.length))
-  const real = await Promise.all(paths.slice(1).map(realpathOrNull))
+  const checkouts = await repositoryCheckouts(repoDirectory)
+  const real = await Promise.all(checkouts.slice(1).map((checkout) => realpathOrNull(checkout.path)))
   return real.filter((path): path is string => !!path)
 }
 

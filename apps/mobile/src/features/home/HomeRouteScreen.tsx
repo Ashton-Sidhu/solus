@@ -45,7 +45,7 @@ export function HomeRouteScreen() {
   useFocusEffect(reloadThreadLists);
   useKeyboardCommand("newSession", () => navigation.navigate("NewTask"));
 
-  const { settleThread, snoozeThread, unsnoozeThread, renameThread, unsettleThread } =
+  const { settleThread, snoozeThread, unsnoozeThread, renameThread, unsettleThread, setPullRequestWatch } =
     useThreadListActions();
   const handleUnsettleThread = useCallback(
     (thread: SolusThreadShell) => void unsettleThread(thread),
@@ -172,6 +172,7 @@ export function HomeRouteScreen() {
           onSnoozeThread={snoozeThread}
           onUnsnoozeThread={unsnoozeThread}
           onUnsettleThread={handleUnsettleThread}
+          onSetPullRequestWatch={setPullRequestWatch}
           onRenameThread={renameThread}
           onSelectThread={handleSelectThread}
           onToggleShelf={handleToggleShelf}

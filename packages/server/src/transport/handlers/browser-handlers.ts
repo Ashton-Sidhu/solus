@@ -110,11 +110,14 @@ export function registerBrowserHandlers(
   })
   server.register('browserClearProfile', async (args) => registry.clearProfile(args[0]))
   server.register('browserSubscribeFrames', async (args, ctx) =>
-    registry.subscribeFrames(args[0], requireClientId(ctx)),
+    registry.subscribeFrames(args[0], requireClientId(ctx), args[1]),
   )
   server.register('browserUnsubscribeFrames', async (args, ctx) => {
     await registry.unsubscribeFrames(args[0], requireClientId(ctx))
   })
+  server.register('browserSetFrameCaps', async (args, ctx) =>
+    registry.setFrameCaps(args[0], requireClientId(ctx), args[1]),
+  )
   server.register('browserCaptureEvidence', async (args, ctx) => captureEvidence(args[0], attributionOf(ctx.actor)))
   server.register('browserEvidenceOptions', async (args) => evidenceOptions(args[0]))
   server.register('browserRecordingStart', async (args) => recorder.start(args[0], 'user'))

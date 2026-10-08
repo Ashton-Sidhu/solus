@@ -191,10 +191,6 @@ interface SeatClient {
   client: CodexAppServerClient
   activeRuns: number
   idleTimer: ReturnType<typeof setTimeout> | null
-  /** The Git identity revision the app-server started with; null for none. */
-  gitRevision: string | null
-  /** Lets the member's credential go when the app-server stops. */
-  releaseGit: () => void
 }
 
 const STATIC_CODEX_METADATA: Omit<AgentMetadata, 'models' | 'defaultModel'> = {
@@ -356,27 +352,18 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   private clientFor(seat: TurnSeat | undefined): CodexAppServerClient {
     // The host login's app-server is the pool's permanent member: it also serves every catalog read.
     if (!seat || seat.seat.kind === 'host-login') return this.client
-    const gitRevision = seat.git?.revision ?? null
     const existing = this.seatClients.get(seatKey(seat.seat))
-    if (existing) {
-      if (existing.gitRevision === gitRevision) return existing.client
-      // Its environment is fixed at start, so a changed identity needs a new app-server; a running turn keeps the one it has.
-      if (existing.activeRuns > 0) {
-        throw new Error('Your GitHub account changed while a Codex run was active on this host. Send again when that run finishes.')
-      }
-      log.info('seat_app_server_identity_changed', { seat: seatKey(seat.seat) })
-      this.stopSeatClient(seatKey(seat.seat))
-    }
+    if (existing) return existing.client
     if (this.seatClients.size >= SEAT_CLIENT_CAP) {
       const idle = [...this.seatClients.entries()].find(([, entry]) => entry.activeRuns === 0)
       if (!idle) throw new Error('Too many Codex seats are active on this host. Try again in a moment.')
       this.stopSeatClient(idle[0])
     }
-    // The app-server outlives one turn: it holds the member's credential while it
-    // runs, and each turn's resolution renews the token in it.
-    const client = new CodexAppServerClient({ codexHome: seat.home, gitEnv: seat.git?.env })
+    // The app-server outlives one turn. It runs in the member's own home, where
+    // their GitHub connection is kept current on disk (plans/019-acting-identity.md).
+    const client = new CodexAppServerClient({ codexHome: seat.home, env: seat.env })
     this.attachClient(client)
-    const entry: SeatClient = { client, activeRuns: 0, idleTimer: null, gitRevision, releaseGit: seat.git?.hold() ?? (() => {}) }
+    const entry: SeatClient = { client, activeRuns: 0, idleTimer: null }
     this.seatClients.set(seatKey(seat.seat), entry)
     this.armSeatIdle(seatKey(seat.seat), entry)
     log.info('seat_app_server_started', { seat: seatKey(seat.seat), pool: this.seatClients.size })
@@ -411,7 +398,6 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     if (entry.idleTimer) clearTimeout(entry.idleTimer)
     this.seatClients.delete(userId)
     entry.client.shutdown()
-    entry.releaseGit()
     log.info('seat_app_server_stopped', { userId, pool: this.seatClients.size })
   }
 

@@ -2,6 +2,8 @@
   import {
     Copy as CopyIcon,
     ExternalLink as OpenIcon,
+    Eye as WatchIcon,
+    EyeOff as StopWatchingIcon,
     Unlink as UnlinkIcon,
   } from "@lucide/svelte";
   import * as ContextMenu from "../ui/context-menu";
@@ -12,10 +14,12 @@
     onOpen: () => void;
     onCopyReference: () => void;
     onUnlink: () => void;
+    /** Present when the row can be watched or is watched (docs/plans/pr-watch.md). */
+    watch?: { isWatched: boolean; onToggle: () => void };
     onClose: () => void;
   }
 
-  let { x, y, onOpen, onCopyReference, onUnlink, onClose }: Props = $props();
+  let { x, y, onOpen, onCopyReference, onUnlink, watch, onClose }: Props = $props();
 
   // Act first, close second. The caller holds the row this menu was opened for
   // in the same state `onClose` clears, and a `{@const}` capture of it is a
@@ -42,6 +46,18 @@
       <CopyIcon />
       Copy Reference
     </ContextMenu.Item>
+    {#if watch}
+      {@const toggle = watch.onToggle}
+      <ContextMenu.Item onSelect={() => select(toggle)}>
+        {#if watch.isWatched}
+          <StopWatchingIcon />
+          Stop Watching
+        {:else}
+          <WatchIcon />
+          Watch Checks and Reviews
+        {/if}
+      </ContextMenu.Item>
+    {/if}
     <ContextMenu.Separator />
     <ContextMenu.Item
       variant="destructive"

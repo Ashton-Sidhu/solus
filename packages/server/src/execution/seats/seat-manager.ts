@@ -9,7 +9,7 @@ import { createLogger } from '../../logger'
 import { solusDir } from '../../platform/paths'
 import { memberFolderFor, recordedMemberFolder } from '../../host/member-folders'
 import { hostClaudeDir, hostCodexHome, providerLoginConnected } from './seat-login'
-import type { GitIdentityManager, ProcessGitIdentity } from '../../git/git-identity-manager'
+import { identityFor } from './acting-identity'
 
 const log = createLogger('main', 'seat-manager')
 
@@ -30,6 +30,7 @@ const log = createLogger('main', 'seat-manager')
  *         projects -> <host ~/.claude>/projects
  *       codex/<folder>/            CODEX_HOME for that member
  *         sessions -> <host ~/.codex>/sessions
+ *       home/<folder>/             HOME for that member's processes (plans/019-acting-identity.md)
  *
  * `<folder>` is the member's folder name on this host (`host/member-folders.ts`):
  * their name, the same folder their projects live in.
@@ -120,8 +121,8 @@ export interface TurnSeat {
   home: string
   /** Set for a token seat: injected as `CLAUDE_CODE_OAUTH_TOKEN` for that turn only. */
   envToken?: string
-  /** A member's Git identity, set for their turns only; the host login inherits the host's. */
-  git?: ProcessGitIdentity
+  /** A member's process environment from their acting identity; absent for the host login, which keeps the host's. */
+  env?: NodeJS.ProcessEnv
 }
 
 /**
@@ -169,8 +170,6 @@ export interface SeatManagerDeps {
   hostLoginConnected?: (provider: SeatProvider) => Promise<boolean>
   /** Whether a member's seat directory holds a working login; the CLI's own answer by default. */
   memberLoginConnected?: (provider: SeatProvider, home: string) => Promise<boolean>
-  /** Which Git identity a member's turn acts as. */
-  gitIdentities?: GitIdentityManager
   now?: () => number
 }
 
@@ -254,9 +253,8 @@ export class SeatManager implements SeatStore {
     const usedAt = this.now()
     this.deps.db.prepare('UPDATE provider_seat SET last_used_at = ? WHERE user_id = ? AND provider = ?').run(usedAt, seatKey(seat), provider)
     this.rows.set(rowKey(seat, provider), { ...row, last_used_at: usedAt })
-    const identities = this.deps.gitIdentities
-    const git = identities ? identities.forProcess(await identities.resolve(seat)) : null
-    if (git) turnSeat.git = git
+    // A turn waits for the member's GitHub connection, so their commits name them.
+    turnSeat.env = await identityFor(seat).env()
     return turnSeat
   }
 
@@ -272,7 +270,7 @@ export class SeatManager implements SeatStore {
     if (row && row.state !== 'connected') return isHostLogin ? this.hostLoginSeat(provider) : null
     const turnSeat: TurnSeat = isHostLogin
       ? this.hostLoginSeat(provider)
-      : { seat, provider, home: this.userHome(seat, provider) }
+      : { seat, provider, home: this.userHome(seat, provider), env: identityFor(seat).envSync() }
     if (provider === 'claude-code' && row?.method === 'token') {
       const token = readFileOrNull(join(turnSeat.home, CLAUDE_TOKEN_FILE))?.trim()
       if (!token) return isHostLogin ? this.hostLoginSeat(provider) : null
@@ -520,6 +518,12 @@ export function credentialFiles(provider: SeatProvider): string[] {
 }
 
 /** A member's seat directory under the seats root, made 0700 on first use, without its transcript links. */
+/** The folder that is `HOME` for a member's processes, beside their seats and named like them. */
+export function memberHomeDirectory(seatsRoot: string, seat: Extract<Seat, { kind: 'user' }>): string {
+  const folder = seatUserIdSchema.parse(memberFolderFor(seatUserIdSchema.parse(seatKey(seat)), seat.name))
+  return join(seatsRoot, 'home', folder)
+}
+
 export function memberSeatDirectory(seatsRoot: string, folder: string, provider: SeatProvider): string {
   const safeFolder = seatUserIdSchema.parse(folder)
   ensureDir(seatsRoot, 0o700)

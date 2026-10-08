@@ -12,7 +12,6 @@ import type { ClaudeUsageReport, ClaudeUsageWindows } from './claude-usage'
 import type { AgentSlashCommand, ContextUsage, NormalizedEvent, PermissionMode, ReasoningEffort } from '@solus/contracts/types'
 import type { ResultEvent } from '@solus/contracts/claude-types'
 import { z } from 'zod'
-import type { GitIdentityEnv } from '../../../git/git-identity-manager'
 
 const log = createLogger('ClaudeAgent', 'claude-agent.ts')
 /** A detail row keeps its own name plus wherever it came from. */
@@ -136,18 +135,19 @@ export interface ClaudeSeat {
   /** The host's own login: the CLI stays on its defaults and the host process env passes through. */
   isHostLogin?: boolean
   envToken?: string
-  /** A member's Git identity and credential helper. */
-  gitEnv?: GitIdentityEnv
+  /** A member's environment from their acting identity: their own home, and nothing of the host's. */
+  env?: NodeJS.ProcessEnv
 }
 
 /**
  * The child environment. The host login is the host process env as it stands:
  * the CLI reads its own defaults, and an API key the host runs on still applies.
- * A member's seat runs on the member's login and on nothing the host process
- * carries: an API key or token in the server's env would otherwise answer for them.
+ * A member's seat starts from the member's clean environment
+ * (plans/019-acting-identity.md), so no API key, token, key agent or helper the
+ * server carries answers for them.
  */
 export function claudeEnv(seat?: ClaudeSeat): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CODE_ENABLE_TASKS: '0' }
+  const env: NodeJS.ProcessEnv = { ...(seat?.env ?? process.env), CLAUDE_CODE_ENABLE_TASKS: '0' }
   if (!seat) return env
   if (!seat.isHostLogin) {
     delete env.ANTHROPIC_API_KEY
@@ -155,7 +155,6 @@ export function claudeEnv(seat?: ClaudeSeat): NodeJS.ProcessEnv {
     env.CLAUDE_CONFIG_DIR = seat.home
   }
   if (seat.envToken) env.CLAUDE_CODE_OAUTH_TOKEN = seat.envToken
-  if (seat.gitEnv) Object.assign(env, seat.gitEnv)
   return env
 }
 

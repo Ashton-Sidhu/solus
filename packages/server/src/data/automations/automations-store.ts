@@ -426,7 +426,7 @@ export async function pauseAutomationsOf(userId: string, organizationId: string)
  * The person an automation runs for: the person who made it, or the person its
  * agent worked for. An agent that named nobody worked for its session's owner.
  */
-async function creatorKeyOf(createdBy: Attribution): Promise<string | null> {
+export async function creatorKeyOf(createdBy: Attribution): Promise<string | null> {
   if (createdBy.kind === 'user') return userKey(createdBy.user.id)
   if ((createdBy.kind === 'agent' || createdBy.kind === 'automation') && createdBy.for) return userKey(createdBy.for.id)
   if (createdBy.kind === 'agent' && createdBy.sessionId) return (await getSessionRecord(ANY_ORGANIZATION, createdBy.sessionId))?.ownerUserId ?? null

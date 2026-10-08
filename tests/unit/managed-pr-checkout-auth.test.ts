@@ -3,11 +3,11 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { GitExecOptions } from '@solus/server/git/exec'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 const repo = { host: 'github.com', owner: 'test', repo: 'private' }
 const target = { kind: 'pr' as const, ...repo, number: 1, baseSha: 'base', headSha: 'head' }
 const attempts: string[] = []
-const helpers: string[] = []
 let failureStage = 'clone'
 let failureMessage = 'fatal: Authentication failed'
 let rejectAll = false
@@ -22,7 +22,8 @@ mock.module('@solus/server/providers/github/credentials', () => ({
 }))
 mock.module('@solus/server/git/exec', () => ({
   runAsync: async (_bin: string, args: string[], cwd: string, options?: GitExecOptions) => {
-    const command = args[0] === '-c' ? args[2] : args[0]
+    // The chosen token's helper comes first: `-c credential.helper= -c credential.helper=<token helper>`.
+    const command = args[0] === '-c' ? args[4] : args[0]
     if (command === 'rev-parse') {
       if (args.includes('HEAD')) return target.headSha
       if (args.includes('refs/solus/review/base')) return target.baseSha
@@ -30,12 +31,12 @@ mock.module('@solus/server/git/exec', () => ({
       return 'false'
     }
     if (command !== 'clone' && command !== 'fetch') return ''
-    const token = options?.env?.SOLUS_GIT_PASSWORD ?? ''
-    const helper = options?.env?.GIT_ASKPASS ?? ''
-    expect(existsSync(helper)).toBe(true)
-    expect(args.slice(0, 2)).toEqual(['-c', 'credential.helper='])
+    const token = options?.env?.SOLUS_GIT_TOKEN ?? ''
+    // Every helper the host or the checkout configured is cleared, so only the chosen token answers.
+    expect(args.slice(0, 3)).toEqual(['-c', 'credential.helper=', '-c'])
+    expect(args[3]).toStartWith('credential.helper=!')
+    // The token never reaches argv.
     expect(args.join(' ')).not.toContain(token)
-    helpers.push(helper)
     attempts.push(`${command}:${token}`)
     if (command === 'clone') {
       // `--` ends options, so a destination that starts with `-` stays a path.
@@ -58,10 +59,8 @@ mock.module('@solus/server/git/exec', () => ({
 const { ensureManagedPrCheckout } = await import('@solus/server/review/managed-pr-checkout')
 
 afterEach(() => {
-  for (const helper of helpers) expect(existsSync(helper)).toBe(false)
   if (root) rmSync(root, { recursive: true, force: true })
   attempts.length = 0
-  helpers.length = 0
   rejectAll = false
 })
 
@@ -85,6 +84,9 @@ for (const stage of ['clone', 'fetch']) {
     })
   }
 }
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 test('does not retry a network failure with another account', async () => {
   root = mkdtempSync(join(tmpdir(), 'solus-review-auth-'))

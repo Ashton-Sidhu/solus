@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, jest, mock, test } from 'bun:test'
 import type { SecretStore } from '@solus/server/platform/secrets'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 const records = new Map<string, unknown>()
 const store: SecretStore = {
@@ -54,6 +55,9 @@ async function startAndReadState(): Promise<string> {
 function startOAuthWithoutPort() {
   return oauth.startOAuthFlow({ listenForCallback: async () => {} })
 }
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('Atlassian OAuth state', () => {
   // Atlassian matches the callback character for character, so the URL the

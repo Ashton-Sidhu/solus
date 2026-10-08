@@ -86,6 +86,102 @@ export function elementRectExpression(selector: string): string {
 })()`
 }
 
+/** The centre of an element in viewport coordinates, or null when it has no
+ *  size or its centre is off screen. Unlike `elementRectExpression` it does
+ *  not focus: a hover or a drag must not move focus. */
+export function visiblePointExpression(selector: string, scroll: boolean): string {
+  return `(() => {
+  const el = document.querySelector(${JSON.stringify(selector)});
+  if (!el) return JSON.stringify(null);
+  if (${scroll}) el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+  const rect = el.getBoundingClientRect();
+  const x = rect.x + rect.width / 2;
+  const y = rect.y + rect.height / 2;
+  if (rect.width <= 0 || rect.height <= 0 || x < 0 || y < 0 || x > innerWidth || y > innerHeight) return JSON.stringify(null);
+  return JSON.stringify({ x, y });
+})()`
+}
+
+/** Choose options of a native `<select>` by value, else by visible label, and
+ *  fire `input` and `change` as a person's choice does. */
+export function selectOptionsExpression(selector: string, values: string[]): string {
+  return `(() => {
+  const el = document.querySelector(${JSON.stringify(selector)});
+  if (!el) return JSON.stringify({ error: 'No element matches that ref.' });
+  if (!(el instanceof HTMLSelectElement)) {
+    return JSON.stringify({ error: 'That element is not a native <select>. Click a custom dropdown open, then click its option.' });
+  }
+  const wanted = ${JSON.stringify(values)};
+  if (!el.multiple && wanted.length !== 1) return JSON.stringify({ error: 'This <select> takes exactly one option.' });
+  const options = Array.from(el.options);
+  const chosen = [];
+  for (const value of wanted) {
+    const option = options.find((o) => o.value === value) ?? options.find((o) => o.label.trim() === value.trim());
+    if (!option) {
+      const names = options.slice(0, 30).map((o) => o.label.trim()).join(', ');
+      return JSON.stringify({ error: 'No option has the value or label ' + JSON.stringify(value) + '. Options: ' + names });
+    }
+    chosen.push(option);
+  }
+  for (const option of options) option.selected = chosen.includes(option);
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+  return JSON.stringify({ selected: chosen.map((o) => o.label.trim()) });
+})()`
+}
+
+/** The `<input type=file>` an upload names: the element itself, the control
+ *  of a label, or else the nearest one around the element, as an upload button
+ *  usually hides its input beside it. Evaluates to the node, not to JSON. */
+export function fileInputExpression(selector: string): string {
+  return `(() => {
+  const el = document.querySelector(${JSON.stringify(selector)});
+  if (!el) return null;
+  const isFileInput = (node) => node instanceof HTMLInputElement && node.type === 'file';
+  if (isFileInput(el)) return el;
+  if (el instanceof HTMLLabelElement && isFileInput(el.control)) return el.control;
+  for (let node = el; node; node = node.parentElement) {
+    const found = node.querySelector('input[type=file]');
+    if (found) return found;
+  }
+  return null;
+})()`
+}
+
+/** Whether a drag from this element is an HTML drag (`draggable`, links and
+ *  images by default). Mouse events from CDP do not start one, so the registry
+ *  sends the drag events instead. */
+export function isHtmlDragSourceExpression(selector: string): string {
+  return `(() => {
+  for (let node = document.querySelector(${JSON.stringify(selector)}); node; node = node.parentElement) {
+    if (node.draggable) return JSON.stringify(true);
+  }
+  return JSON.stringify(false);
+})()`
+}
+
+/** An HTML drag from the element to the point, with one shared DataTransfer.
+ *  As in a browser, the drop fires only when the target cancels dragover.
+ *  Evaluates to whether the target took the drop. */
+export function htmlDragExpression(selector: string, to: { x: number; y: number }): string {
+  return `(() => {
+  const source = document.querySelector(${JSON.stringify(selector)});
+  const target = document.elementFromPoint(${to.x}, ${to.y});
+  if (!source || !target) return JSON.stringify(false);
+  const data = new DataTransfer();
+  const rect = source.getBoundingClientRect();
+  const fire = (node, type, x, y) => node.dispatchEvent(new DragEvent(type, {
+    bubbles: true, cancelable: true, composed: true, dataTransfer: data, clientX: x, clientY: y,
+  }));
+  fire(source, 'dragstart', rect.x + rect.width / 2, rect.y + rect.height / 2);
+  fire(target, 'dragenter', ${to.x}, ${to.y});
+  const accepted = !fire(target, 'dragover', ${to.x}, ${to.y});
+  if (accepted) fire(target, 'drop', ${to.x}, ${to.y});
+  fire(source, 'dragend', ${to.x}, ${to.y});
+  return JSON.stringify(accepted);
+})()`
+}
+
 /** Clear a field before typing into it — `type` with `clear` is one op to the
  *  caller, so the emptying must not need a second round trip. */
 export function clearFieldExpression(selector: string): string {

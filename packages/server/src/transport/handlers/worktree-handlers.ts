@@ -15,8 +15,7 @@ import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { prIndex } from '../../prs/pr-index'
 import { pullRequestForBranch } from '../../prs/code-host'
 import type { SolusServer } from '../server'
-import { attributionOf, seatFor } from '../../admission/actor'
-import type { GitIdentityManager } from '../../git/git-identity-manager'
+import { attributionOf } from '../../admission/actor'
 import type { HostEventPublisher } from '../events/host-event-publisher'
 import { resolveSourceControlWritingPolicy } from '../../git/source-control-writing'
 import { resolveSourceControlWriterModel, sourceControlWritingFor } from '../../host/settings'
@@ -30,7 +29,6 @@ const log = createLogger('main', 'worktree-handlers')
 export interface WorktreeDeps {
   sessionRuntime: SessionRuntime
   events: HostEventPublisher
-  gitIdentities: GitIdentityManager
   worktreeMover: WorktreeMover
   worktreeOffers: WorktreeOffers
 }
@@ -170,10 +168,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
       || request.action === 'commit_push_pull_request'
     const githubRepo = pullRequestRequested ? await resolveRepoRef(cwd) : null
     const githubProvider = githubRepo ? providerForRepo(githubRepo) : null
-    const identity = await deps.gitIdentities.resolve(seatFor(handlerCtx.actor))
     const result = await runGitAction(request, gitContext, ctx.session.workingDirectory, {
-      identity,
-      holdIdentity: (held) => deps.gitIdentities.hold(held),
       writer: {
         backend: writerBackend,
         textGenerator,

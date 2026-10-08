@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 /**
  * Project config lives at `.solus/config.json` in the repository. These pin the
@@ -31,6 +32,9 @@ beforeAll(async () => {
 afterAll(() => {
   rmSync(repo, { recursive: true, force: true })
 })
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('project config in the repository', () => {
   test('a config written from a subdirectory is read from anywhere in the repo', async () => {

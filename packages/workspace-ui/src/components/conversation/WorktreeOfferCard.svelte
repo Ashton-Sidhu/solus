@@ -40,6 +40,7 @@
   target={view.target}
   resolved={!view.canDecide}
   testId="worktree-offer-card"
+  children={view.detail ? detail : undefined}
 >
   {#snippet icon()}<GitBranchIcon />{/snippet}
   {#snippet actions()}
@@ -57,10 +58,13 @@
           kind="filled"
           disabled={isDeciding}
           data-testid="worktree-offer-switch"
-          onclick={() => void decide("switch")}>Switch</TranscriptCardAction
+          onclick={() => void decide("switch")}>Switch to it</TranscriptCardAction
         >
       {/if}
     {/if}
   {/snippet}
-  <p class="m-0 {view.failed ? 'text-destructive' : 'text-(--muted-foreground)'}">{view.detail}</p>
 </AttentionCard>
+
+{#snippet detail()}
+  <p class="m-0 text-destructive">{view.detail}</p>
+{/snippet}

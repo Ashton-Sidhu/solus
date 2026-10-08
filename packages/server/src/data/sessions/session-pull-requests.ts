@@ -14,6 +14,7 @@ import type { RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
 import { sessionPullRequests } from './schema'
 import { organizationOfSession } from './session-records'
+import { readPullRequestWatches, stopPullRequestWatch } from './pull-request-watches'
 
 /**
  * The pull requests a session works on (docs/plans/session-pull-requests.md).
@@ -146,8 +147,10 @@ export async function unlinkSessionPullRequest(sessionId: string, repository: st
     WHERE session_id = ${sessionId} AND repository = ${repository.toLowerCase()} AND number = ${number}
       AND source <> 'dismissed'
   `)).changes > 0
-  if (removed) emitChanged(sessionId)
-  return removed
+  if (!removed) return false
+  await stopPullRequestWatch(sessionId, repository, number)
+  emitChanged(sessionId)
+  return true
 }
 
 /** The part of a pull request a row draws, as PR sync last saw it: display
@@ -197,10 +200,14 @@ export async function readSessionPullRequests(
     WHERE ${scopeClause(scope)} AND source <> 'dismissed'${onlySessions}
     ORDER BY linked_at DESC, repository, number DESC
   `))
+  const watchStarts = new Map((await readPullRequestWatches(sessionIds)).map((watch) =>
+    [`${watch.sessionId}\0${watch.repository}\0${watch.number}`, watch.startedAt]))
   const bySession: SessionPullRequestsBySession = {}
   for (const row of rows) {
     if (row.source === 'dismissed') continue
     const link = linkFromRow({ ...row, source: row.source })
+    const watchStartedAt = watchStarts.get(`${row.session_id}\0${row.repository}\0${row.number}`)
+    if (watchStartedAt !== undefined) link.watch = { startedAt: watchStartedAt }
     const links = bySession[row.session_id]
     if (links) links.push(link)
     else bySession[row.session_id] = [link]
@@ -248,8 +255,8 @@ export async function recordSessionPullRequestObservation(
   return sessionIds
 }
 
-/** One watched pull request of a session, for PR sync's interest. */
-export interface SessionPullRequestWatch {
+/** One session link, as PR sync's interest reads it. */
+export interface SessionPullRequestInterest {
   sessionId: string
   repository: string
   number: number
@@ -258,7 +265,7 @@ export interface SessionPullRequestWatch {
 }
 
 /** Every live session link with what PR sync last saw. */
-export async function readSessionPullRequestWatchList(scope: RecordScope): Promise<SessionPullRequestWatch[]> {
+export async function readSessionPullRequestInterests(scope: RecordScope): Promise<SessionPullRequestInterest[]> {
   const rows = rowSchema.array().parse(await getDatabase().all(sql`
     SELECT session_id, repository, number, url, title, source, created_by, linked_at, pr_state, pr_draft, pr_updated_at
     FROM ${sessionPullRequests}

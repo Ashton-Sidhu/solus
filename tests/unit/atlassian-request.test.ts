@@ -2,6 +2,7 @@ import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { z } from 'zod'
 import type { SecretStore } from '@solus/server/platform/secrets'
 import type { AtlassianStoredCredential } from '@solus/server/atlassian/token-store'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 /**
  * The shared Atlassian transport under load: how many calls it lets out at once,
@@ -67,6 +68,9 @@ function request(): Promise<{ value: number }> {
     bodySchema,
   )
 }
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('Atlassian multipart writes', () => {
   // Attachments are the one multipart write. Atlassian refuses a multipart

@@ -7,6 +7,7 @@ import type { RecordScope } from '../../admission/principal'
 import { scopeClause } from '../scope'
 import { sessionPullRequests, sessionStates } from './schema'
 import { getSessionRecords, organizationOfSession } from './session-records'
+import { stopSessionPullRequestWatches } from './pull-request-watches'
 
 /**
  * Where a session is in a person's list: active, settled, or snoozed
@@ -83,8 +84,11 @@ export async function settleSession(sessionId: string, by: SessionSettledBy, at 
     UPDATE ${sessionStates} SET settled_at = ${at}, settled_by = ${by}, snoozed_until = NULL, snooze_note = NULL
     WHERE session_id = ${sessionId} AND settled_at IS NULL
   `)).changes > 0
-  if (changed) emitChanged(sessionId)
-  return changed
+  if (!changed) return false
+  // A settled session's work is finished: nothing is left to wake it for.
+  await stopSessionPullRequestWatches(sessionId)
+  emitChanged(sessionId)
+  return true
 }
 
 /**

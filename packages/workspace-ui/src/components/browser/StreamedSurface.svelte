@@ -3,9 +3,13 @@
     BrowserInteractOp,
     BrowserPage,
   } from "@solus/contracts/browser-types";
-  import { browserStore } from "../../contexts/browser/browser.store.svelte";
+  import { untrack } from "svelte";
+  import {
+    browserStore,
+    type BrowserFrameWatch,
+  } from "../../contexts/browser/browser.store.svelte";
   import BrowserSkeleton from "./BrowserSkeleton.svelte";
-  import { FramePainter } from "./lib/frame-painter";
+  import { FramePainter, paneFrameCaps } from "./lib/frame-painter";
   import {
     isPrintableKey,
     keepsStrokePoint,
@@ -43,10 +47,14 @@
   let textBridge = $state<HTMLInputElement | null>(null);
   let hasFrame = $state(false);
   let streamError = $state<string | null>(null);
+  let canvasWidth = $state(0);
+  let canvasHeight = $state(0);
+  let watch: BrowserFrameWatch | null = null;
 
   // One subscription per (canvas, page, visible). The painter belongs to the
   // canvas; the subscription to the host. Tearing both down together is what
-  // makes a parked pane free.
+  // makes a parked pane free. The pane's size is read once here and followed
+  // below, so a resize adjusts the stream rather than resubscribing.
   $effect(() => {
     const node = canvas;
     if (!node || !active) return;
@@ -55,7 +63,7 @@
     const cachedFrame = browserStore.cachedFrame(pageKey);
     hasFrame = cachedFrame !== null;
     if (cachedFrame) void painter.restore(cachedFrame.data);
-    const stop = browserStore.subscribeFrames(
+    const current = browserStore.subscribeFrames(
       pageKey,
       (header, data) => {
         hasFrame = true;
@@ -64,11 +72,21 @@
       (error) => {
         streamError = error.message;
       },
+      untrack(() => paneFrameCaps(canvasWidth, canvasHeight, window.devicePixelRatio)),
     );
+    watch = current;
     return () => {
-      stop();
+      current.stop();
+      if (watch === current) watch = null;
       painter.dispose();
     };
+  });
+
+  // The host streams no more pixels than this pane can show. Zoom changes the
+  // pixel ratio and the measured size together, so the size re-runs this.
+  $effect(() => {
+    const caps = paneFrameCaps(canvasWidth, canvasHeight, window.devicePixelRatio);
+    if (caps) watch?.setCaps(caps);
   });
 
   function send(op: BrowserInteractOp) {
@@ -332,7 +350,12 @@
     ontouchend={() => (panFrom = null)}
     onkeydown={onKeydown}
   >
-    <canvas bind:this={canvas} class="block h-full w-full"></canvas>
+    <canvas
+      bind:this={canvas}
+      bind:clientWidth={canvasWidth}
+      bind:clientHeight={canvasHeight}
+      class="block h-full w-full"
+    ></canvas>
   </div>
 
   <input

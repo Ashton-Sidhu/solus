@@ -99,6 +99,13 @@
       "when": 1791347535774,
       "tag": "0013_remove_insights_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791404101358,
+      "tag": "0014_session_pull_request_watches",
+      "breakpoints": true
     }
   ]
 }

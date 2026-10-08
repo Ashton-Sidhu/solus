@@ -38,6 +38,7 @@ import {
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   type ThreadListV2Facts,
   type ThreadListV2ListItem,
+  type ThreadPrWatchTarget,
 } from "../threads/threadListV2";
 import type { ThreadListShelfExpansion } from "../threads/thread-list-state";
 import type { HomeListFilterMenuEnvironment } from "./home-list-filter-menu";
@@ -70,6 +71,7 @@ interface HomeScreenProps {
   readonly onSnoozeThread: (thread: SolusThreadShell, snoozedUntil: number) => Promise<boolean>;
   readonly onUnsnoozeThread: (thread: SolusThreadShell) => Promise<boolean>;
   readonly onUnsettleThread: (thread: SolusThreadShell) => void;
+  readonly onSetPullRequestWatch: (thread: SolusThreadShell, target: ThreadPrWatchTarget, watching: boolean) => void;
   readonly onRenameThread: (thread: SolusThreadShell) => void;
   readonly onToggleShelf: (shelf: keyof ThreadListShelfExpansion) => void;
 }
@@ -401,6 +403,7 @@ export function HomeScreen(props: HomeScreenProps) {
           onSnoozeThread={handleSnoozeThread}
           onUnsnoozeThread={handleUnsnoozeThread}
           onUnsettleThread={handleUnsettleThread}
+          onSetPullRequestWatch={props.onSetPullRequestWatch}
           onSwipeableClose={handleSwipeableClose}
           onSwipeableWillOpen={handleSwipeableWillOpen}
           activationKey={item.key}

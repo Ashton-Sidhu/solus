@@ -15,6 +15,8 @@ import { prGuideJobs } from './pr-guide-jobs'
 import { readPrGuide } from './pr-guide-store'
 import { currentPrGuideTarget } from './pr-guide-context'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
+import type { SeatResolver } from '../execution/seats/seat-manager'
+import { requireActingScope, withActingScope, type ActingScope } from '../vault/acting-scope'
 
 const log = createLogger('review', 'guide-warmer.ts')
 const HEAD_STABLE_MS = 60_000
@@ -23,6 +25,8 @@ const PREFETCH_COUNT = 3
 interface GuideWarmerInput {
   checkouts: CheckoutService
   dispatcher: AgentDispatcher
+  /** The provider login of the person whose list started the warming. */
+  seatFor: SeatResolver
   ctx: IpcContext
   repoRoot: string
   repo: RepoRef
@@ -38,7 +42,8 @@ interface HeadObservation {
 }
 
 interface RepoWarmState {
-  latest: GuideWarmerInput
+  /** The latest list, with the scope of the person who read it: warming acts for them (plans/019). */
+  latest: GuideWarmerInput & { scope: ActingScope }
   heads: Map<number, HeadObservation>
 }
 
@@ -50,6 +55,8 @@ let prefetchTail = Promise.resolve()
 export interface PrGuideRequest {
   checkouts: CheckoutService
   dispatcher: AgentDispatcher
+  /** The requester's own provider login for each backend. */
+  seatFor: SeatResolver
   ctx: IpcContext
   repoRoot: string
   repo: RepoRef
@@ -67,6 +74,7 @@ export function requestPrGuides(request: PrGuideRequest, numbers: number[]): voi
   for (const number of new Set(numbers)) {
     prGuideJobs.request({
       dispatcher: request.dispatcher,
+      seatFor: request.seatFor,
       ctx: request.ctx,
       opts: {
         target: { kind: 'pr', ...request.repo, number },
@@ -106,12 +114,13 @@ export async function readPrGuideMetadata(
 export function scheduleGuideWarming(input: GuideWarmerInput): void {
   const enabled = input.ctx.settings.reviewWarmingEnabled === true
   const eligible = input.openPullRequests.filter((pr) => pr.state === 'open' && !pr.draft)
+  const latest = { ...input, scope: requireActingScope('review guide warming') }
   let state = repoStates.get(input.repoRoot)
   if (!state) {
-    state = { latest: input, heads: new Map() }
+    state = { latest, heads: new Map() }
     repoStates.set(input.repoRoot, state)
   } else {
-    state.latest = input
+    state.latest = latest
   }
 
   if (!enabled) {
@@ -172,12 +181,16 @@ async function warmGuide(repoRoot: string, number: number, headSha: string): Pro
   const input = state?.latest
   const pr = input?.openPullRequests.find((candidate) => candidate.number === number)
   if (!input || input.ctx.settings.reviewWarmingEnabled !== true || pr?.headSha !== headSha || pr.draft) return
+  await withActingScope(input.scope, () => warmGuideAs(input, number, headSha, repoRoot))
+}
 
+async function warmGuideAs(input: GuideWarmerInput, number: number, headSha: string, repoRoot: string): Promise<void> {
   const target = { kind: 'pr' as const, ...input.repo, number }
   const status = await prGuideJobs.status(input.ctx, target)
   if (status && ['queued', 'generating', 'ready'].includes(status.status)) return
   const result = await prGuideJobs.request({
     dispatcher: input.dispatcher,
+    seatFor: input.seatFor,
     ctx: input.ctx,
     opts: {
       target,
@@ -194,6 +207,10 @@ async function prefetchWorktree(repoRoot: string, number: number, headSha: strin
   const input = repoStates.get(repoRoot)?.latest
   const pr = input?.openPullRequests.find((candidate) => candidate.number === number)
   if (!input || input.ctx.settings.reviewWarmingEnabled !== true || pr?.headSha !== headSha || pr.draft) return
+  await withActingScope(input.scope, () => prefetchWorktreeAs(input, repoRoot, number, headSha))
+}
+
+async function prefetchWorktreeAs(input: GuideWarmerInput, repoRoot: string, number: number, headSha: string): Promise<void> {
   // Prefetch is creation-only. An existing worktree may back a live review or
   // agent session, so leave all existing checkouts to their foreground owner.
   const detail = await prIndex.pullRequest(input.repo, input.provider, number).read()

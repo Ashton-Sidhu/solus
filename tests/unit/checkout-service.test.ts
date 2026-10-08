@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { git } from '@solus/server/git/exec'
 import type { CheckoutChange } from '@solus/contracts/checkout'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 let CheckoutService: typeof import('@solus/server/git/checkout-service')['CheckoutService']
@@ -23,6 +24,9 @@ afterAll(() => {
   if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 test('creation, naming, shared attachments, external changes and restart use one identity', async () => {
   const service = new CheckoutService(() => false)

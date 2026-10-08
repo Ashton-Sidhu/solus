@@ -127,12 +127,14 @@ export class PullRequest {
     return { pullRequest, commits, reviewers }
   }
 
-  async threads(): Promise<ReviewThread[]> {
-    return this.threadsField.read(() => this.provider.review.listReviewThreads(this.repo, this.number))
+  /** `force` when the caller knows the remembered answer is stale, as a PR
+   *  watch does when the fingerprint moved (docs/plans/pr-watch.md). */
+  async threads(opts: { force?: boolean } = {}): Promise<ReviewThread[]> {
+    return this.threadsField.read(() => this.provider.review.listReviewThreads(this.repo, this.number), opts)
   }
 
-  async comments(): Promise<PrConversationItem[]> {
-    return this.commentsField.read(() => this.provider.review.listComments(this.repo, this.number))
+  async comments(opts: { force?: boolean } = {}): Promise<PrConversationItem[]> {
+    return this.commentsField.read(() => this.provider.review.listComments(this.repo, this.number), opts)
   }
 
   async commits(): Promise<PrCommit[]> {

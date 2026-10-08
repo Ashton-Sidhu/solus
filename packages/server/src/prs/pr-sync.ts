@@ -6,13 +6,13 @@ import { ANY_ORGANIZATION } from '../admission/principal'
 import { completeTasksForMergedPullRequest } from '../data/tasks/sync-engine'
 import { settledSessionIds, settleIdleSessions, settleSessionsWithEndedPullRequests } from '../data/sessions/session-states'
 import { sessionIdOfThread } from '../data/sessions/session-lineage'
-import { readPrLinkWatchList, recordPullRequestObservation, type PrLinkWatch } from '../data/tasks/task-links'
+import { readPrLinkInterests, recordPullRequestObservation, type PrLinkInterest } from '../data/tasks/task-links'
 import { unfinishedTaskProjects } from '../data/tasks/task-store'
 import { taskSessions } from '../data/tasks/task-sessions'
 import { recentWorktreeSessions } from '../data/tasks/host-records'
 import {
   linkSessionPullRequest,
-  readSessionPullRequestWatchList,
+  readSessionPullRequestInterests,
   sessionKnowsPullRequest,
 } from '../data/sessions/session-pull-requests'
 import { attachReviewAttention } from '../transport/handlers/review-attention'
@@ -20,6 +20,8 @@ import { GitHubRateLimitedError } from '../providers/github/rate-limit'
 import { asBackgroundWork } from '../providers/github/request-budget'
 import { codeHostFor, type CodeHost } from './code-host'
 import { prIndex, repoKeyOf } from './pr-index'
+import { HOST_SCOPE } from '../execution/seats/acting-identity'
+import { requireActingScope, withActingScope, type ActingScope } from '../vault/acting-scope'
 
 const log = createLogger('main', 'pr-sync')
 /** How often the clock looks for a repository that is due. */
@@ -36,7 +38,7 @@ const TASK_INTEREST_MS = 60_000
 /** A repository the code host would not answer for waits this long. */
 const FAILURE_BACKOFF_MS = 5 * 60_000
 /** A branch is asked about for a session that was active this recently. A
- *  link, once made, is watched until its session is settled. */
+ *  link, once made, is kept fresh until its session is settled. */
 const BRANCH_LOOKUP_MS = 30 * 24 * 60 * 60_000
 
 /** What PR sync knows about one pull request. `missing`: the code host says
@@ -71,7 +73,10 @@ interface TaskInterest {
 interface ClientInterest {
   host: CodeHost
   owners: Map<string, PrInterest[]>
+  /** Whom the repository is read as: the person who last said what they want from it (plans/019). */
+  scope: ActingScope
 }
+
 
 /** Everything wanted from one repository this tick. */
 interface Wanted {
@@ -170,7 +175,8 @@ export class PrSync {
       this.rerun = true
       return this.running
     }
-    const run = this.runTick().catch((error) => {
+    // The tick's own work is the host's; each repository then runs as whoever wants it.
+    const run = withActingScope(HOST_SCOPE, () => this.runTick()).catch((error) => {
       log.warn('pr_sync_tick_failed', { error: String(error) })
     }).finally(() => {
       this.running = null
@@ -190,7 +196,9 @@ export class PrSync {
    */
   setInterest(ownerId: string, host: CodeHost, interests: PrInterest[]): PrSyncChange {
     const key = repoKeyOf(host.repo).toLowerCase()
-    const entry = this.clientInterests.get(key) ?? { host, owners: new Map<string, PrInterest[]>() }
+    const scope = requireActingScope('pull request sync')
+    const entry = this.clientInterests.get(key) ?? { host, owners: new Map<string, PrInterest[]>(), scope }
+    entry.scope = scope
     if (interests.length) {
       entry.owners.set(ownerId, interests)
       this.clientInterests.set(key, entry)
@@ -271,8 +279,11 @@ export class PrSync {
       const sync = this.syncFor(key, host)
       if (sync.nextAt > this.now() || (this.rateLimitedUntil.get(host.repo.host) ?? 0) > this.now()) continue
       const wanted = this.wantedIn(key)
+      // Each repository is read as the person who wants it, whatever started this
+      // tick; one only tasks want is read as the host, as the task sync's own clock is.
+      const scope = this.clientInterests.get(key)?.scope ?? HOST_SCOPE
       try {
-        await this.syncRepository(key, sync, wanted)
+        await withActingScope(scope, () => this.syncRepository(key, sync, wanted))
         sync.syncedAt = this.now()
         sync.nextAt = this.now() + cadenceOf(sync, wanted)
       } catch (error) {
@@ -506,8 +517,8 @@ export class PrSync {
     }
 
     const links = [
-      ...await readPrLinkWatchList(getDatabase(), ANY_ORGANIZATION),
-      ...await sessionLinkWatchList(),
+      ...await readPrLinkInterests(getDatabase(), ANY_ORGANIZATION),
+      ...await sessionLinkInterests(),
     ]
     for (const link of links) {
       if (!link.isActive || link.state === 'closed' || link.state === 'missing') continue
@@ -575,13 +586,13 @@ async function liveCheckouts(now: number): Promise<LiveCheckout[]> {
 }
 
 /**
- * The pull requests sessions link, as PR sync watches them. A link is live
+ * The pull requests sessions link, as PR sync's interest reads them. A link is live
  * work until its session is settled; a task that is not finished keeps the
  * links of its sessions live, because the task reads them.
  */
-async function sessionLinkWatchList(): Promise<PrLinkWatch[]> {
+async function sessionLinkInterests(): Promise<PrLinkInterest[]> {
   const { sessionIds: ofLiveTask } = await liveTaskSessions()
-  const links = await readSessionPullRequestWatchList(ANY_ORGANIZATION)
+  const links = await readSessionPullRequestInterests(ANY_ORGANIZATION)
   const settled = await settledSessionIds([...new Set(links.map((link) => link.sessionId))])
   return links.map((link) => ({
     projectScope: link.repository,

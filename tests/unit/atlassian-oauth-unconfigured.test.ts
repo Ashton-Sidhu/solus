@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 import type { SecretStore } from '@solus/server/platform/secrets'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 /**
  * A build that ships no Atlassian OAuth client — an open-source or local build
@@ -33,6 +34,9 @@ beforeAll(async () => {
   ;({ SolusServer } = await import('@solus/server/transport/server'))
   ;({ registerAtlassianHandlers } = await import('@solus/server/transport/handlers/atlassian-handlers'))
 })
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('Atlassian OAuth on a build with no client credentials', () => {
   test('does not advertise the browser flow', () => {

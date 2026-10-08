@@ -34,6 +34,7 @@ export const share_grant = sharingSchema.shareGrant.pg
 export const session_records = sessionsSchema.sessionRecords.pg
 export const session_admissions = sessionsSchema.sessionAdmissions.pg
 export const session_pull_requests = sessionsSchema.sessionPullRequests.pg
+export const session_pull_request_watches = sessionsSchema.sessionPullRequestWatches.pg
 export const session_states = sessionsSchema.sessionStates.pg
 export const runner_cursors = outboxSchema.runnerCursors.pg
 export const session_transcripts = transcriptSchema.sessionTranscripts.pg

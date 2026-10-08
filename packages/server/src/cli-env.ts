@@ -182,7 +182,12 @@ export function findOnPath(bin: string, path: string): string | null {
   return null
 }
 
-export function getCliEnv(extraEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+/**
+ * The host's own process environment with the login-shell PATH. Only the host
+ * identity and work that is the host's by nature (installing tools, probing
+ * the host) use it directly; everything else asks `getCliEnv`.
+ */
+export function hostCliEnv(extraEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     ...extraEnv,
@@ -190,4 +195,26 @@ export function getCliEnv(extraEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   }
   delete env.CLAUDECODE
   return env
+}
+
+let actingEnv: ((extraEnv?: NodeJS.ProcessEnv) => NodeJS.ProcessEnv) | null = null
+
+/**
+ * The acting scope installs how a process environment is chosen
+ * (`vault/acting-scope.ts`), so this module stays free of server imports and
+ * loads on its own under Node.
+ */
+export function useActingEnv(source: (extraEnv?: NodeJS.ProcessEnv) => NodeJS.ProcessEnv): void {
+  actingEnv = source
+}
+
+/**
+ * The environment for a process started in the current acting scope: the host's
+ * for the host, a member's clean one for a member (plans/019-acting-identity.md).
+ * Throws when no scope is set. A caller that can wait should prefer
+ * `currentIdentity().env()`, which also names a member's commit author.
+ */
+export function getCliEnv(extraEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (!actingEnv) throw new Error('Solus started a process before its acting identities were loaded. This is a bug: report it with the server log.')
+  return actingEnv(extraEnv)
 }

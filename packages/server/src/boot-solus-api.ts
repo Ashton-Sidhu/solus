@@ -26,6 +26,7 @@ import { getSessionRecord } from './data/sessions/session-records'
 import { createWorkspaceOperations } from './data/workspace/service'
 import { applyRunnerMirror, applyRunnerOutbox, applyRunnerSessionRecords } from './sync/runner-intake'
 import { SolusServer } from './transport/server'
+import { ActingIdentities, useActingIdentities, withHostScope } from './execution/seats/acting-identity'
 import { buildHttpServer, HTTP_SERVER_TIMEOUTS } from './transport/http'
 import { attachWebSocketTransport } from './transport/websocket'
 import { ClientEventRegistry } from './transport/events/client-event-registry'
@@ -65,8 +66,21 @@ export interface SolusApiServiceOptions {
   staticDir?: string
 }
 
-export async function createSolusApiService(options: SolusApiServiceOptions): Promise<SolusApiService> {
+/** The service's own work runs as the host; each request sets its person's scope (plans/019-acting-identity.md). */
+export function createSolusApiService(options: SolusApiServiceOptions): Promise<SolusApiService> {
+  return withHostScope(() => createSolusApiServiceAsHost(options))
+}
+
+async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Promise<SolusApiService> {
   applyApiMode()
+  // Requests read account connections as their person; the service starts no member process.
+  useActingIdentities(new ActingIdentities({
+    memberToken: async () => null,
+    fetchLogin: async () => { throw new Error('The Solus API reads no GitHub login.') },
+    memberHome: () => { throw new Error('The Solus API runs no process for a member.') },
+    gitHelper: () => null,
+    now: Date.now,
+  }))
   const settings = solusApiSettings(true, getInstallationId())
   const tokens = new AccessTokenVerifier({ ...apiModeConfig(), audience: SOLUS_API_AUDIENCE })
   const db = getDatabase()

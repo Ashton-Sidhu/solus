@@ -93,7 +93,10 @@ describe('browser emulation', () => {
   test('two presets of the same size are still different devices', () => {
     // WHY: metrics are compared as one value, so the pixel ratio has to be part
     // of it — two 1920-wide viewports at 1x and 2x are not the same guest.
-    const oneToOne = emulationRecord(sized(1920, 1080), HOST_AGENT)
+    const oneToOne = emulationRecord({
+      viewport: { ...resolveViewport({ mode: 'custom', width: 1920, height: 1080 }), deviceScaleFactor: 1 },
+      appearance: 'system',
+    }, HOST_AGENT)
     const retina = emulationRecord({
       viewport: { ...resolveViewport({ mode: 'custom', width: 1920, height: 1080 }), deviceScaleFactor: 2 },
       appearance: 'system',

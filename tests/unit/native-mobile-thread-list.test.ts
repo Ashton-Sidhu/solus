@@ -163,6 +163,20 @@ describe('thread list rows', () => {
     expect(presentThreadPullRequests([link(5, { snapshot: snapshot('open', true) })])).toMatchObject({ isDraft: true, textClassName: 'text-foreground-muted' })
   })
 
+  test('the badge shows a watched pull request, and the menu acts on it or on the open one', () => {
+    // WHY: the phone has no Linked card. The badge's eye is where a person sees
+    // that the agent will wake on this pull request, and Stop Watching must
+    // reach the watched link even when a newer one is open.
+    const snapshot = (state: 'open' | 'closed' | 'merged') => ({ number: 0, url: '', title: '', state, draft: false, updatedAt: '', baseRepo: { host: '', owner: '', repo: '' } })
+    const watchedOlder = presentThreadPullRequests([
+      link(1, { snapshot: snapshot('open'), watch: { startedAt: 1 } }),
+      link(2, { snapshot: snapshot('open') }),
+    ])
+    expect(watchedOlder).toMatchObject({ isWatched: true, watchTarget: { number: 1, isWatched: true } })
+    expect(presentThreadPullRequests([link(3, { snapshot: snapshot('open') })])).toMatchObject({ isWatched: false, watchTarget: { number: 3, isWatched: false } })
+    expect(presentThreadPullRequests([link(4, { snapshot: snapshot('merged') })])?.watchTarget).toBeNull()
+  })
+
   test('snooze presets wake in the future and the wake label rounds up', () => {
     const now = new Date(2026, 9, 7, 10, 0) // a Wednesday
     const presets = resolveSnoozePresets(now)
@@ -248,6 +262,7 @@ describe('thread list state', () => {
           return shelf.filter((entry) => !ids || ids.includes(entry.sessionId)).map((entry) => ({ ...entry, title: null, projectPath: null }))
         },
         sessionPullRequestsList: async () => ({ s2: [link(9)] }),
+        sessionPullRequestWatch: async () => 'started' as const,
         sessionSetSettled: async (sessionId: string, settled: boolean) => {
           calls.push(`settle:${sessionId}:${settled}`)
           shelf = shelf.filter((entry) => entry.sessionId !== sessionId)

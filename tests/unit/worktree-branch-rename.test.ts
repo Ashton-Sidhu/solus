@@ -17,6 +17,7 @@ import { DEFAULT_WORKTREE_BRANCH_NAMING, generatedWorktreeBranchName, temporaryW
 const defaultNamer = { naming: DEFAULT_WORKTREE_BRANCH_NAMING, user: null }
 const isTemporaryWorktreeBranch = (branch: string) => temporaryWorktreeBranchId(branch, defaultNamer) !== null
 import { git } from '@solus/server/git/exec'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 const directories: string[] = []
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }) })
@@ -30,6 +31,9 @@ function repository(): string {
   git(['commit', '--allow-empty', '-m', 'Initial'], directory)
   return directory
 }
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 test('a worktree starts on a temporary branch without asking a model', async () => {
   // WHY: the first prompt in a new worktree must not wait on a naming model.

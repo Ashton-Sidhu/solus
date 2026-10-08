@@ -5,7 +5,6 @@ import { INTERNAL_PRINCIPAL, type Principal } from './principal'
 import { hostCategory } from '../host/host-category'
 import { hostUser, hostUserKey, isHostUserKey } from '../host/host-user'
 import { isApiMode } from '../host/api-mode'
-import { withCredentialScope } from '../vault/credential-scope'
 
 /**
  * Who a request or a turn is for (plans/012-user-actor-and-activity.md §4): the
@@ -110,6 +109,33 @@ export function seatFor(actor: Actor): Seat {
   }
 }
 
+/**
+ * The actor for unattended work done for a person named only by a stored user —
+ * an automation's creator (plans/019-acting-identity.md decision 4). The host's
+ * user acts as the owner; a member as a member of the work's organization, with
+ * only what a member may reach. Null for anyone else: a guest's work does not run
+ * unattended.
+ */
+export function unattendedActorFor(user: User, organizationId: string, label: string): Actor | null {
+  if (isHostUserKey(userKey(user.id))) return { principal: { kind: 'local-owner', deviceId: null, deviceLabel: label }, user }
+  if (user.id.kind !== 'account') return null
+  return {
+    principal: {
+      kind: 'org-member',
+      userId: user.id.accountId,
+      organizationId,
+      organizationRole: 'member',
+      teamIds: [],
+      hostKind: hostCategory() === 'managed' ? 'managed' : 'personal',
+      displayName: user.displayName,
+      deviceId: label,
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      deviceLabel: label,
+    },
+    user,
+  }
+}
+
 /** A member's own seat; their name, when known, names its folder. */
 export function memberSeat(accountId: string, name?: string): Seat {
   const seat: Extract<Seat, { kind: 'user' }> = { kind: 'user', userId: { kind: 'account', accountId } }
@@ -133,12 +159,6 @@ export function credentialUserFor(actor: Actor): UserId | null {
     case 'runner':
     case 'system': return null
   }
-}
-
-/** Runs `fn` with the actor's account connections in scope (`credential-scope.ts`). */
-export function withActorCredentials<T>(actor: Actor, fn: () => T): T {
-  const user = credentialUserFor(actor)
-  return withCredentialScope(user ? userKey(user) : null, fn)
 }
 
 /**

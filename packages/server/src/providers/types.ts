@@ -52,6 +52,14 @@ export interface ProviderAuth {
 
 // ─── Review operations ────────────────────────────────────────────────────────
 
+/** Two halves, so a watch reads only what moved: `status` (state,
+ *  mergeability, head, check counts) and `remarks` (comment and review counts
+ *  and edit times). */
+export interface PullRequestWatchFingerprint {
+  status: string
+  remarks: string
+}
+
 /**
  * The typed operations PR review mode needs. Method **bodies** are specified in
  * the PR Review Mode spec; this interface only fixes the **signatures** so the
@@ -93,6 +101,10 @@ export interface ReviewProvider {
   getPullRequests(repo: RepoRef, numbers: number[]): Promise<Map<number, PullRequest | null>>
   listComments(repo: RepoRef, number: number): Promise<PrConversationItem[]>
   listChecks(repo: RepoRef, numbers: number[]): Promise<NumberedPrChecksSummary[]>
+  /** A fingerprint of each pull request a watch reads, in as few requests as
+   *  the host allows (docs/plans/pr-watch.md §11). A number the host did not
+   *  answer is absent. */
+  readWatchFingerprints(repo: RepoRef, numbers: number[]): Promise<Map<number, PullRequestWatchFingerprint>>
 
   createReview(repo: RepoRef, number: number, review: DraftReview): Promise<void>
   /** Returns the new comment's node id (what `deleteIssueComment` takes) and

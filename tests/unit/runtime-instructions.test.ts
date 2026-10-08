@@ -110,6 +110,16 @@ describe('runtime instructions', () => {
     expect(await claudeAppend([linkTool])).not.toContain(check)
   })
 
+  test('an agent with watch_pull_request is told to end its turn instead of polling, on both providers', async () => {
+    // WHY: the tool description loads behind tool search; without this block
+    // an agent polls `gh pr checks` in a loop before it ever finds the tool.
+    const rule = 'call watch_pull_request and end your turn'
+    const watchTool = tool('watch_pull_request')
+    expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [linkTool, watchTool])).toContain(rule)
+    expect(await claudeAppend([linkTool, watchTool])).toContain(rule)
+    expect(await claudeAppend([linkTool])).not.toContain(rule)
+  })
+
   test('the pull request block is absent when the Tasks tool group is off', async () => {
     expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [browserStatusTool])).not.toContain(PR_LINKING_HEADING)
     expect(await claudeAppend([browserStatusTool])).not.toContain(PR_LINKING_HEADING)

@@ -1,7 +1,7 @@
 import { checkoutStore } from '../git/checkout.store.svelte'
 import { browserPageForCheckout } from '@solus/contracts/browser-checkout'
 import { SvelteMap } from 'svelte/reactivity'
-import { resolveViewport } from '@solus/contracts/browser-types'
+import { largestFrameCaps, resolveViewport } from '@solus/contracts/browser-types'
 import type {
   BrowserAnnotateOp,
   BrowserAnnotationState,
@@ -16,6 +16,7 @@ import type {
   BrowserEvidence,
   BrowserEvidenceOptions,
   BrowserEvidenceTarget,
+  BrowserFrameCaps,
   BrowserFrameHeader,
   BrowserDiscoveredTarget,
   BrowserInteractOp,
@@ -57,7 +58,23 @@ export interface CachedBrowserFrame {
 
 interface ActiveFrameSubscription {
   errorListeners: Map<symbol, (error: Error) => void>
+  /** Each mounted surface's pane in device pixels. One remote watch serves
+   *  them all, so the host is told the largest. */
+  caps: Map<symbol, BrowserFrameCaps>
+  sentCaps: BrowserFrameCaps | null
+  capsTimer: ReturnType<typeof setTimeout> | null
 }
+
+/** One surface's watch on a page's frames. */
+export interface BrowserFrameWatch {
+  /** The surface's pane changed size, in device pixels. */
+  setCaps(caps: BrowserFrameCaps): void
+  stop(): void
+}
+
+/** A pane drag reports a size every frame, and each change the host acts on
+ *  restarts the stream. Waiting for the drag to settle sends one. */
+const FRAME_CAPS_SETTLE_MS = 150
 
 export class BrowserStore {
   /** Keyed by `hostKey(serverId, browserPageId)`: a page id is only unique
@@ -416,47 +433,93 @@ export class BrowserStore {
   }
 
   /**
-   * Start receiving streamed frames for a page, and stop on the returned
-   * disposer. This is how a client with no native surface — web, mobile — sees a
+   * Start receiving streamed frames for a page, and stop with the returned
+   * watch. This is how a client with no native surface — web, mobile — sees a
    * page: it subscribes to the pixels here and asks the host to start producing
    * them. The host streams only while subscribed, so a surface that unsubscribes
-   * when its pane hides costs nothing on the wire.
+   * when its pane hides costs nothing on the wire. `caps` is the pane in device
+   * pixels, so the host sends no more than the pane can show; null before the
+   * pane has a size.
    *
    * The subscribe RPC can fail (a remote host with no headless engine cannot
    * stream); that answer belongs to the surface that asked, so it is reported
    * rather than swallowed.
    */
-  subscribeFrames(key: string, onFrame: BrowserFrameListener, onError: (error: Error) => void): () => void {
+  subscribeFrames(
+    key: string,
+    onFrame: BrowserFrameListener,
+    onError: (error: Error) => void,
+    caps: BrowserFrameCaps | null,
+  ): BrowserFrameWatch {
     const { serverId, path } = splitHostKey(key)
     const listenerId = Symbol(key)
     let active = this.activeFrameSubscriptions.get(key)
     if (!active) {
-      active = { errorListeners: new Map() }
+      active = { errorListeners: new Map(), caps: new Map(), sentCaps: null, capsTimer: null }
       this.activeFrameSubscriptions.set(key, active)
     }
     active.errorListeners.set(listenerId, onError)
+    if (caps) active.caps.set(listenerId, caps)
     const off = serverConnections.framesFor(serverId).subscribe(path, (header, data) => {
       this.cachedFrames.set(key, { header, data })
       onFrame(header, data)
     })
     if (active.errorListeners.size === 1) this.startFrameSubscription(key)
-    return () => {
-      off()
-      const current = this.activeFrameSubscriptions.get(key)
-      current?.errorListeners.delete(listenerId)
-      if (current?.errorListeners.size) return
-      this.activeFrameSubscriptions.delete(key)
-      void serverConnections.apiFor(serverId).browserUnsubscribeFrames(path).catch(() => {})
+    else this.scheduleFrameCaps(key)
+    return {
+      setCaps: (next) => {
+        const current = this.activeFrameSubscriptions.get(key)
+        if (!current?.errorListeners.has(listenerId)) return
+        current.caps.set(listenerId, next)
+        this.scheduleFrameCaps(key)
+      },
+      stop: () => {
+        off()
+        const current = this.activeFrameSubscriptions.get(key)
+        current?.errorListeners.delete(listenerId)
+        current?.caps.delete(listenerId)
+        if (current?.errorListeners.size) return
+        if (current?.capsTimer) clearTimeout(current.capsTimer)
+        this.activeFrameSubscriptions.delete(key)
+        void serverConnections.apiFor(serverId).browserUnsubscribeFrames(path).catch(() => {})
+      },
     }
   }
 
   private startFrameSubscription(key: string): void {
     const { serverId, path } = splitHostKey(key)
-    void serverConnections.apiFor(serverId).browserSubscribeFrames(path).catch((error: Error) => {
+    const active = this.activeFrameSubscriptions.get(key)
+    const caps = active ? largestFrameCaps(active.caps.values()) : null
+    if (active) active.sentCaps = caps
+    void serverConnections.apiFor(serverId).browserSubscribeFrames(path, caps ?? undefined).catch((error: Error) => {
       const active = this.activeFrameSubscriptions.get(key)
       if (!active) return
       for (const listener of active.errorListeners.values()) listener(error)
     })
+  }
+
+  /**
+   * Tell the host when this client's largest pane grows.
+   *
+   * Only growth is sent. A pane that shrinks keeps its sharper stream, so a
+   * drag back and forth does not restart it, and the host shrinks the stream
+   * when the watch ends instead.
+   */
+  private scheduleFrameCaps(key: string): void {
+    const active = this.activeFrameSubscriptions.get(key)
+    if (!active || active.capsTimer) return
+    active.capsTimer = setTimeout(() => {
+      active.capsTimer = null
+      if (this.activeFrameSubscriptions.get(key) !== active) return
+      const largest = largestFrameCaps(active.caps.values())
+      if (!largest) return
+      const sent = active.sentCaps
+      if (sent && largest.maxWidth <= sent.maxWidth && largest.maxHeight <= sent.maxHeight) return
+      const next = sent ? largestFrameCaps([sent, largest])! : largest
+      active.sentCaps = next
+      const { serverId, path } = splitHostKey(key)
+      void serverConnections.apiFor(serverId).browserSetFrameCaps(path, next).catch(() => {})
+    }, FRAME_CAPS_SETTLE_MS)
   }
 
   /** A phone can sleep past the host's client-expiry window while this Svelte

@@ -3,8 +3,8 @@ import { Database } from 'bun:sqlite'
 import type { Seat, SeatProvider, SeatStatus } from '@solus/contracts/seats'
 import type { HostReadiness, SetupAgentAuthCheckResult } from '@solus/contracts/types'
 import type { HandlerCtx } from '@solus/server/transport/server'
-import type { GitIdentity, GitIdentityManager } from '@solus/server/git/git-identity-manager'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
+import { installTestIdentities } from './helpers/acting-identities'
 
 // bun has no node:sqlite; the handlers' import chain reaches the db even though
 // these tests never open it.
@@ -31,18 +31,10 @@ const memberCtx: HandlerCtx = {
   },
 }
 
-/** The member commits as their GitHub account; the host login inherits the host's config. */
-const gitIdentities = {
-  resolve: async (seat: Seat): Promise<GitIdentity> => seat.kind === 'host-login'
-    ? { kind: 'host' }
-    : { kind: 'member', userId: MEMBER_ID, name: 'octocat', email: 'octocat@users.noreply.github.com', revision: 'r1', env: {} as never },
-} as unknown as GitIdentityManager
-
 /** Only the member's Claude seat is connected; the host login has nothing. */
 function serverWithMemberSeat(): InstanceType<typeof SolusServer> {
   const server = new SolusServer()
   registerSetupHandlers(server, {
-    gitIdentities,
     resolveAgentBinary: async () => '/usr/bin/agent',
     hasCommand: () => false,
     projectsRoot: () => '/tmp',
@@ -56,6 +48,10 @@ function serverWithMemberSeat(): InstanceType<typeof SolusServer> {
   })
   return server
 }
+
+// Members act from homes of their own, as on a booted server (plans/019). The
+// member commits as their GitHub account; the host login keeps the host's config.
+installTestIdentities({ memberToken: async () => ({ accessToken: 'member-token', login: 'octocat' }) })
 
 describe('setup readiness on a host with seats', () => {
   test('a member signed in to their own seat reads as signed in', async () => {

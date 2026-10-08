@@ -1,6 +1,10 @@
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { text } from 'node:stream/consumers'
-import { getCliEnv } from '../../cli-env'
+import { z } from 'zod'
+import { hostCliEnv } from '../../cli-env'
 import { readHostCredential } from '../../vault/provider-credentials'
 import { delegatedGithubToken } from './credentials'
 import { githubStoredTokenSchema } from './token-store'
@@ -17,13 +21,57 @@ import { githubStoredTokenSchema } from './token-store'
 export const GITHUB_CREDENTIAL_KEY = 'credential.https://github.com.helper'
 
 /** Absolute path so the credential helper keeps working under git's own PATH. */
-export function resolveSolusCli(): string | null {
+function resolveSolusCli(): string | null {
   try {
-    return execFileSync('which', ['solus'], { encoding: 'utf8', env: getCliEnv(), timeout: 2_000 }).trim() || null
+    return execFileSync('which', ['solus'], { encoding: 'utf8', env: hostCliEnv(), timeout: 2_000 }).trim() || null
   } catch {
     return null
   }
 }
+
+let serverEntry: { runtime: string; entry: string } | null = null
+
+/** The standalone server names its own entry, so its helper needs nothing on PATH. */
+export function useServerEntry(entry: { runtime: string; entry: string } | null): void {
+  serverEntry = entry
+}
+
+/** `'it'\''s'`: one argument to the shell git runs a `!` helper with. */
+function shellArgument(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+/**
+ * The Solus git helper as a git `credential.helper` value, with `flags` after
+ * the command: the standalone server's own entry, else the installed `solus`
+ * CLI. Null when this host has neither. The leading "!" makes git run it as a
+ * shell command rather than look for a `git-credential-<name>` binary.
+ */
+export function solusGitHelper(flags: string[]): string | null {
+  const command = serverEntry ? [serverEntry.runtime, serverEntry.entry] : [resolveSolusCli()]
+  if (command.some((part) => !part)) return null
+  return `!${[...command.map((part) => shellArgument(part!)), 'git-credential', ...flags.map(shellArgument)].join(' ')}`
+}
+
+/** Where a member's GitHub connection is written in their home, for `--member-home` to read. */
+export const MEMBER_GITHUB_FILE = ['.config', 'solus', 'github.json'] as const
+
+const memberGithubSchema = z.object({ token: z.string().min(1), login: z.string() })
+
+/** The member's token from `$HOME`, which Solus set to their home; null when they have none. */
+function memberHomeToken(): string | null {
+  try {
+    return memberGithubSchema.parse(JSON.parse(readFileSync(join(homedir(), ...MEMBER_GITHUB_FILE), 'utf8'))).token
+  } catch {
+    return null
+  }
+}
+
+/** Which credential one helper invocation serves. */
+export type GitCredentialSource =
+  | { kind: 'host' }
+  | { kind: 'delegation'; deviceId: string }
+  | { kind: 'member-home' }
 
 /** Only github.com is served: the stored token is a GitHub OAuth user token. */
 const SUPPORTED_HOST = 'github.com'
@@ -74,15 +122,17 @@ export async function runGitCredentialHelper(
   action: GitCredentialAction,
   stdin: NodeJS.ReadableStream,
   stdout: NodeJS.WritableStream,
-  deviceId?: string,
+  source: GitCredentialSource,
 ): Promise<void> {
   // `store` and `erase` are no-ops: the token's lifecycle belongs to Solus's
   // keyring, and git must not be able to delete it.
   if (action !== 'get') return
 
   const fields = parseCredentialRequest(await text(stdin))
-  // A separate process with no principal: the host's own store, never a leased credential.
-  const token = deviceId ? delegatedGithubToken(deviceId) : readHostCredential('github', githubStoredTokenSchema)?.accessToken ?? null
+  // A separate process with no principal: the source names whose credential it serves.
+  const token = source.kind === 'delegation' ? delegatedGithubToken(source.deviceId)
+    : source.kind === 'member-home' ? memberHomeToken()
+    : readHostCredential('github', githubStoredTokenSchema)?.accessToken ?? null
   const credential = credentialFor(fields, token)
   if (credential) stdout.write(`username=${credential.username}\npassword=${credential.password}\n`)
 }

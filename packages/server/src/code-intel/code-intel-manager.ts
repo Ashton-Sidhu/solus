@@ -15,7 +15,7 @@ import type {
   CodeIntelSymbolRequest,
   CodeIntelSymbolResult,
 } from '@solus/contracts/code-intel'
-import { getCliEnv } from '../cli-env'
+import { hostCliEnv } from '../cli-env'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
 import { CODE_INTEL_ADAPTERS, detectLanguage, languageForPath, resolveToolBinary, type CodeIntelAdapter } from './adapters'
@@ -456,7 +456,7 @@ export class CodeIntelManager {
 
   private spawnIndexer(binary: string, args: string[], cwd: string, signal: AbortSignal): Promise<void> {
     return new Promise((resolvePromise, reject) => {
-      const child = spawn(binary, args, { cwd, env: getCliEnv(), stdio: ['ignore', 'ignore', 'pipe'] })
+      const child = spawn(binary, args, { cwd, env: hostCliEnv(), stdio: ['ignore', 'ignore', 'pipe'] })
       let stderrTail = ''
       child.stderr.setEncoding('utf-8')
       child.stderr.on('data', (chunk: string) => {

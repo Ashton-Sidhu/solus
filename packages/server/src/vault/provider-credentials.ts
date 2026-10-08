@@ -5,7 +5,7 @@ import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
 import { secretStore } from '../platform/secrets'
 import { isApiMode } from '../host/api-mode'
-import { currentCredentialUserId } from './credential-scope'
+import { currentCredentialUserId } from './acting-scope'
 
 const log = createLogger('main', 'provider-credentials')
 

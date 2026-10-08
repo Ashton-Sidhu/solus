@@ -4,11 +4,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { readGuidePatchAt, readGuideFileContentsAt } from '@solus/server/review/pr-guide-diff'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 const roots: string[] = []
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 test('a saved guide reads its recorded commits after the checkout changes', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'solus-guide-diff-'))

@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 const { dispatchCheckoutOwnerKey, dispatchCheckoutPath, resolveDispatchHistoryRoots } = await import('@solus/server/project-config/dispatch-checkouts')
@@ -24,6 +25,9 @@ function projectsRootWithCheckout(repoKey: string, originUrl: string, ownerKey =
 afterAll(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true })
 })
+
+// The helpers under test start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 describe('resolveDispatchHistoryRoots', () => {
   test('finds a GitLab subgroup checkout by its full repository key', async () => {
