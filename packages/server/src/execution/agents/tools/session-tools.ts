@@ -595,7 +595,7 @@ interface OtherHost {
 
 /** The connection to one of the owner's other hosts, by id or name. */
 async function connectRemoteHost(ref: string): Promise<RemoteHost | { error: string }> {
-  if (!remoteHosts) return { error: 'This host cannot reach your other hosts. Only a host signed in to your Solus account (the desktop app) can start sessions on other hosts.' }
+  if (!remoteHosts) return { error: 'This host cannot reach your other hosts. Pair a host in Settings → Hosts → this host → Access, or sign in to your Solus account in the desktop app.' }
   const found = await remoteHosts.find(ref)
   if ('error' in found) return found
   return remoteHosts.connect(found)

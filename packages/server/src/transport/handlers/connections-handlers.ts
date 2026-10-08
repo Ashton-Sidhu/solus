@@ -9,6 +9,8 @@ import type { DiscoveredServer } from '@solus/contracts/types'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import type { SolusServer } from '../server'
 import { hostUserKey } from '../../host/host-user'
+import type { PairedHosts } from '../../execution/orchestration/paired-hosts'
+import { hostDisplayName } from '../../platform/host-display-name'
 
 const log = createLogger('main', 'connections-handlers')
 
@@ -20,6 +22,10 @@ export interface ConnectionsDeps {
   discoverLanServers(): Promise<DiscoveredServer[]>
   setRemoteAccess(remoteAccess: boolean): Promise<{ remoteAccess: boolean; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
   setTrustLocalNetwork(trustLocalNetwork: boolean): { trustLocalNetwork: boolean }
+  /** The hosts this host paired with (docs/plans/cross-host-sessions.md §10). */
+  pairedHosts: Pick<PairedHosts, 'list' | 'pair' | 'forget'>
+  /** Closes an open connection to a host whose pairing was replaced or forgotten. */
+  disconnectRemoteHost(hostId: string): void
 }
 
 export interface ActiveConnectionSession {
@@ -135,5 +141,22 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
   server.register('connectionsSetTrustLocalNetwork', (args) => {
     const [{ trustLocalNetwork }] = args
     return deps.setTrustLocalNetwork(trustLocalNetwork === true)
+  })
+
+  server.register('pairedHostsList', () => deps.pairedHosts.list())
+
+  server.register('pairedHostsPair', async (args) => {
+    const [{ url, code }] = args
+    // The other host lists this one under this name in its Connections.
+    const paired = await deps.pairedHosts.pair({ url, code }, `${hostDisplayName()} (Solus host)`)
+    deps.disconnectRemoteHost(paired.installationId)
+    return paired
+  })
+
+  server.register('pairedHostsForget', (args) => {
+    const [{ installationId }] = args
+    const forgotten = deps.pairedHosts.forget(installationId)
+    deps.disconnectRemoteHost(installationId)
+    return { forgotten }
   })
 }

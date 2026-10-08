@@ -201,6 +201,11 @@
      tabular figures already give it enough presence to scan down the column. */
   .menu-trail {
     flex-shrink: 0;
+    /* A host name can be long; the row's label keeps priority. */
+    max-width: 10rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: var(--solus-text-tertiary);
     font-size: var(--text-chrome-dense);
     font-weight: 400;

@@ -47,6 +47,14 @@ import type { PresenceSetComposingRequest, PresenceSetEditingRequest, PresenceSe
 import type { User } from './user'
 import type { RpcPlane } from './rpc-planes'
 
+/** A host this host paired with, so its agents can start sessions there (docs/plans/cross-host-sessions.md §10). The token never leaves the host. */
+export interface PairedHostSummary {
+  installationId: string
+  label: string
+  url: string
+  pairedAt: number
+}
+
 /** How this host is reached and who this client is to it. */
 export interface ConnectionsServerInfo {
   /** Account-owned integration settings; absent for signed-out local access. */
@@ -273,6 +281,12 @@ export interface SolusAPI {
   connectionsRevokeDevice(args: { deviceId: string }): Promise<{ ok: boolean; revoked: string[] }>
   connectionsSetRemoteAccess(args: { remoteAccess: boolean }): Promise<{ remoteAccess: boolean; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
   connectionsSetTrustLocalNetwork(args: { trustLocalNetwork: boolean }): Promise<{ trustLocalNetwork: boolean }>
+  /** The hosts this host paired with (host administrator only). */
+  pairedHostsList(): Promise<PairedHostSummary[]>
+  /** Pairs this host with the host at `url`, using the code that host shows. */
+  pairedHostsPair(args: { url: string; code: string }): Promise<PairedHostSummary>
+  /** Forgets one pairing here; the other host still lists this one as a device until it is revoked there. */
+  pairedHostsForget(args: { installationId: string }): Promise<{ forgotten: boolean }>
   /** Personal Uplink (local-owner only): link this host to the owner's Solus cloud account. */
   uplinkLink(args: UplinkLinkRequest): Promise<UplinkStatus>
   uplinkUnlink(): Promise<UplinkStatus>

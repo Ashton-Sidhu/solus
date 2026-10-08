@@ -10,7 +10,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 // WHY: `start_session` with `host` starts the work on another of the owner's
 // hosts as if the owner started it there (docs/plans/cross-host-sessions.md).
-// The tool must refuse what the first version cannot honour — no account on
+// The tool must refuse what the first version cannot honour — no account or pairing on
 // this host, a task across hosts, a turn that is not the owner's — before it
 // reaches the other host; check the model against what that host offers, not
 // this one; never resolve the other host's path here; and tell the other host
@@ -76,10 +76,10 @@ afterAll(() => {
 })
 
 describe('start_session on another host', () => {
-  test('is refused on a host with no account session', async () => {
+  test('is refused on a host with no account session and no paired host', async () => {
     sessionTools.setRemoteHosts(null)
     const result = await start({})
-    expect(result).toEqual({ ok: false, text: expect.stringContaining('Only a host signed in to your Solus account') })
+    expect(result).toEqual({ ok: false, text: expect.stringContaining('Pair a host in Settings → Hosts → this host → Access') })
     expect(spawned).toHaveLength(0)
   })
 

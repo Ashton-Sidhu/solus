@@ -196,6 +196,11 @@ export const RPC_PLANES = {
   connectionsSetRemoteAccess: 'collaboration',
   connectionsSetTrustLocalNetwork: 'collaboration',
 
+  // Paired hosts
+  pairedHostsList: 'execution',
+  pairedHostsPair: 'execution',
+  pairedHostsForget: 'execution',
+
   // Personal Uplink
   uplinkLink: 'collaboration',
   uplinkUnlink: 'collaboration',

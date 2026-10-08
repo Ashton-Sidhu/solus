@@ -1,6 +1,6 @@
 # Cross-host sessions — `start_session` on another host
 
-Status: first version implemented (2026-10-06): §4 decisions 1–7, §5.1–§5.5. §6 lists what it does not do yet.
+Status: first version implemented (2026-10-06): §4 decisions 1–7, §5.1–§5.5. §6 lists what it does not do yet. Paired hosts (§10) implemented 2026-10-08; host trust (§9) deferred.
 
 ## 1. Goal
 
@@ -169,7 +169,11 @@ alias, linked to the Lab issuer, and host A in the test process. Both passed:
 start and report (10 checks) and stop (4 checks). The mock backend gives every
 session one provider thread id, so each scenario needs fresh hosts.
 
-## 9. Step 2: host trust (proposed 2026-10-07)
+## 9. Step 2: host trust (proposed 2026-10-07, deferred 2026-10-08)
+
+Deferred. §10 lets a host with no account session reach another host by
+pairing. Host trust is necessary again only when a managed host must start work
+on another managed host, because a managed host has no pairing route.
 
 ### 9.1 Why
 
@@ -245,3 +249,61 @@ host can start sessions on the other, as the owner, with no account session.
 | 4 | Tests: unit, Lab issuer scenario with a standalone host A and B both ways | 1–2 days |
 
 About 1.5–2 weeks in total.
+
+## 10. Paired hosts (2026-10-08)
+
+### 10.1 Why
+
+A host with no account session (a standalone server, or a desktop when the
+cloud is not available) could not start work on another host. Pairing already
+gives a phone a long-lived credential for a host. Host A now pairs with host B
+the same way, and then uses the cross-host path of §5 unchanged.
+
+### 10.2 Vocabulary
+
+- **paired host** — a host that this host paired with, as a client pairs. Host
+  A holds a pairing token for host B. Host B lists host A as a device.
+- "Pair" keeps its meaning: a client's credential for a host. Here host A is
+  the client.
+
+### 10.3 Decisions
+
+1. **One credential for each host. No fallback.** If host A paired with host
+   B, it always connects with the pairing token, to the URL it paired with.
+   If not, it uses the account grant (§5.1). Host A never changes the
+   credential during a connection, so one host always has one identity on
+   host B.
+2. **The pairing token lasts 30 days and renews while it is used.** Host A
+   refreshes it with `/auth/refresh` when it dials and the token is more than
+   one day old. A host that is not used for 30 days must pair again. The
+   account grant stays at five minutes; host A mints a new one at each dial.
+3. **Host A checks the identity before it sends the token.** Before each
+   dial, host A reads `/health` on the stored URL. If the `installationId` is
+   not host B's, host A sends no token. A reused LAN address never gets it.
+4. **Host B has no new rule.** A paired host is a `local-owner` on host B,
+   like a paired phone. Host B shows it in Connections, and revoking that
+   device ends the pairing. On a host attached for organization work, a
+   paired host sees only Local records (organization-vms §1).
+5. **No pairing with a managed host.** A managed host has no pairing route.
+   It stays reachable only through the account.
+6. **Pairing needs a direct route.** The tunnel does not offer `/pair` or
+   `/auth/refresh`. Pair with an address that host A can always reach, such
+   as a Tailscale address.
+
+### 10.4 Design
+
+- `execution/orchestration/paired-hosts.ts` keeps the paired hosts in
+  `secretStore()` as one encrypted list: `installationId`, `label`, `url`,
+  `sessionToken`, `pairedAt`, `refreshedAt`. Pairing reads `/health` first,
+  refuses this host's own `installationId`, then calls `pairServer()` from
+  client-core with this host's name as the device label.
+- `RemoteHosts` lists the paired hosts and the directory hosts that are not
+  paired. A target carries its own URL and credential. The credential is the
+  `acquireGrant` of the `WsTransport`: for a paired host, the identity check,
+  the refresh, then the token. A host is found by id, installation id, or
+  label.
+- RPC `pairedHostsList`, `pairedHostsPair {url, code}`, and
+  `pairedHostsForget {installationId}`. They are host-admin methods.
+- The Access part of a host on the Hosts page (desktop and web) and the host's
+  Access screen on mobile show "Paired hosts" with Pair and Forget.
+
