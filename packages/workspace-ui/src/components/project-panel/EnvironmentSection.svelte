@@ -62,11 +62,16 @@
       worktreeProjectRoot(env.cwd),
   );
 
-  // The host this session was dispatched to, or a draft will dispatch to. The
-  // section header names it; here it only governs which actions can run — local
-  // is the unmarked case, so the affinity glyph is null for it.
+  // The host this session was dispatched to, or a draft will dispatch to. It
+  // governs which actions can run — local is the unmarked case, so the
+  // affinity glyph is null for it.
   const host = $derived(serversStore.hostFor(sectionRun?.serverId));
   const hostAffinity = $derived(serversStore.affinityFor(sectionRun?.serverId));
+  // The project row names the machine the work runs on, local included: a run
+  // with no recorded host runs on the host this tab talks to.
+  const runHostLabel = $derived(
+    (host ?? serversStore.hostFor(detailServerId))?.label,
+  );
 
   $effect(() => {
     if (!active || !detailCwd) return;
@@ -178,9 +183,11 @@
         key: "project",
         label: projectDirLabel(projectRoot),
         icon: FolderIcon,
+        badge: runHostLabel,
         hint: comboHint("global.toggle-files"),
         phase: "idle",
         disabled: !onOpenFiles,
+        tooltip: runHostLabel ? `Runs on ${runHostLabel}` : undefined,
       }}
       onActivate={() => onOpenFiles?.()}
     >
