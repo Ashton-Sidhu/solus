@@ -1389,6 +1389,10 @@ export class SessionEventReducer {
   resetSessionRunState(session: Session): void {
     this.finishProviderResultState(session)
     session.currentTurnStartedAt = null
+    // A run that failed or died has no setup still going on. A setup card that
+    // did not fail would otherwise spin at its last step for good; the failure
+    // row says what went wrong.
+    if (session.statusCard?.status !== 'error') session.statusCard = null
   }
 
   private takeOutboundPrompt(session: Session, clientPromptId?: string) {

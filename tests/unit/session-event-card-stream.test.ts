@@ -603,6 +603,26 @@ describe('SessionEventReducer card stream boundaries', () => {
     reducer.apply('session-1', { type: 'goal_cleared', threadId: 'thread-1' })
     expect(session.goal).toBeNull()
   })
+
+  test('a failed run clears a setup card that did not fail, and keeps one that did', async () => {
+    const setupCard = (status: 'active' | 'error') => ({
+      id: 'remote-dispatch-tab-1', title: 'Starting on omarchy', icon: 'server' as const, status, steps: [],
+    })
+    const { reducer, session } = await createReducer([])
+    session.statusCard = setupCard('active')
+
+    reducer.apply('session-1', { type: 'error', message: 'Checkout is no longer available', isError: true })
+
+    // WHY: the run is over, so no setup is going on. A card left at its last
+    // step spins for good above every later turn.
+    expect(session.statusCard).toBeNull()
+
+    session.statusCard = setupCard('error')
+    reducer.handleError('session-1', { message: 'Checkout is no longer available', stderrTail: [], exitCode: null, elapsedMs: 0, toolCallCount: 0 })
+
+    // WHY: a failed setup card holds the recovery actions (Retry setup, Work locally).
+    expect(session.statusCard?.status).toBe('error')
+  })
 })
 
 

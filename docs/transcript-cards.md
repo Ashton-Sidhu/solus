@@ -148,7 +148,9 @@ Seat, turn refusal, and finished sign-in cards of that conversation. When the
 person sends a new prompt, these cards leave (`clearSettledCards`). Two kinds
 of card stay because their work is still in progress: an active setup card and
 a sign-in that waits on the browser. If the new prompt still needs a card, the
-host refuses the prompt again and the card comes back.
+host refuses the prompt again and the card comes back. When a run fails or
+dies, a setup card that did not fail leaves at once, because no setup continues
+after the run ends. A failed setup card stays for its recovery actions.
 
 ### Agent rows
 
