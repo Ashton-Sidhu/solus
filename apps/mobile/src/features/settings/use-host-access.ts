@@ -28,6 +28,9 @@ export function useHostAccess(hostId: string) {
     setTrustLocalNetwork: (next: boolean) => { void access.setTrustLocalNetwork(hostId, next).catch(report) },
     generatePairCode: () => { void access.generatePairCode(hostId).catch(report) },
     revokeDevice: (deviceId: string) => { void access.revokeDevice(hostId, deviceId).catch(report) },
+    /** True when the host paired, so the form can clear. */
+    pairHost: (url: string, code: string) => access.pairHost(hostId, url, code).then(() => true, (cause: unknown) => { report(cause); return false }),
+    forgetPairedHost: (installationId: string) => { void access.forgetPairedHost(hostId, installationId).catch(report) },
     setInsightsOptIn: (organizationId: string, next: boolean) => {
       void access.setInsightsOptIn(hostId, organizationId, next).catch(report)
     },

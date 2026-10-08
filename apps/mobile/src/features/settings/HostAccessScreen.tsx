@@ -13,13 +13,15 @@ import {
   HostDevicesSection,
   HostNetworkSection,
   HostOrganizationsSection,
+  HostPairedHostsSection,
   HostPairingSection,
 } from "./HostAccessSections";
 import { useHostAccess } from "./use-host-access";
 
 /**
  * How one host is reached and who reaches it: its Solus Cloud link, its
- * organizations, its network, pairing, and the devices with access. The same
+ * organizations, its network, pairing, the devices with access, and the hosts
+ * it paired with. The same
  * sections, in the same order, as the Access tab of a host on desktop and web.
  */
 export function HostAccessScreen({ navigation, route }: ScreenProps<"HostAccess">) {
@@ -54,6 +56,7 @@ export function HostAccessScreen({ navigation, route }: ScreenProps<"HostAccess"
               <HostPairingSection access={state} onGenerate={access.generatePairCode} />
             ) : null}
             <HostDevicesSection access={state} onRevoke={access.revokeDevice} />
+            <HostPairedHostsSection access={state} onPair={access.pairHost} onForget={access.forgetPairedHost} />
           </>
         ) : state.kind === "error" ? (
           <View className="gap-3">

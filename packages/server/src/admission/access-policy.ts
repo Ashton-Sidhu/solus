@@ -272,6 +272,10 @@ export const MANAGED_HOST_REFUSED_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<
 /** Credentials, updates, and host config: the machine's administrator only. */
 export const HOST_ADMIN_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
   'connectionsRevokeDevice',
+  // A paired host's token acts as the owner on that host.
+  'pairedHostsList',
+  'pairedHostsPair',
+  'pairedHostsForget',
   'typeSafeKeySet',
   'configUpdate',
   'setProjectsBaseDirectory',

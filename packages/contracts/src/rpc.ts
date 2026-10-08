@@ -252,6 +252,10 @@ export const RPC_INVOKE_METHODS = [
   'connectionsGetServerInfo',
   'connectionsSetRemoteAccess',
   'connectionsSetTrustLocalNetwork',
+  // Paired hosts: other hosts this host's agents start sessions on (docs/plans/cross-host-sessions.md §10)
+  'pairedHostsList',
+  'pairedHostsPair',
+  'pairedHostsForget',
   // Personal Uplink: the host's link to the owner's Solus cloud account (local-only)
   'uplinkLink',
   'uplinkUnlink',

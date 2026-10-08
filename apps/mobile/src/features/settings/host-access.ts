@@ -1,5 +1,5 @@
 import type { HostApi } from '@solus/client-core/host-api'
-import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
+import type { ConnectionsServerInfo, PairedHostSummary } from '@solus/contracts/host-api'
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
 import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
@@ -7,7 +7,7 @@ import type { HostConnection } from '../hosts/host-connections'
 /**
  * How one host is reached and who reaches it, as the desktop and web Access tab
  * shows it: its network, the pairing code it hands out, the devices with access,
- * and its organizations. Only the host's local owner (the desktop on the machine
+ * its organizations, and the hosts it paired with. Only the host's local owner (the desktop on the machine
  * or a paired device, this phone included) changes how it is reached; the host
  * refuses anyone else, so the screen offers those controls to a local owner only.
  * The Solus Cloud link is `HostCloudLink`.
@@ -18,7 +18,7 @@ export type HostDevice = Awaited<ReturnType<HostApi['connectionsListSessions']>>
 export type HostPairCode = Awaited<ReturnType<HostApi['connectionsGeneratePairToken']>>
 
 /** The one change in flight, so its control shows progress and the others wait. */
-export type HostAccessAction = 'remote-access' | 'trust-local-network' | 'pair' | `revoke:${string}` | `insights:${string}`
+export type HostAccessAction = 'remote-access' | 'trust-local-network' | 'pair' | 'pair-host' | `revoke:${string}` | `insights:${string}` | `forget-host:${string}`
 
 export interface HostAccessSnapshot {
   info: ConnectionsServerInfo
@@ -27,6 +27,9 @@ export interface HostAccessSnapshot {
   organizations: HostOrganizationsStatus | null
   /** Why the organizations could not be read; the rest of the screen still shows. */
   organizationsError: string | null
+  /** The hosts this host paired with (docs/plans/cross-host-sessions.md §10); null when they could not be read. */
+  pairedHosts: PairedHostSummary[] | null
+  pairedHostsError: string | null
   pair: HostPairCode | null
   busy: HostAccessAction | null
 }
@@ -59,11 +62,12 @@ export class HostAccess {
     const current = this.stateOf(hostId)
     if (current.kind !== 'loaded') this.set(hostId, { kind: 'loading' })
     try {
-      const [info, endpoints, devices, organizations] = await Promise.all([
+      const [info, endpoints, devices, organizations, pairedHosts] = await Promise.all([
         connection.api.connectionsGetServerInfo(),
         connection.api.connectionsListEndpoints(),
         connection.api.connectionsListSessions(),
         readOrganizations(connection.api),
+        readPairedHosts(connection.api),
       ])
       if (this.connectionFor(hostId) !== connection) return
       const latest = this.stateOf(hostId)
@@ -74,6 +78,8 @@ export class HostAccess {
         devices,
         organizations: organizations.status,
         organizationsError: organizations.error,
+        pairedHosts: pairedHosts.hosts,
+        pairedHostsError: pairedHosts.error,
         // A code handed out before the reload stays on screen until it expires.
         pair: latest.kind === 'loaded' ? latest.pair : null,
         busy: latest.kind === 'loaded' ? latest.busy : null,
@@ -106,6 +112,22 @@ export class HostAccess {
     await this.change(hostId, `revoke:${deviceId}`, async (api) => {
       await api.connectionsRevokeDevice({ deviceId })
       return { devices: await api.connectionsListSessions() }
+    })
+  }
+
+  /** Pairs this host with another host, so its agents can start sessions there. */
+  async pairHost(hostId: string, url: string, code: string): Promise<void> {
+    await this.change(hostId, 'pair-host', async (api) => {
+      await api.pairedHostsPair({ url, code })
+      return { pairedHosts: await api.pairedHostsList(), pairedHostsError: null }
+    })
+  }
+
+  /** Forgets one pairing on this host; the other host lists this one as a device until it is revoked there. */
+  async forgetPairedHost(hostId: string, installationId: string): Promise<void> {
+    await this.change(hostId, `forget-host:${installationId}`, async (api) => {
+      await api.pairedHostsForget({ installationId })
+      return { pairedHosts: await api.pairedHostsList(), pairedHostsError: null }
     })
   }
 
@@ -168,6 +190,15 @@ async function readOrganizations(api: HostApi): Promise<{ status: HostOrganizati
     return { status: await api.hostOrganizations(), error: null }
   } catch (error) {
     return { status: null, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/** A caller that may not read the paired hosts (not the host's administrator) says why; the rest of the screen still shows. */
+async function readPairedHosts(api: HostApi): Promise<{ hosts: PairedHostSummary[] | null; error: string | null }> {
+  try {
+    return { hosts: await api.pairedHostsList(), error: null }
+  } catch (error) {
+    return { hosts: null, error: error instanceof Error ? error.message : String(error) }
   }
 }
 

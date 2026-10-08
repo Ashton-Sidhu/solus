@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { View } from "react-native";
 
 import {
@@ -10,6 +11,7 @@ import {
 } from "@solus/client-core/organization-rows";
 import { bestPairEndpoint, pairLink } from "@solus/client-core/pairing";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
+import { ConnectionFormField } from "../connection/ConnectionFormField";
 import { relativeTime } from "../../lib/time";
 import { PairQrCode } from "./components/PairQrCode";
 import { SettingsActionRow } from "./components/SettingsActionRow";
@@ -206,5 +208,97 @@ export function HostDevicesSection(props: {
         ))
       )}
     </SettingsSection>
+  );
+}
+
+/** The hosts this host paired with, so its agents can start sessions there (docs/plans/cross-host-sessions.md §10). */
+export function HostPairedHostsSection(props: {
+  readonly access: HostAccessSnapshot;
+  readonly onPair: (url: string, code: string) => Promise<boolean>;
+  readonly onForget: (installationId: string) => void;
+}) {
+  const { pairedHosts, pairedHostsError, busy } = props.access;
+  const [address, setAddress] = useState("");
+  const [code, setCode] = useState("");
+  if (!pairedHosts) {
+    return pairedHostsError ? (
+      <View className="gap-3">
+        <SettingsSection title="Paired hosts">
+          <SettingsValueRow icon="server.rack" label="Paired hosts" value="Unavailable" />
+        </SettingsSection>
+        <SettingsNote>{pairedHostsError}</SettingsNote>
+      </View>
+    ) : null;
+  }
+  const canPair = address.trim() !== "" && code.trim() !== "" && busy === null;
+  const pair = async () => {
+    if (!canPair) return;
+    if (await props.onPair(address.trim(), code.trim())) {
+      setAddress("");
+      setCode("");
+    }
+  };
+
+  return (
+    <View className="gap-3">
+      <SettingsSection title="Paired hosts">
+        {pairedHosts.length === 0 ? (
+          <SettingsValueRow icon="server.rack" label="No paired hosts" value="" />
+        ) : (
+          pairedHosts.map((host) => (
+            <View key={host.installationId}>
+              <SettingsValueRow
+                icon="server.rack"
+                label={host.label}
+                value={relativeTime(new Date(host.pairedAt).toISOString())}
+                detail={host.url}
+              />
+              <SettingsActionRow
+                icon="trash"
+                label={`Forget ${host.label}`}
+                tone="danger"
+                loading={busy === `forget-host:${host.installationId}`}
+                disabled={busy !== null}
+                onPress={() => props.onForget(host.installationId)}
+              />
+            </View>
+          ))
+        )}
+      </SettingsSection>
+      <View className="gap-3">
+        <ConnectionFormField
+          label="Address"
+          value={address}
+          onChangeText={setAddress}
+          placeholder="http://100.64.0.2:7777"
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="url"
+        />
+        <ConnectionFormField
+          label="Code"
+          value={code}
+          onChangeText={setCode}
+          placeholder="123456"
+          keyboardType="number-pad"
+          textContentType="oneTimeCode"
+          returnKeyType="go"
+          onSubmitEditing={() => void pair()}
+        />
+      </View>
+      <SettingsSection>
+        <SettingsActionRow
+          icon="plus"
+          label="Pair this host"
+          loading={busy === "pair-host"}
+          disabled={!canPair}
+          onPress={() => void pair()}
+        />
+      </SettingsSection>
+      <SettingsNote>
+        Agents on this host can start sessions on these hosts. On the other host, open Pair a device and enter its
+        address and code here.
+      </SettingsNote>
+    </View>
   );
 }

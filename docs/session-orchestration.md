@@ -165,12 +165,23 @@ a lead: any session that starts another is its parent.
 
 ### Sessions on another host
 
-On a host signed in to the owner's Solus account (the desktop app),
 `start_session` can take `host`: a host id or name from `list_agent_targets`.
-The session starts on that host as if the owner started it there. This host
-gets a short-lived token for that host from the owner's account, which checks
-that the owner may use it. The other host shows "Started by an agent on
-<host>" at the top of the session, on every client.
+The session starts on that host as if the owner started it there. The other
+host shows "Started by an agent on <host>" at the top of the session, on every
+client. This host reaches the other host in one of two ways:
+
+- **Paired host.** In Settings → Hosts → this host → Access, under Paired hosts, enter the
+  other host's address and the code from its Pair a device. This host then
+  holds a pairing token for it, like a paired phone. The token lasts 30 days
+  and renews while it is used. Before each connection, this host checks that
+  the address still answers as the paired host. The other host lists this one
+  under Devices with access; revoke it there to end the pairing. Pairing needs
+  no Solus account. A managed host cannot be paired.
+- **Solus account.** On a host signed in to the owner's Solus account (the
+  desktop app), every other host in the account that is not paired. This host
+  gets a five-minute token for that host from the account at each connection.
+
+A paired host always uses its pairing, even when it is also in the account.
 
 The parent gets the same card, notices, wait and report as for a local child.
 `stop_session` stops it there. In this version `task` must be `none`, `cwd` is

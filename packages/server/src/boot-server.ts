@@ -107,6 +107,7 @@ import { hasAutomationWork, setAutomationUpdatesPaused, setAutomationBackgroundS
 import { nextAutomationDueAt, onAutomationsChanged, pauseAutomationsOf } from './data/automations/automations-store'
 import { setRemoteHosts, setSessionController, setSessionOrchestration } from './execution/agents/tools/session-tools'
 import { remoteHostsFor } from './execution/orchestration/remote-hosts'
+import { PairedHosts } from './execution/orchestration/paired-hosts'
 import { orchestrateSessions } from './execution/orchestration/orchestrate-sessions'
 import { onAnnotationsChanged } from './annotations/annotation-events'
 import { onWorkDeleted, onWorksChanged } from './data/works/work-events'
@@ -679,7 +680,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Push every automation mutation (saves, deletes, run transitions — incl.
   // background scheduler fires) to all connected clients so the UI stays live.
   setSessionOrchestration(orchestrator)
-  const remoteHosts = remoteHostsFor(opts, () => uplinkManager.currentLink()?.hostId ?? null)
+  const pairedHosts = new PairedHosts()
+  const remoteHosts = remoteHostsFor(opts, pairedHosts, () => uplinkManager.currentLink()?.hostId ?? null)
   setRemoteHosts(remoteHosts)
   setSessionController({
     // The owner's account session acts only for the owner: a member's turn here never borrows it.
@@ -1352,6 +1354,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       connectedAt: s.connectedAt,
     })),
     discoverLanServers: () => lanDiscovery.discoverServers(),
+    pairedHosts,
+    disconnectRemoteHost: (hostId) => remoteHosts.disconnect(hostId),
     setRemoteAccess: async (remoteAccess) => {
       const next = setRemoteAccess(remoteAccess)
       await rebind(next.remoteAccess)
@@ -1379,7 +1383,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     shutdown: () => {
       if (shutdownPromise) return shutdownPromise
       shutdownPromise = (async () => {
-        remoteHosts?.close()
+        remoteHosts.close()
         stopAutomationScheduler()
         stopMetricsRollover()
         prSync.stop()

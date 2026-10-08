@@ -1,7 +1,7 @@
 <script lang="ts">
   /** How this host is reached, and who reaches it: its Solus Cloud link, the
-   *  organizations it stands in, its network, pairing, and the devices with
-   *  access. `connectionsStore` is read for this host by the Hosts page. Only a
+   *  organizations it stands in, its network, pairing, the devices with
+   *  access, and the hosts it paired with. `connectionsStore` is read for this host by the Hosts page. Only a
    *  local owner (the desktop on the machine or a paired device) may change how
    *  the host is reached; anyone else sees the state and where to change it. */
   import {
@@ -19,6 +19,7 @@
   import PairCodePanel from "./PairCodePanel.svelte";
   import UplinkSection from "./UplinkSection.svelte";
   import OrganizationsSection from "./OrganizationsSection.svelte";
+  import PairedHostsSection from "./PairedHostsSection.svelte";
 
   interface Props {
     serverId: string;
@@ -186,3 +187,5 @@
     {/each}
   {/if}
 </SettingsSection>
+
+<PairedHostsSection {serverId} />
