@@ -61,7 +61,7 @@ describe('plugin command freshness', () => {
     expect(store.pluginCommands).toBe(loaded)
 
     // A skill edit asks without the flag and must always read again.
-    await store.refreshPluginCommands('/repo', 'tab-one')
+    await store.refreshPluginCommands('/repo', 'tab-one', { onlyIfStale: false })
     expect(reads).toHaveLength(2)
 
     // A provider change is a new source even for the same directory.
@@ -72,11 +72,67 @@ describe('plugin command freshness', () => {
     // Boot asks from several places within one frame. Identical reads still
     // on the wire are joined, not repeated; a different directory is not.
     await Promise.all([
-      store.refreshPluginCommands('/repo', 'tab-one'),
-      store.refreshPluginCommands('/repo', 'tab-one'),
+      store.refreshPluginCommands('/repo', 'tab-one', { onlyIfStale: false }),
+      store.refreshPluginCommands('/repo', 'tab-one', { onlyIfStale: false }),
       store.refreshPluginCommands('/repo', 'tab-one', { onlyIfStale: true }),
       store.refreshPluginCommands('/other', 'tab-one'),
     ])
     expect(reads.slice(3)).toEqual(['codex:/repo', 'codex:/other'])
   })
+  test('an empty composer reads once per host, provider, and directory, with an explicit skill refresh', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+      <T>(value: T) => value,
+      { snapshot: <T>(value: T) => value },
+    )
+    const { WorkspaceLifecycleStore } = await import('@solus/workspace-ui/contexts/workspace/workspace-lifecycle.store.svelte')
+    const { hosts } = await import('@solus/workspace-ui/contexts/hosts/hosts.svelte')
+    spyOn(hosts, 'hasExecution').mockReturnValue(true)
+    let serverId = 'host-a'
+    let directory = '/repo'
+    const settings = { activeAgent: 'claude-code' }
+    const reads: string[] = []
+    let fail = false
+    const store = new WorkspaceLifecycleStore({
+      registry: {
+        activeTabId: 'composer', activeSession: undefined,
+        sessionFor: () => undefined,
+      } as never,
+      settings: settings as never,
+      defaultRunConfig: () => ({ workingDirectory: directory }) as never,
+      serverIdFor: () => serverId,
+      ctxFor: () => ({ session: { provider: settings.activeAgent } }) as IpcContext,
+      apiFor: () => ({ getPluginCommands: async (cwd: string) => {
+        reads.push(`${serverId}:${settings.activeAgent}:${cwd}`)
+        if (fail) throw new Error('offline')
+        return { global: [], project: [] }
+      } }) as never,
+    } as never)
+
+    await Promise.all([store.refreshPluginCommands(directory), store.refreshPluginCommands(directory)])
+    store.pluginCommands = { global: [], project: [] }
+    await store.refreshPluginCommands(directory)
+    expect(reads).toHaveLength(1)
+    settings.activeAgent = 'codex'
+    await store.refreshPluginCommands(directory)
+    await store.refreshPluginCommands(directory)
+    expect(reads).toHaveLength(2)
+    serverId = 'host-b'
+    await store.refreshPluginCommands(directory)
+    expect(reads).toHaveLength(3)
+    directory = '/other'
+    fail = true
+    await expect(store.refreshPluginCommands(directory)).rejects.toThrow('offline')
+    fail = false
+    await store.refreshPluginCommands(directory)
+    await store.refreshPluginCommands(directory)
+    expect(reads).toHaveLength(5)
+    await store.refreshPluginCommands(directory, undefined, { onlyIfStale: false })
+    expect(reads).toHaveLength(6)
+    fail = true
+    await expect(store.refreshPluginCommands(directory, undefined, { onlyIfStale: false })).rejects.toThrow('offline')
+    fail = false
+    await store.refreshPluginCommands(directory)
+    expect(reads).toHaveLength(8)
+  })
+
 })

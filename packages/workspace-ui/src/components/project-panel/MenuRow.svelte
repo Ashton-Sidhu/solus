@@ -46,11 +46,13 @@
     /** Renders the idle icon in place of `item.icon`, for an icon that needs
      *  more than a size — a project's favicon needs its root and host. */
     iconSnippet?: Snippet;
+    /** Load a row's optional details when the user points to it or focuses it. */
+    onInspect?: () => void;
     onActivate: (
       event: MouseEvent & { currentTarget: HTMLButtonElement },
     ) => void;
   }
-  let { item, split = false, menuOpen = false, iconSnippet, onActivate }: Props = $props();
+  let { item, split = false, menuOpen = false, iconSnippet, onInspect, onActivate }: Props = $props();
 </script>
 
 <TooltipUI.Root>
@@ -69,6 +71,8 @@
         aria-haspopup={item.disclosure ? "menu" : undefined}
         aria-expanded={item.disclosure ? menuOpen : undefined}
         onclick={onActivate}
+        onmouseenter={() => { if (!item.disabled) onInspect?.(); }}
+        onfocusin={() => { if (!item.disabled) onInspect?.(); }}
       >
         <span class="menu-left">
           <span class="menu-icon" data-tone={item.iconTone}>

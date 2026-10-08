@@ -5,7 +5,6 @@ import { snapshotViewportLabel } from '@solus/contracts/browser-types'
 import { buildTurns, groupMessages } from '@solus/workspace-ui/components/conversation/lib/turns'
 import {
   snapshotAddress,
-  snapshotCaption,
   snapshotErrorLabel,
   snapshotFacts,
   snapshotStamp,
@@ -35,13 +34,6 @@ function snapshot(overrides: Partial<BrowserSnapshotRef> = {}): BrowserSnapshotR
 }
 
 describe('what a snapshot card says', () => {
-  test('names the device it was captured as, not just the page', () => {
-    // WHY: the same page at two viewports produces two very different pictures.
-    // A caption that never says which device this was makes a set of captures
-    // unreadable. The size itself rides on the picture, in the plate badge.
-    expect(snapshotCaption(snapshot())).toContain('iPhone 15')
-  })
-
   test('names the server it came from, in the address on the stamp', () => {
     // WHY: two worktrees serving the same app produce identical screenshots and
     // differ only by port, so the origin is the one thing that says which of
@@ -58,12 +50,6 @@ describe('what a snapshot card says', () => {
     // it would be noise on every capture that never chose.
     expect(snapshotStamp(snapshot({ appearance: 'dark' }))).toBe('393×852 · dark')
     expect(snapshotStamp(snapshot({ appearance: 'system' }))).toBe('393×852')
-  })
-
-  test('counts elements in words that survive a count of one', () => {
-    expect(snapshotCaption(snapshot({ elementCount: 1 }))).toContain('1 element')
-    expect(snapshotCaption(snapshot({ elementCount: 1 }))).not.toContain('1 elements')
-    expect(snapshotCaption(snapshot({ elementCount: 9 }))).toContain('9 elements')
   })
 
   test('shows console errors, and stays silent when there are none', () => {

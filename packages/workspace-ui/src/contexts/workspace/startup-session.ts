@@ -18,14 +18,14 @@ export function materializeStartupTranscript(ctx: WorkspaceContext, snapshot: Pe
   const displayCwd = session.run.workingDirectory
   const loadPath = saved.gitContext?.worktreePath || displayCwd
   const page = readPrefetchedSessionHistoryPage(ctx.apiFor(tabId), {
-    sessionId: saved.agentSessionId,
+    sessionId: saved.sessionId || saved.agentSessionId,
     projectPath: loadPath,
     provider: saved.provider,
     turnLimit: INITIAL_HISTORY_TURNS,
   })
   if (!page) return
   const transcript = materializeSessionTranscript(ctx, {
-    sessionId: saved.agentSessionId,
+    sessionId: saved.sessionId || saved.agentSessionId,
     loadPath,
     displayCwd,
     provider: saved.provider,

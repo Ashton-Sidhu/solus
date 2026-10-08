@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import {
     Folder as FolderIcon,
     MessageCircle as ChatIcon,
@@ -49,15 +50,14 @@
 
     source = { key, status: "pending", url: null };
     let cancelled = false;
-    void projectFaviconResolver
-      .resolve({
+    const resolution = untrack(() => projectFaviconResolver.resolve({
         serverId: faviconServerId,
         projectRoot: root,
         origin: serverConnections.httpOriginFor(faviconServerId),
         api: serverConnections.apiFor(faviconServerId),
         ctx: session.ctxForDirectory(root),
-      })
-      .then((url) => {
+      }));
+    void resolution.then((url) => {
         if (!cancelled) source = { key, status: "ready", url };
       })
       .catch(() => {

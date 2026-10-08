@@ -65,3 +65,13 @@ export function connectCardCopy(
   }
   return copy
 }
+
+/** An integration is named by the host's admin, so its copy has no table: it is the name. */
+export function integrationConnectCardCopy(integrationName: string): ConnectCardCopy {
+  return {
+    title: `Connect ${integrationName}`,
+    providerLabel: integrationName,
+    reason: 'to use its tools',
+    purpose: `Needed to use ${integrationName} tools on your behalf.`,
+  }
+}

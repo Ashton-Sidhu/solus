@@ -3392,6 +3392,10 @@ export interface AutomationRun {
   error?: string
 }
 
+/** What a run-history graph needs about one run, without its output: the list
+ *  draws one for every automation, so it must not carry each run's final text. */
+export type AutomationRunPoint = Pick<AutomationRun, 'id' | 'automationId' | 'startedAt' | 'finishedAt' | 'status'>
+
 export interface AutomationsManifest {
   version: 1
   automations: Record<string, Automation>

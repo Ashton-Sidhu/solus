@@ -12,7 +12,7 @@ function fixture(options: { fork?: boolean; missingHost?: boolean } = {}) {
   const timeouts = new Map<number, () => void>()
   let nextFrame = 0
   const tab = {
-    tabId: 'active', serverId: 'old-registry-id', serverInstallationId: 'installation',
+    tabId: 'active', sessionId: 'stable-session', serverId: 'old-registry-id', serverInstallationId: 'installation',
     agentSessionId: 'thread', provider: 'codex', workingDirectory: '/repo',
     gitContext: { worktreePath: '/checkout' }, pendingFork: options.fork ? {} : undefined,
   }
@@ -72,7 +72,7 @@ test('startup selects only the active thread and resolves its repaired host and 
   const { api, requests } = fixture()
   api.prefetchStartupTranscript()
   expect(requests).toHaveLength(1)
-  expect(requests[0]).toMatchObject({ host: 'repaired-host', sessionId: 'thread', projectPath: '/checkout' })
+  expect(requests[0]).toMatchObject({ host: 'repaired-host', sessionId: 'stable-session', projectPath: '/checkout' })
 })
 
 test('forks and missing hosts do not block boot', () => {
@@ -144,19 +144,19 @@ test('restored history and live attachment finish before secondary metadata, wit
     const context = {
       tabs: { tab: { sessionId: 'stable' } }, sessions: { byId: { stable: session } },
       settings: { activeAgent: 'codex' }, apiFor: () => ({
-        resolveSessionLineage: async () => null,
+        describeSession: async () => null,
         watchSession: async () => { events.push('watch'); return { sessionId: 'stable', runtime: null } },
       }),
       ctxFor: () => ({}), sessionFor: () => selected,
       eventReducer: { rebuildAgentConversations() {} }, lifecycle: { recomputeChangedFiles() {}, reconcileQueuedPrompts() {} },
-      planStore: { hydrateAnnotations() {} }, adoptSessionId() {}, refreshThreadGoal() {},
+      planStore: { hydrateAnnotations() {} }, adoptSessionId() {}, refreshThreadGoal() {}, applyPendingQuestions() {},
       environment: { refreshEnvironment: async () => { events.push('git'); return new Promise(() => {}) } },
       tasksStore: { ensureSessionBinding: async () => { events.push('task'); return new Promise(() => {}) } },
     }
-    const execute = new Function('afterPaint', 'requestSessionHistoryPage', 'loadRestoredSessionTranscript',
+    const execute = new Function('serverConnections', 'afterPaint', 'requestSessionHistoryPage', 'loadRestoredSessionTranscript',
       'replaceHydratedMessages', 'markStartupTranscriptApplied', 'INITIAL_HISTORY_TURNS', 'isSessionBusyStatus',
       `${hydration}\nreturn hydrateTab;`)
-    const hydrate = execute(() => paintPending, async () => ({ messages: [] }),
+    const hydrate = execute({ isKnownServer: () => true }, () => paintPending, async () => ({ messages: [] }),
       async () => { expect(session.loadingHistory).toBe(false); return { messages: [{ content: 'ready' }], planIds: [] } },
       (target: { messages: Array<{ content: string }> }, messages: Array<{ content: string }>) => { target.messages.push(...messages); events.push('history') },
       () => {}, 200, () => false)

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { CatalogEntry, IntegrationCatalogListRequest } from '@solus/contracts/integration-types'
+import type { CatalogEntry, CatalogPage, IntegrationCatalogListRequest } from '@solus/contracts/integration-types'
 import { createLogger } from '../logger'
 
 const log = createLogger('main', 'integration-catalog')
@@ -46,15 +46,22 @@ const feedEntrySchema = z.object({
  */
 const MCP_QUERY_DEFAULTS = [
   { host: 'mcp.posthog.com', name: 'mode', value: 'tools' },
+  // Every Cloudflare server (bindings., docs., observability., ...) shares the switch.
   { host: 'mcp.cloudflare.com', name: 'codemode', value: 'false' },
 ]
+
+/** The registry names connector-directory entries after the agent they were listed for; the service is the same. */
+export function catalogEntryName(name: string): string {
+  return name.replace(/\s+for\s+(Claude|ChatGPT)$/i, '').trim() || name
+}
 
 export function applyMcpUrlDefaults(href: string): string {
   if (!URL.canParse(href)) return href
   const url = new URL(href)
   let changed = false
   for (const rule of MCP_QUERY_DEFAULTS) {
-    if (url.hostname !== rule.host || url.searchParams.has(rule.name)) continue
+    const sameHost = url.hostname === rule.host || url.hostname.endsWith(`.${rule.host}`)
+    if (!sameHost || url.searchParams.has(rule.name)) continue
     url.searchParams.set(rule.name, rule.value)
     changed = true
   }
@@ -72,7 +79,7 @@ function entriesOf(envelope: z.infer<typeof envelopeSchema>): CatalogEntry[] {
       id: entry.id,
       kind: 'mcp',
       slug: entry.slug,
-      name: entry.name,
+      name: catalogEntryName(entry.name),
       description: entry.description ?? '',
       domain: entry.domain ?? '',
       categories: entry.categories ?? [],
@@ -99,11 +106,12 @@ export class IntegrationCatalog {
 
   constructor(private readonly deps: { fetch?: typeof fetch; now?: () => number } = {}) {}
 
-  async list(request: IntegrationCatalogListRequest = {}): Promise<CatalogEntry[]> {
+  async list(request: IntegrationCatalogListRequest = {}): Promise<CatalogPage> {
     const query = request.query?.trim().toLowerCase()
     const entries = await this.entries()
     const listed = (query ? entries.filter((entry) => matches(entry, query)) : [...entries]).sort(byPopularityThenName)
-    return request.limit ? listed.slice(0, request.limit) : listed
+    const offset = request.offset ?? 0
+    return { entries: listed.slice(offset, request.limit ? offset + request.limit : undefined), total: listed.length }
   }
 
   private async entries(): Promise<CatalogEntry[]> {

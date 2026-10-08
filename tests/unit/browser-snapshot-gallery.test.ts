@@ -1,19 +1,16 @@
 import { describe, expect, test } from 'bun:test'
 import type { BrowserSnapshotRef } from '@solus/contracts/browser-types'
 import {
-  GALLERY_MAX_CELLS,
   galleryAddress,
   galleryCaptionMode,
   galleryErrorLabel,
   galleryHeading,
-  galleryLayout,
   gallerySharedPageId,
   gallerySubject,
   galleryTarget,
   galleryAspect,
   galleryTiles,
   isFrameNear,
-  isStripFrameNear,
 } from '@solus/workspace-ui/components/browser/lib/snapshot-gallery'
 import { snapshotWidth } from '@solus/workspace-ui/components/browser/lib/snapshot-card'
 
@@ -44,92 +41,41 @@ function pass(count: number): BrowserSnapshotRef[] {
   )
 }
 
-/** A landscape capture — the shape the spec's own grid table was drawn for. */
+/** A landscape capture. */
 const WIDE = 1440 / 900
-/** An iPhone 15. The shape that broke the grid: forced into a landscape cell it
- *  has to be blown up past 2× and then cropped to its top fifth. */
+/** An iPhone 15. */
 const TALL = 393 / 852
 
-describe('how many cells a pass takes', () => {
-  test('stops at three columns, so a tile is never below a third of the card', () => {
-    // WHY: a tile narrower than that is a thumbnail nobody can recognise a page
-    // from, which defeats the only reason to show six frames at once.
-    for (const count of [2, 3, 4, 5, 6, 9]) {
-      expect(galleryLayout(count, WIDE).columns).toBeLessThanOrEqual(3)
-    }
-    expect(galleryLayout(3, WIDE).columns).toBe(3)
+describe('the shape each frame is drawn at', () => {
+  test("reads each frame's shape from its own viewport, so nothing is cropped", () => {
+    // WHY: a frame forced into another shape is either cropped or letterboxed,
+    // and a cropped capture is one the reader has to open before they can read
+    // it — the reason the pictures render inline at all.
+    const mixed = [
+      snapshot({ viewport: 'Laptop — 1440×900', assetId: 'a.png' }),
+      snapshot({ viewport: 'iPhone 15 — 393×852', assetId: 'b.png' }),
+    ]
+    const aspects = galleryTiles(mixed).map((tile) => tile.aspect)
+    expect(aspects[0]).toBeCloseTo(WIDE, 3)
+    expect(aspects[1]).toBeCloseTo(TALL, 3)
   })
 
-  test('squares four frames rather than leaving a row of one', () => {
-    // WHY: 3 + 1 puts a lone tile on its own row at full width, which reads as
-    // a failed layout rather than as a sheet.
-    expect(galleryLayout(4, WIDE).columns).toBe(2)
-  })
-
-  test('shortens the tiles as the rows go up, so the plate stays a card', () => {
-    // WHY: a plate taller than about two rows stops being a card in a
-    // conversation and becomes a page of its own — everything past that belongs
-    // in the lightbox, not in the transcript.
-    const heights = [2, 3, 5].map((count) =>
-      Number.parseFloat(galleryLayout(count, WIDE).tileHeight),
-    )
-    expect(heights[0]).toBeGreaterThan(heights[1])
-    expect(heights[1]).toBeGreaterThan(heights[2])
-  })
-
-  test('caps at six cells and folds the remainder into the last one', () => {
-    // WHY: the header's count is the true total, so the cells have to add up to
-    // it — an overflow tile that counted only the frames it hid would leave the
-    // reader with a plate that contradicts its own heading.
-    const tiles = galleryTiles(pass(9))
-    expect(tiles).toHaveLength(GALLERY_MAX_CELLS)
-    expect(tiles.at(-1)?.overflow).toBe(4)
-    expect(tiles.slice(0, -1).every((tile) => tile.overflow === 0)).toBe(true)
+  test('shows every frame of a long pass, so the row and its count agree', () => {
+    // WHY: the row scrolls sideways, so there is no cell budget to fold frames
+    // into. A row that hid some would contradict the count on its own line.
+    expect(galleryTiles(pass(9))).toHaveLength(9)
     expect(galleryHeading(pass(9))).toBe('9 snapshots')
   })
 
-  test('leaves an exactly-full plate without an overflow tile', () => {
-    expect(galleryTiles(pass(6)).at(-1)?.overflow).toBe(0)
-  })
-})
-
-describe('a pass of phone captures', () => {
-  test('leaves the grid, because a tall page cannot fill a wide cell honestly', () => {
-    // WHY: this is the bug the rail exists for. A 393×852 capture stretched to
-    // the width of a landscape cell is scaled past 2×, and a cell that short
-    // then keeps only the top fifth of it — so the reader gets a blurry
-    // close-up of a nav bar and cannot tell which page they are looking at.
-    expect(galleryLayout(2, TALL).mode).toBe('rail')
-    expect(galleryLayout(2, WIDE).mode).toBe('grid')
+  test('calls one capture a snapshot rather than counting it', () => {
+    expect(galleryHeading(pass(1))).toBe('Snapshot')
   })
 
-  test('keeps every frame on one row, whatever the pass cost', () => {
-    // WHY: the rail's whole claim is that you can see the pass at a glance. A
-    // second row of tall frames would push the plate past the height at which
-    // it is still a card in a conversation.
-    for (const count of [2, 3, 4, 5, 6, 9]) {
-      expect(galleryLayout(count, TALL).mode).toBe('rail')
-      expect(galleryLayout(count, TALL).columns).toBeLessThanOrEqual(6)
-    }
-  })
-
-  test('gives up height as the pass grows, so the row always fits the card', () => {
-    // WHY: six phone frames at the height two of them get would be nearly a
-    // metre of card. The frames shrink instead of wrapping or scrolling.
-    const REFERENCE_CARD = 660
-    for (const count of [2, 3, 4, 5, 6]) {
-      const height = Number.parseFloat(galleryLayout(count, TALL).tileHeight) * 16
-      expect(height * TALL * count).toBeLessThanOrEqual(REFERENCE_CARD + 1)
-    }
-  })
-
-  test('never lets the plate grow past a card', () => {
-    // WHY: past this a plate stops being something in a conversation and
-    // becomes a page, which is what the reel is for.
-    for (const count of [2, 3, 4, 5, 6]) {
-      expect(Number.parseFloat(galleryLayout(count, TALL).tileHeight) * 16)
-        .toBeLessThanOrEqual(340)
-    }
+  test('refuses a full-page capture ten screens long', () => {
+    // WHY: an unclamped shape would draw a frame as tall as the page it
+    // scrolled, a sliver at the row's height.
+    expect(galleryTiles([snapshot({ viewport: 'Full page — 1440×9000' })])[0]?.aspect)
+      .toBeGreaterThanOrEqual(0.4)
   })
 
   test("reads the pass's shape from its frames, not from a guess", () => {
@@ -139,7 +85,7 @@ describe('a pass of phone captures', () => {
   })
 })
 
-describe('what the tiles are captioned with', () => {
+describe('what the frames are captioned with', () => {
   test('captions by page when the pass covered several', () => {
     const tiles = galleryTiles(pass(3))
     expect(galleryCaptionMode(pass(3))).toBe('page')
@@ -148,9 +94,9 @@ describe('what the tiles are captioned with', () => {
   })
 
   test('captions by width when one page was captured at several sizes', () => {
-    // WHY: repeating the same page title on three tiles is three times nothing.
+    // WHY: repeating the same page title on three frames is three times nothing.
     // Which fact distinguishes the frames is a property of the set, so it is
-    // decided once for the plate rather than per tile.
+    // decided once for the row rather than per frame.
     const widths = [
       snapshot({ viewport: 'iPhone 15 — 390×844', assetId: 'a.png' }),
       snapshot({ viewport: 'iPad — 834×1112', assetId: 'b.png' }),
@@ -170,29 +116,17 @@ describe('what the tiles are captioned with', () => {
   })
 })
 
-describe('a mixed pass on a grid', () => {
-  test('a phone frame fits its cell by height, so it is not blown up to the width', () => {
-    // WHY: a grid follows the first frame's shape. A laptop first makes wide
-    // cells, and a phone stretched to that width shows only its top heading.
-    const mixed = [
-      snapshot({ viewport: 'Laptop — 1280×800', assetId: 'a.png' }),
-      snapshot({ viewport: 'iPhone 15 — 393×852', assetId: 'b.png' }),
-    ]
-    expect(galleryTiles(mixed).map((tile) => tile.portrait)).toEqual([false, true])
-  })
-})
-
-describe('what the plate says once for all of its frames', () => {
+describe('what the line says once for all of the frames', () => {
   test('carries the shared viewport and colour scheme in the header', () => {
     // WHY: a frame is only evidence with its viewport and colour scheme
     // attached. When every frame was taken the same way the header carries them
-    // for all of them and the tiles stay clean.
+    // for all of them and the captions stay clean.
     expect(gallerySubject(pass(3))).toBe('Laptop · 1440×900 · light')
   })
 
   test('says nothing when the frames were not taken the same way', () => {
     // WHY: a header stating one viewport over frames taken at three would be a
-    // lie about the evidence, and each tile's caption is the honest place.
+    // lie about the evidence, and each frame's caption is the honest place.
     const mixed = [
       snapshot({ viewport: 'iPhone 15 — 390×844', assetId: 'a.png' }),
       snapshot({ viewport: 'Laptop — 1440×900', assetId: 'b.png' }),
@@ -214,7 +148,7 @@ describe('what the plate says once for all of its frames', () => {
   })
 
   test('puts where the pass looked before what its frames share, in one slot', () => {
-    // WHY: the card has no footer, so the address and the shared viewport share
+    // WHY: the address and the shared viewport share
     // the line's one truncating slot. Where it looked comes first, as it is the
     // fact that tells two worktrees apart; an empty subject adds no separator.
     expect(galleryTarget([snapshot(), snapshot()])).toBe('solus.sh/ · Laptop · 1440×900 · light')
@@ -226,9 +160,8 @@ describe('what the plate says once for all of its frames', () => {
   })
 
   test('sums the console errors of the pass, and stays silent at zero', () => {
-    // WHY: a page can look correct and be broken. Per tile the count would be a
-    // badge too small to read on a frame too small to place it on, and a badge
-    // that is always there teaches people to stop reading it.
+    // WHY: a page can look correct and be broken. The line reports the pass's
+    // total, and a badge that is always there teaches people to stop reading it.
     const noisy = [
       snapshot({ consoleErrors: 1, assetId: 'a.png' }),
       snapshot({ consoleErrors: 2, assetId: 'b.png' }),
@@ -268,22 +201,9 @@ describe('what the reel is willing to download', () => {
     expect([0, 1, 2].every((index) => isFrameNear(index, 0, 3))).toBe(true)
   })
 
-  test('shows the filmstrip every frame the plate behind it already fetched', () => {
-    // WHY: the strip's job is to keep the pass a set, and a strip of empty
-    // washes cannot do it. The plate is still mounted behind the reel and paid
-    // for its own cells, so those thumbnails are already in hand.
-    expect([0, 1, 2, 3, 4, 5].every((index) => isStripFrameNear(index, 0, 9))).toBe(true)
-  })
-
-  test('makes the frames the plate capped away wait their turn, as the reel does', () => {
-    // WHY: past the cap the strip would be asking for downloads the transcript
-    // never made. Those cells fill in as the reader steps onto them.
-    expect(isStripFrameNear(7, 0, 9)).toBe(false)
-    expect(isStripFrameNear(7, 6, 9)).toBe(true)
-  })
 })
 
-describe('what a tile click opens', () => {
+describe('what a frame click opens', () => {
   test('zooms to the page’s own width, not the file’s', () => {
     // WHY: a capture is taken at the display's pixel ratio, so the PNG is
     // commonly twice the page. "Actual size" read off the file is a magnifying

@@ -50,7 +50,6 @@
   const pullRequests = getPullRequestsContext();
   const sectionRun = $derived(session.runFor(sourceId));
   const env = $derived(environmentStore.environmentFor(sectionRun));
-  const detailCwd = $derived(env.cwd);
   const detailServerId = $derived(
     serverConnections.serverIdForApi(session.apiFor(sourceId)),
   );
@@ -72,11 +71,6 @@
   const runHostLabel = $derived(
     (host ?? serversStore.hostFor(detailServerId))?.label,
   );
-
-  $effect(() => {
-    if (!active || !detailCwd) return;
-    return environmentStore.watchDetails(detailServerId, detailCwd);
-  });
 
   // The Devices row is for projects that build a mobile app (at the root or
   // in a subfolder), or a conversation already showing a device. It counts
@@ -104,9 +98,8 @@
       {
         key: "terminal",
         label: "Terminal",
-        // The row trails with the terminal that will actually open: the one
-        // already attached to the shared tmux session, or the Settings fallback
-        // when none is. `TerminalAppLogo` keeps it current.
+        // The terminal is resolved when this row is inspected or used, not
+        // when its logo mounts. Before that, the row shows a generic glyph.
         badge: toolsStore.resolvedTerminal?.name,
         icon: TerminalAppLogo,
         hint: comboHint("orb.open-terminal"),
@@ -227,7 +220,13 @@
           </button>
         </div>
       {:else}
-        <MenuRow item={row} onActivate={row.run} />
+        <MenuRow
+          item={row}
+          onInspect={() => {
+            if (active && row.key === "terminal") void toolsStore.refreshResolvedTerminal(session.settings.fallbackTerminal);
+          }}
+          onActivate={row.run}
+        />
       {/if}
     {/each}
   </div>

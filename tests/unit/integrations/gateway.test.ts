@@ -6,7 +6,7 @@ import { Database } from 'bun:sqlite'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z } from 'zod'
-import type { Integration } from '@solus/contracts/integration-types'
+import type { Integration, IntegrationConnectNeeded } from '@solus/contracts/integration-types'
 import type { NormalizedEvent } from '@solus/contracts/types'
 import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
@@ -194,6 +194,136 @@ describe('integration gateway', () => {
     const result = await withActingScope(HOST_SCOPE, () => gateway.call(integration.id, 'echo', { text: 'x' }, context()))
     expect(result.ok).toBe(false)
     expect(result.text).toContain('Fake')
+    await gateway.close()
+  })
+})
+
+describe('integration gateway with sign-in', () => {
+  /** Every `Authorization` header the server saw, in order, and the sessions it opened. */
+  const seen: Array<string | undefined> = []
+  const opened: McpServer[] = []
+  let authServer: Server
+  let oauthIntegration: Integration
+
+  beforeAll(async () => {
+    const transports = new Map<string, StreamableHTTPServerTransport>()
+    authServer = createServer(async (req, res) => {
+      seen.push(req.headers.authorization)
+      if (req.headers.authorization !== 'Bearer good') {
+        res.writeHead(401, { 'www-authenticate': 'Bearer' }).end()
+        return
+      }
+      const parsed = req.method === 'POST' ? await body(req) : undefined
+      const sessionId = req.headers['mcp-session-id']
+      let transport = typeof sessionId === 'string' ? transports.get(sessionId) : undefined
+      if (!transport) {
+        const created: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: randomUUID,
+          onsessioninitialized: (id) => { transports.set(id, created) },
+        })
+        const server = makeServer()
+        opened.push(server)
+        await server.connect(created)
+        transport = created
+      }
+      await transport.handleRequest(req, res, parsed)
+    })
+    await new Promise<void>((resolve) => authServer.listen(0, '127.0.0.1', resolve))
+    const { port } = authServer.address() as AddressInfo
+    oauthIntegration = {
+      ...integration,
+      id: 'int-oauth',
+      slug: 'secure',
+      name: 'Secure',
+      url: `http://127.0.0.1:${port}/mcp`,
+      auth: { kind: 'oauth', discover: `http://127.0.0.1:${port}/.well-known/oauth-protected-resource`, registration: 'dynamic' },
+    }
+  })
+
+  afterAll(async () => {
+    await Promise.all(opened.map((server) => server.close()))
+    authServer.closeAllConnections()
+    await new Promise<void>((resolve) => authServer.close(() => resolve()))
+  })
+
+  /** A credentials fake: one header per person, and every `markNeedsSignIn` it received. */
+  function credentialsFor(headers: Map<string | null, string>) {
+    const refused: Array<{ integrationId: string, credentialUserId: string | null }> = []
+    const asked: Array<string | null> = []
+    return {
+      refused,
+      asked,
+      authorizationFor: async (_integrationId: string, credentialUserId: string | null) => {
+        asked.push(credentialUserId)
+        return headers.get(credentialUserId) ?? null
+      },
+      markNeedsSignIn: (integrationId: string, credentialUserId: string | null) => { refused.push({ integrationId, credentialUserId }) },
+    }
+  }
+
+  function signedInGateway(headers: Map<string | null, string>) {
+    const gateway = gatewayFor(oauthIntegration)
+    const credentials = credentialsFor(headers)
+    gateway.useCredentials(credentials)
+    const raised: IntegrationConnectNeeded[] = []
+    gateway.onConnectNeeded((request) => raised.push(request))
+    return { gateway, credentials, raised }
+  }
+
+  test('a person with a connection calls the tool, and their header reaches the server', async () => {
+    const { gateway, raised } = signedInGateway(new Map([[null, 'Bearer good']]))
+    seen.length = 0
+    const result = await withActingScope(HOST_SCOPE, () => gateway.call(oauthIntegration.id, 'echo', { text: 'hi' }, context()))
+    expect(result).toEqual({ ok: true, text: 'echo: hi' })
+    // WHY: the token is sent to the integration's own server on every request (§4.1 rule 4).
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.every((header) => header === 'Bearer good')).toBe(true)
+    expect(raised).toEqual([])
+    await gateway.close()
+  })
+
+  test('a person with no connection gets CONNECTION_REQUIRED and the connect card', async () => {
+    const { gateway, raised } = signedInGateway(new Map())
+    seen.length = 0
+    const result = await withActingScope(MEMBER_SCOPE, () => gateway.call(oauthIntegration.id, 'echo', { text: 'hi' }, context()))
+    expect(result.ok).toBe(false)
+    expect(result.text).toBe('CONNECTION_REQUIRED: Sign in to Secure in Settings → MCP, then try again.')
+    // WHY: no call is made without a connection (§4.1 rule 2), and the waiting conversation shows the card.
+    expect(seen).toEqual([])
+    expect(raised).toEqual([{ integrationId: oauthIntegration.id, integrationName: 'Secure', sessionId: 'session-1' }])
+    await gateway.close()
+  })
+
+  test('a token the server refuses moves the connection to needs-sign-in', async () => {
+    const { gateway, credentials, raised } = signedInGateway(new Map([['account:member-1', 'Bearer bad']]))
+    const result = await withActingScope(MEMBER_SCOPE, () => gateway.call(oauthIntegration.id, 'echo', { text: 'hi' }, context()))
+    expect(result.text).toStartWith('CONNECTION_REQUIRED:')
+    expect(credentials.refused).toEqual([{ integrationId: oauthIntegration.id, credentialUserId: 'account:member-1' }])
+    expect(raised.map((request) => request.sessionId)).toEqual(['session-1'])
+    // WHY: the next call asks for the header again instead of reusing the refused one.
+    await withActingScope(MEMBER_SCOPE, () => gateway.call(oauthIntegration.id, 'echo', { text: 'again' }, context()))
+    expect(credentials.asked).toEqual(['account:member-1', 'account:member-1'])
+    await gateway.close()
+  })
+
+  test('two people get two sessions, each with their own header', async () => {
+    const { gateway, credentials } = signedInGateway(new Map([[null, 'Bearer good'], ['account:member-1', 'Bearer bad']]))
+    const sessionsBefore = opened.length
+    const owner = await withActingScope(HOST_SCOPE, () => gateway.call(oauthIntegration.id, 'echo', { text: 'owner' }, context()))
+    const member = await withActingScope(MEMBER_SCOPE, () => gateway.call(oauthIntegration.id, 'echo', { text: 'member' }, context()))
+    // WHY: the member's refused token never borrows the owner's session (§4.1 rule 1).
+    expect(owner).toEqual({ ok: true, text: 'echo: owner' })
+    expect(member.text).toStartWith('CONNECTION_REQUIRED:')
+    expect(credentials.refused.map((entry) => entry.credentialUserId)).toEqual(['account:member-1'])
+    expect(opened.length - sessionsBefore).toBe(1)
+    await gateway.close()
+  })
+
+  test('a person with no connection still sees the tools the owner listed at warm', async () => {
+    const { gateway } = signedInGateway(new Map([[null, 'Bearer good']]))
+    await gateway.warm(oauthIntegration.id)
+    const tools = await withActingScope(MEMBER_SCOPE, () => gateway.tools(oauthIntegration.id))
+    expect(tools.map((tool) => tool.name)).toEqual(['echo', 'delete_all', 'confirm'])
     await gateway.close()
   })
 })

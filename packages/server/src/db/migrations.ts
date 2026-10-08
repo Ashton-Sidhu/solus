@@ -451,6 +451,22 @@ CREATE TABLE integration (
   UNIQUE (organization_id, slug)
 );
 `,
+  // One person's sign-in to one integration (docs/plans/mcp-integrations.md §3.3).
+  // `user_id` '' is the host owner: SQLite treats NULLs in a composite primary key
+  // as distinct, so null would let the owner hold two rows for one integration.
+  // The token is in the host secret store, never in this table.
+  `
+CREATE TABLE integration_connection (
+  integration_id TEXT NOT NULL,
+  user_id TEXT,
+  status TEXT NOT NULL,
+  label TEXT,
+  info TEXT,
+  error TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (integration_id, user_id)
+);
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

@@ -204,6 +204,18 @@ describe('provider seats', () => {
   })
 })
 
+describe('integration connections', () => {
+  test('a member signs in to an integration as themselves (host-wide); a guest never', async () => {
+    // WHY (mcp-integrations.md §4.1): a connection belongs to the caller, and the
+    // handler selects it from the principal, so the class only keeps guests out.
+    for (const method of ['integrationConnectionList', 'integrationConnectStart', 'integrationConnectSubmit', 'integrationConnectCancel', 'integrationDisconnect'] as const) {
+      expect(rpcAccessMap().get(method)).toBe('host-wide')
+      await expect(assertRpcAccess(method, MEMBER, [{ id: 'i1' }])).resolves.toBeUndefined()
+      await expect(assertRpcAccess(method, GUEST, [{ id: 'i1' }])).rejects.toThrow(/not available to a guest/)
+    }
+  })
+})
+
 describe('presence', () => {
   test('anyone reads the room and reports focus; typing in a session takes the right to prompt it', async () => {
     // WHY (multiplayer-presence.md): a guest needs its own client id to leave itself

@@ -125,8 +125,7 @@
     ...gitRefs.branches.filter((branch) => !worktreeBranches.includes(branch)),
   ]);
 
-  $effect(() => {
-    if (!open) return;
+  function handleOpenAutoFocus() {
     if (pendingDispatch) {
       void environmentStore.refreshDispatchWorktrees(
         run,
@@ -135,7 +134,7 @@
       return;
     }
     if (projectRoot && repoCtx) void environmentStore.refreshRefs(gitServerId, projectRoot, repoCtx, { force: true });
-  });
+  }
 
   $effect(() => {
     if (open) {
@@ -241,6 +240,7 @@
          merge group, so the bare responsive rung never touches it. The nested
          selectors keep the command rows and search field on that same rung. -->
     <Popover.Content
+      onOpenAutoFocus={handleOpenAutoFocus}
       data-solus-ui
       customAnchor={triggerEl}
       {side}

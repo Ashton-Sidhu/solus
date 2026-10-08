@@ -89,6 +89,8 @@ export interface HttpServerOptions {
   deviceHub?: { serve(token: string, route: string, signal: AbortSignal): Promise<Response> }
   /** Long-form voice transcription implementation supplied by the host. */
   transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
+  /** An integration sign-in's browser callback (docs/plans/mcp-integrations.md §4.3). The flow named by `state` decides whose token it is. */
+  completeIntegrationOAuth?: (params: URLSearchParams) => Promise<{ status: 200 | 400 | 500; html: string }>
 }
 
 type RunnerPrincipal = Extract<Principal, { kind: 'runner' }>
@@ -231,6 +233,14 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     const result = await completeGoogleOAuthCallback(new URL(c.req.url).searchParams)
     return c.html(result.html, result.status)
   })
+
+  if (opts.completeIntegrationOAuth) {
+    const completeIntegrationOAuth = opts.completeIntegrationOAuth
+    app.get('/oauth/integration/callback', async (c) => {
+      const result = await completeIntegrationOAuth(new URL(c.req.url).searchParams)
+      return c.html(result.html, result.status)
+    })
+  }
 
   // The workspace service's Atlassian callback (cloud-service-model.md §22); a
   // host's sign-in lands on the loopback listener and never reaches this route.

@@ -1,8 +1,14 @@
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { z } from 'zod'
+import { createLogger } from '../logger'
+import { bundledResourcesDir } from '../platform/paths'
 import type { AgentTool } from '../execution/agents/tools/agent-tool'
 import type { WritingBackend } from '../execution/agents/writing-backend'
 import type { TextGenerator } from '../execution/agents/text-generator'
 import { runAsync } from './exec'
+
+const log = createLogger('PullRequestAuthoring', 'pull-request-authoring.ts')
 
 const MAX_COMMIT_SUMMARY_CHARS = 12_000
 const MAX_DIFF_STAT_CHARS = 12_000
@@ -99,21 +105,31 @@ export async function readPullRequestAuthoringContext(
   }
 }
 
+function bodyRulesFromSkill(skill: string): string[] {
+  const section = skill.split(/^## Body rules$/m)[1]?.split(/^## /m)[0] ?? ''
+  return section.split(/\r?\n/).filter((line) => line.startsWith('- ')).map((line) => line.slice(2).trim())
+}
+
 /**
- * The house rules for a pull request body, quoted from the `writing-pr` skill.
- * This is the maintainers' own wording; do not tidy the grammar or the casing.
+ * The house rules for a pull request body. The bundled `writing-pr` skill owns
+ * them, so an agent that opens a pull request itself follows the same rules as
+ * the git action. They are the maintainers' own wording; the skill keeps them
+ * as one bullet each under `## Body rules`.
  */
-const HOUSE_BODY_RULES = [
-  "dont write essays, dont include that you ran tests. rather, write a concise body. focus on mermaid codeblock diagrams, code samples/snippets (this can be internals, or even sample usage). use bullet points for the text you do write. 'validation/i ran tests' is not needed",
-  'for visual changes (either directly or indirectly) show a table of before and after with uploaded images/videos.',
-  'for benchmarks, always show tables of before/after (baseline from target branch, candidate from the PR)',
-  'dont at intermidate PR details - e.g. if we reduced PR size from +6k lines to +1k lines, dont even mention it. if we refactored from one commit to another it doesnt matter. only the final aggregate squash merge commit is what matters for commentary',
-  'for truely impressive, difficult, or high risk/wide scoped changes you might write the body like a technical blog (again with context, storytelling, code samples/before/after etc diagrams, images whatever.',
-  'feel free to use code refs',
-]
+export async function readHouseBodyRules(): Promise<string[]> {
+  const skillPath = join(bundledResourcesDir(), 'plugins', 'solus', 'skills', 'writing-pr', 'SKILL.md')
+  try {
+    return bodyRulesFromSkill(await readFile(skillPath, 'utf8'))
+  } catch (error) {
+    // A missing skill degrades the draft; it must not block the pull request.
+    log.warn('pull_request_body_rules_missing', { skillPath, error: error instanceof Error ? error.message : String(error) })
+    return []
+  }
+}
 
 export function buildPullRequestAuthoringPrompt(
   context: PullRequestAuthoringContext,
+  houseBodyRules: readonly string[],
   instructions = 'Use concise, specific source-control writing.',
 ): string {
   const bodyRules = context.template
@@ -123,7 +139,7 @@ export function buildPullRequestAuthoringPrompt(
         'Keep its Markdown structure and remove HTML comments.',
         'Fill a testing or validation section only because the template asks for one.',
       ]
-    : HOUSE_BODY_RULES
+    : houseBodyRules
   return [
     'Write a pull request title and body for the complete branch change.',
     'Submit both fields with the provided tool. Do not answer with prose.',
@@ -214,7 +230,7 @@ export async function authorPullRequest(
     model: backend.model,
     seat: backend.seat,
     cwd,
-    prompt: buildPullRequestAuthoringPrompt(context, writer.instructions),
+    prompt: buildPullRequestAuthoringPrompt(context, await readHouseBodyRules(), writer.instructions),
     tools: [createDraftTool((draft) => { submitted = draft })],
     unattended: true,
     reasoningEffort: 'low',

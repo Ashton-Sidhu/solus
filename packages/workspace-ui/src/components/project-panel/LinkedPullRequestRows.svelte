@@ -108,10 +108,10 @@
         projectScopeOf(ctx.session) !== targetProjectScope
       )
         return;
+      if (!isActive) return;
       void pullRequests.guides
         .loadMetadata(api, targetServerId, ctx, [{ number }])
         .catch(() => {});
-      if (!isActive) return;
       // Merge controls need the host-computed fields only a detail read
       // carries; PR sync keeps the rest fresh while the row is shown.
       void pullRequests.projects.get(api, targetServerId, ctx).get(number).loadDetail().catch(() => {});

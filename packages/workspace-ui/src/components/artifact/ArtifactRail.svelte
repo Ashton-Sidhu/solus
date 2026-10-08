@@ -9,8 +9,8 @@
   /**
    * The persisted work behind a render: named, shareable, linkable to a task
    * when there is one to name, and one click from a pane where it has the full
-   * works chrome (rename, history, export). Shown under an artifact card, and under an HTML block once the
-   * reader has saved it as an artifact.
+   * works chrome (rename, history, export). Shown as the header of an artifact
+   * card, and of an HTML block once the reader has saved it as an artifact.
    */
   interface Props {
     workId: string;
@@ -67,7 +67,7 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    margin-top: 0.375rem;
+    margin-bottom: 0.375rem;
     padding: 0 0.25rem;
     font-size: var(--text-transcript-meta);
     color: var(--muted-foreground);

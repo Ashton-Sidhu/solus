@@ -368,10 +368,12 @@
   // The room hears that this person is typing from their keystrokes, and the
   // host clears the mark when they pause. A stop is sent at once when the draft
   // goes out or is cleared, the bar goes inactive, or it moves to another session.
+  const typingServerId = $derived(sess?.run.serverId);
+  const typingSessionId = $derived(sess?.id);
   $effect(() => {
     if (!active || !editorHasText) return;
-    const serverId = sess?.run.serverId;
-    const roomSessionId = sess?.id;
+    const serverId = typingServerId;
+    const roomSessionId = typingSessionId;
     return () => untrack(() => presenceStore.stopTyping(serverId, roomSessionId));
   });
   function handlePromptChange(md: string) {
@@ -515,7 +517,7 @@
     const metadata = agent.metadata[activeProvider] ?? agent.activeMetadata;
     const models = metadata?.models;
     if (!models || models.length === 0) return;
-    const nextModelId = cycledModelId(run, models, metadata?.defaultModel ?? null);
+    const nextModelId = cycledModelId(run, models, metadata?.defaultModel ?? null, activeProvider);
     if (!nextModelId) return;
     const nextConfig = session.config.configureModel(run.modelConfig, { modelId: nextModelId }, run.provider ?? theme.activeAgent);
     if (onRun) onRun({ ...run, modelConfig: { ...run.modelConfig, ...nextConfig } });

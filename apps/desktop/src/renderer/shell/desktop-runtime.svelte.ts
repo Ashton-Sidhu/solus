@@ -165,17 +165,6 @@ export function installDesktopRuntime(core: DesktopAppCore) {
     };
   });
 
-  // Slash command discovery is backend-scoped, so refresh when the active agent changes.
-  // Keep the whole refresh outside tracking: the command loader reads more session
-  // state synchronously before its first await, but only an agent change belongs here.
-  // Explicit refreshes in createTab/setBaseDirectory handle directory changes.
-  $effect(() => {
-    void settings.activeAgent;
-    untrack(
-      () => void session.lifecycle.refreshPluginCommands(session.tabCtx.workingDirectory),
-    );
-  });
-
   setupAgentEvents(session);
   // Refresh the key the project panel reads: the worktree path when the tab has one.
   session.onTurnSettled = (sessionId, cwd) => {
@@ -195,7 +184,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
     });
   };
 
-  $effect(() => {
+  onMount(() => {
     refreshTheme(settings.setSystemTheme.bind(settings));
     const unsub = window.solusNative.onThemeChange((isDark: boolean) =>
       settings.setSystemTheme(isDark),
@@ -226,7 +215,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   // A notification click (or any other outside-the-renderer request) arrives as
   // a serialized route, which is the same vocabulary the address bar, the
   // persisted snapshot, and agent links use.
-  $effect(() => {
+  onMount(() => {
     const unsubscribe = window.solusNative?.onOpenRoute?.((serialized) => {
       const route = parseRoute(serialized);
       if (route) session.openRoute(route);
@@ -235,39 +224,37 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   });
 
   // The notifications hub reads every source once for the page and the badge (plan 015).
-  $effect(() => untrack(() => notificationHubStore.start()));
+  onMount(() => notificationHubStore.start());
 
-  $effect(() => {
-    return untrack(() =>
-      notificationsStore.start({
-        preferences: () => settings.notifications,
-        hostDisplay: (serverId) => {
-          const host = serversStore.hostFor(serverId);
-          const display: import("@solus/workspace-ui/contexts/notifications/notifications.store.svelte").NotificationHostDisplay =
-            {
-              label: host?.label ?? "this host",
-              isPrimary: serverConnections.defaultServerId() === serverId,
-            };
-          if (host && "installationId" in host && host.installationId) {
-            display.installationId = host.installationId;
-          }
-          return display;
-        },
-        isSessionFocused: (serverId, sessionId) =>
-          document.visibilityState === "visible" &&
-          document.hasFocus() &&
-          session.isSessionVisibleOnHost(serverId, sessionId),
-        openRoute: (serialized) => {
-          const route = parseRoute(serialized);
-          if (route) session.openRoute(route);
-        },
-      }),
-    );
+  onMount(() => {
+    return notificationsStore.start({
+      preferences: () => settings.notifications,
+      hostDisplay: (serverId) => {
+        const host = serversStore.hostFor(serverId);
+        const display: import("@solus/workspace-ui/contexts/notifications/notifications.store.svelte").NotificationHostDisplay =
+          {
+            label: host?.label ?? "this host",
+            isPrimary: serverConnections.defaultServerId() === serverId,
+          };
+        if (host && "installationId" in host && host.installationId) {
+          display.installationId = host.installationId;
+        }
+        return display;
+      },
+      isSessionFocused: (serverId, sessionId) =>
+        document.visibilityState === "visible" &&
+        document.hasFocus() &&
+        session.isSessionVisibleOnHost(serverId, sessionId),
+      openRoute: (serialized) => {
+        const route = parseRoute(serialized);
+        if (route) session.openRoute(route);
+      },
+    });
   });
 
   // These are lifetime subscriptions. Some installers read active-session state
   // for their first report, but session changes must not reinstall every listener.
-  $effect(() =>
+  onMount(() =>
     untrack(() => {
       const unsubSessionStatuses =
         sessionSidebarStore.subscribeSessionStatuses();

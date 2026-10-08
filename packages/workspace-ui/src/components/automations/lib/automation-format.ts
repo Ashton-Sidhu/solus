@@ -1,5 +1,5 @@
 import { Cron } from 'croner'
-import { SOLUS_WORKTREE_DIR, type AutomationRun, type AutomationTrigger, type AutomationRunStatus } from '@solus/contracts/types'
+import { SOLUS_WORKTREE_DIR, type AutomationRun, type AutomationRunPoint, type AutomationTrigger, type AutomationRunStatus } from '@solus/contracts/types'
 
 // Pure formatting + trigger <-> builder-preset mapping for the Automations UI.
 // Kept out of the .svelte files so the cron math and human summaries are easy to
@@ -302,38 +302,67 @@ export const INTERVAL_UNIT_MINUTES = {
   days: 1440,
 } satisfies Record<IntervalParts['unit'], number>
 
-/** One bar of the detail view's health sparkline: how long that run took
- *  relative to the longest in the window, plus the two states it's coloured by. */
-export type HealthBar = { id: string; heightPct: number; failed: boolean; latest: boolean }
+/** One bar of the detail view's run graph: how long that run took relative to
+ *  the longest in the window, coloured by how the run ended. */
+export type HealthBar = {
+  id: string
+  heightPct: number
+  tone: RunStatusMeta['tone']
+  latest: boolean
+  /** The hover answer for one bar: when it ran, for how long, and how it ended. */
+  startedLabel: string
+  durationLabel: string
+  statusLabel: string
+}
+
+/** How the window's success rate reads: healthy, wobbling, or broken. */
+export type SuccessRateTone = 'good' | 'mixed' | 'poor'
 
 export interface RunHealth {
   bars: HealthBar[]
   clean: number
   total: number
+  /** Whole-number percentage of the window that came back clean. */
+  successRate: number
+  rateTone: SuccessRateTone
 }
 
-/** How many runs the sparkline looks back over — wide enough to show a rhythm,
+/** How many runs a run graph looks back over — wide enough to show a rhythm,
  *  narrow enough that one bad run still reads as one bad run. */
-const HEALTH_WINDOW = 17
+export const RUN_GRAPH_WINDOW = 17
 /** A run that did what it was asked. */
 const CLEAN_STATUSES: AutomationRunStatus[] = ['succeeded']
 
-/** The recent runs as a duration sparkline (oldest → newest) plus how many of
+/** One failure in ten is noise; one in three is a pattern worth fixing. */
+export function successRateTone(rate: number): SuccessRateTone {
+  if (rate >= 90) return 'good'
+  if (rate >= 66) return 'mixed'
+  return 'poor'
+}
+
+/** The recent runs as a duration graph (oldest → newest) plus how many of
  *  them came back clean — the automation's reliability at a glance. `runs` is
  *  newest-first, the order the store keeps them in. */
-export function runHealth(runs: AutomationRun[]): RunHealth {
-  const recent = runs.slice(0, HEALTH_WINDOW).reverse()
+export function runHealth(runs: readonly AutomationRunPoint[], nowMs = Date.now()): RunHealth {
+  const recent = runs.slice(0, RUN_GRAPH_WINDOW).reverse()
   const longest = recent.reduce((max, r) => Math.max(max, runDurationMs(r) ?? 0), 0)
+  const clean = recent.filter((r) => CLEAN_STATUSES.includes(r.status)).length
+  const successRate = recent.length > 0 ? Math.round((clean / recent.length) * 100) : 0
   return {
     bars: recent.map((r, i) => ({
       id: r.id,
       // Floored so a sub-second run still reads as a bar rather than a gap.
       heightPct: Math.max(18, longest > 0 ? Math.round(((runDurationMs(r) ?? 0) / longest) * 100) : 18),
-      failed: r.status === 'failed',
+      tone: RUN_STATUS_META[r.status].tone,
       latest: i === recent.length - 1,
+      startedLabel: absoluteTime(r.startedAt, nowMs),
+      durationLabel: r.status === 'running' ? 'In progress' : runDuration(r) || '—',
+      statusLabel: RUN_STATUS_META[r.status].label,
     })),
-    clean: recent.filter((r) => CLEAN_STATUSES.includes(r.status)).length,
+    clean,
     total: recent.length,
+    successRate,
+    rateTone: successRateTone(successRate),
   }
 }
 

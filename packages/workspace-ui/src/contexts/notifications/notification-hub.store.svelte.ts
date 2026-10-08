@@ -48,11 +48,15 @@ class NotificationHubStore {
   /** Begin reading; the shells call it once at boot. Answers the stop. */
   start(): () => void {
     if (this.stopTracking) return this.stopTracking
+    accountStore.start()
     const onVisible = () => { if (document.visibilityState === 'visible') void this.client?.refresh() }
     document.addEventListener('visibilitychange', onVisible)
     const stopEffects = $effect.root(() => {
       // The engine is outside Svelte; the identity and the source list are synced into it.
       $effect(() => {
+        // The initial signed-out value is provisional until the account answers.
+        // Reading it would start a device feed and then read the same host again.
+        if (!accountStore.hasAnswered) return
         const identity = this.identity
         const list = this.sourceList
         this.conflicts = list.conflicts

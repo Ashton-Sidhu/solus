@@ -3,7 +3,7 @@ import { nextMsgId } from './session.utils'
 import type { RouterStore } from './routing/router.store.svelte'
 import type { WorksStore } from '../works/works.store.svelte'
 import { runtime } from '../app/runtime.svelte'
-import { artifactHasBody, partialArtifactHtml } from './streaming-artifact'
+import { artifactHasBody, isPreviewArtifactCall, partialArtifactHtml } from './streaming-artifact'
 
 /** A floor, not a target: a slower host may raise it. Each tick re-creates the
  *  iframe, so the reader watches the render arrive in steps rather than
@@ -99,6 +99,9 @@ export class WorkStreamTracker {
     if (!toolId) return
     const isUpdate = !!toolName?.endsWith('update_work')
     if (!isRenderArtifactTool(toolName) && !isUpdate) return
+    // The card opened before the input said whether it is a preview. A preview
+    // renders nothing in the conversation, so its card goes as soon as it does.
+    if (!isUpdate && isPreviewArtifactCall(toolInput)) return this.failArtifact(session, toolId)
     if (isUpdate) this.beginArtifactUpdate(session, toolInput, toolId)
     if (runtime.isTouchDevice) return
     const now = Date.now()

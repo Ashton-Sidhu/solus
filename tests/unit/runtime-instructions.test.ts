@@ -104,6 +104,14 @@ describe('runtime instructions', () => {
     }
   })
 
+  // An agent that runs gh itself must write the pull request with the same
+  // rules as the Solus git action, which live in the bundled writing-pr skill.
+  test('both providers are pointed at the writing-pr skill before they write a pull request', async () => {
+    const pointer = 'use the writing-pr skill'
+    expect(runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [linkTool])).toContain(pointer)
+    expect(await claudeAppend([linkTool])).toContain(pointer)
+  })
+
   test('the check step is named only when list_session_pull_requests is on', async () => {
     const check = 'call list_session_pull_requests'
     expect(await claudeAppend([linkTool, tool('list_session_pull_requests')])).toContain(check)

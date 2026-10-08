@@ -17,8 +17,7 @@
   import DocumentStackCard from "../work/DocumentStackCard.svelte";
   import AutomationRefCard from "../automations/AutomationRefCard.svelte";
   import TaskRefCard from "./TaskRefCard.svelte";
-  import BrowserSnapshotCard from "../browser/BrowserSnapshotCard.svelte";
-  import BrowserSnapshotGallery from "../browser/BrowserSnapshotGallery.svelte";
+  import BrowserSnapshots from "../browser/BrowserSnapshots.svelte";
   import BrowserRecordingCard from "../browser/BrowserRecordingCard.svelte";
   import AgentConversationGroup from "./agent-conversation/AgentConversationGroup.svelte";
   import ArtifactView from "../artifact/ArtifactView.svelte";
@@ -236,23 +235,11 @@
 {:else if item.kind === "task" && item.message.taskRef}
   <TaskRefCard ref={item.message.taskRef} {skipMotion} />
 {:else if item.kind === "browser-snapshot"}
-  <!-- One capture is not a gallery: a single frame keeps the card
-       with its full-width picture, and the plate begins at two. -->
   {@const captures = item.messages
     .map((message) => message.browserSnapshot)
     .filter((snapshot) => !!snapshot)}
-  {#if captures.length === 1}
-    <BrowserSnapshotCard
-      snapshot={captures[0]}
-      serverId={sess?.run.serverId}
-      {skipMotion}
-    />
-  {:else if captures.length > 1}
-    <BrowserSnapshotGallery
-      snapshots={captures}
-      serverId={sess?.run.serverId}
-      {skipMotion}
-    />
+  {#if captures.length > 0}
+    <BrowserSnapshots snapshots={captures} serverId={sess?.run.serverId} />
   {/if}
 {:else if item.kind === "browser-recording" && item.message.browserRecording}
   <BrowserRecordingCard

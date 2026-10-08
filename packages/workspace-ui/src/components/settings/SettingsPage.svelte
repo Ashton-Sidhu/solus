@@ -72,6 +72,7 @@
   import * as Sidebar from "../ui/sidebar";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { serverConnections } from "@solus/client-core/server-connections";
+  import { hosts } from "../../contexts/hosts/hosts.svelte";
 
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
@@ -192,7 +193,7 @@
     // Host-scoped, so it stays visible on web: the integrations are the host's.
     {
       id: "integrations",
-      label: "Integrations",
+      label: "MCP",
       description: "Remote MCP servers whose tools your agents can use.",
       icon: PlugIcon,
       group: "Capabilities",
@@ -335,9 +336,16 @@
   );
   // Machines only: the workspace service is a connection this client holds,
   // not a host with settings of its own (docs/plans/cloud-service-model.md §15).
+  // The host on this device leads, never the Run on host: Settings are about
+  // the machine the user holds. The rest keep connection order.
   const settingsHosts = $derived.by(() => {
     void serversStore.servers;
-    return serverConnections.connectedServerIds().filter((serverId) => !isSolusApiId(serverId)).map((serverId) => ({
+    const leadHostId = hosts.device?.id;
+    const serverIds = serverConnections.connectedServerIds().filter((serverId) => !isSolusApiId(serverId));
+    return [
+      ...serverIds.filter((serverId) => serverId === leadHostId),
+      ...serverIds.filter((serverId) => serverId !== leadHostId),
+    ].map((serverId) => ({
       serverId,
       label:
         serversStore.hostFor(serverId)?.label ??
@@ -345,17 +353,13 @@
         serverId,
     }));
   });
-  // Until the user picks a host, show the one new work runs on. The first
-  // connection is only whichever host answered first.
-  const selectedSettingsHost = $derived.by(() => {
-    const runOnHostId = serverConnections.runOnHostId();
-    return (
-      settingsHosts.find((host) => host.serverId === settingsHost.serverId) ??
-      settingsHosts.find((host) => host.serverId === runOnHostId) ??
+  // Until the user picks a host, show the lead host. The first connection is
+  // only whichever host answered first.
+  const selectedSettingsHost = $derived(
+    settingsHosts.find((host) => host.serverId === settingsHost.serverId) ??
       settingsHosts[0] ??
-      null
-    );
-  });
+      null,
+  );
   const selectedSettingsApi = $derived(
     selectedSettingsHost
       ? serverConnections.apiFor(selectedSettingsHost.serverId)
@@ -617,7 +621,7 @@
       role="navigation"
       aria-label="Settings"
       collapsible="none"
-      class="relative border-r border-r-sidebar-border/50 bg-sidebar"
+      class="relative border-r border-r-sidebar-border/50 bg-[color:color-mix(in_oklch,var(--card)_99%,var(--foreground))]"
     >
       <div
         class="workspace-titlebar absolute inset-x-0 top-0 h-(--solus-titlebar-height)"

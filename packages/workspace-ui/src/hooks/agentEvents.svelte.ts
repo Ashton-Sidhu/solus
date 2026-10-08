@@ -1,4 +1,5 @@
 import { onDestroy } from 'svelte'
+import { isChat } from '@solus/contracts/chat'
 import type { WorkspaceContext } from '../contexts'
 import type { SessionTitleChangedEvent } from '@solus/contracts/types'
 import { resyncRuntime } from '../contexts/workspace/session-bootstrap'
@@ -46,7 +47,11 @@ export function bindAgentEventSubscriptions(session: WorkspaceContext): () => vo
  * to its response-streaming setting. The client applies each delivery once.
  */
 export function setupAgentEvents(session: WorkspaceContext): void {
-  const unsubscribeCheckouts = session.environment.checkouts.subscribe()
+  const unsubscribeCheckouts = session.environment.checkouts.subscribe((serverId) => [session.activeTabId, session.chatSurfaceTabId].flatMap((tabId) => {
+    const run = tabId ? session.runFor(tabId) : null
+    const cwd = run?.gitContext?.worktreePath ?? run?.workingDirectory
+    return run && serverConnections.resolveId(run.serverId) === serverId && cwd && cwd !== '~' && !isChat(cwd) ? [cwd] : []
+  }))
   const unsubscribeEvents = bindAgentEventSubscriptions(session)
   const resetUnsubscribes = new Map<string, () => void>()
 

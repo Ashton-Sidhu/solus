@@ -47,7 +47,6 @@
     dayLabel,
     relativeTime,
     runDuration,
-    runHealth,
     automationRunCwd,
   } from "./lib/automation-format";
   import {
@@ -58,6 +57,7 @@
   import { ROW, EYEBROW, VALUE, MONO_VALUE, VALUE_TRIGGER } from "./lib/rail-styles";
   import AutomationInstructions from "./AutomationInstructions.svelte";
   import AutomationRailSelect from "./AutomationRailSelect.svelte";
+  import AutomationRunChart from "./AutomationRunChart.svelte";
   import AutomationRunHistory from "./AutomationRunHistory.svelte";
   import AutomationScheduleFields from "./AutomationScheduleFields.svelte";
   import { formatSavedAgo } from "../document-shell/saveStatus";
@@ -269,7 +269,6 @@
   });
 
   // ── The strip of machine facts under the title ──
-  const health = $derived(runHealth(runs));
   const lastRun = $derived(runs[0] ?? null);
 
   const nextRunLabel = $derived(
@@ -669,10 +668,10 @@
   </div>
 {/snippet}
 
-<!-- ── Next / Last / Health: the three facts worth reading before the prose ── -->
+<!-- ── Next / Last / Recent runs: the three facts worth reading before the prose ── -->
 {#snippet statStrip()}
   <div
-    class="mt-6 grid grid-cols-[auto_auto_1fr] items-center gap-x-10 gap-y-3.5 rounded-2xl bg-muted/60 px-4.5 py-4 @max-[43.75rem]:grid-cols-1 @max-[43.75rem]:gap-4"
+    class="mt-6 grid grid-cols-[auto_auto_1fr] items-center gap-x-10 gap-y-3.5 border-y border-border/60 py-4 @max-[43.75rem]:grid-cols-1 @max-[43.75rem]:gap-4"
   >
     <div class="flex min-w-0 flex-col gap-1">
       <span class={EYEBROW}>Next</span>
@@ -682,30 +681,12 @@
       <span class={EYEBROW}>Last</span>
       <span class="text-workspace-chrome font-medium">{lastRunLabel}</span>
     </div>
-    {#if health.total > 0}
-      <div
-        class="flex min-w-0 flex-col gap-1.5 justify-self-end @max-[43.75rem]:justify-self-start"
-      >
-        <span class={EYEBROW}>Health</span>
-        <div class="flex items-center gap-2.5">
-          <div class="flex h-3.5 w-26 items-end gap-[0.15625rem]">
-            {#each health.bars as bar (bar.id)}
-              <span
-                class="min-w-0 flex-1 rounded-[0.09375rem] {bar.failed
- ? 'bg-[var(--solus-status-error,#e53e3e)]'
- : bar.latest
- ? 'bg-chart-3/80'
- : 'bg-chart-3/38'}"
-                style="height: {bar.heightPct}%"
-              ></span>
-            {/each}
-          </div>
-          <span class="text-xs whitespace-nowrap text-muted-foreground">
-            {health.clean} of {health.total} clean
-          </span>
-        </div>
-      </div>
-    {/if}
+    <div
+      class="flex min-w-0 flex-col gap-1.5 justify-self-end @max-[43.75rem]:justify-self-stretch"
+    >
+      <span class={EYEBROW}>Recent runs</span>
+      <AutomationRunChart {runs} />
+    </div>
   </div>
 {/snippet}
 

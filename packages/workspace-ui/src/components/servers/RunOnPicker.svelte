@@ -159,6 +159,7 @@
   let triggerEl = $state<HTMLElement | null>(null);
   let triggerTooltipOpen = $state(false);
   let sourceRepoKey = $state<string | null>(null);
+  let identitiesLoadingHostId = $state<string | null>(null);
 
   const actionFor = (server: ServerItem): RunOnHostAction =>
     runOnHostAction({
@@ -178,19 +179,6 @@
   $effect(() => {
     // Retargeting clears gitContext, so retain the last repo key while selection finishes.
     if (detectedRepoKey) sourceRepoKey = detectedRepoKey;
-  });
-
-  $effect(() => {
-    const path = run.gitContext?.repoRoot ?? run.workingDirectory;
-    if (locked || !path || path === "~") return;
-    void serversStore.loadProjectIdentities(currentHostId);
-  });
-
-  // Reachability decides whether the picker appears at all, so warm it once on
-  // mount rather than only when the menu opens. The store's staleness guard
-  // collapses the several mounted pickers into a single probe.
-  $effect(() => {
-    void serversStore.probeHosts();
   });
 
   // A host paired from the "Add a host" row becomes this run's host.
@@ -293,7 +281,18 @@
     open = next;
     if (next) {
       triggerTooltipOpen = false;
-      void serversStore.probeHosts();
+    }
+  }
+
+  function handleOpenAutoFocus() {
+    void serversStore.probeHosts();
+    const path = run.gitContext?.repoRoot ?? run.workingDirectory;
+    if (!locked && path && path !== "~") {
+      const serverId = currentHostId;
+      if (!serversStore.hasProbedIdentities(serverId)) identitiesLoadingHostId = serverId;
+      void serversStore.loadProjectIdentities(serverId).finally(() => {
+        if (identitiesLoadingHostId === serverId) identitiesLoadingHostId = null;
+      });
     }
   }
 
@@ -325,7 +324,7 @@
     managedHostStateLabel(server.uplink) ?? runOnHostNote(action)}
   <DropdownMenu.Item
     data-menu-current={isSelectedHost ? "" : undefined}
-    disabled={!canRunOnHost(server.uplink)}
+    disabled={!canRunOnHost(server.uplink) || (!!identitiesLoadingHostId && action.kind !== "current")}
     onSelect={() => chooseServer(server)}
     class={subtitle ? "h-auto min-h-8 py-1.5" : undefined}
   >
@@ -507,6 +506,7 @@
         align="start"
         sideOffset={6}
         collisionPadding={8}
+        onOpenAutoFocus={handleOpenAutoFocus}
         onCloseAutoFocus={handleCloseAutoFocus}
         customAnchor={anchor ?? undefined}
         class="w-[300px] p-0 text-workspace-chrome [&_.menu-row]:text-workspace-chrome"
@@ -514,7 +514,7 @@
         <!-- The footer spans the surface, so the rows scroll inside their own
              padded body rather than dragging it out of view. -->
         <div class="max-h-[288px] overflow-y-auto p-1.5">
-          <DropdownMenu.Label>Run on</DropdownMenu.Label>
+          <DropdownMenu.Label>{identitiesLoadingHostId ? "Loading project…" : "Run on"}</DropdownMenu.Label>
           {#each runOnHosts as server (server.id)}
             {@render serverRow(server)}
           {/each}

@@ -9,6 +9,7 @@ import {
   updateAutomation,
   deleteAutomation,
   listRuns,
+  listRecentRuns,
   loadRun,
 } from '../../data/automations/automations-store'
 import { triggerAutomationRun, cancelAutomationRun } from '../../execution/automations/automation-runner'
@@ -92,6 +93,11 @@ export function registerAutomationHandlers(server: SolusServer): void {
   server.register('automationListRuns', async (args) => {
     const [id] = args
     return listRuns(id)
+  })
+
+  server.register('automationRecentRuns', async (args) => {
+    const [perAutomation] = args
+    return listRecentRuns(perAutomation)
   })
 
   server.register('automationReadRun', async (args) => {

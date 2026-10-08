@@ -7,12 +7,14 @@ import {
   isConnectionProvider,
 } from '@solus/contracts/connections'
 import type { ConnectionConnectNeeded, ConnectionProvider, ConnectionReason } from '@solus/contracts/connections'
-import type { AgentTool } from '../execution/agents/tools/agent-tool'
 import { loadToken as loadCloudflareToken } from '../cloudflare/token-store'
 import { loadCredential as loadAtlassianCredential } from '../atlassian/token-store'
 import { isOAuthConfigured as isAtlassianOAuthConfigured } from '../atlassian/oauth'
 import { GitHubAuth } from '../providers/github/auth'
 import { getAccessToken as getGoogleAccessToken, isGoogleOAuthConfigured } from '../google/oauth'
+import { ANY_ORGANIZATION } from '../admission/principal'
+import { integrationGateway } from '../integrations/integration-tools'
+import type { AgentTool, AgentToolResult } from '../execution/agents/tools/agent-tool'
 
 /**
  * One tool for every external account, because the work is the same in every
@@ -104,7 +106,34 @@ const REASON_PROVIDER: Record<ConnectionReason, ConnectionProvider | null> = {
 const connectionStatusArgsSchema = z.object({
   provider: z.string().optional(),
   reason: z.string().optional(),
+  integration: z.string().optional(),
 })
+
+/**
+ * The acting person's own connection to one integration (docs/plans/mcp-integrations.md §7),
+ * and the connect card when they have none. Another person's connection is never read.
+ */
+async function integrationStatus(slug: string, sessionId: string | undefined): Promise<AgentToolResult> {
+  const gateway = integrationGateway()
+  const integration = gateway?.store.list(ANY_ORGANIZATION).find((candidate) => candidate.slug === slug)
+  if (!gateway || !integration) return { ok: false, text: `No integration named '${slug}'. Use the slug before \`__\` in its tool names.` }
+  const report = await gateway.connectionStatus(integration.id)
+  const base = { integration: integration.slug, name: integration.name, status: report.status }
+  if (report.status === 'connected') {
+    return { ok: true, text: JSON.stringify(report.signInRequired ? { ...base, label: report.label } : { ...base, note: `${integration.name} needs no sign-in.` }) }
+  }
+  if (sessionId) gateway.askToConnect(integration, sessionId)
+  return {
+    ok: true,
+    text: JSON.stringify({
+      ...base,
+      askedUser: !!sessionId,
+      note: sessionId
+        ? `Asked the user to sign in to ${integration.name}. Wait for them; do not request a credential in the conversation.`
+        : `The user is not signed in to ${integration.name}, and there is no conversation to ask in.`,
+    }),
+  }
+}
 
 function isConnectionReason(value: string): value is ConnectionReason {
   return Object.hasOwn(REASON_PROVIDER, value)
@@ -126,7 +155,7 @@ function resolveTarget(
 export const connectionStatusAgentTool: AgentTool = {
   name: 'connection_status',
   description:
-    'Check whether Solus can reach an external account — cloudflare, github, atlassian (Confluence and Jira share one Atlassian connection), or google. Returns connection metadata only, never a credential. When the account is not connected, this asks the user to connect it and they answer in the conversation; do not ask for a token or a password yourself. Pass `reason` to say what the connection is for: deploy, pull-requests, issues, confluence, jira, drive.',
+    'Check whether Solus can reach an external account — cloudflare, github, atlassian (Confluence and Jira share one Atlassian connection), or google — or whether the user is signed in to an integration (pass `integration`, the slug before `__` in its tool names). Returns connection metadata only, never a credential. When the account is not connected, this asks the user to connect it and they answer in the conversation; do not ask for a token or a password yourself. Pass `reason` to say what the connection is for: deploy, pull-requests, issues, confluence, jira, drive.',
   // Both optional, and either one is enough to identify the account: "set up
   // Jira" names a product, not a provider. Requiring both would reject the call
   // the description invites.
@@ -135,11 +164,14 @@ export const connectionStatusAgentTool: AgentTool = {
       .describe(`One of: ${CONNECTION_PROVIDERS.join(', ')}. Optional when reason names one.`),
     reason: z.string().optional()
       .describe('What the connection is for: deploy, pull-requests, issues, confluence, jira, drive.'),
+    integration: z.string().optional()
+      .describe('An integration slug, the part before `__` in its tool names. When given, provider and reason are ignored.'),
   } as const,
   requiresApproval: false,
   execute: async (input, context) => {
     const args = connectionStatusArgsSchema.safeParse(input)
-    if (!args.success) return { ok: false, text: '`provider` and `reason` must be strings.' }
+    if (!args.success) return { ok: false, text: '`provider`, `reason`, and `integration` must be strings.' }
+    if (args.data.integration) return integrationStatus(args.data.integration, context.sessionId())
 
     const target = resolveTarget(args.data.provider, args.data.reason)
     if (!target) {

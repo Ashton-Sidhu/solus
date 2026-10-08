@@ -88,6 +88,24 @@ describe('host project list (project-model §2)', () => {
     expect(changes).toBe(0)
   })
 
+  test('the projects root is never a project, and an old row for it leaves the list', async () => {
+    // WHY: the root holds every project and chat the host makes. Listed, it is
+    // a "projects" row that scopes to nothing.
+    const root = join(dataDir, 'repos', 'projects-root')
+    mkdirSync(root, { recursive: true })
+    process.env.SOLUS_PROJECTS_ROOT = root
+    try {
+      await manifest.recordProject(root)
+      expect(await manifest.listProjects()).toEqual([])
+      expect(changes).toBe(0)
+
+      db.getDb().prepare('INSERT INTO projects (key, path, folder_name, added_at) VALUES (?, ?, ?, ?)').run('old-root', root, 'projects-root', 1)
+      expect(await manifest.listProjects()).toEqual([])
+    } finally {
+      delete process.env.SOLUS_PROJECTS_ROOT
+    }
+  })
+
   test('adding a listed project again moves it to the top', async () => {
     // WHY: an explicit add is a use; lists order by last use.
     const web = makeRepo('web')

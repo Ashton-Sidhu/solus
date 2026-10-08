@@ -9,6 +9,7 @@
 
 const HTML_ARGUMENT = /"html"\s*:\s*"/
 const CONTENT_ARGUMENT = /"content"\s*:\s*"/
+const PREVIEW_ARGUMENT = /"preview"\s*:\s*true/
 
 const ESCAPES = {
   n: '\n',
@@ -63,4 +64,10 @@ export function partialArtifactHtml(toolInput: string, field: 'html' | 'content'
  *  for the body means the first thing the reader sees is content. */
 export function artifactHasBody(html: string): boolean {
   return /<body[\s>]/i.test(html)
+}
+
+/** Whether the call so far asks for a preview: a check only the agent sees.
+ *  A quote inside the `html` argument is escaped, so markup cannot match. */
+export function isPreviewArtifactCall(toolInput: string): boolean {
+  return PREVIEW_ARGUMENT.test(toolInput)
 }

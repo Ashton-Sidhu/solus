@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount, untrack } from "svelte";
   import { Share as ShareIcon } from "@lucide/svelte";
   import type { ShareResource } from "@solus/contracts/sharing";
   import { accountStore, sharesStore } from "../../contexts";
@@ -23,9 +24,12 @@
   }
   let { serverId, resource, title, class: className = "" }: Props = $props();
 
+  onMount(() => accountStore.start());
   $effect(() => {
-    accountStore.start();
-    if (accountStore.isSignedIn && serverId && resource) void sharesStore.load(serverId, resource);
+    if (!accountStore.isSignedIn || !serverId || !resource) return;
+    const targetServerId = serverId;
+    const targetResource = { kind: resource.kind, id: resource.id };
+    untrack(() => { void sharesStore.load(targetServerId, targetResource); });
   });
 
   const list = $derived(serverId && resource ? sharesStore.listFor(serverId, resource) : undefined);

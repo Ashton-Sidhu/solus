@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { connectionsNav } from "./connections-nav.svelte";
   /** One host, in full. The onboarding rail is for arrival and asks one thing
    *  at a time; this is where a host set up last week can be looked at, and
@@ -23,11 +24,14 @@
   // Setup events belong to the host, so the page holds its subscription open
   // for as long as it is showing that host — and hands it back on the way out.
   $effect(() => {
-    const session = hostSetupStore.sessionFor(host.id);
-    session.retain();
-    void session.refreshReadiness();
-    void uplinkStore.refresh(host.id);
-    return () => session.release();
+    const serverId = host.id;
+    return untrack(() => {
+      const session = hostSetupStore.sessionFor(serverId);
+      session.retain();
+      void session.refreshReadiness();
+      void uplinkStore.refresh(serverId);
+      return () => session.release();
+    });
   });
 
   // What the host is, in its own terms: where it answers and what it runs.

@@ -2,7 +2,9 @@ import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Database } from 'bun:sqlite'
 import type { ConnectionConnectNeeded } from '@solus/contracts/connections'
+import type { Integration, IntegrationConnection, IntegrationConnectNeeded } from '@solus/contracts/integration-types'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
 /**
@@ -11,6 +13,9 @@ import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity
  * conversation that is waiting, and that Confluence and Jira both resolve to the
  * one Atlassian grant they actually share.
  */
+
+// The gateway's input requests open the session store, which Bun reads through its own SQLite.
+mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 // No connection is configured in a disposable data dir, which is the state
 // these cases are about.
@@ -166,3 +171,93 @@ describe('connection_status', () => {
     }
   })
 })
+
+describe('connection_status for an integration', () => {
+  /**
+   * An integration connection is per person (docs/plans/mcp-integrations.md §4.1):
+   * the tool reports the acting person's own, never another's, and asks the
+   * waiting conversation to sign in when they have none.
+   */
+  const integration: Integration = {
+    id: 'int-secure',
+    organizationId: 'local',
+    kind: 'mcp',
+    slug: 'secure',
+    name: 'Secure',
+    url: 'https://secure.example/mcp',
+    auth: { kind: 'oauth', discover: 'https://secure.example/.well-known/oauth-protected-resource', registration: 'dynamic' },
+    createdBy: null,
+    createdAt: '2026-10-08T00:00:00Z',
+    updatedAt: '2026-10-08T00:00:00Z',
+  }
+  const MEMBER = 'account:member-1'
+  const connections = new Map<string | null, IntegrationConnection>()
+  const cards: IntegrationConnectNeeded[] = []
+
+  beforeAll(async () => {
+    const { IntegrationGateway } = await import('@solus/server/integrations/gateway')
+    const { setIntegrationGateway } = await import('@solus/server/integrations/integration-tools')
+    const gateway = new IntegrationGateway({ get: (id) => (id === integration.id ? integration : null), list: () => [integration] })
+    gateway.useCredentials({
+      authorizationFor: async () => null,
+      markNeedsSignIn: () => {},
+      statusFor: (_integrationId, credentialUserId) => connections.get(credentialUserId) ?? null,
+    })
+    gateway.onConnectNeeded((request) => cards.push(request))
+    setIntegrationGateway(gateway)
+  })
+
+  afterAll(async () => {
+    const { setIntegrationGateway } = await import('@solus/server/integrations/integration-tools')
+    setIntegrationGateway(null)
+  })
+
+  const memberScope = async () => {
+    const { withActingScope } = await import('@solus/server/vault/acting-scope')
+    const { HOST_IDENTITY } = await import('@solus/server/execution/seats/acting-identity')
+    return <T>(fn: () => T) => withActingScope({ identity: HOST_IDENTITY, credentialUserId: MEMBER }, fn)
+  }
+
+  test('a member with no connection is asked to sign in, even when the owner is connected', async () => {
+    connections.clear()
+    cards.length = 0
+    connections.set(null, connection('connected', 'owner@example.com'))
+    const asMember = await memberScope()
+    const result = await asMember(() => runTool(tools.connectionStatusAgentTool, { integration: 'secure' }, contextFor('session-i')))
+    const payload = JSON.parse(result.text) as { status: string, askedUser: boolean, label?: string }
+    // WHY: the owner's connection must not answer for the member, nor leak its label.
+    expect(payload.status).toBe('not-connected')
+    expect(payload.askedUser).toBe(true)
+    expect(result.text).not.toContain('owner@example.com')
+    expect(cards).toEqual([{ integrationId: integration.id, integrationName: 'Secure', sessionId: 'session-i' }])
+  })
+
+  test('a connected person sees their own label and no card goes up', async () => {
+    connections.clear()
+    cards.length = 0
+    connections.set(MEMBER, connection('connected', 'member@example.com'))
+    const asMember = await memberScope()
+    const result = await asMember(() => runTool(tools.connectionStatusAgentTool, { integration: 'secure' }, contextFor('session-i')))
+    expect(JSON.parse(result.text)).toEqual({ integration: 'secure', name: 'Secure', status: 'connected', label: 'member@example.com' })
+    expect(cards).toEqual([])
+  })
+
+  test('a refused sign-in reads as needs-sign-in and asks again', async () => {
+    connections.clear()
+    cards.length = 0
+    connections.set(null, connection('needs-sign-in', 'owner@example.com'))
+    const result = await runTool(tools.connectionStatusAgentTool, { integration: 'secure' }, contextFor('session-j'))
+    expect((JSON.parse(result.text) as { status: string }).status).toBe('needs-sign-in')
+    expect(cards.map((card) => card.sessionId)).toEqual(['session-j'])
+  })
+
+  test('an unknown slug is refused', async () => {
+    const result = await runTool(tools.connectionStatusAgentTool, { integration: 'nope' }, contextFor('session-k'))
+    expect(result.ok).toBe(false)
+    expect(result.text).toContain('nope')
+  })
+})
+
+function connection(status: IntegrationConnection['status'], label: string): IntegrationConnection {
+  return { integrationId: 'int-secure', status, label, info: null, error: null, updatedAt: '2026-10-08T00:00:00Z' }
+}

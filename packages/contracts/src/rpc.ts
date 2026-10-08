@@ -300,6 +300,11 @@ export const RPC_INVOKE_METHODS = [
   'integrationUpdate',
   'integrationRemove',
   'integrationTools',
+  'integrationConnectionList',
+  'integrationConnectStart',
+  'integrationConnectSubmit',
+  'integrationConnectCancel',
+  'integrationDisconnect',
   // Agent profile: a member's own instructions and skills, copied into their seats
   'agentProfileRead',
   'agentProfileApply',
@@ -536,6 +541,7 @@ export const RPC_INVOKE_METHODS = [
   'automationRun',
   'automationCancel',
   'automationListRuns',
+  'automationRecentRuns',
   'automationReadRun',
 
 

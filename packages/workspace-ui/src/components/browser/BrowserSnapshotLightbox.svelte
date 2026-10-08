@@ -25,7 +25,7 @@
     snapshotTitle,
     snapshotWidth,
   } from "./lib/snapshot-card";
-  import { galleryAspect, isFrameNear, isStripFrameNear } from "./lib/snapshot-gallery";
+  import { galleryAspect, isFrameNear } from "./lib/snapshot-gallery";
 
   /**
    * The pass as a reel, open at one frame.
@@ -383,12 +383,12 @@
           onclick={() => pickFrame(index)}
         >
           <div class="h-full w-full [&_img]:h-full [&_img]:w-full [&_img]:object-cover [&_img]:object-top">
-            {#if isStripFrameNear(index, selected, snapshots.length)}
-              <MarkdownImage
-                href={`asset://${frame.assetId}`}
-                text={snapshotTitle(frame)}
-              />
-            {/if}
+            <!-- The row behind the reel already shows every frame, so the
+                 strip's thumbnails are the same assets and cost nothing new. -->
+            <MarkdownImage
+              href={`asset://${frame.assetId}`}
+              text={snapshotTitle(frame)}
+            />
           </div>
         </button>
       {/each}

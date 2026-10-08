@@ -22,21 +22,14 @@ export interface SnapshotFacts {
   size: string
   deviceKind: SnapshotDeviceKind
   /**
-   * The shape the card takes, width and height together.
-   *
-   * The card is sized *by* this rather than merely reserving it: a fixed-width
-   * card holding a capture of another shape is all empty ground, which is the
-   * one thing a card whose whole job is showing a picture cannot afford. The
-   * image is also fetched from the asset store after the card is on screen, so
-   * holding the shape from the first frame is what stops a capture landing
-   * mid-turn from shoving the transcript under the reader.
+   * The capture's shape, width over height, clamped. The fallback when a frame
+   * has no readable size of its own.
    */
   aspectRatio: string
 }
 
-/** The shapes a card will take. Past either end what is extreme is the page —
- *  a full-page capture scrolled for a minute, or a panorama — not the device,
- *  and a card shaped like that is a card nobody can read the caption of. */
+/** The shapes a frame will take. Past either end what is extreme is the page —
+ *  a full-page capture scrolled for a minute, or a panorama — not the device. */
 const NARROWEST_CARD = 0.5
 const WIDEST_CARD = 3
 
@@ -72,20 +65,6 @@ export function snapshotFacts(snapshot: BrowserSnapshotRef): SnapshotFacts {
     deviceKind: deviceKindFor(width),
     aspectRatio: `${Math.min(Math.max(width / height, NARROWEST_CARD), WIDEST_CARD)}`,
   }
-}
-
-/**
- * The line beside the card's title.
- *
- * The image says what the page looked like; this says what it *was* — the device
- * it was taken as, and how much of it the agent could actually reach. Neither is
- * legible from the pixels. Where it came from is stated once, in the stamp on
- * the frame, rather than twice on one card.
- */
-export function snapshotCaption(snapshot: BrowserSnapshotRef): string {
-  const facts = snapshotFacts(snapshot)
-  const elements = `${snapshot.elementCount} element${snapshot.elementCount === 1 ? '' : 's'}`
-  return [facts.device, elements].filter(Boolean).join(' · ')
 }
 
 /**

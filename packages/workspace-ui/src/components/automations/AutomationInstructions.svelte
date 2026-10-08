@@ -152,6 +152,20 @@
     color: var(--foreground);
   }
 
+  /* Links read as body text with an underline, as in the transcript. A bare URL
+     breaks anywhere so it never pushes the column wider. */
+  .automation-prose :global(a) {
+    color: inherit;
+    overflow-wrap: anywhere;
+    text-decoration: underline;
+    text-decoration-thickness: 0.0625rem;
+    text-decoration-color: color-mix(in oklch, var(--foreground) 28%, transparent);
+    text-underline-offset: 0.1875rem;
+    transition: text-decoration-color 120ms ease;
+  }
+  .automation-prose :global(a:hover) {
+    text-decoration-color: var(--primary);
+  }
   .automation-prose :global(h1),
   .automation-prose :global(h2),
   .automation-prose :global(h3),

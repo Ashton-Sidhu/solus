@@ -229,7 +229,8 @@ export async function completeGoogleOAuthCallback(params: URLSearchParams): Prom
   }
 }
 
-function callbackPage(status: 200 | 400 | 500, title: string, message: string): GoogleOAuthCallbackResult {
+/** The page a browser lands on after an OAuth callback; shared with integration sign-in. */
+export function callbackPage(status: 200 | 400 | 500, title: string, message: string): GoogleOAuthCallbackResult {
   return {
     status,
     html: `<!doctype html>

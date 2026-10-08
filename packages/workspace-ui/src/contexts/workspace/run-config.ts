@@ -1,5 +1,5 @@
 import type { AgentId, GitCheckout, ModelConfig, PendingHostDispatch, ReasoningEffort, RunConfig, WorktreeEntry } from '@solus/contracts/types'
-import { MODEL_PROFILES, PERMISSION_MODES, worktreeProjectRoot } from '@solus/contracts/types'
+import { MODEL_PROFILES, PERMISSION_MODES, isLegacyModel, worktreeProjectRoot } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import type { ModelOptionsByProvider } from '@solus/contracts/settings'
@@ -143,7 +143,8 @@ function modelDefaultEffort(run: RunConfig): RunConfig['modelConfig']['reasoning
 }
 
 /**
- * The model after the run's current one in its provider's list, wrapping around
+ * The model after the run's current one in picker order: current models, then
+ * legacy models, preserving provider order within each group and wrapping around
  * — what "cycle model" lands on. Null when the provider offers no models. Reads
  * the run, so a draft and a started session answer it the same way.
  */
@@ -151,11 +152,15 @@ export function cycledModelId(
   run: RunConfig,
   models: readonly { id: string }[],
   defaultModelId: string | null,
+  provider: AgentId | null = run.provider,
 ): string | null {
   if (models.length === 0) return null
-  const current = run.modelConfig.modelId || defaultModelId || models[0].id
-  const idx = models.findIndex((model) => model.id === current)
-  return models[((idx === -1 ? 0 : idx) + 1) % models.length].id
+  const orderedModels = [...models].sort((a, b) =>
+    Number(isLegacyModel(provider, a.id)) - Number(isLegacyModel(provider, b.id)),
+  )
+  const current = run.modelConfig.modelId || defaultModelId || orderedModels[0].id
+  const idx = orderedModels.findIndex((model) => model.id === current)
+  return orderedModels[((idx === -1 ? 0 : idx) + 1) % orderedModels.length].id
 }
 
 /**

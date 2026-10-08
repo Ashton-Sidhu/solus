@@ -222,7 +222,15 @@ is kept on the message that comes after it:
 Everything between two prose blocks is one activity row: the tool calls and
 the thoughts around them. An empty assistant message does not close the row.
 Only prose, a card (a question, a sub-agent, an agent conversation, a document,
-a snapshot, and the other result cards), or a notice closes it.
+and the other result cards), browser snapshots, or a notice closes it.
+
+Browser snapshots are not cards. They render inline as the pictures
+themselves, so the reader can read a capture without opening it. The frame
+takes the whole column at the capture's own shape, up to 36rem tall. Several
+captures show one frame at that size, with thumbnails under it; the arrows,
+← →, or a thumbnail change the frame. One line under the pictures carries the
+count, address, console errors, time, and Annotate and Open
+(`BrowserSnapshots.svelte`).
 
 An open thought scrolls inside a box of limited height. Its markdown renders
 only while it is open. Its open state belongs to the conversation, so it stays

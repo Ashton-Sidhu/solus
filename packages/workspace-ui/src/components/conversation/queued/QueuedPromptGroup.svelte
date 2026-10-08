@@ -25,7 +25,13 @@
   const sess = $derived(session.sessionFor(tabId));
   const prompts = $derived(sess?.outboundPrompts ?? []);
   const queued = $derived(prompts.filter((prompt) => !!prompt.queueId));
-  $effect(() => { const source = tabId; untrack(() => { void session.queue.refresh(source).catch(reportError); }); });
+  const queueSessionId = $derived(sess?.id);
+  const queueServerId = $derived(sess?.run.serverId);
+  $effect(() => {
+    const source = tabId;
+    if (!queueSessionId || !queueServerId) return;
+    untrack(() => { void session.queue.ensure(source).catch(reportError); });
+  });
   const isRateLimited = $derived(sess?.status === "rate_limited");
   // The held prompt carries the window it was queued against, which survives a
   // reconnect that drops rateLimitInfo.

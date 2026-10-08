@@ -180,13 +180,16 @@ describe('SessionEnvironmentStore refs', () => {
 })
 
 describe('SessionEnvironmentStore detail watches', () => {
-  test('shares one initial detail refresh for every consumer of a checkout', async () => {
+  test('shares fresh details across consumers and re-reads after an idle cache expires', async () => {
     // WHY: reactive component re-entry and multiple mounted surfaces can watch
-    // the same checkout. Only the 0 -> 1 watcher transition may start host work.
+    // the same checkout. They share fresh results; a later reader must still
+    // refresh after the cache expires while no host watcher owns the checkout.
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
       <T>(value: T) => value,
       { snapshot: <T>(value: T) => value },
     )
+    let now = Date.now()
+    spyOn(Date, 'now').mockImplementation(() => now)
     let calls = 0
     const api = {
       gitRefreshState: async () => {
@@ -212,6 +215,11 @@ describe('SessionEnvironmentStore detail watches', () => {
 
     stopSecond()
     stopThird()
+    const stopWhileFresh = store.watchDetails('host-a', '/repo')
+    await Bun.sleep(0)
+    expect(calls).toBe(1)
+    stopWhileFresh()
+    now += 2_001
     const stopAfterIdle = store.watchDetails('host-a', '/repo')
     await Bun.sleep(0)
     expect(calls).toBe(2)

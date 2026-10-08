@@ -24,6 +24,10 @@ const PULL_REQUEST_LINKING_INSTRUCTIONS = `## Pull request linking
 
 Use the Solus link tool to register every pull request that you create or work on in this session. Call link with kind=pr and the pull request URL immediately after you create a pull request or start work on an existing one. For a stack, link every layer, not only the current branch. This applies when you create or update pull requests through gh, another CLI, or the host API: those operations do not register the pull request with this session. Linking an already-linked pull request is safe. Do not link pull requests that you mention only as background. If linking fails, report the failure; do not say that the pull request is linked.`
 
+/** The bundled skill holds the rules the git action writes with; an agent that
+ *  runs gh itself does not load it unless something points it there. */
+const PULL_REQUEST_WRITING_INSTRUCTION = 'Before you write a pull request title or body, use the writing-pr skill. It holds the same rules as the Solus pull request button.'
+
 const PULL_REQUEST_CHECK_INSTRUCTION = 'Before you finish pull request work, call list_session_pull_requests and link each pull request from your work that is missing.'
 
 /** Tool descriptions load behind tool search, so the rule that saves a turn
@@ -87,9 +91,12 @@ You can embed images and videos in your response with Markdown and absolute file
     ].filter(Boolean).join('\n\n'),
     has('move_to_worktree') && !isChat(runtime.workingDirectory) && WORKTREE_INSTRUCTION,
     has('browser_status') && SOLUS_BROWSER_TOOL_INSTRUCTIONS,
-    has('link') && (has('list_session_pull_requests')
-      ? `${PULL_REQUEST_LINKING_INSTRUCTIONS} ${PULL_REQUEST_CHECK_INSTRUCTION}`
-      : PULL_REQUEST_LINKING_INSTRUCTIONS),
+    has('link') && [
+      has('list_session_pull_requests')
+        ? `${PULL_REQUEST_LINKING_INSTRUCTIONS} ${PULL_REQUEST_CHECK_INSTRUCTION}`
+        : PULL_REQUEST_LINKING_INSTRUCTIONS,
+      PULL_REQUEST_WRITING_INSTRUCTION,
+    ].join('\n\n'),
     has('watch_pull_request') && PULL_REQUEST_WATCH_INSTRUCTIONS,
   ].filter(Boolean).join('\n\n')
 }

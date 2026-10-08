@@ -122,6 +122,7 @@ export function singleHostServerConnections() {
     withTemporaryConnection: async <T>(_serverId: string, operation: (value: HostApi) => Promise<T>) => operation(api()),
     connectedServerIds: () => apis.size > 0 ? [...apis.keys()] : [primaryServerId],
     connectionFor: (serverId?: string) => connection(serverId),
+    httpOriginFor: (serverId: string) => new URL(connection(serverId).target.url).origin,
     updateStatus: () => {},
     onStatusChange: (listener: (
       serverId: string,

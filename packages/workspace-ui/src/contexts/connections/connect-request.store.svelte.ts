@@ -9,13 +9,26 @@ import type { ConnectionProvider, ConnectionReason } from '@solus/contracts/conn
  * for which conversation, and about which account. No token passes through it.
  */
 
-export interface ConnectRequest {
+/** An account Solus knows by name: GitHub, Atlassian, Cloudflare, Google. */
+export interface AccountConnectRequest {
+  kind: 'account'
   accountConnectionsUrl?: string
   serverId: string
   sessionId: string
   provider: ConnectionProvider
   reason: ConnectionReason
 }
+
+/** The caller's own sign-in to an integration (docs/plans/mcp-integrations.md §4.1 rule 2). */
+export interface IntegrationConnectRequest {
+  kind: 'integration'
+  serverId: string
+  sessionId: string
+  integrationId: string
+  integrationName: string
+}
+
+export type ConnectRequest = AccountConnectRequest | IntegrationConnectRequest
 
 export class ConnectRequestStore {
   /** One at a time. A second request replaces the first: two cards stacked at
@@ -38,8 +51,9 @@ export class ConnectRequestStore {
    * than by the card.
    */
   listen(): () => void {
-    return subscribeAllHosts('connection.connectNeeded', (serverId, event) => {
+    const stopAccounts = subscribeAllHosts('connection.connectNeeded', (serverId, event) => {
       this.request = {
+        kind: 'account',
         serverId,
         accountConnectionsUrl: event.accountConnectionsUrl,
         sessionId: event.sessionId,
@@ -47,6 +61,19 @@ export class ConnectRequestStore {
         reason: event.reason,
       }
     })
+    const stopIntegrations = subscribeAllHosts('integration.connectNeeded', (serverId, event) => {
+      this.request = {
+        kind: 'integration',
+        serverId,
+        sessionId: event.sessionId,
+        integrationId: event.integrationId,
+        integrationName: event.integrationName,
+      }
+    })
+    return () => {
+      stopAccounts()
+      stopIntegrations()
+    }
   }
 }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
   import PresenceStack from "../presence/PresenceStack.svelte";
   import type { PresencePerson } from "../presence/lib/presence-people";
@@ -15,7 +16,8 @@
   let { serverId, workId }: Props = $props();
 
   $effect(() => {
-    if (serverId) void presenceStore.ensure(serverId);
+    const hostId = serverId;
+    if (hostId) untrack(() => { void presenceStore.ensure(hostId); });
   });
 
   const people = $derived(serverId ? presenceStore.peopleFocusedOn(serverId, { kind: "work", workId }) : []);

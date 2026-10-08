@@ -23,6 +23,10 @@ export const integrationAuthSchema = z.discriminatedUnion('kind', [
     /** The metadata address the server's challenge names. */
     discover: z.string().min(1),
     registration: z.enum(['dynamic', 'metadata-document', 'client-required']),
+    /** A saved public client ID for a `client-required` server. The secret stays on the host. */
+    clientId: z.string().min(1).optional(),
+    /** True when the administrator also saved a client secret. The secret itself never leaves the host. */
+    hasClientSecret: z.boolean().optional(),
   }),
   z.object({
     kind: z.literal('bearer'),
@@ -145,10 +149,22 @@ export const integrationCreateRequestSchema = z.object({
 }).strict()
 export type IntegrationCreateRequest = z.infer<typeof integrationCreateRequestSchema>
 
+/**
+ * An administrator's OAuth client for a server with no dynamic registration
+ * (§4.3). The host stores the secret; the client sends it once and never reads it back.
+ */
+export const integrationOAuthClientInputSchema = z.object({
+  clientId: z.string().trim().min(1).max(512),
+  clientSecret: z.string().max(4096).optional(),
+}).strict()
+export type IntegrationOAuthClientInput = z.infer<typeof integrationOAuthClientInputSchema>
+
+/** `oauthClient`: an object saves the administrator's client; `null` removes it. */
 export const integrationUpdateRequestSchema = z.object({
   id: z.string().min(1),
   name: integrationNameSchema.optional(),
   url: integrationUrlSchema.optional(),
+  oauthClient: z.union([integrationOAuthClientInputSchema, z.null()]).optional(),
 }).strict()
 export type IntegrationUpdateRequest = z.infer<typeof integrationUpdateRequestSchema>
 
@@ -157,14 +173,113 @@ export type IntegrationIdRequest = z.infer<typeof integrationIdRequestSchema>
 
 export const integrationCatalogListRequestSchema = z.object({
   query: z.string().trim().max(200).optional(),
+  /** The first entry of the page, in popularity order. */
+  offset: z.number().int().min(0).optional(),
   limit: z.number().int().min(1).max(500).optional(),
 }).strict()
 export type IntegrationCatalogListRequest = z.infer<typeof integrationCatalogListRequestSchema>
+
+/** One page of the catalog. `total` counts every entry that matches the query. */
+export interface CatalogPage {
+  entries: CatalogEntry[]
+  total: number
+}
 
 /** An integration or its tool list changed; read it again by id. */
 export interface IntegrationChangedEvent {
   integrationId: string
   change: 'created' | 'updated' | 'removed' | 'tools'
+}
+
+/**
+ * Per-person sign-in (§4). `needs-sign-in`: a refresh failed or the server
+ * answered 401; the person signs in again.
+ */
+export const integrationConnectionStatusSchema = z.enum(['connected', 'needs-sign-in', 'error'])
+export type IntegrationConnectionStatus = z.infer<typeof integrationConnectionStatusSchema>
+
+/**
+ * The caller's own connection to one integration. It never carries the token:
+ * the token stays in the host secret store (§4.1 rule 3).
+ */
+export const integrationConnectionSchema = z.object({
+  integrationId: z.string().min(1),
+  status: integrationConnectionStatusSchema,
+  label: z.string().nullable(),
+  /** The account the server reported at `initialize`, when it reported one. */
+  info: z.object({
+    displayName: z.string().optional(),
+    email: z.string().optional(),
+    avatarUrl: z.string().optional(),
+  }).nullable(),
+  error: z.string().nullable(),
+  updatedAt: z.string(),
+})
+export type IntegrationConnection = z.infer<typeof integrationConnectionSchema>
+
+/**
+ * `waiting`: the host waits for the browser (§4.3). `callback` finishes on the
+ * host's `/oauth/integration/callback`; `redirect-url` asks for the address the
+ * browser ends on, for a browser that cannot reach the host. The end arrives as
+ * `host.integrationAuthFinished`.
+ * `token`: the integration takes a key; the card collects it and calls
+ * `integrationConnectSubmit` with `id`.
+ * `connected`: nothing to do in the browser (client credentials, or already connected).
+ */
+export const integrationConnectStartResultSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('waiting'),
+    flowId: z.string().min(1),
+    url: z.string().min(1),
+    input: z.enum(['callback', 'redirect-url']),
+    expiresAt: z.string(),
+  }),
+  z.object({ kind: z.literal('token'), integrationId: z.string().min(1) }),
+  z.object({ kind: z.literal('connected'), connection: integrationConnectionSchema }),
+])
+export type IntegrationConnectStartResult = z.infer<typeof integrationConnectStartResultSchema>
+
+/** `callbackBaseUrl` is the origin the client reached the host on, as `googleConnect` takes it. */
+export const integrationConnectStartRequestSchema = z.object({
+  id: z.string().min(1),
+  callbackBaseUrl: z.string().min(1).max(4096).optional(),
+}).strict()
+export type IntegrationConnectStartRequest = z.infer<typeof integrationConnectStartRequestSchema>
+
+/**
+ * Exactly one target: `flowId` with the address an OAuth flow's browser ended on,
+ * or `id` with an API key for a `bearer` integration.
+ */
+export const integrationConnectSubmitRequestSchema = z.object({
+  flowId: z.string().min(1).optional(),
+  id: z.string().min(1).optional(),
+  value: z.string().trim().min(1).max(8192),
+}).strict().refine((request) => (request.flowId === undefined) !== (request.id === undefined), 'Give a flowId or an integration id, not both')
+export type IntegrationConnectSubmitRequest = z.infer<typeof integrationConnectSubmitRequestSchema>
+
+export const integrationConnectCancelRequestSchema = z.object({ flowId: z.string().min(1) }).strict()
+export type IntegrationConnectCancelRequest = z.infer<typeof integrationConnectCancelRequestSchema>
+
+/** The caller's connection changed. `connection` is null after a disconnect. Delivered to that person's clients only. */
+export interface IntegrationConnectionChangedEvent {
+  integrationId: string
+  connection: IntegrationConnection | null
+}
+
+/** A `waiting` sign-in ended. Delivered to the clients of the person who started it. */
+export interface IntegrationAuthFinishedEvent {
+  flowId: string
+  integrationId: string
+  outcome: 'connected' | 'failed' | 'cancelled'
+  message?: string
+}
+
+/** An integration tool returned `CONNECTION_REQUIRED` (§4.1 rule 2); the card offers Connect. */
+export interface IntegrationConnectNeeded {
+  integrationId: string
+  integrationName: string
+  /** The Solus session whose turn is waiting on the connection. */
+  sessionId: string
 }
 
 const SLUG_MAX_LENGTH = 40

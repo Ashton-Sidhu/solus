@@ -3434,8 +3434,9 @@ button.solus-token {
 .prose-transcript-user a:visited {
   color: inherit;
 }
-.prose-transcript .solus-link__favicon,
-.prose-transcript-user .solus-link__favicon {
+/* Every surface that renders MarkdownLink gets its favicon in the line, not
+   only the transcript: preflight would otherwise make it a block. */
+.solus-link__favicon {
   display: inline-block;
   width: 0.75rem;
   height: 0.75rem;
@@ -3445,8 +3446,7 @@ button.solus-token {
   vertical-align: -0.09375rem;
   outline: 0.0625rem solid rgba(0, 0, 0, 0.1);
 }
-.dark .prose-transcript .solus-link__favicon,
-.dark .prose-transcript-user .solus-link__favicon {
+.dark .solus-link__favicon {
   outline-color: rgba(255, 255, 255, 0.1);
 }
 /* ─── Interrupt-card prose (§11 — the model writes the question) ───

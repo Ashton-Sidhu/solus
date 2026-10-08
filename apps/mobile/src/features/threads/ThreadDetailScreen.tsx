@@ -56,6 +56,7 @@ import { latestTurnAgentIds, useAgentPresentations } from "./ThreadAgents";
 import { agentsPillLabel } from "./agent-card-presentation";
 import { useListened } from "../../app/app-context";
 import { AgentAuthSheet } from "../conversation/components/AgentAuthSheet";
+import { IntegrationConnectSheet } from "../conversation/components/IntegrationConnectSheet";
 
 export interface ThreadDetailScreenProps {
   readonly store: ConversationStore;
@@ -593,6 +594,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
         }}
       />
       <AgentAuthSheet store={store} onClose={() => composerEditorRef.current?.focus()} />
+      <IntegrationConnectSheet store={store} onClose={() => composerEditorRef.current?.focus()} />
     </View>
   );
 });

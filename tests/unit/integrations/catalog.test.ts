@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { CATALOG_UNAVAILABLE_MESSAGE, IntegrationCatalog } from '@solus/server/integrations/catalog'
+import { CATALOG_UNAVAILABLE_MESSAGE, IntegrationCatalog, applyMcpUrlDefaults, catalogEntryName } from '@solus/server/integrations/catalog'
 
 // docs/plans/mcp-integrations.md §3.1: the catalog is the integrations.sh feed,
 // read on request; the last good copy covers a failed fetch.
@@ -35,7 +35,7 @@ describe('integration catalog', () => {
   test('lists MCP entries with a URL, by popularity then name, and ignores unknown fields', async () => {
     // WHY: OpenAPI entries and entries without a server cannot be added in phase 1.
     const catalog = new IntegrationCatalog({ fetch: fakeFetch([ok]).fetch })
-    const entries = await catalog.list()
+    const { entries } = await catalog.list()
     expect(entries.map((entry) => entry.id)).toEqual(['linear', 'deepwiki', 'cloudflare', 'posthog'])
     expect(entries[0]).toEqual({ id: 'linear', kind: 'mcp', slug: 'linear', name: 'Linear', description: 'Issues', domain: 'linear.app', icon: 'https://linear.app/icon.png', categories: [], popularity: 90, url: 'https://mcp.linear.app/mcp' })
     expect(entries.find((entry) => entry.id === 'posthog')?.popularity).toBeNull()
@@ -43,18 +43,34 @@ describe('integration catalog', () => {
 
   test('applies the product URL defaults unless the URL already names the option', async () => {
     // WHY: PostHog and Cloudflare otherwise hide their tools behind one wrapper tool.
-    const entries = await new IntegrationCatalog({ fetch: fakeFetch([ok]).fetch }).list()
+    const { entries } = await new IntegrationCatalog({ fetch: fakeFetch([ok]).fetch }).list()
     expect(entries.find((entry) => entry.id === 'posthog')?.url).toBe('https://mcp.posthog.com/mcp?mode=tools')
     expect(entries.find((entry) => entry.id === 'cloudflare')?.url).toBe('https://mcp.cloudflare.com/mcp?codemode=true')
   })
 
+  test('every Cloudflare server gets the code-mode switch, and agent suffixes leave names', () => {
+    expect(applyMcpUrlDefaults('https://bindings.mcp.cloudflare.com/mcp')).toBe('https://bindings.mcp.cloudflare.com/mcp?codemode=false')
+    expect(applyMcpUrlDefaults('https://mcp.notcloudflare.com/mcp')).toBe('https://mcp.notcloudflare.com/mcp')
+    expect(catalogEntryName('Zoom for Claude')).toBe('Zoom')
+    expect(catalogEntryName('Asana for ChatGPT')).toBe('Asana')
+    expect(catalogEntryName('Claude Docs')).toBe('Claude Docs')
+  })
+
   test('a query matches name, domain, description, and categories without case; limit cuts the list', async () => {
     const catalog = new IntegrationCatalog({ fetch: fakeFetch([ok]).fetch })
-    expect((await catalog.list({ query: 'LINEAR' })).map((entry) => entry.id)).toEqual(['linear'])
-    expect((await catalog.list({ query: 'deepwiki.com' })).map((entry) => entry.id)).toEqual(['deepwiki'])
-    expect((await catalog.list({ query: 'any repository' })).map((entry) => entry.id)).toEqual(['deepwiki'])
-    expect((await catalog.list({ query: 'analytics' })).map((entry) => entry.id)).toEqual(['posthog'])
-    expect((await catalog.list({ limit: 2 })).map((entry) => entry.id)).toEqual(['linear', 'deepwiki'])
+    expect((await catalog.list({ query: 'LINEAR' })).entries.map((entry) => entry.id)).toEqual(['linear'])
+    expect((await catalog.list({ query: 'deepwiki.com' })).entries.map((entry) => entry.id)).toEqual(['deepwiki'])
+    expect((await catalog.list({ query: 'any repository' })).entries.map((entry) => entry.id)).toEqual(['deepwiki'])
+    expect((await catalog.list({ query: 'analytics' })).entries.map((entry) => entry.id)).toEqual(['posthog'])
+    expect((await catalog.list({ limit: 2 })).entries.map((entry) => entry.id)).toEqual(['linear', 'deepwiki'])
+  })
+
+  test('offset and limit cut one page, and total counts every match', async () => {
+    // WHY: the MCP page pages through more than a thousand entries; it shows "page of total".
+    const catalog = new IntegrationCatalog({ fetch: fakeFetch([ok]).fetch })
+    expect(await catalog.list({ offset: 2, limit: 2 })).toMatchObject({ total: 4, entries: [{ id: 'cloudflare' }, { id: 'posthog' }] })
+    expect(await catalog.list({ offset: 3, limit: 2 })).toMatchObject({ total: 4, entries: [{ id: 'posthog' }] })
+    expect(await catalog.list({ query: 'linear', offset: 1, limit: 2 })).toEqual({ total: 1, entries: [] })
   })
 
   test('a fresh copy is served without a fetch; a stale one is refetched and kept when the fetch fails', async () => {
@@ -67,7 +83,7 @@ describe('integration catalog', () => {
     await catalog.list()
     expect(feed.calls()).toBe(1)
     now = 5 * 60 * 60 * 1000
-    expect((await catalog.list()).length).toBe(4)
+    expect((await catalog.list()).total).toBe(4)
     expect(feed.calls()).toBe(2)
   })
 

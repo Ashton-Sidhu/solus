@@ -27,6 +27,8 @@ import type { QueueAttachment, SessionQueueMutation, SessionQueueSnapshot } from
 import { parseAgentAuthCommand } from '@solus/contracts/agent-auth'
 import { seatProviderSchema } from '@solus/contracts/seats'
 import { AgentAuthFlow } from './agent-auth-flow'
+import type { IntegrationConnectNeeded } from '@solus/contracts/integration-types'
+import { Listeners } from '../../lib/listeners'
 
 /**
  * One open conversation on one host (plan 017 stage 3). It owns the watch,
@@ -95,6 +97,9 @@ export class ConversationController {
   queue: SessionQueueSnapshot = { held: false, entries: [] }
   /** `/login`, `/design-login`, and `/mcp login|logout`, run here instead of by the agent. */
   readonly auth: AgentAuthFlow
+  /** An integration tool of this session's turn needs the person's connection (`integration.connectNeeded`). */
+  connectNeeded: IntegrationConnectNeeded | null = null
+  readonly connectNeededChanges = new Listeners()
   /** The host's agents, whether each is installed, and what each can do.
    *  Null until the host answers: unknown, not unavailable. */
   agents: readonly AgentMetadata[] | null = null
@@ -129,6 +134,12 @@ export class ConversationController {
     this.cleanups.push(connection.events.subscribe('session.eventReceived', (payload) => {
       if (payload.sessionId === this.run.sessionId) this.receive(payload.event)
     }))
+    // One at a time: a newer request replaces the one on screen, as on desktop and web.
+    this.cleanups.push(connection.events.subscribe('integration.connectNeeded', (payload) => {
+      if (payload.sessionId !== this.run.sessionId) return
+      this.connectNeeded = payload
+      this.connectNeededChanges.notify()
+    }))
     this.cleanups.push(connection.events.subscribe('session.errorReceived', (payload) => {
       if (payload.sessionId !== this.run.sessionId) return
       this.model.addNotice(`Error: ${payload.error.message}`, 'error')
@@ -154,6 +165,11 @@ export class ConversationController {
     }))
     this.cleanups.push(connection.onReset(() => { void this.load() }))
     this.cleanups.push(connection.onAccepted(() => { void this.drainOutbox() }))
+  }
+
+  dismissConnectNeeded(): void {
+    this.connectNeeded = null
+    this.connectNeededChanges.notify()
   }
 
   get hostId(): string {

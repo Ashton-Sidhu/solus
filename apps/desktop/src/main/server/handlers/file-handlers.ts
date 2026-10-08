@@ -4,7 +4,7 @@ import { join, dirname } from 'path'
 import { existsSync, writeFileSync, readFileSync, statSync } from 'fs'
 import { appendFile, mkdir, stat } from 'fs/promises'
 import { tmpdir } from 'os'
-import { execFile, execFileSync } from 'child_process'
+import { execFile } from 'child_process'
 import type { AgentId, DetectedEditor, DetectedTerminal } from '@solus/contracts/types'
 import { AGENT_BIN } from '@solus/contracts/types'
 import { MAX_VOICE_WAV_BYTES } from '@solus/contracts/voice-audio'
@@ -16,7 +16,7 @@ import { launchInTerminal, resolveTerminal, terminalDisplayName } from '@solus/d
 import { findAppBundle } from '@solus/desktop-main/mac-apps'
 import { EDITOR_APPS, editorApp } from '@solus/desktop-main/editor-apps'
 import { TERMINAL_APPS } from '@solus/desktop-main/terminal-apps'
-import { hostCliEnv } from '@solus/server/cli-env'
+import { findOnPath, warmCliPath } from '@solus/server/cli-env'
 import { createLogger } from '@solus/server/logger'
 import { solusDir } from '@solus/server/platform/paths'
 import type { SolusServer } from '@solus/server/transport/server'
@@ -88,15 +88,6 @@ function runScreencapture(args: string[], timeout: number): Promise<void> {
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
-}
-
-/** The resolved path of a shell command, or null when it is not installed. */
-function whichBin(bin: string): string | null {
-  try {
-    return execFileSync('/usr/bin/which', [bin], { encoding: 'utf8', timeout: 2000, env: hostCliEnv() }).trim() || null
-  } catch {
-    return null
-  }
 }
 
 function buildAgentTerminalCommand(agentId: AgentId, agentBin: string, sessionId: string | null): string {
@@ -377,14 +368,17 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     return resolveTerminal(fallbackTerminalId ?? 'default-terminal')
   })
 
-  server.register('detectEditors', () => {
+  server.register('detectEditors', async () => {
     log.info('rpc_detect_editors')
+    // Join boot's PATH probe; a cold capability read must not start a blocking
+    // login shell probe of its own. One path serves every editor and terminal.
+    const cliPath = await warmCliPath()
 
     const editors: DetectedEditor[] = []
     for (const app of EDITOR_APPS) {
       // Either proof of installation counts. Most GUI editors ship their shell
       // command as an opt-in step, so requiring it hid apps the user has.
-      const binPath = whichBin(app.bin)
+      const binPath = findOnPath(app.bin, cliPath)
       const appPath = app.macAppBundle ? findAppBundle(app.macAppBundle) : null
       if (!binPath && !appPath) continue
       editors.push({ id: app.id, name: app.name, isTerminal: app.isTerminal, binPath })
@@ -404,7 +398,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
         }
         continue
       }
-      if (whichBin(app.linuxBin)) terminals.push({ id: app.id, name: app.name })
+      if (findOnPath(app.linuxBin, cliPath)) terminals.push({ id: app.id, name: app.name })
     }
 
     log.info('editors_detected', { editors: editors.map(e => e.id), terminals: terminals.map(t => t.id) })
@@ -426,8 +420,9 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
       const appPath = app.macAppBundle ? findAppBundle(app.macAppBundle) : null
       // `open -a` both launches and raises, so the bundle path needs no separate
       // activate step the way the shell command does.
-      const [bin, binArgs] = whichBin(app.bin)
-        ? [app.bin, [...(app.args ?? []), ...filePaths]]
+      const binPath = findOnPath(app.bin, await warmCliPath())
+      const [bin, binArgs] = binPath
+        ? [binPath, [...(app.args ?? []), ...filePaths]]
         : appPath
           ? ['open', ['-a', appPath, ...filePaths]]
           : [null, []]

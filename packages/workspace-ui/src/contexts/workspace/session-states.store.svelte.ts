@@ -18,6 +18,7 @@ export class SessionStatesStore {
   /** Settled and snoozed sessions by stable session id. */
   private entriesBySession = new SvelteMap<string, ShelvedSession>()
   private watchedServerIds = new Set<string>()
+  private readonly changes = new Map<string, Promise<void>>()
 
   /** Read every connected host's settled and snoozed sessions. A host that
    *  fails the read keeps what it answered last time. */
@@ -39,13 +40,18 @@ export class SessionStatesStore {
     if (this.watchedServerIds.has(serverId)) return
     this.watchedServerIds.add(serverId)
     serverConnections.eventsFor(serverId).subscribe('session.stateChanged', ({ sessionId }) => {
-      void this.refresh(serverId, sessionId)
+      const key = `${serverId}\0${sessionId}`
+      const read = this.refresh(serverId, sessionId).finally(() => {
+        if (this.changes.get(key) === read) this.changes.delete(key)
+      })
+      this.changes.set(key, read)
     })
   }
 
   private async refresh(serverId: string, sessionId: string): Promise<void> {
-    const answer = await serverConnections.apiFor(serverId).sessionShelfList([sessionId]).catch(() => null)
-    if (!answer) return
+    const api = serverConnections.apiFor(serverId)
+    const answer = await api.sessionShelfList([sessionId]).catch(() => null)
+    if (!answer || serverConnections.apiFor(serverId) !== api) return
     // The host answers under the stable id, which the caller may not hold.
     if (!answer.length) this.entriesBySession.delete(sessionId)
     for (const entry of answer) this.entriesBySession.set(entry.sessionId, { ...entry, serverId })
@@ -63,14 +69,16 @@ export class SessionStatesStore {
 
   /** Settle a session, or make a settled one active again. */
   async setSettled(serverId: string, sessionId: string, isSettled: boolean): Promise<void> {
+    this.watchHost(serverId)
     await serverConnections.apiFor(serverId).sessionSetSettled(sessionId, isSettled)
-    await this.refresh(serverId, sessionId)
+    await this.changes.get(`${serverId}\0${sessionId}`)
   }
 
   /** Snooze a session until a wake time; null wakes it now. */
   async snooze(serverId: string, sessionId: string, until: number | null, note = ''): Promise<void> {
+    this.watchHost(serverId)
     await serverConnections.apiFor(serverId).sessionSnooze(sessionId, until, note)
-    await this.refresh(serverId, sessionId)
+    await this.changes.get(`${serverId}\0${sessionId}`)
   }
 }
 

@@ -87,7 +87,7 @@
       ?? workspace.fallbackServerId;
     if (activeServerId !== targetServerId) return;
     const cwd = (workspace.activeSession?.run ?? workspace.defaultRunConfig).workingDirectory;
-    void workspace.lifecycle.refreshPluginCommands(cwd, activeTabId || undefined);
+    void workspace.lifecycle.refreshPluginCommands(cwd, activeTabId || undefined, { onlyIfStale: false });
   }
 
   async function install(skill: RemoteSkill) {

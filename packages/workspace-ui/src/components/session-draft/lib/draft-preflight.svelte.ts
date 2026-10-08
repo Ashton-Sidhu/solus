@@ -1,3 +1,4 @@
+import { untrack } from 'svelte'
 import type { PluginCommandsResult } from '@solus/contracts/types'
 import { getSettingsContext, getWorkspaceContext } from '../../../contexts'
 import { startsWorktree } from '../../../contexts/workspace/run-config'
@@ -26,7 +27,7 @@ export function useDraftPreflight(getDraft: () => SessionDraft | null | undefine
       theme.activeAgent,
       current.id,
       (workingDirectory, gitContext, sourceId) =>
-        session.ctxForEnvironment(workingDirectory, gitContext, sourceId),
+        untrack(() => session.ctxForEnvironment(workingDirectory, gitContext, sourceId)),
     )
     // Reading both values makes a picker change invalidate this request even
     // when two models belong to the same provider.
@@ -66,7 +67,9 @@ export function useDraftPreflight(getDraft: () => SessionDraft | null | undefine
     const current = getDraft()
     const cwd = current?.run.workingDirectory
     if (!current || current.run.gitContext || !cwd || cwd === '~') return
-    void session.refreshStartTarget(current.id, cwd, startsWorktree(current.run))
+    const sourceId = current.id
+    const worktreeRequested = startsWorktree(current.run)
+    untrack(() => { void session.refreshStartTarget(sourceId, cwd, worktreeRequested) })
   })
 
   return {

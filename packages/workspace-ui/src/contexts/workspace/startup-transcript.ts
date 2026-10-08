@@ -37,7 +37,7 @@ export function prefetchStartupTranscript(): Promise<void> | undefined {
     startupTabId = tab.tabId
     performance.mark('solus.boot.transcript.requested')
     const result = prefetchSessionHistoryPage(api, {
-      sessionId: tab.agentSessionId,
+      sessionId: tab.sessionId || tab.agentSessionId,
       projectPath: tab.gitContext?.worktreePath || tab.workingDirectory,
       provider: tab.provider,
       turnLimit: INITIAL_HISTORY_TURNS,

@@ -1,4 +1,5 @@
-import type { OutboundPrompt, Attachment } from '@solus/contracts/types'
+import type { HostApi } from '@solus/client-core/host-api'
+import type { OutboundPrompt, Attachment, Session } from '@solus/contracts/types'
 import type { QueueAttachment, SessionQueueMutation } from '@solus/contracts/session-queue'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { reconcileQueuedPromptsForSession } from './session-transcript'
@@ -11,16 +12,34 @@ type QueueWorkspace = Pick<WorkspaceContext, 'apiFor' | 'ctxFor' | 'sessionFor'>
 /** Queue commands share the session's authoritative projection. Refreshes must
  * not replace a newer live event, and mutation replies never replay old state. */
 export class SessionQueueController {
+  private readonly reads = new WeakMap<Session, { api: HostApi; promise: Promise<void> }>()
+
   constructor(private readonly workspace: QueueWorkspace) {}
+
+  /** Mounted views share the session read; reconnects and commands refresh it. */
+  async ensure(tabId: string): Promise<void> {
+    const session = this.workspace.sessionFor(tabId)
+    if (!session) return
+    const read = this.reads.get(session)
+    return read?.api === this.workspace.apiFor(tabId) ? read.promise : this.refresh(tabId)
+  }
 
   async refresh(tabId: string): Promise<void> {
     const session = this.workspace.sessionFor(tabId)
     if (!session) return
     const version = session.queueVersion ?? 0
-    const snapshot = await this.workspace.apiFor(tabId).sessionQueue(this.workspace.ctxFor(tabId))
-    if (session !== this.workspace.sessionFor(tabId) || version !== (session.queueVersion ?? 0)) return
-    session.queueHeld = snapshot.held
-    reconcileQueuedPromptsForSession(session, snapshot.entries)
+    const api = this.workspace.apiFor(tabId)
+    const ctx = this.workspace.ctxFor(tabId)
+    const promise = Promise.resolve().then(() => api.sessionQueue(ctx)).then((snapshot) => {
+      if (this.reads.get(session)?.promise !== promise || api !== this.workspace.apiFor(tabId) || session !== this.workspace.sessionFor(tabId) || version !== (session.queueVersion ?? 0)) return
+      session.queueHeld = snapshot.held
+      reconcileQueuedPromptsForSession(session, snapshot.entries)
+    }).catch((error: Error) => {
+      if (this.reads.get(session)?.promise === promise) this.reads.delete(session)
+      throw error
+    })
+    this.reads.set(session, { api, promise })
+    await promise
   }
 
   async change(tabId: string, mutation: SessionQueueMutation): Promise<void> {

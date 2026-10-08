@@ -129,6 +129,7 @@ const artifactInputSchema = z.object({
   html_path: z.string().optional(),
   title: z.string().optional().catch(undefined),
   path: z.string().optional(),
+  preview: z.boolean().optional().catch(undefined),
 })
 
 const imageInputSchema = z.object({ path: z.string().optional() })
@@ -432,6 +433,8 @@ export function materializeSessionTranscript(
       if (result.status === 'error' || m.toolStatus === 'error' || m.toolStatus === 'running') continue
       try {
         const input = artifactInputSchema.parse(JSON.parse(m.toolInput || '{}'))
+        // A preview is the agent's own check: it showed nothing live, so it replays as no card.
+        if (input.preview) continue
         const kind = input.kind === 'image' ? 'image' : 'html'
         // A call that named an html_path holds no HTML: it shows the revision it wrote, or no card.
         const html = input.html_path ? artifactFileBodies?.get(m.toolId ?? '') : input.html

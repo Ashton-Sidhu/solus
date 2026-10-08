@@ -16,7 +16,8 @@
   /**
    * An `artifact` render in a conversation, a task, or a pane: the sandboxed
    * frame plus everything that belongs to the artifact rather than to the
-   * frame — image artifacts, the error and retry states, and the work rail.
+   * frame — image artifacts, the error and retry states, and the work rail
+   * above the frame.
    */
   interface Artifact {
     kind: "html" | "image";
@@ -31,8 +32,8 @@
      *  their file through it; an HTML artifact rendered outside a
      *  conversation (a pane, a task page) has none. */
     tabId?: string;
-    /** The `artifact` work this render was persisted as. When set, the frame
-     *  carries a rail naming it and opening it in a pane. */
+    /** The `artifact` work this render was persisted as. When set, a rail above
+     *  the frame names it and opens it in a pane. */
     workRef?: { workId: string; title: string; contentVersion?: number };
     /** Where the conversation lives, for the rail's Link control. */
     linkContext?: TaskLinkContext;
@@ -147,6 +148,9 @@
     class="artifact-root {skipMotion ? '' : 'animate-msg-in-side'}"
     class:fill-available={fillAvailable}
   >
+    {#if workRef}
+      <ArtifactRail workId={workRef.workId} title={workRef.title} contentVersion={workRef.contentVersion} {linkContext} />
+    {/if}
     {#if artifactError}
       <div
         class="flex min-h-28 flex-col items-center justify-center gap-3 rounded-2xl border border-(--solus-status-error)/20 bg-(--solus-status-error)/5 px-5 py-4 text-center text-sm text-(--solus-text-secondary)"
@@ -232,10 +236,6 @@
       />
     {:else}
       <ContentSkeleton label="Loading artifact" preview />
-    {/if}
-
-    {#if workRef}
-      <ArtifactRail workId={workRef.workId} title={workRef.title} contentVersion={workRef.contentVersion} {linkContext} />
     {/if}
   </div>
 {/if}

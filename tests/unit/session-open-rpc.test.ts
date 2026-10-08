@@ -13,10 +13,10 @@ test('restored status reads batch per host without mixing session ids', async ()
 })
 
 test('history starts beside lineage, but live events attach only after history is applied', async () => {
-  const fixture = sessionOpenRpcFixture(1, { deferToolInputs: true })
+  const fixture = sessionOpenRpcFixture(1)
   const opening = fixture.open()
-  expect(fixture.reads.map((read) => read.method)).toEqual(['loadSession', 'resolveSessionLineage'])
-  expect(fixture.historyRequests).toEqual([{ sessionId: 'provider-0', limit: 200, deferToolInputs: true }])
+  expect(fixture.reads.map((read) => read.method)).toEqual(['loadSessionPage', 'describeSession'])
+  expect(fixture.historyRequests).toEqual([{ sessionId: 'session-0', projectPath: '/fixture', provider: 'codex', turnLimit: 10 }])
   fixture.reads[1].resolve()
   await flushRpcContinuations()
   expect(fixture.reads).toHaveLength(2)
@@ -30,7 +30,7 @@ test('history starts beside lineage, but live events attach only after history i
   expect(await opening).toBe(true)
 })
 
-test('early history uses the saved provider id but conversion uses resolved stable identity', async () => {
+test('early history and conversion use the stable session identity', async () => {
   const member = { position: 0, provider: 'codex' as const, providerSessionId: 'provider-0', cwd: '/fixture', startedAt: 1, endedAt: null }
   const fixture = sessionOpenRpcFixture(1, { lineage: { sessionId: 'stable-session', active: member, members: [member], lineageToken: '1' } })
   const opening = fixture.open()
@@ -64,4 +64,32 @@ test('closing a tab while lineage is pending cannot attach its runtime', async (
   for (const read of fixture.reads) read.resolve()
   expect(await opening).toBe(false)
   expect(fixture.reads).toHaveLength(2)
+})
+
+test('restoration consumes prefetched history using the same stable session id', async () => {
+  const fixture = sessionOpenRpcFixture()
+  const prefetched = fixture.prefetch()
+  const opening = fixture.open()
+  expect(fixture.reads.map((read) => read.method)).toEqual(['loadSessionPage', 'describeSession'])
+  expect(fixture.historyRequests).toHaveLength(1)
+  fixture.reads[0].resolve()
+  fixture.reads[1].resolve()
+  await prefetched
+  await flushRpcContinuations()
+  fixture.reads[2].resolve()
+  expect(await opening).toBe(true)
+  expect(fixture.historyRequests).toHaveLength(1)
+  expect(fixture.session.messages[0]?.content).toBe('Ready')
+})
+
+
+test('restored environment asks for summary and file details in its first read', async () => {
+  const fixture = sessionOpenRpcFixture()
+  const opening = fixture.open()
+  fixture.reads[0].resolve()
+  fixture.reads[1].resolve()
+  await flushRpcContinuations()
+  fixture.reads[2].resolve()
+  await opening
+  expect(fixture.environmentReads).toEqual([{ sourceId: 'tab-0', level: 'details', force: false }])
 })

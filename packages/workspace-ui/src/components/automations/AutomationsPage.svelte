@@ -569,16 +569,6 @@
               {/snippet}
             </ListEmpty>
           {:else}
-            <div
-              class="grid h-7 grid-cols-[20px_minmax(140px,330px)_minmax(148px,1fr)_156px_64px] items-center gap-x-[11px] pr-2 pl-2.5 text-xs font-normal text-muted-foreground uppercase @max-[44rem]:grid-cols-[20px_minmax(100px,1fr)_128px_64px]"
-              aria-hidden="true"
-            >
-              <span></span>
-              <span>Automation</span>
-              <span class="whitespace-nowrap">Runs in</span>
-              <span class="text-right @max-[44rem]:hidden">Schedule</span>
-              <span class="text-right whitespace-nowrap">Last run</span>
-            </div>
             {#each automationSections as section (section.id)}
               <ListGroup
                 label={section.label}
@@ -603,6 +593,7 @@
                           folderLabel(a.action.cwd)}
                         projectPath={normalizeProjectRoot(a.action.cwd)}
                         serverId={store.hostFor(a.id)}
+                        recentRuns={store.recentRuns.get(a.id) ?? []}
                         {now}
                         selected={selectedId === a.id}
                         onOpen={startEdit}

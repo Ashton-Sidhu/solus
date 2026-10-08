@@ -24,7 +24,7 @@
    *
    * A block is ephemeral — it is the message, and it has no work id until the
    * reader asks for one. "Save as artifact" is what gives it identity; the rail
-   * that appears afterwards is the same one an `artifact` work carries.
+   * that appears above it afterwards is the same one an `artifact` work carries.
    * "Open in split" needs that identity too, so it saves first when it must.
    * "Save as HTML" writes the markup to the device and leaves the block as it is.
    * Local images are written into the page first, so both saves keep them.
@@ -116,6 +116,13 @@
   data-testid="html-block"
   data-conversation-preview={origin ? true : undefined}
 >
+  {#if saved}
+    <ArtifactRail
+      workId={saved.workId}
+      title={saved.title}
+      linkContext={origin?.().linkContext}
+    />
+  {/if}
   {#if page.html === null}
     <!-- The page's local images are loading. Hold the height it had last time. -->
     <div class="overflow-hidden rounded-2xl" style="height:{lastReportedHeight(html) ?? 120}px">
@@ -129,7 +136,7 @@
         {/if}
         {@render action("Save as HTML", "html-block-download", saveAsHtml, DownloadIcon)}
         {#if !saved && session}
-          <!-- Once saved, the rail below names the artifact; the action goes away. -->
+          <!-- Once saved, the rail above names the artifact; the action goes away. -->
           {@render action(
             saving ? "Saving…" : "Save as artifact",
             "html-block-save",
@@ -143,14 +150,6 @@
         {/if}
       {/snippet}
     </SandboxFrame>
-  {/if}
-
-  {#if saved}
-    <ArtifactRail
-      workId={saved.workId}
-      title={saved.title}
-      linkContext={origin?.().linkContext}
-    />
   {/if}
 </div>
 

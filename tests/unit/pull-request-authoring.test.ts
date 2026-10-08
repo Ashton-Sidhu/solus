@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   buildPullRequestAuthoringPrompt,
   fallbackPullRequestDraft,
+  readHouseBodyRules,
   type PullRequestAuthoringContext,
 } from '@solus/server/git/pull-request-authoring'
 
@@ -18,9 +19,12 @@ function context(overrides: Partial<PullRequestAuthoringContext> = {}): PullRequ
 }
 
 describe('pull request authoring', () => {
-  test('gives the writer complete branch context and the house body rules', () => {
+  // The git action and an agent that opens a pull request itself read one copy
+  // of the rules: the bundled writing-pr skill.
+  test('gives the writer complete branch context and the house body rules from the writing-pr skill', async () => {
     const prompt = buildPullRequestAuthoringPrompt(
       context(),
+      await readHouseBodyRules(),
       'Use Conventional Commits for the title.',
     )
 
@@ -38,8 +42,8 @@ describe('pull request authoring', () => {
     expect(prompt).not.toContain('## Testing')
   })
 
-  test('asks a repository template for a testing section, and never invents one', () => {
-    const withTemplate = buildPullRequestAuthoringPrompt(context({ template: '## Verification' }))
+  test('asks a repository template for a testing section, and never invents one', async () => {
+    const withTemplate = buildPullRequestAuthoringPrompt(context({ template: '## Verification' }), await readHouseBodyRules())
     expect(withTemplate).toContain('only because the template asks for one')
     expect(withTemplate).not.toContain('mermaid codeblock diagrams')
   })

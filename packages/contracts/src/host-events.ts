@@ -29,7 +29,7 @@ import type { HostUpdateStatus } from './host-update-types'
 import type { ShareChangedEvent } from './sharing'
 import type { SeatChangedEvent } from './seats'
 import type { AgentAuthFinishedEvent } from './agent-auth'
-import type { IntegrationChangedEvent } from './integration-types'
+import type { IntegrationAuthFinishedEvent, IntegrationChangedEvent, IntegrationConnectionChangedEvent, IntegrationConnectNeeded } from './integration-types'
 import type { HostPresenceSnapshot, SessionPresenceSnapshot, WorkPresenceSnapshot } from './presence'
 import type { HostOrganizationsStatus } from './organization-scope'
 import type { UplinkStatus } from './uplink'
@@ -157,6 +157,12 @@ export interface HostEventMap {
   'host.agentAuthFinished': AgentAuthFinishedEvent
   /** An integration was created, updated, or removed, or its tool list changed. Read it again by id. */
   'integration.changed': IntegrationChangedEvent
+  /** One person's connection to an integration changed. Delivered to that person's clients only. */
+  'integration.connectionChanged': IntegrationConnectionChangedEvent
+  /** An integration sign-in ended. Delivered to the clients of the person who started it. */
+  'host.integrationAuthFinished': IntegrationAuthFinishedEvent
+  /** An integration tool needs the user to connect their account. */
+  'integration.connectNeeded': IntegrationConnectNeeded
   /** Who is watching one session, and whose turn is running. The whole room each
    *  time: a handful of rows, and two clients disagreeing about who is present is
    *  the failure to avoid. Delivered to the session's watchers. */
@@ -246,6 +252,9 @@ export const HOST_EVENT_DEFINITIONS = {
   'host.seatChanged': { owner: 'seats', category: 'delta', recovery: 'reload', description: "A member's provider seat on this host changed state." },
   'host.agentAuthFinished': { owner: 'seats', category: 'targeted', recovery: 'reset', description: 'A Claude Design or MCP server sign-in in one seat ended.' },
   'integration.changed': { owner: 'integrations', category: 'invalidation', recovery: 'reload', description: 'An integration or its tool list changed; read it again by id.' },
+  'integration.connectionChanged': { owner: 'integrations', category: 'delta', recovery: 'reload', description: "One person's connection to an integration changed; recover through integrationConnectionList." },
+  'host.integrationAuthFinished': { owner: 'integrations', category: 'targeted', recovery: 'reset', description: "An integration sign-in in one person's scope ended." },
+  'integration.connectNeeded': { owner: 'integrations', category: 'delta', recovery: 'reset', description: 'An integration tool needs the user to connect their account.' },
   'session.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people watching a session, or its active turn, changed.' },
   'work.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people who have one work open, or what they do there, changed.' },
   'host.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people connected to this host, or what they have focused, changed.' },

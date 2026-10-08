@@ -256,6 +256,22 @@ describe('session transcript rehydration', () => {
     })
   })
 
+  test('a preview call replays as its tool row and no artifact card', () => {
+    // WHY: a preview showed nothing in the conversation when it ran. A reload
+    // must not show the draft beside the render the agent gave afterwards.
+    connections.registerPrimary('transcript-host', {})
+    const ctx = { apiForSession: () => connections.apiFor('transcript-host'), worksStore: { get: () => undefined } } as unknown as WorkspaceContext
+    const transcript = materializeSessionTranscript(ctx, {
+      sessionId: 'session', loadPath: '/repo', displayCwd: '/repo', provider: 'claude-code',
+      ctx: { session: { sessionId: 'tab' } } as IpcContext,
+    }, [
+      { role: 'tool', content: '', toolName: 'mcp__solus__render_artifact', toolId: 'check', toolInput: JSON.stringify({ html: '<body>Draft</body>', preview: true }), timestamp: 1 },
+      { role: 'tool', content: '', toolName: 'mcp__solus__render_artifact', toolId: 'real', toolInput: JSON.stringify({ html: '<body>Final</body>' }), timestamp: 2 },
+    ])
+    expect(transcript.messages.filter((message) => message.role === 'tool')).toHaveLength(2)
+    expect(transcript.messages.filter((message) => message.artifact).map((message) => message.artifact?.html)).toEqual(['<body>Final</body>'])
+  })
+
   test('rebuilds an html_path render from the revision it saved', async () => {
     // WHY: the stored input of an html_path call is only a path on the host.
     // The full transcript load must fetch the body that call wrote, or the

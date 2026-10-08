@@ -10,9 +10,14 @@
    * completion signal: Cloudflare is a token pasted here, and the rest are
    * browser sign-ins whose answer arrives on a host event. The shell, the
    * dismissal, and the continue are the same either way.
+   *
+   * An integration (docs/plans/mcp-integrations.md §7) uses the same shell; its
+   * body is the Settings row's own connect form, so a sign-in started here
+   * shows the same state there.
    */
   import { localApi } from "@solus/client-core/local-api";
   import Icon from "@iconify/svelte";
+  import { Plug } from "@lucide/svelte";
   import {
     atlassianStore,
     cloudflareStore,
@@ -28,7 +33,9 @@
   import CloudflareConnectForm from "../cloudflare/CloudflareConnectForm.svelte";
   import AtlassianConnectForm from "../atlassian/AtlassianConnectForm.svelte";
   import GitHubConnectForm from "./GitHubConnectForm.svelte";
-  import { connectCardCopy } from "./lib/connect-card-copy";
+  import IntegrationConnectForm from "../settings/IntegrationConnectForm.svelte";
+  import { integrationsStore } from "../settings/integrations.store.svelte";
+  import { connectCardCopy, integrationConnectCardCopy } from "./lib/connect-card-copy";
 
   interface Props {
     tabId: string;
@@ -41,12 +48,17 @@
   const session = getWorkspaceContext();
   const request = $derived(connectRequestStore.request);
   const serverId = $derived(session.sessionFor(tabId)?.run.serverId);
-  const copy = $derived(
-    request ? connectCardCopy(request.provider, request.reason) : null,
-  );
+  const copy = $derived.by(() => {
+    if (!request) return null;
+    if (request.kind === "integration") return integrationConnectCardCopy(request.integrationName);
+    return connectCardCopy(request.provider, request.reason);
+  });
+  const accountConnectionsUrl = $derived(request?.kind === "account" ? request.accountConnectionsUrl : undefined);
 
   const connected = $derived.by(() => {
-    if (!request || !serverId || request.accountConnectionsUrl) return false;
+    if (!request || !serverId || accountConnectionsUrl) return false;
+    if (request.kind === "integration")
+      return integrationsStore.connection(serverId, request.integrationId)?.status === "connected";
     if (request.provider === "cloudflare") return cloudflareStore.connected;
     if (request.provider === "atlassian") return atlassianStore.connected(serverId);
     if (request.provider === "github")
@@ -60,6 +72,9 @@
   let cardEl = $state<HTMLDivElement | null>(null);
 
   function dismiss() {
+    // A sign-in this card started ends with it, here and on the host.
+    if (request?.kind === "integration" && serverId && !connected)
+      void integrationsStore.cancel(serverId, request.integrationId);
     connectRequestStore.dismiss();
     requestInputFocus();
   }
@@ -94,7 +109,11 @@
     >
       {#snippet icon()}
         <span class="inline-flex size-5 items-center justify-center rounded-md bg-card shadow-[shadow:var(--solus-tx-hairline)]">
-          <Icon icon={PROVIDER_LOGOS[request.provider]} aria-hidden="true" />
+          {#if request.kind === "integration"}
+            <Plug size={13} aria-hidden="true" />
+          {:else}
+            <Icon icon={PROVIDER_LOGOS[request.provider]} aria-hidden="true" />
+          {/if}
         </span>
       {/snippet}
 
@@ -105,9 +124,9 @@
         {:else}
           <div class="flex flex-wrap items-end justify-end gap-2">
             <TranscriptCardAction kind="ghost" onclick={dismiss}>Not now</TranscriptCardAction>
-            {#if serverId}
-              {#if request.accountConnectionsUrl}
-                <TranscriptCardAction kind="filled" onclick={() => void localApi.openExternal(request!.accountConnectionsUrl!)}>
+            {#if serverId && request.kind === "account"}
+              {#if accountConnectionsUrl}
+                <TranscriptCardAction kind="filled" onclick={() => void localApi.openExternal(accountConnectionsUrl)}>
                   Open account connections
                 </TranscriptCardAction>
                 <TranscriptCardAction onclick={continueRun}>Continue</TranscriptCardAction>
@@ -125,15 +144,18 @@
 
       <p class="m-0 text-(--muted-foreground)">{copy.purpose}</p>
 
-      {#if request.accountConnectionsUrl}
+      {#if request.kind === "integration" && serverId}
+        <IntegrationConnectForm {serverId} integrationId={request.integrationId} integrationName={request.integrationName} />
+      {/if}
+      {#if accountConnectionsUrl}
         <p class="m-0 text-xs text-(--muted-foreground)">Connect your account, then return here and continue.</p>
-      {:else if serverId && request.provider === "google"}
+      {:else if serverId && request.kind === "account" && request.provider === "google"}
         <p class="m-0 text-xs text-(--muted-foreground)">Connect this account in Settings, then continue.</p>
       {/if}
       {#if copy.note}
         <p class="m-0 text-xs text-(--muted-foreground) opacity-80">{copy.note}</p>
       {/if}
-      {#if request.provider === "cloudflare"}
+      {#if request.kind === "account" && request.provider === "cloudflare"}
         <p class="m-0 text-xs text-(--muted-foreground) opacity-80">
           Paste the token here, not into the chat.
         </p>

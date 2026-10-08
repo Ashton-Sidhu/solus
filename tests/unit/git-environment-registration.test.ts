@@ -79,6 +79,31 @@ describe('Git environment registration', () => {
     expect(store.statusFor('host-a', '/repo')?.branch).toBe('main')
   })
 
+  test('a forced details read waits for an older summary and applies its full current state', async () => {
+    ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(<T>(value: T) => value, { snapshot: <T>(value: T) => value })
+    let finish!: (state: GitState) => void
+    let calls = 0
+    servedBy(asHostApi({ gitRefreshState: async () => {
+      calls++
+      if (calls === 1) return new Promise<GitState>((resolve) => { finish = resolve })
+      const current = gitState('after-checkout')
+      current.uncommittedChanges.fileCount = 3
+      current.branchChanges = { fileCount: 3, insertions: 7, deletions: 2 }
+      return current
+    } }))
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    const before = store.refresh('host-a', '/repo')
+    const after = store.refresh('host-a', '/repo', { force: true, details: true })
+    expect(calls).toBe(1)
+    finish(gitState('before-checkout'))
+    await Promise.all([before, after])
+    expect(calls).toBe(2)
+    expect(store.statusFor('host-a', '/repo')?.branch).toBe('after-checkout')
+    expect(store.statusFor('host-a', '/repo')?.uncommittedChanges.fileCount).toBe(3)
+    expect(store.statusFor('host-a', '/repo')?.branchChanges?.insertions).toBe(7)
+  })
+
   test('a rename supersedes cached status and a status request already in flight on its host', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(<T>(value: T) => value, { snapshot: <T>(value: T) => value })
     let finish!: (state: GitState) => void
@@ -394,11 +419,28 @@ describe('Git environment full refresh', () => {
     const result = await store.refreshEnvironment(fixture.workspace, { force: true, level: 'full' })
 
     expect(result.ok).toBe(true)
-    expect(fixture.statusOptions).toEqual([undefined, { includeDetails: true, bypassCache: true, includeRefs: true }])
+    expect(fixture.statusOptions).toEqual([{ includeDetails: true, bypassCache: true, includeRefs: true }])
     expect(fixture.separateRefsReads()).toBe(0)
     expect(store.refsFor('host-a', '/repo')).toEqual(fixture.refs)
     // Refs are project state, not checkout state: they must not land in status.
     expect(store.statusFor('host-a', '/repo')).not.toHaveProperty('refs')
+  })
+
+  test('fresh file details do not skip the refs needed by a full refresh', async () => {
+    const fixture = fullRefreshFixture(true)
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
+    const store = new SessionEnvironmentStore()
+    await store.refresh('host-a', '/repo', { details: true })
+
+    const result = await store.refreshEnvironment(fixture.workspace, { force: false, level: 'full' })
+
+    expect(result.ok).toBe(true)
+    expect(fixture.statusOptions).toEqual([
+      { includeDetails: true, bypassCache: false },
+      { includeDetails: true, bypassCache: true, includeRefs: true },
+    ])
+    expect(fixture.separateRefsReads()).toBe(0)
+    expect(store.refsFor('host-a', '/repo')).toEqual(fixture.refs)
   })
 
   test('falls back to separate refs reads on a host that answers without them', async () => {
@@ -475,6 +517,7 @@ describe('Git environment on a tab switch', () => {
     await store.refreshEnvironment(workspace, { sourceId: 'only', level: 'details', force: false })
     const detailReads = () => reads.filter((options) => options?.includeDetails).length
     expect(detailReads()).toBe(1)
+    expect(reads).toHaveLength(1)
 
     store.watchDetails('host-a', '/repo')()
     await Bun.sleep(0)

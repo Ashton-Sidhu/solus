@@ -1,3 +1,4 @@
+import { SessionPullRequestReader } from '@solus/client-core/session-pull-request-reader';
 import type { HostApi } from "@solus/client-core/host-api";
 import type { HostEventSubscriber } from "@solus/client-core/host-event-subscriber";
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from "@solus/contracts/session-pull-requests";
@@ -63,6 +64,7 @@ export class ThreadListState {
   private readonly shelf = new Map<string, SessionState>();
   private readonly liveStatus = new Map<string, SessionStatus>();
   private readonly pullRequests = new Map<string, ReadonlyArray<SessionPullRequestLink>>();
+  private readonly readers = new WeakMap<ThreadListConnection, SessionPullRequestReader>();
   private readonly watched = new WeakSet<ThreadListConnection>();
   /** A stable snapshot, replaced only when something changes. */
   private snapshot: ThreadListV2Facts = EMPTY_FACTS;
@@ -112,15 +114,17 @@ export class ThreadListState {
   /** Settle a session, or make a settled one active again. */
   async setSettled(hostId: string, sessionId: string, settled: boolean): Promise<void> {
     const connection = this.requireConnection(hostId);
+    this.watch(hostId, connection);
     await connection.api.sessionSetSettled(sessionId, settled);
-    await this.refreshShelf(hostId, sessionId);
+    await this.shelfChanges.get(threadKey(hostId, sessionId));
   }
 
   /** Snooze a session until a wake time; null wakes it now. */
   async snooze(hostId: string, sessionId: string, until: number | null): Promise<void> {
     const connection = this.requireConnection(hostId);
+    this.watch(hostId, connection);
     await connection.api.sessionSnooze(sessionId, until);
-    await this.refreshShelf(hostId, sessionId);
+    await this.shelfChanges.get(threadKey(hostId, sessionId));
   }
 
   /** Watch a session's pull request, or stop: its agent wakes on news
@@ -153,7 +157,11 @@ export class ThreadListState {
     if (this.watched.has(connection)) return;
     this.watched.add(connection);
     connection.events.subscribe("session.stateChanged", ({ sessionId }) => {
-      void this.refreshShelf(hostId, sessionId).catch(() => undefined);
+      const key = threadKey(hostId, sessionId);
+      const read = this.refreshShelf(hostId, sessionId).catch(() => undefined).finally(() => {
+        if (this.shelfChanges.get(key) === read) this.shelfChanges.delete(key);
+      });
+      this.shelfChanges.set(key, read);
     });
     connection.events.subscribe("session.pullRequestsChanged", ({ sessionId }) => {
       void this.refreshPullRequests(hostId, sessionId);
@@ -172,10 +180,13 @@ export class ThreadListState {
     });
   }
 
+  private readonly shelfChanges = new Map<string, Promise<void>>();
+
   private async refreshShelf(hostId: string, sessionId: string): Promise<void> {
     const connection = this.connectionFor(hostId);
     if (!connection) return;
     const answer = await connection.api.sessionShelfList([sessionId]);
+    if (this.connectionFor(hostId) !== connection) return;
     // The host answers under the stable id, which the caller may not hold.
     if (answer.length === 0) this.shelf.delete(threadKey(hostId, sessionId));
     for (const entry of answer) this.shelf.set(threadKey(hostId, entry.sessionId), entry);
@@ -185,8 +196,13 @@ export class ThreadListState {
   private async refreshPullRequests(hostId: string, sessionId: string): Promise<void> {
     const connection = this.connectionFor(hostId);
     if (!connection) return;
-    const answer = await connection.api.sessionPullRequestsList([sessionId]).catch(() => null);
-    if (!answer) return;
+    let reader = this.readers.get(connection);
+    if (!reader) {
+      reader = new SessionPullRequestReader(connection.api);
+      this.readers.set(connection, reader);
+    }
+    const answer = await reader.read(sessionId).catch(() => null);
+    if (!answer || this.connectionFor(hostId) !== connection) return;
     this.pullRequests.delete(threadKey(hostId, sessionId));
     for (const [id, links] of Object.entries(answer)) this.pullRequests.set(threadKey(hostId, id), links);
     this.publish();

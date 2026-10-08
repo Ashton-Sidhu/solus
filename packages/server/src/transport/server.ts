@@ -68,7 +68,8 @@ export class SolusServer {
     await assertRpcAccess(method, ctx.principal, args, this.resources)
     if (this.updateTrial && method !== 'hostUpdateStatus') throw new Error('Solus is verifying an update. Try again after it restarts.')
     if (isDebugEnabled() && method !== 'activityLease') {
-      if (method === 'typeSafeKeySet' || method === 'transcribeAudio') {
+      if (method === 'typeSafeKeySet' || method === 'transcribeAudio' || method === 'integrationUpdate' || method === 'integrationConnectSubmit') {
+        // These carry a secret (an API key, an OAuth client secret) or a large payload; only the call is logged.
         log.debug('rpc_method_invoked', { method, clientId: ctx.clientId })
       } else if (method === 'publishWork') {
         // SAFETY: Runtime dispatch pairs this method with publishWork's tuple.

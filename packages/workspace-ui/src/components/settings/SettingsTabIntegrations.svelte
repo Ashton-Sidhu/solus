@@ -1,96 +1,110 @@
 <script module lang="ts">
   /** Search words, read by the settings page to find this page from any other. */
-  export const searchWords = ["integration", "integrations", "mcp", "server", "catalog", "integrations.sh", "remote tools"];
+  export const searchWords = ["mcp", "integration", "integrations", "server", "catalog", "integrations.sh", "remote tools", "connector"];
 </script>
 
 <script lang="ts">
+  /**
+   * The MCP page (docs/integrations.md): the servers installed on one host, and
+   * the integrations.sh catalog to add more from. Add is one step: the host
+   * checks the server, adds it, and the person's sign-in starts at once.
+   */
   import { onDestroy, tick, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import { ChevronRight, LoaderCircle, Search, TriangleAlert } from "@lucide/svelte";
-  import type { Integration } from "@solus/contracts/integration-types";
+  import { Check, LoaderCircle, Plus, Search, TriangleAlert, X } from "@lucide/svelte";
+  import type { CatalogEntry, Integration } from "@solus/contracts/integration-types";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import SettingsSection from "./SettingsSection.svelte";
-  import SettingsRow from "./SettingsRow.svelte";
   import SettingsHostUnsupported from "./SettingsHostUnsupported.svelte";
+  import McpServerIcon from "./McpServerIcon.svelte";
+  import McpServerRow from "./McpServerRow.svelte";
   import { integrationsStore } from "./integrations.store.svelte";
-  import { IntegrationAddFlow } from "./lib/integration-add.svelte";
-  import { authKindLabel, firstLine, urlHost } from "./lib/integration-labels";
+  import { McpCatalog } from "./lib/mcp-catalog.svelte";
+  import { catalogCountText, customUrlProblem, urlHost } from "./lib/integration-labels";
   import { wordsMatch } from "./lib/settings-search";
   import { toasts } from "../../lib/toasts";
 
   interface Props { serverId: string; hostLabel: string; searchQuery?: string }
   let { serverId, hostLabel, searchQuery = "" }: Props = $props();
 
-  // The page is keyed by host, so one flow serves one host for its whole life.
-  const flow = new IntegrationAddFlow(untrack(() => serverId));
+  // The page is keyed by host, so one catalog serves one host for its whole life.
+  const catalog = new McpCatalog(untrack(() => serverId), untrack(() => searchQuery));
   const expanded = new SvelteSet<string>();
-  let renamingId = $state<string | null>(null);
-  let renameDraft = $state("");
-  let confirmRemoveId = $state<string | null>(null);
+  let rootEl = $state<HTMLDivElement | null>(null);
   let searchEl = $state<HTMLInputElement | null>(null);
 
   const hostState = $derived(integrationsStore.states.get(serverId));
-  const visibleIntegrations = $derived(
-    (hostState?.integrations ?? []).filter((integration) => !searchQuery || wordsMatch(searchQuery, [integration.name, integration.slug])),
+  const installed = $derived(hostState?.integrations ?? []);
+  const installedUrls = $derived(new Set(installed.map((integration) => integration.url)));
+  const visibleInstalled = $derived(
+    installed.filter((integration) => !catalog.query.trim() || wordsMatch(catalog.query, [integration.name, integration.slug, urlHost(integration.url)])),
   );
-  const isBusy = $derived(!!hostState?.saving);
   const isOffline = $derived(!!hostState?.isDisconnected);
+  /** A typed https:// address is offered as a server of its own. */
+  const typedUrl = $derived(/^https?:\/\//i.test(catalog.query.trim()) ? catalog.query.trim() : "");
+  const typedUrlProblem = $derived(typedUrl ? customUrlProblem(typedUrl) : null);
 
   $effect(() => {
     const hostId = serverId;
     return untrack(() => integrationsStore.watch(hostId));
   });
-  onDestroy(() => flow.dispose());
+  // The settings search follows into the page's own search.
+  $effect(() => {
+    const query = searchQuery;
+    untrack(() => catalog.setQuery(query));
+  });
+  // A catalog read that failed while the host was away is read again when it returns.
+  $effect(() => {
+    if (!isOffline) untrack(() => { if (catalog.error) void catalog.load(); });
+  });
+  onDestroy(() => catalog.dispose());
 
-  function toggleTools(integration: Integration) {
-    if (expanded.has(integration.id)) {
-      expanded.delete(integration.id);
-      return;
-    }
-    expanded.add(integration.id);
-    if (!hostState?.tools.has(integration.id)) void integrationsStore.loadTools(serverId, integration.id);
+  function toggle(integrationId: string) {
+    if (expanded.has(integrationId)) expanded.delete(integrationId);
+    else expanded.add(integrationId);
   }
 
-  function startRename(integration: Integration) {
-    confirmRemoveId = null;
-    renamingId = integration.id;
-    renameDraft = integration.name;
-  }
-
-  async function saveRename(integration: Integration) {
-    const name = renameDraft.trim();
-    if (!name || name === integration.name) { renamingId = null; return; }
-    if (await integrationsStore.update(serverId, { id: integration.id, name })) renamingId = null;
-  }
-
-  async function remove(integration: Integration) {
-    if (await integrationsStore.remove(serverId, integration.id)) {
-      confirmRemoveId = null;
-      toasts.success(`${integration.name} removed`);
-      searchEl?.focus();
-    }
-  }
-
-  async function add() {
-    const integration = await flow.add();
+  async function install(name: string, url: string) {
+    const integration = await catalog.install(name, url);
     if (!integration) return;
     toasts.success(`${integration.name} added`);
+    expanded.add(integration.id);
+    await revealRow(integration);
+  }
+
+  /** The new row opens where the person can see it, and takes focus, so its sign-in is the next step. */
+  async function revealRow(integration: Integration) {
+    await tick();
+    const row = rootEl?.querySelector<HTMLElement>(`[data-integration-id="${CSS.escape(integration.id)}"]`);
+    row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    row?.querySelector<HTMLElement>("button")?.focus({ preventScroll: true });
+  }
+
+  /** Loads the next entries as the end of the list comes near, before the person reaches it. */
+  function loadWhenNear(node: HTMLElement) {
+    const observer = new IntersectionObserver((records) => {
+      if (records.some((record) => record.isIntersecting)) void catalog.loadMore();
+    }, { rootMargin: "0px 0px 400px 0px" });
+    observer.observe(node);
+    return { destroy: () => observer.disconnect() };
+  }
+
+  async function removed(integration: Integration) {
+    expanded.delete(integration.id);
+    toasts.success(`${integration.name} removed`);
     await tick();
     searchEl?.focus();
   }
 
   function onSearchKeydown(event: KeyboardEvent) {
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    if (event.key === "Enter" && typedUrl && !typedUrlProblem) {
       event.preventDefault();
-      flow.moveActive(event.key === "ArrowDown" ? 1 : -1);
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      flow.selectActive();
-    } else if (event.key === "Escape" && flow.query) {
+      void install(urlHost(typedUrl), typedUrl);
+    } else if (event.key === "Escape" && catalog.query) {
       event.preventDefault();
       event.stopPropagation();
-      flow.setQuery("");
+      catalog.setQuery("");
     }
   }
 </script>
@@ -101,210 +115,184 @@
   </p>
 {/snippet}
 
-{#snippet tools(integration: Integration)}
-  {@const list = hostState?.tools.get(integration.id)}
-  {@const toolError = hostState?.toolErrors.get(integration.id)}
-  {#if toolError}
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{toolError}</p>
-      <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => integrationsStore.loadTools(serverId, integration.id)}>Retry</Button>
-    </div>
-  {:else if !list}
-    <p role="status" class="flex items-center gap-2 text-workspace-chrome text-muted-foreground"><LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Loading tools…</p>
-  {:else if list.length === 0}
-    <p class="text-workspace-chrome text-muted-foreground">
-      {integration.auth.kind === "none" ? "This integration lists no tools." : "Its tools show after sign-in, which arrives in a later release."}
-    </p>
+{#snippet installAction(name: string, url: string)}
+  {@const state = catalog.installs.get(url)}
+  {#if installedUrls.has(url)}
+    <span class="flex items-center gap-1 text-workspace-chrome text-muted-foreground"><Check size={14} />Added</span>
+  {:else if state?.kind === "checking" || state?.kind === "adding"}
+    <span role="status" class="flex items-center gap-1.5 text-workspace-chrome text-muted-foreground">
+      <LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />{state.kind === "checking" ? "Checking…" : "Adding…"}
+    </span>
   {:else}
-    <ul class="flex flex-col divide-y divide-border rounded-lg border border-border" aria-label="Tools of {integration.name}">
-      {#each list as tool (tool.name)}
-        <li class="flex min-w-0 flex-col gap-0.5 px-3 py-2">
-          <div class="flex min-w-0 items-center gap-1.5">
-            <code class="truncate font-[family-name:var(--solus-code-font-family)] text-[length:var(--solus-code-font-size)] text-foreground">{tool.name}</code>
-            {#if tool.destructive}
-              <span class="shrink-0 rounded-full border border-destructive/40 px-1.5 py-px text-[11px] leading-[1.5] text-destructive">destructive</span>
-            {:else if tool.readOnly}
-              <span class="shrink-0 rounded-full border border-border px-1.5 py-px text-[11px] leading-[1.5] text-muted-foreground">read-only</span>
-            {/if}
-          </div>
-          {#if firstLine(tool.description)}
-            <p class="truncate text-chrome-dense text-(--solus-text-secondary)" title={tool.description}>{firstLine(tool.description)}</p>
-          {/if}
-        </li>
-      {/each}
-    </ul>
+    <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline} onclick={() => install(name, url)} aria-label="Add {name}">
+      <Plus size={14} />{state?.kind === "failed" ? "Retry" : "Add"}
+    </Button>
   {/if}
 {/snippet}
 
-{#if !hostState || (hostState.loading && hostState.integrations === null && !hostState.isUnsupported)}
-  {@render statusLine("Loading integrations…")}
-{:else if hostState.isUnsupported}
-  <SettingsHostUnsupported feature="Integrations" {hostLabel} />
-{:else}
-  <div class="flex flex-col gap-8">
-    <SettingsSection label="Integrations" description="Remote MCP servers. Their tools reach every agent on {hostLabel}.">
-      {#if isOffline}
-        <div class="flex items-center gap-2 p-4 text-workspace-chrome text-muted-foreground" role="status">
-          <TriangleAlert size={14} class="shrink-0" />{hostLabel} is disconnected. This list updates when it reconnects.
+{#snippet installError(url: string)}
+  {@const state = catalog.installs.get(url)}
+  {#if state?.kind === "failed"}
+    <div class="flex items-start gap-1.5">
+      <p role="alert" class="min-w-0 flex-1 break-words text-chrome-dense text-(--solus-status-error)">{state.message}</p>
+      <Button variant="ghost" size="icon-sm" class="-my-1 shrink-0 text-muted-foreground" onclick={() => catalog.dismiss(url)} aria-label="Dismiss"><X size={14} /></Button>
+    </div>
+  {/if}
+{/snippet}
+
+{#snippet catalogCard(entry: CatalogEntry)}
+  {@const state = catalog.installs.get(entry.url)}
+  <!-- Every card has the same height: a failed Add says why in the description's two lines. -->
+  <li class="flex min-w-0 flex-col gap-2.5 rounded-xl border border-border bg-card p-3.5" data-testid="mcp-catalog-entry">
+    <div class="flex min-w-0 items-start gap-3">
+      <McpServerIcon name={entry.name} url={entry.url} icon={entry.icon} />
+      <div class="min-w-0 flex-1">
+        <p class="truncate text-workspace-chrome font-medium text-foreground" title={entry.name}>{entry.name}</p>
+        <p class="truncate text-chrome-dense text-(--solus-text-tertiary)">{entry.domain || urlHost(entry.url)}</p>
+      </div>
+    </div>
+    {#if state?.kind === "failed"}
+      <p role="alert" class="line-clamp-2 h-[2lh] text-chrome-dense text-(--solus-status-error)" title={state.message}>{state.message}</p>
+    {:else}
+      <p class="line-clamp-2 h-[2lh] text-chrome-dense text-(--solus-text-secondary)" title={entry.description}>{entry.description || urlHost(entry.url)}</p>
+    {/if}
+    <div class="flex h-8 items-center justify-end gap-1 pointer-coarse:h-11">
+      {#if state?.kind === "failed"}
+        <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" onclick={() => catalog.dismiss(entry.url)}>Dismiss</Button>
+      {/if}
+      {@render installAction(entry.name, entry.url)}
+    </div>
+  </li>
+{/snippet}
+
+{#snippet placeholderCards(count: number)}
+  {#each { length: count } as _, index (index)}
+    <!-- The shape of a card, so the grid does not move when the entries arrive. -->
+    <li class="flex flex-col gap-2.5 rounded-xl border border-border p-3.5" aria-hidden="true">
+      <div class="flex items-start gap-3">
+        <span class="size-8 shrink-0 rounded-lg bg-muted"></span>
+        <div class="flex flex-1 flex-col gap-1.5 pt-0.5">
+          <span class="h-3.5 w-2/5 rounded bg-muted"></span>
+          <span class="h-3 w-1/4 rounded bg-muted"></span>
         </div>
-      {:else if hostState.error}
+      </div>
+      <div class="flex h-[2lh] flex-col justify-center gap-1.5 text-chrome-dense">
+        <span class="h-3 w-full rounded bg-muted"></span>
+        <span class="h-3 w-3/4 rounded bg-muted"></span>
+      </div>
+      <div class="h-8 pointer-coarse:h-11"></div>
+    </li>
+  {/each}
+{/snippet}
+
+{#if !hostState || (hostState.loading && hostState.integrations === null && !hostState.isUnsupported)}
+  {@render statusLine("Loading MCP servers…")}
+{:else if hostState.isUnsupported}
+  <SettingsHostUnsupported feature="MCP servers" {hostLabel} />
+{:else}
+  <div bind:this={rootEl} class="flex flex-col gap-8">
+    <div class="flex flex-col gap-2">
+      <div class="flex items-center gap-2 rounded-lg border border-border bg-card px-3 focus-within:ring-2 focus-within:ring-ring">
+        <Search size={16} class="shrink-0 text-(--solus-text-tertiary)" />
+        <Input
+          bind:ref={searchEl}
+          bind:value={() => catalog.query, (value) => catalog.setQuery(value)}
+          placeholder="Search MCP servers, or paste an https:// address"
+          aria-label="Search MCP servers"
+          disabled={isOffline}
+          onkeydown={onSearchKeydown}
+          class="h-10 min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-workspace-chrome shadow-none focus-visible:ring-0 dark:bg-transparent"
+        />
+        {#if catalog.query}
+          <Button variant="ghost" size="icon-sm" class="shrink-0 text-muted-foreground" onclick={() => { catalog.setQuery(""); searchEl?.focus(); }} aria-label="Clear the search"><X size={14} /></Button>
+        {/if}
+      </div>
+      {#if isOffline}
+        <p class="flex items-center gap-2 text-workspace-chrome text-muted-foreground" role="status">
+          <TriangleAlert size={14} class="shrink-0" />{hostLabel} is disconnected. This page updates when it reconnects.
+        </p>
+      {/if}
+    </div>
+
+    {#if typedUrl}
+      <SettingsSection label="Add by address">
+        <div class="flex flex-col gap-2 px-4 py-3">
+          <div class="flex min-w-0 items-center gap-3">
+            <McpServerIcon name={urlHost(typedUrl)} url={typedUrl} />
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-workspace-chrome font-medium text-foreground">{urlHost(typedUrl)}</p>
+              <p class="truncate text-chrome-dense text-(--solus-text-tertiary)" title={typedUrl}>{typedUrl}</p>
+            </div>
+            {#if !typedUrlProblem}{@render installAction(urlHost(typedUrl), typedUrl)}{/if}
+          </div>
+          {#if typedUrlProblem}
+            <p role="alert" class="text-chrome-dense text-(--solus-status-error)">{typedUrlProblem}</p>
+          {/if}
+          {@render installError(typedUrl)}
+        </div>
+      </SettingsSection>
+    {/if}
+
+    <SettingsSection label="Installed" description="Their tools reach every agent on {hostLabel}. Servers with sign-in use your own account.">
+      {#if hostState.error}
         <div class="flex flex-wrap items-center justify-between gap-3 p-4">
           <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{hostState.error}</p>
           <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => integrationsStore.load(serverId)} disabled={hostState.loading}>Retry</Button>
         </div>
-      {/if}
-      {#if hostState.integrations && visibleIntegrations.length === 0}
+      {:else if visibleInstalled.length === 0}
         <p class="p-6 text-center text-workspace-chrome text-muted-foreground">
-          {hostState.integrations.length === 0 ? "No integrations yet" : `No integrations match “${searchQuery}”.`}
+          {installed.length === 0 ? "No MCP servers yet. Add one from the catalog below." : `No installed server matches “${catalog.query.trim()}”.`}
         </p>
       {/if}
-      {#each visibleIntegrations as integration (integration.id)}
-        {@const isExpanded = expanded.has(integration.id)}
-        <SettingsRow
-          label={integration.name}
-          description="{integration.slug} · {urlHost(integration.url)}"
-          testId="integration-row"
-          bodyVisible={isExpanded || renamingId === integration.id || confirmRemoveId === integration.id}
-        >
-          {#snippet labelExtra()}
-            <span class="ml-1.5 inline-block rounded-full border border-border px-1.5 py-px align-[0.1em] text-[11px] leading-[1.5] font-normal text-muted-foreground">{authKindLabel(integration.auth)}</span>
-          {/snippet}
-          {#snippet control()}
-            <div class="flex items-center gap-1">
-              <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" aria-expanded={isExpanded} onclick={() => toggleTools(integration)}>
-                <ChevronRight size={14} class="transition-transform motion-reduce:transition-none {isExpanded ? 'rotate-90' : ''}" />Tools
-              </Button>
-              <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" onclick={() => startRename(integration)} disabled={isBusy || isOffline}>Rename</Button>
-              <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground hover:text-destructive pointer-coarse:min-h-11" onclick={() => { renamingId = null; confirmRemoveId = integration.id; }} disabled={isBusy || isOffline} aria-label="Remove {integration.name}">Remove</Button>
-            </div>
-          {/snippet}
-          {#snippet body()}
-            <div class="flex flex-col gap-3">
-              {#if renamingId === integration.id}
-                <form class="flex flex-wrap items-center gap-2" onsubmit={(event) => { event.preventDefault(); void saveRename(integration); }}>
-                  <!-- svelte-ignore a11y_autofocus -->
-                  <Input bind:value={renameDraft} aria-label="Name of {integration.name}" class="h-8 max-w-xs flex-1 text-workspace-chrome" autofocus
-                    onkeydown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); renamingId = null; } }} />
-                  <Button type="submit" variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isBusy || !renameDraft.trim()}>{isBusy ? "Saving…" : "Save"}</Button>
-                  <Button variant="ghost" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => { renamingId = null; }}>Cancel</Button>
-                </form>
-                <p class="text-chrome-dense text-muted-foreground">The tool prefix stays {integration.slug}.</p>
-              {/if}
-              {#if confirmRemoveId === integration.id}
-                <p class="text-pretty text-workspace-chrome">Remove {integration.name}? Agents on {hostLabel} lose its tools.</p>
-                <div class="flex flex-wrap gap-2">
-                  <Button variant="destructive" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => remove(integration)} disabled={isBusy}>{isBusy ? "Removing…" : "Remove integration"}</Button>
-                  <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => { confirmRemoveId = null; }} disabled={isBusy}>Cancel</Button>
-                </div>
-              {/if}
-              {#if (renamingId === integration.id || confirmRemoveId === integration.id) && hostState.writeError}
-                <p role="alert" class="break-words text-workspace-chrome text-(--solus-status-error)">{hostState.writeError}</p>
-              {/if}
-              {#if isExpanded}
-                {@render tools(integration)}
-              {/if}
-            </div>
-          {/snippet}
-        </SettingsRow>
+      {#each visibleInstalled as integration (integration.id)}
+        <McpServerRow
+          {serverId}
+          {hostLabel}
+          {integration}
+          isExpanded={expanded.has(integration.id)}
+          onToggle={() => toggle(integration.id)}
+          onRemoved={() => removed(integration)}
+        />
       {/each}
     </SettingsSection>
 
-    <SettingsSection label="Add integration" description="Search the integrations.sh catalog, or type the address of an MCP server.">
-      {#if flow.draft}
-        {@const outcome = flow.outcome}
-        <div class="flex flex-col gap-3 p-4">
-          <div class="flex flex-wrap items-center gap-2">
-            <Input bind:value={flow.draft.name} aria-label="Integration name" class="h-8 max-w-xs flex-1 text-workspace-chrome" />
-            <span class="min-w-0 truncate text-chrome-dense text-muted-foreground" title={flow.draft.url}>{flow.draft.url}</span>
-          </div>
-          {#if flow.probe.kind === "checking"}
-            <p role="status" class="flex items-center gap-2 text-workspace-chrome text-muted-foreground"><LoaderCircle size={14} class="animate-spin motion-reduce:animate-none" />Checking {urlHost(flow.draft.url)}…</p>
-          {:else if flow.probe.kind === "failed"}
-            <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{flow.probe.error}</p>
-          {:else if outcome}
-            <p role="status" class="text-workspace-chrome {outcome.canAdd ? 'text-foreground' : 'text-(--solus-status-error)'}">{outcome.message}</p>
-          {/if}
-          {#if hostState.writeError && !renamingId && !confirmRemoveId}
-            <p role="alert" class="break-words text-workspace-chrome text-(--solus-status-error)">{hostState.writeError}</p>
-          {/if}
-          <div class="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={add} disabled={!flow.canAdd || isBusy || isOffline}>{isBusy ? "Adding…" : "Add"}</Button>
-            {#if flow.probe.kind === "failed" || outcome?.canRetry}
-              <Button variant="ghost" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => flow.runProbe()} disabled={isOffline}>Retry</Button>
-            {/if}
-            <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" onclick={async () => { flow.reset(); await tick(); searchEl?.focus(); }}>Cancel</Button>
-          </div>
-        </div>
-      {:else}
-        <div class="flex items-center gap-2 px-4 py-2.5">
-          <Search size={14} class="shrink-0 text-(--solus-text-tertiary)" />
-          <Input
-            bind:ref={searchEl}
-            bind:value={() => flow.query, (value) => flow.setQuery(value)}
-            placeholder="Search the catalog…"
-            aria-label="Search the integrations catalog"
-            role="combobox"
-            aria-expanded={flow.results.length > 0}
-            aria-controls="integration-catalog-results"
-            aria-activedescendant={flow.activeIndex >= 0 ? `integration-result-${flow.activeIndex}` : undefined}
-            disabled={isOffline}
-            onkeydown={onSearchKeydown}
-            class="h-auto min-h-7 rounded-none border-0 bg-transparent p-0 text-workspace-chrome shadow-none focus-visible:ring-0 dark:bg-transparent"
-          />
-        </div>
-        {#if flow.query.trim()}
-          {#if flow.searchError}
-            <div class="flex flex-wrap items-center justify-between gap-3 p-4">
-              <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{flow.searchError}</p>
-              <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => flow.search()}>Retry</Button>
-            </div>
-          {:else if flow.searching}
-            {@render statusLine("Searching the catalog…")}
-          {:else if flow.results.length === 0}
-            <p class="p-6 text-center text-workspace-chrome text-muted-foreground">Nothing in the catalog matches “{flow.searchedQuery}”.</p>
-          {:else}
-            <ul id="integration-catalog-results" role="listbox" aria-label="Catalog results" class="flex flex-col py-1">
-              {#each flow.results as entry, index (entry.id)}
-                <li
-                  id="integration-result-{index}"
-                  role="option"
-                  tabindex="-1"
-                  aria-selected={index === flow.activeIndex}
-                  class="flex cursor-pointer items-start gap-3 px-4 py-2 pointer-coarse:min-h-11 {index === flow.activeIndex ? 'bg-muted' : 'hover:bg-muted'}"
-                  onpointermove={() => { flow.activeIndex = index; }}
-                  onclick={() => flow.selectEntry(entry)}
-                  onkeydown={(event) => { if (event.key === "Enter") flow.selectEntry(entry); }}
-                >
-                  {#if entry.icon}
-                    <img src={entry.icon} alt="" loading="lazy" referrerpolicy="no-referrer" class="mt-0.5 size-5 shrink-0 rounded-md bg-muted object-contain" />
-                  {:else}
-                    <span class="mt-0.5 grid size-5 shrink-0 place-items-center rounded-md bg-muted text-[11px] font-medium text-muted-foreground" aria-hidden="true">{entry.name.slice(0, 1).toUpperCase()}</span>
-                  {/if}
-                  <div class="min-w-0 flex-1">
-                    <div class="flex min-w-0 items-baseline gap-2">
-                      <span class="truncate text-workspace-chrome font-medium text-foreground">{entry.name}</span>
-                      <span class="shrink-0 truncate text-chrome-dense text-muted-foreground">{entry.domain}</span>
-                    </div>
-                    {#if entry.description}
-                      <p class="line-clamp-2 text-chrome-dense text-(--solus-text-secondary)">{entry.description}</p>
-                    {/if}
-                  </div>
-                </li>
-              {/each}
-            </ul>
-          {/if}
+    <SettingsSection label="Catalog" description="MCP servers from integrations.sh. Add one, then sign in if it asks." plain>
+      {#snippet action()}
+        <!-- The count of the last answer stays while a search runs, so the heading does not flicker. -->
+        {#if !catalog.error && (!catalog.loading || catalog.entries.length > 0)}
+          <span class="text-chrome-dense tabular-nums text-muted-foreground">{catalogCountText(catalog.total)}</span>
         {/if}
-        <form class="flex flex-col gap-2 border-t border-border p-4" onsubmit={(event) => { event.preventDefault(); flow.selectCustomUrl(); }}>
-          <label for="integration-custom-url" class="text-workspace-chrome font-medium text-foreground">Custom URL</label>
-          <div class="flex flex-wrap items-center gap-2">
-            <Input id="integration-custom-url" type="url" bind:value={flow.customUrl} placeholder="https://mcp.example.com/mcp" class="h-8 min-w-0 flex-1 text-workspace-chrome" disabled={isOffline}
-              aria-invalid={flow.customUrlError ? true : undefined} aria-describedby={flow.customUrlError ? "integration-custom-url-error" : undefined} />
-            <Button type="submit" variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline || !flow.customUrl.trim()}>Check</Button>
-          </div>
-          {#if flow.customUrlError}
-            <p id="integration-custom-url-error" role="alert" class="text-chrome-dense text-(--solus-status-error)">{flow.customUrlError}</p>
+      {/snippet}
+      {#if catalog.error}
+        <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border p-4">
+          <p role="alert" class="text-workspace-chrome text-(--solus-status-error)">{catalog.error}</p>
+          <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => catalog.load()}>Retry</Button>
+        </div>
+      {:else if !catalog.loading && catalog.entries.length === 0}
+        <p class="rounded-xl border border-dashed border-border p-6 text-center text-workspace-chrome text-muted-foreground">
+          Nothing in the catalog matches “{catalog.query.trim()}”. Paste the server’s https:// address to add it.
+        </p>
+      {:else}
+        <ul class="grid grid-cols-1 gap-3 transition-opacity motion-reduce:transition-none @min-[36rem]/pane:grid-cols-2 @min-[60rem]/pane:grid-cols-3 {catalog.loading && catalog.entries.length > 0 ? 'opacity-60' : ''}"
+          aria-label="Catalog" aria-busy={catalog.loading || catalog.loadingMore}>
+          {#each catalog.entries as entry (entry.id)}
+            {@render catalogCard(entry)}
+          {/each}
+          {#if catalog.loading && catalog.entries.length === 0}
+            {@render placeholderCards(6)}
+          {:else if catalog.loadingMore}
+            {@render placeholderCards(3)}
           {/if}
-        </form>
+        </ul>
+        {#if catalog.hasMore && !catalog.loading}
+          <!-- Near the end, more load by themselves. Keyed by the count, so the
+               watcher starts again after each load and keeps going while the end stays in view. -->
+          {#key catalog.entries.length}
+            <div class="flex justify-center" use:loadWhenNear>
+              <Button variant="ghost" size="sm" class="text-workspace-chrome text-muted-foreground pointer-coarse:min-h-11" disabled={catalog.loadingMore} onclick={() => catalog.loadMore()}>Show more</Button>
+            </div>
+          {/key}
+        {/if}
       {/if}
     </SettingsSection>
   </div>

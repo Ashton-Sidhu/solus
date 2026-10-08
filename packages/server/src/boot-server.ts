@@ -5,6 +5,7 @@ import { heldPersonToken, useDelegatedTokens, useIntegrationExecutor } from './v
 import { ANY_ORGANIZATION, principalFor, recordScopeOf, scopeAdmits } from './admission/principal'
 import type { ShareResource } from '@solus/contracts/sharing'
 import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
+import { userKey } from '@solus/contracts/user'
 import { workOrganizationId } from './data/works/works'
 import { taskOrganizationId } from './data/tasks/task-store'
 import { SharedPromptRelay, sharedPromptRequestSchema } from './sharing/shared-prompt'
@@ -52,13 +53,16 @@ import { registerIntegrationHandlers } from './transport/handlers/integration-ha
 import { IntegrationStore } from './integrations/integration-store'
 import { IntegrationCatalog } from './integrations/catalog'
 import { IntegrationGateway } from './integrations/gateway'
+import { hostIntegrationSecrets, IntegrationConnectionStore } from './integrations/connection-store'
+import { IntegrationConnections } from './integrations/connections'
+import { IntegrationOAuth, type IntegrationConnectionEvents } from './integrations/oauth'
 import { setIntegrationGateway } from './integrations/integration-tools'
 import { AgentProfileManager, hostProfileHomes } from './execution/seats/agent-profile'
 import { publishPresenceRoom, registerPresenceHandlers } from './transport/handlers/presence-handlers'
 import { PresenceManager } from './presence/presence-manager'
 import { SeatManager, memberHomeDirectory, seatKey } from './execution/seats/seat-manager'
 import { ActingIdentities, useActingIdentities, withActorScope } from './execution/seats/acting-identity'
-import { actorFor, HOST_ACTOR, memberSeat, seatFor } from './admission/actor'
+import { actorFor, credentialUserFor, HOST_ACTOR, memberSeat, seatFor } from './admission/actor'
 import { MemberFolders, useMemberFolders } from './host/member-folders'
 import { setupProjectsRoot } from './workspace'
 import { fetchLogin } from './providers/github/auth'
@@ -681,7 +685,38 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const integrationGateway = new IntegrationGateway(integrations)
   setIntegrationGateway(integrationGateway)
   integrationGateway.onToolsChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'tools' }) })
-  registerIntegrationHandlers(server, { store: integrations, catalog: new IntegrationCatalog(), gateway: integrationGateway, events })
+  integrationGateway.onConnectNeeded((request) => { void events.broadcast('integration.connectNeeded', request) })
+  // A connection is one person's (§4.1): its events go to the clients whose
+  // principal reads that person's credentials. A client with no socket principal
+  // is the desktop's own IPC connection, the local owner.
+  const clientsForCredentialUser = (credentialUserId: string | null): string[] => clientEvents.routableClientIds().filter((clientId) => {
+    const credentialUser = credentialUserFor(actorFor(ws?.principalOf(clientId) ?? principalFor({ kind: 'credential-free' })))
+    return (credentialUser ? userKey(credentialUser) : null) === credentialUserId
+  })
+  const integrationConnectionEvents: IntegrationConnectionEvents = {
+    connectionChanged: (credentialUserId, event) => {
+      // A sign-in or a disconnect changes the header a session must send, and the tools it sees.
+      integrationGateway.invalidate(event.integrationId)
+      if (event.connection?.status === 'connected') void integrationGateway.warmFor(event.integrationId, credentialUserId)
+      void events.publish(clientsForCredentialUser(credentialUserId), 'integration.connectionChanged', event)
+    },
+    authFinished: (credentialUserId, event) => { void events.publish(clientsForCredentialUser(credentialUserId), 'host.integrationAuthFinished', event) },
+  }
+  const integrationConnectionStore = new IntegrationConnectionStore()
+  const integrationOAuth = new IntegrationOAuth({ connections: integrationConnectionStore, integrations, secrets: hostIntegrationSecrets, events: integrationConnectionEvents })
+  const integrationConnections = new IntegrationConnections({ store: integrationConnectionStore, integrations, secrets: hostIntegrationSecrets, oauth: integrationOAuth, events: integrationConnectionEvents })
+  integrationGateway.useCredentials(integrationConnections)
+  registerIntegrationHandlers(server, {
+    store: integrations,
+    catalog: new IntegrationCatalog(),
+    gateway: integrationGateway,
+    events,
+    connectionStore: integrationConnectionStore,
+    connections: integrationConnections,
+    oauth: integrationOAuth,
+    secrets: hostIntegrationSecrets,
+    getServerInfo: () => ({ host, port: actualPort }),
+  })
   withActorScope(HOST_ACTOR, () => {
     for (const integration of integrations.list(ANY_ORGANIZATION)) void integrationGateway.warm(integration.id)
   })
@@ -1089,6 +1124,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       applyMirror: (runner, request) => applyRunnerMirror(runner, request, (sessionId) => events.broadcast('session.transcriptChanged', { sessionId })),
     },
     transcribeAudio: opts.transcribeAudio,
+    completeIntegrationOAuth: (params) => integrationOAuth.complete(params),
   })
   const responseReceiptBudget = new ResponseReceiptBudget()
   // Everyone who can see the resource learns of the change; a removed guest link

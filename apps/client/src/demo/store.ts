@@ -4,6 +4,7 @@ import type {
   Automation,
   AutomationAction,
   AutomationRun,
+  AutomationRunPoint,
   AutomationTrigger,
   FilePreviewResult,
   IpcContext,
@@ -697,6 +698,12 @@ export class DemoStore {
 
   listAutomationRuns(id: string): AutomationRun[] {
     return this.fixtures.automations.runs[id] ?? []
+  }
+
+  recentAutomationRuns(perAutomation: number): AutomationRunPoint[] {
+    return Object.values(this.fixtures.automations.runs).flatMap((runs) =>
+      runs.slice(0, perAutomation).map(({ id, automationId, startedAt, finishedAt, status }) => ({ id, automationId, startedAt, finishedAt, status })),
+    )
   }
 
   readAutomationRun(automationId: string, runId: string): AutomationRun | null {

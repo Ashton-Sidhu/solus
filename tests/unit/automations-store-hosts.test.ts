@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
-import type { Automation } from '@solus/contracts/types'
+import type { Automation, AutomationRun } from '@solus/contracts/types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const connections = singleHostServerConnections()
@@ -51,12 +51,14 @@ describe('AutomationsStore host federation', () => {
     let hostAReads = 0
     let hostBReads = 0
     connections.registerPrimary('host-a', {
+      automationRecentRuns: async () => [],
       automationList: async () => {
         hostAReads++
         return [automation('a', '/same')]
       },
     })
     connections.registerHost('host-b', {
+      automationRecentRuns: async () => [],
       automationList: async () => {
         hostBReads++
         return [automation('b', '/same')]
@@ -76,9 +78,11 @@ describe('AutomationsStore host federation', () => {
   test('unions connected hosts without evicting a host whose list failed', async () => {
     let hostBShouldFail = false
     connections.registerPrimary('host-a', {
+      automationRecentRuns: async () => [],
       automationList: async () => [automation('a', '/same')],
     })
     connections.registerHost('host-b', {
+      automationRecentRuns: async () => [],
       automationList: async () => {
         if (hostBShouldFail) throw new Error('offline')
         return [automation('b', '/same')]
@@ -100,6 +104,7 @@ describe('AutomationsStore host federation', () => {
     const writes: string[] = []
     const owned = automation('remote', '/repo')
     connections.registerPrimary('host-a', {
+      automationRecentRuns: async () => [],
       automationList: async () => [],
       automationUpdate: async () => {
         writes.push('host-a')
@@ -107,6 +112,7 @@ describe('AutomationsStore host federation', () => {
       },
     })
     connections.registerHost('host-b', {
+      automationRecentRuns: async () => [],
       automationList: async () => [owned],
       automationUpdate: async (_id: string, patch: { name?: string }) => {
         writes.push('host-b')
@@ -125,6 +131,7 @@ describe('AutomationsStore host federation', () => {
     const original = automation('scheduled', '/repo')
     let answer!: (items: Automation[]) => void
     connections.registerPrimary('host-a', {
+      automationRecentRuns: async () => [],
       automationList: () => new Promise<Automation[]>(resolve => { answer = resolve }),
     })
     const store = new AutomationsStore()
@@ -150,6 +157,7 @@ describe('AutomationsStore host federation', () => {
     let reads = 0
     const original = automation('watched', '/repo')
     connections.registerPrimary('host-a', {
+      automationRecentRuns: async () => [],
       automationList: async () => { reads++; return [original] },
     })
     const store = new AutomationsStore()
@@ -186,9 +194,11 @@ describe('automations live on execution machines (plan 004, item 2)', () => {
   test('at a Solus Cloud origin the page lists the organization machine, not the Solus API primary', async () => {
     let apiReads = 0
     connections.registerPrimary(SOLUS_API, {
+      automationRecentRuns: async () => [],
       automationList: async () => { apiReads++; return [] },
     })
     connections.registerHost(ORG_MACHINE, {
+      automationRecentRuns: async () => [],
       automationList: async () => [automation('nightly', '/repo')],
     })
     // The Solus API stores no schedules and says so.
@@ -211,9 +221,9 @@ describe('automations live on execution machines (plan 004, item 2)', () => {
   })
 
   test('merges every connected machine and skips one without the automations capability', async () => {
-    connections.registerPrimary('laptop', { automationList: async () => [automation('a', '/one')] })
-    connections.registerHost('desktop', { automationList: async () => [automation('b', '/two')] })
-    connections.registerHost('old', { automationList: async () => [automation('c', '/three')] })
+    connections.registerPrimary('laptop', { automationRecentRuns: async () => [], automationList: async () => [automation('a', '/one')] })
+    connections.registerHost('desktop', { automationRecentRuns: async () => [], automationList: async () => [automation('b', '/two')] })
+    connections.registerHost('old', { automationRecentRuns: async () => [], automationList: async () => [automation('c', '/three')] })
     connections.capabilitiesFor = async (serverId: string) =>
       ({ ...(await defaultCapabilitiesFor()), automations: serverId !== 'old' })
     const store = new AutomationsStore()
@@ -272,5 +282,28 @@ describe('automations live on execution machines (plan 004, item 2)', () => {
     expect(machines.canSaveAutomationTo(starting, '')).toBe(false)
     expect(machines.canSaveAutomationTo([], 'laptop')).toBe(false)
     expect(machines.NO_MACHINE_LABEL).toBe('Choose a machine')
+  })
+})
+
+describe('AutomationsStore run graphs', () => {
+  test('a pushed run lands in the list graph, replaced in place as it finishes and capped to the window', () => {
+    // The list never loads full run history, so its graph must follow the
+    // host's run events, or a run that just finished stays invisible until reload.
+    const store = new AutomationsStore()
+    const nightly = automation('nightly', '/repo')
+    const run = (id: string, status: AutomationRun['status']): AutomationRun => ({
+      id, automationId: 'nightly', startedAt: '2026-10-08T12:00:00.000Z', status, output: 'final text',
+    })
+
+    store.applyChange('laptop', { kind: 'run-started', automation: nightly, run: run('r1', 'running') })
+    store.applyChange('laptop', { kind: 'run-finished', automation: nightly, run: run('r1', 'failed') })
+    expect(store.recentRuns.get('nightly')).toEqual([
+      { id: 'r1', automationId: 'nightly', startedAt: '2026-10-08T12:00:00.000Z', finishedAt: undefined, status: 'failed' },
+    ])
+
+    for (let i = 2; i <= 20; i++) store.applyChange('laptop', { kind: 'run-started', automation: nightly, run: run(`r${i}`, 'running') })
+    const graph = store.recentRuns.get('nightly') ?? []
+    expect(graph).toHaveLength(17)
+    expect(graph[0].id).toBe('r20')
   })
 })

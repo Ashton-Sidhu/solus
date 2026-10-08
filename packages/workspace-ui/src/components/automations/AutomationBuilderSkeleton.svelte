@@ -57,7 +57,7 @@
       </div>
 
       <div
-        class="mt-6 grid grid-cols-[auto_auto_1fr] items-center gap-x-10 gap-y-3.5 rounded-2xl bg-muted/60 px-4.5 py-4 @max-[43.75rem]:grid-cols-1 @max-[43.75rem]:gap-4"
+        class="mt-6 grid grid-cols-[auto_auto_1fr] items-center gap-x-10 gap-y-3.5 border-y border-border/60 py-4 @max-[43.75rem]:grid-cols-1 @max-[43.75rem]:gap-4"
       >
         {#each [0, 1] as column (column)}
           <div class="flex min-w-0 flex-col gap-1">
@@ -66,10 +66,10 @@
           </div>
         {/each}
         <div
-          class="flex min-w-0 flex-col gap-1.5 justify-self-end @max-[43.75rem]:justify-self-start"
+          class="flex min-w-0 flex-col gap-1.5 justify-self-end @max-[43.75rem]:justify-self-stretch"
         >
           <Skeleton class="h-2.5 w-14 rounded-[0.1875rem] opacity-45" />
-          <Skeleton class="h-3.5 w-26 rounded-[0.1875rem] opacity-50" />
+          <Skeleton class="h-10 w-[17rem] max-w-full rounded-[0.1875rem] opacity-50 @max-[43.75rem]:w-full" />
         </div>
       </div>
 

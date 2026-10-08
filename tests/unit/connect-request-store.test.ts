@@ -61,11 +61,36 @@ test('the request carries which account is missing and what it is for', async ()
   })
 
   expect(store.request).toEqual({
+    kind: 'account',
     serverId: 'studio',
     sessionId: 'session-a',
     provider: 'atlassian',
     reason: 'confluence',
   })
+
+  unsubscribe()
+})
+
+test('an integration that needs the caller to sign in raises the same card for its session', async () => {
+  // An integration tool answered CONNECTION_REQUIRED (mcp-integrations.md §4.1
+  // rule 2): the card names the integration, not an account provider.
+  const store = await newStore()
+  const unsubscribe = store.listen()
+
+  mockedServerConnections.emit('studio', 'integration.connectNeeded', {
+    integrationId: 'int-linear',
+    integrationName: 'Linear',
+    sessionId: 'session-a',
+  })
+
+  expect(store.request).toEqual({
+    kind: 'integration',
+    serverId: 'studio',
+    sessionId: 'session-a',
+    integrationId: 'int-linear',
+    integrationName: 'Linear',
+  })
+  expect(store.visibleFor('studio', 'session-b')).toBe(false)
 
   unsubscribe()
 })

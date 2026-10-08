@@ -12,6 +12,7 @@ import type {
   Automation,
   AutomationAction,
   AutomationRun,
+  AutomationRunPoint,
   AutomationsChangedEvent,
   AutomationTrigger,
 } from '@solus/contracts/types'
@@ -512,6 +513,29 @@ export async function listRuns(id: string): Promise<AutomationRun[]> {
     ORDER BY started_at DESC, rowid DESC
   `).all(id))
   return rows.map(runFromRow)
+}
+
+const runPointRowSchema = automationRunRowSchema.pick({ id: true, automation_id: true, started_at: true, finished_at: true, status: true })
+
+/** The newest `perAutomation` runs of every automation, newest first within
+ *  each — the list's run graphs. Output and run data stay on disk. */
+export async function listRecentRuns(perAutomation: number): Promise<AutomationRunPoint[]> {
+  const rows = runPointRowSchema.array().parse(database().prepare(`
+    SELECT id, automation_id, started_at, finished_at, status
+    FROM (
+      SELECT *, ROW_NUMBER() OVER (PARTITION BY automation_id ORDER BY started_at DESC, rowid DESC) AS recency
+      FROM automation_runs
+    )
+    WHERE recency <= ?
+    ORDER BY automation_id, recency
+  `).all(Math.max(0, Math.floor(perAutomation))))
+  return rows.map((row) => ({
+    id: row.id,
+    automationId: row.automation_id,
+    startedAt: isoTime(row.started_at),
+    status: row.status,
+    ...(row.finished_at === null ? {} : { finishedAt: isoTime(row.finished_at) }),
+  }))
 }
 
 /** Record a fresh run in the 'running' state and stamp it on the automation. */

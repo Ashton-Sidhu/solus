@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   /** Hosts is two pages: the list of hosts, and one host. Everything about how
    *  one host is reached — its network, pairing, devices, and Solus Cloud link —
    *  is on that host's page, so the list stays a list. */
@@ -17,7 +18,7 @@
   $effect(() => {
     const targetServerId = host?.id;
     if (!targetServerId) return;
-    void connectionsStore.refreshServerMetadata(targetServerId);
+    untrack(() => { void connectionsStore.refreshServerMetadata(targetServerId); });
     const interval = setInterval(
       () => void connectionsStore.refreshServerMetadata(targetServerId),
       5000,

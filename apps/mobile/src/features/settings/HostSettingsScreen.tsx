@@ -103,11 +103,11 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
               />
             </SettingsSection>
 
-            <SettingsSection title="Integrations">
+            <SettingsSection title="MCP">
               <SettingsRow
                 icon="point.3.connected.trianglepath.dotted"
-                label="Integrations"
-                value="Remote MCP servers"
+                label="MCP"
+                value="MCP servers"
                 onPress={() => navigation.navigate("Integrations", { hostId })}
               />
             </SettingsSection>

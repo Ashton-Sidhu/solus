@@ -11,6 +11,7 @@ import { getDb, withTx } from '../db'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
 import { resolveProjectKey, resolveProjectRoot } from './project-config'
+import { setupProjectsRoot } from '../workspace'
 import { z } from 'zod'
 
 const log = createLogger('main', 'projects-manifest')
@@ -75,8 +76,11 @@ async function readManifest(): Promise<ManifestProject[]> {
 /** Whether a session in this path belongs to no project: the home placeholder,
  *  a chat, or a delegated remote-dispatch checkout (host-internal, kept out of
  *  the list the same way recents excludes it). */
+/** No folder, a chat, a dispatch clone, or the projects root: the folder that
+ *  holds the host's projects and chats is never a project of its own. */
 function isOutsideProjects(cwd: string): boolean {
   return !cwd || cwd === '~' || isChat(cwd) || isRemoteDispatchCheckoutPath(cwd)
+    || path.resolve(cwd) === path.resolve(setupProjectsRoot())
 }
 
 /** Add the project of a folder to the list (docs/plans/project-model.md §2).
@@ -139,13 +143,13 @@ export async function untrackProject(projectPath: string): Promise<void> {
 /** All known projects, most recently used first. Drops entries whose folder no longer exists. */
 export async function listProjects(): Promise<ManifestProject[]> {
   const manifest = await readManifest()
-  const present = manifest.filter((project) => existsSync(project.path))
+  const present = manifest.filter((project) => existsSync(project.path) && !isOutsideProjects(project.path))
   if (present.length !== manifest.length) {
     try {
       const remove = getDb().prepare('DELETE FROM projects WHERE key = ?')
       withTx(() => {
         for (const project of manifest) {
-          if (!existsSync(project.path)) remove.run(project.key)
+          if (!existsSync(project.path) || isOutsideProjects(project.path)) remove.run(project.key)
         }
       })
     } catch (err) {

@@ -1,6 +1,9 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, spyOn, test } from 'bun:test'
+import { asHostApi } from '@solus/client-core/host-api'
+import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
+import { serverConnections } from '@solus/client-core/server-connections'
 import { CheckoutStore } from '@solus/workspace-ui/contexts/git/checkout.store.svelte'
-import type { CheckoutChange, CheckoutState } from '@solus/contracts/checkout'
+import type { CheckoutChange, CheckoutSnapshot, CheckoutState } from '@solus/contracts/checkout'
 import { browserPageForCheckout } from '@solus/contracts/browser-checkout'
 import { defaultViewport, type BrowserPage } from '@solus/contracts/browser-types'
 
@@ -12,6 +15,75 @@ function change(branch: string | null, revision: number, generation = 'host-boot
 }
 
 describe('checkout identity projection', () => {
+  test('a selected path reuses the host snapshot already in progress', async () => {
+    const store = new CheckoutStore()
+    let finish!: (snapshot: CheckoutSnapshot) => void
+    let calls = 0
+    const api = spyOn(serverConnections, 'apiFor').mockReturnValue(asHostApi({
+      checkoutSnapshot: () => {
+        calls++
+        return new Promise<CheckoutSnapshot>((resolve) => { finish = resolve })
+      },
+    }))
+    try {
+      const recovery = store.refresh('host-a')
+      const selected = store.ensure('host-a', cwd)
+      expect(calls).toBe(1)
+      finish({ generation: 'host-boot-1', revision: 1, states: [change('main', 1).state] })
+      await Promise.all([recovery, selected])
+      expect(calls).toBe(1)
+      expect(store.get('host-a', cwd)?.checkout?.branch).toBe('main')
+    } finally { api.mockRestore() }
+  })
+
+  test('startup recovery includes restored paths before the host has any checkout state', async () => {
+    const store = new CheckoutStore()
+    const calls: Array<string[] | undefined> = []
+    let finish!: (snapshot: CheckoutSnapshot) => void
+    const events = new HostEventSubscriber()
+    const spies = [
+      spyOn(serverConnections, 'apiFor').mockReturnValue(asHostApi({ checkoutSnapshot: (paths) => {
+        calls.push(paths)
+        return new Promise<CheckoutSnapshot>((resolve) => { finish = resolve })
+      } })),
+      spyOn(serverConnections, 'connectedServerIds').mockReturnValue(['host-a']),
+      spyOn(serverConnections, 'eventsFor').mockReturnValue(events),
+      spyOn(serverConnections, 'onConnectionCreated').mockReturnValue(() => {}),
+      spyOn(serverConnections, 'onStatusChange').mockReturnValue(() => {}),
+    ]
+    const stop = store.subscribe(() => [cwd, cwd])
+    try {
+      const selected = store.ensure('host-a', cwd)
+      expect(calls).toEqual([[cwd]])
+      finish({ generation: 'host-boot-1', revision: 1, states: [change('main', 1).state] })
+      await selected
+      expect(calls).toEqual([[cwd]])
+      expect(store.get('host-a', cwd)?.checkout?.branch).toBe('main')
+    } finally { stop(); for (const spy of spies) spy.mockRestore() }
+  })
+
+  test('a path missing from the host snapshot still gets its own read', async () => {
+    const store = new CheckoutStore()
+    let finish!: (snapshot: CheckoutSnapshot) => void
+    const calls: Array<string[] | undefined> = []
+    const api = spyOn(serverConnections, 'apiFor').mockReturnValue(asHostApi({
+      checkoutSnapshot: (paths) => {
+        calls.push(paths)
+        return calls.length === 1
+          ? new Promise<CheckoutSnapshot>((resolve) => { finish = resolve })
+          : Promise.resolve({ generation: 'host-boot-1', revision: 1, states: [change('main', 1).state] })
+      },
+    }))
+    try {
+      const recovery = store.refresh('host-a')
+      const selected = store.ensure('host-a', cwd)
+      finish({ generation: 'host-boot-1', revision: 0, states: [] })
+      await Promise.all([recovery, selected])
+      expect(calls).toEqual([[], [cwd]])
+      expect(store.get('host-a', cwd)?.checkout?.branch).toBe('main')
+    } finally { api.mockRestore() }
+  })
+
   test('late snapshots cannot replace a rename and another host stays separate', () => {
     const store = new CheckoutStore()
     store.apply('host-a', change('solus/fix-layout', 2))

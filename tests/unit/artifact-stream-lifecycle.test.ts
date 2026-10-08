@@ -37,6 +37,23 @@ test('interleaved artifact calls retain their own preview and completion', async
   expect(messages).toHaveLength(2)
 })
 
+test('a preview call leaves no card, wherever its preview flag comes in the input', async () => {
+  // WHY: a preview is the agent's own check. The server renders nothing in the
+  // conversation for it, so a card would show a draft the user never gets.
+  const { tracker, session, messages } = await fixture()
+  tracker.beginToolArtifacts(session, 'mcp__solus__render_artifact', 'claude-code', 'first')
+  tracker.updateStreamingArtifact(session, 'mcp__solus__render_artifact', '{"preview":true,"html":"<body>Draft', 'first')
+  expect(messages).toHaveLength(0)
+  tracker.beginToolArtifacts(session, 'render_artifact', 'codex', 'last')
+  tracker.updateStreamingArtifact(session, 'render_artifact', '{"html":"<body>Draft</body>"', 'last')
+  expect(messages[0].artifact?.streaming).toBe(true)
+  tracker.updateStreamingArtifact(session, 'render_artifact', '{"html":"<body>Draft</body>","preview": true}', 'last')
+  expect(messages).toHaveLength(0)
+  tracker.beginToolArtifacts(session, 'render_artifact', 'codex', 'real')
+  tracker.updateStreamingArtifact(session, 'render_artifact', '{"html":"<body><script>x = {\\"preview\\":true}</script>', 'real')
+  expect(messages[0].artifact?.streaming).toBe(true)
+})
+
 test('a failed call cannot take a later call or an unrelated image', async () => {
   const { tracker, session, messages } = await fixture()
   tracker.beginToolArtifacts(session, 'render_artifact', 'claude-code', 'failed')

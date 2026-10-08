@@ -1,3 +1,4 @@
+import { SessionPullRequestReader } from '@solus/client-core/session-pull-request-reader'
 import { SvelteMap } from 'svelte/reactivity'
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from '@solus/contracts/session-pull-requests'
 import type { TaskSidebarPrLink } from '@solus/contracts/task-types'
@@ -15,6 +16,7 @@ export class SessionPullRequestsStore {
   private linksBySession = new SvelteMap<string, SessionPullRequestLink[]>()
   /** The sessions each host last answered for, so a reload drops what is gone. */
   private sessionIdsByServer = new Map<string, Set<string>>()
+  private readonly readers = new WeakMap<ReturnType<typeof serverConnections.apiFor>, SessionPullRequestReader>()
   private watchedServerIds = new Set<string>()
 
   /** Read every connected host's links. A host that fails the read keeps the
@@ -47,18 +49,20 @@ export class SessionPullRequestsStore {
   }
 
   private async refresh(serverId: string, sessionId: string): Promise<void> {
-    const answer = await serverConnections.apiFor(serverId).sessionPullRequestsList([sessionId]).catch(() => null)
-    if (!answer) return
+    const api = serverConnections.apiFor(serverId)
+    let reader = this.readers.get(api)
+    if (!reader) {
+      reader = new SessionPullRequestReader(api)
+      this.readers.set(api, reader)
+    }
+    const answer = await reader.read(sessionId).catch(() => null)
+    if (!answer || serverConnections.apiFor(serverId) !== api) return
     const known = this.sessionIdsByServer.get(serverId) ?? new Set<string>()
     this.sessionIdsByServer.set(serverId, known)
     // The host answers under the stable id, which the event may not name.
-    const answered = Object.entries(answer)
-    if (!answered.length) {
-      this.linksBySession.delete(sessionId)
-      known.delete(sessionId)
-      return
-    }
-    for (const [sessionId, links] of answered) {
+    this.linksBySession.delete(sessionId)
+    known.delete(sessionId)
+    for (const [sessionId, links] of Object.entries(answer)) {
       this.linksBySession.set(sessionId, links)
       known.add(sessionId)
     }

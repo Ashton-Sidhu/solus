@@ -67,7 +67,7 @@
   import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
   import { afterPaint } from "@solus/workspace-ui/lib/after-paint";
   const commandPaletteComponent = afterPaint().then(() => import("@solus/workspace-ui/components/command-palette/CommandPalette.svelte"));
-  import { activeSessionShareTarget, listenForProjectDirectory, presenceStore, projectsStore, seatsStore, sharesStore, uplinkStore } from "@solus/workspace-ui/contexts";
+  import { activeSessionShareTarget, connectRequestStore, listenForProjectDirectory, presenceStore, projectsStore, seatsStore, sharesStore, uplinkStore } from "@solus/workspace-ui/contexts";
   import type { Command } from "@solus/workspace-ui/components/command-palette/lib/commands";
   import { newChatCommand } from "@solus/workspace-ui/components/command-palette/lib/new-chat-command";
   import { openChatDraft } from "@solus/workspace-ui/contexts/workspace/new-chat";
@@ -191,16 +191,6 @@
     };
   });
 
-  // Slash command discovery is backend-scoped, so refresh when the active agent changes.
-  // Keep the whole refresh outside tracking: the command loader reads more session
-  // state synchronously before its first await, but only an agent change belongs here.
-  $effect(() => {
-    void settings.activeAgent;
-    untrack(() =>
-      void session.lifecycle.refreshPluginCommands(session.tabCtx.workingDirectory),
-    );
-  });
-
   setupAgentEvents(session);
 
   let overlayEl: HTMLElement | null = $state(null);
@@ -249,7 +239,7 @@
 
   // Host listeners belong to the lifetime of this app, not to state that a
   // listener callback or an initial loader happens to read synchronously.
-  $effect(() =>
+  onMount(() =>
     untrack(() => {
       const unsubSessionStatuses = sessionSidebarStore.subscribeSessionStatuses();
       const unsubProjectDirectory = listenForProjectDirectory();
@@ -269,6 +259,10 @@
       // A member's provider seat changes on the host, at a turn's end or in the
       // browser; the settings row and the connect card both read the store.
       const unsubSeats = seatsStore.listen();
+      // An agent can need an account or an integration sign-in before any
+      // surface that would show its status has been opened, so the request is
+      // heard app-wide, not by the card.
+      const unsubConnectRequests = connectRequestStore.listen();
       // Who else is on each host, and what they are looking at; the rooms arrive
       // as snapshots and every presence surface reads the one store.
       const unsubPresence = presenceStore.listen();
@@ -288,6 +282,7 @@
         unsubAutomations();
         unsubWorkReviews();
         unsubSeats();
+        unsubConnectRequests();
         unsubPresence();
         unsubUplink();
         browserStore.onSurfaceRequested = null;
@@ -305,10 +300,10 @@
   $effect(() => presenceStore.syncFollow(session));
 
   // The notifications hub reads every source once for the page and the badge (plan 015).
-  $effect(() => untrack(() => notificationHubStore.start()));
+  onMount(() => notificationHubStore.start());
 
-  $effect(() => {
-    return untrack(() => notificationsStore.start({
+  onMount(() => {
+    return notificationsStore.start({
       preferences: () => settings.notifications,
       hostDisplay: (serverId) => {
         const host = serversStore.hostFor(serverId);
@@ -329,7 +324,7 @@
         const route = parseRoute(serialized);
         if (route) session.openRoute(route);
       },
-    }));
+    });
   });
 
   // A notification click arrives as a serialized route — the same vocabulary the

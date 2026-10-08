@@ -21,6 +21,7 @@ export function registerAutomationsHandlers(backend: DemoServer, store: DemoStor
   // The demo has no host to probe, so no session has a watch.
   backend.register('automationRead', (args) => store.readAutomation(arg<string>(args, 0)))
   backend.register('automationListRuns', (args) => store.listAutomationRuns(arg<string>(args, 0)))
+  backend.register('automationRecentRuns', (args) => store.recentAutomationRuns(arg<number>(args, 0)))
   backend.register('automationReadRun', (args) => store.readAutomationRun(arg<string>(args, 0), arg<string>(args, 1)))
   backend.register('automationSetEnabled', (args) => {
     const automation = store.updateAutomation(arg<string>(args, 0), { enabled: arg<boolean>(args, 1) })

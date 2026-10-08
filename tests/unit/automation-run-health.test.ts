@@ -32,9 +32,34 @@ describe('runHealth', () => {
       run('d', 10, 'cancelled'),
       run('e', 10, 'running'),
     ]
-    const { clean, total, bars } = runHealth(runs)
-    expect({ clean, total }).toEqual({ clean: 2, total: 5 })
-    expect(bars.filter((b) => b.failed).map((b) => b.id)).toEqual(['c'])
+    const { clean, total, successRate } = runHealth(runs)
+    expect({ clean, total, successRate }).toEqual({ clean: 2, total: 5, successRate: 40 })
+  })
+
+  test('colours each bar by how its run ended', () => {
+    // A failure has to stand out from the cancelled and in-flight runs beside
+    // it, or the graph hides the one thing a reader scans it for.
+    const { bars } = runHealth([
+      run('running', 10, 'running'),
+      run('cancelled', 10, 'cancelled'),
+      run('failed', 10, 'failed'),
+      run('succeeded', 10, 'succeeded'),
+    ])
+    expect(bars.map((b) => [b.id, b.tone])).toEqual([
+      ['succeeded', 'success'],
+      ['failed', 'error'],
+      ['cancelled', 'cancelled'],
+      ['running', 'running'],
+    ])
+  })
+
+  test('colours the success rate as healthy, mixed, or poor', () => {
+    // One failure in a full window is noise; a third failing is a pattern.
+    const window = (failures: number) =>
+      runHealth(Array.from({ length: 17 }, (_, i) => run(`r${i}`, 10, i < failures ? 'failed' : 'succeeded')))
+    expect(window(1).rateTone).toBe('good')
+    expect(window(4).rateTone).toBe('mixed')
+    expect(window(6).rateTone).toBe('poor')
   })
 
   test('scales bars against the longest run and floors the short ones', () => {

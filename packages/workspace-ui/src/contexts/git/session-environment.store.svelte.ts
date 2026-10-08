@@ -301,9 +301,12 @@ export class SessionEnvironmentStore {
       ? this.liveFacets(workspace, serverId, cwd, run?.gitContext ?? null)
       : NO_LIVE_FACETS
 
+    const needsDetails = level !== 'status' && (!reused.details || (level === 'full' && !reused.refs))
     const resolved = await this.resolveSessionStartTarget(serverId, cwd, {
       force: opts.force,
       reuseKnownStatus: reused.status,
+      details: needsDetails,
+      refs: level === 'full' && !reused.refs,
       worktreePath,
       worktreeRequested,
       fallbackGitContext: run?.gitContext ?? null,
@@ -341,9 +344,9 @@ export class SessionEnvironmentStore {
 
     // A full refresh asks for refs on the same round trip as the details. A
     // reused checkout skips each facet another source has already read.
-    const detailsOutcome: GitStatusOutcome = level === 'status' || reused.details
+    const detailsOutcome: GitStatusOutcome = !needsDetails
       ? { ok: true }
-      : await this.refreshStatusForHost(serverId, cwd, { force: true, details: true, bypassCache: true, refs: level === 'full' && !reused.refs })
+      : resolved.statusOutcome
     const currentStatus = this.statusForHost(serverId, cwd)
     const projectRoot = currentStatus?.repoRoot ?? gitContext?.repoRoot
     // A host that predates refs-with-status answers without them; scan separately.
@@ -479,14 +482,22 @@ export class SessionEnvironmentStore {
     options: {
       force?: boolean
       reuseKnownStatus?: boolean
+      details: boolean
+      refs: boolean
       worktreePath?: string
       worktreeRequested: boolean
       fallbackGitContext?: GitCheckout | null
     },
-  ): Promise<{ target: SessionStartTarget | null; error?: string }> {
-    if (!options.reuseKnownStatus) {
-      const statusOutcome = await this.refreshStatusForHost(serverId, workingDirectory, { force: options.force ?? true })
-      if (!statusOutcome.ok) return { target: null, error: statusOutcome.error }
+  ): Promise<{ target: SessionStartTarget | null; statusOutcome: GitStatusOutcome; error?: string }> {
+    let statusOutcome: GitStatusOutcome = { ok: true }
+    if (!options.reuseKnownStatus || options.details) {
+      statusOutcome = await this.refreshStatusForHost(serverId, workingDirectory, {
+        force: options.force ?? true,
+        details: options.details,
+        refs: options.refs,
+        bypassCache: options.details,
+      })
+      if (!statusOutcome.ok) return { target: null, statusOutcome, error: statusOutcome.error }
     }
 
     await this.checkouts.ensure(serverId, workingDirectory)
@@ -497,6 +508,7 @@ export class SessionEnvironmentStore {
     const gitContext = this.checkouts.resolve(serverId, workingDirectory, detected
       ?? (status && options.worktreePath ? options.fallbackGitContext ?? null : null))
     return {
+      statusOutcome,
       target: {
         workingDirectory,
         gitContext,
@@ -516,10 +528,14 @@ export class SessionEnvironmentStore {
    * a broader read; a forced refresh must run after any pending exact read. */
   private pendingStatusRead(key: string, level: 'summary' | 'details' | 'details+refs', force: boolean): Promise<GitStatusOutcome> | undefined {
     const exact = this.inflight.get(`${key}\0${level}`)
-    if (exact || force || level === 'details+refs') return exact
     const full = this.inflight.get(`${key}\0details+refs`)
+    const details = this.inflight.get(`${key}\0details`)
+    // Any earlier scan can carry pre-mutation summary fields. A forced read
+    // waits for it even when the new request asks for a different detail level.
+    if (force) return exact ?? full ?? details ?? this.inflight.get(`${key}\0summary`)
+    if (exact || level === 'details+refs') return exact
     if (full || level === 'details') return full
-    return this.inflight.get(`${key}\0details`)
+    return details
   }
 
   /** Status/details scan that also carries the failure reason, for callers that
@@ -539,7 +555,7 @@ export class SessionEnvironmentStore {
     const now = Date.now()
     const refreshTimes = includeDetails ? this.detailsLastRefresh : this.lastRefresh
     const last = refreshTimes.get(key) ?? 0
-    if (!opts.force && now - last < 2_000) return { ok: true }
+    if (!opts.force && !includeRefs && now - last < 2_000) return { ok: true }
     // The host pushes a watched checkout's status, so the cache already holds it.
     if (!opts.force && !includeDetails && this.isLive(serverId, cwd)) return { ok: true }
     const level = includeRefs ? 'details+refs' : includeDetails ? 'details' : 'summary'
@@ -650,31 +666,12 @@ export class SessionEnvironmentStore {
   private applyStatus(serverId: string, cwd: string, status: GitState | null, includeDetails: boolean): boolean {
     const key = hostKey(serverId, cwd)
     const current = this.byCwd[key]
-    if (includeDetails) {
-      // The Environment panel can be the first consumer for a cwd. Its detail
-      // request must establish the terminal non-repository state instead of
-      // leaving the panel on its `undefined` (loading) sentinel forever.
-      if (!status) {
-        if (current === undefined) this.byCwd[key] = null
-        return true
-      }
-      if (current === null) return false
-      if (current && (current.repoRoot !== status.repoRoot || current.branch !== status.branch)) return false
-      const next = current
-        ? {
-            ...current,
-            branchChanges: status.branchChanges,
-            targetAheadCount: status.targetAheadCount,
-            prUrl: status.prUrl,
-          }
-        : status
-      if (JSON.stringify(current) !== JSON.stringify(next)) this.byCwd[key] = next
-      return true
-    }
-    const next = this.statusWithVisibleDetails(serverId, cwd, status)
-    if (JSON.stringify(this.byCwd[key]) === JSON.stringify(next)) return true
+    // A details answer includes the summary too. Watcher versions reject older
+    // answers before this method, so a current full answer updates every field.
+    const next = includeDetails ? status : this.statusWithVisibleDetails(serverId, cwd, status)
+    if (JSON.stringify(current) === JSON.stringify(next)) return true
     this.byCwd[key] = next
-    this.onStatusChanged(serverId, cwd)
+    if (!includeDetails) this.onStatusChanged(serverId, cwd)
     return true
   }
 

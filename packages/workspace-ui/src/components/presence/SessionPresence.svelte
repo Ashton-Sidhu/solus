@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { accountStore } from "../../contexts/account/account.store.svelte";
   import { Users as UsersIcon } from "@lucide/svelte";
   import { userKey } from "@solus/contracts/user";
@@ -30,7 +31,8 @@
   let { serverId, sessionId, title, size = 18, class: className = "" }: Props = $props();
 
   $effect(() => {
-    if (serverId) void presenceStore.ensure(serverId);
+    const hostId = serverId;
+    if (hostId) untrack(() => { void presenceStore.ensure(hostId); });
   });
 
   const people = $derived(serverId && sessionId ? presenceStore.sessionPeople(serverId, sessionId) : []);

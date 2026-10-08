@@ -143,6 +143,7 @@ class ServersStore {
   private connectionsTracked = false
   private discoveryTimer: ReturnType<typeof setInterval> | null = null
   private scanInFlight = false
+  private lastDiscoveryScanAt = 0
   private lastHostProbeAt = 0
   private readonly announcedDiscoveredInstallationIds = new Set<string>()
 
@@ -602,8 +603,8 @@ class ServersStore {
     requestInputFocus()
   }
 
-  async scanForServers(): Promise<{ newServers: number } | { error: string } | null> {
-    if (this.scanInFlight) return null
+  async scanForServers(opts: { onlyIfStale?: boolean } = {}): Promise<{ newServers: number } | { error: string } | null> {
+    if (this.scanInFlight || (opts.onlyIfStale && Date.now() - this.lastDiscoveryScanAt < DISCOVERY_INTERVAL_MS)) return null
     this.scanInFlight = true
     this.discoveryBusy = true
     try {
@@ -636,6 +637,7 @@ class ServersStore {
         if (!mergedInstallationIds.has(installationId)) this.nearby.delete(installationId)
       }
       this.showDiscoveryToast(filtered)
+      this.lastDiscoveryScanAt = Date.now()
       return { newServers: merged.length }
     } catch (err) {
       return { error: err instanceof Error ? err.message : String(err) }
@@ -864,18 +866,21 @@ class ServersStore {
   }
 
   private updateAutoDiscovery(): void {
-    if (this.discoveryTimer) {
-      clearInterval(this.discoveryTimer)
+    if (!this.shouldAutoDiscover()) {
+      if (this.discoveryTimer) clearInterval(this.discoveryTimer)
       this.discoveryTimer = null
+      return
     }
-    if (!this.shouldAutoDiscover()) return
-    void this.scanForServers()
+    // Focus, visibility, and connection events can name the same active window.
+    // They must not restart its timer or repeat a recent successful scan.
+    if (this.discoveryTimer) return
+    void this.scanForServers({ onlyIfStale: true })
     this.discoveryTimer = setInterval(() => {
       if (!this.shouldAutoDiscover()) {
         this.updateAutoDiscovery()
         return
       }
-      void this.scanForServers()
+      void this.scanForServers({ onlyIfStale: true })
     }, DISCOVERY_INTERVAL_MS)
   }
 

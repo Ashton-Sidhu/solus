@@ -13,6 +13,8 @@ export class CheckoutStore {
   private retired = new Map<string, Set<string>>()
   private requests = new Map<string, number>()
   private pending = new Map<string, Promise<void>>()
+  private recoveries = new Map<string, Promise<void>>()
+  private pathsForHost: (serverId: string) => string[] = () => []
 
   get(serverId: string, cwd: string): CheckoutState | undefined {
     return this.states.get(hostKey(serverId, cwd))
@@ -34,15 +36,28 @@ export class CheckoutStore {
   }
 
   async refresh(serverId: string, paths?: string[]): Promise<void> {
+    const recovery = !paths ? this.recoveries.get(serverId) : undefined
+    if (recovery) return recovery
     const request = this.requests.get(serverId) ?? 0
-    const requestedPaths = paths ?? [...this.states.keys()].map(splitHostKey).filter((key) => key.serverId === serverId).map((key) => key.path)
-    const snapshot = await serverConnections.apiFor(serverId).checkoutSnapshot(requestedPaths)
-    if ((this.requests.get(serverId) ?? 0) !== request) return
-    this.applySnapshot(serverId, snapshot)
+    const knownPaths = [...this.states.keys()].map(splitHostKey)
+      .filter((key) => key.serverId === serverId).map((key) => key.path)
+    const requestedPaths = paths ?? [...new Set([...knownPaths, ...this.pathsForHost(serverId)])]
+    const result = serverConnections.apiFor(serverId).checkoutSnapshot(requestedPaths).then((snapshot) => {
+      if ((this.requests.get(serverId) ?? 0) !== request) return
+      this.applySnapshot(serverId, snapshot)
+    }).finally(() => {
+      if (this.recoveries.get(serverId) === result) this.recoveries.delete(serverId)
+    })
+    if (!paths) this.recoveries.set(serverId, result)
+    await result
   }
 
-  ensure(serverId: string, cwd: string): Promise<void> {
-    if (!cwd || cwd === '~' || this.get(serverId, cwd)) return Promise.resolve()
+  async ensure(serverId: string, cwd: string): Promise<void> {
+    if (!cwd || cwd === '~' || this.get(serverId, cwd)) return
+    // The initial host snapshot may already contain this path. Wait for it
+    // before requesting the same identity again; a missing path still loads.
+    await this.recoveries.get(serverId)?.catch(() => {})
+    if (this.get(serverId, cwd)) return
     const key = hostKey(serverId, cwd)
     const existing = this.pending.get(key)
     if (existing) return existing
@@ -51,7 +66,8 @@ export class CheckoutStore {
     return pending
   }
 
-  subscribe(): () => void {
+  subscribe(pathsForHost: (serverId: string) => string[] = () => []): () => void {
+    this.pathsForHost = pathsForHost
     const recover = (serverId: string) => {
       void this.refresh(serverId).catch(() => {})
     }
@@ -59,6 +75,7 @@ export class CheckoutStore {
     const stopConnections = serverConnections.onStatusChange((serverId, status) => {
       // Invalidate requests from the previous transport even on a failed reconnect.
       this.requests.set(serverId, (this.requests.get(serverId) ?? 0) + 1)
+      this.recoveries.delete(serverId)
       if (status === 'connected') recover(serverId)
     })
     for (const serverId of serverConnections.connectedServerIds()) recover(serverId)

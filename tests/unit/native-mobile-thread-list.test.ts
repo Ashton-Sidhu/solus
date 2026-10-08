@@ -267,6 +267,7 @@ describe('thread list state', () => {
           calls.push(`settle:${sessionId}:${settled}`)
           shelf = shelf.filter((entry) => entry.sessionId !== sessionId)
           if (settled) shelf.push({ sessionId, settledAt: NOW, settledBy: 'person', snoozedUntil: null, snoozeNote: null })
+          events.receive({ type: 'session.stateChanged', payload: { sessionId }, occurredAt: NOW })
         },
         sessionSnooze: async () => {},
         setSessionTitle: async () => {},

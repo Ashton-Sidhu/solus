@@ -263,6 +263,8 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
         attachRuntime: !!session.agentSessionId,
       }).catch(() => null)
 
+      void ctx.queue.refresh(tabId).catch(() => null)
+
       // Registration needs the watch above, hence not earlier.
       const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: tabId, level: 'status', force: false }).catch(() => null)
 
@@ -572,7 +574,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   // Secondary reads run after the transcript can paint and never gate live attachment.
   void afterPaint().then(async () => {
     if (ctx.sessionFor(snapTab.tabId) !== session) return
-    const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: snapTab.tabId, force: false }).catch(() => null)
+    const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: snapTab.tabId, level: 'details', force: false }).catch(() => null)
     const taskHydration = ctx.tasksStore.ensureSessionBinding(session.id, snapTab.taskServerId).catch(() => null)
     await Promise.all([environmentRefresh, taskHydration])
   })

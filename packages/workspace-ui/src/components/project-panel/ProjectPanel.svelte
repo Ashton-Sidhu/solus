@@ -366,7 +366,7 @@
         onResizePointerDown={startResize}
       >
         <GitSection {sourceId} active={active && open} />
-        <GitSetupSection {sourceId} />
+        <GitSetupSection {sourceId} active={active && open} />
       </PanelSection>
     {:else if !isUnconfiguredCwd(gitCwd)}
       <!-- No repository yet — the Environment section above already names the
@@ -377,7 +377,7 @@
         onToggle={() => toggleSection("git")}
         onResizePointerDown={startResize}
       >
-        <GitSetupSection {sourceId} />
+        <GitSetupSection {sourceId} active={active && open} />
       </PanelSection>
     {/if}
     <!-- The section exists only while a goal is set. It owns its own card

@@ -1,7 +1,8 @@
 # MCP integrations: catalog, gateway, and policy
 
-Status: draft, 2026-10-08. OpenAPI is in the first release and policy is not
-(§9, §6). Not implemented. This plan takes the model of
+Status: phases 1 to 3 implemented in the working tree on 2026-10-08 (§12);
+phase 4 not started. OpenAPI is in the first release and policy is not
+(§9, §6). This plan takes the model of
 Executor v2 (`UsefulSoftwareCo/executor`, branch `v2`) and maps it onto Solus.
 It locks the vocabulary and the ownership. It names what Solus takes from
 Executor, what it does not take, and why.
@@ -205,7 +206,8 @@ A `policy` column is added with §6.2, not before.
 Table `integration_connection`:
 
 ```
-integration_id, user_id (null = the host owner), status
+integration_id, user_id ('' = the host owner: SQLite NULLs are distinct in a
+composite primary key), status
 ('connected' | 'needs-sign-in' | 'error'), label, info (json: display name,
 email, avatar as the server reported), updated_at
 ```
@@ -228,7 +230,8 @@ This is the property the plan exists for.
    `connection_status` does for GitHub today. The agent must not ask for a secret
    in chat.
 3. **The token stays on the host.** It is written with the host secret store
-   (`platform/secrets.ts`) under `integration-<id>-<userId>`, which the desktop
+   (`platform/secrets.ts`) under `integration-token-<id>-<userId or host>`, and a
+   registered client under `integration-client-<id>`, which the desktop
    encrypts with `safeStorage`. It is read only inside the gateway, inside the
    acting scope of the call. It is never sent to a client, never logged, and
    never put in a process environment.
@@ -412,8 +415,12 @@ plan-mode read-only refusal inside a program is part of the same step.
 Every entry applies to desktop, web, and mobile. Desktop and web share the
 Svelte UI; mobile is a React Native implementation of the same capability.
 
-- **Settings → Integrations.** List, Add (catalog search, custom URL, probe
-  result), one integration page (its tools, the OAuth client when
+- **Settings → MCP.** One search over the installed servers and the
+  catalog; the catalog as a list that grows as the person scrolls
+  (`integrationCatalogList` takes `offset` and answers `{ entries, total }`); a one-step Add that probes, creates, and
+  starts the person's sign-in at once (an `undetermined` probe creates
+  nothing); tools listed only for an open server or a connected one; one
+  integration row (its tools, the OAuth client when
   `client-required`, the person's own connection with Connect, Reconnect,
   Disconnect; the policy editor is §6.2). Store: `integrations.store.svelte.ts`,
   listening to `integration.changed` and `integration.connectionChanged`.

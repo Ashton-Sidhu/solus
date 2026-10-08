@@ -40,6 +40,11 @@
 </script>
 
 <div class="min-h-0 flex-1 overflow-auto p-4" data-testid="html-file-preview">
+  {#if saved}
+    <ArtifactRail workId={saved.workId} title={saved.title} />
+  {:else}
+    <span class="sr-only">{title}</span>
+  {/if}
   <SandboxFrame html={contents}>
     {#snippet actions()}
       {#if !saved}
@@ -60,9 +65,4 @@
       {/if}
     {/snippet}
   </SandboxFrame>
-  {#if saved}
-    <ArtifactRail workId={saved.workId} title={saved.title} />
-  {:else}
-    <span class="sr-only">{title}</span>
-  {/if}
 </div>

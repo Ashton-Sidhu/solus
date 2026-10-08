@@ -53,6 +53,7 @@
     isPullRequestRunning,
     type GitMenuStep,
   } from "./lib/git-action-selection";
+  import { useGitSectionReads } from "./lib/git-section-reads.svelte";
   import { mergeConflictDraft } from "./lib/merge-conflict-draft";
   import { repositorySetupStore } from "../../contexts/git/repository-setup.store.svelte";
   import CommitComposer from "./commit-composer/CommitComposer.svelte";
@@ -455,7 +456,7 @@
   $effect(() => {
     const url = prUrl;
     const branch = currentBranch;
-    if (!url || !branch || !hasGitStatus || !env.cwd) return;
+    if (!active || !url || !branch || !hasGitStatus || !env.cwd) return;
     const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
     const api = prApi;
     const serverId = prServerId;
@@ -466,7 +467,7 @@
   // from — the same snapshot the PRs page uses rather than a second poll.
   let requestedChecksFor: string | null = null;
   $effect(() => {
-    if (!activePr) return;
+    if (!active || !activePr) return;
     const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
     const key = JSON.stringify([prServerId, projectScopeOf(ctx.session), activePr.number]);
     if (requestedChecksFor === key) return;
@@ -481,40 +482,15 @@
       .catch(() => {});
   });
 
-  // The readiness stage decides what every row means, so the rows read the
-  // repository probe themselves rather than depending on the setup card being
-  // mounted beside them. The store de-duplicates the request either way.
-  let requestedSetupFor: string | null = null;
-  $effect(() => {
-    if (!env.cwd || env.cwd === "~" || !prApi) return;
-    const key = `${detailServerId}\0${env.cwd}`;
-    if (requestedSetupFor === key) return;
-    requestedSetupFor = key;
-    void repositorySetupStore.refresh(prApi, detailServerId, env.cwd);
-  });
-
-  // Only the publish path needs the GitHub connection, so an already-published
-  // project never pays for the probe.
-  let requestedConnectionFor: string | null = null;
-  $effect(() => {
-    if (model.readiness !== "local-only" || !prApi) return;
-    const key = `${detailServerId}\0${env.cwd}`;
-    if (requestedConnectionFor === key) return;
-    requestedConnectionFor = key;
-    void repositorySetupStore.refreshGithubConnection(
-      prApi,
-      detailServerId,
-      session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
-      env.cwd,
-    );
-  });
-
-  // Only the Environment section watches detailed status, and sections unmount
-  // when collapsed — without our own watch the PR row would go blank whenever
-  // that section is closed.
-  $effect(() => {
-    if (!detailCwd || detailCwd === "~") return;
-    return environmentStore.watchDetails(detailServerId, detailCwd);
+  useGitSectionReads({
+    get active() { return active; },
+    get serverId() { return detailServerId; },
+    get cwd() { return detailCwd; },
+    get api() { return prApi; },
+    get readiness() { return model.readiness; },
+    context: () => session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
+    environment: environmentStore,
+    repository: repositorySetupStore,
   });
 
   function runDiscard() {
@@ -606,7 +582,9 @@
   );
   let lastReviewFailureAt = 0;
 
-  $effect(() => showBranchReviewGuide(sourceId));
+  $effect(() => {
+    if (active) return showBranchReviewGuide(sourceId);
+  });
 
   $effect(() => {
     if (

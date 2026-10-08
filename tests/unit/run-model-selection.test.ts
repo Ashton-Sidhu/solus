@@ -3,6 +3,7 @@ import type { AgentId, RunConfig } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import {
   alignRunProvider,
+  cycledModelId,
   inheritRunConfig,
   resolveNewRunConfig,
   runOnModel,
@@ -30,6 +31,36 @@ function run(provider: AgentId | null, modelId: string | null): RunConfig {
 }
 
 describe('run model selection', () => {
+  test('cycling follows picker order through current models, legacy models, and back', () => {
+    // WHY: the shortcut must follow the visible groups even when provider
+    // metadata puts a legacy model between current models.
+    const models = [
+      { id: 'claude-opus-5' },
+      { id: 'claude-sonnet-5-5' },
+      { id: 'claude-sonnet-5' },
+      { id: 'claude-opus-5-5' },
+    ]
+    const selection = run('claude-code', 'claude-sonnet-5-5')
+    const visited: Array<string | null> = []
+    for (let i = 0; i < models.length; i++) {
+      selection.modelConfig.modelId = cycledModelId(selection, models, null)
+      visited.push(selection.modelConfig.modelId)
+    }
+    expect(visited).toEqual([
+      'claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5', 'claude-sonnet-5-5',
+    ])
+    expect(models.map((model) => model.id)).toEqual([
+      'claude-opus-5', 'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-opus-5-5',
+    ])
+  })
+
+  test('cycling uses the active provider and its default when the run has neither', () => {
+    const models = [{ id: 'claude-opus-5' }, { id: 'claude-opus-5-5' }, { id: 'new-host-model' }]
+    expect(cycledModelId(run(null, null), models, 'claude-opus-5-5', 'claude-code')).toBe('new-host-model')
+    expect(cycledModelId(run('claude-code', 'new-host-model'), models, null)).toBe('claude-opus-5')
+    expect(cycledModelId(run('claude-code', null), [], null)).toBeNull()
+  })
+
   test('an explicit model supplies the missing provider on legacy drafts', () => {
     // WHY: provider and model are one choice. The current default must not put
     // its glyph beside a saved model owned by another provider.

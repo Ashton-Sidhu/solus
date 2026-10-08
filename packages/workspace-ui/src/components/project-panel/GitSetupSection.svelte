@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
 import Icon from "@iconify/svelte";
   import { GitBranch as GitBranchIcon } from "@lucide/svelte";
   import { getWorkspaceContext, getSessionEnvironmentStore } from "../../contexts";
@@ -12,8 +13,9 @@ import Icon from "@iconify/svelte";
   interface Props {
     /** The tab or draft whose project this section describes. */
     sourceId: string;
+    active: boolean;
   }
-  let { sourceId }: Props = $props();
+  let { sourceId, active }: Props = $props();
 
   const session = getWorkspaceContext();
   const environmentStore = getSessionEnvironmentStore();
@@ -35,22 +37,23 @@ import Icon from "@iconify/svelte";
 
   // One repository-status read per checkout — cheap, and the manual Git
   // refresh (ProjectPanel's header button) forces a fresh one the same way.
-  let requestedFor = $state<string | null>(null);
+  let requestedFor: string | null = null;
   $effect(() => {
-    if (!cwd || cwd === "~" || !api) return;
+    if (!active || !cwd || cwd === "~" || !api) return;
     const key = `${serverId}\0${cwd}`;
     if (requestedFor === key) return;
     requestedFor = key;
-    void repositorySetupStore.refresh(api, serverId, cwd);
+    untrack(() => { void repositorySetupStore.refresh(api, serverId, cwd); });
   });
 
-  let checkedConnectionFor = $state<string | null>(null);
+  let checkedConnectionFor: string | null = null;
   $effect(() => {
-    if (!showPublish || !api) return;
+    if (!active || !showPublish || !api) return;
     const key = `${serverId}\0${cwd}`;
     if (checkedConnectionFor === key) return;
     checkedConnectionFor = key;
-    void repositorySetupStore.refreshGithubConnection(api, serverId, ctx, cwd);
+    const context = ctx;
+    untrack(() => { void repositorySetupStore.refreshGithubConnection(api, serverId, context, cwd); });
   });
 
   const initError = $derived(repositorySetupStore.initErrorFor(serverId, cwd));

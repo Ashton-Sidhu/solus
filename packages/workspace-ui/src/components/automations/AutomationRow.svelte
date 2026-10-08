@@ -9,9 +9,10 @@
     Clock as ClockIcon,
     LoaderCircle as CircleNotchIcon,
   } from "@lucide/svelte";
-  import type { Automation } from "@solus/contracts/types";
+  import type { Automation, AutomationRunPoint } from "@solus/contracts/types";
   import { compactRelativeTime } from "../ui/list-page";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
+  import AutomationRunChart from "./AutomationRunChart.svelte";
   import { triggerSummary } from "./lib/automation-format";
 
   /** One line of the automations list, in the shared list-page row grammar:
@@ -25,6 +26,8 @@
     projectLabel: string;
     projectPath: string;
     serverId?: string | null;
+    /** Newest first; drawn as the row's run graph. */
+    recentRuns: readonly AutomationRunPoint[];
     /** Ticking clock from the page, so the age column counts up on its own. */
     now: number;
     selected?: boolean;
@@ -41,6 +44,7 @@
     projectLabel,
     projectPath,
     serverId,
+    recentRuns,
     now,
     selected = false,
     onOpen,
@@ -97,7 +101,7 @@
 >
   <button
     type="button"
-    class="grid h-full min-w-0 flex-1 overflow-hidden cursor-pointer grid-cols-[20px_minmax(140px,330px)_minmax(148px,1fr)_156px_64px] items-center gap-x-[11px] border-0 bg-transparent p-0 text-left focus-visible:outline-none @max-[44rem]:grid-cols-[20px_minmax(100px,1fr)_128px_64px]"
+    class="grid h-full min-w-0 flex-1 overflow-hidden cursor-pointer grid-cols-[20px_minmax(140px,1fr)_minmax(120px,14rem)_4.5rem_11rem_2.5rem] items-center gap-x-[11px] border-0 bg-transparent p-0 text-left focus-visible:outline-none @max-[44rem]:grid-cols-[20px_minmax(100px,1fr)_128px_2.5rem]"
     onclick={() => onOpen(a)}
   >
     <!-- Slot 1 — cadence kind as a glyph, status as the tile's tint. -->
@@ -131,7 +135,13 @@
       <span class="truncate">{projectLabel}</span>
     </span>
 
-    <!-- Slots 4 and 5 — what it does and when it last did it. They step aside
+    <!-- Slot 4 — the recent runs at a glance. It stays put on hover: the verbs
+         cover only the cadence and the age. -->
+    <span class="flex min-w-0 items-center @max-[44rem]:hidden">
+      <AutomationRunChart runs={recentRuns} variant="compact" />
+    </span>
+
+    <!-- Slots 5 and 6 — what it does and when it last did it. They step aside
          for the verbs rather than sharing the line with them, so the right end
          is never two things at once. -->
     <span
@@ -141,6 +151,7 @@
     </span>
     <span
       class="text-right text-xs tabular-nums text-muted-foreground opacity-70 transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0 pointer-coarse:opacity-0"
+      title={age === "now" ? "Last run just now" : age ? `Last run ${age} ago` : undefined}
     >
       {age}
     </span>

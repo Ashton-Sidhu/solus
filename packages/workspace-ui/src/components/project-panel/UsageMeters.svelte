@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { Code as CodeIcon } from "@lucide/svelte";
   import { Progress } from "@solus/workspace-ui/components/ui/progress";
   import { getAgentContext, hosts } from "../../contexts";
@@ -26,11 +27,11 @@
   $effect(() => {
     if (!active) return;
     const watchedHost = host;
-    return messageTimestampClock.subscribe((value) => {
+    return untrack(() => messageTimestampClock.subscribe((value) => {
       now = value;
       // Also tells the host someone is watching: its poll suspends when nobody asks.
       void watchedHost?.refresh("usage", { maxAgeMs: USAGE_REFRESH_INTERVAL_MS });
-    });
+    }));
   });
 
   const barTone = {
