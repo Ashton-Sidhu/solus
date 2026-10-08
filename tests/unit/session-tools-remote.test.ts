@@ -161,7 +161,7 @@ describe('a session on another host', () => {
     sessionTools.setRemoteHosts(null)
     const before = sentOrders.length
     const result = await sessionTools.executeSessionTool('send_session', { session_id: 'child-on-b', message: 'More work.' }, { ctx })
-    expect(result).toEqual({ ok: false, text: expect.stringContaining('Only a host signed in to your Solus account') })
+    expect(result).toEqual({ ok: false, text: expect.stringContaining('Pair a host in Settings → Hosts → this host → Access') })
     expect(sentOrders).toHaveLength(before)
   })
 
