@@ -3,9 +3,8 @@ import type { Message, Session, OutboundPrompt, PromptImageRef, PromptDelivery }
 import type { QueueAttachment } from '@solus/contracts/session-queue'
 import { parseReviewCommand, reviewGuideKeyForTarget, reviewGuideTargetId } from '@solus/contracts/review'
 import { sendRateLimitedNow } from '../../lib/rate-limit-actions'
-import { projectsStore } from '../projects/projects.store.svelte'
 import { serversStore } from '../connections/servers.store.svelte'
-import { hostRolesStore } from '../connections/host-roles.store.svelte'
+import { hosts } from '../hosts/hosts.svelte'
 import { hostIsManaged } from '../../components/servers/lib/managed-host'
 import { type TaskSnapshot } from '@solus/contracts/task-types'
 import { toasts } from '../../lib/toasts'
@@ -17,7 +16,6 @@ import { uuid } from '@solus/contracts/uuid'
 import { isSessionBusyStatus, isSteerableStatus, worktreeProjectRoot } from '@solus/contracts/types'
 import { requestConversationScrollToBottom } from './session-plan-operations'
 import { chatFolderIn, isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
-import { connectionsStore } from '../connections/connections.store.svelte'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -55,7 +53,6 @@ type PromptDispatchWorkspace = Pick<WorkspaceContext,
   | 'serverIdFor'
   | 'sessionFor'
   | 'settings'
-  | 'staticInfo'
   | 'tabIdForSession'
   | 'tabOrder'
   | 'tabs'
@@ -387,7 +384,7 @@ export class PromptDispatch {
     // service, which runs no agents — asks for a host instead of sending.
     if (
       localApi.getPlatform() === 'web'
-      && !hostRolesStore.hasExecution(session.run.serverId)
+      && !hosts.hasExecution(session.run.serverId)
       && !session.run.pendingHostDispatch
     ) {
       window.dispatchEvent(new CustomEvent('solus:open-server-connect'))
@@ -468,15 +465,6 @@ export class PromptDispatch {
     if (resolvedPath !== session.run.workingDirectory) {
       session.run.workingDirectory = resolvedPath
     }
-    // A session does not add its folder as a project: only opening, cloning,
-    // or adding one does (`ProjectsStore.addProject`). It moves a known one up.
-    if (session.messages.length === 0 && resolvedPath && resolvedPath !== '~' && !isChat(resolvedPath)) {
-      projectsStore.touch({
-        serverId: session.run.serverId,
-        projectRoot: session.run.gitContext?.repoRoot ?? resolvedPath,
-      })
-    }
-
     session.run.provider = session.run.provider ?? this.workspace.settings.activeAgent
 
     const isFirstMessage = session.messages.length === 0 || (session.forked && !session.forkedFromSessionId)
@@ -711,8 +699,7 @@ export class PromptDispatch {
  */
 function chatFolderOnSend(session: Session): string | null {
   if (session.run.workingDirectory !== NEW_CHAT_DIRECTORY) return null
-  const projectsRoot = connectionsStore.capabilitiesFor(session.run.serverId)?.projectsBaseDirectory
-  if (projectsRoot) return chatFolderIn(projectsRoot, session.id)
-  void connectionsStore.refreshCapabilities({ serverId: session.run.serverId })
-  return null
+  // Reading the host's capabilities asks for them when they are not read yet.
+  const projectsRoot = hosts.find(session.run.serverId)?.capabilityRecord?.projectsBaseDirectory
+  return projectsRoot ? chatFolderIn(projectsRoot, session.id) : null
 }

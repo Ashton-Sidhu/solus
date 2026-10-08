@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
@@ -14,14 +14,15 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 // this host, a task across hosts, a turn that is not the owner's — before it
 // reaches the other host; check the model against what that host offers, not
 // this one; never resolve the other host's path here; and tell the other host
-// which session started it. A session on another host answers send and read
-// with its host's name rather than "not found".
+// which session started it. A message to a session it started there goes to
+// that host, with its attachments; a read names the host rather than "not found".
 
 let sessionTools: typeof import('@solus/server/execution/agents/tools/session-tools')
 let hostDisplayName: typeof import('@solus/server/platform/host-display-name')['hostDisplayName']
 let closeDb: typeof import('@solus/server/db')['closeDb']
 
 const spawned: unknown[][] = []
+const sentOrders: unknown[][] = []
 const stopped: unknown[][] = []
 let ownerTurn = true
 const previousDataDir = process.env.SOLUS_DATA_DIR
@@ -59,7 +60,8 @@ beforeAll(async () => {
   } as never)
   sessionTools.setSessionOrchestration({
     spawn: async (...args) => { spawned.push(args); return { exchangeId: 'm-remote', sessionId: 'child-on-b' } },
-    send: async () => { throw new Error('send must not reach the orchestrator') },
+    send: async (...args) => { sentOrders.push(args); return { exchangeId: 'm-sent-b', disposition: 'queued' } },
+    readExchange: (_sender, exchangeId) => exchangeId === 'm-sent-b' ? { provider: 'codex' } as never : undefined,
     stop: (...args) => { stopped.push(args); return true },
     remoteHostOf: (sender, target) => sender === 'solus-parent' && target === 'child-on-b' ? 'Host B' : undefined,
   })
@@ -127,9 +129,40 @@ describe('a session on another host', () => {
     expect(here.otherHosts).toEqual([{ id: 'host-b', name: 'Host B' }])
   })
 
-  test('send_session names its host instead of saying it was not found', async () => {
+  test('send_session sends to the host the session runs on, with the files it attached', async () => {
+    // WHY: the session is not on this host, so it is never looked up here; the
+    // orchestrator gets that host as the target and the files to upload there.
+    sessionTools.setRemoteHosts(remoteHosts as never)
+    writeFileSync(join(dataDir, 'notes.txt'), 'notes')
+    const result = await sessionTools.executeSessionTool('send_session', { session_id: 'child-on-b', message: 'More work.', attachments: [join(dataDir, 'notes.txt')] }, { ctx })
+    expect(result.ok).toBe(true)
+    expect(result.text).toContain('Queued for')
+    expect(result.text).toContain('serverId=install-b')
+    expect(result.text).toContain('on Host B')
+    const [sender, target, order, remote] = sentOrders.at(-1)!
+    expect([sender, target]).toEqual(['solus-parent', 'child-on-b'])
+    expect(order).toMatchObject({ prompt: 'More work.', attachments: [join(dataDir, 'notes.txt')] })
+    expect((remote as RemoteTarget).host.hostId).toBe('host-b')
+  })
+
+  test('send_session to another host is refused for a turn that is not the owner\'s', async () => {
+    // WHY: host B is reached with the owner's token. In a shared session,
+    // another person's turn must not act as the owner there.
+    sessionTools.setRemoteHosts(remoteHosts as never)
+    ownerTurn = false
+    const before = sentOrders.length
     const result = await sessionTools.executeSessionTool('send_session', { session_id: 'child-on-b', message: 'More work.' }, { ctx })
-    expect(result).toEqual({ ok: false, text: expect.stringContaining('runs on Host B') })
+    ownerTurn = true
+    expect(result).toEqual({ ok: false, text: "Only this host's owner can message sessions on their other hosts." })
+    expect(sentOrders).toHaveLength(before)
+  })
+
+  test('send_session to another host is refused here when this host cannot reach it', async () => {
+    sessionTools.setRemoteHosts(null)
+    const before = sentOrders.length
+    const result = await sessionTools.executeSessionTool('send_session', { session_id: 'child-on-b', message: 'More work.' }, { ctx })
+    expect(result).toEqual({ ok: false, text: expect.stringContaining('Only a host signed in to your Solus account') })
+    expect(sentOrders).toHaveLength(before)
   })
 
   test('stop_session asks the orchestrator to stop it there', async () => {

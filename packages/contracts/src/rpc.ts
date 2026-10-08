@@ -93,6 +93,7 @@ export const RPC_INVOKE_METHODS = [
 
   // Agent conversations (cards drive sessions no client is looking at)
   'createHeadlessSession',
+  'promptHeadlessSession',
   'decideSessionPlan',
 
   // Permission / interaction
@@ -219,6 +220,7 @@ export const RPC_INVOKE_METHODS = [
   'listProjectIdentities',
   'resolveDispatchHistoryRoots',
   'deleteProject',
+  'untrackProject',
 
   // Skills (skills.sh registry — opt-in install across active providers)
   'skillsSearch',
@@ -285,6 +287,15 @@ export const RPC_INVOKE_METHODS = [
   'agentAuthSubmit',
   'agentAuthCancel',
   'agentAuthSignOut',
+  // Integrations (docs/plans/mcp-integrations.md): remote MCP servers this host knows, the catalog, and the probe
+  'integrationCatalogList',
+  'integrationProbe',
+  'integrationList',
+  'integrationGet',
+  'integrationCreate',
+  'integrationUpdate',
+  'integrationRemove',
+  'integrationTools',
   // Agent profile: a member's own instructions and skills, copied into their seats
   'agentProfileRead',
   'agentProfileApply',
@@ -303,7 +314,6 @@ export const RPC_INVOKE_METHODS = [
   'textGenerationSettingsGet',
   'otelSettingsGet',
   'discoverServers',
-  'getServerCapabilities',
   'setProjectsBaseDirectory',
   'setupInstallAgentCli',
   'setupCheckAgentAuth',

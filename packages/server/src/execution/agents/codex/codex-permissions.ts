@@ -469,7 +469,7 @@ function mcpElicitationPayload(params: any): z.infer<typeof mcpPayloadSchema> | 
   return null
 }
 
-function mcpElicitationResponse(params: any, answers: Record<string, string>): ElicitationResponse {
+export function mcpElicitationResponse(params: any, answers: Record<string, string>): ElicitationResponse {
   const action = mcpAction(answers.__action)
   if (action !== 'accept') return { action, content: null }
 

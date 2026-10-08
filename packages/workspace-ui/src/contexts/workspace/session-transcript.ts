@@ -107,6 +107,8 @@ interface SessionTranscriptLoadResult {
   truncated: boolean
   before?: string | null
   pendingMessages?: WireSessionLoadMessage[]
+  /** The newest page ends with a turn whose login the provider refused. */
+  endsInRefusedLogin?: boolean
 }
 
 // Enum fields degrade alone: an unknown value from a newer host drops that
@@ -501,6 +503,7 @@ export function materializeSessionTranscript(
     truncated,
     before,
     pendingMessages,
+    endsInRefusedLogin: !args.before && history.at(-1)?.loginRefused === true,
   }
 }
 

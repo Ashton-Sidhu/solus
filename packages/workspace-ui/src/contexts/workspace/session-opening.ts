@@ -1,5 +1,5 @@
 import type { TaskOpenTrace } from '../../components/session/lib/task-open-timing'
-import { hostRolesStore } from '../connections/host-roles.store.svelte'
+import { hosts } from '../hosts/hosts.svelte'
 import type { Session, RunConfig, Message, SessionMeta } from '@solus/contracts/types'
 import type { Via } from '@solus/contracts/analytics-events'
 import type { SurfaceContext } from '../app/surface-context.svelte'
@@ -38,6 +38,7 @@ import type { SessionDraft } from './session-draft.svelte'
 /** The workspace members this controller reads or calls, and no others. */
 type SessionOpeningWorkspace = Pick<WorkspaceContext,
   | 'activeSession'
+  | 'offerSignInAgain'
   | 'activeTab'
   | 'activeTabId'
   | 'addTabToOrder'
@@ -72,7 +73,6 @@ type SessionOpeningWorkspace = Pick<WorkspaceContext,
   | 'settings'
   | 'showExplicitSidebarTaskSession'
   | 'chatSurfaceTabId'
-  | 'staticInfo'
   | 'tabOrder'
   | 'tabs'
   | 'tasksStore'
@@ -295,7 +295,7 @@ export class SessionOpening {
     if (!meta.serverId) throw new Error(`Session ${meta.sessionId} names no host`)
     // The workspace service keeps the record and no transcript: while the runner
     // is offline the session opens read-only (docs/plans/cloud-service-model.md R8).
-    if (!hostRolesStore.hasExecution(meta.serverId)) {
+    if (!hosts.hasExecution(meta.serverId)) {
       this.workspace.openSessionRecord(meta.sessionId, meta.serverId)
       return ''
     }
@@ -348,7 +348,7 @@ export class SessionOpening {
         return openTabId
       }
     }
-    const defaultDir = meta.cwd || this.workspace.staticInfo?.homePath || '~'
+    const defaultDir = meta.cwd || hosts.find(meta.serverId)?.machineInfo?.homePath || '~'
     const workingDirectory = worktreeProjectRoot(defaultDir)
     const title = meta.customTitle
       ? meta.customTitle
@@ -494,6 +494,7 @@ export class SessionOpening {
         session.historyCursor = transcript.before
         session.historyPendingMessages = transcript.pendingMessages
         session.loadingHistory = false
+        if (transcript.endsInRefusedLogin) this.workspace.offerSignInAgain(session.id, session)
         requestConversationScrollToBottom(tabId)
 
         void (async () => {
@@ -590,7 +591,7 @@ export class SessionOpening {
     const taskServerId = this.workspace.tasksStore.get(task.id).serverId ?? undefined
     const binding = { taskId: task.id, taskRole: role, taskServerId }
     let draft: SessionDraft
-    if (!taskServerId || hostRolesStore.hasExecution(taskServerId)) {
+    if (!taskServerId || hosts.hasExecution(taskServerId)) {
       const options = { ...binding, target, serverId: taskServerId }
       draft = target
         ? this.workspace.drafts.openSessionDraft(options, cwd)

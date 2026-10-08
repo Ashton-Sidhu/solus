@@ -5,6 +5,7 @@ import type { HostCapabilities } from '@solus/contracts/types'
 import type { ConnectionStatus } from '@solus/client-core/ws-transport'
 import type { HostPhase } from '@solus/client-core/host-supervisor'
 import { BrowserFrameSubscriber } from '@solus/client-core/browser-frame-subscriber'
+import { HostFacts } from '@solus/client-core/host-facts'
 
 const capabilities: HostCapabilities = {
   attachUpload: true,
@@ -32,6 +33,7 @@ export function singleHostServerConnections() {
   const apis = new Map<string, HostApi>()
   const eventsByServerId = new Map<string, HostEventSubscriber>()
   const framesByServerId = new Map<string, BrowserFrameSubscriber>()
+  const factsByServerId = new Map<string, HostFacts>()
   const phaseListeners = new Set<(serverId: string, phase: HostPhase, attempt: number) => void>()
   const phases = new Map<string, HostPhase>()
   const statusListeners = new Set<(
@@ -48,6 +50,16 @@ export function singleHostServerConnections() {
     }
     return subscriber
   }
+  // Each host's facts start with the test capabilities, as if the host had answered.
+  const facts = (serverId = primaryServerId) => {
+    let hostFacts = factsByServerId.get(serverId)
+    if (!hostFacts) {
+      hostFacts = new HostFacts(serverId, { api: api(serverId), events: events(serverId) })
+      hostFacts.set('capabilities', capabilities)
+      factsByServerId.set(serverId, hostFacts)
+    }
+    return hostFacts
+  }
   const connection = (serverId = primaryServerId) => ({
     serverId,
     target: { id: serverId, label: serverId, url: 'http://test.invalid', sessionToken: 'test', local: serverId === 'local' },
@@ -56,6 +68,7 @@ export function singleHostServerConnections() {
     events: events(serverId),
     status: 'connected' as const,
     attempt: 0,
+    facts: facts(serverId),
   })
   const frames = (serverId = primaryServerId) => {
     let subscriber = framesByServerId.get(serverId)
@@ -85,6 +98,8 @@ export function singleHostServerConnections() {
       eventsByServerId.clear()
       for (const subscriber of framesByServerId.values()) subscriber.clear()
       framesByServerId.clear()
+      for (const hostFacts of factsByServerId.values()) hostFacts.dispose()
+      factsByServerId.clear()
       statusListeners.clear()
       phaseListeners.clear()
       phases.clear()
@@ -95,10 +110,11 @@ export function singleHostServerConnections() {
     setPrimary: (serverId: string) => { primaryServerId = serverId },
     defaultServerId: () => primaryServerId,
     // Every host in a single-host test is a machine this client knows.
-    defaultMachineId: () => primaryServerId,
+    runOnHostId: () => primaryServerId,
     isKnownServer: () => true,
     localServerId: () => 'local',
     localHostApi: () => api('local'),
+    factsFor: (serverId: string) => facts(serverId),
     eventsFor: (serverId: string) => events(serverId),
     framesFor: (serverId: string) => frames(serverId),
     serverIdForApi: (targetApi: HostApi) =>
@@ -119,6 +135,7 @@ export function singleHostServerConnections() {
       for (const listener of statusListeners) listener(serverId, status, attempt)
     },
     onConnectionCreated: () => () => {},
+    onPrimaryChange: () => () => {},
     onPhaseChange: (listener: (serverId: string, phase: HostPhase, attempt: number) => void) => {
       phaseListeners.add(listener)
       return () => phaseListeners.delete(listener)
@@ -137,7 +154,6 @@ export function singleHostServerConnections() {
     statusFor: () => 'connected' as const,
     probeHealth: async () => null,
     capabilitiesFor: async () => capabilities,
-    capability: (_serverId: string, key: Exclude<keyof HostCapabilities, 'editors'>) => capabilities[key] === true,
     cachedCapabilitiesFor: () => capabilities,
     verifySavedServerIdentity: async () => true,
     projectIdentities: async () => [],

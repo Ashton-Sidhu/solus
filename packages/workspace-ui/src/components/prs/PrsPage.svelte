@@ -695,8 +695,8 @@
     void tick().then(() => searchEl?.focus());
   });
 
-  function removeProjectHistory(option: ListProjectOption): void {
-    projectsStore.removeProject(option.key);
+  function removeProject(option: ListProjectOption): void {
+    void projectsStore.removeProject(option.key);
   }
 
   // While the page is open, PR sync keeps every project it lists fresh, and
@@ -909,7 +909,7 @@
     onSelect={selectProject}
     onSelectAll={() => session.setProjectPageScope({ kind: "all" })}
     onSelectCurrent={() => session.scopePageToCurrentProject()}
-    onRemoveHistory={workspace ? removeProjectHistory : undefined}
+    onRemoveProject={workspace ? removeProject : undefined}
   />
 {/snippet}
 

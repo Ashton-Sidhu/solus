@@ -1,9 +1,7 @@
-import type { AuthStatus, DeviceCodePrompt, IpcContext, ServerCapabilities } from '@solus/contracts/types'
-import type { HostApi } from '@solus/client-core/host-api'
-import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
+import type { AuthStatus, DeviceCodePrompt, IpcContext } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
-import { SvelteMap } from 'svelte/reactivity'
+import { hosts } from '../hosts/hosts.svelte'
 
 export interface PairToken {
   token: string
@@ -40,8 +38,6 @@ export class ConnectionsStore {
   refreshing = $state(false)
   remoteAccessUpdating = $state(false)
   trustLocalNetworkUpdating = $state(false)
-  capabilities = $state<ServerCapabilities | null>(null)
-  private capabilitiesByServer = new SvelteMap<string, ServerCapabilities>()
   private metadataServerId: string | null = null
 
   providerStatus = $state<AuthStatus | null>(null)
@@ -133,36 +129,10 @@ export class ConnectionsStore {
     }
   }
 
-  capabilitiesFor(serverId: string): ServerCapabilities | null {
-    return this.capabilitiesByServer.get(serverId) ?? null
-  }
-
-  async refreshCapabilities(target: { serverId: string; api?: HostApi }): Promise<void> {
-    try {
-      const api = target.api ?? serverConnections.apiFor(target.serverId)
-      const capabilities = await api.getServerCapabilities()
-      this.capabilitiesByServer.set(target.serverId, capabilities)
-      // The unqualified mirror backs client-wide gates and follows the
-      // new-work default host.
-      if (target.serverId === serverConnections.defaultMachineId()) this.capabilities = capabilities
-    } catch (e) {
-      if (e instanceof TransportDisconnectedError) return
-      console.error('getServerCapabilities failed', e)
-    }
-  }
-
-  get desktopHandlersAvailable(): boolean {
-    return this.capabilities?.desktopHandlers !== false
-  }
-
   /** Where this host's new projects and clones land. Empty clears it back to the host default. */
   async setProjectsBaseDirectory(serverId: string, path: string): Promise<void> {
     const result = await serverConnections.apiFor(serverId).setProjectsBaseDirectory(path)
-    const hostCapabilities = this.capabilitiesByServer.get(serverId)
-    if (hostCapabilities) Object.assign(hostCapabilities, result)
-    if (this.capabilities && serverId === serverConnections.defaultMachineId()) {
-      Object.assign(this.capabilities, result)
-    }
+    hosts.get(serverId).patchCapabilities(result)
   }
 
   async revokeDevice(serverId: string, deviceId: string): Promise<void> {

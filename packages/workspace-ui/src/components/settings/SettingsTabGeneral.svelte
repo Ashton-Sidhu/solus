@@ -142,6 +142,7 @@
     getSettingsContext,
     getTextGenerationSettingsStore,
     getWorkspaceContext,
+    hosts,
   } from "../../contexts";
   import {
     defaultModelIdFor,
@@ -193,10 +194,8 @@
     const targetServerId = serverId;
     const targetApi = api;
     untrack(() => {
-      void connectionsStore.refreshCapabilities({
-        serverId: targetServerId,
-        api: targetApi,
-      });
+      // The projects folder and agent sign-in change outside this page: read them again on each visit.
+      void hosts.get(targetServerId).refresh("capabilities");
       void textGenerationSettingsStore
         .load({ serverId: targetServerId, api: targetApi })
         .catch(() => {});
@@ -253,10 +252,10 @@
   // Per-host, not per-client: the folder this host really uses — the setting,
   // the managed host's volume, or ~/projects.
   const projectsBaseDirectory = $derived(
-    connectionsStore.capabilities?.projectsBaseDirectory ?? "",
+    hosts.get(serverId).capabilityRecord?.projectsBaseDirectory ?? "",
   );
   const projectsBaseDirectoryIsSet = $derived(
-    connectionsStore.capabilities?.projectsBaseDirectoryIsSet === true,
+    hosts.get(serverId).capabilityRecord?.projectsBaseDirectoryIsSet === true,
   );
 
   async function commitProjectsBaseDirectory(next: string) {

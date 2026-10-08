@@ -7,7 +7,7 @@ import type {
 } from '@solus/contracts/types'
 import type { WorkspaceContext, SessionEnvironmentStore } from '../contexts'
 import { toolsStore } from '../contexts/app/tools.store.svelte'
-import { connectionsStore } from '../contexts/connections/connections.store.svelte'
+import { hosts } from '../contexts/hosts/hosts.svelte'
 import { toasts } from './toasts'
 import { requestInputFocus } from './inputFocus'
 import type { HostApi } from '@solus/client-core/host-api'
@@ -237,7 +237,7 @@ export class GitActions {
   }
 
   openTerminal(): void {
-    if (!connectionsStore.desktopHandlersAvailable || !hostPolicy.isClientMachine(this.session.runFor(this.sourceId)?.serverId)) return
+    if (!hosts.device?.hasDesktopHandlers || !hostPolicy.isClientMachine(this.session.runFor(this.sourceId)?.serverId)) return
     const ctx = this.target().ctx
     // Opening one attaches a terminal to the shared session, so what "Open in
     // terminal" resolves to has just changed for every surface that shows it.

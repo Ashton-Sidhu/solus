@@ -26,6 +26,15 @@ describe('project identity', () => {
     ])
   })
 
+  test('a remote-dispatch checkout is its repository\'s, though no host names it', () => {
+    // WHY: hosts leave dispatch clones out of their project list, so the clone
+    // was its own local-only project beside the repository it holds.
+    const dispatch = '/home/me/projects/solus-remote/140a4e7d/github.com/Acme/Web'
+    expect(projectKeyOf({ serverId: 'box', path: dispatch })).toBe('github.com/acme/web')
+    expect(projectKeyOf({ serverId: 'box', path: `${dispatch}/.git/solus/worktrees/fix` })).toBe('github.com/acme/web')
+    expect(projectKeyOf({ serverId: 'box', path: '/home/me/projects/solus-remote/140a4e7d' })).toBe('box:/home/me/projects/solus-remote/140a4e7d')
+  })
+
   test('a local-only key reads back as its host and folder, and names itself by the folder', () => {
     const key = projectKeyOf({ serverId: 'laptop', path: '/Users/me/notes' })
     expect(localProjectParts(key)).toEqual({ serverId: 'laptop', path: '/Users/me/notes' })

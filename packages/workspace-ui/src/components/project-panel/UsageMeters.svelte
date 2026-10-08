@@ -1,28 +1,35 @@
 <script lang="ts">
   import { Code as CodeIcon } from "@lucide/svelte";
   import { Progress } from "@solus/workspace-ui/components/ui/progress";
-  import { getAgentContext } from "../../contexts";
+  import { getAgentContext, hosts } from "../../contexts";
   import { messageTimestampClock } from "../../lib/shared-clock";
   import ClaudeIcon from "../ClaudeIcon.svelte";
   import OpenAIBlossom from "../pickers/OpenAIBlossom.svelte";
-  import { providerUsage } from "./lib/usage-meters";
+  import { providerUsage, USAGE_REFRESH_INTERVAL_MS, usageByProvider } from "./lib/usage-meters";
 
   interface Props {
+    /** The host the tab runs on: quota belongs to that host's agent logins. */
+    serverId: string;
     /** The panel is mounted for every tab; only the visible one asks for a
      *  refresh, and the backend's poll suspends when nobody is watching. */
     active?: boolean;
   }
-  let { active = true }: Props = $props();
+  let { serverId, active = true }: Props = $props();
 
   const agent = getAgentContext();
   let now = $state(Date.now());
-  const rows = $derived(providerUsage(agent.agents, agent.usage, now));
+  // A tab may name a host that was deleted; it has no quota to show.
+  const host = $derived(hosts.find(serverId));
+  const usage = $derived(host?.usage.state === "ready" ? usageByProvider(host.usage.value) : {});
+  const rows = $derived(providerUsage(agent.agents, usage, now));
 
   $effect(() => {
     if (!active) return;
+    const watchedHost = host;
     return messageTimestampClock.subscribe((value) => {
       now = value;
-      void agent.refreshUsage();
+      // Also tells the host someone is watching: its poll suspends when nobody asks.
+      void watchedHost?.refresh("usage", { maxAgeMs: USAGE_REFRESH_INTERVAL_MS });
     });
   });
 

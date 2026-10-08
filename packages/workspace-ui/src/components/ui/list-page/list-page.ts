@@ -34,9 +34,10 @@ export interface ListProjectOption {
   /** Its hosts have said it has no hosted remote: a local-only project
    *  (docs/plans/project-model.md §1). False while a host has yet to say. */
   localOnly?: boolean
-  /** True for a catalog-only entry (no live session/task on it right now) —
-   *  the switcher offers "Remove from history" for these. */
-  historyOnly?: boolean
+  /** Its hosts list it and the organization does not: the switcher offers to
+   *  take it off those lists (`ProjectsStore.removeProject`,
+   *  docs/plans/project-model.md §2). */
+  removable?: boolean
 }
 
 /** Status tints a chip or a lead statistic may carry. `neutral` is the default

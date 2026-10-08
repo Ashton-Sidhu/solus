@@ -15,6 +15,8 @@ export type RunHooks = Pick<SessionOrchestrator, 'runStarted' | 'inputRequested'
 export interface RemoteRunFollow {
   watching: Promise<void>
   stop: () => void
+  /** The prompt waits in host B's queue under this id. */
+  queuedAs: (queueId: string) => void
 }
 
 /**
@@ -26,13 +28,22 @@ export interface RemoteRunFollow {
  * Start it before the session starts, and start the session once `watching`
  * resolves: a watch made first cannot miss a turn that ends at once. The
  * follow ends when the turn settles, or when `stop` is called.
+ *
+ * With `promptId`, the session already exists and may be in another turn. The
+ * follow hears nothing until host B echoes the prompt (`user_message` with that
+ * `clientPromptId`): the turn after the echo is the prompt's. A queued prompt
+ * that host B drops — a Stop drains the queue — is never echoed; the turn that
+ * ends after it was dropped settles it as interrupted.
  */
-export function followRemoteRun(remote: RemoteHost, run: RunExchanges, provider: AgentId, hooks: RunHooks): RemoteRunFollow {
+export function followRemoteRun(remote: RemoteHost, run: RunExchanges, provider: AgentId, hooks: RunHooks, promptId?: string): RemoteRunFollow {
   const { sessionId } = run
   /** What each open request asked, so its answer can say what was decided. */
   const requests = new Map<string, Extract<WireNormalizedEvent, { type: 'permission_request' | 'question_request' | 'plan' }>>()
   let result: { text: string; durationMs: number } | null = null
   let ended = false
+  let echoed = promptId === undefined
+  let queueId: string | undefined
+  let dropped = false
 
   const watch = async () => { await remote.call('the session watch', () => remote.api.watchSession({ sessionId })) }
 
@@ -44,7 +55,20 @@ export function followRemoteRun(remote: RemoteHost, run: RunExchanges, provider:
     void remote.api.unwatchSession(sessionId).catch(() => {})
   }
 
+  const settle = (outcome: ExchangeOutcome) => {
+    end()
+    hooks.runSettled({ ...run, outcome, resultText: result?.text, durationMs: result?.durationMs, provider })
+  }
+
+  /** Before the echo, only the prompt's own place in host B's queue matters. */
+  const awaitEcho = (event: WireNormalizedEvent) => {
+    if (event.type === 'user_message' && event.clientPromptId === promptId) echoed = true
+    else if (event.type === 'prompt_dequeued' && queueId !== undefined && event.queueId === queueId) dropped = true
+    else if (event.type === 'turn_settled' && dropped) settle('interrupted')
+  }
+
   const receive = (event: WireNormalizedEvent) => {
+    if (!echoed) return awaitEcho(event)
     switch (event.type) {
       case 'status_change':
         if (event.status === 'running') hooks.runStarted(run)
@@ -82,14 +106,7 @@ export function followRemoteRun(remote: RemoteHost, run: RunExchanges, provider:
         result = { text: event.result, durationMs: event.durationMs }
         return
       case 'turn_settled':
-        end()
-        hooks.runSettled({
-          ...run,
-          outcome: settledOutcome(event.outcome),
-          resultText: result?.text,
-          durationMs: result?.durationMs,
-          provider,
-        })
+        settle(settledOutcome(event.outcome))
         return
       default:
         return
@@ -104,7 +121,7 @@ export function followRemoteRun(remote: RemoteHost, run: RunExchanges, provider:
     if (ended) return
     watch().catch((error) => log.warn('remote_watch_failed', { sessionId, hostId: remote.hostId, error: String(error) }))
   })
-  return { watching: watch(), stop: end }
+  return { watching: watch(), stop: end, queuedAs: (id) => { queueId = id } }
 }
 
 function settledOutcome(outcome: 'completed' | 'failed' | 'interrupted' | 'dead'): ExchangeOutcome {

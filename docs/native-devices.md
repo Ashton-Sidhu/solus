@@ -130,7 +130,10 @@ to make. If an install fails for signing, Solus says what to change.
 2. Select **Set up Build & run** in the device toolbar (or **Edit build
    profiles…** in its arrow menu). Add a profile from a preset — Xcode for
    the simulator, Xcode for an iPhone or iPad, or Gradle's debug APK — and
-   edit the scheme and folders. A profile has a name, the platform, the
+   edit the scheme and folders. An Expo app also gets two presets first:
+   **Expo — dev**, a Debug simulator build that loads its JavaScript from
+   Metro (start it with `npx expo start`), and **Expo — production**, a
+   Release simulator build with the JavaScript bundled in. A profile has a name, the platform, the
    build kind (simulator or device, for iOS), a folder, the command, the
    output path (`*` matches within one folder name; the newest match wins),
    and the app id. Save writes the profiles to the project's
@@ -246,7 +249,7 @@ stays until **Dismiss**. With no profile saved, **Set up a build** opens
 the project's build profiles; **Edit build profiles** opens them too. The
 phone edits the same profiles as the Devices pane: add one from the same
 presets (Xcode for an iPhone or iPad, Xcode for the simulator, Gradle's
-debug APK), then edit its name, platform, kind, folder, command, output
+debug APK, and Expo's dev and production builds for an Expo app), then edit its name, platform, kind, folder, command, output
 and app id. **Save** checks them the same way and writes them to the
 project's `.solus/config.json`. Builds install only on devices connected to the Solus host
 itself, not on an SSH device host.

@@ -11,18 +11,18 @@ import { serverConnections } from '@solus/client-core/server-connections'
 
 const { initializeRuntime, refreshRuntime } = await import('@solus/workspace-ui/contexts/app/runtime-boot')
 
-test('restores persisted sessions without waiting for static host metadata', async () => {
+test('restores persisted sessions without waiting for the host\'s machine facts', async () => {
   // WHY: start() can be slow or fail while a host connection is coming up. The
   // selected tab already exists from local storage, so its transcript must begin
   // loading immediately instead of falling back to an empty conversation.
-  let finishStaticInfo!: () => void
-  const staticInfo = new Promise<void>((resolve) => {
-    finishStaticInfo = resolve
+  let finishAgents!: () => void
+  const agents = new Promise<void>((resolve) => {
+    finishAgents = resolve
   })
   const loadPinnedSessions = mock(async () => {})
 
   const stop = initializeRuntime(
-    { initStaticInfo: () => staticInfo, settings: { lastProject: null }, unstartedRuns: () => [], tabOrder: [] } as never,
+    { lifecycle: { readRunOnAgents: () => agents }, settings: { lastProject: null }, unstartedRuns: () => [], tabOrder: [] } as never,
     { loadPinnedSessions } as never,
   )
 
@@ -30,7 +30,7 @@ test('restores persisted sessions without waiting for static host metadata', asy
   expect(bootstrapRuntimeTabs).toHaveBeenCalledTimes(1)
   expect(loadPinnedSessions).toHaveBeenCalledTimes(1)
 
-  finishStaticInfo()
+  finishAgents()
   stop()
 })
 
@@ -41,7 +41,7 @@ test('reconnect refreshes do not register more app listeners, and unmount releas
   const phases = spyOn(serverConnections, 'onPhaseChange').mockReturnValue(stopPhases)
   // SAFETY: bootstrap is mocked above; these are the only workspace and sidebar
   // members this test reaches (the gone-machine pass reads the last two).
-  const workspace = { initStaticInfo: async () => {}, settings: { lastProject: null }, unstartedRuns: () => [], tabOrder: [] } as unknown as Parameters<typeof initializeRuntime>[0]
+  const workspace = { lifecycle: { readRunOnAgents: async () => {} }, settings: { lastProject: null }, unstartedRuns: () => [], tabOrder: [] } as unknown as Parameters<typeof initializeRuntime>[0]
   // SAFETY: the fixture covers the one sidebar command called by initialization and refresh.
   const sidebar = { loadPinnedSessions: async () => {} } as Parameters<typeof initializeRuntime>[1]
   try {

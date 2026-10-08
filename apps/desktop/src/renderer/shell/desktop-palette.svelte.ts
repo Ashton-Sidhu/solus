@@ -41,7 +41,7 @@ import {
   activeSessionShareTarget,
   projectsStore,
   serversStore,
-  hostCapabilitiesStore,
+  hosts,
   sharesStore,
   updatesStore,
 } from "@solus/workspace-ui/contexts";
@@ -408,7 +408,7 @@ export function createDesktopPalette(
     !!settings.defaultEditor &&
       hostPolicy.isClientMachine(logsServerId) &&
       supportsEditor(
-        hostCapabilitiesStore.for(logsServerId),
+        hosts.find(logsServerId)?.capabilityRecord,
         settings.defaultEditor,
       ),
   );

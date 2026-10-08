@@ -52,6 +52,42 @@ export const RUN_PROFILE_PRESETS: RunProfilePreset[] = [
 ]
 
 /**
+ * Expo's two iOS builds of the prebuilt `ios` folder. The dev build is Debug:
+ * it loads JavaScript from Metro (`npx expo start`), so edits show without a
+ * rebuild. The production build is Release, with the JavaScript bundled in,
+ * so it runs alone as users get it.
+ */
+export const EXPO_PRESETS: RunProfilePreset[] = [
+  {
+    label: 'Expo — dev (simulator, with Metro)',
+    profile: {
+      name: 'iOS dev',
+      platform: 'ios',
+      target: 'simulator',
+      cwd: 'ios',
+      command: ['xcodebuild', '-scheme', 'App', '-configuration', 'Debug', '-destination', 'generic/platform=iOS Simulator', '-derivedDataPath', 'build', 'build'],
+      artifact: 'build/Build/Products/Debug-iphonesimulator/*.app',
+    },
+  },
+  {
+    label: 'Expo — production (simulator)',
+    profile: {
+      name: 'iOS production',
+      platform: 'ios',
+      target: 'simulator',
+      cwd: 'ios',
+      command: ['xcodebuild', '-scheme', 'App', '-configuration', 'Release', '-destination', 'generic/platform=iOS Simulator', '-derivedDataPath', 'build', 'build'],
+      artifact: 'build/Build/Products/Release-iphonesimulator/*.app',
+    },
+  },
+]
+
+/** The presets to offer for a project: Expo's own first when it is an Expo app, then the common builds. */
+export function presetsForProject(info: DeviceProjectInfo | null | undefined): RunProfilePreset[] {
+  return info?.usesExpo ? [...EXPO_PRESETS, ...RUN_PROFILE_PRESETS] : RUN_PROFILE_PRESETS
+}
+
+/**
  * The folder a preset builds in, from what project detection found: a
  * monorepo's app lives below the checkout root (`apps/mobile/package.json`
  * makes `apps/mobile/ios`), not in `ios` at the root.

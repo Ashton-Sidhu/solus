@@ -180,12 +180,17 @@ export function flushPersistedSessionDrafts(): void {
 }
 
 // ─── Cached start() payload ───
-// Optimistic boot cache for the primary host's start(). Lets the renderer paint
-// staticInfo + agent metadata before the real RPC resolves; reconciled on fresh.
+// Optimistic boot cache of each host's start(). Lets the renderer paint agent
+// metadata before the real RPC resolves; reconciled on fresh. One entry per
+// host: one host's machine facts never stand in for another's.
 
-export function loadCachedStart(): StartInfo | null {
+function startCacheKey(serverId: string): string {
+  return `${START_CACHE_KEY}:${encodeURIComponent(serverId)}`
+}
+
+export function loadCachedStart(serverId: string): StartInfo | null {
   try {
-    const raw = localStorage.getItem(START_CACHE_KEY)
+    const raw = localStorage.getItem(startCacheKey(serverId))
     if (!raw) return null
     const parsed = z.object({ version: z.string(), agents: z.array(z.object({}).passthrough()) }).passthrough().safeParse(JSON.parse(raw))
     if (!parsed.success) return null
@@ -196,9 +201,9 @@ export function loadCachedStart(): StartInfo | null {
   }
 }
 
-export function saveCachedStart(info: StartInfo): void {
+export function saveCachedStart(serverId: string, info: StartInfo): void {
   try {
-    localStorage.setItem(START_CACHE_KEY, JSON.stringify(info))
+    localStorage.setItem(startCacheKey(serverId), JSON.stringify(info))
   } catch {}
 }
 

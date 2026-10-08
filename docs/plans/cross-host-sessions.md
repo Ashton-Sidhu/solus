@@ -133,8 +133,6 @@ conversation.
 
 ## 6. Not in the first version
 
-- `send_session` to a session on another host. It answers with an error that
-  names the host, so the agent can tell the user.
 - Rate-limit notices from a remote child.
 - Recovery: after host A restarts, an open remote exchange settles as
   interrupted, like an uncertain local child. Reattaching is a later step.

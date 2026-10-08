@@ -7,7 +7,7 @@ import type { HostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
-import { hostRolesStore } from '../connections/host-roles.store.svelte'
+import { hosts } from '../hosts/hosts.svelte'
 
 export type GitRefreshLevel = 'status' | 'details' | 'full'
 
@@ -263,7 +263,7 @@ export class SessionEnvironmentStore {
     // the run is what names that host. A host this client does not know (it was
     // deleted) or one that runs nothing (the workspace service) has no checkout.
     const serverId = workspace.serverIdFor?.(sourceId)
-    if (serverId && !hostRolesStore.hasExecution(serverId)) {
+    if (serverId && !hosts.hasExecution(serverId)) {
       return { status: false, details: false, refs: false, registration: false, ok: false, error: 'This session has no machine to read Git from.' }
     }
     const api = workspace.apiFor?.(sourceId)

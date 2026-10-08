@@ -16,6 +16,40 @@ that every client uses to list projects.
 - A path alone does not identify a project. Always resolve a folder through
   its host (`projectsStore.projectKeyFor(serverId, path)`).
 
+## §2 Where projects are recorded
+
+Each host's project list (the `projects` table, read with `listProjects`) is
+the only record of which folders are projects. There is no client catalog.
+
+- **Adding.** A folder becomes a project only when someone adds it: "Add
+  project", open folder, clone, or setup (`trackRecentProject`,
+  `registerProject`, `projectConfigSave`). A session does not add its folder.
+  The host stores the project root: the repository's top folder with any
+  worktree stripped, or the folder itself when it is not a repository.
+- **Last use.** `ProjectEntry.lastUsedAt` moves when the folder is added again
+  or a session starts in it (or in a worktree or subfolder of it). Lists order
+  by it.
+- **Untracking.** `untrackProject(path)` takes the folder off the list. It
+  deletes nothing else: tasks, sessions and files stay. Adding the folder again
+  lists it again. `deleteProject` stays the destructive, admin-only action in
+  Settings.
+- **Change event.** The host emits `projects.changed` after an add, untrack,
+  delete or last-use change. Clients read `listProjects` again.
+- **Offline hosts.** A client keeps the last list it read from each host, so a
+  host that is away still groups and names its projects. That copy is a cache:
+  the next read replaces it.
+
+## §3 The project of a folder
+
+A client resolves a host and a path to a project key
+(`projectsStore.projectKeyFor`), in this order:
+
+1. The host's listed project that is the folder or holds it (a worktree or a
+   subfolder): that project's key.
+2. A remote-dispatch clone: the repository its path names. Hosts do not list
+   dispatch clones.
+3. Otherwise the folder is local-only: `localProjectKey(serverId, path)`.
+
 ## §4 Tasks
 
 A cloud task names its repository key. A host task names a path, and the

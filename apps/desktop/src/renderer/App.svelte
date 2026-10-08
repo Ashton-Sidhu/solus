@@ -27,7 +27,7 @@
   import { Toaster } from "@solus/workspace-ui/components/ui/sonner/index.js";
   import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
 
-  import { connectionsStore, serversStore, sharesStore } from "@solus/workspace-ui/contexts";
+  import { hosts, serversStore, sharesStore } from "@solus/workspace-ui/contexts";
 
   import { toasts } from "@solus/workspace-ui/lib/toasts";
   import { setPopoverLayer } from "@solus/workspace-ui/components/popoverLayer.svelte";
@@ -123,7 +123,7 @@
   const activeTabId = $derived(session.activeTabId);
   const keyboardTabId = $derived(session.focusedChatTabId ?? activeTabId);
   const desktopHandlersAvailable = $derived(
-    connectionsStore.desktopHandlersAvailable,
+    (hosts.device?.hasDesktopHandlers ?? false),
   );
   // Mount global scope and the single dispatcher listener (shared with web).
   installGlobalDispatcher(keybindings, () => settings.keybindings);

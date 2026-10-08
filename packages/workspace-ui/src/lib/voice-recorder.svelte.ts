@@ -1,17 +1,15 @@
 import { track } from './analytics'
 import { disposePcmCaptureResources, PcmCapture, type PcmChunk } from './pcm-capture'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { hosts } from '../contexts/hosts/hosts.svelte'
 import type { HostApi } from '@solus/client-core/host-api'
 import { z } from 'zod'
 
-// The mic is the client's; transcription runs on the local machine when there
-// is one, else the new-work default host. The recorder is an app-global
-// singleton with no run context, so the choice is made here, per call.
+// The mic is the client's. The recorder is an app-global singleton with no run
+// context, so the transcription host is chosen here, per call.
 function transcriptionHostApi(): HostApi | null {
-  const localHostApi = serverConnections.localHostApi()
-  if (localHostApi) return localHostApi
-  const machineId = serverConnections.defaultMachineId()
-  return machineId ? serverConnections.apiFor(machineId) : null
+  const host = hosts.transcription
+  return host ? serverConnections.apiFor(host.id) : null
 }
 
 // Audio is held back from the buffer until a chunk crosses this rms — leading

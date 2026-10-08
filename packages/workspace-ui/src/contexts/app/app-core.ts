@@ -22,7 +22,6 @@ import {
 import { OtelSettingsStore, setOtelSettingsStore } from '../projects/otel-settings.store.svelte'
 import { AgentContext, setAgentContext } from './agent.context.svelte'
 import { SessionSidebarStore, setSessionSidebarStore } from '../workspace/session-sidebar.store.svelte'
-import { VoiceModelStore, setVoiceModelStore } from './voice-model.store.svelte'
 import {
   PullRequestsContext,
   setPullRequestsContext,
@@ -49,7 +48,6 @@ export interface AppCore {
   projectConfigStore: ProjectConfigStore
   textGenerationSettingsStore: TextGenerationSettingsStore
   sessionSidebarStore: SessionSidebarStore
-  voiceModelStore: VoiceModelStore
   pullRequests: PullRequestsContext
   sessions: SessionRecords
   session: WorkspaceContext
@@ -103,7 +101,6 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   trackSessionReviewGuides(session)
   trackBranchReviewGuides(session, sessionEnvironmentStore)
   session.onTabClosing = (tabId) => sessionSidebarStore.releaseTab(tabId)
-  const voiceModelStore = new VoiceModelStore()
   statusBar.bind(session)
   statusBar.bindAgent(agent)
 
@@ -176,7 +173,6 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   setTextGenerationSettingsStore(textGenerationSettingsStore)
   setOtelSettingsStore(otelSettingsStore)
   setSessionSidebarStore(sessionSidebarStore)
-  setVoiceModelStore(voiceModelStore)
   setPullRequestsContext(pullRequests)
   setAgentContext(agent)
   setKeybindingsContext(keybindings)
@@ -193,7 +189,6 @@ export function createAppCore(shell: ClientShellContext): AppCore {
     projectConfigStore,
     textGenerationSettingsStore,
     sessionSidebarStore,
-    voiceModelStore,
     pullRequests,
     sessions,
     session,

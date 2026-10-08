@@ -235,22 +235,6 @@
       <ContextMeter tabId={sess ? source : ""} />
     </div>
   {/if}
-  <!-- Transient status, not destination config, so it stays in both modes. -->
-  {#if !isPinned && session.lifecycle.runtimeSyncing}
-    <TooltipUI.Root>
-      <TooltipUI.Trigger>
-        {#snippet child({ props: tooltipProps })}
-          <span {...tooltipProps}
-      class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-(--solus-surface-hover) px-2 text-xs tabular-nums text-(--solus-text-tertiary)"
-    >
-      <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-(--solus-status-complete)"></span>
-      <span>Syncing...</span>
-    </span>
-        {/snippet}
-      </TooltipUI.Trigger>
-      <TooltipUI.Content value={"Syncing runtime state"} />
-    </TooltipUI.Root>
-  {/if}
   {#if showDestination && !isPinned}
     <RunOnPicker
       run={run ?? session.defaultRunConfig}

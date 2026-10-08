@@ -226,7 +226,7 @@
   </div>
   <!-- Subscription quota closes the section: what's left to spend in this
        environment, per provider. -->
-  <UsageMeters {active} />
+  <UsageMeters serverId={detailServerId} {active} />
 </div>
 
 <style>

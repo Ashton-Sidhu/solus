@@ -8,6 +8,12 @@ and Local data beside the selected organization. This document describes the
 earlier implementation. Use the new plan for the next implementation; sharing
 a resource will no longer require sharing its execution host.
 
+Host-facts update (2026-10-08): [One object per host](host-model.md) replaced
+step 6 and the client names below. `defaultMachineId()` is `runOnHostId()`
+(`chooseRunOnHost`); `hostRolesStore`, `connectionsStore.capabilities`,
+`usageStore`, and `staticInfo` are gone — a reader gets a `Host` from its owner
+(`hosts.get`, `hosts.device`, `hosts.runOn`) and reads its facts.
+
 ## 1. Why
 
 On `app.solus.sh` a signed-in member sees, on every load:
@@ -221,11 +227,17 @@ the account origin with no machine mounts on the Solus API alone.
 
 ### 5.4 What moves where
 
+> Replaced by [One object per host](host-model.md) (proposed 2026-10-08). The
+> "machine work" group below put reads with three different owners — the tab's
+> host, the device host, and the Run on host — behind one `defaultMachineId()`.
+> That caused the usage and voice bugs of 2026-10-08. The list stays as a record
+> of this implementation.
+
 The primary reads (`defaultServerId()`, `fallbackServerId`, the workspace's own
 sessionless default) fall into two groups:
 
 - **Machine work** uses `defaultMachineId()` and reads nothing when it is null:
-  `start()`, usage, plugin commands, voice model and transcription, insights
+  `start()`, plugin commands, insights
   (`metrics*` are execution), attachments, the directory picker and its Git
   identity, project favicons, skills, the capability mirror
   (`connectionsStore.capabilities`: agents, dictation, desktop handlers), local
@@ -233,6 +245,11 @@ sessionless default) fall into two groups:
   machines only), automation drafting and seeding, and sessionless Git and
   context calls. Web prompt dispatch asks for a host when the run's host runs no
   agents.
+- **The client's own machine** comes first where the capability belongs to the
+  device the user holds: voice model and transcription use `hosts.transcription`
+  (the device host, else the Run on host; [host-model.md](host-model.md)),
+  because only the desktop main process transcribes. A desktop whose default is
+  a remote server still records and transcribes locally.
 - **Records** keep the primary: tasks, works, the automation listing, pins,
   push subscription, notification labels, host discovery.
 
@@ -241,6 +258,9 @@ cloud task's home runs nothing, so `openTaskSession` opens it on a machine the
 Run-on picker chooses; with no machine the draft's chip asks for one.
 
 ### 5.5 Startup facts become machine facts
+
+> Step 6 below is replaced by [One object per host](host-model.md): `staticInfo`
+> becomes the `machine` fact of each `Host`.
 
 `StaticInfo` (`workspace-lifecycle.store.svelte.ts`) is six facts about one
 machine: `version`, the agent account's `email` and `subscriptionType`,
@@ -365,8 +385,15 @@ Each step ships alone and leaves the tree green.
 ## 9. Proofs
 
 - Unit (`tests/unit/default-machine.test.ts`): the default machine is never the
-  Solus API; usage and `start()` read nothing with no machine and read
+  Solus API; `start()` reads nothing with no machine and reads
   once when one is there.
+- Unit (`tests/unit/usage-refresh-throttle.test.ts`): usage is not machine work
+  for the default machine. Quota belongs to a host's agent logins, so the
+  project panel reads the quota of its tab's host from that host's `usage` fact
+  ([host-model.md](host-model.md)); one host's snapshot never replaces another's.
+- Unit (`tests/unit/default-machine.test.ts`, `tests/unit/host-voice.test.ts`):
+  the transcription host is the local machine even when the default is remote,
+  and a remote host's answer never hides the mic.
 - Unit (`tests/unit/machine-references.test.ts`): each row of the §6 table, and
   which ids are known.
 - Unit (`tests/unit/cloud-origin-startup.test.ts`): only a merged directory

@@ -20,10 +20,12 @@ import type {
   AgentId,
   ExchangeProgress,
   GitCheckout,
+  HeadlessPromptRequest,
   HeadlessSessionRequest,
   NormalizedEvent,
   PermissionMode,
   PromptDelivery,
+  PromptImageRef,
   ReasoningEffort,
   SessionMeta,
   SessionOrigin,
@@ -38,6 +40,8 @@ import { addOutput, answerText, outputFromEvent, outputsFromAnswer, type Resolve
 import { ParentDelivery } from './parent-delivery'
 import type { RemoteHost } from './remote-hosts'
 import { followRemoteRun } from './remote-runs'
+import { attachToPrompt, uploadTo } from './prompt-attachments'
+import { storeAttachment } from '../../data/assets/attachment-store'
 
 const log = createLogger('orchestration', 'session-orchestrator.ts')
 
@@ -100,6 +104,23 @@ export interface CreateSessionOrder {
   taskId?: string | null
   exchangeIds?: string[]
   delegation?: { parentSessionId: string; messageId: string; intent: 'delegate' | 'fire_and_forget'; createdAt: number }
+  imageAttachmentRefs?: PromptImageRef[]
+}
+
+/** What a sender orders started. `attachments` are absolute paths on this host;
+ *  the files go to the host that runs the session. */
+export type SpawnOrder = Omit<CreateSessionOrder, 'exchangeIds' | 'delegation' | 'imageAttachmentRefs'> & { attachments?: string[] }
+
+/** One message to an existing session. */
+export interface SendOrder {
+  prompt: string
+  delivery: PromptDelivery
+  notify: boolean
+  permissionMode?: PermissionMode
+  /** Absolute paths on this host. */
+  attachments?: string[]
+  waitMs?: number
+  requestId?: string
 }
 
 export interface PromptOrder {
@@ -109,6 +130,8 @@ export interface PromptOrder {
   exchangeIds?: string[]
   permissionMode?: PermissionMode
   via?: 'session-report'
+  /** Images the sender attached, already in this host's attachment store. */
+  imageAttachmentRefs?: PromptImageRef[]
 }
 
 /** What the orchestrator needs from the control plane that runs the turns.
@@ -251,7 +274,7 @@ export class SessionOrchestrator {
    *  session runs on that host instead of this one. */
   async spawn(
     senderSessionId: string | undefined,
-    order: Omit<CreateSessionOrder, 'exchangeIds' | 'delegation'>,
+    order: SpawnOrder,
     report: boolean,
     waitMs = 0,
     requestId?: string,
@@ -270,8 +293,12 @@ export class SessionOrchestrator {
 
     const starting = target ? this.startRemote(target, order, exchangeId, targetSessionId, exchange) : (async (): Promise<SpawnedSession> => {
       try {
+        const { attachments, ...rest } = order
+        // Without files the start is not deferred: the session starts in this tick.
+        const attached = attachments?.length ? await attachToPrompt(order.prompt, attachments, storeAttachment, exchangeId) : {}
         const started = await this.runtime.createSession({
-          ...order,
+          ...rest,
+          ...attached,
           sessionId: targetSessionId,
           exchangeIds: exchange ? [exchangeId] : undefined,
           delegation: senderSessionId
@@ -303,7 +330,7 @@ export class SessionOrchestrator {
    *  comes first, so a turn that ends at once is not missed. */
   private async startRemote(
     target: RemoteTarget,
-    order: Omit<CreateSessionOrder, 'exchangeIds' | 'delegation'>,
+    order: SpawnOrder,
     exchangeId: string,
     targetSessionId: string,
     exchange: Exchange | null,
@@ -326,6 +353,7 @@ export class SessionOrchestrator {
     if (order.worktreeBaseBranch) request.worktreeBaseBranch = order.worktreeBaseBranch
     try {
       await follow?.watching
+      Object.assign(request, await attachToPrompt(order.prompt, order.attachments, uploadTo(host), exchangeId))
       await host.call('the session start', () => host.api.createHeadlessSession(request))
     } catch (error) {
       if (exchange) this.settle(exchange, 'failed', `Session startup on ${host.label} failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -338,7 +366,7 @@ export class SessionOrchestrator {
 
   private openSpawn(
     senderSessionId: string | undefined, targetSessionId: string,
-    order: Omit<CreateSessionOrder, 'exchangeIds' | 'delegation'>, report: boolean,
+    order: SpawnOrder, report: boolean,
     identity: ExchangeIdentity, dispatchedAt: number, targetHostId?: string,
   ): Exchange | null {
     const { exchangeId, fingerprint } = identity
@@ -375,18 +403,21 @@ export class SessionOrchestrator {
   }
 
   /** Sends one message to an existing session. The sender's card shows it before
-   *  the target can answer, and the result comes back under the same id. */
+   *  the target can answer, and the result comes back under the same id. With
+   *  `target`, the session runs on that host: one the sender started there. */
   async send(
     senderSessionId: string,
     targetSessionId: string,
-    message: { prompt: string; delivery: PromptDelivery; notify: boolean; permissionMode?: PermissionMode; waitMs?: number; requestId?: string },
+    message: SendOrder,
+    target?: RemoteTarget,
   ): Promise<{ exchangeId: string; disposition: 'started' | 'steered' | 'queued'; waited?: OrchestrationItem | null }> {
     if (targetSessionId === senderSessionId) throw new Error('Cannot message your own session.')
-    const meta = this.runtime.sessionMeta(targetSessionId)
+    const meta = target ? null : this.runtime.sessionMeta(targetSessionId)
     // Refused before the card shows it: there is nothing to send it to.
-    if (!meta) throw new Error(`Session ${targetSessionId} not found.`)
+    if (!target && !meta) throw new Error(`Session ${targetSessionId} not found.`)
+    const provider = meta?.provider ?? this.remoteProviderOf(senderSessionId, targetSessionId, target!.host)
     const { waitMs: _waitMs, requestId: retryId, ...request } = message
-    const identity = this.ledger.identify(senderSessionId, retryId, JSON.stringify({ kind: 'prompt', targetSessionId, request }))
+    const identity = this.ledger.identify(senderSessionId, retryId, JSON.stringify({ kind: 'prompt', targetSessionId, hostId: target?.host.hostId, request }))
     if (identity.existing) return this.repeatedSend(identity.existing, message.waitMs ?? 0)
     const { exchangeId, fingerprint } = identity
     const parentExchangeIds = message.notify ? this.runtime.activeExchangeIdsFor(senderSessionId).slice() : []
@@ -399,16 +430,15 @@ export class SessionOrchestrator {
       kind: 'prompt',
       senderSessionId,
       targetSessionId,
-      provider: meta.provider,
+      targetHostId: target?.host.hostId,
+      provider,
       notify: message.notify,
       dispatchedAt, fingerprint, parentExchangeIds,
     })
     const waited = message.waitMs && message.waitMs > 0 ? this.waitOn(exchange, message.waitMs) : undefined
     this.publish(exchange, promptedUpdate(exchange, meta, message))
-    const order: PromptOrder = { exchangeIds: [exchangeId], senderSessionId }
-    if (message.permissionMode) order.permissionMode = message.permissionMode
     try {
-      const result = await this.runtime.promptSession(targetSessionId, message.prompt, message.delivery, order)
+      const result = target ? await this.promptThere(exchange, message, target.host) : await this.promptHere(exchange, message)
       this.ledger.update(exchange, (draft) => { draft.disposition = result.disposition })
       return waited
         ? { exchangeId, disposition: result.disposition, waited: await waited }
@@ -417,6 +447,43 @@ export class SessionOrchestrator {
       this.settleUnaccepted(exchange)
       throw error
     }
+  }
+
+  /** The provider of a session the sender started on `host`; only such a session is reachable there. */
+  private remoteProviderOf(senderSessionId: string, targetSessionId: string, host: RemoteHost): AgentId {
+    const started = [...this.exchanges.values()].find((exchange) =>
+      exchange.senderSessionId === senderSessionId && exchange.targetSessionId === targetSessionId && exchange.targetHostId === host.hostId)
+    if (!started) throw new Error(`Session ${targetSessionId} was not started on ${host.label} by this session.`)
+    return started.provider
+  }
+
+  private async promptHere(exchange: Exchange, message: SendOrder): Promise<{ disposition: 'started' | 'steered' | 'queued' }> {
+    const order: PromptOrder = { exchangeIds: [exchange.exchangeId], senderSessionId: exchange.senderSessionId }
+    if (message.permissionMode) order.permissionMode = message.permissionMode
+    if (!message.attachments?.length) return this.runtime.promptSession(exchange.targetSessionId, message.prompt, message.delivery, order)
+    const { prompt, imageAttachmentRefs } = await attachToPrompt(message.prompt, message.attachments, storeAttachment, exchange.exchangeId)
+    if (imageAttachmentRefs) order.imageAttachmentRefs = imageAttachmentRefs
+    return this.runtime.promptSession(exchange.targetSessionId, prompt, message.delivery, order)
+  }
+
+  /** Host B's events drive the hooks a local run calls, from the turn that
+   *  answers this message: the follow waits for host B to echo it under the
+   *  exchange id. */
+  private async promptThere(exchange: Exchange, message: SendOrder, host: RemoteHost): Promise<{ disposition: 'started' | 'steered' | 'queued' }> {
+    const { exchangeId, targetSessionId } = exchange
+    const follow = followRemoteRun(host, { runId: `remote:${exchangeId}`, sessionId: targetSessionId, exchangeIds: [exchangeId] }, exchange.provider, this, exchangeId)
+    this.remoteFollows.set(exchangeId, { host, stop: follow.stop })
+    await follow.watching
+    const request: HeadlessPromptRequest = {
+      sessionId: targetSessionId,
+      delivery: message.delivery,
+      promptId: exchangeId,
+      ...await attachToPrompt(message.prompt, message.attachments, uploadTo(host), exchangeId),
+    }
+    const result = await host.call('the prompt', () => host.api.promptHeadlessSession(request))
+    if (result.queueId) follow.queuedAs(result.queueId)
+    log.info('remote_session_prompted', { exchangeId, sessionId: targetSessionId, hostId: host.hostId, disposition: result.disposition })
+    return result
   }
 
   /** Stops the target for the sender. The sender's own messages to it settle

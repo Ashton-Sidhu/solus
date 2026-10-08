@@ -9,11 +9,11 @@ import { makePrompt, makeSession, makeTab } from './session.factories'
 import { taskTargetFrom } from './session-draft.svelte'
 import { loadRestoredSessionTranscript } from './session-transcript'
 import { applyRuntimeConfig, nextMsgId } from './session.utils'
-import { initDraftState, loadDrafts, loadPersistedSessionDrafts, loadPersistedTabs, type PersistedTab, type PersistedTabs, type TabDrafts } from './tab-persistence'
+import { initDraftState, loadCachedStart, loadDrafts, loadPersistedSessionDrafts, loadPersistedTabs, type PersistedTab, type PersistedTabs, type TabDrafts } from './tab-persistence'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { hostRolesStore } from '../connections/host-roles.store.svelte'
+import { hosts } from '../hosts/hosts.svelte'
 import { loadSessionRecordTranscript } from '../sessions/session-record-transcript'
 import { GONE_MACHINE_READ_ONLY_REASON, savedHostsAreAuthoritative } from './machine-references'
 import { z } from 'zod'
@@ -227,8 +227,6 @@ export async function bootstrapRuntimeTabs(ctx: WorkspaceContext): Promise<void>
  * clearing client state. Used by the network-gap recovery path.
  */
 export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): Promise<void> {
-  ctx.lifecycle.runtimeSyncing = true
-  try {
     const tabIds = ctx.tabOrder.filter((tabId) => !serverId || ctx.sessionFor(tabId)?.run.serverId === serverId)
     // Clear only the affected host's in-flight activity before replay without
     // churning healthy tabs on other connections.
@@ -284,9 +282,6 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
       }
       await environmentRefresh
     }))
-  } finally {
-    ctx.lifecycle.runtimeSyncing = false
-  }
 }
 
 /** Snapshots written before tabs carried a window have `contextWindow: null`,
@@ -337,7 +332,7 @@ function _materializeTabs(
       const run: Partial<RunConfig> = {
         serverId,
         provider: snapTab.provider,
-        workingDirectory: snapTab.workingDirectory || ctx.staticInfo?.projectPath || NEW_CHAT_DIRECTORY,
+        workingDirectory: snapTab.workingDirectory || machineProjectPath(serverId) || NEW_CHAT_DIRECTORY,
         gitContext: snapTab.gitContext,
         worktree: snapTab.worktreeRequested
           ? { baseBranch: snapTab.worktreeBaseBranch }
@@ -452,7 +447,7 @@ async function hydrateTabOnGoneMachine(ctx: WorkspaceContext, snapTab: Persisted
   if (!savedHostsAreAuthoritative()) return false
   session.readOnlyReason = GONE_MACHINE_READ_ONLY_REASON
   const home = serverConnections.defaultServerId()
-  if (!home || !hostRolesStore.hasCollaboration(home)) return true
+  if (!home || !hosts.hasCollaboration(home)) return true
   session.loadingHistory = session.messages.length === 0
   try {
     const meta = await readSessionMeta(home, session.id)
@@ -470,6 +465,13 @@ async function hydrateTabOnGoneMachine(ctx: WorkspaceContext, snapTab: Persisted
   return true
 }
 
+/** The project path of the tab's own host, read or cached. Restore runs before
+ *  most hosts answer, so the last cached answer stands in until they do. */
+function machineProjectPath(serverId: string | undefined): string | undefined {
+  if (!serverId) return undefined
+  return hosts.find(serverId)?.machineInfo?.projectPath ?? loadCachedStart(serverId)?.projectPath
+}
+
 async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise<boolean> {
   const tab = ctx.tabs[snapTab.tabId]
   const session = tab ? ctx.sessions.byId[tab.sessionId] : undefined
@@ -478,7 +480,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
 
   const api = ctx.apiFor(snapTab.tabId)
   const snapshotProvider = snapTab.provider ?? ctx.settings.activeAgent
-  const displayCwd = snapTab.workingDirectory || ctx.staticInfo?.projectPath || NEW_CHAT_DIRECTORY
+  const displayCwd = snapTab.workingDirectory || machineProjectPath(session.run.serverId) || NEW_CHAT_DIRECTORY
   // The host reads the session's whole lineage from its session id. Read the
   // bytes alongside the lineage, but build cards using the lineage below. A
   // worktree transcript lives under its checkout, not the repo root.
@@ -542,6 +544,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
         s.progress = transcript.progress
         ctx.lifecycle.recomputeChangedFiles(tabId)
         for (const planId of transcript.planIds) void ctx.planStore.hydrateAnnotations(planId)
+        if (transcript.endsInRefusedLogin) ctx.offerSignInAgain(s.id, s)
       }
       if (
         s &&

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { isServerUpdateActive } from '@solus/contracts/server-update';
   import { serverUpdateText } from '../../contexts/updates/server-update-text';
-  import { hostCapabilitiesStore } from '../../contexts/connections/host-capabilities.store.svelte';
+  import { hosts } from '../../contexts/hosts/hosts.svelte';
   import type { ServerItem } from '../../contexts/connections/servers.store.svelte';
   import { serversStore } from '../../contexts/connections/servers.store.svelte';
   import { hostUpdatesStore } from '../../contexts/updates/host-updates.store.svelte';
@@ -40,7 +40,7 @@
         <Button variant="outline" size="sm" disabled={host.status !== 'online' || updating || hostUpdatesStore.updateRequests.has(host.id)} onclick={() => void hostUpdatesStore.install(host.id)}>{updating ? 'Updating Solus…' : 'Update Solus'}</Button>
       {/if}
     {/if}
-    {#if hostCapabilitiesStore.supports(host.id, 'hostUpdates') && status?.install !== 'cloud'}
+    {#if hosts.find(host.id)?.supports('hostUpdates') && status?.install !== 'cloud'}
       <Button variant="outline" size="sm" disabled={host.status !== 'online' || updating || status?.check.kind === 'checking' || status?.providers.some((p) => p.check.kind === 'checking')} onclick={() => void checkHost()}>Check for updates</Button>
     {/if}
     </div>

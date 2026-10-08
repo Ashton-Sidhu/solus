@@ -19,7 +19,7 @@ import {
   type BrowserViewportRequest,
   type BrowserWebVitals,
 } from '@solus/contracts/browser-types'
-import type { AgentTool, AgentToolContext, AgentToolResult } from '../execution/agents/tools/agent-tool'
+import { agentToolImageFromDataUrl, type AgentTool, type AgentToolContext, type AgentToolImage, type AgentToolResult } from '../execution/agents/tools/agent-tool'
 import { createLogger } from '../logger'
 import { dataDir, resolveHomePath } from '../platform/paths'
 import { writeAssetUpload } from '../data/assets/assets'
@@ -344,7 +344,7 @@ export const browserAppearanceAgentTool = browserTool({
 export const browserSnapshotAgentTool = browserTool({
   name: 'browser_snapshot',
   description:
-    'See a browser page: a screenshot written to a file you can Read, the interactive elements with '
+    'See a browser page: a screenshot you see in the result, the interactive elements with '
     + 'their refs and Svelte source locations, and the console and network history the page has '
     + 'accumulated, plus the page\'s Web Vitals (TTFB, FCP, LCP, CLS) so a layout that looks right '
     + 'but paints slowly is visible too. This is how you verify a UI change at a viewport instead of guessing. The user '
@@ -371,7 +371,7 @@ export const browserSnapshotAgentTool = browserTool({
     if (input.screenshot !== undefined) options.screenshot = input.screenshot
     if (input.maxElements !== undefined) options.maxElements = input.maxElements
     const snapshot = await browserRegistry().snapshot(input.browserPageId, options)
-    const { text, assetId } = await renderSnapshot(snapshot)
+    const { text, assetId, image } = await renderSnapshot(snapshot)
     // Filing happens against the asset the snapshot already wrote, never a
     // second capture: two pictures of "the same" moment are two moments.
     const filed = assetId ? await fileCapture(input, assetId, snapshot, context) : null
@@ -395,7 +395,9 @@ export const browserSnapshotAgentTool = browserTool({
         },
       })
     }
-    return ok(filed ? `${text}\n\n${filed}` : text)
+    const result = ok(filed ? `${text}\n\n${filed}` : text)
+    if (image) result.image = image
+    return result
   },
 })
 
@@ -687,22 +689,24 @@ function isFile(path: string): boolean {
 }
 
 /**
- * A snapshot as an agent should receive it: the image on disk — so it can be
- * read as an image rather than pasted into the transcript as base64 — and the
- * structure inline. The asset store is the same one evidence publishes from.
+ * A snapshot as an agent should receive it: the image in the result, so it
+ * looks at the page in the same call, and the structure inline. The image is
+ * also on disk, in the asset store evidence publishes from; a capture too large
+ * for a tool result is read from there.
  *
  * The stored id comes back with the text because the conversation needs it too:
  * the caller publishes it so the user sees the same capture the agent did.
  */
 async function renderSnapshot(
   snapshot: BrowserSnapshot,
-): Promise<{ text: string; assetId: string | null }> {
+): Promise<{ text: string; assetId: string | null; image: AgentToolImage | null }> {
   const lines: string[] = [
     `${snapshot.url} — ${snapshot.title || '(untitled)'}`,
     `viewport ${snapshot.viewport.width}×${snapshot.viewport.height} @${snapshot.viewport.deviceScaleFactor}x `
     + `(${viewportLabel(snapshot.viewport)}, ${snapshot.viewport.orientation}), appearance ${snapshot.appearance}`,
   ]
   let assetId: string | null = null
+  let image: AgentToolImage | null = null
 
   if (snapshot.screenshot) {
     // Logged like the registry's own stages: this write is the last thing a
@@ -721,10 +725,11 @@ async function renderSnapshot(
       ms: Date.now() - startedAt,
     })
     assetId = stored.id
-    // The path is for the agent, which reads it as an image. The user gets the
-    // same capture as a card in the conversation, published by the caller — so
-    // nothing here asks the model to remember to show it.
-    lines.push(`screenshot: ${join(dataDir(), 'assets', stored.id)}  (read this path to look at it)`)
+    // The user gets the same capture as a card in the conversation, published
+    // by the caller — so nothing here asks the model to remember to show it.
+    image = agentToolImageFromDataUrl(snapshot.screenshot)
+    const path = join(dataDir(), 'assets', stored.id)
+    lines.push(image ? `screenshot: attached to this result; saved at ${path}` : `screenshot: ${path}  (too large to attach; read this path to look at it)`)
   }
 
   // Between the picture and the structure on purpose: a page can look correct
@@ -757,7 +762,7 @@ async function renderSnapshot(
     }
   }
 
-  return { text: lines.join('\n'), assetId }
+  return { text: lines.join('\n'), assetId, image }
 }
 
 /**

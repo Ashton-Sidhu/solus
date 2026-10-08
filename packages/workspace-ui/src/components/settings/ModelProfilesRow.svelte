@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { hostCapabilitiesStore } from '../../contexts/connections/host-capabilities.store.svelte';
+  import { hosts } from '../../contexts/hosts/hosts.svelte';
   import type { ServerItem } from '../../contexts/connections/servers.store.svelte';
   import { modelProfilesStore } from '../../contexts/updates/model-profiles.store.svelte';
   import { modelProfilesLine } from './lib/model-profiles-line';
@@ -11,7 +11,7 @@
   const error = $derived(modelProfilesStore.errors.get(host.id) ?? status?.error ?? null);
 </script>
 
-{#if hostCapabilitiesStore.supports(host.id, 'modelProfiles')}
+{#if hosts.find(host.id)?.supports('modelProfiles')}
   <SettingsRow label="Model list" description={modelProfilesLine(status)} bodyVisible={!!error}>
     {#snippet control()}
       <Button variant="outline" size="sm" disabled={host.status !== 'online' || busy} onclick={() => void modelProfilesStore.refresh(host.id)}>

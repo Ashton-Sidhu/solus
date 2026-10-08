@@ -3,7 +3,7 @@ import type { HostApi } from "@solus/client-core/host-api";
 import { hostPolicy } from "@solus/client-core/host-policy";
 import { serverConnections } from "@solus/client-core/server-connections";
 import { supportsEditor } from "@solus/client-core/host-capabilities";
-import { connectionsStore } from "../contexts";
+import { hosts } from "../contexts/hosts/hosts.svelte";
 import { toAbsoluteFilePaths } from "./changedFiles";
 
 export function openInConfiguredEditor(
@@ -19,7 +19,7 @@ export function openInConfiguredEditor(
 ): boolean {
   const { editorId } = opts;
   if (!hostPolicy.isClientMachine(opts.serverId)) return false;
-  if (!connectionsStore.desktopHandlersAvailable) return false;
+  if (!hosts.device?.hasDesktopHandlers) return false;
   if (!editorId || opts.filePaths.length === 0) return false;
   if (!opts.serverId || !supportsEditor(serverConnections.cachedCapabilitiesFor(opts.serverId), editorId)) return false;
   const cwd = opts.cwd || undefined;

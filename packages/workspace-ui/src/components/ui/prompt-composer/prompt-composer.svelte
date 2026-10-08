@@ -10,7 +10,7 @@
   import PromptEditor from "../PromptEditor.svelte";
   import SessionChip from "../../pickers/SessionChip.svelte";
   import { modelOptionsFor, type PickerSelection } from "../../pickers/lib/picker-selection";
-  import { getWorkspaceContext, getStatusBarContext, getAgentContext, getVoiceModelStore } from "../../../contexts";
+  import { getWorkspaceContext, getStatusBarContext, getAgentContext, hosts } from "../../../contexts";
   import { dictation } from "../../../lib/dictation.svelte";
   import { useKeybinding } from "../../../lib/keybindings/use-keybinding.svelte";
   import { comboHint } from "../../../lib/keybindings/manifest";
@@ -73,7 +73,7 @@
   const session = getWorkspaceContext();
   const statusBar = getStatusBarContext();
   const agentContext = getAgentContext();
-  const voiceModel = getVoiceModelStore();
+  const voiceHost = $derived(hosts.transcription);
 
   // Local picker draft, seeded from the target session's effective config
   // (globalDefaults when no session exists yet). Applied by the host at
@@ -124,7 +124,7 @@
   const voiceState = $derived(
     ownsVoice && dictation.mode === "message" ? dictation.state : "idle",
   );
-  const voiceReady = $derived(voiceModel.ready);
+  const voiceReady = $derived(voiceHost?.voiceReady ?? false);
   const showWaveform = $derived(voiceState === "recording");
   let hasMountedWaveform = $state(false);
   $effect(() => {
@@ -311,9 +311,9 @@
         variant="bar"
         state={voiceState}
         rmsRef={dictation.rmsRef}
-        showMic={voiceModel.supported}
+        showMic={voiceHost?.transcribes === true}
         disabled={!voiceReady || disabled}
-        progressPct={voiceReady ? null : voiceModel.progressPct}
+        progressPct={voiceReady ? null : voiceHost?.voiceProgressPct ?? null}
         idleTooltip={voiceReady ? `Voice input (${comboHint("voice.toggle-recorder")})` : "Voice model is preparing"}
         onCancel={() => dictation.cancel()}
         onConfirm={() => dictation.stop()}

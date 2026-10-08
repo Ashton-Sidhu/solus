@@ -1,9 +1,10 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test'
 import type { IpcContext, PluginCommandsResult, Session } from '@solus/contracts/types'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
 afterEach(() => {
+  mock.restore()
   if (previousState === undefined) delete (globalThis as unknown as { $state?: unknown }).$state
   else (globalThis as unknown as { $state: unknown }).$state = previousState
 })
@@ -26,8 +27,8 @@ describe('plugin command freshness', () => {
     const ctx = { session: { sessionId: 'session-one', provider: null } } as unknown as IpcContext
     const { WorkspaceLifecycleStore } = await import('@solus/workspace-ui/contexts/workspace/workspace-lifecycle.store.svelte')
     // Slash commands are read only from a machine.
-    const { hostRolesStore } = await import('@solus/workspace-ui/contexts/connections/host-roles.store.svelte')
-    hostRolesStore.accept('host-a', ['collaboration', 'execution'])
+    const { hosts } = await import('@solus/workspace-ui/contexts/hosts/hosts.svelte')
+    spyOn(hosts, 'hasExecution').mockImplementation((serverId) => serverId === 'host-a')
     const store = new WorkspaceLifecycleStore({
       registry: {
         activeTabId: 'tab-one',

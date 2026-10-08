@@ -103,6 +103,8 @@ const claudeTranscriptLineSchema = z.object({
     postTokens: z.number().optional().catch(undefined),
   }).optional().catch(undefined),
   parent_tool_use_id: z.string().optional(),
+  /** On the synthetic assistant line Claude writes for a failed API call. */
+  error: z.string().optional().catch(undefined),
   message: z.object({
     content: z.union([z.string(), z.array(claudeContentBlockSchema)]).optional(),
   }).optional(),
@@ -288,7 +290,13 @@ export function parseJsonlLine(line: string): SessionLoadMessage | null {
       if (Array.isArray(content)) {
         for (const block of content) {
           if (block.type === 'text' && block.text) {
-            return { role: 'assistant', content: block.text, parentToolUseId, timestamp: new Date(obj.timestamp).getTime() }
+            return {
+              role: 'assistant',
+              content: block.text,
+              parentToolUseId,
+              timestamp: new Date(obj.timestamp).getTime(),
+              ...(obj.error === 'authentication_failed' && { loginRefused: true as const }),
+            }
           } else if (block.type === 'tool_use' && block.name === 'ExitPlanMode') {
             const planContent: string = block.input?.plan || ''
             if (planContent) {

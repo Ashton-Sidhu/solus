@@ -1,7 +1,6 @@
 import type { GitCheckout, IpcContext, RunConfig, Session } from '@solus/contracts/types'
 import type { TasksStore } from '../tasks/tasks.store.svelte'
 import type { LogicalProject, ProjectPageScope, ProjectRef } from '../projects/project-catalog'
-import type { StaticInfo } from '../workspace/workspace-lifecycle.store.svelte'
 import type { TaskCreationContext } from '../../components/tasks/lib/task-creation-context'
 import type { ListProjectOption } from '../../components/ui/list-page/list-page'
 import type { WorksStore, WorkListing } from '../works/works.store.svelte'
@@ -54,8 +53,6 @@ export interface SurfaceContext {
   ctxForEnvironment(workingDirectory: string, gitContext: GitCheckout | null): IpcContext
   /** The RPC context of the surface the person is on: the active tab's, or one host with no directory. */
   readonly ctx: IpcContext
-  /** The host's static facts; null with no runner. */
-  readonly staticInfo: StaticInfo | null
   /** The run the input bar names; undefined with no input bar. */
   readonly activeRun: RunConfig | undefined
   /** The project a new task files against; null where a task cannot be made. */
@@ -115,7 +112,6 @@ export type WorkspaceCommands = Pick<WorkspaceContext,
   | 'sessions'
   | 'sessionFor'
   | 'runFor'
-  | 'staticInfo'
   | 'fallbackServerId'
   | 'apiFor'
   | 'ctxFor'

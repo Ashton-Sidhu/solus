@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
+import { promptImageRefSchema } from '../assets/attachment-store'
 import type { PromptOptions, SessionRunInput } from '@solus/contracts/types'
 import { queueAttachmentSchema } from '@solus/contracts/session-queue'
 import { userSchema } from '@solus/contracts/user'
@@ -30,7 +31,7 @@ const inputFields = z.object({
 const optionFields = z.object({
   prompt: z.string(), displayPrompt: z.string().optional(), clientPromptId: z.string().optional(),
   imageAttachments: z.array(z.object({ mimeType: z.string(), dataUrl: z.string() })).optional(),
-  imageAttachmentRefs: z.array(z.object({ mimeType: z.string(), hostPath: z.string(), name: z.string().optional() })).optional(),
+  imageAttachmentRefs: z.array(promptImageRefSchema).optional(),
   queueAttachments: z.array(queueAttachmentSchema).optional(),
 })
 

@@ -7,7 +7,7 @@ import { isSolusApiId } from '@solus/contracts/uplink'
 import type { AgentId, SessionMeta, SessionSearchResult } from '@solus/contracts/types'
 import { localProjectParts } from '@solus/client-core/project-identity'
 import { projectsStore } from '../../../../contexts/projects/projects.store.svelte'
-import { hostRolesStore } from '../../../../contexts/connections/host-roles.store.svelte'
+import { hosts } from '../../../../contexts/hosts/hosts.svelte'
 import { activeSince, type PickerFilters } from './picker-filters'
 import type { PickerResultType } from './picker-preferences'
 import type { PickerSearchMode } from './picker-search'
@@ -347,7 +347,7 @@ export interface TaskCommentHosts {
 
 const taskHosts: TaskCommentHosts = {
   serverIds: () => serverConnections.connectedServerIds().filter(
-    (serverId) => serverConnections.phaseFor(serverId) === 'connected' && hostRolesStore.hasCollaboration(serverId),
+    (serverId) => serverConnections.phaseFor(serverId) === 'connected' && hosts.hasCollaboration(serverId),
   ),
   apiFor: (serverId) => serverConnections.apiFor(serverId),
 }

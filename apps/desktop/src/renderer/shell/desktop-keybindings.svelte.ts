@@ -2,7 +2,7 @@ import { activeSessionShareTarget, sharesStore } from "@solus/workspace-ui/conte
 import { checkAllUpdates } from "@solus/workspace-ui/contexts/updates/check-all-updates";
 import type { ProjectRef } from "@solus/workspace-ui/contexts/projects/project-catalog";
 
-import { connectionsStore, serversStore, updatesStore } from "@solus/workspace-ui/contexts";
+import { hosts, serversStore, updatesStore } from "@solus/workspace-ui/contexts";
 
 import { toasts } from "@solus/workspace-ui/lib/toasts";
 
@@ -46,7 +46,7 @@ export function installDesktopKeybindings(
   const activeTabId = $derived(session.activeTabId);
   const keyboardTabId = $derived(session.focusedChatTabId ?? activeTabId);
   const desktopHandlersAvailable = $derived(
-    connectionsStore.desktopHandlersAvailable,
+    (hosts.device?.hasDesktopHandlers ?? false),
   );
   const visibleTabOrder = $derived(
     session.tabOrder.filter((id) => session.tabs[id]),

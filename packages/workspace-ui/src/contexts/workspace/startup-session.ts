@@ -40,5 +40,6 @@ export function materializeStartupTranscript(ctx: WorkspaceContext, snapshot: Pe
   ctx.eventReducer.rebuildAgentConversations(session)
   ctx.lifecycle.recomputeChangedFiles(tabId)
   session.loadingHistory = false
+  if (transcript.endsInRefusedLogin) ctx.offerSignInAgain(session.id, session)
   if (session.messages.length) markStartupTranscriptApplied(tabId)
 }

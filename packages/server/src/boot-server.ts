@@ -48,11 +48,16 @@ import { registerSharingHandlers } from './transport/handlers/sharing-handlers'
 import { registerCloudUploadHandlers } from './transport/solus-api/cloud-uploads'
 import { ShareManager } from './sharing/share-manager'
 import { registerSeatHandlers } from './transport/handlers/seat-handlers'
+import { registerIntegrationHandlers } from './transport/handlers/integration-handlers'
+import { IntegrationStore } from './integrations/integration-store'
+import { IntegrationCatalog } from './integrations/catalog'
+import { IntegrationGateway } from './integrations/gateway'
+import { setIntegrationGateway } from './integrations/integration-tools'
 import { AgentProfileManager, hostProfileHomes } from './execution/seats/agent-profile'
 import { publishPresenceRoom, registerPresenceHandlers } from './transport/handlers/presence-handlers'
 import { PresenceManager } from './presence/presence-manager'
 import { SeatManager, memberHomeDirectory, seatKey } from './execution/seats/seat-manager'
-import { ActingIdentities, useActingIdentities } from './execution/seats/acting-identity'
+import { ActingIdentities, useActingIdentities, withActorScope } from './execution/seats/acting-identity'
 import { actorFor, HOST_ACTOR, memberSeat, seatFor } from './admission/actor'
 import { MemberFolders, useMemberFolders } from './host/member-folders'
 import { setupProjectsRoot } from './workspace'
@@ -139,11 +144,12 @@ import { registerPinnedSessionsHandlers } from './transport/handlers/pinned-sess
 import { registerSessionReadStateHandlers } from './transport/handlers/session-read-state-handlers'
 import { registerProjectConfigHandlers } from './transport/handlers/project-config-handlers'
 import { onWorkspaceProjectsChanged } from './projects/workspace-projects'
+import { onProjectsChanged } from './project-config/projects-manifest'
 import { registerTasksHandlers } from './transport/handlers/tasks-handlers'
 import { setVoiceModelStatusListener } from './model-downloader'
 import { createLogger, isDebugEnabled } from './logger'
 import { getInstallationId } from './admission/auth'
-import { probeServerCapabilities, registerSetupHandlers } from './transport/handlers/setup-handlers'
+import { probeHostCapabilities, registerSetupHandlers } from './transport/handlers/setup-handlers'
 import packageJson from '../../../package.json'
 import { dataDir, solusDir } from './platform/paths'
 import { onTasksChanged } from './data/tasks/task-store'
@@ -565,6 +571,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       })
     }),
     onWorkspaceProjectsChanged(() => events.broadcast('workspaceProjects.changed', {})),
+    onProjectsChanged(() => events.broadcast('projects.changed', {})),
     onTurnRowWritten((change) => events.broadcast('metrics.turnsChanged', change)),
     onOutboxChanged(({ courierListChanged }) => {
       if (courierListChanged) events.broadcast('outbox.changed', {})
@@ -667,6 +674,16 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   const profiles = new AgentProfileManager({ sourceHomes: hostProfileHomes, homeFor: (target, provider) => seats.homeFor(target.kind === 'owner' ? HOST_LOGIN_SEAT : memberSeat(target.userId, target.name), provider), now: Date.now })
   registerSeatHandlers(server, { seats, connector: seatConnector, profiles, agentAuth })
+  // Integrations (docs/plans/mcp-integrations.md): the gateway's tool cache is
+  // warmed at boot, without blocking it, because a run reads it synchronously.
+  const integrations = new IntegrationStore()
+  const integrationGateway = new IntegrationGateway(integrations)
+  setIntegrationGateway(integrationGateway)
+  integrationGateway.onToolsChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'tools' }) })
+  registerIntegrationHandlers(server, { store: integrations, catalog: new IntegrationCatalog(), gateway: integrationGateway, events })
+  withActorScope(HOST_ACTOR, () => {
+    for (const integration of integrations.list(ANY_ORGANIZATION)) void integrationGateway.warm(integration.id)
+  })
   registerPresenceHandlers(server, { presence, onHostChanged: (clientId) => publishHostPresence(presence.organizationOf(clientId)), onSessionChanged: publishSessionPresence })
   registerReviewHandlers(server, opts.sessionRuntime, events)
   registerAutomationHandlers(server)
@@ -831,13 +848,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     void events.broadcast('git.checkoutChanged', change)
   })
 
-  server.register('getServerCapabilities', (_args, ctx) => probeServerCapabilities({
+  registerCapabilityHandlers(server, (principal) => probeHostCapabilities({
     headless: !opts.windowDeps,
     desktopHandlers: hasDesktopHandlers,
     version: packageJson.version,
-    principal: ctx.principal,
+    principal,
   }))
-  registerCapabilityHandlers(server)
 
   // Attention: expose the active per-session entries and push every change. Each
   // client receives the full list of the sessions it can open (plan 004 item 5).
@@ -1397,6 +1413,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         sessionIndexPollTimer = null
         clearInterval(seatSweepTimer)
         await seatConnector.stopAll()
+        await integrationGateway.close()
         agentAuth.stopAll()
         await lanDiscovery.close()
         transcriptMirror.dispose()

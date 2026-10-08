@@ -3,7 +3,7 @@ import type { ConnectionsServerInfo, SolusAPI } from '@solus/contracts/host-api'
 import { createSolusConnection, savedServerTarget, type SolusServerTarget } from './server-connection'
 import {
   awaitsManagedCompute,
-  chooseDefaultMachine,
+  chooseRunOnHost,
   dialableRoutes,
   installationIdDecision,
   loadServers,
@@ -22,10 +22,7 @@ import { onWakeSignal } from './wake-signals'
 import { asHostApi, type HostApi } from './host-api'
 import type { HostCapabilities, HostOperatingSystem } from '@solus/contracts/types'
 import { z } from 'zod'
-import {
-  normalizeHostCapabilities,
-  type HostBooleanCapability,
-} from './host-capabilities'
+import { HostFacts } from './host-facts'
 
 const CACHE_TTL_MS = 60_000
 const HEALTH_TIMEOUT_MS = 3_000
@@ -57,6 +54,8 @@ export interface ManagedConnection {
   attempt: number
   /** The one owner of this host's connection lifecycle and retry policy. */
   supervisor: HostSupervisor
+  /** Everything read about this host, shared by every reader (docs/plans/host-model.md). */
+  facts: HostFacts
 }
 
 type StatusListener = (serverId: string, status: ConnectionStatus, attempt: number) => void
@@ -86,10 +85,10 @@ export class ServerConnections {
   private readonly statusListeners = new Set<StatusListener>()
   private readonly connectionListeners = new Set<ConnectionListener>()
   private readonly phaseListeners = new Set<PhaseListener>()
+  private readonly primaryListeners = new Set<() => void>()
   private readonly healthCache = new Map<string, CacheEntry<ServerHealth | null>>()
   private readonly identityCache = new Map<string, CacheEntry<Awaited<ReturnType<SolusAPI['listProjectIdentities']>>>>()
   private readonly identityReads = new Map<string, Promise<Awaited<ReturnType<SolusAPI['listProjectIdentities']>>>>()
-  private readonly serverInfoReads = new Map<string, { promise: Promise<ConnectionsServerInfo>; settled: boolean }>()
   private readonly retainedServerIds = new Set<string>()
   /** Connections made but not dialed: a managed host the directory does not call ready yet. */
   private readonly undialedServerIds = new Set<string>()
@@ -123,8 +122,7 @@ export class ServerConnections {
     const previousPrimaryId = this.primaryServerId
     if (previousPrimaryId && previousPrimaryId !== serverId) {
       const displaced = this.connections.get(previousPrimaryId)
-      displaced?.supervisor.destroy()
-      displaced?.transport.destroy()
+      if (displaced) this.destroyConnection(displaced)
       this.connections.delete(previousPrimaryId)
       this.clearConnectionReads(previousPrimaryId)
     }
@@ -133,9 +131,9 @@ export class ServerConnections {
     // with no remaining owner.
     if (existing && existing.transport !== transport) {
       this.clearConnectionReads(serverId)
-      existing.supervisor.destroy()
-      existing.transport.destroy()
+      this.destroyConnection(existing)
     }
+    const facts = new HostFacts(serverId, { api: asHostApi(api), events: transport.events })
     const connection: ManagedConnection = {
       serverId,
       target: resolvedTarget,
@@ -146,9 +144,11 @@ export class ServerConnections {
       attempt: existing?.attempt ?? 0,
       // The boot-created primary is supervised like everything else; boot's
       // own transport.start() is simply the first dial.
-      supervisor: this.superviseTransport(serverId, transport, api),
+      supervisor: this.superviseTransport(serverId, transport, facts),
+      facts,
     }
     this.primaryServerId = serverId
+    this.emitPrimaryChange()
     this.connections.set(serverId, connection)
     this.emitConnectionCreated(connection)
     return connection
@@ -191,6 +191,7 @@ export class ServerConnections {
     const resolved = this.resolveId(serverId)
     this.ensure(resolved)
     this.primaryServerId = resolved
+    this.emitPrimaryChange()
   }
 
   private catalogServerIds(): string[] {
@@ -229,10 +230,10 @@ export class ServerConnections {
     this.startCatalogSupervisors()
   }
 
-  private superviseTransport(serverId: string, transport: WsTransport, api: SolusAPI): HostSupervisor {
+  private superviseTransport(serverId: string, transport: WsTransport, facts: HostFacts): HostSupervisor {
     const supervisor = new HostSupervisor({
       transport,
-      loadCapabilities: () => api.serverGetCapabilities(),
+      onSessionChange: (change) => facts.sessionChanged(change),
       onPhaseChange: (phase, attempt) => {
         for (const listener of this.phaseListeners) listener(serverId, phase, attempt)
       },
@@ -319,6 +320,7 @@ export class ServerConnections {
       verifyConnectedHost: () => this.verifySavedServerIdentity(target),
       refreshLocalSessionToken: this.localTokenRefreshers.get(serverId),
     })
+    const facts = new HostFacts(serverId, { api: asHostApi(api), events })
     const connection: ManagedConnection = {
       serverId,
       target,
@@ -327,7 +329,8 @@ export class ServerConnections {
       events,
       status: 'disconnected',
       attempt: 0,
-      supervisor: this.superviseTransport(serverId, transport, api),
+      supervisor: this.superviseTransport(serverId, transport, facts),
+      facts,
     }
     this.connections.set(serverId, connection)
     // `ensure()` is reached from derived renderer state — a component asking
@@ -360,11 +363,12 @@ export class ServerConnections {
     return this.primaryServerId
   }
 
-  /** Where new work runs when nothing narrower names a machine; null when the
-   *  window has none (`chooseDefaultMachine`). Unlike `defaultServerId`, never
-   *  the workspace service. */
-  defaultMachineId(): string | null {
-    return chooseDefaultMachine({
+  /** The Run on host: where new work runs when nothing narrower names a
+   *  machine; null when the window has none (`chooseRunOnHost`). Unlike
+   *  `defaultServerId`, never the workspace service. Only the Run on picker and
+   *  the readers it serves ask this (docs/plans/host-model.md §3.3). */
+  runOnHostId(): string | null {
+    return chooseRunOnHost({
       primaryId: this.primaryServerId,
       localId: this.localServerId(),
       saved: loadServers(),
@@ -477,6 +481,12 @@ export class ServerConnections {
     return () => this.statusListeners.delete(listener)
   }
 
+  /** The primary moved (boot or a Run on switch), so `runOnHostId()` may answer differently. */
+  onPrimaryChange(listener: () => void): () => void {
+    this.primaryListeners.add(listener)
+    return () => this.primaryListeners.delete(listener)
+  }
+
   onConnectionCreated(listener: ConnectionListener): () => void {
     this.connectionListeners.add(listener)
     return () => this.connectionListeners.delete(listener)
@@ -501,61 +511,46 @@ export class ServerConnections {
     this.connections.delete(serverId)
     this.clearConnectionReads(serverId)
     this.undialedServerIds.delete(serverId)
+    this.destroyConnection(connection)
+  }
+
+  private destroyConnection(connection: ManagedConnection): void {
     connection.supervisor.destroy()
     connection.transport.destroy()
+    connection.facts.dispose()
   }
 
   statusFor(serverId: string): ConnectionStatus {
     return this.connections.get(this.resolveId(serverId))?.status ?? 'disconnected'
   }
 
-  /** One identity/role read per connection. Settings may explicitly refresh it
+  /** This host's facts, read once and shared (docs/plans/host-model.md). */
+  factsFor(serverId: string): HostFacts {
+    return this.ensure(serverId).facts
+  }
+
+  /** One identity/role read per server session. Settings may explicitly refresh it
    * after a host configuration change; concurrent consumers share that read. */
-  serverInfoFor(serverId: string, refresh = false): Promise<ConnectionsServerInfo> {
-    const connection = this.ensure(serverId)
-    serverId = connection.serverId
-    const existing = this.serverInfoReads.get(serverId)
-    if (existing && (!refresh || !existing.settled)) return existing.promise
-    const read = {
-      settled: false,
-      promise: Promise.resolve().then(() => connection.api.connectionsGetServerInfo()),
-    }
-    read.promise = read.promise.then((info) => {
-      read.settled = true
-      return info
-    }, (error) => {
-      if (this.serverInfoReads.get(serverId) === read) this.serverInfoReads.delete(serverId)
-      throw error
-    })
-    this.serverInfoReads.set(serverId, read)
-    return read.promise
+  async serverInfoFor(serverId: string, refresh = false): Promise<ConnectionsServerInfo> {
+    const facts = this.factsFor(serverId)
+    if (refresh) await facts.refresh('serverInfo')
+    return facts.when('serverInfo')
   }
 
   private clearConnectionReads(serverId: string): void {
-    this.serverInfoReads.delete(serverId)
     this.identityReads.delete(serverId)
     this.identityCache.delete(serverId)
   }
 
-  /** One host's authenticated feature advertisement for its current server
-   * session (dispatch-client step 3): loaded once per accepted session,
-   * cleared on disconnect. Older hosts reject the method; that is an empty
-   * record, never a feature error. */
+  /** One host's capability record for its current server session: loaded once
+   * per accepted session, cleared on disconnect. Older hosts reject the method;
+   * that is an empty record, never a feature error. */
   capabilitiesFor(serverId: string): Promise<HostCapabilities> {
-    return this.ensure(serverId).supervisor.whenCapabilities()
-      .then((record) => normalizeHostCapabilities(record))
-  }
-
-  /** Synchronous renderer gate. Undefined means no session record yet; a
-   * loaded record with an absent key returns false — hide, never probe. */
-  capability(serverId: string, key: HostBooleanCapability): boolean | undefined {
-    const record = this.cachedCapabilitiesFor(serverId)
-    return record ? record[key] === true : undefined
+    return this.factsFor(serverId).when('capabilities')
   }
 
   cachedCapabilitiesFor(serverId: string): HostCapabilities | undefined {
-    const record = this.connections.get(this.resolveId(serverId))?.supervisor.capabilities
-    return record ? normalizeHostCapabilities(record) : undefined
+    return this.connections.get(this.resolveId(serverId))?.facts.value('capabilities')
   }
 
   async probeHealth(serverId: string, force = false): Promise<ServerHealth | null> {
@@ -647,6 +642,10 @@ export class ServerConnections {
   private savedWorkspaceTarget(serverId: string): SolusServerTarget | null {
     const workspace = savedWorkspaceFor(serverId)
     return workspace ? workspaceTarget(workspace) : null
+  }
+
+  private emitPrimaryChange(): void {
+    for (const listener of this.primaryListeners) listener()
   }
 
   private emitConnectionCreated(connection: ManagedConnection): void {

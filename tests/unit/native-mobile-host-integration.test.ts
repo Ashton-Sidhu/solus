@@ -89,7 +89,7 @@ beforeAll(async () => {
     response.end()
   })
   const server = new SolusServer()
-  server.register('listProjects', async () => [{ key: 'app', path: '/work/app', folderName: 'app', addedAt: '2026-10-01T00:00:00Z', repositoryKey: null }])
+  server.register('listProjects', async () => [{ key: 'app', path: '/work/app', folderName: 'app', addedAt: '2026-10-01T00:00:00Z', lastUsedAt: '2026-10-01T00:00:00Z', repositoryKey: null }])
   const clientEvents = new ClientEventRegistry()
   const events = new HostEventPublisher(clientEvents)
   const transport = attachWebSocketTransport(http, server, { clientEvents, requireAuth: true })
@@ -151,7 +151,7 @@ describe('native client against a disposable host', () => {
     await untilConnected(app, host.id)
 
     // One typed RPC.
-    expect(await connection.api.listProjects()).toEqual([{ key: 'app', path: '/work/app', folderName: 'app', addedAt: '2026-10-01T00:00:00Z', repositoryKey: null }])
+    expect(await connection.api.listProjects()).toEqual([{ key: 'app', path: '/work/app', folderName: 'app', addedAt: '2026-10-01T00:00:00Z', lastUsedAt: '2026-10-01T00:00:00Z', repositoryKey: null }])
 
     // One event subscription, owned by this host's connection.
     const received = new Promise<string>((resolve) => {

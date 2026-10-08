@@ -64,19 +64,19 @@ function lifecycleFor(activeAgent: AgentId, runs: RunConfig[]) {
     loadTranscript: async () => ({ messages: [], progress: null, planIds: [] }),
     rebuildAgentConversations: () => {},
   } as never)
-  const applyStartInfo = (agents: AgentMetadata[]) => {
-    ;(store as unknown as { applyStartInfo(result: StartInfo, opts: { fresh: boolean }): void })
-      .applyStartInfo({ version: '0', projectPath: '/repo', homePath: '/home', agents } as StartInfo, { fresh: true })
+  const applyAgents = (agents: AgentMetadata[]) => {
+    ;(store as unknown as { applyAgents(result: StartInfo, opts: { fresh: boolean }): void })
+      .applyAgents({ version: '0', projectPath: '/repo', homePath: '/home', agents } as StartInfo, { fresh: true })
   }
-  return { settings, applyStartInfo }
+  return { settings, applyAgents }
 }
 
 describe('a host with one agent installed', () => {
   test('moves the saved default and the composer built from it onto the installed agent', () => {
     const draftRun = run('claude-code')
-    const { settings, applyStartInfo } = lifecycleFor('claude-code', [draftRun])
+    const { settings, applyAgents } = lifecycleFor('claude-code', [draftRun])
 
-    applyStartInfo([agent('claude-code', false), agent('codex', true)])
+    applyAgents([agent('claude-code', false), agent('codex', true)])
 
     expect(settings.activeAgent).toBe('codex')
     // Without this the first prompt of a fresh install runs an agent that is
@@ -87,9 +87,9 @@ describe('a host with one agent installed', () => {
 
   test('leaves a run alone when its agent is installed', () => {
     const draftRun = run('claude-code')
-    const { settings, applyStartInfo } = lifecycleFor('claude-code', [draftRun])
+    const { settings, applyAgents } = lifecycleFor('claude-code', [draftRun])
 
-    applyStartInfo([agent('claude-code', true), agent('codex', true)])
+    applyAgents([agent('claude-code', true), agent('codex', true)])
 
     expect(settings.activeAgent).toBe('claude-code')
     expect(draftRun.provider).toBe('claude-code')
@@ -97,9 +97,9 @@ describe('a host with one agent installed', () => {
 
   test('leaves everything alone when nothing is installed, so the demotion never invents an agent', () => {
     const draftRun = run('claude-code')
-    const { settings, applyStartInfo } = lifecycleFor('claude-code', [draftRun])
+    const { settings, applyAgents } = lifecycleFor('claude-code', [draftRun])
 
-    applyStartInfo([agent('claude-code', false), agent('codex', false)])
+    applyAgents([agent('claude-code', false), agent('codex', false)])
 
     expect(settings.activeAgent).toBe('claude-code')
     expect(draftRun.provider).toBe('claude-code')
@@ -107,9 +107,9 @@ describe('a host with one agent installed', () => {
 
   test('a run with no agent of its own reads the demoted setting at send', () => {
     const draftRun = run(null)
-    const { settings, applyStartInfo } = lifecycleFor('claude-code', [draftRun])
+    const { settings, applyAgents } = lifecycleFor('claude-code', [draftRun])
 
-    applyStartInfo([agent('claude-code', false), agent('codex', true)])
+    applyAgents([agent('claude-code', false), agent('codex', true)])
 
     expect(settings.activeAgent).toBe('codex')
     expect(draftRun.provider).toBeNull()

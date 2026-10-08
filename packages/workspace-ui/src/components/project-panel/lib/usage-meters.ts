@@ -126,6 +126,16 @@ function meter(key: UsageMeter['key'], label: string, window: UsageWindow | null
  * read failed keeps its row with no meters, because "we could not read this"
  * and "this has no quota" are different answers to the same glance.
  */
+/** Well inside the host's 15-minute idle window, so its poll stays awake. Every
+ *  mounted panel asks when its tab is visible, and the topic already delivers
+ *  changes, so one read per host per minute is enough. */
+export const USAGE_REFRESH_INTERVAL_MS = 60_000
+
+/** A host's snapshots by provider. Each snapshot is the host's whole answer. */
+export function usageByProvider(snapshots: readonly AgentUsageLimits[]): Record<string, AgentUsageLimits> {
+  return Object.fromEntries(snapshots.map((snapshot) => [snapshot.provider, snapshot]))
+}
+
 export function providerUsage(
   agents: AgentMetadata[],
   usage: Record<string, AgentUsageLimits>,

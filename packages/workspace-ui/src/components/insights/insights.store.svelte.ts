@@ -250,7 +250,7 @@ export class InsightsStore {
   private turnsChangedTimer: ReturnType<typeof setTimeout> | null = null
 
   private get hostId(): string | null {
-    return this.serverId ?? serverConnections.defaultMachineId()
+    return this.serverId ?? serverConnections.runOnHostId()
   }
 
   private get api(): HostApi {

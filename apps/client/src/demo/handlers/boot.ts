@@ -3,7 +3,6 @@ import { DEFAULT_HOST_CONFIG, hostConfigPatchSchema, mergeHostConfig, type HostC
 import type {
   HostCapabilities,
   RuntimeSessionInfo,
-  ServerCapabilities,
   VoiceModelStatus,
   WatchSessionInput,
 } from '@solus/contracts/types'
@@ -23,9 +22,6 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     automations: true,
     editors: [],
     githubProvider: true,
-  }))
-  backend.register('getPluginCommands', () => ({ global: [], project: [] }))
-  backend.register('getServerCapabilities', (): ServerCapabilities => ({
     headless: true,
     desktopHandlers: false,
     agents: { claude: true, codex: true },
@@ -36,6 +32,7 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     agentAuth: { claude: true },
     gitAuth: { github: false },
   }))
+  backend.register('getPluginCommands', () => ({ global: [], project: [] }))
   backend.register('configGet', (): HostConfigSnapshot => ({ typeSafe: { source: null }, config }))
   backend.register('configUpdate', (args): HostConfigSnapshot => {
     config = mergeHostConfig(config, hostConfigPatchSchema.parse(args[0]))

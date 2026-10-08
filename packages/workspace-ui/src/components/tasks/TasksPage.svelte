@@ -677,8 +677,8 @@
     if (composingStatus === null) void tick().then(() => searchEl?.focus());
   });
 
-  function removeProjectHistory(option: ListProjectOption) {
-    projectsStore.removeProject(option.key);
+  function removeProject(option: ListProjectOption) {
+    void projectsStore.removeProject(option.key);
   }
 
   // Re-read native tasks and explicitly poll the active scope.
@@ -1021,7 +1021,7 @@
           onSelect={selectProject}
           onSelectAll={() => session.setProjectPageScope({ kind: "all" })}
           onSelectCurrent={() => session.scopePageToCurrentProject()}
-          onRemoveHistory={workspace ? removeProjectHistory : undefined}
+          onRemoveProject={workspace ? removeProject : undefined}
         />
       {/if}
       <!-- The board plots every status as a column of its own, so a status

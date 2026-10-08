@@ -1,5 +1,5 @@
 import { onDestroy } from 'svelte'
-import { getVoiceModelStore, hasVoiceModelStore } from '../contexts'
+import { hosts } from '../contexts/hosts/hosts.svelte'
 import { dictation, isDictationTarget, type DictationTarget } from './dictation.svelte'
 import { comboHint } from './keybindings/manifest'
 
@@ -18,10 +18,10 @@ interface FieldDictationOptions {
 }
 
 export function createFieldDictation(options: FieldDictationOptions) {
-  // A surface mounted without the app (a page on the account site) has no voice
-  // model: the field types like any other, with no mic and no dictation target.
-  const voiceModel = hasVoiceModelStore() ? getVoiceModelStore() : null
-  const enabled = () => voiceModel !== null && options.getEnabled()
+  // A surface with no host to transcribe (a page on the account site) has no
+  // voice model: the field types like any other, with no mic and no dictation target.
+  const voiceHost = $derived(hosts.transcription)
+  const enabled = () => voiceHost !== null && options.getEnabled()
 
   $effect(() => {
     const ref = options.getRef()
@@ -68,22 +68,22 @@ export function createFieldDictation(options: FieldDictationOptions) {
     },
     /** False with no voice model, or on a host with no transcription backend: hide the mic and reclaim its gutter. */
     get micVisible() {
-      return voiceModel?.supported ?? false
+      return voiceHost?.transcribes ?? false
     },
     get micDisabled() {
-      return options.getDisabled() || !voiceModel?.ready
+      return options.getDisabled() || !voiceHost?.voiceReady
     },
     get idleMicTooltip() {
-      if (!voiceModel) return ''
-      if (voiceModel.ready) return `Voice input (${comboHint('voice.toggle-recorder')})`
-      if (voiceModel.status.state === 'downloading' && voiceModel.progressPct !== null) {
-        return `Downloading voice model - ${voiceModel.progressPct}%`
+      if (!voiceHost) return ''
+      if (voiceHost.voiceReady) return `Voice input (${comboHint('voice.toggle-recorder')})`
+      if (voiceHost.voiceStatus.state === 'downloading' && voiceHost.voiceProgressPct !== null) {
+        return `Downloading voice model - ${voiceHost.voiceProgressPct}%`
       }
-      if (voiceModel.status.state === 'error') return 'Voice model failed to download - retry in Settings'
+      if (voiceHost.voiceStatus.state === 'error') return 'Voice model failed to download - retry in Settings'
       return 'Voice model is preparing'
     },
     get progressPct() {
-      return !voiceModel || voiceModel.ready ? null : voiceModel.progressPct
+      return !voiceHost || voiceHost.voiceReady ? null : voiceHost.voiceProgressPct
     },
     get rmsRef() {
       return dictation.rmsRef

@@ -132,7 +132,7 @@ describe('native thread settings sheet', () => {
 
 describe('native new-task project picker', () => {
   const project = (hostId: string, path: string, repositoryKey: string | null): SolusProjectShell => {
-    const entry: ProjectEntry = { key: path, path, folderName: path.split('/').at(-1)!, addedAt: '2026-10-01T00:00:00Z', repositoryKey }
+    const entry: ProjectEntry = { key: path, path, folderName: path.split('/').at(-1)!, addedAt: '2026-10-01T00:00:00Z', lastUsedAt: '2026-10-01T00:00:00Z', repositoryKey }
     return { key: `${hostId}\u0000${path}`, hostId, hostLabel: hostId, project: entry }
   }
   const projects = [

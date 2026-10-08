@@ -10,7 +10,7 @@
  * schedule, the attempt counter, and the window wake listeners moved here.
  */
 
-import type { HostCapabilities } from '@solus/contracts/types'
+import type { HostSessionChange } from './host-facts'
 
 export type HostPhase = 'connecting' | 'reconnecting' | 'connected' | 'blocked' | 'offline'
 export type BlockedReason = 'auth' | 'identity-mismatch'
@@ -52,9 +52,9 @@ export interface HostSupervisorOptions {
    *  at a route this run of failures has not tried: that dial goes out at once,
    *  because a different route is not a retry of a failed one. */
   onDialFailed?: (attempt: number) => boolean
-  /** One authenticated advertisement per server session. Failures resolve to
-   *  an empty record: absent means unsupported, never a feature error. */
-  loadCapabilities?: () => Promise<HostCapabilities>
+  /** A server session began, continued, or ended. The host's facts reload
+   *  and clear on these edges (`HostFacts.sessionChanged`). */
+  onSessionChange?: (change: HostSessionChange) => void
   /** Injectable for tests. */
   setTimeoutFn?: typeof setTimeout
   clearTimeoutFn?: typeof clearTimeout
@@ -70,27 +70,12 @@ export class HostSupervisor {
    *  session continuing. */
   sessionGeneration = 0
 
-  /** This server session's capability record. Session-scoped by the step-3
-   *  rider: loaded once per accepted session, cleared on disconnect — an
-   *  absent record hides actions, it never triggers a probe. */
-  capabilities: HostCapabilities | undefined
-
   private hasConnected = false
   private dialInFlight = false
   private retryTimer: ReturnType<typeof setTimeout> | null = null
   private destroyed = false
-  private capabilitiesLoad: Promise<HostCapabilities> | null = null
 
   constructor(private readonly options: HostSupervisorOptions) {}
-
-  /** The session's record, now or when its one load settles. Before any
-   *  session exists this starts a load that rides the transport's request
-   *  queue, so a host that never answers resolves empty like it always did. */
-  whenCapabilities(): Promise<HostCapabilities> {
-    if (this.capabilities) return Promise.resolve(this.capabilities)
-    if (!this.capabilitiesLoad) this.beginCapabilityLoad()
-    return this.capabilitiesLoad ?? Promise.resolve({})
-  }
 
   /** The first dial of an eagerly desired host. Idempotent. */
   start(): void {
@@ -117,26 +102,27 @@ export class HostSupervisor {
         this.dialInFlight = false
         this.clearRetryTimer()
         if (this.hasConnected && !outcome.recovered) this.sessionGeneration += 1
+        // A recovered socket continues the same server session, so what was
+        // read stands; a fresh session reads again.
+        const change = this.hasConnected && outcome.recovered ? 'recovered' : 'fresh'
         this.hasConnected = true
         this.attempt = 0
         this.blockedReason = null
-        // A recovered socket continues the same server session, so its
-        // capability record stands; a fresh session loads a fresh one.
-        if (!outcome.recovered || this.capabilities === undefined) this.beginCapabilityLoad()
+        this.options.onSessionChange?.(change)
         this.setPhase('connected')
         return
       }
       case 'dropped':
       case 'dial-failed': {
         this.dialInFlight = false
-        this.capabilities = undefined
+        this.options.onSessionChange?.('lost')
         this.scheduleNextDial()
         return
       }
       case 'auth-blocked': {
         this.dialInFlight = false
         this.blockedReason = 'auth'
-        this.capabilities = undefined
+        this.options.onSessionChange?.('lost')
         this.clearRetryTimer()
         this.setPhase('blocked')
         return
@@ -144,7 +130,7 @@ export class HostSupervisor {
       case 'identity-mismatch': {
         this.dialInFlight = false
         this.blockedReason = 'identity-mismatch'
-        this.capabilities = undefined
+        this.options.onSessionChange?.('lost')
         this.clearRetryTimer()
         this.setPhase('blocked')
         return
@@ -210,17 +196,6 @@ export class HostSupervisor {
       if (this.destroyed || this.blockedReason) return
       this.dial()
     }, ladderDelayMs(this.attempt, this.options.random))
-  }
-
-  private beginCapabilityLoad(): void {
-    const load = this.options.loadCapabilities
-    if (!load) return
-    const promise = load().catch(() => ({}))
-    this.capabilitiesLoad = promise
-    void promise.then((record) => {
-      // A displaced load (a newer session began its own) must not answer.
-      if (this.capabilitiesLoad === promise && !this.destroyed) this.capabilities = record
-    })
   }
 
   private clearRetryTimer(): void {

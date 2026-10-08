@@ -11,7 +11,6 @@
   import {
     discoveredServerUrl,
     hostStatusLabel,
-    routeBadges,
     serversStore,
     type ServerItem,
   } from "../../contexts";
@@ -35,20 +34,22 @@
     );
   });
 
-  /** The one line under a host name: where it answers, how, what it is, and what it can do. */
-  function hostMeta(server: ServerItem): string {
-    const status = hostStatusLabel(serversStore.statusFor(server.id));
-    const parts = [
-      server.url || server.routes[0]?.url,
-      status,
-      ...routeBadges(server.routes),
-      managedHostStateLabel(server.uplink),
-    ];
-    if (hostSetupStore.hasProbed(server.id)) {
-      const summary = hostReadinessSummary(hostSetupStore.stepsFor(server.id));
-      parts.push(summary.ready ? "Ready" : "Needs setup");
-    }
-    return parts.filter(Boolean).join(" · ");
+  /** Where the host answers, without the scheme: the address is what tells hosts apart. */
+  function hostAddress(url: string | undefined): string {
+    return (url ?? "").replace(/^[a-z]+:\/\//, "").replace(/\/$/, "");
+  }
+
+  /** The one state worth saying beside a host. A healthy, ready host says nothing. */
+  function hostNotice(server: ServerItem): string | null {
+    const status = serversStore.statusFor(server.id);
+    if (status !== "online") return hostStatusLabel(status);
+    const managedState = managedHostStateLabel(server.uplink);
+    if (managedState) return managedState;
+    if (
+      hostSetupStore.hasProbed(server.id) &&
+      !hostReadinessSummary(hostSetupStore.stepsFor(server.id)).ready
+    ) return "Needs setup";
+    return hostUpdatesStore.pendingCountFor(server.id) ? "Update available" : null;
   }
 </script>
 
@@ -88,19 +89,16 @@
           {/if}
         </span>
         <span class="min-w-0 flex-1">
-          <span
-            class="flex min-w-0 items-center gap-2 text-workspace-chrome font-medium text-(--solus-text-primary)"
-          >
-            <span class="truncate">{server.label}</span>
-            {#if hostUpdatesStore.pendingCountFor(server.id)}<span class="size-1.5 shrink-0 rounded-full bg-(--solus-accent)" aria-label="Updates available"></span>{/if}
+          <span class="block truncate text-workspace-chrome font-medium text-(--solus-text-primary)">
+            {server.label}
           </span>
-          <span
-            class="mt-0.5 block truncate text-[0.875em] text-(--solus-text-tertiary)"
-            style="font-family: 'Geist Mono', ui-monospace, monospace"
-          >
-            {hostMeta(server)}
+          <span class="mt-0.5 block truncate text-chrome-dense text-(--solus-text-tertiary)">
+            {hostAddress(server.url || server.routes[0]?.url)}
           </span>
         </span>
+        {#if hostNotice(server)}
+          <span class="shrink-0 text-chrome-dense text-(--solus-text-tertiary)">{hostNotice(server)}</span>
+        {/if}
         <CaretRightIcon size={13} class="shrink-0 text-(--solus-text-quaternary)" />
       </button>
     {/each}
@@ -132,19 +130,16 @@
         <WifiHighIcon size={15} />
       </span>
       <div class="min-w-0 flex-1">
-        <div class="flex min-w-0 items-center gap-2">
-          <p class="truncate text-workspace-chrome font-medium text-(--solus-text-primary)">
-            {host.server.name}
-          </p>
-        </div>
-        <p
-          class="mt-0.5 truncate text-[0.875em] text-(--solus-text-tertiary)"
-          style="font-family: 'Geist Mono', ui-monospace, monospace"
-        >
-          {discoveredServerUrl(host.server)} · {relativeTime(host.lastSeenAt)}
+        <p class="truncate text-workspace-chrome font-medium text-(--solus-text-primary)">
+          {host.server.name}
+        </p>
+        <p class="mt-0.5 truncate text-chrome-dense text-(--solus-text-tertiary)">
+          {hostAddress(discoveredServerUrl(host.server))} · seen {relativeTime(host.lastSeenAt)}
         </p>
       </div>
       <Button
+        variant="outline"
+        size="sm"
         class="shrink-0"
         aria-label={`Connect to ${host.server.name}`}
         onclick={() => hostOnboardingStore.openForDiscovered(host.server)}

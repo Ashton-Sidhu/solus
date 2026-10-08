@@ -1,12 +1,14 @@
 <script lang="ts">
-  import { Check, ChevronDown, Hammer } from "@lucide/svelte";
+  import { Check, ChevronDown, FolderGit2, Hammer } from "@lucide/svelte";
   import type { DeviceRunProfile } from "@solus/contracts/device-types";
   import type { ProjectEntry } from "@solus/contracts/types";
   import { newBuildsRunning, profileTargetLabel } from "@solus/client-core/device-builds";
   import { devicesStore, deviceErrorMessage } from "../../contexts/devices/devices.store.svelte";
+  import { PAGE_PRIMARY_BTN } from "../../lib/page-chrome";
+  import { abbreviateHome } from "../../lib/paths";
   import { toasts } from "../../lib/toasts";
-  import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
+  import ProjectFavicon from "../ui/ProjectFavicon.svelte";
 
   /**
    * New build on the Builds page (plan 016, S02): build one of the project's
@@ -50,25 +52,33 @@
 </script>
 
 {#snippet projectItems()}
+  <!-- The folder path under each name: two checkouts can share a folder name. -->
   {#each projects as project (project.path)}
-    <DropdownMenu.Item onSelect={() => onChooseProject(project.path)}>
-      <span class="min-w-0 flex-1 truncate">{project.folderName}</span>
-      {#if project.path === checkoutPath}<Check class="size-4 shrink-0" />{/if}
+    {@const isCurrent = project.path === checkoutPath}
+    <DropdownMenu.Item data-menu-current={isCurrent ? "" : undefined} title={abbreviateHome(project.path)} onSelect={() => onChooseProject(project.path)}>
+      <ProjectFavicon projectRoot={project.path} {serverId} class="size-3.5" />
+      <span class="flex min-w-0 flex-1 flex-col">
+        <span class="truncate {isCurrent ? 'font-medium' : ''}">{project.folderName}</span>
+        <span class="truncate text-xs text-muted-foreground">{abbreviateHome(project.path)}</span>
+      </span>
+      {#if isCurrent}<Check size={13} class="mr-1.5 shrink-0 text-(--solus-accent)" />{/if}
     </DropdownMenu.Item>
   {:else}
-    <p class="px-2 py-1.5 text-muted-foreground">No projects on this host yet. Open one in a conversation first.</p>
+    <p class="px-2 py-3 text-menu text-muted-foreground">No projects on this host yet. Open one in a conversation first.</p>
   {/each}
 {/snippet}
 
 <DropdownMenu.Root>
   <DropdownMenu.Trigger>
     {#snippet child({ props })}
-      <Button {...props} size="sm" variant="outline" disabled={starting}><Hammer />New build<ChevronDown /></Button>
+      <button {...props} type="button" class="{PAGE_PRIMARY_BTN} disabled:cursor-not-allowed disabled:opacity-50" disabled={starting}>
+        <Hammer size={14} />New build<ChevronDown size={14} class="-mr-0.5 opacity-80" />
+      </button>
     {/snippet}
   </DropdownMenu.Trigger>
-  <DropdownMenu.Content align="end" class="w-[min(17rem,calc(100vw-2rem))]">
+  <DropdownMenu.Content align="end" class="w-[min(18rem,calc(100vw-2rem))]">
     {#if !checkoutPath}
-      <p class="px-2 pt-1.5 pb-1 text-muted-foreground">Build which project?</p>
+      <div class="px-2 pt-0.5 pb-1.5 text-menu text-muted-foreground">Build which project?</div>
       {@render projectItems()}
     {:else}
       {#if profiles === undefined}
@@ -87,9 +97,12 @@
       <DropdownMenu.Separator />
       <DropdownMenu.Sub>
         <DropdownMenu.SubTrigger>
-          <span class="min-w-0 flex-1 truncate">Project: {projectName}</span>
+          <FolderGit2 size={14} class="shrink-0 text-muted-foreground" />
+          <span class="min-w-0 flex-1 truncate">Project</span>
+          <span class="max-w-28 truncate text-muted-foreground">{projectName}</span>
         </DropdownMenu.SubTrigger>
-        <DropdownMenu.SubContent class="w-[min(16rem,calc(100vw-2rem))]">
+        <DropdownMenu.SubContent class="flex max-h-[min(32rem,calc(var(--bits-dropdown-menu-content-available-height,36rem)-1rem))] w-72 max-w-[calc(100vw-1rem)] flex-col overflow-y-auto p-2">
+          <div class="px-2 pt-0.5 pb-1.5 text-menu text-muted-foreground">Project</div>
           {@render projectItems()}
         </DropdownMenu.SubContent>
       </DropdownMenu.Sub>

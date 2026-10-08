@@ -18,7 +18,7 @@
     requestInputFocus,
   } from "../../lib/inputFocus";
   import { abbreviateHome, truncateMiddle } from "../../lib/paths";
-  import { connectionsStore, runtime, serversStore } from "../../contexts";
+  import { hosts, runtime, serversStore } from "../../contexts";
   import OpenProjectDestination from "./OpenProjectDestination.svelte";
   import OpenProjectHome from "./OpenProjectHome.svelte";
   import { openProjectStore as store } from "./open-project.store.svelte";
@@ -52,14 +52,14 @@
   let hostMenuOpen = $state(false);
 
   // A project lives on a machine: the workspace service is never a destination.
-  const hosts = $derived(serversStore.executionServers);
-  const multiHost = $derived(hosts.length > 1);
-  const selectedHost = $derived(hosts.find((host) => host.id === store.serverId));
+  const machines = $derived(serversStore.executionServers);
+  const multiHost = $derived(machines.length > 1);
+  const selectedHost = $derived(machines.find((host) => host.id === store.serverId));
   // GitHub credentials are per-machine, but the question home asks is about
   // *you* — so the row is gated on this client's sign-in, and a chosen host
   // that lacks its own token gets a connect panel rather than a dead end.
   const githubAvailable = $derived(
-    connectionsStore.capabilities?.gitAuth?.github === true,
+    hosts.runOn?.capabilityRecord?.gitAuth?.github === true,
   );
 
   const rows = $derived(
@@ -141,7 +141,7 @@
     store.back();
   }
 
-  function selectHost(host: (typeof hosts)[number]) {
+  function selectHost(host: (typeof machines)[number]) {
     highlightedIndex = 0;
     store.selectHost(host);
   }
@@ -401,7 +401,7 @@
               class="w-[11.5rem]"
             >
               <DropdownMenu.Label>Run on</DropdownMenu.Label>
-              {#each hosts as host (host.id)}
+              {#each machines as host (host.id)}
                 {@const bound = host.id === store.serverId}
                 <DropdownMenu.Item
                   data-menu-current={bound ? "" : undefined}

@@ -38,6 +38,7 @@ export const RPC_PLANES = {
   switchSessionAgent: 'execution',
   acceptPlan: 'execution',
   createHeadlessSession: 'execution',
+  promptHeadlessSession: 'execution',
   decideSessionPlan: 'execution',
 
   // Permission / interaction
@@ -165,6 +166,7 @@ export const RPC_PLANES = {
   listProjectIdentities: 'execution',
   resolveDispatchHistoryRoots: 'execution',
   deleteProject: 'execution',
+  untrackProject: 'execution',
 
   // Skills
   skillsSearch: 'execution',
@@ -230,6 +232,15 @@ export const RPC_PLANES = {
   agentAuthSubmit: 'execution',
   agentAuthCancel: 'execution',
   agentAuthSignOut: 'execution',
+  // Integrations: the gateway runs on the execution host
+  integrationCatalogList: 'execution',
+  integrationProbe: 'execution',
+  integrationList: 'execution',
+  integrationGet: 'execution',
+  integrationCreate: 'execution',
+  integrationUpdate: 'execution',
+  integrationRemove: 'execution',
+  integrationTools: 'execution',
   agentProfileRead: 'execution',
   agentProfileApply: 'execution',
   agentProfileStatus: 'execution',
@@ -247,7 +258,6 @@ export const RPC_PLANES = {
   textGenerationSettingsGet: 'collaboration',
   otelSettingsGet: 'collaboration',
   discoverServers: 'collaboration',
-  getServerCapabilities: 'collaboration',
   setProjectsBaseDirectory: 'execution',
   setupInstallAgentCli: 'execution',
   setupCheckAgentAuth: 'execution',

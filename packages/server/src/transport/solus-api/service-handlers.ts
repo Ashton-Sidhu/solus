@@ -38,10 +38,9 @@ export function registerSolusApiHandlers(server: SolusServer, deps: {
   registerWorkReviewHandlers(server, { shares: deps.shares })
   registerNotificationHubHandlers(server, { shares: deps.shares })
   registerWorkLiveHandlers(server, { live: deps.workLive, shares: deps.shares })
-  registerCapabilityHandlers(server)
-  server.register('start', async () => ({ projectPath: '', homePath: '', version: appVersion(), agents: [] }))
-  server.register('getServerCapabilities', async () => ({ headless: true, desktopHandlers: false, agents: { claude: false, codex: false }, dictation: false,
+  registerCapabilityHandlers(server, async () => ({ headless: true, desktopHandlers: false, agents: { claude: false, codex: false }, dictation: false,
     platform: process.platform, version: appVersion(), projectCount: 0, agentAuth: { claude: false }, gitAuth: { github: false } }))
+  server.register('start', async () => ({ projectPath: '', homePath: '', version: appVersion(), agents: [] }))
   server.register('connectionsGetServerInfo', async (_args, { principal }): Promise<ConnectionsServerInfo> => {
     const info: ConnectionsServerInfo = { host: deps.host, port: deps.port(), allowLan: false,
       installationId: deps.serviceId, remoteAccess: true, requireAuth: true, trustLocalNetwork: false, hostKind: 'cloud', roles: ['collaboration'], principal: principal.kind }

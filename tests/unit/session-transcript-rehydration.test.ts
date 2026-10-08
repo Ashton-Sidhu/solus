@@ -40,6 +40,20 @@ describe('session transcript rehydration', () => {
     expect(transcript.messages[0].questionAnswer).toEqual(questionAnswer)
   })
 
+  // A reload offers the same sign-in a live refusal did, but only while that
+  // refusal still ends the conversation, and never from an older page.
+  test('reports a transcript that ends in a refused login', () => {
+    connections.registerPrimary('transcript-host', {})
+    const ctx = { apiForSession: () => connections.apiFor('transcript-host') } as unknown as WorkspaceContext
+    const args = { sessionId: 'session', loadPath: '/repo', displayCwd: '/repo', provider: 'codex' as const, ctx: { session: { sessionId: 'tab' } } as IpcContext }
+    const refused = { role: 'system', content: 'Error: unexpected status 401 Unauthorized', timestamp: 2, loginRefused: true as const }
+    const user = { role: 'user', content: 'go', timestamp: 1 }
+
+    expect(materializeSessionTranscript(ctx, args, { messages: [user, refused], before: null }).endsInRefusedLogin).toBe(true)
+    expect(materializeSessionTranscript(ctx, args, { messages: [refused, { ...user, timestamp: 3 }], before: null }).endsInRefusedLogin).toBe(false)
+    expect(materializeSessionTranscript(ctx, { ...args, before: 'cursor' }, { messages: [user, refused], before: null }).endsInRefusedLogin).toBe(false)
+  })
+
   for (const provider of ['claude-code', 'codex'] as const) {
     test(`${provider} restores artifact updates, identities and failed calls from mobile history`, () => {
       const prefix = provider === 'claude-code' ? 'mcp__solus__' : ''

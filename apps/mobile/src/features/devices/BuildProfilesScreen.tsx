@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Alert, View } from 'react-native'
-import { RUN_PROFILE_PRESETS, fitPresetToProject, profileDraft, profilesFromDrafts, saveRunProfiles, type RunProfileDraft } from '@solus/client-core/device-run-profiles'
-import type { DeviceRunProfile } from '@solus/contracts/device-types'
+import { fitPresetToProject, presetsForProject, profileDraft, profilesFromDrafts, saveRunProfiles, type RunProfileDraft } from '@solus/client-core/device-run-profiles'
+import type { DeviceProjectInfo, DeviceRunProfile } from '@solus/contracts/device-types'
 import { AppText as Text, AppTextInput as TextInput } from '../../components/AppText'
 import { ControlPill } from '../../components/ControlPill'
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -31,6 +31,8 @@ export function BuildProfilesScreen({ navigation, route }: ScreenProps<'BuildPro
   const [adding, setAdding] = useState(false)
   /** How many profiles the project had: saving nothing over nothing would only look like a setup. */
   const [savedCount, setSavedCount] = useState(0)
+  /** What the host found in the project; an Expo app gets Expo's presets. */
+  const [projectInfo, setProjectInfo] = useState<DeviceProjectInfo | null>(null)
 
   useEffect(() => {
     if (!api) return
@@ -44,6 +46,7 @@ export function BuildProfilesScreen({ navigation, route }: ScreenProps<'BuildPro
       },
       (cause: unknown) => { if (live) setLoaded({ kind: 'error', message: errorText(cause) }) },
     )
+    api.deviceProjectDetect(projectPath).then((info) => { if (live) setProjectInfo(info) }, () => {})
     return () => { live = false }
   }, [api, projectPath])
 
@@ -114,7 +117,7 @@ export function BuildProfilesScreen({ navigation, route }: ScreenProps<'BuildPro
           ))}
           <SectionTitle>Add a profile</SectionTitle>
           <View className="flex-row flex-wrap gap-2">
-            {RUN_PROFILE_PRESETS.map((preset) => (
+            {presetsForProject(projectInfo).map((preset) => (
               <ControlPill key={preset.label} variant="pill" label={preset.label} accessibilityLabel={`Add the ${preset.label} profile`} disabled={adding} onPress={() => void add(preset.profile)} />
             ))}
           </View>

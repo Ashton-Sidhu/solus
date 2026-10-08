@@ -34,7 +34,7 @@
   function withPresetProject(list: ProjectEntry[], preset: string | null | undefined): ProjectEntry[] {
     if (!preset || list.some((p) => p.path === preset)) return list;
     // Not listed by the host yet, so its repository is not known yet either.
-    return [{ key: "", path: preset, folderName: folderName(preset), addedAt: "", repositoryKey: null }, ...list];
+    return [{ key: "", path: preset, folderName: folderName(preset), addedAt: "", lastUsedAt: "", repositoryKey: null }, ...list];
   }
 
   const projects = $derived(

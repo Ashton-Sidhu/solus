@@ -2,7 +2,7 @@
   import type { Snippet } from "svelte";
   import {
     getWorkspaceContext,
-    hostCapabilitiesStore,
+    hosts,
     serversStore,
   } from "../../contexts";
   import type { RunConfig } from "@solus/contracts/types";
@@ -79,7 +79,7 @@
       serverConnections.connectionFor(serverId)?.target.label ??
       "this host",
   );
-  const hostCapabilities = $derived(hostCapabilitiesStore.for(serverId));
+  const hostCapabilities = $derived(hosts.find(serverId)?.capabilityRecord);
   const canAttachFiles = $derived(hostCapabilities?.attachUpload === true);
   const attachNote = $derived(
     hostCapabilities === undefined
@@ -122,10 +122,6 @@
     window.dispatchEvent(new CustomEvent("solus:add-project", { detail: { sourceId: chatSourceId, anchor } }));
   }
 
-  $effect(() => {
-    // A restored tab may name a deleted machine; asking it throws synchronously.
-    if (serverConnections.isKnownServer(serverId)) void hostCapabilitiesStore.load(serverId);
-  });
 </script>
 
 <!--

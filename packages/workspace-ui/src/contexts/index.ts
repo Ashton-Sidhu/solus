@@ -26,7 +26,6 @@ export { getSettingsContext } from './app/settings.context.svelte'
 export { getClientShellContext } from './app/client-shell.svelte'
 export { getAgentContext } from './app/agent.context.svelte'
 export { getStatusBarContext } from './app/status-bar.context.svelte'
-export { getVoiceModelStore, hasVoiceModelStore } from './app/voice-model.store.svelte'
 export { runtime } from './app/runtime.svelte'
 export { toolsStore } from './app/tools.store.svelte'
 
@@ -61,11 +60,13 @@ export type {
 
 /** Composer drafts parked for later, scoped per project. */
 
+/** One reactive object per host, and the ways to get one: the tab's host, the
+ *  device, or the Run on host (docs/plans/host-model.md). */
+export { hosts, type Host } from './hosts/hosts.svelte'
+
 /** Connection, authentication, and server-selection state. */
 export { connectionsStore } from './connections/connections.store.svelte'
 export { serversStore } from './connections/servers.store.svelte'
-export { hostCapabilitiesStore } from './connections/host-capabilities.store.svelte'
-export { hostRolesStore } from './connections/host-roles.store.svelte'
 export {
   compareNearbyHosts,
   discoveredServerUrl,
@@ -86,7 +87,7 @@ export { sharesStore } from './sharing/shares.store.svelte'
 export { loadSessionRecordTranscript } from './sessions/session-record-transcript'
 export { activeSessionShareTarget } from './sharing/share-target'
 export type { ShareDialogTarget } from './sharing/shares.store.svelte'
-export { routeBadges, uplinkStatusDescription } from './connections/host-routes'
+export { uplinkStatusDescription } from './connections/host-routes'
 
 /** Cloudflare deployment profile: status, connect/disconnect, connect requests. */
 export {

@@ -7,6 +7,7 @@ import { createLogger } from '../../logger'
 import { captureServerEvent } from '../../analytics'
 import { computeGitState } from '../../git/git-helpers'
 import { warmFinder } from '../../files/file-finder'
+import { recordProjectUse } from '../../project-config/projects-manifest'
 import type { AgentTool } from '../agents/tools/agent-tool'
 import { createClaudeSubagentAgentTool } from '../agents/claude/claude-subagent-tool'
 import { createCodexSubagentAgentTool } from '../agents/codex/codex-subagent-tool'
@@ -585,6 +586,11 @@ export class RunLauncher {
     // (worktree root when present, else the project) so its first open hits a
     // ready index instead of paying for the initial filesystem scan.
     if (effectiveCwd && effectiveCwd !== '~') warmFinder(effectiveCwd)
+
+    // A session in a listed project (or its worktree or subfolder) moves that
+    // project up the host's list; an unlisted folder stays off it (project-model §2).
+    try { recordProjectUse(effectiveCwd) }
+    catch (error) { log.warn('project_last_use_failed', { sessionId, cwd: effectiveCwd, error: String(error) }) }
 
     // Workspace linked (git watcher + file index warmed) → advance to the final
     // "Starting session" step; the reducer clears the card once the run begins.

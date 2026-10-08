@@ -1,6 +1,6 @@
 import { listProjectIdentities } from '../../project-config/project-identities'
 import { loadProjectConfig, saveProjectConfig } from '../../project-config/project-config'
-import { deleteProject, listProjects, recordProject } from '../../project-config/projects-manifest'
+import { deleteProject, listProjects, recordProject, untrackProject } from '../../project-config/projects-manifest'
 import type { SolusServer } from '../server'
 import { resolveRepositoryKey } from '../../git/git-helpers'
 import { registerWorkspaceProjectHandlers } from './workspace-project-handlers'
@@ -33,5 +33,14 @@ export function registerProjectConfigHandlers(server: SolusServer): void {
   server.register('deleteProject', (args) => {
     const [projectPath] = args
     return deleteProject(projectPath)
+  })
+  // Untracking deletes nothing, so whoever may add and see a project may take
+  // it off the list: a member only within their own folder (managed-hosts.md §3).
+  server.register('untrackProject', (args, ctx) => {
+    const [projectPath] = args
+    if (projectsVisibleTo(ctx.principal, [{ path: projectPath }]).length === 0) {
+      throw new Error('This project is outside your projects folder')
+    }
+    return untrackProject(projectPath)
   })
 }

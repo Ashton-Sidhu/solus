@@ -198,13 +198,12 @@ describe('pending forks across connection changes', () => {
     const tabId = await context.opening.forkTab('sourceTab')
     const fork = context.sessionFor(tabId) as Session
     context.tabOrder = [tabId]
-    context.lifecycle = { turnSnapshots: {}, runtimeSyncing: false }
+    context.lifecycle = { turnSnapshots: {} }
     context.tabIdsForSession = () => [tabId]
     context.apiFor = () => { throw new Error('A pending fork must not watch its source') }
     await bootstrapFunction('resyncRuntime')(context)
     expect(fork.forked).toBe(true)
     expect(fork.id).not.toBe('source')
-    expect(context.lifecycle.runtimeSyncing).toBe(false)
   })
 })
 

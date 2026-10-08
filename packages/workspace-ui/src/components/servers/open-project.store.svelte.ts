@@ -5,11 +5,12 @@ import type {
   CloneProtocol,
   HostReadiness,
   RecentProject,
-  ServerCapabilities,
+  HostCapabilities,
   SetupGithubRepo,
   SetupSshAccessResult,
 } from '@solus/contracts/types'
 import { projectsStore } from '../../contexts/projects/projects.store.svelte'
+import { hosts } from '../../contexts/hosts/hosts.svelte'
 import type { ProjectsStore } from '../../contexts/projects/projects.store.svelte'
 import { hostSetupStore, type HostSetupSession } from './host-setup.store.svelte'
 import {
@@ -76,7 +77,6 @@ export class OpenProjectStore {
   onProjectOpened: ProjectOpenedCallback | null = null
 
   /** The agent half of readiness: whether this host can actually run a session. */
-  capabilities = $state<ServerCapabilities | null>(null)
 
   /** The clone URL for `clone`, or the filter for `github`. */
   query = $state('')
@@ -163,6 +163,10 @@ export class OpenProjectStore {
 
   get logLines(): string[] {
     return this.setup?.logLines ?? []
+  }
+
+  private get capabilities(): HostCapabilities | undefined {
+    return hosts.find(this.serverId)?.capabilityRecord
   }
 
   get platform(): string | null {
@@ -406,12 +410,12 @@ export class OpenProjectStore {
     const setup = this.setup
     if (!api || !setup) return
     const issuedAt = this.hostEpoch
-    const [, capabilities] = await Promise.all([
+    // The projects folder may have moved since the host's record was read.
+    await Promise.all([
       setup.refreshReadiness(),
-      api.getServerCapabilities().catch(() => null),
+      hosts.find(this.serverId)?.refresh('capabilities'),
     ])
     if (this.hostEpoch !== issuedAt) return
-    this.capabilities = capabilities
     if (this.reposConnected === null && setup.readiness?.github?.solusToken) {
       this.reposConnected = true
     }
@@ -597,7 +601,6 @@ export class OpenProjectStore {
     this.hostEpoch++
     this.retainedSetup?.release()
     this.retainedSetup = null
-    this.capabilities = null
     this.repos = []
     this.reposLoading = false
     this.reposConnected = null

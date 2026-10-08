@@ -3,14 +3,21 @@ import { hostDisplayName } from '../../platform/host-display-name'
 import { appVersion } from '../../platform/paths'
 import { INTERNAL_HANDLER_CTX, type SolusServer } from '../server'
 import { browserRecordingEncoderHost } from '../../browser/surface-driver'
+import type { Principal } from '../../admission/principal'
+import type { ProbedHostCapabilities } from './setup-handlers'
 
-/** Advertise only handlers this host actually registered. The editor probe is
- * cached because it can search the host PATH and capabilities are otherwise a
- * cheap record assembly. */
-export function registerCapabilityHandlers(server: SolusServer): void {
+/** Advertise only handlers this host actually registered, plus what `probe`
+ * learns about the machine for this caller. The editor probe is cached because
+ * it can search the host PATH and capabilities are otherwise a cheap record
+ * assembly. A guest learns nothing that names the machine. */
+export function registerCapabilityHandlers(
+  server: SolusServer,
+  probe: (principal: Principal) => Promise<ProbedHostCapabilities>,
+): void {
   let editorIdsPromise: Promise<EditorId[]> | null = null
 
-  server.register('serverGetCapabilities', async (): Promise<HostCapabilities> => {
+  server.register('serverGetCapabilities', async (_args, ctx): Promise<HostCapabilities> => {
+    const probing = probe(ctx.principal)
     const supportsEditors = server.hasHandler('detectEditors')
     if (supportsEditors && !editorIdsPromise) {
       editorIdsPromise = server.handle('detectEditors', [], INTERNAL_HANDLER_CTX)
@@ -18,8 +25,10 @@ export function registerCapabilityHandlers(server: SolusServer): void {
         .catch(() => [])
     }
     const editors = supportsEditors && editorIdsPromise ? await editorIdsPromise : undefined
+    const probed = await probing
 
     const capabilities: HostCapabilities = {
+      ...probed,
       // The running build's version, for the client's per-host skew notice.
       version: appVersion(),
       // The machine's own name. A client saved this host under whatever it could
@@ -46,6 +55,10 @@ export function registerCapabilityHandlers(server: SolusServer): void {
       atlassianProvider: server.hasHandler('atlassianStatus'),
     }
     if (editors) capabilities.editors = editors
+    if (ctx.principal.kind === 'guest') {
+      delete capabilities.name
+      delete capabilities.editors
+    }
     return capabilities
   })
 }

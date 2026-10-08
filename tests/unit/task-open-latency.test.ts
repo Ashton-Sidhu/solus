@@ -18,8 +18,8 @@ mock.module('@solus/client-core/session-meta', () => ({
 mock.module(`${workspaceUi}/lib/inputFocus`, () => ({
   requestInputFocus: (request?: unknown) => focusRequests.push(request ?? null),
 }))
-mock.module(`${workspaceUi}/contexts/connections/host-roles.store.svelte`, () => ({
-  hostRolesStore: { hasExecution: () => true, hasCollaboration: () => true },
+mock.module(`${workspaceUi}/contexts/hosts/hosts.svelte`, () => ({
+  hosts: { hasExecution: () => true, hasCollaboration: () => true, find: () => null, rolesFor: () => ['collaboration', 'execution'] },
 }))
 mock.module(`${workspaceUi}/contexts/connections/servers.store.svelte`, () => ({ serversStore: { executionServers: [] } }))
 mock.module(`${workspaceUi}/contexts/projects/projects.store.svelte`, () => ({
@@ -187,7 +187,7 @@ const storeModule = runes.source('repair-tasks-store', 'packages/workspace-ui/sr
   '@solus/contracts/task-types': file('packages/contracts/src/task-types.ts'),
   '../../lib/sessionUtils': stub('repair-session-utils', 'export const attemptServerId = () => "local"'),
   '../../lib/organization-filter': file('packages/workspace-ui/src/lib/organization-filter.ts'),
-  '../connections/host-roles.store.svelte': stub('repair-host-roles', 'export const hostRolesStore = { hasCollaboration: () => true }'),
+  '../hosts/hosts.svelte': stub('repair-hosts', 'export const hosts = { hasCollaboration: () => true, hasExecution: () => true }'),
   '../connections/organization-selection.store.svelte': stub('repair-organization-selection', 'export const organizationSelection = { activeOrganizationId: null }'),
   '../projects/projects.store.svelte': stub('repair-projects', 'export const projectsStore = { projectKeyFor: (_s, key) => key, checkoutsOf: () => [] }'),
   './task.svelte': taskModule,

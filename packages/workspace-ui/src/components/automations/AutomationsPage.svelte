@@ -403,8 +403,8 @@
     void tick().then(() => searchEl?.focus());
   });
 
-  function removeProjectHistory(option: ListProjectOption) {
-    projectsStore.removeProject(option.key);
+  function removeProject(option: ListProjectOption) {
+    void projectsStore.removeProject(option.key);
   }
 
   function clearFilters() {
@@ -508,7 +508,7 @@
         onSelect={selectProject}
         onSelectAll={() => selectProject(null)}
         onSelectCurrent={() => session.scopePageToCurrentProject()}
-        onRemoveHistory={removeProjectHistory}
+        onRemoveProject={removeProject}
         footerNote="Switching keeps filters, clears search"
       />
       <ListFilterGroup

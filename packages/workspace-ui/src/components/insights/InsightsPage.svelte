@@ -93,7 +93,7 @@
    * route's params — that is what makes it deep-linkable.
    *
    * `metrics.db` is host-local — each host records its own runs — so the page
-   * follows the default machine and clears rather than mixing two machines' spans.
+   * follows the Run on host and clears rather than mixing two machines' spans.
    */
   let { params, paneId }: RouteSurfaceProps<"insights"> = $props();
 
@@ -104,12 +104,12 @@
 
   const open = $derived(workspace.router.at("insights"));
   // `metrics.db` is a machine's. At app.solus.sh the active host can be the
-  // organization's Solus API, which records no turns, so read the default machine.
+  // organization's Solus API, which records no turns, so read the Run on host.
   const serverId = $derived.by(() => {
     // Read so a host switch, or a machine connecting or dropping, chooses again.
     void serversStore.activeServerId;
     void serversStore.executionServers.map((server) => server.status);
-    return serverConnections.defaultMachineId();
+    return serverConnections.runOnHostId();
   });
   // Turns this person ran on other hosts are pulled into the host's record
   // (docs/plans/insights-across-hosts.md); each row names the host it ran on.

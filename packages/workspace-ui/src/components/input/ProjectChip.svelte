@@ -72,13 +72,9 @@
   const inChat = $derived(isChat(projectDir));
   const currentKey = $derived(projectsStore.projectKeyFor(hostId, projectDir));
   // One row per project across every host. The current folder is offered even
-  // before the catalog knows it, unless a person removed it from the list.
+  // when its host does not list it as a project.
   const projects = $derived.by((): ProjectChipOption[] => {
-    const offersCurrent =
-      !!projectDir &&
-      projectDir !== "~" &&
-      !inChat &&
-      !projectsStore.isRemoved({ serverId: hostId, projectRoot: projectDir });
+    const offersCurrent = !!projectDir && projectDir !== "~" && !inChat;
     return projectChipOptions(
       projectsStore.logicalProjects([]),
       selectedHostId,
@@ -127,8 +123,7 @@
   }
 
   function removeProject(project: ProjectChipOption) {
-    projectsStore.removeProject(project.key);
-    projectsStore.remove(project.checkout);
+    void projectsStore.removeProject(project.key);
     commandEl?.querySelector<HTMLInputElement>("[data-slot=command-input]")?.focus();
   }
 

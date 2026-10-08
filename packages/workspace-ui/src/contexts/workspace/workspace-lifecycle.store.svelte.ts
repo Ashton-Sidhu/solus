@@ -15,16 +15,7 @@ import type { TabRegistry } from './tab-registry.svelte'
 import type { SessionRecords } from './session-records.svelte'
 import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
 import type { HostApi } from '@solus/client-core/host-api'
-import { serverConnections } from '@solus/client-core/server-connections'
-import { hostRolesStore } from '../connections/host-roles.store.svelte'
-
-export interface StaticInfo {
-  version: string
-  email: string | null
-  subscriptionType: string | null
-  projectPath: string
-  homePath: string
-}
+import { hosts } from '../hosts/hosts.svelte'
 
 export interface WorkspaceLifecycleStoreDeps {
   registry: TabRegistry
@@ -58,20 +49,17 @@ export interface WorkspaceLifecycleStoreDeps {
 }
 
 export class WorkspaceLifecycleStore {
-  staticInfo = $state<StaticInfo | null>(null)
   pluginCommands = $state<Session['pluginCommands']>({ global: [], project: [] })
   turnSnapshots = $state<Record<string, TurnSnapshot[]>>({})
   /** True until materializeTabs has rebuilt the persisted tabs into memory; prevents
    *  the persist effect from clobbering the saved snapshot with empty initial state. */
   hydrating = $state(true)
-  /** True while a seq-reset recovery is re-registering tabs and re-binding sessions. */
-  runtimeSyncing = $state(false)
 
   // Non-reactive guards: callers share an in-flight initialization, and a failed
   // connection attempt remains retryable after the transport reconnects.
-  /** The machine `staticInfo` was last read from; a new default machine reads again. */
-  private staticInfoServerId: string | null = null
-  private staticInfoInitialization: Promise<void> | null = null
+  /** The Run on host whose agents the agent list shows; a new Run on host reads again. */
+  private agentsServerId: string | null = null
+  private agentsInitialization: Promise<void> | null = null
   private pluginCommandRequestSequence = 0
   private pluginCommandRequests = new Map<string, number>()
   /** The provider and directory a session's commands were last read for, so a
@@ -116,19 +104,13 @@ export class WorkspaceLifecycleStore {
   }
 
   /**
-   * Apply a start() payload to staticInfo + agent metadata. The active-agent
+   * Show a host's agents in the agent list. The list is the Run on host's by
+   * decision (`AgentContext`, docs/plans/host-model.md). The active-agent
    * availability demotion is FRESH-only: a stale cache could wrongly demote an
    * agent whose availability has since recovered, so the optimistic path never
    * touches the active agent.
    */
-  private applyStartInfo(result: StartInfo, opts: { fresh: boolean }): void {
-    this.staticInfo = {
-      version: result.version || 'unknown',
-      email: result.auth?.email || null,
-      subscriptionType: result.auth?.subscriptionType || null,
-      projectPath: result.projectPath || '~',
-      homePath: result.homePath || '~',
-    }
+  private applyAgents(result: StartInfo, opts: { fresh: boolean }): void {
     this.deps.agent?.hydrate(result.agents ?? [])
     if (opts.fresh) this.followAvailableAgent(result.agents ?? [])
   }
@@ -157,12 +139,6 @@ export class WorkspaceLifecycleStore {
     }
   }
 
-  /**
-   * Optimistically apply the last cached start() payload so staticInfo and
-   * agent metadata are ready before first paint —
-   * no server round trip. Idempotent: once staticInfo exists (cache or fresh)
-   * this is a no-op. Fresh reconciliation happens in initStaticInfo.
-   */
   /** Tabs that have begun nothing: composers, which the workspace is free to
    *  retarget because there is no conversation in them to disturb. */
   private unstartedTabIds(): string[] {
@@ -171,32 +147,38 @@ export class WorkspaceLifecycleStore {
     )
   }
 
-  hydrateStaticInfoFromCache(): void {
-    if (this.staticInfo) return
-    const cached = loadCachedStart()
-    if (cached) this.applyStartInfo(cached, { fresh: false })
+  /**
+   * Optimistically show the Run on host's last cached agents before first
+   * paint, with no server round trip. Idempotent: once the list has a host's
+   * agents this is a no-op. The fresh read happens in `readRunOnAgents`.
+   */
+  hydrateAgentsFromCache(): void {
+    if (this.agentsServerId !== null || (this.deps.agent?.agents.length ?? 0) > 0) return
+    const host = hosts.runOn
+    const cached = host ? loadCachedStart(host.id) : null
+    if (cached) this.applyAgents(cached, { fresh: false })
   }
 
   /**
-   * Read `start()` from the default machine. A window with no machine yet — the
-   * account origin before any machine connects — reads nothing and paints from
-   * the cache; the runtime calls this again as machines connect, and a default
-   * machine that changed is read again.
+   * Read the Run on host's machine facts and show its agents. A window with no
+   * machine yet — the account origin before any machine connects — reads
+   * nothing and paints from the cache; the runtime calls this again as machines
+   * connect, and a Run on host that changed is read again.
    */
-  async initStaticInfo(): Promise<void> {
-    const serverId = serverConnections.defaultMachineId()
-    if (!serverId || serverId === this.staticInfoServerId) return
-    if (this.staticInfoInitialization) return this.staticInfoInitialization
+  async readRunOnAgents(): Promise<void> {
+    const host = hosts.runOn
+    if (!host || host.id === this.agentsServerId) return
+    if (this.agentsInitialization) return this.agentsInitialization
 
     const initialization = (async () => {
       // Paint from cache first (safety net if setup didn't already), then reconcile.
-      this.hydrateStaticInfoFromCache()
+      this.hydrateAgentsFromCache()
       // Resolve startup defaults first, then read the selected checkout once.
       // Other startup consumers may already have registered its live watcher.
       const coldLoad = this.unstartedTabIds().length === this.deps.registry.tabOrder.length
-      const result = await serverConnections.apiFor(serverId).start()
-      this.applyStartInfo(result, { fresh: true })
-      saveCachedStart(result)
+      const result = await host.when('machine')
+      this.applyAgents(result, { fresh: true })
+      saveCachedStart(host.id, result)
       if (coldLoad) {
         await this.deps.refreshGitState({ force: false })
       }
@@ -208,29 +190,31 @@ export class WorkspaceLifecycleStore {
         }
       })
     })()
-    this.staticInfoInitialization = initialization
+    this.agentsInitialization = initialization
 
     try {
       await initialization
-      this.staticInfoServerId = serverId
+      this.agentsServerId = host.id
     } finally {
-      if (this.staticInfoInitialization === initialization) this.staticInfoInitialization = null
+      if (this.agentsInitialization === initialization) this.agentsInitialization = null
     }
   }
 
   /**
-   * Re-reads start() so agent availability probed at boot does not survive as
-   * a stale answer. Misses are never cached server-side, so this re-probes any
-   * binary the boot-time check failed to find — an agent installed or repaired
-   * during onboarding reads as available without a relaunch.
+   * Re-reads the Run on host's machine facts so agent availability probed at
+   * boot does not survive as a stale answer. Misses are never cached
+   * server-side, so this re-probes any binary the boot-time check failed to
+   * find — an agent installed or repaired during onboarding reads as available
+   * without a relaunch.
    */
   async refreshAgentAvailability(): Promise<void> {
-    const serverId = serverConnections.defaultMachineId()
-    if (!serverId) return
-    const result = await serverConnections.apiFor(serverId).start()
-    this.applyStartInfo(result, { fresh: true })
-    saveCachedStart(result)
-    this.staticInfoServerId = serverId
+    const host = hosts.runOn
+    if (!host) return
+    await host.refresh('machine')
+    const result = await host.when('machine')
+    this.applyAgents(result, { fresh: true })
+    saveCachedStart(host.id, result)
+    this.agentsServerId = host.id
   }
 
   /**
@@ -243,7 +227,7 @@ export class WorkspaceLifecycleStore {
     const targetTabId = tabId ?? this.deps.registry.activeTabId
     // Slash commands are a checkout's; a run that names no machine (the account
     // origin before one connects) falls to the workspace service, which has none.
-    if (!hostRolesStore.hasExecution(this.deps.serverIdFor(targetTabId))) return
+    if (!hosts.hasExecution(this.deps.serverIdFor(targetTabId))) return
     const targetSession = this.deps.registry.sessionFor(targetTabId)
     const provider = targetSession?.run.provider ?? this.deps.settings.activeAgent
     const source = `${provider}\0${workingDirectory}`

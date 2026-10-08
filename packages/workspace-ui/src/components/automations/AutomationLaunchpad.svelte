@@ -92,8 +92,8 @@
     const cwd = projectPath;
     draftPrompt = text;
     draftingCwd = cwd;
-    // Drafting has no narrower owner, so the new-work default host creates it.
-    draftingServerId = serverConnections.defaultMachineId();
+    // Drafting has no narrower owner, so the Run on host creates it.
+    draftingServerId = serverConnections.runOnHostId();
     if (!draftingServerId) {
       toasts.error("Couldn't start a session", { description: "No machine is connected" });
       dismissDraft();
@@ -136,8 +136,8 @@
 
   async function seedTemplate(template: AutomationTemplate) {
     if (seedingId) return;
-    // Seeding has no narrower owner, so the new-work default host creates it.
-    const serverId = serverConnections.defaultMachineId();
+    // Seeding has no narrower owner, so the Run on host creates it.
+    const serverId = serverConnections.runOnHostId();
     if (!serverId) {
       toasts.error("Couldn't create that automation", { description: "No machine is connected" });
       return;

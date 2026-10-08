@@ -155,7 +155,7 @@ a lead: any session that starts another is its parent.
 | Tool | Does |
 | --- | --- |
 | `start_session` | Starts a session. `task` is required: `attempt` (another session on `task_id`, or on the caller's own task when `task_id` is omitted) or `none` (a session with no task). A task holds its sessions directly; Solus has no subtasks. `report` (default on) asks for notices and the report. `wait_seconds` (up to 600) waits in the call. `host` starts it on another of the owner's hosts (see below). |
-| `send_session` | Sends a message to a session: `queue` (default) or `steer`. Same `report` and `wait_seconds`. |
+| `send_session` | Sends a message to a session: `queue` (default) or `steer`. Same `report` and `wait_seconds`. Reaches a session the sender started on another host (see below). `attachments` (also on `start_session`) takes up to 8 files on this host (10 MB each). When the message is sent, each file is uploaded to the attachment store of the host that runs the session, with the same upload code a client uses, in one folder per message. The session reads the file as it was when sent. PNG, JPEG, GIF and WebP go as image refs that the provider sees. Other files go as `[Attached file: <path>]` lines before the text. Every client shows both kinds as chips. |
 | `stop_session` | Stops a session and clears its queue. |
 | `read_session_exchange` | Reads the caller's saved request state, report delivery state, and result by `exchange_id`. Reading does not consume a report or resume held work. |
 | `read_session` | A session's status, task and messages. `since` returns only what came after a cursor. |
@@ -173,9 +173,16 @@ that the owner may use it. The other host shows "Started by an agent on
 <host>" at the top of the session, on every client.
 
 The parent gets the same card, notices, wait and report as for a local child.
-`stop_session` stops it there. In this version `task` must be `none`, `cwd` is
-a path on the other host (default: a new chat folder there), and `send_session`
-and `read_session` do not reach another host. After a restart of this host, an
+`stop_session` stops it there. `send_session` reaches a session this session
+started there: host B gets the message through `promptHeadlessSession` and runs
+it with the session's own stored settings. The sender's follow ignores host B's
+events until host B echoes the message (its `user_message` carries the exchange
+id as `clientPromptId`), so the reply is from the turn that answers it, not from
+a turn that was running when it came. A queued message that host B drops (a Stop
+drains the queue) settles as interrupted. Attachments go to host B first,
+through `attachUpload`, and the prompt names the paths on host B. In this version `task` must
+be `none`, `cwd` is a path on the other host (default: a new chat folder there),
+and `read_session` does not reach another host. After a restart of this host, an
 open request to another host is reported as interrupted. The design is in
 `docs/plans/cross-host-sessions.md`.
 

@@ -2,7 +2,7 @@
   import { onMount, tick } from "svelte";
   import { Check, Download, ExternalLink, LoaderCircle, Plus } from "@lucide/svelte";
   import { SearchField } from "../ui/search-field";
-  import { getWorkspaceContext, hostCapabilitiesStore } from "../../contexts";
+  import { getWorkspaceContext, hosts } from "../../contexts";
   import { Button } from "../ui/button";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
@@ -20,7 +20,7 @@
   const workspace = getWorkspaceContext();
   const search = new SkillSearch();
   const inventory = $derived(skillsForHost(serverId));
-  const capabilities = $derived(hostCapabilitiesStore.for(serverId));
+  const capabilities = $derived(hosts.find(serverId)?.capabilityRecord);
   const isSupported = $derived(supportsSettingsSurface(capabilities, "skills"));
   const canInstall = $derived(capabilities?.skillsInstall === true);
   const canManage = $derived(capabilities?.skillsManage === true);
@@ -42,7 +42,6 @@
   const audience = $derived(inventory.scope === "member" ? `your agents on ${hostLabel}` : `every agent and project on ${hostLabel}`);
   const installedLabel = $derived(inventory.loaded && inventory.skills.length > 0 ? `Installed skills · ${inventory.skills.length}` : "Installed skills");
 
-  $effect(() => { void hostCapabilitiesStore.load(serverId); });
   $effect(() => {
     const targetApi = api;
     const targetInventory = inventory;

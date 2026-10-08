@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
@@ -106,6 +106,29 @@ describe('the acting session tools', () => {
     expect(result.ok).toBe(true)
     expect(calls).toEqual([{ method: 'send', args: ['solus-parent', 'solus-peer', { prompt: 'next step', delivery: 'steer', notify: true, waitMs: 0 }] }])
     expect(reloaded('mcp__solus__send_session', result.text)).toEqual({ sessionId: 'solus-peer', messageId: 'm-sent', provider: 'codex' })
+  })
+
+  test('send_session and start_session pass the files they attach as paths on this host', async () => {
+    // WHY: the orchestrator uploads the files to the host that runs the
+    // session, so the tool only checks them. Relative paths are the agent's
+    // working directory; a retry with the same request_id names the same paths.
+    const source = mkdtempSync(join(tmpdir(), 'solus-send-attachments-'))
+    writeFileSync(join(source, 'shot.png'), 'png bytes')
+    writeFileSync(join(source, 'log.txt'), 'log')
+    calls.length = 0
+    const caller = { ctx: { ...deps().ctx, cwd: source } }
+    await sessionTools.executeSessionTool('send_session', { session_id: 'solus-peer', message: 'look', attachments: ['shot.png', join(source, 'log.txt')] }, caller)
+    await sessionTools.executeSessionTool('start_session', { ...start, task: 'none', attachments: ['log.txt'] }, caller)
+    expect(calls[0]!.args[2]).toMatchObject({ prompt: 'look', attachments: [join(source, 'shot.png'), join(source, 'log.txt')] })
+    expect(calls[1]!.args[1]).toMatchObject({ prompt: 'build it', attachments: [join(source, 'log.txt')] })
+    rmSync(source, { recursive: true, force: true })
+  })
+
+  test('send_session refuses an attachment that is not a file, and sends nothing', async () => {
+    calls.length = 0
+    const result = await sessionTools.executeSessionTool('send_session', { session_id: 'solus-peer', message: 'look', attachments: ['/no/such/file.txt'] }, deps())
+    expect(result).toEqual({ ok: false, text: 'Attachment /no/such/file.txt is not a file on this host.' })
+    expect(calls).toEqual([])
   })
 
   test('send_session with report off asks for nothing back', async () => {

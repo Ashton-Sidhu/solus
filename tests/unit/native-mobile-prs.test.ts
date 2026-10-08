@@ -13,7 +13,7 @@ import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/
 // a review lands on the head the person was shown.
 
 const project = (path: string, repositoryKey: string | null): ProjectEntry => ({
-  key: path, path, folderName: path.split('/').pop()!, addedAt: '2026-01-01T00:00:00Z', repositoryKey,
+  key: path, path, folderName: path.split('/').pop()!, addedAt: '2026-01-01T00:00:00Z', lastUsedAt: '2026-01-01T00:00:00Z', repositoryKey,
 })
 
 const pullRequest = (number: number, overrides: Partial<PullRequest> = {}): PullRequest => ({

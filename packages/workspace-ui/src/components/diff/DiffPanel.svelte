@@ -32,7 +32,7 @@
   import {
     getWorkspaceContext,
     getSettingsContext,
-    hostCapabilitiesStore,
+    hosts,
     runtime,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
@@ -233,12 +233,8 @@
   const canOpenInEditor = $derived(
     !!theme.defaultEditor &&
       hostPolicy.isClientMachine(editorServerId) &&
-      supportsEditor(hostCapabilitiesStore.for(editorServerId), theme.defaultEditor),
+      supportsEditor(hosts.find(editorServerId)?.capabilityRecord, theme.defaultEditor),
   );
-
-  $effect(() => {
-    void hostCapabilitiesStore.load(editorServerId);
-  });
 
   // The in-progress inline-comment draft. Owned here and shared down to
   // DiffStream (this panel's only consumer) via context, so the selection /

@@ -5,7 +5,7 @@ import type { SessionStatus } from '@solus/contracts/types'
 import type { ExecutionPreferences } from '@solus/contracts/settings'
 import { attemptServerId } from '../../lib/sessionUtils'
 import { visibleInWindow } from '../../lib/organization-filter'
-import { hostRolesStore } from '../connections/host-roles.store.svelte'
+import { hosts } from '../hosts/hosts.svelte'
 import { organizationSelection } from '../connections/organization-selection.store.svelte'
 import { projectsStore } from '../projects/projects.store.svelte'
 import { isRepositoryKey } from '@solus/contracts/repository-key'
@@ -376,7 +376,7 @@ export class TasksStore {
       await this.load()
       return
     }
-    if (!hostRolesStore.hasCollaboration(serverId)) return
+    if (!hosts.hasCollaboration(serverId)) return
     const generation = this.wholeListGeneration
     let snapshot: TaskSidebarSnapshot
     try {
@@ -758,7 +758,7 @@ export class TasksStore {
           // A host must serve the collaboration plane to hold tasks at all
           // (docs/plans/cloud-service-model.md).
           const serverIds = serverConnections.connectedServerIds().filter(
-            (serverId) => serverConnections.phaseFor(serverId) === 'connected' && hostRolesStore.hasCollaboration(serverId),
+            (serverId) => serverConnections.phaseFor(serverId) === 'connected' && hosts.hasCollaboration(serverId),
           )
           const snapshots = await Promise.all(
             serverIds.map(async (serverId) => {

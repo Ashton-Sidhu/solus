@@ -24,7 +24,7 @@ const found = new Map<string, Found>()
 const pending = new Map<string, Promise<string | null>>()
 
 async function find(connection: HostConnection, projectRoot: string): Promise<Found> {
-  const capabilities = await connection.supervisor.whenCapabilities()
+  const capabilities = await connection.facts.when('capabilities')
   // A capability read that failed (asked before the host connected) answers
   // empty. That says nothing about the project, so it is not remembered.
   if (capabilities.assetUrls === undefined) throw new Error('The host has not said whether it serves assets.')

@@ -504,6 +504,8 @@ export interface DeviceProjectInfo {
   platforms: DevicePlatform[]
   /** Up to five project-relative paths that showed it, for a tooltip. */
   markers: string[]
+  /** The app is an Expo project, so its builds have Expo's dev and production presets. Older hosts leave it out. */
+  usesExpo?: boolean
 }
 
 // ─── Screenshot ───

@@ -22,17 +22,20 @@ export function useMounted() {
 
 /** The folder this host puts new projects and clones in, `~` when the host does not say. Null until known. */
 export function useProjectsFolder(hostId: string): string | null {
+  const app = useApp()
   const api = useHostApi(hostId)
   const [path, setPath] = useState<string | null>(null)
   useEffect(() => {
-    if (!api) return
+    const facts = api ? app.connections.connection(hostId)?.facts : null
+    if (!facts) return
     let live = true
-    api.getServerCapabilities().then(
+    // The folder may have moved since the host's record was read.
+    void facts.refresh('capabilities').then(() => facts.when('capabilities')).then(
       (capabilities) => { if (live) setPath(capabilities.projectsBaseDirectory ?? '~') },
       () => { if (live) setPath('~') },
     )
     return () => { live = false }
-  }, [api])
+  }, [api, app, hostId])
   return path
 }
 

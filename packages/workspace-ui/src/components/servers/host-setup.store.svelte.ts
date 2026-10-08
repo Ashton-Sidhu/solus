@@ -200,9 +200,15 @@ export class HostSetupSession {
     const label = provider === 'claude' ? 'Claude Code' : 'Codex'
     const progress = toasts.progress(`Updating ${label}…`)
     try {
-      const succeeded = await this.run('providers', (api) => api.setupInstallAgentCli({ agent: provider }), provider)
+      // Keep this provider's own failure: `stepError` is one slot, and a second
+      // provider updating at the same time overwrites it.
+      let failure: string | undefined
+      const succeeded = await this.run('providers', (api) => api.setupInstallAgentCli({ agent: provider }).catch((err) => {
+        failure = messageFor(err)
+        throw err
+      }), provider)
       if (succeeded) progress.success(`${label} updated`)
-      else progress.error(`Could not update ${label}`, { description: this.stepError?.message })
+      else progress.error(`Could not update ${label}`, { description: failure })
     } finally {
       this.providerStages[provider] = null
       this.release()

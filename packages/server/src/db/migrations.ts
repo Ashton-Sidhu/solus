@@ -430,6 +430,27 @@ ALTER TABLE sessions ADD COLUMN started_by TEXT;
   `
 DROP TABLE IF EXISTS publications;
 `,
+  // The host's project list orders by last use (docs/plans/project-model.md §2).
+  `
+ALTER TABLE projects ADD COLUMN last_used_at INTEGER;
+`,
+  // The remote MCP servers this host knows (docs/plans/mcp-integrations.md §3.3).
+  // The host holds their sessions and, later, their tokens.
+  `
+CREATE TABLE integration (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  name TEXT NOT NULL,
+  url TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_by TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (organization_id, slug)
+);
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

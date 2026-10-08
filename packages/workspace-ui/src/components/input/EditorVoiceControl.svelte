@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
   import { uuid } from "@solus/contracts/uuid";
-  import { getVoiceModelStore } from "../../contexts";
+  import { hosts } from "../../contexts";
   import { dictation } from "../../lib/dictation.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
@@ -16,9 +16,10 @@
 
   let { onTranscript, focused, disabled = false, showMic = true }: Props = $props();
 
-  const voiceModel = getVoiceModelStore();
+  const voiceHost = $derived(hosts.transcription);
+  const voiceReady = $derived(voiceHost?.voiceReady ?? false);
   // A host with no transcription backend gets no mic, whatever the caller asked for.
-  const micShown = $derived(showMic && voiceModel.supported);
+  const micShown = $derived(showMic && voiceHost?.transcribes === true);
   const voiceOwnerId = `editor-voice:${untrack(uuid)}`;
   const ownsVoice = $derived(dictation.messageOwner === voiceOwnerId);
   const voiceState = $derived(
@@ -37,7 +38,7 @@
   }
 
   function toggle(): void {
-    if (!voiceModel.ready || disabled) return;
+    if (!voiceReady || disabled) return;
     dictation.toggleConversationalFor(voiceOwnerId, receiveTranscript, () => false);
   }
 
@@ -60,7 +61,7 @@
     enabled: () =>
       ownsVoice &&
       focused &&
-      voiceModel.ready &&
+      voiceReady &&
       !disabled &&
       dictation.focusedTarget === null,
   });
@@ -72,10 +73,10 @@
   variant="bar"
   state={voiceState}
   rmsRef={dictation.rmsRef}
-  disabled={!voiceModel.ready || disabled}
+  disabled={!voiceReady || disabled}
   showMic={micShown}
-  progressPct={voiceModel.ready ? null : voiceModel.progressPct}
-  idleTooltip={voiceModel.ready
+  progressPct={voiceReady ? null : voiceHost?.voiceProgressPct ?? null}
+  idleTooltip={voiceReady
     ? `Voice input (${comboHint("voice.toggle-recorder")})`
     : "Voice model is preparing"}
   onCancel={() => dictation.cancel()}

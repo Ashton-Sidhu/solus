@@ -29,6 +29,7 @@ import type { HostUpdateStatus } from './host-update-types'
 import type { ShareChangedEvent } from './sharing'
 import type { SeatChangedEvent } from './seats'
 import type { AgentAuthFinishedEvent } from './agent-auth'
+import type { IntegrationChangedEvent } from './integration-types'
 import type { HostPresenceSnapshot, SessionPresenceSnapshot, WorkPresenceSnapshot } from './presence'
 import type { HostOrganizationsStatus } from './organization-scope'
 import type { UplinkStatus } from './uplink'
@@ -77,6 +78,9 @@ export interface HostEventMap {
    *  connections; they read `tasksSnoozes` again. Names nothing. */
   'tasks.snoozesChanged': Record<string, never>
   'workspaceProjects.changed': Record<string, never>
+  /** This host's project list changed: a folder was added, untracked or
+   *  deleted, or its last use moved. Clients read `listProjects` again. */
+  'projects.changed': Record<string, never>
   /** This host's outbox gained, lost, or failed an op. Connected clients react
    *  by draining (`outboxList` → apply on the owner host → `outboxAck`). */
   'outbox.changed': Record<string, never>
@@ -151,6 +155,8 @@ export interface HostEventMap {
   'host.seatChanged': SeatChangedEvent
   /** A Claude Design or MCP server sign-in ended. Delivered to the clients of the seat that started it. */
   'host.agentAuthFinished': AgentAuthFinishedEvent
+  /** An integration was created, updated, or removed, or its tool list changed. Read it again by id. */
+  'integration.changed': IntegrationChangedEvent
   /** Who is watching one session, and whose turn is running. The whole room each
    *  time: a handful of rows, and two clients disagreeing about who is present is
    *  the failure to avoid. Delivered to the session's watchers. */
@@ -209,6 +215,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'tasks.invalidated': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: 'The local task store changed.' },
   'tasks.snoozesChanged': { owner: 'tasks', category: 'invalidation', recovery: 'reload', description: "The recipient's own task snoozes changed; read them again." },
   'workspaceProjects.changed': { owner: 'projects', category: 'invalidation', recovery: 'reload', description: "The organization's project directory changed." },
+  'projects.changed': { owner: 'projects', category: 'invalidation', recovery: 'reload', description: "This host's project list changed." },
   'outbox.changed': { owner: 'outbox', category: 'invalidation', recovery: 'reload', description: 'The host outbox changed; connected clients should drain it.' },
   'pr.changed': { owner: 'prs', category: 'delta', recovery: 'reload', description: 'PR sync saw pull requests, checks, or review requests change in one repository.' },
   'annotations.changed': { owner: 'annotations', category: 'delta', recovery: 'reload', description: 'Plan or work annotations changed.' },
@@ -238,6 +245,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'share.changed': { owner: 'sharing', category: 'delta', recovery: 'reload', description: "A session's or work's owner or share list changed." },
   'host.seatChanged': { owner: 'seats', category: 'delta', recovery: 'reload', description: "A member's provider seat on this host changed state." },
   'host.agentAuthFinished': { owner: 'seats', category: 'targeted', recovery: 'reset', description: 'A Claude Design or MCP server sign-in in one seat ended.' },
+  'integration.changed': { owner: 'integrations', category: 'invalidation', recovery: 'reload', description: 'An integration or its tool list changed; read it again by id.' },
   'session.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people watching a session, or its active turn, changed.' },
   'work.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people who have one work open, or what they do there, changed.' },
   'host.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people connected to this host, or what they have focused, changed.' },

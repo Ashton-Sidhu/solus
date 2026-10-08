@@ -76,14 +76,14 @@ export function createProjectPicker(session: WorkspaceContext) {
       (directoryPickerTargetTabId
         ? session.sessionFor(directoryPickerTargetTabId)?.run.serverId
         : session.activeSession?.run.serverId) ??
-      serverConnections.defaultMachineId() ??
+      serverConnections.runOnHostId() ??
       LOCAL_SERVER_ID,
   )
   // apiFor() opens the connection as a side effect, so only reach for the
   // chosen host's api while the picker is actually on screen.
   const directoryPickerApi = $derived.by(() => {
     if (directoryPickerOpen) return serverConnections.apiFor(directoryPickerServerId)
-    const idleServerId = serverConnections.defaultMachineId()
+    const idleServerId = serverConnections.runOnHostId()
     return idleServerId ? serverConnections.apiFor(idleServerId) : undefined
   })
   // The chip names a host only when it is not the one already being worked on.

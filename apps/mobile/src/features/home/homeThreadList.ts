@@ -15,7 +15,7 @@ export function buildHomeProjectScopes(input: {
   );
 }
 
-/** Most recently active project first; a project with no thread sorts by when it was added. */
+/** Most recently active project first; a project with no thread sorts by its last use. */
 export function sortHomeProjectScopes(input: {
   readonly scopes: ReadonlyArray<ProjectScope>;
   readonly threads: ReadonlyArray<SolusThreadShell>;
@@ -35,12 +35,12 @@ export function sortHomeProjectScopes(input: {
       Math.max(latestActivityByScope.get(scopeKey) ?? Number.NEGATIVE_INFINITY, thread.record.lastActivityAt),
     );
   }
-  const addedAt = (scope: ProjectScope) =>
-    Math.max(...scope.projects.map((project) => Date.parse(project.project.addedAt) || 0));
+  const lastUsedAt = (scope: ProjectScope) =>
+    Math.max(...scope.projects.map((project) => Date.parse(project.project.lastUsedAt) || 0));
   return [...input.scopes].sort((left, right) => {
     const byActivity =
-      (latestActivityByScope.get(right.key) ?? addedAt(right)) -
-      (latestActivityByScope.get(left.key) ?? addedAt(left));
+      (latestActivityByScope.get(right.key) ?? lastUsedAt(right)) -
+      (latestActivityByScope.get(left.key) ?? lastUsedAt(left));
     if (byActivity !== 0) return byActivity;
     return left.title.localeCompare(right.title) || left.key.localeCompare(right.key);
   });

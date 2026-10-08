@@ -23,7 +23,7 @@ export function openAddProjectPicker(onAdded?: (option: ListProjectOption) => vo
             serverId: project.serverId,
             label: projectDirLabel(project.projectRoot),
             available: true,
-            historyOnly: true,
+            removable: true,
           })
         },
       },

@@ -25,7 +25,7 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import {
     getSettingsContext,
-    hostCapabilitiesStore,
+    hosts,
     toolsStore,
   } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -60,21 +60,11 @@
   const tools = toolsStore;
   const installingCodeIntel = new SvelteSet<CodeIntelLanguage>();
 
-  const capabilities = $derived(hostCapabilitiesStore.for(serverId));
+  const host = $derived(hosts.get(serverId));
+  const capabilities = $derived(host.capabilityRecord);
   const isSupported = $derived(supportsSettingsSurface(capabilities, "tools"));
-  const detected = $derived.by(() => {
-    const value = tools.detectedFor(serverId);
-    const editorIds = capabilities?.editors ?? [];
-    return {
-      editors: value.editors.filter((editor) => editorIds.includes(editor.id)),
-      terminals: value.terminals,
-    };
-  });
-
-  $effect(() => {
-    void hostCapabilitiesStore.load(serverId);
-    if (isSupported) void tools.loadDetectedToolsFor(serverId, api);
-  });
+  // The host limits detected editors to the ones it advertises.
+  const detected = $derived(host.tools.state === "ready" ? host.tools.value : { editors: [], terminals: [] });
 
   // One watch feeds both the TypeSafe key group and the Solus tools group.
   $effect(() => {

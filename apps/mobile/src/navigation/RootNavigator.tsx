@@ -41,6 +41,7 @@ import { PersonalSettingsScreen } from '../features/settings/PersonalSettingsScr
 import { OrganizationSettingsScreen } from '../features/settings/OrganizationSettingsScreen'
 import { HostSettingsScreen } from '../features/settings/HostSettingsScreen'
 import { HostAccessScreen } from '../features/settings/HostAccessScreen'
+import { IntegrationsScreen } from '../features/settings/IntegrationsScreen'
 import { AgentDefaultsScreen } from '../features/settings/AgentDefaultsScreen'
 import { NotificationSettingsScreen } from '../features/settings/NotificationSettingsScreen'
 import { GitHubConnectionScreen } from '../features/settings/GitHubConnectionScreen'
@@ -123,6 +124,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
   'OrganizationSettings',
   'HostSettings',
   'HostAccess',
+  'Integrations',
   'GitHubConnection',
   'About',
 ])
@@ -237,6 +239,7 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
         <Stack.Screen name="OrganizationSettings" component={OrganizationSettingsScreen} options={{ title: 'Organization' }} />
         <Stack.Screen name="HostSettings" component={HostSettingsScreen} options={{ title: 'Host settings' }} />
         <Stack.Screen name="HostAccess" component={HostAccessScreen} options={{ title: 'Access' }} />
+        <Stack.Screen name="Integrations" component={IntegrationsScreen} options={{ title: 'Integrations' }} />
         <Stack.Screen name="AgentDefaults" component={AgentDefaultsScreen} options={{ title: 'Agent defaults' }} />
         <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} options={{ title: 'Notifications' }} />
         <Stack.Screen name="GitHubConnection" component={GitHubConnectionScreen} options={{ title: 'GitHub' }} />

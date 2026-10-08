@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import type { DeviceRun, DeviceSummary } from '@solus/contracts/device-types'
+import type { DeviceProjectInfo, DeviceRun, DeviceSummary } from '@solus/contracts/device-types'
 import { phoneTarget, profilesForDevice, shownRun } from '@solus/workspace-ui/components/devices/lib/run-profiles'
-import { RUN_PROFILE_PRESETS, joinCommand, profileDraft, profilesFromDrafts, saveRunProfiles, splitCommand } from '@solus/client-core/device-run-profiles'
+import { EXPO_PRESETS, RUN_PROFILE_PRESETS, joinCommand, presetsForProject, projectPreset, profileDraft, profilesFromDrafts, saveRunProfiles, splitCommand } from '@solus/client-core/device-run-profiles'
 import { newBuildsRunning, profileTargetLabel, shownNewBuild } from '@solus/client-core/device-builds'
 
 /**
@@ -42,6 +42,21 @@ describe('run profiles', () => {
     const locked = { ...phone, deviceId: 'PHONE-2', unavailableReason: 'Unlock Ash iPhone.' }
     expect(phoneTarget([locked, phone], profiles, simulator)?.phone).toBe(phone)
     expect(phoneTarget([locked], profiles, simulator)?.phone.unavailableReason).toBe('Unlock Ash iPhone.')
+  })
+
+  test('an Expo app is offered a dev and a production build before the common ones', () => {
+    const expo: DeviceProjectInfo = { isMobileApp: true, platforms: ['android', 'ios'], markers: ['apps/mobile/package.json'], usesExpo: true }
+    expect(presetsForProject(expo).map((preset) => preset.profile.name))
+      .toEqual(['iOS dev', 'iOS production', ...RUN_PROFILE_PRESETS.map((preset) => preset.profile.name)])
+    // WHY: an older host does not say; the common presets stay, nothing is guessed.
+    expect(presetsForProject({ isMobileApp: true, platforms: ['ios'], markers: [] })).toEqual(RUN_PROFILE_PRESETS)
+    expect(presetsForProject(null)).toEqual(RUN_PROFILE_PRESETS)
+    // Dev loads JavaScript from Metro (Debug); production bundles it (Release), each with its own output.
+    const [dev, production] = EXPO_PRESETS.map((preset) => projectPreset(preset.profile, expo, ['Solus.xcworkspace', 'Podfile']))
+    expect(dev).toMatchObject({ cwd: 'apps/mobile/ios', artifact: 'build/Build/Products/Debug-iphonesimulator/*.app' })
+    expect(dev!.command.slice(0, 7)).toEqual(['xcodebuild', '-workspace', 'Solus.xcworkspace', '-scheme', 'Solus', '-configuration', 'Debug'])
+    expect(production).toMatchObject({ cwd: 'apps/mobile/ios', artifact: 'build/Build/Products/Release-iphonesimulator/*.app' })
+    expect(production!.command).toContain('Release')
   })
 
   test('the editor names the first problem and refuses two profiles with one name', () => {

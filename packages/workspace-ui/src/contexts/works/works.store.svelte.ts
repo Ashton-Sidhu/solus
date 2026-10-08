@@ -10,7 +10,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostApi } from '@solus/client-core/host-api'
 import { rpcErrorCode } from '@solus/client-core/rpc-error'
 import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
-import { hostRolesStore } from '../connections/host-roles.store.svelte'
+import { hosts } from '../hosts/hosts.svelte'
 import { organizationSelection } from '../connections/organization-selection.store.svelte'
 import { LOCAL_ORGANIZATION_ID, visibleInWindow } from '../../lib/organization-filter'
 import { SvelteMap } from 'svelte/reactivity'
@@ -483,7 +483,7 @@ export class WorksStore {
         // Every connected host that serves the collaboration plane: a runner
         // without it (docs/plans/cloud-service-model.md) holds no works.
         const serverIds = serverConnections.connectedServerIds().filter(
-          (serverId) => serverConnections.phaseFor(serverId) === 'connected' && hostRolesStore.hasCollaboration(serverId),
+          (serverId) => serverConnections.phaseFor(serverId) === 'connected' && hosts.hasCollaboration(serverId),
         )
         const results = await Promise.all(serverIds.map(async (serverId) => {
           try {

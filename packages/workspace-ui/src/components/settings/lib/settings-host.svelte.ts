@@ -6,7 +6,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
  * on that host.
  */
 class SettingsHost {
-  serverId = $state(serverConnections.defaultMachineId() ?? '')
+  serverId = $state(serverConnections.runOnHostId() ?? '')
 }
 
 export const settingsHost = new SettingsHost()

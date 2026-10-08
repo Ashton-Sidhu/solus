@@ -113,6 +113,11 @@ Cloud host the panel opens the account's cloud connections. On every other host
 it runs the provider's login there. The phone's sign-in sheet offers the same
 choice. It does not start a sign-in until the person asks for one.
 
+History keeps the refusal. A Codex failed turn with a refused-login error,
+or a Claude `authentication_failed` row, has the mark `loginRefused` on the
+history row. When that row ends the newest page, the card opens again on open,
+restore, or reload. A later turn after the row, or an older page, does not open it.
+
 `AttentionCard` and `InterruptCard` use the same `TranscriptCard` shell.
 Permission and question bodies stay open, with their decision controls in the
 wrapping footer. Their header uses a glyph, a lowercase type word, and a time

@@ -32,6 +32,7 @@
     "anti-slop/no-widen-then-assert": "error",
     "anti-slop/require-safety-comment-for-type-assertion": "error",
     "solus/acting-identity": "error",
+    "solus/explicit-host-choice": "error",
     "solus/no-broad-unknown-records": "error",
     "solus/no-github-task-escapes": "error",
     "solus/no-host-api-escapes": "error",

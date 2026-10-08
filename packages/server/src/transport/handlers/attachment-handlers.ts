@@ -1,16 +1,12 @@
-import { createHash, randomBytes } from 'crypto'
 import { existsSync } from 'fs'
-import { link, mkdir, open, unlink } from 'fs/promises'
+import { link, open, unlink } from 'fs/promises'
 import { basename, dirname, isAbsolute, join } from 'path'
 import { z } from 'zod'
 import type { AttachmentUploadRequest, AttachmentUploadTokenRequest, AttachmentUploadTokenResult } from '@solus/contracts/rpc'
-import {
-  MAX_ATTACHMENT_UPLOAD_BYTES,
-  MAX_ATTACHMENT_UPLOAD_COUNT,
-} from '@solus/contracts/rpc'
+import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
 import type { IpcContext } from '@solus/contracts/types'
-import { MAX_VIDEO_UPLOAD_BYTES, VIDEO_FILE_EXTENSIONS, videoMimeType } from '@solus/contracts/media-types'
-import { dataDir } from '../../platform/paths'
+import { MAX_VIDEO_UPLOAD_BYTES, videoMimeType } from '@solus/contracts/media-types'
+import { assertAttachmentMime, attachmentUploadPath, reserveAttachmentSlot, storeAttachment } from '../../data/assets/attachment-store'
 import type { SolusServer } from '../server'
 import { getAssetSigningSecret, readSignedToken, signToken } from '../../admission/signed-token'
 
@@ -31,76 +27,10 @@ export function uploadBucketId(ctx: IpcContext | undefined): string | undefined 
   return ctx?.session?.sessionId || ctx?.session?.draftId || undefined
 }
 
-export function uploadFolderName(bucketId: string): string {
-  const label = bucketId.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 48) || 'session'
-  const digest = createHash('sha256').update(bucketId).digest('hex').slice(0, 12)
-  return `${label}-${digest}`
-}
-
-function safeFileName(name: string): string {
-  const leaf = basename(name.replaceAll('\\', '/'))
-  return leaf.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 96) || 'attachment'
-}
-
-function assertAttachmentMime(mime: string): void {
-  if (!/^[a-z0-9][a-z0-9!#$&^_.+/-]{0,126}$/i.test(mime)) {
-    throw new Error('Invalid attachment MIME type.')
-  }
-}
-
-function decodeAttachmentDataUrl(request: AttachmentUploadRequest): Buffer {
-  assertAttachmentMime(request.mime)
-  const match = request.dataUrl.match(/^data:([^;,]+);base64,([a-zA-Z0-9+/]*={0,2})$/)
-  if (!match || match[1].toLowerCase() !== request.mime.toLowerCase()) {
-    throw new Error('Invalid attachment data URL.')
-  }
-  const base64 = match[2]
-  const maxBase64Length = Math.ceil(MAX_ATTACHMENT_UPLOAD_BYTES / 3) * 4
-  if (base64.length > maxBase64Length) throw new Error('Attachment exceeds the 10 MB limit.')
-  const buffer = Buffer.from(base64, 'base64')
-  if (buffer.length > MAX_ATTACHMENT_UPLOAD_BYTES) throw new Error('Attachment exceeds the 10 MB limit.')
-  return buffer
-}
-
-async function attachmentUploadPath(
-  ctx: IpcContext,
-  name: string,
-  mime: string,
-  deps: AttachmentHandlerDeps,
-): Promise<string> {
+function requireBucket(ctx: IpcContext): string {
   const bucketId = uploadBucketId(ctx)
   if (!bucketId) throw new Error('A conversation is required to upload an attachment.')
-  const root = deps.attachmentsDir ?? join(dataDir(), 'attachments')
-  const bucketDir = join(root, uploadFolderName(bucketId))
-  await mkdir(bucketDir, { recursive: true })
-
-  let leaf = safeFileName(name)
-  const video = videoMimeType({ name, mimeType: mime })
-  if (video && videoMimeType({ name: leaf }) !== video) {
-    const extension = VIDEO_FILE_EXTENSIONS.find((extension) => videoMimeType({ name: `file.${extension}` }) === video)
-    if (extension) leaf += `.${extension}`
-  }
-  return join(bucketDir, `${randomBytes(12).toString('hex')}-${leaf}`)
-}
-
-/** Reserve when bytes arrive. Release failed uploads, but keep the slot for
- * completed files. The exclusive lock enforces the cap across concurrent calls. */
-async function reserveAttachmentSlot(bucketDir: string): Promise<() => Promise<void>> {
-  for (let slot = 0; slot < MAX_ATTACHMENT_UPLOAD_COUNT; slot++) {
-    const lockPath = join(bucketDir, `.slot-${slot}`)
-    let lock: Awaited<ReturnType<typeof open>> | undefined
-    try {
-      lock = await open(lockPath, 'wx', 0o600)
-      await lock.close()
-    } catch (error) {
-      await lock?.close().catch(() => {})
-      if (error instanceof Error && 'code' in error && error.code === 'EEXIST') continue
-      throw error
-    }
-    return () => unlink(lockPath).catch(() => {})
-  }
-
-  throw new Error(`A conversation can contain at most ${MAX_ATTACHMENT_UPLOAD_COUNT} uploaded attachments.`)
+  return bucketId
 }
 
 /** Decode and persist one attachment on the session's owning host. */
@@ -109,21 +39,7 @@ export async function writeAttachmentUpload(
   request: AttachmentUploadRequest,
   deps: AttachmentHandlerDeps = {},
 ): Promise<string> {
-  const buffer = decodeAttachmentDataUrl(request)
-  const filePath = await attachmentUploadPath(ctx, request.name, request.mime, deps)
-  const release = await reserveAttachmentSlot(dirname(filePath))
-  let handle: Awaited<ReturnType<typeof open>> | undefined
-  try {
-    handle = await open(filePath, 'wx', 0o600)
-    await handle.writeFile(buffer)
-    await handle.close()
-    return filePath
-  } catch (error) {
-    await handle?.close().catch(() => {})
-    await unlink(filePath).catch(() => {})
-    await release()
-    throw error
-  }
+  return storeAttachment(requireBucket(ctx), request, deps.attachmentsDir)
 }
 
 /** How long a client has to start a streamed upload after asking for it. */
@@ -165,7 +81,7 @@ export async function createAttachmentUploadToken(
   if (request.size > limit) {
     throw new Error(`${isVideo ? 'Videos' : 'Attachments'} can be up to ${limit / 1024 / 1024} MB.`)
   }
-  const filePath = await attachmentUploadPath(ctx, request.name, request.mime, deps)
+  const filePath = await attachmentUploadPath(requireBucket(ctx), request.name, request.mime, deps.attachmentsDir)
   const expiresAt = (deps.now ?? Date.now()) + ATTACHMENT_UPLOAD_TOKEN_TTL_MS
   const payload: AttachmentUploadTokenPayload = { kind: 'upload', path: filePath, size: request.size, mime: request.mime, expiresAt }
   const token = signToken(payload, deps.secret ?? getAssetSigningSecret())

@@ -27,6 +27,11 @@ export function agentToolImage(png: Uint8Array): AgentToolImage | null {
   return { mimeType: 'image/png', data: Buffer.from(png).toString('base64') }
 }
 
+/** The same, from a PNG data URL such as a headless-browser screenshot. */
+export function agentToolImageFromDataUrl(dataUrl: string): AgentToolImage | null {
+  return agentToolImage(Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64'))
+}
+
 export interface AgentToolContext {
   provider: AgentId
   cwd: string
@@ -51,6 +56,8 @@ export interface AgentTool<TFields extends ZodFieldMap = ZodFieldMap> {
    *  render_artifact's fence rule, create_work's embed rule — is useless as a
    *  bare name. Tool-specific guidance must be available before that choice. */
   alwaysLoad?: boolean
+  /** The input is an object Solus does not describe (an integration tool whose schema did not convert): it reaches `execute` unchanged. */
+  passthroughInput?: boolean
   execute(
     input: z.output<z.ZodObject<TFields>>,
     context: AgentToolContext,
@@ -78,7 +85,7 @@ export async function executeAgentTool<Input>(
   if (!isSolusToolEnabled(agentTool.name, getHostConfig().config.solusTools)) {
     return { ok: false, text: `${agentTool.name} is disabled in Settings → Tools on this host.` }
   }
-  const parsed = z.object(agentTool.inputFields).safeParse(input)
+  const parsed = (agentTool.passthroughInput ? z.looseObject(agentTool.inputFields ?? {}) : z.object(agentTool.inputFields)).safeParse(input)
   if (!parsed.success) {
     return { ok: false, text: `Invalid arguments for ${agentTool.name}: ${z.prettifyError(parsed.error)}` }
   }

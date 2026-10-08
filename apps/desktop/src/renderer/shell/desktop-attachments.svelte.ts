@@ -1,6 +1,6 @@
 import { tick } from "svelte";
 
-import { connectionsStore, serversStore } from "@solus/workspace-ui/contexts";
+import { hosts, serversStore } from "@solus/workspace-ui/contexts";
 
 import { toasts } from "@solus/workspace-ui/lib/toasts";
 
@@ -30,7 +30,7 @@ export function attachmentTarget(
     ? session.runFor(targetTabId)
     : session.activeSession?.run;
   const serverId =
-    run?.serverId ?? serverConnections.defaultMachineId() ?? LOCAL_SERVER_ID;
+    run?.serverId ?? serverConnections.runOnHostId() ?? LOCAL_SERVER_ID;
   const ctx = targetTabId ? session.ctxFor(targetTabId) : session.ctx;
   return { targetTabId, serverId, ctx };
 }
@@ -49,7 +49,7 @@ export function createDesktopAttachments(
 ) {
   const { session } = core;
   const desktopHandlersAvailable = $derived(
-    connectionsStore.desktopHandlersAvailable,
+    (hosts.device?.hasDesktopHandlers ?? false),
   );
   async function handleScreenshot(tabId?: string) {
     if (!desktopHandlersAvailable) return;

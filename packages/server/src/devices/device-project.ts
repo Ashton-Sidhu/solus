@@ -25,12 +25,13 @@ async function readSmall(path: string): Promise<string | null> {
   return readFile(path, 'utf8').catch(() => null)
 }
 
-function declaresMobilePackage(raw: string): boolean {
+/** The mobile packages a manifest declares: `expo`, `react-native`, or neither. */
+function declaredMobilePackages(raw: string): string[] {
   try {
     const manifest = JSON.parse(raw) as { dependencies?: { [name: string]: string }; devDependencies?: { [name: string]: string } }
-    return MOBILE_PACKAGES.some((name) => !!manifest.dependencies?.[name] || !!manifest.devDependencies?.[name])
+    return MOBILE_PACKAGES.filter((name) => !!manifest.dependencies?.[name] || !!manifest.devDependencies?.[name])
   } catch {
-    return false
+    return []
   }
 }
 
@@ -38,6 +39,7 @@ function declaresMobilePackage(raw: string): boolean {
 export async function scanDeviceProject(root: string): Promise<DeviceProjectInfo> {
   const found = new Set<DevicePlatform>()
   const markers: string[] = []
+  let usesExpo = false
   const mark = (platforms: DevicePlatform[], marker: string) => {
     for (const platform of platforms) found.add(platform)
     if (markers.length < 5) markers.push(marker)
@@ -58,7 +60,9 @@ export async function scanDeviceProject(root: string): Promise<DeviceProjectInfo
       if (names.has('pubspec.yaml') && (await readSmall(join(folder.path, 'pubspec.yaml')))?.includes('flutter:')) mark(['ios', 'android'], at('pubspec.yaml'))
       if (names.has('package.json')) {
         const raw = await readSmall(join(folder.path, 'package.json'))
-        if (raw && declaresMobilePackage(raw)) mark(['ios', 'android'], at('package.json'))
+        const packages = raw ? declaredMobilePackages(raw) : []
+        if (packages.length > 0) mark(['ios', 'android'], at('package.json'))
+        if (packages.includes('expo')) usesExpo = true
       }
       for (const entry of entries) {
         if (!entry.isDirectory()) continue
@@ -72,7 +76,7 @@ export async function scanDeviceProject(root: string): Promise<DeviceProjectInfo
     }
     queue = next
   }
-  return { isMobileApp: found.size > 0, platforms: [...found].sort(), markers }
+  return { isMobileApp: found.size > 0, platforms: [...found].sort(), markers, usesExpo }
 }
 
 /** Answers per project root, reused for a few minutes: the panel asks on every view. */

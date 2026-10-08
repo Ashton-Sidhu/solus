@@ -1,15 +1,9 @@
 import { readFile, realpath } from 'fs/promises'
-import { join, resolve } from 'path'
+import { resolve } from 'path'
 import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
 import type { PromptImageRef, PromptOptions } from '@solus/contracts/types'
-import { dataDir } from '../../platform/paths'
+import { attachmentsRoot } from '../../data/assets/attachment-store'
 import { isInsideRoot } from '../../paths'
-
-/** Only files this host minted through `attachUpload` are readable as refs — a
- *  ref names a path, and a path from a client is untrusted input. */
-function attachmentsRoot(overrideDir?: string): string {
-  return overrideDir ?? join(dataDir(), 'attachments')
-}
 
 async function readRef(ref: PromptImageRef, root: string): Promise<{ mimeType: string; dataUrl: string }> {
   if (!/^image\/[a-z0-9.+-]+$/i.test(ref.mimeType)) {
@@ -47,7 +41,9 @@ export async function resolvePromptImages(
 ): Promise<PromptOptions['imageAttachments']> {
   const refs = options.imageAttachmentRefs
   if (!refs?.length) return options.imageAttachments
-  const root = attachmentsRoot(attachmentsDir)
+  // Only files in this host's attachment store are readable as refs — a ref
+  // names a path, and a path from a client is untrusted input.
+  const root = attachmentsDir ?? attachmentsRoot()
   const resolved = await Promise.all(refs.map((ref) => readRef(ref, root)))
   // An older client can send both: inline images it could not upload, plus refs
   // for the ones it could. Composer order puts the uploads last.

@@ -4,7 +4,7 @@ import { mkdir, readdir, rm } from 'fs/promises'
 import { homedir } from 'os'
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'path'
 import { z } from 'zod'
-import { AGENT_BIN, type AgentId, type CloneAuth, type CloneProtocol, type DispatchHistoryRoot, type GitCommitIdentity, type GithubDelegatedCredential, type HostReadiness, type ServerCapabilities, type SetupAdoptProjectResult, type SetupAgent, type SetupAgentAuthCheckResult, type SetupCloneProjectResult, type SetupGithubRepo, type SetupGithubReposResult, type SetupLogEvent, type SetupPrepareProjectResult, type SetupSshAccessResult, type SetupStatusEvent, type SetupStepResult, type SetupStreamStep } from '@solus/contracts/types'
+import { AGENT_BIN, type AgentId, type CloneAuth, type CloneProtocol, type DispatchHistoryRoot, type GitCommitIdentity, type GithubDelegatedCredential, type HostCapabilities, type HostReadiness, type SetupAdoptProjectResult, type SetupAgent, type SetupAgentAuthCheckResult, type SetupCloneProjectResult, type SetupGithubRepo, type SetupGithubReposResult, type SetupLogEvent, type SetupPrepareProjectResult, type SetupSshAccessResult, type SetupStatusEvent, type SetupStepResult, type SetupStreamStep } from '@solus/contracts/types'
 import { providerLoginConnected, type LoginProbe } from '../../execution/seats/seat-login'
 import type { SeatStore } from '../../execution/seats/seat-manager'
 import { seatFor } from '../../admission/actor'
@@ -136,6 +136,11 @@ export interface AgentAuthProbeDeps {
   hasCodexAuth?: () => Promise<boolean>
 }
 
+/** The capability fields a host learns by probing itself; the handler list adds the rest. */
+export type ProbedHostCapabilities = Required<Pick<HostCapabilities,
+  'headless' | 'desktopHandlers' | 'agents' | 'dictation' | 'platform' | 'version' | 'projectCount' | 'agentAuth' | 'gitAuth'>>
+  & Pick<HostCapabilities, 'projectsBaseDirectory' | 'projectsBaseDirectoryIsSet'>
+
 export interface CapabilityProbeOptions {
   headless: boolean
   desktopHandlers: boolean
@@ -144,7 +149,7 @@ export interface CapabilityProbeOptions {
   principal?: Principal
 }
 
-export async function probeServerCapabilities(opts: CapabilityProbeOptions): Promise<ServerCapabilities> {
+export async function probeHostCapabilities(opts: CapabilityProbeOptions): Promise<ProbedHostCapabilities> {
   const projects = projectsVisibleTo(opts.principal, await listProjects().catch(() => []))
   return {
     headless: opts.headless,
@@ -258,7 +263,7 @@ export function coerceSetupAgent(value: string): SetupAgent {
  */
 export function projectsBaseDirectoryFor(
   principal: Principal | undefined,
-): Pick<ServerCapabilities, 'projectsBaseDirectory' | 'projectsBaseDirectoryIsSet'> {
+): Pick<HostCapabilities, 'projectsBaseDirectory' | 'projectsBaseDirectoryIsSet'> {
   const root = projectsRootFor(principal)
   // Best effort: an unwritable root still reports, and the picker says why.
   try { mkdirSync(root, { recursive: true }) } catch {}

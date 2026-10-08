@@ -116,9 +116,10 @@ builds (`@solus/contracts/artifact-sandbox`), with the theme taken from
 `SOLUS_THEME_SNAPSHOT`, because the server has no document to read the live
 theme from. `tests/unit/artifact-theme-snapshot.test.ts` keeps the snapshot equal
 to `workspace.css`. Local images are written in, the viewport grows to the
-page's height (up to 4,000px), and the agent gets a screenshot path, the height,
-the console output with uncaught errors and failed loads, and the local images
-it could not load. `preview_width` (320–1440, default 760) and
+page's height (up to 4,000px), and the agent gets the screenshot as an image in
+the tool result, the height, the console output with uncaught errors and failed
+loads, and the local images it could not load. A screenshot over the 5 MB tool
+image limit is stored as an asset instead, and the result gives its path to read. `preview_width` (320–1440, default 760) and
 `preview_appearance` (light or dark) choose the reading.
 
 A save without `preview` runs the same render as a check, for up to 8 seconds,

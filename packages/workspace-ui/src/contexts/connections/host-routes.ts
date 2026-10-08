@@ -1,13 +1,5 @@
 import type { HostRoute, UplinkStatus } from '@solus/contracts/uplink'
 
-/** The one-word route badges a host row shows: `direct`, `tunnel`, or both. */
-export function routeBadges(routes: HostRoute[]): string[] {
-  const badges: string[] = []
-  if (routes.some((route) => route.kind !== 'tunnel')) badges.push('direct')
-  if (routes.some((route) => route.kind === 'tunnel')) badges.push('tunnel')
-  return badges
-}
-
 /** The host's page on the account website, where the owner shares it with a team. */
 export function hostWebsiteUrl(directoryUrl: string, hostId: string): string {
   return `${directoryUrl.replace(/\/$/, '')}/hosts/${encodeURIComponent(hostId)}`

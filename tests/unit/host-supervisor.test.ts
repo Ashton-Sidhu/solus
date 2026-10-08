@@ -143,4 +143,25 @@ describe('host supervisor', () => {
     supervisor.report({ kind: 'accepted', recovered: false })
     expect(supervisor.sessionGeneration).toBe(1)
   })
+
+  test('reports each server-session edge so host facts reload or clear', () => {
+    // WHY: host facts (docs/plans/host-model.md) reload on a fresh session,
+    // keep their answers on a recovered one, and clear capabilities on a drop.
+    const changes: string[] = []
+    const supervisor = new HostSupervisor({
+      transport: { start: () => {}, probe: async () => {} },
+      onSessionChange: (change) => changes.push(change),
+      setTimeoutFn: (() => 0 as unknown as ReturnType<typeof setTimeout>) as unknown as typeof setTimeout,
+      clearTimeoutFn: (() => {}) as typeof clearTimeout,
+    })
+    supervisor.start()
+    supervisor.report({ kind: 'accepted', recovered: true })
+    supervisor.report({ kind: 'dropped' })
+    supervisor.report({ kind: 'accepted', recovered: true })
+    supervisor.report({ kind: 'dropped' })
+    supervisor.report({ kind: 'accepted', recovered: false })
+    supervisor.report({ kind: 'auth-blocked' })
+    // The first accept is always fresh: there was no session to recover.
+    expect(changes).toEqual(['fresh', 'lost', 'recovered', 'lost', 'fresh', 'lost'])
+  })
 })

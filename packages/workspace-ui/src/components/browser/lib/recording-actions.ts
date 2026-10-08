@@ -2,7 +2,7 @@ import { Circle, Square } from '@lucide/svelte'
 import type { BrowserEvidenceTarget, BrowserRecordingResult } from '@solus/contracts/browser-types'
 import type { Attachment } from '@solus/contracts/types'
 import { browserStore, type BrowserPageEntry } from '../../../contexts/browser/browser.store.svelte'
-import { hostCapabilitiesStore } from '../../../contexts/connections/host-capabilities.store.svelte'
+import { hosts } from '../../../contexts/hosts/hosts.svelte'
 import { requestInputFocus } from '../../../lib/inputFocus'
 import { comboHint } from '../../../lib/keybindings/manifest'
 import { toasts } from '../../../lib/toasts'
@@ -51,7 +51,7 @@ export function focusLeadingComposer(router: { leadingPane: { id: string }; focu
 
 export function togglePageRecording(entry: BrowserPageEntry, focusComposer?: () => void): void {
   if (entry.page.recording) stopPageRecording(entry, undefined, focusComposer)
-  else if (hostCapabilitiesStore.supports(entry.serverId, 'browserRecording') && !entry.page.devToolsOpen) {
+  else if (hosts.find(entry.serverId)?.supports('browserRecording') && !entry.page.devToolsOpen) {
     startPageRecording(entry)
   }
 }
@@ -98,7 +98,7 @@ export function browserRecordingCommands(focusComposer?: () => void): Command[] 
       run: () => stopPageRecording(entry, undefined, focusComposer),
     }]
   }
-  if (!hostCapabilitiesStore.supports(entry.serverId, 'browserRecording') || entry.page.devToolsOpen) return []
+  if (!hosts.find(entry.serverId)?.supports('browserRecording') || entry.page.devToolsOpen) return []
   return [{
     id: 'browser-start-recording',
     label: 'Start recording',

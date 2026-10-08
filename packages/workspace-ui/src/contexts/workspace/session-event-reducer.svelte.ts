@@ -13,7 +13,7 @@ import type { TabRegistry } from './tab-registry.svelte'
 import type { SessionRecords } from './session-records.svelte'
 import type { WorkStreamTracker } from './work-stream-tracker.svelte'
 import { AgentConversationCards } from './agent-conversation-cards'
-import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest, expireRequest, dropExpiredRequests } from './session.utils'
+import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, splitAttachedFiles, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest, expireRequest, dropExpiredRequests } from './session.utils'
 import { mergeRemoteDispatchProgress } from '../../lib/remote-dispatch-card'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { NotificationSoundTrigger } from '@solus/contracts/notification-types'
@@ -821,10 +821,15 @@ export class SessionEventReducer {
         if (outbound?.reason === 'rate_limit' && outbound.enqueuedAt) {
           message.queuedWaitMs = Date.now() - outbound.enqueuedAt
         }
+        // A prompt this client did not compose (another agent's send_session)
+        // carries its files as the composer's `[Attached file: …]` lines.
+        const attached = outbound ? null : splitAttachedFiles(event.text, session.run.serverId)
+        if (attached?.attachments.length) message.content = attached.text
         if (outbound?.attachments?.length) {
           message.attachments = outbound.attachments
-        } else if (event.imageAttachmentRefs?.length || event.imageAttachments?.length) {
+        } else if (attached?.attachments.length || event.imageAttachmentRefs?.length || event.imageAttachments?.length) {
           message.attachments = [
+            ...(attached?.attachments ?? []),
             ...(imageRefAttachments(event.imageAttachmentRefs) ?? []),
             ...(event.imageAttachments ?? []).map((image) => ({
               name: '',

@@ -25,7 +25,7 @@
     getWorkspaceContext,
     getAgentContext,
     getPlanStore,
-    hostCapabilitiesStore,
+    hosts,
     serversStore,
   } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -96,8 +96,8 @@
   const session = getWorkspaceContext();
   const store = session.automationsStore;
   // With no owning automation and no origin, the picker starts on the
-  // new-work default machine; the menu lists every execution machine.
-  const defaultServerId = serverConnections.defaultMachineId() ?? undefined;
+  // Run on host; the menu lists every execution machine.
+  const defaultServerId = serverConnections.runOnHostId() ?? undefined;
   let selectedServerId = $state(
     untrack(
       () =>
@@ -115,7 +115,7 @@
   );
   const hostOptions = $derived(
     automationMachineOptions(serversStore.executionServers, (serverId) =>
-      hostCapabilitiesStore.supports(serverId, "automations"),
+      hosts.find(serverId)?.supports("automations") === true,
     ),
   );
   // Only a new automation needs a machine to save to; a saved one keeps its own.
@@ -128,7 +128,7 @@
         : NO_MACHINE_LABEL),
   );
   const selectedHostSupportsAutomations = $derived(
-    hostCapabilitiesStore.supports(selectedServerId, "automations"),
+    hosts.find(selectedServerId)?.supports("automations") === true,
   );
   const selectedHostApi = $derived(
     selectedServerId && selectedHostSupportsAutomations
@@ -137,12 +137,8 @@
   );
 
   $effect(() => {
-    for (const machine of onlineMachines) void hostCapabilitiesStore.load(machine.id);
-  });
-
-  $effect(() => {
     if (current) return;
-    if (onlineMachines.some((machine) => hostCapabilitiesStore.for(machine.id) === undefined)) return;
+    if (onlineMachines.some((machine) => hosts.get(machine.id).capabilityRecord === undefined)) return;
     selectedServerId = selectableAutomationMachine(hostOptions, selectedServerId);
   });
 
@@ -541,7 +537,7 @@
       firstMessage: name || "Automation run",
       lastTimestamp: new Date().toISOString(),
       size: 0,
-      cwd: automationRunCwd(run, automationCwd, session.staticInfo?.homePath),
+      cwd: automationRunCwd(run, automationCwd, hosts.find(selectedServerId)?.machineInfo?.homePath),
       projectPath: "",
     });
     // Leave the detail: close the pane or return to the mobile full-page list.

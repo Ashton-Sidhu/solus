@@ -13,7 +13,7 @@
     getStatusBarContext,
     getSettingsContext,
     getAgentContext,
-    getVoiceModelStore,
+    hosts,
     presenceStore,
     runtime,
   } from "../../contexts";
@@ -165,7 +165,8 @@
 
   const theme = getSettingsContext();
   const agent = getAgentContext();
-  const voiceModel = getVoiceModelStore();
+  const voiceHost = $derived(hosts.transcription);
+  const voiceReady = $derived(voiceHost?.voiceReady ?? false);
   const session = getWorkspaceContext();
   const sessions = getSessionRecords();
   const statusBar = getStatusBarContext();
@@ -408,20 +409,18 @@
   const isVoiceWaiting = $derived(
     voiceModeEnabled &&
       ownsVoice &&
-      voiceModel.ready &&
+      voiceHost?.voiceReady === true &&
       isBusy &&
       !isReadOnly &&
       voiceState === "idle",
   );
   const voiceModelTooltip = $derived.by(() => {
-    if (voiceModel.ready) return null;
-    if (
-      voiceModel.status.state === "downloading" &&
-      voiceModel.progressPct !== null
-    ) {
-      return `Downloading voice model - ${voiceModel.progressPct}%`;
+    if (voiceHost?.voiceReady) return null;
+    const progressPct = voiceHost?.voiceProgressPct ?? null;
+    if (voiceHost?.voiceStatus.state === "downloading" && progressPct !== null) {
+      return `Downloading voice model - ${progressPct}%`;
     }
-    if (voiceModel.status.state === "error")
+    if (voiceHost?.voiceStatus.state === "error")
       return "Voice model failed to download - retry in Settings";
     return "Voice model is preparing";
   });
@@ -901,9 +900,9 @@
     state={voiceControlState}
     rmsRef={voice.rmsRef}
     waiting={isVoiceWaiting}
-    showMic={voiceModel.supported && !isTouch}
-    disabled={isConnecting || isReadOnly || !voiceModel.ready}
-    progressPct={!voiceModel.ready ? voiceModel.progressPct : null}
+    showMic={voiceHost?.transcribes === true && !isTouch}
+    disabled={isConnecting || isReadOnly || !voiceReady}
+    progressPct={!voiceReady ? voiceHost?.voiceProgressPct ?? null : null}
     idleTooltip={idleVoiceTooltip}
     onCancel={() => voice.cancel()}
     onConfirm={() => voice.stop()}

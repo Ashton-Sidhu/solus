@@ -19,8 +19,8 @@ function api(): FakeApi {
     .on('seatConnectCancel', () => ({ cancelled: true }))
 }
 
-async function open(provider: 'claude-code' | 'codex' = 'claude-code') {
-  const fake = api()
+async function open(provider: 'claude-code' | 'codex' = 'claude-code', history: object[] = []) {
+  const fake = api().on('loadSessionPage', () => ({ messages: history, before: null }))
   const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }), api: () => fake })
   await world.registry.load()
   await world.registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
@@ -113,5 +113,20 @@ describe('native conversation: sign-in commands', () => {
     // A sign-in already open is not replaced by a later refusal.
     transport.emit('session.eventReceived', { sessionId: 'thread-1', event: { type: 'error', message: 'refused', isError: true, kind: 'auth' } })
     expect(controller.auth.view.step).toBe('waiting')
+  })
+
+  test('a conversation whose last turn failed for a refused login offers sign-in again when it opens', async () => {
+    const { controller } = await open('codex', [
+      { role: 'user', content: 'go', timestamp: 1 },
+      { role: 'system', content: 'Error: unexpected status 401 Unauthorized', timestamp: 2, loginRefused: true },
+    ])
+    expect(controller.auth.view).toMatchObject({ step: 'refused', provider: 'codex' })
+
+    const later = await open('codex', [
+      { role: 'system', content: 'Error: unexpected status 401 Unauthorized', timestamp: 2, loginRefused: true },
+      { role: 'user', content: 'again', timestamp: 3 },
+      { role: 'assistant', content: 'Done.', timestamp: 4 },
+    ])
+    expect(later.controller.auth.view.step).toBe('closed')
   })
 })

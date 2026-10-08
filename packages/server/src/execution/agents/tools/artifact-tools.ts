@@ -11,7 +11,7 @@ import {
   type HtmlPreview,
 } from '../../../data/works/artifact-preview'
 import { dataDir } from '../../../platform/paths'
-import type { AgentTool } from './agent-tool'
+import { agentToolImageFromDataUrl, type AgentTool, type AgentToolResult } from './agent-tool'
 import { createAgentWork, type WorkCreateCtx } from './work-tools'
 import { readArtifactHtml } from './artifact-file'
 
@@ -66,7 +66,7 @@ const artifactFields = {
     'Also link the artifact to the session\'s task, so it shows on the task page and on any pull request the task is linked to. Default false: the reader links or pins it from the render\'s rail when they want it there. Pass true when the user asked for it on the task.',
   ),
   preview: z.boolean().optional().describe(
-    'Check the page instead of saving it: returns a screenshot path to read, the page height, console output and errors, and missing local images. Saves nothing and shows nothing to the user. Use it before a ```html fence as well as before saving an artifact.',
+    'Check the page instead of saving it: returns a screenshot you see in the result, the page height, console output and errors, and missing local images. Saves no work and renders nothing in the conversation. Use it before a ```html fence as well as before saving an artifact.',
   ),
   preview_width: z.number().int().optional().describe(
     `Preview width in CSS pixels, 320-1440. Defaults to ${HTML_PREVIEW_DEFAULT_WIDTH}, the reply column; use about 390 to check a phone.`,
@@ -82,15 +82,10 @@ export const ARTIFACT_TOOL_DESC = [
   'Solus injects its active theme as CSS custom properties on :root, and they follow the user\'s light or dark mode live: --background (page background, identical to the conversation around the frame), --foreground, --muted, --muted-foreground, --card, --card-foreground, --popover, --popover-foreground, --secondary, --secondary-foreground, --border, --input, --ring, --primary, --primary-foreground (solid buttons), --accent, --accent-foreground (brand accent), --accent-surface, --accent-surface-foreground, --destructive, --destructive-foreground, --destructive-surface, --warning, --warning-foreground, --warning-surface, --success, --success-foreground, --info, --info-foreground, --code-background, --code-foreground, --chart-1 … --chart-6 (categorical series for charts, in order), --radius, --font-sans, --font-mono. The base stylesheet sets html background, color, and a 14px font from these, body margin to 0, and monospace for code; your own CSS overrides it. Style with these variables, never fixed colors.',
   'The frame is borderless on the conversation background and as wide as the reply column. Use a fluid width with no horizontal padding on the outermost element, and no outer card, border, or banner title: the page is part of your reply. Give charts fixed pixel heights rather than heights that scale with width. Let content set the page height; avoid 100vh or height:100% on html or body. To show a local image such as a screenshot, write its absolute path in src or CSS url(); Solus writes the file into the page.',
   'Give inline HTML fences a stable conversation-local identity: ```html render artifact=revenue-chart. Reuse that artifact= value when revising the same visual in later replies; use a new value for a separate visual or alternative. Use only letters, digits, hyphens, and underscores, up to 80 characters. Completed revisions collapse earlier previews, which remain available. Emit only one completed revision per identity in a reply. Saved artifact works are revised with update_work, which renders the new version inline automatically.',
-  'Check a page before the user sees it: call render_artifact with preview: true. It renders the HTML in a headless browser with the Solus theme at the reply width and returns a screenshot to read, the height the page needs, its console output and errors, and any local image it could not find. A preview saves nothing and shows nothing. Fix what it shows, then write the ```html fence in your reply or call render_artifact again without preview to save it.',
+  'Check a page before the user sees it: call render_artifact with preview: true. It renders the HTML in a headless browser with the Solus theme at the reply width and returns a screenshot you see in the result, the height the page needs, its console output and errors, and any local image it could not find. A preview saves nothing and shows nothing. Fix what it shows, then write the ```html fence in your reply or call render_artifact again without preview to save it.',
   'For a compiled file, such as the visual-artifacts bundle.html, pass html_path rather than the file content: Solus reads the file on this host.',
   'Either way, do NOT hand-author the HTML directly. Use the `visual-artifacts` skill — it owns the Solus design system and the sandbox constraints, authors the HTML, and calls this tool for you when a tool call is the right one.',
 ].join('\n')
-
-export interface ArtifactToolResult {
-  ok: boolean
-  text: string
-}
 
 interface ArtifactToolArgs {
   html?: string
@@ -116,18 +111,26 @@ function consoleLines(entries: HtmlPreview['console'], levels: ReadonlySet<strin
 const ALL_LEVELS = new Set(['log', 'info', 'warn', 'error', 'debug'])
 const ERROR_LEVELS = new Set(['error'])
 
-async function previewReport(title: string, preview: HtmlPreview): Promise<string> {
-  const stored = await writeAssetUpload({ name: 'html-preview.png', mime: 'image/png', dataUrl: preview.screenshot })
+/** The screenshot comes back as an image the agent sees, so checking a page
+ *  takes one call. One too large for a tool result is stored as a file to read. */
+async function previewReport(title: string, preview: HtmlPreview): Promise<AgentToolResult> {
+  const image = agentToolImageFromDataUrl(preview.screenshot)
   const lines = [
-    `Preview of "${title}" at ${preview.width}px, ${preview.appearance}: the page is ${preview.contentHeight}px tall. Nothing was saved or shown to the user.`,
-    `screenshot: ${join(dataDir(), 'assets', stored.id)}  (read this path to look at it)`,
+    `Preview of "${title}" at ${preview.width}px, ${preview.appearance}: the page is ${preview.contentHeight}px tall. No work was saved and nothing was rendered in the conversation.`,
   ]
+  if (image) lines.push('screenshot: attached to this result.')
+  else {
+    const stored = await writeAssetUpload({ name: 'html-preview.png', mime: 'image/png', dataUrl: preview.screenshot })
+    lines.push(`screenshot: ${join(dataDir(), 'assets', stored.id)}  (too large to attach; read this path to look at it)`)
+  }
   const logged = consoleLines(preview.console, ALL_LEVELS)
   lines.push(logged.length ? `console (${preview.console.length}):\n${logged.join('\n')}` : 'console: nothing logged.')
   if (preview.missingImages.length) {
     lines.push(`missing images (not found, or over 8 MB): ${preview.missingImages.join(', ')}`)
   }
-  return lines.join('\n')
+  const report: AgentToolResult = { ok: true, text: lines.join('\n') }
+  if (image) report.image = image
+  return report
 }
 
 /** Errors a saved page raises, so a broken render is reported rather than silent.
@@ -149,7 +152,7 @@ async function saveCheckNote(html: string, deps: ArtifactToolDeps): Promise<stri
 export async function executeArtifactTool(
   args: ArtifactToolArgs,
   deps: ArtifactToolDeps = {},
-): Promise<ArtifactToolResult> {
+): Promise<AgentToolResult> {
   try {
     const input = artifactInputSchema.parse(args)
     if (input.html && input.html_path) return { ok: false, text: 'render_artifact takes html or html_path, not both.' }
@@ -167,7 +170,7 @@ export async function executeArtifactTool(
         width: input.preview_width,
         appearance: input.preview_appearance,
       })
-      return { ok: true, text: await previewReport(title, preview) }
+      return await previewReport(title, preview)
     }
     // A saved artifact carries its local images, so it renders on any client
     // and matches what a preview showed.

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Download, Ellipsis, Smartphone, Trash2 } from "@lucide/svelte";
+  import { Download, Ellipsis, FolderOpen, Smartphone, Trash2 } from "@lucide/svelte";
   import { isDeviceRunActive, type DeviceBuild, type DeviceState, type DeviceSummary } from "@solus/contracts/device-types";
   import { buildCardSummary, buildDetails, buildDownloadName, buildRunBlocker, deviceBuildTargets, isBuildOutput, shownNewBuild } from "@solus/client-core/device-builds";
   import { isChat } from "@solus/contracts/chat";
@@ -8,6 +8,7 @@
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { devicesStore, deviceErrorMessage } from "../../contexts/devices/devices.store.svelte";
   import { projectsStore } from "../../contexts/projects/projects.store.svelte";
+  import { PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
   import { toasts } from "../../lib/toasts";
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -138,11 +139,11 @@
 
 <div class="flex flex-col gap-4" data-testid="device-builds">
   <div class="flex items-center gap-2">
-    <h2 class="min-w-0 flex-1 truncate text-(--solus-text-primary)">Builds</h2>
+    <h2 class="min-w-0 flex-1 truncate font-medium text-(--solus-text-primary)">Builds</h2>
+    <button type="button" class="{PAGE_SECONDARY_BTN} disabled:cursor-not-allowed disabled:opacity-50" disabled={importing} title="Add a build that is already on {hostLabel}" onclick={() => (browsing = true)}>
+      <FolderOpen size={14} />{importing ? "Adding…" : "Add existing…"}
+    </button>
     <DeviceNewBuild {serverId} {sessionId} {checkoutPath} {projects} onChooseProject={(path) => { chosenCheckout = path; editingProfiles = false; }} onEditProfiles={() => (editingProfiles = true)} />
-    <Button size="sm" variant="ghost" disabled={importing} title="Add a build that is already on {hostLabel}" onclick={() => (browsing = true)}>
-      {importing ? "Adding…" : "Add existing…"}
-    </Button>
   </div>
   {#if editingProfiles && checkoutPath}
     <DeviceRunProfiles {serverId} {checkoutPath} onDone={() => (editingProfiles = false)} />

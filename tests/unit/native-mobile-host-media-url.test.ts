@@ -9,7 +9,7 @@ function fakeConnection(hostId: string, options: { assetUrls?: boolean; expiresI
     hostId,
     api: { assetCreateUrl },
     transport: { serverUrl: 'https://host.example:4000/socket' },
-    supervisor: { whenCapabilities: async () => ({ assetUrls: options.assetUrls ?? true }) },
+    facts: { when: async () => ({ assetUrls: options.assetUrls ?? true }) },
   } as unknown as HostConnection
   return { connection, assetCreateUrl }
 }

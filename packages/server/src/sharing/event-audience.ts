@@ -58,6 +58,7 @@ const GUEST_ONLY_HIDDEN = new Set<HostEvent['type']>([
   'attention.snapshotChanged',
   'tasks.invalidated',
   'workspaceProjects.changed',
+  'projects.changed',
   'outbox.changed',
   'config.changed',
   'usage.limitsChanged',
@@ -65,6 +66,7 @@ const GUEST_ONLY_HIDDEN = new Set<HostEvent['type']>([
   'metrics.insightPullChanged',
   'host.presenceChanged',
   'host.uplinkStatusChanged',
+  'integration.changed',
 ])
 
 /** The session, work, or task an event is about, when it names exactly one. */

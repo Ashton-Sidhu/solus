@@ -5,7 +5,7 @@ import type { WorktreeOfferResolution } from './activity'
 import type { BrowserRuntimeStatus } from './browser-runtime'
 import type { ExternalCommentCommand, WorkExternalComments } from './work-comments'
 import type { WorkCommentCommand } from './comment-commands'
-import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, SessionCtx, PromptOptions, PromptDispatchResult, Attachment, SessionMeta, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, HostPathMutation, HostPathMutationResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionProviderSwitchResult, AcceptPlanRequest, AcceptPlanResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkType, WorkAnnotations, WorkRevision, WorkRevisionSummary, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, SessionRecordList, SessionRecordSearchQuery, SessionRecordSearch, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot, ProviderId, ModelProfilesStatus } from './types'
+import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, SessionCtx, PromptOptions, PromptDispatchResult, Attachment, SessionMeta, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, HostPathMutation, HostPathMutationResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionProviderSwitchResult, AcceptPlanRequest, AcceptPlanResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkType, WorkAnnotations, WorkRevision, WorkRevisionSummary, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, SessionRecordList, SessionRecordSearchQuery, SessionRecordSearch, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, HostCapabilities, DiscoveredServer, SshBootstrapResult, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, HeadlessPromptRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot, ProviderId, ModelProfilesStatus } from './types'
 import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrFilter, PrInterest, PrLabel, PrListPage, PrProjectListing, PrRevertResult, PrStateAction, PrSyncChange, PrReviewer, PrReviewerCandidate, PrReviewerKind, PrReviewTarget, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderRepository, ProviderViewer } from './providers'
 import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCommentHit, TaskCommentSearchQuery, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarFilter, TaskSidebarSnapshot, TaskSnapshot, TaskSnooze, TaskTransfer, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
@@ -40,6 +40,7 @@ import type { ShareLink, ShareList, ShareResource, ShareRole, ShareSetLinkReques
 import type { HostOrganizationsStatus } from './organization-scope'
 import type { WorkTransfer } from './work-transfer'
 import type { AgentAuthFlowRequest, AgentAuthMcpTarget, AgentAuthStartResult, AgentAuthSubmitRequest, AgentAuthTarget } from './agent-auth'
+import type { CatalogEntry, Integration, IntegrationCatalogListRequest, IntegrationCreateRequest, IntegrationIdRequest, IntegrationProbeRequest, IntegrationProbeResult, IntegrationToolSummary, IntegrationUpdateRequest } from './integration-types'
 import type { SeatConnectCodeRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
 import type { AgentProfileBundle, AgentProfileStatus } from './agent-profile'
 import type { PresenceSetComposingRequest, PresenceSetEditingRequest, PresenceSetFocusRequest, PresenceSnapshotResult } from './presence'
@@ -319,6 +320,20 @@ export interface SolusAPI {
   agentAuthCancel(request: AgentAuthFlowRequest): Promise<{ cancelled: boolean }>
   /** Clears the caller's stored OAuth credential for one MCP server. */
   agentAuthSignOut(target: AgentAuthMcpTarget): Promise<{ message: string }>
+  /** Integrations (docs/plans/mcp-integrations.md): the MCP entries of the integrations.sh feed. */
+  integrationCatalogList(request: IntegrationCatalogListRequest): Promise<CatalogEntry[]>
+  /** The anonymous check of one server address. Creates nothing. */
+  integrationProbe(request: IntegrationProbeRequest): Promise<IntegrationProbeResult>
+  integrationList(): Promise<Integration[]>
+  integrationGet(request: IntegrationIdRequest): Promise<Integration | null>
+  /** Host administrator: probes the address, then writes the record. Changes arrive as `integration.changed`. */
+  integrationCreate(request: IntegrationCreateRequest): Promise<Integration>
+  /** Host administrator. */
+  integrationUpdate(request: IntegrationUpdateRequest): Promise<Integration>
+  /** Host administrator: removes the record and its tools. */
+  integrationRemove(request: IntegrationIdRequest): Promise<{ removed: boolean }>
+  /** The upstream tools of one integration, as the gateway last listed them. */
+  integrationTools(request: IntegrationIdRequest): Promise<IntegrationToolSummary[]>
   /** Host administrator: this host's own agent profile, to copy to a seat on another host (docs/agent-profile.md). */
   agentProfileRead(): Promise<AgentProfileBundle>
   /** An organization member: replaces the profile in their own seats with this one; an empty bundle removes it. */
@@ -341,8 +356,7 @@ export interface SolusAPI {
   textGenerationSettingsGet(): Promise<TextGenerationSettingsSnapshot>
   otelSettingsGet(): Promise<OtelSettingsSnapshot>
   discoverServers(): Promise<DiscoveredServer[]>
-  getServerCapabilities(): Promise<ServerCapabilities>
-  setProjectsBaseDirectory(path: string): Promise<Pick<ServerCapabilities, 'projectsBaseDirectory' | 'projectsBaseDirectoryIsSet'>>
+  setProjectsBaseDirectory(path: string): Promise<Pick<HostCapabilities, 'projectsBaseDirectory' | 'projectsBaseDirectoryIsSet'>>
   setupInstallAgentCli(args: { agent: SetupAgent }): Promise<SetupStepResult>
   setupCheckAgentAuth(args: { agent: SetupAgent }): Promise<SetupAgentAuthCheckResult>
   setupListGithubRepos(): Promise<SetupGithubReposResult>
@@ -393,6 +407,8 @@ export interface SolusAPI {
 
   /** Create a durable provider session with no client watching it. */
   createHeadlessSession(request: HeadlessSessionRequest): Promise<{ sessionId: string; agentSessionId: string }>
+  /** Prompt an existing session for an agent on another host. */
+  promptHeadlessSession(request: HeadlessPromptRequest): Promise<{ disposition: 'started' | 'steered' | 'queued'; queueId?: string }>
   /** A person's decision on a plan another session wrote, taken from the card in
    *  the conversation that sent it the work. False when the plan is no longer
    *  waiting, or this conversation has no message open to that session. */
@@ -762,6 +778,9 @@ export interface SolusAPI {
   listProjectIdentities(): Promise<ProjectIdentity[]>
   resolveDispatchHistoryRoots(repoKeys: string[]): Promise<DispatchHistoryRoot[]>
   deleteProject(projectPath: string): Promise<void>
+  /** Takes a folder off this host's project list. Its tasks, sessions and
+   *  files stay; adding the folder again lists it again. */
+  untrackProject(projectPath: string): Promise<void>
   isVisible(ctx?: IpcContext): Promise<boolean>
   getAppGlobalShortcuts(): Promise<AppGlobalShortcuts>
   setAppGlobalShortcuts(shortcuts: AppGlobalShortcuts): Promise<SetAppGlobalShortcutsResult>

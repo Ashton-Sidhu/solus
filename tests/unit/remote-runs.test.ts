@@ -116,4 +116,43 @@ describe('a run followed on another host', () => {
     expect(calls.watched).toEqual([SESSION, SESSION])
     expect(calls.unwatched).toEqual([SESSION])
   })
+
+  test('a message to a session in another turn follows only the turn that answers it', async () => {
+    // WHY: a message to an existing session can arrive while it runs another
+    // turn. That turn's questions and its end are not the message's: the
+    // sender would get someone else's reply as its own.
+    const { host, hooks, calls, emit } = remoteHost()
+    await followRemoteRun(host, RUN, 'codex', hooks, 'm1').watching
+    emit({ type: 'status_change', status: 'running', oldStatus: 'idle' })
+    emit({ type: 'permission_request', questionId: 'q0', toolName: 'Bash', options: [] })
+    emit({ type: 'turn_settled', turnId: 't0', outcome: 'completed', settledAt: 1 })
+    expect(calls).toMatchObject({ started: [], requested: [], settled: [] })
+
+    emit({ type: 'user_message', text: 'More work.', clientPromptId: 'm1' })
+    emit({ type: 'status_change', status: 'running', oldStatus: 'idle' })
+    emit({ type: 'task_complete', result: 'Done.', costUsd: 0, durationMs: 7, numTurns: 1, usage: { inputTokens: 0, outputTokens: 0 }, sessionId: 'thread' } as WireNormalizedEvent)
+    emit({ type: 'turn_settled', turnId: 't1', outcome: 'completed', settledAt: 2 })
+    expect(calls.settled).toEqual([{ ...RUN, outcome: 'completed', resultText: 'Done.', durationMs: 7, provider: 'codex' }])
+  })
+
+  test('a queued message runs when host B takes it from the queue, and a dropped one settles as interrupted', async () => {
+    const ran = remoteHost()
+    const follow = followRemoteRun(ran.host, RUN, 'codex', ran.hooks, 'm1')
+    await follow.watching
+    follow.queuedAs('queue-1')
+    ran.emit({ type: 'prompt_dequeued', queueId: 'queue-1' })
+    ran.emit({ type: 'user_message', text: 'More work.', clientPromptId: 'm1' })
+    ran.emit({ type: 'turn_settled', turnId: 't1', outcome: 'completed', settledAt: 1 })
+    expect(ran.calls.settled.map((run) => run.outcome)).toEqual(['completed'])
+
+    // A Stop on host B drains the queue: the prompt never runs, so the sender
+    // must not wait for a turn that will not come.
+    const dropped = remoteHost()
+    const drained = followRemoteRun(dropped.host, RUN, 'codex', dropped.hooks, 'm1')
+    await drained.watching
+    drained.queuedAs('queue-1')
+    dropped.emit({ type: 'prompt_dequeued', queueId: 'queue-1' })
+    dropped.emit({ type: 'turn_settled', turnId: 't0', outcome: 'interrupted', settledAt: 1 })
+    expect(dropped.calls.settled.map((run) => run.outcome)).toEqual(['interrupted'])
+  })
 })

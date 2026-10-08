@@ -106,7 +106,7 @@ export interface SavedServer {
  * and only among connected ones: a call sent to a machine that is not there
  * waits for as long as it stays away. Null is "no machine", never the service.
  */
-export function chooseDefaultMachine(input: {
+export function chooseRunOnHost(input: {
   primaryId: string | null
   localId: string | null
   saved: readonly SavedServer[]

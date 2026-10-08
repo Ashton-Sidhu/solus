@@ -38,6 +38,8 @@ export type RootStackParamList = {
   /** How one host is reached: Solus Cloud link, organizations, network, pairing, and devices. */
   HostAccess: { hostId: string }
   GitHubConnection: { hostId: string }
+  /** The remote MCP servers one host knows, their tools, and the way to add one. */
+  Integrations: { hostId: string }
   About: undefined
   PullRequests: { hostId: string }
   PullRequest: { hostId: string; projectPath: string; number: number }

@@ -48,7 +48,7 @@ import { SessionDrafts } from './session-drafts.svelte'
 import { PromptDispatch } from './prompt-dispatch'
 import type { SessionRecords } from './session-records.svelte'
 import { SessionConfigController } from './session-config.svelte'
-import { WorkspaceLifecycleStore, type StaticInfo } from './workspace-lifecycle.store.svelte'
+import { WorkspaceLifecycleStore } from './workspace-lifecycle.store.svelte'
 import { SessionEventReducer } from './session-event-reducer.svelte'
 import { type SettingsContext } from '../app/settings.context.svelte'
 import { type ClientShellContext } from '../app/client-shell.svelte'
@@ -138,7 +138,6 @@ export type OpenProject = {
 }
 
 export type SessionFields = {
-  staticInfo: StaticInfo | null
   pendingInput: string | null
 }
 
@@ -386,10 +385,7 @@ export class WorkspaceContext implements SurfaceContext {
         void this.metadata.generateSessionMetadata(tabId)
       },
       handlePendingInputSync: (session, events) => syncPendingInputFromEvent(this, session, events),
-      onLoginRefused: (sessionId, session) => {
-        const provider = seatProviderOf(session.run.provider)
-        if (provider && session.run.serverId) seatsStore.noteLoginRefused(session.run.serverId, sessionId, provider)
-      },
+      onLoginRefused: (sessionId, session) => this.offerSignInAgain(sessionId, session),
       currentUserId: (serverId) => presenceStore.currentUserId(serverId),
       log: (eventType, session) => logDevSessionState(eventType, session),
     })
@@ -419,8 +415,6 @@ export class WorkspaceContext implements SurfaceContext {
     this.registry.activeTabId = ''
   }
 
-  get staticInfo(): StaticInfo | null { return this.lifecycle.staticInfo }
-  set staticInfo(value: StaticInfo | null) { this.lifecycle.staticInfo = value }
   get pluginCommands(): Session['pluginCommands'] { return this.lifecycle.pluginCommands }
   set pluginCommands(value: Session['pluginCommands']) { this.lifecycle.pluginCommands = value }
   get tabs(): Record<string, Tab> { return this.registry.tabs }
@@ -768,10 +762,10 @@ export class WorkspaceContext implements SurfaceContext {
     return this.sessionFor(sourceId)?.run ?? this.drafts.sessionDrafts.get(sourceId)?.run
   }
 
-  /** The new-work default host, for deliberately session-less operations: the
-   *  default machine, and the window's own host only when there is none. */
+  /** The host for deliberately session-less operations: the Run on host, and
+   *  the window's own host only when there is none. */
   private defaultServerId(): string {
-    const serverId = serverConnections.defaultMachineId() ?? serverConnections.defaultServerId()
+    const serverId = serverConnections.runOnHostId() ?? serverConnections.defaultServerId()
     if (!serverId) throw new Error('Primary Solus connection has not been registered')
     return serverId
   }
@@ -954,7 +948,6 @@ export class WorkspaceContext implements SurfaceContext {
   }
 
   update(patch: Partial<SessionFields>): void {
-    if (patch.staticInfo !== undefined) this.staticInfo = patch.staticInfo
     if (patch.pendingInput !== undefined) this.pendingInput = patch.pendingInput
   }
 
@@ -1102,7 +1095,7 @@ export class WorkspaceContext implements SurfaceContext {
 
   /** The host new sessions land on when nothing else names one. */
   get fallbackServerId(): string {
-    return serverConnections.defaultMachineId()
+    return serverConnections.runOnHostId()
       ?? serverConnections.defaultServerId()
       ?? LOCAL_SERVER_ID
   }
@@ -1512,6 +1505,12 @@ export class WorkspaceContext implements SurfaceContext {
     track('surface_viewed', { surface: 'plan_modal' })
   }
   closePlanModal(): void { closePlanModal(this) }
+
+  /** The provider refused the last turn's login, live or in loaded history: the conversation offers sign-in again. */
+  offerSignInAgain(sessionId: string, session: Session): void {
+    const provider = seatProviderOf(session.run.provider)
+    if (provider && session.run.serverId) seatsStore.noteLoginRefused(session.run.serverId, sessionId, provider)
+  }
 
   async approvePlanWithModel(planId: string, mode: PlanApprovalMode, opts: ApprovePlanOptions = {}): Promise<void> {
     return approvePlanWithModel(this, planId, mode, opts)

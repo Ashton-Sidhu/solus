@@ -53,8 +53,8 @@ export function adaptClaudeTools(
   const server = createSdkMcpServer({
     name: 'solus',
     version: '1.0.0',
-    tools: tools.map((agentTool) =>
-      tool(agentTool.name, agentTool.description, callerFields(agentTool.inputFields), async (input, extra) => {
+    tools: tools.map((agentTool) => {
+      const handler = async (input: Parameters<typeof executeAgentTool>[1], extra: Parameters<typeof claudeParentToolUseId>[0]) => {
         const parentToolUseId = claudeParentToolUseId(extra)
         const result = permissionMode === 'plan' && agentTool.requiresApproval
           ? {
@@ -66,8 +66,16 @@ export function adaptClaudeTools(
               parentToolUseId: () => parentToolUseId,
             })
         return claudeToolResponse(result)
-      }, agentTool.alwaysLoad ? { alwaysLoad: true } : undefined),
-    ),
+      }
+      if (!agentTool.passthroughInput) {
+        return tool(agentTool.name, agentTool.description, callerFields(agentTool.inputFields), handler, agentTool.alwaysLoad ? { alwaysLoad: true } : undefined)
+      }
+      // A passthrough tool takes any object. The SDK strips the keys a field map
+      // does not name but runs a Zod object as it is, so a loose one keeps them.
+      const definition = tool(agentTool.name, agentTool.description, {}, handler)
+      definition.inputSchema = z.looseObject({})
+      return definition
+    }),
   })
   // A tool that requires approval is left to the session's permission mode.
   const allowedTools = tools

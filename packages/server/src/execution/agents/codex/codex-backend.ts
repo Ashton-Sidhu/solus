@@ -186,6 +186,12 @@ async function runWithConcurrency<T>(items: T[], limit: number, task: (item: T) 
 const SEAT_CLIENT_IDLE_MS = 15 * 60_000
 /** App-servers for member seats at once, beyond the host's own. */
 const SEAT_CLIENT_CAP = 8
+/** A thread with no turn for this long is unloaded from its app-server. Each
+ *  loaded thread runs its own copy of every stdio MCP server, and a thread that
+ *  finishes and is left alone (a delegated child, a previewed session) would
+ *  otherwise keep them until the host restarts. The next turn's `thread/resume`
+ *  loads it again. */
+const THREAD_IDLE_UNLOAD_MS = 10 * 60_000
 
 interface SeatClient {
   client: CodexAppServerClient
@@ -279,6 +285,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   private client = getCodexAppServerClient()
   /** One app-server per member seat, keyed by user id; started on first use, stopped when idle. */
   private seatClients = new Map<string, SeatClient>()
+  /** The unload clock of each idle thread, per app-server: one thread can be
+   *  loaded on a seat's server for a run and on the host's for a preview. */
+  private readonly idleThreads = new Map<CodexAppServerClient, Map<string, ReturnType<typeof setTimeout>>>()
   /** Maps Codex turn/item IDs → sessionId for event routing. */
   private sessionByTurn = new Map<string, string>()
   private sessionByItem = new Map<string, string>()
@@ -397,8 +406,53 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     if (!entry) return
     if (entry.idleTimer) clearTimeout(entry.idleTimer)
     this.seatClients.delete(userId)
+    this.clearIdleThreads(entry.client)
     entry.client.shutdown()
     log.info('seat_app_server_stopped', { userId, pool: this.seatClients.size })
+  }
+
+  /** Start a thread's unload clock. A turn that starts on it first stops the clock. */
+  private armThreadIdle(client: CodexAppServerClient, threadId: string): void {
+    this.clearThreadIdle(client, threadId)
+    let timers = this.idleThreads.get(client)
+    if (!timers) {
+      timers = new Map()
+      this.idleThreads.set(client, timers)
+    }
+    const timer = setTimeout(() => {
+      this.clearThreadIdle(client, threadId)
+      void this.unloadIdleThread(client, threadId)
+    }, THREAD_IDLE_UNLOAD_MS)
+    timer.unref?.()
+    timers.set(threadId, timer)
+  }
+
+  private clearThreadIdle(client: CodexAppServerClient, threadId: string): void {
+    const timers = this.idleThreads.get(client)
+    const timer = timers?.get(threadId)
+    if (!timers || !timer) return
+    clearTimeout(timer)
+    timers.delete(threadId)
+    if (timers.size === 0) this.idleThreads.delete(client)
+  }
+
+  private clearIdleThreads(client: CodexAppServerClient): void {
+    for (const timer of this.idleThreads.get(client)?.values() ?? []) clearTimeout(timer)
+    this.idleThreads.delete(client)
+  }
+
+  private async unloadIdleThread(client: CodexAppServerClient, threadId: string): Promise<void> {
+    const runs = [...this.activeRuns.values(), ...this.pendingRuns]
+    if (runs.some((run) => run.client === client && run.threadId === threadId)) return
+    // Unloading kills the thread's terminals. Its last background command
+    // starts the clock again when it settles.
+    if (this.hasBackgroundTasks(threadId)) return
+    try {
+      const { status } = await client.request('thread/unsubscribe', { threadId })
+      log.info('codex_thread_unloaded', { sessionId: threadId, status })
+    } catch (error) {
+      log.warn('codex_thread_unload_failed', { sessionId: threadId, error: error instanceof Error ? error.message : String(error) })
+    }
   }
 
   private permissionResponder(): CodexPermissionResponder {
@@ -463,6 +517,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       isCompaction: request.operation === 'compact',
     }
 
+    if (handle.threadId) this.clearThreadIdle(client, handle.threadId)
     this.pendingRuns.push(handle)
     this.holdSeatClient(request.seat, runPromise)
     void this.run(handle, request)
@@ -701,6 +756,12 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
   }
 
+  /** Every way a run ends comes through here, so this is where a thread goes idle. */
+  protected override finishRun(handle: CodexRunHandle): void {
+    super.finishRun(handle)
+    if (handle.threadId) this.armThreadIdle(handle.client, handle.threadId)
+  }
+
   protected override _errorMessage(_exitCode: number | null): string {
     return 'Codex run failed'
   }
@@ -712,6 +773,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
     // Stopping removes the entry, so iterate a copy.
     for (const userId of Array.from(this.seatClients.keys())) this.stopSeatClient(userId)
+    this.clearIdleThreads(this.client)
     this.client.shutdown()
   }
 
@@ -869,7 +931,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       // load those through the protocol's disk-backed resume path before the
       // picker asks for their transcript preview.
       if (!(error instanceof Error) || !isThreadNotLoadedError(error)) throw error
-      return this.client.request('thread/resume', { threadId: sessionId })
+      const response = await this.client.request('thread/resume', { threadId: sessionId })
+      this.armThreadIdle(this.client, sessionId)
+      return response
     }
   }
 
@@ -1408,6 +1472,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   private settleBackgroundCommand(itemId: string, command: RunningCommand, status: 'completed' | 'failed' | 'stopped' | 'killed'): void {
     this.runningCommands.delete(itemId)
     if (!command.isBackground) return
+    if (status !== 'killed' && !this.activeRuns.has(command.threadId) && !this.hasBackgroundTasks(command.threadId)) {
+      this.armThreadIdle(command.client, command.threadId)
+    }
     this.emit('normalized', command.threadId, { type: 'background_task_settled', taskId: itemId, toolUseId: itemId, status } satisfies NormalizedEvent)
   }
 

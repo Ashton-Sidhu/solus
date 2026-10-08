@@ -74,9 +74,9 @@ describe('automation project filter', () => {
   test('a project with no automation yet is offered, and is the row the selector may forget', () => {
     const rows = [placed('a', 'laptop', '/repos/solus')]
     const options = automationProjectOptions(rows.map(keyOf), ['github.com/acme/tools'], optionsFor)
-    expect(options.map(({ key, historyOnly }) => ({ key, historyOnly }))).toEqual([
-      { key: 'github.com/acme/solus', historyOnly: false },
-      { key: 'github.com/acme/tools', historyOnly: true },
+    expect(options.map(({ key, removable }) => ({ key, removable }))).toEqual([
+      { key: 'github.com/acme/solus', removable: false },
+      { key: 'github.com/acme/tools', removable: true },
     ])
   })
 

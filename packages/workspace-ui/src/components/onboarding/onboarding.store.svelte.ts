@@ -65,7 +65,7 @@ class OnboardingStore {
    */
   get serverId(): string {
     if (this.flow === 'cloud') return cloudOnboardingStore.chosenServerId ?? ''
-    return serverConnections.defaultMachineId() ?? serversStore.activeServerId
+    return serverConnections.runOnHostId() ?? serversStore.activeServerId
   }
 
   /** The install-and-sign-in engine for the bound host, shared with Settings. */

@@ -37,6 +37,8 @@ export interface SessionLoadMessage {
   messageId?: string
   role: string
   content: string
+  /** The provider refused this turn's login. When it ends the transcript, the client offers sign-in again. */
+  loginRefused?: true
   /** Inline provider-history images needed to rebuild a user turn after reload.
    *  A host that stores them sends `imageAttachmentRefs` instead; a row a
    *  runner mirrored earlier may still carry these. */

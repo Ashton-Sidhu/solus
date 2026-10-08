@@ -28,7 +28,7 @@
     emptyLabel?: string;
     onSelect?: (option: ListProjectOption) => void;
     /** Forgets a catalog-only project. Files and sessions are untouched. */
-    onRemoveHistory?: (option: ListProjectOption) => void;
+    onRemoveProject?: (option: ListProjectOption) => void;
     /** When set, an "All projects" row leads the group and clears the scope. */
     onSelectAll?: () => void;
     allLabel?: string;
@@ -44,7 +44,7 @@
     activeKey,
     emptyLabel = "No project",
     onSelect,
-    onRemoveHistory,
+    onRemoveProject,
     onSelectAll,
     allLabel = "All projects",
     onSelectCurrent,
@@ -141,8 +141,8 @@
           <ProjectRowAction
             selected={isActive}
             label={project.label}
-            onRemove={project.historyOnly && onRemoveHistory
-              ? () => onRemoveHistory?.(project)
+            onRemove={project.removable && onRemoveProject
+              ? () => onRemoveProject?.(project)
               : undefined}
           />
         </div>

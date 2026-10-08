@@ -109,7 +109,7 @@
 
 {#if serversStore.addServerOpen}
   <div
-    class="text-sm fixed inset-0 z-[10025] flex items-start justify-center bg-black/[0.05] px-4 pt-[10vh] pointer-events-auto [.dark_&]:bg-black/35"
+    class="text-sm fixed inset-0 z-[10025] flex items-start justify-center px-4 pt-[10vh] pointer-events-auto picker-backdrop"
     role="presentation"
     onclick={handleBackdrop}
   >

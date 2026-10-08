@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test'
 import { asHostApi } from '@solus/client-core/host-api'
+import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
+import { HostFacts } from '@solus/client-core/host-facts'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { chooseDefaultMachine, type SavedServer } from '@solus/client-core/server-registry'
+import { chooseRunOnHost, type SavedServer } from '@solus/client-core/server-registry'
 import type { SettingsContext } from '@solus/workspace-ui/contexts/app/settings.context.svelte'
 
 // docs/plans/workspace-and-machines.md §5.1: new work goes to a machine, never
@@ -20,7 +22,7 @@ describe('the default machine', () => {
   test('is never the workspace service, even when it is the primary', () => {
     // WHY: at the account origin boot makes the workspace service the primary.
     // Sending `start`, usage, or plugin commands there answered PLANE_DISABLED.
-    expect(chooseDefaultMachine({
+    expect(chooseRunOnHost({
       primaryId: workspaceId,
       localId: null,
       saved: [],
@@ -31,14 +33,14 @@ describe('the default machine', () => {
 
   test('keeps a primary that is a machine, over the desktop\'s own', () => {
     // A desktop that switched its default host to a remote machine keeps it.
-    expect(chooseDefaultMachine({ primaryId: laptop.id, localId: 'local', saved: [laptop], activeOrganizationId: null, isConnected: () => true })).toBe(laptop.id)
-    expect(chooseDefaultMachine({ primaryId: null, localId: 'local', saved: [laptop], activeOrganizationId: null, isConnected: () => true })).toBe('local')
+    expect(chooseRunOnHost({ primaryId: laptop.id, localId: 'local', saved: [laptop], activeOrganizationId: null, isConnected: () => true })).toBe(laptop.id)
+    expect(chooseRunOnHost({ primaryId: null, localId: 'local', saved: [laptop], activeOrganizationId: null, isConnected: () => true })).toBe('local')
   })
 
   test('prefers the active organization\'s managed host, then any connected machine', () => {
     const all = [laptop, otherManaged, orgManaged]
-    expect(chooseDefaultMachine({ primaryId: workspaceId, localId: null, saved: all, activeOrganizationId: 'org-1', isConnected: () => true })).toBe(orgManaged.id)
-    expect(chooseDefaultMachine({
+    expect(chooseRunOnHost({ primaryId: workspaceId, localId: null, saved: all, activeOrganizationId: 'org-1', isConnected: () => true })).toBe(orgManaged.id)
+    expect(chooseRunOnHost({
       primaryId: workspaceId,
       localId: null,
       saved: all,
@@ -49,7 +51,7 @@ describe('the default machine', () => {
 
   test('skips a machine that is not connected', () => {
     // A call sent to a machine that is away waits for as long as it stays away.
-    expect(chooseDefaultMachine({ primaryId: workspaceId, localId: null, saved: [laptop], activeOrganizationId: 'org-1', isConnected: () => false })).toBeNull()
+    expect(chooseRunOnHost({ primaryId: workspaceId, localId: null, saved: [laptop], activeOrganizationId: 'org-1', isConnected: () => false })).toBeNull()
   })
 })
 
@@ -63,28 +65,35 @@ describe('a window with no machine', () => {
     runes.$derived = previousRunes.derived
   })
 
-  test('reads no usage and no machine facts, and reads them once a machine is there', async () => {
+  test('reads no machine facts, and reads them once a machine is there', async () => {
     runes.$state = Object.assign(<T>(value: T) => value, { snapshot: <T>(value: T) => value })
-    runes.$derived = <T>(value: T) => value
+    runes.$derived = Object.assign(<T>(value: T) => value, { by: <T>(compute: () => T) => compute() })
     let machine: string | null = null
     const calls: string[] = []
-    spyOn(serverConnections, 'defaultMachineId').mockImplementation(() => machine)
-    spyOn(serverConnections, 'apiFor').mockImplementation((serverId: string) => asHostApi({
-      usageLimits: async () => {
-        calls.push(`${serverId}:usageLimits`)
-        return []
-      },
-      start: async () => {
-        calls.push(`${serverId}:start`)
-        return { version: '1', projectPath: '/p', homePath: '/h', agents: [] }
-      },
-    }))
+    const factsByServerId = new Map<string, HostFacts>()
+    spyOn(serverConnections, 'runOnHostId').mockImplementation(() => machine)
+    spyOn(serverConnections, 'factsFor').mockImplementation((serverId: string) => {
+      let facts = factsByServerId.get(serverId)
+      if (!facts) {
+        facts = new HostFacts(serverId, {
+          api: asHostApi({
+            start: async () => {
+              calls.push(`${serverId}:start`)
+              return { version: '1', projectPath: '/p', homePath: '/h', agents: [{ id: 'codex', available: true }] }
+            },
+          }),
+          events: new HostEventSubscriber(),
+        })
+        factsByServerId.set(serverId, facts)
+      }
+      return facts
+    })
     const { AgentContext } = await import('@solus/workspace-ui/contexts/app/agent.context.svelte')
     const { WorkspaceLifecycleStore } = await import('@solus/workspace-ui/contexts/workspace/workspace-lifecycle.store.svelte')
-    const agent = new AgentContext({ activeAgent: 'claude-code' } as SettingsContext)
+    const agent = new AgentContext({ activeAgent: 'codex' } as SettingsContext)
     const lifecycle = new WorkspaceLifecycleStore({
       registry: { tabOrder: [], activeTabId: '', sessionFor: () => undefined, activeSession: null },
-      settings: { activeAgent: 'claude-code' },
+      settings: { activeAgent: 'codex' },
       config: {},
       planStore: {},
       agent,
@@ -98,17 +107,44 @@ describe('a window with no machine', () => {
       rebuildAgentConversations: () => {},
     } as never)
 
-    await agent.refreshUsage(0)
-    await lifecycle.initStaticInfo()
+    await lifecycle.readRunOnAgents()
     expect(calls).toEqual([])
-    expect(lifecycle.staticInfo).toBeNull()
+    expect(agent.agents).toEqual([])
 
     machine = 'machine-1'
-    await agent.refreshUsage(60_000)
-    await lifecycle.initStaticInfo()
-    // A second call with the same default machine is a no-op.
-    await lifecycle.initStaticInfo()
-    expect(calls).toEqual(['machine-1:usageLimits', 'machine-1:start'])
-    expect(lifecycle.staticInfo?.projectPath).toBe('/p')
+    await lifecycle.readRunOnAgents()
+    // A second call with the same Run on host is a no-op.
+    await lifecycle.readRunOnAgents()
+    expect(calls).toEqual(['machine-1:start'])
+    expect(agent.agents.map((meta) => meta.id)).toEqual(['codex'])
+  })
+})
+
+describe('the transcription host', () => {
+  afterEach(() => mock.restore())
+
+  function stubFacts() {
+    spyOn(serverConnections, 'factsFor').mockImplementation((serverId: string) =>
+      new HostFacts(serverId, { api: asHostApi({}), events: new HostEventSubscriber() }))
+  }
+
+  test('is the device even when the Run on host is remote', async () => {
+    // WHY: only the desktop main process can transcribe. A desktop whose Run on
+    // host is a remote server still records and transcribes locally, so the mic
+    // must follow the device, not the Run on host (the 2026-10-08 voice bug).
+    stubFacts()
+    spyOn(serverConnections, 'localServerId').mockImplementation(() => 'local')
+    spyOn(serverConnections, 'runOnHostId').mockImplementation(() => laptop.id)
+    const { hosts } = await import('@solus/workspace-ui/contexts/hosts/hosts.svelte')
+    expect(hosts.transcription?.id).toBe('local')
+  })
+
+  test('is the Run on host when the client has no device host', async () => {
+    // A web client is not a machine; its transcription goes to the Run on host.
+    stubFacts()
+    spyOn(serverConnections, 'localServerId').mockImplementation(() => null)
+    spyOn(serverConnections, 'runOnHostId').mockImplementation(() => laptop.id)
+    const { hosts } = await import('@solus/workspace-ui/contexts/hosts/hosts.svelte')
+    expect(hosts.transcription?.id).toBe(laptop.id)
   })
 })

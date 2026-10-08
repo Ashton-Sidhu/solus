@@ -347,7 +347,16 @@ describe('render_artifact checks a page before and after it is shown', () => {
     expect(result.text).toContain('the page is 412px tall')
     expect(result.text).toContain('[error] Uncaught ReferenceError: chart is not defined (line 4)')
     expect(result.text).toContain('/tmp/missing-shot.png')
-    // The screenshot is a file the agent can read, on this host.
+    // The agent sees the screenshot in the result: no second call to read a file.
+    expect(result.image).toEqual({ mimeType: 'image/png', data: ONE_PIXEL_PNG.toString('base64') })
+  })
+
+  test('a screenshot too large for a tool result is still there to read', async () => {
+    // WHY: providers refuse an oversized tool result. The agent must still be
+    // able to look at a tall page, so the image becomes a file instead.
+    const large = `data:image/png;base64,${Buffer.concat([ONE_PIXEL_PNG, Buffer.alloc(6 * 1024 * 1024)]).toString('base64')}`
+    const result = await artifactTools.executeArtifactTool({ html: HTML, preview: true }, { ctx: ctx(), preview: fakePreview({ screenshot: large }) })
+    expect(result.image).toBeUndefined()
     const screenshotPath = /screenshot: (\S+)/.exec(result.text)![1]
     expect(await Bun.file(screenshotPath).exists()).toBe(true)
   })

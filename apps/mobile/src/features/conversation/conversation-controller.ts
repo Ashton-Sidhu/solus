@@ -270,7 +270,15 @@ export class ConversationController {
       provider: this.run.provider,
       turnLimit: INITIAL_HISTORY_TURNS,
     })
-    return generation === this.loadGeneration ? TranscriptModel.fromHistory(this.run.sessionId, page) : null
+    if (generation !== this.loadGeneration) return null
+    if (page.messages.at(-1)?.loginRefused) this.offerSignInAgain()
+    return TranscriptModel.fromHistory(this.run.sessionId, page)
+  }
+
+  /** The provider refused the last turn's login, live or in loaded history: the sheet offers sign-in again. */
+  private offerSignInAgain(): void {
+    const provider = seatProviderSchema.safeParse(this.run.provider)
+    if (provider.success) this.auth.noteLoginRefused(provider.data)
   }
 
   async loadOlder(): Promise<void> {
@@ -317,7 +325,7 @@ export class ConversationController {
     if (!busy && !this.queue.entries.length && !this.queue.held) this.model.setStatus('connecting')
     this.flush(true)
     const hostReadsImageRefs = attachments.some((attachment) => attachment.kind === 'image')
-      && hasHostCapability(await this.deps.connection.supervisor.whenCapabilities(), 'promptImageRefs')
+      && hasHostCapability(await this.deps.connection.facts.when('capabilities'), 'promptImageRefs')
     const composed = composePrompt(prompt, attachments, hostReadsImageRefs)
     this.deps.outbox.enqueue(this.outboxKey, {
       clientPromptId,
@@ -606,10 +614,7 @@ export class ConversationController {
       this.run.agentSessionId = event.sessionId
       void this.nameSession(event.sessionId)
     }
-    if (event.type === 'error' && event.kind === 'auth') {
-      const provider = seatProviderSchema.safeParse(this.run.provider)
-      if (provider.success) this.auth.noteLoginRefused(provider.data)
-    }
+    if (event.type === 'error' && event.kind === 'auth') this.offerSignInAgain()
     // The provider changed its own mode (Claude leaving plan mode): the next prompt keeps it.
     if (event.type === 'permission_mode_changed') this.run.permissionMode = event.permissionMode
     if (event.type === 'session_queue') {

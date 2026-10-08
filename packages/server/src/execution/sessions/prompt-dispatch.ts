@@ -13,12 +13,15 @@ import type { AgentId, GitCheckout, IpcContext, PromptOptions, PromptDelivery, P
 import { defaultContextWindowFor } from '@solus/contracts/types'
 import { SeatRequiredError } from '../seats/seat-manager'
 import { type Actor } from '../../admission/actor'
+import { INTERNAL_PRINCIPAL, recordScopeOf } from '../../admission/principal'
+import { integrationAgentTools } from '../../integrations/integration-tools'
 import type { SessionRuntime, SessionRunRequest, SessionRunLifecycle, DispatchTarget } from '../session-runtime'
 
 const log = createLogger('SessionRuntime', 'prompt-dispatch.ts')
 
-function selectAgentTools(...groups: Array<Record<string, AgentTool>>): AgentTool[] {
-  return groups.flatMap((group) => Object.values(group))
+/** A run's Solus tools, then the tools of every integration the run's person may read; a run with no actor is the host's. */
+function selectAgentTools(actor: Actor | undefined, ...groups: Array<Record<string, AgentTool>>): AgentTool[] {
+  return [...groups.flatMap((group) => Object.values(group)), ...integrationAgentTools(recordScopeOf(actor?.principal ?? INTERNAL_PRINCIPAL))]
 }
 
 export interface CreateSessionRequest extends Omit<CreateSessionOrder, 'modelId'> {
@@ -37,6 +40,7 @@ function buildCreatedSessionPromptOptions(request: CreateSessionRequest): Prompt
     displayPrompt: request.prompt,
   }
   if (request.taskId) options.taskId = request.taskId
+  if (request.imageAttachmentRefs?.length) options.imageAttachmentRefs = request.imageAttachmentRefs
   return options
 }
 
@@ -119,6 +123,7 @@ export class PromptDispatch {
           promptSource: ctx.session.origin === 'dispatch' ? 'dispatch' : 'typed',
         },
         tools: selectAgentTools(
+          origin?.actor,
           solusToolbox.works,
           solusToolbox.docs,
           solusToolbox.artifact,
@@ -197,7 +202,7 @@ export class PromptDispatch {
     sessionId: string,
     prompt: string,
     delivery: PromptDelivery = 'queue',
-    origin?: Pick<PromptOptions, 'via'> & {
+    origin?: Pick<PromptOptions, 'via' | 'imageAttachmentRefs' | 'clientPromptId'> & {
       /** Replaces the session's stored run mode for this prompt and every later
        *  one. A peer that just planned is still in 'plan' mode: prompting it as
        *  is makes Claude plan again and makes Codex refuse to touch anything, so
@@ -225,6 +230,7 @@ export class PromptDispatch {
       exchangeIds,
       reportExchangeIds,
       tools: selectAgentTools(
+        actor,
         solusToolbox.works,
         solusToolbox.docs,
         solusToolbox.artifact,
@@ -302,6 +308,7 @@ export class PromptDispatch {
       delegation,
       startedBy: req.startedBy,
       tools: selectAgentTools(
+        runActor,
         solusToolbox.works,
         solusToolbox.docs,
         solusToolbox.artifact,
@@ -373,6 +380,7 @@ export class PromptDispatch {
       sessionId,
       actor: req.actor,
       tools: selectAgentTools(
+        req.actor,
         solusToolbox.works,
         solusToolbox.docs,
         solusToolbox.artifact,
@@ -439,6 +447,7 @@ export class PromptDispatch {
     let request: SessionRunRequest
     const input = runInputFromContext(ctx)
     const tools = selectAgentTools(
+      actor,
       solusToolbox.works,
       solusToolbox.docs,
       solusToolbox.artifact,

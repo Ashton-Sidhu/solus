@@ -11,7 +11,7 @@
   import {
     getClientShellContext,
     hostAffinityGlyph,
-    hostRolesStore,
+    hosts,
     projectsStore,
   } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -169,9 +169,9 @@
       cloneRepoKey: sourceRepoKey,
     });
   const hasProject = $derived(
-    runHasProject(projectDir, hostRolesStore.hasExecution(projectHost)),
+    runHasProject(projectDir, hosts.hasExecution(projectHost)),
   );
-  const hosts = $derived(
+  const runOnHosts = $derived(
     listRunOnHosts(serversStore.executionServers, actionFor, hasProject),
   );
 
@@ -515,7 +515,7 @@
              padded body rather than dragging it out of view. -->
         <div class="max-h-[288px] overflow-y-auto p-1.5">
           <DropdownMenu.Label>Run on</DropdownMenu.Label>
-          {#each hosts as server (server.id)}
+          {#each runOnHosts as server (server.id)}
             {@render serverRow(server)}
           {/each}
           <DropdownMenu.Separator />

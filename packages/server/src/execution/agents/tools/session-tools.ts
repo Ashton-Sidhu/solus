@@ -9,17 +9,19 @@ import { formatPendingInputReport } from '../../sessions/pending-input'
 import { plainSnippet } from '@solus/contracts/search-snippet'
 import { MODEL_PROFILES } from '@solus/contracts/types'
 import { formatExchangeTag, formatOrchestrationItem, ORCHESTRATION_LIMITS, type OrchestrationItem } from '@solus/contracts/session-exchange'
-import type { AgentId, AgentTarget, NormalizedEvent, PlanDescriptor, PromptDelivery, ReasoningEffort, SessionMeta, SessionStatus } from '@solus/contracts/types'
+import type { AgentId, AgentTarget, NormalizedEvent, PlanDescriptor, ReasoningEffort, SessionMeta, SessionStatus } from '@solus/contracts/types'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import { Task } from '../../../data/tasks/task'
 import { ANY_ORGANIZATION } from '../../../admission/principal'
 import type { Exchange } from '../../orchestration/exchange'
-import { MAX_WAIT_MS, type RemoteTarget, type SpawnedSession } from '../../orchestration/session-orchestrator'
+import { MAX_WAIT_MS, type RemoteTarget, type SendOrder, type SpawnedSession, type SpawnOrder } from '../../orchestration/session-orchestrator'
 import { formatTaskSessions } from '../../orchestration/task-view'
 import type { RemoteHost, RemoteHosts } from '../../orchestration/remote-hosts'
 import { agentTargetFromMetadata } from '../agent-targets'
 import { hostDisplayName } from '../../../platform/host-display-name'
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
+import { MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
+import { checkAttachments } from '../../orchestration/prompt-attachments'
 
 const log = createLogger('sessions', 'session-tools.ts')
 
@@ -42,16 +44,7 @@ const AGENT_PROVIDER_VALUES = ['claude-code', 'codex'] as const
 export interface SessionOrchestration {
   spawn(
     senderSessionId: string | undefined,
-    order: {
-      prompt: string
-      provider: AgentId
-      modelId: string
-      reasoningEffort: ReasoningEffort
-      contextWindow: number | null
-      cwd: string
-      worktreeBaseBranch?: string | null
-      taskId?: string | null
-    },
+    order: SpawnOrder,
     report: boolean,
     waitMs?: number,
     requestId?: string,
@@ -60,7 +53,8 @@ export interface SessionOrchestration {
   send(
     senderSessionId: string,
     targetSessionId: string,
-    message: { prompt: string; delivery: PromptDelivery; notify: boolean; waitMs?: number; requestId?: string },
+    message: SendOrder,
+    target?: RemoteTarget,
   ): Promise<{ exchangeId: string; disposition: 'started' | 'steered' | 'queued'; waited?: OrchestrationItem | null }>
   readExchange?(senderSessionId: string, exchangeId: string): Exchange | undefined
   stop(senderSessionId: string | undefined, targetSessionId: string): boolean
@@ -167,8 +161,15 @@ const REQUEST_ID_FIELD = z.string().trim().min(1).max(200).optional()
 
 const HOST_FIELD = z.string().trim().min(1).optional()
 
+const ATTACHMENTS_FIELD = z
+  .array(z.string().min(1))
+  .max(MAX_ATTACHMENT_UPLOAD_COUNT)
+  .optional()
+  .describe(`Files on this host to send with the message, as absolute paths or paths relative to your working directory; up to ${MAX_ATTACHMENT_UPLOAD_COUNT}, 10 MB each. The session receives a copy taken now, also on another host. PNG, JPEG, GIF and WebP images arrive as images it can see; any other file arrives as a path it can read.`)
+
 const startSessionFields = {
   prompt: z.string().describe('The prompt the new session starts running immediately.'),
+  attachments: ATTACHMENTS_FIELD,
   host: HOST_FIELD.describe("Optional. Start the session on another of your hosts, by its id or name from list_agent_targets. Omit to start it on this host. On another host, task must be 'none', cwd is a path on that host (default: a new chat folder there), and the provider and model must be ones that host offers."),
   task: z
     .enum(['attempt', 'none'])
@@ -240,6 +241,7 @@ const searchSessionsFields = {
 const sendSessionFields = {
   session_id: z.string().describe('The target session id. Cannot be your own session.'),
   message: z.string().describe('The message to send into the target session.'),
+  attachments: ATTACHMENTS_FIELD,
   delivery: z
     .enum(['queue', 'steer'])
     .default('queue')
@@ -736,25 +738,69 @@ async function sendSessionTool(args: SessionToolArgs, deps: SessionToolDeps): Pr
   if (sessionId === callerSessionId) return { ok: false, text: 'Cannot message your own session.' }
   const message = parsed.data.message
   if (!message.trim()) return { ok: false, text: 'send_session requires a non-empty message.' }
-  const remoteHost = remoteHostOf(deps, sessionId)
-  if (remoteHost) return { ok: false, text: `Session ${sessionId} runs on ${remoteHost}. send_session cannot reach a session on another host yet; tell the user to continue it there.` }
-  const meta = await findSession(sessionId)
-  if (!meta) return { ok: false, text: `Session ${sessionId} not found.` }
-  if (meta.sessionId === callerSessionId) return { ok: false, text: 'Cannot message your own session.' }
   const report = parsed.data.report
   const waitMs = parsed.data.wait_seconds * 1000
-  const order: Parameters<SessionOrchestration['send']>[2] = { prompt: message, delivery: parsed.data.delivery, notify: report, waitMs }
+  const order: SendOrder = { prompt: message, delivery: parsed.data.delivery, notify: report, waitMs }
   if (parsed.data.request_id) order.requestId = parsed.data.request_id
-  const sent = await sessionOrchestration.send(callerSessionId, meta.sessionId, order)
+  const recipient = await sendRecipient(sessionId, callerSessionId, deps)
+  if ('error' in recipient) return { ok: false, text: recipient.error }
+  const attachError = await attachTo(order, parsed.data.attachments, deps)
+  if (attachError) return { ok: false, text: attachError }
+  const sent = await sessionOrchestration.send(callerSessionId, recipient.sessionId, order, recipient.target)
   const dispatch = sent.disposition === 'queued'
     ? 'Queued for'
     : sent.disposition === 'steered'
       ? 'Steered the turn in progress in'
       : 'Sent to'
+  const provider = recipient.meta?.provider ?? sessionOrchestration.readExchange?.(callerSessionId, sent.exchangeId)?.provider ?? deps.ctx!.agentProvider
   return {
     ok: true,
-    text: `${dispatch} ${sessionLink(meta)}.${outcomeNote(report, waitMs, sent.waited)}\n${formatExchangeTag({ messageId: sent.exchangeId, sessionId: meta.sessionId, provider: meta.provider })}${waitedBlock(sent.waited)}`,
+    text: `${dispatch} ${recipientLink(recipient, provider)}.${outcomeNote(report, waitMs, sent.waited)}\n${formatExchangeTag({ messageId: sent.exchangeId, sessionId: recipient.sessionId, provider })}${waitedBlock(sent.waited)}`,
   }
+}
+
+/** Who a message goes to: a session on this host, or one this session started on another. */
+type SendRecipient =
+  | { sessionId: string; meta: SessionMeta; target?: undefined }
+  | { sessionId: string; meta?: undefined; target: RemoteTarget }
+
+async function sendRecipient(sessionId: string, callerSessionId: string, deps: SessionToolDeps): Promise<SendRecipient | { error: string }> {
+  const remoteHost = remoteHostOf(deps, sessionId)
+  if (remoteHost) {
+    // The other host is reached with the owner's token, as for start_session.
+    if (sessionController?.actsForHostOwner && !sessionController.actsForHostOwner(callerSessionId)) {
+      return { error: "Only this host's owner can message sessions on their other hosts." }
+    }
+    const target = await remoteTarget(remoteHost, callerSessionId)
+    return 'error' in target ? target : { sessionId, target }
+  }
+  const meta = await findSession(sessionId)
+  if (!meta) return { error: `Session ${sessionId} not found.` }
+  if (meta.sessionId === callerSessionId) return { error: 'Cannot message your own session.' }
+  return { sessionId: meta.sessionId, meta }
+}
+
+/** A client opens a session on another host by that host's id. */
+function recipientLink(recipient: SendRecipient, provider: AgentId): string {
+  if (recipient.meta) return sessionLink(recipient.meta)
+  const { host } = recipient.target
+  return `${sessionLink({ provider, sessionId: recipient.sessionId, slug: null, cwd: '', serverId: host.installationId })} on ${host.label}`
+}
+
+/** Adds the files the agent attached to the order. Returns why one cannot be sent, or null. */
+async function attachTo(order: { attachments?: string[] }, paths: string[] | undefined, deps: SessionToolDeps): Promise<string | null> {
+  if (!paths?.length) return null
+  const checked = await checkAttachments(paths, deps.ctx?.cwd ?? resolveHomePath('~'))
+  if ('error' in checked) return checked.error
+  order.attachments = checked
+  return null
+}
+
+/** Another host, reached as `start_session` with `host` reaches it. */
+async function remoteTarget(hostRef: string, callerSessionId: string): Promise<RemoteTarget | { error: string }> {
+  const remote = await connectRemoteHost(hostRef)
+  if ('error' in remote) return remote
+  return { host: remote, origin: { hostLabel: hostDisplayName(), sessionId: callerSessionId } }
 }
 
 const readExchangeFields = {
@@ -820,9 +866,7 @@ async function startSessionTool(args: SessionToolArgs, deps: SessionToolDeps): P
   const { provider, modelId, reasoningEffort, contextWindow } = runner
   const cwd = resolveHomePath(input.cwd?.trim() || deps.ctx?.cwd || '~')
   const waitMs = input.wait_seconds * 1000
-  // The orchestrator puts the card in this conversation before the session
-  // starts — startup can take a while. The session's id is known from the start.
-  const created = await sessionOrchestration.spawn(deps.ctx?.sessionId, {
+  const order: SpawnOrder = {
     prompt: input.prompt,
     provider,
     modelId,
@@ -831,13 +875,20 @@ async function startSessionTool(args: SessionToolArgs, deps: SessionToolDeps): P
     cwd,
     worktreeBaseBranch: input.worktree_base_branch?.trim() || null,
     taskId,
-  }, input.report, waitMs, input.request_id)
+  }
+  const attachError = await attachTo(order, input.attachments, deps)
+  if (attachError) return { ok: false, text: attachError }
+  // The orchestrator puts the card in this conversation before the session
+  // starts — startup can take a while. The session's id is known from the start.
+  const created = await sessionOrchestration.spawn(deps.ctx?.sessionId, order, input.report, waitMs, input.request_id)
 
   if (created.starting) return { ok: true, text: formatPendingSessionReceipt(created, runner, input.report, waitMs) }
-  return {
-    ok: true,
-    text: `Session ${sessionLink({ provider, sessionId: created.sessionId, slug: null, cwd })} on ${provider}/${modelId} (reasoning: ${reasoningEffort}).${created.taskId ? ` Task ${created.taskId}.` : ''}${outcomeNote(input.report, waitMs, created.waited)}\n${formatExchangeTag({ messageId: created.exchangeId, sessionId: created.sessionId, provider })}${waitedBlock(created.waited)}`,
-  }
+  return { ok: true, text: formatStartedSessionReceipt(created, runner, cwd, input.report, waitMs) }
+}
+
+function formatStartedSessionReceipt(created: SpawnedSession, runner: Runner, cwd: string, report: boolean, waitMs: number): string {
+  const { provider, modelId, reasoningEffort } = runner
+  return `Session ${sessionLink({ provider, sessionId: created.sessionId, slug: null, cwd })} on ${provider}/${modelId} (reasoning: ${reasoningEffort}).${created.taskId ? ` Task ${created.taskId}.` : ''}${outcomeNote(report, waitMs, created.waited)}\n${formatExchangeTag({ messageId: created.exchangeId, sessionId: created.sessionId, provider })}${waitedBlock(created.waited)}`
 }
 
 /** `start_session` with `host`: the session starts on another of the owner's
@@ -854,8 +905,9 @@ async function startRemoteSessionTool(
   if (sessionController?.actsForHostOwner && !sessionController.actsForHostOwner(callerSessionId)) {
     return { ok: false, text: "Only this host's owner can start sessions on their other hosts." }
   }
-  const remote = await connectRemoteHost(hostRef)
-  if ('error' in remote) return { ok: false, text: remote.error }
+  const target = await remoteTarget(hostRef, callerSessionId)
+  if ('error' in target) return { ok: false, text: target.error }
+  const remote = target.host
   const targets = await remoteAgentTargets(remote)
   if ('error' in targets) return { ok: false, text: targets.error }
   const runner = chooseRunner(targets, input.agent_provider ?? deps.ctx?.agentProvider ?? 'claude-code', input.model_id, input.reasoning_effort)
@@ -864,8 +916,7 @@ async function startRemoteSessionTool(
   // A path on the other host: it is resolved there, never here.
   const cwd = input.cwd?.trim() || NEW_CHAT_DIRECTORY
   const waitMs = input.wait_seconds * 1000
-  const target: RemoteTarget = { host: remote, origin: { hostLabel: hostDisplayName(), sessionId: callerSessionId } }
-  const created = await orchestration.spawn(callerSessionId, {
+  const order: SpawnOrder = {
     prompt: input.prompt,
     provider,
     modelId,
@@ -874,7 +925,10 @@ async function startRemoteSessionTool(
     cwd,
     worktreeBaseBranch: input.worktree_base_branch?.trim() || null,
     taskId: null,
-  }, input.report, waitMs, input.request_id, target)
+  }
+  const attachError = await attachTo(order, input.attachments, deps)
+  if (attachError) return { ok: false, text: attachError }
+  const created = await orchestration.spawn(callerSessionId, order, input.report, waitMs, input.request_id, target)
   // A client opens it on its host, which knows where it runs.
   const link = sessionLink({ provider, sessionId: created.sessionId, slug: null, cwd: '', serverId: remote.installationId })
   return {

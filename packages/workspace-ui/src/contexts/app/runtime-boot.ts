@@ -31,8 +31,8 @@ export function refreshRuntime(
   session: WorkspaceContext,
   sidebarStore: SessionSidebarStore,
 ): void {
-  void afterPaint().then(() => session.lifecycle.initStaticInfo())
-    .catch((error) => logConnectionReadError('static info initialization', error))
+  void afterPaint().then(() => session.lifecycle.readRunOnAgents())
+    .catch((error) => logConnectionReadError('agent list initialization', error))
 
   void bootstrapRuntimeTabs(session)
     .then(() => {
@@ -61,7 +61,7 @@ function reconcileGoneMachines(session: WorkspaceContext): void {
       get defaultRunConfig() { return session.defaultRunConfig },
     },
     (serverId) => serverConnections.isKnownServer(serverId),
-    () => serverConnections.defaultMachineId() !== null,
+    () => serverConnections.runOnHostId() !== null,
   )
 }
 
@@ -92,9 +92,9 @@ export function initializeRuntime(
     if (phase !== 'connected') return
     void sendOutbox.drain(serverId, (record) => session.dispatch.redeliverOutboxPrompt(serverId, record))
     // A window that booted with no machine (the account origin) reads the
-    // machine facts once one connects; a no-op while the default is unchanged.
-    void session.lifecycle.initStaticInfo()
-      .catch((error) => logConnectionReadError('static info initialization', error))
+    // agents once one connects; a no-op while the Run on host is unchanged.
+    void session.lifecycle.readRunOnAgents()
+      .catch((error) => logConnectionReadError('agent list initialization', error))
     // Work left on a gone machine while there was nowhere to move it moves now.
     reconcileGoneMachines(session)
   })

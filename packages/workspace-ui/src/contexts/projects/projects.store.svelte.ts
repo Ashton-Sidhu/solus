@@ -1,92 +1,117 @@
 import { isRemoteDispatchCheckoutPath, type ProjectEntry, type RecentProject } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { subscribeAllHosts } from '@solus/client-core/host-events'
 import type { HostApi } from '@solus/client-core/host-api'
-import { SvelteMap, SvelteSet } from 'svelte/reactivity'
+import { SvelteMap } from 'svelte/reactivity'
 import { z } from 'zod'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import type { WorkspaceProject } from '@solus/contracts/workspace-projects'
-import { localProjectKey } from '@solus/contracts/repository-key'
-import { localProjectParts } from '@solus/client-core/project-identity'
+import { localProjectParts, projectKeyOf } from '@solus/client-core/project-identity'
 import {
   groupLogicalProjects,
   logicalProjectKeyFor,
   normalizeProjectRoot,
-  projectRefKey,
   type LogicalProject,
   type ProjectCatalogEntry,
   type ProjectRef,
 } from './project-catalog'
 import { projectDirLabel } from '../../lib/paths'
 
-const STORAGE_KEY = 'solus-project-catalog'
+/** The last project list read from each host (docs/plans/project-model.md §2).
+ *  A cache for hosts that are away, never a record of its own. */
+const STORAGE_KEY = 'solus-host-projects'
 
-const catalogEntrySchema = z.object({
-  serverId: z.string(),
-  projectRoot: z.string(),
-  label: z.string(),
-  lastSeenAt: z.number(),
-  repositoryKey: z.string().nullable().optional().catch(undefined),
+const projectEntrySchema = z.object({
+  key: z.string(),
+  path: z.string(),
+  folderName: z.string(),
+  addedAt: z.string(),
+  lastUsedAt: z.string(),
+  repositoryKey: z.string().nullable(),
 })
-const catalogSchema = z.object({
+const storedListsSchema = z.object({
   version: z.literal(1),
-  entries: z.array(catalogEntrySchema),
-  ignoredDiscoveryKeys: z.array(z.string()).optional(),
+  hosts: z.array(z.object({ serverId: z.string(), projects: z.array(projectEntrySchema) })),
 })
 
-interface StoredCatalog {
-  entries: ProjectCatalogEntry[]
-  ignoredDiscoveryKeys: string[]
+export interface StoredHostList {
+  serverId: string
+  projects: ProjectEntry[]
 }
 
-function loadCatalog(): StoredCatalog {
+function loadStoredLists(): StoredHostList[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { entries: [], ignoredDiscoveryKeys: [] }
-    const parsed = catalogSchema.safeParse(JSON.parse(raw))
-    return parsed.success
-      ? {
-          entries: parsed.data.entries,
-          ignoredDiscoveryKeys: parsed.data.ignoredDiscoveryKeys ?? [],
-        }
-      : { entries: [], ignoredDiscoveryKeys: [] }
+    if (!raw) return []
+    const parsed = storedListsSchema.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data.hosts : []
   } catch {
-    return { entries: [], ignoredDiscoveryKeys: [] }
+    return []
   }
 }
 
-/**
- * Whether a folder can be a project in the catalog. `'~'` names no folder yet,
- * and a dispatch checkout is a clone a host keeps for one paired device: a
- * checkout of the project it was sent from, never a project of its own. The
- * host keeps both out of its own lists; this keeps the device's list the same.
- */
-function isCatalogRoot(projectRoot: string): boolean {
-  return !!projectRoot && projectRoot !== '~' && !isRemoteDispatchCheckoutPath(projectRoot)
+/** A checkout as every project list reads it, from its host's entry. */
+function checkoutOf(serverId: string, project: ProjectEntry): ProjectCatalogEntry {
+  return {
+    serverId,
+    projectRoot: project.path,
+    label: project.folderName,
+    lastSeenAt: Date.parse(project.lastUsedAt) || Date.parse(project.addedAt) || 0,
+    repositoryKey: project.repositoryKey,
+  }
+}
+
+/** Whether `path` is `root` or a folder inside it. */
+function holds(root: string, path: string): boolean {
+  return path === root || path.startsWith(root.endsWith('/') ? root : `${root}/`)
 }
 
 type FetchRecentProjects = (serverId: string) => Promise<RecentProject[]>
+
+/** The hosts a removal asks. */
+export interface UntrackHosts {
+  isConnected(serverId: string): boolean
+  untrackProject(serverId: string, path: string): Promise<void>
+}
+
+const liveUntrackHosts: UntrackHosts = {
+  isConnected: (serverId) => serverConnections.statusFor(serverId) === 'connected',
+  untrackProject: (serverId, path) => serverConnections.apiFor(serverId).untrackProject(path),
+}
 
 async function fetchHostRecentProjects(serverId: string): Promise<RecentProject[]> {
   if (!serverConnections.localServerId() && serverId === LOCAL_SERVER_ID) return []
   return serverConnections.withTemporaryConnection(serverId, (api) => api.listRecentProjects())
 }
 
-/** One owner for persisted project history, host metadata, and recent projects. */
+/**
+ * The project lists of every host, and their recent folders. Each host's list
+ * is the only record of which folders are projects (docs/plans/project-model.md
+ * §2); this store holds the last list read from each, so a host that is away
+ * still names and groups its projects.
+ */
 export class ProjectsStore {
-  private readonly entriesByKey = new SvelteMap<string, ProjectCatalogEntry>()
-  private readonly ignoredDiscoveryKeys = new SvelteSet<string>()
+  private readonly projectsByHost = new SvelteMap<string, ProjectEntry[]>()
+  private readonly projectsLoadedByHost = new SvelteMap<string, boolean>()
+  private readonly projectsLoadingByHost = new SvelteMap<string, boolean>()
+  private readonly projectLoadsByHost = new Map<string, Promise<ProjectEntry[]>>()
   private saveTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(
-    initial: StoredCatalog = loadCatalog(),
+    stored: StoredHostList[] = loadStoredLists(),
     private readonly fetchRecentProjects: FetchRecentProjects = fetchHostRecentProjects,
+    private readonly untrackHosts: UntrackHosts = liveUntrackHosts,
   ) {
-    for (const entry of initial.entries) this.entriesByKey.set(projectRefKey(entry), entry)
-    for (const key of initial.ignoredDiscoveryKeys) this.ignoredDiscoveryKeys.add(key)
+    for (const host of stored) this.projectsByHost.set(host.serverId, host.projects)
   }
 
+  /** Every checkout on every host, most recently used first. */
   get entries(): ProjectCatalogEntry[] {
-    return [...this.entriesByKey.values()].sort((a, b) => b.lastSeenAt - a.lastSeenAt)
+    const entries: ProjectCatalogEntry[] = []
+    for (const [serverId, projects] of this.projectsByHost) {
+      for (const project of projects) entries.push(checkoutOf(serverId, project))
+    }
+    return entries.sort((a, b) => b.lastSeenAt - a.lastSeenAt)
   }
 
   /** Every project the pages list: checkouts grouped by repository, with the
@@ -95,30 +120,39 @@ export class ProjectsStore {
     return groupLogicalProjects(this.entries, cloudProjects)
   }
 
-  /** The project a folder on a host belongs to: its checkout's repository
-   *  once the host has named it, else the folder itself as a local-only
-   *  project. A path alone never names a project across hosts. */
+  /** The listed checkout that is this folder or holds it (a worktree or a
+   *  subfolder), the innermost when lists nest. */
+  private checkoutHolding(serverId: string, path: string): ProjectCatalogEntry | null {
+    const folder = normalizeProjectRoot(path)
+    let found: ProjectEntry | null = null
+    for (const project of this.projectsFor(serverId)) {
+      if (holds(project.path, folder) && (!found || project.path.length > found.path.length)) found = project
+    }
+    return found ? checkoutOf(serverId, found) : null
+  }
+
+  /** The project a folder on a host belongs to (docs/plans/project-model.md
+   *  §3): the listed project that is it or holds it, else the repository a
+   *  dispatch clone names, else the folder itself as a local-only project. A
+   *  path alone never names a project across hosts. */
   projectKeyFor(serverId: string, path: string): string {
-    const projectRoot = normalizeProjectRoot(path)
-    const entry = this.entriesByKey.get(projectRefKey({ serverId, projectRoot }))
-    return entry ? logicalProjectKeyFor(entry) : localProjectKey(serverId, projectRoot)
+    const checkout = this.checkoutHolding(serverId, path)
+    return checkout ? logicalProjectKeyFor(checkout) : projectKeyOf({ serverId, path: normalizeProjectRoot(path) })
   }
 
-  /** The repository a folder on a host holds, or null when its host has not
-   *  named one (no hosted remote, or not listed yet). */
+  /** The repository a folder on a host holds, or null when its host lists no
+   *  project holding it or that project has no hosted remote. */
   repositoryKeyFor(serverId: string, path: string): string | null {
-    const projectRoot = normalizeProjectRoot(path)
-    return this.entriesByKey.get(projectRefKey({ serverId, projectRoot }))?.repositoryKey ?? null
+    return this.checkoutHolding(serverId, path)?.repositoryKey ?? null
   }
 
-  /** The checkouts of one project across hosts, most recently touched first. */
+  /** The checkouts of one project across hosts, most recently used first. */
   checkoutsOf(projectKey: string): ProjectCatalogEntry[] {
     return this.entries.filter((entry) => logicalProjectKeyFor(entry) === projectKey)
   }
 
-  /** The folder that holds a project on one host: its catalogued checkout
-   *  there, or the folder a local-only key names on it. Null when the host
-   *  holds none. */
+  /** The folder that holds a project on one host: its listed checkout there,
+   *  or the folder a local-only key names on it. Null when the host holds none. */
   checkoutPathOn(serverId: string, projectKey: string): string | null {
     const checkout = this.checkoutsOf(projectKey).find((entry) => entry.serverId === serverId)
     if (checkout) return checkout.projectRoot
@@ -126,128 +160,31 @@ export class ProjectsStore {
     return local?.serverId === serverId ? local.path : null
   }
 
-  /** List each execution host's checkouts as it connects, so every page can
-   *  group by repository. Returns the unsubscribe. */
+  /** Read each execution host's list as it connects and whenever it says the
+   *  list changed. Returns the unsubscribe. */
   listen(isExecutionHost: (serverId: string) => boolean): () => void {
     const load = (serverId: string) => {
       if (!isExecutionHost(serverId)) return
       void this.loadProjectsFor(serverId, serverConnections.apiFor(serverId), { force: true })
     }
     for (const serverId of serverConnections.connectedServerIds()) load(serverId)
-    return serverConnections.onStatusChange((serverId, status) => {
+    const unsubStatus = serverConnections.onStatusChange((serverId, status) => {
       if (status === 'connected') load(serverConnections.resolveId(serverId))
     })
-  }
-
-  /** Remember which repository a checkout holds, as its host reported it. */
-  private stampRepositoryKey(serverId: string, path: string, repositoryKey: string | null): void {
-    const key = projectRefKey({ serverId, projectRoot: normalizeProjectRoot(path) })
-    const entry = this.entriesByKey.get(key)
-    if (!entry || entry.repositoryKey === repositoryKey) return
-    this.entriesByKey.set(key, { ...entry, repositoryKey })
-    this.scheduleSave()
-  }
-
-  has(ref: ProjectRef): boolean {
-    return this.entriesByKey.has(projectRefKey(ref))
-  }
-
-  /** Write a catalog entry with this label. Product code adds projects
-   *  through `addProject`; a root that is not a project is ignored. */
-  record(ref: ProjectRef, label: string): void {
-    const projectRoot = normalizeProjectRoot(ref.projectRoot)
-    if (!ref.serverId || !isCatalogRoot(projectRoot)) return
-    const key = projectRefKey({ serverId: ref.serverId, projectRoot })
-    this.ignoredDiscoveryKeys.delete(key)
-    this.recordKey(key, ref.serverId, projectRoot, label)
-    this.recentLoads.delete(ref.serverId)
-    this.recentLoading.set(ref.serverId, false)
-    this.recentExpiresAt.delete(ref.serverId)
-    const projects = this.recentProjectsFor(ref.serverId)
-    this.recentByHost.set(ref.serverId, [
-      { path: projectRoot, folderName: label || projectRoot, lastOpened: new Date().toISOString() },
-      ...projects.filter((project) => project.path !== projectRoot),
-    ])
-  }
-
-  /** Import host history without undoing an explicit removal. A later real
-   *  open or session calls `record` and makes the project visible again. */
-  recordDiscovered(ref: ProjectRef, label: string): void {
-    const projectRoot = normalizeProjectRoot(ref.projectRoot)
-    if (!ref.serverId || !isCatalogRoot(projectRoot)) return
-    const key = projectRefKey({ serverId: ref.serverId, projectRoot })
-    if (this.ignoredDiscoveryKeys.has(key)) return
-    this.recordKey(key, ref.serverId, projectRoot, label)
-  }
-
-  private recordKey(key: string, serverId: string, projectRoot: string, label: string): void {
-    const existing = this.entriesByKey.get(key)
-    if (existing) {
-      this.entriesByKey.set(key, { ...existing, lastSeenAt: Date.now(), label: label || existing.label })
-    } else {
-      this.entriesByKey.set(key, { serverId, projectRoot, label: label || projectRoot, lastSeenAt: Date.now() })
+    const unsubChanged = subscribeAllHosts('projects.changed', (serverId) => load(serverId))
+    return () => {
+      unsubStatus()
+      unsubChanged()
     }
-    this.scheduleSave()
   }
 
-  /** Whether an explicit removal must also hide a picker's current-project fallback. */
-  isRemoved(ref: ProjectRef): boolean {
-    return this.ignoredDiscoveryKeys.has(projectRefKey({
-      serverId: ref.serverId,
-      projectRoot: normalizeProjectRoot(ref.projectRoot),
-    }))
-  }
-
-  /** Explicit history removal — forgets the entry only. Never touches the
-   *  project's files, sessions, or server-side records. */
-  remove(ref: ProjectRef): void {
-    const projectRoot = normalizeProjectRoot(ref.projectRoot)
-    if (!ref.serverId || !projectRoot || projectRoot === '~') return
-    const key = projectRefKey({ serverId: ref.serverId, projectRoot })
-    this.entriesByKey.delete(key)
-    this.ignoredDiscoveryKeys.add(key)
-    this.scheduleSave()
-  }
-
-  /** Forget every checkout of one project from this device's history. Never
-   *  touches files, sessions, or any host's or cloud's records. */
-  removeProject(projectKey: string): void {
-    for (const checkout of this.checkoutsOf(projectKey)) this.remove(checkout)
-  }
-
-  /** Write now instead of waiting for the debounce — call on page hide, and
-   *  from tests that assert on the persisted snapshot. */
-  flush(): void {
-    if (this.saveTimer) clearTimeout(this.saveTimer)
-    this.saveTimer = null
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        version: 1,
-        entries: this.entries,
-        ignoredDiscoveryKeys: [...this.ignoredDiscoveryKeys],
-      }))
-    } catch {}
-  }
-
-  private scheduleSave(): void {
-    if (this.saveTimer) return
-    this.saveTimer = setTimeout(() => this.flush(), 400)
-  }
-
-  private readonly recentByHost = new SvelteMap<string, RecentProject[]>()
-  private readonly recentExpiresAt = new Map<string, number>()
-  private readonly recentLoads = new Map<string, Promise<RecentProject[]>>()
-  private readonly recentLoading = new SvelteMap<string, boolean>()
-
-  private readonly projectsByHost = new SvelteMap<string, ProjectEntry[]>()
-  private readonly projectsLoadedByHost = new SvelteMap<string, boolean>()
-  private readonly projectsLoadingByHost = new SvelteMap<string, boolean>()
-  private readonly projectLoadsByHost = new Map<string, Promise<ProjectEntry[]>>()
-
+  /** The host's list as last read: live once it has answered, else the copy
+   *  kept from an earlier read. */
   projectsFor(serverId: string): ProjectEntry[] {
     return this.projectsByHost.get(serverId) ?? []
   }
 
+  /** Whether the host has answered since this client started. */
   projectsLoadedFor(serverId: string): boolean {
     return this.projectsLoadedByHost.get(serverId) === true
   }
@@ -268,32 +205,67 @@ export class ProjectsStore {
     this.projectsLoadingByHost.set(serverId, true)
     const promise = api.listProjects()
       .then((projects) => {
-        this.projectsByHost.set(serverId, projects)
+        // A superseded read cannot replace newer state.
+        if (this.projectLoadsByHost.get(serverId) !== promise) return this.projectsFor(serverId)
+        this.setProjects(serverId, projects)
         this.projectsLoadedByHost.set(serverId, true)
-        // A host's projects are checkouts the pages group by repository; the
-        // host names the repository, the catalog remembers it for when the
-        // host is offline.
-        for (const project of projects) {
-          // Only an unknown checkout is recorded: a listing is not a visit, so
-          // it must not reorder the projects the person actually touched.
-          const ref = { serverId, projectRoot: project.path }
-          if (!this.has({ serverId, projectRoot: normalizeProjectRoot(project.path) })) this.recordDiscovered(ref, project.folderName)
-          this.stampRepositoryKey(serverId, project.path, project.repositoryKey)
-        }
         return projects
       })
-      .catch(() => {
-        this.projectsByHost.set(serverId, [])
-        this.projectsLoadedByHost.set(serverId, true)
-        const empty: ProjectEntry[] = []
-        return empty
-      })
+      // A host that cannot answer keeps the list it last gave.
+      .catch(() => this.projectsFor(serverId))
       .finally(() => {
+        if (this.projectLoadsByHost.get(serverId) !== promise) return
+        this.projectLoadsByHost.delete(serverId)
         this.projectsLoadingByHost.set(serverId, false)
-        if (this.projectLoadsByHost.get(serverId) === promise) this.projectLoadsByHost.delete(serverId)
       })
     this.projectLoadsByHost.set(serverId, promise)
     return promise
+  }
+
+  /**
+   * The one way a folder becomes a project: a person opened, cloned, or added
+   * it. The host records it; this client lists it at once, then reads the
+   * host's list, which decides: the host's entry names the repository, and a
+   * host that refused drops the folder again. Running a session in a folder
+   * does not add it.
+   */
+  addProject(
+    serverId: string,
+    api: Pick<HostApi, 'trackRecentProject' | 'listProjects'>,
+    path: string,
+  ): ProjectRef | null {
+    const projectRoot = normalizeProjectRoot(path)
+    if (!serverId || !projectRoot || projectRoot === '~' || isRemoteDispatchCheckoutPath(projectRoot)) return null
+    const now = new Date().toISOString()
+    this.setProjects(serverId, [
+      // The host's own entry replaces this one on the next read; it names the
+      // repository, which this client cannot.
+      { key: '', path: projectRoot, folderName: projectDirLabel(projectRoot), addedAt: now, lastUsedAt: now, repositoryKey: null },
+      ...this.projectsFor(serverId).filter((project) => project.path !== projectRoot),
+    ])
+    void api.trackRecentProject(projectRoot)
+      .catch(() => {})
+      .then(() => this.loadProjectsFor(serverId, api, { force: true }))
+      .then(() => this.invalidateRecentProjects(serverId))
+    return { serverId, projectRoot }
+  }
+
+  /**
+   * Take every checkout of one project off its host's list (`untrackProject`).
+   * Nothing else is deleted: tasks, sessions and files stay. A host that is
+   * away, or that refuses, keeps its checkout listed: the list shows what the
+   * hosts hold.
+   */
+  async removeProject(projectKey: string): Promise<void> {
+    await Promise.all(this.checkoutsOf(projectKey).map(async (checkout) => {
+      if (!this.untrackHosts.isConnected(checkout.serverId)) return
+      try {
+        await this.untrackHosts.untrackProject(checkout.serverId, checkout.projectRoot)
+      } catch {
+        return
+      }
+      this.setProjects(checkout.serverId, this.projectsFor(checkout.serverId).filter((project) => project.path !== checkout.projectRoot))
+    }))
   }
 
   async deleteProjectFor(
@@ -302,12 +274,29 @@ export class ProjectsStore {
     path: string,
   ): Promise<void> {
     await api.deleteProject(path)
-    this.projectsByHost.set(
-      serverId,
-      this.projectsFor(serverId).filter((project) => project.path !== path),
-    )
-    this.projectsLoadedByHost.set(serverId, true)
+    this.setProjects(serverId, this.projectsFor(serverId).filter((project) => project.path !== path))
   }
+
+  private setProjects(serverId: string, projects: ProjectEntry[]): void {
+    this.projectsByHost.set(serverId, projects)
+    if (!this.saveTimer) this.saveTimer = setTimeout(() => this.flush(), 400)
+  }
+
+  /** Write the kept lists now instead of waiting for the debounce: on page
+   *  hide, and from tests that read the stored copy. */
+  flush(): void {
+    if (this.saveTimer) clearTimeout(this.saveTimer)
+    this.saveTimer = null
+    try {
+      const hosts: StoredHostList[] = [...this.projectsByHost].map(([serverId, projects]) => ({ serverId, projects }))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, hosts }))
+    } catch {}
+  }
+
+  private readonly recentByHost = new SvelteMap<string, RecentProject[]>()
+  private readonly recentExpiresAt = new Map<string, number>()
+  private readonly recentLoads = new Map<string, Promise<RecentProject[]>>()
+  private readonly recentLoading = new SvelteMap<string, boolean>()
 
   recentProjectsFor(serverId: string): RecentProject[] {
     return this.recentByHost.get(serverId) ?? []
@@ -332,9 +321,6 @@ export class ProjectsStore {
         if (this.recentLoads.get(serverId) !== promise) return this.recentProjectsFor(serverId)
         this.recentByHost.set(serverId, projects)
         this.recentExpiresAt.set(serverId, Date.now() + 30_000)
-        for (const project of projects) {
-          this.recordDiscovered({ serverId, projectRoot: project.path }, project.folderName)
-        }
         return projects
       })
       .catch(() => this.recentProjectsFor(serverId))
@@ -345,36 +331,6 @@ export class ProjectsStore {
       })
     this.recentLoads.set(serverId, promise)
     return promise
-  }
-
-  /**
-   * The one way a folder becomes a project: a person opened, cloned, or added
-   * it. This device's catalog records it at once, so the next surface already
-   * lists it; the host records it too, without holding the caller. Running a
-   * session in a folder does not add it (`touch` only reorders known ones).
-   */
-  addProject(
-    serverId: string,
-    api: Pick<HostApi, 'trackRecentProject'>,
-    path: string,
-  ): ProjectRef | null {
-    const projectRoot = normalizeProjectRoot(path)
-    if (!serverId || !isCatalogRoot(projectRoot)) return null
-    const project = { serverId, projectRoot }
-    this.record(project, projectDirLabel(projectRoot))
-    void api.trackRecentProject(project.projectRoot)
-      .catch(() => {})
-      .then(() => this.invalidateRecentProjects(serverId))
-    return project
-  }
-
-  /** A session ran in this folder: move it up the list if it is a project. */
-  touch(ref: ProjectRef): void {
-    const projectRoot = normalizeProjectRoot(ref.projectRoot)
-    const key = projectRefKey({ serverId: ref.serverId, projectRoot })
-    const existing = this.entriesByKey.get(key)
-    if (!existing) return
-    this.recordKey(key, ref.serverId, projectRoot, existing.label)
   }
 
   invalidateRecentProjects(serverId?: string): void {

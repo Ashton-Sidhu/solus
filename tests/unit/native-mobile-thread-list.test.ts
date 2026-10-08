@@ -40,7 +40,7 @@ function shell(hostId: string, sessionId: string, extra: Partial<SessionRecord> 
 }
 
 function project(hostId: string, path: string, repositoryKey: string | null): SolusProjectShell {
-  const entry: ProjectEntry = { key: path, path, folderName: path.split('/').at(-1)!, addedAt: '2026-01-01T00:00:00Z', repositoryKey }
+  const entry: ProjectEntry = { key: path, path, folderName: path.split('/').at(-1)!, addedAt: '2026-01-01T00:00:00Z', lastUsedAt: '2026-01-01T00:00:00Z', repositoryKey }
   return { key: `${hostId}\u0000${path}`, hostId, hostLabel: hostId, project: entry }
 }
 

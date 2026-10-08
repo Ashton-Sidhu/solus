@@ -539,6 +539,9 @@ dispatches to them; `tests/unit/server-module-boundaries.test.ts` names every ex
 
 - Host connections, WebSocket transport, capabilities, pairing, registry, and
   session caches.
+- `host-facts.ts` — everything read about one host (capabilities, server info,
+  machine facts, usage, voice model, tools), loaded once per server session and
+  shared by every reader on desktop, web, and mobile (`docs/plans/host-model.md`).
 - `local-api.ts` owns client-local capabilities. It does not call Electron.
 
 ### `packages/workspace-ui/src/` — Svelte 5 workspace UI
@@ -549,6 +552,10 @@ dispatches to them; `tests/unit/server-module-boundaries.test.ts` names every ex
   - `workspace.context.svelte.ts` — core tab/session workspace state; large and
     performance-sensitive.
   - `session-*` — session lifecycle, transcript, and events.
+  - `hosts/` — one reactive `Host` per host. A reader names the owner of the host
+    it means: `hosts.find(run.serverId)` for a tab, `hosts.device` for this
+    device, `hosts.runOn` for the Run on picker. Never keep one copy of a host
+    fact that follows "the" host (`solus/explicit-host-choice`).
   - `tasks.store`, `works.store`, `automations.store`, `prs.store`, `browser.store`,
     `git-status.store`, `plan.store`, `settings.context`, `toast.store` — feature state.
 - **`lib/`:** cross-feature utilities for diffs, git actions, keybindings, highlighting,

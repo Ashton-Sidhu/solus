@@ -2,7 +2,7 @@
   import { ChevronDown, Circle, Square } from "@lucide/svelte";
   import type { BrowserEvidenceOptions } from "@solus/contracts/browser-types";
   import type { Task } from "@solus/contracts/task-types";
-  import { getWorkspaceContext, hostCapabilitiesStore } from "../../contexts";
+  import { getWorkspaceContext, hosts } from "../../contexts";
   import {
     browserStore,
     type BrowserPageEntry,
@@ -62,7 +62,7 @@
   const control = $derived(
     recordControl({
       page: entry.page,
-      canRecord: hostCapabilitiesStore.for(entry.serverId)?.browserRecording,
+      canRecord: hosts.find(entry.serverId)?.capabilityRecord?.browserRecording,
       request: browserStore.recordingRequest(pageKey),
     }),
   );

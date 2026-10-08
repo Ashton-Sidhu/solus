@@ -29,6 +29,8 @@ import { parseExecutionPreferences } from '../../execution/agents/run-input'
 import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { recordingRetention } from '../../browser/recording-retention'
 import { getIndexedSession } from '../../db/session-indexer'
+import { MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
+import { promptImageRefSchema } from '../../data/assets/attachment-store'
 
 const log = createLogger('main', 'session-handlers')
 const execFileAsync = promisify(execFile)
@@ -38,6 +40,18 @@ const sessionOriginSchema = z.object({
   hostLabel: z.string().trim().min(1).max(200),
   sessionId: z.string().trim().min(1).max(200),
 })
+
+/** Images another host uploaded here. The run reads only files inside this
+ *  host's attachment store (`resolvePromptImages`), so a path is checked there. */
+const imageRefsSchema = z.array(promptImageRefSchema).max(MAX_ATTACHMENT_UPLOAD_COUNT).optional()
+
+const headlessPromptSchema = z.object({
+  sessionId: z.string().min(1).max(200),
+  prompt: z.string().min(1),
+  delivery: z.enum(['queue', 'steer']),
+  promptId: z.string().min(1).max(200),
+  imageAttachmentRefs: imageRefsSchema,
+}).strict()
 
 export interface SessionDeps {
   sessionRuntime: SessionRuntime
@@ -302,9 +316,21 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     request.startedBy = request.startedBy === undefined ? undefined : sessionOriginSchema.parse(request.startedBy)
     request.cwd = request.cwd === NEW_CHAT_DIRECTORY ? chatFolderFor(randomUUID(), handlerCtx.principal) : resolveHomePath(request.cwd)
     request.executionPreferences = parseExecutionPreferences(request.executionPreferences)
+    request.imageAttachmentRefs = imageRefsSchema.parse(request.imageAttachmentRefs)
     const created = await sessionRuntime.dispatch.createSession(request, handlerCtx.actor)
     await claimSession(created.sessionId, handlerCtx, request.cwd)
     return created
+  })
+
+  server.register('promptHeadlessSession', async (args, handlerCtx) => {
+    const request = headlessPromptSchema.parse(args[0])
+    log.info('rpc_prompt_headless_session', { sessionId: request.sessionId, delivery: request.delivery })
+    if (!getIndexedSession(request.sessionId) && !sessionRuntime.activeSessions.has(request.sessionId)) {
+      throw new Error(`Session ${request.sessionId} not found on this host.`)
+    }
+    const origin: Parameters<SessionRuntime['dispatch']['promptSession']>[3] = { actor: handlerCtx.actor, clientPromptId: request.promptId }
+    if (request.imageAttachmentRefs?.length) origin.imageAttachmentRefs = request.imageAttachmentRefs
+    return sessionRuntime.dispatch.promptSession(request.sessionId, request.prompt, request.delivery, origin)
   })
 
   server.register('bindRuntimeSession', async (args, handlerCtx) => {

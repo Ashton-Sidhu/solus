@@ -35,7 +35,7 @@ const cacheKey = (hostId: string, request: HostMediaRequest) =>
     : `${hostId}\u0000${request.ctx?.session.workingDirectory ?? ''}\u0000${request.path}`
 
 async function mint(connection: HostConnection, request: HostMediaRequest): Promise<SignedUrl> {
-  if (!hasHostCapability(await connection.supervisor.whenCapabilities(), 'assetUrls')) {
+  if (!hasHostCapability(await connection.facts.when('capabilities'), 'assetUrls')) {
     throw new Error('Update the host to show media from it.')
   }
   const signed = 'assetId' in request

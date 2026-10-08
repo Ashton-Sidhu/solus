@@ -15,7 +15,9 @@ export function adaptCodexTools(tools: AgentTool[]): CodexDynamicTool[] {
   const namespaceTools: CodexDynamicTool['tools'] = tools.map((agentTool) => {
     // The input side: a field with a default may be left out. The output side
     // marks it required, which asks the model for a value it need not send.
-    const generatedSchema = z.toJSONSchema(z.object(agentTool.inputFields), { io: 'input' })
+    const generatedSchema = agentTool.passthroughInput
+      ? { type: 'object', additionalProperties: true }
+      : z.toJSONSchema(z.object(agentTool.inputFields), { io: 'input' })
     // SAFETY: Zod emits a JSON Schema object, which is the exact protocol value Codex accepts for a dynamic tool.
     const inputSchema = generatedSchema as CodexDynamicTool['tools'][number]['inputSchema']
     return { type: 'function', name: agentTool.name, description: agentTool.description, inputSchema, deferLoading: !agentTool.alwaysLoad }

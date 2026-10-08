@@ -150,7 +150,7 @@ function knownProjectOption(
     serverId,
     label: project.label,
     available: !!project.cloudProject || project.checkouts.some((entry) => isConnected(entry.serverId)),
-    historyOnly: !project.cloudProject,
+    removable: !project.cloudProject,
     localOnly: !project.cloudProject && project.checkouts.every((entry) => entry.repositoryKey === null),
   }
 }

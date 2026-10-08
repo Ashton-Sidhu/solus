@@ -49,8 +49,7 @@ import {
   unannouncedDiscoveredServers,
   type NearbyHost,
 } from './discovery'
-import { hostCapabilitiesStore } from './host-capabilities.store.svelte'
-import { hostRolesStore } from './host-roles.store.svelte'
+import { hosts } from '../hosts/hosts.svelte'
 import { hostRowLabel, SOLUS_CLOUD_LABEL } from './host-label'
 import { hostAffinityGlyph, type HostAffinityGlyph } from './host-affinity'
 import { DIRECTORY_FOCUS_GAP_MS, directoryRefreshDelayMs } from './directory-refresh'
@@ -192,7 +191,7 @@ class ServersStore {
       if (server.installationId === this.local?.installationId) continue
       const row: ServerItem = {
         id: server.id,
-        label: hostRowLabel(server, hostCapabilitiesStore.for(server.id)?.name),
+        label: hostRowLabel(server, hosts.find(server.id)?.capabilityRecord?.name),
         // A directory host saves no address of its own; its row shows the route it is dialed on.
         url: preferredRouteUrl(server),
         installationId: server.installationId,
@@ -210,7 +209,7 @@ class ServersStore {
       if (!target || target.local) continue
       rows.push({
         id: serverId,
-        label: hostRowLabel(target, hostCapabilitiesStore.for(serverId)?.name),
+        label: hostRowLabel(target, hosts.find(serverId)?.capabilityRecord?.name),
         url: target.url,
         installationId: target.installationId,
         os: this.connectionStatesByServer[serverId]?.os,
@@ -229,7 +228,7 @@ class ServersStore {
    * project dialog, and every dispatch target read this list, never `servers`.
    */
   get executionServers(): ServerItem[] {
-    return this.servers.filter((server) => hostRolesStore.hasExecution(server.id))
+    return this.servers.filter((server) => hosts.hasExecution(server.id))
   }
 
   /**

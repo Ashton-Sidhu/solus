@@ -41,7 +41,7 @@ const store = runes.source('tasks-store', 'packages/workspace-ui/src/contexts/ta
   '@solus/contracts/task-types': file('packages/contracts/src/task-types.ts'),
   '../../lib/sessionUtils': stub('session-utils', 'export const attemptServerId = () => undefined'),
   '../../lib/organization-filter': file('packages/workspace-ui/src/lib/organization-filter.ts'),
-  '../connections/host-roles.store.svelte': stub('host-roles', 'export const hostRolesStore = { hasCollaboration: () => true }'),
+  '../hosts/hosts.svelte': stub('hosts', 'export const hosts = { hasCollaboration: () => true, hasExecution: () => true }'),
   '../connections/organization-selection.store.svelte': stub('organization-selection', 'export const organizationSelection = { activeOrganizationId: null }'),
   '../projects/projects.store.svelte': stub('projects', 'export const projectsStore = { projectKeyFor: (_s, key) => key, checkoutsOf: () => [] }'),
   './task.svelte': task,

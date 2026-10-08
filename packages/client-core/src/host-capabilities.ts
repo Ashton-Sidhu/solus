@@ -45,6 +45,16 @@ const hostCapabilitiesSchema = z.object({
   hostUpdates: tolerantBoolean,
   modelProfiles: tolerantBoolean,
   editors: forwardCompatibleArray(editorIdSchema).optional().catch(undefined),
+  headless: tolerantBoolean,
+  desktopHandlers: tolerantBoolean,
+  agents: z.object({ claude: z.boolean(), codex: z.boolean() }).optional().catch(undefined),
+  dictation: tolerantBoolean,
+  platform: z.string().optional().catch(undefined),
+  projectCount: z.number().optional().catch(undefined),
+  agentAuth: z.object({ claude: z.boolean() }).optional().catch(undefined),
+  gitAuth: z.object({ github: z.boolean() }).optional().catch(undefined),
+  projectsBaseDirectory: z.string().optional().catch(undefined),
+  projectsBaseDirectoryIsSet: tolerantBoolean,
 })
 
 /** Keep only protocol fields this client understands. This function is the

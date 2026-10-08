@@ -10,7 +10,7 @@
   import {
     getSessionSidebarStore,
     getSurfaceContext,
-    hostRolesStore,
+    hosts,
     isAgentRunningStatus,
     presenceStore,
     serversStore,
@@ -105,7 +105,7 @@
       const executionServerId = serverId ? serverConnections.resolveId(serverId) : null;
       const stopServerId =
         executionServerId &&
-        hostRolesStore.hasExecution(executionServerId) &&
+        hosts.hasExecution(executionServerId) &&
         serversStore.statusFor(executionServerId) === "online"
           ? executionServerId
           : null;

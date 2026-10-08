@@ -27,7 +27,7 @@ describe('mobile project detection', () => {
       'apps/mobile/package.json': JSON.stringify({ dependencies: { expo: '~57.0.0', 'react-native': '0.86' } }),
     })
     const info = await scanDeviceProject(root)
-    expect(info).toEqual({ isMobileApp: true, platforms: ['android', 'ios'], markers: ['apps/mobile/package.json'] })
+    expect(info).toEqual({ isMobileApp: true, platforms: ['android', 'ios'], markers: ['apps/mobile/package.json'], usesExpo: true })
   })
 
   test('native iOS and Android projects count by their own files', async () => {
@@ -46,7 +46,13 @@ describe('mobile project detection', () => {
       'node_modules/some-lib/ios/Lib.xcodeproj/': '',
       '.cache/Demo.xcodeproj/': '',
     })
-    expect(await scanDeviceProject(root)).toEqual({ isMobileApp: false, platforms: [], markers: [] })
+    expect(await scanDeviceProject(root)).toEqual({ isMobileApp: false, platforms: [], markers: [], usesExpo: false })
+  })
+
+  test('a bare React Native app is a mobile app, but not an Expo one', async () => {
+    // WHY: Expo's presets build an Expo prebuild; a plain React Native app must not be offered them.
+    const info = await scanDeviceProject(project({ 'package.json': JSON.stringify({ dependencies: { 'react-native': '0.86' } }) }))
+    expect([info.isMobileApp, info.usesExpo]).toEqual([true, false])
   })
 
   test('the scan stops at a fixed depth', async () => {

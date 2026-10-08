@@ -24,8 +24,8 @@
     <button
       type="button"
       class="pointer-events-auto absolute inset-0 flex items-center justify-center rounded-md text-(--solus-text-tertiary) opacity-0 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) group-hover/project-row:opacity-100 group-focus-within/project-row:opacity-100 pointer-coarse:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-(--solus-accent)"
-      title="Remove from history"
-      aria-label="Remove {label} from history"
+      title="Remove from projects"
+      aria-label="Remove {label} from projects"
       onkeydown={(event) => {
         if (event.key === "Enter" || event.key === " ") event.stopPropagation();
       }}

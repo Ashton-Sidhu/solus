@@ -1,5 +1,5 @@
 import { untrack } from "svelte";
-import { getSettingsContext, getWorkspaceContext, getClientShellContext, getVoiceModelStore } from "../../../contexts";
+import { getSettingsContext, getWorkspaceContext, getClientShellContext, hosts } from "../../../contexts";
 import type { PromptDelivery } from "@solus/contracts/types";
 import type PromptEditor from "../../ui/PromptEditor.svelte";
 import { dictation, isDictationTarget } from "../../../lib/dictation.svelte";
@@ -25,7 +25,7 @@ export function useComposerVoice(options: ComposerVoiceOptions) {
   const theme = getSettingsContext();
   const session = getWorkspaceContext();
   const clientShell = getClientShellContext();
-  const voiceModel = getVoiceModelStore();
+  const voiceHost = $derived(hosts.transcription);
   const voiceModeEnabled = $derived(theme.voiceModeEnabled);
   // The app-wide voice controller owns the single recorder, shared with plain
   // fields' dictation. This bar drives its conversational ('message') mode.
@@ -124,7 +124,7 @@ export function useComposerVoice(options: ComposerVoiceOptions) {
       (voice.errorKind === "transient" && voiceRetry.canRetry(retryClock));
     return (
       voiceModeEnabled &&
-      voiceModel.ready &&
+      voiceHost?.voiceReady === true &&
       options.active() &&
       ownsVoice &&
       clientShell.visible &&
@@ -201,7 +201,7 @@ export function useComposerVoice(options: ComposerVoiceOptions) {
   let prevIsBusy = untrack(() => options.isBusy());
   let prevVoiceState = untrack(() => voiceState);
   let prevDictationFocus = untrack(() => dictation.focusedTarget);
-  let prevVoiceModelReady = untrack(() => voiceModel.ready);
+  let prevVoiceModelReady = untrack(() => voiceHost?.voiceReady === true);
   $effect(() => {
     if (!ownsVoice) return;
     const enabled = voiceModeEnabled;
@@ -209,7 +209,7 @@ export function useComposerVoice(options: ComposerVoiceOptions) {
     const busy = options.isBusy();
     const vstate = voiceState;
     const dictationFocus = dictation.focusedTarget;
-    const modelReady = voiceModel.ready;
+    const modelReady = voiceHost?.voiceReady === true;
     const retryReady =
       voice.errorKind === "transient" && voiceRetry.canRetry(retryClock);
 
@@ -254,7 +254,7 @@ export function useComposerVoice(options: ComposerVoiceOptions) {
       // The mic is hidden on a host that cannot transcribe, so the shortcut
       // that toggles it must go quiet too rather than opening a recording no
       // one can finish.
-      voiceModel.supported &&
+      voiceHost?.transcribes === true &&
       !isDictationTarget(document.activeElement),
   });
 

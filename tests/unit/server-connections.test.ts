@@ -253,10 +253,12 @@ describe('primary server connection ownership', () => {
     const connections = new ServerConnections()
     const destroyed: string[] = []
     const first = {
+      events: { subscribe: () => () => {} },
       destroy: () => destroyed.push('first'),
       attachDialOutcomeReporter: () => {},
     } as unknown as WsTransport
     const second = {
+      events: { subscribe: () => () => {} },
       destroy: () => destroyed.push('second'),
       attachDialOutcomeReporter: () => {},
     } as unknown as WsTransport
@@ -312,7 +314,7 @@ describe('session-scoped host capabilities', () => {
     connections.registerTarget({ ...remoteTarget, id: 'cap-old' })
 
     expect(await connections.capabilitiesFor('cap-old')).toEqual({})
-    expect(connections.capability('cap-old', 'assetUrls')).toBe(false)
+    expect(connections.cachedCapabilitiesFor('cap-old')?.assetUrls === true).toBe(false)
     expect(await connections.capabilitiesFor('cap-old')).toEqual({})
     expect(calls).toBe(1)
     capabilityLoaders.delete('cap-old')
@@ -330,12 +332,12 @@ describe('session-scoped host capabilities', () => {
     const connections = new ServerConnections()
     connections.registerTarget({ ...remoteTarget, id: 'cap-reconnect' })
 
-    expect(connections.capability('cap-reconnect', 'attachUpload')).toBeUndefined()
+    expect(connections.cachedCapabilitiesFor('cap-reconnect')).toBeUndefined()
     expect((await connections.capabilitiesFor('cap-reconnect')).attachUpload).toBe(false)
 
     const supervisor = connections.connectionFor('cap-reconnect')!.supervisor
     supervisor.report({ kind: 'dropped' })
-    expect(connections.capability('cap-reconnect', 'attachUpload')).toBeUndefined()
+    expect(connections.cachedCapabilitiesFor('cap-reconnect')).toBeUndefined()
 
     supervisor.report({ kind: 'accepted', recovered: false })
     expect((await connections.capabilitiesFor('cap-reconnect')).attachUpload).toBe(true)
@@ -404,39 +406,38 @@ describe('connection-owned startup reads', () => {
     hostKind: 'personal', roles: ['execution', 'collaboration'], principal: 'remote-owner',
   }
 
-  test('concurrent and later consumers share one info read; explicit refresh and reconnect read again', async () => {
+  test('concurrent and later consumers share one info read; explicit refresh and a new server session read again', async () => {
     const connections = new ServerConnections()
     connections.registerTarget({ ...remoteTarget, id: 'info', installationId: 'info-host' })
     let calls = 0
     infoLoaders.set('info', async () => { calls++; return info })
-    const first = connections.serverInfoFor('info')
-    expect(connections.serverInfoFor('info-host')).toBe(first)
-    await first
-    connections.updateStatus('info', 'connected')
+    // The installation id names the same host, so it shares the same read.
+    await Promise.all([connections.serverInfoFor('info'), connections.serverInfoFor('info-host')])
     expect(await connections.serverInfoFor('info')).toEqual(info)
     expect(calls).toBe(1)
     await Promise.all([connections.serverInfoFor('info', true), connections.serverInfoFor('info', true)])
     expect(calls).toBe(2)
-    connections.updateStatus('info', 'disconnected')
-    connections.updateStatus('info', 'connected')
+    const facts = connections.factsFor('info')
+    facts.sessionChanged('lost')
+    facts.sessionChanged('fresh')
     await connections.serverInfoFor('info')
     expect(calls).toBe(3)
     connections.release('info')
     infoLoaders.delete('info')
   })
 
-  test('a late answer from the old connection cannot replace the new identity', async () => {
+  test('a late answer from the old server session cannot replace the new identity', async () => {
     const connections = new ServerConnections()
     connections.registerTarget({ ...remoteTarget, id: 'info-stale' })
     let finish!: (value: ConnectionsServerInfo) => void
     infoLoaders.set('info-stale', () => new Promise((resolve) => { finish = resolve }))
     const old = connections.serverInfoFor('info-stale')
     await Promise.resolve()
-    connections.updateStatus('info-stale', 'connected')
-    connections.updateStatus('info-stale', 'disconnected')
+    const facts = connections.factsFor('info-stale')
+    facts.sessionChanged('lost')
     infoLoaders.set('info-stale', async () => ({ ...info, userId: 'new-person' }))
-    connections.updateStatus('info-stale', 'connected')
-    await connections.serverInfoFor('info-stale')
+    facts.sessionChanged('fresh')
+    expect((await connections.serverInfoFor('info-stale')).userId).toBe('new-person')
     finish({ ...info, userId: 'old-person' })
     await old
     expect((await connections.serverInfoFor('info-stale')).userId).toBe('new-person')

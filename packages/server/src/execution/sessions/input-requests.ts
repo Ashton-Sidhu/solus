@@ -42,6 +42,28 @@ export function eventHasQuestionId(event: NormalizedEvent, questionId: string): 
 }
 
 /**
+ * Questions a Solus agent tool raised itself, such as an integration's MCP
+ * elicitation (integrations/gateway.ts). The tool emits the `question_request`
+ * through its context like a provider does; the answer comes back here, not to
+ * the provider's permission responder, which never saw the question.
+ */
+const toolQuestionAnswerers = new Map<string, (answers: Record<string, string>) => void>()
+
+/** Sends the answer to `questionId` to `answer`. Call the returned function when the tool stops waiting. */
+export function answerToolQuestionWith(questionId: string, answer: (answers: Record<string, string>) => void): () => void {
+  toolQuestionAnswerers.set(questionId, answer)
+  return () => { if (toolQuestionAnswerers.get(questionId) === answer) toolQuestionAnswerers.delete(questionId) }
+}
+
+function answerToolQuestion(questionId: string, answers: Record<string, string>): boolean {
+  const answer = toolQuestionAnswerers.get(questionId)
+  if (!answer) return false
+  toolQuestionAnswerers.delete(questionId)
+  answer(answers)
+  return true
+}
+
+/**
  * Permissions, questions, and plans a run waits on: who holds each request,
  * the answers to them, and the cards that close when a run ends.
  */
@@ -161,7 +183,7 @@ export class InputRequests {
     const pending = this.pendingQuestion(askingSessionId, questionId)
     if (!pending || pending.event.type !== 'question_request') return false
     const { sessionId: pendingSessionId, backend: b, event: question } = pending
-    if (!b.permissions.respondToQuestion(questionId, answers)) return false
+    if (!answerToolQuestion(questionId, answers) && !b.permissions.respondToQuestion(questionId, answers)) return false
     this.rt.reportToActiveRun(pendingSessionId, (run) => this.rt.orchestration?.inputResolved(run, { kind: 'question', questions: question.questions, answers }))
     this.rt.sessionEmitter.resolveQuestion(pendingSessionId, questionId)
     if (!question.kind || question.kind === 'standard') {

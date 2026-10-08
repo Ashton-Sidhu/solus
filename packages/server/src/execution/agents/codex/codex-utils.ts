@@ -17,6 +17,7 @@ import type { ApprovalsReviewer, AskForApproval, SandboxPolicy } from './generat
 import { resolveHomePath } from '../../../platform/paths'
 import { sessionIdOfThread } from '../../../data/sessions/session-lineage'
 import { storeToolResultImages } from '../../../data/assets/transcript-images'
+import { isAuthFailureMessage } from '../auth-failure'
 
 const stringValueSchema = z.string()
 const finiteNumberSchema = z.number().finite()
@@ -725,6 +726,7 @@ export function completeCodexTurnMessages(turn: CodexTurnHistory, messages: Sess
       role: 'system',
       content: `Error: ${error}`,
       timestamp: completedAt ?? startedAt,
+      ...(isAuthFailureMessage(error) && { loginRefused: true as const }),
     })
   }
   const lastMessage = messages.at(-1)

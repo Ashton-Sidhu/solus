@@ -7,7 +7,7 @@
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { Input } from "../ui/input";
-  import { RUN_PROFILE_PRESETS, fitPresetToProject, profileDraft, profilesFromDrafts, type RunProfileDraft } from "@solus/client-core/device-run-profiles";
+  import { fitPresetToProject, presetsForProject, profileDraft, profilesFromDrafts, type RunProfileDraft } from "@solus/client-core/device-run-profiles";
   import { serverConnections } from "@solus/client-core/server-connections";
 
   /**
@@ -25,6 +25,7 @@
   let { serverId, checkoutPath, onDone }: Props = $props();
 
   const saved = $derived(devicesStore.runProfiles(serverId, checkoutPath));
+  const presets = $derived(presetsForProject(devicesStore.project(serverId, checkoutPath)));
   let drafts = $state<RunProfileDraft[]>([]);
   let loaded = $state(false);
   let saving = $state(false);
@@ -45,7 +46,7 @@
 
   // A preset starts in the folder the app is in (a monorepo's `apps/mobile/ios`), with the Xcode workspace there.
   async function add(index: number) {
-    const preset = RUN_PROFILE_PRESETS[index];
+    const preset = presets[index];
     if (!preset || adding) return;
     adding = true;
     try {
@@ -131,9 +132,11 @@
             <Button {...props} size="xs" variant="outline" disabled={adding}><Plus />{adding ? "Adding…" : "Add a profile"}</Button>
           {/snippet}
         </DropdownMenu.Trigger>
-        <DropdownMenu.Content align="start">
-          {#each RUN_PROFILE_PRESETS as preset, index (preset.label)}
-            <DropdownMenu.Item onSelect={() => void add(index)}>{preset.label}</DropdownMenu.Item>
+        <!-- Sized to its labels, not to the small trigger: the default anchor width wraps every row. -->
+        <DropdownMenu.Content align="start" class="w-auto min-w-56 max-w-[calc(100vw-2rem)]">
+          <DropdownMenu.Label>Start from</DropdownMenu.Label>
+          {#each presets as preset, index (preset.label)}
+            <DropdownMenu.Item class="whitespace-nowrap" onSelect={() => void add(index)}>{preset.label}</DropdownMenu.Item>
           {/each}
         </DropdownMenu.Content>
       </DropdownMenu.Root>

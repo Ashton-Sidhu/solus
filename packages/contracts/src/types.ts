@@ -34,34 +34,10 @@ export const AGENT_BIN = {
  */
 export const DEFAULT_SERVER_PORT = 3000
 
-export interface ServerCapabilities {
-  headless: boolean
-  desktopHandlers: boolean
-  agents: {
-    claude: boolean
-    codex: boolean
-  }
-  dictation: boolean
-  platform: string
-  version: string
-  projectCount: number
-  agentAuth: {
-    claude: boolean
-  }
-  gitAuth: {
-    github: boolean
-  }
-  /** The folder new projects and clones land in for this caller: the setting,
-   *  else `SOLUS_PROJECTS_ROOT`, else `~/projects`; a cloud member's own folder. */
-  projectsBaseDirectory?: string
-  /** The owner chose `projectsBaseDirectory` in Settings, so "reset" has a default to return to. */
-  projectsBaseDirectoryIsSet?: boolean
-  /** How much control agents have over task lifecycle status. */
-  agentTaskLifecyclePolicy?: AgentTaskLifecyclePolicy
-}
-
-/** Feature surface advertised by one authenticated host. Missing keys are
- * unsupported so newer clients remain safe when connected to older hosts. */
+/** What one authenticated host can do and what it has, from
+ * `serverGetCapabilities`. Missing keys are unsupported so newer clients remain
+ * safe when connected to older hosts. Some fields answer for the caller: a
+ * cloud member's projects folder is their own. */
 export interface HostCapabilities {
   /** The host build's version, for the per-host skew notice. */
   version?: string
@@ -97,6 +73,24 @@ export interface HostCapabilities {
   hostUpdates?: boolean
   /** This host gets the model list from GitHub and serves it (`modelProfilesStatus`). */
   modelProfiles?: boolean
+  /** The host runs without a window: no Electron main process. */
+  headless?: boolean
+  /** The desktop main process registered its handlers (screenshots, design mode, native dialogs). */
+  desktopHandlers?: boolean
+  /** Which agent CLIs the host found on its PATH. */
+  agents?: { claude: boolean; codex: boolean }
+  /** The local transcription model is installed. */
+  dictation?: boolean
+  platform?: string
+  /** Projects this caller can see on the host. */
+  projectCount?: number
+  agentAuth?: { claude: boolean }
+  gitAuth?: { github: boolean }
+  /** The folder new projects and clones land in for this caller: the setting,
+   *  else `SOLUS_PROJECTS_ROOT`, else `~/projects`; a cloud member's own folder. */
+  projectsBaseDirectory?: string
+  /** The owner chose `projectsBaseDirectory` in Settings, so "reset" has a default to return to. */
+  projectsBaseDirectoryIsSet?: boolean
 }
 
 export type SetupAgent = 'claude' | 'codex'
@@ -409,6 +403,21 @@ export interface HeadlessSessionRequest {
   executionPreferences?: ExecutionPreferences
   /** The agent session on another host that started this one (docs/plans/cross-host-sessions.md). */
   startedBy?: SessionOrigin
+  /** Images already uploaded to this host's attachment store, sent with the prompt. */
+  imageAttachmentRefs?: PromptImageRef[]
+}
+
+/** A prompt to an existing session from an agent on another host. The session
+ *  runs it with its own stored settings, as when an agent on this host sends one. */
+export interface HeadlessPromptRequest {
+  sessionId: string
+  prompt: string
+  delivery: PromptDelivery
+  /** Echoed as the `clientPromptId` of the session's `user_message`, so the
+   *  sender can tell the turn that answers this prompt from any other. */
+  promptId: string
+  /** Images already uploaded to this host's attachment store. */
+  imageAttachmentRefs?: PromptImageRef[]
 }
 
 /** The agent session on another host that started a session. The host it names
@@ -2575,12 +2584,17 @@ export interface RecentProject {
   lastOpened: string    // ISO timestamp of last open
 }
 
-// Every project Solus has seen, persisted in ~/.solus/projects/manifest.json.
+/** A project on this host's project list (docs/plans/project-model.md §2): a
+ *  folder someone added explicitly. The host list is the only record of which
+ *  folders are projects; clients keep a copy only for hosts that are away. */
 export interface ProjectEntry {
   key: string           // hash of the repo root / cwd; names the ~/.solus/projects/<key> dir
-  path: string          // decoded real path
+  path: string          // the project root: the repository's top folder, or the folder itself
   folderName: string    // last path segment
   addedAt: string       // ISO timestamp first recorded
+  /** ISO timestamp of the last time it was added again or a session started
+   *  in it; `addedAt` until then. Project lists order by it. */
+  lastUsedAt: string
   /** The project this checkout belongs to (docs/plans/project-model.md §1):
    *  the repository key of its primary remote, or null for a folder with no
    *  hosted remote. */
@@ -3169,6 +3183,22 @@ export const SOLUS_REMOTE_DISPATCH_PATH_MARKER = `/${SOLUS_REMOTE_DISPATCH_DIR}/
 /** True if `path` lives inside a delegated remote-dispatch checkout. */
 export function isRemoteDispatchCheckoutPath(path: string): boolean {
   return path.includes(SOLUS_REMOTE_DISPATCH_PATH_MARKER)
+}
+
+/**
+ * The repository a remote-dispatch checkout holds, read from its path:
+ * `<projects root>/solus-remote/<owner>/<host>/<owner>/<repo>`, the layout
+ * `dispatchCheckoutPath` writes. A dispatch clone has only its clone source
+ * as a remote, so this is the key its host would read from git. Hosts leave
+ * dispatch checkouts out of their project list, so no host names this key.
+ * Null for any other path.
+ */
+export function remoteDispatchRepositoryKey(path: string): string | null {
+  const root = worktreeProjectRoot(path)
+  const markerIndex = root.indexOf(SOLUS_REMOTE_DISPATCH_PATH_MARKER)
+  if (markerIndex === -1) return null
+  const segments = root.slice(markerIndex + SOLUS_REMOTE_DISPATCH_PATH_MARKER.length).split('/').filter(Boolean).slice(1)
+  return segments.length >= 3 ? segments.join('/').toLowerCase() : null
 }
 
 /** The base project root for a worktree path, or `path` unchanged when it isn't a worktree. */

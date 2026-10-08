@@ -2,7 +2,6 @@ import { onMount, untrack } from "svelte";
 
 import {
   projectsStore,
-  connectionsStore,
   serversStore,
   atlassianStore,
   connectRequestStore,
@@ -12,6 +11,7 @@ import {
   parseRoute,
   runtime,
   listenForProjectDirectory,
+  hosts,
 } from "@solus/workspace-ui/contexts";
 import { snapshotPersistedTabs } from "@solus/workspace-ui/contexts/workspace/tab-snapshot";
 
@@ -73,11 +73,9 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   const {
     settings,
     sessionEnvironmentStore,
-    voiceModelStore,
     pullRequests,
     session,
     sessionSidebarStore,
-    agent,
   } = core;
 
   // Materialize tabs synchronously during component init — before first paint —
@@ -86,7 +84,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   // start() payload is applied first so persisted tabs can fall back to the last
   // known workspace path. The async runtime attach (createTab/bind/transcript)
   // and fresh start() reconciliation run later from the effect below.
-  session.lifecycle.hydrateStaticInfoFromCache();
+  session.lifecycle.hydrateAgentsFromCache();
   materializeTabs(session);
 
   // Electron-only: analytics is desktop-side.
@@ -100,7 +98,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
 
   $effect(() => {
     const installationId = connectionState.target?.installationId;
-    const appVersion = session.staticInfo?.version;
+    const appVersion = hosts.find(connectionState.target?.id)?.capabilityRecord?.version;
     if (!installationId || !appVersion) return;
     identifyInstallation(installationId);
     registerSuperProps({ app_version: appVersion });
@@ -214,22 +212,12 @@ export function installDesktopRuntime(core: DesktopAppCore) {
     const connectionStatus = serversStore.connectionStatus;
     const reconnected = detectReconnect(connectionStatus);
     untrack(() => {
-      if (connectionStatus === "connected") {
-        const defaultServerId = serverConnections.defaultMachineId();
-        if (defaultServerId) {
-          void connectionsStore.refreshCapabilities({
-            serverId: defaultServerId,
-          });
-        }
-      }
       if (reconnected) {
         refreshTheme(settings.setSystemTheme.bind(settings));
-        const defaultServerId = serverConnections.defaultMachineId();
-        if (defaultServerId) {
-          sessionEnvironmentStore.invalidateRegistrationsForHost(
-            defaultServerId,
-          );
-        }
+        // The status above is the active host's, so it is the one whose registrations went stale.
+        sessionEnvironmentStore.invalidateRegistrationsForHost(
+          serversStore.activeServerId,
+        );
         refreshRuntime(session, sessionSidebarStore);
       }
     });
@@ -281,20 +269,9 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   // for their first report, but session changes must not reinstall every listener.
   $effect(() =>
     untrack(() => {
-      const unsubVoiceModel = subscribeAllHosts(
-        "voice.modelStatusChanged",
-        (serverId, status) => voiceModelStore.apply(status, serverId),
-      );
       const unsubSessionStatuses =
         sessionSidebarStore.subscribeSessionStatuses();
-      const defaultServerId = serverConnections.defaultMachineId();
-      if (defaultServerId) void voiceModelStore.refresh(defaultServerId);
       const unsubProjectDirectory = listenForProjectDirectory();
-      const unsubUsage = subscribeAllHosts(
-        "usage.limitsChanged",
-        (_serverId, { snapshots }) => agent.applyUsage(snapshots),
-      );
-      void agent.refreshUsage();
       // Live automation state: scheduler fires, run transitions, and agent-tool
       // saves all land here. Failures get a toast — an unattended run breaking
       // is otherwise invisible until the user happens to open the page.
@@ -369,9 +346,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
           });
       });
       return () => {
-        unsubVoiceModel();
         unsubSessionStatuses();
-        unsubUsage();
         unsubAutomations();
         unsubWorkReviews();
         unsubAnnotations();
@@ -536,6 +511,6 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   dictation.configure(
     () => settings.vadSilenceMs,
     () => settings.voiceModeEnabled,
-    () => voiceModelStore.ready,
+    () => hosts.transcription?.voiceReady ?? false,
   );
 }

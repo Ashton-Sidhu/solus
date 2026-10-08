@@ -23,7 +23,7 @@
   import { DirectoryEdits } from "./lib/directory-edits.svelte";
   import {
     projectsStore,
-    connectionsStore,
+    hosts,
     runtime,
   } from "../../contexts";
   import { getPopoverLayer } from "../popoverLayer.svelte";
@@ -235,7 +235,7 @@
   // The file manager opens on the machine running the handler, so it is only
   // meaningful when the browsed host is this one.
   const canOpenFileManager = $derived(
-    hostPolicy.isClientMachine(serverId) && connectionsStore.desktopHandlersAvailable,
+    hostPolicy.isClientMachine(serverId) && (hosts.device?.hasDesktopHandlers ?? false),
   );
 
   function handleBackdropMousedown(e: MouseEvent) {
@@ -266,8 +266,10 @@
     if (shouldAutofocus) requestAnimationFrame(() => pathInputEl?.focus());
 
     const recents = projectsStore.loadRecentProjects(serverId);
+    const browsedHost = hosts.find(serverId);
     void Promise.all([
-      browseApi.getServerCapabilities().catch(() => null),
+      // The projects folder may have moved since the host's record was read.
+      browsedHost?.refresh("capabilities").then(() => browsedHost.capabilityRecord ?? null).catch(() => null) ?? null,
       browseApi.listDirectory("~", true).catch(() => null),
       recents.catch(() => []),
     ]).then(([capabilities, home]) => {

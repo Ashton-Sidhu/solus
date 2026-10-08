@@ -109,6 +109,7 @@ const resourceRpcRules = {
   compactSession: editor(ctxAt(0)),
   retry: editor(ctxAt(0)),
   decideSessionPlan: editor(ctxAt(0)),
+  promptHeadlessSession: editor(sessionFieldAt(0, 'sessionId')),
   stopSession: editor(sessionIdAt(0)),
   stopBackgroundTasks: editor(sessionIdAt(0)),
   resetSession: editor(ctxAt(0)),
@@ -287,6 +288,10 @@ export const HOST_ADMIN_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>
   'setupAuthorizeGhCli',
   'setupInstallGitCredentialHelper',
   'seatRemove',
+  // The host owner or an organization administrator manages integrations; any member reads them (mcp-integrations.md §3.3).
+  'integrationCreate',
+  'integrationUpdate',
+  'integrationRemove',
   // The owner's own instructions and skills leave the machine only at the administrator's request.
   'agentProfileRead',
   'googleConnect',
@@ -348,7 +353,7 @@ export const SYSTEM_ONLY_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod
 /** The few host-wide calls a guest client needs to boot and keep its socket: nothing about the host leaks through them. */
 export const GUEST_HOST_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
   'connectionsGetServerInfo',
-  'getServerCapabilities',
+  'serverGetCapabilities',
   'activityLease',
   'listAttention',
   // Its own client id and an empty host; the handler scopes a guest's focus to its one resource.

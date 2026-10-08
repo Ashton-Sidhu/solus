@@ -1,6 +1,7 @@
 import { HostSupervisor, type BlockedReason, type DialOutcome, type HostPhase, type SupervisedTransport } from '@solus/client-core/host-supervisor'
 import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { asHostApi, type HostApi } from '@solus/client-core/host-api'
+import { HostFacts } from '@solus/client-core/host-facts'
 import { awaitsManagedCompute, dialableRoutes, installationIdDecision, nextRouteUrl } from '@solus/client-core/server-registry'
 import { classifyVisibilityReturn, type WakeSignal } from '@solus/client-core/wake-signals'
 import type { ConnectionStatus, WsTransportOptions } from '@solus/client-core/ws-transport'
@@ -47,6 +48,8 @@ export class HostConnection {
   state: HostConnectionState = { phase: 'connecting', attempt: 0, blockedReason: null, sessionGeneration: 0 }
   readonly api: HostApi
   readonly events: HostEventSubscriber
+  /** Everything read about this host, shared by every screen (docs/plans/host-model.md). */
+  readonly facts: HostFacts
   private readonly resetListeners = new Set<() => void>()
   private readonly acceptedListeners = new Set<() => void>()
   private readonly stopReset: () => void
@@ -58,6 +61,7 @@ export class HostConnection {
   ) {
     this.api = asHostApi(transport.buildSolusApi())
     this.events = transport.events
+    this.facts = new HostFacts(hostId, { api: this.api, events: this.events })
     this.stopReset = transport.onReset(() => {
       for (const listener of Array.from(this.resetListeners)) listener()
     })
@@ -86,6 +90,7 @@ export class HostConnection {
     this.acceptedListeners.clear()
     this.supervisor.destroy()
     this.transport.destroy()
+    this.facts.dispose()
   }
 }
 
@@ -124,8 +129,8 @@ export class HostConnections {
     })
     const supervisor = new HostSupervisor({
       transport,
-      // One capability record per server session; absent means unsupported.
-      loadCapabilities: async () => (connection ? connection.api.serverGetCapabilities() : {}),
+      // Host facts reload on a fresh server session and clear on a lost one.
+      onSessionChange: (change) => connection?.facts.sessionChanged(change),
       onPhaseChange: (phase, attempt) => {
         if (!connection) return
         connection.state = {

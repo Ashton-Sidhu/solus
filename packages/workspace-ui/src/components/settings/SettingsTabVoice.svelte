@@ -1,37 +1,27 @@
 <script lang="ts">
-  import {
-    getSettingsContext,
-    getVoiceModelStore,
-    hostCapabilitiesStore,
-  } from "../../contexts";
-  import { formatVoiceModelBytes } from "../../contexts/app/voice-model.store.svelte";
+  import { getSettingsContext, hosts } from "../../contexts";
+  import { formatVoiceModelBytes } from "./lib/voice-model-bytes";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";
   import SettingsSelect from "./SettingsSelect.svelte";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
-  import type { HostApi } from "@solus/client-core/host-api";
   import { supportsSettingsSurface } from "@solus/client-core/host-capabilities";
   import SettingsHostUnsupported from "./SettingsHostUnsupported.svelte";
 
   interface Props {
     serverId: string;
-    api: HostApi;
     hostLabel: string;
   }
-  let { serverId, api, hostLabel }: Props = $props();
+  let { serverId, hostLabel }: Props = $props();
 
   const settings = getSettingsContext();
-  const voiceModel = getVoiceModelStore();
-  const modelStatus = $derived(voiceModel.statusFor(serverId));
-  const modelProgressPct = $derived(voiceModel.progressFor(serverId));
-  const capabilities = $derived(hostCapabilitiesStore.for(serverId));
+  const host = $derived(hosts.get(serverId));
+  const capabilities = $derived(host.capabilityRecord);
   const isSupported = $derived(supportsSettingsSurface(capabilities, "voice"));
-
-  $effect(() => {
-    void hostCapabilitiesStore.load(serverId);
-    if (isSupported) void voiceModel.refreshFor(serverId, api);
-  });
+  // Read only where the host transcribes: asking a server that cannot is an error row.
+  const modelStatus = $derived(isSupported ? host.voiceStatus : { state: "checking" as const });
+  const modelProgressPct = $derived(isSupported ? host.voiceProgressPct : null);
 
   const silenceOptions = [1000, 1500, 2000, 3000, 4000, 5000, 6000, 8000].map((ms) => ({
     value: String(ms),
@@ -64,8 +54,9 @@
   <SettingsHostUnsupported feature="Voice features" {hostLabel} />
 {:else}
 <SettingsSection label="Dictation">
-  <!-- Transcription is client-adjacent and remains primary-host by design. The
-       selected host above frames only the model-status surface below. -->
+  <!-- Dictation transcribes on this device when it has a host, else on the Run on
+       host (`hosts.transcription`). The selected host above frames only the
+       model-status surface below. -->
   <SettingsRow
     label="Auto-send transcripts"
     description="Send voice messages when transcribed, not just fill the composer."
@@ -101,7 +92,7 @@
   <Button
     variant="outline"
     size="sm"
-    onclick={() => void voiceModel.retryFor(serverId, api)}
+    onclick={() => void host.retryVoiceModel()}
   >Retry</Button>
 {/snippet}
 

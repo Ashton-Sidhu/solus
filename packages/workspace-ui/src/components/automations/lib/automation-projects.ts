@@ -40,7 +40,7 @@ export function automationProjectOptions(
   if (hasChat) {
     options.push({ key: NEW_CHAT_DIRECTORY, projectKey: NEW_CHAT_DIRECTORY, serverId: '', label: CHAT_LABEL, available: true })
   }
-  for (const option of options) option.historyOnly = !automated.has(option.key)
+  for (const option of options) option.removable = !automated.has(option.key)
   return options.sort((a, b) => a.label.localeCompare(b.label))
 }
 

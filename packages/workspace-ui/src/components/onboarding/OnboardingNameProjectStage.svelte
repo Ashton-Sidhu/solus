@@ -15,7 +15,7 @@
     LoaderCircle as LoaderIcon,
   } from "@lucide/svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { connectionsStore, runtime, serversStore } from "../../contexts";
+  import { hosts, runtime, serversStore } from "../../contexts";
   import Kbd from "../ui/Kbd.svelte";
   import NewProjectNameField from "../servers/NewProjectNameField.svelte";
   import { newProjectPath } from "../servers/lib/open-project-flow";
@@ -41,7 +41,8 @@
   const failure = $derived(createFailure?.name === name ? createFailure : null);
   let inputEl = $state<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
-  const capabilities = $derived(connectionsStore.capabilitiesFor(serverId));
+  // Reading the host's capabilities asks for its projects folder when a fresh client has none yet.
+  const capabilities = $derived(serverId ? hosts.get(serverId).capabilityRecord : undefined);
   const hostLabel = $derived(
     serversStore.hostFor(serverId)?.label ?? "this machine",
   );
@@ -54,9 +55,6 @@
   const canCreate = $derived(!!path && !creating && !!serverId);
 
   onMount(() => {
-    // The preview needs the host's projects folder, which a fresh client may not have read yet.
-    if (serverId && !capabilities)
-      void connectionsStore.refreshCapabilities({ serverId });
     if (!runtime.shouldSuppressFocus)
       requestAnimationFrame(() => inputEl?.focus());
   });

@@ -1,7 +1,7 @@
 <script lang="ts">
   import TaskIcon from "../ui/TaskIcon.svelte";
   import { isSolusApiId } from "@solus/contracts/uplink";
-  import type { Component } from "svelte";
+  import { untrack, type Component } from "svelte";
   import { hostUpdatesStore } from "../../contexts/updates/host-updates.store.svelte";
   import {
     X as XIcon,
@@ -26,6 +26,7 @@
     UserRound as PersonIcon,
     Building2 as OrganizationIcon,
     Server as HostIcon,
+    Plug as PlugIcon,
   } from "@lucide/svelte";
   import {
     getWorkspaceContext,
@@ -50,6 +51,8 @@
   import SettingsTabTools, { settingItems as toolsSearch } from "./SettingsTabTools.svelte";
   import SettingsTabProviders from "./SettingsTabProviders.svelte";
   import SettingsTabSkills from "./SettingsTabSkills.svelte";
+  import SettingsTabIntegrations, { searchWords as integrationsSearch } from "./SettingsTabIntegrations.svelte";
+  import { integrationsStore } from "./integrations.store.svelte";
   import SettingsTabVoice from "./SettingsTabVoice.svelte";
   import SettingsTabExperimental, { settingItems as experimentalSearch } from "./SettingsTabExperimental.svelte";
   import SettingsTabTelemetry, { settingItems as telemetrySearch } from "./SettingsTabTelemetry.svelte";
@@ -77,6 +80,7 @@
   function tabMatchesSearch(tab: TabMeta, query: string): boolean {
     return (
       wordsMatch(query, [tab.label, ...(SEARCH_WORDS[tab.id] ?? [])]) ||
+      (tab.id === "integrations" && wordsMatch(query, integrationsStore.names())) ||
       dataMatches(tab.id, query, settings.keybindings)
     );
   }
@@ -185,6 +189,14 @@
       icon: WrenchIcon,
       group: "Capabilities",
     },
+    // Host-scoped, so it stays visible on web: the integrations are the host's.
+    {
+      id: "integrations",
+      label: "Integrations",
+      description: "Remote MCP servers whose tools your agents can use.",
+      icon: PlugIcon,
+      group: "Capabilities",
+    },
     {
       id: "skills",
       label: "Skills",
@@ -270,6 +282,7 @@
     tasks: keywordsOf(tasksSearch),
     review: keywordsOf(reviewSearch),
     tools: keywordsOf(toolsSearch),
+    integrations: integrationsSearch,
     telemetry: [...analyticsSearch, ...keywordsOf(telemetrySearch)],
     host: hostSearch,
     experimental: keywordsOf(experimentalSearch),
@@ -315,6 +328,7 @@
       session.settingsTab === "source-control" ||
       session.settingsTab === "providers" ||
       session.settingsTab === "tools" ||
+      session.settingsTab === "integrations" ||
       session.settingsTab === "skills" ||
       session.settingsTab === "devices" ||
       session.settingsTab === "voice",
@@ -331,21 +345,29 @@
         serverId,
     }));
   });
-  const selectedSettingsHost = $derived(
-    settingsHosts.find((host) => host.serverId === settingsHost.serverId) ??
+  // Until the user picks a host, show the one new work runs on. The first
+  // connection is only whichever host answered first.
+  const selectedSettingsHost = $derived.by(() => {
+    const runOnHostId = serverConnections.runOnHostId();
+    return (
+      settingsHosts.find((host) => host.serverId === settingsHost.serverId) ??
+      settingsHosts.find((host) => host.serverId === runOnHostId) ??
       settingsHosts[0] ??
-      null,
-  );
+      null
+    );
+  });
   const selectedSettingsApi = $derived(
     selectedSettingsHost
       ? serverConnections.apiFor(selectedSettingsHost.serverId)
       : null,
   );
 
+  // Settings search finds the Integrations page by an integration's name, so
+  // the selected host's list is read while Settings is open.
   $effect(() => {
-    if (selectedSettingsHost) return;
-    settingsHost.serverId =
-      serverConnections.defaultMachineId() ?? settingsHosts[0]?.serverId ?? "";
+    const serverId = selectedSettingsHost?.serverId;
+    if (!serverId) return;
+    return untrack(() => integrationsStore.watch(serverId));
   });
 
   let searchInputEl = $state<HTMLInputElement | null>(null);
@@ -481,7 +503,6 @@
   {:else if session.settingsTab === "voice" && selectedSettingsHost && selectedSettingsApi}
     <SettingsTabVoice
       serverId={selectedSettingsHost.serverId}
-      api={selectedSettingsApi}
       hostLabel={selectedSettingsHost.label}
     />
   {:else if session.settingsTab === "telemetry"}
@@ -506,6 +527,14 @@
       api={selectedSettingsApi}
       hostLabel={selectedSettingsHost.label}
     />
+  {:else if session.settingsTab === "integrations" && selectedSettingsHost}
+    {#key selectedSettingsHost.serverId}
+      <SettingsTabIntegrations
+        searchQuery={pageQuery}
+        serverId={selectedSettingsHost.serverId}
+        hostLabel={selectedSettingsHost.label}
+      />
+    {/key}
   {:else if session.settingsTab === "skills" && selectedSettingsHost && selectedSettingsApi}
     <SettingsTabSkills
       serverId={selectedSettingsHost.serverId}

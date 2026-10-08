@@ -53,6 +53,7 @@ function ProjectList(props: { readonly hostId: string; readonly onPick: (path: s
               <ListRow
                 key={entry.key}
                 title={entry.project.folderName}
+                subtitle={entry.project.path}
                 icon={<ListRowSymbol name="folder" muted />}
                 isFirst={index === 0}
                 accessibilityHint="Shows this project's build profiles"

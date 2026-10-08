@@ -26,6 +26,14 @@
       "contextWindows": [1000000],
       "defaultContextWindow": 1000000
     },
+    "claude-haiku-5-5": {
+      "label": "Haiku 5.5",
+      "reasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+      "defaultReasoningEffort": "medium",
+      "supportsFastMode": false,
+      "contextWindows": [1000000],
+      "defaultContextWindow": 1000000
+    },
     "claude-sonnet-5": {
       "label": "Sonnet 5",
       "isDefault": false,
@@ -93,6 +101,7 @@
     },
     "claude-haiku-4-5-20251001": {
       "label": "Haiku 4.5",
+      "isLegacy": true,
       "reasoningLevels": ["low", "medium", "high"],
       "defaultReasoningEffort": "medium",
       "supportsFastMode": false,

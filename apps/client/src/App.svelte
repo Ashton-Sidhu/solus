@@ -28,7 +28,7 @@
   import { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
   import { subscribe } from "@solus/client-core/connection-state";
   import {
-    connectionsStore,
+    hosts,
     parseRoute,
     serversStore,
   } from "@solus/workspace-ui/contexts";
@@ -67,7 +67,7 @@
   import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
   import { afterPaint } from "@solus/workspace-ui/lib/after-paint";
   const commandPaletteComponent = afterPaint().then(() => import("@solus/workspace-ui/components/command-palette/CommandPalette.svelte"));
-  import { activeSessionShareTarget, listenForProjectDirectory, presenceStore, seatsStore, sharesStore, uplinkStore } from "@solus/workspace-ui/contexts";
+  import { activeSessionShareTarget, listenForProjectDirectory, presenceStore, projectsStore, seatsStore, sharesStore, uplinkStore } from "@solus/workspace-ui/contexts";
   import type { Command } from "@solus/workspace-ui/components/command-palette/lib/commands";
   import { newChatCommand } from "@solus/workspace-ui/components/command-palette/lib/new-chat-command";
   import { openChatDraft } from "@solus/workspace-ui/contexts/workspace/new-chat";
@@ -86,7 +86,6 @@
   const {
     settings,
     sessionSidebarStore,
-    voiceModelStore,
     session,
     agent,
     keybindings,
@@ -94,10 +93,10 @@
 
   const projectPicker = createProjectPicker(session);
 
-  // A bare host has no commit identity; this client's default machine has the
+  // A bare host has no commit identity; this client's Run on host has the
   // obvious prefill, so it is read once the Open project flow is on screen.
   const identityServerId = $derived(
-    openProjectStore.isOpen ? serverConnections.defaultMachineId() : null,
+    openProjectStore.isOpen ? serverConnections.runOnHostId() : null,
   );
   const localGitIdentity = $derived(
     identityServerId ? hostSetupStore.readinessByHost[identityServerId]?.git.identity ?? null : null,
@@ -120,7 +119,8 @@
   track("app_opened", {});
 
   $effect(() => {
-    const appVersion = session.staticInfo?.version;
+    // The version of the host that served this client: the window's primary.
+    const appVersion = hosts.find(serverConnections.defaultServerId())?.capabilityRecord?.version;
     if (appVersion) registerSuperProps({ app_version: appVersion });
   });
 
@@ -131,7 +131,7 @@
     }),
   );
 
-  session.lifecycle.hydrateStaticInfoFromCache();
+  session.lifecycle.hydrateAgentsFromCache();
   materializeTabs(session);
   // The web shell has an address bar, so the location is mirrored into it: the
   // destination, the companion strip, and the focused pane are in the URL, which is what makes
@@ -182,6 +182,7 @@
     const flush = () => {
       flushDrafts();
       flushPersistedSessionDrafts();
+      projectsStore.flush();
     };
     window.addEventListener("pagehide", flush);
     return () => {
@@ -250,12 +251,7 @@
   // listener callback or an initial loader happens to read synchronously.
   $effect(() =>
     untrack(() => {
-      const unsubVoiceModel = subscribeAllHosts('voice.modelStatusChanged', (serverId, status) =>
-        voiceModelStore.apply(status, serverId),
-      );
       const unsubSessionStatuses = sessionSidebarStore.subscribeSessionStatuses();
-      const defaultServerId = serverConnections.defaultMachineId();
-      if (defaultServerId) void voiceModelStore.refresh(defaultServerId);
       const unsubProjectDirectory = listenForProjectDirectory();
       const unsubAutomations = subscribeAllHosts('automation.changed', (serverId, event) => {
         session.automationsStore.applyChange(serverId, event);
@@ -270,10 +266,6 @@
       });
       // Review requests and decisions reach the reader on every client.
       const unsubWorkReviews = subscribeWorkReviewChanges(session.worksStore, (workId) => session.openWork(workId));
-      const unsubUsage = subscribeAllHosts('usage.limitsChanged', (_serverId, { snapshots }) =>
-        agent.applyUsage(snapshots),
-      );
-      void agent.refreshUsage();
       // A member's provider seat changes on the host, at a turn's end or in the
       // browser; the settings row and the connect card both read the store.
       const unsubSeats = seatsStore.listen();
@@ -291,12 +283,10 @@
       devicesStore.onSurfaceRequested = (serverId, payload) => revealDeviceSurface(session, serverId, payload);
       const unsubDevices = devicesStore.subscribe();
       return () => {
-        unsubVoiceModel();
         unsubSessionStatuses();
         unsubProjectDirectory();
         unsubAutomations();
         unsubWorkReviews();
-        unsubUsage();
         unsubSeats();
         unsubPresence();
         unsubUplink();
@@ -381,12 +371,6 @@
     const reconnected = detectReconnect(connectionStatus);
     untrack(() => {
       if (connectionStatus === 'connected') track(reconnected ? 'client_reconnected' : 'client_connected', reconnected ? { attempt: webState.connectionAttempt } : {});
-      if (connectionStatus === 'connected') {
-        const defaultServerId = serverConnections.defaultMachineId();
-        if (defaultServerId) {
-          void connectionsStore.refreshCapabilities({ serverId: defaultServerId });
-        }
-      }
       if (reconnected) {
         settings.setSystemTheme(window.matchMedia('(prefers-color-scheme: dark)').matches);
         refreshRuntime(session, sessionSidebarStore);

@@ -12,6 +12,8 @@ import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import type { NormalizedEvent, IpcContext, QueuedPromptSnapshot, QueuedPromptReason, SessionRunInput } from '@solus/contracts/types'
 import { isSessionBusyStatus, isSteerableStatus, MODEL_PROFILES } from '@solus/contracts/types'
 import { HOST_ACTOR, type Actor } from '../../admission/actor'
+import { INTERNAL_PRINCIPAL, recordScopeOf } from '../../admission/principal'
+import { integrationAgentTools } from '../../integrations/integration-tools'
 import type { ActivityKind } from '@solus/contracts/activity'
 import { sameUser } from '@solus/contracts/user'
 import type { SessionRuntime, SessionRunRequest, SessionRunLifecycle } from '../session-runtime'
@@ -471,7 +473,10 @@ export class RunScheduler {
       servedEnqueuedAt: req.enqueuedAt,
       // SAFETY: the shared executor validates each tool's declared Zod fields
       // before invoking it. Restore the full catalog, never persisted closures.
-      tools: req.run.tools.length ? req.run.tools : Object.values(solusToolbox).flatMap((group) => Object.values(group)) as AgentTool[],
+      tools: req.run.tools.length ? req.run.tools : [
+        ...Object.values(solusToolbox).flatMap((group) => Object.values(group)) as AgentTool[],
+        ...integrationAgentTools(recordScopeOf(req.run.actor?.principal ?? INTERNAL_PRINCIPAL)),
+      ],
       options: { ...req.run.options, promptSource: 'queued' },
     }
     // A session in 'background' still has its provider query open. A second
