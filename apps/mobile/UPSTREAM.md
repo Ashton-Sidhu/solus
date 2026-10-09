@@ -62,6 +62,14 @@ checkout at build time.
 | `src/features/prs/` | `src/features/threads/thread-list-v2-items.tsx`, `src/state/thread-pr-presentation.ts`, `src/features/review/ReviewCommentComposerSheet.tsx` | The pull request row anatomy and state colors (open green, merged violet, closed rose, draft muted), and the comment sheet's layout. | Solus's own list (host-wide, in the web's Authored / Review requested / Others sections) and detail screen; no T3 review or diff code. |
 | `src/features/files/FilesScreen.tsx` | `src/features/files/ThreadFilesRouteScreen.tsx` | A pushed folder screen per level, folders first. | Built on the host's flat file index (`listProjectFiles`); read-only. |
 
+## Upstream fixes ported (2026-10-09)
+
+T3 Code mobile fixes merged after the port, applied where Solus has the same defect.
+
+| T3 pull request | Solus files | Local changes |
+| --- | --- | --- |
+| #16729, highlight batches keep grammar state | `src/features/review/shikiReviewHighlighter.ts` | None. |
+
 ## Evaluated, not adopted in milestone one
 
 | T3 source | Reason |

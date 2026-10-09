@@ -71,3 +71,45 @@ describe("source file language", () => {
     expect(await colors("notes.unknownext", "const value = 1;")).toBe(1);
   });
 });
+
+describe("source file batches", () => {
+  it("keeps colors for a block comment that spans highlight batches", async () => {
+    // WHY: a large file is tokenized in batches; a batch that starts from a
+    // fresh grammar state colors the rest of an open comment as code.
+    const { highlightSourceFile } = await import(
+      "../../apps/mobile/src/features/review/shikiReviewHighlighter"
+    );
+    const body = Array.from({ length: 400 }, (_, index) => `const insideComment${index} = 1;`);
+    const highlighted = await highlightSourceFile({
+      path: "example.ts",
+      contents: ["/*", ...body, "*/", "const after = 2;"].join("\n"),
+      theme: "dark",
+    });
+    const commentColors = new Set(
+      highlighted.slice(1, -2).flatMap((line) => line.map((token) => token.color)),
+    );
+    expect(commentColors.size).toBe(1);
+    expect(highlighted.at(-1)?.map((token) => token.color)).not.toEqual(
+      highlighted[1]?.map((token) => token.color),
+    );
+  });
+
+  it("colors the code after a skipped long line from a fresh state", async () => {
+    // WHY: a line too long to tokenize stays plain and its ending state is
+    // unknown; the code after it must still be colored as code.
+    const { highlightSourceFile } = await import(
+      "../../apps/mobile/src/features/review/shikiReviewHighlighter"
+    );
+    const longLine = `const value = "${"a".repeat(1_100)}";`;
+    const highlighted = await highlightSourceFile({
+      path: "example.ts",
+      contents: ["const before = 1;", longLine, "const after = 2;"].join("\n"),
+      theme: "dark",
+    });
+    expect(highlighted).toHaveLength(3);
+    expect(highlighted[1]).toEqual([{ content: longLine, color: null, fontStyle: null }]);
+    expect(highlighted[2]?.map((token) => token.color)).toEqual(
+      highlighted[0]?.map((token) => token.color),
+    );
+  });
+});
