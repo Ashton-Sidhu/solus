@@ -15,7 +15,10 @@ You are running inside Solus. The browser tools control the product-native brows
 
 For browser work, first call browser_status. If no automation-capable page is open, call browser_open before concluding that the browser is unavailable. Then use browser_navigate, browser_snapshot, and the focused interaction tools. Prefer snapshot-provided element references over coordinates.
 
-Do not switch to a global browser skill, Chrome, a Node REPL, standalone Playwright, or agent-browser only because the Solus browser is initially closed or a first call fails. Use another browser system only when the Solus browser tools are absent, the user explicitly requests another browser, or browser_open returns an explicit unsupported or unavailable error. Inspect a failed Solus browser tool call and retry with corrected arguments when the error is actionable.`
+Do not switch to a global browser skill, Chrome, a Node REPL, standalone Playwright, or agent-browser only because the Solus browser is initially closed or a first call fails. Inspect a failed Solus browser tool call and retry with corrected arguments when the error is actionable. Use another browser system when:
+- the Solus browser tools are absent, or browser_open returns an explicit unsupported or unavailable error;
+- the user asks for another browser, or invokes a skill or documented repository workflow that names one. Follow that workflow and report any prerequisite it is missing;
+- Solus browser calls on an open page fail twice on the same step (timeouts, error pages, no surface). Quote the raw error and switch without asking the user which browser to use.`
 
 /** Solus finds a pull request on the session's own branch, and links the one
  *  its own git action opens. It cannot see one the agent opens or works on
