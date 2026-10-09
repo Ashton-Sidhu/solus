@@ -70,6 +70,7 @@ T3 Code mobile fixes merged after the port, applied where Solus has the same def
 | --- | --- | --- |
 | #16729, highlight batches keep grammar state | `src/features/review/shikiReviewHighlighter.ts` | None. |
 | #15397, elapsed-time clocks pause while hidden | `src/features/threads/use-visible-second-clock.ts` | The working timer and the agent rows share it. The AppState gate is a plain function (`tickWhileAppActive`) so a Bun test can drive it. |
+| #16296, collect the UI runtime on an iOS memory warning | `src/lib/ui-runtime-memory-warning-gc.ts`, `src/App.tsx` | A start/stop function in the app's lifecycle effect instead of a hook. |
 
 ## Evaluated, not adopted in milestone one
 
