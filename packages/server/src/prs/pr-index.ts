@@ -61,6 +61,18 @@ export class PrIndex {
   private readonly entities = new Map<string, PullRequest>()
   private readonly listings = new Map<string, CachedField<PrListPage>>()
   private readonly needsReview = new Map<string, CachedField<Contracts.PullRequest[]>>()
+  private readonly readListeners = new Set<(repo: RepoRef, pullRequest: Contracts.PullRequest) => void>()
+
+  /**
+   * Hear every pull request answer an entity reads or is handed: a review pane's
+   * fresh read, a watch's read, a write's response. PR sync listens, so a state
+   * that one read path sees reaches the links and every client without waiting
+   * for its next repository read.
+   */
+  onPullRequestRead(listener: (repo: RepoRef, pullRequest: Contracts.PullRequest) => void): () => void {
+    this.readListeners.add(listener)
+    return () => { this.readListeners.delete(listener) }
+  }
 
   /**
    * The entity for one pull request, created on first touch.
@@ -76,7 +88,9 @@ export class PrIndex {
       touch(this.entities, key, existing, ENTITY_CAPACITY)
       return existing
     }
-    const created = new PullRequest(repo, number, provider)
+    const created = new PullRequest(repo, number, provider, (pullRequest) => {
+      for (const listener of this.readListeners) listener(repo, pullRequest)
+    })
     touch(this.entities, key, created, ENTITY_CAPACITY)
     return created
   }

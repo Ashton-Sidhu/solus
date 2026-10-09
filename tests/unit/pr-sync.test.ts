@@ -264,6 +264,44 @@ describe('merges made outside Solus', () => {
     await sync.tick()
     expect((await tasks.Task.byId('local', task.id)).status).toBe('done')
   })
+  test('seen by another read path reach the links at once, after PR sync reads them itself', async () => {
+    // WHY: a review pane's fresh read showed "Merged" while the task, the
+    // session link and other clients waited for the next list read, up to a
+    // minute. The other answer is not trusted: PR sync reads the number again.
+    const { prIndex } = await import('@solus/server/prs/pr-index')
+    const { scope, host, pullRequest } = codeHost('heard-merge')
+    const task = await taskLinking(scope, [1])
+    const repo = { host: 'github.com', owner: 'owner', repo: 'heard-merge' }
+    const provider = providers.get('heard-merge')!
+    let paneAnswer = pullRequest(1, { updatedAt: later(1) })
+    ;(provider.review as unknown as { getPullRequest: () => Promise<PullRequest> }).getPullRequest = async () => paneAnswer
+    const announced: string[] = []
+    const now = Date.now()
+    const sync = new PrSync({ publish: (change) => { announced.push(...change.pullRequests.map(({ state }) => state)) }, now: () => now })
+    sync.start()
+    try {
+      host.rows = [pullRequest(1, { updatedAt: later(1) })]
+      await sync.tick()
+
+      // The same state costs nothing.
+      await prIndex.pullRequest(repo, provider, 1).readFresh()
+      await sync.tick()
+      expect(host.numberReads).toEqual([])
+
+      paneAnswer = pullRequest(1, { state: 'merged', updatedAt: later(2) })
+      host.known.set(1, paneAnswer)
+      await prIndex.pullRequest(repo, provider, 1).readFresh()
+      await sync.tick()
+    } finally {
+      sync.stop()
+    }
+
+    expect(host.numberReads).toEqual([[1]])
+    expect(host.recentReads).toBe(1)
+    expect(announced).toEqual(['merged'])
+    expect((await linksOf(task.id))[0]?.snapshot?.state).toBe('merged')
+    expect((await tasks.Task.byId('local', task.id)).status).toBe('done')
+  })
 })
 
 describe('branch discovery', () => {

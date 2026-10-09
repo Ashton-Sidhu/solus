@@ -100,6 +100,9 @@ interface RepositorySync {
   nextAt: number
   /** When the recent list is next read; 0 reads it on the next pass. */
   listAt: number
+  /** Numbers another read path saw in a new state. The next tick reads them
+   *  again itself before it writes a link: that other answer is not trusted. */
+  reread: Set<number>
   /** Check runs last published, as JSON, by number. */
   checks: Map<number, string>
   checksInFlight: boolean
@@ -148,6 +151,7 @@ export class PrSync {
   private readonly isSessionBusy: NonNullable<PrSyncDeps['isSessionBusy']>
   private readonly now: () => number
   private timer: ReturnType<typeof setInterval> | null = null
+  private stopHearingReads: (() => void) | null = null
   private running: Promise<void> | null = null
   private rerun = false
 
@@ -162,11 +166,30 @@ export class PrSync {
     // Nobody waits on a clock tick, so it leaves GitHub's reserve to people.
     this.timer = setInterval(() => void asBackgroundWork(() => this.tick()), CLOCK_MS)
     this.timer.unref?.()
+    this.stopHearingReads = prIndex.onPullRequestRead((repo, pullRequest) => this.hearRead(repo, pullRequest))
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer)
     this.timer = null
+    this.stopHearingReads?.()
+    this.stopHearingReads = null
+  }
+
+  /**
+   * Another read path — a review pane's fresh read, a PR watch — saw a pull
+   * request in a state other than the one PR sync holds. Without this, the
+   * links, tasks, and sessions waited for the repository's next list read, up
+   * to a minute. The repository is due now, and the tick reads the number
+   * again itself; the cost is one read when a state changes.
+   */
+  private hearRead(repo: RepoRef, pullRequest: PullRequest): void {
+    const sync = this.repositories.get(repoKeyOf(repo).toLowerCase())
+    const record = sync?.records.get(pullRequest.number)
+    if (!sync || record?.result !== 'found' || record.pullRequest.state === pullRequest.state) return
+    sync.reread.add(pullRequest.number)
+    sync.nextAt = 0
+    void this.tick()
   }
 
   /** Run every repository that is due. A call during a run runs once more after it. */
@@ -257,7 +280,7 @@ export class PrSync {
     if (!sync) {
       sync = {
         host, records: new Map(), byBranch: new Map(), linkedBranches: new Set(),
-        watermark: null, syncedAt: 0, nextAt: 0, listAt: 0, checks: new Map(), checksInFlight: false, needsReview: null, needsReviewAt: 0,
+        watermark: null, syncedAt: 0, nextAt: 0, listAt: 0, reread: new Set(), checks: new Map(), checksInFlight: false, needsReview: null, needsReviewAt: 0,
       }
       this.repositories.set(key, sync)
     }
@@ -394,8 +417,10 @@ export class PrSync {
       sync.listAt = this.now() + REPOSITORY_MS
     }
     const unknown = [...wanted.numbers].filter((number) => !sync.records.has(number))
-    if (unknown.length) {
-      for (const [number, pullRequest] of await provider.review.getPullRequests(repo, unknown)) observe(number, pullRequest)
+    const numbers = [...new Set([...unknown, ...sync.reread])]
+    sync.reread.clear()
+    if (numbers.length) {
+      for (const [number, pullRequest] of await provider.review.getPullRequests(repo, numbers)) observe(number, pullRequest)
     }
     return [...observations.values()]
   }

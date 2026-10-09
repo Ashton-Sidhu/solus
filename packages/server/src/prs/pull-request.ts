@@ -72,7 +72,15 @@ export class PullRequest {
     readonly repo: RepoRef,
     readonly number: number,
     private readonly provider: Provider,
+    /** Hears every answer this entity reads from the host or is handed. */
+    private readonly onRead: (pullRequest: Contracts.PullRequest) => void = () => {},
   ) {}
+
+  private async load(): Promise<Contracts.PullRequest> {
+    const pullRequest = await this.provider.review.getPullRequest(this.repo, this.number)
+    this.onRead(pullRequest)
+    return pullRequest
+  }
 
   /**
    * The pull request as a surface should render it. May be up to
@@ -83,7 +91,7 @@ export class PullRequest {
    * a remembered answer is exactly what those checks exist to reject.
    */
   async read(): Promise<Contracts.PullRequest> {
-    return this.pullRequestField.read(() => this.provider.review.getPullRequest(this.repo, this.number))
+    return this.pullRequestField.read(() => this.load())
   }
 
   /**
@@ -95,10 +103,7 @@ export class PullRequest {
    * question has to reach the host.
    */
   async readFresh(): Promise<Contracts.PullRequest> {
-    return this.pullRequestField.read(
-      () => this.provider.review.getPullRequest(this.repo, this.number),
-      { force: true },
-    )
+    return this.pullRequestField.read(() => this.load(), { force: true })
   }
 
   /** The last answer read, however old, or undefined if nothing has read it. */
@@ -110,6 +115,7 @@ export class PullRequest {
    *  response — so the next read does not pay for it again. */
   seed(detail: Contracts.PullRequest): void {
     this.pullRequestField.seed(detail)
+    this.onRead(detail)
   }
 
   /**
