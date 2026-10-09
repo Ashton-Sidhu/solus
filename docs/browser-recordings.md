@@ -12,6 +12,10 @@ capture its own screen.
 3. Use the page. Clicks and key presses show on the video.
 4. Select **Stop** (the square), or press `⌥R` again.
 
+On desktop, `⌥R` and the other Solus `⌥` shortcuts also work while the page
+itself has focus. Shortcuts with `⌘` or `⌃` go to the page, because pages use
+them for their own commands.
+
 While a page records, the toolbar shows a red dot and the elapsed time. Every
 client that shows the page shows the same state.
 

@@ -997,6 +997,16 @@ export type OrganizationSettingsResult =
   | { kind: 'forbidden' }
   | SettingsRequestFailure
 
+/** A key chord a focused browser page gives to Solus. `mod` is already resolved
+ *  to Command or Control for this platform, so main matches it as written. */
+export interface GuestShortcut {
+  code: string
+  alt: boolean
+  shift: boolean
+  meta: boolean
+  ctrl: boolean
+}
+
 export interface NativeSolusAPI {
   getPlatform(): string
   getLocalConnection(): Promise<LocalConnectionInfo>
@@ -1023,6 +1033,11 @@ export interface NativeSolusAPI {
   onThemeChange(callback: (isDark: boolean) => void): () => void
   onWindowShown(callback: () => void): () => void
   onWindowHidden(callback: () => void): () => void
+  /** The Solus shortcuts that must still work while a browser page has focus.
+   *  A `<webview>` guest is its own process, so its keys never reach the
+   *  renderer's listener; main takes these out of the guest and sends them back. */
+  setGuestShortcuts(shortcuts: GuestShortcut[]): void
+  onGuestShortcut(callback: (shortcut: GuestShortcut) => void): () => void
   /** The Solus account this install is signed in to. Owned by the main process;
    *  the renderer never sees the session token. */
   accountState(): Promise<AccountState>

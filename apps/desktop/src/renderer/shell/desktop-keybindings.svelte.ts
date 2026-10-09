@@ -11,6 +11,8 @@ import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
 import { localApi } from "@solus/client-core/local-api";
 
 import { useKeybinding } from "@solus/workspace-ui/lib/keybindings/use-keybinding.svelte";
+import { guestShortcutEvent, guestShortcuts } from "@solus/workspace-ui/lib/keybindings/guest-shortcuts";
+import { isMac } from "@solus/workspace-ui/lib/keybindings/match";
 
 import { requestInputFocus } from "@solus/workspace-ui/lib/inputFocus";
 import { openChatDraft } from "@solus/workspace-ui/contexts/workspace/new-chat";
@@ -56,6 +58,16 @@ export function installDesktopKeybindings(
   // backend tabOrder here would diverge from the strip whenever tabs are grouped
   // by status/unread. Computed lazily on keypress (like navigateTab) rather than
   // as a $derived that recomputes on every backend status tick.
+  // A focused browser page is its own process, so its keys never reach the
+  // dispatcher's listener. Main takes these out of the page and sends them back.
+  $effect(() => {
+    window.solusNative?.setGuestShortcuts(guestShortcuts(settings.keybindings, isMac));
+  });
+  $effect(() =>
+    window.solusNative?.onGuestShortcut((shortcut) =>
+      keybindings.dispatch(guestShortcutEvent(shortcut)),
+    ),
+  );
   function scopedSessionTabOrder(): string[] {
     const activeKey = branchKeyFor(session.sessionFor(activeTabId));
     return visualTabOrder(visibleTabOrder).filter(

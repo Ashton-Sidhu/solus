@@ -10,7 +10,7 @@ export type { LocalConnectionInfo, SolusAPI } from '@solus/contracts/host-api'
 import type { LocalConnectionInfo } from '@solus/contracts/host-api'
 
 export type { NativeSolusAPI } from '@solus/contracts/host-api'
-import type { NativeSolusAPI } from '@solus/contracts/host-api'
+import type { GuestShortcut, NativeSolusAPI } from '@solus/contracts/host-api'
 
 // Main has finished booting the local server before it creates either renderer
 // window. Start this immutable bootstrap lookup while the preload itself is
@@ -44,6 +44,7 @@ const subscribeOpenRoute = channelFanOut<[route: string]>('solus:open-route')
 const subscribeThemeChange = channelFanOut<[isDark: boolean]>('solus:theme-changed')
 const subscribeWindowShown = channelFanOut<[]>('solus:window-shown')
 const subscribeWindowHidden = channelFanOut<[]>('solus:window-hidden')
+const subscribeGuestShortcut = channelFanOut<[shortcut: GuestShortcut]>('solus:guest-shortcut')
 const subscribeAccountStateChange = channelFanOut<[state: AccountState]>('solus:account-state-changed')
 const subscribeUpdateStatusChange = channelFanOut<[status: DesktopUpdateStatus]>('solus:update-status-changed')
 
@@ -78,6 +79,9 @@ const nativeApi: NativeSolusAPI = {
   onThemeChange: subscribeThemeChange,
   onWindowShown: subscribeWindowShown,
   onWindowHidden: subscribeWindowHidden,
+  setGuestShortcuts: (shortcuts: GuestShortcut[]) =>
+    ipcRenderer.send('solus:set-guest-shortcuts', shortcuts),
+  onGuestShortcut: subscribeGuestShortcut,
   accountState: () => ipcRenderer.invoke('solus:account-state'),
   accountSignIn: () => ipcRenderer.invoke('solus:account-sign-in'),
   accountCancelSignIn: () => ipcRenderer.send('solus:account-cancel-sign-in'),
