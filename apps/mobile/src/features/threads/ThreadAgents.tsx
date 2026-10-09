@@ -1,11 +1,11 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/thread-subagent-group.tsx,
 // SubagentRow.tsx, SubagentStatusDot.tsx and ThreadAgentsSheet.tsx (MIT, see
 // UPSTREAM.md), on Solus's agents (`agent-card-presentation.ts`).
-import { StackActions, useIsFocused, useNavigation } from "@react-navigation/native";
+import { StackActions, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { AppState, Platform, Pressable, ScrollView, View, type ColorValue } from "react-native";
+import { useMemo, type ReactNode } from "react";
+import { Platform, Pressable, ScrollView, View, type ColorValue } from "react-native";
 import { Screen, ScreenStack, ScreenStackHeaderConfig } from "react-native-screens";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -28,6 +28,7 @@ import {
   type AgentTone,
 } from "./agent-card-presentation";
 import { useTranscriptItems } from "./use-transcript-items";
+import { useVisibleSecondClock } from "./use-visible-second-clock";
 import { WorkLogBlock } from "./work-log-layout";
 
 const TONE_DOT: { readonly [tone in AgentTone]: string } = {
@@ -70,27 +71,9 @@ export function useAgentPresentations(store: ConversationStore, ids: readonly st
   }, [app, hostId, items, listed, store]);
 }
 
-/** Now, ticking once a second only while some agent runs and the screen can be seen. */
-function useAgentClock(live: boolean): number {
-  const focused = useIsFocused();
-  const [now, setNow] = useState(() => Date.now());
-  const [appActive, setAppActive] = useState(() => AppState.currentState === "active");
-  useEffect(() => {
-    const subscription = AppState.addEventListener("change", (state) => setAppActive(state === "active"));
-    return () => subscription.remove();
-  }, []);
-  useEffect(() => {
-    if (!live || !focused || !appActive) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1_000);
-    return () => clearInterval(timer);
-  }, [appActive, focused, live]);
-  return now;
-}
-
 /** Its own component so the clock repaints this text only. */
 function AgentElapsed(props: { readonly rows: readonly AgentRowPresentation[] }) {
-  const now = useAgentClock(props.rows.some((row) => row.live));
+  const now = useVisibleSecondClock(props.rows.some((row) => row.live));
   const elapsed = agentsElapsedMs(props.rows, now);
   return elapsed === null ? null : (
     <Text className="shrink-0 text-xs tabular-nums text-foreground-muted">{formatAgentElapsed(elapsed)}</Text>
