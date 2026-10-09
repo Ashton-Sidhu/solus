@@ -1,4 +1,5 @@
 import { rmSync } from 'node:fs'
+import { release } from 'node:os'
 import { join } from 'path'
 import { z } from 'zod'
 import {
@@ -117,7 +118,7 @@ interface PlaywrightCookie {
 interface PlaywrightChromium {
   launchPersistentContext(
     userDataDir: string,
-    options: { headless: boolean; viewport: null; args: string[] },
+    options: { headless: boolean; viewport: null; args: string[]; ignoreDefaultArgs: string[] },
   ): Promise<PlaywrightContext>
 }
 
@@ -125,6 +126,7 @@ type CdpCommandParams =
   | { width: number; height: number; deviceScaleFactor: number; mobile: boolean; screenWidth: number; screenHeight: number }
   | { enabled: boolean; maxTouchPoints?: number }
   | { userAgent: string }
+  | ChromeIdentity
   | { features: { name: string; value: string }[] }
   | { format: 'png'; captureBeyondViewport: boolean }
   | { format: 'jpeg'; quality: number; maxWidth: number; maxHeight: number; everyNthFrame: number }
@@ -153,6 +155,8 @@ const networkFailureSchema = z.object({ errorText: z.string().default('Request f
 
 const screenshotResultSchema = z.object({ data: z.string().min(1) })
 
+const browserVersionSchema = z.object({ userAgent: z.string().min(1) })
+
 const screencastFrameSchema = z.object({ data: z.string().min(1), sessionId: z.number() })
 
 const evaluateResultSchema = z.object({
@@ -170,6 +174,7 @@ const remoteObjectResultSchema = z.object({
  *  as ignoring it. */
 type CdpCommandReply =
   | z.input<typeof screenshotResultSchema>
+  | z.input<typeof browserVersionSchema>
   | z.input<typeof evaluateResultSchema>
   | z.input<typeof remoteObjectResultSchema>
   | null
@@ -338,7 +343,15 @@ function contextFor(
     // Null, because the viewport is CDP's job here: emulation has to carry
     // touch, pixel ratio and user agent, which a Playwright viewport does not.
     viewport: null,
-    args: ['--disable-background-timer-throttling', '--disable-renderer-backgrounding'],
+    // A person reads and signs in to these pages, so they must not announce
+    // automation: `--enable-automation` and the AutomationControlled feature
+    // are what set `navigator.webdriver`, and sites refuse a page that has it.
+    args: [
+      '--disable-background-timer-throttling',
+      '--disable-renderer-backgrounding',
+      '--disable-blink-features=AutomationControlled',
+    ],
+    ignoreDefaultArgs: ['--enable-automation'],
   }).catch((error) => {
     contexts.delete(partition)
     throw launchFailure(error)
@@ -364,6 +377,7 @@ async function openPlaywrightGuest(
   const cdp = await context.newCDPSession(page)
   const driver = new PlaywrightBrowserDriver(page, cdp)
   await driver.enableDomains()
+  await driver.readChromeIdentity()
   // Set before the navigation below, so the first real page — and every one
   // after it — carries Solus's scrollbar rather than Chromium's default bar.
   await driver.installGuestStyle()
@@ -414,6 +428,8 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
   private readonly console: BrowserConsoleEntry[] = []
   private readonly network: BrowserNetworkEntry[] = []
   private appliedEmulation: AppliedEmulation | null = null
+  /** How this page presents itself when no emulation names a user agent. */
+  private chromeIdentity: ChromeIdentity | null = null
   private screencastFrame: BrowserFrameListener | null = null
   private disposed = false
   private readonly dialogTracker = new BrowserDialogTracker()
@@ -449,11 +465,20 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
     }
   }
 
+  /** Read the shell's own version once, before the first emulation. Best-effort:
+   *  without it the page keeps the headless identity, which still renders. */
+  async readChromeIdentity(): Promise<void> {
+    const version = await this.ask('Browser.getVersion', undefined, browserVersionSchema).catch(() => null)
+    this.chromeIdentity = version
+      ? chromeIdentity(version.userAgent, { platform: process.platform, arch: process.arch, release: release() })
+      : null
+  }
+
   async applyEmulation(emulation: BrowserEmulation): Promise<void> {
     const { viewport, appearance } = emulation
-    // A headless Chromium has no user agent of its own worth naming, so an
-    // absent one is recorded as the empty string and compared like any other.
-    const next = emulationRecord(emulation, '')
+    // With no user agent asked for, the page is plain Chrome rather than
+    // HeadlessChrome. A chosen user agent always wins over that identity.
+    const next = emulationRecord(emulation, this.chromeIdentity?.userAgent ?? '')
     const changed = emulationChanges(this.appliedEmulation, next)
 
     if (changed.metrics) {
@@ -474,7 +499,11 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
         : { enabled: false })
     }
     if (changed.userAgent && next.userAgent) {
-      await this.send('Emulation.setUserAgentOverride', { userAgent: next.userAgent })
+      // The client hints change with the user agent: a site that sees a Chrome
+      // user agent next to `HeadlessChrome` brands blocks the page.
+      await this.send('Emulation.setUserAgentOverride', emulation.userAgent || !this.chromeIdentity
+        ? { userAgent: next.userAgent }
+        : this.chromeIdentity)
     }
     if (changed.appearance) {
       await this.send('Emulation.setEmulatedMedia', {
@@ -672,7 +701,7 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
 
   private async ask<Schema extends z.ZodType>(
     method: string,
-    params: CdpCommandParams,
+    params: CdpCommandParams | undefined,
     schema: Schema,
     timeoutMs = CDP_TIMEOUT_MS,
   ): Promise<z.output<Schema> | null> {
@@ -737,6 +766,70 @@ class PlaywrightBrowserDriver implements BrowserSurfaceDriver {
   private push<Entry>(ring: Entry[], entry: Entry): void {
     ring.push(entry)
     if (ring.length > BROWSER_RING_LIMIT) ring.splice(0, ring.length - BROWSER_RING_LIMIT)
+  }
+}
+
+/** The client hints Chromium sends with a user agent (CDP's `UserAgentMetadata`). */
+interface UserAgentMetadata {
+  brands: { brand: string; version: string }[]
+  fullVersionList: { brand: string; version: string }[]
+  platform: string
+  platformVersion: string
+  architecture: string
+  bitness: string
+  model: string
+  mobile: boolean
+  wow64: boolean
+}
+
+export interface ChromeIdentity {
+  userAgent: string
+  userAgentMetadata: UserAgentMetadata
+}
+
+/** The platform name Chrome reports in `Sec-CH-UA-Platform`. */
+function clientHintPlatform(platform: NodeJS.Platform): string {
+  if (platform === 'darwin') return 'macOS'
+  if (platform === 'linux') return 'Linux'
+  if (platform === 'win32') return 'Windows'
+  return 'Unknown'
+}
+
+/**
+ * The headless shell as the Chrome it is built from: its user agent without
+ * `HeadlessChrome`, and client hints whose brands, platform, and architecture
+ * agree with that user agent. Changing the string alone is not enough — sites
+ * compare it with `Sec-CH-UA` and block a page whose two answers disagree.
+ * Null when the user agent names no HeadlessChrome version: there is nothing to
+ * correct then.
+ */
+export function chromeIdentity(
+  headlessUserAgent: string,
+  host: { platform: NodeJS.Platform; arch: string; release: string },
+): ChromeIdentity | null {
+  const version = /HeadlessChrome\/((\d+)[\d.]*)/.exec(headlessUserAgent)
+  const fullVersion = version?.[1]
+  const major = version?.[2]
+  if (!version || !fullVersion || !major) return null
+  const brands = (versionOf: (version: string) => string): { brand: string; version: string }[] => [
+    { brand: 'Chromium', version: versionOf(major) },
+    { brand: 'Google Chrome', version: versionOf(major) },
+    { brand: 'Not A(Brand', version: versionOf('99') },
+  ]
+  return {
+    // Chrome reduces the version in its user agent to the major number.
+    userAgent: headlessUserAgent.replace(version[0], `Chrome/${major}.0.0.0`),
+    userAgentMetadata: {
+      brands: brands((value) => value),
+      fullVersionList: brands((value) => (value === major ? fullVersion : `${value}.0.0.0`)),
+      platform: clientHintPlatform(host.platform),
+      platformVersion: host.platform === 'linux' ? host.release : '',
+      architecture: host.arch.startsWith('arm') ? 'arm' : 'x86',
+      bitness: host.arch.endsWith('64') ? '64' : '32',
+      model: '',
+      mobile: false,
+      wow64: false,
+    },
   }
 }
 
