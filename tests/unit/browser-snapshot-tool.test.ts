@@ -3,6 +3,7 @@ import { Database } from 'bun:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { PNG } from 'pngjs'
 import type { BrowserConsoleEntry, BrowserNetworkEntry } from '@solus/contracts/browser-types'
 import type { NormalizedEvent } from '@solus/contracts/types'
 import type { BrowserSurfaceDriver } from '@solus/server/browser/surface-driver'
@@ -10,7 +11,9 @@ import type { BrowserSurfaceDriver } from '@solus/server/browser/surface-driver'
 // WHY: an agent checks a UI change by looking at the page. The screenshot comes
 // back in the tool result, so looking takes one call instead of a second Read.
 // A capture too large for a tool result must still be there to read, and the
-// user's card must name the same stored picture either way.
+// user's card must name the same stored picture either way. The agent's copy is
+// scaled down, because a provider replays it on every later request; the user's
+// stored copy keeps every pixel.
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -79,7 +82,7 @@ test('the screenshot is an image in the result, and the card names the same capt
   const { result, assetId } = await snapshot()
   expect(result.ok).toBe(true)
   expect(result.image).toEqual({ mimeType: 'image/png', data: ONE_PIXEL_PNG.toString('base64') })
-  expect(result.text).toContain(`screenshot: attached to this result; saved at ${join(dataDir, 'assets', assetId!)}`)
+  expect(result.text).toContain(`screenshot: attached to this result, scaled down; full resolution saved at ${join(dataDir, 'assets', assetId!)}`)
 })
 
 test('a screenshot too large for a tool result is a file to read instead', async () => {
@@ -89,4 +92,15 @@ test('a screenshot too large for a tool result is a file to read instead', async
   const path = /screenshot: (\S+) {2}\(too large to attach/.exec(result.text)![1]
   expect(path).toBe(join(dataDir, 'assets', assetId!))
   expect(await Bun.file(path).exists()).toBe(true)
+})
+
+test('a Retina capture reaches the agent scaled down, and the stored capture keeps full resolution', async () => {
+  const retina = new PNG({ width: 2880, height: 1800 })
+  retina.data.fill(255)
+  screenshot = `data:image/png;base64,${PNG.sync.write(retina).toString('base64')}`
+  const { result, assetId } = await snapshot()
+  const seen = PNG.sync.read(Buffer.from(result.image!.data, 'base64'))
+  expect([seen.width, seen.height]).toEqual([1568, 980])
+  const stored = PNG.sync.read(Buffer.from(await Bun.file(join(dataDir, 'assets', assetId!)).arrayBuffer()))
+  expect([stored.width, stored.height]).toEqual([2880, 1800])
 })
