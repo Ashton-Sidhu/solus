@@ -1,7 +1,7 @@
-import type { AccountProfile } from '@solus/contracts/account-types'
+import type { AccountIdentity } from '@solus/contracts/auth/clients'
 
 /** The letter an avatar without a picture shows: the name's, else the email's. */
-export function accountInitial(profile: AccountProfile): string {
+export function accountInitial(profile: AccountIdentity): string {
   const source = profile.name?.trim() || profile.email.trim()
   return source.charAt(0).toUpperCase() || '?'
 }

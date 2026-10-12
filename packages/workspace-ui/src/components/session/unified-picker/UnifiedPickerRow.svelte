@@ -9,6 +9,7 @@
   import { relativeTime, STATUS_META } from "../../tasks/lib/tasks-api";
   import { isDone } from "../../tasks/lib/tasks-list-view";
   import SessionStatusGlyph from "../SessionStatusGlyph.svelte";
+  import type { AttentionState } from "../../../lib/sessionUtils";
   import PresenceStack from "../../presence/PresenceStack.svelte";
   import { presenceStore } from "../../../contexts/presence/presence.store.svelte";
   import { serversStore } from "../../../contexts/connections/servers.store.svelte";
@@ -43,6 +44,9 @@
     style: string;
     selectedIndex: number;
     query: string;
+    /** A session row's live state. Null for a task row, whose state comes
+     *  from its own sessions, and for an idle session. */
+    attention: AttentionState;
     onActivate: (entry: PickerEntry) => void;
     onHover: (event: PointerEvent, entry: PickerEntry) => void;
     onToggle: (taskId: string) => void;
@@ -55,6 +59,7 @@
     style,
     selectedIndex,
     query,
+    attention,
     onActivate,
     onHover,
     onToggle,
@@ -242,11 +247,17 @@
       onpointermove={(event) => onHover(event, row)}
       oncontextmenu={(event) => onContextMenu(event, row)}
     >
+      <!-- A session with a live state shows it, as a nested row does, so a
+           running session reads as running in a flat list too. -->
       <span class="flex size-[1.625rem] shrink-0 items-center justify-center text-(--solus-text-tertiary)">
-        <ChatsIcon size={13} />
+        {#if attention}
+          <SessionStatusGlyph {attention} />
+        {:else}
+          <ChatsIcon size={13} />
+        {/if}
       </span>
       <span class="min-w-0 flex-1">
-        <span class="block truncate {isSelected ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary) group-hover/row:text-(--solus-text-primary)'}"
+        <span class="block truncate {attention === 'running' || isSelected ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary) group-hover/row:text-(--solus-text-primary)'}"
           >{@render marked(highlightWordRuns(pickerSessionTitle(row), query))}</span
         >
         <span class="mt-px block truncate text-micro text-(--solus-text-tertiary)"

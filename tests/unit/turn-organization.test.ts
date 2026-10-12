@@ -55,7 +55,7 @@ beforeAll(async () => {
   hostCategory.resetHostCategoryForTests()
   hostOrganizations = new organizations.HostOrganizations({
     link: () => LINK,
-    hostToken: () => 'sht_token',
+    credential: () => ({ hostAccessToken: async () => 'control-token' }),
     fetchImpl: async (url) => {
       if (String(url) !== 'https://cloud.invalid/v1/hosts/H/organizations') return new Response('{}', { status: 404 })
       return new Response(JSON.stringify(STANDING), { status: 200, headers: { 'content-type': 'application/json' } })

@@ -1,5 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 
+const connectionSourceMigration = "ALTER TABLE integration_connection ADD COLUMN source TEXT NOT NULL DEFAULT 'host';"
+
 /**
  * The host's hand-written SQLite tables, indexed by `PRAGMA user_version`.
  * These tables exist on every machine whatever its engine: the transcript
@@ -467,6 +469,34 @@ CREATE TABLE integration_connection (
   PRIMARY KEY (integration_id, user_id)
 );
 `,
+  // An integration may be one person's (plans/020-agent-profile.md §2.1): a
+  // personal record is seen and used by its owner alone, and its slug is unique
+  // among that person's, so it may equal a shared one's. The committed table's
+  // UNIQUE (organization_id, slug) cannot be dropped in place, so the table is
+  // rebuilt with the index that replaces it.
+  `
+CREATE TABLE integration_next (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  owner_user_id TEXT,
+  kind TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  name TEXT NOT NULL,
+  url TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_by TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+INSERT INTO integration_next (id, organization_id, kind, slug, name, url, auth, created_by, created_at, updated_at)
+  SELECT id, organization_id, kind, slug, name, url, auth, created_by, created_at, updated_at FROM integration;
+DROP TABLE integration;
+ALTER TABLE integration_next RENAME TO integration;
+CREATE UNIQUE INDEX integration_slug ON integration (organization_id, COALESCE(owner_user_id, ''), slug);
+`,
+  // Where a connection's token is kept: on this host, or in the person's account
+  // (plans/020-agent-profile.md §5).
+  connectionSourceMigration,
 ]
 
 export function runMigrations(db: DatabaseSync): void {
@@ -480,7 +510,12 @@ export function runMigrations(db: DatabaseSync): void {
   for (let index = currentVersion; index < migrations.length; index++) {
     db.exec('BEGIN IMMEDIATE')
     try {
-      db.exec(migrations[index])
+      const migration = migrations[index]
+      // Earlier development releases included source in CREATE TABLE without
+      // advancing user_version. Keep those connections and their token location.
+      const hasConnectionSource = migration === connectionSourceMigration &&
+        Boolean(db.prepare("SELECT name FROM pragma_table_info('integration_connection') WHERE name = 'source'").get())
+      if (!hasConnectionSource) db.exec(migration)
       db.exec(`PRAGMA user_version = ${index + 1}`)
       db.exec('COMMIT')
     } catch (error) {

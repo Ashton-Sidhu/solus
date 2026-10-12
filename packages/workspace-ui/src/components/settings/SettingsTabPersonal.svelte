@@ -55,9 +55,9 @@
 
 <SettingsSection label="Account" visible={isVisible}>
   <SettingsRow
-    label={account.kind === "signed-in" ? (account.profile.name ?? account.profile.email) : "Not signed in"}
+    label={account.kind === "signed-in" ? (account.identity.name ?? account.identity.email) : "Not signed in"}
     description={account.kind === "signed-in"
-      ? `${account.profile.email} · ${account.consoleUrl.replace(/^https?:\/\//, "")}`
+      ? `${account.identity.email} · ${account.consoleUrl.replace(/^https?:\/\//, "")}`
       : "Your settings stay on this device. Sign in to Solus to sync them between your devices."}
   >
     {#snippet control()}

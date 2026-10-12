@@ -2,7 +2,7 @@ import type { TaskOpenTrace } from '../../components/session/lib/task-open-timin
 import { createAppContext } from '../app/create-app-context'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { untrack } from 'svelte'
-import { worktreeProjectRoot, type AgentId, type PinnedSession, type Session, type Tab } from '@solus/contracts/types'
+import { worktreeProjectRoot, type AgentId, type PinnedSession, type RunConfig, type Session, type Tab } from '@solus/contracts/types'
 import type { Task, TaskSessionLink } from '@solus/contracts/task-types'
 import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
 import { makePrompt } from './session.factories'
@@ -36,7 +36,7 @@ import {
   type TaskPrChoice,
 } from '../../components/session/lib/task-list'
 import { draftTitle, sessionDraftTitle, type DraftRow } from '../../components/session/lib/draft-list'
-import { projectsStore } from '../projects/projects.store.svelte'
+import { CHATS_GROUP_KEY, groupKeyFor } from '../projects/projects.store.svelte'
 import { CHAT_LABEL } from '../../lib/paths'
 import { isChat } from '@solus/contracts/chat'
 import type { ListProjectOption } from '../../components/ui/list-page/list-page'
@@ -82,7 +82,7 @@ import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { sessionPrLink, sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
 import type { SessionPullRequestLink } from '@solus/contracts/session-pull-requests'
 import { sessionStatesStore, type ShelvedSession } from './session-states.store.svelte'
-import { canDriveSession } from '../sharing/session-drive'
+import { canDriveSession } from '../sharing/resource-roles'
 import {
   prLinkDiscoveryAttempts,
   type PrLinkDiscoveryAttempt,
@@ -142,13 +142,11 @@ function projectLabel(projectKey: string): string {
   return projectKey === '~' ? '~' : projectKey.replace(/\/$/, '').split('/').at(-1) ?? '~'
 }
 
-/** Every chat files under one heading: each has its own folder, but none is a project. */
-const CHATS_GROUP_KEY = 'solus:chats'
-
-/** The project a row groups and filters under: the repository key, or the chats. */
-export function groupKeyFor(serverId: string, projectKey: string): string {
-  if (isChat(projectKey)) return CHATS_GROUP_KEY
-  return projectKey === '~' ? projectKey : projectsStore.projectKeyFor(serverId, projectKey)
+/** The project a run works in. A dispatched run keeps its project's path on
+ *  the host it was opened from (`projectGroupPath`, on `taskServerId`), so the
+ *  path is read on that host, not on the host its agent runs on. */
+export function runGroupKey(run: Pick<RunConfig, 'serverId' | 'taskServerId' | 'projectGroupPath'>, projectKey: string): string {
+  return groupKeyFor(run.projectGroupPath ? run.taskServerId : run.serverId, projectKey)
 }
 
 /** Every mounted conversation the sidebar must project. `tabOrder` gives the
@@ -441,7 +439,7 @@ export class SessionSidebarStore {
       title: sessionTitle(session),
       projectKey,
       projectLabel: projectLabel(projectKey),
-      groupKey: groupKeyFor(session.run.serverId, projectKey),
+      groupKey: runGroupKey(session.run, projectKey),
       branchName: environment.branch,
       serverId: session.run.serverId ?? null,
       prNumber: null,
@@ -616,7 +614,7 @@ export class SessionSidebarStore {
       run.projectGroupPath,
     )
     if (!projectKey || projectKey === '~' || isChat(projectKey)) return null
-    return groupKeyFor(run.serverId, projectKey)
+    return runGroupKey(run, projectKey)
   })
 
   /** The projects the task picker offers as a scope (`pickerProjectKeys`),
@@ -823,14 +821,16 @@ export class SessionSidebarStore {
         this.session.environment.environmentFor(draft.run),
         draft.run.projectGroupPath,
       )
+      const groupKey = runGroupKey(draft.run, projectKey)
       // A draft with no repo behind it belongs to nothing yet, so no project
       // scope can exclude it.
-      if (filter && projectKey !== '~' && groupKeyFor(draft.run.serverId, projectKey) !== filter) continue
+      if (filter && projectKey !== '~' && groupKey !== filter) continue
       rows.push({
         draftId: draft.id,
         title: draftTitle(draft.prompt),
         projectKey,
         projectLabel: projectLabel(projectKey),
+        groupKey,
         serverId: draft.run.serverId,
         hasAttachments: draft.prompt.attachments.length > 0,
       })
@@ -842,13 +842,15 @@ export class SessionSidebarStore {
         this.session.environment.environmentFor(session.run),
         session.run.projectGroupPath,
       )
-      if (filter && projectKey !== '~' && groupKeyFor(session.run.serverId, projectKey) !== filter) continue
+      const groupKey = runGroupKey(session.run, projectKey)
+      if (filter && projectKey !== '~' && groupKey !== filter) continue
       rows.push({
         draftId: `session:${tabId}`,
         tabId,
         title: sessionDraftTitle(session),
         projectKey,
         projectLabel: projectLabel(projectKey),
+        groupKey,
         serverId: session.run.serverId,
         hasAttachments: session.prompt.attachments.length > 0,
       })

@@ -5,13 +5,17 @@ import type { HostOperatingSystem } from '@solus/contracts/types'
 import {
   enrollHostResponseSchema,
   hostAttachResponseSchema,
+  hostCredentialResponseSchema,
   hostLinkResponseSchema,
+  tokenEndpoint,
   uplinkDesiredStateSchema,
   uplinkErrorBodySchema,
   uplinkLinkConfigSchema,
+  hostClientId,
   type EnrollHostRequest,
-  type EnrollHostResponse,
   type HostAttachRequest,
+  type HostCredentialRequest,
+  type HostLinkEnv,
   type UplinkLinkConfig,
   type UplinkLinkRequest,
   type UplinkLinkState,
@@ -24,14 +28,27 @@ import { secretStore } from '../../platform/secrets'
 import type { FetchLike } from '../../admission/access-tokens'
 import type { ConnectorObservation } from './connector'
 import { hostCategory } from '../../host/host-category'
+import {
+  HostCredentialError,
+  clientCredential,
+  forgetHostKey,
+  generateHostKey,
+  loadHostKey,
+  publicJwkOf,
+  saveHostKey,
+  type HostCredential,
+  type PrivateJwk,
+} from '../../host/host-credential'
 
 const log = createLogger('main', 'uplink-link')
 
 /**
  * The host's side of the cloud link (docs/plans/personal-uplink.md, H2 and H4).
  *
- * Durable state is two files: the non-secret link record with the *desired* state in
- * `SOLUS_DATA_DIR/uplink-link.json`, and the two tokens in the secret store. Every
+ * Durable state is the non-secret link record with the *desired* state in
+ * `SOLUS_DATA_DIR/uplink-link.json`, and two secrets: the tunnel's connector token,
+ * and the host credential, the private half of the key this host made for the link
+ * (`host/host-credential.ts`, docs/adr/0001-standard-authentication.md §3.4). Every
  * transition writes desired state first and then acts, so a crash between the two
  * resumes correctly at boot: an unlink that did not reach the control plane is retried,
  * a link that is desired starts its connector after the generation check.
@@ -53,12 +70,9 @@ const persistedLinkSchema = z.object({
    */
   attachedAt: z.number().int().nonnegative().optional(),
 }).strict()
+/** The tunnel's connector token: infrastructure, not identity. Absent for a directly reached link (a managed host). */
 const tokensSchema = z.object({
-  /** Absent for a directly reached link (a managed host): there is no tunnel to run. */
   connectorToken: z.string().min(1).optional(),
-  hostToken: z.string().min(1),
-  /** This host's OAuth client, with which it acts for people (plans/010-standard-oauth.md). */
-  oauthClient: z.object({ clientId: z.string().min(1), clientSecret: z.string().min(1) }),
 })
 
 type PersistedLink = z.infer<typeof persistedLinkSchema>
@@ -82,7 +96,7 @@ export interface UplinkLinkDeps {
   onStatusChanged?: (status: UplinkStatus) => void
   fetchImpl?: FetchLike
   /** A provisioned machine (managed-hosts.md §2): the link the control plane put in the environment; null on a machine a person links. */
-  provisionedLink?: () => EnrollHostResponse | null
+  provisionedLink?: () => HostLinkEnv | null
 }
 
 export class UplinkLinkError extends Error {
@@ -98,6 +112,8 @@ export class UplinkLinkManager {
   private observedError: string | undefined
   /** Solus cloud no longer accepts the stored link: another copy took it, it was removed, or its credentials are gone. */
   private linkRejected = false
+  /** The credential of the stored key, kept so its control token is reused until it nears its end. */
+  private heldCredential: { key: string; credential: HostCredential } | null = null
 
   constructor(private readonly deps: UplinkLinkDeps) {
     this.persisted = readPersistedLink()
@@ -107,16 +123,26 @@ export class UplinkLinkManager {
     return this.persisted?.desired === 'linked' ? this.persisted.link : null
   }
 
-  /** The host token of the current link, for the host's own calls to the account plane; null when unlinked or the credentials are gone. */
-  hostToken(): string | null {
-    if (!this.currentLink()) return null
-    return this.loadTokens()?.hostToken ?? null
+  /**
+   * The host credential of the current link: its own control token for the link
+   * routes, and the client assertion with which it acts for people (`Delegations`).
+   * Null when unlinked, or when the key is gone.
+   */
+  credential(): HostCredential | null {
+    return this.credentialOf(this.currentLink())
   }
 
-  /** This host's OAuth client, with which it acts for people (plans/010-standard-oauth.md); null when unlinked. */
-  oauthClient(): { clientId: string; clientSecret: string } | null {
-    if (!this.currentLink()) return null
-    return this.loadTokens()?.oauthClient ?? null
+  /** The credential for a link record, desired or being unlinked; null when the kept key is not this link's. */
+  private credentialOf(link: UplinkLinkConfig | null): HostCredential | null {
+    const key = link ? loadHostKey() : null
+    if (!link || !key || key.generation !== link.connectionGeneration) return null
+    const cacheKey = `${key.clientId}\u0000${key.generation}\u0000${key.privateJwk.x}`
+    if (this.heldCredential?.key !== cacheKey) {
+      const options: Parameters<typeof clientCredential>[0] = { clientId: key.clientId, privateJwk: key.privateJwk, tokenEndpoint: tokenEndpoint(link.directoryUrl) }
+      if (this.deps.fetchImpl) options.fetchImpl = this.deps.fetchImpl
+      this.heldCredential = { key: cacheKey, credential: clientCredential(options) }
+    }
+    return this.heldCredential.credential
   }
 
   /** When the owner attached this server for organization work; null while it is personal or unlinked. */
@@ -170,6 +196,8 @@ export class UplinkLinkManager {
     }
     const directoryUrl = normalizeOrigin(request.directoryUrl)
     const category = hostCategory()
+    // Each link has a new key: linking again rotates it, and the old one proves nothing.
+    const key = await generateHostKey()
     const body: EnrollHostRequest = {
       ticket: request.ticket,
       installationId: this.deps.installationId(),
@@ -178,6 +206,7 @@ export class UplinkLinkManager {
       proxiedPort: this.deps.proxiedPort(),
       // What this process is, declared once at enrolment; the control plane records it (organization-scope §3.1).
       ...(category === 'managed' ? {} : { category }),
+      publicJwk: key.publicJwk,
     }
     const response = await this.request(`${directoryUrl}/v1/hosts/enroll`, {
       method: 'POST',
@@ -188,7 +217,13 @@ export class UplinkLinkManager {
       const detail = uplinkErrorBodySchema.safeParse(await response.json().catch(() => ({})))
       throw new UplinkLinkError('enroll-rejected', enrollRejectionMessage(response.status, detail.data?.error, detail.data?.message))
     }
-    return this.storeEnrollment(enrollHostResponseSchema.parse(await response.json()), 'uplink_linked')
+    const enrolled = enrollHostResponseSchema.parse(await response.json())
+    return this.storeLink({
+      link: enrolled.link,
+      connectorToken: enrolled.connectorToken,
+      key: { clientId: enrolled.oauthClient.clientId, privateJwk: key.privateJwk },
+      attached: !!enrolled.organizationIds?.length,
+    }, 'uplink_linked')
   }
 
   /**
@@ -199,15 +234,14 @@ export class UplinkLinkManager {
    */
   private async attach(request: UplinkLinkRequest): Promise<UplinkStatus> {
     const persisted = this.persisted
-    const tokens = this.loadTokens()
-    if (!persisted || !tokens) throw new UplinkLinkError('not-linked', 'This host is not linked.')
+    if (!persisted) throw new UplinkLinkError('not-linked', 'This host is not linked.')
     if (normalizeOrigin(request.directoryUrl) !== normalizeOrigin(persisted.link.directoryUrl)) {
       throw new UplinkLinkError('attach-rejected', `This host is linked to ${persisted.link.directoryUrl}. Use a code from there, or unlink first.`)
     }
     const body: HostAttachRequest = { ticket: request.ticket }
     const response = await this.request(`${persisted.link.directoryUrl}/v1/hosts/${persisted.link.hostId}/organizations/attach`, {
       method: 'POST',
-      headers: { authorization: `Bearer ${tokens.hostToken}`, 'content-type': 'application/json', accept: 'application/json' },
+      headers: { authorization: `Bearer ${await this.controlToken()}`, 'content-type': 'application/json', accept: 'application/json' },
       body: JSON.stringify(body),
     })
     if (!response.ok) {
@@ -224,11 +258,10 @@ export class UplinkLinkManager {
   /** Takes this host's organization attachment back for one organization; the link, its records, and its other organizations stay. */
   async detach(organizationId: string): Promise<UplinkStatus> {
     const persisted = this.persisted
-    const tokens = this.loadTokens()
-    if (!persisted || persisted.desired !== 'linked' || !tokens) throw new UplinkLinkError('not-linked', 'This host is not linked.')
+    if (!persisted || persisted.desired !== 'linked') throw new UplinkLinkError('not-linked', 'This host is not linked.')
     const response = await this.request(`${persisted.link.directoryUrl}/v1/hosts/${persisted.link.hostId}/organizations/${encodeURIComponent(organizationId)}`, {
       method: 'DELETE',
-      headers: { authorization: `Bearer ${tokens.hostToken}` },
+      headers: { authorization: `Bearer ${await this.controlToken()}` },
     })
     if (response.status !== 204) throw new UplinkLinkError('attach-rejected', `Solus cloud refused to remove the organization (${response.status}).`)
     log.info('uplink_organization_detached', { hostId: persisted.link.hostId, organizationId })
@@ -236,29 +269,77 @@ export class UplinkLinkManager {
     return this.status()
   }
 
-  /** What every enrollment ends with: tokens to the secret store, the record to disk, the connector up. */
-  private storeEnrollment(enrolled: EnrollHostResponse, event: 'uplink_linked' | 'provisioned_link_adopted'): UplinkStatus {
+  /** The host's own control token for its link routes; a refused key reads as a link Solus cloud no longer accepts. */
+  private async controlToken(): Promise<string> {
+    const credential = this.credential()
+    if (!credential) throw new UplinkLinkError('not-linked', 'This host has no key for its link. Link it again.')
+    try {
+      return await credential.hostAccessToken()
+    } catch (error) {
+      if (error instanceof HostCredentialError && error.code === 'refused') {
+        this.markSuperseded()
+        throw new UplinkLinkError('not-linked', SUPERSEDED_MESSAGE)
+      }
+      throw new UplinkLinkError('control-plane-unreachable', error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  /** What every link ends with: the secrets to the secret store, the record to disk, the connector up. */
+  private storeLink(
+    input: { link: UplinkLinkConfig; connectorToken: string | undefined; key: { clientId: string; privateJwk: PrivateJwk }; attached: boolean },
+    event: 'uplink_linked' | 'provisioned_link_adopted',
+  ): UplinkStatus {
+    const { link, connectorToken } = input
     // The host will trust this issuer's keys, call this directory with its own
     // token, and deliver organization records to this API: only a private-network
     // origin may be plain http.
-    for (const url of [enrolled.link.issuer, enrolled.link.jwksUrl, enrolled.link.directoryUrl, ...(enrolled.link.apiUrl ? [enrolled.link.apiUrl] : [])]) {
+    for (const url of [link.issuer, link.jwksUrl, link.directoryUrl, ...(link.apiUrl ? [link.apiUrl] : [])]) {
       if (!isSecureOrigin(url)) throw new UplinkLinkError('enroll-rejected', `Solus cloud named an insecure address (${url}); the link was not made.`)
     }
-    secretStore().saveJson(TOKENS_KEY, tokensElectronPath(), { connectorToken: enrolled.connectorToken, hostToken: enrolled.hostToken, oauthClient: enrolled.oauthClient })
+    secretStore().saveJson(TOKENS_KEY, tokensElectronPath(), { connectorToken })
+    saveHostKey({ clientId: input.key.clientId, generation: link.connectionGeneration, privateJwk: input.key.privateJwk })
     // An enrollment that attached organizations is persisted as attached in the same write (organization-vms §4).
-    const persisted: PersistedLink = { version: 1, desired: 'linked', link: enrolled.link }
-    if (enrolled.organizationIds?.length && hostCategory() === 'self-hosted') persisted.attachedAt = Date.now()
+    const persisted: PersistedLink = { version: 1, desired: 'linked', link }
+    if (input.attached && hostCategory() === 'self-hosted') persisted.attachedAt = Date.now()
+    this.linkRejected = false
     this.setPersisted(persisted)
     this.setObservation({ observed: 'offline' })
-    this.startReach(enrolled.connectorToken)
-    log.info(event, { hostId: enrolled.link.hostId, hostname: enrolled.link.hostname, generation: enrolled.link.connectionGeneration })
+    this.startReach(connectorToken)
+    log.info(event, { hostId: link.hostId, hostname: link.hostname, generation: link.connectionGeneration })
     return this.status()
+  }
+
+  /**
+   * A provisioned host's first boot of a link (managed-hosts.md §2, ADR 0001 §3.4): it
+   * makes its key, keeps it, and registers the public half with the one-time ticket the
+   * link carries. A boot that runs again before the answer came sends the same key, which
+   * the control plane accepts. Only then is the link stored.
+   */
+  private async adoptProvisionedLink(env: HostLinkEnv): Promise<void> {
+    const { link } = env
+    const clientId = hostClientId(link.hostId)
+    const kept = loadHostKey()
+    const privateJwk = kept && kept.generation === link.connectionGeneration && kept.clientId === clientId ? kept.privateJwk : (await generateHostKey()).privateJwk
+    saveHostKey({ clientId, generation: link.connectionGeneration, privateJwk })
+    const body: HostCredentialRequest = { credentialTicket: env.credentialTicket, publicJwk: publicJwkOf(privateJwk) }
+    const response = await this.request(`${normalizeOrigin(link.directoryUrl)}/v1/hosts/${link.hostId}/credential`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!response.ok) {
+      log.warn('provisioned_credential_refused', { hostId: link.hostId, status: response.status })
+      throw new UplinkLinkError('enroll-rejected', `Solus cloud refused this machine's key (${response.status}).`)
+    }
+    const registered = hostCredentialResponseSchema.parse(await response.json())
+    this.storeLink({ link, connectorToken: undefined, key: { clientId: registered.oauthClient.clientId, privateJwk }, attached: false }, 'provisioned_link_adopted')
   }
 
   /** Drop a link Solus cloud already rejected; there is nothing to tell it. */
   private forgetRejectedLink(): void {
     void this.deps.connector.stop()
     secretStore().remove(TOKENS_KEY, tokensElectronPath())
+    forgetHostKey()
     this.linkRejected = false
     this.setPersisted(null)
     log.info('uplink_rejected_link_forgotten')
@@ -290,7 +371,7 @@ export class UplinkLinkManager {
     // environment is then the stale copy.
     const envLink = this.deps.provisionedLink?.()
     if (envLink && (!this.persisted || envLink.link.connectionGeneration > this.persisted.link.connectionGeneration)) {
-      this.storeEnrollment(envLink, 'provisioned_link_adopted')
+      await this.adoptProvisionedLink(envLink)
       return
     }
     if (!this.persisted) return
@@ -299,7 +380,7 @@ export class UplinkLinkManager {
       return
     }
     const tokens = this.loadTokens()
-    if (!tokens) {
+    if (!tokens || !this.credential()) {
       // The record says linked but the credentials are gone: the host cannot run the
       // tunnel or prove itself. Surface it; the owner re-links.
       this.setObservation({ observed: 'error', error: 'Link credentials are missing; link this host again.' })
@@ -313,7 +394,7 @@ export class UplinkLinkManager {
       this.setObservation({ observed: 'error', error: `Port ${proxiedPort} is in use on this host, so the tunnel cannot reach it. Free the port and restart Solus, or unlink and link again.` })
       return
     }
-    const verdict = await this.checkGeneration(tokens)
+    const verdict = await this.checkGeneration()
     if (verdict === 'current') this.startReach(tokens.connectorToken)
     else if (verdict === 'unknown') {
       this.setObservation({ observed: 'error', error: 'Solus cloud could not verify this link. Restart Solus to try again.' })
@@ -339,36 +420,45 @@ export class UplinkLinkManager {
   private async completeUnlink(): Promise<void> {
     const persisted = this.persisted
     if (!persisted) return
-    const tokens = this.loadTokens()
-    if (tokens) {
+    const credential = this.credentialOf(persisted.link)
+    if (credential) {
       let done = false
       try {
-        const response = await this.request(`${persisted.link.directoryUrl}/v1/hosts/${persisted.link.hostId}/link`, {
-          method: 'DELETE',
-          headers: { authorization: `Bearer ${tokens.hostToken}` },
-        })
-        // 401 means the control plane no longer knows this token: the unlink already
-        // happened, or a newer generation superseded this copy. Either way, done here.
-        done = response.status === 204 || response.status === 401 || response.status === 404
-        if (!done) log.warn('uplink_unlink_rejected', { status: response.status })
+        // A refused key means the control plane no longer knows this host's client: the
+        // unlink already happened, or a newer link superseded this copy. Done here.
+        const token = await credential.hostAccessToken().catch(refusedAsNull)
+        if (token) {
+          const response = await this.request(`${persisted.link.directoryUrl}/v1/hosts/${persisted.link.hostId}/link`, {
+            method: 'DELETE',
+            headers: { authorization: `Bearer ${token}` },
+          })
+          // 401 is the same answer for a control token: the link is no longer this copy's.
+          done = response.status === 204 || response.status === 401 || response.status === 404
+          if (!done) log.warn('uplink_unlink_rejected', { status: response.status })
+        } else {
+          done = true
+        }
       } catch (err) {
         log.warn('uplink_unlink_deferred', { error: err instanceof Error ? err.message : String(err) })
       }
       if (!done) return
-      secretStore().remove(TOKENS_KEY, tokensElectronPath())
     }
+    secretStore().remove(TOKENS_KEY, tokensElectronPath())
+    forgetHostKey()
     this.setPersisted(null)
     this.setObservation({ observed: 'offline' })
     log.info('uplink_unlinked', { hostId: persisted.link.hostId })
   }
 
-  /** H4: only the current generation's token is accepted; a restored copy learns it was superseded here. */
-  private async checkGeneration(tokens: UplinkTokens): Promise<'current' | 'superseded' | 'unknown'> {
+  /** H4: only the current link's key and control token are accepted; a restored copy learns it was superseded here. */
+  private async checkGeneration(): Promise<'current' | 'superseded' | 'unknown'> {
     const link = this.currentLink()
-    if (!link) return 'unknown'
+    const credential = this.credential()
+    if (!link || !credential) return 'unknown'
     try {
+      const token = await credential.hostAccessToken()
       const response = await this.request(`${link.directoryUrl}/v1/hosts/${link.hostId}/link`, {
-        headers: { authorization: `Bearer ${tokens.hostToken}`, accept: 'application/json' },
+        headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
       })
       if (response.status === 401 || response.status === 404) return this.markSuperseded()
       if (!response.ok) return 'unknown'
@@ -378,6 +468,7 @@ export class UplinkLinkManager {
       }
       return 'current'
     } catch (err) {
+      if (err instanceof HostCredentialError && err.code === 'refused') return this.markSuperseded()
       log.warn('uplink_generation_check_failed', { error: err instanceof Error ? err.message : String(err) })
       return 'unknown'
     }
@@ -413,6 +504,12 @@ export class UplinkLinkManager {
     this.observedError = observation.observed === 'error' ? observation.error : undefined
     this.deps.onStatusChanged?.(this.status())
   }
+}
+
+/** A key the account plane refused reads as no token: the link is no longer this copy's. Anything else is an outage. */
+function refusedAsNull(error: Error): null {
+  if (error instanceof HostCredentialError && error.code === 'refused') return null
+  throw error
 }
 
 export const SUPERSEDED_MESSAGE = 'Another copy of this host holds the link; link this host again to take it over.'

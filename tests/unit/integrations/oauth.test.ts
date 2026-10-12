@@ -3,7 +3,8 @@ import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import type { Integration, IntegrationAuthFinishedEvent, IntegrationConnectionChangedEvent } from '@solus/contracts/integration-types'
-import type { IntegrationClient, IntegrationSecrets, IntegrationToken } from '@solus/server/integrations/connection-store'
+import type { IntegrationSecrets } from '@solus/server/integrations/connection-store'
+import type { OAuthClient, OAuthToken } from '@solus/contracts/integrations/oauth-protocol'
 import { resetTestDatabase } from '../helpers/test-db'
 import { startFakeServers, type FakeServers } from './fake-servers'
 
@@ -31,9 +32,9 @@ const START = { callbackBaseUrl: 'https://host.example', fallbackHost: '127.0.0.
 let fake: FakeServers
 let integration: Integration
 
-function memorySecrets(): IntegrationSecrets & { tokens: Map<string, IntegrationToken> } {
-  const tokens = new Map<string, IntegrationToken>()
-  const clients = new Map<string, IntegrationClient>()
+function memorySecrets(): IntegrationSecrets & { tokens: Map<string, OAuthToken> } {
+  const tokens = new Map<string, OAuthToken>()
+  const clients = new Map<string, OAuthClient>()
   const key = (id: string, user: string | null) => `${id}/${user ?? 'host'}`
   return {
     tokens,
@@ -79,6 +80,7 @@ beforeAll(async () => {
   integration = {
     id: 'int-oauth',
     organizationId: 'local',
+    ownerUserId: null,
     kind: 'mcp',
     slug: 'fake',
     name: 'Fake',

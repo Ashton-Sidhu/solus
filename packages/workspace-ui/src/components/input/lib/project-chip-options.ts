@@ -1,4 +1,3 @@
-import { distinctProjectLabels } from '@solus/client-core/project-identity'
 import type { LogicalProject, ProjectRef } from '../../../contexts/projects/project-catalog'
 
 /** One row of the project chip: a project, never one of its checkouts. */
@@ -21,8 +20,7 @@ export interface ProjectChipOption {
  * offline host is not listed: nothing could open it, and on a client that
  * reaches a host from afar it is often a machine the person is not using now.
  * `current`, the folder the composer is in when the catalog does not hold it
- * yet, leads the list. Names two rows share are told apart by the rule every
- * project list uses (`distinctProjectLabels`).
+ * yet, leads the list.
  */
 export function projectChipOptions(
   projects: readonly LogicalProject[],
@@ -44,7 +42,5 @@ export function projectChipOptions(
     }]
   })
   if (current && !options.some((option) => option.key === current.key)) options.unshift({ ...current })
-  const labels = distinctProjectLabels(options, hostLabelFor)
-  options.forEach((option, index) => { option.label = labels[index]! })
   return options
 }

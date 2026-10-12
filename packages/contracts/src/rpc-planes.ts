@@ -93,8 +93,6 @@ export const RPC_PLANES = {
 
   // Sessions / plans / projects
   bindRuntimeSession: 'execution',
-  sharedSessionAvailable: 'collaboration',
-  sharedSessionPrompt: 'collaboration',
   sessionRecordUpsert: 'collaboration',
   workspaceProjectList: 'collaboration',
   workspaceProjectAdd: 'collaboration',
@@ -195,6 +193,7 @@ export const RPC_PLANES = {
   connectionsGetServerInfo: 'collaboration',
   connectionsSetRemoteAccess: 'collaboration',
   connectionsSetTrustLocalNetwork: 'collaboration',
+  authRenew: 'collaboration',
 
   // Paired hosts
   pairedHostsList: 'execution',
@@ -224,6 +223,7 @@ export const RPC_PLANES = {
   shareSet: 'collaboration',
   shareSetLink: 'collaboration',
   shareTransfer: 'collaboration',
+  shareLinkOrigin: 'collaboration',
 
   // Provider seats belong only to the execution host
   seatList: 'execution',
@@ -254,6 +254,7 @@ export const RPC_PLANES = {
   integrationDisconnect: 'execution',
   agentProfileRead: 'execution',
   agentProfileApply: 'execution',
+  agentProfilePull: 'execution',
   agentProfileStatus: 'execution',
 
   // Presence
@@ -392,6 +393,7 @@ export const RPC_PLANES = {
   prListThreads: 'collaboration',
   prListComments: 'collaboration',
   prListCommits: 'collaboration',
+  prGetStack: 'collaboration',
   prListReviewers: 'collaboration',
   prListReviewerCandidates: 'collaboration',
   prRequestReviewers: 'collaboration',
@@ -416,8 +418,6 @@ export const RPC_PLANES = {
   prRefresh: 'collaboration',
 
   // Review guide (checkout-bound)
-  readLedger: 'execution',
-  writeLedger: 'execution',
   getReviewContext: 'execution',
   generateGuide: 'execution',
   requestReviewGuide: 'execution',
@@ -545,6 +545,7 @@ export const RPC_PLANES = {
   deviceHostTest: 'execution',
   deviceToolUpdate: 'execution',
   deviceHostRetry: 'execution',
+  devicePair: 'execution',
   deviceOpen: 'execution',
   deviceClose: 'execution',
   deviceShutdown: 'execution',
@@ -558,6 +559,7 @@ export const RPC_PLANES = {
   deviceBuildImport: 'execution',
   deviceBuildDelete: 'execution',
   deviceProjectDetect: 'execution',
+  deviceSigningTeams: 'execution',
   deviceRunStart: 'execution',
   deviceRunCancel: 'execution',
   deviceRunLog: 'execution',

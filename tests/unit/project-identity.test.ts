@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  distinctProjectLabels,
   groupByProject,
   localProjectParts,
   projectKeyLabel,
@@ -41,25 +40,5 @@ describe('project identity', () => {
     expect(localProjectParts('github.com/acme/web')).toBeNull()
     expect(projectKeyLabel(key)).toBe('notes')
     expect(projectKeyLabel('github.com/acme/web')).toBe('web')
-  })
-
-  test('a shared name is told apart by owner for a repository and by host for a folder', () => {
-    // WHY: two rows that read the same give the reader no way to choose.
-    const labels = distinctProjectLabels([
-      { key: 'github.com/acme/web', label: 'web' },
-      { key: 'github.com/other/web', label: 'Web' },
-      { key: 'laptop:/Users/me/api', label: 'api' },
-      { key: 'box:/srv/api', label: 'api' },
-      { key: 'github.com/acme/docs', label: 'docs' },
-    ], (serverId) => (serverId === 'laptop' ? 'Laptop' : 'Build box'))
-    expect(labels).toEqual(['acme/web', 'other/web', 'api · Laptop', 'api · Build box', 'docs'])
-  })
-
-  test('an owner and name two code hosts share falls back to the whole key', () => {
-    const labels = distinctProjectLabels([
-      { key: 'github.com/acme/web', label: 'web' },
-      { key: 'gitlab.com/acme/web', label: 'web' },
-    ], (serverId) => serverId)
-    expect(labels).toEqual(['github.com/acme/web', 'gitlab.com/acme/web'])
   })
 })

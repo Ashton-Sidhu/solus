@@ -33,8 +33,22 @@ export function BuildsScreen({ navigation, route }: ScreenProps<'Builds'>) {
   const [busy, setBusy] = useState<{ buildId: string; action: BuildAction } | null>(null)
   /** Failed New builds the person has read and put away. */
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set())
+  /** Discovery runs again after the person fixes a phone that cannot take builds. */
+  const [rechecking, setRechecking] = useState(false)
+  /** The phone asked to pair, while it waits for the person to accept on it. */
+  const [pairingDeviceId, setPairingDeviceId] = useState<string | null>(null)
   const state = view.kind === 'loaded' ? view.state : undefined
   const now = Date.now()
+
+  const pair = (device: DeviceSummary) => {
+    const connection = app.connections.connection(hostId)
+    if (!connection) return
+    setPairingDeviceId(device.deviceId)
+    connection.api.devicePair({ deviceHostId: device.deviceHostId, deviceId: device.deviceId }).then(
+      () => refresh(),
+      (cause: unknown) => Alert.alert(`Could not pair with ${device.name}`, deviceErrorText(cause)),
+    ).finally(() => setPairingDeviceId(null))
+  }
 
   const installHere = async (build: DeviceBuild) => {
     const connection = app.connections.connection(hostId)
@@ -111,13 +125,6 @@ export function BuildsScreen({ navigation, route }: ScreenProps<'Builds'>) {
     app.connections.connection(hostId)?.api.deviceRunCancel(run.runId).catch((cause: unknown) => Alert.alert('Could not cancel the build', deviceErrorText(cause)))
   }
 
-  const showLog = (run: DeviceRun) => {
-    app.connections.connection(hostId)?.api.deviceRunLog(run.runId).then(
-      (log) => Alert.alert(`${run.profileName} log`, log.text.slice(-1500) || 'No output yet.'),
-      (cause: unknown) => Alert.alert('Could not read the log', deviceErrorText(cause)),
-    )
-  }
-
   // New builds (runs that install nowhere), from this phone or any client, while they run or after they failed.
   const newBuilds = (state?.runs ?? []).filter((run) => run.deviceId === null && (isDeviceRunActive(run) || run.stage === 'failed') && !dismissed.has(run.runId))
   const builds = state?.builds ?? []
@@ -152,7 +159,7 @@ export function BuildsScreen({ navigation, route }: ScreenProps<'Builds'>) {
             </Text>
             <Text className="text-2xs text-foreground-tertiary" numberOfLines={2}>{[run.checkout, isActive ? run.lastLine : run.error].filter(Boolean).join(' · ')}</Text>
             <View className="flex-row flex-wrap gap-2 pt-1">
-              <ControlPill variant="pill" label="Log" accessibilityLabel={`Show the log of ${run.profileName}`} onPress={() => showLog(run)} />
+              <ControlPill variant="pill" label="Log" accessibilityLabel={`Show the log of ${run.profileName}`} onPress={() => navigation.push('BuildLog', { hostId, runId: run.runId })} />
               {isActive ? (
                 <ControlPill variant="pill" label="Cancel" accessibilityLabel={`Cancel ${run.profileName}`} onPress={() => cancelRun(run)} />
               ) : (
@@ -210,9 +217,34 @@ export function BuildsScreen({ navigation, route }: ScreenProps<'Builds'>) {
         </View>
       ) : null}
       {unavailableDevices.map((device) => (
-        <Text key={`${device.deviceHostId}:${device.deviceId}`} className="px-1 text-xs leading-snug text-foreground-muted">
-          {device.unavailableReason}
-        </Text>
+        <View key={`${device.deviceHostId}:${device.deviceId}`} className="flex-row items-start gap-2 rounded-2xl border border-warning-border bg-warning px-3 py-2.5">
+          <SymbolView name="exclamationmark.triangle" size={15} tintColorClassName="accent-warning-foreground" type="monochrome" />
+          <View className="flex-1 gap-2">
+            <Text className="text-sm leading-snug text-warning-foreground">
+              {pairingDeviceId === device.deviceId ? `Unlock ${device.name} and tap Trust.` : device.unavailableReason}
+            </Text>
+            {device.needsPairing ? (
+              <ControlPill
+                variant="primary"
+                className="self-start"
+                label={pairingDeviceId === device.deviceId ? 'Waiting…' : 'Pair'}
+                disabled={pairingDeviceId !== null}
+                onPress={() => pair(device)}
+              />
+            ) : (
+              <ControlPill
+                variant="pill"
+                className="self-start"
+                label={rechecking ? 'Checking…' : 'Check again'}
+                disabled={rechecking}
+                onPress={() => {
+                  setRechecking(true)
+                  void refresh().finally(() => setRechecking(false))
+                }}
+              />
+            )}
+          </View>
+        </View>
       ))}
       {Platform.OS === 'android' ? (
         <Text className="px-1 text-xs leading-snug text-foreground-muted">

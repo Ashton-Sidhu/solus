@@ -128,13 +128,15 @@ to make. If an install fails for signing, Solus says what to change.
 
 1. Open a conversation in the project and show a device in the Devices pane.
 2. Select **Set up Build & run** in the device toolbar (or **Edit build
-   profiles…** in its arrow menu). Add a profile from a preset — Xcode for
-   the simulator, Xcode for an iPhone or iPad, or Gradle's debug APK — and
-   edit the scheme and folders. An Expo app also gets two presets first:
-   **Expo — dev**, a Debug simulator build that loads its JavaScript from
-   Metro (start it with `npx expo start`), and **Expo — production**, a
-   Release simulator build with the JavaScript bundled in. A profile has a name, the platform, the
-   build kind (simulator or device, for iOS), a folder, the command, the
+   profiles…** in its arrow menu). Add a profile for what it builds for:
+   **iOS Simulator**, **iPhone or iPad**, or **Android**. Solus fits the
+   folder, the Xcode workspace and its scheme to the project. A profile
+   builds **Debug** or **Release**: a Debug build of an Expo or React Native
+   app loads its JavaScript from Metro (start it with `npx expo start`); a
+   Release build has the JavaScript bundled in. Changing **Builds for**
+   replaces the command, folder and output with those for the new choice;
+   changing the configuration changes the command and the output path
+   together. Under **Build details** are the folder, the command, the
    output path (`*` matches within one folder name; the newest match wins),
    and the app id. Save writes the profiles to the project's
    `.solus/config.json`, so they can be committed and shared.
@@ -142,6 +144,9 @@ to make. If an install fails for signing, Solus says what to change.
    (its worktree, if it has one), finds the output, records it under
    Builds, installs it on the device on screen and opens it. A stopped
    simulator boots first.
+
+The log shows **Steps**, **Issues** (only the errors and warnings), or
+**Raw output**. A failed build with errors opens on its issues.
 
 While it builds, the toolbar shows the stage; select it to open the log, or
 **×** to cancel. Cancel stops only the build process Solus started. A failed
@@ -176,17 +181,24 @@ development team (`-allowProvisioningUpdates` in the Xcode preset).
   project's Build & run profiles and adds the output under Builds; it
   installs nothing, so it needs no open simulator. It builds in the
   conversation's checkout, or asks **Build which project?** when there is
-  none; **Project:** in its menu changes it. The menu says what each
+  none and then opens again on that project's profiles; **Other project**
+  in its menu changes it. The menu names the project it builds. The menu says what each
   profile builds for: **iPhone or iPad**, **iOS Simulator** or
   **Android**. Use an iPhone or iPad profile for a phone, then **Run** puts
-  the build on it. With no profile saved, **Set up a build…** opens the
-  profile editor. A preset starts in the folder detection found the app in
+  the build on it. With no profile saved, **Set up a build profile…** opens
+  the profile editor, which shows the presets as the first step. Each
+  profile is one row that says what it builds for, its folder, and who signs
+  it (or that a phone build needs a signing team). A row opens to edit its
+  name, what it builds for, Debug or Release, and its signing team; the
+  folder, command, output and app id are under **Build details**. After
+  **Save profiles**, New build opens again on the saved profiles. A preset starts in the folder detection found the app in
   (an Expo app in `apps/mobile` builds in `apps/mobile/ios`) and names the
   Xcode workspace there and its scheme. Save needs at least one profile.
   When a build has nowhere to run, its row says why: for example, a
   simulator build with only a phone connected.
-  While it builds, a row above the list shows the stage with **Log** and
-  **Cancel**; a failed build stays there until dismissed. **Add existing…**
+  While it builds, a card above the list shows the stage, the current step,
+  the issue count, the time, **Cancel**, and the log; a failed build stays
+  there until closed. **Add existing…**
   opens the host's folder browser at the conversation's folder instead. It
   lists folders and build outputs; an `.app` bundle or an `.apk` is chosen
   with a click, not opened.
@@ -245,12 +257,14 @@ the build is and has **Install on this phone** (Android, APK builds) and
 On mobile, **New build** asks which of the host's projects to build, then
 which of its saved profiles (each says what it builds for). The build
 shows on the Builds screen with **Log** and **Cancel**, and a failed one
-stays until **Dismiss**. With no profile saved, **Set up a build** opens
+stays until **Dismiss**. **Log** opens the build log screen: the stage, the
+current step and the time, then **Steps**, **Issues** or **Raw**, read
+again every second while it builds. With no profile saved, **Set up a build profile** opens
 the project's build profiles; **Edit build profiles** opens them too. The
 phone edits the same profiles as the Devices pane: add one from the same
-presets (Xcode for an iPhone or iPad, Xcode for the simulator, Gradle's
-debug APK, and Expo's dev and production builds for an Expo app), then edit its name, platform, kind, folder, command, output
-and app id. **Save** checks them the same way and writes them to the
+choices (**Simulator**, **iPhone or iPad**, **Android**), then edit its
+name, what it builds for, Debug or Release, and its signing team; the
+folder, command, output and app id are under **Build details**. Each profile shows as one card that opens on tap. **Save** checks them the same way and writes them to the
 project's `.solus/config.json`. Builds install only on devices connected to the Solus host
 itself, not on an SSH device host.
 

@@ -17,7 +17,7 @@ import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsValueRow } from "./components/SettingsValueRow";
 import { enableChoicesFor, type EnableChoiceKind } from "./personal-sync";
 import { SYNC_STATE_LABELS } from "./lib/settings-labels";
-import { settingKeyLabel, settingValueText, syncStatusDetail } from "./lib/sync-text";
+import { SETTINGS_SUBJECT, settingKeyLabel, settingValueText, syncStatusDetail } from "./lib/sync-text";
 
 const ENABLE_CHOICE_TEXT = {
   "use-synced": {
@@ -180,7 +180,7 @@ export function PersonalSettingsScreen({ navigation }: ScreenProps<"PersonalSett
               />
             )}
           </SettingsSection>
-          <SettingsNote>{syncStatusDetail(status, formatTime)}</SettingsNote>
+          <SettingsNote>{syncStatusDetail(status, formatTime, SETTINGS_SUBJECT)}</SettingsNote>
           {message ? <SettingsNote tone="danger">{message}</SettingsNote> : null}
         </View>
 

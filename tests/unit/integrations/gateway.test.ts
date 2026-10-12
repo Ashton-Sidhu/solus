@@ -96,6 +96,7 @@ beforeAll(async () => {
   integration = {
     id: 'int-1',
     organizationId: 'local',
+    ownerUserId: null,
     kind: 'mcp',
     slug: 'fake',
     name: 'Fake',

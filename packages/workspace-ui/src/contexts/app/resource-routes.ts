@@ -36,8 +36,8 @@ export const WORKSPACE_RESOURCE_KINDS: ReadonlySet<ResourceRouteKind> = new Set<
   'workspace', 'chat', 'work', 'task', 'session', 'pull-request', 'automation', 'connections',
 ])
 
-/** The guest shell (docs/plans/multiplayer-sharing.md §4.2): the shared resource and what it reaches, nothing host-wide. */
-export const GUEST_RESOURCE_KINDS: ReadonlySet<ResourceRouteKind> = new Set<ResourceRouteKind>(['work', 'session'])
+/** The guest shell (docs/plans/host-sharing.md §10): the workspace around the one shared resource; no task, pull request, automation, or connections pages, which a guest cannot read. */
+export const GUEST_RESOURCE_KINDS: ReadonlySet<ResourceRouteKind> = new Set<ResourceRouteKind>(['workspace', 'work', 'session'])
 
 /** Open a resource in the workspace, exactly as its surfaces did before shells could differ. */
 export function openResourceInWorkspace(session: WorkspaceContext, route: ResourceRoute): void {

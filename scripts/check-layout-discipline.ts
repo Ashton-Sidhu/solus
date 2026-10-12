@@ -58,12 +58,13 @@ type Failure = {
 }
 
 /**
- * A surface that portals out of the pane tree, or pins itself to the window
- * with `position: fixed`, has escaped its container by construction. Detecting
+ * A surface that portals out of the pane tree, pins itself to the window
+ * with `position: fixed`, or opens as a modal `<dialog>` (the browser's top
+ * layer) has escaped its container by construction. Detecting
  * that structurally beats an ever-growing filename allowlist: it is the same
  * fact the surface already had to declare to render correctly.
  */
-const ESCAPES_PANE_TREE = /use:portal[={]|getPopoverLayer|position:\s*fixed|(?<![\w-])fixed(?![\w-])\s+inset-0/u
+const ESCAPES_PANE_TREE = /use:portal[={]|getPopoverLayer|\.showModal\(|position:\s*fixed|(?<![\w-])fixed(?![\w-])\s+inset-0/u
 
 function isViewportAnchored(path: string, source: string): boolean {
   return VIEWPORT_ANCHORED.some((entry) => path.includes(entry)) || ESCAPES_PANE_TREE.test(source)

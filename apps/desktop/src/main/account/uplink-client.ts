@@ -1,11 +1,8 @@
 import {
   directoryResponseSchema,
   enrollmentTicketResponseSchema,
-  hostAccessTokenResponseSchema,
   managedHostStartResponseSchema,
   organizationDirectorySchema,
-  type HostAccessTokenRequest,
-  type HostAccessTokenResponse,
   type ManagedHostLifecycle,
   type OrganizationDirectory,
   type UplinkDirectory,
@@ -17,7 +14,7 @@ const log = createLogger('main', 'uplink-client')
 
 /**
  * The desktop's calls to the account's `/v1` Uplink API (decision U9). Main holds
- * the session, so main makes these calls; the renderer receives parsed answers and
+ * the sign-in, so main makes these calls; the renderer receives parsed answers and
  * never the token. Every answer is decoded at this boundary with the shared contract
  * schemas; anything malformed reads as "no answer", the same as being signed out.
  */
@@ -43,19 +40,6 @@ export async function listDirectory(client: CloudRequester): Promise<UplinkDirec
   const { hosts, workspaces } = parsed.data
   log.info('uplink_directory_read', { hosts: hosts.length, workspaces: workspaces.length })
   return { directoryUrl: client.cloudOrigin, hosts, workspaces }
-}
-
-/** An access token for one host; the organization is the one the window works in, when the host is shared with several. */
-export async function acquireHostAccessToken(client: CloudRequester, hostId: string, organizationId?: string): Promise<HostAccessTokenResponse | null> {
-  const body: HostAccessTokenRequest = organizationId ? { organizationId } : {}
-  const response = await client.cloudRequest(`/v1/hosts/${encodeURIComponent(hostId)}/access-token`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!response?.ok) return null
-  const parsed = hostAccessTokenResponseSchema.safeParse(await response.json().catch(() => null))
-  return parsed.success ? parsed.data : null
 }
 
 /** Start the organization's managed host; the lifecycle it is in afterwards, or

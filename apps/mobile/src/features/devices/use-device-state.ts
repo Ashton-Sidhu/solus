@@ -21,15 +21,15 @@ export function deviceErrorText(cause: unknown): string {
  * phone may have been plugged in), then kept current by the host's events.
  * An event older than the snapshot shown is ignored.
  */
-export function useDeviceState(hostId: string): { view: DeviceStateView; refresh: () => void } {
+export function useDeviceState(hostId: string): { view: DeviceStateView; refresh: () => Promise<void> } {
   const app = useApp()
   const phase = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase)
   const [view, setView] = useState<DeviceStateView>({ kind: 'loading' })
 
   const refresh = useCallback(() => {
     const connection = app.connections.connection(hostId)
-    if (!connection) return
-    connection.api.deviceList().then(
+    if (!connection) return Promise.resolve()
+    return connection.api.deviceList().then(
       (state) => setView({ kind: 'loaded', state }),
       (cause: unknown) => setView({ kind: 'error', message: deviceErrorText(cause) }),
     )
@@ -39,7 +39,7 @@ export function useDeviceState(hostId: string): { view: DeviceStateView; refresh
     if (phase === 'connected') refresh()
   }, [phase, refresh])
 
-  useFocusEffect(refresh)
+  useFocusEffect(useCallback(() => void refresh(), [refresh]))
 
   useEffect(() => {
     const connection = app.connections.connection(hostId)

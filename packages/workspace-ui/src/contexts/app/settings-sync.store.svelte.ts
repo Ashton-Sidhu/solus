@@ -1,17 +1,19 @@
 import {
   SettingsSync,
-  settingsAccountKey,
   type EnableOffer,
-  type SettingsSyncBroadcast,
-  type SettingsSyncClock,
-  type SettingsSyncEnvironment,
-  type SettingsSyncMessage,
   type SettingsSyncPorts,
-  type SettingsSyncSignal,
   type SettingsSyncStatus,
   type SyncAccount,
 } from '@solus/client-core/settings-sync'
-import { cookieSettingsRequests, type SettingsCloudRequests } from '@solus/client-core/settings-requests'
+import {
+  syncAccountKey,
+  type DocumentSyncBroadcast,
+  type DocumentSyncClock,
+  type DocumentSyncEnvironment,
+  type DocumentSyncMessage,
+  type DocumentSyncSignal,
+} from '@solus/client-core/document-sync'
+import { webSettingsRequests, type SettingsCloudRequests } from '@solus/client-core/settings-requests'
 import { localApi } from '@solus/client-core/local-api'
 import { cloudAccount } from '@solus/client-core/cloud-account'
 import type { AccountState } from '@solus/contracts/account-types'
@@ -31,11 +33,11 @@ import { z } from 'zod'
 
 // ─── Browser ports ───
 
-export function browserSyncEnvironment(): SettingsSyncEnvironment {
+export function browserSyncEnvironment(): DocumentSyncEnvironment {
   return {
     isOnline: () => globalThis.navigator?.onLine !== false,
     isForeground: () => globalThis.document?.visibilityState !== 'hidden',
-    subscribe(listener: (signal: SettingsSyncSignal) => void) {
+    subscribe(listener: (signal: DocumentSyncSignal) => void) {
       const online = () => listener('online')
       const offline = () => listener('offline')
       const visibility = () => listener(document.visibilityState === 'hidden' ? 'background' : 'foreground')
@@ -51,7 +53,7 @@ export function browserSyncEnvironment(): SettingsSyncEnvironment {
   }
 }
 
-export const browserSyncClock: SettingsSyncClock = {
+export const browserSyncClock: DocumentSyncClock = {
   now: () => Date.now(),
   setTimer(callback, ms) {
     const timer = setTimeout(callback, ms)
@@ -59,14 +61,17 @@ export const browserSyncClock: SettingsSyncClock = {
   },
 }
 
-/** Tabs of one browser profile share the sync record; this tells the others it changed. Absent without BroadcastChannel. */
+/**
+ * Tabs of one browser profile share a sync record; this tells the others it
+ * changed. One channel per synced document. Absent without BroadcastChannel.
+ */
 const syncMessageSchema = z.object({ accountKey: z.string() })
 
-export function browserSyncBroadcast(): SettingsSyncBroadcast | undefined {
+export function browserSyncBroadcast(channelName = 'solus.settings-sync'): DocumentSyncBroadcast | undefined {
   if (!('BroadcastChannel' in globalThis)) return undefined
-  const channel = new BroadcastChannel('solus.settings-sync')
+  const channel = new BroadcastChannel(channelName)
   return {
-    post: (message: SettingsSyncMessage) => channel.postMessage(message),
+    post: (message: DocumentSyncMessage) => channel.postMessage(message),
     subscribe(listener) {
       const receive = (event: MessageEvent) => {
         const message = syncMessageSchema.safeParse(event.data)
@@ -80,19 +85,19 @@ export function browserSyncBroadcast(): SettingsSyncBroadcast | undefined {
 
 /**
  * The account-plane calls for whoever holds this client's account: the desktop
- * main process (which adds its token), or the account cookie on the web client
+ * main process (which adds its token), or the page's own sign-in on the web client
  * served at the account origin. Null with neither: there is no account to sync.
  */
 export function accountSettingsRequests(): SettingsCloudRequests | null {
   // The desktop preload bridge has the account methods; a browser has no bridge.
   if (localApi.accountSettingsGet !== undefined) return localApi
   const account = cloudAccount()
-  return account ? cookieSettingsRequests(account.consoleUrl) : null
+  return account ? webSettingsRequests(account.consoleUrl, account.session) : null
 }
 
 /** The account a state names; undefined while it says nothing new (signing in, an unverified session). */
 export function syncAccountOf(state: AccountState, hasAnswered: boolean): SyncAccount | null | undefined {
-  if (state.kind === 'signed-in') return { origin: state.consoleUrl, userId: state.profile.id }
+  if (state.kind === 'signed-in') return { origin: state.consoleUrl, userId: state.identity.sub }
   if (state.kind === 'signed-out') return hasAnswered ? null : undefined
   return undefined
 }
@@ -164,7 +169,7 @@ export class SettingsSyncStore {
    */
   setAccount(account: SyncAccount | null): void {
     const previous = this.account
-    if (previous && account && settingsAccountKey(previous) === settingsAccountKey(account)) {
+    if (previous && account && syncAccountKey(previous) === syncAccountKey(account)) {
       this.engine?.setAccount(account)
       return
     }
@@ -173,10 +178,10 @@ export class SettingsSyncStore {
     this.notice = null
     if (!account && previous) {
       this.engine?.signOut()
-      this.personal?.removeProfile(settingsAccountKey(previous))
+      this.personal?.removeProfile(syncAccountKey(previous))
       return
     }
-    this.personal?.setAccount(account ? settingsAccountKey(account) : null)
+    this.personal?.setAccount(account ? syncAccountKey(account) : null)
     this.engine?.setAccount(account)
   }
 
@@ -212,7 +217,7 @@ export class SettingsSyncStore {
     if (!engine || !personal || this.busy || !this.offer) return
     this.busy = true
     try {
-      const outcome = await engine.enable(choice === 'use-synced' ? { kind: 'use-synced' } : { kind: choice, settings: personal.storedDocument })
+      const outcome = await engine.enable(choice === 'use-synced' ? { kind: 'use-synced' } : { kind: choice, document: personal.storedDocument })
       if (outcome.kind === 'enabled' || outcome.kind === 'cancelled') this.offer = null
       else if (outcome.kind === 'changed') {
         // The account changed under the dialog: nothing was overwritten. Ask again over what is there now.

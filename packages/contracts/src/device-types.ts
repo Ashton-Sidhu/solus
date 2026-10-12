@@ -64,6 +64,8 @@ export interface DeviceSummary {
   /** Why a physical device cannot take an install now: locked, not trusted,
    *  Developer Mode off. Absent when it can. */
   unavailableReason?: string
+  /** An iPhone or iPad that this Mac has not paired with. `devicePair` asks it to. */
+  needsPairing?: boolean
 }
 
 export interface DevicePlatformAvailability {
@@ -499,6 +501,13 @@ export interface DeviceRunLog {
 // ─── Projects ───
 
 /** Whether a project builds a mobile app, at its root or in a subfolder. */
+/** An Apple team this host can sign iPhone and iPad builds for, read from its signing certificates. */
+export interface DeviceSigningTeam {
+  /** The ten-character team id xcodebuild takes as `DEVELOPMENT_TEAM`. */
+  teamId: string
+  name: string
+}
+
 export interface DeviceProjectInfo {
   isMobileApp: boolean
   platforms: DevicePlatform[]

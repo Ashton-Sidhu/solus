@@ -33,7 +33,6 @@ const { attachWebSocketTransport } = await import('@solus/server/transport/webso
 const { WsTransport } = await import('@solus/client-core/ws-transport')
 const { HostSupervisor } = await import('@solus/client-core/host-supervisor')
 const { nextRouteUrl } = await import('@solus/client-core/server-registry')
-const { keptGrantSource } = await import('@solus/client-core/server-connection')
 
 const ONE_WAY_MS = Number(process.argv[2] ?? 40)
 const RTT_MS = ONE_WAY_MS * 2
@@ -93,12 +92,15 @@ async function startRelay(hostUrl: string): Promise<{ url: string; close: () => 
 }
 
 let grantCounter = 0
-/** The account site: one round trip to mint a grant, kept as a connection keeps it. */
+/** The account site: one round trip for an access token, kept until asked fresh, as `OAuthSession` keeps it. */
 function accountGrants(): (options?: { fresh?: boolean }) => Promise<string | null> {
-  return keptGrantSource(async () => {
+  let kept: string | null = null
+  return async (options) => {
+    if (kept && !options?.fresh) return kept
     await sleep(RTT_MS)
-    return { accessToken: `grant:${++grantCounter}`, hostId: INSTALLATION_ID, expiresAt: Date.now() + 8 * 60 * 60 * 1000 }
-  }, () => undefined)
+    kept = `grant:${++grantCounter}`
+    return kept
+  }
 }
 
 /** What `ServerConnections.verifySavedServerIdentity` does for a saved host. */

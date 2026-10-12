@@ -24,6 +24,7 @@
     getPullRequestsContext,
     getSettingsContext,
     getAgentContext,
+    hosts,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
@@ -101,7 +102,8 @@
   );
   let resolvingConflicts = $state(false);
 
-  const canGit = $derived(!!env.branch);
+  // A checkout to act on, and the right to change it here (permissions.md): a guest reads git and changes nothing.
+  const canGit = $derived(!!env.branch && (hosts.find(detailServerId)?.me.may("host.git.write") ?? true));
   const hasGitStatus = $derived(!!status);
   const prUrl = $derived(actions.prUrl || status?.prUrl || null);
 
@@ -565,8 +567,8 @@
     );
   }
 
-  // Review companion: run the producer (review the diff, enriched by the ledger
-  // when present → fixed-structure HTML) for the current branch, then wait for
+  // Review companion: run the producer (review the diff
+  // → structured guide) for the current branch, then wait for
   // an explicit second click before opening the companion in the main pane.
   // Read only: `trackBranchReviewGuides` probes the host once for every shown
   // source; this section declares its source and reads the answer.

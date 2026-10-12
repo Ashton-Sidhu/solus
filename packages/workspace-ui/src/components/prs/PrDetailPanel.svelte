@@ -27,6 +27,7 @@
     fullScreen,
     onToggleFullScreen,
     onClose,
+    onOpenPullRequest,
   }: {
     number: number;
     api: HostApi;
@@ -41,6 +42,8 @@
     /** Absent when the surface has no room for a split in the first place. */
     onToggleFullScreen?: () => void;
     onClose: () => void;
+    /** Show another layer of this pull request's stack in the panel. */
+    onOpenPullRequest: (number: number) => void;
   } = $props();
 
   const session = getWorkspaceContext();
@@ -99,5 +102,6 @@
   {onToggleFullScreen}
   onExit={onClose}
   onRefreshTarget={refreshTarget}
+  {onOpenPullRequest}
   embedded
 />

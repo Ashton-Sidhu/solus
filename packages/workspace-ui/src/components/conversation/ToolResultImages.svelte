@@ -12,12 +12,14 @@
   interface Props {
     images: ToolResultImage[];
     label: string;
+    /** Indented under a tool step; flush when the pictures stand on their own. */
+    inset?: boolean;
   }
 
-  let { images, label }: Props = $props();
+  let { images, label, inset = true }: Props = $props();
 </script>
 
-<div class="flex flex-wrap gap-2 pb-1.5 pl-8">
+<div class={["flex flex-wrap gap-2 pb-1.5", inset && "pl-8"]}>
   {#each images as image, index (index)}
     <div
       class="h-60 max-w-full overflow-hidden rounded-lg bg-muted [&_button]:h-full [&_button]:w-full [&_img]:h-full [&_img]:w-full [&_img]:object-contain"

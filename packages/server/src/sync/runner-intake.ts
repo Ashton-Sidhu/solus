@@ -126,7 +126,7 @@ export async function applyRunnerSessionRecords(runner: RunnerPrincipal, request
  * skipped and the cursor moves past it; any other failure holds the cursor
  * where it is, and the runner sends the rest again.
  */
-export async function applyRunnerMirror(runner: RunnerPrincipal, request: RunnerMirrorRequest, onTranscriptChanged?: (sessionId: string) => void): Promise<RunnerMirrorResponse> {
+export async function applyRunnerMirror(runner: RunnerPrincipal, request: RunnerMirrorRequest, onTranscriptChanged?: (sessionId: string) => void, shares?: ShareManager): Promise<RunnerMirrorResponse> {
   const database = getDatabase()
   const origin = { organizationId: runner.organizationId, hostId: runner.hostId }
   const changedSessions = new Set<string>()
@@ -135,7 +135,7 @@ export async function applyRunnerMirror(runner: RunnerPrincipal, request: Runner
     if (seq <= lastSeq) continue
     try {
       await database.transaction(async (db) => {
-        await applyMirrorItem(origin, { domain, payload })
+        await applyMirrorItem(origin, { domain, payload }, shares)
         await writeCursor(db, runner, 'mirror', seq)
       })
       if (domain === 'transcripts') {

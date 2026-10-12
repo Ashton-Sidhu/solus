@@ -3,6 +3,7 @@ import type {
   DeviceAction,
   DeviceBuild,
   DeviceProjectInfo,
+  DeviceSigningTeam,
   DeviceRun,
   DeviceRunLog,
   DeviceRunProfile,
@@ -65,6 +66,8 @@ export class DevicesStore {
   private profiles = new SvelteMap<string, DeviceRunProfile[] | null>()
   private profileReads = new Set<string>()
   private projectReads = new Set<string>()
+  /** The Apple teams each host can sign phone builds for; read when the profile editor opens. */
+  private teams = new SvelteMap<string, DeviceSigningTeam[]>()
   private loadVersions = new Map<string, number>()
 
   /** Set by the shell: a session's device asked to be shown. */
@@ -184,6 +187,11 @@ export class DevicesStore {
     this.adopt(serverId, await serverConnections.apiFor(serverId).deviceToolUpdate({ deviceHostId, tool }), true)
   }
 
+  /** Ask a connected iPhone or iPad to pair with its device host. Resolves once the person accepts on it. */
+  async pair(serverId: string, target: DeviceTargetRef): Promise<void> {
+    this.adopt(serverId, await serverConnections.apiFor(serverId).devicePair({ deviceHostId: target.deviceHostId, deviceId: target.deviceId }), true)
+  }
+
   async retryHost(serverId: string, deviceHostId: string): Promise<void> {
     this.adopt(serverId, await serverConnections.apiFor(serverId).deviceHostRetry(deviceHostId), true)
   }
@@ -269,6 +277,17 @@ export class DevicesStore {
       )
     }
     return known
+  }
+
+  signingTeams(serverId: string): DeviceSigningTeam[] | undefined {
+    return this.teams.get(serverId)
+  }
+
+  /** Read the host's signing teams again: an Apple account may have been added in Xcode since. */
+  async refreshSigningTeams(serverId: string): Promise<void> {
+    // An older host without the method has no teams to offer; the person types one.
+    const teams = await serverConnections.apiFor(serverId).deviceSigningTeams().catch(() => [])
+    this.teams.set(serverId, teams)
   }
 
   // ─── Build and run ───

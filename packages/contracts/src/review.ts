@@ -1,54 +1,7 @@
 import type { AgentId, ReasoningEffort } from './types'
 
-// Shared review models for the review ledger, generated guide, draft comments,
-// and in-flight guide progress events.
-
-export interface ReviewLedger {
-  version: 1
-  key: string
-  base: { branch: string; sha: string }
-  pr?: { url: string; number: number }
-  sessions: LedgerSession[]
-  records: LedgerRecord[]
-  createdAt: string
-  updatedAt: string
-}
-
-export interface LedgerSession {
-  id: string
-  role?: string
-  startedAt: string
-  endedAt?: string
-  summary?: string
-}
-
-export type LedgerRecordKind = 'bugfix' | 'new feature' | 'refactor' | 'documentation'
-
-export interface LedgerRecord {
-  id: string
-  title: string
-  sessionId: string
-  intent: string
-  why: string
-  assumptions?: string
-  alternatives?: string
-  edgeCases?: string
-  question?: string
-  anchor?: {
-    file: string
-    line: number
-  }
-  supersedes?: string
-  contradicts?: string
-  missing?: boolean
-  history: RecordRevision[]
-}
-
-export interface RecordRevision {
-  sessionId: string
-  at: string
-  note: string
-}
+// Shared review models for the generated guide, draft comments, and in-flight
+// guide progress events.
 
 export interface ReviewContext {
   key: string
@@ -222,13 +175,24 @@ export interface ReviewGuide {
 
 export type GuideSignificance = 'core' | 'supporting' | 'low-signal'
 
+/** The kind of decision a section asks the reviewer to make. It is not a bug
+ *  finding: the guide explains a change, it does not review it. */
+export type GuideAttentionKind = 'tradeoff' | 'contract' | 'product' | 'risk' | 'accessibility'
+
+export interface GuideAttention {
+  kind: GuideAttentionKind
+  note: string
+}
+
 export interface GuideSection {
   id: string
   title: string
   order: number
   significance: GuideSignificance
   explanation: string
-  ledgerRefs: string[]
+  /** The one call a reviewer must make in this section. Absent on most
+   *  sections, and on guides written before attention existed. */
+  attention?: GuideAttention
   files: GuideFileRef[]
 }
 
@@ -236,10 +200,10 @@ export interface GuideFileRef {
   path: string
   additions: number
   deletions: number
-  /** The relevant unified-diff hunks for this file in this concern, authored by
-   *  the review agent (a valid single-file patch trimmed to the hunks that
-   *  matter). Optional: older cached guides and the synthesized catch-all section
-   *  omit it, in which case the renderer falls back to the full-file diff. */
+  /** The hunks of this file that this concern is about, cut verbatim from the
+   *  reviewed patch at the line ranges the review agent named. Absent when the
+   *  agent named no range, or for older guides: the renderer then shows the
+   *  full-file diff. */
   hunks?: string
 }
 

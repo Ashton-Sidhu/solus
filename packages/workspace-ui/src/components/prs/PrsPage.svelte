@@ -42,7 +42,7 @@
   import { prListPreferencesOf, writePrListPreferences } from "./lib/pr-list-memory";
   import type { ProjectPrs } from "../../contexts/prs/prs.store.svelte";
   import type { PrReviewTab } from "../../contexts/prs/pr-view.svelte";
-  import { flattenQualifiedProjects, qualifiedKeyOf, type PrTarget } from "./lib/pr-cross-project";
+  import { flattenQualifiedProjects, qualifiedKeyOf, qualifiedPrKey, type PrTarget } from "./lib/pr-cross-project";
   import {
     prInboxFailure,
     type PrInboxFailure,
@@ -428,8 +428,15 @@
   // the list narrows and the rows stay on screen so the queue is still readable
   // while one item is being reviewed. Below the width where both floors fit,
   // the panel covers the list instead — a phone cannot hold two columns.
-  const openPr = $derived(openKey ? (prByKey(openKey) ?? null) : null);
-  const openTarget = $derived(openPr ? targetFor(openPr) : null);
+  // A stack layer the list is not showing (merged, filtered out, or not paged
+  // in yet) still opens here, read through the project of the layer it came from.
+  let unlistedOpen = $state<{ key: string; pr: PullRequest; target: PrTarget } | null>(null);
+  const openPr = $derived(
+    openKey ? (prByKey(openKey) ?? (unlistedOpen?.key === openKey ? unlistedOpen.pr : null)) : null,
+  );
+  const openTarget = $derived(
+    openPr && unlistedOpen?.pr === openPr ? unlistedOpen.target : openPr ? targetFor(openPr) : null,
+  );
   const openPanel = $derived(
     openPr && openTarget ? { pr: openPr, target: openTarget } : null,
   );
@@ -738,6 +745,24 @@
     if (target) store.get(target.api, target.serverId, target.ctx).get(pr.number).prefetch();
   }
 
+  /** Step from the open pull request to another layer of its stack. */
+  async function openStackLayer(from: PullRequest, number: number) {
+    const target = targetFor(from);
+    const owner = pageScope.allProjects ? qualified.byPr.get(from) : undefined;
+    if (!target) return;
+    const key = owner ? qualifiedPrKey(owner.serverId, owner.projectRoot, number) : String(number);
+    const listed = prByKey(key);
+    if (listed) return selectPr(listed);
+    const layer = store.get(target.api, target.serverId, target.ctx).get(number);
+    const pr = await layer.loadDetail().catch(() => null);
+    if (!pr) return void toasts.error(`Couldn't open PR #${number}`);
+    unlistedOpen = { key, pr, target };
+    if (pageScope.allProjects) aggregateSelectedKey = aggregateOpenKey = key;
+    else listView.selectedNumber = listView.openNumber = number;
+    pullRequests.view.tab = "activity";
+    layer.prefetch();
+  }
+
   /** Arrow-key movement only highlights. Nothing is fetched or mounted until
    *  Enter opens the row, so walking the list costs no requests. */
   function highlightPr(pr: PullRequest) {
@@ -955,7 +980,7 @@
       refreshing={activeRefreshing}
       syncedAt={synced.at}
       onClose={workspace ? close : undefined}
-      actions={splitList ? undefined : pageActions}
+      actions={pageActions}
       filters={filterBar}
       toolbarFilters
       contentOwnsScroll
@@ -1078,6 +1103,7 @@
           fullScreen={panelFullScreen}
           onToggleFullScreen={roomForSplit ? toggleFullScreen : undefined}
           onClose={closePanel}
+          onOpenPullRequest={(number) => void openStackLayer(panel.pr, number)}
         />
         {/key}
       </div>

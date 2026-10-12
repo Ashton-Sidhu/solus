@@ -1,4 +1,3 @@
-import { isApiMode } from '../host/api-mode'
 import { randomBytes } from 'crypto'
 import type { IncomingMessage, Server as HttpServer } from 'http'
 import type { Duplex } from 'stream'
@@ -14,7 +13,8 @@ import { RequestNotAnswerableError } from '../execution/sessions/pending-input'
 import { WorkMovedError } from '../data/works/work'
 import { SeatRequiredError } from '../execution/seats/seat-manager'
 import { TurnRefusedError } from '../execution/sessions/turn-refusal'
-import { principalExpiresAt, principalFor, principalSchema, type AdmissionEvidence, type Principal } from '../admission/principal'
+import { principalExpiresAt, principalFor, principalSchema, renewalExpiry, type AdmissionEvidence, type Principal } from '../admission/principal'
+import type { TokenVerdict } from '../admission/access-tokens'
 import { createLogger } from '../logger'
 import { ResponseReceiptBudget, ResponseReceiptCache } from './response-receipt-cache'
 import { z } from 'zod'
@@ -103,6 +103,8 @@ export function attachWebSocketTransport(
      *  Such a request is loopback on the wire and must never be trusted for it. */
     isTunnelRequest?: (request: IncomingMessage) => boolean
     responseBudget?: ResponseReceiptBudget
+    /** Verifies the next access token a token-admitted socket sends (`authRenew`). Absent: a socket ends at its token's expiry. */
+    verifyAccessToken?: (token: string) => Promise<TokenVerdict>
     onClientConnected?: (client: { clientId: string; deviceId: string | null }) => void
     onClientDisconnected?: (client: { clientId: string; deviceId: string | null }) => void
     onClientExpired?: (client: { clientId: string; deviceId: string | null }) => void
@@ -166,8 +168,9 @@ export function attachWebSocketTransport(
     const admit = (evidence: AdmissionEvidence): void => {
       const instanceId = auth.clientInstanceId ?? randomBytes(16).toString('hex')
       const principal = principalFor(evidence)
-      // Guests and runners meet on the Solus API only: a host admits neither.
-      if ((principal.kind === 'guest' || principal.kind === 'runner') && !isApiMode()) {
+      // A host's delegated token opens the runner HTTP routes, never a socket; a guest is
+      // admitted by the host that holds the resource (docs/plans/host-sharing.md §4.1).
+      if (principal.kind === 'runner') {
         next(Object.assign(new Error('unauthorized'), { data: { code: 'UNAUTHORIZED' } }))
         return
       }
@@ -248,15 +251,36 @@ export function attachWebSocketTransport(
 
     // A grant admits a socket for the grant's lifetime and no longer: the socket
     // ends at expiry, and the re-dial needs a grant a revoked device cannot get.
-    const expiresAt = principalExpiresAt(principal)
-    if (expiresAt !== null) {
-      const grantTimer = setTimeout(() => {
+    // The client's next access token moves the end (`authRenew`; ADR 0001 rule 4).
+    let grantTimer: ReturnType<typeof setTimeout> | null = null
+    const endAt = (expiresAt: number): void => {
+      if (grantTimer) clearTimeout(grantTimer)
+      grantTimer = setTimeout(() => {
         log.info('ws_session_grant_expired', { id, clientId })
         socket.disconnect(true)
       }, Math.max(0, expiresAt - Date.now()))
       grantTimer.unref?.()
-      socket.once('disconnect', () => clearTimeout(grantTimer))
     }
+    const expiresAt = principalExpiresAt(principal)
+    if (expiresAt !== null) {
+      endAt(expiresAt)
+      socket.once('disconnect', () => { if (grantTimer) clearTimeout(grantTimer) })
+    }
+    const verifyAccessToken = opts.verifyAccessToken
+    const renewAccess = expiresAt !== null && verifyAccessToken && (principal.kind === 'remote-owner' || principal.kind === 'org-member')
+      ? async (accessToken: string): Promise<number> => {
+        const verdict = await verifyAccessToken(accessToken)
+        const renewedAt = verdict.ok ? renewalExpiry(principal, verdict.claims) : null
+        if (renewedAt === null) {
+          log.info('ws_session_renewal_refused', { id, clientId, reason: verdict.ok ? 'other-standing' : verdict.reason })
+          throw new Error('This token does not continue this connection.')
+        }
+        // The principal object is the one every call on this socket reads.
+        principal.expiresAt = renewedAt
+        endAt(renewedAt)
+        return renewedAt
+      }
+      : undefined
 
     socket.on('rpc', async (id, method, args, ack) => {
       if (!(ack instanceof Function)) return
@@ -269,6 +293,7 @@ export function attachWebSocketTransport(
         principal,
         deviceLabel,
         deviceId: deviceId ?? undefined,
+        renewAccess,
       })
       ack(response)
     })

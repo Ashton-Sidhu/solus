@@ -73,11 +73,7 @@
           class={cn(menuRowVariants(), "w-full")}
           onclick={() => onFilter(choice.key)}
         >
-          <ProjectFavicon
-            projectRoot={choice.projectKey}
-            serverId={choice.serverId || null}
-            class="size-[0.875rem]"
-          />
+          <ProjectFavicon projectKey={choice.key} class="size-[0.875rem]" />
           <span class="min-w-0 flex-1 truncate text-left">{choice.label}</span>
           <span
             class="shrink-0 text-xs tabular-nums opacity-50"

@@ -84,7 +84,7 @@ describe('the Workspace is global', () => {
       const entry = catalog.flatMap((project) => project.checkouts).find((c) => c.serverId === serverId && w.cwd.startsWith(c.projectRoot))
       return entry?.repositoryKey ?? localProjectKey(serverId, w.cwd)
     },
-    optionsFor: (keys) => projectOptionsFor(keys, catalog, () => true, (serverId) => serverId.toUpperCase(), null),
+    optionsFor: (keys) => projectOptionsFor(keys, catalog, () => true, null),
   }
   const work = (id: string, serverId: string, cwd: string) => {
     hostOf.set(id, serverId)
@@ -99,15 +99,15 @@ describe('the Workspace is global', () => {
     expect(projectOptions(built)).toEqual([{ value: 'github.com/acme/web', label: 'web', count: 2 }])
   })
 
-  it('tells two repositories with one name apart, in the rows and in the filter', () => {
+  it('keeps two repositories with one name as two rows, each named plainly', () => {
     const built = buildWorkspaceItems([work('a', 'laptop', '/code/web'), work('b', 'laptop', '/forks/web')], projects)
-    expect(projectOptions(built).map((option) => option.label)).toEqual(['acme/web', 'other/web'])
-    expect(built.map((entry) => entry.projectLabel).sort()).toEqual(['acme/web', 'other/web'])
+    expect(projectOptions(built).map((option) => [option.value, option.label])).toEqual([['github.com/acme/web', 'web'], ['github.com/other/web', 'web']])
+    expect(built.map((entry) => entry.projectLabel)).toEqual(['web', 'web'])
   })
 
   it('never joins the same path on two hosts when no repository joins them', () => {
     const built = buildWorkspaceItems([work('a', 'laptop', '/notes'), work('b', 'studio', '/notes')], projects)
-    expect(projectOptions(built).map((option) => option.label)).toEqual(['notes · LAPTOP', 'notes · STUDIO'])
+    expect(projectOptions(built).map((option) => [option.value, option.label])).toEqual([[localProjectKey('laptop', '/notes'), 'notes'], [localProjectKey('studio', '/notes'), 'notes']])
   })
 
   it('keeps a work that no known project claims, filed under its own folder', () => {

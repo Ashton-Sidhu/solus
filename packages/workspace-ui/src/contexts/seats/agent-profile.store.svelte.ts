@@ -1,6 +1,6 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
-import type { AgentProfileStatus } from '@solus/contracts/agent-profile'
+import type { AgentProfile, AgentProfileStatus } from '@solus/contracts/agent-profile'
 import type { HostIdentity } from '../sharing/shares.store.svelte'
 
 /**
@@ -14,27 +14,36 @@ export function profileAppliesTo(principal: HostIdentity['principal'] | null, se
 }
 
 /**
- * A person's agent profile per host (docs/agent-profile.md). This client copies
- * the profile of its own machine — the desktop's local host — into the
- * person's seats on a shared host, or into the homes of a host they own such
- * as a personal VM: once per host each time the app runs, and again on
- * request. A client with no machine of its own (web, phone) shows the copy
- * there and can remove it.
+ * A person's agent profile per host (docs/agent-profile.md,
+ * plans/020-agent-profile.md). Not signed in, this client pushes the profile of
+ * its own machine — the desktop's local host — into the person's seats on a
+ * shared host, or into the homes of a host they own: once per host each time
+ * the app runs, and again on request. Signed in with profile sync on, a host
+ * pulls the profile from the account instead, and this client asks it to after
+ * its own write. A client with no machine of its own (web, phone) shows the
+ * copy there, can ask for a pull, and can remove it.
  */
 export class AgentProfileStore {
   /** serverId → whether the caller has a profile on that host (`profileAppliesTo`). */
   readonly applies = new SvelteMap<string, boolean>()
   /** serverId → the caller's profile on that host, as it last answered. */
   readonly statuses = new SvelteMap<string, AgentProfileStatus>()
-  /** serverId → why the last copy or removal failed. */
+  /** serverId → why the last copy, pull, or removal failed. */
   readonly errors = new SvelteMap<string, string>()
   /** Hosts a copy or removal is in flight for, so a row cannot be double-submitted. */
   readonly busy = new SvelteSet<string>()
   private readonly copiedThisRun = new Set<string>()
+  /** Whether the person's profile lives in their account now: then a host pulls, and this client does not push. */
+  private syncOn = false
 
   /** Whether this client runs on a machine whose profile it can copy. */
   get canCopy(): boolean {
     return !!serverConnections.localServerId()
+  }
+
+  /** Told by the profile sync engine: on, a host pulls; off, this client pushes as before. */
+  setSync(on: boolean): void {
+    this.syncOn = on
   }
 
   async load(serverId: string): Promise<void> {
@@ -53,7 +62,13 @@ export class AgentProfileStore {
   }
 
   private copyOnce(serverId: string): void {
-    if (!this.canCopy || this.copiedThisRun.has(serverId)) return
+    if (this.copiedThisRun.has(serverId)) return
+    if (this.syncOn) {
+      this.copiedThisRun.add(serverId)
+      void this.pull(serverId)
+      return
+    }
+    if (!this.canCopy) return
     this.copiedThisRun.add(serverId)
     void this.copy(serverId)
   }
@@ -62,15 +77,34 @@ export class AgentProfileStore {
     const localServerId = serverConnections.localServerId()
     if (!localServerId || localServerId === serverId) return
     await this.run(serverId, async () => {
-      const bundle = await serverConnections.apiFor(localServerId).agentProfileRead()
-      this.statuses.set(serverId, await serverConnections.apiFor(serverId).agentProfileApply(bundle))
+      const copy = await serverConnections.apiFor(localServerId).agentProfileRead()
+      this.statuses.set(serverId, await serverConnections.apiFor(serverId).agentProfileApply(copy))
     })
+  }
+
+  /** This machine's profile as it is now, for a first synced copy. Null on a client with no machine of its own. */
+  async readComputer(): Promise<AgentProfile | null> {
+    const localServerId = serverConnections.localServerId()
+    if (!localServerId) return null
+    return (await serverConnections.apiFor(localServerId).agentProfileRead()).profile
+  }
+
+  /** Ask a host to read the profile from the account: after this client's own write, and once per run when sync is on. */
+  async pull(serverId: string): Promise<void> {
+    await this.run(serverId, async () => {
+      this.statuses.set(serverId, await serverConnections.apiFor(serverId).agentProfilePull())
+    })
+  }
+
+  /** Every host the profile applies to pulls; a host that cannot keeps its last answer and its error. */
+  pullEverywhere(): void {
+    for (const [serverId, applies] of this.applies) if (applies) void this.pull(serverId)
   }
 
   /** The way out: an empty profile removes what was copied, and nothing else. */
   async remove(serverId: string): Promise<void> {
     await this.run(serverId, async () => {
-      this.statuses.set(serverId, await serverConnections.apiFor(serverId).agentProfileApply({ files: [], skipped: [] }))
+      this.statuses.set(serverId, await serverConnections.apiFor(serverId).agentProfileApply({ profile: {}, skipped: [] }))
     })
   }
 

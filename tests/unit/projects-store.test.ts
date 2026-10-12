@@ -127,6 +127,27 @@ describe('the project of a folder', () => {
   })
 })
 
+describe('the checkout a project is read from', () => {
+  // WHY: a favicon is a file in one checkout. The host and the folder must
+  // come from one host's own list: a path paired with another host names
+  // nothing, and its favicon was a folder icon.
+  const store = new ProjectsStore([
+    { serverId: 'laptop', projects: [listed('/Users/me/web', 'github.com/acme/web'), listed('/Users/me/notes', null)] },
+  ], noRecents)
+
+  test('a repository is read from a host that lists a checkout of it', () => {
+    expect(store.checkoutFor('github.com/acme/web')).toEqual({ serverId: 'laptop', projectRoot: '/Users/me/web' })
+  })
+
+  test('a local-only project is read from the host and folder its key names', () => {
+    expect(store.checkoutFor('laptop:/Users/me/notes')).toEqual({ serverId: 'laptop', projectRoot: '/Users/me/notes' })
+  })
+
+  test('a repository no host lists has no checkout to read', () => {
+    expect(store.checkoutFor('github.com/acme/api')).toBeNull()
+  })
+})
+
 describe('adding a project', () => {
   test('lists it at once and tells the host, which then decides', async () => {
     const store = new ProjectsStore([], noRecents)
@@ -160,13 +181,15 @@ describe('adding a project', () => {
     expect(store.entries).toEqual([])
   })
 
-  test('a worktree is added as its project; no folder and a dispatch clone are not projects', () => {
+  test('a worktree is added as its project; no folder is not a project; a dispatch clone is', () => {
+    // WHY: a dispatch clone holds the sessions run on that host. Unlisted, a
+    // project-scoped picker passes the host over and its sessions disappear.
     const store = new ProjectsStore([], noRecents)
     const host = fakeHost()
     store.addProject('local', host.api, `/repos/atlas${SOLUS_WORKTREE_PATH_MARKER}feature`)
     expect(store.addProject('local', host.api, '~')).toBeNull()
-    expect(store.addProject('local', host.api, '/home/me/solus-remote/dev1/github.com/acme/web')).toBeNull()
-    expect(host.tracked).toEqual(['/repos/atlas'])
+    store.addProject('local', host.api, '/home/me/solus-remote/dev1/github.com/acme/web')
+    expect(host.tracked).toEqual(['/repos/atlas', '/home/me/solus-remote/dev1/github.com/acme/web'])
   })
 })
 

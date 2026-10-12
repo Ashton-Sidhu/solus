@@ -53,8 +53,8 @@ esac
 artifact_name="solus-server-${package_platform}-${package_arch}.tar.gz"
 artifact_path="$repo_root/release/$artifact_name"
 
-echo "Building Solus..."
-(cd "$repo_root" && bun run build)
+echo "Building the web client..."
+(cd "$repo_root" && bun run build:client)
 
 echo "Packaging $artifact_name..."
 (cd "$repo_root" && COPYFILE_DISABLE=1 bun run package:server --platform "$package_platform" --arch "$package_arch")

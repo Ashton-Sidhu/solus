@@ -1,10 +1,12 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import type { HostOrganizationsResponse, UplinkLinkConfig } from '@solus/contracts/uplink'
 import { DEFAULT_ORGANIZATION_POLICY } from '@solus/contracts/uplink'
+import { HostCredentialError } from '@solus/server/host/host-credential'
 
 // docs/plans/organization-scope.md §3, §3.1, §6.1: the host's standing — who
 // linked it and which organizations it may deliver to, each with its policy —
-// is read from the control plane under the host token, kept between reads, and
+// is read from the control plane with the host's own control token (client
+// credentials with its key, ADR 0001 §2.2 rule 8), kept between reads, and
 // refreshed on a timer so a policy change reaches the host without a restart.
 
 let organizations: typeof import('@solus/server/host/organizations')
@@ -36,13 +38,18 @@ const STANDING: HostOrganizationsResponse = {
 type Answer = { status: number; body: unknown } | 'unreachable'
 
 /** The control plane, one answer at a time, and the timers the registry set. */
-function registry(answers: Answer[], linked = true) {
+function registry(answers: Answer[], linked = true, key: { refused: boolean } = { refused: false }) {
   const requests: Array<{ url: string; authorization: string | null }> = []
   const timers: number[] = []
   const changes: Array<HostStanding | null> = []
   const instance = new organizations.HostOrganizations({
     link: () => (linked ? LINK : null),
-    hostToken: () => 'sht_token',
+    credential: () => ({
+      hostAccessToken: async () => {
+        if (key.refused) throw new HostCredentialError('refused', 'invalid_client')
+        return 'control-token'
+      },
+    }),
     fetchImpl: async (url, init) => {
       const headers = init?.headers as Record<string, string> | undefined
       requests.push({ url: String(url), authorization: headers?.authorization ?? null })
@@ -59,12 +66,12 @@ function registry(answers: Answer[], linked = true) {
 }
 
 describe('the host\'s standing', () => {
-  test('a refresh reads the answer under the host token and answers the organizations, their policies, and the owner', async () => {
+  test('a refresh reads the answer with the host’s control token and answers the organizations, their policies, and the owner', async () => {
     const { instance, requests, timers } = registry([{ status: 200, body: STANDING }])
     expect(instance.current()).toBeNull()
     expect(instance.organizations()).toEqual([])
     await instance.refresh()
-    expect(requests).toEqual([{ url: 'https://cloud.invalid/v1/hosts/H/organizations', authorization: 'Bearer sht_token' }])
+    expect(requests).toEqual([{ url: 'https://cloud.invalid/v1/hosts/H/organizations', authorization: 'Bearer control-token' }])
     expect(instance.current()).toMatchObject({ hostId: 'H', category: 'personal', owner: { userId: 'alice' } })
     expect(instance.organizations().map((entry) => entry.organizationId)).toEqual(['A', 'B'])
     expect(instance.organization('A')).toMatchObject({ name: 'Acme', shared: true })
@@ -111,6 +118,18 @@ describe('the host\'s standing', () => {
     expect(instance.owner()).toBeNull()
     expect(changes.map((standing) => standing?.hostId ?? null)).toEqual(['H', null])
     expect(timers).toEqual([5 * 60_000])
+  })
+
+  test('a key the account plane refuses means the link is gone: the standing is cleared and nothing is asked', async () => {
+    // WHY: relinking or unlinking removes the host's client; its old key gets no control token.
+    const key = { refused: false }
+    const { instance, requests, changes } = registry([{ status: 200, body: STANDING }], true, key)
+    await instance.refresh()
+    key.refused = true
+    await instance.refresh()
+    expect(instance.current()).toBeNull()
+    expect(requests).toHaveLength(1)
+    expect(changes.map((standing) => standing?.hostId ?? null)).toEqual(['H', null])
   })
 
   test('an unreachable control plane keeps the previous standing and schedules a retry', async () => {

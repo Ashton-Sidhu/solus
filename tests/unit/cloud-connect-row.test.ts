@@ -8,10 +8,9 @@ import type { UplinkStatus } from '@solus/contracts/uplink'
 
 const SIGNED_IN: AccountState = {
   kind: 'signed-in',
-  profile: { id: 'ada', email: 'ada@example.test', name: 'Ada', avatarUrl: null },
+  identity: { sub: 'ada', email: 'ada@example.test', emailVerified: true, name: 'Ada', picture: null },
   consoleUrl: 'https://app.solus.test',
   signedInAt: 1,
-  lastVerifiedAt: 1,
   isStale: false,
 }
 const LINKED = { linked: true } as UplinkStatus
@@ -24,13 +23,13 @@ describe('the Connect to Solus Cloud row', () => {
       .toBe('Connect')
   })
 
-  test('while the browser approves, it shows the code to confirm and offers nothing', () => {
+  test('while the browser sign-in runs, it says where to finish and offers nothing', () => {
     const row = cloudConnectRow({
-      account: { kind: 'signing-in', userCode: 'BCDF-GHJK', verificationUrl: 'https://app/device', expiresAt: 2 },
+      account: { kind: 'signing-in', authorizeUrl: 'https://app.solus.test/api/auth/oauth2/authorize' },
       uplink: undefined,
       isLinking: false,
     })
-    expect(row).toEqual({ state: 'busy', detail: 'Confirm BCDF-GHJK in your browser' })
+    expect(row).toEqual({ state: 'busy', detail: 'Finish signing in in your browser' })
   })
 
   test('signed in but not linked, the remaining half is offered; linked, it is done', () => {

@@ -55,7 +55,7 @@
         : linked || uplinkStore.canLink
           ? uplinkStatusDescription(uplink)
           : account.kind === "signing-in"
-            ? `Enter ${account.userCode} on the approval page to sign this Mac in.`
+            ? "Finish signing in in your browser to sign this Mac in."
             : account.kind === "unavailable"
               ? "The system keychain is unavailable, so an account cannot be stored on this Mac."
               : "Sign in to reach this host from your other devices through your Solus account.",

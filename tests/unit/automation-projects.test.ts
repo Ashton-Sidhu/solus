@@ -42,7 +42,7 @@ describe('automation project filter', () => {
     const entry = catalog.flatMap((project) => project.checkouts).find((c) => c.serverId === serverId && path.startsWith(c.projectRoot))
     return entry?.repositoryKey ?? localProjectKey(serverId, path)
   }
-  const optionsFor = (keys: Iterable<string>) => projectOptionsFor(keys, catalog, () => true, (serverId) => serverId.toUpperCase(), null)
+  const optionsFor = (keys: Iterable<string>) => projectOptionsFor(keys, catalog, () => true, null)
   const hostOf = new Map<string, string>()
   const placed = (id: string, serverId: string, cwd: string) => {
     hostOf.set(id, serverId)
@@ -59,16 +59,10 @@ describe('automation project filter', () => {
     expect(scoped.map((row) => row.id)).toEqual(['laptop-row', 'studio-row'])
   })
 
-  test('two repositories with one name read as two names', () => {
-    const rows = [placed('a', 'laptop', '/repos/solus'), placed('b', 'laptop', '/forks/solus')]
-    const options = automationProjectOptions(rows.map(keyOf), [], optionsFor)
-    expect(options.map((option) => option.label)).toEqual(['acme/solus', 'fork/solus'])
-  })
-
   test('keeps one folder on two hosts apart when no repository joins them', () => {
     const rows = [placed('a', 'laptop', '/scratch/notes'), placed('b', 'studio', '/scratch/notes')]
     const options = automationProjectOptions(rows.map(keyOf), [], optionsFor)
-    expect(options.map((option) => option.label)).toEqual(['notes · LAPTOP', 'notes · STUDIO'])
+    expect(options.map((option) => option.key)).toEqual([localProjectKey('laptop', '/scratch/notes'), localProjectKey('studio', '/scratch/notes')])
   })
 
   test('a project with no automation yet is offered, and is the row the selector may forget', () => {

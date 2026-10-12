@@ -51,7 +51,6 @@ function fixture(overrides: Partial<ReviewLensJobDependencies> = {}) {
     locate: async (_ctx, target) => ({ address, target }),
     resolveChange: async () => change,
     isOutdated: async () => false,
-    readLedger: async () => null,
     runAgent: (input) => {
       const answer = deferred<LensDraft | null>()
       agentRuns.push({ input, answer })
@@ -286,7 +285,7 @@ describe('review lens jobs', () => {
   test('a lens edit prompt carries the current HTML and the comment anchors', async () => {
     const { buildLensPrompt } = await import('@solus/server/review/lens-agent')
     const prompt = buildLensPrompt({
-      workTree: '/repo', base: 'b', head: 'h', inlineDiff: '+x', ledger: null, prompt: 'Show risk',
+      workTree: '/repo', base: 'b', head: 'h', inlineDiff: '+x', prompt: 'Show risk',
       edit: { html: '<main>now</main>', prompt: 'Add a legend', comments: [{ label: '1', body: 'Too small', codeAnchor: { path: 'a.ts', line: 4 } }] },
       agent: 'claude-code', model: null, reasoningEffort: null,
     })

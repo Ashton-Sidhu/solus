@@ -3,7 +3,7 @@ import type { UplinkLinkManager } from '../uplink/link'
 
 /**
  * The owner's control over this host's cloud link. Every method is in
- * `LOCAL_ONLY_RPC_METHODS`: linking changes how the host is reached, so it takes a
+ * `host.local.reach` (permissions.md): linking changes how the host is reached, so it takes a
  * trusted local connection, never a grant. `uplinkLink` on a host already linked
  * redeems an organization-bound code as an attachment (organization-vms §4).
  */

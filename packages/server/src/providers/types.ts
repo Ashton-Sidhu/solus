@@ -13,6 +13,7 @@ import type {
   PrReviewer,
   PrReviewerCandidate,
   PrRevertResult,
+  PrStack,
   PrStateAction,
   ProviderRepository,
   ProviderViewer,
@@ -84,6 +85,9 @@ export interface ReviewProvider {
   getPullRequestDiffFileContents(repo: RepoRef, pullRequest: PullRequest, request: PrDiffFileContentsRequest): Promise<PrDiffFileContents>
   listReviewThreads(repo: RepoRef, number: number): Promise<ReviewThread[]>
   listCommits(repo: RepoRef, number: number): Promise<PrCommit[]>
+  /** The stack `number` is in, bottom to top; null when it is in none or the
+   *  host keeps no stacks. */
+  getPullRequestStack(repo: RepoRef, number: number): Promise<PrStack | null>
   listReviewers(repo: RepoRef, number: number): Promise<PrReviewer[]>
   /** Takes the pull request rather than its number: every caller has already
    *  read the detail to check that the viewer may request reviewers, and the

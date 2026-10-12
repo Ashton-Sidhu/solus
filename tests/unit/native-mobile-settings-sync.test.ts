@@ -2,7 +2,12 @@ import { describe, expect, test } from 'bun:test'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { SendOutbox } from '@solus/client-core/send-outbox'
-import { OrganizationSettingsClient, type SettingsSyncClock } from '@solus/client-core/settings-sync'
+import {
+  OrganizationSettingsClient,
+} from '@solus/client-core/settings-sync'
+import {
+  type DocumentSyncClock,
+} from '@solus/client-core/document-sync'
 import type { SettingsCloudRequests } from '@solus/client-core/settings-requests'
 import { DEFAULT_HOST_CONFIG } from '@solus/contracts/host-config'
 import {
@@ -22,7 +27,7 @@ import { OrganizationSettingsStore } from '../../apps/mobile/src/features/settin
 import { PersonalSettingsStore } from '../../apps/mobile/src/features/settings/personal-settings'
 import { alwaysOnlineEnvironment, PersonalSync } from '../../apps/mobile/src/features/settings/personal-sync'
 import { memoryKeyValueStore, memorySecretStore } from '../../apps/mobile/src/platform/ports'
-import { createHostWorld, FakeApi, FakeTransport, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
+import { createHostWorld, FakeApi, FakeTransport, flushPromises, healthFetch, seedAccountGrant } from './helpers/native-mobile-fakes'
 
 // plans/018 stage 5 on the phone. The rules pinned here are the ones a person
 // would notice going wrong: their light or dark choice has one writer; signing in uploads nothing until they turn sync on; their
@@ -54,7 +59,7 @@ function fakeCloud(initial: PersonalSettingsDocument | null = null) {
 }
 
 /** Timers that run only when the test says so. */
-function manualClock(): SettingsSyncClock & { runAll(): void } {
+function manualClock(): DocumentSyncClock & { runAll(): void } {
   const timers = new Set<() => void>()
   return {
     now: () => 1_000,
@@ -139,7 +144,7 @@ describe('personal sync is opt-in', () => {
   test('signing in does not turn sync on or send anything', async () => {
     const fetched: string[] = []
     const secrets = memorySecretStore()
-    await secrets.set('solus.mobile.account', JSON.stringify({ sessionToken: 'tok', origin: ACCOUNT.origin, profile: { id: ACCOUNT.userId, email: 'a@b.c', name: null, avatarUrl: null } }))
+    await seedAccountGrant(secrets, { userId: ACCOUNT.userId })
     const app = new SolusApp({
       storage: memoryKeyValueStore(),
       secrets,

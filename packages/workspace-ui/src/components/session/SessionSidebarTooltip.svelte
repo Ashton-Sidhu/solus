@@ -21,6 +21,8 @@
   interface Props {
     title: string;
     projectKey?: string;
+    /** The project, as `projectsStore` keys it, for the favicon. */
+    groupKey?: string;
     projectLabel?: string;
     /** The task this session belongs to, when the row names one. */
     taskTitle?: string;
@@ -37,6 +39,7 @@
   let {
     title,
     projectKey,
+    groupKey,
     projectLabel,
     taskTitle,
     branchName,
@@ -78,12 +81,8 @@
     <div class="grid gap-1.5 pl-0.5 text-workspace-chrome text-(--solus-text-tertiary)">
       {#if resolvedProjectLabel}
         <div class="flex min-w-0 items-center gap-2">
-          {#if projectKey?.startsWith("/")}
-            <ProjectFavicon
-              projectRoot={projectKey}
-              {serverId}
-              class="size-3.5 shrink-0"
-            />
+          {#if groupKey && projectKey?.startsWith("/")}
+            <ProjectFavicon projectKey={groupKey} class="size-3.5 shrink-0" />
           {:else}
             <LaptopIcon class="size-3.5 shrink-0" />
           {/if}

@@ -19,6 +19,7 @@
   import TaskRefCard from "./TaskRefCard.svelte";
   import BrowserSnapshots from "../browser/BrowserSnapshots.svelte";
   import BrowserRecordingCard from "../browser/BrowserRecordingCard.svelte";
+  import ToolResultImages from "./ToolResultImages.svelte";
   import AgentConversationGroup from "./agent-conversation/AgentConversationGroup.svelte";
   import ArtifactView from "../artifact/ArtifactView.svelte";
   import ConversationArtifact from "./ConversationArtifact.svelte";
@@ -241,6 +242,12 @@
   {#if captures.length > 0}
     <BrowserSnapshots snapshots={captures} serverId={sess?.run.serverId} />
   {/if}
+{:else if item.kind === "device-snapshot"}
+  <ToolResultImages
+    images={item.messages.flatMap((message) => message.toolImages ?? [])}
+    label="Device screenshot"
+    inset={false}
+  />
 {:else if item.kind === "browser-recording" && item.message.browserRecording}
   <BrowserRecordingCard
     recording={item.message.browserRecording}

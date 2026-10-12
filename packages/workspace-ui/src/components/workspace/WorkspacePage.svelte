@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { accountStore } from "../../contexts/account/account.store.svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { tick, untrack } from "svelte";
   import {
@@ -44,7 +45,6 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import PageEmpty from "../ui/PageEmpty.svelte";
   import WorkspaceRow from "./WorkspaceRow.svelte";
-  import { accountStore } from "../../contexts/account/account.store.svelte";
   import WorkspaceItemContextMenu from "./WorkspaceItemContextMenu.svelte";
   import WorkspacePeek from "./WorkspacePeek.svelte";
   import ImportDocDialog from "../work/ImportDocDialog.svelte";
@@ -560,7 +560,7 @@
     void session.worksStore.setPinned(item.id, !item.pinned);
   }
 
-  /** The Share dialog, which uploads a Local work into the window's organization first (organization-scope §7). */
+  /** The Share dialog pushes a Local work into the window's organization (docs/plans/host-sharing.md §2); signed out, the item says to sign in. */
   function canShare(item: WorkspaceItem): boolean {
     const serverId = session.worksStore.hostFor(item.id);
     return !!serverId && (!accountStore.isSignedIn || sharesStore.canShareFrom(serverId, "work"));

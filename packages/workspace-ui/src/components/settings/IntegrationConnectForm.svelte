@@ -34,7 +34,7 @@
   const clientText = $derived(integration ? oauthClientText(integration.auth) : null);
   /** A server with no dynamic registration cannot start a sign-in until an administrator enters its client. */
   const connectHint = $derived(status.action !== "Disconnect" && clientText?.state === "missing" ? clientText.connectHint : null);
-  const showAction = $derived(hostState?.connectionsStatus === "loaded" && (!flow || flow.kind === "failed"));
+  const showAction = $derived(hostState?.connectionsStatus === "loaded" && status.action !== null && (!flow || flow.kind === "failed"));
 
   // The card can stand before any Settings page has read this host.
   $effect(() => {
@@ -131,7 +131,7 @@
     {@render pending("Starting the sign-in…")}
   {:else if flow?.kind === "waiting"}
     <div class="flex flex-wrap items-center gap-2">
-      <p class="min-w-0 flex-1 text-workspace-chrome text-muted-foreground">Finish signing in in your browser</p>
+      <p class="min-w-0 flex-1 text-workspace-chrome text-muted-foreground">{flow.through === "cloud" ? "Finish signing in in your browser. Solus Cloud keeps the connection for every host." : "Finish signing in in your browser"}</p>
       <Button variant="outline" size="sm" class="text-workspace-chrome pointer-coarse:min-h-11" onclick={() => integrationsStore.openSignIn(flow.url)}>
         Open sign-in<ExternalLink size={14} />
       </Button>

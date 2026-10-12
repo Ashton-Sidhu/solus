@@ -109,7 +109,7 @@ async function guestStep(ctx: ScenarioContext, resource: { kind: 'work'; id: str
   ctx.check('a wrong secret earns no ticket', !refused.ok && refused.stage === 'ticket' && refused.status === 401, JSON.stringify(refused))
   const noSecret = ctx.client('maya')
   const bare = await noSecret.connect()
-  ctx.check('a guest grant without a secret earns no ticket', !bare.ok && bare.stage === 'ticket', JSON.stringify(bare))
+  ctx.check('a guest without a secret earns no ticket', !bare.ok && bare.stage === 'ticket', JSON.stringify(bare))
 
   wrongSecret.close(); noSecret.close()
   return maya

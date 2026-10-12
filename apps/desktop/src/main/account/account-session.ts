@@ -1,115 +1,116 @@
-import type { AccountState, DeviceSignInEnd } from '@solus/contracts/account-types'
-import { HostGrantCache, type GrantOptions } from '@solus/client-core/host-grant-cache'
-import type { HostAccessTokenResponse } from '@solus/contracts/uplink'
-import { acquireHostAccessToken } from './uplink-client'
+import type { AccountState, SignInEnd } from '@solus/contracts/account-types'
+import { SOLUS_CLIENT_IDS, type TokenResource } from '@solus/contracts/auth/clients'
+import { OAuthSession, type BrowserAuthorizer } from '@solus/client-core/oauth-session'
 import { createLogger } from '@solus/server/logger'
-import { profileFromResponse } from '@solus/client-core/cloud-account'
-import { AccountStore, type StoredAccount } from './account-store'
-import {
-  formatUserCode,
-  requestDeviceCode,
-  waitForDeviceApproval,
-  type DeviceAuthorizationDeps,
-} from '@solus/client-core/device-authorization'
+import type { AccountStore } from './account-store'
 
 const log = createLogger('main', 'account-session')
 
-/** How often a focused window re-checks the session with the website. */
+/** How often a focused window re-checks the sign-in with the website. */
 export const VERIFY_INTERVAL_MS = 10 * 60_000
 
-export const DESKTOP_DEVICE_CLIENT_ID = 'solus-desktop'
-
-export interface AccountSessionDeps extends Omit<DeviceAuthorizationDeps, 'cloudOrigin' | 'clientId'> {
+export interface AccountSessionDeps {
   cloudOrigin: string
   store: AccountStore
-  /** Opens the approval page in the system browser. */
-  openExternal: (url: string) => Promise<void>
-  /** What this machine is called in the website's device list. */
-  deviceLabel: () => string
+  /** The loopback browser step (`loopback-authorizer.ts`). */
+  authorizer: BrowserAuthorizer
+  fetch: typeof fetch
+  now: () => number
   onStateChange: (state: AccountState) => void
 }
 
 /**
- * Owns the account session for this install: sign-in through the device flow,
- * verification against the website, and sign-out. The token never leaves this
- * module except as an `Authorization` header.
+ * The desktop's account sign-in (docs/adr/0001-standard-authentication.md §3.3): a
+ * thin wrapper of `OAuthSession` that adds what only the desktop has — the keychain
+ * that can be unavailable, and calls to the website on the account's behalf. The
+ * refresh token never leaves main; an access token leaves only as an
+ * `Authorization` header, or to the renderer for one host or the Solus API.
  */
 export class AccountSession {
-  private state: AccountState
-  private stored: StoredAccount | null
-  private signInAbort: AbortController | null = null
+  private readonly oauth: OAuthSession
+  /** The keychain could not be read at start; `reloadFromDisk` asks again. */
+  private isEncryptionUnavailable: boolean
   private lastVerifyAttemptAt = 0
-  private readonly grants: HostGrantCache
+  private readonly listeners = new Set<(state: AccountState) => void>()
 
   constructor(private readonly deps: AccountSessionDeps) {
-    this.grants = new HostGrantCache(deps.now)
-    const canPersist = deps.store.canPersist()
-    this.stored = canPersist ? deps.store.load() : null
-    this.state = !canPersist
-      ? { kind: 'unavailable', reason: 'encryption' }
-      : this.stored
-        ? signedInState(this.stored, false)
-        : { kind: 'signed-out' }
-    // The one line that says why every later cloud call will or will not carry a session.
-    log.info('account_boot_state', { kind: this.state.kind, canPersist })
+    this.isEncryptionUnavailable = !deps.store.canPersist()
+    this.oauth = new OAuthSession({
+      cloudOrigin: deps.cloudOrigin,
+      clientId: SOLUS_CLIENT_IDS.desktop,
+      store: deps.store,
+      authorizer: deps.authorizer,
+      fetch: deps.fetch,
+      now: deps.now,
+      log: { info: (event, data) => log.info(event, data ?? {}), warn: (event, data) => log.warn(event, data ?? {}) },
+    })
+    this.oauth.onChange(() => this.announce())
+    // The one line that says why every later cloud call will or will not carry a token.
+    log.info('account_boot_state', { kind: this.current().kind, canPersist: !this.isEncryptionUnavailable })
   }
 
   current(): AccountState {
-    return this.state
+    return this.isEncryptionUnavailable ? { kind: 'unavailable', reason: 'encryption' } : this.oauth.state()
   }
 
   /**
-   * Re-reads the stored account. The constructor runs before Electron's `app` is
+   * Re-reads the stored grant. The constructor runs before Electron's `app` is
    * ready, and the keychain behind `safeStorage` is not reliably available until
    * then — a boot that raced it must not present as signed out, or as
    * keychain-unavailable, for its whole life.
    */
   reloadFromDisk(): void {
-    if (this.stored) return
     if (!this.deps.store.canPersist()) return
-    const stored = this.deps.store.load()
-    if (stored) {
-      this.stored = stored
-      this.setState(signedInState(stored, false))
-      log.info('account_reloaded_after_ready')
-      return
-    }
+    const wasUnavailable = this.isEncryptionUnavailable
+    this.isEncryptionUnavailable = false
+    const before = this.oauth.state().kind
+    this.oauth.reload()
+    if (this.oauth.state().kind !== before) log.info('account_reloaded_after_ready')
     // The keychain answered this time: an 'unavailable' verdict from the race is stale.
-    if (this.state.kind === 'unavailable') this.setState({ kind: 'signed-out' })
+    else if (wasUnavailable) this.announce()
+  }
+
+  /** Every change of `current()`, for main's own readers; the renderer hears of it through `onStateChange`. */
+  onChange(listener: (state: AccountState) => void): () => void {
+    this.listeners.add(listener)
+    return () => { this.listeners.delete(listener) }
+  }
+
+  private announce(): void {
+    const state = this.current()
+    this.deps.onStateChange(state)
+    for (const listener of this.listeners) listener(state)
   }
 
   get cloudOrigin(): string {
     return this.deps.cloudOrigin
   }
 
-  /** Whether a session is stored. A null `cloudRequest` then means the website did not answer. */
+  /** Whether a sign-in is held. A null `cloudRequest` then means the website did not answer. */
   get isSignedIn(): boolean {
-    return this.stored !== null
+    return this.current().kind === 'signed-in'
   }
 
-  /** Shared by every desktop window and the local host's owner-token callback. */
-  async acquireHostAccessToken(hostId: string, organizationId?: string, options?: GrantOptions): Promise<HostAccessTokenResponse | null> {
-    const token = this.stored?.sessionToken
-    if (!token) return null
-    const grant = await this.grants.acquire(hostId, organizationId, () => acquireHostAccessToken(this, hostId, organizationId), options)
-    return this.stored?.sessionToken === token ? grant : null
+  /** A five-minute access token for one resource; shared by every desktop window and the local host. */
+  accessToken(resource: TokenResource, options?: { fresh?: boolean }): Promise<string | null> {
+    return this.oauth.accessToken(resource, options)
   }
 
   /**
-   * A request to the website on the account's behalf (Uplink directory, grants,
-   * tickets). Null when signed out or the website did not answer. The token is added
-   * here and nowhere else.
+   * A request to the website's `/v1` on the account's behalf (directory, tickets,
+   * settings), with an access token for the account plane. Null when signed out or
+   * the website did not answer. The token is added here and nowhere else.
    */
   async cloudRequest(path: string, init: RequestInit = {}): Promise<Response | null> {
-    const headers = this.authHeaders()
-    if (!headers) {
-      log.info('cloud_request_skipped_signed_out', { path })
+    const token = await this.oauth.accessToken({ kind: 'account' })
+    if (!token) {
+      log.info('cloud_request_skipped_no_token', { path, state: this.current().kind })
       return null
     }
     try {
       return await this.deps.fetch(`${this.deps.cloudOrigin}${path}`, {
         ...init,
-        headers: { ...headers, ...init.headers },
+        headers: { authorization: `Bearer ${token}`, accept: 'application/json', ...init.headers },
       })
     } catch (error) {
       log.warn('cloud_request_failed', { path, error: error instanceof Error ? error.message : String(error) })
@@ -117,160 +118,30 @@ export class AccountSession {
     }
   }
 
-  private setState(state: AccountState): void {
-    this.state = state
-    this.deps.onStateChange(state)
-  }
-
-  private authHeaders(): HeadersInit | null {
-    return this.stored ? { authorization: `Bearer ${this.stored.sessionToken}`, accept: 'application/json' } : null
-  }
-
-  async signIn(): Promise<DeviceSignInEnd> {
+  /** The browser sign-in; refused while the keychain cannot keep its result. */
+  async signIn(): Promise<SignInEnd> {
     if (!this.deps.store.canPersist()) return 'error'
-    if (this.signInAbort) this.signInAbort.abort()
-    const abort = new AbortController()
-    this.signInAbort = abort
-    log.info('account_sign_in_started')
-
-    let grant
-    try {
-      grant = await requestDeviceCode({ ...this.deps, clientId: DESKTOP_DEVICE_CLIENT_ID })
-    } catch (error) {
-      log.warn('account_sign_in_ended', { end: 'error', reason: error instanceof Error ? error.message : String(error) })
-      this.setState({ kind: 'invalid', reason: 'unreachable' })
-      return 'error'
-    }
-
-    this.setState({
-      kind: 'signing-in',
-      userCode: formatUserCode(grant.userCode),
-      verificationUrl: grant.verificationUrl,
-      expiresAt: grant.expiresAt,
-    })
-    void this.deps.openExternal(grant.verificationUrl)
-
-    const result = await waitForDeviceApproval(grant, this.deps, abort.signal)
-    if (this.signInAbort === abort) this.signInAbort = null
-    if (result.end !== 'approved') {
-      log.info('account_sign_in_ended', { end: result.end })
-      this.setState(result.end === 'cancelled' ? { kind: 'signed-out' } : { kind: 'invalid', reason: result.end === 'expired' ? 'expired' : 'unreachable' })
-      if (result.end === 'denied' || result.end === 'error') this.setState({ kind: 'signed-out' })
-      return result.end
-    }
-
-    const now = this.deps.now()
-    const profile = await this.fetchProfile(result.sessionToken)
-    if (!profile) {
-      log.warn('account_sign_in_ended', { end: 'error', reason: 'profile_unavailable' })
-      this.setState({ kind: 'invalid', reason: 'unreachable' })
-      return 'error'
-    }
-    this.stored = { sessionToken: result.sessionToken, profile, cloudOrigin: this.deps.cloudOrigin, signedInAt: now, lastVerifiedAt: now }
-    this.grants.clear()
-    this.deps.store.save(this.stored)
-    this.setState(signedInState(this.stored, false))
-    log.info('account_sign_in_ended', { end: 'approved' })
-    void this.labelDevice()
-    return 'approved'
+    return this.oauth.signIn()
   }
 
   cancelSignIn(): void {
-    this.signInAbort?.abort()
-    this.signInAbort = null
+    this.oauth.cancelSignIn()
   }
 
-  /** Ends the session on the website and forgets it locally, even if the website is down. */
-  async signOut(): Promise<void> {
-    this.cancelSignIn()
-    const headers = this.authHeaders()
-    this.stored = null
-    this.grants.clear()
-    this.deps.store.clear()
-    this.setState({ kind: 'signed-out' })
-    log.info('account_signed_out')
-    if (headers) {
-      try {
-        await this.deps.fetch(`${this.deps.cloudOrigin}/api/auth/sign-out`, { method: 'POST', headers })
-      } catch {
-        // The local session ends regardless; the website drops it on expiry.
-      }
-    }
+  /** Revokes this install's client grant, then forgets it, even if the website is down. */
+  signOut(): Promise<void> {
+    return this.oauth.signOut()
   }
 
   /**
-   * Confirms the stored session with the website. A 401 means the website revoked or
-   * expired it; a network failure keeps the session and marks it stale.
+   * Confirms the sign-in with the website and reads the identity again. A revoked
+   * grant ends the sign-in; a website that does not answer keeps it and marks it stale.
    */
   async verify(reason: 'boot' | 'focus' | 'retry'): Promise<void> {
-    const stored = this.stored
-    if (!stored) return
+    if (!this.isSignedIn) return
     const now = this.deps.now()
     if (reason === 'focus' && now - this.lastVerifyAttemptAt < VERIFY_INTERVAL_MS) return
     this.lastVerifyAttemptAt = now
-
-    let response: Response
-    try {
-      response = await this.deps.fetch(`${this.deps.cloudOrigin}/api/account/me`, { headers: this.authHeaders()! })
-    } catch {
-      if (this.stored?.sessionToken === stored.sessionToken) this.setState(signedInState(this.stored, true))
-      return
-    }
-    if (this.stored?.sessionToken !== stored.sessionToken) return
-    if (response.status === 401) {
-      log.info('account_invalidated', { reason: 'revoked' })
-      this.stored = null
-      this.grants.clear()
-      this.deps.store.clear()
-      this.setState({ kind: 'invalid', reason: 'revoked' })
-      return
-    }
-    if (!response.ok) {
-      this.setState(signedInState(this.stored, true))
-      return
-    }
-    const profile = await profileFromResponse(response)
-    if (this.stored?.sessionToken !== stored.sessionToken) return
-    if (profile) this.stored = { ...this.stored, profile, lastVerifiedAt: now }
-    this.deps.store.save(this.stored)
-    this.setState(signedInState(this.stored, false))
-    log.info('account_verified')
-  }
-
-  private async fetchProfile(sessionToken: string) {
-    try {
-      const response = await this.deps.fetch(`${this.deps.cloudOrigin}/api/account/me`, {
-        headers: { authorization: `Bearer ${sessionToken}`, accept: 'application/json' },
-      })
-      if (!response.ok) return null
-      return await profileFromResponse(response)
-    } catch {
-      return null
-    }
-  }
-
-  private async labelDevice(): Promise<void> {
-    const headers = this.authHeaders()
-    if (!headers) return
-    try {
-      await this.deps.fetch(`${this.deps.cloudOrigin}/api/account/device-label`, {
-        method: 'POST',
-        headers: { ...headers, 'content-type': 'application/json' },
-        body: JSON.stringify({ deviceLabel: this.deps.deviceLabel(), clientId: DESKTOP_DEVICE_CLIENT_ID }),
-      })
-    } catch {
-      // Cosmetic; the session works unnamed.
-    }
-  }
-}
-
-function signedInState(stored: StoredAccount, isStale: boolean): AccountState {
-  return {
-    kind: 'signed-in',
-    profile: stored.profile,
-    consoleUrl: stored.cloudOrigin,
-    signedInAt: stored.signedInAt,
-    lastVerifiedAt: stored.lastVerifiedAt,
-    isStale,
+    await this.oauth.refreshIdentity()
   }
 }

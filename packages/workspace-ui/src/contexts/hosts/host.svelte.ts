@@ -10,6 +10,7 @@ import type { HostBooleanCapability } from '@solus/client-core/host-capabilities
 import { hostRolesOf, type HostRole } from '@solus/client-core/host-roles'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { createSubscriber } from 'svelte/reactivity'
+import { HostStanding } from './host-standing.svelte'
 
 const FACT_KEYS: readonly HostFactKey[] = ['capabilities', 'serverInfo', 'machine', 'usage', 'voiceModel', 'tools']
 
@@ -33,6 +34,7 @@ export class Host {
     private readonly assumedRoles: () => readonly HostRole[],
   ) {
     this.#facts = facts
+    this.me = new HostStanding(id, () => this.serverInfo)
     this.#stopFacts = facts.subscribe((key) => this.#emit(key))
     for (const key of FACT_KEYS) {
       this.#subscribers.set(key, createSubscriber((update) => {
@@ -42,6 +44,9 @@ export class Host {
       }))
     }
   }
+
+  /** This client's standing here: what it may do (docs/plans/permissions.md). */
+  readonly me: HostStanding
 
   get capabilities(): HostFact<HostCapabilities> { return this.#read('capabilities') }
   get serverInfo(): HostFact<ConnectionsServerInfo> { return this.#read('serverInfo') }

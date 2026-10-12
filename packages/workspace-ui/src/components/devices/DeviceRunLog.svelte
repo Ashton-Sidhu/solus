@@ -5,7 +5,7 @@
   import { devicesStore, deviceErrorMessage } from "../../contexts/devices/devices.store.svelte";
   import { copyText, toasts } from "../../lib/toasts";
   import { Button } from "../ui/button";
-  import { formatRunElapsed, readRunLog } from "./lib/run-log";
+  import { formatRunElapsed, readRunLog } from "@solus/client-core/device-run-log";
   import { runStageLabel } from "./lib/run-profiles";
 
   /**
@@ -20,9 +20,13 @@
     runId: string;
     visible: boolean;
     onClose: () => void;
+    /** Its frame: a band under the device toolbar by default, a card on the Builds page. */
+    class?: string;
   }
 
-  let { serverId, runId, visible, onClose }: Props = $props();
+  type LogView = "steps" | "issues" | "raw";
+
+  let { serverId, runId, visible, onClose, class: frame = "max-h-[45%] border-b border-[var(--hairline)]" }: Props = $props();
 
   const run = $derived(devicesStore.runs(serverId).find((candidate) => candidate.runId === runId));
   const isActive = $derived(!!run && isDeviceRunActive(run));
@@ -32,15 +36,23 @@
   let now = $state(Date.now());
   /** What the reader picked; until then only a failed build opens its log. */
   let chosenOpen = $state<boolean | null>(null);
-  let chosenView = $state<"steps" | "raw">("steps");
+  /** What the reader picked; until then a failed build with errors shows its issues. */
+  let chosenView = $state<LogView | null>(null);
   let output = $state<HTMLElement | null>(null);
   const steps = $derived(readRunLog(text));
-  const errors = $derived(steps.filter((step) => step.tone === "error").length);
-  const warnings = $derived(steps.filter((step) => step.tone === "warning").length);
+  const issues = $derived(steps.filter((step) => step.tone === "error" || step.tone === "warning"));
+  const errors = $derived(issues.filter((step) => step.tone === "error").length);
+  const warnings = $derived(issues.length - errors);
   const currentStep = $derived(steps.findLast((step) => step.tone === "step"));
   const isOpen = $derived(chosenOpen ?? run?.stage === "failed");
   const elapsed = $derived(run ? formatRunElapsed((run.endedAt ?? now) - run.startedAt) : "");
-  const isRawShown = $derived(steps.length === 0 || chosenView === "raw");
+  const view = $derived<LogView>(steps.length === 0 ? "raw" : (chosenView ?? (run?.stage === "failed" && errors > 0 ? "issues" : "steps")));
+  const shownSteps = $derived(view === "issues" ? issues : steps);
+  const tabs = $derived<{ key: LogView; label: string }[]>([
+    { key: "steps", label: "Steps" },
+    { key: "issues", label: issues.length ? `Issues (${issues.length})` : "Issues" },
+    { key: "raw", label: "Raw output" },
+  ]);
 
   $effect(() => {
     if (!visible || !exists) return;
@@ -64,9 +76,9 @@
   });
 
   /** Open the log at its newest lines. */
-  function openLog(view: "steps" | "raw" = chosenView) {
+  function openLog(next: LogView | null = chosenView) {
     chosenOpen = true;
-    chosenView = view;
+    chosenView = next;
     void tick().then(() => output?.scrollTo({ top: output.scrollHeight }));
   }
 
@@ -80,7 +92,7 @@
 </script>
 
 {#if run}
-  <section class="flex max-h-[45%] min-h-0 shrink-0 flex-col border-b border-[var(--hairline)] bg-[var(--card)]" aria-label="Build" data-testid="device-run-log">
+  <section class="flex min-h-0 shrink-0 flex-col overflow-hidden bg-[var(--card)] {frame}" aria-label="Build" data-testid="device-run-log">
     <header class="flex shrink-0 items-center gap-2.5 px-3 py-2">
       {#if run.stage === "failed"}
         <CircleX class="size-4 shrink-0 text-[var(--failure)]" aria-hidden="true" />
@@ -97,7 +109,7 @@
       </div>
       {#if errors > 0 || warnings > 0}
         <button type="button" class="text-chrome-dense flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 hover:bg-[var(--wash-2)] focus-visible:outline-2 focus-visible:outline-[var(--ring)] {errors > 0 ? 'text-[var(--failure)]' : 'text-[var(--warning)]'}"
-          title="Show the issues in the log" onclick={() => openLog("steps")}>
+          title="Show the issues in the log" onclick={() => openLog("issues")}>
           {#if errors > 0}<CircleX class="size-3.5" aria-hidden="true" />{errors}{/if}
           {#if warnings > 0}<TriangleAlert class="size-3.5 {errors > 0 ? 'ml-1 text-[var(--warning)]' : ''}" aria-hidden="true" /><span class={errors > 0 ? "text-[var(--warning)]" : ""}>{warnings}</span>{/if}
           <span class="sr-only">{errors} errors, {warnings} warnings</span>
@@ -119,12 +131,11 @@
       <div class="mx-3 mb-3 flex min-h-0 flex-col overflow-hidden rounded-lg border border-[var(--hairline)] bg-[var(--wash-1)]">
         <div class="flex shrink-0 items-center gap-0.5 border-b border-[var(--hairline)] px-1.5 py-1">
           <div class="flex gap-0.5" role="tablist" aria-label="Log view">
-            <Button size="xs" variant="ghost" role="tab" aria-selected={!isRawShown} disabled={steps.length === 0}
-              class={!isRawShown ? "bg-[var(--wash-2)] text-(--solus-text-primary)" : "text-(--solus-text-tertiary)"}
-              onclick={() => (chosenView = "steps")}>Steps</Button>
-            <Button size="xs" variant="ghost" role="tab" aria-selected={isRawShown}
-              class={isRawShown ? "bg-[var(--wash-2)] text-(--solus-text-primary)" : "text-(--solus-text-tertiary)"}
-              onclick={() => (chosenView = "raw")}>Raw output</Button>
+            {#each tabs as tab (tab.key)}
+              <Button size="xs" variant="ghost" role="tab" aria-selected={view === tab.key} disabled={tab.key !== "raw" && steps.length === 0}
+                class={view === tab.key ? "bg-[var(--wash-2)] text-(--solus-text-primary)" : "text-(--solus-text-tertiary)"}
+                onclick={() => (chosenView = tab.key)}>{tab.label}</Button>
+            {/each}
           </div>
           <Button size="icon-xs" variant="ghost" class="ml-auto" aria-label="Copy the build log" title="Copy the build log" disabled={!text} onclick={copyLog}><Copy /></Button>
         </div>
@@ -134,12 +145,14 @@
           {/if}
           {#if !text}
             <p class="text-chrome-dense px-3 text-(--solus-text-tertiary)">{isActive ? "Waiting for output…" : "No output."}</p>
-          {:else if isRawShown}
+          {:else if view === "raw"}
             <pre class="px-3 font-mono text-[0.6875rem] leading-relaxed break-all whitespace-pre-wrap text-(--solus-text-secondary)">{text}</pre>
+          {:else if shownSteps.length === 0}
+            <p class="text-chrome-dense px-3 text-(--solus-text-tertiary)">No errors or warnings{isActive ? " yet" : ""}.</p>
           {:else}
             <ol class="text-chrome-dense">
-              {#each steps as step, index (index)}
-                <li class="flex min-w-0 items-start gap-2 px-3 py-0.5 {step.tone === 'error' ? 'text-[var(--failure)]' : step.tone === 'warning' ? 'text-[var(--warning)]' : index === steps.length - 1 && isActive ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary)'}">
+              {#each shownSteps as step, index (index)}
+                <li class="flex min-w-0 items-start gap-2 px-3 py-0.5 {step.tone === 'error' ? 'text-[var(--failure)]' : step.tone === 'warning' ? 'text-[var(--warning)]' : view === 'steps' && index === steps.length - 1 && isActive ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary)'}">
                   {#if step.tone === "error"}
                     <CircleX class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
                   {:else if step.tone === "warning"}

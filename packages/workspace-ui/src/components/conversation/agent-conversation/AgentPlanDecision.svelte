@@ -2,7 +2,7 @@
   import { getWorkspaceContext } from "../../../contexts";
   import { Button } from "../../ui/button";
   import { Textarea } from "../../ui/textarea";
-  import { canDriveSession } from "../../../contexts/sharing/session-drive";
+  import { canDriveSession } from "../../../contexts/sharing/resource-roles";
 
   /**
    * A person's decision on a plan another session wrote, taken from the

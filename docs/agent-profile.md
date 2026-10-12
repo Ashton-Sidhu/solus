@@ -1,72 +1,100 @@
 # Agent profile
 
-Your agent profile is the set of files that makes an agent work your way:
+Your agent profile is what makes an agent work your way, on every host you
+have a seat on:
 
-| Provider | Files |
+| Part | What it holds |
 |---|---|
-| Claude | `CLAUDE.md`, `skills/`, `agents/`, `commands/` in `~/.claude` |
-| Codex | `AGENTS.md`, `skills/`, `prompts/` in `~/.codex`, and the skills in `~/.agents/skills` |
+| Instructions | `CLAUDE.md`, `agents/`, `commands/` in `~/.claude`; `AGENTS.md`, `prompts/` in `~/.codex` |
+| Skills | Skills installed from skills.sh, as references the host installs itself; hand-written skills as their files |
+| MCP servers | The servers you added: name, address, and how they sign in. Never a key or a token. |
 
-On a host that several people use, such as a cloud host of your organization,
-your turns run on your own seat. Solus copies your profile from your computer
-into your seats there, so an agent on that host uses your instructions and
-skills. The copy goes one way: your computer is the source.
+It is one document (`plans/020-agent-profile.md`). Each file, each skill, and
+each server is one entry, and one entry is the unit that syncs and conflicts.
+Logins, settings, plugins, hooks, and transcripts are not part of it.
 
-| Host | Where the copy goes |
-|---|---|
-| A host of your organization, such as a managed VM | Your seats (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`) |
-| A host you own, such as a personal VM | The host's own `~/.claude` and `~/.codex`, which your turns there use |
-| Your computer itself | Nothing: it is the source |
+## Where it lives
 
-On a host you own, a copy never replaces a file that the host already had, and
-never writes through a link. It adds what your computer has, and Settings counts
-the files it kept. Only files that an earlier copy put there are updated or
-removed.
+| You are | The profile's home | How a host gets it |
+|---|---|---|
+| Not signed in to Solus Cloud, or profile sync off | Your computer | Solus on your computer pushes it to a host the first time it reaches one each run, and again when you ask |
+| Signed in with profile sync on | Your account | Every host you have a seat on pulls it: when your seat connects, when a client of yours changes it, and every few minutes |
 
-## When Solus copies it
+On a host that several people use, your profile goes into your own seats
+(`CLAUDE_CONFIG_DIR`, `CODEX_HOME`), and your MCP servers become records only
+you see and use. On a host you own, such as a personal VM, it goes into the
+host's own homes, and a file or a server the host already had is never
+replaced: Settings counts what was kept.
 
-Solus on your computer copies the profile the first time it reaches one of
-those hosts, each time the app runs: when a draft or a conversation aims at the
-host, or when Settings → Providers shows it. To copy changes later, open
-Settings → Providers → Your agent profile and select **Copy again**. A session
-that started before the copy arrived reads the new files in its next session.
+Your computer is never overwritten. The account document is the place the
+profile is sent from, not a copy that replaces `~/.claude`. When your computer
+and the account differ on one entry, Settings shows both and you pick.
 
-The web and phone clients do not run on your computer, so they cannot copy. They
-show what is on the host and can remove it.
+## Sync
+
+Settings → Agent profile turns sync on for this client. The first time, the
+account is read first: when it is empty, your computer's profile is offered as
+the first copy; when it has one, "Use synced" is the default and "Replace with
+this device" is a separate choice. Edits apply at once and are sent after a
+short pause. Two clients that change different entries merge; one entry both
+changed is a conflict with "Keep mine" and "Take theirs".
+
+"Turn off on this device" stops transfers here; the account and other devices
+do not change. "Clear synced profile" removes the account copy and its MCP
+connections, and other clients turn sync off when they next connect.
+
+## MCP connections
+
+Signed in, you sign in to a server once, at app.solus.sh, whether or not sync
+is on and whether the server is yours or the host's. Solus Cloud is the OAuth
+client and the only refresher. A host reads an access token
+from your account for each call and holds it in memory until it expires. It
+never holds the refresh token or the client. A server row on a host then reads
+"Connected through Solus Cloud".
+
+A connection you made on a host before sync was on moves into your account by
+itself the next time that host pulls your profile. When the account already
+holds one for that server, the account's wins and the host revokes its own
+token. Nothing on the host is deleted before the cloud confirmed the write.
+
+When Solus Cloud does not answer, a host uses the token it cached until that
+token expires, and then shows "Solus Cloud unreachable". That is not a sign-in
+problem, and signing in again does not fix it.
+
+Not signed in, a connection stays on the host that made it. The push carries
+the server's record, and you sign in once on each host, as with a provider
+seat.
 
 ## What is not copied
 
-- Logins, `settings.json`, plugins, MCP servers, hooks, and transcripts.
+- Logins, `settings.json`, plugins, hooks, and transcripts.
 - Hidden files and folders, and `node_modules`.
 - A file larger than 1 MB, and the files after the profile reaches 16 MB.
-  Settings shows how many files were left out.
+  Settings shows how many were left out.
 
 ## Removing it
 
-**Remove** deletes the copied files from your seats on that host. Your logins
-and anything else in your seats stay. A new copy replaces the old one: a skill
-you deleted on your computer is deleted on the host too. A file that your
-computer could not send (too large or unreadable) is not deleted: the copy
-already on the host stays.
+**Remove** on a host deletes what the profile put there: the copied files, the
+registry skills it installed, and the MCP records it made, with their
+connections. Your logins and anything else in your seats stay.
 
 ## How it works
 
-`agentProfileRead` runs on your computer's own host, for its administrator
-only. It reads the files above. `agentProfileApply` runs on the target host. For
-an organization member, it writes the files into that member's seat homes
-(`CLAUDE_CONFIG_DIR` and `CODEX_HOME`). For the host's owner, it writes them into
-the host login's homes. A guest is refused. A manifest, `.solus-profile.json`
-in each seat home, lists the copied files, so the next copy removes the files
-it no longer holds. `AgentProfileManager` (`execution/seats/agent-profile.ts`)
-owns these files.
-
-Before it changes a file, the host refuses the whole copy if:
-
-- a path is outside the entries above, or is in the copy twice;
-- a path is both a file and a folder;
-- a file is larger than 1 MB, or all files are larger than 16 MB, after decoding;
-- a path in the seat goes through a link, because a write or a removal there
-  would change a file outside the seat.
-
-The manifest is written last. If a write fails after the copy starts, the host
-reports the file, and some files can be new and some old. Copy again to finish.
+- `agentProfileRead` runs on your computer's own host, for its administrator
+  only. It reads the files, lists the registry skills with the skills CLI, and
+  adds the host's own MCP records.
+- `agentProfileApply` runs on the target host with a document from your
+  computer. `agentProfilePull` makes the host read the document from your
+  account with your delegated token.
+- `AgentProfileManager` (`execution/seats/agent-profile.ts`) owns the profile
+  on a host: the read, the apply, the pull, and the status. An apply runs three
+  appliers in order — the files (`profile-files.ts`), the registry skills
+  through the skills CLI, and the MCP records
+  (`integrations/profile-integrations.ts`) — and writes one manifest last,
+  `.solus-profile.json` in each seat home, with the source, the account
+  revision, and every entry it owns. A pull applies only when the account
+  revision moved, then asks `IntegrationConnections.reconcile` to move the
+  person's host-local MCP connections into their account.
+- The host refuses the whole copy before it changes anything when a path is
+  outside the profile, a file is too large, a path goes through a link in the
+  seat, or a registry skill and a hand-written skill share one name.

@@ -12,6 +12,7 @@ import { createLogger } from '../../logger'
 import { linkSessionPullRequest } from '../../data/sessions/session-pull-requests'
 import { providerForRepo } from '../../providers/registry'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
+import { assertPathInScope } from '../../admission/scope'
 import { prIndex } from '../../prs/pr-index'
 import { pullRequestForBranch } from '../../prs/code-host'
 import type { SolusServer } from '../server'
@@ -75,7 +76,10 @@ async function checkoutRepoRoot(ctx: IpcContext): Promise<string | null> {
 
 export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps): void {
   const { sessionRuntime } = deps
-  server.register('checkoutSnapshot', ([paths]) => sessionRuntime.checkouts.snapshot(paths))
+  server.register('checkoutSnapshot', ([paths], handlerCtx) => {
+    for (const path of paths) assertPathInScope('checkoutSnapshot', handlerCtx.principal, path)
+    return sessionRuntime.checkouts.snapshot(paths)
+  })
   const textGenerator = new TextGenerator(sessionRuntime)
 
   const generateCommitSubject = async (
@@ -102,10 +106,11 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     })
   }
 
-  server.register('worktreeListProject', (args) => {
+  server.register('worktreeListProject', (args, handlerCtx) => {
     const [ctx] = args
     const dir = ctx.session.workingDirectory
     if (!dir || dir === '~') return []
+    assertPathInScope('worktreeListProject', handlerCtx.principal, dir)
     return listProjectWorktrees(dir)
   })
 
@@ -262,10 +267,11 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     }
   })
 
-  server.register('worktreeBranches', async (args) => {
+  server.register('worktreeBranches', async (args, handlerCtx) => {
     const [ctx, options] = args
     const cwd = ctx.session.workingDirectory
     if (!cwd || cwd === '~') return []
+    assertPathInScope('worktreeBranches', handlerCtx.principal, cwd)
     await runAsync('git', ['fetch', '--all', '--prune'], cwd).catch((err) => {
       if (err instanceof GitUnavailableError) return
       log.warn('branch_fetch_before_list_failed', { error: err instanceof Error ? err.message : String(err) })
@@ -308,8 +314,9 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     })
   })
 
-  server.register('gitRefreshState', async (args) => {
+  server.register('gitRefreshState', async (args, handlerCtx) => {
     const [cwd, options] = args
+    assertPathInScope('gitRefreshState', handlerCtx.principal, cwd)
     if (!options?.includeRefs) return computeGitState(cwd, options)
     // Refs ride along with the status scan so a full environment refresh is
     // one round trip. Same reads as `worktreeListProject` and `worktreeBranches`.
@@ -326,7 +333,10 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     return state ? { ...state, refs: { worktrees, branches } } : null
   })
 
-  server.register('gitIdentity', async ([cwd]) => computeGitIdentity(cwd))
+  server.register('gitIdentity', async ([cwd], handlerCtx) => {
+    assertPathInScope('gitIdentity', handlerCtx.principal, cwd)
+    return computeGitIdentity(cwd)
+  })
 
   server.register('gitRegisterEnvironment', (args) => {
     const [ctx, cwd, gitContext] = args

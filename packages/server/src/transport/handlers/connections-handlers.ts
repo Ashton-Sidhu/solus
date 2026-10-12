@@ -1,7 +1,10 @@
-import { accountConnectionsUrl } from '../../vault/account-integrations'
+import { accountConnectionsUrl } from '../../vault/account-reads'
 import { credentialUserFor } from '../../admission/actor'
+import { grantsFor } from '../../admission/access-policy'
 import { generatePairToken, listRevokedDevices, revokeDevice, getInstallationId } from '../../admission/auth'
 import { discoverTailnetServers, listReachableEndpoints } from '../endpoints'
+import { shareRoutesFor } from '../../sharing/share-routes'
+import { shareResourceSchema, type ShareResource } from '@solus/contracts/sharing'
 import { createLogger } from '../../logger'
 import { captureServerEvent } from '../../analytics'
 import { bootstrapDiscoveredServerOverSsh } from '../ssh-bootstrap'
@@ -26,6 +29,10 @@ export interface ConnectionsDeps {
   pairedHosts: Pick<PairedHosts, 'list' | 'pair' | 'forget'>
   /** Closes an open connection to a host whose pairing was replaced or forgotten. */
   disconnectRemoteHost(hostId: string): void
+  /** This host's tunnel origin while its connector is online; null otherwise. */
+  tunnelUrl(): string | null
+  /** The account origin when the resource is mirrored there (a published session of an organization on a linked host); null otherwise. */
+  mirrorOrigin(resource: ShareResource): Promise<string | null>
 }
 
 export interface ActiveConnectionSession {
@@ -70,7 +77,8 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
   server.register('connectionsGetServerInfo', (_args, ctx) => {
     const info = deps.getServerInfo()
     const principal = ctx.principal
-    const answer: ConnectionsServerInfo = { ...info, installationId: getInstallationId(), principal: principal.kind }
+    // What this connection may do here, so every control disables exactly when the gate would refuse (permissions.md).
+    const answer: ConnectionsServerInfo = { ...info, installationId: getInstallationId(), principal: principal.kind, grants: grantsFor(principal) }
     const connectionsUrl = credentialUserFor(ctx.actor) ? accountConnectionsUrl() : null
     if (connectionsUrl) answer.accountConnectionsUrl = connectionsUrl
     // The one person the client is on this host: "is this me?" compares against it (plans/012 §1).
@@ -97,6 +105,16 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
     return await listReachableEndpoints(host, port)
   })
 
+  // docs/plans/host-sharing.md §2: a mirrored session's link names the account origin,
+  // which hands the guest to this host when it answers and to the mirror when it does
+  // not; everything else is reached on this host alone.
+  server.register('shareLinkOrigin', async (args) => {
+    const resource = shareResourceSchema.parse(args[0])
+    const mirror = await deps.mirrorOrigin(resource)
+    if (mirror) return { origin: mirror }
+    const { host, port } = deps.getServerInfo()
+    return { origin: shareRoutesFor(deps.tunnelUrl(), await listReachableEndpoints(host, port))[0]?.url ?? null }
+  })
   server.register('discoverServers', async () => {
     const { port } = deps.getServerInfo()
     const [lan, tailnet] = await Promise.all([

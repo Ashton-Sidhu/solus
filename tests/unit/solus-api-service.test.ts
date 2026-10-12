@@ -33,7 +33,6 @@ test('the data service boots alone, serves HTTP, and exposes no execution or rep
   expect(service!.server.hasHandler('prompt')).toBe(false)
   expect(service!.server.hasHandler('automationRun')).toBe(false)
   expect(service!.server.hasHandler('tasksReadExtras')).toBe(true)
-  expect(service!.server.hasHandler('sharedSessionPrompt')).toBe(true)
   expect(service!.server.hasHandler('workspaceProjectAdd')).toBe(true)
 })
 

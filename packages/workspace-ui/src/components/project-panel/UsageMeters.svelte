@@ -41,7 +41,7 @@
   } satisfies Record<string, string>;
 </script>
 
-{#if rows.length > 0}
+{#if rows.length > 0 && (host?.me.may("host.usage.read") ?? true)}
   <div class="flex flex-col" class:opacity-60={rows.every((row) => row.stale)}>
     {#each rows as row (row.provider)}
       <!-- The provider reads as a menu row — same glyph column, same size and

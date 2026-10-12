@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { Apple, RefreshCw, RotateCw, Smartphone } from "@lucide/svelte";
+  import { RefreshCw, RotateCw, Smartphone } from "@lucide/svelte";
+  import AppleLogoIcon from "../ui/AppleLogoIcon.svelte";
   import type { DeviceState, DeviceSummary } from "@solus/contracts/device-types";
   import { devicesStore, deviceErrorMessage } from "../../contexts/devices/devices.store.svelte";
   import { Skeleton } from "../ui/skeleton";
@@ -96,7 +97,7 @@
                   onclick={() => onOpen(device)}
                 >
                   {#if device.platform === "ios"}
-                    <Apple class="size-3.5 shrink-0 text-(--solus-text-tertiary)" aria-hidden="true" />
+                    <AppleLogoIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
                   {:else}
                     <Smartphone class="size-3.5 shrink-0 text-(--solus-text-tertiary)" aria-hidden="true" />
                   {/if}

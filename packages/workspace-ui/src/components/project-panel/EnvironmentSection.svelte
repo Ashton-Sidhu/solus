@@ -12,6 +12,8 @@
     getWorkspaceContext,
     serversStore,
     toolsStore,
+    groupKeyFor,
+    hosts,
   } from "../../contexts";
   import { browserStore } from "../../contexts/browser/browser.store.svelte";
   import { devicesStore } from "../../contexts/devices/devices.store.svelte";
@@ -66,6 +68,8 @@
   // affinity glyph is null for it.
   const host = $derived(serversStore.hostFor(sectionRun?.serverId));
   const hostAffinity = $derived(serversStore.affinityFor(sectionRun?.serverId));
+  /** What this client may do on the host: a guest opens no terminal, browser, or device here (permissions.md). */
+  const me = $derived(hosts.find(detailServerId)?.me);
   // The project row names the machine the work runs on, local included: a run
   // with no recorded host runs on the host this tab talks to.
   const runHostLabel = $derived(
@@ -98,13 +102,13 @@
       {
         key: "terminal",
         label: "Terminal",
-        // The terminal is resolved when this row is inspected or used, not
-        // when its logo mounts. Before that, the row shows a generic glyph.
+        // Show the configured terminal icon until inspection or use resolves
+        // the terminal already attached to the shared session.
         badge: toolsStore.resolvedTerminal?.name,
         icon: TerminalAppLogo,
         hint: comboHint("orb.open-terminal"),
         phase: "idle",
-        disabled: !!hostAffinity,
+        disabled: !!hostAffinity || !(me?.may("host.terminal") ?? true),
         tooltip: hostAffinity
           ? `Runs on ${host?.label} — not available for remote sessions`
           : undefined,
@@ -124,6 +128,7 @@
         icon: confirmingClearBrowser ? EraserIcon : GlobeIcon,
         danger: confirmingClearBrowser,
         phase: "idle",
+        disabled: !(me?.may("host.use") ?? true),
         run: () => {
           if (confirmingClearBrowser) void clearBrowserData();
           else {
@@ -140,6 +145,7 @@
         icon: SmartphoneIcon,
         badge: buildCount > 0 ? `${buildCount} build${buildCount === 1 ? "" : "s"}` : undefined,
         phase: "idle" as const,
+        disabled: !(me?.may("host.use") ?? true),
         run: () => {
           if (buildCount > 0) openDeviceBuilds(session, detailServerId);
           else session.openDevices(undefined, detailServerId);
@@ -179,13 +185,13 @@
         badge: runHostLabel,
         hint: comboHint("global.toggle-files"),
         phase: "idle",
-        disabled: !onOpenFiles,
+        disabled: !onOpenFiles || !(me?.may("host.files.read") ?? true),
         tooltip: runHostLabel ? `Runs on ${runHostLabel}` : undefined,
       }}
       onActivate={() => onOpenFiles?.()}
     >
       {#snippet iconSnippet()}
-        <ProjectFavicon {projectRoot} serverId={detailServerId} class="size-4" />
+        <ProjectFavicon projectKey={groupKeyFor(detailServerId, projectRoot)} class="size-4" />
       {/snippet}
     </MenuRow>
   {/if}

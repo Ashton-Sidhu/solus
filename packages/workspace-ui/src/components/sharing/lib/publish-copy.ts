@@ -1,4 +1,4 @@
-import type { PublishOutcome, PublishStatus } from '../../../contexts/sharing/shares.store.svelte'
+import type { PublishOutcome, PublishStatus } from '../../../contexts/sharing/cloud-publication'
 
 /**
  * The words for an upload that did not finish (cloud-sharing.md §3), one

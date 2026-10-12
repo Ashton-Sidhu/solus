@@ -36,8 +36,14 @@ import { TurnRefusedError } from './turn-refusal'
  *    (`admission/actor.ts`): a member's own; the host's user for its owner (§6.1).
  */
 
-/** A refusal the delegation names, rather than an unreachable service. */
-const delegationRefusalSchema = z.object({ code: z.enum(['ORGANIZATION_ACCESS_REFUSED', 'ORGANIZATION_AUTHORITY_MISSING', 'ORGANIZATION_API_UNAVAILABLE']) })
+/**
+ * A refusal the delegation names, rather than an unreachable service. A delegation
+ * whose client grant ended asks the person what a missing one does: sign in again.
+ */
+const delegationRefusalSchema = z.object({
+  code: z.enum(['ORGANIZATION_ACCESS_REFUSED', 'ORGANIZATION_AUTHORITY_MISSING', 'ORGANIZATION_API_UNAVAILABLE', 'GRANT_REVOKED'])
+    .transform((code): TurnRefusal => code === 'GRANT_REVOKED' ? 'ORGANIZATION_AUTHORITY_MISSING' : code),
+})
 
 /** How this host acts for a person in an organization (sync/delegations.ts; plans/010-standard-oauth.md). */
 export interface DelegationPort {

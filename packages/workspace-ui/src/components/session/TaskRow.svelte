@@ -495,8 +495,7 @@
         aria-hidden="true"
       >
         <ProjectFavicon
-          projectRoot={task.projectKey}
-          serverId={task.serverId}
+          projectKey={task.groupKey}
           class="size-4 pointer-fine:[&_.lucide-folder]:size-[82%]"
         />
       </span>
@@ -533,8 +532,7 @@
                  The band above already names the project while the list is
                  scoped. -->
             <ProjectFavicon
-              projectRoot={task.projectKey}
-              serverId={task.serverId}
+              projectKey={task.groupKey}
               class="size-4 shrink-0 @max-[15rem]:size-[0.875rem] pointer-fine:[&_.lucide-folder]:size-[82%]"
             />
             <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
@@ -644,6 +642,7 @@
     <SessionSidebarTooltip
       title={task.title}
       projectKey={task.projectKey}
+      groupKey={task.groupKey}
       projectLabel={task.projectLabel}
       taskTitle={task.linkedTask?.title}
       {branchName}
@@ -663,6 +662,7 @@
     <div class="pt-px pb-2">
       <TaskSessionRow
         session={disclosedSession}
+        groupKey={task.groupKey}
         projectLabel={task.projectLabel}
         renaming={!!disclosedSession.tabId && renamingTabId === disclosedSession.tabId}
         onRename={(next) => onRename(disclosedSession, next)}

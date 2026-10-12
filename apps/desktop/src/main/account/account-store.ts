@@ -1,27 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { dirname } from 'path'
-import { z } from 'zod'
+import { storedGrantSchema, type StoredGrant, type TokenStore } from '@solus/client-core/oauth-session'
 
 /**
- * The one place the account session token is persisted. Encrypted with the OS
- * keychain (`safeStorage`) and written 0600; refuses to store anything when the
- * keychain is unavailable rather than falling back to plaintext.
+ * The desktop's `TokenStore` (docs/adr/0001-standard-authentication.md §3.2): the one
+ * place the refresh token is persisted. Encrypted with the OS keychain
+ * (`safeStorage`) and written 0600; refuses to store anything when the keychain is
+ * unavailable rather than falling back to plaintext. A file of the old session-token
+ * form does not parse, so that install reads as signed out and signs in again.
  */
-
-const storedAccountSchema = z.object({
-  sessionToken: z.string().min(1),
-  profile: z.object({
-    id: z.string(),
-    email: z.string(),
-    name: z.string().nullable(),
-    avatarUrl: z.string().nullable(),
-  }),
-  cloudOrigin: z.url(),
-  signedInAt: z.number(),
-  lastVerifiedAt: z.number(),
-})
-
-export type StoredAccount = z.infer<typeof storedAccountSchema>
 
 export interface AccountCipher {
   isEncryptionAvailable(): boolean
@@ -29,7 +16,7 @@ export interface AccountCipher {
   decryptString(encrypted: Buffer): string
 }
 
-export class AccountStore {
+export class AccountStore implements TokenStore {
   constructor(
     private readonly filePath: string,
     private readonly cipher: AccountCipher,
@@ -39,21 +26,21 @@ export class AccountStore {
     return this.cipher.isEncryptionAvailable()
   }
 
-  load(): StoredAccount | null {
+  load(): StoredGrant | null {
     if (!this.canPersist() || !existsSync(this.filePath)) return null
     try {
       const json = this.cipher.decryptString(readFileSync(this.filePath))
-      const parsed = storedAccountSchema.safeParse(JSON.parse(json))
+      const parsed = storedGrantSchema.safeParse(JSON.parse(json))
       return parsed.success ? parsed.data : null
     } catch {
       return null
     }
   }
 
-  save(account: StoredAccount): void {
+  save(grant: StoredGrant): void {
     if (!this.canPersist()) throw new Error('account_store_encryption_unavailable')
     mkdirSync(dirname(this.filePath), { recursive: true })
-    writeFileSync(this.filePath, this.cipher.encryptString(JSON.stringify(account)), { mode: 0o600 })
+    writeFileSync(this.filePath, this.cipher.encryptString(JSON.stringify(grant)), { mode: 0o600 })
   }
 
   clear(): void {

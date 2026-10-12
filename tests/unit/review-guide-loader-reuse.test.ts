@@ -27,7 +27,7 @@ function guide(): ReviewGuide {
         order: 1,
         significance: 'core',
         explanation: 'why',
-        ledgerRefs: [],
+        
         files: [{ path: 'a.ts', additions: 1, deletions: 0 }],
       },
     ],
@@ -51,7 +51,6 @@ interface Calls {
 function fakeApi(calls: Calls) {
   return {
     readGuide: async () => guide(),
-    readLedger: async () => null,
     getReviewContext: async () => {
       calls.getReviewContext += 1
       return reviewContext

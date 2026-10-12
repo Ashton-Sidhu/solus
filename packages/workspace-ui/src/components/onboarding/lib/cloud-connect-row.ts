@@ -26,12 +26,12 @@ export function cloudConnectRow(input: {
     return { state: 'available', detail: 'This Mac cannot save the sign-in safely' }
   }
   if (account.kind === 'signing-in') {
-    return { state: 'busy', detail: `Confirm ${account.userCode} in your browser` }
+    return { state: 'busy', detail: 'Finish signing in in your browser' }
   }
   if (account.kind === 'signed-in') {
-    if (uplink?.linked) return { state: 'done', detail: `${account.profile.email} · This Mac is linked` }
+    if (uplink?.linked) return { state: 'done', detail: `${account.identity.email} · This Mac is linked` }
     if (isLinking) return { state: 'busy', detail: 'Linking this Mac…' }
-    return { state: 'available', detail: account.profile.email, actionLabel: 'Link this Mac' }
+    return { state: 'available', detail: account.identity.email, actionLabel: 'Link this Mac' }
   }
   return {
     state: 'available',

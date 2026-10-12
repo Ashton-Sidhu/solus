@@ -29,7 +29,7 @@ async function fixture() {
   let guide: ReviewGuide = {
     version: 1, key: 'pr-guide', title: 'Previous guide', summary: 'Summary',
     baseSha: 'base-a', headSha: 'head-a', generatedAt: '2026-09-09T10:00:00Z',
-    sections: [{ id: 'one', title: 'Change', order: 1, significance: 'core', explanation: 'Why', ledgerRefs: [], files: [{ path: 'a.ts', additions: 1, deletions: 0 }] }],
+    sections: [{ id: 'one', title: 'Change', order: 1, significance: 'core', explanation: 'Why', files: [{ path: 'a.ts', additions: 1, deletions: 0 }] }],
   }
   let reads = 0
   const api = {

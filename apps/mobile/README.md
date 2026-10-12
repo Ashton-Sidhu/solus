@@ -32,7 +32,8 @@ desktop and web clients. It adds no server code and no mobile protocol.
   every ported file.
 - `expo-secure-store` for credentials only; `expo-sqlite/kv-store` for host
   metadata, drafts, the send outbox, and the last route; `expo-camera` for
-  pairing codes; `expo-web-browser` for account sign-in; `expo-network` for
+  pairing codes; `expo-web-browser` (the system authentication session) and
+  `expo-crypto` (PKCE) for account sign-in; `expo-network` for
   network changes; `expo-image-picker`, `expo-document-picker`, and
   `expo-file-system` for attachments; `expo-font` with JetBrains Mono (the
   Solus default code font) and DM Sans (T3's interface font); `expo-build-properties` to allow plain `http://` to LAN hosts on
@@ -60,7 +61,7 @@ desktop and web clients. It adds no server code and no mobile protocol.
 | `src/app/` | `SolusApp`, the composition root (registry, connections, account, sessions, open conversations), the load barrier, and the restored route |
 | `src/platform/` | Ports for storage and the keychain, the Expo adapters, app lifecycle wake signals, and the one `AbortSignal.timeout` polyfill |
 | `src/features/hosts/` | Saved hosts and their credentials, one connection and supervisor per host, pairing |
-| `src/features/account/` | Solus Cloud device sign-in, the host directory, organizations, managed host start |
+| `src/features/account/` | Solus Cloud sign-in (OAuth with PKCE), the host directory, organizations, managed host start |
 | `src/features/home/` | Home: every session on every host, T3's list, search, and filters |
 | `src/features/threads/` | The thread directory across hosts, the thread screen (feed, composer, cards), and the new-task sheet |
 | `src/features/conversation/` | Transcript model, conversation controller and store |
@@ -123,11 +124,13 @@ Do not use the Solus desktop or web build commands for the mobile app.
 
 ## Known limits and decisions
 
-- **Solus Cloud sign-in needs a deploy.** The app signs in with the device
-  flow as client `solus-mobile`. The solus-cloud working tree now lists it in
-  `DEVICE_CLIENTS` (`src/lib/server/auth/device-clients.ts`, with a test), but
-  that change is not deployed. Until it is, sign-in says that Solus Cloud does
-  not accept this app yet. The desktop client id is not reused.
+- **Solus Cloud sign-in.** The app signs in as the public OAuth client
+  `solus-mobile`: the authorization code with PKCE in the system authentication
+  session, back to `solus://auth/callback`
+  (docs/adr/0001-standard-authentication.md). The refresh token stays in the
+  keychain; each cloud call and each host dial uses a five-minute access token for
+  that one resource. Sign-out revokes the token. `expo-crypto` is native: a new
+  development build is necessary after it is added.
 - **Keyboard after send.** The composer closes the software keyboard after a
   message is sent, as T3 Code does, so the reply is visible. This is an
   approved exception to the rule that focus returns to the input (plan 017 §3
@@ -154,7 +157,7 @@ feature area that implements it.
 | Capability | Owner | Native | Web | Evidence / next step |
 | --- | --- | --- | --- | --- |
 | Pair a host (QR, link, address + code) | hosts | source | yes | `native-mobile-hosts`, `native-mobile-host-integration`; device proof of camera flow |
-| Solus Cloud sign-in and existing hosts | account | source, blocked on client id | yes | `native-mobile-account`; solus-cloud change above |
+| Solus Cloud sign-in and existing hosts | account | source | yes | `native-mobile-account` |
 | Organizations (select, Local vs organization view) | account | source | yes | `native-mobile-app` |
 | Host management (retry, forget, sign out) | hosts | source | yes | `native-mobile-hosts`, `native-mobile-app` |
 | Sessions across hosts (Home), open project | threads, projects | source | yes | `native-mobile-thread-list`, `native-mobile-host-integration` |

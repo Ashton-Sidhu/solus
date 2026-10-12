@@ -2,41 +2,30 @@ import {
   accountResponseSchema,
   directoryResponseSchema,
   enrollmentTicketResponseSchema,
-  hostAccessTokenResponseSchema,
   managedHostStartResponseSchema,
   type AccountResponse,
-  type HostAccessTokenRequest,
-  type HostAccessTokenResponse,
   type ManagedHostLifecycle,
   type UplinkDirectory,
   type UplinkEnrollmentTicket,
 } from '@solus/contracts/uplink'
 import type { z } from 'zod'
-import type { AccountProfile } from '@solus/contracts/account-types'
-import { profileFromResponse } from '@solus/client-core/cloud-account'
 import { settingsCloudRequests, type SettingsCloudRequests } from '@solus/client-core/settings-requests'
+import { agentProfileCloudRequests, type AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
 
 /**
- * The Solus account calls the native client makes, with the account session
- * as a bearer token. Same paths and schemas as the desktop's account session
+ * The Solus account calls the native client makes, each with a five-minute access
+ * token for the account plane as the bearer (docs/adr/0001-standard-authentication.md
+ * §2.2). Same paths and schemas as the desktop's account session
  * (`apps/desktop/src/main/account/`); a native app shares no cookies with the
  * browser, so nothing here relies on one.
  */
 
 export const DEFAULT_CLOUD_ORIGIN = 'https://app.solus.sh'
 
-/**
- * The device-authorization client this app signs in as. Solus Cloud must list
- * it in `DEVICE_CLIENTS` (solus-cloud `src/lib/server/auth/device-clients.ts`)
- * before a sign-in can succeed; until then the code request is refused. The
- * desktop's `solus-desktop` id is not reused (plan 017 §7).
- */
-export const MOBILE_DEVICE_CLIENT_ID = 'solus-mobile'
-
-/** The account session is no longer accepted: signed out elsewhere or expired. */
+/** The account plane refused the access token: the grant may have ended. */
 export class AccountUnauthorizedError extends Error {
   constructor() {
-    super('The Solus account session is no longer valid.')
+    super('The Solus account refused the access token.')
     this.name = 'AccountUnauthorizedError'
   }
 }
@@ -50,62 +39,45 @@ export class CloudAccountClient {
     private readonly fetchImpl: typeof fetch,
   ) {}
 
-  async me(sessionToken: string): Promise<AccountProfile> {
-    const response = await this.call(sessionToken, '/api/account/me')
-    const profile = await profileFromResponse(response)
-    if (!profile) throw new AccountUnavailableError('The account website answered without a profile.')
-    return profile
+  async account(accessToken: string): Promise<AccountResponse> {
+    return parseResponse(accountResponseSchema, await this.call(accessToken, '/v1/account'), 'account')
   }
 
-  async account(sessionToken: string): Promise<AccountResponse> {
-    return parseResponse(accountResponseSchema, await this.call(sessionToken, '/v1/account'), 'account')
-  }
-
-  async directory(sessionToken: string): Promise<UplinkDirectory> {
-    const directory = await parseResponse(directoryResponseSchema, await this.call(sessionToken, '/v1/hosts'), 'host directory')
+  async directory(accessToken: string): Promise<UplinkDirectory> {
+    const directory = await parseResponse(directoryResponseSchema, await this.call(accessToken, '/v1/hosts'), 'host directory')
     return { directoryUrl: this.origin, ...directory }
-  }
-
-  /** An eight-hour first-party grant, including the expiry needed for reuse. */
-  async hostAccessToken(sessionToken: string, hostId: string, organizationId: string | null): Promise<HostAccessTokenResponse> {
-    const body: HostAccessTokenRequest = organizationId ? { organizationId } : {}
-    const response = await this.call(sessionToken, `/v1/hosts/${encodeURIComponent(hostId)}/access-token`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    return parseResponse(hostAccessTokenResponseSchema, response, 'host access')
   }
 
   /** Asks Solus Cloud to start a stopped managed host. Callers check
    *  `managedHostNeedsStart` first; the directory then reports `ready`. */
-  async startManagedHost(sessionToken: string, hostId: string): Promise<ManagedHostLifecycle | null> {
-    const response = await this.call(sessionToken, `/v1/hosts/${encodeURIComponent(hostId)}/start`, { method: 'POST' })
+  async startManagedHost(accessToken: string, hostId: string): Promise<ManagedHostLifecycle | null> {
+    const response = await this.call(accessToken, `/v1/hosts/${encodeURIComponent(hostId)}/start`, { method: 'POST' })
     return (await parseResponse(managedHostStartResponseSchema, response, 'host start')).lifecycle
   }
 
   /** A one-use ticket a host redeems with `uplinkLink` to link itself to this account. */
-  async enrollmentTicket(sessionToken: string): Promise<UplinkEnrollmentTicket> {
-    const response = await this.call(sessionToken, '/v1/enrollment-tickets', { method: 'POST' })
+  async enrollmentTicket(accessToken: string): Promise<UplinkEnrollmentTicket> {
+    const response = await this.call(accessToken, '/v1/enrollment-tickets', { method: 'POST' })
     return { ...(await parseResponse(enrollmentTicketResponseSchema, response, 'link ticket')), directoryUrl: this.origin }
   }
 
-  async nameDevice(sessionToken: string, deviceLabel: string): Promise<void> {
-    await this.call(sessionToken, '/api/account/device-label', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ deviceLabel: deviceLabel.slice(0, 120), clientId: MOBILE_DEVICE_CLIENT_ID }),
-    })
+  /**
+   * Settings sync and organization settings (plans/018 §4) with an access token got
+   * when each call is made. Answers are decoded in client-core, the same as on desktop
+   * and web; `onUnauthorized` hears a 401.
+   */
+  settingsRequests(accessToken: () => Promise<string | null>, onUnauthorized: () => void): SettingsCloudRequests {
+    return settingsCloudRequests((request) => this.accountRequest(request, accessToken, onUnauthorized))
   }
 
-  /**
-   * Settings sync and organization settings (plans/018 §4) with the session that
-   * is current when each call is made. Answers are decoded in client-core, the
-   * same as on desktop and web; `onUnauthorized` hears a 401 and the token it refused.
-   */
-  settingsRequests(sessionToken: () => string | null, onUnauthorized: (sessionToken: string) => void): SettingsCloudRequests {
-    return settingsCloudRequests(async (request) => {
-      const token = sessionToken()
+  /** The agent profile document (plans/020-agent-profile.md §3), with the same token. */
+  agentProfileRequests(accessToken: () => Promise<string | null>, onUnauthorized: () => void): AgentProfileCloudRequests {
+    return agentProfileCloudRequests((request) => this.accountRequest(request, accessToken, onUnauthorized))
+  }
+
+  private accountRequest(request: { method: string; path: string; body?: object }, accessToken: () => Promise<string | null>, onUnauthorized: () => void): Promise<Response | null | 'signed-out'> {
+    return (async () => {
+      const token = await accessToken()
       if (!token) return 'signed-out'
       const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}` })
       if (request.body) headers.set('content-type', 'application/json')
@@ -120,21 +92,17 @@ export class CloudAccountClient {
       } catch {
         return null
       }
-      if (response.status === 401) onUnauthorized(token)
+      if (response.status === 401) onUnauthorized()
       return response
-    })
+    })()
   }
 
-  async signOut(sessionToken: string): Promise<void> {
-    await this.call(sessionToken, '/api/auth/sign-out', { method: 'POST' }).catch(() => undefined)
-  }
-
-  private async call(sessionToken: string, path: string, init: RequestInit = {}): Promise<Response> {
+  private async call(accessToken: string, path: string, init: RequestInit = {}): Promise<Response> {
     let response: Response
     try {
       response = await this.fetchImpl(`${this.origin}${path}`, {
         ...init,
-        headers: { accept: 'application/json', authorization: `Bearer ${sessionToken}`, ...init.headers },
+        headers: { accept: 'application/json', authorization: `Bearer ${accessToken}`, ...init.headers },
         signal: AbortSignal.timeout(15_000),
       })
     } catch {

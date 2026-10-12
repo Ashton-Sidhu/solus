@@ -131,8 +131,8 @@
               variant="ghost"
               size="icon-sm"
               aria-label={activeOrganizationName
-                ? `Account: ${signedIn.profile.email}, organization: ${activeOrganizationName}`
-                : `Account: ${signedIn.profile.email}`}
+                ? `Account: ${signedIn.identity.email}, organization: ${activeOrganizationName}`
+                : `Account: ${signedIn.identity.email}`}
               class="rounded-lg text-[color-mix(in_oklch,var(--foreground)_65%,transparent)] hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground data-[state=open]:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] data-[state=open]:text-foreground"
             >
               <UserIcon size={15} />
@@ -146,24 +146,24 @@
           class="w-[min(15rem,calc(100vw-2rem))]"
         >
           <div class="flex items-center gap-2.5 px-2 pt-1.5 pb-2">
-            {#if signedIn.profile.avatarUrl}
+            {#if signedIn.identity.picture}
               <img
-                src={signedIn.profile.avatarUrl}
+                src={signedIn.identity.picture}
                 alt=""
                 class="size-8 shrink-0 rounded-full object-cover shadow-[0_0_0_1px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
               />
             {:else}
               <span
                 class="flex size-8 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_oklch,var(--primary)_16%,transparent)] text-sm font-semibold text-[color-mix(in_oklch,var(--primary)_80%,var(--foreground))]"
-                aria-hidden="true">{accountInitial(signedIn.profile)}</span
+                aria-hidden="true">{accountInitial(signedIn.identity)}</span
               >
             {/if}
             <div class="flex min-w-0 flex-1 flex-col">
               <span class="truncate text-sm font-medium text-foreground"
-                >{signedIn.profile.name ?? signedIn.profile.email}</span
+                >{signedIn.identity.name ?? signedIn.identity.email}</span
               >
-              {#if signedIn.profile.name}
-                <span class="truncate text-xs text-muted-foreground">{signedIn.profile.email}</span>
+              {#if signedIn.identity.name}
+                <span class="truncate text-xs text-muted-foreground">{signedIn.identity.email}</span>
               {/if}
             </div>
           </div>
@@ -220,7 +220,7 @@
         </DropdownMenu.Content>
       </DropdownMenu.Root>
     {:else if offersSignIn && account.kind === "signing-in"}
-      <!-- The browser is waiting on this code; clicking cancels. -->
+      <!-- The browser is open on the sign-in page; clicking cancels. -->
       <TooltipUI.Root>
         <TooltipUI.Trigger>
           {#snippet child({ props })}
@@ -231,12 +231,12 @@
               class="h-7 gap-1.5 rounded-lg px-2 text-workspace-chrome font-normal text-muted-foreground hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground"
               onclick={() => accountStore.cancelSignIn()}
             >
-              <span class="font-mono">{account.userCode}</span>
+              <span>Signing in…</span>
               <XIcon size={12} />
             </Button>
           {/snippet}
         </TooltipUI.Trigger>
-        <TooltipUI.Content side="top" value="Confirm this code in your browser. Click to cancel." />
+        <TooltipUI.Content side="top" value="Finish signing in in your browser. Click to cancel." />
       </TooltipUI.Root>
     {:else if offersSignIn}
       <Button

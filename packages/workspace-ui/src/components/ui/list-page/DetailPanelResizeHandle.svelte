@@ -25,6 +25,12 @@
 
   function onPointerMove(event: PointerEvent) {
     if (!drag) return;
+    // No button is down: the release was lost (the capture went elsewhere), so
+    // the drag ends here rather than following a hovering pointer.
+    if (event.buttons === 0) {
+      onPointerUp();
+      return;
+    }
     // The handle is on the panel's left edge: moving left widens it.
     onResize(drag.startWidth + (drag.startX - event.clientX));
   }
@@ -58,6 +64,7 @@
   onpointermove={onPointerMove}
   onpointerup={onPointerUp}
   onpointercancel={onPointerUp}
+  onlostpointercapture={onPointerUp}
   onkeydown={onKeyDown}
 >
   <span

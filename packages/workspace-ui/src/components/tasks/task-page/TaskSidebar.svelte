@@ -25,8 +25,8 @@
      *  takes the column's rhythm. */
     variant?: "column" | "panel";
     projectLabel: string;
-    projectRoot?: string;
-    serverId?: string | null;
+    /** The task's project, as `projectsStore` keys it. */
+    projectKey?: string | null;
     canEdit: boolean;
     canEditPlanningFields: boolean;
     canEditPriority: boolean;
@@ -60,8 +60,7 @@
     task,
     variant = "column",
     projectLabel,
-    projectRoot,
-    serverId,
+    projectKey,
     canEdit,
     canEditPlanningFields,
     canEditPriority,
@@ -181,8 +180,8 @@
     <div class={ROW}>
       <span class={ROW_LABEL}>Project</span>
       <span class="{VALUE} min-w-0">
-        {#if projectRoot}
-          <ProjectFavicon {serverId} projectRoot={projectRoot} class="size-3" />
+        {#if projectKey}
+          <ProjectFavicon {projectKey} class="size-3" />
         {:else}
           <FolderIcon size={12} class="shrink-0 text-(--solus-text-tertiary)" />
         {/if}

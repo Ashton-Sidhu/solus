@@ -68,8 +68,8 @@ export class SolusServer {
     await assertRpcAccess(method, ctx.principal, args, this.resources)
     if (this.updateTrial && method !== 'hostUpdateStatus') throw new Error('Solus is verifying an update. Try again after it restarts.')
     if (isDebugEnabled() && method !== 'activityLease') {
-      if (method === 'typeSafeKeySet' || method === 'transcribeAudio' || method === 'integrationUpdate' || method === 'integrationConnectSubmit') {
-        // These carry a secret (an API key, an OAuth client secret) or a large payload; only the call is logged.
+      if (method === 'typeSafeKeySet' || method === 'transcribeAudio' || method === 'integrationUpdate' || method === 'integrationConnectSubmit' || method === 'authRenew') {
+        // These carry a secret (an API key, an OAuth client secret, an access token) or a large payload; only the call is logged.
         log.debug('rpc_method_invoked', { method, clientId: ctx.clientId })
       } else if (method === 'publishWork') {
         // SAFETY: Runtime dispatch pairs this method with publishWork's tuple.
@@ -152,6 +152,12 @@ export interface HandlerCtx {
    * tabs per-device so one device's tabs don't appear on another device's snapshot.
    */
   deviceId?: string
+  /**
+   * Continues a token-admitted socket with the client's next access token and answers its
+   * new expiry (ms); rejects when the token does not continue it. Absent on a transport
+   * whose connection has no expiry (Electron IPC, a paired or local socket).
+   */
+  renewAccess?: (accessToken: string) => Promise<number>
 }
 
 /** What a transport hands `SolusServer.handle()`: the call's context before the actor is resolved. */

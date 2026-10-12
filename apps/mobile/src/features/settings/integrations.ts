@@ -1,12 +1,14 @@
 import type {
   CatalogEntry,
   Integration,
+  IntegrationAuth,
   IntegrationAuthFinishedEvent,
   IntegrationConnection,
   IntegrationConnectStartResult,
   IntegrationProbeResult,
   IntegrationToolSummary,
 } from '@solus/contracts/integration-types'
+import type { ProfileConnectStartResult } from '@solus/contracts/integrations/profile-credentials'
 
 /**
  * The MCP servers of one host (docs/plans/mcp-integrations.md §7), as the
@@ -282,11 +284,14 @@ export function installedStatus(integration: Pick<Integration, 'id' | 'auth'>, c
   if (connections.kind !== 'loaded') return { text: 'Connection unknown', tone: 'muted', action: null }
   const connection = connections.byIntegration.get(integration.id)
   if (connection?.status === 'connected') {
+    if (connection.source === 'cloud') return { text: 'Connected through Solus Cloud', tone: 'muted', action: null }
     const label = connection.label ?? connection.info?.displayName ?? connection.info?.email ?? null
     return { text: label ? `Connected as ${label}` : 'Connected', tone: 'muted', action: null }
   }
   if (isMissingOAuthClient(integration)) return { text: 'Needs an OAuth client', tone: 'danger', action: null }
   if (!connection) return { text: 'Not connected', tone: 'muted', action: 'connect' }
+  // The account holds the credential and Solus Cloud did not answer: not a sign-in problem, so no Reconnect.
+  if (connection.status === 'cloud-unreachable') return { text: 'Solus Cloud unreachable', tone: 'danger', action: null }
   if (connection.status === 'needs-sign-in') return { text: 'Needs sign-in', tone: 'danger', action: 'reconnect' }
   return { text: 'Connection error', tone: 'danger', action: 'reconnect' }
 }
@@ -300,16 +305,20 @@ export function mayLoadTools(integration: Pick<Integration, 'id' | 'auth'>, conn
   return connections.kind === 'loaded' && connections.byIntegration.get(integration.id)?.status === 'connected'
 }
 
+/** Where a sign-in runs (plans/020-agent-profile.md §5.3): on the host, or at Solus Cloud for the person's own synced server. */
+export type ConnectThrough = 'host' | 'cloud'
+
 /**
- * One sign-in in progress (§4.3). `waiting`: the host waits for the browser;
- * `redirect-url` also asks for the address the browser ended on, which is the
- * usual case on a phone, as its browser cannot reach the host. `token`: the
- * integration takes an API key. No entry means no flow.
+ * One sign-in in progress (§4.3). `waiting`: the host, or Solus Cloud, waits
+ * for the browser; `redirect-url` also asks for the address the browser ended
+ * on, which is the usual case on a phone, as its browser cannot reach the host.
+ * `token`: the integration takes an API key. No entry means no flow.
  */
 export type ConnectFlowState =
   | { step: 'starting' }
   | {
       step: 'waiting'
+      through: ConnectThrough
       flowId: string
       url: string
       input: 'callback' | 'redirect-url'
@@ -318,18 +327,49 @@ export type ConnectFlowState =
       busy: boolean
       error: string | null
     }
-  | { step: 'token'; busy: boolean; error: string | null }
+  | { step: 'token'; through: ConnectThrough; busy: boolean; error: string | null }
   | { step: 'finished'; ok: boolean; message: string }
 
 /** What the host answered to Connect. */
 export function connectStarted(result: IntegrationConnectStartResult, name: string): ConnectFlowState {
   switch (result.kind) {
     case 'waiting':
-      return { step: 'waiting', flowId: result.flowId, url: result.url, input: result.input, expiresAt: result.expiresAt, submitted: false, busy: false, error: null }
+      return { step: 'waiting', through: 'host', flowId: result.flowId, url: result.url, input: result.input, expiresAt: result.expiresAt, submitted: false, busy: false, error: null }
     case 'token':
-      return { step: 'token', busy: false, error: null }
+      return { step: 'token', through: 'host', busy: false, error: null }
     case 'connected':
       return { step: 'finished', ok: true, message: `Connected to ${name}.` }
+  }
+}
+
+/** The server to connect, as a row or the conversation's sheet names it. Without its address and owner, the sign-in runs on the host. */
+export interface ConnectTarget {
+  id: string
+  name: string
+  url?: string
+  auth?: IntegrationAuth
+}
+
+/**
+ * Whether a sign-in runs at Solus Cloud (plans/020 §5.3): the person is signed
+ * in, so the account is the one refresher and every host reads the credential
+ * from it, for any server the host shows them. A server whose OAuth client only
+ * the host's administrator holds signs in on the host.
+ */
+export function connectsThroughCloud(target: ConnectTarget, accountUserId: string | null): boolean {
+  if (accountUserId === null || target.url === undefined || target.auth === undefined) return false
+  return !(target.auth.kind === 'oauth' && target.auth.registration === 'client-required')
+}
+
+/** What Solus Cloud answered to Connect. A `browser` flow ends when the account reports the server connected. */
+export function cloudConnectStarted(start: ProfileConnectStartResult, serverUrl: string, name: string): ConnectFlowState {
+  switch (start.kind) {
+    case 'browser':
+      return { step: 'waiting', through: 'cloud', flowId: `cloud:${serverUrl}`, url: start.url, input: 'callback', expiresAt: '', submitted: false, busy: false, error: null }
+    case 'token':
+      return { step: 'token', through: 'cloud', busy: false, error: null }
+    case 'none':
+      return { step: 'finished', ok: true, message: `${name} needs no sign-in.` }
   }
 }
 
@@ -372,9 +412,9 @@ export function connectFinished(state: ConnectFlowState, event: IntegrationAuthF
   }
 }
 
-/** After a reset the end of a waiting flow may have been sent while this client was away; it starts over. */
+/** After a reset the end of a host flow still waiting may have been sent while this client was away; it starts over. A cloud flow does not depend on the host. */
 export function connectReset(state: ConnectFlowState): ConnectFlowState {
-  return state.step === 'waiting' ? { step: 'finished', ok: false, message: 'The connection to the host was reset. Connect again.' } : state
+  return state.step === 'waiting' && state.through === 'host' ? { step: 'finished', ok: false, message: 'The connection to the host was reset. Connect again.' } : state
 }
 
 /**

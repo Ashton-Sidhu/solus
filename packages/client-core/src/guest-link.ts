@@ -1,12 +1,12 @@
-import { guestGrantResponseSchema, type GuestGrantResponse, type HostRoute } from '@solus/contracts/uplink'
+import type { HostRoute } from '@solus/contracts/uplink'
+import { SHARE_LINK_UNKNOWN, shareLinkTargetSchema, type ShareLinkTarget } from '@solus/contracts/sharing'
 import { z } from 'zod'
 import { dialableRoutes } from './server-registry'
 
 /**
- * A cloud share link names one resource. The account origin issues a short grant;
- * only the workspace service receives and resolves its secret. A browser keeps
- * a visitor identity for anonymous returns. A valid account session supplies the
- * verified identity when the account server mints the grant.
+ * A share link names one resource (docs/plans/host-sharing.md). The secret alone
+ * admits the visitor at the host that holds the resource; a browser keeps a visitor
+ * identity so a returning guest keeps one name and color.
  */
 
 const GUEST_KEY = 'solus.guest'
@@ -43,24 +43,35 @@ export function newGuestId(): string {
   return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('')
 }
 
-/** `POST /v1/workspace/guest-grant` on the account origin; null when it refused or did not answer. */
-export async function mintGuestGrant(
-  origin: string,
-  identity: GuestIdentity,
-  fetchImpl: typeof fetch = fetch,
-): Promise<GuestGrantResponse | null> {
+/**
+ * `POST /auth/share-link` (docs/plans/host-sharing.md §4.2): what the secret opens
+ * and the host to dial first. Only the Solus API has this door, and its 404 for an
+ * unknown secret names `SHARE_LINK_UNKNOWN`; a host answers the path with its own
+ * unnamed 404, which is how a page learns a host serves it (`no-door`).
+ * `unknown-link` is the API saying no such link, or not answering at all.
+ */
+const unknownLinkAnswerSchema = z.object({ error: z.object({ code: z.literal(SHARE_LINK_UNKNOWN) }) })
+
+export type ShareLinkResolution =
+  | { kind: 'resolved'; target: ShareLinkTarget }
+  | { kind: 'unknown-link' }
+  | { kind: 'no-door' }
+
+export async function resolveShareLink(origin: string, secret: string, fetchImpl: typeof fetch = fetch): Promise<ShareLinkResolution> {
   try {
-    const response = await fetchImpl(`${origin}/v1/workspace/guest-grant`, {
+    const response = await fetchImpl(`${origin}/auth/share-link`, {
       method: 'POST',
       headers: { accept: 'application/json', 'content-type': 'application/json' },
-      body: JSON.stringify({ guestId: identity.guestId, displayName: identity.displayName }),
+      body: JSON.stringify({ shareSecret: secret }),
       signal: AbortSignal.timeout(8_000),
     })
-    if (!response.ok) return null
-    const parsed = guestGrantResponseSchema.safeParse(await response.json().catch(() => null))
-    return parsed.success ? parsed.data : null
+    const body: unknown = await response.json().catch(() => null)
+    if (response.status === 404) return unknownLinkAnswerSchema.safeParse(body).success ? { kind: 'unknown-link' } : { kind: 'no-door' }
+    if (!response.ok) return { kind: 'unknown-link' }
+    const parsed = shareLinkTargetSchema.safeParse(body)
+    return parsed.success ? { kind: 'resolved', target: parsed.data } : { kind: 'unknown-link' }
   } catch {
-    return null
+    return { kind: 'unknown-link' }
   }
 }
 

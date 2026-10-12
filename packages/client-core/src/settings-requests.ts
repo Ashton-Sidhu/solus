@@ -11,12 +11,13 @@ import {
 import type { AccountSettingsResult, NativeSolusAPI, OrganizationSettingsResult, SettingsRequestFailure } from '@solus/contracts/host-api'
 import { uplinkErrorBodySchema } from '@solus/contracts/uplink'
 import type { z } from 'zod'
+import type { OAuthSession } from './oauth-session'
 
 export type { AccountSettingsResult, OrganizationSettingsResult, SettingsRequestFailure }
 
 /**
  * The account-plane settings calls (plans/018 §4), one typed method each. Every
- * client owns its credential differently — the web client a same-origin cookie,
+ * client owns its credential differently — the web client its page's sign-in,
  * desktop main a bearer token it never gives the renderer, the native app a bearer
  * token in the keychain — so each has an adapter. All of them decode with the
  * contract schemas here, so a status means the same thing on every client.
@@ -106,18 +107,20 @@ function refusal(status: number, parsed: z.ZodSafeParseResult<z.infer<typeof upl
 }
 
 /**
- * The web client served at the account origin: the account cookie is the
- * credential, and the browser adds the Origin header the cloud checks on a
- * cookie write.
+ * The web client served at the account origin: the page's sign-in gives an
+ * account-plane access token for each call (docs/adr/0001-standard-authentication.md
+ * §2.2); the website's cookie is not sent.
  */
-export function cookieSettingsRequests(origin: string, fetchImpl: typeof fetch = fetch): SettingsCloudRequests {
+export function webSettingsRequests(origin: string, session: Pick<OAuthSession, 'accessToken'>, fetchImpl: typeof fetch = fetch): SettingsCloudRequests {
   return settingsCloudRequests(async (request) => {
-    const headers = new Headers({ accept: 'application/json' })
+    const token = await session.accessToken({ kind: 'account' })
+    if (!token) return 'signed-out'
+    const headers = new Headers({ accept: 'application/json', authorization: `Bearer ${token}` })
     if (request.body) headers.set('content-type', 'application/json')
     try {
       return await fetchImpl(`${origin}${request.path}`, {
         method: request.method,
-        credentials: 'include',
+        credentials: 'omit',
         cache: 'no-store',
         headers,
         body: request.body ? JSON.stringify(request.body) : undefined,

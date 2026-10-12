@@ -40,10 +40,14 @@ concepts.
 - **Host tokens.** A host token has one audience, `hostAudience(hostId)`.
   Host B refuses a token for another host (`admission/access-tokens.ts`).
 - **The account session on desktop.** The desktop main process holds the
-  user's account session. It already gives the server
-  `ownerAccessToken(hostId)` (`boot-server.ts`), which calls the account plane's
-  `POST /v1/hosts/:hostId/access-token`. That endpoint checks that the user can
-  reach the host, then mints a five-minute token for it.
+  user's sign-in (`OAuthSession`). It is an ordinary client of its own host
+  (docs/adr/0001-standard-authentication.md §2.2 rule 10, stage 6). While it is
+  signed in, it lends the host its reach (`LocalClient.lendHostAccess`,
+  `transport/local-client.ts`): its directory and
+  `accessToken({ kind: 'host', hostId })`, a refresh at the account plane's
+  token endpoint with that host as the `resource`. The account plane checks that
+  the user can reach the host, then issues a five-minute token for it. On
+  sign-out the client takes the reach back.
 - **Session start on a host.** `createHeadlessSession`
   (`transport/handlers/session-handlers.ts`) creates a session with no tab and
   claims it for the caller. The caller may choose the session id.
@@ -53,14 +57,18 @@ concepts.
 
 ## 4. Decisions
 
-1. **Auth is the user's, from the account session the host already has.**
-   Host A asks the account plane for a token for host B with the user's
-   account session (`ownerAccessToken`). The account plane already checks that
-   the user may reach host B. No token exchange and no account-plane change.
-   Being signed in to Solus and allowed on host B is enough.
-2. **Only a host with an account session can start work on another host.**
-   Today that is the desktop app. A standalone or managed host has no account
-   session, so `host` on `start_session` answers "not available on this host".
+1. **Auth is the user's, from the signed-in client in the host's process.**
+   Host A dials host B with a token that the user's client got for host B
+   (`HostAccess.accessToken`, lent by the desktop's sign-in). The account plane
+   already checks that the user may reach host B. No token exchange and no
+   account-plane change. Being signed in to Solus and allowed on host B is
+   enough. A delegation does not give this: a delegated token is for the Solus
+   API or the account plane, never for a host (ADR 0001 stage 6 notes).
+2. **Only a host with a signed-in client in its process can start work on
+   another host.** Today that is the desktop app while it is signed in. A
+   standalone or managed host has no such client, so `host` on `start_session`
+   answers "not available on this host". A sign-out ends it at once (ADR 0001
+   §2.2 rule 5).
 3. **Host B shows the origin.** A session that an agent on another host
    started shows "Started by an agent on <host A>" on every client.
 4. **No task across hosts.** `task='attempt'` with `host` is refused. A Local
@@ -80,14 +88,17 @@ concepts.
 
 ### 5.1 Host access
 
-`bootCore` takes `ownerHosts()` beside `ownerAccessToken(hostId)`. The desktop
-wires both from its account session (`GET /v1/hosts` and
-`POST /v1/hosts/:hostId/access-token`). A host without them has no host access.
+The booted server has a `localClient` (`transport/local-client.ts`). The
+desktop's main process (`account/local-host-client.ts`) lends it a `HostAccess`
+when it signs in: the directory (`GET /v1/hosts` with the client's account
+token) and a refresh for each host's resource. It lends `null` on sign-out, and
+`RemoteHosts` reads the current loan on each use. A host with no loan has no
+host access; its paired hosts stay.
 
 ### 5.2 Remote host connections
 
 `execution/orchestration/remote-hosts.ts` keeps one connection per target
-host: a `WsTransport` whose `acquireGrant` is `ownerAccessToken(B)`, driven by
+host: a `WsTransport` whose `acquireGrant` is the lent `accessToken(B)`, driven by
 a `HostSupervisor`. It prefers a `direct` route, then `tunnel`. A host is found
 by id or by label (case does not matter). A host that is not in the directory
 is refused.
@@ -157,8 +168,8 @@ conversation.
   id and label, the tool's refusals (`task='attempt'`, no host access, unknown
   host).
 - End to end: host B is a real server from source, linked to the Lab issuer.
-  Host A boots in the test process with `ownerAccessToken` minted by the Lab
-  issuer. A parent session on host A (mock backend) calls `start_session` with
+  Host A boots in the test process with a lent `HostAccess` whose tokens the
+  Lab issuer mints. A parent session on host A (mock backend) calls `start_session` with
   `host: B`. The test checks that host B admits the token, the child runs on
   host B with its origin, and the report reaches the parent on host A.
 
@@ -218,18 +229,19 @@ host can start sessions on the other, as the owner, with no account session.
 - `POST /v1/hosts/:hostId/trusts {hostId}` (account session): the caller must
   be able to reach both hosts.
 - `DELETE /v1/hosts/:hostId/trusts/:otherHostId` (account session).
-- `GET /v1/hosts/:hostId/trusted-hosts` (host token): the trusted hosts as
+- `GET /v1/hosts/:hostId/trusted-hosts` (the host's control token): the trusted hosts as
   `DirectoryHost` rows, with routes. It is `HostAccess.hosts()` on a server.
-- `POST /v1/hosts/:hostId/trusted-hosts/:targetHostId/access-token` (host
-  token): a five-minute token for the target host, for the trust's person,
+- `POST /v1/hosts/:hostId/trusted-hosts/:targetHostId/access-token` (the host's
+  control token): a five-minute token for the target host, for the trust's person,
   with the same claims `issueHostAccessToken` builds for that person.
 - The console's host page lists the host's trusts, with add and remove.
 
 ### 9.5 Solus
 
-- `HostAccess` gets a second implementation on the host token
-  (`uplinkManager.hostToken()`), wired in `boot-server.ts` when there is no
-  account session. `remoteHostsFor` picks the account session first.
+- `HostAccess` gets a second implementation on the host's control token
+  (`uplinkManager.credential().hostAccessToken()`, ADR 0001 §3.4), wired in `boot-server.ts` when there is no
+  client that lends its access (`LocalClient.lendHostAccess`). `RemoteHosts` uses the
+  lent access first.
 - `actsForHostOwner` becomes "acts for the person this host access is for":
   the owner on desktop, the trust's person on a server.
 - `UplinkAccountSource` gets `listHostTrusts`, `addHostTrust`, and

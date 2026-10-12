@@ -69,7 +69,7 @@
     type FileTreeEntryKind,
   } from "./lib/file-tree-mutations";
   import { toasts } from "../../lib/toasts";
-  import { getWorkspaceContext, runtime } from "../../contexts";
+  import { getWorkspaceContext, hosts, runtime } from "../../contexts";
   import { isStackedPane } from "../../lib/pane-width";
   import { underStrip } from "../ui/lib/pane-strip";
   import * as Resizable from "../ui/resizable";
@@ -92,6 +92,8 @@
   }
 
   let { serverId, api, ctx, cwd, isDark, requestedFile, bordered = true, onClose }: Props = $props();
+  /** Creating, renaming, deleting, and editing files is the host's to give (permissions.md): a guest reads them. */
+  const canWriteFiles = $derived(hosts.find(serverId)?.me.may("host.files.write") ?? true);
 
   const session = getWorkspaceContext();
 
@@ -536,7 +538,7 @@
       initialExpansion: "closed",
       search: true,
       searchBlurBehavior: "retain",
-      renaming: { onRename: handleTreeRename, onError: (message) => toasts.error(message) },
+      renaming: canWriteFiles ? { onRename: handleTreeRename, onError: (message) => toasts.error(message) } : undefined,
       composition: treeComposition(),
       onSelectionChange: (selectedPaths) => {
         const next = selectedPaths[0] ?? null;
@@ -586,7 +588,6 @@
     });
     tree.render({ containerWrapper: treeHost });
     treeInstance = tree;
-    tree.openSearch();
   }
 
   // Clicking the tree's empty space unpicks the current row, which is the only
@@ -732,8 +733,10 @@
         </TooltipUI.Trigger>
         <TooltipUI.Content value={treeCollapsed ? "Show file tree (⌥T)" : "Hide file tree (⌥T)"} />
       </TooltipUI.Root>
-      {@render chromeAction("New file", () => void startCreate(newEntryDirectory, "file"), newFileIcon)}
-      {@render chromeAction("New folder", () => void startCreate(newEntryDirectory, "folder"), newFolderIcon)}
+      {#if canWriteFiles}
+        {@render chromeAction("New file", () => void startCreate(newEntryDirectory, "file"), newFileIcon)}
+        {@render chromeAction("New folder", () => void startCreate(newEntryDirectory, "folder"), newFolderIcon)}
+      {/if}
       {@render chromeAction("Refresh files", () => void loadFiles(), refreshIcon)}
     </div>
     {#if selectedPath}
@@ -829,7 +832,7 @@
               line={selectedLine}
               {revealEpoch}
               contents={selectedContents}
-              isReadOnly={selectedReadOnly}
+              isReadOnly={selectedReadOnly || !canWriteFiles}
               {isDark}
               mode={markdownViewMode}
               onSaveStateChange={(state) => {
@@ -937,7 +940,7 @@
   </Resizable.PaneGroup>
 </div>
 
-{#if contextMenu}
+{#if contextMenu && canWriteFiles}
   {@const target = contextMenu}
   <FilesTreeContextMenu
     x={target.x}

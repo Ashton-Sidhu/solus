@@ -116,11 +116,11 @@ function ProfileList(props: { readonly hostId: string; readonly projectPath: str
       {profiles.kind === 'error' ? <ErrorBanner message={`Build profiles could not be read: ${profiles.message}`} /> : null}
       {profiles.kind === 'loading' && api ? <ListStateCard title="Reading build profiles" loading /> : null}
       {profiles.kind === 'loaded' && list.length === 0 ? (
-        <ListStateCard title="No build profiles" detail="Save how this project builds, then build it from here." actionLabel="Set up a build" onAction={onEditProfiles} />
+        <ListStateCard title="No build profiles yet" detail="A build profile says how this project builds its app: for the simulator, for an iPhone or iPad, or for Android." actionLabel="Set up a build profile" onAction={onEditProfiles} />
       ) : null}
       {list.length > 0 ? (
         <>
-          <SectionTitle>Build profile</SectionTitle>
+          <SectionTitle>Build with</SectionTitle>
           <ListSection>
             {list.map((profile, index) => (
               <ListRow

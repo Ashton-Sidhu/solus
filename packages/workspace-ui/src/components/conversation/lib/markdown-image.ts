@@ -74,3 +74,17 @@ export function isMarkdownVideo(
   }
   return videoMimeType({ name }) !== null;
 }
+
+/**
+ * The scroll position that keeps the point a reader clicked under the pointer
+ * when a fitted image grows to its actual size. `fraction` is where on the
+ * fitted image the click landed (0–1); `pointerOffset` is how far the pointer
+ * is from the viewer's leading edge. One axis at a time.
+ */
+export function zoomScrollOffset(
+  fraction: number,
+  zoomedSize: number,
+  pointerOffset: number,
+): number {
+  return Math.max(0, fraction * zoomedSize - pointerOffset);
+}

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { integrationToolName, type Integration, type IntegrationToolSummary } from '@solus/contracts/integration-types'
-import type { RecordScope } from '../admission/principal'
+import { personalRecordOwnerOf, recordScopeOf, type Principal } from '../admission/principal'
 import { createLogger } from '../logger'
 import { agentToolImage, type AgentTool, type AgentToolResult } from '../execution/agents/tools/agent-tool'
 import type { IntegrationGateway, UpstreamTool } from './gateway'
@@ -25,15 +25,16 @@ export function integrationGateway(): IntegrationGateway | null {
 const reportedCollisions = new Set<string>()
 
 /**
- * The agent tools of every integration in `scope` (§5.2.1), from the gateway's
- * cache. An integration whose tools are not listed yet adds none: the cache is
- * warmed at boot and on create.
+ * The agent tools of every integration the principal may read (§5.2.1): the
+ * shared ones of its scope and its own personal ones, from the gateway's cache.
+ * An integration whose tools are not listed yet adds none: the cache is warmed
+ * at boot and on create.
  */
-export function integrationAgentTools(scope: RecordScope): AgentTool[] {
+export function integrationAgentTools(principal: Principal): AgentTool[] {
   if (!gateway) return []
   const tools: AgentTool[] = []
   const names = new Set<string>()
-  for (const integration of gateway.store.list(scope)) {
+  for (const integration of gateway.store.list(recordScopeOf(principal), personalRecordOwnerOf(principal))) {
     for (const upstream of gateway.cachedUpstreamTools(integration.id) ?? []) {
       const agentTool = upstreamToolToAgentTool(integration, upstream, gateway)
       if (names.has(agentTool.name)) {

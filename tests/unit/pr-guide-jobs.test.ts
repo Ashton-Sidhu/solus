@@ -269,7 +269,7 @@ describe('PR guide content and storage', () => {
     const previous = process.env.SOLUS_DATA_DIR
     process.env.SOLUS_DATA_DIR = directory
     try {
-      const { writeGuide } = await import('@solus/server/review/ledger')
+      const { writeGuide } = await import('@solus/server/review/review-context')
       const { readPrGuide, prGuidePath } = await import('@solus/server/review/pr-guide-store')
       const old = guide('Old revision')
       delete old.target

@@ -24,6 +24,8 @@ mock.module(`${workspaceUi}/contexts/hosts/hosts.svelte`, () => ({
 mock.module(`${workspaceUi}/contexts/connections/servers.store.svelte`, () => ({ serversStore: { executionServers: [] } }))
 mock.module(`${workspaceUi}/contexts/projects/projects.store.svelte`, () => ({
   projectsStore: { projectKeyFor: (_serverId: string, key: string) => key, checkoutsOf: () => [] },
+  CHATS_GROUP_KEY: 'solus:chats',
+  groupKeyFor: (_serverId: string, projectKey: string) => projectKey,
 }))
 mock.module(`${workspaceUi}/components/review/review-guide.store.svelte`, () => ({
   reviewGuideStore: {}, sessionGuideIdentity: () => null,

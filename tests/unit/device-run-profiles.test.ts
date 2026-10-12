@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { DeviceProjectInfo, DeviceRun, DeviceSummary } from '@solus/contracts/device-types'
 import { phoneTarget, profilesForDevice, shownRun } from '@solus/workspace-ui/components/devices/lib/run-profiles'
-import { EXPO_PRESETS, RUN_PROFILE_PRESETS, joinCommand, presetsForProject, projectPreset, profileDraft, profilesFromDrafts, saveRunProfiles, splitCommand } from '@solus/client-core/device-run-profiles'
+import { RUN_PROFILE_PRESETS, commandSigningTeam, draftConfiguration, draftForPreset, joinCommand, needsSigningTeam, presetFor, projectPreset, profileDraft, profileSummary, profilesFromDrafts, saveRunProfiles, splitCommand, withConfiguration, withSigningTeam } from '@solus/client-core/device-run-profiles'
 import { newBuildsRunning, profileTargetLabel, shownNewBuild } from '@solus/client-core/device-builds'
 
 /**
@@ -44,25 +44,78 @@ describe('run profiles', () => {
     expect(phoneTarget([locked], profiles, simulator)?.phone.unavailableReason).toBe('Unlock Ash iPhone.')
   })
 
-  test('an Expo app is offered a dev and a production build before the common ones', () => {
+  test('there is one starting point for each place a build runs, and each fits an Expo app below the root', () => {
+    // WHY: six presets with near-identical commands made people guess; the choice that matters is where the build runs.
+    expect(RUN_PROFILE_PRESETS.map((preset) => preset.label)).toEqual(['iOS Simulator', 'iPhone or iPad', 'Android'])
     const expo: DeviceProjectInfo = { isMobileApp: true, platforms: ['android', 'ios'], markers: ['apps/mobile/package.json'], usesExpo: true }
-    expect(presetsForProject(expo).map((preset) => preset.profile.name))
-      .toEqual(['iOS dev', 'iOS production', ...RUN_PROFILE_PRESETS.map((preset) => preset.profile.name)])
-    // WHY: an older host does not say; the common presets stay, nothing is guessed.
-    expect(presetsForProject({ isMobileApp: true, platforms: ['ios'], markers: [] })).toEqual(RUN_PROFILE_PRESETS)
-    expect(presetsForProject(null)).toEqual(RUN_PROFILE_PRESETS)
-    // Dev loads JavaScript from Metro (Debug); production bundles it (Release), each with its own output.
-    const [dev, production] = EXPO_PRESETS.map((preset) => projectPreset(preset.profile, expo, ['Solus.xcworkspace', 'Podfile']))
-    expect(dev).toMatchObject({ cwd: 'apps/mobile/ios', artifact: 'build/Build/Products/Debug-iphonesimulator/*.app' })
-    expect(dev!.command.slice(0, 7)).toEqual(['xcodebuild', '-workspace', 'Solus.xcworkspace', '-scheme', 'Solus', '-configuration', 'Debug'])
-    expect(production).toMatchObject({ cwd: 'apps/mobile/ios', artifact: 'build/Build/Products/Release-iphonesimulator/*.app' })
-    expect(production!.command).toContain('Release')
+    const [simulatorBuild, phoneBuild] = RUN_PROFILE_PRESETS.map((preset) => projectPreset(preset.profile, expo, ['Solus.xcworkspace', 'Podfile']))
+    expect(simulatorBuild).toMatchObject({ cwd: 'apps/mobile/ios', target: 'simulator', artifact: 'build/Build/Products/Debug-iphonesimulator/*.app' })
+    expect(simulatorBuild!.command.slice(0, 7)).toEqual(['xcodebuild', '-workspace', 'Solus.xcworkspace', '-scheme', 'Solus', '-configuration', 'Debug'])
+    // WHY: a build a person puts on their own phone must be one xcodebuild may sign and register the phone for.
+    expect(phoneBuild!.target).toBe('device')
+    expect(phoneBuild!.command).toEqual(expect.arrayContaining(['generic/platform=iOS', '-allowProvisioningUpdates', '-allowProvisioningDeviceRegistration']))
+    expect(presetFor({ platform: 'ios', target: 'device' }).label).toBe('iPhone or iPad')
+    expect(presetFor({ platform: 'android', target: 'any' }).label).toBe('Android')
+  })
+
+  test('Release is one choice: the command and the output path change together', () => {
+    // WHY: a Release command with a Debug output path builds, then finds nothing to add.
+    const phoneBuild = profileDraft(RUN_PROFILE_PRESETS[1]!.profile)
+    expect(draftConfiguration(phoneBuild)).toBe('Debug')
+    const release = withConfiguration(phoneBuild, 'Release')
+    expect(draftConfiguration(release)).toBe('Release')
+    expect(release.artifact).toBe('build/Build/Products/Release-iphoneos/*.app')
+    expect(withConfiguration(release, 'Debug')).toEqual({ commandText: phoneBuild.commandText, artifact: phoneBuild.artifact })
+    const android = withConfiguration(profileDraft(RUN_PROFILE_PRESETS[2]!.profile), 'Release')
+    expect(android).toEqual({ commandText: './gradlew assembleRelease', artifact: 'app/build/outputs/apk/release/*.apk' })
+    // A command Solus does not know offers no choice.
+    expect(draftConfiguration({ commandText: 'npx expo run:ios' })).toBeNull()
+  })
+
+  test('building for something else replaces the command, and keeps the name, configuration and app id', async () => {
+    // WHY: switching an Xcode profile to Android used to keep xcodebuild, which can never make an APK.
+    // A host that cannot answer: each preset keeps its own folder.
+    const api = {
+      deviceProjectDetect: async () => { throw new Error('offline') },
+      listDirectory: async () => { throw new Error('offline') },
+      deviceSigningTeams: async () => { throw new Error('offline') },
+    }
+    const mine = { ...profileDraft(RUN_PROFILE_PRESETS[0]!.profile), name: 'Staging', appId: 'com.example.app' }
+    const released = { ...mine, ...withConfiguration(mine, 'Release') }
+    const android = await draftForPreset(api, '/code/app', released, RUN_PROFILE_PRESETS[2]!)
+    expect(android).toMatchObject({ name: 'Staging', platform: 'android', appId: 'com.example.app', commandText: './gradlew assembleRelease' })
+    // A preset's own name follows the new preset.
+    expect((await draftForPreset(api, '/code/app', profileDraft(RUN_PROFILE_PRESETS[0]!.profile), RUN_PROFILE_PRESETS[1]!)).name).toBe('iOS device')
+  })
+
+  test('the signing team is read from and written to the command, as one build setting', () => {
+    const command = 'xcodebuild -scheme Solus -destination generic/platform=iOS -allowProvisioningUpdates build'
+    expect(commandSigningTeam(command)).toBe('')
+    const signed = withSigningTeam(command, 'F4AQ9YJ7Q3')
+    expect(signed).toBe('xcodebuild -scheme Solus -destination generic/platform=iOS -allowProvisioningUpdates DEVELOPMENT_TEAM=F4AQ9YJ7Q3 build')
+    expect(commandSigningTeam(signed)).toBe('F4AQ9YJ7Q3')
+    // Changing it replaces the one setting; clearing it removes it.
+    expect(withSigningTeam(signed, 'ZZZZZZZZZZ').match(/DEVELOPMENT_TEAM=/g)).toHaveLength(1)
+    expect(withSigningTeam(signed, '')).toBe(command)
+    // Only an iPhone or iPad build made with xcodebuild is signed by it.
+    expect(needsSigningTeam({ platform: 'ios', target: 'device', commandText: command })).toBe(true)
+    expect(needsSigningTeam({ platform: 'ios', target: 'simulator', commandText: command })).toBe(false)
+    expect(needsSigningTeam({ platform: 'ios', target: 'device', commandText: 'npx expo run:ios --device' })).toBe(false)
+  })
+
+  test('a profile row says what it builds for, where, and who signs it, and warns when a phone build has no team', () => {
+    const phoneBuild = profileDraft({ ...RUN_PROFILE_PRESETS[1]!.profile, cwd: 'apps/mobile/ios' })
+    expect(profileSummary(phoneBuild, [])).toBe('iPhone or iPad · apps/mobile/ios · needs a signing team')
+    const signed = { ...phoneBuild, commandText: withSigningTeam(phoneBuild.commandText, 'F4AQ9YJ7Q3') }
+    expect(profileSummary(signed, [{ teamId: 'F4AQ9YJ7Q3', name: 'Ashton Sidhu' }])).toBe('iPhone or iPad · apps/mobile/ios · signed by Ashton Sidhu')
+    expect(profileSummary(signed, [])).toBe('iPhone or iPad · apps/mobile/ios · signed by F4AQ9YJ7Q3')
+    expect(profileSummary(profileDraft(RUN_PROFILE_PRESETS[2]!.profile), [])).toBe('Android · android')
   })
 
   test('the editor names the first problem and refuses two profiles with one name', () => {
     const draft = profileDraft(RUN_PROFILE_PRESETS[2]!.profile)
-    expect(profilesFromDrafts([{ ...draft, commandText: '  ' }])).toEqual({ error: 'Android debug needs a command.' })
-    expect(profilesFromDrafts([draft, draft])).toEqual({ error: 'Two profiles are named "Android debug". Give each its own name.' })
+    expect(profilesFromDrafts([{ ...draft, commandText: '  ' }])).toEqual({ error: 'Android needs a command.' })
+    expect(profilesFromDrafts([draft, draft])).toEqual({ error: 'Two profiles are named "Android". Give each its own name.' })
     const saved = profilesFromDrafts([{ ...draft, cwd: '', appId: ' com.example.app ' }])
     expect(saved).toEqual({ profiles: [{ ...RUN_PROFILE_PRESETS[2]!.profile, cwd: '.', appId: 'com.example.app' }] })
   })

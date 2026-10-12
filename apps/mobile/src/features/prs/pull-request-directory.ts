@@ -1,6 +1,6 @@
 import type { PrChecksSummary } from '@solus/contracts/checks-types'
 import type { ChangedFileStat } from '@solus/contracts/git-types'
-import type { PrConversationItem, PrReviewVerdict, PrUnavailableReason, PullRequest, PullRequestOverview } from '@solus/contracts/providers'
+import type { PrConversationItem, PrReviewVerdict, PrStack, PrUnavailableReason, PullRequest, PullRequestOverview } from '@solus/contracts/providers'
 import type { NotificationPr } from '@solus/contracts/notification-hub'
 import type { ProjectEntry } from '@solus/contracts/types'
 import { Listeners } from '../../lib/listeners'
@@ -44,6 +44,8 @@ export interface PullRequestDetail {
   comments: PrConversationItem[]
   files: ChangedFileStat[]
   checks: PrChecksSummary | null
+  /** The GitHub stack it is in; null when in none or the read failed. */
+  stack: PrStack | null
   /** Parts the host could not read; the rest still shows. */
   missing: ('comments' | 'files' | 'checks')[]
 }
@@ -123,11 +125,12 @@ export class PullRequestDirectory {
   async loadDetail(ref: PullRequestRef): Promise<void> {
     await this.read(this.details, detailKey(ref), ref.hostId, async (connection) => {
       const ctx = this.context(ref.projectPath)
-      const [overview, comments, files, checks] = await Promise.all([
+      const [overview, comments, files, checks, stack] = await Promise.all([
         connection.api.prGetOverview(ctx, ref.number),
         settle(connection.api.prListComments(ctx, ref.number)),
         settle(connection.api.prChangedFiles(ctx, ref.number)),
         settle(connection.api.prChecks(ctx, [ref.number])),
+        settle(connection.api.prGetStack(ctx, ref.number)),
       ])
       const missing: PullRequestDetail['missing'] = []
       if (!comments.ok) missing.push('comments')
@@ -138,6 +141,7 @@ export class PullRequestDirectory {
         comments: comments.ok ? comments.value : [],
         files: files.ok ? files.value : [],
         checks: checks.ok ? checks.value.checks.find((entry) => entry.number === ref.number)?.summary ?? null : null,
+        stack: stack.ok ? stack.value : null,
         missing,
       }
     })

@@ -34,8 +34,10 @@ export interface HostConnectionState {
 export interface HostConnectionsDeps {
   registry: HostRegistry
   createTransport(options: WsTransportOptions): HostTransport
-  /** A cached eight-hour grant; a host refusal requests a fresh one. */
-  acquireHostAccessToken(host: NativeHost, options?: { fresh?: boolean }): Promise<string | null>
+  /** A five-minute access token for this host, kept until a minute before its end; a host refusal asks for a fresh one. */
+  hostAccessToken(host: NativeHost, options?: { fresh?: boolean }): Promise<string | null>
+  /** The organization a dial to this host names at its ticket (ADR 0001 §6.4). */
+  dialOrganizationId(host: NativeHost): string | null
   /** The organization this device works in; it scopes record reads. */
   organizationId(): string | null
   fetch: typeof fetch
@@ -122,7 +124,8 @@ export class HostConnections {
       serverUrl: route.url,
       serverId: host.id,
       sessionToken: this.deps.registry.credential(host.id),
-      acquireGrant: host.paired ? undefined : (options) => this.deps.acquireHostAccessToken(host, options),
+      acquireGrant: host.paired ? undefined : (options) => this.deps.hostAccessToken(host, options),
+      dialOrganizationId: host.paired ? undefined : () => this.deps.dialOrganizationId(this.deps.registry.host(host.id) ?? host),
       onSessionTokenRefreshed: (sessionToken) => { void this.deps.registry.updateCredential(host.id, sessionToken) },
       verifyConnectedHost: () => this.verifyIdentity(host, connection?.transport.serverUrl ?? route.url),
       organizationId: this.deps.organizationId,

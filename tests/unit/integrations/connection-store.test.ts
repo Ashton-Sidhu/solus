@@ -66,7 +66,7 @@ describe('integration connection store', () => {
     hostIntegrationSecrets.saveToken('int-1', 'account:alice', { accessToken: 'secret-alice', tokenType: 'Bearer' })
     hostIntegrationSecrets.saveToken('int-1', null, { accessToken: 'secret-owner', tokenType: 'Bearer' })
     const connection = store.upsert('int-1', 'account:alice', { status: 'connected', label: 'Fake' })
-    expect(Object.keys(connection).sort()).toEqual(['error', 'info', 'integrationId', 'label', 'status', 'updatedAt'])
+    expect(Object.keys(connection).sort()).toEqual(['error', 'info', 'integrationId', 'label', 'source', 'status', 'updatedAt'])
     expect(JSON.stringify(connection)).not.toContain('secret-')
 
     expect(hostIntegrationSecrets.token('int-1', 'account:alice')?.accessToken).toBe('secret-alice')

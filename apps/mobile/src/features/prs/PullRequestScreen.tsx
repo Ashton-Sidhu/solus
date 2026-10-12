@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
 import { useFocusEffect } from '@react-navigation/native'
 import { ActionSheetIOS, ActivityIndicator, Alert, Linking, Platform, RefreshControl, ScrollView, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import type { PrCommentActivityItem, PullRequest } from '@solus/contracts/providers'
+import type { PrCommentActivityItem, PrStack, PullRequest } from '@solus/contracts/providers'
 import { useApp, useListened } from '../../app/app-context'
 import { AppText as Text } from '../../components/AppText'
 import { EmptyState } from '../../components/EmptyState'
@@ -15,9 +15,9 @@ import { SelectableMarkdownText } from '../../native/SelectableMarkdownText'
 import { CODE_FONT } from '../../theme/tokens'
 import { HostStatusBanner } from '../hosts/HostStatusBanner'
 import { PrComposerSheet, type PrComposerIntent } from './components/PrComposerSheet'
-import { PrStateBadge } from './components/PrStateBadge'
+import { PR_STATE_TINT_CLASS, PrStateBadge } from './components/PrStateBadge'
 import { MetaCard, SheetCard, SheetListRow, SheetRowDivider, SheetSectionLabel, SheetValueRow } from './components/pr-sheet'
-import { canGiveVerdict, checkItemLabel, checksLabel, prAge, reviewerStateLabel, reviewStatusLabel, type CheckStatus } from './lib/pr-presentation'
+import { canGiveVerdict, checkItemLabel, checksLabel, PR_STATE_LABELS, prAge, prStateTone, reviewerStateLabel, reviewStatusLabel, type CheckStatus } from './lib/pr-presentation'
 import { shownValue, type PullRequestDetail, type PullRequestRef } from './pull-request-directory'
 
 const CHECK_TONE_TEXT = {
@@ -152,6 +152,14 @@ export function PullRequestScreen({ navigation, route }: ScreenProps<'PullReques
         {review ? <MetaCard label="Review" value={review} /> : null}
         <MetaCard label="Branch" value={pr.headRef} mono />
 
+        {detail.stack ? (
+          <StackSection
+            stack={detail.stack}
+            current={number}
+            onOpen={(layer) => navigation.push('PullRequest', { hostId, projectPath, number: layer })}
+          />
+        ) : null}
+
         <View className="gap-2">
           <SheetSectionLabel>Description</SheetSectionLabel>
           <SheetCard className="ios:py-3 android:px-4 android:py-3">
@@ -209,6 +217,38 @@ function PrHeader({ pr }: { pr: PullRequest }) {
         {' '}into{' '}
         <Text className="text-foreground-secondary" style={{ fontFamily: CODE_FONT }}>{pr.baseRef}</Text>
       </Text>
+    </View>
+  )
+}
+
+/** Every layer of the GitHub stack, top first as GitHub draws it, ending on
+ *  the branch the stack lands on. A layer opens its own pull request. */
+function StackSection({ stack, current, onOpen }: { stack: PrStack; current: number; onOpen: (number: number) => void }) {
+  const position = stack.layers.findIndex((layer) => layer.number === current) + 1
+  return (
+    <View className="gap-2">
+      <SheetSectionLabel>{position > 0 ? `Stack · ${position} of ${stack.layers.length}` : 'Stack'}</SheetSectionLabel>
+      <SheetCard>
+        {[...stack.layers].reverse().map((layer, index) => {
+          const tone = prStateTone(layer)
+          const isCurrent = layer.number === current
+          return (
+            <View key={layer.number}>
+              {index > 0 ? <SheetRowDivider /> : null}
+              <SheetListRow
+                icon="arrow.triangle.pull"
+                iconTintClassName={PR_STATE_TINT_CLASS[tone]}
+                title={layer.title || layer.headRef}
+                subtitle={`#${layer.number} · ${isCurrent ? 'This pull request' : PR_STATE_LABELS[tone]}`}
+                disabled={isCurrent}
+                accessibilityHint="Opens this layer of the stack"
+                onPress={() => onOpen(layer.number)}
+              />
+            </View>
+          )
+        })}
+      </SheetCard>
+      <Text className="px-1 text-xs text-foreground-muted" style={{ fontFamily: CODE_FONT }}>{`↳ ${stack.base}`}</Text>
     </View>
   )
 }

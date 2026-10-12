@@ -3,7 +3,17 @@ import { randomBytes } from 'crypto'
 import { networkInterfaces } from 'os'
 import { createLogger } from '../logger'
 import type { DiscoveredServer } from '@solus/contracts/types'
-import { z } from 'zod'
+import {
+  DISCOVERY_PORT,
+  DISCOVERY_WINDOW_MS,
+  discoveredServersFrom,
+  discoveryQuery,
+  discoveryResponse,
+  lanBroadcastAddresses,
+  parseLanDiscoveryMessage,
+  type DiscoveryQuery,
+  type Ipv4Interface,
+} from '@solus/contracts/lan-discovery'
 import { hostOperatingSystem } from '../platform/host-operating-system'
 
 /** A managed host's boot (packaging/managed-host) and the workspace service have no local network to announce themselves on. */
@@ -14,51 +24,6 @@ export function isLanDiscoveryDisabled(
 }
 
 const log = createLogger('main', 'lan-discovery')
-
-const DISCOVERY_PORT = 34117
-const DISCOVERY_PROTOCOL = 'solus-discovery'
-const DISCOVERY_VERSION = 1
-const DISCOVERY_WINDOW_MS = 900
-
-interface DiscoveryQuery {
-  protocol: typeof DISCOVERY_PROTOCOL
-  version: typeof DISCOVERY_VERSION
-  type: 'query'
-  nonce: string
-}
-
-const discoveryNonceSchema = z.string().regex(/^[a-f0-9]{24}$/)
-const discoveryMessageSchema = z.discriminatedUnion('type', [
-  z.object({
-    protocol: z.literal(DISCOVERY_PROTOCOL),
-    version: z.literal(DISCOVERY_VERSION),
-    type: z.literal('query'),
-    nonce: discoveryNonceSchema,
-  }).strict(),
-  z.object({
-    protocol: z.literal(DISCOVERY_PROTOCOL),
-    version: z.literal(DISCOVERY_VERSION),
-    type: z.literal('response'),
-    nonce: discoveryNonceSchema,
-    port: z.number().int().min(1).max(65_535),
-    installationId: z.string().min(1),
-    name: z.string().min(1),
-    os: z.enum(['macos', 'windows', 'linux']).optional(),
-  }).strict(),
-])
-
-interface DiscoveryResponse {
-  protocol: typeof DISCOVERY_PROTOCOL
-  version: typeof DISCOVERY_VERSION
-  type: 'response'
-  nonce: string
-  port: number
-  name: string
-  installationId: string
-  os?: DiscoveredServer['os']
-}
-
-type DiscoveryMessage = DiscoveryQuery | DiscoveryResponse
 
 export interface LanDiscoveryAdvertisement {
   port: number
@@ -76,10 +41,11 @@ export async function startLanDiscoveryService(
   getAdvertisement: () => LanDiscoveryAdvertisement,
 ): Promise<LanDiscoveryService> {
   const socket = createSocket({ type: 'udp4', reuseAddr: true })
-  const pending = new Map<string, Map<string, DiscoveredServer>>()
+  const pending = new Map<string, Array<{ address: string; text: string }>>()
 
   socket.on('message', (packet, remote) => {
-    const message = parseLanDiscoveryMessage(packet)
+    const text = packet.toString('utf8')
+    const message = parseLanDiscoveryMessage(text)
     if (!message) return
 
     if (message.type === 'query') {
@@ -87,18 +53,7 @@ export async function startLanDiscoveryService(
       return
     }
 
-    const found = pending.get(message.nonce)
-    if (!found) return
-    if (message.installationId === getAdvertisement().installationId) return
-    const server: DiscoveredServer = {
-      host: remote.address,
-      port: message.port,
-      name: message.name,
-      installationId: message.installationId,
-      os: message.os,
-      source: 'lan',
-    }
-    if (!found.has(server.installationId)) found.set(server.installationId, server)
+    pending.get(message.nonce)?.push({ address: remote.address, text })
   })
   socket.on('error', (err) => log.warn('lan_discovery_socket_error', { error: err.message }))
 
@@ -108,32 +63,18 @@ export async function startLanDiscoveryService(
   return {
     discoverServers: async () => {
       const nonce = randomBytes(12).toString('hex')
-      const found = new Map<string, DiscoveredServer>()
-      pending.set(nonce, found)
+      const packets: Array<{ address: string; text: string }> = []
+      pending.set(nonce, packets)
       try {
-        const query: DiscoveryQuery = {
-          protocol: DISCOVERY_PROTOCOL,
-          version: DISCOVERY_VERSION,
-          type: 'query',
-          nonce,
-        }
-        const packet = Buffer.from(JSON.stringify(query))
-        await Promise.allSettled(lanBroadcastAddresses().map((address) => send(socket, packet, address)))
+        const packet = Buffer.from(JSON.stringify(discoveryQuery(nonce)))
+        await Promise.allSettled(lanBroadcastAddresses(lanInterfaces()).map((address) => send(socket, packet, address)))
         await new Promise<void>((resolve) => setTimeout(resolve, DISCOVERY_WINDOW_MS))
-        return [...found.values()]
+        return discoveredServersFrom(packets, nonce, getAdvertisement().installationId)
       } finally {
         pending.delete(nonce)
       }
     },
     close: () => closeSocket(socket),
-  }
-}
-
-export function parseLanDiscoveryMessage(packet: Buffer): DiscoveryMessage | null {
-  try {
-    return discoveryMessageSchema.parse(JSON.parse(packet.toString('utf8')))
-  } catch {
-    return null
   }
 }
 
@@ -144,48 +85,21 @@ function respondToQuery(
   advertisement: LanDiscoveryAdvertisement,
 ): void {
   if (!advertisement.isReachable) return
-  const response: DiscoveryResponse = {
-    protocol: DISCOVERY_PROTOCOL,
-    version: DISCOVERY_VERSION,
-    type: 'response',
-    nonce: query.nonce,
+  const response = discoveryResponse(query.nonce, {
     port: advertisement.port,
     name: advertisement.name,
     installationId: advertisement.installationId,
     os: hostOperatingSystem(),
-  }
+  })
   void send(socket, Buffer.from(JSON.stringify(response)), remote.address, remote.port).catch((err) => {
     log.debug('lan_discovery_response_failed', { error: err instanceof Error ? err.message : String(err) })
   })
 }
 
-function lanBroadcastAddresses(): string[] {
-  const addresses = new Set(['255.255.255.255'])
-  for (const entries of Object.values(networkInterfaces())) {
-    for (const entry of entries ?? []) {
-      if (entry.family !== 'IPv4' || entry.internal) continue
-      const address = ipv4ToInt(entry.address)
-      const netmask = ipv4ToInt(entry.netmask)
-      if (address === null || netmask === null) continue
-      addresses.add(intToIpv4((address & netmask) | (~netmask >>> 0)))
-    }
-  }
-  return [...addresses]
-}
-
-function ipv4ToInt(address: string): number | null {
-  const parts = address.split('.').map(Number)
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return null
-  return (((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0)
-}
-
-function intToIpv4(value: number): string {
-  return [
-    (value >>> 24) & 255,
-    (value >>> 16) & 255,
-    (value >>> 8) & 255,
-    value & 255,
-  ].join('.')
+function lanInterfaces(): Ipv4Interface[] {
+  return Object.values(networkInterfaces())
+    .flatMap((entries) => entries ?? [])
+    .filter((entry) => entry.family === 'IPv4' && !entry.internal)
 }
 
 function bindSocket(socket: Socket): Promise<void> {

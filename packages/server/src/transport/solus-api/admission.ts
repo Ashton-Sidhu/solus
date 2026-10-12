@@ -1,15 +1,15 @@
-import { rememberPersonToken } from '../../vault/account-integrations'
 import { consumeWsTicket, getInstallationId, isDeviceRevoked, SESSION_TOKEN_TTL_MS, verifySessionToken } from '../../admission/auth'
 import { principalFor } from '../../admission/principal'
 import { WorkspaceCredentials } from '../../admission/workspace-credentials'
-import { ticketForGrant, type HttpServerOptions } from '../http'
+import { delegationScopesFor } from '../../sync/delegations'
+import { ticketForDelegatedMember, ticketForGrant, type HttpServerOptions } from '../http'
 
 /** Shares token admission with socket connections. The ticket is consumed in-process; no socket is opened. */
 export function workspaceCredentialsForHttp(options: HttpServerOptions): WorkspaceCredentials {
   const serviceId = options.solusApi?.serviceId ?? getInstallationId()
   return new WorkspaceCredentials({
     audience: serviceId, secret: options.solusApi?.signingKey,
-    authenticateSource: async (bearer, shareSecret) => {
+    authenticateSource: async (bearer, _shareSecret, organizationId) => {
       if (!options.pairingDisabled && !options.isApiMode) {
         const paired = verifySessionToken(bearer)
         if (paired) return { principal: { kind: 'local-owner', deviceId: paired.deviceId, deviceLabel: paired.deviceLabel }, expiresAt: paired.issuedAt + SESSION_TOKEN_TTL_MS }
@@ -18,17 +18,20 @@ export function workspaceCredentialsForHttp(options: HttpServerOptions): Workspa
       if (!verdict?.ok) return null
       // A host's delegated token (plans/010-standard-oauth.md) stands for its person, in
       // the organization it names; the credential records which host acts for them.
-      const { act, ...person } = verdict.claims
+      const claims = verdict.claims
+      const act = claims.act
       if (act && !options.isApiMode) return null
-      const admitted = await ticketForGrant(person, { shareSecret }, options.resolveShareSecret, { workspace: options.isApiMode })
+      const admitted = claims.act ? ticketForDelegatedMember(claims) : await ticketForGrant(claims, { workspace: options.isApiMode, organizationId })
       if (!admitted.ok) return null
-      // A person's token opens that person's own connections here.
-      rememberPersonToken(bearer, verdict.claims)
+      // A person's token makes this server's delegations for them: how it reads their account (ADR 0001 §3.4, §6.2).
+      if (!claims.act && options.establishDelegation) {
+        for (const scope of delegationScopesFor(claims, organizationId)) options.establishDelegation(bearer, scope).catch(() => undefined)
+      }
       const ticket = consumeWsTicket(admitted.ticket)
       if (!ticket) return null
       const principal = principalFor({ kind: 'ticket', ticket })
       if (!act) return { principal, expiresAt: verdict.claims.exp * 1000 }
-      return principal.kind === 'org-member' ? { principal, expiresAt: verdict.claims.exp * 1000, delegation: { hostId: act.host_id } } : null
+      return principal.kind === 'org-member' && act.host_id ? { principal, expiresAt: verdict.claims.exp * 1000, delegation: { hostId: act.host_id } } : null
     },
     isRevoked: async principal => principal.kind !== 'system' && !!principal.deviceId && isDeviceRevoked(principal.deviceId),
     homeFor: principal => {

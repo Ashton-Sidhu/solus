@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { hostKindSchema, organizationRoleSchema, type HostKind } from '@solus/contracts/uplink'
+import { hostKindSchema, organizationRoleSchema, type AccessTokenClaims, type HostKind } from '@solus/contracts/uplink'
 import { shareResourceSchema, shareRoleSchema, type ShareResource, type ShareRole } from '@solus/contracts/sharing'
 import type { VerifiedWsTicket } from './auth'
 import { LOCAL_ORGANIZATION_ID, provisionedOrganizationId } from '../host/host-category'
@@ -308,6 +308,15 @@ export function organizationForNew(principal: Principal): string {
   }
 }
 
+/**
+ * Whose personal records a read includes beside the shared ones
+ * (plans/020-agent-profile.md §2.1): a member's own. The owner of a personal
+ * host, and the host itself, hold no personal records: the host's are theirs.
+ */
+export function personalRecordOwnerOf(principal: Principal): string | null {
+  return principal.kind === 'org-member' ? principal.userId : null
+}
+
 /** Whether a record of `organizationId` is inside `scope`. */
 export function scopeAdmits(scope: RecordScope, organizationId: string): boolean {
   return isAnyOrganization(scope) || scope === organizationId
@@ -318,4 +327,25 @@ export function principalExpiresAt(principal: Principal): number | null {
   return principal.kind === 'remote-owner' || principal.kind === 'org-member' || principal.kind === 'guest' || principal.kind === 'runner'
     ? principal.expiresAt
     : null
+}
+
+/**
+ * The new end of a socket whose client sent its next access token (`authRenew`;
+ * docs/adr/0001-standard-authentication.md rule 4), or null when the token does not
+ * continue this socket. The verifier has checked the issuer, the signature, the life,
+ * and this server's audience, which is the audience the socket was opened with. The
+ * token must name the same person in the same standing: the owner stays the owner; a
+ * member's token must still list the socket's organization with the same role and
+ * teams. Anything else ends the socket at its old expiry, and the client dials again
+ * with what the token says now.
+ */
+export function renewalExpiry(principal: Principal, claims: AccessTokenClaims): number | null {
+  if (principal.kind !== 'remote-owner' && principal.kind !== 'org-member') return null
+  if (claims.act || claims.sub !== principal.userId) return null
+  if (principal.kind === 'remote-owner') return claims.access === 'owner' ? claims.exp * 1000 : null
+  if (claims.access !== 'org-member') return null
+  const listed = claims.organizations?.find((entry) => entry.id === principal.organizationId)
+  if (!listed || listed.role !== principal.organizationRole) return null
+  const sameTeams = [...listed.teamIds].sort().join('\n') === [...principal.teamIds].sort().join('\n')
+  return sameTeams ? claims.exp * 1000 : null
 }

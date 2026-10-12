@@ -1,16 +1,19 @@
 import { Appearance, AppState, Platform } from 'react-native'
 import * as SecureStore from 'expo-secure-store'
 import * as WebBrowser from 'expo-web-browser'
+import * as Crypto from 'expo-crypto'
 import * as Network from 'expo-network'
 import Storage from 'expo-sqlite/kv-store'
 import { EncodingType, FileSystemUploadType, readAsStringAsync, uploadAsync } from 'expo-file-system/legacy'
 import { WsTransport } from '@solus/client-core/ws-transport'
-import type { SettingsSyncEnvironment, SettingsSyncSignal } from '@solus/client-core/settings-sync'
+import type { DocumentSyncEnvironment, DocumentSyncSignal } from '@solus/client-core/document-sync'
 import { uuid } from '@solus/contracts/uuid'
 import type { PlatformAdapters } from '../app/solus-app'
 import appConfig from '../../app.json'
 import type { HostConnections } from '../features/hosts/host-connections'
+import { authSessionAuthorizer } from '../features/account/auth-session-authorizer'
 import type { KeyValueStore, SecretStore } from './ports'
+import { scanLocalNetwork } from './lan-scan'
 
 /** Plain data in the app's SQLite key-value store: synchronous, not secret. */
 const storage: KeyValueStore = {
@@ -42,11 +45,11 @@ function deviceLabel(): string {
  * from the last report, kept current by the platform's listeners. One per app
  * run; its listeners live as long as the app.
  */
-function settingsSyncEnvironment(): SettingsSyncEnvironment {
+function settingsSyncEnvironment(): DocumentSyncEnvironment {
   let isOnline = true
   let isForeground = AppState.currentState === 'active'
-  const listeners = new Set<(signal: SettingsSyncSignal) => void>()
-  const tell = (signal: SettingsSyncSignal) => { for (const listener of Array.from(listeners)) listener(signal) }
+  const listeners = new Set<(signal: DocumentSyncSignal) => void>()
+  const tell = (signal: DocumentSyncSignal) => { for (const listener of Array.from(listeners)) listener(signal) }
   const onNetwork = (network: Network.NetworkState) => {
     // Unknown (null or undefined) is not offline: only a definite "no" pauses sync.
     const next = network.isConnected !== false && network.isInternetReachable !== false
@@ -80,12 +83,23 @@ export const expoPlatform: PlatformAdapters = {
   openBrowser: async (url) => {
     await WebBrowser.openBrowserAsync(url)
   },
+  accountAuthorizer: authSessionAuthorizer({
+    openAuthSession: (url, redirectUri) => WebBrowser.openAuthSessionAsync(url, redirectUri),
+    dismissAuthSession: () => WebBrowser.dismissAuthSession(),
+  }),
+  // Hermes has no Web Crypto: the PKCE verifier, state, and nonce come from the platform's secure random source.
+  accountCrypto: {
+    randomBytes: (length) => Crypto.getRandomBytes(length),
+    // SAFETY: OAuthSession digests a fresh `TextEncoder` result, which an ArrayBuffer backs.
+    sha256: async (data) => new Uint8Array(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, data as Uint8Array<ArrayBuffer>)),
+  },
   deviceLabel: deviceLabel(),
   uuid,
   // Overrides the system scheme for this app only: native controls follow it.
   applyAppearance: (mode) => Appearance.setColorScheme(mode === 'system' ? 'unspecified' : mode),
   settingsSyncEnvironment: settingsSyncEnvironment(),
   appVersion: appConfig.expo.version,
+  scanLocalNetwork,
   attachmentIo: {
     readBase64: (uri) => readAsStringAsync(uri, { encoding: EncodingType.Base64 }),
     // Raw bytes, as the host's signed upload route expects; the length is the file's.

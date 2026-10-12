@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import type { Task } from '@solus/contracts/task-types'
 import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
-import { SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
+import { runGroupKey, SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
+import { projectsStore } from '@solus/workspace-ui/contexts/projects/projects.store.svelte'
 import type { SessionHomeHosts } from '@solus/workspace-ui/components/session/lib/session-home'
 
 type SidebarStoreHarness = Pick<
@@ -226,5 +227,29 @@ describe('session sidebar session rows', () => {
       tabIds: ['tab-1'],
     } as unknown as SidebarTask)
     expect(row.lastActivityAt).toBe(120)
+  })
+})
+
+describe('the project of a dispatched session', () => {
+  test('is read on the host its project path is on, not on the host its agent runs on', async () => {
+    // WHY: a session sent to another host keeps its project's path on the host
+    // it was opened from. Read on the agent's host, that path named a project
+    // of its own there: the row left its project's group, and its favicon was
+    // looked up on a host that does not have the folder.
+    await projectsStore.loadProjectsFor('dispatch-laptop', {
+      listProjects: async () => [{
+        key: '/Users/me/web', path: '/Users/me/web', folderName: 'web',
+        addedAt: '2026-09-01T12:00:00Z', lastUsedAt: '2026-09-04T12:00:00Z', repositoryKey: 'github.com/acme/web',
+      }],
+    }, { force: true })
+
+    const dispatched = { serverId: 'dispatch-box', taskServerId: 'dispatch-laptop', projectGroupPath: '/Users/me/web' }
+    expect(runGroupKey(dispatched, '/Users/me/web')).toBe('github.com/acme/web')
+    expect(projectsStore.checkoutFor(runGroupKey(dispatched, '/Users/me/web')))
+      .toEqual({ serverId: 'dispatch-laptop', projectRoot: '/Users/me/web' })
+
+    // A run that was not dispatched reads its folder on its own host.
+    const local = { serverId: 'dispatch-box', taskServerId: 'dispatch-box', projectGroupPath: null }
+    expect(runGroupKey(local, '/home/me/notes')).toBe('dispatch-box:/home/me/notes')
   })
 })

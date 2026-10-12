@@ -4,6 +4,8 @@ import {
   waitForDeviceApproval,
   type DeviceCodeGrant,
 } from '@solus/client-core/device-authorization'
+import { OAuthSession, type StoredGrant } from '@solus/client-core/oauth-session'
+import { SOLUS_CLIENT_IDS } from '@solus/contracts/auth/clients'
 import {
   accountResponseSchema,
   enrollmentTicketResponseSchema,
@@ -19,7 +21,7 @@ import { installCloudflared } from './cloudflared'
 import { requireRunningServerUrl, withLocalRpc } from './local-rpc'
 import { runtimePaths } from './runtime'
 
-export const CLI_DEVICE_CLIENT_ID = 'solus-cli'
+export const CLI_DEVICE_CLIENT_ID = SOLUS_CLIENT_IDS.cli
 export const DEFAULT_CLOUD_ORIGIN = 'https://app.solus.sh'
 
 /**
@@ -96,14 +98,15 @@ export async function connectHost(options: ConnectOptions, reporter: ConnectRepo
     return withLocalHost(options.dataDir, (api) => api.uplinkLink(request))
   }
   const cloudOrigin = current.linked ? current.link.directoryUrl : resolveCloudOrigin(options.cloudUrl)
-  const sessionToken = await authorizeCli(cloudOrigin, options.noOpen, reporter)
+  const session = await authorizeCli(cloudOrigin, options.noOpen, reporter)
   try {
-    const choice = await reporter.choose(await accountOrganizations(cloudOrigin, sessionToken), current)
+    const choice = await reporter.choose(await accountOrganizations(cloudOrigin, await accountToken(session)), current)
     if (choice.kind === 'personal' && current.linked) return current
-    const ticket = await issueEnrollmentTicket(cloudOrigin, sessionToken, choice.kind === 'organization' ? { organizationIds: [choice.organizationId] } : {})
+    const ticket = await issueEnrollmentTicket(cloudOrigin, await accountToken(session), choice.kind === 'organization' ? { organizationIds: [choice.organizationId] } : {})
     return await withLocalHost(options.dataDir, (api) => api.uplinkLink({ ticket, directoryUrl: cloudOrigin }))
   } finally {
-    await signOutCloudSession(cloudOrigin, sessionToken)
+    // The setup client keeps no copy: sign-out revokes its client grant (RFC 7009).
+    await session.signOut()
   }
 }
 
@@ -127,42 +130,64 @@ export async function removeOrganization(dataDir: string, organizationId: string
   })
 }
 
-async function authorizeCli(
+/**
+ * Signs the CLI in with the device grant (RFC 8628) and holds the OAuth tokens in
+ * memory for this one command: the CLI keeps no sign-in between commands.
+ */
+export async function authorizeCli(
   cloudOrigin: string,
   noOpen: boolean,
-  reporter: ConnectReporter,
-): Promise<string> {
+  reporter: Pick<ConnectReporter, 'deviceCode' | 'stage'>,
+  fetchImpl: typeof fetch = fetch,
+  sleepImpl: (ms: number, signal: AbortSignal) => Promise<void> = sleep,
+): Promise<OAuthSession> {
   const grant = await requestDeviceCode({
     cloudOrigin,
     clientId: CLI_DEVICE_CLIENT_ID,
-    fetch,
+    fetch: fetchImpl,
     now: Date.now,
   })
   reporter.deviceCode(grant)
   if (!noOpen && !process.env.SSH_CONNECTION && !process.env.SSH_TTY) openBrowser(grant.verificationUrl)
   const result = await waitForDeviceApproval(
     grant,
-    { cloudOrigin, fetch, now: Date.now, sleep },
+    { cloudOrigin, fetch: fetchImpl, now: Date.now, sleep: sleepImpl },
     new AbortController().signal,
   )
   if (result.end !== 'approved') throw new Error(result.message)
+  let held: StoredGrant | null = null
+  const session = new OAuthSession({
+    cloudOrigin,
+    clientId: CLI_DEVICE_CLIENT_ID,
+    store: { load: () => held, save: (next) => { held = next }, clear: () => { held = null } },
+    fetch: fetchImpl,
+    now: Date.now,
+  })
+  if (await session.adoptTokens(result.tokens) !== 'approved') throw new Error('Solus Cloud answered with tokens this CLI could not use.')
   reporter.stage('Account approved')
-  return result.sessionToken
+  return session
 }
 
-async function accountOrganizations(cloudOrigin: string, sessionToken: string): Promise<AccountOrganization[]> {
+/** An access token for the account plane, for `/v1`. */
+async function accountToken(session: OAuthSession): Promise<string> {
+  const token = await session.accessToken({ kind: 'account' })
+  if (!token) throw new Error('Solus Cloud did not give an access token for your account.')
+  return token
+}
+
+async function accountOrganizations(cloudOrigin: string, accessToken: string): Promise<AccountOrganization[]> {
   const response = await fetch(`${cloudOrigin}/v1/account`, {
-    headers: { authorization: `Bearer ${sessionToken}`, accept: 'application/json' },
+    headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json' },
     redirect: 'error',
   })
   if (!response.ok) throw new Error(`Solus Cloud could not read your organizations (${response.status})`)
   return accountResponseSchema.parse(await response.json()).organizations
 }
 
-async function issueEnrollmentTicket(cloudOrigin: string, sessionToken: string, body: EnrollmentTicketRequest): Promise<string> {
+async function issueEnrollmentTicket(cloudOrigin: string, accessToken: string, body: EnrollmentTicketRequest): Promise<string> {
   const response = await fetch(`${cloudOrigin}/v1/enrollment-tickets`, {
     method: 'POST',
-    headers: { authorization: `Bearer ${sessionToken}`, accept: 'application/json', 'content-type': 'application/json' },
+    headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json', 'content-type': 'application/json' },
     body: JSON.stringify(body),
     redirect: 'error',
   })
@@ -171,17 +196,6 @@ async function issueEnrollmentTicket(cloudOrigin: string, sessionToken: string, 
   const parsed = enrollmentTicketResponseSchema.safeParse(await response.json().catch(() => null))
   if (!parsed.success) throw new Error('Solus Cloud returned an invalid link code')
   return parsed.data.ticket
-}
-
-async function signOutCloudSession(cloudOrigin: string, sessionToken: string): Promise<void> {
-  try {
-    await fetch(`${cloudOrigin}/api/auth/sign-out`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${sessionToken}` },
-    })
-  } catch {
-    // The short-lived setup client keeps no local copy. Server-side expiry remains the fallback.
-  }
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {

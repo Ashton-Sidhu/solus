@@ -46,6 +46,7 @@ const prFactRpcs = new Set([
   'prGetDetail',
   'prChangedFiles',
   'prListCommits',
+  'prGetStack',
   'prListComments',
   'prListThreads',
   'prListReviewers',

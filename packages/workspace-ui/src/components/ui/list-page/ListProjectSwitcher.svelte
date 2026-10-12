@@ -129,11 +129,7 @@
   >
     {#if active}
       {#key active.projectKey}
-        <ProjectFavicon
-          projectRoot={active.projectKey}
-          serverId={active.serverId}
-          class="size-4 shrink-0"
-        />
+        <ProjectFavicon projectKey={active.key} class="size-4 shrink-0" />
       {/key}
     {/if}
     <span
@@ -215,11 +211,7 @@
             disabled={!project.available}
             onclick={() => pick(project)}
           >
-            <ProjectFavicon
-              projectRoot={project.projectKey}
-              serverId={project.serverId}
-              class="size-3.5"
-            />
+            <ProjectFavicon projectKey={project.key} class="size-3.5" />
             <span
               class="min-w-0 flex-1 truncate {isActive
  ? 'font-medium'

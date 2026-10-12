@@ -1,5 +1,5 @@
 import type { HandlerCtx, SolusServer } from '../server'
-import { readGuideByKey, readLegacyGuide, readLedger, writeLedger, resolveReviewContext, reviewCheckout, reviewRepoRoot } from '../../review/ledger'
+import { readGuideByKey, readLegacyGuide, resolveReviewContext, reviewCheckout, reviewRepoRoot } from '../../review/review-context'
 import { cancelGenerateGuide, generateGuide, getReviewGuideStatus, getSessionGuideStatuses, requestReviewGuide } from '../../review/guide-producer'
 import { guideKeyFor } from '../../review/review-target'
 import { readReviewState, writeReviewState } from '../../review/review-state'
@@ -39,18 +39,6 @@ export function registerReviewHandlers(
     const pr = ctx.session.prReview
     return pr ? { kind: 'pr', host: pr.host, owner: pr.owner, repo: pr.repo, number: pr.number } : null
   }
-  server.register('readLedger', async (args) => {
-    const [ctx] = args
-    return readLedger(ctx)
-  })
-
-  server.register('writeLedger', async (args) => {
-    const [ctx, ledger] = args
-    const repoRoot = await reviewRepoRoot(ctx)
-    if (!repoRoot) return false
-    return writeLedger(repoRoot, ledger)
-  })
-
   server.register('getReviewContext', async (args) => {
     const [ctx] = args
     return resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)

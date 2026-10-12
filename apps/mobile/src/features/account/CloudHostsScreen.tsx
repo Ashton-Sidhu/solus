@@ -142,12 +142,20 @@ export function CloudHostsScreen({ navigation }: ScreenProps<"CloudHosts">) {
             <SettingsValueRow
               icon="person.crop.circle"
               label="Signed in"
-              value={view.profile.email}
+              value={view.identity.name ?? view.identity.email}
+              detail={view.identity.name ? view.identity.email : undefined}
+              imageUri={view.identity.picture}
             />
             <SettingsRow
               icon="desktopcomputer"
               label="All hosts on this device"
               onPress={() => navigation.navigate("Hosts")}
+            />
+            <SettingsRow
+              icon="doc.text"
+              label="Agent profile"
+              accessibilityHint="Your instructions, skills, and MCP servers on every host"
+              onPress={() => navigation.navigate("AgentProfile")}
             />
             <SettingsActionRow
               icon={{ ios: "rectangle.portrait.and.arrow.right", android: "lock" }}

@@ -26,6 +26,8 @@
     getPullRequestsContext,
     getWorkspaceContext,
     getSessionSidebarStore,
+    groupKeyFor,
+    hosts,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -57,7 +59,7 @@
   import { taskPrNavigation } from "./lib/pr-navigation";
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import { nextTaskAfterLeaving } from "../../contexts/workspace/session-sidebar-selection";
-  import { canDriveSession } from "../../contexts/sharing/session-drive";
+  import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import {
     filterSidebarTasks,
     prChipForChoices,
@@ -89,6 +91,8 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
+  // A share link's guest reads only the shared session: the workspace pages are not theirs (host-sharing.md §10).
+  const isGuest = $derived(hosts.runOn?.me.isGuest ?? false);
   const pullRequests = getPullRequestsContext();
   const theme = getSettingsContext();
   const sidebarStore = getSessionSidebarStore();
@@ -884,6 +888,7 @@
   <Sidebar.Group class="flex-shrink-0 p-0">
     <Sidebar.GroupContent class="px-3.5 @max-[15rem]:px-2.5">
       <Sidebar.Menu class="gap-0.5">
+        {#if !isGuest}
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
             size="sm"
@@ -1008,6 +1013,7 @@
             >
           </Sidebar.MenuButton>
         </Sidebar.MenuItem>
+        {/if}
         <Sidebar.MenuItem>
           <Sidebar.MenuButton
             size="sm"
@@ -1083,6 +1089,7 @@
       </label>
     {/snippet}
     {#snippet newDraft()}
+      {#if hosts.runOn?.me.may("host.sessions.start") ?? true}
       <button
         type="button"
         class="relative flex size-6 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:size-7 pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:size-10 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-['']"
@@ -1096,6 +1103,7 @@
       >
         <PlusIcon size={15} class="pointer-coarse:size-[15px]" />
       </button>
+      {/if}
     {/snippet}
     <TaskActionBar
       scopedProject={sidebarStore.scopedProject}
@@ -1382,6 +1390,7 @@
                 <SessionSidebarTooltip
                   title={pin.title}
                   projectKey={pin.cwd}
+                  groupKey={groupKeyFor(pin.serverId ?? "", pin.cwd)}
                   serverId={pin.serverId}
                   provider={pin.provider}
                   modelId={pin.model}

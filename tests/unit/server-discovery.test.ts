@@ -1,6 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { parseTailscalePeerCandidates, tailnetEndpointFromStatus } from '@solus/server/transport/endpoints'
-import { isLanDiscoveryDisabled, parseLanDiscoveryMessage } from '@solus/server/transport/lan-discovery'
+import { isLanDiscoveryDisabled } from '@solus/server/transport/lan-discovery'
+import {
+  discoveredServersFrom,
+  discoveryQuery,
+  discoveryResponse,
+  lanBroadcastAddresses,
+  lanSweepAddresses,
+  parseLanDiscoveryMessage,
+} from '@solus/contracts/lan-discovery'
 import {
   filterUnsavedDiscoveredServers,
   mergeNearbyHosts,
@@ -28,18 +36,18 @@ describe('server discovery', () => {
       os: 'linux',
     }
 
-    expect(parseLanDiscoveryMessage(Buffer.from(JSON.stringify(response)))).toEqual(response)
+    expect(parseLanDiscoveryMessage(JSON.stringify(response))).toEqual(response)
   })
 
   test('ignores malformed or unrelated LAN discovery packets', () => {
-    expect(parseLanDiscoveryMessage(Buffer.from('not json'))).toBeNull()
-    expect(parseLanDiscoveryMessage(Buffer.from(JSON.stringify({
+    expect(parseLanDiscoveryMessage('not json')).toBeNull()
+    expect(parseLanDiscoveryMessage(JSON.stringify({
       protocol: 'another-service',
       version: 1,
       type: 'query',
       nonce: '0123456789abcdef01234567',
-    })))).toBeNull()
-    expect(parseLanDiscoveryMessage(Buffer.from(JSON.stringify({
+    }))).toBeNull()
+    expect(parseLanDiscoveryMessage(JSON.stringify({
       protocol: 'solus-discovery',
       version: 1,
       type: 'response',
@@ -47,7 +55,40 @@ describe('server discovery', () => {
       port: 70_000,
       name: 'invalid-server',
       installationId: 'remote-installation',
-    })))).toBeNull()
+    }))).toBeNull()
+  })
+
+  test('a scan keeps one answer per host to its own query, never the scanner itself', () => {
+    const nonce = '0123456789abcdef01234567'
+    const answer = (installationId: string, answerNonce = nonce) =>
+      JSON.stringify(discoveryResponse(answerNonce, { port: 3000, name: installationId, installationId, os: 'linux' }))
+    const servers = discoveredServersFrom([
+      { address: '10.0.0.5', text: answer('box') },
+      { address: '10.0.0.6', text: answer('box') },
+      { address: '10.0.0.7', text: answer('stale', 'ffffffffffffffffffffffff') },
+      { address: '10.0.0.8', text: answer('self') },
+      { address: '10.0.0.9', text: JSON.stringify(discoveryQuery(nonce)) },
+    ], nonce, 'self')
+    expect(servers).toEqual([
+      { host: '10.0.0.5', port: 3000, name: 'box', installationId: 'box', os: 'linux', source: 'lan' },
+    ])
+  })
+
+  test('a phone reaches its whole /24 without broadcast', () => {
+    const home = [{ address: '192.168.1.20', netmask: '255.255.255.0' }]
+    expect(lanBroadcastAddresses(home)).toEqual(['255.255.255.255', '192.168.1.255'])
+    const sweep = lanSweepAddresses(home)
+    expect(sweep).toHaveLength(253)
+    expect(sweep).toContain('192.168.1.1')
+    expect(sweep).toContain('192.168.1.254')
+    expect(sweep).not.toContain('192.168.1.20')
+    expect(sweep).not.toContain('192.168.1.255')
+    // A wide network is swept only in the phone's own /24.
+    const office = lanSweepAddresses([{ address: '10.10.1.50', netmask: '255.255.0.0' }])
+    expect(office).toHaveLength(253)
+    expect(office).toContain('10.10.1.79')
+    // A point-to-point link has no neighbours to sweep.
+    expect(lanSweepAddresses([{ address: '10.0.0.1', netmask: '255.255.255.255' }])).toEqual([])
   })
 
   test('parses online Tailscale peers with IPv4 tailnet addresses', () => {

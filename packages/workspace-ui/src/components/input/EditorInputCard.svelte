@@ -7,7 +7,7 @@
   import InputBar from "./InputBar.svelte";
   import InputBarHeader from "./InputBarHeader.svelte";
   import InputToolbar from "./InputToolbar.svelte";
-  import { canDriveSession, VIEW_ONLY_REASON } from "../../contexts/sharing/session-drive";
+  import { canDriveSession, VIEW_ONLY_REASON } from "../../contexts/sharing/resource-roles";
 
   interface Props {
     active: boolean;

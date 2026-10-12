@@ -10,30 +10,35 @@ import {
 import { desktopSettingsRequests } from '../../apps/desktop/src/main/account/settings-client'
 import { CloudAccountClient } from '../../apps/mobile/src/features/account/account-client'
 import {
-  cookieSettingsRequests,
+  webSettingsRequests,
   settingsCloudRequests,
   type SettingsCloudRequests,
 } from '@solus/client-core/settings-requests'
 import {
   OrganizationSettingsClient,
-  SETTINGS_SYNC_DEBOUNCE_MS,
-  SETTINGS_SYNC_POLL_MS,
   SettingsSync,
   type PersonalSettingsChange,
-  type SettingsSyncBroadcast,
-  type SettingsSyncEnvironment,
-  type SettingsSyncMessage,
-  type SettingsSyncSignal,
   type SettingsSyncStatus,
-  type SettingsSyncStorage,
   type SyncAccount,
 } from '@solus/client-core/settings-sync'
+import {
+  DOCUMENT_SYNC_DEBOUNCE_MS,
+  DOCUMENT_SYNC_POLL_MS,
+  type DocumentSyncBroadcast,
+  type DocumentSyncEnvironment,
+  type DocumentSyncMessage,
+  type DocumentSyncSignal,
+  type DocumentSyncStorage,
+} from '@solus/client-core/document-sync'
 
 // Personal settings sync (plans/018 §5): opt-in per client and account, a durable
 // pending patch merged three ways against a compare-and-swap revision, and a
 // generation that a clear advances so an old client cannot restore what was cleared.
 
 // ─── Fakes ───
+
+/** The web page's sign-in, reduced to the access token the adapter asks for. */
+const ACCOUNT_SIGN_IN = { accessToken: async () => 'account-token' }
 
 interface AccountDocument {
   generation: number
@@ -147,24 +152,24 @@ class FakeClock {
   }
 }
 
-class FakeEnvironment implements SettingsSyncEnvironment {
+class FakeEnvironment implements DocumentSyncEnvironment {
   online = true
   foreground = true
-  private listeners = new Set<(signal: SettingsSyncSignal) => void>()
+  private listeners = new Set<(signal: DocumentSyncSignal) => void>()
   isOnline = () => this.online
   isForeground = () => this.foreground
-  subscribe(listener: (signal: SettingsSyncSignal) => void): () => void {
+  subscribe(listener: (signal: DocumentSyncSignal) => void): () => void {
     this.listeners.add(listener)
     return () => { this.listeners.delete(listener) }
   }
-  signal(signal: SettingsSyncSignal): void {
+  signal(signal: DocumentSyncSignal): void {
     if (signal === 'online' || signal === 'offline') this.online = signal === 'online'
     if (signal === 'foreground' || signal === 'background') this.foreground = signal === 'foreground'
     for (const listener of this.listeners) listener(signal)
   }
 }
 
-function memoryStorage(): SettingsSyncStorage & { values: Map<string, string> } {
+function memoryStorage(): DocumentSyncStorage & { values: Map<string, string> } {
   const values = new Map<string, string>()
   return {
     values,
@@ -176,9 +181,9 @@ function memoryStorage(): SettingsSyncStorage & { values: Map<string, string> } 
 
 /** Browser tabs of one profile: a message reaches every other tab, later. */
 class BroadcastHub {
-  private ports = new Set<(message: SettingsSyncMessage) => void>()
-  port(): SettingsSyncBroadcast {
-    let own: ((message: SettingsSyncMessage) => void) | null = null
+  private ports = new Set<(message: DocumentSyncMessage) => void>()
+  port(): DocumentSyncBroadcast {
+    let own: ((message: DocumentSyncMessage) => void) | null = null
     return {
       post: (message) => {
         for (const listener of this.ports) if (listener !== own) queueMicrotask(() => listener(message))
@@ -212,7 +217,7 @@ function switchableRequests(initial: SettingsCloudRequests) {
 function client(cloud: FakeCloud, userId: string, shared: { clock: FakeClock; storage?: ReturnType<typeof memoryStorage>; hub?: BroadcastHub; environment?: FakeEnvironment } ) {
   const storage = shared.storage ?? memoryStorage()
   const environment = shared.environment ?? new FakeEnvironment()
-  const transport = switchableRequests(cookieSettingsRequests(cloud.origin, cloud.fetchFor(userId)))
+  const transport = switchableRequests(webSettingsRequests(cloud.origin, ACCOUNT_SIGN_IN, cloud.fetchFor(userId)))
   const engine = new SettingsSync({
     requests: transport.requests,
     storage,
@@ -250,7 +255,7 @@ function client(cloud: FakeCloud, userId: string, shared: { clock: FakeClock; st
       if (prepared.kind !== 'offer') throw new Error(`no offer: ${prepared.kind}`)
       if (prepared.offer.kind === 'absent') Object.assign(profile, seed)
       const outcome = prepared.offer.kind === 'absent'
-        ? await engine.enable({ kind: 'seed', settings: seed })
+        ? await engine.enable({ kind: 'seed', document: seed })
         : await engine.enable({ kind: 'use-synced' })
       await engine.idle()
       return outcome
@@ -289,7 +294,7 @@ describe('settings sync consent', () => {
     device.environment.signal('offline')
     device.environment.signal('online')
     await device.engine.refresh()
-    clock.advance(SETTINGS_SYNC_POLL_MS * 3)
+    clock.advance(DOCUMENT_SYNC_POLL_MS * 3)
     await settle(device.engine)
 
     expect(cloud.log).toEqual([])
@@ -307,11 +312,11 @@ describe('settings sync isolation', () => {
     const storage = memoryStorage()
     const device = client(cloudB, 'bob', { clock, storage })
     const asAda = () => {
-      device.transport.use(cookieSettingsRequests(ORIGIN_A, cloudA.fetchFor('ada')))
+      device.transport.use(webSettingsRequests(ORIGIN_A, ACCOUNT_SIGN_IN, cloudA.fetchFor('ada')))
       device.engine.setAccount({ origin: ORIGIN_A, userId: 'ada' })
     }
     const asBob = () => {
-      device.transport.use(cookieSettingsRequests(ORIGIN_B, cloudB.fetchFor('bob')))
+      device.transport.use(webSettingsRequests(ORIGIN_B, ACCOUNT_SIGN_IN, cloudB.fetchFor('bob')))
       device.engine.setAccount({ origin: ORIGIN_B, userId: 'bob' })
     }
     // Both accounts have sync on, at the same generation and revision.
@@ -337,7 +342,7 @@ describe('settings sync isolation', () => {
     cloudA.release()
     await lateRefresh
     expect(await lateOffer).toEqual({ kind: 'cancelled' })
-    clock.advance(SETTINGS_SYNC_DEBOUNCE_MS * 2)
+    clock.advance(DOCUMENT_SYNC_DEBOUNCE_MS * 2)
     await settle(device.engine)
 
     // Nothing of A's reached B: no applied change, no conflict, no stop.
@@ -374,10 +379,10 @@ describe('settings sync', () => {
     expect(secondOffer).toEqual(firstOffer)
     expect(cloud.writes()).toBe(0)
 
-    expect(await first.engine.enable({ kind: 'seed', settings: { themeMode: 'dark' } })).toEqual({ kind: 'enabled' })
+    expect(await first.engine.enable({ kind: 'seed', document: { themeMode: 'dark' } })).toEqual({ kind: 'enabled' })
     // The second seed races the first and loses: it is shown the document instead.
-    const raced = await second.engine.enable({ kind: 'seed', settings: { themeMode: 'light' } })
-    expect(raced).toEqual({ kind: 'changed', offer: { kind: 'present', generation: 0, revision: 1, settings: { themeMode: 'dark' }, updatedAt: expect.any(Number) } })
+    const raced = await second.engine.enable({ kind: 'seed', document: { themeMode: 'light' } })
+    expect(raced).toEqual({ kind: 'changed', offer: { kind: 'present', generation: 0, revision: 1, document: { themeMode: 'dark' }, updatedAt: expect.any(Number) } })
     expect(cloud.document('ada').settings).toEqual({ themeMode: 'dark' })
     expect(second.engine.current.state).toBe('off')
 
@@ -398,11 +403,11 @@ describe('settings sync', () => {
     expect(prepared.kind === 'offer' && prepared.offer.kind).toBe('present')
 
     cloud.document('ada').revision = 4
-    const stale = await device.engine.enable({ kind: 'replace', settings: { themeMode: 'light' } })
+    const stale = await device.engine.enable({ kind: 'replace', document: { themeMode: 'light' } })
     expect(stale.kind).toBe('changed')
     expect(cloud.document('ada').settings).toEqual({ themeMode: 'dark', showToolCalls: false })
 
-    expect(await device.engine.enable({ kind: 'replace', settings: { themeMode: 'light' } })).toEqual({ kind: 'enabled' })
+    expect(await device.engine.enable({ kind: 'replace', document: { themeMode: 'light' } })).toEqual({ kind: 'enabled' })
     // Replace means the cloud becomes this device: keys it does not hold return to default.
     expect(cloud.document('ada').settings).toEqual({ themeMode: 'light' })
   })
@@ -421,7 +426,7 @@ describe('settings sync', () => {
     // Both edit from revision 1, different keys.
     laptop.edit({ showToolCalls: false })
     phone.edit({ fontSize: 16 })
-    clock.advance(SETTINGS_SYNC_DEBOUNCE_MS)
+    clock.advance(DOCUMENT_SYNC_DEBOUNCE_MS)
     await settle(laptop.engine, phone.engine)
 
     // One of them got a 409, merged, and retried against the new revision.
@@ -449,10 +454,10 @@ describe('settings sync', () => {
     await phone.turnOn()
 
     laptop.edit({ themeMode: 'dark' })
-    clock.advance(SETTINGS_SYNC_DEBOUNCE_MS)
+    clock.advance(DOCUMENT_SYNC_DEBOUNCE_MS)
     await settle(laptop.engine)
     phone.edit({ themeMode: 'light', fontSize: 18 })
-    clock.advance(SETTINGS_SYNC_DEBOUNCE_MS)
+    clock.advance(DOCUMENT_SYNC_DEBOUNCE_MS)
     await settle(phone.engine)
 
     // The unrelated key went through; the theme did not overwrite the laptop's.
@@ -462,7 +467,7 @@ describe('settings sync', () => {
     expect(phone.profile.themeMode).toBe('light')
 
     // It stays a conflict across refreshes and polls.
-    clock.advance(SETTINGS_SYNC_POLL_MS)
+    clock.advance(DOCUMENT_SYNC_POLL_MS)
     await settle(phone.engine)
     expect(phone.engine.current.state).toBe('conflict')
 
@@ -482,7 +487,7 @@ describe('settings sync', () => {
     await device.turnOn({ themeMode: 'system' })
     Object.assign(cloud.document('ada'), { revision: 2, settings: { themeMode: 'dark' } })
     device.edit({ themeMode: 'light' })
-    clock.advance(SETTINGS_SYNC_DEBOUNCE_MS)
+    clock.advance(DOCUMENT_SYNC_DEBOUNCE_MS)
     await settle(device.engine)
     expect(device.engine.current.state).toBe('conflict')
     const writes = cloud.writes()
@@ -504,7 +509,7 @@ describe('settings sync', () => {
     await before.turnOn({ themeMode: 'system' })
     environment.signal('offline')
     before.edit({ extraInstructions: 'Be brief.' })
-    clock.advance(SETTINGS_SYNC_DEBOUNCE_MS)
+    clock.advance(DOCUMENT_SYNC_DEBOUNCE_MS)
     await settle(before.engine)
     expect(before.engine.current.state).toBe('offline')
     before.engine.dispose()
@@ -532,7 +537,7 @@ describe('settings sync', () => {
     device.statuses.length = 0
     device.edit({ showToolCalls: false })
     cloud.failNext = 500
-    clock.advance(SETTINGS_SYNC_DEBOUNCE_MS)
+    clock.advance(DOCUMENT_SYNC_DEBOUNCE_MS)
     await settle(device.engine)
     expect(device.engine.current.state).toBe('error')
     expect(device.engine.current.error).toEqual({ code: 'internal_error', message: null })
@@ -579,7 +584,7 @@ describe('settings sync', () => {
     await device.turnOn({ themeMode: 'system' })
     device.edit({ fontSize: 15 })
     cloud.failNext = 401
-    clock.advance(SETTINGS_SYNC_DEBOUNCE_MS)
+    clock.advance(DOCUMENT_SYNC_DEBOUNCE_MS)
     await settle(device.engine)
     expect(device.engine.current.state).toBe('signed-out')
     expect(clock.pending).toBe(0)
@@ -598,11 +603,11 @@ describe('settings sync', () => {
     await device.turnOn({ themeMode: 'system' })
     const reads = () => cloud.log.filter((entry) => entry.method === 'GET').length
     const start = reads()
-    clock.advance(SETTINGS_SYNC_POLL_MS)
+    clock.advance(DOCUMENT_SYNC_POLL_MS)
     await settle(device.engine)
     expect(reads()).toBe(start + 1)
     device.environment.signal('background')
-    clock.advance(SETTINGS_SYNC_POLL_MS * 5)
+    clock.advance(DOCUMENT_SYNC_POLL_MS * 5)
     await settle(device.engine)
     expect(reads()).toBe(start + 1)
     device.environment.signal('foreground')
@@ -626,7 +631,7 @@ describe('turning sync off and clearing synced settings', () => {
     device.engine.turnOff()
     expect(device.engine.current.state).toBe('off')
     expect(device.edit({ fontSize: 22 })).toBe('ignored')
-    clock.advance(SETTINGS_SYNC_POLL_MS * 3)
+    clock.advance(DOCUMENT_SYNC_POLL_MS * 3)
     device.environment.signal('foreground')
     await device.engine.refresh()
     await settle(device.engine)
@@ -665,7 +670,7 @@ describe('turning sync off and clearing synced settings', () => {
     expect(cloud.document('ada')).toMatchObject({ generation: 1, revision: null, settings: {} })
 
     // The tablet's patch carries the old generation and is refused.
-    clock.advance(SETTINGS_SYNC_DEBOUNCE_MS)
+    clock.advance(DOCUMENT_SYNC_DEBOUNCE_MS)
     await settle(tablet.engine, laptop.engine)
     expect(tablet.engine.current.state).toBe('off')
     expect(tablet.engine.current.stoppedReason).toBe('generation-changed')
@@ -680,7 +685,7 @@ describe('turning sync off and clearing synced settings', () => {
 
     // Nothing resumes on its own.
     expect(phone.edit({ fontSize: 12 })).toBe('ignored')
-    clock.advance(SETTINGS_SYNC_POLL_MS * 2)
+    clock.advance(DOCUMENT_SYNC_POLL_MS * 2)
     await phone.engine.refresh()
     await settle(phone.engine, tablet.engine)
     expect(cloud.document('ada').revision).toBeNull()
@@ -688,7 +693,7 @@ describe('turning sync off and clearing synced settings', () => {
     // Turning on again starts from the new generation.
     const prepared = await phone.engine.prepareEnable()
     expect(prepared).toEqual({ kind: 'offer', offer: { kind: 'absent', generation: 1 } })
-    expect(await phone.engine.enable({ kind: 'seed', settings: { themeMode: 'light' } })).toEqual({ kind: 'enabled' })
+    expect(await phone.engine.enable({ kind: 'seed', document: { themeMode: 'light' } })).toEqual({ kind: 'enabled' })
     expect(cloud.document('ada')).toMatchObject({ generation: 1, revision: 1, settings: { themeMode: 'light' } })
   })
 
@@ -710,7 +715,7 @@ describe('turning sync off and clearing synced settings', () => {
     device.signIn()
     expect(device.engine.current.state).toBe('off')
     expect(device.engine.current.pendingKeys).toEqual([])
-    clock.advance(SETTINGS_SYNC_POLL_MS * 2)
+    clock.advance(DOCUMENT_SYNC_POLL_MS * 2)
     await settle(device.engine)
     expect(cloud.document('ada').settings).toEqual({ themeMode: 'dark' })
   })
@@ -739,16 +744,19 @@ describe('settings requests', () => {
     expect(sent).toEqual(['DELETE', 'GET'])
   })
 
-  test('the web adapter sends the cookie and maps a 409 to the stored document', async () => {
+  test('the web adapter sends an account-plane access token, never the cookie, and maps a 409 to the stored document', async () => {
     const current: AccountSettingsResponse = { schemaVersion: 1, generation: 0, revision: 7, settings: { themeMode: 'dark' }, updatedAt: 1 }
     const seen: RequestInit[] = []
-    const requests = cookieSettingsRequests(ORIGIN_A, (async (_input: string | URL | Request, init: RequestInit = {}) => {
+    const requests = webSettingsRequests(ORIGIN_A, ACCOUNT_SIGN_IN, (async (_input: string | URL | Request, init: RequestInit = {}) => {
       seen.push(init)
       return Response.json({ error: 'settings_conflict', current }, { status: 409 })
     }) as typeof fetch)
     expect(await requests.accountSettingsPatch({ generation: 0, expectedRevision: 6, set: {}, reset: [] }))
       .toEqual({ kind: 'conflict', reason: 'settings_conflict', current })
-    expect(seen[0]?.credentials).toBe('include')
+    expect(seen[0]?.credentials).toBe('omit')
+    expect(new Headers(seen[0]?.headers).get('authorization')).toBe('Bearer account-token')
+    // With no sign-in, nothing is sent.
+    expect(await webSettingsRequests(ORIGIN_A, { accessToken: async () => null }).accountSettingsGet()).toEqual({ kind: 'signed-out' })
   })
 })
 
@@ -763,18 +771,19 @@ describe('authenticated adapters', () => {
     expect(paths).toEqual([ACCOUNT_SETTINGS_PATH])
   })
 
-  test('the native client sends its session as a bearer token and reports which token a 401 refused', async () => {
+  test('the native client sends an account access token as a bearer, got for each call, and reports a 401', async () => {
     const seen: Headers[] = []
     const client = new CloudAccountClient(ORIGIN_A, (async (_input: string | URL | Request, init: RequestInit = {}) => {
       seen.push(new Headers(init.headers))
       return new Response(null, { status: 401 })
     }) as typeof fetch)
-    const refused: string[] = []
-    const requests = client.settingsRequests(() => 'token-1', (token) => refused.push(token))
+    let refusals = 0
+    const requests = client.settingsRequests(async () => 'access-1', () => { refusals += 1 })
     expect(await requests.accountSettingsGet()).toEqual({ kind: 'signed-out' })
-    expect(seen[0]?.get('authorization')).toBe('Bearer token-1')
-    expect(refused).toEqual(['token-1'])
-    expect(await client.settingsRequests(() => null, () => {}).accountSettingsGet()).toEqual({ kind: 'signed-out' })
+    expect(seen[0]?.get('authorization')).toBe('Bearer access-1')
+    expect(refusals).toBe(1)
+    // No token (signed out): nothing is sent.
+    expect(await client.settingsRequests(async () => null, () => {}).accountSettingsGet()).toEqual({ kind: 'signed-out' })
     expect(seen.length).toBe(1)
   })
 })

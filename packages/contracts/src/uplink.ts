@@ -19,19 +19,6 @@ import { z } from 'zod'
 export const ACCESS_TOKEN_TTL_SECONDS = 300
 
 /**
- * The token the Solus apps dial a host or the Solus API with lives eight hours. A
- * host admits a socket for its token's life, so a shorter life drops every live
- * connection that often, and a client keeps the token for its redials. Hosts check
- * it offline: a person removed from an organization can connect with a token they
- * hold until it ends. Token exchange checks standing live, so delegated work stops
- * at once; an owner's device revocation on the host also takes effect at once.
- */
-export const FIRST_PARTY_ACCESS_TOKEN_TTL_SECONDS = 8 * 60 * 60
-
-/** A guest grant lives ten minutes. */
-export const GUEST_GRANT_TTL_SECONDS = 600
-
-/**
  * The resource (RFC 8707) of one host: the `aud` of an access token for it. A host
  * refuses a token for another host, so a token one host received cannot open another.
  */
@@ -39,8 +26,55 @@ export function hostAudience(hostId: string): string {
   return `urn:solus:host:${hostId}`
 }
 
+const HOST_AUDIENCE_PREFIX = 'urn:solus:host:'
+
+/** The host an audience names, or null when it names no host. */
+export function hostIdOfAudience(audience: string): string | null {
+  if (!audience.startsWith(HOST_AUDIENCE_PREFIX)) return null
+  const hostId = audience.slice(HOST_AUDIENCE_PREFIX.length)
+  return hostId.length > 0 ? hostId : null
+}
+
 /** The resource of the account plane's own routes a host calls as a person (connections). */
 export const ACCOUNT_AUDIENCE = 'urn:solus:account'
+
+/**
+ * The resource of the control plane's host routes (`/v1/hosts/:hostId/...`): what a
+ * host's own access token is for. The host gets it with the client credentials grant
+ * and its host credential (docs/adr/0001-standard-authentication.md §2.2 rule 8). It
+ * is never a person's token and never a delegated one.
+ */
+export const CONTROL_AUDIENCE = 'urn:solus:control'
+
+/** The one scope a host's own access token has: it manages the host's own link. */
+export const HOST_CONTROL_SCOPE = 'host:link'
+
+/** The Solus API's OAuth client: a confidential client with `private_key_jwt`, as a host is (ADR 0001 §6.2). */
+export const SOLUS_API_CLIENT_ID = 'solus-api'
+
+/** A host's OAuth client id. One client per host: linking again replaces it. */
+export function hostClientId(hostId: string): string {
+  return `host_${hostId}`
+}
+
+/** RFC 7523 §2.2: a client authenticates at the token endpoint with a signed JWT. */
+export const CLIENT_ASSERTION_TYPE = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
+
+/**
+ * The public half of a host credential (RFC 7517): an ES256 key on P-256. The host
+ * makes the key pair and keeps the private half; the control plane registers only
+ * this half as the host client's `jwks`.
+ */
+export const hostPublicJwkSchema = z.object({
+  kty: z.literal('EC'),
+  crv: z.literal('P-256'),
+  x: z.string().min(1),
+  y: z.string().min(1),
+  alg: z.literal('ES256').optional(),
+  kid: z.string().min(1).optional(),
+  use: z.literal('sig').optional(),
+}).strict()
+export type HostPublicJwk = z.infer<typeof hostPublicJwkSchema>
 
 /**
  * Where a host trades a person's access token for its own delegated tokens (token
@@ -127,12 +161,12 @@ export function isSolusApiId(id: string | null | undefined): boolean {
 }
 
 /**
- * What the grant says about the subject's standing on the host
- * (docs/plans/multiplayer-sharing.md §3.2). `owner` is the personal host's owner, as
- * before; `org-member` a member of the organization the host belongs to; `guest` a
- * visitor with a share link and no account, who proves nothing by the grant alone.
+ * What the token says about the subject's standing on the host
+ * (docs/plans/multiplayer-sharing.md §3.2). `owner` is the personal host's owner;
+ * `org-member` a member of an organization the host belongs to. A guest holds no
+ * token: a share link's secret admits them (docs/plans/host-sharing.md §4.1).
  */
-export const grantAccessSchema = z.enum(['owner', 'org-member', 'guest'])
+export const grantAccessSchema = z.enum(['owner', 'org-member'])
 export type GrantAccess = z.infer<typeof grantAccessSchema>
 
 export const organizationRoleSchema = z.enum(['owner', 'member'])
@@ -144,72 +178,113 @@ export const MAX_TEAM_IDS_PER_GRANT = 32
 export const MAX_DISPLAY_NAME_LENGTH = 40
 
 /**
- * The actor of a delegated token (RFC 8693 §4.1): the host that acts for the person
- * the token names. A delegated token is what a host holds for a person's
- * organization work after their clients closed.
+ * The actor of a delegated token (RFC 8693 §4.1): the host, or the Solus API, that
+ * acts for the person the token names. A delegated token is what a host holds for a
+ * person's work after their clients closed.
  */
 export const tokenActorSchema = z.object({
-  /** The host's OAuth client id. */
+  /** The actor's OAuth client id: a host's, or `SOLUS_API_CLIENT_ID`. */
   sub: z.string().min(1),
-  host_id: z.string().min(1),
+  /** The acting host. Absent when the actor is the Solus API, whose delegated tokens are for the account plane only. */
+  host_id: z.string().min(1).optional(),
 })
 export type TokenActor = z.infer<typeof tokenActorSchema>
 
-/**
- * JWT claims of an access token (RFC 9068) the account plane issues, and of a guest
- * grant. ES256; `kid` in the header. The provider owns `sub` (the user id),
- * `client_id`, and `scope`; the membership facts are Solus's own claims.
- */
-export const accessTokenClaimsSchema = z.object({
+/** One organization in an access token: the person's role and teams there (ADR 0001 §6.4). */
+export const organizationMembershipClaimSchema = z.object({
+  id: z.string().min(1),
+  role: organizationRoleSchema,
+  teamIds: z.array(z.string().min(1)).max(MAX_TEAM_IDS_PER_GRANT),
+})
+export type OrganizationMembershipClaim = z.infer<typeof organizationMembershipClaimSchema>
+
+/** The claims of every access token (RFC 9068) the account plane issues. ES256; `kid` in the header. */
+const accessTokenBaseShape = {
   iss: z.string().min(1),
-  /** `hostAudience(hostId)` or `SOLUS_API_AUDIENCE`; a delegated token also names `ACCOUNT_AUDIENCE`. */
+  /** `hostAudience(hostId)`, `SOLUS_API_AUDIENCE`, or `ACCOUNT_AUDIENCE`; a delegated token names the last two. */
   aud: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]),
-  /** The account's user id, or `guest:<id>` for a visitor. */
+  /** The account's user id. */
   sub: z.string().min(1),
-  /** The account session that asked for the token; revoking it stops new tokens. A guest carries its guestId, a delegated token its host id. */
-  deviceId: z.string().min(1),
   jti: z.string().min(1),
   iat: z.number(),
-  /** ≤ iat + GUEST_GRANT_TTL_SECONDS. */
+  /** ≤ iat + ACCESS_TOKEN_TTL_SECONDS. */
   exp: z.number(),
   /** The OAuth client the token was issued to. */
   client_id: z.string().min(1).optional(),
   access: grantAccessSchema.optional(),
   hostKind: hostKindSchema.optional(),
-  /** The host's organization, when the subject is a member of it. */
-  organizationId: z.string().min(1).optional(),
-  organizationRole: organizationRoleSchema.optional(),
-  /** Teams of this subject inside that organization. */
-  teamIds: z.array(z.string().min(1)).max(MAX_TEAM_IDS_PER_GRANT).optional(),
   /** Personal hosts only: the account that linked the host. */
   hostOwnerUserId: z.string().min(1).optional(),
-  /** What kind of machine the grant admits to; absent on a workspace grant. */
+  /** What kind of machine the token admits to; absent on a Solus API token. */
   hostCategory: hostCategorySchema.optional(),
-  /** The account name, or the name a guest typed. */
+  /** The account name. */
   displayName: z.string().min(1).max(MAX_DISPLAY_NAME_LENGTH).optional(),
   picture: z.string().min(1).optional(),
   /** The account's verified email, for Insights attribution (§6.1). Metadata, never an authorization key. */
   email: z.string().min(1).optional(),
-  /** Delegated tokens only: the host acting for the person (token exchange). */
-  act: tokenActorSchema.optional(),
+}
+
+/**
+ * A person's token: a Solus client got it with its refresh token
+ * (docs/adr/0001-standard-authentication.md §3.1). The provider owns `sub`,
+ * `client_id`, and `scope`; the membership facts are Solus's own claims.
+ */
+export const personAccessTokenClaimsSchema = z.object({
+  ...accessTokenBaseShape,
+  /** The client grant (one sign-in of one Solus client) the token comes from; revoking it stops new tokens. */
+  grant_id: z.string().min(1),
+  /**
+   * The person's memberships that apply to the audience (ADR 0001 §6.4). For a host,
+   * the organizations the host is shared with or managed for; for the Solus API, all
+   * of them. A connection names one, and the server admits it only when the token lists it.
+   */
+  organizations: z.array(organizationMembershipClaimSchema).optional(),
+  act: z.undefined().optional(),
 })
+export type PersonAccessTokenClaims = z.infer<typeof personAccessTokenClaimsSchema>
+
+/** What every delegated token (RFC 8693) has: the acting host, and the client grant it was made from. */
+const delegatedBaseShape = {
+  ...accessTokenBaseShape,
+  /** Delegated tokens only: the host acting for the person (token exchange). */
+  act: tokenActorSchema,
+  /** The client grant the host's delegation was made from; when it is revoked, the delegation ends (ADR 0001 §2.2 rule 6). */
+  grant_id: z.string().min(1),
+  organizations: z.undefined().optional(),
+}
+
+/**
+ * A delegated token (RFC 8693): what a host holds to act for a person after their
+ * clients closed. Its scope is the person's own host (`access: 'owner'`, no
+ * organization) or one organization (`org-member`, with the person's standing
+ * there). The acting host is in `act`.
+ */
+export const delegatedAccessTokenClaimsSchema = z.union([
+  z.object({
+    ...delegatedBaseShape,
+    access: z.literal('owner'),
+    organizationId: z.undefined().optional(),
+    organizationRole: z.undefined().optional(),
+    teamIds: z.undefined().optional(),
+  }),
+  z.object({
+    ...delegatedBaseShape,
+    access: z.literal('org-member'),
+    organizationId: z.string().min(1),
+    organizationRole: organizationRoleSchema,
+    /** Teams of this person inside that organization. */
+    teamIds: z.array(z.string().min(1)).max(MAX_TEAM_IDS_PER_GRANT),
+  }),
+])
+export type DelegatedAccessTokenClaims = z.infer<typeof delegatedAccessTokenClaimsSchema>
+
+/** Any access token of the account plane: a delegated one when it has `act`, else a person's. */
+export const accessTokenClaimsSchema = z.union([delegatedAccessTokenClaimsSchema, personAccessTokenClaimsSchema])
 export type AccessTokenClaims = z.infer<typeof accessTokenClaimsSchema>
 
 /** Every audience a token names. */
 export function tokenAudiences(claims: Pick<AccessTokenClaims, 'aud'>): string[] {
   return Array.isArray(claims.aud) ? claims.aud : [claims.aud]
-}
-
-/** Who a token's `sub` names: an account, or a visitor. */
-export interface GrantSubject {
-  kind: 'user' | 'guest'
-  id: string
-}
-
-/** The `sub` claim split into who it names. */
-export function parseGrantSubject(sub: string): GrantSubject {
-  if (sub.startsWith('guest:')) return { kind: 'guest', id: sub.slice('guest:'.length) }
-  return { kind: 'user', id: sub }
 }
 
 /** Trims, strips control characters, and bounds a typed name; null when nothing usable remains. */
@@ -401,10 +476,12 @@ export const enrollHostRequestSchema = z.object({
   proxiedPort: z.number().int().min(1).max(65535),
   /** What the enrolling process is; `personal` when absent. Recorded once, at enrollment. */
   category: enrollHostCategorySchema.optional(),
+  /** The public half of the host credential the host made for this link (ADR 0001 §3.4). Each link has a new one. */
+  publicJwk: hostPublicJwkSchema,
 })
 export type EnrollHostRequest = z.infer<typeof enrollHostRequestSchema>
 
-/** Returned once. The host stores both tokens in its secret store and never sees them again. */
+/** Returned once. The host keeps the connector token in its secret store, beside the private half of its key. */
 export const enrollHostResponseSchema = z.object({
   link: uplinkLinkConfigSchema,
   /**
@@ -413,21 +490,20 @@ export const enrollHostResponseSchema = z.object({
    * proxied listener, so there is no tunnel to run.
    */
   connectorToken: z.string().min(1).optional(),
-  /** Lets the host read and delete its own link record. */
-  hostToken: z.string().min(1),
   /**
-   * The host's OAuth client (plans/010-standard-oauth.md): a confidential client of
-   * the account plane, with which the host acts for the people who work on it. The
-   * secret is returned only here; the host keeps it in its secret store.
+   * The host's OAuth client: a confidential client of the account plane with
+   * `private_key_jwt` and the key the request sent. With it the host gets its own
+   * access tokens (client credentials) and acts for the people who work on it (token
+   * exchange). There is no secret: the host proves itself with its key.
    */
-  oauthClient: z.object({ clientId: z.string().min(1), clientSecret: z.string().min(1) }),
+  oauthClient: z.object({ clientId: z.string().min(1) }),
   /** The organizations this enrollment attached the host to for organization work; absent for a personal link. */
   organizationIds: z.array(z.string().min(1)).optional(),
 })
 export type EnrollHostResponse = z.infer<typeof enrollHostResponseSchema>
 
 /**
- * `POST /v1/hosts/:hostId/organizations/attach` with the host token: a linked host
+ * `POST /v1/hosts/:hostId/organizations/attach` with the host's control token: a linked host
  * redeems an organization-bound ticket its owner issued, and is attached to those
  * organizations for organization work. The host is not enrolled again and no
  * record moves (organization-vms §4).
@@ -441,26 +517,6 @@ export const hostAttachResponseSchema = z.object({
   organizationIds: z.array(z.string().min(1)).min(1),
 })
 export type HostAttachResponse = z.infer<typeof hostAttachResponseSchema>
-
-/**
- * `POST /v1/hosts/:hostId/access-token` body, with the account session: a person's
- * access token for one host, or for the Solus API when `hostId` is a workspace
- * service id (plans/010-standard-oauth.md). A member of several organizations a host
- * is shared with names the one their window is working in; the owner names nothing.
- * An absent or unreadable body is the same as an empty one.
- */
-export const hostAccessTokenRequestSchema = z.object({
-  organizationId: z.string().min(1).optional(),
-})
-export type HostAccessTokenRequest = z.infer<typeof hostAccessTokenRequestSchema>
-
-export const hostAccessTokenResponseSchema = z.object({
-  accessToken: z.string().min(1),
-  /** What the token is for: a host id, or `workspace:<organizationId>` for the workspace service. */
-  hostId: z.string().min(1),
-  expiresAt: z.number(),
-})
-export type HostAccessTokenResponse = z.infer<typeof hostAccessTokenResponseSchema>
 
 /** `POST /v1/hosts/<hostId>/start`: the lifecycle a managed host is in after a
  *  member asked it to run. The client waits for the directory to say `ready`. */
@@ -582,7 +638,7 @@ export const hostOrganizationSchema = z.object({
 export type HostOrganization = z.infer<typeof hostOrganizationSchema>
 
 /**
- * `GET /v1/hosts/:hostId/organizations` with the host token: what the control plane
+ * `GET /v1/hosts/:hostId/organizations` with the host's control token: what the control plane
  * knows about this host's standing (§3, §3.1, §6.1) — its category, the account that
  * linked it, and the organizations it may deliver to with each one's policy. A host
  * reads it at link time and again every few minutes, so a policy change reaches it
@@ -598,7 +654,7 @@ export const hostOrganizationsResponseSchema = z.object({
 export type HostOrganizationsResponse = z.infer<typeof hostOrganizationsResponseSchema>
 
 /**
- * `PUT /v1/hosts/:hostId/activity` with the host token, from a managed host only (plan
+ * `PUT /v1/hosts/:hostId/activity` with the host's control token, from a managed host only (plan
  * 004 item 3). The machine holds itself awake while it is busy; the control plane
  * uses the report to wake a paused machine before `nextWakeAt` and to put off a
  * restart for a new release or spec while `busy`. Sent when either value changes, and
@@ -615,26 +671,6 @@ export type HostActivityReport = z.infer<typeof hostActivityReportSchema>
 export const HOST_ACTIVITY_REPORT_TTL_MS = 90 * 60_000
 
 // ── Organizations and guests ─────────────────────────────────────────────────
-
-/** `POST /v1/hosts/:hostId/guest-grant`: no session; proves only "a visitor calls themselves X". */
-export const guestGrantRequestSchema = z.object({
-  /** Kept in the visitor's browser so a returning guest keeps one identity and color. */
-  guestId: z.string().regex(/^[a-zA-Z0-9_-]{16,64}$/).optional(),
-  displayName: z.string().max(MAX_DISPLAY_NAME_LENGTH * 2).optional(),
-})
-export type GuestGrantRequest = z.infer<typeof guestGrantRequestSchema>
-
-export const guestGrantResponseSchema = z.object({
-  grant: z.string().min(1),
-  /** What the grant is for: a host id, or `workspace:<organizationId>` for the workspace service. */
-  hostId: z.string().min(1),
-  expiresAt: z.number(),
-  guestId: z.string().min(1),
-  displayName: z.string().min(1),
-  /** How to reach the host: a guest has no directory, so the grant names the tunnel route. */
-  routes: z.array(hostRouteSchema),
-})
-export type GuestGrantResponse = z.infer<typeof guestGrantResponseSchema>
 
 /**
  * `POST /v1/hosts/:hostId/organizations`: the owner shares a personal or self-hosted
@@ -673,7 +709,14 @@ export const organizationDirectorySchema = z.object({
 })
 export type OrganizationDirectory = z.infer<typeof organizationDirectorySchema>
 
-/** `GET /v1/hosts/:id/link` with the host token: the generation check at boot. */
+/**
+ * Every host route takes the host's own access token as `Authorization: Bearer`:
+ * a client credentials token for `CONTROL_AUDIENCE`, issued to this host's client
+ * for the current link. A token of an earlier link, or of another host, is refused
+ * with `invalid_host_credential`.
+ */
+
+/** `GET /v1/hosts/:id/link` with the host's control token: the generation check at boot. */
 export const hostLinkResponseSchema = z.object({
   hostId: z.string().min(1),
   desired: uplinkDesiredStateSchema,
@@ -687,20 +730,43 @@ export type HostLinkResponse = z.infer<typeof hostLinkResponseSchema>
 
 /**
  * How a host the control plane provisioned gets its link (docs/plans/managed-hosts.md
- * §2): the control plane hands the finished `EnrollHostResponse` to the host's boot,
- * which puts it in the server's environment as JSON (`SOLUS_HOST_LINK`), and the host
- * stores it at boot exactly as a personal host stores what enrollment answered. There
- * is no exchange and no person involved. Such a link has no connector token: the
- * machine is reached through its Sprite's URL, not a tunnel.
+ * §2): the control plane hands the link record and a one-time credential ticket to the
+ * host's boot, which puts them in the server's environment as JSON (`SOLUS_HOST_LINK`).
+ * At its first boot of that link the host makes its own key pair and registers the
+ * public half with the ticket (`POST /v1/hosts/:hostId/credential`). The private key
+ * never leaves the machine, and the ticket works once, so nothing that passes through
+ * the provisioner proves the host after its first boot (ADR 0001 §3.4). Such a link
+ * has no connector token: the machine is reached through its platform URL, not a tunnel.
  */
-export const hostLinkEnvSchema = enrollHostResponseSchema
+export const hostLinkEnvSchema = z.object({
+  link: uplinkLinkConfigSchema,
+  credentialTicket: z.string().min(1),
+})
+export type HostLinkEnv = z.infer<typeof hostLinkEnvSchema>
 export const HOST_LINK_ENV = 'SOLUS_HOST_LINK'
+
+/**
+ * `POST /v1/hosts/:hostId/credential`: a provisioned host registers the public half of
+ * its key with the ticket its link carries. The ticket works once. The same key sent
+ * again is accepted, so a host whose answer was lost can ask again.
+ */
+export const hostCredentialRequestSchema = z.object({
+  credentialTicket: z.string().min(1),
+  publicJwk: hostPublicJwkSchema,
+})
+export type HostCredentialRequest = z.infer<typeof hostCredentialRequestSchema>
+
+export const hostCredentialResponseSchema = z.object({
+  oauthClient: z.object({ clientId: z.string().min(1) }),
+})
+export type HostCredentialResponse = z.infer<typeof hostCredentialResponseSchema>
 
 export const uplinkErrorCodeSchema = z.enum([
   'invalid_request',
   'unauthorized',
   'invalid_ticket',
-  'invalid_host_token',
+  /** The host's control token is not of this host's current link: another copy took the link, or it was removed. */
+  'invalid_host_credential',
   'cross_origin',
   'host_not_found',
   'host_not_linked',

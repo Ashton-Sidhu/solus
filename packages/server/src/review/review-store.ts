@@ -10,7 +10,7 @@ const log = createLogger('review', 'review-store.ts')
 const REVIEW_DIR = '.solus'
 
 /** Path to a review artifact: `.solus/<subdir>/<key>.json`. Every review store
- *  (ledger, guide, draft state) lives under one `<key>.json` per episode. */
+ *  (legacy guide, draft state) lives under one `<key>.json` per episode. */
 export function artifactPath(repoRoot: string, subdir: string, key: string): string {
   return join(repoRoot, REVIEW_DIR, subdir, `${key}.json`)
 }

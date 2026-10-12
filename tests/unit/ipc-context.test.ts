@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { runInputFromContext } from '@solus/server/execution/agents/run-input'
 import { IpcContextBuilder, type IpcContextBuilderDeps } from '@solus/workspace-ui/contexts/workspace/ipc-context'
-import type { StatusBarCtx } from '@solus/contracts/types'
+import type { RunConfig, StatusBarCtx } from '@solus/contracts/types'
+import { draftPluginCommandScope } from '@solus/workspace-ui/components/session-draft/lib/plugin-command-scope'
 
 function statusBar(
   model: string,
@@ -178,5 +179,39 @@ describe('IPC context', () => {
       projectPath: '',
       gitContext: null,
     })
+  })
+
+  // WHY: the host runs a command lookup on the provider the context names, with
+  // the status bar's model. A Claude draft opened while a Codex session was on
+  // screen asked Claude for its commands as `gpt-6-astra`, and the draft's menu
+  // lost the commands only a Claude model has.
+  test("a draft's command lookup uses the draft's model, not the active session's", () => {
+    const claudeDraft = {
+      workingDirectory: '/repo', gitContext: null, worktree: null, permissionMode: 'full-access',
+      provider: 'claude-code', serverId: 'host',
+      modelConfig: { modelId: 'claude-opus-5-5', reasoningEffort: 'medium', contextWindow: null, fastMode: false },
+    } as unknown as RunConfig
+    const activeCodexStatus = statusBar('gpt-6-astra', 'low')
+    const deps = {
+      sessionFor: () => undefined,
+      runFor: (sourceId: string) => sourceId === 'draft-1' ? claudeDraft : undefined,
+      hasDraft: (sourceId: string) => sourceId === 'draft-1',
+      defaultRunConfig: () => claudeDraft,
+      settings: { ctx: { activeAgent: 'codex' } },
+      statusBar: {
+        ctx: activeCodexStatus,
+        ctxFor: () => activeCodexStatus,
+        ctxForRun: (run: RunConfig) => ({ ...statusBar(run.modelConfig.modelId ?? '', 'medium'), activeAgent: run.provider }),
+      },
+    } as unknown as IpcContextBuilderDeps
+    const builder = new IpcContextBuilder(deps)
+
+    const scope = draftPluginCommandScope(claudeDraft, 'codex', 'draft-1', (cwd, checkout, sourceId) =>
+      builder.forEnvironment(sourceId, cwd, checkout))
+
+    expect(scope.context.session.provider).toBe('claude-code')
+    expect(scope.context.statusBar.model).toBe('claude-opus-5-5')
+    // A context with no run of its own still reads the surface on screen.
+    expect(builder.forDirectory('', '/repo').statusBar.model).toBe('gpt-6-astra')
   })
 })

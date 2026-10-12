@@ -1,7 +1,7 @@
 import { worktreeProjectRoot } from '@solus/contracts/types'
 import type { WorkspaceProject } from '@solus/contracts/workspace-projects'
 import { hostKey } from '@solus/client-core/host-key'
-import { distinctProjectLabels, localProjectParts, projectKeyLabel, projectKeyOf } from '@solus/client-core/project-identity'
+import { localProjectParts, projectKeyLabel, projectKeyOf } from '@solus/client-core/project-identity'
 import type { ListProjectOption } from '../../components/ui/list-page/list-page'
 
 /**
@@ -99,10 +99,9 @@ export function scopeForProject(project: LogicalProject, isConnected: (serverId:
 export function projectScopeOptions(
   projects: readonly LogicalProject[],
   isConnected: (serverId: string) => boolean,
-  hostLabelFor: (serverId: string) => string,
   cloudServerId: string | null,
 ): ListProjectOption[] {
-  return projectOptionsFor(projects.map((project) => project.key), projects, isConnected, hostLabelFor, cloudServerId)
+  return projectOptionsFor(projects.map((project) => project.key), projects, isConnected, cloudServerId)
 }
 
 /**
@@ -110,13 +109,11 @@ export function projectScopeOptions(
  * row builder every project list uses. A known project is listed as the
  * catalog holds it; a key the catalog does not hold (a task filed under a
  * folder no host has listed yet) is its own row, named by its last segment.
- * Names two rows share are told apart within the list (`distinctProjectLabels`).
  */
 export function projectOptionsFor(
   projectKeys: Iterable<string>,
   projects: readonly LogicalProject[],
   isConnected: (serverId: string) => boolean,
-  hostLabelFor: (serverId: string) => string,
   cloudServerId: string | null,
 ): ListProjectOption[] {
   const byKey = new Map(projects.map((project) => [project.key, project]))
@@ -131,8 +128,6 @@ export function projectOptionsFor(
       : unknownProjectOption(key, isConnected, cloudServerId)
     if (option) options.push(option)
   }
-  const labels = distinctProjectLabels(options, hostLabelFor)
-  options.forEach((option, index) => { option.label = labels[index]! })
   return options
 }
 

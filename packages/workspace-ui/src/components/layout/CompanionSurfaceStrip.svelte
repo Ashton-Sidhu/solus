@@ -117,6 +117,14 @@
     tab?.scrollIntoView({ block: "nearest", inline: "nearest" });
   });
 
+  /** The strip hides its scrollbar, so a vertical mouse wheel scrolls it sideways. */
+  function onWheel(event: WheelEvent) {
+    if (!stripEl || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+    if (stripEl.scrollWidth <= stripEl.clientWidth) return;
+    event.preventDefault();
+    stripEl.scrollLeft += event.deltaY;
+  }
+
   function select(index: number) {
     router.activateSurface(index);
   }
@@ -200,6 +208,7 @@
   aria-label="Surfaces beside this page"
   tabindex="-1"
   onkeydown={onKeydown}
+  onwheel={onWheel}
 >
   {#each pane.surfaces as surface, index (surfaceKey(surface))}
     {@const isActive = index === pane.activeSurfaceIndex}

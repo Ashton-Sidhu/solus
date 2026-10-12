@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { computeCliPathAsync, importLoginShellEnv, loginShellEnvToImport } from '@solus/server/cli-env'
 
@@ -44,6 +44,23 @@ test('the PATH probe reads the login shell PATH, not the PATH Solus was launched
     env: { PATH: `${dirname(node)}:/usr/bin:/bin`, HOME: home, ZDOTDIR: home },
   })
   expect(result.stdout.toString().split(':')).toContain('/probe/login')
+})
+
+test('the login shell PATH comes before the fallback install folders', async () => {
+  // WHY: on a mise host the profile puts the tool folders ahead of ~/.local/bin,
+  // which holds wrappers that run `mise x codex -- codex`. With ~/.local/bin
+  // first, that `codex` was the wrapper again: the Codex app-server looped
+  // forever and every Codex session stayed "connecting".
+  const localBin = join(homedir(), '.local/bin')
+  const launchPath = process.env.PATH
+  process.env.PATH = '/usr/bin:/bin'
+  try {
+    const path = (await computeCliPathAsync([`echo /probe/mise/codex/bin:${localBin}`], 2_000)).split(':')
+    expect(path).toContain('/probe/mise/codex/bin')
+    expect(path.indexOf('/probe/mise/codex/bin')).toBeLessThan(path.indexOf(localBin))
+  } finally {
+    process.env.PATH = launchPath
+  }
 })
 
 test('a probe that answers nothing falls through to the next one', async () => {

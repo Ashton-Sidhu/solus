@@ -1,14 +1,16 @@
 import {
   SettingsSync,
-  settingsAccountKey,
   type EnableOffer,
   type EnableOutcome,
-  type SettingsSyncClock,
-  type SettingsSyncEnvironment,
   type SettingsSyncPorts,
   type SettingsSyncStatus,
-  type SyncAccount,
 } from '@solus/client-core/settings-sync'
+import {
+  syncAccountKey,
+  type SyncAccount,
+  type DocumentSyncClock,
+  type DocumentSyncEnvironment,
+} from '@solus/client-core/document-sync'
 import { Listeners } from '../../lib/listeners'
 import type { PersonalSettingsStore } from './personal-settings'
 
@@ -20,7 +22,7 @@ import type { PersonalSettingsStore } from './personal-settings'
  */
 
 /** The phone's timers. One process is the whole client, so there is no broadcast port. */
-export const timerClock: SettingsSyncClock = {
+export const timerClock: DocumentSyncClock = {
   now: () => Date.now(),
   setTimer: (callback, ms) => {
     const timer = setTimeout(callback, ms)
@@ -29,7 +31,7 @@ export const timerClock: SettingsSyncClock = {
 }
 
 /** Where no platform reports network and app state (tests, a host-less preview): online and in front. */
-export const alwaysOnlineEnvironment: SettingsSyncEnvironment = {
+export const alwaysOnlineEnvironment: DocumentSyncEnvironment = {
   isOnline: () => true,
   isForeground: () => true,
   subscribe: () => () => {},
@@ -68,7 +70,7 @@ export class PersonalSync {
    * profile of the account it belongs to.
    */
   followAccount(account: SyncAccount | null): void {
-    const accountKey = account ? settingsAccountKey(account) : null
+    const accountKey = account ? syncAccountKey(account) : null
     this.personal.setAccount(account)
     if (accountKey === null && this.accountKey !== null) this.engine.signOut()
     else this.engine.setAccount(account)
@@ -78,7 +80,7 @@ export class PersonalSync {
   /** Turns sync on with the person's choice. Seed and replace send this device's profile. */
   enable(kind: EnableChoiceKind): Promise<EnableOutcome> {
     if (kind === 'use-synced') return this.engine.enable({ kind })
-    return this.engine.enable({ kind, settings: this.personal.document() })
+    return this.engine.enable({ kind, document: this.personal.document() })
   }
 
   dispose(): void {
@@ -87,7 +89,7 @@ export class PersonalSync {
   }
 }
 
-/** The choices a first enable offers, default first (plans/018 §5). */
-export function enableChoicesFor(offer: EnableOffer): EnableChoiceKind[] {
+/** The choices a first enable offers, default first (plans/018 §5). The same for every synced document. */
+export function enableChoicesFor(offer: { kind: EnableOffer['kind'] }): EnableChoiceKind[] {
   return offer.kind === 'present' ? ['use-synced', 'replace'] : ['seed']
 }

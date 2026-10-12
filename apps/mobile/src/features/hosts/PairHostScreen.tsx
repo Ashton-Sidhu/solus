@@ -1,7 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/features/connection/ConnectionsNewRouteScreen.tsx (MIT, see UPSTREAM.md).
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Linking, Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -21,15 +21,18 @@ import {
   type HostPreview,
   type PairInput,
 } from "./lib/pair-input";
+import { NearbyHostsSection } from "./NearbyHostsSection";
+import { nearbyHostUrl, useNearbyHosts } from "./use-nearby-hosts";
 
 /**
  * Pair with a host by its QR code, its pairing link, or its address and code
  * (plan 017 stage 2). The camera is asked for only when scanning is chosen,
  * and the host is shown before the device pairs with it: T3 connects at once,
  * Solus asks the person to trust the host first. Decoding and pairing are
- * Solus's own `/pair` flow.
+ * Solus's own `/pair` flow. Hosts found on the local network are listed
+ * above the form; a nearby host or a `link` param skips straight to the host.
  */
-export function PairHostScreen({ navigation }: ScreenProps<"PairHost">) {
+export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
   const app = useApp();
   const insets = useSafeAreaInsets();
   const [hostInput, setHostInput] = useState("");
@@ -46,6 +49,7 @@ export function PairHostScreen({ navigation }: ScreenProps<"PairHost">) {
   const scannerLocked = useRef(false);
 
   const headerIconColor = useUniwindTheme()["--color-icon"];
+  const nearby = useNearbyHosts();
 
   const inspect = useCallback(
     async (input: PairInput) => {
@@ -71,6 +75,11 @@ export function PairHostScreen({ navigation }: ScreenProps<"PairHost">) {
     },
     [app],
   );
+
+  const link = route.params?.link;
+  useEffect(() => {
+    if (link) void inspect(decodePairInput(link));
+  }, [inspect, link]);
 
   const openScanner = useCallback(async () => {
     if (cameraPermission?.granted) {
@@ -265,45 +274,51 @@ export function PairHostScreen({ navigation }: ScreenProps<"PairHost">) {
               </View>
             )
           ) : (
-            <View collapsable={false} className="gap-4 rounded-[24px] bg-grouped-card p-4">
-              <ConnectionFormField
-                label="Host"
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="url"
-                placeholder="Address or pairing link"
-                returnKeyType="next"
-                value={hostInput}
-                onChangeText={setHostInput}
+            <>
+              <NearbyHostsSection
+                nearby={nearby}
+                onSelect={(server) => void inspect(decodePairInput(nearbyHostUrl(server)))}
               />
+              <View collapsable={false} className="gap-4 rounded-[24px] bg-grouped-card p-4">
+                <ConnectionFormField
+                  label="Host"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  placeholder="Address or pairing link"
+                  returnKeyType="next"
+                  value={hostInput}
+                  onChangeText={setHostInput}
+                />
 
-              <ConnectionFormField
-                label="Pairing code"
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="Shown on the host"
-                returnKeyType="go"
-                value={codeInput}
-                onChangeText={setCodeInput}
-                onSubmitEditing={() => {
-                  if (!connectDisabled) void inspect(decodePairInput(hostInput, codeInput));
-                }}
-              />
-
-              {error ? <ErrorBanner message={error} /> : null}
-
-              <View className="android:flex-row android:justify-end">
-                <ConnectionSheetButton
-                  icon="plus"
-                  label={isSubmitting ? "Checking…" : "Add host"}
-                  disabled={connectDisabled}
-                  tone="primary"
-                  onPress={() => {
-                    void inspect(decodePairInput(hostInput, codeInput));
+                <ConnectionFormField
+                  label="Pairing code"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder="Shown on the host"
+                  returnKeyType="go"
+                  value={codeInput}
+                  onChangeText={setCodeInput}
+                  onSubmitEditing={() => {
+                    if (!connectDisabled) void inspect(decodePairInput(hostInput, codeInput));
                   }}
                 />
+
+                {error ? <ErrorBanner message={error} /> : null}
+
+                <View className="android:flex-row android:justify-end">
+                  <ConnectionSheetButton
+                    icon="plus"
+                    label={isSubmitting ? "Checking…" : "Add host"}
+                    disabled={connectDisabled}
+                    tone="primary"
+                    onPress={() => {
+                      void inspect(decodePairInput(hostInput, codeInput));
+                    }}
+                  />
+                </View>
               </View>
-            </View>
+            </>
           )}
           {!target && !showScanner ? (
             <SettingsNote>

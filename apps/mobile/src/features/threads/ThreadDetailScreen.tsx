@@ -150,9 +150,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const [submittedMessageId, setSubmittedMessageId] = useState<string | null>(null);
   const [endFollowEnabled, setEndFollowEnabled] = useState(true);
   // Android keys the safe-area padding on keyboard visibility; iOS on focus,
-  // because visibility only flips after the hide animation.
+  // because visibility only flips after the hide animation. A focused input
+  // with a hardware keyboard has no software keyboard over the inset.
   const composerBottomInset = (
-    Platform.OS === "android" ? isKeyboardVisible : composerExpanded || composerFocused
+    Platform.OS === "android"
+      ? isKeyboardVisible
+      : (composerExpanded || composerFocused) && liveKeyboardHeight > 0
   )
     ? 0
     : Math.max(insets.bottom, 12);

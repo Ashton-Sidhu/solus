@@ -15,9 +15,13 @@ export interface SessionRecordOlderPage {
 /** Turns a refresh may add to the newest page to meet the older pages again. */
 const MAX_WIDEN_TURNS = 8
 
-/** The newest cloud page, and the older pages the reader asked for. Coalesce
+/** The newest page, and the older pages the reader asked for. Coalesce
  * mirror batches, keep unchanged rows, and ignore reads after navigation.
- * Reconnect reloads the authoritative cloud copy. */
+ * Reconnect reloads the authoritative copy. With `watch`, the store also
+ * watches the session on its host, so a live run's events reach it and a
+ * guest on the host that runs the session sees each turn as it lands
+ * (docs/plans/host-sharing.md §4.1); without it, only a mirror write or a
+ * reconnect refreshes the page. */
 export class SessionRecordStore {
   meta = $state<SessionMeta | null>(null)
   /** The newest page. A refresh reconciles it in place. */
@@ -43,16 +47,38 @@ export class SessionRecordStore {
   /** A refresh and an older read never interleave: each reads the cursors the other sets. */
   private queue: Promise<void> = Promise.resolve()
   private readonly unsubscribe: () => void
+  private readonly unsubscribeLive: (() => void) | null = null
   private readonly stopStatus: () => void
-  constructor(private readonly workspace: SurfaceContext, private readonly serverId: string, private readonly sessionId: string) {
-    this.unsubscribe = serverConnections.eventsFor(serverId).subscribe('session.transcriptChanged', (event) => {
-      if (event.sessionId !== sessionId || this.timer) return
-      this.timer = setTimeout(() => { this.timer = null; void this.load() }, 200)
+  constructor(private readonly workspace: SurfaceContext, private readonly serverId: string, private readonly sessionId: string, options: { watch?: boolean } = {}) {
+    const events = serverConnections.eventsFor(serverId)
+    this.unsubscribe = events.subscribe('session.transcriptChanged', (event) => {
+      if (event.sessionId === sessionId) this.loadSoon(200)
     })
+    if (options.watch) {
+      // A watched session streams every provider event; the page re-reads the
+      // transcript once they pause, so a turn's tokens cost one read, not one each.
+      this.unsubscribeLive = events.subscribe('session.eventReceived', (event) => {
+        if (event.sessionId === sessionId) this.loadSoon(400)
+      })
+    }
     this.stopStatus = serverConnections.onStatusChange((id, status) => {
-      if (id === serverId && status === 'connected') void this.load()
+      if (id !== serverId || status !== 'connected') return
+      if (options.watch) void this.watch()
+      void this.load()
     })
+    if (options.watch) void this.watch()
     void this.load()
+  }
+  private loadSoon(delayMs: number): void {
+    if (this.timer) return
+    this.timer = setTimeout(() => { this.timer = null; void this.load() }, delayMs)
+  }
+  private async watch(): Promise<void> {
+    try {
+      await serverConnections.apiFor(this.serverId).watchSession({ sessionId: this.sessionId })
+    } catch {
+      // Not on this host, or not ours to watch: the page still reads on reconnect.
+    }
   }
   async load(): Promise<void> {
     if (this.disposed) return
@@ -97,8 +123,10 @@ export class SessionRecordStore {
   dispose(): void {
     this.disposed = true
     this.unsubscribe()
+    this.unsubscribeLive?.()
     this.stopStatus()
     if (this.timer) clearTimeout(this.timer)
+    if (this.unsubscribeLive) void serverConnections.apiFor(this.serverId).unwatchSession(this.sessionId).catch(() => {})
   }
 
   private async refresh(): Promise<void> {

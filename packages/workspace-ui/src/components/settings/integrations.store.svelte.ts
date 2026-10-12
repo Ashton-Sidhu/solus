@@ -2,21 +2,46 @@ import type { CatalogPage, Integration, IntegrationAuthFinishedEvent, Integratio
 import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { localApi } from '@solus/client-core/local-api'
+import type { AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
+import type { ProfileConnectKeyRequest } from '@solus/contracts/integrations/profile-credentials'
 import { oauthRedirectUrl } from './lib/integration-labels'
 
 /**
  * The caller's sign-in to one integration while it runs (§4.3). Absent when no
  * sign-in runs. `waiting` and `token` carry `error` after a rejected submit, so
  * the person can correct what they pasted. `submitting` keeps the flow ID of a
- * waiting flow: its end arrives as `host.integrationAuthFinished`.
+ * waiting flow: its end arrives as `host.integrationAuthFinished`. A flow
+ * `through: 'cloud'` runs at Solus Cloud, not on the host (plans/020 §5.3):
+ * its end is read by polling the account, and no host flow exists to cancel.
  */
 export type IntegrationConnectFlow =
   | { kind: 'starting' }
-  | { kind: 'waiting'; flowId: string; url: string; input: 'callback' | 'redirect-url'; expiresAt: string; error?: string }
-  | { kind: 'token'; error?: string }
-  | { kind: 'submitting'; flowId?: string }
+  | { kind: 'waiting'; flowId: string; url: string; input: 'callback' | 'redirect-url'; expiresAt: string; error?: string; through?: 'cloud' }
+  | { kind: 'token'; error?: string; through?: 'cloud' }
+  | { kind: 'submitting'; flowId?: string; through?: 'cloud' }
   | { kind: 'disconnecting' }
   | { kind: 'failed'; message: string }
+
+/**
+ * Where a signed-in person's sign-in runs (plans/020-agent-profile.md §5.3): at
+ * the cloud, which is the OAuth client and the only refresher, for every server
+ * the host shows them. Installed by the app core, so this store imports no
+ * account state; tests install a fake.
+ */
+export interface CloudSignInPort {
+  /** The account calls, or null when this client has no account to call. */
+  requests(): AgentProfileCloudRequests | null
+  /** The signed-in person's id, or null. */
+  accountUserId(): string | null
+  /** A connection moved in the account: this host reads it before the promise settles, and every other host the profile applies to pulls too. */
+  pullHosts(serverId: string): Promise<void>
+  /** Calls `callback` once after `ms`; the returned function cancels it. */
+  setTimer(callback: () => void, ms: number): () => void
+}
+
+/** How often a cloud sign-in is read back, and for how long, before it is given up. */
+export const CLOUD_SIGN_IN_POLL_MS = 3_000
+export const CLOUD_SIGN_IN_TIMEOUT_MS = 10 * 60_000
 
 export type ConnectionsStatus = 'loading' | 'loaded' | 'unsupported' | 'error'
 
@@ -66,11 +91,24 @@ function emptyState(): IntegrationsState {
   }
 }
 
-/** The flow ID the host knows a flow by, when the flow waits on the host. */
+/** The flow ID the host knows a flow by, when the flow waits on the host. A cloud flow has none. */
 function hostFlowId(flow: IntegrationConnectFlow | undefined): string | undefined {
-  if (flow?.kind === 'waiting') return flow.flowId
-  if (flow?.kind === 'submitting') return flow.flowId
-  return undefined
+  if (flow?.kind !== 'waiting' && flow?.kind !== 'submitting') return undefined
+  return flow.through === 'cloud' ? undefined : flow.flowId
+}
+
+function isCloudFlow(flow: IntegrationConnectFlow | undefined): boolean {
+  return (flow?.kind === 'waiting' || flow?.kind === 'token' || flow?.kind === 'submitting') && flow.through === 'cloud'
+}
+
+/** The words for a refused or unanswered account call. */
+function cloudFailureText(result: { kind: 'signed-out' } | { kind: 'offline' } | { kind: 'error'; code: string; message: string | null } | { kind: 'refused'; message: string }): string {
+  switch (result.kind) {
+    case 'refused': return result.message
+    case 'signed-out': return 'Sign in to Solus again to connect through your account.'
+    case 'offline': return 'You are offline. Try again when you reconnect.'
+    case 'error': return result.message ?? `Solus could not reach your account (${result.code}).`
+  }
 }
 
 /** setTimeout's largest delay; a longer one fires at once. */
@@ -97,6 +135,25 @@ class IntegrationsStore {
   /** Per host and integration: bumped by every flow command, so an older answer does not land. */
   private flowAttempts = new Map<string, number>()
   private expiryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /** Per host and integration: stops the read-back of a cloud sign-in. */
+  private cloudPolls = new Map<string, () => void>()
+  private cloud: CloudSignInPort | null = null
+
+  /** Installs where a synced person's own sign-ins run. Until then every sign-in runs on the host. */
+  useCloudSignIn(port: CloudSignInPort | null): void {
+    this.cloud = port
+  }
+
+  /** A server the person owns, while their profile syncs: its sign-in runs at the cloud, not on the host. */
+  /**
+   * The cloud, when this person's sign-in runs there: they are signed in, and the
+   * server is not one whose OAuth client only the host's administrator holds.
+   */
+  private cloudFor(integration: Integration | undefined): CloudSignInPort | null {
+    const cloud = this.cloud
+    if (!cloud || !integration || cloud.accountUserId() === null) return null
+    return integration.auth.kind === 'oauth' && integration.auth.registration === 'client-required' ? null : cloud
+  }
 
   watch(serverId: string): () => void {
     let watch = this.watches.get(serverId)
@@ -269,6 +326,9 @@ class IntegrationsStore {
     const state = this.states.get(serverId)
     const running = state?.connectFlows.get(integrationId)
     if (!state || (running && running.kind !== 'failed')) return
+    const integration = state.integrations?.find((item) => item.id === integrationId)
+    const cloud = this.cloudFor(integration)
+    if (integration && cloud) return this.connectThroughCloud(serverId, integration, cloud)
     const attempt = this.nextAttempt(serverId, integrationId)
     this.setFlow(serverId, integrationId, { kind: 'starting' })
     try {
@@ -307,6 +367,7 @@ class IntegrationsStore {
     const trimmed = value.trim()
     if (!flow || !trimmed) return false
     if (flow.kind !== 'token' && !(flow.kind === 'waiting' && flow.input === 'redirect-url')) return false
+    if (flow.kind === 'token' && flow.through === 'cloud') return this.submitKeyThroughCloud(serverId, integrationId, trimmed)
     const attempt = this.nextAttempt(serverId, integrationId)
     const flowId = flow.kind === 'waiting' ? flow.flowId : undefined
     this.setFlow(serverId, integrationId, { kind: 'submitting', flowId })
@@ -334,11 +395,22 @@ class IntegrationsStore {
 
   /** Removes the caller's token and connection. True when the host removed them. */
   async disconnect(serverId: string, integrationId: string): Promise<boolean> {
-    if (!this.states.has(serverId)) return false
+    const state = this.states.get(serverId)
+    if (!state) return false
+    const integration = state.integrations?.find((item) => item.id === integrationId)
+    // A connection in the account is removed there; every host learns on its pull.
+    const cloud = state.connections.get(integrationId)?.source === 'cloud' ? this.cloudFor(integration) ?? this.cloud : null
     const attempt = this.nextAttempt(serverId, integrationId)
     this.setFlow(serverId, integrationId, { kind: 'disconnecting' })
     try {
-      await serverConnections.apiFor(serverId).integrationDisconnect({ id: integrationId })
+      if (cloud && integration) {
+        const requests = cloud.requests()
+        const result = requests ? await requests.accountAgentProfileDisconnect({ serverUrl: integration.url }) : { kind: 'signed-out' as const }
+        if (result.kind !== 'ok') throw new Error(cloudFailureText(result))
+        await cloud.pullHosts(serverId)
+      } else {
+        await serverConnections.apiFor(serverId).integrationDisconnect({ id: integrationId })
+      }
       if (!this.isCurrent(serverId, integrationId, attempt)) return true
       this.states.get(serverId)?.connections.delete(integrationId)
       this.clearFlow(serverId, integrationId)
@@ -349,6 +421,89 @@ class IntegrationsStore {
       }
       return false
     }
+  }
+
+  /**
+   * The sign-in runs at Solus Cloud (plans/020 §5.3): the cloud answers the
+   * browser page or asks for a key, and holds what comes back. Its end is not
+   * an event here: the account is read every few seconds until that server is
+   * connected, then every host pulls and reads the credential from the cloud.
+   */
+  private async connectThroughCloud(serverId: string, integration: Integration, cloud: CloudSignInPort): Promise<void> {
+    const integrationId = integration.id
+    const attempt = this.nextAttempt(serverId, integrationId)
+    this.setFlow(serverId, integrationId, { kind: 'starting' })
+    const requests = cloud.requests()
+    const result = requests ? await requests.accountAgentProfileConnectStart({ serverUrl: integration.url, auth: integration.auth }) : { kind: 'signed-out' as const }
+    if (!this.isCurrent(serverId, integrationId, attempt)) return
+    if (result.kind !== 'ok') {
+      this.setFlow(serverId, integrationId, { kind: 'failed', message: cloudFailureText(result) })
+      return
+    }
+    const start = result.start
+    if (start.kind === 'none') {
+      this.clearFlow(serverId, integrationId)
+    } else if (start.kind === 'token') {
+      this.setFlow(serverId, integrationId, { kind: 'token', through: 'cloud' })
+    } else {
+      const expiresAt = new Date(Date.now() + CLOUD_SIGN_IN_TIMEOUT_MS).toISOString()
+      this.setFlow(serverId, integrationId, { kind: 'waiting', flowId: `cloud:${integration.url}`, url: start.url, input: 'callback', expiresAt, through: 'cloud' })
+      this.pollCloudSignIn(serverId, integration, cloud, attempt)
+      void this.openSignIn(start.url)
+    }
+  }
+
+  /** Reads the account until the server is connected, or the sign-in is given up. */
+  private pollCloudSignIn(serverId: string, integration: Integration, cloud: CloudSignInPort, attempt: number): void {
+    const integrationId = integration.id
+    const key = this.flowKey(serverId, integrationId)
+    const deadline = Date.now() + CLOUD_SIGN_IN_TIMEOUT_MS
+    const read = async () => {
+      this.cloudPolls.delete(key)
+      if (!this.isCurrent(serverId, integrationId, attempt)) return
+      const requests = cloud.requests()
+      const result = requests ? await requests.accountAgentProfileConnections() : null
+      if (!this.isCurrent(serverId, integrationId, attempt)) return
+      const connected = result?.kind === 'ok' && result.connections.some((connection) => connection.serverUrl === integration.url && connection.status === 'connected')
+      if (connected) {
+        await this.settleCloudConnected(serverId, integrationId, cloud, attempt)
+        return
+      }
+      if (Date.now() >= deadline) {
+        this.setFlow(serverId, integrationId, { kind: 'failed', message: 'The sign-in expired. Connect again.' })
+        return
+      }
+      this.cloudPolls.set(key, cloud.setTimer(() => void read(), CLOUD_SIGN_IN_POLL_MS))
+    }
+    this.cloudPolls.set(key, cloud.setTimer(() => void read(), CLOUD_SIGN_IN_POLL_MS))
+  }
+
+  /** A pasted key goes to the cloud, which checks it against the server before it seals it. */
+  private async submitKeyThroughCloud(serverId: string, integrationId: string, key: string): Promise<boolean> {
+    const integration = this.states.get(serverId)?.integrations?.find((item) => item.id === integrationId)
+    const cloud = this.cloudFor(integration)
+    if (!integration || !cloud) return false
+    const attempt = this.nextAttempt(serverId, integrationId)
+    this.setFlow(serverId, integrationId, { kind: 'submitting', through: 'cloud' })
+    const requests = cloud.requests()
+    const request: ProfileConnectKeyRequest = { serverUrl: integration.url, key }
+    if (integration.auth.kind === 'bearer') request.scheme = integration.auth.scheme
+    const result = requests ? await requests.accountAgentProfileConnectKey(request) : { kind: 'signed-out' as const }
+    if (!this.isCurrent(serverId, integrationId, attempt)) return true
+    const connected = result.kind === 'ok' && result.connections.some((connection) => connection.serverUrl === integration.url && connection.status === 'connected')
+    if (connected) {
+      await this.settleCloudConnected(serverId, integrationId, cloud, attempt)
+      return true
+    }
+    this.setFlow(serverId, integrationId, { kind: 'token', through: 'cloud', error: result.kind === 'ok' ? 'The server did not accept that key.' : cloudFailureText(result) })
+    return false
+  }
+
+  /** The cloud holds the connection: this host pulls, and its row is read before the flow clears. */
+  private async settleCloudConnected(serverId: string, integrationId: string, cloud: CloudSignInPort, attempt: number): Promise<void> {
+    await cloud.pullHosts(serverId)
+    await this.loadConnections(serverId)
+    if (this.isCurrent(serverId, integrationId, attempt)) this.clearFlow(serverId, integrationId)
   }
 
   /** Opens a sign-in page on this device, never on the host, as the Google sign-in does. */
@@ -444,7 +599,7 @@ class IntegrationsStore {
     const state = this.states.get(serverId)
     if (!state) return
     for (const [integrationId, flow] of state.connectFlows) {
-      if (flow.kind === 'token' || flow.kind === 'failed') continue
+      if (flow.kind === 'token' || flow.kind === 'failed' || isCloudFlow(flow)) continue
       this.nextAttempt(serverId, integrationId)
       this.clearFlow(serverId, integrationId)
     }
@@ -496,6 +651,8 @@ class IntegrationsStore {
     const timer = this.expiryTimers.get(key)
     if (timer) clearTimeout(timer)
     this.expiryTimers.delete(key)
+    this.cloudPolls.get(key)?.()
+    this.cloudPolls.delete(key)
   }
 
   private upsert(serverId: string, integration: Integration): void {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { generateKeyPairSync, sign, type KeyObject } from 'crypto'
 import { AccessTokenVerifier, JWKS_REFRESH_MIN_INTERVAL_MS, type FetchLike } from '@solus/server/admission/access-tokens'
-import { ACCOUNT_AUDIENCE, FIRST_PARTY_ACCESS_TOKEN_TTL_SECONDS, GUEST_GRANT_TTL_SECONDS, SOLUS_API_AUDIENCE, hostAudience, type AccessTokenClaims } from '@solus/contracts/uplink'
+import { ACCESS_TOKEN_TTL_SECONDS, ACCOUNT_AUDIENCE, SOLUS_API_AUDIENCE, hostAudience } from '@solus/contracts/uplink'
 
 // plans/010-standard-oauth.md: a host trusts one issuer and one key set, both from
 // its link config, and accepts the account plane's access tokens for its own
@@ -22,10 +22,13 @@ function base64Url(value: string | Buffer): string {
   return Buffer.from(value).toString('base64url')
 }
 
-function signToken(privateKey: KeyObject, kid: string, claims: Partial<AccessTokenClaims>, nowSeconds: number): string {
-  const payload: AccessTokenClaims = {
-    iss: ISSUER, aud: AUDIENCE, sub: 'user_1', deviceId: 'session_1', jti: crypto.randomUUID(),
-    iat: nowSeconds, exp: nowSeconds + 300, client_id: 'solus-app', ...claims,
+/** Claims as a test states them: any shape, so a malformed token can be signed too. */
+interface TestClaims { [claim: string]: string | number | object | undefined }
+
+function signToken(privateKey: KeyObject, kid: string, claims: TestClaims, nowSeconds: number): string {
+  const payload = {
+    iss: ISSUER, aud: AUDIENCE, sub: 'user_1', grant_id: 'grant_1', jti: crypto.randomUUID(),
+    iat: nowSeconds, exp: nowSeconds + 300, client_id: 'solus-desktop', ...claims,
   }
   const header = base64Url(JSON.stringify({ alg: 'ES256', kid, typ: 'at+jwt' }))
   const body = base64Url(JSON.stringify(payload))
@@ -52,8 +55,18 @@ describe('access token verification', () => {
     const token = signToken(key.privateKey, key.kid, {}, nowSeconds)
     const first = await verifier.verify(token)
     expect(first.ok).toBe(true)
-    if (first.ok) expect(first.claims).toMatchObject({ sub: 'user_1', deviceId: 'session_1', client_id: 'solus-app' })
+    if (first.ok) expect(first.claims).toMatchObject({ sub: 'user_1', grant_id: 'grant_1', client_id: 'solus-desktop' })
     expect((await verifier.verify(token)).ok).toBe(true)
+  })
+
+  test('a person\'s token names its client grant; the old mint\'s token, which names a device instead, is refused', async () => {
+    // WHY: ADR 0001 stage 1c — the mint is gone, so a token with no client grant and no acting host is no token of ours.
+    const key = keyPair('k1')
+    const verifier = new AccessTokenVerifier({ audience: AUDIENCE, issuer: ISSUER, jwksUrl: `${ISSUER}/jwks`, fetchImpl: jwksFetch([key.jwk]).fetchImpl, now: () => NOW })
+    const fromGrant = await verifier.verify(signToken(key.privateKey, key.kid, { organizations: [{ id: 'org1', role: 'member', teamIds: [] }] }, nowSeconds))
+    expect(fromGrant).toMatchObject({ ok: true, claims: { grant_id: 'grant_1', organizations: [{ id: 'org1', role: 'member', teamIds: [] }] } })
+    const oldMint = { grant_id: undefined, deviceId: 'session_1', client_id: 'solus-app', organizationId: 'org1', organizationRole: 'member' }
+    expect(await verifier.verify(signToken(key.privateKey, key.kid, oldMint, nowSeconds))).toEqual({ ok: false, reason: 'malformed' })
   })
 
   test('a token for another host, another issuer, or a stranger\'s key is refused', async () => {
@@ -73,18 +86,18 @@ describe('access token verification', () => {
     const key = keyPair('k1')
     const verifier = new AccessTokenVerifier({ audience: AUDIENCE, issuer: ISSUER, jwksUrl: `${ISSUER}/jwks`, fetchImpl: jwksFetch([key.jwk]).fetchImpl, now: () => NOW })
     expect(await verifier.verify(signToken(key.privateKey, key.kid, { iat: nowSeconds - 700, exp: nowSeconds - 1 }, nowSeconds))).toEqual({ ok: false, reason: 'expired' })
-    expect(await verifier.verify(signToken(key.privateKey, key.kid, { exp: nowSeconds + FIRST_PARTY_ACCESS_TOKEN_TTL_SECONDS }, nowSeconds))).toMatchObject({ ok: true })
-    expect(await verifier.verify(signToken(key.privateKey, key.kid, { exp: nowSeconds + FIRST_PARTY_ACCESS_TOKEN_TTL_SECONDS + 1 }, nowSeconds))).toEqual({ ok: false, reason: 'too-long-lived' })
-    // A share link's grant keeps its ten minutes: a guest's reach ends with it.
-    expect(await verifier.verify(signToken(key.privateKey, key.kid, { access: 'guest', sub: 'guest:visitor', exp: nowSeconds + GUEST_GRANT_TTL_SECONDS + 1 }, nowSeconds))).toEqual({ ok: false, reason: 'too-long-lived' })
-    expect(await verifier.verify(signToken(key.privateKey, key.kid, { iat: nowSeconds + 300, exp: nowSeconds + 900 }, nowSeconds))).toEqual({ ok: false, reason: 'not-yet-valid' })
+    // Five minutes, and one minute for a provider's rounding; nothing longer, so no eight-hour token stands.
+    expect(await verifier.verify(signToken(key.privateKey, key.kid, { exp: nowSeconds + ACCESS_TOKEN_TTL_SECONDS + 60 }, nowSeconds))).toMatchObject({ ok: true })
+    expect(await verifier.verify(signToken(key.privateKey, key.kid, { exp: nowSeconds + ACCESS_TOKEN_TTL_SECONDS + 61 }, nowSeconds))).toEqual({ ok: false, reason: 'too-long-lived' })
+    expect(await verifier.verify(signToken(key.privateKey, key.kid, { exp: nowSeconds + 8 * 60 * 60 }, nowSeconds))).toEqual({ ok: false, reason: 'too-long-lived' })
+    expect(await verifier.verify(signToken(key.privateKey, key.kid, { iat: nowSeconds + 300, exp: nowSeconds + 600 }, nowSeconds))).toEqual({ ok: false, reason: 'not-yet-valid' })
   })
 
   test('the Solus API accepts a host\'s delegated token, which names it among several audiences', async () => {
     // WHY: a delegated token is for the API and the account plane together (token exchange, RFC 8693).
     const key = keyPair('k1')
     const verifier = new AccessTokenVerifier({ audience: SOLUS_API_AUDIENCE, issuer: ISSUER, jwksUrl: `${ISSUER}/jwks`, fetchImpl: jwksFetch([key.jwk]).fetchImpl, now: () => NOW })
-    const delegated = signToken(key.privateKey, key.kid, { aud: [SOLUS_API_AUDIENCE, ACCOUNT_AUDIENCE], act: { sub: `host_${HOST_ID}`, host_id: HOST_ID }, organizationId: 'org_a' }, nowSeconds)
+    const delegated = signToken(key.privateKey, key.kid, { aud: [SOLUS_API_AUDIENCE, ACCOUNT_AUDIENCE], act: { sub: `host_${HOST_ID}`, host_id: HOST_ID }, access: 'org-member', organizationId: 'org_a', organizationRole: 'member', teamIds: [] }, nowSeconds)
     const verdict = await verifier.verify(delegated)
     expect(verdict.ok && verdict.claims.act).toEqual({ sub: `host_${HOST_ID}`, host_id: HOST_ID })
   })

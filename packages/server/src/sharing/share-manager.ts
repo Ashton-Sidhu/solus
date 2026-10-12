@@ -28,6 +28,7 @@ import { shareGrant } from './schema'
 import { hostUserKey } from '../host/host-user'
 import { LOCAL_ORGANIZATION_ID } from '../admission/principal'
 import { scopeClause } from '../data/scope'
+import type { SharesMirrorPayload } from '../sync/runner-protocol'
 
 const log = createLogger('main', 'share-manager')
 
@@ -119,7 +120,7 @@ function rowAdmits(row: GrantRow | OwnerRow, principal: Extract<Principal, { kin
 }
 
 export class ShareAccessError extends Error {
-  constructor(readonly code: 'FORBIDDEN' | 'NOT_FOUND' | 'NOT_SHARED', message: string) {
+  constructor(readonly code: 'FORBIDDEN' | 'NOT_FOUND' | 'NOT_SHARED' | 'HOST_NOT_LINKED', message: string) {
     super(message)
     this.name = 'ShareAccessError'
   }
@@ -168,13 +169,32 @@ export interface ShareManagerDeps {
    */
   organizationOfResource?: (resource: ShareResource) => Promise<string | null>
   /**
+   * The one-time assignment of a Local record to an organization
+   * (organization-scope §3, R10). Answers the record's organization as it now
+   * stands: the one asked for, or another it already had; null when there is no
+   * record or the kind cannot be assigned here. Without it a Local record cannot
+   * be shared with an organization.
+   */
+  assignOrganization?: (resource: ShareResource, organizationId: string) => Promise<string | null>
+  /**
    * Whether `userId` was a member of `organizationId` and has left it, as the host's
    * organization standing says (plan 004 item 10). A host admin may then transfer
    * what they owned. Without it only the owner transfers.
    */
   hasLeftOrganization?: (organizationId: string, userId: string) => boolean
+  /**
+   * Whether a member can reach this host at all (docs/plans/host-sharing.md §4.3):
+   * a host linked to Solus cloud, or the Solus API itself. A share with a person,
+   * a team, or the organization on a host nobody can reach is refused, so the
+   * record never moves into an organization that cannot open it. Without it,
+   * members are assumed to reach the host.
+   */
+  membersReachable?: () => boolean
   now?: () => number
 }
+
+/** What the host says when a named share is asked of it while nobody but its owner can reach it. */
+export const MEMBERS_CANNOT_REACH = 'Link this computer to Solus cloud so members can reach it, then share with them. Anyone with the link can still open it here.'
 
 export function hashLinkSecret(secret: string): string {
   return createHash('sha256').update(secret).digest('hex')
@@ -531,6 +551,8 @@ export class ShareManager {
    */
   async setGrants(request: ShareSetRequest, principal: Principal): Promise<ShareList> {
     assertShareable(request.resource)
+    if (request.grants.length > 0 && this.deps.membersReachable?.() === false) throw new ShareAccessError('HOST_NOT_LINKED', MEMBERS_CANNOT_REACH)
+    await this.joinNamedOrganization(request, principal)
     return this.deps.db.transaction(async (db) => {
       const access = await this.access(principal, request.resource)
       this.assertEditor(principal, access)
@@ -575,6 +597,46 @@ export class ShareManager {
       await this.announce(organizationId, access, principal, removedUserIds, link?.guestsRevoked ?? false, sharedWithOrganization)
       return this.listOf(access, this.roleIn(principal, access))
     })
+  }
+
+  /**
+   * Sharing a record with an organization puts it in that organization
+   * (organization-scope §3): a member is admitted only to records of their own
+   * organization, so a Local record shared with "everyone in X" must become X's,
+   * or no member of X could open it. The assignment is the one-time move from
+   * Local; a record that already belongs to another organization is refused.
+   * The share rows written while it was Local follow it.
+   */
+  private async joinNamedOrganization(request: ShareSetRequest, principal: Principal): Promise<void> {
+    const named = request.grants.find((grant) => grant.subject.kind === 'organization')?.subject.id
+    if (!named) return
+    const access = await this.access(principal, request.resource)
+    this.assertEditor(principal, access)
+    const current = access.organizationId ?? await this.recordOrganization(access.resource)
+    if (current === named) return
+    if (current !== null && current !== LOCAL_ORGANIZATION_ID) {
+      throw new ShareAccessError('FORBIDDEN', `This ${request.resource.kind} belongs to another organization`)
+    }
+    const assigned = await this.deps.assignOrganization?.(request.resource, named) ?? null
+    if (assigned !== named) {
+      throw new ShareAccessError('FORBIDDEN', `This ${request.resource.kind} cannot be shared with that organization`)
+    }
+    await this.followRecordOrganization(request.resource, named)
+  }
+
+  /**
+   * The record moved from Local into an organization (organization-scope §3, R10):
+   * its share rows written while it was Local move with it, so the owner row and
+   * every grant name the record's one organization. Rows of any other
+   * organization are never touched.
+   */
+  async followRecordOrganization(resource: ShareResource, organizationId: string): Promise<void> {
+    if (organizationId === LOCAL_ORGANIZATION_ID) return
+    const moved = await this.deps.db.run(sql`
+      UPDATE ${shareGrant} SET organization_id = ${organizationId}
+      WHERE resource_kind = ${resource.kind} AND resource_id = ${resource.id} AND organization_id = ${LOCAL_ORGANIZATION_ID}
+    `)
+    if (moved.changes > 0) log.info('share_rows_followed_record', { kind: resource.kind, resourceId: resource.id, organizationId, rows: moved.changes })
   }
 
   /**
@@ -662,6 +724,60 @@ export class ShareManager {
       sharedByUserId: row.granted_by_user_id,
       linkSecretHash: hash,
     }
+  }
+
+  // ── The mirror (docs/plans/host-sharing.md §2) ──────────────────────────
+
+  /**
+   * The resource's rows but the owner's, as the host that runs it sends them up.
+   * The link goes as its hash: the API admits a guest with it and never copies the
+   * secret itself.
+   */
+  async mirroredRows(resource: ShareResource): Promise<SharesMirrorPayload['rows']> {
+    const standing = await this.standing(resource)
+    return standing.grants.map((row) => ({
+      subjectKind: row.subject_kind,
+      subjectId: row.subject_id,
+      role: row.role,
+      linkSecretHash: row.link_secret_hash,
+      grantedByUserId: row.granted_by_user_id,
+      createdAt: row.created_at,
+    }))
+  }
+
+  /**
+   * The mirror's sink on the Solus API: the host's rows replace every row but the
+   * owner's, in the resource's organization. A link whose hash changed or went ends
+   * the guests it admitted here, as a change made here would.
+   */
+  async applyMirroredRows(organizationId: string, payload: SharesMirrorPayload): Promise<void> {
+    const { resource, rows } = payload
+    await this.deps.db.transaction(async (db) => {
+      const before = linkRowOf(await this.standing(resource))
+      await db.run(sql`
+        DELETE FROM ${shareGrant}
+        WHERE resource_kind = ${resource.kind} AND resource_id = ${resource.id} AND organization_id = ${organizationId} AND role <> 'owner'
+      `)
+      for (const row of rows) {
+        await db.run(sql`
+          INSERT INTO ${shareGrant} (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, link_secret, granted_by_user_id, created_at, organization_id)
+          VALUES (${randomUUID()}, ${resource.kind}, ${resource.id}, ${row.subjectKind}, ${row.subjectId}, ${row.role}, ${row.linkSecretHash}, NULL, ${row.grantedByUserId}, ${row.createdAt}, ${organizationId})
+          ON CONFLICT DO NOTHING
+        `)
+      }
+      const after = rows.find((row) => row.subjectKind === 'everyone')
+      const guestsRevoked = !!before && (!after || after.linkSecretHash !== before.link_secret_hash)
+      const standing = await this.standing(resource)
+      const change: ShareChange = { organizationId, resource, ownerUserId: standing.owner?.subject_id ?? hostUserKey(), removedUserIds: [], guestsRevoked }
+      log.info('share_rows_mirrored', { kind: resource.kind, resourceId: resource.id, organizationId, rows: rows.length, guestsRevoked })
+      await afterDatabaseCommit(async () => {
+        for (const listener of this.listeners) {
+          try { listener(change) } catch (error) {
+            log.warn('share_change_listener_failed', { error: error instanceof Error ? error.message : String(error) })
+          }
+        }
+      })
+    })
   }
 
   /** Removes every row, the owner row included, when a resource is deleted. */

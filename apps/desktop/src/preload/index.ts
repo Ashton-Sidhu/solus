@@ -1,8 +1,11 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import type { AccountState } from '@solus/contracts/account-types'
+import type { ConnectionTokenResource } from '@solus/contracts/auth/clients'
 import type { DesktopUpdateStatus } from '@solus/contracts/desktop-update-types'
 import type { ClientNotificationRequest, NotificationSoundLog } from '@solus/contracts/notification-types'
 import type { AccountSettingsPatchRequest, OrganizationSettingsPatchRequest } from '@solus/contracts/settings'
+import type { AccountAgentProfilePatchRequest } from '@solus/contracts/agent-profile'
+import type { ProfileConnectKeyRequest, ProfileConnectStartRequest, ProfileDisconnectRequest } from '@solus/contracts/integrations/profile-credentials'
 
 const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
 
@@ -85,11 +88,18 @@ const nativeApi: NativeSolusAPI = {
   accountRetryVerify: () => ipcRenderer.invoke('solus:account-retry-verify'),
   onAccountStateChange: subscribeAccountStateChange,
   uplinkListDirectory: () => ipcRenderer.invoke('solus:uplink-directory'),
-  uplinkAcquireHostAccessToken: (hostId: string, organizationId?: string, options?: { fresh?: boolean }) => ipcRenderer.invoke('solus:uplink-access-token', hostId, organizationId, options),
+  accountAccessToken: (resource: ConnectionTokenResource, options?: { fresh?: boolean }) => ipcRenderer.invoke('solus:account-access-token', resource, options),
   uplinkStartManagedHost: (hostId: string) => ipcRenderer.invoke('solus:uplink-start-managed-host', hostId),
   accountSettingsGet: () => ipcRenderer.invoke('solus:account-settings-get'),
   accountSettingsPatch: (request: AccountSettingsPatchRequest) => ipcRenderer.invoke('solus:account-settings-patch', request),
   accountSettingsDelete: () => ipcRenderer.invoke('solus:account-settings-delete'),
+  accountAgentProfileGet: () => ipcRenderer.invoke('solus:account-agent-profile-get'),
+  accountAgentProfilePatch: (request: AccountAgentProfilePatchRequest) => ipcRenderer.invoke('solus:account-agent-profile-patch', request),
+  accountAgentProfileDelete: () => ipcRenderer.invoke('solus:account-agent-profile-delete'),
+  accountAgentProfileConnections: () => ipcRenderer.invoke('solus:account-agent-profile-connections'),
+  accountAgentProfileConnectStart: (request: ProfileConnectStartRequest) => ipcRenderer.invoke('solus:account-agent-profile-connect-start', request),
+  accountAgentProfileConnectKey: (request: ProfileConnectKeyRequest) => ipcRenderer.invoke('solus:account-agent-profile-connect-key', request),
+  accountAgentProfileDisconnect: (request: ProfileDisconnectRequest) => ipcRenderer.invoke('solus:account-agent-profile-disconnect', request),
   organizationSettingsGet: (organizationId: string) => ipcRenderer.invoke('solus:organization-settings-get', organizationId),
   organizationSettingsPatch: (organizationId: string, request: OrganizationSettingsPatchRequest) =>
     ipcRenderer.invoke('solus:organization-settings-patch', organizationId, request),

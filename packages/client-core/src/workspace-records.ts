@@ -1,3 +1,4 @@
+import { randomId } from './random-id'
 import { taskRecord, workRecord, workSummary, sessionRecord } from '@solus/contracts/solus-api/records'
 import type { Task, TaskDetails } from '@solus/contracts/task-types'
 import type { Work, WorkMeta, SessionRecord } from '@solus/contracts/types'
@@ -31,7 +32,7 @@ export function workspaceRecordMethods(client: SolusApiClient, extras: (id: stri
     },
     async tasksCreate(input) {
       const { source: _source, originAutomationId: _automation, ...body } = input
-      return rememberTask(await client.request('createTask', { body, key: crypto.randomUUID() }))
+      return rememberTask(await client.request('createTask', { body, key: randomId() }))
     },
     async tasksUpdate(id, body, expectedUpdatedAt) {
       const version = expectedUpdatedAt === undefined ? await taskVersion(id) : String(expectedUpdatedAt)
@@ -43,7 +44,7 @@ export function workspaceRecordMethods(client: SolusApiClient, extras: (id: stri
       return true
     },
     async createWork(title, type, content, _preview, sessionId, agentProvider, cwd, id) {
-      return rememberWork(await client.request('createWork', { body: { title, type, content: content ?? '', originSessionId: sessionId, agentProvider, projectKey: cwd, id }, key: crypto.randomUUID() }))
+      return rememberWork(await client.request('createWork', { body: { title, type, content: content ?? '', originSessionId: sessionId, agentProvider, projectKey: cwd, id }, key: randomId() }))
     },
     // The caller names the record it read; a version read here at write time would make a blind save.
     async saveWork(id, updates, base) {

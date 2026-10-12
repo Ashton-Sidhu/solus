@@ -1,9 +1,11 @@
 import { sql } from 'drizzle-orm'
 import { getDatabase } from '../../db/database'
 import { PermanentApplyError } from '../outbox/outbox-store'
+import type { ShareManager } from '../../sharing/share-manager'
 import {
   activityMirrorPayloadSchema,
   insightsMirrorPayloadSchema,
+  sharesMirrorPayloadSchema,
   transcriptMirrorPayloadSchema,
   type InsightsMirrorPayload,
   type RunnerMirrorItem,
@@ -81,9 +83,15 @@ async function applyInsights(origin: MirrorOrigin, payload: InsightsMirrorPayloa
 }
 
 /** Lands one mirrored item in its organization. Throws `PermanentApplyError` for a payload the domain's schema refuses. */
-export async function applyMirrorItem(origin: MirrorOrigin, item: Pick<RunnerMirrorItem, 'domain' | 'payload'>): Promise<void> {
+export async function applyMirrorItem(origin: MirrorOrigin, item: Pick<RunnerMirrorItem, 'domain' | 'payload'>, shares?: ShareManager): Promise<void> {
   const { domain, payload } = item
   switch (domain) {
+    case 'shares': {
+      const parsed = sharesMirrorPayloadSchema.safeParse(payload)
+      if (!parsed.success) throw new PermanentApplyError(`Malformed shares mirror payload: ${parsed.error.message}`)
+      if (!shares) throw new PermanentApplyError('This service keeps no share rows.')
+      return shares.applyMirroredRows(origin.organizationId, parsed.data)
+    }
     case 'transcripts': {
       const parsed = transcriptMirrorPayloadSchema.safeParse(payload)
       if (!parsed.success) throw new PermanentApplyError(`Malformed transcript mirror payload: ${parsed.error.message}`)

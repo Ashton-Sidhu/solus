@@ -84,12 +84,12 @@ function harness(facts: { busy: boolean; nextDueAt: number | null; lastForegroun
     nextDueAt: () => facts.nextDueAt,
     lastForegroundAt: () => facts.lastForegroundAt ?? null,
     link: () => link,
-    hostToken: () => 'host-token',
+    credential: () => ({ hostAccessToken: async () => 'control-token' }),
     now: () => now,
     spriteTask: async (method, path, body) => { tasks.push(`${method} ${path}${body ? ` ${body}` : ''}`); return method === 'PUT' ? 200 : 204 },
     fetchImpl: async (url, init) => {
       expect(String(url)).toBe('https://cloud.test/v1/hosts/h1/activity')
-      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer host-token')
+      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer control-token')
       reports.push(JSON.parse(String(init?.body)))
       return new Response(null, { status: 204 })
     },

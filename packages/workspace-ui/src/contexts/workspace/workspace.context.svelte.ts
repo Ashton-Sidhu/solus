@@ -497,7 +497,6 @@ export class WorkspaceContext implements SurfaceContext {
     projectScopeOptions(
       this.logicalProjects,
       (serverId) => serversStore.statusFor(serverId) === 'online',
-      (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
       serversStore.activeCloudServerId,
     ),
   )
@@ -507,7 +506,6 @@ export class WorkspaceContext implements SurfaceContext {
       projectKeys,
       this.logicalProjects,
       (serverId) => serversStore.statusFor(serverId) === 'online',
-      (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
       serversStore.activeCloudServerId,
     )
   }

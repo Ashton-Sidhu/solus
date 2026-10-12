@@ -1,4 +1,3 @@
-import { accountIntegrationCredential, type IntegrationProvider } from './account-integrations'
 import { join } from 'node:path'
 import type { z } from 'zod'
 import { createLogger } from '../logger'
@@ -6,10 +5,11 @@ import { dataDir } from '../platform/paths'
 import { secretStore } from '../platform/secrets'
 import { isApiMode } from '../host/api-mode'
 import { currentCredentialUserId } from './acting-scope'
+import { accountReads } from './account-reads'
 
 const log = createLogger('main', 'provider-credentials')
 
-export type ProviderCredentialName = IntegrationProvider
+export type ProviderCredentialName = 'github' | 'google' | 'atlassian'
 
 /** Raised when the OS keyring is unavailable; we never write a token in
  *  plaintext. Shared by every provider that stores a credential. */
@@ -25,8 +25,6 @@ const HOST_SECRETS = {
   google: { key: 'google-oauth', file: 'google-oauth.bin' },
   atlassian: { key: 'atlassian-oauth', file: 'atlassian-oauth.bin' },
 } satisfies Record<ProviderCredentialName, { key: string; file: string }>
-
-export { resetAccountIntegrationsForTests as resetProviderCredentialsForTests } from './account-integrations'
 
 // ── The host's own store ────────────────────────────────────────────────────
 
@@ -60,8 +58,9 @@ export function usesAccountIntegration(): boolean {
 export async function readProviderCredential<T>(provider: ProviderCredentialName, schema: z.ZodType<T>): Promise<T | null> {
   const userId = currentCredentialUserId()
   if (!userId) return isApiMode() ? null : readHostCredential(provider, schema)
-  const response = await accountIntegrationCredential(userId, provider)
-  if (!response) throw new Error('Reconnect to your host to authorize your account connections.')
+  // The person's connection, read with their delegated token (ADR 0001 §2.2 rule 7).
+  const response = await accountReads().fetch(userId, null, `/v1/integrations/${provider}/credential`, { method: 'POST' })
+  if (!(response instanceof Response)) throw new Error(response.message)
   if (response.status === 404) return null
   if (!response.ok) throw new Error('Your account connection is unavailable. Open Connections on the account website.')
   return schema.parse(await response.json())

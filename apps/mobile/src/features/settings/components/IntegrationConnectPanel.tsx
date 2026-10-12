@@ -10,7 +10,8 @@ import type { ConnectFlowState } from '../integrations'
  * shared by the Integrations row and the conversation's connect sheet. A
  * waiting flow opens its page only when the person taps Open sign-in; a phone's
  * browser usually cannot reach the host, so the host asks for the address the
- * browser ended on. A key flow takes the key in a masked field.
+ * browser ended on. A key flow takes the key in a masked field. A flow run at
+ * Solus Cloud (plans/020 §5.3) says so, and needs no address pasted.
  */
 export function IntegrationConnectPanel(props: {
   readonly flow: ConnectFlowState
@@ -60,7 +61,7 @@ export function IntegrationConnectPanel(props: {
           returnKeyType="done"
           onSubmitEditing={submit}
         />
-        <Text style={{ color: palette.textTertiary, fontSize: type.dense }}>The key stays on the host. Agents never see it.</Text>
+        <Text style={{ color: palette.textTertiary, fontSize: type.dense }}>{flow.through === 'cloud' ? 'The key is kept in your account and used by every host. Agents never see it.' : 'The key stays on the host. Agents never see it.'}</Text>
         {error}
         <Button tone="primary" label="Save" busy={flow.busy} disabled={!value.trim() || !connected} onPress={submit} />
         <Button label="Cancel" disabled={flow.busy} onPress={props.onCancel} />
@@ -69,7 +70,7 @@ export function IntegrationConnectPanel(props: {
   }
   return (
     <View style={{ gap: space.sm }}>
-      {note('Sign in on the page. Solus finishes when the host confirms it.')}
+      {note(flow.through === 'cloud' ? 'Sign in on the page. Solus finishes when Solus Cloud confirms it.' : 'Sign in on the page. Solus finishes when the host confirms it.')}
       <Button tone="primary" label="Open sign-in" onPress={props.onOpen} />
       {flow.input === 'redirect-url' && !flow.submitted ? <>
         <Field
@@ -84,7 +85,7 @@ export function IntegrationConnectPanel(props: {
         <Text style={{ color: palette.textTertiary, fontSize: type.dense }}>After you sign in, the page may fail to load. Copy its address from the browser and paste it here.</Text>
         <Button label="Submit" busy={flow.busy} disabled={!value.trim() || !connected} onPress={submit} />
       </> : null}
-      {flow.submitted ? note('Sent. Waiting for the host to finish the sign-in…') : null}
+      {flow.submitted ? note('Sent. Waiting for the host to finish the sign-in…') : flow.through === 'cloud' ? note('Waiting for Solus Cloud to finish the sign-in…') : null}
       {error}
       <Button label="Cancel" disabled={flow.busy} onPress={props.onCancel} />
     </View>

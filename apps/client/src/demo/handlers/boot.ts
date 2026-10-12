@@ -7,6 +7,7 @@ import type {
   WatchSessionInput,
 } from '@solus/contracts/types'
 import type { HostOrganizationsStatus } from '@solus/contracts/organization-scope'
+import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import type { DemoBackend } from '../server'
 import { DEMO_USER, type DemoStore } from '../store'
 
@@ -42,13 +43,18 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     state: 'error',
     error: 'Voice input is unavailable in demo mode.',
   }))
-  backend.register('connectionsGetServerInfo', () => ({
+  backend.register('connectionsGetServerInfo', (): ConnectionsServerInfo => ({
     host: 'demo',
     port: 0,
     allowLan: false,
     installationId: 'demo',
     remoteAccess: false,
     requireAuth: false,
+    trustLocalNetwork: false,
+    hostKind: 'personal',
+    roles: ['execution'],
+    principal: 'local-owner',
+    grants: ['host'],
     user: DEMO_USER,
   }))
   const runtimeInfo = (preferredModel?: string | null): RuntimeSessionInfo => ({
@@ -112,7 +118,6 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     throw new Error('Sharing is not available in the demo.')
   })
   backend.register('outboxList', () => [])
-  backend.register('readLedger', () => null)
   backend.register('projectConfigLoad', () => ({ version: 1 }))
   backend.register('detectEditors', () => ({ editors: [], terminals: [] }))
 }

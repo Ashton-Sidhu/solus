@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { toolsStore } from "../../contexts";
+  import { getSettingsContext, toolsStore } from "../../contexts";
   import AppLogo from "./AppLogo.svelte";
 
   interface Props {
@@ -8,11 +8,12 @@
 
   let { size = 13 }: Props = $props();
 
+  const settings = getSettingsContext();
   const resolved = $derived(toolsStore.resolvedTerminal);
 </script>
 
 <AppLogo
-  id={resolved?.id ?? null}
+  id={resolved ? resolved.id : (settings.fallbackTerminal ?? "default-terminal")}
   name={resolved?.name}
   kind="terminal"
   {size}

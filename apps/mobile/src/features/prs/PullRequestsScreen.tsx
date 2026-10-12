@@ -10,7 +10,7 @@ import { cn } from '../../lib/cn'
 import type { ScreenProps } from '../../navigation/routes'
 import { HostStatusBanner } from '../hosts/HostStatusBanner'
 import { PR_STATE_TINT_CLASS, PrStateBadge } from './components/PrStateBadge'
-import { hostPrSections, prAge, prStateTone, prUnavailableTitle, reviewStatusLabel, type PrRowItem } from './lib/pr-presentation'
+import { hostPrSections, prAge, prStateTone, prUnavailableTitle, reviewStatusLabel, stackLabel, type PrRowItem } from './lib/pr-presentation'
 import { shownValue } from './pull-request-directory'
 
 type PrListItem =
@@ -143,7 +143,7 @@ function ListError(props: { readonly message: string; readonly onRetry: () => vo
 function PrRow({ item, isFirst, isLast, now, onPress }: { item: PrRowItem; isFirst: boolean; isLast: boolean; now: number; onPress: () => void }) {
   const { pr } = item
   const review = reviewStatusLabel(pr.reviewStatus)
-  const subtitle = [item.folderName, pr.author, review, `+${pr.additions} −${pr.deletions}`].filter(Boolean).join(' · ')
+  const subtitle = [item.folderName, pr.author, stackLabel(pr.stack), review, `+${pr.additions} −${pr.deletions}`].filter(Boolean).join(' · ')
   return (
     <Pressable
       accessibilityRole="button"

@@ -22,6 +22,7 @@ import type {
   PrLabel,
   PrReviewer,
   PrReviewerCandidate,
+  PrStack,
   ProviderViewer,
   PullRequest,
   PullRequestOverview,
@@ -155,6 +156,7 @@ export class PrMirrors {
   readonly detail = new PrMirror<PullRequest>()
   readonly commits = new PrMirror<PrCommit[]>()
   readonly reviewers = new PrMirror<PrReviewer[]>()
+  readonly stacks = new PrMirror<PrStack | null>()
   readonly reviewerCandidates = new PrMirror<PrReviewerCandidate[]>()
   readonly labelCandidates = new PrMirror<PrLabel[]>()
   readonly threads = new PrMirror<ReviewThread[]>()

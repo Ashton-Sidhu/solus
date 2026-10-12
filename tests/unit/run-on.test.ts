@@ -269,9 +269,9 @@ describe('the project chip lists projects, not checkouts', () => {
     expect(options.map((option) => option.key)).toEqual(['j'])
   })
 
-  test('two projects with one name are told apart the way every project list tells them apart', () => {
-    // WHY: two rows reading "web" give no way to choose the right one. The chip
-    // names them as the Tasks, Pull requests, Automations and Works pages do.
+  test('a project is named by its plain name, never by its owner or host', () => {
+    // WHY: the chip names projects as the Tasks, Pull requests, Automations and
+    // Works pages do; the host shows apart from the name, in hostLabel.
     const options = projectChipOptions(
       [
         project('github.com/acme/web', [{ serverId: 'local', projectRoot: '/acme/web' }]),
@@ -280,18 +280,18 @@ describe('the project chip lists projects, not checkouts', () => {
       ],
       'local', online, label,
     )
-    expect(options.map((option) => option.label)).toEqual(['acme/web', 'other/web', 'web · LOCAL'])
+    expect(options.map((option) => option.label)).toEqual(['web', 'web', 'web'])
   })
 
-  test('the folder the composer is in leads the list and shares the naming rule', () => {
+  test('the folder the composer is in leads the list', () => {
     const options = projectChipOptions(
       [project('github.com/acme/web', [{ serverId: 'local', projectRoot: '/acme/web' }])],
       'local', online, label,
       { key: 'studio:/srv/web', label: 'web', checkout: { serverId: 'studio', projectRoot: '/srv/web' }, hostLabel: null },
     )
     expect(options.map((option) => [option.key, option.label])).toEqual([
-      ['studio:/srv/web', 'web · STUDIO'],
-      ['github.com/acme/web', 'acme/web'],
+      ['studio:/srv/web', 'web'],
+      ['github.com/acme/web', 'web'],
     ])
   })
 })

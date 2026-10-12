@@ -46,9 +46,11 @@ the synced preset on that device, and "Use synced font" removes it.
   clients turn sync off when they next connect. An old upload cannot restore the
   cleared settings.
 - Sign-out stops sync and removes that account's local view and pending uploads.
-- Engine: `packages/client-core/src/settings-sync.ts`. The web client uses the cookie
-  adapter. Desktop calls the account API from the main process, so the credential
-  never reaches the renderer. Mobile uses its account session token.
+- Engine: `packages/client-core/src/settings-sync.ts`. The web client calls the account
+  API with an access token from its own sign-in (`web-sign-in.ts`), not with the
+  website's cookie. Desktop calls the account API from the main process, so the
+  credential never reaches the renderer. Mobile calls it with an access token from its
+  own sign-in, got for each call (docs/adr/0001-standard-authentication.md).
 
 API (in the control plane, `solus-cloud`):
 
@@ -61,6 +63,23 @@ API (in the control plane, `solus-cloud`):
 | `PATCH /v1/orgs/:id/settings` | An owner changes Sync all Insights, with `expectedRevision` |
 
 A write with an old revision gets `409 settings_conflict` and the current document.
+
+## Agent profile sync
+
+Settings → Agent profile holds the person's instructions, skills, and MCP
+servers as one document (`docs/agent-profile.md`, plans/020). It syncs with the
+same engine and the same rules as personal settings (`client-core/document-sync.ts`
+is the one engine; `settings-sync.ts` and `agent-profile-sync.ts` bind it to each
+document): opt-in per client, one entry per conflict unit, a first-copy offer,
+"Turn off on this device", and "Clear synced profile". A confirmed write makes
+every connected host the profile applies to pull it.
+
+| Endpoint | Use |
+| --- | --- |
+| `GET`, `PATCH`, `DELETE /v1/account/agent-profile` | The caller's document, as for settings |
+| `GET`, `POST`, `PUT`, `DELETE /v1/account/agent-profile/connections` | The caller's MCP connections in their account: list, start a sign-in, paste a key, disconnect |
+| `POST /v1/agent-profile/read` | A host's read of a person's profile and connection statuses, with the person's delegated token as the bearer and nothing else |
+| `POST`, `PUT /v1/agent-profile/credential` | A host's read of an access token for one call, and its one-time upload of a connection it held |
 
 ## Organization settings
 

@@ -174,7 +174,7 @@
     {onAttachFile}
     {onScreenshot}
     {onDesignMode}
-    onAddProject={chatSourceId ? addProject : null}
+    onAddProject={chatSourceId && (hosts.find(chatHostId)?.me.may("host.projects.read") ?? true) ? addProject : null}
     onRunOn={chatOffersHosts ? openRunOn : null}
     runOnLabel={chatHostLabel}
     {isPrimary}

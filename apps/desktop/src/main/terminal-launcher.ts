@@ -2,7 +2,7 @@ import { execFile, execFileSync } from 'child_process'
 import { basename } from 'path'
 import { createLogger } from '@solus/server/logger'
 import type { ResolvedTerminal, TerminalAppId, TerminalLaunchRequest } from '@solus/contracts/types'
-import { hostCliEnv } from '@solus/server/cli-env'
+import { hostCliEnv, warmCliPath } from '@solus/server/cli-env'
 import { TERMINAL_APPS, terminalApp, type TerminalApp } from '@solus/desktop-main/terminal-apps'
 import { findAppBundle } from '@solus/desktop-main/mac-apps'
 
@@ -47,12 +47,12 @@ function createTmuxWindow(command: string, cwd?: string): boolean {
   }
 }
 
-/** Stdout of a short read-only probe, or null when it fails. Off the main
- *  thread: the clients resolve the terminal at boot, beside the first
- *  transcript page, and a synchronous spawn here held that page. */
-function probeOutput(file: string, args: string[], timeout: number): Promise<string | null> {
+/** A short read-only probe. Join PATH warmup before using the CLI environment
+ *  so a first inspection cannot start a second, synchronous login-shell probe. */
+async function probeOutput(file: string, args: string[], timeout: number): Promise<string | null> {
+  await warmCliPath()
   return new Promise((resolve) => {
-    execFile(file, args, { env: hostCliEnv(), timeout, encoding: 'utf8' }, (error, stdout) => {
+    execFile(file, args, { env: hostCliEnv(), timeout, maxBuffer: 1024 * 1024, encoding: 'utf8' }, (error, stdout) => {
       resolve(error ? null : stdout)
     })
   })
@@ -71,32 +71,26 @@ async function attachedClientPids(): Promise<number[]> {
     .filter((pid) => Number.isInteger(pid) && pid > 0)
 }
 
-/**
- * Walks the parent chain of a tmux client up to the application bundle that
- * draws its window, so any terminal the user already runs can be raised —
- * not only the two Solus knows how to launch.
- */
-async function appBundleForPid(pid: number): Promise<string | null> {
-  let current = pid
-  for (let depth = 0; depth < 12 && current > 1; depth++) {
-    const output = await probeOutput('/bin/ps', ['-o', 'ppid=,comm=', '-p', String(current)], 2000)
-    if (output === null) return null
-    const line = output.trim()
-    const parsed = /^(\d+)\s+(.+)$/.exec(line)
-    if (!parsed) return null
-    const bundle = /^(.*?\.app)\//.exec(parsed[2])
-    if (bundle) return bundle[1]
-    current = Number(parsed[1])
-  }
-  return null
-}
-
-/** The application bundle of the first attached client we can identify. */
-async function attachedTerminalBundle(): Promise<string | null> {
+/** Read the process tree once for all attached clients. Starting a separate
+ *  `ps` for each parent made terminal inspection slow on deep shell trees. */
+async function attachedTerminalBundle(clientPids: readonly number[]): Promise<string | null> {
   if (process.platform !== 'darwin') return null
-  for (const clientPid of await attachedClientPids()) {
-    const bundle = await appBundleForPid(clientPid)
-    if (bundle) return bundle
+  const output = await probeOutput('/bin/ps', ['-axo', 'pid=,ppid=,comm='], 2000)
+  if (output === null) return null
+  const processes = new Map<number, { parentPid: number; command: string }>()
+  for (const line of output.split('\n')) {
+    const parsed = /^\s*(\d+)\s+(\d+)\s+(.+)$/.exec(line)
+    if (parsed) processes.set(Number(parsed[1]), { parentPid: Number(parsed[2]), command: parsed[3] })
+  }
+  for (const clientPid of clientPids) {
+    let current = clientPid
+    for (let depth = 0; depth < 12 && current > 1; depth++) {
+      const process = processes.get(current)
+      if (!process) break
+      const bundle = /^(.*?\.app)\//.exec(process.command)
+      if (bundle) return bundle[1]
+      current = process.parentPid
+    }
   }
   return null
 }
@@ -107,26 +101,32 @@ async function attachedTerminalBundle(): Promise<string | null> {
  * with what is configured.
  */
 export async function resolveTerminal(fallbackTerminalId: TerminalAppId): Promise<ResolvedTerminal> {
-  if ((await attachedClientPids()).length > 0) {
-    const bundle = await attachedTerminalBundle()
+  const startedAt = performance.now()
+  const clientPids = await attachedClientPids()
+  if (clientPids.length > 0) {
+    const bundle = await attachedTerminalBundle(clientPids)
     // Basename minus `.app` is the app's own display name, which covers the
     // terminals Solus cannot launch itself — Warp attaches like any other.
     const known = bundle
       ? TERMINAL_APPS.find((app) => app.macAppBundle === basename(bundle))
       : undefined
-    return {
+    const resolved: ResolvedTerminal = {
       id: known?.id ?? null,
       name: bundle ? basename(bundle, '.app') : 'Attached terminal',
       source: 'attached',
     }
+    log.info('terminal_resolved', { terminalId: resolved.id, source: resolved.source, durationMs: performance.now() - startedAt })
+    return resolved
   }
 
   const app = terminalApp(fallbackTerminalId)
-  return {
+  const resolved: ResolvedTerminal = {
     id: app?.id ?? null,
     name: app ? terminalDisplayName(app) : 'Terminal',
     source: 'fallback',
   }
+  log.info('terminal_resolved', { terminalId: resolved.id, source: resolved.source, durationMs: performance.now() - startedAt })
+  return resolved
 }
 
 /** "Default Terminal" is a role; on macOS the app has a name of its own. */
@@ -143,7 +143,7 @@ async function useAttachedTerminal(): Promise<boolean> {
   const clientPids = await attachedClientPids()
   if (clientPids.length === 0) return false
 
-  const bundle = await attachedTerminalBundle()
+  const bundle = await attachedTerminalBundle(clientPids)
   if (bundle) {
     try {
       execFileSync('open', [bundle], { timeout: 5000, env: hostCliEnv() })

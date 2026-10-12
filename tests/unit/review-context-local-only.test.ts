@@ -6,13 +6,13 @@ import { join } from 'path'
 import { Database } from 'bun:sqlite'
 import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
 
-// bun has no node:sqlite; the ledger's import chain reaches the metrics db.
+// bun has no node:sqlite; the review context's import chain reaches the metrics db.
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let resolveReviewContext: typeof import('@solus/server/review/ledger')['resolveReviewContext']
+let resolveReviewContext: typeof import('@solus/server/review/review-context')['resolveReviewContext']
 
 beforeAll(async () => {
-  ;({ resolveReviewContext } = await import('@solus/server/review/ledger'))
+  ;({ resolveReviewContext } = await import('@solus/server/review/review-context'))
 })
 
 const repos: string[] = []
@@ -101,11 +101,11 @@ describe('review context', () => {
     // WHY: the branch's pull request is already reported by the Git status, and
     // a second opinion cost this path a full provider round trip. If a caller
     // needs it again, it belongs beside that status — not in front of the diff.
-    const ledger = readFileSync(
-      join(import.meta.dir, '../../packages/server/src/review/ledger.ts'),
+    const reviewContext = readFileSync(
+      join(import.meta.dir, '../../packages/server/src/review/review-context.ts'),
       'utf8',
     )
-    expect(ledger).not.toContain('getExistingPR')
-    expect(ledger).not.toContain('providerForRepo')
+    expect(reviewContext).not.toContain('getExistingPR')
+    expect(reviewContext).not.toContain('providerForRepo')
   })
 })

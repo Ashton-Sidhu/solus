@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { HostParticipant, SessionParticipant } from '@solus/contracts/presence'
-import { activeTurnAuthorOf, activityWords, composingLabel, followStep, peopleFocusedOn, peopleFrom, stackPeople } from '@solus/workspace-ui/components/presence/lib/presence-people'
+import { activeTurnAuthorOf, activityWords, canFollow, composingLabel, followStep, peopleFocusedOn, peopleFrom, stackPeople } from '@solus/workspace-ui/components/presence/lib/presence-people'
 import { focusLabel, hostPeopleAcrossHosts, primaryPresence, rosterPeople, rosterWhere, sessionLabelIn, whereIs, type HostPerson } from '@solus/workspace-ui/components/presence/lib/host-people'
 import type { Session } from '@solus/contracts/types'
 import { parseUserKey } from '@solus/contracts/user'
@@ -188,6 +188,16 @@ describe('follow mode', () => {
     // The same session id on another host is somewhere else.
     expect(followStep({ person: bob(s1), lastOpened: s1, mine: { serverId: 'h2', focus: s1 }, serverId: 'h1' })).toEqual({ kind: 'stop', reason: 'navigated' })
     expect(followStep({ person: null, lastOpened: s1, mine: { serverId: 'h1', focus: s1 }, serverId: 'h1' })).toEqual({ kind: 'stop', reason: 'left' })
+  })
+
+  test('a guest is not offered to follow someone it cannot see move', () => {
+    // The host tells a guest its one session's room, never the host room, so
+    // following anyone there would end at once with "<name> left".
+    const sessionRoom = peopleFrom([participant('c1', 'alice'), participant('c2', 'bob')], nobody)
+    const guestHostRoom = peopleFrom([], nobody)
+    expect(sessionRoom.map((person) => canFollow(person.userId, guestHostRoom))).toEqual([false, false])
+    const memberHostRoom = peopleFrom([participant('c1', 'alice')], nobody)
+    expect(sessionRoom.map((person) => canFollow(person.userId, memberHostRoom))).toEqual([true, false])
   })
 })
 

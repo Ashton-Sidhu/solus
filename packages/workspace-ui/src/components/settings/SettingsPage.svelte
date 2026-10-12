@@ -24,6 +24,7 @@
     Palette as PaletteIcon,
     Smartphone as SmartphoneIcon,
     UserRound as PersonIcon,
+    Contact as AgentProfileIcon,
     Building2 as OrganizationIcon,
     Server as HostIcon,
     Plug as PlugIcon,
@@ -33,6 +34,7 @@
     getClientShellContext,
     getSettingsContext,
     serversStore,
+    agentProfileLocalStore,
   } from "../../contexts";
   import type { SettingsTab } from "../../contexts/workspace/routing/route-registry";
   import { connectionsNav } from "../connections/connections-nav.svelte";
@@ -64,6 +66,8 @@
   import SettingsTabSourceControl from "./SettingsTabSourceControl.svelte";
   import SettingsTabKeybindings from "./SettingsTabKeybindings.svelte";
   import SettingsTabPersonal, { searchWords as personalSearch } from "./SettingsTabPersonal.svelte";
+  import SettingsTabAgentProfile, { searchWords as agentProfileSearch } from "./SettingsTabAgentProfile.svelte";
+  import { agentProfileSearchWords } from "./agent-profile/lib/agent-profile-entries";
   import SettingsTabHost, { searchWords as hostSearch } from "./SettingsTabHost.svelte";
   import SettingsTabOrganization, { searchWords as organizationSearch } from "./SettingsTabOrganization.svelte";
   import DeviceSettings from "../devices/DeviceSettings.svelte";
@@ -82,6 +86,7 @@
     return (
       wordsMatch(query, [tab.label, ...(SEARCH_WORDS[tab.id] ?? [])]) ||
       (tab.id === "integrations" && wordsMatch(query, integrationsStore.names())) ||
+      (tab.id === "agent-profile" && wordsMatch(query, agentProfileSearchWords(agentProfileLocalStore.entries))) ||
       dataMatches(tab.id, query, settings.keybindings)
     );
   }
@@ -117,6 +122,13 @@
       label: "Account & sync",
       description: "Your account, this computer's Solus Cloud link, and settings sync.",
       icon: PersonIcon,
+      group: "Account",
+    },
+    {
+      id: "agent-profile",
+      label: "Agent profile",
+      description: "Your instructions, skills, and MCP servers, on every host you work on.",
+      icon: AgentProfileIcon,
       group: "Account",
     },
     {
@@ -275,6 +287,7 @@
   const keywordsOf = (items: { keywords: readonly string[] }[]) => items.flatMap((item) => item.keywords);
   const SEARCH_WORDS: Partial<Record<SettingsTab, readonly string[]>> = {
     personal: personalSearch,
+    "agent-profile": agentProfileSearch,
     organization: organizationSearch,
     general: keywordsOf(generalSearch),
     appearance: keywordsOf(appearanceSearch),
@@ -492,6 +505,8 @@
     <SettingsTabTasks searchQuery={pageQuery} />
   {:else if session.settingsTab === "personal"}
     <SettingsTabPersonal searchQuery={pageQuery} />
+  {:else if session.settingsTab === "agent-profile"}
+    <SettingsTabAgentProfile searchQuery={pageQuery} />
   {:else if session.settingsTab === "organization"}
     <SettingsTabOrganization searchQuery={pageQuery} />
   {:else if session.settingsTab === "host" && selectedSettingsHost}

@@ -1,5 +1,5 @@
 import { agentAuthFlowRequestSchema, agentAuthMcpTargetSchema, agentAuthSubmitRequestSchema, agentAuthTargetSchema } from '@solus/contracts/agent-auth'
-import { agentProfileBundleSchema } from '@solus/contracts/agent-profile'
+import { agentProfileCopySchema } from '@solus/contracts/agent-profile'
 import { seatConnectCodeRequestSchema, seatConnectTokenRequestSchema, seatProviderRequestSchema, seatRemoveRequestSchema } from '@solus/contracts/seats'
 import { parseUserKey } from '@solus/contracts/user'
 import type { AgentAuthFlows } from '../../execution/seats/agent-auth'
@@ -80,18 +80,15 @@ export function registerSeatHandlers(server: SolusServer, deps: { seats: SeatSto
   // A guest has no homes of their own here, so a guest may not write one.
   server.register('agentProfileRead', () => deps.profiles.read())
 
-  server.register('agentProfileApply', (args, ctx) => {
-    const bundle = agentProfileBundleSchema.parse(args[0])
-    const target = profileTargetOf(ctx.principal)
-    // An empty bundle is the client's Remove.
-    return bundle.files.length === 0 && bundle.skipped.length === 0 ? deps.profiles.remove(target) : deps.profiles.apply(target, bundle)
-  })
+  server.register('agentProfileApply', (args, ctx) => deps.profiles.apply(profileTargetOf(ctx.principal), agentProfileCopySchema.parse(args[0]), { kind: 'computer' }))
+
+  server.register('agentProfilePull', (_args, ctx) => deps.profiles.pull(profileTargetOf(ctx.principal)))
 
   server.register('agentProfileStatus', (_args, ctx) => deps.profiles.status(profileTargetOf(ctx.principal)))
 }
 
-function profileTargetOf(principal: Principal): AgentProfileTarget {
-  if (principal.kind === 'org-member') return { kind: 'member', userId: principal.userId, name: principal.displayName }
+export function profileTargetOf(principal: Principal): AgentProfileTarget {
+  if (principal.kind === 'org-member') return { kind: 'member', userId: principal.userId, organizationId: principal.organizationId, name: principal.displayName }
   if (isHostOwner(principal)) return { kind: 'owner' }
   throw new Error('Only the owner or an organization member has an agent profile on this host.')
 }

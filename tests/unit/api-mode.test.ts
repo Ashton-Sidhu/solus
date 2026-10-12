@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
-import type { AccessTokenClaims } from '@solus/contracts/uplink'
+import type { DelegatedAccessTokenClaims, PersonAccessTokenClaims } from '@solus/contracts/uplink'
 import { SOLUS_API_AUDIENCE } from '@solus/contracts/uplink'
 import type { SessionRuntime } from '@solus/server/execution/session-runtime'
 import type { HostEventPublisher } from '@solus/server/transport/events/host-event-publisher'
@@ -81,9 +81,13 @@ afterAll(async () => {
 })
 
 const now = () => Math.floor(Date.now() / 1000)
-const claims = (over: Partial<AccessTokenClaims>): AccessTokenClaims => ({
-  iss: ISSUER, aud: SOLUS_API_AUDIENCE, sub: 'alice', deviceId: 'session_1', jti: crypto.randomUUID(),
-  iat: now(), exp: now() + 600, hostKind: 'cloud', ...over,
+const claims = (over: Partial<PersonAccessTokenClaims>): PersonAccessTokenClaims => ({
+  iss: ISSUER, aud: SOLUS_API_AUDIENCE, sub: 'alice', grant_id: 'grant_1', jti: crypto.randomUUID(),
+  iat: now(), exp: now() + 300, hostKind: 'cloud', ...over,
+})
+const delegatedClaims = (over: Partial<DelegatedAccessTokenClaims> & Pick<DelegatedAccessTokenClaims, 'act' | 'organizationId'>): DelegatedAccessTokenClaims => ({
+  iss: ISSUER, aud: SOLUS_API_AUDIENCE, sub: 'alice', jti: crypto.randomUUID(),
+  iat: now(), exp: now() + 300, hostKind: 'cloud', ...over,
 })
 
 function member(userId: string, organizationId: string, organizationRole: 'owner' | 'member' = 'member'): Principal {
@@ -122,12 +126,9 @@ describe('booting in API mode', () => {
 describe('the ticket door of the workspace service', () => {
   test('only a member grant admits a person, as a member of the grant\'s organization', async () => {
     // WHY: an owner grant names a machine's owner; the service is nobody's machine. A
-    // cloud guest is admitted only to a resource a link secret resolves to
-    // (cloud-sharing); a guest grant made for a host is not the service's to honour.
-    expect(await http.ticketForGrant(claims({ access: 'owner' }), null, undefined, { workspace: true })).toEqual({ ok: false, reason: 'member-required' })
-    expect(await http.ticketForGrant(claims({ sub: 'guest:g1', deviceId: 'g1', access: 'guest', hostKind: 'personal' }), { shareSecret: 'x' }, async () => null, { workspace: true })).toEqual({ ok: false, reason: 'member-required' })
-    expect(await http.ticketForGrant(claims({ sub: 'guest:g1', deviceId: 'g1', access: 'guest' }), { shareSecret: 'x' }, async () => null, { workspace: true })).toEqual({ ok: false, reason: 'not-shared' })
-    const admitted = await http.ticketForGrant(claims({ sub: 'alice', access: 'org-member', organizationId: 'org1', organizationRole: 'owner', displayName: 'Alice' }), null, undefined, { workspace: true })
+    // guest holds no token (host-sharing.md §4.1): the secret alone admits them, at the other door.
+    expect(await http.ticketForGrant(claims({ access: 'owner' }), { workspace: true })).toEqual({ ok: false, reason: 'member-required' })
+    const admitted = await http.ticketForGrant(claims({ sub: 'alice', access: 'org-member', organizations: [{ id: 'org1', role: 'owner', teamIds: [] }], displayName: 'Alice' }), { workspace: true, organizationId: 'org1' })
     expect(admitted.ok).toBe(true)
     if (!admitted.ok) return
     const principal = principalModule.principalFor({ kind: 'ticket', ticket: auth.consumeWsTicket(admitted.ticket)! })
@@ -142,9 +143,9 @@ describe('the ticket door of the workspace service', () => {
   test("a host's delegated token opens only the runner's socket on the API; it is the host acting for a person", async () => {
     // WHY: plans/010-standard-oauth.md — there is no machine identity that writes organization records.
     // The socket is how the API reaches the runner with shared prompts; a host admits none.
-    const delegated = claims({ access: 'org-member', organizationId: 'org1', organizationRole: 'member', act: { sub: 'host_runner-1', host_id: 'runner-1' } })
-    expect(await http.ticketForGrant(delegated, null, undefined, { workspace: false })).toEqual({ ok: false, reason: 'delegated-token' })
-    const admitted = await http.ticketForGrant(delegated, null, undefined, { workspace: true })
+    const delegated = delegatedClaims({ access: 'org-member', organizationId: 'org1', organizationRole: 'member', act: { sub: 'host_runner-1', host_id: 'runner-1' } })
+    expect(await http.ticketForGrant(delegated, { workspace: false })).toEqual({ ok: false, reason: 'delegated-token' })
+    const admitted = await http.ticketForGrant(delegated, { workspace: true })
     if (!admitted.ok) throw new Error('Expected a runner ticket')
     const { consumeWsTicket } = await import('@solus/server/admission/auth')
     expect(principalModule.principalFor({ kind: 'ticket', ticket: consumeWsTicket(admitted.ticket)! })).toMatchObject({ kind: 'runner', hostId: 'runner-1', organizationId: 'org1' })
@@ -192,6 +193,8 @@ describe('organization isolation through HTTP operations and retained RPC', () =
       discoverLanServers: async () => [],
       setRemoteAccess: async () => { throw new Error('not here') },
       setTrustLocalNetwork: () => { throw new Error('not here') },
+      tunnelUrl: () => null,
+      mirrorOrigin: async () => null,
     })
     return server
   }

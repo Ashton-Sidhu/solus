@@ -7,6 +7,7 @@
   import {
     getSessionEnvironmentStore,
     getWorkspaceContext,
+    hosts,
   } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { worktreeDisplayName } from "../../lib/git-context";
@@ -31,6 +32,7 @@
   const environmentStore = getSessionEnvironmentStore();
   const session = getWorkspaceContext();
   const sectionRun = $derived(session.runFor(sourceId));
+  const canSwitch = $derived(hosts.find(sectionRun?.serverId)?.me.may("host.git.write") ?? true);
   const env = $derived(environmentStore.environmentFor(sectionRun));
   const status = $derived(env.status);
   const currentBranch = $derived(
@@ -148,7 +150,7 @@
       type="button"
       aria-label={pendingDispatch ? "Select a remote worktree" : "Switch branch or worktree"}
       title={pendingDispatch ? "Select a remote worktree" : "Switch branch or worktree"}
-      disabled={!currentBranch}
+      disabled={!currentBranch || !canSwitch}
       onclick={() => (branchPickerOpen = !branchPickerOpen)}
     >
       <CaretRightIcon size={11} />

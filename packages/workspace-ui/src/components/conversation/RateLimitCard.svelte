@@ -25,7 +25,7 @@
   import TranscriptCardAction from "./TranscriptCardAction.svelte";
   import { liveActivityClock } from "../../lib/shared-clock";
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
-  import { canDriveSession } from "../../contexts/sharing/session-drive";
+  import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { limitTitle } from "../presence/lib/actor-name";
 
   interface Props {

@@ -42,14 +42,18 @@ import {
 
 // Status hues follow the system-wide convention (amber approval, indigo
 // input, sky working) so a thread reads the same color everywhere it surfaces.
-const STATUS_LABEL_BY_STATUS: Partial<
-  Record<ThreadListV2Status, { label: string; className: string }>
+// Ready is the unlabeled resting state: its row shows the timestamp instead.
+const STATUS_LABEL_BY_STATUS: Record<
+  ThreadListV2Status,
+  { label: string; className: string } | null
 > = {
   approval: { label: "Approval", className: "text-warning-foreground" },
   input: { label: "Input", className: "text-adaptive-indigo-600-300" },
   working: { label: "Working", className: "text-adaptive-sky-600-400" },
+  waiting: { label: "Waiting", className: "text-foreground-muted" },
   failed: { label: "Failed", className: "text-danger-foreground" },
   limited: { label: "Limited", className: "text-warning-foreground" },
+  ready: null,
 };
 
 const PROVIDER_DISPLAY_NAME: Record<SolusThreadShell["record"]["provider"], string> = {

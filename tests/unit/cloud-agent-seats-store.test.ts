@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { configureCloudAccount, cookieCloudAccount } from '@solus/client-core/cloud-account'
+import { configureCloudAccount, oauthCloudAccount } from '@solus/client-core/cloud-account'
 import { SvelteRunes } from './helpers/svelte-runes'
 
 test('cloud connections stay correct with no host status, survive an outage, and refresh after disconnect', async () => {
@@ -7,7 +7,8 @@ test('cloud connections stay correct with no host status, survive an outage, and
   let connected = true
   let offline = false
   let seatReads = 0
-  const source = cookieCloudAccount('https://app.solus.sh', (async (input) => {
+  const session = { accessToken: async () => 'account-token', signOut: async () => {}, state: () => ({ kind: 'signed-out' as const }), onChange: () => () => {} }
+  const source = oauthCloudAccount('https://app.solus.sh', session, (async (input) => {
     if (String(input).endsWith('/v1/account')) return Response.json({ userId: 'ab', onboardingCompletedAt: null, activeOrganizationId: null, organizations: [] })
     seatReads++
     if (offline) return new Response(null, { status: 503 })

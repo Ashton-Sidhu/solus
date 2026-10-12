@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { ShareList, ShareResource } from '@solus/contracts/sharing'
+import type { CloudPublication } from '@solus/workspace-ui/contexts/sharing/cloud-publication'
 import { configureUplinkAccountSource } from '@solus/client-core/uplink-account'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
@@ -37,13 +38,15 @@ mock.module('@solus/client-core/workspace-registry', () => ({
 }))
 
 let directoryReads = 0
+/** Hosts this client knows, by the id this client gives each one. */
+const knownHosts = new Map<string, { installationId: string }>()
 const window = { activeOrganizationId: 'org-1' as string | null, activeOrganizationName: 'Acme' as string | null }
 mock.module('@solus/workspace-ui/contexts/connections/servers.store.svelte', () => ({
   serversStore: {
     get activeOrganizationId() { return window.activeOrganizationId },
     get activeOrganizationName() { return window.activeOrganizationName },
     refreshDirectory: async () => { directoryReads++ },
-    hostFor: () => null,
+    hostFor: (serverId: string) => knownHosts.get(serverId) ?? null,
   },
 }))
 mock.module('@solus/workspace-ui/contexts/connections/uplink.store.svelte', () => ({
@@ -67,6 +70,7 @@ beforeEach(() => {
   toastCalls.length = 0
   directoryReads = 0
   knownWorkspaces.clear()
+  knownHosts.clear()
   window.activeOrganizationId = 'org-1'
   window.activeOrganizationName = 'Acme'
   runeHost.$state = stateShim
@@ -98,32 +102,38 @@ async function newStore() {
   const published: [string, string, string][] = []
   /** The works this client lists, by id: a work in an organization says which. */
   const works: Record<string, { organizationId: string }> = {}
-  store.works = { works, markPublished: (workId: string, organizationId: string, cloudServerId: string) => { published.push([workId, organizationId, cloudServerId]) } } as never
+  store.publication.works = { works, markPublished: (workId: string, organizationId: string, cloudServerId: string) => { published.push([workId, organizationId, cloudServerId]) } } as never
   return { store, published, works }
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('sharing while signed out', () => {
-  test('does not read or publish a resource, or open a dialog', async () => {
+  test('a session opens its host\'s own list; a work is not pushed and Share says to sign in', async () => {
+    // WHY: docs/plans/host-sharing.md §2 — a session's link names its host, so it
+    // needs no account. A Local work is shared by pushing it to the cloud, which
+    // only a signed-in account can do; nothing leaves the machine without one.
     const calls: string[] = []
     connections.registerPrimary('local', {
       shareGet: async () => { calls.push('host-share'); return cloudList },
+      shareLinkOrigin: async () => { calls.push('origin'); return { origin: null } },
       workExportForCloud: async () => { calls.push('export'); throw new Error('must not be asked') },
-    })
-    connections.registerHost(CLOUD, {
-      shareGet: async () => { calls.push('share'); return cloudList },
     })
     const { store } = await newStore()
     account.state.kind = 'signed-out'
+    const workTarget = { serverId: 'local', resource: { kind: 'work', id: 'w1' } as const, title: 'Release notes' }
 
     await store.open(target)
-    await store.open({ ...target, serverId: CLOUD })
+    expect(store.dialog).toEqual({ serverId: 'local', resource, title: 'Release plan' })
+    store.close()
+    expect(store.canShareFrom('local', 'work')).toBe(false)
+    await store.open(workTarget)
+    await settle()
 
-    expect(calls).toEqual([])
     expect(store.dialog).toBeNull()
+    expect(calls).not.toContain('export')
     expect(store.busy).toBe(false)
-    expect(toastCalls).toEqual([])
+    expect(toastCalls).toEqual(['error:Sign in to share this work.'])
   })
 })
 
@@ -146,6 +156,28 @@ describe('sharing a session', () => {
     expect(store.dialog).toEqual({ serverId: 'local', resource, title: 'Release plan' })
     expect(store.listFor('local', resource)).toEqual(cloudList)
     expect(directoryReads).toBe(0)
+  })
+
+  test('a session shared with its organization copies a member link that names its host by installation id', async () => {
+    // WHY: Copy link on a session shared with members must not fall back to a
+    // guest link, which a host refuses. The link names the host by installation
+    // id, because that is the id every client of the host resolves it by;
+    // `local` means a different machine on each client.
+    knownHosts.set('local', { installationId: 'install-desktop' })
+    knownHosts.set('managed-host', { installationId: 'managed-host' })
+    const { store } = await newStore()
+    const { parseRoute } = await import('@solus/workspace-ui/contexts/workspace/routing/codec')
+    const session: ShareResource = { kind: 'session', id: 'session-1' }
+
+    for (const [serverId, installationId] of [['local', 'install-desktop'], ['managed-host', 'managed-host']]) {
+      const url = new URL(store.memberLinkUrl(serverId, session) ?? '')
+      expect(url.origin).toBe('https://app.example.test')
+      expect(parseRoute(url.pathname)).toMatchObject({ name: 'sessionRecord', params: { sessionId: 'session-1', serverId: installationId } })
+    }
+    expect(store.memberLinkUrl('unknown-host', session)).toBeNull()
+    expect(store.memberLinkUrl('local', { kind: 'work', id: 'work-1' })).toBeNull()
+    account.state.kind = 'signed-out'
+    expect(store.memberLinkUrl('managed-host', session)).toBeNull()
   })
 })
 
@@ -185,7 +217,8 @@ describe('sharing a Local resource', () => {
     expect(store.dialog?.publication?.status).toEqual({ kind: 'offline' })
   })
 
-  test('with no organization selected, Share explains instead of opening', async () => {
+  test('with no organization selected, Share explains instead of pushing', async () => {
+    // WHY: a work is pushed into an organization; with none selected there is nowhere to push.
     window.activeOrganizationId = null
     window.activeOrganizationName = null
     const { store } = await newStore()
@@ -193,7 +226,7 @@ describe('sharing a Local resource', () => {
     await store.open(workTarget)
 
     expect(store.dialog).toBeNull()
-    expect(toastCalls).toEqual(['error:Select an organization before sharing.'])
+    expect(toastCalls).toEqual(['error:Sign in to share this work.'])
   })
 })
 
@@ -276,14 +309,18 @@ describe('sharing a Local work', () => {
     expect(store.dialog?.publication?.status).toEqual({ kind: 'failed', error: 'The work changed during the cloud push. Its local copy was kept.' })
   })
 
-  test('a work can be shared from a machine that is not linked; a session cannot', async () => {
-    // WHY: the user's rule: sharing a work needs only a signed-in organization.
-    // A session stays on its machine, and its link opens there, so it needs the machine linked.
+  test('a session is shared from any machine, signed in or not; a work needs a signed-in organization to push to', async () => {
+    // WHY: docs/plans/host-sharing.md §2 — a session's link names its host; a
+    // Local work is pushed to the cloud by Share, so it needs somewhere to go.
     const { store } = await newStore()
     expect(store.canShareFrom('local', 'work')).toBe(true)
-    expect(store.canShareFrom('local', 'session')).toBe(false)
+    expect(store.canShareFrom('local', 'session')).toBe(true)
     window.activeOrganizationId = null
     expect(store.canShareFrom('local', 'work')).toBe(false)
+    expect(store.canShareFrom('local', 'session')).toBe(true)
+    account.state.kind = 'signed-out'
+    expect(store.canShareFrom('local', 'work')).toBe(false)
+    expect(store.canShareFrom('local', 'session')).toBe(true)
   })
 
   test('Share opened again while the upload runs joins it instead of uploading twice', async () => {
@@ -305,11 +342,17 @@ describe('sharing a Local work', () => {
   })
 })
 
+/** Task links over the store's own publication, as the app wires them. */
+async function taskLinksFor(store: { publication: CloudPublication }) {
+  const { TaskLinks } = await import('@solus/workspace-ui/contexts/tasks/task-links')
+  return new TaskLinks(store.publication)
+}
+
 /** What a copied task link opens: the app's own route, read back the way the web client reads it. */
 async function opensTaskOf(url: string): Promise<{ origin: string; taskId?: string; serverId?: string }> {
   const { parseRoute } = await import('@solus/workspace-ui/contexts/workspace/routing/codec')
   const parsed = new URL(url)
-  const ref = parseRoute(parsed.hash.slice(1))
+  const ref = parseRoute(parsed.pathname)
   return ref?.name === 'task' ? { origin: parsed.origin, taskId: ref.params.taskId, serverId: ref.params.serverId } : { origin: parsed.origin }
 }
 
@@ -339,8 +382,9 @@ describe('a task\'s link', () => {
       taskUpload: async (sent: { task: { id: string } }) => { calls.push(`upload-task:${sent.task.id}`); return { taskId: sent.task.id, organizationId: 'org-1' } },
     })
     const { store, published } = await newStore()
+    const links = await taskLinksFor(store)
 
-    await store.copyTaskLink('local', 't1')
+    await links.copy('local', 't1')
 
     expect(calls).toEqual(['export:t1', 'upload-work:w1', 'upload-task:t1', 'mark-moved:t1:task-fp:w1:work-fp'])
     expect(published).toEqual([['w1', 'org-1', CLOUD]])
@@ -350,22 +394,22 @@ describe('a task\'s link', () => {
 
   test('a task already in the organization copies its link with no upload, and a task is never offered Share', async () => {
     const { store } = await newStore()
-    await store.copyTaskLink(CLOUD, 't1')
+    await (await taskLinksFor(store)).copy(CLOUD, 't1')
     expect(await Promise.all(copied.map(opensTaskOf))).toEqual([{ origin: 'https://app.example.test', taskId: 't1', serverId: CLOUD }])
     expect(store.canShareFrom('local', 'task')).toBe(false)
     expect(store.canShareFrom(CLOUD, 'task')).toBe(false)
   })
 
   test('without an account or an organization there is no link, and nothing leaves the machine', async () => {
-    const { store } = await newStore()
+    const links = await taskLinksFor((await newStore()).store)
     account.state = { kind: 'signed-out' }
-    expect(store.canCopyTaskLink('local')).toBe(false)
-    await store.copyTaskLink('local', 't1')
+    expect(links.canCopy('local')).toBe(false)
+    await links.copy('local', 't1')
     account.state = { kind: 'signed-in', consoleUrl: 'https://app.example.test' }
     window.activeOrganizationId = null
-    expect(store.canCopyTaskLink('local')).toBe(false)
-    expect(store.canCopyTaskLink(CLOUD)).toBe(true)
-    await store.copyTaskLink('local', 't1')
+    expect(links.canCopy('local')).toBe(false)
+    expect(links.canCopy(CLOUD)).toBe(true)
+    await links.copy('local', 't1')
     expect(copied).toEqual([])
     expect(toastCalls.every((call) => call.startsWith('error:'))).toBe(true)
   })
@@ -380,7 +424,7 @@ describe('the share dialog on Solus Cloud', () => {
     const unavailable = async (): Promise<never> => { throw new Error('not in this test') }
     configureUplinkAccountSource({
       listDirectory: unavailable,
-      acquireHostAccessToken: unavailable,
+      accessToken: unavailable,
       issueEnrollmentTicket: unavailable,
       startManagedHost: unavailable,
       loadOrganizationDirectory: () => new Promise(() => {}),
@@ -405,7 +449,7 @@ describe('the share dialog on Solus Cloud', () => {
     const unavailable = async (): Promise<never> => { throw new Error('not in this test') }
     configureUplinkAccountSource({
       listDirectory: unavailable,
-      acquireHostAccessToken: unavailable,
+      accessToken: unavailable,
       issueEnrollmentTicket: unavailable,
       startManagedHost: unavailable,
       loadOrganizationDirectory: (organizationId) => {
@@ -455,7 +499,7 @@ describe('the organization directory', () => {
     const unavailable = async (): Promise<never> => { throw new Error('not in this test') }
     configureUplinkAccountSource({
       listDirectory: unavailable,
-      acquireHostAccessToken: unavailable,
+      accessToken: unavailable,
       issueEnrollmentTicket: unavailable,
       startManagedHost: unavailable,
       loadOrganizationDirectory: async (organizationId) => {

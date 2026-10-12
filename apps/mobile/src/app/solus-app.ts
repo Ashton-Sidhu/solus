@@ -2,10 +2,17 @@ import { z } from 'zod'
 import { SendOutbox } from '@solus/client-core/send-outbox'
 import { pairServer, urlHost } from '@solus/client-core/pairing'
 import type { WsTransportOptions } from '@solus/client-core/ws-transport'
-import { replaceModelProfiles, type AgentId, type SessionRecord } from '@solus/contracts/types'
+import { replaceModelProfiles, type AgentId, type DiscoveredServer, type SessionRecord } from '@solus/contracts/types'
 import type { HostApi } from '@solus/client-core/host-api'
-import { OrganizationSettingsClient, settingsAccountKey, type SettingsSyncEnvironment } from '@solus/client-core/settings-sync'
-import { CloudAccountClient, DEFAULT_CLOUD_ORIGIN } from '../features/account/account-client'
+import {
+  OrganizationSettingsClient,
+} from '@solus/client-core/settings-sync'
+import {
+  syncAccountKey,
+  type DocumentSyncEnvironment,
+} from '@solus/client-core/document-sync'
+import type { BrowserAuthorizer, OAuthSessionDeps } from '@solus/client-core/oauth-session'
+import { DEFAULT_CLOUD_ORIGIN } from '../features/account/account-client'
 import { AccountSession } from '../features/account/account-session'
 import { conversationOutboxPrefix, type ConversationTarget } from '../features/conversation/conversation-controller'
 import type { AttachmentIo } from '../features/conversation/lib/attachments'
@@ -25,6 +32,8 @@ import { HostAccess } from '../features/settings/host-access'
 import { LiveActivityPreference } from '../features/live-activity/live-activity-preference'
 import { PersonalSettingsStore } from '../features/settings/personal-settings'
 import { alwaysOnlineEnvironment, PersonalSync, timerClock } from '../features/settings/personal-sync'
+import { AgentProfileLocalStore } from '../features/settings/agent-profile-local'
+import { DeviceAgentProfileSync, type ReachableHost } from '../features/settings/agent-profile-sync'
 import { OrganizationSettingsStore } from '../features/settings/organization-settings'
 import { PullRequestDirectory } from '../features/prs/pull-request-directory'
 import { ProjectFiles } from '../features/files/project-files'
@@ -48,12 +57,18 @@ export interface PlatformAdapters {
   /** Reads and uploads picked files for attachments. */
   attachmentIo?: AttachmentIo
   cloudOrigin?: string
+  /** The system browser step of the account sign-in (ADR 0001 §2.2 rule 1). */
+  accountAuthorizer?: BrowserAuthorizer
+  /** Random bytes and SHA-256 for the sign-in where the runtime has no Web Crypto (Hermes). */
+  accountCrypto?: Pick<OAuthSessionDeps, 'randomBytes' | 'sha256'>
   /** Puts this device's light or dark choice into effect for the whole app. */
   applyAppearance?(mode: AppearanceMode): void
   /** Network and app activity for settings sync; absent means always online and in front. */
-  settingsSyncEnvironment?: SettingsSyncEnvironment
+  settingsSyncEnvironment?: DocumentSyncEnvironment
   /** This build's version, as About shows it. */
   appVersion?: string
+  /** Finds Solus hosts on this device's local network; absent where the build cannot scan. */
+  scanLocalNetwork?(): Promise<DiscoveredServer[]>
 }
 
 /** Where the person was, restored on a returning launch once access is known. */
@@ -100,6 +115,10 @@ export class SolusApp {
   readonly personal: PersonalSettingsStore
   /** Opt-in sync of the personal profile with the account. */
   readonly personalSync: PersonalSync
+  /** The person's agent profile on this device: one local copy per account (plans/020). */
+  readonly agentProfile: AgentProfileLocalStore
+  /** Opt-in sync of the agent profile with the account, and its copy on each host. */
+  readonly agentProfileSync: DeviceAgentProfileSync
   /** Organization rules and host policy, read for everyone and edited by owners. */
   readonly organizationSettings: OrganizationSettingsStore
   /** The personal light or dark choice, as this device applies it. */
@@ -121,23 +140,20 @@ export class SolusApp {
     const { storage, secrets } = platform
     this.registry = new HostRegistry(storage, secrets)
     this.account = new AccountSession({
-      client: new CloudAccountClient(platform.cloudOrigin ?? DEFAULT_CLOUD_ORIGIN, platform.fetch),
+      cloudOrigin: platform.cloudOrigin ?? DEFAULT_CLOUD_ORIGIN,
       registry: this.registry,
       secrets,
       storage,
       fetch: platform.fetch,
       now: () => Date.now(),
-      sleep: (ms, signal) => new Promise((resolve, reject) => {
-        const timer = setTimeout(resolve, ms)
-        signal.addEventListener('abort', () => { clearTimeout(timer); reject(new Error('aborted')) }, { once: true })
-      }),
-      openBrowser: platform.openBrowser,
-      deviceLabel: platform.deviceLabel,
+      authorizer: platform.accountAuthorizer,
+      crypto: platform.accountCrypto,
     })
     this.connections = new HostConnections({
       registry: this.registry,
       createTransport: platform.createTransport,
-      acquireHostAccessToken: (host, options) => this.account.acquireHostAccessToken(host, options),
+      hostAccessToken: (host, options) => this.account.hostAccessToken(host, options),
+      dialOrganizationId: (host) => this.account.dialOrganizationId(host),
       organizationId: () => this.account.organizationId,
       fetch: platform.fetch,
     })
@@ -152,6 +168,13 @@ export class SolusApp {
       environment: platform.settingsSyncEnvironment ?? alwaysOnlineEnvironment,
       clock: timerClock,
     })
+    this.agentProfile = new AgentProfileLocalStore(storage)
+    this.agentProfileSync = new DeviceAgentProfileSync(this.agentProfile, {
+      requests: this.account.agentProfileRequests(),
+      storage,
+      environment: platform.settingsSyncEnvironment ?? alwaysOnlineEnvironment,
+      clock: timerClock,
+    }, () => this.reachableHosts())
     this.organizationSettings = new OrganizationSettingsStore(new OrganizationSettingsClient(this.account.settingsRequests()))
     this.account.changes.subscribe(() => this.followAccount())
     this.hostSettings = new HostSettings((hostId) => this.connections.connection(hostId))
@@ -165,7 +188,7 @@ export class SolusApp {
       connections: this.connections,
       identity: () => {
         const account = this.account.view
-        return account.kind === 'signed-in' ? `account:${account.profile.id}` : 'device'
+        return account.kind === 'signed-in' ? `account:${account.identity.sub}` : 'device'
       },
     })
     this.registry.onHostRemoved((hostId) => this.cleanUpHost(hostId))
@@ -177,7 +200,10 @@ export class SolusApp {
     this.appearance.applySaved()
     await Promise.all([this.registry.load(), this.account.load()])
     this.followAccount()
-    if (this.account.isSignedIn) void this.account.refreshDirectory()
+    if (!this.account.isSignedIn) return
+    // The kept identity can be old: the name or picture may have changed on the website.
+    void this.account.refreshIdentity()
+    void this.account.refreshDirectory()
   }
 
   /** The route to restore, when its host is still known. A host that left
@@ -201,6 +227,17 @@ export class SolusApp {
 
   rememberRoute(route: LastRoute): void {
     this.platform.storage.setItem(LAST_ROUTE_KEY, JSON.stringify(route))
+  }
+
+  /** Whether this build can look for hosts on the local network. */
+  get canScanNearby(): boolean {
+    return !!this.platform.scanLocalNetwork
+  }
+
+  /** Hosts on the local network that this device has not paired yet. */
+  async scanNearby(): Promise<DiscoveredServer[]> {
+    const found = await this.platform.scanLocalNetwork?.() ?? []
+    return found.filter((server) => !this.registry.host(server.installationId)?.paired)
   }
 
   /** The host at an address, shown to the person before pairing. */
@@ -295,9 +332,21 @@ export class SolusApp {
   private followAccount(): void {
     const account = this.account.syncAccount
     this.personalSync.followAccount(account)
-    const accountKey = account ? settingsAccountKey(account) : null
+    this.agentProfileSync.followAccount(account)
+    const accountKey = account ? syncAccountKey(account) : null
     if (accountKey !== this.accountKey) this.organizationSettings.clear()
     this.accountKey = accountKey
+  }
+
+  /** The hosts this device is connected to now, each with its API: the ones a profile nudge can reach. */
+  private reachableHosts(): ReachableHost[] {
+    const hosts: ReachableHost[] = []
+    for (const host of this.registry.hosts()) {
+      if (this.connections.state(host.id)?.phase !== 'connected') continue
+      const connection = this.connections.connection(host.id)
+      if (connection) hosts.push({ hostId: host.id, api: connection.api })
+    }
+    return hosts
   }
 
   /** Everything this device kept for a host leaves with it. */
@@ -312,6 +361,7 @@ export class SolusApp {
     this.hostSettings.forgetHost(hostId)
     this.hostCloudLink.forgetHost(hostId)
     this.hostAccess.forgetHost(hostId)
+    this.agentProfileSync.forgetHost(hostId)
     this.pullRequests.forgetHost(hostId)
     this.files.forgetHost(hostId)
     this.modelProfiles.delete(hostId)

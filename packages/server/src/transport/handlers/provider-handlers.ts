@@ -621,6 +621,12 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     return prIndex.pullRequest(repo, provider, number).commits()
   })
 
+  server.register('prGetStack', async (args) => {
+    const [ctx, number] = args
+    const { repo, provider } = await reviewTargetFor(ctx)
+    return prIndex.pullRequest(repo, provider, number).stack()
+  })
+
   server.register('prListReviewers', async (args) => {
     const [ctx, number] = args
     const { repo, provider } = await reviewTargetFor(ctx)

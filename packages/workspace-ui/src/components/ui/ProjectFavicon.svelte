@@ -6,32 +6,34 @@
   } from "@lucide/svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { isChat } from "@solus/contracts/chat";
-  import { getSurfaceContext } from "../../contexts";
+  import {
+    CHATS_GROUP_KEY,
+    getSurfaceContext,
+    projectsStore,
+  } from "../../contexts";
   import { projectFaviconResolver } from "../../lib/project-favicon";
 
   let {
-    projectRoot,
-    serverId,
+    projectKey,
     class: className = "size-3.5",
   }: {
-    projectRoot: string;
-    serverId?: string | null;
+    /** The project, as `projectsStore` keys it. Never a bare path: a path
+     *  names a folder on one host only. */
+    projectKey: string;
     class?: string;
   } = $props();
 
   const session = getSurfaceContext();
-  const hasRoot = $derived(projectRoot.startsWith("/"));
-  const resolvedServerId = $derived.by(() => {
-    const contextualServerId =
-      serverId ??
-      session.activeSession?.run.serverId ??
-      serverConnections.runOnHostId();
-    return contextualServerId
-      ? serverConnections.resolveId(contextualServerId)
-      : "";
-  });
   // A chat has no project, so it has no project icon.
-  const inChat = $derived(isChat(projectRoot));
+  const inChat = $derived(isChat(projectKey) || projectKey === CHATS_GROUP_KEY);
+  // The favicon is a file in one checkout of the project: a host and a folder
+  // on it, both from that host's own project list.
+  const checkout = $derived(inChat ? null : projectsStore.checkoutFor(projectKey));
+  const resolvedServerId = $derived(
+    checkout ? serverConnections.resolveId(checkout.serverId) : "",
+  );
+  const projectRoot = $derived(checkout?.projectRoot ?? "");
+  const hasRoot = $derived(projectRoot.startsWith("/"));
   const requestKey = $derived(`${resolvedServerId}\0${projectRoot}`);
   let source = $state<{
     key: string;

@@ -5,22 +5,31 @@ import {
   ACCESS_TOKEN_TTL_SECONDS,
   ACCESS_TOKEN_TYPE,
   ACCOUNT_AUDIENCE,
+  CLIENT_ASSERTION_TYPE,
+  CONTROL_AUDIENCE,
   accessTokenClaimsSchema,
+  hostClientId,
+  hostCredentialRequestSchema,
   DEFAULT_ORGANIZATION_POLICY,
-  FIRST_PARTY_ACCESS_TOKEN_TTL_SECONDS,
-  GUEST_GRANT_TTL_SECONDS,
   hostAudience,
   type HostOrganizationsResponse,
   TOKEN_EXCHANGE_GRANT_TYPE,
   tokenAudiences,
   SOLUS_API_AUDIENCE,
   type AccessTokenClaims,
+  type PersonAccessTokenClaims,
   type EnrollHostResponse,
+  type HostCredentialResponse,
   type HostKind,
+  type HostLinkEnv,
+  type HostPublicJwk,
   type HostLinkResponse,
   type UplinkLinkConfig,
 } from '@solus/contracts/uplink'
 import { PERSONAS, type Persona } from './personas'
+
+/** A persona that signs in: a guest holds no token, only a share link's secret. */
+export type SignedInPersona = Exclude<Persona, { kind: 'guest' }>
 
 const addressSchema = z.object({ port: z.number().int().positive() })
 
@@ -32,15 +41,18 @@ const addressSchema = z.object({ port: z.number().int().positive() })
  *
  * For a managed host it also plays the provisioner (docs/plans/managed-hosts.md §2):
  * `issueManagedLink` is what the real cloud puts in the machine's environment, the
- * same link record and tokens enrollment answers with. That record is then served
- * back at `GET /v1/hosts/:id/link` under the host token, so a rebooted host passes
- * its generation check exactly as it would against the real directory.
+ * link record and a one-time credential ticket, with which the host registers the key
+ * it makes at first boot (`POST /v1/hosts/:id/credential`). That record is then served
+ * back at `GET /v1/hosts/:id/link` under the host's control token, so a rebooted host
+ * passes its generation check exactly as it would against the real directory.
  *
  * For the cloud workspace (plans/010-standard-oauth.md) it mints access tokens for
- * members, gives each linked host an OAuth client, and answers the token endpoint as
- * the real provider does: a host trades a person's access token for a delegated token
- * for the organization its link names (token exchange, RFC 8693), and refreshes it.
- * Every refresh is the live check: a host detached from the organization is refused.
+ * members, gives each linked host an OAuth client with its key (`private_key_jwt`,
+ * docs/adr/0001-standard-authentication.md §3.4), and answers the token endpoint as
+ * the real provider does: a host gets its own control token (client credentials), and
+ * trades a person's access token for a delegated token for the organization its link
+ * names (token exchange, RFC 8693), and refreshes it. Every refresh is the live check:
+ * a host detached from the organization is refused.
  */
 
 function base64Url(value: string | Buffer): string {
@@ -48,11 +60,26 @@ function base64Url(value: string | Buffer): string {
 }
 
 interface IssuedLink {
-  hostToken: string
   link: HostLinkResponse
-  oauthClient: { clientId: string; clientSecret: string }
+  /** The public half of the host's key; null until a provisioned host registers it. */
+  publicJwk: HostPublicJwk | null
+  /** A provisioned host's one-time ticket, until it is used. */
+  credentialTicket: string | null
   /** A managed host's: the organization it was provisioned for. */
   organizationId?: string
+}
+
+/** A host's own control token: client credentials for `CONTROL_AUDIENCE`. */
+interface HostControlClaims {
+  iss: string
+  aud: string
+  sub: string
+  client_id: string
+  jti: string
+  iat: number
+  exp: number
+  host_id: string
+  host_generation: number
 }
 
 type OrganizationMember = Extract<Persona, { kind: 'org-member' }>
@@ -78,12 +105,18 @@ type IssuerReply =
   | HostLinkResponse
   | HostOrganizationsResponse
   | TokenAnswer
+  | HostCredentialResponse
+  | { access_token: string; token_type: 'Bearer'; expires_in: number }
   | { error: string; message?: string; error_description?: string }
 
 const tokenRequestSchema = z.discriminatedUnion('grant_type', [
   z.object({ grant_type: z.literal(TOKEN_EXCHANGE_GRANT_TYPE), subject_token: z.string().min(1), subject_token_type: z.literal(ACCESS_TOKEN_TYPE), organization_id: z.string().min(1) }),
   z.object({ grant_type: z.literal('refresh_token'), refresh_token: z.string().min(1) }),
+  z.object({ grant_type: z.literal('client_credentials'), resource: z.literal(CONTROL_AUDIENCE) }),
 ])
+const clientAssertionSchema = z.object({ client_assertion_type: z.literal(CLIENT_ASSERTION_TYPE), client_assertion: z.string().min(1) })
+const assertionClaimsSchema = z.object({ iss: z.string().min(1), sub: z.string().min(1), exp: z.number() })
+const controlClaimsSchema = z.object({ aud: z.literal(CONTROL_AUDIENCE), host_id: z.string().min(1), host_generation: z.number(), exp: z.number() })
 
 function sendJson(response: ServerResponse, status: number, body: IssuerReply): void {
   response.statusCode = status
@@ -95,7 +128,7 @@ export interface MintOptions {
   hostId: string
   hostKind: HostKind
   hostOwnerUserId?: string
-  /** Seconds; defaults to an access token's five minutes, or a guest grant's ten. */
+  /** Seconds; defaults to an access token's five minutes. */
   ttlSeconds?: number
 }
 
@@ -168,12 +201,27 @@ export class LabIssuer {
 
   /**
    * What the provisioner puts in a managed machine's environment (`SOLUS_HOST_LINK`):
-   * the finished enrollment. A later generation supersedes an earlier one, as a
-   * recreated machine's would. A link that names the organization the machine was
-   * provisioned for is a managed host's; a runner's names none.
+   * the link record and a one-time credential ticket. A later generation supersedes an
+   * earlier one, as a recreated machine's would. A link that names the organization the
+   * machine was provisioned for is a managed host's; a runner's names none.
    */
-  issueManagedLink(hostId: string, proxiedPort: number, connectionGeneration = 1, organizationId?: string): EnrollHostResponse {
-    const hostToken = `sht_lab_${randomBytes(18).toString('base64url')}`
+  issueManagedLink(hostId: string, proxiedPort: number, connectionGeneration = 1, organizationId?: string): HostLinkEnv {
+    const credentialTicket = `hct_lab_${randomBytes(18).toString('base64url')}`
+    return { link: this.issueLink(hostId, proxiedPort, connectionGeneration, { publicJwk: null, credentialTicket, organizationId }), credentialTicket }
+  }
+
+  /**
+   * What enrollment answers a host that sent the public half of its key: the link, and
+   * its OAuth client registered with that key. A Lab runner is written as if it had
+   * enrolled, so the key is the one the Lab put in its secret store.
+   */
+  issueEnrolledLink(hostId: string, proxiedPort: number, publicJwk: HostPublicJwk): EnrollHostResponse {
+    const link = this.issueLink(hostId, proxiedPort, 1, { publicJwk, credentialTicket: null })
+    // The Lab runs no tunnel; the host's connector gets a token it can never use.
+    return { link, connectorToken: 'lab-connector-token', oauthClient: { clientId: hostClientId(hostId) } }
+  }
+
+  private issueLink(hostId: string, proxiedPort: number, connectionGeneration: number, credential: Pick<IssuedLink, 'publicJwk' | 'credentialTicket' | 'organizationId'>): UplinkLinkConfig {
     const link: HostLinkResponse = {
       hostId,
       desired: 'linked',
@@ -190,19 +238,12 @@ export class LabIssuer {
       proxiedPort,
       connectionGeneration,
     }
-    if (organizationId) issued.organizationId = organizationId
+    if (credential.organizationId) issued.organizationId = credential.organizationId
     if (this.workspaceUrl) issued.apiUrl = this.workspaceUrl
-    const oauthClient = { clientId: `host_${hostId}`, clientSecret: `shc_lab_${randomBytes(18).toString('base64url')}` }
     // A new link is a new client: whatever the old one held is gone, as on the real account plane.
     for (const [token, delegation] of this.refreshTokens) if (delegation.hostId === hostId) this.refreshTokens.delete(token)
-    this.links.set(hostId, { hostToken, link, oauthClient, organizationId })
-    return {
-      link: issued,
-      // The Lab runs no tunnel; the host's connector gets a token it can never use.
-      connectorToken: 'lab-connector-token',
-      hostToken,
-      oauthClient,
-    }
+    this.links.set(hostId, { link, ...credential })
+    return issued
   }
 
   /** The link record the issuer handed a managed host, or null before one was issued. */
@@ -222,7 +263,7 @@ export class LabIssuer {
   }
 
   /** A workspace access token for a member: `aud: urn:solus:api`, `hostKind: cloud`. */
-  issueWorkspaceGrant(persona: Persona, ttlSeconds?: number): string {
+  issueWorkspaceGrant(persona: SignedInPersona, ttlSeconds?: number): string {
     return this.mint(persona, { hostId: SOLUS_API_AUDIENCE, hostKind: 'cloud', ttlSeconds })
   }
 
@@ -239,7 +280,7 @@ export class LabIssuer {
       iss: this.issuer,
       aud: [SOLUS_API_AUDIENCE, ACCOUNT_AUDIENCE],
       sub: persona.userId,
-      deviceId: hostId,
+      grant_id: `lab-grant-${persona.userId}`,
       jti: `lab-${this.minted}-${nowSeconds}`,
       iat: nowSeconds,
       exp: nowSeconds + ACCESS_TOKEN_TTL_SECONDS,
@@ -260,12 +301,16 @@ export class LabIssuer {
       sendJson(response, 200, { keys: [this.jwk] })
       return
     }
+    const credentialMatch = /^\/v1\/hosts\/([^/]+)\/credential$/.exec(url.pathname)
+    if (credentialMatch && request.method === 'POST') {
+      await this.handleCredential(credentialMatch[1]!, request, response)
+      return
+    }
     const organizationsMatch = /^\/v1\/hosts\/([^/]+)\/organizations$/.exec(url.pathname)
     if (organizationsMatch && request.method === 'GET') {
       const hostId = organizationsMatch[1]!
-      const issued = this.links.get(hostId)
-      if (!issued || request.headers.authorization !== `Bearer ${issued.hostToken}`) {
-        sendJson(response, 401, { error: 'invalid_host_token' })
+      if (!this.controlCaller(hostId, request.headers.authorization)) {
+        sendJson(response, 401, { error: 'invalid_host_credential' })
         return
       }
       const organizationId = this.hostOrganizations.get(hostId)
@@ -282,8 +327,7 @@ export class LabIssuer {
     const linkMatch = /^\/v1\/hosts\/([^/]+)\/link$/.exec(url.pathname)
     if (linkMatch) {
       const issued = this.links.get(linkMatch[1]!)
-      const presented = request.headers.authorization?.replace(/^Bearer\s+/i, '')
-      if (issued && presented === issued.hostToken) {
+      if (issued && this.controlCaller(linkMatch[1]!, request.headers.authorization)) {
         if (request.method === 'DELETE') {
           this.links.delete(linkMatch[1]!)
           response.statusCode = 204
@@ -296,23 +340,51 @@ export class LabIssuer {
       // A host the Lab never issued a link to (the hand-written record) gets 404:
       // "unknown", which keeps its link. A wrong token on a bootstrapped host is 401:
       // superseded, exactly what the real directory answers.
-      sendJson(response, issued ? 401 : 404, { error: issued ? 'invalid_host_token' : 'host_not_found' })
+      sendJson(response, issued ? 401 : 404, { error: issued ? 'invalid_host_credential' : 'host_not_found' })
       return
     }
     response.statusCode = 404
     response.end()
   }
 
-  /** The OAuth token endpoint, for host clients only: token exchange and refresh. */
-  private async handleToken(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const refuse = (status: number, error: string, description: string) => sendJson(response, status, { error, error_description: description })
-    const client = this.clientOf(request.headers.authorization)
-    if (!client) return refuse(401, 'invalid_client', 'Unknown host client.')
+  /** A provisioned host registers its key with its one-time ticket; the same key again is accepted. */
+  private async handleCredential(hostId: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
     let body = ''
     for await (const chunk of request) body += chunk
-    const parsed = tokenRequestSchema.safeParse(Object.fromEntries(new URLSearchParams(body)))
-    if (!parsed.success) return refuse(400, 'invalid_request', 'Not a token exchange or a refresh.')
+    const parsed = hostCredentialRequestSchema.safeParse(JSON.parse(body || 'null'))
+    const issued = this.links.get(hostId)
+    if (!parsed.success || !issued) return sendJson(response, 400, { error: 'invalid_request' })
+    const sameKey = issued.publicJwk?.x === parsed.data.publicJwk.x && issued.publicJwk?.y === parsed.data.publicJwk.y
+    if (issued.credentialTicket === parsed.data.credentialTicket) {
+      issued.publicJwk = parsed.data.publicJwk
+      issued.credentialTicket = null
+    } else if (!sameKey) {
+      return sendJson(response, 401, { error: 'invalid_ticket' })
+    }
+    sendJson(response, 200, { oauthClient: { clientId: hostClientId(hostId) } })
+  }
+
+  /** The OAuth token endpoint, for host clients only: client credentials, token exchange, and refresh. */
+  private async handleToken(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const refuse = (status: number, error: string, description: string) => sendJson(response, status, { error, error_description: description })
+    let body = ''
+    for await (const chunk of request) body += chunk
+    const fields = Object.fromEntries(new URLSearchParams(body))
+    const client = this.clientOf(fields)
+    if (!client) return refuse(401, 'invalid_client', 'Unknown host client.')
+    const parsed = tokenRequestSchema.safeParse(fields)
+    if (!parsed.success) return refuse(400, 'invalid_request', 'Not a token exchange, a refresh, or client credentials.')
     const form = parsed.data
+    if (form.grant_type === 'client_credentials') {
+      const nowSeconds = Math.floor(Date.now() / 1000)
+      this.minted += 1
+      const clientId = hostClientId(client.hostId)
+      const control: HostControlClaims = {
+        iss: this.issuer, aud: CONTROL_AUDIENCE, sub: clientId, client_id: clientId, jti: `lab-${this.minted}-${nowSeconds}`,
+        iat: nowSeconds, exp: nowSeconds + ACCESS_TOKEN_TTL_SECONDS, host_id: client.hostId, host_generation: client.generation,
+      }
+      return sendJson(response, 200, { access_token: this.sign(control), token_type: 'Bearer', expires_in: ACCESS_TOKEN_TTL_SECONDS })
+    }
     let delegation: Delegation
     if (form.grant_type === 'refresh_token') {
       const held = this.refreshTokens.get(form.refresh_token)
@@ -337,15 +409,32 @@ export class LabIssuer {
     sendJson(response, 200, answer)
   }
 
-  /** The host whose OAuth client presented these Basic credentials, or null. */
-  private clientOf(authorization: string | undefined): { hostId: string } | null {
-    const encoded = /^Basic\s+(.+)$/i.exec(authorization ?? '')?.[1]
-    if (!encoded) return null
-    const [clientId = '', clientSecret = ''] = Buffer.from(encoded, 'base64').toString('utf8').split(':').map(decodeURIComponent)
+  /** The host whose key signed this client assertion (`private_key_jwt`), or null. */
+  private clientOf(fields: Record<string, string>): { hostId: string; generation: number } | null {
+    const parsed = clientAssertionSchema.safeParse(fields)
+    if (!parsed.success) return null
+    const [header, body, signature] = parsed.data.client_assertion.split('.')
+    if (!header || !body || !signature) return null
+    const claims = assertionClaimsSchema.safeParse(JSON.parse(Buffer.from(body, 'base64url').toString('utf8')))
+    if (!claims.success || claims.data.iss !== claims.data.sub || claims.data.exp <= Date.now() / 1000) return null
     for (const [hostId, issued] of this.links) {
-      if (issued.oauthClient.clientId === clientId && issued.oauthClient.clientSecret === clientSecret) return { hostId }
+      if (hostClientId(hostId) !== claims.data.sub || !issued.publicJwk) continue
+      const key = createPublicKey({ key: { ...issued.publicJwk }, format: 'jwk' })
+      const valid = verify('sha256', Buffer.from(`${header}.${body}`), { key, dsaEncoding: 'ieee-p1363' }, Buffer.from(signature, 'base64url'))
+      return valid ? { hostId, generation: issued.link.connectionGeneration } : null
     }
     return null
+  }
+
+  /** Whether a bearer is this host's control token for its current link. */
+  private controlCaller(hostId: string, authorization: string | undefined): boolean {
+    const token = authorization?.replace(/^Bearer\s+/i, '') ?? ''
+    const [header, body, signature] = token.split('.')
+    const issued = this.links.get(hostId)
+    if (!header || !body || !signature || !issued?.publicJwk) return false
+    if (!verify('sha256', Buffer.from(`${header}.${body}`), { key: createPublicKey(this.privateKey), dsaEncoding: 'ieee-p1363' }, Buffer.from(signature, 'base64url'))) return false
+    const claims = controlClaimsSchema.safeParse(JSON.parse(Buffer.from(body, 'base64url').toString('utf8')))
+    return claims.success && claims.data.host_id === hostId && claims.data.host_generation === issued.link.connectionGeneration && claims.data.exp > Date.now() / 1000
   }
 
   /** The claims of a token this issuer signed and that has not run out, or null. */
@@ -360,10 +449,10 @@ export class LabIssuer {
 
   /**
    * One access token per dial, exactly as the account plane would issue it for this
-   * persona: for one host (`hostAudience`), or for the Solus API when `hostId` is
-   * `SOLUS_API_AUDIENCE`. A guest's is a guest grant.
+   * persona's client grant: for one host (`hostAudience`), or for the Solus API when
+   * `hostId` is `SOLUS_API_AUDIENCE`. A member's lists the organization it reaches.
    */
-  mint(persona: Persona, options: MintOptions): string {
+  mint(persona: SignedInPersona, options: MintOptions): string {
     const nowSeconds = Math.floor(Date.now() / 1000)
     this.minted += 1
     const base = {
@@ -371,36 +460,31 @@ export class LabIssuer {
       aud: options.hostId === SOLUS_API_AUDIENCE ? SOLUS_API_AUDIENCE : hostAudience(options.hostId),
       jti: `lab-${this.minted}-${nowSeconds}`,
       iat: nowSeconds,
-      exp: nowSeconds + (options.ttlSeconds ?? (persona.kind === 'guest' ? GUEST_GRANT_TTL_SECONDS : FIRST_PARTY_ACCESS_TOKEN_TTL_SECONDS)),
+      exp: nowSeconds + (options.ttlSeconds ?? ACCESS_TOKEN_TTL_SECONDS),
       hostKind: options.hostKind,
       displayName: persona.displayName,
+      sub: persona.userId,
+      grant_id: `${persona.id}-grant`,
+      client_id: 'solus-desktop',
     }
-    let claims: AccessTokenClaims
+    let claims: PersonAccessTokenClaims
     switch (persona.kind) {
       case 'host-owner':
-        claims = { ...base, sub: persona.userId, deviceId: `${persona.id}-session`, client_id: 'solus-app', access: 'owner', hostOwnerUserId: persona.userId }
+        claims = { ...base, access: 'owner', hostOwnerUserId: persona.userId }
         break
       case 'org-member':
         claims = {
           ...base,
-          sub: persona.userId,
-          deviceId: `${persona.id}-session`,
-          client_id: 'solus-app',
           access: 'org-member',
-          organizationId: persona.organizationId,
-          organizationRole: persona.organizationRole,
-          teamIds: persona.teamIds,
+          organizations: [{ id: persona.organizationId, role: persona.organizationRole, teamIds: [...persona.teamIds] }],
         }
         if (options.hostOwnerUserId) claims.hostOwnerUserId = options.hostOwnerUserId
-        break
-      case 'guest':
-        claims = { ...base, sub: `guest:${persona.guestId}`, deviceId: persona.guestId, access: 'guest' }
         break
     }
     return this.sign(claims)
   }
 
-  private sign(claims: AccessTokenClaims): string {
+  private sign(claims: AccessTokenClaims | HostControlClaims): string {
     const header = base64Url(JSON.stringify({ alg: 'ES256', kid: this.kid, typ: 'JWT' }))
     const body = base64Url(JSON.stringify(claims))
     const signature = sign('sha256', Buffer.from(`${header}.${body}`), { key: this.privateKey, dsaEncoding: 'ieee-p1363' })

@@ -92,7 +92,7 @@ beforeAll(async () => {
   shares = new shareManager.ShareManager({ db: database.getDatabase() })
   hostOrganizations = new organizations.HostOrganizations({
     link: () => LINK,
-    hostToken: () => 'sht_token',
+    credential: () => ({ hostAccessToken: async () => 'control-token' }),
     fetchImpl: async () => new Response(JSON.stringify(STANDING), { status: 200, headers: { 'content-type': 'application/json' } }),
     setTimeoutFn: (() => ({ unref() {} })) as unknown as typeof setTimeout,
     clearTimeoutFn: (() => {}) as typeof clearTimeout,

@@ -88,7 +88,7 @@ export async function addWorkspaceProject(
   const project: WorkspaceProject = {
     id: ulid(now),
     repositoryKey,
-    displayName: request.displayName?.trim() || repositoryKey.split('/').slice(1).join('/'),
+    displayName: request.displayName?.trim() || repositoryKey.split('/').at(-1)!,
     defaultBranch: null,
     createdBy,
     createdAt: now,

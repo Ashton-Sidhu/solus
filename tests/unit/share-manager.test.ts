@@ -67,6 +67,21 @@ function manager(): { shares: ShareManagerType; changes: ShareChange[] } {
   return { shares, changes }
 }
 
+describe('reach', () => {
+  test('a named share is refused on a host members cannot reach; the link is not', async () => {
+    // WHY (host-sharing.md §4.3): a member reaches a host through the cloud app, which
+    // needs the host linked. A share with the organization on an unlinked host would move
+    // the record into an organization nobody can open; the guest link needs no cloud.
+    const shares = new ShareManager({ db: database.getDatabase(), membersReachable: () => false })
+    const session = { kind: 'session', id: 's1' } as const
+    await shares.claimOwner(session, OWNER)
+    await expect(shares.setGrants({ resource: session, grants: [{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }] }, OWNER))
+      .rejects.toMatchObject({ code: 'HOST_NOT_LINKED' })
+    await expect(shares.setGrants({ resource: session, grants: [], link: { role: 'viewer' } }, OWNER)).resolves.toMatchObject({ link: { role: 'viewer' } })
+    expect((await shares.setLink({ resource: session, role: 'editor' }, OWNER))?.role).toBe('editor')
+  })
+})
+
 describe('ownership', () => {
   test('the first principal to claim a resource owns it; later claims change nothing', async () => {
     const { shares } = manager()
@@ -406,5 +421,75 @@ describe('the link and guests', () => {
     await shares.claimOwner({ kind: 'session', id: 's1' }, member('alice'))
     expect(await shares.roleFor(member('alice'), { kind: 'session', id: 's1' })).toBe('owner')
     expect(await shares.ownerOf({ kind: 'session', id: 'thread-1' })).toBeNull()
+  })
+})
+
+describe('sharing a Local record with an organization', () => {
+  // WHY: a member is admitted only to records of their own organization
+  // (organization-scope §3). Sharing a Local session from this machine with
+  // "everyone in org1" must put the session in org1, or no member of org1 could
+  // open it. A record of another organization never moves.
+  const session = { kind: 'session' as const, id: 's-local' }
+  const orgOf = (rows: Array<{ organization_id: string }>) => [...new Set(rows.map((row) => row.organization_id))]
+  const rowsOf = async (id: string) => database.getDatabase().all<{ organization_id: string }>(sql`SELECT organization_id FROM share_grant WHERE resource_id = ${id}`)
+
+  function withRecords(records: Map<string, string>) {
+    const assigned: Array<[string, string]> = []
+    const shares = new ShareManager({
+      db: database.getDatabase(),
+      now: () => 1_000,
+      organizationOfResource: async (resource) => records.get(resource.id) ?? null,
+      assignOrganization: async (resource, organizationId) => {
+        const current = records.get(resource.id)
+        if (current === undefined) return null
+        if (current !== 'local') return current
+        assigned.push([resource.id, organizationId])
+        records.set(resource.id, organizationId)
+        return organizationId
+      },
+    })
+    return { shares, assigned }
+  }
+
+  test('the record joins the organization, and its members can open it', async () => {
+    const { shares, assigned } = withRecords(new Map([['s-local', 'local']]))
+    await shares.claimOwner(session, OWNER)
+    expect(orgOf(await rowsOf('s-local'))).toEqual(['local'])
+
+    await shares.setGrants({ resource: session, grants: [{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }] }, OWNER)
+
+    expect(assigned).toEqual([['s-local', 'org1']])
+    expect(orgOf(await rowsOf('s-local'))).toEqual(['org1'])
+    expect(await shares.roleFor(member('bob', [], 'member', 'personal'), session)).toBe('editor')
+    expect(await shares.roleFor(member('carol', [], 'member', 'personal', 'org2'), session)).toBe('none')
+    expect(await shares.roleFor(OWNER, session)).toBe('owner')
+  })
+
+  test('a record of another organization is refused and nothing is written', async () => {
+    const { shares, assigned } = withRecords(new Map([['s-org2', 'org2']]))
+    const other = { kind: 'session' as const, id: 's-org2' }
+    await shares.claimOwner(other, OWNER)
+    const before = await rowsOf('s-org2')
+
+    await expect(shares.setGrants({ resource: other, grants: [{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }] }, OWNER)).rejects.toBeInstanceOf(ShareAccessError)
+
+    expect(assigned).toEqual([])
+    expect(await rowsOf('s-org2')).toEqual(before)
+  })
+
+  test('a host that cannot assign the record refuses instead of writing a row nobody can use', async () => {
+    const { shares } = manager()
+    await shares.claimOwner(session, OWNER)
+    await expect(shares.setGrants({ resource: session, grants: [{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }] }, OWNER)).rejects.toBeInstanceOf(ShareAccessError)
+    expect(orgOf(await rowsOf('s-local'))).toEqual(['local'])
+  })
+
+  test('a record assigned by another path takes its Local rows with it, and no other organization\'s', async () => {
+    const { shares } = manager()
+    await shares.claimOwner(session, OWNER)
+    await shares.followRecordOrganization(session, 'org1')
+    expect(orgOf(await rowsOf('s-local'))).toEqual(['org1'])
+    await shares.followRecordOrganization(session, 'org2')
+    expect(orgOf(await rowsOf('s-local'))).toEqual(['org1'])
   })
 })

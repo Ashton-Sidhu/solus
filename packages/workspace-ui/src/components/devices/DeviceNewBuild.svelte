@@ -9,6 +9,7 @@
   import { toasts } from "../../lib/toasts";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
+  import { groupKeyFor } from "../../contexts";
 
   /**
    * New build on the Builds page (plan 016, S02): build one of the project's
@@ -26,9 +27,11 @@
     projects: ProjectEntry[];
     onChooseProject: (path: string) => void;
     onEditProfiles: () => void;
+    /** The menu's open state; Builds opens it again after profiles are saved. */
+    open?: boolean;
   }
 
-  let { serverId, sessionId, checkoutPath, projects, onChooseProject, onEditProfiles }: Props = $props();
+  let { serverId, sessionId, checkoutPath, projects, onChooseProject, onEditProfiles, open = $bindable(false) }: Props = $props();
   const projectName = $derived(checkoutPath ? (checkoutPath.split(/[\\/]/).filter(Boolean).at(-1) ?? checkoutPath) : null);
 
   const profiles = $derived(checkoutPath ? devicesStore.runProfiles(serverId, checkoutPath) : null);
@@ -49,14 +52,20 @@
       starting = false;
     }
   }
+
+  // Choosing a project is half the question: open the menu again on its profiles, so the next step is in view.
+  function chooseProject(path: string) {
+    onChooseProject(path);
+    setTimeout(() => (open = true));
+  }
 </script>
 
 {#snippet projectItems()}
   <!-- The folder path under each name: two checkouts can share a folder name. -->
   {#each projects as project (project.path)}
     {@const isCurrent = project.path === checkoutPath}
-    <DropdownMenu.Item data-menu-current={isCurrent ? "" : undefined} title={abbreviateHome(project.path)} onSelect={() => onChooseProject(project.path)}>
-      <ProjectFavicon projectRoot={project.path} {serverId} class="size-3.5" />
+    <DropdownMenu.Item data-menu-current={isCurrent ? "" : undefined} title={abbreviateHome(project.path)} onSelect={() => chooseProject(project.path)}>
+      <ProjectFavicon projectKey={groupKeyFor(serverId, project.path)} class="size-3.5" />
       <span class="flex min-w-0 flex-1 flex-col">
         <span class="truncate {isCurrent ? 'font-medium' : ''}">{project.folderName}</span>
         <span class="truncate text-xs text-muted-foreground">{abbreviateHome(project.path)}</span>
@@ -68,7 +77,7 @@
   {/each}
 {/snippet}
 
-<DropdownMenu.Root>
+<DropdownMenu.Root bind:open>
   <DropdownMenu.Trigger>
     {#snippet child({ props })}
       <button {...props} type="button" class="{PAGE_PRIMARY_BTN} disabled:cursor-not-allowed disabled:opacity-50" disabled={starting}>
@@ -81,10 +90,16 @@
       <div class="px-2 pt-0.5 pb-1.5 text-menu text-muted-foreground">Build which project?</div>
       {@render projectItems()}
     {:else}
+      <div class="truncate px-2 pt-0.5 pb-1.5 text-menu text-muted-foreground">Build {projectName} with</div>
       {#if profiles === undefined}
         <DropdownMenu.Item disabled>Reading build profiles…</DropdownMenu.Item>
       {:else if !profiles?.length}
-        <DropdownMenu.Item onSelect={onEditProfiles}>Set up a build…</DropdownMenu.Item>
+        <DropdownMenu.Item onSelect={onEditProfiles}>
+          <span class="flex min-w-0 flex-1 flex-col">
+            <span>Set up a build profile…</span>
+            <span class="text-xs text-muted-foreground">This project has none yet</span>
+          </span>
+        </DropdownMenu.Item>
       {:else}
         {#each profiles as profile (profile.name)}
           <DropdownMenu.Item disabled={building.has(profile.name)} onSelect={() => void start(profile)}>
@@ -98,8 +113,7 @@
       <DropdownMenu.Sub>
         <DropdownMenu.SubTrigger>
           <FolderGit2 size={14} class="shrink-0 text-muted-foreground" />
-          <span class="min-w-0 flex-1 truncate">Project</span>
-          <span class="max-w-28 truncate text-muted-foreground">{projectName}</span>
+          <span class="min-w-0 flex-1 truncate">Other project</span>
         </DropdownMenu.SubTrigger>
         <DropdownMenu.SubContent class="flex max-h-[min(32rem,calc(var(--bits-dropdown-menu-content-available-height,36rem)-1rem))] w-72 max-w-[calc(100vw-1rem)] flex-col overflow-y-auto p-2">
           <div class="px-2 pt-0.5 pb-1.5 text-menu text-muted-foreground">Project</div>

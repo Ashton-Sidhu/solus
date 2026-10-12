@@ -13,7 +13,7 @@ import type { AgentId, GitCheckout, IpcContext, PromptOptions, PromptDelivery, P
 import { defaultContextWindowFor } from '@solus/contracts/types'
 import { SeatRequiredError } from '../seats/seat-manager'
 import { type Actor } from '../../admission/actor'
-import { INTERNAL_PRINCIPAL, recordScopeOf } from '../../admission/principal'
+import { INTERNAL_PRINCIPAL } from '../../admission/principal'
 import { integrationAgentTools } from '../../integrations/integration-tools'
 import type { SessionRuntime, SessionRunRequest, SessionRunLifecycle, DispatchTarget } from '../session-runtime'
 
@@ -21,7 +21,7 @@ const log = createLogger('SessionRuntime', 'prompt-dispatch.ts')
 
 /** A run's Solus tools, then the tools of every integration the run's person may read; a run with no actor is the host's. */
 function selectAgentTools(actor: Actor | undefined, ...groups: Array<Record<string, AgentTool>>): AgentTool[] {
-  return [...groups.flatMap((group) => Object.values(group)), ...integrationAgentTools(recordScopeOf(actor?.principal ?? INTERNAL_PRINCIPAL))]
+  return [...groups.flatMap((group) => Object.values(group)), ...integrationAgentTools(actor?.principal ?? INTERNAL_PRINCIPAL)]
 }
 
 export interface CreateSessionRequest extends Omit<CreateSessionOrder, 'modelId'> {

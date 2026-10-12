@@ -1,5 +1,5 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/new-task-project-selection.ts (MIT, see UPSTREAM.md).
-import { distinctProjectLabels, groupByProject } from '@solus/client-core/project-identity'
+import { groupByProject } from '@solus/client-core/project-identity'
 import { isChat } from '@solus/contracts/chat'
 import type { SolusProjectShell } from './thread-directory'
 
@@ -13,7 +13,7 @@ import type { SolusProjectShell } from './thread-directory'
 export interface ProjectScope {
   /** The project key: the repository key, or `<hostId>:<path>` for a local-only folder. */
   readonly key: string
-  /** The project's name, told apart from another scope in the same list that shares it. */
+  /** The project's name. */
   readonly title: string
   readonly projects: readonly SolusProjectShell[]
   readonly representative: SolusProjectShell
@@ -27,14 +27,9 @@ export function groupProjectScopes(projects: readonly SolusProjectShell[]): Proj
     projects.filter((project) => !isChat(project.project.path)),
     (project) => ({ serverId: project.hostId, path: project.project.path, repositoryKey: project.project.repositoryKey }),
   )
-  const hostLabels = new Map(projects.map((project) => [project.hostId, project.hostLabel]))
-  const titles = distinctProjectLabels(
-    groups.map((group) => ({ key: group.key, label: group.checkouts[0]!.project.folderName })),
-    (hostId) => hostLabels.get(hostId) ?? hostId,
-  )
-  return groups.map((group, index) => ({
+  return groups.map((group) => ({
     key: group.key,
-    title: titles[index]!,
+    title: group.checkouts[0]!.project.folderName,
     projects: group.checkouts,
     representative: group.checkouts[0]!,
     projectKeys: new Set(group.checkouts.map((project) => project.key)),

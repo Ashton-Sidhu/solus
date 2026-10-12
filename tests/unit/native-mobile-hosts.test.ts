@@ -166,6 +166,20 @@ describe('native host connections', () => {
     expect(transport?.dials).toBe(2)
   })
 
+  test('a cloud host dial names its organization at the ticket; a paired host dial names none', async () => {
+    const { registry, connections, transports } = createHostWorld()
+    await registry.load()
+    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({ organizationIds: ['org-1'] })])
+    await registry.savePaired({ id: 'inst-a', label: 'Studio Mac', url: 'http://10.0.0.8:51234' }, 'token-a')
+    connections.connection('inst-cloud')
+    connections.connection('inst-a')
+    const [cloud, paired] = transports
+    // An access token lists every organization that reaches the host; the dial picks one (ADR 0001 §6.4).
+    expect(cloud?.options.dialOrganizationId?.()).toBe('org-1')
+    expect(paired?.options.acquireGrant).toBeUndefined()
+    expect(paired?.options.dialOrganizationId).toBeUndefined()
+  })
+
   test('a managed host whose compute is not ready is not dialed', async () => {
     const { registry, connections, transports } = createHostWorld()
     await registry.load()

@@ -21,9 +21,9 @@ export interface ListProjectOption {
   /** The project key the page scope takes: a repository key, or a local-only
    *  folder's key. Row identity. */
   key: string
-  /** The checkout path the favicon is looked up under. */
+  /** The path of one checkout of it, shown as the row's title. */
   projectKey: string
-  /** The host the favicon is read on. */
+  /** The host of that checkout. */
   serverId: string
   label: string
   /** False when no connected host holds a checkout and the organization has
@@ -208,7 +208,7 @@ export type ListIcon = typeof ChevronRight
  *  the menu never has to know what a project *is*, only how many rows carry it. */
 export interface ListScopeOption {
   value: string
-  /** Repo root, for the favicon. */
+  /** The project, as `projectsStore` keys it, for the favicon. */
   projectKey: string
   label: string
   count: number

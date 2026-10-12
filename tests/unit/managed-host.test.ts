@@ -56,11 +56,11 @@ describe('managed host', () => {
 
   const envLink = {
     link: { hostId: 'abcdefghijklmnop', issuer: 'https://app.example.test', jwksUrl: 'https://app.example.test/api/auth/jwks', directoryUrl: 'https://app.example.test', hostname: 'h-abcdefghijklmnop.example.test', proxiedPort: 34118, connectionGeneration: 1 },
-    connectorToken: 'connector-token', hostToken: 'sht_secret', oauthClient: { clientId: 'host_x', clientSecret: 'shc_secret' },
+    credentialTicket: 'hct_secret',
   }
 
-  test('the environment link is read once and its tokens leave process.env on first read', () => {
-    // WHY: agent processes inherit process.env; the tokens must not (§2).
+  test('the environment link is read once and its one-time ticket leaves process.env on first read', () => {
+    // WHY: agent processes inherit process.env; the ticket must not (§2).
     process.env.SOLUS_HOST_LINK = JSON.stringify(envLink)
     expect(hostLinkEnv.readHostLinkEnv()).toEqual(envLink)
     expect(process.env.SOLUS_HOST_LINK).toBeUndefined()

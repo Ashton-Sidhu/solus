@@ -31,7 +31,8 @@
 
   let record = $state<SessionRecordStore | null>(null);
   $effect(() => {
-    const current = new SessionRecordStore(workspace, params.serverId, params.sessionId);
+    // On the host that runs the session, watch it so each turn lands as it happens.
+    const current = new SessionRecordStore(workspace, params.serverId, params.sessionId, { watch: live === true });
     record = current;
     return () => current.dispose();
   });

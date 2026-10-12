@@ -3,7 +3,8 @@ import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import type { IntegrationChangedEvent } from '@solus/contracts/integration-types'
-import type { IntegrationClient, IntegrationSecrets, IntegrationToken } from '@solus/server/integrations/connection-store'
+import type { IntegrationSecrets } from '@solus/server/integrations/connection-store'
+import type { OAuthClient, OAuthToken } from '@solus/contracts/integrations/oauth-protocol'
 import { TEST_HANDLER_CTX } from '../helpers/handler-ctx'
 import { resetTestDatabase } from '../helpers/test-db'
 import { startFakeServers, type FakeServers } from './fake-servers'
@@ -33,9 +34,9 @@ const START = { callbackBaseUrl: 'https://host.example', fallbackHost: '127.0.0.
 
 let fake: FakeServers
 
-function memorySecrets(): IntegrationSecrets & { clients: Map<string, IntegrationClient> } {
-  const tokens = new Map<string, IntegrationToken>()
-  const clients = new Map<string, IntegrationClient>()
+function memorySecrets(): IntegrationSecrets & { clients: Map<string, OAuthClient> } {
+  const tokens = new Map<string, OAuthToken>()
+  const clients = new Map<string, OAuthClient>()
   const key = (id: string, user: string | null) => `${id}/${user ?? 'host'}`
   return {
     clients,

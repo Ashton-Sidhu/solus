@@ -2,18 +2,18 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, readFileSync, statSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { AccountStore, type AccountCipher, type StoredAccount } from '@solus/desktop-main/account/account-store'
+import { AccountStore, type AccountCipher } from '@solus/desktop-main/account/account-store'
+import type { StoredGrant } from '@solus/client-core/oauth-session'
 
-// The store is the only place the account session token is persisted. These tests
+// The store is the only place the desktop's refresh token is persisted. These tests
 // pin the two rules that matter: the file never holds the token in the clear, and
 // an unavailable keychain refuses to store rather than degrading to plaintext.
 
-const account: StoredAccount = {
-  sessionToken: 'secret-session-token',
-  profile: { id: 'u1', email: 'a@b.co', name: 'Ashton', avatarUrl: null },
-  cloudOrigin: 'https://app.solus.sh',
+const account: StoredGrant = {
+  refreshToken: 'secret-refresh-token',
+  idToken: 'h.p.s',
+  identity: { sub: 'u1', email: 'a@b.co', emailVerified: true, name: 'Ashton', picture: null },
   signedInAt: 1,
-  lastVerifiedAt: 1,
 }
 
 function reversingCipher(available = true): AccountCipher {
@@ -33,7 +33,7 @@ describe('AccountStore', () => {
   test('round-trips through the cipher and never writes the token in the clear', () => {
     const { store, file } = storeIn(reversingCipher())
     store.save(account)
-    expect(readFileSync(file, 'utf8')).not.toContain('secret-session-token')
+    expect(readFileSync(file, 'utf8')).not.toContain('secret-refresh-token')
     expect(statSync(file).mode & 0o777).toBe(0o600)
     expect(store.load()).toEqual(account)
   })
@@ -49,6 +49,14 @@ describe('AccountStore', () => {
     const { store } = storeIn(reversingCipher())
     store.save(account)
     store.clear()
+    expect(store.load()).toBeNull()
+  })
+
+  test('a file of the old session-token form reads as signed out, so the install signs in again', () => {
+    const { store, file } = storeIn(reversingCipher())
+    const old = new AccountStore(file, reversingCipher())
+    // SAFETY: writes the pre-OAuth shape on purpose, as an older build left it.
+    old.save({ sessionToken: 's', profile: { id: 'u', email: 'a@b.co', name: null, avatarUrl: null }, cloudOrigin: 'https://app.solus.sh', signedInAt: 1, lastVerifiedAt: 1 } as unknown as StoredGrant)
     expect(store.load()).toBeNull()
   })
 

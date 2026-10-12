@@ -65,10 +65,37 @@ credential. A call on an integration you have not connected fails with
 can ask `connection_status` for an integration to check first. A request for
 input from the server during a call shows as a question card.
 
+## Your own servers
+
+A server can be yours alone (plans/020-agent-profile.md §2.1). On a host you do
+not administer, Add makes a personal record: only you see it and its tools,
+and its tool prefix is yours, so it may equal a shared server's. Your personal
+servers are part of your [agent profile](agent-profile.md), so they follow you
+to every host you have a seat on. On a host you own, every server is the
+host's, as before.
+
+## Connections through Solus Cloud
+
+When you are signed in to Solus, a sign-in to any server a host shows you,
+shared or your own, runs at app.solus.sh, once, and the connection lives in
+your account. Profile sync does not need to be on. A host reads an access
+token from your account for each call and keeps nothing else; its row reads
+"Connected through Solus Cloud". A connection you made on a host before moves
+into your account the next time that host pulls your profile. When Solus
+Cloud does not answer, the host uses the token it cached until it expires,
+then shows "Solus Cloud unreachable", which no sign-in fixes.
+
+Two sign-ins stay on the host: any sign-in while you are signed out, and a
+server whose OAuth client only the host's administrator holds
+(`client-required`). The cloud signs in only to a public HTTPS server. A
+host's sign-in returns to the address the client reached the host on, so it
+also works through a host's tunnel URL.
+
 ## Who may change what
 
-The host owner and an organization owner add, rename, probe, and remove
-integrations. Any member sees them and uses their tools. A guest sees none.
+The host owner and an organization owner add, rename, probe, and remove shared
+integrations. Any member sees them and uses their tools, and adds, renames,
+and removes their own personal ones. A guest sees none.
 
 ## Not in this release
 

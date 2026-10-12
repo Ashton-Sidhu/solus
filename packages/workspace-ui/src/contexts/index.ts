@@ -37,9 +37,10 @@ export { getPlanStore } from './plans/plan.store.svelte'
 
 /** Global local-first task state shared by task and session surfaces. */
 export { TasksStore, isAgentRunningStatus } from './tasks/tasks.store.svelte'
+export { taskLinks } from './tasks/task-links'
 
 /** Known projects and per-project configuration. */
-export { projectsStore } from './projects/projects.store.svelte'
+export { CHATS_GROUP_KEY, groupKeyFor, projectsStore } from './projects/projects.store.svelte'
 export { workspaceProjectsStore } from './projects/workspace-projects.store.svelte'
 export { listenForProjectDirectory } from './projects/project-directory'
 export { getProjectConfigStore } from './projects/project-config.store.svelte'
@@ -112,6 +113,9 @@ export { seatsStore, seatProviderOf, SeatConnectCancelled } from './seats/seats.
 export { agentAuthStore } from './seats/agent-auth.store.svelte'
 /** A member's agent profile: their instructions and skills, copied into their seats on a shared host. */
 export { agentProfileStore } from './seats/agent-profile.store.svelte'
+/** This client's copy of the agent profile, and the sync that moves it to and from the account. */
+export { agentProfileLocalStore } from './seats/agent-profile-local.store.svelte'
+export { agentProfileSyncStore } from './seats/agent-profile-sync.store.svelte'
 export { presenceStore } from './presence/presence.store.svelte'
 export type { SeatRequest } from './seats/seats.store.svelte'
 

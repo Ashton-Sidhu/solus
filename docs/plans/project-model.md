@@ -64,10 +64,9 @@ project, never one row for each checkout or host**. Every client uses the same
 rule:
 
 - `packages/client-core/src/project-identity.ts` groups checkouts into projects
-  (`groupByProject`, `projectKeyOf`) and makes the labels
-  (`distinctProjectLabels`). When two rows in one list have the same name, the
-  label of a repository becomes `owner/name` (or the full key if `owner/name` is
-  also the same). The label of a local-only folder becomes `name · host`.
+  (`groupByProject`, `projectKeyOf`). A project's label is its plain name. It
+  never has its owner (`owner/name`), its code host, or its machine
+  (`name · host`) added, even when two rows in one list have the same name.
 - On desktop and web, `projectOptionsFor(projectKeys)` on the surface context
   (`contexts/projects/project-catalog.ts`) builds the rows for a list. These
   lists use it: the Tasks and Pull request pages, the ⌘P picker scope, the

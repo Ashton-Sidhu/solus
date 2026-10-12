@@ -1,3 +1,4 @@
+import { assertPathInScope } from '../../admission/scope'
 import { z } from 'zod'
 import { projectScopeOf, type GitInitRepositoryResult, type GithubPublishRepositoryResult, type GitRepositoryStatus } from '@solus/contracts/types'
 import type { SolusServer } from '../server'
@@ -20,8 +21,9 @@ const githubPublishRequestSchema = z.object({
 
 /** Initialize Git and Publish to GitHub — GitHub only, run on the selected host. */
 export function registerGitPublishHandlers(server: SolusServer): void {
-  server.register('gitRepositoryStatus', async (args): Promise<GitRepositoryStatus> => {
+  server.register('gitRepositoryStatus', async (args, handlerCtx): Promise<GitRepositoryStatus> => {
     const [cwd] = args
+    assertPathInScope('gitRepositoryStatus', handlerCtx.principal, cwd)
     return computeGitRepositoryStatus(cwd)
   })
 

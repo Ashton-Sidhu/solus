@@ -1,7 +1,8 @@
 # Plan 020: The agent profile follows the person
 
-Status: PLAN (2026-10-08). Not started. The cloud half is
-`solus-cloud/docs/plans/agent-profile.md`; the two are one feature and ship together.
+Status: IMPLEMENTED in source (2026-10-08, uncommitted; not run against a cloud
+host). See §10. The cloud half is `solus-cloud/docs/plans/agent-profile.md`;
+the two are one feature and ship together.
 
 ## Why
 
@@ -103,7 +104,7 @@ type AgentProfileEntry =
   | { kind: 'skill'; name: string; source: string; skillId: string; version?: string }
   | { kind: 'integration'; slug: string; name: string; url: string; auth: IntegrationAuth }
 
-type AgentProfileDocument = { version: 1; entries: Record<AgentProfileKey, AgentProfileEntry> }
+type AgentProfile = Record<AgentProfileKey, AgentProfileEntry>   // the key is derived from the entry
 ```
 
 `AgentProfileKey` is a template literal type over the three prefixes, so the
@@ -328,7 +329,7 @@ Host (`tests/unit/`):
 - `integrations`: a personal integration is matched by owner and URL across
   two hosts' ids; another person never lists it; a personal slug may equal an
   organization slug.
-- `agent-profile-pull`: a revision equal to the manifest's does nothing; a
+- `agent-profile` (pull): a revision equal to the manifest's does nothing; a
   changed revision applies; the three triggers each pull once.
 - `integration-reconcile`: no cloud credential uploads and then deletes the
   local token; a `409` revokes and deletes; an unreachable cloud deletes
@@ -346,7 +347,9 @@ applies to; the first-copy offer appears only for an empty account document.
 
 1. **An owner's delegation on a personal host.** Token exchange today names an
    organization (plan 010). A personal VM linked to an account has the owner's
-   token through `ownerAccessToken` while a client is connected. The cloud
+   token through `ownerAccessToken` while a client is connected. (Resolved: ADR 0001
+   stages 4 and 6 give the owner a `personal` delegation, made from the token that a
+   client presents, the desktop's main process included; `ownerAccessToken` is gone.) The cloud
    credential read and the pull need a token when no client is connected. The
    proposal: the owner's access token on a linked personal host carries
    `profile:read` and `integrations:read`, and the host refreshes it as it
@@ -357,3 +360,128 @@ applies to; the first-copy offer appears only for an empty account document.
 3. **Is `agentProfileRead` still administrator-only?** Yes. The import from
    this computer is a desktop action, and web and mobile do not have a
    computer. No change proposed.
+
+## 10. Implementation record (2026-10-08)
+
+### What was built
+
+- **Contract** (`packages/contracts/src/agent-profile.ts`): the flat document
+  of `file:`, `skill:`, and `integration:` entries with the schema refinements
+  of §1; the account document shapes beside the settings ones; the statuses.
+  `packages/contracts/src/integrations/oauth-protocol.ts` holds the MCP OAuth
+  protocol as pure functions over `fetch` and Web Crypto;
+  `profile-credentials.ts` holds the vault, executor, and connection shapes.
+- **Host**: `execution/seats/profile-files.ts` is the file applier, moved
+  unchanged; `AgentProfileManager` sequences files, registry skills through the
+  skills CLI, and MCP records through `integrations/profile-integrations.ts`,
+  and writes the version-2 manifest; its `pull` reads the account with the
+  person's delegated token, applies on a moved revision, and runs the
+  reconcile. Personal integrations: `owner_user_id` by a table rebuild (the
+  committed table's `UNIQUE (organization_id, slug)` could not be dropped in
+  place), `IntegrationStore.list(scope, viewer)`, `getVisible`, `listOwned`,
+  `findByUrl`, `all`; `personalRecordOwnerOf(principal)`; the handlers let a
+  member write their own records and keep shared ones for the administrator.
+  `connections.ts` reads a `cloud` connection from `cloud-credentials.ts` with
+  the cache and the `cloud-unreachable` status, and its `reconcile` moves a
+  host-local connection into the account after a pull. `oauth.ts` keeps the
+  host's flows and secrets over `McpOAuth`, the one protocol class.
+- **Triggers**: a member's seat connecting, boot, a client's `agentProfilePull`
+  after its own write, and a five-minute sweep over every member with a seat
+  and the owner of a linked host. The delegated scopes gained `profile:read`,
+  `integrations:read`, `integrations:write`.
+- **Clients**: `client-core/document-sync.ts` is the engine of plan 018 made
+  generic over a `SyncedDocumentContract`; `settings-sync.ts` binds it to the
+  personal settings with its public names unchanged, `agent-profile-sync.ts`
+  to the profile. `agent-profile-requests.ts` is the account adapter (cookie
+  on web, the main process on desktop through three plus four narrow IPC
+  methods, the bearer session on mobile). The Settings → Agent profile page
+  on desktop and web (`components/settings/SettingsTabAgentProfile.svelte`
+  and `agent-profile/`, stores under `contexts/seats/`), and the mobile screen
+  (`apps/mobile/src/features/settings/AgentProfileScreen.tsx` with its local
+  store, sync, and hook), implement §3; the integrations stores of both route
+  a synced personal integration's sign-in to the cloud (§5.3) and read
+  "Connected through Solus Cloud" and "Solus Cloud unreachable".
+- **Cloud**: see `solus-cloud/docs/plans/agent-profile.md` §10.
+
+### Decisions made during implementation
+
+1. **No organization revisions route** (§4, §6). A pull costs one read and
+   compares the revision, so a five-minute sweep over every seat replaces the
+   `GET /v1/orgs/<id>/agent-profiles` route. The host-worker does nothing.
+2. **The sync engine was not reusable as it stood.** Plan 018's engine named
+   the settings keys throughout. It became `DocumentSync` over a contract that
+   names the keys, the schema, the size bound, and the storage key; the
+   settings binding kept every public name. Decision 1's "without change" was
+   wrong by one refactor.
+3. **A connection row names where it lives.** `IntegrationConnection.source`
+   is `host` or `cloud`, and `cloud-unreachable` is a status of its own, so a
+   client can say "Connected through Solus Cloud" and never show "Needs
+   sign-in" for an outage.
+4. **An uploaded OAuth credential carries the host's client.** The cloud
+   refreshes with it until the person reconnects through the cloud's own
+   client (§5.4). A bearer key travels as it is.
+5. **A pull's reconcile never deletes before the cloud confirms** (§5.4 case
+   4), including when the host cannot export an OAuth token (no refresh
+   token): that connection stays on the host, counted as kept.
+
+### Not done, or limited
+
+- Not run end to end against a cloud host or the console; the proof of the
+  cloud plan §9 is open.
+- Open item 1 (an owner's delegation on a personal host) stands: a linked
+  personal host pulls for its owner only while a client of theirs is connected
+  (`personAccessToken` holds the owner's token), not from a delegation.
+- `components/settings/integrations.store.svelte.ts` grew past the 600-line
+  review mark with the cloud sign-in flows (§5.3); the sign-in flows are the
+  natural split when it is next touched.
+
+### Signed in means the cloud (2026-10-09)
+
+A sign-in to a PlanetScale server on a person's own managed host ran on the
+host, because the server was the host's (`ownerUserId` null) and the client
+sent only a person's own server to the cloud. The browser came back to the
+host's tunnel URL, where the callback was not offered. The rule is now one
+fact:
+
+- **Signed in, the sign-in runs at the cloud** for any server the host shows
+  the person, shared or their own, with or without profile sync. A
+  `client-required` server stays on the host: only the host holds its
+  administrator's client. Signed out, nothing changes.
+- **The cloud takes the auth from the request** when the profile does not name
+  the server (`profileConnectStartRequestSchema.auth`, the host's probe;
+  `profileConnectKeyRequestSchema.scheme`). The profile was already a document
+  the person writes, so this trusts nothing new. A requested server and its
+  metadata address must be public HTTPS. The pending sign-in seals its server
+  and metadata address with the verifier, so the callback no longer reads the
+  profile.
+- **The reconcile adopts a connection the account holds** when the host has
+  none, or one that is not connected. Before this, only a connection already on
+  the host moved to the cloud, so a fresh cloud sign-in never reached a host.
+  It walks every integration the person sees (`IntegrationStore.list`), and a
+  pull reconciles even when the account holds no synced profile.
+- **The client waits for this host's pull** (`CloudSignInPort.pullHosts(serverId)`)
+  before it reads the host's rows. Mobile's conversation sheet reads the record
+  (`integrationGet`) so it can route to the cloud too.
+- **The tunnel offers the OAuth callbacks** (`/oauth/integration/callback`,
+  `/oauth/google/callback`). A signed-out sign-in through a tunnel URL lands
+  there; the `state` names the flow.
+
+### Consolidation (2026-10-08, later the same day)
+
+Review found the first cut over-built. The second cut, with no users to keep
+compatible:
+
+- The profile is the plain entries map. The `{ version, entries }` wrapper and
+  the key-names-its-entry refinement are gone; every writer derives keys with
+  `agentProfileKeyOf`, and a host applies entries by their content. The one
+  rule that needed a check — a registry skill and a hand-written skill of one
+  name — moved to the host's apply, where it refuses before writing.
+- The OAuth protocol is one class, `McpOAuth`, that owns fetch, the clock, and
+  the metadata cache. The host flow and the cloud services construct one each.
+- The pull lives in `AgentProfileManager` (`pull`, `pullQuietly`,
+  `startPeriodic`) and takes the account as one optional dependency.
+- The reconcile lives in `IntegrationConnections.reconcile`; the exports and
+  adoptions it needs are private to that class. `ProfileIntegrationOwner` is
+  also the reconcile's subject, because a person's personal records and their
+  connections share one owner key.
+- `AgentProfileCopy` is the one shape for a read and a push.

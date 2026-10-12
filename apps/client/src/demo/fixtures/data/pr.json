@@ -285,7 +285,10 @@
     "order": 1,
     "significance": "core",
     "explanation": "The Lua script is the correctness boundary. Verify refill math, capacity clamping, TTL behavior, and whether time is consistent across app replicas. A bug here either blocks healthy clients or permits bursts above policy.",
-    "ledgerRefs": [],
+    "attention": {
+     "kind": "tradeoff",
+     "note": "The limiter fails open while Redis is unreachable. Decide if an unlimited burst during an outage is acceptable for the staged launch."
+    },
     "files": [
      {
       "path": "src/ratelimit/tokenBucket.ts",
@@ -301,7 +304,6 @@
     "order": 2,
     "significance": "core",
     "explanation": "The middleware must run after API-key authentication, attach headers to allowed responses, and preserve the existing error envelope on 429. The catch path is deliberately fail-open and must remain observable.",
-    "ledgerRefs": [],
     "files": [
      {
       "path": "src/middleware/rateLimit.ts",
@@ -323,7 +325,6 @@
     "order": 3,
     "significance": "supporting",
     "explanation": "Defaults should match the public contract and remain safe for local development. Check that shadow mode is the production default for launch and that invalid numeric environment values fail during startup.",
-    "ledgerRefs": [],
     "files": [
      {
       "path": "src/config.ts",
@@ -344,7 +345,6 @@
     "order": 4,
     "significance": "supporting",
     "explanation": "The tests encode the business invariants: capacity cannot be exceeded, fractional refill accumulates correctly, concurrent consumers cannot both take the final token, and denied requests receive actionable headers.",
-    "ledgerRefs": [],
     "files": [
      {
       "path": "src/ratelimit/tokenBucket.test.ts",

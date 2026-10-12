@@ -1,13 +1,17 @@
 import { describe, expect, mock, test } from 'bun:test'
 import type { Integration, IntegrationConnection, IntegrationUpdateRequest, IntegrationConnectStartRequest, IntegrationConnectStartResult, IntegrationConnectSubmitRequest, IntegrationToolSummary } from '@solus/contracts/integration-types'
+import type { ProfileConnection, ProfileConnectStartResult } from '@solus/contracts/integrations/profile-credentials'
+import type { AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const connections = singleHostServerConnections()
 mock.module('@solus/client-core/server-connections', () => ({ serverConnections: connections }))
 const { integrationsStore: store } = await import('@solus/workspace-ui/components/settings/integrations.store.svelte')
+type CloudSignInPort = Parameters<typeof store.useCloudSignIn>[0] & object
+const { connectionStatusText, integrationStatusText } = await import('@solus/workspace-ui/components/settings/lib/integration-labels')
 
 const integration = (id: string, name = id): Integration => ({
-  id, organizationId: 'local', kind: 'mcp', slug: id, name, url: `https://${id}.example/mcp`,
+  id, organizationId: 'local', ownerUserId: null, kind: 'mcp', slug: id, name, url: `https://${id}.example/mcp`,
   auth: { kind: 'none' }, createdBy: null, createdAt: '2026-10-08T00:00:00Z', updatedAt: '2026-10-08T00:00:00Z',
 })
 const tool = (name: string): IntegrationToolSummary => ({ name, description: '', readOnly: false, destructive: false })
@@ -95,7 +99,7 @@ const oauthIntegration = (id: string): Integration => ({
   ...integration(id), auth: { kind: 'oauth', discover: `https://${id}.example/.well-known/oauth-protected-resource`, registration: 'dynamic' },
 })
 const connected = (integrationId: string, label = 'Ada'): IntegrationConnection => ({
-  integrationId, status: 'connected', label, info: null, error: null, updatedAt: '2026-10-08T00:00:00Z',
+  integrationId, status: 'connected', source: 'host', label, info: null, error: null, updatedAt: '2026-10-08T00:00:00Z',
 })
 const waiting = (flowId: string, input: 'callback' | 'redirect-url' = 'callback'): IntegrationConnectStartResult => ({
   kind: 'waiting', flowId, url: `https://auth.example/authorize?flow=${flowId}`, input, expiresAt: new Date(Date.now() + 600_000).toISOString(),
@@ -301,5 +305,248 @@ describe('integrations store: OAuth client', () => {
     expect(await store.setOAuthClient('oauth-refused', 'acme', { clientId: 'cid' })).toBeNull()
     expect(store.states.get('oauth-refused')?.writeError).toBe('Only a host administrator can change integrations.')
     expect(store.states.get('oauth-refused')?.integrations?.[0]?.auth).not.toHaveProperty('clientId')
+  })
+})
+
+// Signed in, a person's sign-in to any server the host shows them runs at Solus
+// Cloud (plans/020-agent-profile.md §5.3): the cloud is the OAuth client and the
+// only refresher, and every host pulls the connection from there.
+describe('integrations store: sign-in through Solus Cloud', () => {
+  const ownServer = (id: string, ownerUserId: string | null): Integration => ({ ...oauthIntegration(id), ownerUserId })
+  const cloudConnected = (integrationId: string): IntegrationConnection => ({ ...connected(integrationId, null), source: 'cloud' })
+
+  /** A fake account: what it was asked, what it answers, and the timers the poll set. */
+  function cloudPort(options: { userId?: string | null } = {}) {
+    const asked = { starts: [] as string[], auths: [] as unknown[], keys: [] as Array<{ serverUrl: string; key: string; scheme?: string }>, disconnects: [] as string[], reads: 0, pulls: [] as string[] }
+    const timers: Array<() => void> = []
+    const connections: ProfileConnection[] = []
+    let start: ProfileConnectStartResult | 'refused' = { kind: 'browser', url: 'https://app.solus.test/connect/linear' }
+    const requests: Pick<AgentProfileCloudRequests, 'accountAgentProfileConnections' | 'accountAgentProfileConnectStart' | 'accountAgentProfileConnectKey' | 'accountAgentProfileDisconnect'> = {
+      accountAgentProfileConnections: async () => { asked.reads++; return { kind: 'ok', connections: [...connections] } },
+      accountAgentProfileConnectStart: async ({ serverUrl, auth }) => {
+        asked.starts.push(serverUrl)
+        asked.auths.push(auth)
+        return start === 'refused' ? { kind: 'refused', message: 'This server is not in your agent profile.' } : { kind: 'ok', start }
+      },
+      accountAgentProfileConnectKey: async ({ serverUrl, key, scheme }) => {
+        asked.keys.push({ serverUrl, key, ...(scheme ? { scheme } : {}) })
+        if (key === 'bad') return { kind: 'refused', message: 'The server rejected that key.' }
+        connections.push({ serverUrl, kind: 'bearer', status: 'connected', label: null, updatedAt: 1 })
+        return { kind: 'ok', connections: [...connections] }
+      },
+      accountAgentProfileDisconnect: async ({ serverUrl }) => {
+        asked.disconnects.push(serverUrl)
+        return { kind: 'ok', connections: connections.filter((connection) => connection.serverUrl !== serverUrl) }
+      },
+    }
+    const port: CloudSignInPort = {
+      // SAFETY: the store calls only the four connection methods in this suite; the document calls are the sync store's.
+      requests: () => requests as AgentProfileCloudRequests,
+      accountUserId: () => options.userId === undefined ? 'user-a' : options.userId,
+      pullHosts: async (serverId) => { asked.pulls.push(serverId) },
+      setTimer: (callback) => { timers.push(callback); return () => { const index = timers.indexOf(callback); if (index >= 0) timers.splice(index, 1) } },
+    }
+    return { asked, timers, connections, port, setStart: (next: ProfileConnectStartResult | 'refused') => { start = next } }
+  }
+
+  /** A host that holds the person's own server; its connection list follows what the cloud holds after a pull. */
+  function hostWithOwnServer(serverId: string, ownerUserId: string | null) {
+    const sent = { starts: 0, disconnects: 0 }
+    const connectionsOnHost = new Map<string, IntegrationConnection>()
+    connections.registerHost(serverId, {
+      integrationList: async () => [ownServer('linear', ownerUserId)],
+      integrationConnectionList: async () => [...connectionsOnHost.values()],
+      integrationConnectStart: async () => { sent.starts++; return waiting('host-flow') },
+      integrationDisconnect: async ({ id }: { id: string }) => { sent.disconnects++; connectionsOnHost.delete(id); return { disconnected: true } },
+    })
+    return { sent, connectionsOnHost }
+  }
+
+  test('a browser sign-in starts at the cloud, opens there, and ends when the account reads the server as connected: then every host pulls', async () => {
+    const cloud = cloudPort()
+    const host = hostWithOwnServer('cloud-browser', 'user-a')
+    const pages = recordOpenedPages()
+    store.useCloudSignIn(cloud.port)
+    const stop = store.watch('cloud-browser')
+    try {
+      await flush()
+      await store.connect('cloud-browser', 'linear')
+      expect(cloud.asked.starts).toEqual(['https://linear.example/mcp'])
+      // The host probed the server; the cloud signs in as that says, profile or not.
+      expect(cloud.asked.auths).toEqual([oauthIntegration('linear').auth])
+      expect(host.sent.starts).toBe(0)
+      expect(store.connectFlow('cloud-browser', 'linear')).toMatchObject({ kind: 'waiting', through: 'cloud', url: 'https://app.solus.test/connect/linear' })
+      await flush()
+      expect(pages.opened).toEqual(['https://app.solus.test/connect/linear'])
+
+      // Not connected yet: the poll reads again later, and nothing pulls.
+      expect(cloud.timers).toHaveLength(1)
+      cloud.timers.shift()!()
+      await flush()
+      expect(cloud.asked.reads).toBe(1)
+      expect(cloud.asked.pulls).toEqual([])
+      expect(store.connectFlow('cloud-browser', 'linear')?.kind).toBe('waiting')
+
+      // The browser finished at the cloud. The host learns on its pull, so the row reads `cloud` after it.
+      cloud.connections.push({ serverUrl: 'https://linear.example/mcp', kind: 'oauth', status: 'connected', label: 'Ada', updatedAt: 2 })
+      host.connectionsOnHost.set('linear', cloudConnected('linear'))
+      expect(cloud.timers).toHaveLength(1)
+      cloud.timers.shift()!()
+      await flush()
+      expect(cloud.asked.pulls).toEqual(['cloud-browser'])
+      expect(store.connectFlow('cloud-browser', 'linear')).toBeNull()
+      expect(store.connection('cloud-browser', 'linear')?.source).toBe('cloud')
+      expect(cloud.timers).toHaveLength(0)
+    } finally {
+      pages.restore()
+      store.useCloudSignIn(null)
+      stop()
+    }
+  })
+
+  test('a cancelled cloud sign-in stops the read-back and cancels nothing on the host', async () => {
+    const cloud = cloudPort()
+    hostWithOwnServer('cloud-cancel', 'user-a')
+    const pages = recordOpenedPages()
+    store.useCloudSignIn(cloud.port)
+    const stop = store.watch('cloud-cancel')
+    try {
+      await flush()
+      await store.connect('cloud-cancel', 'linear')
+      expect(cloud.timers).toHaveLength(1)
+      await store.cancel('cloud-cancel', 'linear')
+      expect(store.connectFlow('cloud-cancel', 'linear')).toBeNull()
+      expect(cloud.timers).toHaveLength(0)
+    } finally {
+      pages.restore()
+      store.useCloudSignIn(null)
+      stop()
+    }
+  })
+
+  test('a key goes to the cloud; a rejected one keeps the field with the reason, an accepted one ends the flow and pulls', async () => {
+    const cloud = cloudPort()
+    cloud.setStart({ kind: 'token' })
+    const host = hostWithOwnServer('cloud-key', 'user-a')
+    store.useCloudSignIn(cloud.port)
+    const stop = store.watch('cloud-key')
+    try {
+      await flush()
+      await store.connect('cloud-key', 'linear')
+      expect(store.connectFlow('cloud-key', 'linear')).toEqual({ kind: 'token', through: 'cloud' })
+      expect(await store.submit('cloud-key', 'linear', 'bad')).toBe(false)
+      expect(store.connectFlow('cloud-key', 'linear')).toEqual({ kind: 'token', through: 'cloud', error: 'The server rejected that key.' })
+      host.connectionsOnHost.set('linear', cloudConnected('linear'))
+      expect(await store.submit('cloud-key', 'linear', ' sk-secret ')).toBe(true)
+      expect(cloud.asked.keys).toEqual([{ serverUrl: 'https://linear.example/mcp', key: 'bad' }, { serverUrl: 'https://linear.example/mcp', key: 'sk-secret' }])
+      expect(cloud.asked.pulls).toEqual(['cloud-key'])
+      expect(store.connectFlow('cloud-key', 'linear')).toBeNull()
+      expect(store.connection('cloud-key', 'linear')?.source).toBe('cloud')
+    } finally {
+      store.useCloudSignIn(null)
+      stop()
+    }
+  })
+
+  test('a refused start ends the flow with the cloud\'s message', async () => {
+    const cloud = cloudPort()
+    cloud.setStart('refused')
+    hostWithOwnServer('cloud-refused', 'user-a')
+    store.useCloudSignIn(cloud.port)
+    const stop = store.watch('cloud-refused')
+    try {
+      await flush()
+      await store.connect('cloud-refused', 'linear')
+      expect(store.connectFlow('cloud-refused', 'linear')).toEqual({ kind: 'failed', message: 'This server is not in your agent profile.' })
+      expect(cloud.timers).toHaveLength(0)
+    } finally {
+      store.useCloudSignIn(null)
+      stop()
+    }
+  })
+
+  test('a connection held in the account is disconnected there, then every host pulls; a host connection keeps the host path', async () => {
+    const cloud = cloudPort()
+    const host = hostWithOwnServer('cloud-disconnect', 'user-a')
+    host.connectionsOnHost.set('linear', cloudConnected('linear'))
+    store.useCloudSignIn(cloud.port)
+    const stop = store.watch('cloud-disconnect')
+    try {
+      await flush()
+      expect(store.connection('cloud-disconnect', 'linear')?.source).toBe('cloud')
+      expect(await store.disconnect('cloud-disconnect', 'linear')).toBe(true)
+      expect(cloud.asked.disconnects).toEqual(['https://linear.example/mcp'])
+      expect(cloud.asked.pulls).toEqual(['cloud-disconnect'])
+      expect(host.sent.disconnects).toBe(0)
+      expect(store.connection('cloud-disconnect', 'linear')).toBeNull()
+
+      host.connectionsOnHost.set('linear', connected('linear'))
+      await store.loadConnections('cloud-disconnect')
+      expect(await store.disconnect('cloud-disconnect', 'linear')).toBe(true)
+      expect(host.sent.disconnects).toBe(1)
+      expect(cloud.asked.disconnects).toHaveLength(1)
+    } finally {
+      store.useCloudSignIn(null)
+      stop()
+    }
+  })
+
+  test('a shared server signs in at the cloud too; signed out, or a server whose client only the host holds, signs in on the host', async () => {
+    // WHY: signed in, the person's connection lives in their account wherever the server is shown; the cloud cannot use a host administrator's client.
+    const shared = cloudPort()
+    hostWithOwnServer('cloud-shared', null)
+    const pages = recordOpenedPages()
+    store.useCloudSignIn(shared.port)
+    let stop = store.watch('cloud-shared')
+    try {
+      await flush()
+      await store.connect('cloud-shared', 'linear')
+      expect(shared.asked.starts).toEqual(['https://linear.example/mcp'])
+      await store.cancel('cloud-shared', 'linear')
+    } finally {
+      stop()
+    }
+
+    const signedOut = cloudPort({ userId: null })
+    const host = hostWithOwnServer('cloud-off', 'user-a')
+    store.useCloudSignIn(signedOut.port)
+    stop = store.watch('cloud-off')
+    try {
+      await flush()
+      await store.connect('cloud-off', 'linear')
+      expect(host.sent.starts).toBe(1)
+      expect(signedOut.asked.starts).toEqual([])
+      expect(store.connectFlow('cloud-off', 'linear')).toMatchObject({ kind: 'waiting', flowId: 'host-flow' })
+    } finally {
+      stop()
+    }
+
+    const clientRequired = cloudPort()
+    const sent = { starts: 0 }
+    connections.registerHost('cloud-client', {
+      integrationList: async () => [{ ...oauthIntegration('linear'), auth: { kind: 'oauth', discover: 'https://linear.example/.well-known/oauth-protected-resource', registration: 'client-required', clientId: 'admin-client' } }],
+      integrationConnectionList: async () => [],
+      integrationConnectStart: async () => { sent.starts++; return waiting('host-flow') },
+    })
+    store.useCloudSignIn(clientRequired.port)
+    stop = store.watch('cloud-client')
+    try {
+      await flush()
+      await store.connect('cloud-client', 'linear')
+      expect(sent.starts).toBe(1)
+      expect(clientRequired.asked.starts).toEqual([])
+    } finally {
+      pages.restore()
+      store.useCloudSignIn(null)
+      stop()
+    }
+  })
+
+  test('the words: a cloud connection says so, and an unreachable cloud offers no sign-in', () => {
+    expect(connectionStatusText(cloudConnected('linear'))).toEqual({ text: 'Connected through Solus Cloud', detail: null, action: 'Disconnect' })
+    const unreachable: IntegrationConnection = { ...cloudConnected('linear'), status: 'cloud-unreachable', error: 'Solus Cloud did not answer.' }
+    expect(connectionStatusText(unreachable)).toEqual({ text: 'Solus Cloud unreachable', detail: 'Solus Cloud did not answer.', action: null })
+    expect(integrationStatusText(oauthIntegration('linear').auth, unreachable)).toEqual({ text: 'Solus Cloud unreachable', tone: 'error', canConnect: false })
+    expect(integrationStatusText(oauthIntegration('linear').auth, cloudConnected('linear'))).toEqual({ text: 'Connected through Solus Cloud', tone: 'ready', canConnect: false })
   })
 })

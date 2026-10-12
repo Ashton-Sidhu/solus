@@ -2,7 +2,7 @@
   import GithubMarkdown from '../../github-markdown/GithubMarkdown.svelte';
   import type { FileDiffContentsLoader } from "@pierre/diffs";
   import { Clock as ClockIcon } from "@lucide/svelte";
-  import type { ReviewGuide, ReviewLedger } from "@solus/contracts/review";
+  import type { GuideSection as GuideSectionData, ReviewGuide } from "@solus/contracts/review";
   import type { DiffComment } from "@solus/contracts/types";
   import {
     formatAbsoluteTimestamp,
@@ -21,7 +21,6 @@
   // collapse into a single group, closed by default.
   let {
     guide,
-    ledger,
     patch,
     loadDiffFiles,
     meta,
@@ -29,9 +28,9 @@
     comments = [],
     onCommentSave,
     onCommentDelete,
+    onAsk,
   }: {
     guide: ReviewGuide;
-    ledger: ReviewLedger | null;
     patch: string;
     loadDiffFiles?: FileDiffContentsLoader;
     /** PR identity for the intro header's metadata line (`repo#number · base ←
@@ -44,12 +43,13 @@
     comments?: DiffComment[];
     onCommentSave?: (comment: GuideDiffCommentSave) => void;
     onCommentDelete?: (id: string) => void;
+    /** Forwarded to every section; absent where the host has no place to ask. */
+    onAsk?: (section: GuideSectionData) => void;
   } = $props();
 
   let hasOpenedLowSignal = $state(false);
 
   const patchByPath = $derived(splitPatchByFile(patch));
-  const records = $derived(ledger?.records ?? []);
 
   const mainSections = $derived(guide.sections.filter((s) => s.significance !== "low-signal"));
   const lowSignalSections = $derived(guide.sections.filter((s) => s.significance === "low-signal"));
@@ -130,13 +130,13 @@
           {#each mainSections as section, i (section.id)}
             <GuideSection
               {section}
-              {records}
               {patchByPath}
               {loadDiffFiles}
               {onFileJump}
               {comments}
               {onCommentSave}
               {onCommentDelete}
+              {onAsk}
               index={i + 1}
               total={mainSections.length}
             />
@@ -158,13 +158,13 @@
               {#each lowSignalSections as section (section.id)}
                 <GuideSection
                   {section}
-                  {records}
                   {patchByPath}
                   {loadDiffFiles}
                   {onFileJump}
                   {comments}
                   {onCommentSave}
                   {onCommentDelete}
+                  {onAsk}
                 />
               {/each}
             </div>

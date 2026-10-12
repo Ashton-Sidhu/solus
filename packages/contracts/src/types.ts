@@ -3174,23 +3174,17 @@ export function isSolusWorktreePath(path: string): boolean {
  * (`<projects root>/solus-remote/<owner key>/<host>/<owner>/<repo>`). The owner
  * key is the paired device, or the member on a Solus-provisioned machine
  * (`dispatchCheckoutOwnerKey`). These clones are created to
- * run a session on another machine; they are host-internal plumbing, never a
- * project the user opened, so they must stay out of recents.
+ * run a session on another machine. The host lists each one as a project, so
+ * a client can find the sessions that ran there.
  */
 export const SOLUS_REMOTE_DISPATCH_DIR = 'solus-remote'
 export const SOLUS_REMOTE_DISPATCH_PATH_MARKER = `/${SOLUS_REMOTE_DISPATCH_DIR}/`
-
-/** True if `path` lives inside a delegated remote-dispatch checkout. */
-export function isRemoteDispatchCheckoutPath(path: string): boolean {
-  return path.includes(SOLUS_REMOTE_DISPATCH_PATH_MARKER)
-}
 
 /**
  * The repository a remote-dispatch checkout holds, read from its path:
  * `<projects root>/solus-remote/<owner>/<host>/<owner>/<repo>`, the layout
  * `dispatchCheckoutPath` writes. A dispatch clone has only its clone source
- * as a remote, so this is the key its host would read from git. Hosts leave
- * dispatch checkouts out of their project list, so no host names this key.
+ * as a remote, so this is the key its host would read from git.
  * Null for any other path.
  */
 export function remoteDispatchRepositoryKey(path: string): string | null {

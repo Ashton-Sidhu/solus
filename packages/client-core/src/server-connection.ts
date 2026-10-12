@@ -12,14 +12,14 @@ import {
   type SavedServerUplink,
 } from './server-registry'
 import { WsTransport, type ConnectionStatus } from './ws-transport'
-import { HostGrantCache } from './host-grant-cache'
-export { GRANT_RENEW_BEFORE_END_MS } from './host-grant-cache'
 import { withBrowserCapabilities } from './ws-browser-api'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import { asHostApi, type HostApi } from './host-api'
 import type { NativeSolusAPI } from '@solus/contracts/host-api'
-import { organizationIdOfSolusApiId, type HostAccessTokenResponse, type HostRoute } from '@solus/contracts/uplink'
+import { organizationIdOfSolusApiId, type HostRoute } from '@solus/contracts/uplink'
+import type { ConnectionTokenResource } from '@solus/contracts/auth/clients'
 import { uplinkAccountSource } from './uplink-account'
+import { organizationIdFor } from './uplink-session'
 import { activeOrganizationId } from './workspace-registry'
 
 export interface LocalConnectionInfoLike {
@@ -64,7 +64,7 @@ export interface CreateSolusConnectionOptions {
   refreshLocalSessionToken?: () => Promise<string>
   /** A guest link (docs/plans/multiplayer-sharing.md §4.2): each dial mints a guest
    *  grant and presents the link secret with it. No account, no saved host. */
-  guest?: { acquireGrant: () => Promise<string | null>; shareSecret: string }
+  guest?: { shareSecret: string; identity: { guestId: string; displayName: string } }
 }
 
 export type InstallSolusConnectionOptions = Omit<CreateSolusConnectionOptions, 'refreshLocalSessionToken'>
@@ -130,24 +130,9 @@ export function installWsBackedSolusApi(
   return { transport: connection.transport, api, events: connection.events }
 }
 
-/**
- * The grants of one connection. A host accepts an access token at every ticket
- * exchange while it lives (eight hours), so a redial or a record-API session
- * reuses the kept one instead of asking the account site again. A grant is kept
- * separately for each organization a window works in.
- */
-export function keptGrantSource(
-  mint: (organizationId: string | undefined, options?: { fresh?: boolean }) => Promise<HostAccessTokenResponse | null>,
-  organizationId: () => string | undefined,
-  now: () => number = Date.now,
-): (options?: { fresh?: boolean }) => Promise<string | null> {
-  const cache = new HostGrantCache(now)
-  return async (options) => {
-    const wanted = organizationId()
-    // This source belongs to one host connection; organization is its changing scope.
-    const grant = await cache.acquire('connection', wanted, () => mint(wanted, options), options)
-    return organizationId() === wanted ? grant?.accessToken ?? null : null
-  }
+/** What a directory id names: an organization's Solus API (`workspace:<organizationId>`), or a host. */
+export function connectionTokenResource(uplinkHostId: string): ConnectionTokenResource {
+  return organizationIdOfSolusApiId(uplinkHostId) ? { kind: 'api' } : { kind: 'host', hostId: uplinkHostId }
 }
 
 export function createSolusConnection(
@@ -155,29 +140,26 @@ export function createSolusConnection(
   options: CreateSolusConnectionOptions = {},
 ): InstalledSolusConnection {
   // A host known through the directory and never paired has no long-lived
-  // credential: its dials present an access token from the account, kept in
-  // memory for this connection while it has life left.
+  // credential: each dial presents a five-minute access token from the account's
+  // sign-in, which keeps it until a minute before its end (`OAuthSession`).
   const uplinkHostId = !target.sessionToken && target.uplink ? target.uplink.hostId : null
   const account = uplinkHostId ? uplinkAccountSource() : null
-  const organizationId = () => organizationIdOfSolusApiId(target.id) ?? activeOrganizationId() ?? undefined
+  const resource = uplinkHostId ? connectionTokenResource(uplinkHostId) : null
+  // An access token lists the organizations the person reaches this host through; a
+  // connection names the one it works in (ADR 0001 §6.4): the Solus API's own, or the
+  // window's when the host is shared with it, else the host's first share.
+  const dialOrganizationId = () => organizationIdOfSolusApiId(target.id) ?? organizationIdFor(null, target.uplink, activeOrganizationId())
   const guest = options.guest
   const transport = new WsTransport({
     serverUrl: target.url,
     serverId: target.id,
     sessionToken: target.sessionToken,
-    acquireGrant: guest
-      ? guest.acquireGrant
-      : uplinkHostId && account
-        // Desktop main owns the account cache and sign-out invalidation. A web
-        // connection owns its cache because its account source is an HTTP call.
-        ? globalThis.window?.solusNative
-          ? async (grantOptions) => (await account.acquireHostAccessToken(uplinkHostId, organizationId(), grantOptions))?.accessToken ?? null
-          : keptGrantSource(
-              (organization, grantOptions) => account.acquireHostAccessToken(uplinkHostId, organization, grantOptions),
-              organizationId,
-            )
-        : undefined,
+    acquireGrant: guest || !account || !resource
+      ? undefined
+      : (grantOptions) => account.accessToken(resource, grantOptions),
+    dialOrganizationId: account && resource ? dialOrganizationId : undefined,
     shareSecret: guest?.shareSecret,
+    guestIdentity: guest?.identity,
     onStatusChange: options.onStatusChange,
     onAuthFailed: options.onAuthFailed,
     verifyConnectedHost: options.verifyConnectedHost,

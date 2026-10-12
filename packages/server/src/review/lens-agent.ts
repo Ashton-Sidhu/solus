@@ -1,4 +1,3 @@
-import type { ReviewLedger } from '@solus/contracts/review'
 import type { AgentId, ReasoningEffort } from '@solus/contracts/types'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
 import type { TurnSeat } from '../execution/seats/seat-manager'
@@ -25,7 +24,6 @@ export interface LensAgentInput {
   head: string | null
   /** The diff, when it is small enough to put in the prompt. */
   inlineDiff: string | null
-  ledger: ReviewLedger | null
   /** The lens prompt: from a saved lens, a one-time prompt, or the lens being edited. */
   prompt: string
   /** Present for a lens edit. */
@@ -118,14 +116,6 @@ export function buildLensPrompt(input: Omit<LensAgentInput, 'onWriting' | 'abort
     parts.push(
       `Gather the change with \`git diff ${range} --stat\` and \`git diff ${range}\`.`,
       ...(input.head ? [] : ['List untracked files with `git ls-files --others --exclude-standard` and read them.']),
-      '',
-    )
-  }
-
-  if (input.ledger?.records.length) {
-    parts.push(
-      'Review ledger records from the sessions that made the change (JSON). Use them for intent; verify them against the diff:',
-      JSON.stringify(input.ledger.records, null, 2),
       '',
     )
   }

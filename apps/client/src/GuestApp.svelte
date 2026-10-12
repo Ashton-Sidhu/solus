@@ -1,33 +1,32 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Link2Off } from '@lucide/svelte';
-  import { userKey } from '@solus/contracts/user';
   import { createAppCore } from '@solus/workspace-ui/contexts/app/app-core';
+  import { initializeRuntime } from '@solus/workspace-ui/contexts/app/runtime-boot';
+  import { setupAgentEvents } from '@solus/workspace-ui/hooks/agentEvents.svelte';
   import { sharesStore, serversStore } from '@solus/workspace-ui/contexts';
   import { presenceStore } from '@solus/workspace-ui/contexts/presence/presence.store.svelte';
   import { setPopoverLayer } from '@solus/workspace-ui/components/popoverLayer.svelte';
   import { activeSurface } from '@solus/workspace-ui/contexts/workspace/routing/location';
   import * as Tooltip from '@solus/workspace-ui/components/ui/tooltip';
   import * as Empty from '@solus/workspace-ui/components/ui/empty';
-  import PresenceStack from '@solus/workspace-ui/components/presence/PresenceStack.svelte';
   import WorkPane from '@solus/workspace-ui/components/work/WorkPane.svelte';
-  import SessionRecordPage from '@solus/workspace-ui/components/session/record/SessionRecordPage.svelte';
-  import SharedPrompt from '@solus/workspace-ui/components/sharing/SharedPrompt.svelte';
-  import { SharedPromptStore } from '@solus/workspace-ui/contexts/sharing/shared-prompt.store.svelte';
+  import WebDesktopLayout from './shell/desktop/WebDesktopLayout.svelte';
   import { GuestShell } from './shell/guest-shell.svelte';
   import { guestAccessLine, guestRoleLabel } from './shell/lib/guest-access';
   import { guestBoot, type GuestShare } from './lib/guest-boot.svelte';
 
   /**
-   * A share link's page (docs/plans/multiplayer-sharing.md §4.2): the shared
-   * resource as the app draws it in a pane, with no workspace around it. The
-   * pane controls' corner holds what a guest needs instead: who else is here,
-   * and the guest's standing. A link opens a work or a session; a task has no
-   * link of its own, because its organization sees it.
+   * A share link's page (docs/plans/host-sharing.md §10): the real workspace, opened
+   * on the one shared resource. A session opens as a tab in the ordinary layout —
+   * the sidebar, the band, the panel, and the composer with its pickers — and every
+   * control reads what the host lets this guest do (`host.me.may`). A work opens
+   * in its pane. A task has no link of its own, because its organization sees it.
    */
   let { serverId, share, displayName }: { serverId: string; share: GuestShare; displayName: string } = $props();
-  const { settings, session } = createAppCore(new GuestShell());
+  const { settings, session, sessionSidebarStore } = createAppCore(new GuestShell());
   serversStore.trackConnections();
+  setupAgentEvents(session);
   let overlayEl: HTMLElement | null = $state(null);
   setPopoverLayer({ get el() { return overlayEl; } });
   const sharedSessionId = $derived(share.resource.kind === 'session' ? share.resource.id : null);
@@ -40,29 +39,25 @@
     }
     return null;
   });
-  // Whether the shared session's runner is online: the composer takes prompts
-  // then, and the page header says it reads the cloud copy only when it is not.
-  const prompt = new SharedPromptStore();
-  $effect(() => (sharedSessionId ? prompt.watch(serverId, sharedSessionId) : undefined));
-  const people = $derived(sharedSessionId ? presenceStore.sessionPeople(serverId, sharedSessionId) : []);
-  const room = $derived(sharedSessionId ? presenceStore.sessionRoom(serverId, sharedSessionId) : undefined);
-  const activeUserId = $derived(room?.activeTurn ? userKey(room.activeTurn.author.id) : null);
-  // The page headers reserve the cluster's width, as they reserve the pane controls'.
-  let clusterWidth = $state(0);
+  /** On the Solus API's copy the session reads only until the computer that runs it is back (host-sharing.md §4.2). */
+  const readOnlyReason = $derived(guestBoot.live ? null : 'The computer this session runs on is offline. You can read it; prompts resume when it is back.');
 
-  // Who else has the shared work open, and this guest on their screens: the work
-  // header's faces read the room, and the host learns the work is on screen.
   onMount(() => presenceStore.listen());
   $effect(() => presenceStore.reportWorkspaceFocus(session));
 
   onMount(() => {
     void sharesStore.load(serverId, share.resource);
-    if (share.resource.kind === 'work') session.openRoute({ name: 'work', params: { workId: share.resource.id, serverId } });
+    const stopRuntime = initializeRuntime(session, sessionSidebarStore);
+    if (sharedSessionId) void session.revealSession(sharedSessionId, serverId);
+    else session.openRoute({ name: 'work', params: { workId: share.resource.id, serverId } });
     const media = window.matchMedia('(prefers-color-scheme: dark)');
     const apply = () => settings.setSystemTheme(media.matches);
     apply();
     media.addEventListener('change', apply);
-    return () => media.removeEventListener('change', apply);
+    return () => {
+      stopRuntime();
+      media.removeEventListener('change', apply);
+    };
   });
 </script>
 
@@ -70,45 +65,32 @@
   <div
     bind:this={overlayEl}
     class="guest-pane relative flex h-dvh min-h-0 flex-col overflow-hidden bg-(--solus-container-bg) pt-[env(safe-area-inset-top)] text-workspace-chrome text-foreground"
-    style:--solus-pane-chrome-inset="{clusterWidth + 16}px"
     data-testid="guest-shell"
   >
     <main class="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="guest-main">
       {#if sharedSessionId}
-        <SessionRecordPage params={{ serverId, sessionId: sharedSessionId }} paneId="" live={prompt.available}>
-          {#snippet composer()}<SharedPrompt ownAccount={!!guestBoot.accountUserId} {serverId} sessionId={sharedSessionId!} editable={role === 'editor'} store={prompt} />{/snippet}
-        </SessionRecordPage>
+        <WebDesktopLayout onAttachFile={() => {}} {readOnlyReason} />
       {:else if activeWork}
         <WorkPane params={activeWork.params} paneId={activeWork.paneId} />
       {:else}<p class="p-6 text-muted-foreground" role="status">Opening the document…</p>{/if}
     </main>
 
-    <!-- Where the app puts the pane's controls. After the page, as PaneChrome is,
-         so the page's title row never covers it. -->
-    <div
-      class="no-drag absolute top-[env(safe-area-inset-top)] right-2.5 z-30 flex h-(--solus-chrome-row-h,2.5rem) items-center gap-1.5 pointer-coarse:h-14"
-      bind:clientWidth={clusterWidth}
-      data-testid="guest-cluster"
-    >
-      {#if people.length > 0}
-        <PresenceStack {people} {activeUserId} detail={(person) => person.userId === activeUserId ? 'running a turn' : person.isComposing ? 'typing…' : null} />
-      {/if}
-      <Tooltip.Root>
-        <Tooltip.Trigger>
-          {#snippet child({ props })}
-            <span
-              {...props}
-              class="flex h-6 max-w-48 items-center gap-1 overflow-hidden rounded-full px-2 text-muted-foreground shadow-[inset_0_0_0_0.5px_var(--hairline)]"
-              data-testid="guest-role"
-            >
-              <span class="shrink-0 text-foreground">{guestRoleLabel(role)}</span>
-              <span class="truncate @max-[30rem]/pane:hidden" data-testid="guest-name-label">· {displayName}</span>
-            </span>
-          {/snippet}
-        </Tooltip.Trigger>
-        <Tooltip.Content value="{displayName}: {guestAccessLine(share.resource.kind, role)}" />
-      </Tooltip.Root>
-    </div>
+    {#if !sharedSessionId}
+      <!-- A work's page has no band to say who the guest is; the pane controls' corner does. -->
+      <div class="no-drag absolute top-[env(safe-area-inset-top)] right-2.5 z-30 flex h-(--solus-chrome-row-h,2.5rem) items-center gap-1.5 pointer-coarse:h-14" data-testid="guest-cluster">
+        <Tooltip.Root>
+          <Tooltip.Trigger>
+            {#snippet child({ props })}
+              <span {...props} class="flex h-6 max-w-48 items-center gap-1 overflow-hidden rounded-full px-2 text-muted-foreground shadow-[inset_0_0_0_0.5px_var(--hairline)]" data-testid="guest-role">
+                <span class="shrink-0 text-foreground">{guestRoleLabel(role)}</span>
+                <span class="truncate @max-[30rem]/pane:hidden" data-testid="guest-name-label">· {displayName}</span>
+              </span>
+            {/snippet}
+          </Tooltip.Trigger>
+          <Tooltip.Content value="{displayName}: {guestAccessLine(share.resource.kind, role)}" />
+        </Tooltip.Root>
+      </div>
+    {/if}
 
     {#if guestBoot.revoked}
       <div class="fixed inset-0 z-[10008] grid place-items-center bg-(--background)/95 px-6" role="alertdialog" aria-label="This link no longer works" data-testid="guest-revoked">

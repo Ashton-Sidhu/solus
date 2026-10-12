@@ -158,6 +158,42 @@ export interface PullRequest {
   autoMergeEnabled?: boolean
   /** The method stored with an armed auto-merge; absent while it is off. */
   autoMergeMethod?: PrMergeMethod
+  /** Where this sits in the host's own stack of pull requests. Null when the
+   *  host says it is in no stack; absent when the read did not ask, which is
+   *  not the same as "not stacked". */
+  stack?: PrStackMembership | null
+}
+
+/** One pull request's place in a GitHub stack: a chain of pull requests, each
+ *  based on the head of the one below it, that land on `base` in order. */
+export interface PrStackMembership {
+  /** The stack's own number, which is not a pull request number. */
+  number: number
+  /** 1 is the bottom layer, the one based on `base`. */
+  position: number
+  size: number
+  base: string
+}
+
+/** One layer of a stack, as the stack itself lists it. */
+export interface PrStackLayer {
+  number: number
+  /** Empty where the host left it out; a reader falls back to `headRef`. */
+  title: string
+  headRef: string
+  state: PullRequest['state']
+  draft: boolean
+}
+
+/** A whole stack, read for one of its pull requests. */
+export interface PrStack {
+  number: number
+  /** The stack's page on the host. */
+  url: string
+  /** The branch the bottom layer is based on. */
+  base: string
+  /** Bottom to top, the order the host lists them in. */
+  layers: PrStackLayer[]
 }
 
 export type PrReviewVerdict = 'comment' | 'approve' | 'request-changes'

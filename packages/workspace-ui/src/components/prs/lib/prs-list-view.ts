@@ -15,7 +15,7 @@ import {
   GitPullRequestDraft as GitPullRequestDraftIcon,
   TriangleAlert as TriangleAlertIcon,
 } from '@lucide/svelte'
-import type { PullRequest } from '@solus/contracts/providers'
+import type { PrStackMembership, PullRequest } from '@solus/contracts/providers'
 import type { PrChecksSummary } from '@solus/contracts/checks-types'
 import type { PrGuideStatus, ReviewLensJob } from '@solus/contracts/review'
 import { z } from 'zod'
@@ -65,6 +65,8 @@ export interface PrRowSpec extends ListRowSpec {
   moreLabels: number
   /** `9h ago` — the wide row has room for the word the 32px slot does not. */
   updated: string
+  /** Its place in a GitHub stack, drawn as `2/3` beside the number. */
+  stack: PrStackMembership | null
 }
 
 /** Two lines at every width: a title, then a line of facts that truncates.
@@ -278,6 +280,7 @@ export function prRow(
     project,
     ...rowLabels(pr),
     updated: relativeTime(pr.updatedAt, now),
+    stack: pr.stack ?? null,
     // The state leads the row as a glyph, so the chips are only what needs
     // saying beyond it; the branch stays a hover reveal so the title is still
     // the only elastic thing in the middle of the row.

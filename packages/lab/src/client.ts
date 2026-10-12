@@ -43,7 +43,7 @@ export interface LabClientOptions {
   hostId: string
   hostKind: HostKind
   hostOwnerUserId?: string
-  /** A guest presents the link secret with its grant. */
+  /** A guest presents the link secret alone, with the id and name it states (host-sharing.md §4.1). */
   shareSecret?: string
   /** No grant at all: a trusted loopback caller, the local owner (personal hosts). */
   credentialFree?: boolean
@@ -86,6 +86,7 @@ export class LabClient {
       baseUrl: () => options.hostUrl,
       contextKey: () => options.persona.id,
       acquireSource: async () => options.credentialFree ? (await options.localOwnerToken?.()) ?? null : this.mintGrant(),
+      organizationId: () => options.persona.kind === 'org-member' ? options.persona.organizationId : null,
       shareSecret: options.shareSecret,
     })
     this.records = workspaceRecordMethods(this.api, (id) => this.rpc('tasksReadExtras', id))
@@ -95,8 +96,11 @@ export class LabClient {
     return this.socket?.connected ?? false
   }
 
-  private mintGrant(): string {
-    return this.options.issuer.mint(this.persona, {
+  /** The persona's access token; null for a guest, who holds none. */
+  private mintGrant(): string | null {
+    const persona = this.persona
+    if (persona.kind === 'guest') return null
+    return this.options.issuer.mint(persona, {
       hostId: this.options.hostId,
       hostKind: this.options.hostKind,
       hostOwnerUserId: this.options.hostOwnerUserId,
@@ -104,13 +108,19 @@ export class LabClient {
     })
   }
 
-  /** Mints a grant and exchanges it for one ticket; null with the refusal status. */
+  /** Mints a grant (a guest: states who it is) and exchanges it for one ticket; null with the refusal status. */
   async fetchTicket(): Promise<{ ticket: string } | { status: number }> {
     const grant = this.mintGrant()
+    const persona = this.persona
+    const request = persona.kind === 'guest'
+      ? { shareSecret: this.options.shareSecret, guestId: persona.guestId, displayName: persona.displayName }
+      : persona.kind === 'org-member' ? { organizationId: persona.organizationId } : {}
+    const headers: { [name: string]: string } = { 'content-type': 'application/json' }
+    if (grant) headers.authorization = `Bearer ${grant}`
     const response = await fetch(`${this.options.hostUrl}/auth/ws-ticket`, {
       method: 'POST',
-      headers: { authorization: `Bearer ${grant}`, 'content-type': 'application/json' },
-      body: JSON.stringify(this.options.shareSecret ? { shareSecret: this.options.shareSecret } : {}),
+      headers,
+      body: JSON.stringify(request),
     })
     if (!response.ok) return { status: response.status }
     const body = z.object({ ticket: z.string().min(1) }).parse(await response.json())

@@ -1,14 +1,14 @@
 import { localApi } from '@solus/client-core/local-api'
 import { cloudAccount } from '@solus/client-core/cloud-account'
-import type { AccountState, DeviceSignInEnd } from '@solus/contracts/account-types'
+import type { AccountState, SignInEnd } from '@solus/contracts/account-types'
 import { askBeforeDiscardingUnsent } from '../works/work-live-discard'
 
 /**
  * Mirrors the account state the client shell owns. On desktop the main process holds
- * the session and pushes every change here. On web there is no shell capability, so
- * `isAvailable` is false; but a web client served by the account origin is signed in
- * through the account cookie, and the store reads that profile once so surfaces show
- * who is signed in and can sign out. This store carries no UI of its own: surfaces
+ * the sign-in and pushes every change here. On web there is no shell capability, so
+ * `isAvailable` is false; but a web client served by the account origin holds its own
+ * sign-in (`web-sign-in.ts`), and the store follows that one so surfaces show who is
+ * signed in and can sign out. This store carries no UI of its own: surfaces
  * that render account state read it and call its commands, and decide their own feedback.
  */
 class AccountStore {
@@ -25,7 +25,12 @@ class AccountStore {
     if (this.hasStarted) return
     this.hasStarted = true
     if (!this.isAvailable) {
-      void this.readCloudProfile().finally(() => { this.hasAnswered = true })
+      const session = cloudAccount()?.session
+      if (session) {
+        this.state = session.state()
+        session.onChange((state) => { this.state = state })
+      }
+      this.hasAnswered = true
       return
     }
     localApi.onAccountStateChange((state) => {
@@ -42,8 +47,8 @@ class AccountStore {
     return this.state.kind === 'signed-in'
   }
 
-  /** Runs the device flow; resolves with how it ended. Null when unavailable or already running. */
-  async signIn(): Promise<DeviceSignInEnd | null> {
+  /** Runs the browser sign-in; resolves with how it ended. Null when unavailable or already running. */
+  async signIn(): Promise<SignInEnd | null> {
     if (!this.isAvailable || this.isSigningIn) return null
     this.isSigningIn = true
     try {
@@ -57,8 +62,8 @@ class AccountStore {
     if (this.isAvailable) localApi.accountCancelSignIn()
   }
 
-  /** On web the cookie is the session: after sign-out the page boots again as signed out.
-   *  Edits only this device holds are not deleted without asking. */
+  /** On web, sign-out ends this page's grant and the website's cookie session; the page
+   *  then boots again as signed out. Edits only this device holds are not deleted without asking. */
   async signOut(options: { discardUnsent?: boolean } = {}): Promise<void> {
     if (!options.discardUnsent && askBeforeDiscardingUnsent(undefined, () => void this.signOut({ discardUnsent: true }))) return
     if (this.isAvailable) return localApi.accountSignOut()
@@ -66,21 +71,6 @@ class AccountStore {
     if (!account) return
     await account.signOut()
     location.reload()
-  }
-
-  private async readCloudProfile(): Promise<void> {
-    const account = cloudAccount()
-    const profile = account ? await account.readProfile() : null
-    if (!account || !profile) return
-    const now = Date.now()
-    this.state = {
-      kind: 'signed-in',
-      profile,
-      consoleUrl: account.consoleUrl,
-      signedInAt: now,
-      lastVerifiedAt: now,
-      isStale: false,
-    }
   }
 
   async retryVerify(): Promise<void> {

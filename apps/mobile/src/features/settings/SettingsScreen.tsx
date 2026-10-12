@@ -36,6 +36,7 @@ function SettingsIndex({ navigation }: ScreenProps<"Settings">) {
   const organizationId = useListened(app.account.changes, () => app.account.organizationId);
   const appearance = useListened(app.appearance.changes, app.appearance.current);
   const sync = useListened(app.personalSync.changes, app.personalSync.current);
+  const agentProfileSync = useListened(app.agentProfileSync.changes, app.agentProfileSync.current);
   const organizationName =
     directory.kind === "loaded"
       ? directory.organizations.find(
@@ -46,7 +47,7 @@ function SettingsIndex({ navigation }: ScreenProps<"Settings">) {
     account.kind === "loading"
       ? "Checking"
       : account.kind === "signed-in"
-        ? account.profile.email
+        ? (account.identity.name ?? account.identity.email)
         : "Sign in";
 
   return (
@@ -102,6 +103,13 @@ function SettingsIndex({ navigation }: ScreenProps<"Settings">) {
             label="Agent defaults"
             accessibilityHint="Default agent, model, permissions, and limits"
             onPress={() => navigation.navigate("AgentDefaults")}
+          />
+          <SettingsRow
+            icon="doc.text"
+            label="Agent profile"
+            value={SYNC_STATE_LABELS[agentProfileSync.state]}
+            accessibilityHint="Your instructions, skills, and MCP servers on every host"
+            onPress={() => navigation.navigate("AgentProfile")}
           />
           <SettingsRow
             icon="bell.badge"

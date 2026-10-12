@@ -59,9 +59,7 @@ const log = createLogger('main', 'runner-delivery')
 
 /** What delivery needs from the host's delegations (sync/delegations.ts). */
 export interface DeliveryDelegations {
-  ensure(userId: string, organizationId: string): Promise<void>
-  accessToken(userId: string, organizationId: string): Promise<string>
-  holders(): Array<{ userId: string; organizationId: string }>
+  accessToken(userId: string, scope: { organizationId: string }, resource: { kind: 'api' }): Promise<string>
 }
 
 export interface RunnerDeliveryDeps {
@@ -223,14 +221,6 @@ export class RunnerDelivery {
     return token.kind === 'ok' ? token.token : null
   }
 
-  /** One destination per organization this host acts for someone in: where the runner holds a socket. */
-  socketTargets(): DeliveryDestination[] {
-    const byOrganization = new Map<string, DeliveryDestination>()
-    for (const holder of this.deps.delegations.holders()) {
-      if (!byOrganization.has(holder.organizationId)) byOrganization.set(holder.organizationId, { organizationId: holder.organizationId, actorUserId: holder.userId })
-    }
-    return [...byOrganization.values()]
-  }
 
   /**
    * A change to one of this host's own records: a published record of an
@@ -366,8 +356,7 @@ export class RunnerDelivery {
     const actor = destination.actorUserId || this.deps.linker()
     if (!actor) return this.wait(destination, 'nobody to deliver as yet')
     try {
-      await this.deps.delegations.ensure(actor, destination.organizationId)
-      const token = await this.deps.delegations.accessToken(actor, destination.organizationId)
+      const token = await this.deps.delegations.accessToken(actor, { organizationId: destination.organizationId }, { kind: 'api' })
       this.waiting.delete(keyOf(destination))
       return { kind: 'ok', token }
     } catch (error) {

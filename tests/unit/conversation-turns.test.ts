@@ -348,6 +348,29 @@ describe('turn collapse', () => {
     expect(turn.tail.map((item) => item.kind)).toEqual(['assistant'])
   })
 
+  test('keeps a device screenshot on screen when the turn folds', () => {
+    const shot = (completed: boolean): Message => ({
+      ...tool('mcp__solus__device_screenshot', '{}', completed),
+      ...(completed ? { toolImages: [{ assetId: 'asset-1', mimeType: 'image/png', width: 390, height: 844 }] } : {}),
+    })
+    const [turn] = turnsFor([
+      msg({ role: 'user', content: 'check the login screen on the simulator' }),
+      tool('Bash', '{"command":"agent-device tap @e3"}'),
+      shot(true),
+      tool('Bash', '{"command":"agent-device type hello"}'),
+      msg({ role: 'assistant', content: 'The login screen renders correctly.' }),
+    ])
+
+    // WHY: the picture is what the agent saw on the device. Folding it leaves
+    // the reader with only the agent's prose about what the screen looked like.
+    expect(turn.visibleWhenCollapsed.map((item) => item.kind)).toEqual(['device-snapshot'])
+    expect(turn.body.map((item) => item.kind)).toEqual(['tool-group', 'device-snapshot', 'tool-group'])
+
+    // A capture still running has no picture yet: it is a step like any other.
+    const [running] = turnsFor([msg({ role: 'user', content: 'look' }), shot(false)], true)
+    expect(running.body.map((item) => item.kind)).toEqual(['tool-group'])
+  })
+
   test('keeps a direct review guide visible after its request row', () => {
     const [turn] = turnsFor([
       msg({ role: 'user', content: '/review' }),

@@ -1,3 +1,4 @@
+import { grantsFor } from '../../admission/access-policy'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import { z } from 'zod'
 import type { SolusServer } from '../server'
@@ -25,6 +26,7 @@ import { upsertSessionRecord } from '../../data/sessions/session-records'
 import { organizationForNew, type Principal } from '../../admission/principal'
 import { activityFor, mergePageActivity, mergeWindowActivity, readActivityPageCursor } from '../../data/activity/activity'
 import { getProvider } from '../../providers/registry'
+import { registerAuthHandlers } from '../handlers/auth-handlers'
 
 /** The retained collaboration operations; record CRUD exists only on HTTP. */
 export function registerSolusApiHandlers(server: SolusServer, deps: {
@@ -38,12 +40,13 @@ export function registerSolusApiHandlers(server: SolusServer, deps: {
   registerWorkReviewHandlers(server, { shares: deps.shares })
   registerNotificationHubHandlers(server, { shares: deps.shares })
   registerWorkLiveHandlers(server, { live: deps.workLive, shares: deps.shares })
+  registerAuthHandlers(server)
   registerCapabilityHandlers(server, async () => ({ headless: true, desktopHandlers: false, agents: { claude: false, codex: false }, dictation: false,
     platform: process.platform, version: appVersion(), projectCount: 0, agentAuth: { claude: false }, gitAuth: { github: false } }))
   server.register('start', async () => ({ projectPath: '', homePath: '', version: appVersion(), agents: [] }))
   server.register('connectionsGetServerInfo', async (_args, { principal }): Promise<ConnectionsServerInfo> => {
     const info: ConnectionsServerInfo = { host: deps.host, port: deps.port(), allowLan: false,
-      installationId: deps.serviceId, remoteAccess: true, requireAuth: true, trustLocalNetwork: false, hostKind: 'cloud', roles: ['collaboration'], principal: principal.kind }
+      installationId: deps.serviceId, remoteAccess: true, requireAuth: true, trustLocalNetwork: false, hostKind: 'cloud', roles: ['collaboration'], principal: principal.kind, grants: grantsFor(principal, true) }
     if (principal.kind === 'org-member') Object.assign(info, { userId: principal.userId, organizationId: principal.organizationId, displayName: principal.displayName })
     if (principal.kind === 'guest') Object.assign(info, { userId: principal.accountUserId, organizationId: principal.organizationId, displayName: principal.displayName, share: { resource: principal.share.resource, role: principal.share.role } })
     return info

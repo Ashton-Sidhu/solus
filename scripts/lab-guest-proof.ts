@@ -4,9 +4,9 @@
  * workspace service ticket door, and loses it the moment the link is regenerated.
  *
  * The Lab issuer stands in for Solus cloud. A small origin serves the built web client
- * at `/` and mints guest grants at `/v1/workspace/guest-grant`, exactly as the
- * account origin does; the host trusts the issuer's key and admits the grant only with
- * the link secret. Nothing here touches `~/.solus`.
+ * at `/`, as the account origin does. A guest is admitted by the link secret alone
+ * (docs/adr/0001-standard-authentication.md §2.3): there is no guest token to mint.
+ * Nothing here touches `~/.solus`.
  *
  *   bun run build:test && bun scripts/lab-guest-proof.ts
  *
@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { extname, join, normalize, resolve } from 'node:path'
 import { chromium, type Browser, type Page } from 'playwright'
 import { z } from 'zod'
-import { bootLabSolusApi, type LabSolusApi } from '@solus/lab/solus-api'
+import { bootLabSolusApi } from '@solus/lab/solus-api'
 import { SOLUS_API_AUDIENCE } from '@solus/contracts/uplink'
 import { LabClient } from '@solus/lab/client'
 import { LabIssuer } from '@solus/lab/issuer'
@@ -39,33 +39,11 @@ const MIME = new Map([
   ['.json', 'application/json'], ['.png', 'image/png'], ['.woff2', 'font/woff2'], ['.webmanifest', 'application/manifest+json'],
 ])
 const addressSchema = z.object({ port: z.number().int().positive() })
-const guestRequestSchema = z.object({ guestId: z.string().regex(/^[a-zA-Z0-9_-]{16,64}$/).optional(), displayName: z.string().max(160).optional() })
 
-/** The account origin in miniature: the bundle at `/`, guest grants at `/v1`. */
-function startOrigin(issuer: LabIssuer, host: LabSolusApi): Promise<{ server: Server; origin: string }> {
+/** The account origin in miniature: the bundle at `/`, and `/v1` closed to a visitor with no account. */
+function startOrigin(): Promise<{ server: Server; origin: string }> {
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? '/', 'http://127.0.0.1')
-    const guestGrant = url.pathname === '/v1/workspace/guest-grant'
-    if (request.method === 'POST' && guestGrant) {
-      let body = ''
-      request.on('data', (chunk: Buffer) => { body += chunk.toString() })
-      request.on('end', () => {
-        const parsed = guestRequestSchema.safeParse(body ? JSON.parse(body) : {})
-        if (!parsed.success) {
-          response.statusCode = parsed.success ? 404 : 400
-          response.setHeader('content-type', 'application/json')
-          response.end(JSON.stringify({ error: parsed.success ? 'host_not_found' : 'invalid_request' }))
-          return
-        }
-        const guestId = parsed.data.guestId ?? 'web-guest-0123456789abcd'
-        const displayName = parsed.data.displayName?.trim() || 'Guest'
-        const grant = issuer.mint({ id: 'web-guest', kind: 'guest', guestId, displayName }, { hostId: SOLUS_API_AUDIENCE, hostKind: 'cloud' })
-        response.setHeader('content-type', 'application/json')
-        response.setHeader('cache-control', 'no-store')
-        response.end(JSON.stringify({ grant, hostId: SOLUS_API_AUDIENCE, expiresAt: Date.now() + 600_000, guestId, displayName, routes: [{ kind: 'tunnel', url: host.url }] }))
-      })
-      return
-    }
     if (url.pathname.startsWith('/v1/')) {
       response.statusCode = 401
       response.setHeader('content-type', 'application/json')
@@ -110,7 +88,7 @@ async function main(): Promise<void> {
   const issuer = new LabIssuer()
   await issuer.start()
   const service = await bootLabSolusApi({ issuer, engine: 'sqlite', entry: process.env.SOLUS_LAB_ENTRY })
-  const account = await startOrigin(issuer, service)
+  const account = await startOrigin()
   const alice = new LabClient({ persona: personaForHost('alice', 'managed'), hostUrl: service.url, issuer, hostId: SOLUS_API_AUDIENCE, hostKind: 'cloud' })
   let browser: Browser | null = null
   try {

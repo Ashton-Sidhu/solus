@@ -78,6 +78,34 @@ through the list, and the `#number` switcher in the panel walks the same order.
 - Rows keep their full layout beside the panel. As a row narrows it drops the
   labels first, then the author's name, then the age.
 
+## Stacked pull requests
+
+GitHub can put pull requests in a stack. A stack is a chain of pull requests.
+Each pull request is based on the head branch of the pull request below it, and
+the bottom pull request is based on the stack's base branch. GitHub merges the
+layers in order.
+
+- A row in a stack shows its layer beside its number, for example `2/3`. Layer 1
+  is the bottom layer. The tooltip gives the base branch of the stack.
+- In an open pull request, the top row shows the same `2/3` control. It opens a
+  menu with all the layers, the top layer first, and the base branch under them.
+  Select a layer to open it. In the panel beside the list, the layer opens in
+  the panel, also when the list does not show it (for example, a merged layer).
+  On the full pull request page, the layer opens on its own page. **Open stack
+  in browser** opens the stack on GitHub.
+- On a phone, the row shows `Stack 2/3`, and the pull request screen has a
+  **Stack** section with all the layers. Tap a layer to open it.
+
+The list reads the stack position in the same request that reads review state,
+so the list does not make more requests. The open pull request reads the full
+stack one time. When it is not known whether a pull request is in a stack,
+Solus reads the stack. When the list showed that it is not in a stack, Solus
+does not read it.
+
+GitHub stacks are a preview. When a repository has no stacks, or when the stack
+read fails, Solus shows no stack. The pull request itself is not affected.
+Solus does not merge or rebase a stack yet. Use GitHub for these actions.
+
 ## The pull request's action
 
 In an open pull request, the `#number` in the top row is also the pull

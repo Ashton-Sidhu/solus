@@ -62,6 +62,29 @@ describe('native app composition', () => {
     expect(app.registry.hosts().map((entry) => entry.id)).toEqual(['inst-other', 'inst-a'])
   })
 
+  test('the nearby list leaves out hosts this device already paired, and is absent without a scanner', async () => {
+    const { app } = createApp()
+    expect(app.canScanNearby).toBe(false)
+    expect(await app.scanNearby()).toEqual([])
+
+    const nearby = (installationId: string) => ({ host: '10.0.0.8', port: 3000, name: installationId, installationId, source: 'lan' as const })
+    const scanning = new SolusApp({
+      storage: memoryKeyValueStore(),
+      secrets: memorySecretStore(),
+      fetch: pairFetch(),
+      createTransport: (options) => new FakeTransport(options, new FakeApi()),
+      openBrowser: async () => {},
+      deviceLabel: 'Solus for iPhone',
+      uuid: () => 'uuid-1',
+      scanLocalNetwork: async () => [nearby('inst-a'), nearby('inst-new')],
+    })
+    await scanning.load()
+    expect(scanning.canScanNearby).toBe(true)
+    expect((await scanning.scanNearby()).map((server) => server.installationId)).toEqual(['inst-a', 'inst-new'])
+    await scanning.pair({ url: 'http://10.0.0.8:3000' }, 'ABC123')
+    expect((await scanning.scanNearby()).map((server) => server.installationId)).toEqual(['inst-new'])
+  })
+
   test('forgetting a host removes its queued prompts, drafts, open conversations, and last route', async () => {
     const { app, storage, api } = createApp()
     await app.load()

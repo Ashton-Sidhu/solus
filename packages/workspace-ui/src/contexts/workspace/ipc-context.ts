@@ -1,4 +1,4 @@
-import type { GitCheckout, IpcContext, PrReviewContext, RunConfig, Session, SessionCtx } from '@solus/contracts/types'
+import type { GitCheckout, IpcContext, PrReviewContext, RunConfig, Session, SessionCtx, StatusBarCtx } from '@solus/contracts/types'
 import { worktreeProjectRoot } from '@solus/contracts/types'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import type { StatusBarContext } from '../app/status-bar.context.svelte'
@@ -36,8 +36,17 @@ export class IpcContextBuilder {
     return {
       session: { ...base, workingDirectory, projectPath: worktreeProjectRoot(workingDirectory) },
       settings: this.deps.settings.ctxForProject?.(this.serverIdOf(tabId), worktreeProjectRoot(workingDirectory)) ?? this.deps.settings.ctx,
-      statusBar: this.deps.statusBar.ctx,
+      statusBar: this.statusBarOf(tabId),
     }
+  }
+
+  /** The status of the source's own run, so the model always belongs to the
+   *  run that names the provider. The active surface's model on a Claude
+   *  draft once asked Claude for its commands as `gpt-6-astra`, and the draft
+   *  lost the commands that only a Claude model has. */
+  private statusBarOf(sourceId: string): StatusBarCtx {
+    const run = this.deps.runFor(sourceId)
+    return run ? this.deps.statusBar.ctxForRun(run) : this.deps.statusBar.ctx
   }
 
   /** Context for project/environment operations that do not require a chat tab. */

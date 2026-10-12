@@ -21,7 +21,7 @@ import type { UserId } from '@solus/contracts/user'
 import type { Activity } from '@solus/contracts/activity'
 import { showsActivity } from '../../components/activity/lib/activity-line'
 import { foldWorktreeOfferDecision } from '../../components/conversation/lib/worktree-offer'
-import { canDriveSession } from '../sharing/session-drive'
+import { canDriveSession } from '../sharing/resource-roles'
 
 type ThinkingSpan = { startedAt?: number; pendingMs: number; thoughts: string[] }
 

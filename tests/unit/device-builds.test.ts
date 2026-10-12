@@ -9,7 +9,7 @@ import { DeviceDomainError } from '@solus/server/devices/device-errors'
 import { DeviceHubClient } from '@solus/server/devices/device-hub-client'
 import type { DeviceHost, DeviceHostReady } from '@solus/server/devices/device-host'
 import { DeviceManager } from '@solus/server/devices/device-manager'
-import { parseAdbDevices, parseDevicectlDevices } from '@solus/server/devices/device-physical'
+import { pairPhysicalDevice, parseAdbDevices, parseDevicectlDevices } from '@solus/server/devices/device-physical'
 import type { DeviceCommandRunner } from '@solus/server/devices/device-process'
 import { DeviceSettingsStore } from '@solus/server/devices/device-settings-store'
 
@@ -80,9 +80,27 @@ describe('connected device discovery', () => {
     ])
     expect(devices[0]!.unavailableReason).toBeUndefined()
     expect(devices[1]!.unavailableReason).toContain('Developer Mode')
-    expect(devices[2]!.unavailableReason).toContain('Trust')
+    // Tapping Trust on the USB prompt does not pair it: the person must ask from Solus.
+    expect(devices[2]!.unavailableReason).toContain('Pair')
+    expect(devices.map((device) => device.needsPairing ?? false)).toEqual([false, false, true, false])
     expect(devices[3]!.unavailableReason).toContain('not connected')
     expect(parseDevicectlDevices('not json', 'local')).toEqual([])
+  })
+
+  test('pairing asks devicectl to pair the phone, and explains a refusal', async () => {
+    const calls: string[][] = []
+    const run = (result: { code: number; stderr: string }): DeviceCommandRunner => async (command, args) => {
+      calls.push([command, ...args])
+      return { ...result, stdout: '' }
+    }
+    await pairPhysicalDevice(run({ code: 0, stderr: '' }), phone)
+    expect(calls[0]).toEqual(['xcrun', 'devicectl', 'manage', 'pair', '--device', '00008140-AAA'])
+    await expect(pairPhysicalDevice(run({ code: 1, stderr: 'The user denied the pairing request.' }), phone)).rejects.toThrow('was not accepted on Ash iPhone')
+    // Only an iPhone or iPad pairs this way; nothing runs for others.
+    calls.length = 0
+    await expect(pairPhysicalDevice(run({ code: 0, stderr: '' }), simulator)).rejects.toBeInstanceOf(DeviceDomainError)
+    await expect(pairPhysicalDevice(run({ code: 0, stderr: '' }), pixel)).rejects.toBeInstanceOf(DeviceDomainError)
+    expect(calls).toEqual([])
   })
 
   test('adb lists phones, not emulators, and flags an unauthorized one', () => {

@@ -70,7 +70,7 @@
   import { toasts } from "../../lib/toasts";
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
-  import { canDriveSession } from "../../contexts/sharing/session-drive";
+  import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { setMarkdownImageContext } from "./lib/markdown-image";
   import { setSessionLinkContext } from "./lib/session-link-context";
   import { setHtmlBlockOrigin } from "./lib/html-block-origin";

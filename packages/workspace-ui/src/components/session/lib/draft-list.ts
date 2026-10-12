@@ -13,6 +13,8 @@ export interface DraftRow {
   title: string
   projectKey: string
   projectLabel: string
+  /** The project the row files under (`groupKeyFor`). */
+  groupKey: string
   serverId: string
   /** True when the prompt carries files the title cannot show. */
   hasAttachments: boolean

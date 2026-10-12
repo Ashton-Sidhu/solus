@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useFocusEffect } from '@react-navigation/native'
 import type { HostApi } from '@solus/client-core/host-api'
 import type { Integration, IntegrationConnection, IntegrationOAuthClientInput } from '@solus/contracts/integration-types'
@@ -11,6 +11,7 @@ import {
   connectionMap,
   connectRefused,
   connectReset,
+  connectsThroughCloud,
   connectStarted,
   connectSubmitted,
   connectSubmitting,
@@ -26,11 +27,14 @@ import {
   type CatalogState,
   type ConnectFlowState,
   type ConnectionListState,
+  type ConnectTarget,
   type IntegrationAction,
   type IntegrationCandidate,
   type IntegrationListState,
   type IntegrationToolsState,
 } from './integrations'
+import { CloudConnect } from './lib/cloud-connect'
+import { timerClock } from './personal-sync'
 
 const CATALOG_DELAY_MS = 250
 
@@ -316,10 +320,18 @@ export function useIntegrations(hostId: string) {
     applyToList((integrations) => withoutIntegration(integrations, integrationId))
   }
 
-  /** Removes the person's own token and connection; the row follows `integration.connectionChanged`. */
+  /**
+   * Removes the person's own token and connection; the row follows
+   * `integration.connectionChanged`. A connection the account holds leaves the
+   * account (plans/020 §5.3), and the hosts learn on their pull.
+   */
   const disconnect = async (integrationId: string): Promise<void> => {
-    await change(`disconnect:${integrationId}`, (api) => api.integrationDisconnect({ id: integrationId }))
-    setConnections((state) => (state.kind === 'loaded' ? { kind: 'loaded', byIntegration: withConnection(state.byIntegration, integrationId, null) } : state))
+    const state = listRef.current
+    const integration = state.kind === 'loaded' ? state.integrations.find((entry) => entry.id === integrationId) : undefined
+    const own = connectionsRef.current.kind === 'loaded' ? connectionsRef.current.byIntegration.get(integrationId) : undefined
+    if (own?.source === 'cloud' && integration) await change(`disconnect:${integrationId}`, () => flows.disconnectCloud(integration.url))
+    else await change(`disconnect:${integrationId}`, (api) => api.integrationDisconnect({ id: integrationId }))
+    setConnections((latest) => (latest.kind === 'loaded' ? { kind: 'loaded', byIntegration: withConnection(latest.byIntegration, integrationId, null) } : latest))
   }
 
   /**
@@ -366,11 +378,14 @@ export function useIntegrations(hostId: string) {
  * browser ended on, and ends on `host.integrationAuthFinished`; a `token` flow
  * takes an API key. A flow still waiting is cancelled on the host when the
  * surface closes, and a reset finishes it, since its end may have been missed.
+ * Signed in, the person signs in at Solus Cloud instead (plans/020 §5.3,
+ * `CloudConnect`); the same flow states show it.
  */
 export function useIntegrationConnect(hostId: string) {
   const app = useApp()
   const phase = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase)
   const connected = phase === 'connected'
+  const accountUserId = useListened(app.account.changes, () => (app.account.view.kind === 'signed-in' ? app.account.view.identity.sub : null))
   const [flows, setFlows] = useState<ReadonlyMap<string, ConnectFlowState>>(new Map())
   /** The same flows, read at once by the event handlers and the commands. */
   const flowsRef = useRef(new Map<string, ConnectFlowState>())
@@ -378,6 +393,9 @@ export function useIntegrationConnect(hostId: string) {
   const names = useRef(new Map<string, string>())
   /** Bumps on each Connect and close; an answer for an older one is dropped. */
   const attempts = useRef(new Map<string, number>())
+  /** Who is signed in, read when Connect is tapped. */
+  const cloudRule = useRef({ accountUserId })
+  cloudRule.current = { accountUserId }
 
   const connection = useCallback(() => app.connections.connection(hostId), [app, hostId])
 
@@ -386,6 +404,14 @@ export function useIntegrationConnect(hostId: string) {
     else flowsRef.current.delete(integrationId)
     setFlows(new Map(flowsRef.current))
   }, [])
+
+  const cloud = useMemo(() => new CloudConnect({
+    requests: app.account.agentProfileRequests(),
+    openBrowser: (url) => app.platform.openBrowser(url),
+    pullEverywhere: () => app.agentProfileSync.pullEverywhere(),
+    clock: timerClock,
+  }, put), [app, put])
+  useEffect(() => () => cloud.dispose(), [cloud])
 
   const update = useCallback((integrationId: string, change: (state: ConnectFlowState) => ConnectFlowState | null) => {
     const state = flowsRef.current.get(integrationId)
@@ -411,7 +437,7 @@ export function useIntegrationConnect(hostId: string) {
   useEffect(() => () => {
     const current = app.connections.connection(hostId)
     for (const state of flowsRef.current.values()) {
-      if (state.step === 'waiting') void current?.api.integrationConnectCancel({ flowId: state.flowId }).catch(() => undefined)
+      if (state.step === 'waiting' && state.through === 'host') void current?.api.integrationConnectCancel({ flowId: state.flowId }).catch(() => undefined)
     }
   }, [app, hostId])
 
@@ -421,12 +447,22 @@ export function useIntegrationConnect(hostId: string) {
     return attempt
   }
 
-  const connect = useCallback(async (integrationId: string, name: string): Promise<void> => {
+  const connect = useCallback(async (target: ConnectTarget): Promise<void> => {
+    const { id: integrationId, name } = target
     const current = connection()
     const previous = flowsRef.current.get(integrationId)
-    if (previous?.step === 'waiting') void current?.api.integrationConnectCancel({ flowId: previous.flowId }).catch(() => undefined)
+    if (previous?.step === 'waiting' && previous.through === 'host') void current?.api.integrationConnectCancel({ flowId: previous.flowId }).catch(() => undefined)
     const attempt = nextAttempt(integrationId)
     names.current.set(integrationId, name)
+    // The conversation's sheet names only an id: a signed-in person's sign-in needs the record's address and auth.
+    const record = target.auth === undefined && cloudRule.current.accountUserId !== null
+      ? await current?.api.integrationGet({ id: integrationId }).catch(() => null) ?? target
+      : target
+    if (attempt !== attempts.current.get(integrationId)) return
+    if (record.url !== undefined && record.auth !== undefined && connectsThroughCloud(record, cloudRule.current.accountUserId)) {
+      return cloud.start(integrationId, record.url, name, record.auth)
+    }
+    cloud.cancel(integrationId)
     if (!current) return put(integrationId, connectRefused('This host cannot be reached now.'))
     put(integrationId, { step: 'starting' })
     try {
@@ -440,20 +476,22 @@ export function useIntegrationConnect(hostId: string) {
     } catch (cause) {
       if (attempt === attempts.current.get(integrationId)) put(integrationId, connectRefused(errorMessage(cause)))
     }
-  }, [connection, put])
+  }, [cloud, connection, put])
 
   /** Opens the sign-in page of a waiting flow in the system browser. */
   const openSignIn = useCallback((integrationId: string) => {
     const state = flowsRef.current.get(integrationId)
     if (state?.step !== 'waiting') return
+    if (state.through === 'cloud') return cloud.open(integrationId)
     app.platform.openBrowser(state.url).catch((cause: unknown) => update(integrationId, (latest) => connectFailed(latest, errorMessage(cause))))
-  }, [app, update])
+  }, [app, cloud, update])
 
-  /** Hands the host the address the browser ended on, or the API key. */
+  /** Hands the host the address the browser ended on, or the API key; a cloud flow's key goes to the account. */
   const submit = useCallback(async (integrationId: string, value: string): Promise<void> => {
     const current = connection()
     const state = flowsRef.current.get(integrationId)
     const trimmed = value.trim()
+    if (state?.step === 'token' && state.through === 'cloud') return cloud.submitKey(integrationId, trimmed)
     if (!current || (state?.step !== 'waiting' && state?.step !== 'token') || state.busy || !trimmed) return
     const request = state.step === 'waiting' ? { flowId: state.flowId, value: trimmed } : { id: integrationId, value: trimmed }
     const attempt = attempts.current.get(integrationId)
@@ -465,11 +503,15 @@ export function useIntegrationConnect(hostId: string) {
     } catch (cause) {
       if (attempt === attempts.current.get(integrationId)) update(integrationId, (latest) => connectFailed(latest, errorMessage(cause)))
     }
-  }, [connection, put, update])
+  }, [cloud, connection, put, update])
 
   /** Stops a waiting flow on the host and closes it; any other flow just closes. */
   const cancel = useCallback(async (integrationId: string): Promise<void> => {
     const state = flowsRef.current.get(integrationId)
+    if (cloud.has(integrationId)) {
+      nextAttempt(integrationId)
+      return cloud.cancel(integrationId)
+    }
     if (state?.step !== 'waiting') {
       nextAttempt(integrationId)
       return put(integrationId, null)
@@ -484,7 +526,10 @@ export function useIntegrationConnect(hostId: string) {
     } catch (cause) {
       update(integrationId, (latest) => connectFailed(latest, errorMessage(cause)))
     }
-  }, [connection, put, update])
+  }, [cloud, connection, put, update])
 
-  return { connected, flows, connect, openSignIn, submit, cancel }
+  /** Removes a connection the account holds; every host reads the change on its pull. */
+  const disconnectCloud = useCallback((serverUrl: string): Promise<void> => cloud.disconnect(serverUrl), [cloud])
+
+  return { connected, flows, connect, openSignIn, submit, cancel, disconnectCloud }
 }

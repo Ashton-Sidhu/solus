@@ -2,7 +2,6 @@ import { createSolusApiRouter } from './solus-api/router'
 import { workspaceCredentialsForHttp } from './solus-api/admission'
 import type { WorkspaceOperations } from '../data/workspace/operations'
 import { solusApiOpenApi } from '@solus/contracts/solus-api/openapi'
-import { rememberPersonToken } from '../vault/account-integrations'
 import { createServer, type RequestListener, type Server as HttpServer, type IncomingMessage, type ServerResponse } from 'http'
 import { createReadStream, existsSync, realpathSync } from 'fs'
 import { stat as readFileStat } from 'fs/promises'
@@ -23,9 +22,11 @@ import { listReachableEndpoints } from './endpoints'
 import type { TokenVerdict } from '../admission/access-tokens'
 import { runnerPrincipalFor, type Principal } from '../admission/principal'
 import type { ResolvedLinkShare } from '../sharing/share-manager'
-import { normalizeDisplayName, parseGrantSubject, type AccessTokenClaims, type GrantSubject } from '@solus/contracts/uplink'
+import { SHARE_LINK_UNKNOWN, shareLinkRequestSchema, type ShareLinkTarget } from '@solus/contracts/sharing'
+import { normalizeDisplayName, type AccessTokenClaims, type DelegatedAccessTokenClaims, type PersonAccessTokenClaims } from '@solus/contracts/uplink'
 import { RUNNER_OUTBOX_PATH, RUNNER_SESSION_RECORDS_PATH, runnerOutboxRequestSchema, runnerSessionRecordsRequestSchema, type RunnerOutboxRequest, type RunnerOutboxResponse, type RunnerSessionRecordsRequest, type RunnerSessionRecordsResponse } from '../sync/runner-protocol'
 import { RUNNER_MIRROR_PATH, runnerMirrorRequestSchema, type RunnerMirrorRequest, type RunnerMirrorResponse } from '../sync/runner-protocol'
+import { delegationScopesFor, type DelegationScope } from '../sync/delegations'
 import { createTokenBucketRateLimiter } from './rate-limit'
 import { filePathsToAttachments } from './attachment-utils'
 import { createLogger } from '../logger'
@@ -75,8 +76,16 @@ export interface HttpServerOptions {
   /** Verifies an account-plane access token (plans/010-standard-oauth.md) presented at `/auth/ws-ticket` or on a runner route.
    *  Absent on a host that is not linked: tokens are then simply not a credential here. */
   verifyAccessToken?: (token: string) => Promise<TokenVerdict>
-  /** A guest grant is worth nothing without the share secret naming one resource (§3.4). */
+  /**
+   * A signed-in person was admitted at the ticket door with this token: the host makes
+   * the delegations it acts for them with (sync/delegations.ts). Absent where nothing
+   * acts for people: a host that is not linked, and the Solus API.
+   */
+  establishDelegation?: (subjectToken: string, scope: DelegationScope) => Promise<void>
+  /** A guest is admitted by the share secret alone, to the one resource it names (host-sharing.md §4.1). */
   resolveShareSecret?: (secret: string) => Promise<ResolvedLinkShare | null>
+  /** The Solus API only (host-sharing.md §4.2): the host behind a link, for its guest page to dial first. */
+  resolveShareLink?: (secret: string) => Promise<ShareLinkTarget | null>
   /** The workspace service's runner routes (cloud-service-model.md §16); mounted in API mode only, so the routes exist nowhere else. */
   runner?: {
     applyOutbox: (runner: RunnerPrincipal, request: RunnerOutboxRequest) => Promise<RunnerOutboxResponse>
@@ -189,13 +198,15 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   }
   // The tunnel is a public URL. Only what a grant-holding client needs exists there:
   // the health probe, the ticket exchange, signed assets, signed uploads and signed
-  // device streams (capabilities minted over the authenticated socket). Pairing is local
-  // authorization and has no meaning there; the LAN endpoints, bearer uploads, and
-  // the served client are not offered either — a door that does not exist cannot leak.
+  // device streams (capabilities minted over the authenticated socket), and the OAuth
+  // callbacks, which a sign-in started on this origin returns to and whose `state` names
+  // the flow. Pairing is local authorization and has no meaning there; the LAN
+  // endpoints, bearer uploads, and the served client are not offered either — a door
+  // that does not exist cannot leak.
   app.use('*', async (c, next) => {
     if (!viaTunnel(c)) return next()
     const { pathname } = new URL(c.req.url)
-    const offered = pathname.startsWith('/v1/') || pathname === '/health' || pathname === '/auth/ws-ticket' || pathname.startsWith('/api/assets/') || pathname.startsWith('/api/uploads/') || pathname.startsWith('/api/device-hub/')
+    const offered = pathname.startsWith('/v1/') || pathname === '/health' || pathname === '/auth/ws-ticket' || pathname.startsWith('/api/assets/') || pathname.startsWith('/api/uploads/') || pathname.startsWith('/api/device-hub/') || pathname === '/oauth/integration/callback' || pathname === '/oauth/google/callback'
     return offered ? next() : c.notFound()
   })
   if (opts.solusApi) {
@@ -400,20 +411,34 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   })
 
   // The credential travels only in this header; the socket handshake takes the
-  // derived five-minute ticket instead. One door, two key types: a host-minted
-  // pairing token, or an account-plane access token for this host.
+  // derived five-minute ticket instead. One door, three key types: a host-minted
+  // pairing token, an account-plane access token for this host, or — with no
+  // bearer at all — a share secret this host made (docs/plans/host-sharing.md §4.1).
   app.post('/auth/ws-ticket', async (c) => {
     const bearer = readBearer(c)
     let ticket = issueWsTicket(bearer)
+    const request = ticket ? null : await readJson(c, wsTicketRequestSchema)
+    if (!ticket && !bearer && opts.resolveShareSecret) {
+      const outcome = await ticketForShareSecret(request, opts.resolveShareSecret)
+      if (outcome.ok) ticket = outcome.ticket
+      else log.info('share_secret_rejected', { reason: outcome.reason })
+    }
     if (!ticket && bearer && opts.verifyAccessToken) {
       const verdict = await opts.verifyAccessToken(bearer)
       if (!verdict.ok) {
         log.info('access_token_rejected', { reason: verdict.reason })
       } else {
-        const outcome = await ticketForGrant(verdict.claims, await readJson(c, wsTicketRequestSchema), opts.resolveShareSecret, { workspace: opts.isApiMode ?? false })
+        const outcome = await ticketForGrant(verdict.claims, { workspace: opts.isApiMode ?? false, organizationId: request?.organizationId })
         if (outcome.ok) {
           ticket = outcome.ticket
-          rememberPersonToken(bearer, verdict.claims)
+          // The connection does not wait for the exchange; a turn that needs the delegation waits for it.
+          if (!verdict.claims.act && opts.establishDelegation) {
+            for (const scope of delegationScopesFor(verdict.claims, request?.organizationId)) {
+              opts.establishDelegation(bearer, scope).catch((error: unknown) => {
+                log.info('delegation_not_established', { userId: verdict.claims.sub, error: error instanceof Error ? error.message : String(error) })
+              })
+            }
+          }
         }
         else log.info('access_token_rejected', { reason: outcome.reason })
       }
@@ -421,6 +446,20 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     if (!ticket) return c.json({ error: 'Unauthorized' }, 401)
     return c.json({ ticket })
   })
+
+  // Where a share link's guest page dials (host-sharing.md §4.2): the Solus API answers
+  // the host that runs the session, with its routes; the secret alone asks. A wrong
+  // secret learns nothing but "not found".
+  if (opts.resolveShareLink) {
+    const resolveShareLink = opts.resolveShareLink
+    app.post('/auth/share-link', async (c) => {
+      const body = await readJson(c, shareLinkRequestSchema)
+      const target = body ? await resolveShareLink(body.shareSecret) : null
+      // Named, so a page can tell "no such link" from a host's plain 404 on this path.
+      if (!target) return c.json({ error: { code: SHARE_LINK_UNKNOWN } }, 404)
+      return c.json(target, { headers: { 'cache-control': 'no-store' } })
+    })
+  }
 
   // The runner routes (cloud-service-model.md §16): the Solus API only. A host
   // delivers what a person's work produced with that person's delegated token
@@ -438,12 +477,12 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
         return null
       }
       const { claims } = verdict
-      const person = parseGrantSubject(claims.sub)
-      if (!claims.act || !claims.organizationId || person.kind !== 'user') {
-        log.info('runner_token_rejected', { reason: 'not-delegated' })
+      // A runner is a host acting for a person in one organization; the Solus API's own delegations name no host.
+      if (!claims.act?.host_id || claims.access !== 'org-member') {
+        log.info('runner_token_rejected', { reason: !claims.act ? 'not-delegated' : claims.act.host_id ? 'personal-delegation' : 'no-acting-host' })
         return null
       }
-      return runnerPrincipalFor({ hostId: claims.act.host_id, organizationId: claims.organizationId, ownerUserId: person.id, expiresAt: claims.exp * 1000 })
+      return runnerPrincipalFor({ hostId: claims.act.host_id, organizationId: claims.organizationId, ownerUserId: claims.sub, expiresAt: claims.exp * 1000 })
     }
     app.post(RUNNER_OUTBOX_PATH, async (c) => {
       const principal = await admitRunner(c)
@@ -509,81 +548,130 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   return { server, host, port, requestListener, routes: app.routes.map(({ method, path }) => ({ method, path })) }
 }
 
-const wsTicketRequestSchema = z.object({ shareSecret: z.string().min(1).max(256).optional() })
+const wsTicketRequestSchema = z.object({
+  /** The organization the connection works in. A token that lists organizations admits only one it lists (ADR 0001 §6.4). */
+  organizationId: z.string().min(1).max(256).optional(),
+  shareSecret: z.string().min(1).max(256).optional(),
+  /** A host-admitted guest names itself: the id the page keeps and the name it typed (`guest-link.ts`). */
+  guestId: z.string().regex(/^[a-zA-Z0-9_-]{16,64}$/).optional(),
+  displayName: z.string().max(80).optional(),
+})
 
 type GrantTicketOutcome =
   | { ok: true; ticket: string }
-  | { ok: false; reason: 'device-revoked' | 'guest-needs-secret' | 'not-shared' | 'guest-name' | 'delegated-token' | 'member-required' }
+  | { ok: false; reason: 'device-revoked' | 'delegated-token' | 'member-required' | 'organization-not-listed' | 'no-acting-host' }
 
 /**
- * One door, three key types (docs/plans/personal-uplink.md H1; multiplayer-sharing
- * §3.2–3.4; plans/010-standard-oauth.md). An owner's and a member's access token
- * become a grant ticket; a guest grant becomes a guest ticket only together with a
- * share secret the Solus API recognizes. Guest admission exists only on the API.
- * Personal and managed hosts never accept a guest ticket. A host's delegated token
- * opens the runner routes and, on the API, the runner's own socket: the channel
- * shared prompts reach the host on. A host never admits one.
+ * How long one host-admitted visit lasts before the page dials again with the
+ * secret. A revoked or regenerated link ends the visit at once through the share
+ * change, and every call re-checks the secret's hash, so this clock only bounds
+ * a socket nobody revoked.
  */
-export async function ticketForGrant(
-  claims: AccessTokenClaims,
-  body: { shareSecret?: string } | null,
-  resolveShareSecret: HttpServerOptions['resolveShareSecret'],
-  options: { workspace?: boolean } = {},
-): Promise<GrantTicketOutcome> {
-  const subject = parseGrantSubject(claims.sub)
-  const expiresAt = claims.exp * 1000
-  if (claims.act) return runnerTicketFor(claims, subject, options.workspace ?? false)
-  if (isGuestGrant(claims, subject)) {
-    if (!options.workspace || claims.hostKind !== 'cloud') return { ok: false, reason: 'member-required' }
-    if (isDeviceRevoked(claims.deviceId)) return { ok: false, reason: 'device-revoked' }
-    if (!body?.shareSecret || !resolveShareSecret) return { ok: false, reason: 'guest-needs-secret' }
-    const share = await resolveShareSecret(body.shareSecret)
-    if (!share) return { ok: false, reason: 'not-shared' }
-    const displayName = normalizeDisplayName(claims.displayName) ?? 'Guest'
-    return {
-      ok: true,
-      ticket: issueGuestWsTicket({ accountUserId: subject.kind === 'user' ? subject.id : undefined, accountSessionId: subject.kind === 'user' ? claims.deviceId : undefined, guestId: subject.id, displayName, organizationId: share.organizationId, share: { resource: share.resource, role: share.role, sharedByUserId: share.sharedByUserId, linkSecretHash: share.linkSecretHash }, expiresAt }),
-    }
+const GUEST_VISIT_TTL_MS = 12 * 60 * 60 * 1000
+
+type SecretTicketOutcome =
+  | { ok: true; ticket: string }
+  | { ok: false; reason: 'guest-needs-secret' | 'guest-needs-id' | 'not-shared' }
+
+/**
+ * A host admits its own guests (docs/plans/host-sharing.md §4.1): the secret of a
+ * link this host made, with no bearer, earns a guest ticket bound to that one
+ * resource. The visitor is whoever holds the link; the id and name are theirs to
+ * state, and the role is the link's. Nothing about the host is reachable with it
+ * beyond its grants (`GUEST_HOST_ACTIONS`) and the resource's own role.
+ */
+export async function ticketForShareSecret(
+  body: { shareSecret?: string; guestId?: string; displayName?: string } | null,
+  resolveShareSecret: NonNullable<HttpServerOptions['resolveShareSecret']>,
+): Promise<SecretTicketOutcome> {
+  if (!body?.shareSecret) return { ok: false, reason: 'guest-needs-secret' }
+  if (!body.guestId) return { ok: false, reason: 'guest-needs-id' }
+  const share = await resolveShareSecret(body.shareSecret)
+  if (!share) return { ok: false, reason: 'not-shared' }
+  const displayName = normalizeDisplayName(body.displayName) ?? 'Guest'
+  return {
+    ok: true,
+    ticket: issueGuestWsTicket({
+      guestId: body.guestId,
+      displayName,
+      organizationId: share.organizationId,
+      share: { resource: share.resource, role: share.role, sharedByUserId: share.sharedByUserId, linkSecretHash: share.linkSecretHash },
+      expiresAt: Date.now() + GUEST_VISIT_TTL_MS,
+    }),
   }
-  if (options.workspace && !isMemberGrant(claims)) return { ok: false, reason: 'member-required' }
-  // The owner revoked this account session on the Access tab: the host's own
-  // kill switch, independent of the control plane.
-  if (isDeviceRevoked(claims.deviceId)) return { ok: false, reason: 'device-revoked' }
+}
+
+/**
+ * The grant door (docs/plans/personal-uplink.md H1; plans/010-standard-oauth.md). An
+ * owner's and a member's access token become a grant ticket. A host's delegated
+ * token opens the runner routes on the API and nothing else. A guest holds no token:
+ * the secret alone admits them, at `ticketForShareSecret`
+ * (docs/plans/host-sharing.md §4.1).
+ *
+ * A person's token lists the organizations it may work in (`organizations`,
+ * ADR 0001 §6.4): a member's connection names one of them, and no other is admitted.
+ * An owner's token needs none.
+ */
+export async function ticketForGrant(claims: AccessTokenClaims, options: { workspace?: boolean; organizationId?: string } = {}): Promise<GrantTicketOutcome> {
+  if (claims.act) return runnerTicketFor(claims, options.workspace ?? false)
+  // The owner's Revoke on the Access tab is this host's own refusal of that client grant.
+  if (isDeviceRevoked(claims.grant_id)) return { ok: false, reason: 'device-revoked' }
+  const membership = grantMembership(claims, options.organizationId)
+  if (membership === 'not-listed') return { ok: false, reason: 'organization-not-listed' }
+  if (options.workspace && !membership) return { ok: false, reason: 'member-required' }
   const displayName = normalizeDisplayName(claims.displayName) ?? undefined
   return {
     ok: true,
-    ticket: issueGrantWsTicket({ userId: subject.id, deviceId: claims.deviceId, expiresAt, membership: grantMembership(claims), displayName }),
+    ticket: issueGrantWsTicket({ userId: claims.sub, deviceId: claims.grant_id, expiresAt: claims.exp * 1000, membership, displayName }),
   }
 }
 
-/** A host acting for a person in one organization: its socket on the Solus API, and nowhere else. */
-function runnerTicketFor(claims: AccessTokenClaims, subject: GrantSubject, workspace: boolean): GrantTicketOutcome {
-  if (!workspace || !claims.act || !claims.organizationId || subject.kind !== 'user') return { ok: false, reason: 'delegated-token' }
-  return { ok: true, ticket: issueRunnerWsTicket({ hostId: claims.act.host_id, organizationId: claims.organizationId, ownerUserId: subject.id, expiresAt: claims.exp * 1000 }) }
+/**
+ * A delegated token on the Solus API's record routes: the person it names, as a member
+ * of the one organization it names, with the standing it states. The acting host is
+ * its device, so the owner's revocation of that host on the Access tab holds here too.
+ */
+export function ticketForDelegatedMember(claims: DelegatedAccessTokenClaims): GrantTicketOutcome {
+  const deviceId = claims.act.host_id
+  if (!deviceId) return { ok: false, reason: 'no-acting-host' }
+  if (isDeviceRevoked(deviceId)) return { ok: false, reason: 'device-revoked' }
+  if (claims.access !== 'org-member') return { ok: false, reason: 'member-required' }
+  const membership = membershipOf(claims, { organizationId: claims.organizationId, organizationRole: claims.organizationRole, teamIds: claims.teamIds })
+  return {
+    ok: true,
+    ticket: issueGrantWsTicket({ userId: claims.sub, deviceId, expiresAt: claims.exp * 1000, membership, displayName: normalizeDisplayName(claims.displayName) ?? undefined }),
+  }
 }
 
-/** A member's standing in the organization the token names; undefined for anyone else. */
-function grantMembership(claims: AccessTokenClaims): GrantMembership | undefined {
-  if (claims.access !== 'org-member' || !claims.organizationId || !claims.organizationRole) return undefined
+/** A host acting for a person in one organization: its socket on the Solus API, and nowhere else. A personal delegation names no organization, so it opens nothing there. */
+function runnerTicketFor(claims: DelegatedAccessTokenClaims, workspace: boolean): GrantTicketOutcome {
+  if (!workspace) return { ok: false, reason: 'delegated-token' }
+  if (claims.access !== 'org-member') return { ok: false, reason: 'member-required' }
+  if (!claims.act.host_id) return { ok: false, reason: 'no-acting-host' }
+  return { ok: true, ticket: issueRunnerWsTicket({ hostId: claims.act.host_id, organizationId: claims.organizationId, ownerUserId: claims.sub, expiresAt: claims.exp * 1000 }) }
+}
+
+/**
+ * A member's standing in the organization the connection works in; undefined for the
+ * owner and anyone else who is not a member here. `not-listed` when the token does not
+ * list the organization named, or none is named.
+ */
+function grantMembership(claims: PersonAccessTokenClaims, namedOrganizationId: string | undefined): GrantMembership | 'not-listed' | undefined {
+  if (claims.access !== 'org-member') return undefined
+  const listed = claims.organizations?.find((entry) => entry.id === namedOrganizationId)
+  if (!listed) return 'not-listed'
+  return membershipOf(claims, { organizationId: listed.id, organizationRole: listed.role, teamIds: listed.teamIds })
+}
+
+function membershipOf(claims: AccessTokenClaims, standing: Pick<GrantMembership, 'organizationId' | 'organizationRole' | 'teamIds'>): GrantMembership {
   const membership: GrantMembership = {
-    organizationId: claims.organizationId,
-    organizationRole: claims.organizationRole,
-    teamIds: claims.teamIds ?? [],
+    ...standing,
     hostKind: claims.hostKind ?? 'personal',
     displayName: normalizeDisplayName(claims.displayName) ?? 'Member',
   }
   if (claims.picture) membership.picture = claims.picture
   if (claims.email) membership.email = claims.email
   return membership
-}
-
-function isGuestGrant(claims: AccessTokenClaims, subject: GrantSubject): boolean {
-  return claims.access === 'guest' || subject.kind === 'guest'
-}
-
-/** A grant that names an organization and the subject's role in it. */
-function isMemberGrant(claims: AccessTokenClaims): boolean {
-  return claims.access === 'org-member' && !!claims.organizationId && !!claims.organizationRole
 }
 
 /** A request for a build file (`/assets/index-lLoEVyX3.js`), not a client route. */

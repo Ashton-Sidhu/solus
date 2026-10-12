@@ -509,7 +509,10 @@ dispatches to them; `tests/unit/server-module-boundaries.test.ts` names every ex
   the allowed-host policy, acting-user attribution, and, on a machine attached for
   organization work, the new-root/continuation rule and the Solus API's admission
   of a new organization session before its provider starts),
-  `orchestration/`, `seats/`, `automations/` (runner and scheduler),
+  `orchestration/`, `seats/` (provider seats, and the agent profile:
+  `agent-profile.ts` is the one owner that reads, applies, and pulls a
+  person's files (`profile-files.ts`), registry skills, and MCP records;
+  plans/020), `automations/` (runner and scheduler),
   `observability/` (emitters, tracer, exporter), and `rate-limits.ts`.
 - `sync/` — the mirror log and sinks (`mirror/`), the outbox (`outbox/`), runner
   delivery (one queue per organization and person, sent with that person's
@@ -531,6 +534,11 @@ dispatches to them; `tests/unit/server-module-boundaries.test.ts` names every ex
   deliver to and their policies.
 - `files/` — the file finder, previews, browsing, and project folder helpers.
 - `boot-core.ts` and `boot-server.ts` — process composition.
+- `integrations/` — MCP servers (docs/plans/mcp-integrations.md): records with
+  personal ownership, the gateway, the host's OAuth flow over the shared
+  protocol (`McpOAuth` in `contracts/src/integrations/oauth-protocol.ts`), and
+  a person's connections on the host or in their account (`connections.ts`
+  with its reconcile, `cloud-credentials.ts`; plans/020 §5).
 - `git/`, `review/`, `plans/`, `skills/`, `project-config/`, `providers/`, `browser/`,
   `sharing/`, `vault/`, and `google/` — focused domains.
 - `platform/` — injected host paths, opener, secrets, and operating-system behavior.
@@ -539,6 +547,9 @@ dispatches to them; `tests/unit/server-module-boundaries.test.ts` names every ex
 
 - Host connections, WebSocket transport, capabilities, pairing, registry, and
   session caches.
+- `document-sync.ts` — the one sync engine for a keyed account document;
+  `settings-sync.ts` and `agent-profile-sync.ts` bind it to the personal
+  settings and the agent profile (plans/018, plans/020).
 - `host-facts.ts` — everything read about one host (capabilities, server info,
   machine facts, usage, voice model, tools), loaded once per server session and
   shared by every reader on desktop, web, and mobile (`docs/plans/host-model.md`).

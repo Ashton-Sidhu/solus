@@ -27,6 +27,7 @@ import type {
   PrStateAction,
   PrReviewer,
   PrReviewerCandidate,
+  PrStack,
   PullRequestOverview,
   PullRequestUpdate,
   ReviewComment,
@@ -117,6 +118,11 @@ export class PullRequest implements Contracts.PullRequest {
   needsMyReview = $state<boolean>()
   autoMergeEnabled = $state<boolean>()
   autoMergeMethod = $state<Contracts.PrMergeMethod>()
+  /** Where this sits in its GitHub stack; null when in none, undefined until
+   *  a read that asks has answered. */
+  stack = $state<Contracts.PrStackMembership | null>()
+  /** The whole stack, as `loadStack` last read it. */
+  fullStack = $state<PrStack | null>()
   /** The reviewers and the accounts that can be asked, as last read. Undefined
    *  until the first read. Every read and write below keeps them current, so
    *  another surface (the `@` picker) reads them here and does not ask again. */
@@ -208,6 +214,8 @@ export class PullRequest implements Contracts.PullRequest {
     this.needsMyReview = source.needsMyReview
     this.autoMergeEnabled = source.autoMergeEnabled
     this.autoMergeMethod = source.autoMergeMethod
+    // A direct read does not ask about stacks; only an answer replaces one.
+    if (source.stack !== undefined) this.stack = source.stack
     this.#described = true
     // A read that left the host before a write it has not yet answered would
     // otherwise put the write's outcome back the way it was.
@@ -302,6 +310,13 @@ export class PullRequest implements Contracts.PullRequest {
     const commits = await this.store.mirrors.commits.read(this.key, !!opts.force, () => this.api.prListCommits(ctx, this.number))
     if (this.store.mirrors.commits.holds(this.key, commits)) this.commits = commits
     return commits
+  }
+
+  async loadStack(opts: ReadOptions = {}): Promise<PrStack | null> {
+    const ctx = detached(this.ctx)
+    const stack = await this.store.mirrors.stacks.read(this.key, !!opts.force, () => this.api.prGetStack(ctx, this.number))
+    if (this.store.mirrors.stacks.holds(this.key, stack)) this.fullStack = stack
+    return stack
   }
 
   async loadReviewers(opts: ReadOptions = {}): Promise<PrReviewer[]> {

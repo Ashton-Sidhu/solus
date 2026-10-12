@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { createServer, type Server } from 'node:http'
-import { generateKeyPairSync, randomUUID, sign, type KeyObject } from 'node:crypto'
+import { createPublicKey, generateKeyPairSync, randomUUID, sign, verify, type KeyObject } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,9 +10,11 @@ import {
   TOKEN_EXCHANGE_GRANT_TYPE,
   SOLUS_API_AUDIENCE,
   hostAudience,
+  tokenEndpoint,
   type AccessTokenClaims,
   type UplinkLinkConfig,
 } from '@solus/contracts/uplink'
+import { clientCredential, generateHostKey } from '@solus/server/host/host-credential'
 import { resetTestDatabase } from './helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
@@ -26,7 +28,7 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 // API is the real one.
 
 const VM = 'vmhost000000001'
-const CLIENT = { clientId: `host_${VM}`, clientSecret: 'shc_vm_secret' }
+const CLIENT = { clientId: `host_${VM}` }
 const environment = ['SOLUS_DATA_DIR', 'SOLUS_API', 'SOLUS_DB', 'SOLUS_CLOUD_ISSUER', 'SOLUS_CLOUD_JWKS_URL', 'SOLUS_API_SIGNING_KEY'] as const
 const previous = environment.map((key) => [key, process.env[key]] as const)
 
@@ -46,15 +48,17 @@ function signed(claims: AccessTokenClaims): string {
 }
 
 const now = () => Math.floor(Date.now() / 1000)
+/** The VM's key: the public half is what the account plane registered for its client. */
+const vmKey = await generateHostKey()
 
 /** The access token Bob's client presented to the VM: the account plane checks it names this VM. */
 function bobsTokenForVm(): string {
-  return signed({ iss: accountOrigin, aud: hostAudience(VM), sub: 'bob', deviceId: 'bob-session', jti: randomUUID(), iat: now(), exp: now() + 300, client_id: 'solus-app', access: 'org-member', organizationId: 'org_a', organizationRole: 'member', teamIds: [], hostKind: 'personal' })
+  return signed({ iss: accountOrigin, aud: hostAudience(VM), sub: 'bob', grant_id: 'bob-grant', jti: randomUUID(), iat: now(), exp: now() + 300, client_id: 'solus-desktop', access: 'org-member', organizations: [{ id: 'org_a', role: 'member', teamIds: [] }], hostKind: 'personal' })
 }
 
 /** What the account plane issues the VM for Bob in one organization: the VM acts, Bob is the subject. */
 function delegatedFor(subject: string, organizationId: string): string {
-  return signed({ iss: accountOrigin, aud: [SOLUS_API_AUDIENCE, ACCOUNT_AUDIENCE], sub: subject, deviceId: VM, jti: randomUUID(), iat: now(), exp: now() + 300, client_id: CLIENT.clientId, access: 'org-member', organizationId, organizationRole: 'member', teamIds: [], hostKind: 'cloud', email: 'bob@example.test', act: { sub: CLIENT.clientId, host_id: VM } })
+  return signed({ iss: accountOrigin, aud: [SOLUS_API_AUDIENCE, ACCOUNT_AUDIENCE], sub: subject, grant_id: 'bob-grant', jti: randomUUID(), iat: now(), exp: now() + 300, client_id: CLIENT.clientId, access: 'org-member', organizationId, organizationRole: 'member', teamIds: [], hostKind: 'cloud', email: 'bob@example.test', act: { sub: CLIENT.clientId, host_id: VM } })
 }
 
 beforeAll(async () => {
@@ -69,9 +73,12 @@ beforeAll(async () => {
       const json = (status: number, body: object) => { response.writeHead(status, { 'content-type': 'application/json' }); response.end(JSON.stringify(body)) }
       if (request.url === '/jwks') return json(200, { keys: [jwk] })
       if (request.url !== '/api/auth/oauth2/token') return json(404, { error: 'not found' })
-      // The VM authenticates as its own confidential client.
-      if (request.headers.authorization !== `Basic ${Buffer.from(`${CLIENT.clientId}:${CLIENT.clientSecret}`).toString('base64')}`) return json(401, { error: 'invalid_client' })
+      // The VM authenticates as its own confidential client, with an assertion its key signed (private_key_jwt).
       const form = new URLSearchParams(raw)
+      const [assertionHeader, assertionBody, assertionSignature] = String(form.get('client_assertion')).split('.')
+      const assertionSigned = !!assertionHeader && !!assertionBody && !!assertionSignature
+        && verify('sha256', Buffer.from(`${assertionHeader}.${assertionBody}`), { key: createPublicKey({ key: { ...vmKey.publicJwk }, format: 'jwk' }), dsaEncoding: 'ieee-p1363' }, Buffer.from(assertionSignature, 'base64url'))
+      if (form.get('client_id') !== CLIENT.clientId || !assertionSigned) return json(401, { error: 'invalid_client' })
       tokenRequests.push({ grantType: form.get('grant_type') ?? '', organizationId: form.get('organization_id') })
       if (form.get('grant_type') === TOKEN_EXCHANGE_GRANT_TYPE) {
         const subject = JSON.parse(Buffer.from(String(form.get('subject_token')).split('.')[1] ?? '', 'base64url').toString())
@@ -117,8 +124,10 @@ describe('an organization run on a VM, through the real Solus API', () => {
     const database = await import('@solus/server/db/database')
     const link = vmLink()
 
-    // 1. Admission: the VM trades Bob's token once; the API accepts the session.
-    const delegations = new Delegations({ link: () => link, client: () => CLIENT, personToken: (userId) => (userId === 'bob' ? bobsTokenForVm() : null), onRevoked: () => {} })
+    // 1. Admission: the VM trades the token Bob's client presented once; the API accepts the session.
+    const credential = clientCredential({ clientId: CLIENT.clientId, privateJwk: vmKey.privateJwk, tokenEndpoint: tokenEndpoint(accountOrigin) })
+    const delegations = new Delegations({ link: () => link, credential: () => credential, onRevoked: () => {} })
+    await delegations.establish(bobsTokenForVm(), { organizationId: 'org_a' })
     await delegations.actFor({ sessionId: 'solus-flow', userId: 'bob', organizationId: 'org_a', admit: true })
     expect(await admissions.readSessionAdmission('org_a', 'solus-flow')).toMatchObject({ hostId: VM, ownerUserId: 'bob' })
     // A retry answers the same admission; nobody else can take it.
@@ -132,7 +141,7 @@ describe('an organization run on a VM, through the real Solus API', () => {
       outbox.queueSessionReport({ organizationId: 'org_a', actorUserId: 'bob' }, { sessionId: 'solus-flow', provider: 'codex', projectPath: '-repo', lastActivityAt: Date.now(), title: 'Ship it', ownerUserId: 'mallory', admissionId: 'solus-flow' })
       const actor = delegations.actorOf('solus-flow')
       expect(actor).toEqual({ userId: 'bob', organizationId: 'org_a' })
-      const operations = remoteWorkspaceOperations(delegations.apiClient(actor!.userId, actor!.organizationId), (recordId) => delivery.deliverSessionReport(recordId))
+      const operations = remoteWorkspaceOperations(delegations.apiClient(actor!.userId, { organizationId: actor!.organizationId }), (recordId) => delivery.deliverSessionReport(recordId))
 
       // 3. The agent's writes go to the API as Bob, synchronously; the parent session is there by then.
       const context = { principal: { kind: 'system' as const }, home: { kind: 'local' as const, hostId: 'unused' }, scopes: [] }
@@ -165,57 +174,12 @@ describe('an organization run on a VM, through the real Solus API', () => {
     }
   })
 
-  test("a link visitor's prompt reaches the VM down the socket its delegated token opens, and the VM's receipt answers them", async () => {
-    // WHY: the API reaches a runner only through the socket the runner holds open to
-    // it, dialed with the same client transport a host dials another host with.
-    const { Delegations } = await import('@solus/server/sync/delegations')
-    const { RunnerDelivery } = await import('@solus/server/sync/runner-delivery')
-    const { startSharedPromptRunner } = await import('@solus/server/sharing/shared-prompt-runner')
-    const records = await import('@solus/server/data/sessions/session-records')
-    const shareManager = await import('@solus/server/sharing/share-manager')
-    const database = await import('@solus/server/db/database')
-    const link = vmLink()
-    const resource = { kind: 'session', id: 'shared-on-vm' } as const
-    const bob = { kind: 'org-member', userId: 'bob', organizationId: 'org_a', organizationRole: 'member', teamIds: [], hostKind: 'cloud', displayName: 'Bob', deviceId: 'bob-session', expiresAt: Date.now() + 60_000, deviceLabel: 'Solus cloud' } as const
-    const shares = new shareManager.ShareManager({ db: database.getDatabase() })
-    await shares.claimOwner(resource, { ...bob, teamIds: [] })
-    const shared = (await shares.setLink({ resource, role: 'editor' }, { ...bob, teamIds: [] }))!
-    await records.upsertSessionRecord('org_a', { sessionId: resource.id, provider: 'codex', projectPath: '-repo', lastActivityAt: Date.now(), runnerHostId: VM })
-    const visitor = {
-      clientId: 'ws:maya:visitor', deviceLabel: 'Guest link', deviceId: 'maya',
-      principal: { kind: 'guest', organizationId: 'org_a', guestId: 'maya', displayName: 'Maya', deviceId: 'maya', deviceLabel: 'Guest link', share: (await shares.resolveLinkSecret(shared.secret))!, expiresAt: Date.now() + 60_000 } as const,
-    }
-    const available = () => service!.server.handle('sharedSessionAvailable', [resource.id], visitor)
-    const until = async (wanted: boolean) => {
-      for (const deadline = Date.now() + 5_000; (await available()) !== wanted && Date.now() < deadline;) await new Promise<void>((resolve) => setTimeout(resolve, 10))
-      expect(await available()).toBe(wanted)
-    }
-
-    const delegations = new Delegations({ link: () => link, client: () => CLIENT, personToken: (userId) => (userId === 'bob' ? bobsTokenForVm() : null), onRevoked: () => {} })
-    await delegations.actFor({ sessionId: resource.id, userId: 'bob', organizationId: 'org_a', admit: false })
-    const delivery = new RunnerDelivery({ link: () => link, delegations, linker: () => 'bob' })
-    const dispatched: Array<{ sessionId: string; text: string; author: string }> = []
-    const runtime = { dispatch: { promptSession: async (sessionId: string, text: string, _mode: string, options: { actor: { user: { displayName: string } } }) => { dispatched.push({ sessionId, text, author: options.actor.user.displayName }) } } }
-    // SAFETY: the runner reads only `dispatch.promptSession` of the session runtime.
-    const stop = startSharedPromptRunner(delivery, runtime as never, () => VM)
-    try {
-      await until(true)
-      expect(await service!.server.handle('sharedSessionPrompt', [{ sessionId: resource.id, text: 'from the link' }], visitor)).toEqual({ accepted: true })
-      expect(dispatched).toEqual([{ sessionId: resource.id, text: 'from the link', author: 'Maya' }])
-    } finally {
-      stop()
-    }
-    // The socket closed with the runner: the API says so before a visitor types.
-    await until(false)
-    await expect(service!.server.handle('sharedSessionPrompt', [{ sessionId: resource.id, text: 'again' }], visitor)).rejects.toThrow('offline')
-  })
-
   test('the API refuses a token meant for a host, and its runner routes refuse a person\'s token that no host acts with', async () => {
     // A person's token for the VM is not a credential at the API: wrong resource.
     const forVm = await fetch(`${apiOrigin}/v1/auth/session`, { method: 'POST', headers: { authorization: `Bearer ${bobsTokenForVm()}`, 'content-type': 'application/json' }, body: JSON.stringify({ scopes: ['tasks:write'] }) })
     expect(forVm.status).toBe(401)
     // A person's own API token, with no host acting for them, cannot deliver as a runner.
-    const own = signed({ iss: accountOrigin, aud: SOLUS_API_AUDIENCE, sub: 'bob', deviceId: 'bob-session', jti: randomUUID(), iat: now(), exp: now() + 300, client_id: 'solus-app', access: 'org-member', organizationId: 'org_a', organizationRole: 'member', teamIds: [], hostKind: 'cloud' })
+    const own = signed({ iss: accountOrigin, aud: SOLUS_API_AUDIENCE, sub: 'bob', grant_id: 'bob-grant', jti: randomUUID(), iat: now(), exp: now() + 300, client_id: 'solus-desktop', access: 'org-member', organizations: [{ id: 'org_a', role: 'member', teamIds: [] }], hostKind: 'cloud' })
     const delivered = await fetch(`${apiOrigin}/runner/session-records`, { method: 'POST', headers: { authorization: `Bearer ${own}`, 'content-type': 'application/json' }, body: JSON.stringify({ hostId: VM, reports: [] }) })
     expect(delivered.status).toBe(401)
     // The acting host's delegated token opens them, for its own host id only.

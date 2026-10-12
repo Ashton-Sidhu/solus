@@ -4,7 +4,7 @@ import { type ReviewContext, type ReviewGuide, type ReviewGuideRequestOptions, t
 import { getDiff, getEpisodeDiff, getSessionSnapshotRange } from '../git/session-snapshots'
 import { getHeadCommit } from '../git/worktree-manager'
 import { createLogger } from '../logger'
-import { readGuideByKey, readLedgerByKey, resolveReviewContext, reviewCheckout, writeGuide, type CheckoutFactsCache } from './ledger'
+import { readGuideByKey, resolveReviewContext, reviewCheckout, writeGuide, type CheckoutFactsCache } from './review-context'
 import { runReviewAgent } from './review-agent'
 import { contextPreferences } from '../execution/agents/run-input'
 import { normalizeGuide } from './review-guide-tool'
@@ -52,7 +52,7 @@ export interface GuideTarget {
   base: string
   /** Exact captured head for a session target. Other scopes use the live tree. */
   head: string | null
-  /** Set only for a session walkthrough — filters the ledger to this session. */
+  /** Set only for a session walkthrough — the session whose snapshot is reviewed. */
   sessionId: string | null
   patch: string | null
   changeFingerprint: string
@@ -205,10 +205,10 @@ function setGuideStatus(
 }
 
 /**
- * The producer. Always reviews the diff; enriches with the ledger when one
- * exists. The review agent authors a structured guide via the
- * `submit_review_guide` tool (no HTML, no template); the producer validates it
- * against the real change (coverage + ledger-ref existence), stamps the identity
+ * The producer. Always reviews the diff. The review agent authors a structured
+ * guide via the `submit_review_guide` tool (no HTML, no template); the producer
+ * checks it against the real change (coverage, and hunks cut from the patch at
+ * the agent's line ranges), stamps the identity
  * fields, and overwrites the cached `review/<key>.json`. Returns null only when
  * there is no git episode to review.
  *
@@ -473,12 +473,6 @@ async function produceGuide(
   }
   const patch = target.patch
 
-  // Ledger is optional enrichment. The branch ledger is shared across sessions, so
-  // a session walkthrough filters it to the records this session authored.
-  const fullLedger = await readLedgerByKey(review.repoRoot, review.key)
-  const ledger = target.sessionId && fullLedger
-    ? { ...fullLedger, records: fullLedger.records.filter((r) => r.sessionId === target.sessionId) }
-    : fullLedger
   const agent: AgentId = opts.agent ?? 'claude-code'
 
   // Inline the diff we already computed when it's small enough. That lets the
@@ -494,7 +488,6 @@ async function produceGuide(
       workTree,
       base,
       head: target.head,
-      ledger,
       context: review,
       agent,
       model: opts.model ?? null,
@@ -531,10 +524,7 @@ async function produceGuide(
     baseSha: base,
     changeFingerprint: target.changeFingerprint,
     generatedAt: new Date().toISOString(),
-    ...normalizeGuide(draft, {
-      changedFiles: changedFilesFromPatch(patch),
-      ledgerIds: (ledger?.records ?? []).map((r) => r.id),
-    }),
+    ...normalizeGuide(draft, { patch }),
   }
 
   return finishGuide(workTree, review, target, guide, persist)
@@ -581,17 +571,4 @@ function fallbackGuide(key: string, headSha: string, baseSha: string, message: s
     summary: message,
     sections: [],
   }
-}
-
-/** Post-image paths of every file in a unified diff (the paths the agent
- *  references in the guide). Parsed from the `diff --git a/… b/…` headers, which
- *  every changed file — tracked, untracked, or renamed — produces exactly one
- *  of. (quotepath is off upstream, so paths are unquoted.) */
-export function changedFilesFromPatch(patch: string): string[] {
-  const files = new Set<string>()
-  for (const line of patch.split('\n')) {
-    const m = line.match(/^diff --git a\/(.+) b\/(.+)$/)
-    if (m) files.add(m[2])
-  }
-  return [...files]
 }

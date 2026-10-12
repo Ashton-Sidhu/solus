@@ -3,6 +3,7 @@
     getWorkspaceContext,
     runtime,
     serversStore,
+    groupKeyFor,
   } from "../../contexts";
   import { projectDirLabel } from "../../lib/paths";
   import { isChat } from "@solus/contracts/chat";
@@ -188,8 +189,7 @@
         title={projectName}
         class="group inline-flex max-w-64 items-baseline align-baseline whitespace-nowrap focus-visible:outline-none"
         ><ProjectFavicon
-          {projectRoot}
-          serverId={draft?.run.serverId}
+          projectKey={groupKeyFor(draft?.run.serverId ?? "", projectRoot)}
           class="mr-[0.22em] size-[0.8em] translate-y-[0.05em]"
         /><span
           class="min-w-0 overflow-x-clip text-ellipsis underline decoration-dotted decoration-[color:var(--solus-text-tertiary)] underline-offset-[0.28em] transition-[text-decoration-color] duration-[var(--duration-quick)] ease-(--ease-premium) group-hover:decoration-[color:var(--solus-text-secondary)] group-focus-visible:decoration-[color:var(--solus-accent)]"

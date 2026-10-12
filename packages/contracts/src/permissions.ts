@@ -1,0 +1,253 @@
+import type { RpcMethod } from './rpc'
+import type { ResourceRole, ShareResource, ShareResourceKind } from './sharing'
+
+/**
+ * Permissions (docs/plans/permissions.md). What a person may do is an **action**,
+ * a dotted path named for the person, never for the wire: `host.git.write`,
+ * `session.drive`. A **grant** is a prefix: `host.git` covers `host.git.read`,
+ * `host.git.write`, and anything added under it later; `host` covers everything.
+ * Deny is absence. Splitting an action is one row here and one `may` call; every
+ * grant of the parent keeps working.
+ *
+ * Two kinds of action:
+ * - a **host action** is held on the host as a whole. The host computes the
+ *   grants once per connection (`grantsFor`) and sends them on the server info.
+ * - a **resource action** is `<kind>.<verb>` on one session, work, or task, and
+ *   follows the share role (`ROLE_VERBS`). It is never granted on the host.
+ *
+ * This file is the one registry: the server's gate and every client's controls
+ * read the same tables, so a control is disabled exactly when the host refuses.
+ */
+
+/** Every dotted prefix of a path, the path itself included. */
+type Prefixes<S extends string> = S extends `${infer Head}.${infer Tail}` ? Head | `${Head}.${Prefixes<Tail>}` : S
+
+/**
+ * The host-action leaves: each method not listed here is `host.use`, the
+ * ordinary use of the host's catalog and tools. A method is listed only when a
+ * principal must be able to hold it apart from `host.use`.
+ */
+const HOST_ACTION_OF_METHOD = {
+  // Drives the window: a trusted local connection only.
+  isVisible: 'host.local.window',
+  getAppGlobalShortcuts: 'host.local.window',
+  setAppGlobalShortcuts: 'host.local.window',
+  restartApp: 'host.local.window',
+  // Changes how the host is reached: local only, and never on a managed host, where Solus cloud owns reach.
+  connectionsSetRemoteAccess: 'host.local.reach',
+  connectionsSetTrustLocalNetwork: 'host.local.reach',
+  connectionsGeneratePairToken: 'host.local.reach',
+  connectionsBootstrapDiscoveredServer: 'host.local.reach',
+  uplinkLink: 'host.local.reach',
+  uplinkUnlink: 'host.local.reach',
+  uplinkDetachOrganization: 'host.local.reach',
+  // Administers the machine: credentials, updates, host config.
+  connectionsRevokeDevice: 'host.admin',
+  pairedHostsList: 'host.admin',
+  pairedHostsPair: 'host.admin',
+  pairedHostsForget: 'host.admin',
+  typeSafeKeySet: 'host.admin',
+  configUpdate: 'host.admin',
+  setProjectsBaseDirectory: 'host.admin',
+  deleteProject: 'host.admin',
+  hostCheckForUpdates: 'host.admin',
+  hostInstallUpdate: 'host.admin',
+  hostCancelUpdate: 'host.admin',
+  modelProfilesRefresh: 'host.admin',
+  setupInstallAgentCli: 'host.admin',
+  setupInstallGit: 'host.admin',
+  setupInstallGh: 'host.admin',
+  setupSetGitIdentity: 'host.admin',
+  setupAuthorizeGhCli: 'host.admin',
+  setupInstallGitCredentialHelper: 'host.admin',
+  seatRemove: 'host.admin',
+  agentProfileRead: 'host.admin',
+  githubExportCredential: 'host.admin',
+  codeIntelInstall: 'host.admin',
+  browserRuntimeInstall: 'host.admin',
+  browserRequestCookieAccess: 'host.admin',
+  browserImportCookies: 'host.admin',
+  hostSetInsightsOptIn: 'host.admin',
+  deviceConfigure: 'host.admin',
+  deviceHostSave: 'host.admin',
+  deviceHostRemove: 'host.admin',
+  deviceHostTest: 'host.admin',
+  deviceToolUpdate: 'host.admin',
+  deviceHostRetry: 'host.admin',
+  deviceBuildImport: 'host.admin',
+  deviceBuildDelete: 'host.admin',
+  // The machine's one GitHub, Google, Atlassian, or Cloudflare credential on a host; each
+  // person's own row on the workspace service, where every member holds this leaf.
+  googleConnect: 'host.admin.connections',
+  googleDisconnect: 'host.admin.connections',
+  cloudflareConnect: 'host.admin.connections',
+  cloudflareDisconnect: 'host.admin.connections',
+  atlassianStartOAuth: 'host.admin.connections',
+  atlassianCancelOAuth: 'host.admin.connections',
+  atlassianDisconnect: 'host.admin.connections',
+  providerConnect: 'host.admin.connections',
+  providerCancelConnect: 'host.admin.connections',
+  providerDisconnect: 'host.admin.connections',
+  // A report from a runner: the host itself, never a person.
+  sessionRecordUpsert: 'host.system',
+  // What a client needs to boot and keep its socket; nothing about the host leaks through them.
+  connectionsGetServerInfo: 'host.connect',
+  authRenew: 'host.connect',
+  serverGetCapabilities: 'host.connect',
+  activityLease: 'host.connect',
+  listAttention: 'host.connect',
+  presenceSnapshot: 'host.connect',
+  presenceSetFocus: 'host.connect',
+  // What the composer offers: the agents here and the models they run.
+  start: 'host.agents.read',
+  modelProfilesStatus: 'host.models.read',
+  // The session catalog. Each listing keeps only the sessions the caller may open (`filterVisible`).
+  sessionShelfList: 'host.sessions.read',
+  sessionPullRequestsList: 'host.sessions.read',
+  pinnedSessionsList: 'host.sessions.read',
+  tasksSidebarSnapshot: 'host.sessions.read',
+  tasksSnoozes: 'host.sessions.read',
+  createHeadlessSession: 'host.sessions.start',
+  listProjects: 'host.projects.read',
+  listRecentProjects: 'host.projects.read',
+  // Git: reading a checkout, and changing one.
+  gitRefreshState: 'host.git.read',
+  gitIdentity: 'host.git.read',
+  gitRepositoryStatus: 'host.git.read',
+  checkoutSnapshot: 'host.git.read',
+  worktreeListProject: 'host.git.read',
+  worktreeBranches: 'host.git.read',
+  gitRunAction: 'host.git.write',
+  gitDiscard: 'host.git.write',
+  gitSync: 'host.git.write',
+  gitCheckoutBranch: 'host.git.write',
+  worktreeRestore: 'host.git.write',
+  gitRegisterEnvironment: 'host.git.write',
+  gitInitRepository: 'host.git.write',
+  githubPublishRepository: 'host.git.write',
+  openWorktreeTerminal: 'host.terminal',
+  usageLimits: 'host.usage.read',
+  // Project files: reading a checkout's files, and changing them.
+  searchFiles: 'host.files.read',
+  searchProjectContents: 'host.files.read',
+  listDirectory: 'host.files.read',
+  readProjectFile: 'host.files.read',
+  listProjectFiles: 'host.files.read',
+  createDirectory: 'host.files.write',
+  mutateHostPath: 'host.files.write',
+  mutateProjectFile: 'host.files.write',
+  writeFile: 'host.files.write',
+  updateAgentFiles: 'host.files.write',
+} as const satisfies Partial<Record<RpcMethod, string>>
+
+/** The ordinary use of the host: files, tasks, works, browser, devices, settings reads, and the rest. */
+export const HOST_USE = 'host.use'
+
+type HostActionLeaf = (typeof HOST_ACTION_OF_METHOD)[keyof typeof HOST_ACTION_OF_METHOD] | typeof HOST_USE
+/** A host action or any prefix of one: what a grant may name, and what a control may ask for. */
+export type HostAction = Prefixes<HostActionLeaf>
+
+/** The resource verbs, lowest first; a role holds a set of them on every kind. */
+export const RESOURCE_VERBS = ['read', 'comment', 'drive', 'edit', 'share', 'own'] as const
+export type ResourceVerb = (typeof RESOURCE_VERBS)[number]
+export type ResourceAction = `${ShareResourceKind}.${ResourceVerb}`
+
+/**
+ * What each share role holds on a resource. A commenter comments on a work; on a
+ * session or a task the verb never applies, so a commenter there is a viewer.
+ * `drive` is a session's turns and cards; `edit` is its record (title, links,
+ * goal, plans) or a work's or task's body; `share` is the share list; `own` is
+ * transfer and taking the record off its host.
+ */
+export const ROLE_VERBS = {
+  none: [],
+  viewer: ['read'],
+  commenter: ['read', 'comment'],
+  editor: ['read', 'comment', 'drive', 'edit', 'share'],
+  owner: ['read', 'comment', 'drive', 'edit', 'share', 'own'],
+} as const satisfies Record<ResourceRole, readonly ResourceVerb[]>
+
+export function roleAllows(role: ResourceRole, verb: ResourceVerb): boolean {
+  const verbs: readonly ResourceVerb[] = ROLE_VERBS[role]
+  return verbs.includes(verb)
+}
+
+export function isResourceVerb(value: string): value is ResourceVerb {
+  const verbs: readonly string[] = RESOURCE_VERBS
+  return verbs.includes(value)
+}
+
+/** The verb each resource method needs; the server pairs it with where the resource id sits in the call. */
+export const RESOURCE_VERB_OF_METHOD = {
+  // Sessions — reading
+  watchSession: 'read', unwatchSession: 'read', bindRuntimeSession: 'read', loadSession: 'read', loadSessionPage: 'read',
+  loadSessionToolInputs: 'read', loadSessionPreview: 'read', loadSessionMessageWindow: 'read', getSessionInfo: 'read',
+  getSessionInfos: 'read', describeSession: 'read', loadPlanContent: 'read', loadPlanAnnotations: 'read', getThreadGoal: 'read',
+  listTurnSnapshots: 'read', diff: 'read', diffFileContents: 'read', diffStats: 'read', tasksForSession: 'read',
+  metricsSessionSummary: 'read', setSessionReadState: 'read', togglePinnedSession: 'read',
+  // Sessions — driving: turns, cards, the queue, attachments, typing
+  prompt: 'drive', compactSession: 'drive', retry: 'drive', decideSessionPlan: 'drive', promptHeadlessSession: 'drive',
+  stopSession: 'drive', stopBackgroundTasks: 'drive', resetSession: 'drive', acceptPlan: 'drive', switchSessionAgent: 'drive',
+  respondPermission: 'drive', respondQuestion: 'drive', rateLimitDecision: 'drive', cancelQueuedPrompt: 'drive',
+  editQueuedPrompt: 'drive', sessionQueue: 'drive', sessionQueueChange: 'drive', presenceSetComposing: 'drive',
+  writePlanFile: 'drive', attachFiles: 'drive', attachFilePaths: 'drive', attachUpload: 'drive', attachUploadToken: 'drive',
+  takeScreenshot: 'drive', pasteImage: 'drive', enterDesignMode: 'drive', submitDesignAnnotations: 'drive',
+  deviceOpen: 'drive', deviceClose: 'drive',
+  // Sessions — editing the record
+  setSessionTitle: 'edit', ensureBackgroundSessionTitle: 'edit', setSessionBranch: 'edit', sessionPullRequestLink: 'edit',
+  sessionPullRequestUnlink: 'edit', sessionPullRequestWatch: 'edit', sessionSetSettled: 'edit', sessionSnooze: 'edit',
+  setThreadGoal: 'edit', clearThreadGoal: 'edit', savePlanAnnotations: 'edit', toggleBookmarkPlan: 'edit', publishPlan: 'edit',
+  pullPlanUpstream: 'edit', refreshPlanUpstream: 'edit', unlinkPlanUpstream: 'edit', tasksLinkSession: 'edit', tasksUnlinkSession: 'edit',
+  // Works — reading
+  loadWorkRevisions: 'read', loadWorkRevision: 'read', workReviewGet: 'read', workLiveOpen: 'read', workLiveAwareness: 'read',
+  workLiveClose: 'read', loadWorkAnnotations: 'read', markWorkCommentRead: 'read', readWorkGoogleComments: 'read',
+  readWorkExternalComments: 'read', duplicateWork: 'read', worksExport: 'read', shareGet: 'read',
+  // Works — commenting and reviewing
+  applyWorkComment: 'comment', workReviewDecide: 'comment',
+  // Works — editing
+  agentSaveWork: 'edit', restoreWorkRevision: 'edit', workReviewRequest: 'edit', workReviewRemove: 'edit', workLivePush: 'edit',
+  presenceSetEditing: 'edit', setWorkPinned: 'edit', linkWorkSession: 'edit', refreshWorkGoogleComments: 'edit',
+  sendWorkGoogleComment: 'edit', refreshWorkExternalComments: 'edit', sendWorkExternalComment: 'edit', publishWork: 'edit',
+  pullWorkUpstream: 'edit', refreshWorkUpstream: 'edit', unlinkWorkUpstream: 'edit',
+  // The share list
+  shareSet: 'share', shareSetLink: 'share',
+  // Tasks
+  tasksReadExtras: 'read', tasksSessions: 'read', tasksSnapshot: 'read', tasksMarkRead: 'read', tasksSnooze: 'read',
+  tasksRecordActivity: 'read', tasksComment: 'edit', tasksDeleteComment: 'edit', tasksPublishComments: 'edit', tasksPublish: 'edit',
+  tasksSyncNow: 'edit', tasksLink: 'edit', tasksUnlink: 'edit', tasksAttachArtifact: 'edit',
+  // Owner only: transfer, and taking the record off its host (docs/plans/cloud-sharing.md)
+  shareTransfer: 'own', workExportForCloud: 'own', workMarkMoved: 'own', taskExportForCloud: 'own', taskMarkMoved: 'own',
+} as const satisfies Partial<Record<RpcMethod, ResourceVerb>>
+
+export type ResourceMethod = keyof typeof RESOURCE_VERB_OF_METHOD
+
+export function isResourceMethod(method: RpcMethod): method is ResourceMethod {
+  return method in RESOURCE_VERB_OF_METHOD
+}
+
+const HOST_ACTION_BY_METHOD: ReadonlyMap<string, HostAction> = new Map(Object.entries(HOST_ACTION_OF_METHOD))
+
+/** The host action a method needs; a resource method has none, it has a verb. */
+export function hostActionOf(method: RpcMethod): HostAction | null {
+  if (isResourceMethod(method)) return null
+  return HOST_ACTION_BY_METHOD.get(method) ?? HOST_USE
+}
+
+export function resourceVerbOf(method: ResourceMethod): ResourceVerb {
+  return RESOURCE_VERB_OF_METHOD[method]
+}
+
+export function resourceActionOf(resource: Pick<ShareResource, 'kind'>, verb: ResourceVerb): ResourceAction {
+  return `${resource.kind}.${verb}`
+}
+
+/** Whether a grant list reaches an action: the action itself or any of its prefixes is granted. */
+export function grantsAllow(grants: readonly string[], action: string): boolean {
+  for (const grant of grants) {
+    if (action === grant || action.startsWith(`${grant}.`)) return true
+  }
+  return false
+}
+
+/** Every host action a grant list of `['host']` would cover; the owner's standing. */
+export const EVERY_HOST_ACTION: readonly HostAction[] = ['host']

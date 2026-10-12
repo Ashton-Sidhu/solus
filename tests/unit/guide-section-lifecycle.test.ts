@@ -32,12 +32,11 @@ test('a large guide section bounds mounted cards, keeps every file reachable, an
         import Stub from ${JSON.stringify(stub)};
         import Button from ${JSON.stringify(button)};
         import DiffFileCardHeader from ${JSON.stringify(cardHeader)};
-        const ArrowSquareOutIcon = Stub, DiffFileTypeBadge = Stub;
+        const ArrowSquareOutIcon = Stub, AskIcon = Stub, DiffFileTypeBadge = Stub;
         const GuideFileDiff = Stub, GuideExplanation = Stub;
         const fileName = (path) => path.split('/').pop() ?? path;
         const dirName = () => '';
         const detectMovedBlocksInPatches = () => null;
-        const resolveLedgerRefs = () => [];
       `)
     const section = component(source, 'section')
     const runner = join(directory, 'test.mjs')
@@ -58,8 +57,8 @@ test('a large guide section bounds mounted cards, keeps every file reachable, an
       const { default: Section } = await import(${JSON.stringify(section)});
       const files = Array.from({ length: 13000 }, (_, i) => ({ path: 'file-' + i + '.ts', additions: 0, deletions: 0 }));
       const app = mount(Section, { target: document.body, props: {
-        section: { id: 'remaining', title: 'Remaining changes', explanation: '', ledgerRefs: [], files },
-        records: [], patchByPath: new Map(),
+        section: { id: 'remaining', title: 'Remaining changes', explanation: '', files },
+        patchByPath: new Map(),
       } });
       flushSync();
       assert.equal(observing, 40);

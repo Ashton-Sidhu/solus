@@ -25,7 +25,7 @@
   import { liveActivityClock } from "../../lib/shared-clock";
   import { conversationIsVisible } from "./lib/conversation-visibility";
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
-  import { canDriveSession } from "../../contexts/sharing/session-drive";
+  import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { callTitle } from "../presence/lib/actor-name";
 
   interface Props {

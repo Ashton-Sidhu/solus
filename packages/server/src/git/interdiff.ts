@@ -11,12 +11,12 @@ import { readReviewCheckpoint } from '../review/checkpoints'
 const MAX_DIFF_BYTES = 50 * 1024 * 1024
 const COMMENT_PROXIMITY_LINES = 12
 
-interface ParsedHunk extends InterdiffHunk {
+export interface ParsedHunk extends InterdiffHunk {
   body: string[]
   raw: string
 }
 
-interface ParsedFile {
+export interface ParsedFile {
   filePath: string
   header: string[]
   hunks: ParsedHunk[]
@@ -49,7 +49,7 @@ function filePathFor(lines: string[]): string | null {
   return diff?.[2] ?? null
 }
 
-function parsePatch(patch: string): ParsedFile[] {
+export function parsePatch(patch: string): ParsedFile[] {
   const chunks = patch.split(/(?=^diff --git )/m).filter((chunk) => chunk.startsWith('diff --git '))
   const files: ParsedFile[] = []
   for (const chunk of chunks) {
@@ -127,7 +127,7 @@ function minimalHeader(filePath: string): string[] {
   return [`diff --git a/${filePath} b/${filePath}`, `--- a/${filePath}`, `+++ b/${filePath}`]
 }
 
-function renderFile(file: ParsedFile | undefined, filePath: string, hunks: ParsedHunk[]): string {
+export function renderFile(file: ParsedFile | undefined, filePath: string, hunks: ParsedHunk[]): string {
   const header = file?.header.length ? file.header : minimalHeader(filePath)
   return [...header, ...hunks.map((hunk) => hunk.raw)].join('\n')
 }

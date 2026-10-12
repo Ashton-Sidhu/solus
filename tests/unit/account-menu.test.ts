@@ -7,9 +7,9 @@ import { accountInitial, consolePageUrl } from '@solus/workspace-ui/components/s
 
 describe('the sidebar account menu', () => {
   test('an avatar without a picture shows the name, else the email', () => {
-    expect(accountInitial({ id: 'a', email: 'ada@example.test', name: 'ada Lovelace', avatarUrl: null })).toBe('A')
-    expect(accountInitial({ id: 'a', email: 'grace@example.test', name: null, avatarUrl: null })).toBe('G')
-    expect(accountInitial({ id: 'a', email: 'grace@example.test', name: '  ', avatarUrl: null })).toBe('G')
+    expect(accountInitial({ sub: 'a', email: 'ada@example.test', emailVerified: true, name: 'ada Lovelace', picture: null })).toBe('A')
+    expect(accountInitial({ sub: 'a', email: 'grace@example.test', emailVerified: true, name: null, picture: null })).toBe('G')
+    expect(accountInitial({ sub: 'a', email: 'grace@example.test', emailVerified: true, name: '  ', picture: null })).toBe('G')
   })
 
   test('account and organization links follow the session origin', () => {

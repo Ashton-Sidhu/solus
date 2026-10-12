@@ -22,6 +22,8 @@ import type { HandlerCtx, SolusServer } from '../server'
 import type { DeviceDomain } from '../../devices/device-domain'
 import { DeviceDomainError } from '../../devices/device-errors'
 import { DeviceProjectDetector } from '../../devices/device-project'
+import { runDeviceCommand } from '../../devices/device-process'
+import { discoverSigningTeams } from '../../devices/device-signing'
 import { resolveHomePath } from '../../platform/paths'
 import { isAbsolute } from 'node:path'
 import { stat } from 'node:fs/promises'
@@ -91,6 +93,10 @@ export function registerDeviceHandlers(
     return manager.updateTool(request.deviceHostId, request.tool)
   })
   server.register('deviceHostRetry', (args) => manager.retryHost(parse(z.string().min(1).max(128), args[0])))
+  server.register('devicePair', (args, ctx) => {
+    requirePerson(ctx)
+    return manager.pairDevice(parse(deviceTargetSchema, args[0]))
+  })
 
   server.register('deviceOpen', (args, ctx) => {
     requirePerson(ctx)
@@ -151,6 +157,11 @@ export function registerDeviceHandlers(
       return { isMobileApp: false, platforms: [], markers: [] }
     }
     return projects.detect(root)
+  })
+
+  server.register('deviceSigningTeams', (_args, ctx) => {
+    requirePerson(ctx)
+    return discoverSigningTeams(runDeviceCommand)
   })
 
   server.register('deviceStreamUrl', async (args, ctx) => {

@@ -14,7 +14,8 @@ import type { TranscriptItem } from '../conversation/lib/transcript-model'
 
 export interface FeedSourceEntry {
   readonly id: string
-  readonly kind: TranscriptItem['kind']
+  /** `device_snapshot`: a device_screenshot call, which no fold hides. */
+  readonly kind: TranscriptItem['kind'] | 'device_snapshot'
   /** Notices only: an error notice marks its turn as failed, which never folds. */
   readonly tone?: 'error' | 'info'
 }
@@ -38,6 +39,8 @@ export type ThreadFeedRow =
   | { readonly type: 'compaction'; readonly id: string }
   | { readonly type: 'plan'; readonly id: string }
   | { readonly type: 'worktree-offer'; readonly id: string }
+  /** The picture a device_screenshot call returned, or the call while it has none. */
+  | { readonly type: 'device-snapshot'; readonly id: string }
   /** Consecutive agents of one turn: other Solus sessions and provider subagents. */
   | { readonly type: 'agents'; readonly id: string; readonly groupId: string; readonly itemIds: readonly string[]; readonly expanded: boolean }
 
@@ -102,12 +105,13 @@ function appendTurnRows(rows: ThreadFeedRow[], turn: Turn, active: boolean, inpu
   const terminalAssistantId = assistants.at(-1)?.id ?? null
   const failed = turn.entries.some((entry) => entry.kind === 'notice' && entry.tone === 'error')
   // A finished turn folds its work behind one row, keeping the first and last
-  // prose and anything that asks for attention (plans, notices, compaction
-  // dividers, worktree offers).
+  // prose, anything that asks for attention (plans, notices, compaction
+  // dividers, worktree offers), and device screenshots: the picture is what the
+  // agent saw, not a step it took.
   const hidden = active || failed
     ? new Set<string>()
     : new Set(turn.entries
-        .filter((entry) => entry.id !== firstAssistantId && entry.id !== terminalAssistantId && entry.kind !== 'plan' && entry.kind !== 'notice' && entry.kind !== 'compaction' && entry.kind !== 'worktree_offer')
+        .filter((entry) => entry.id !== firstAssistantId && entry.id !== terminalAssistantId && entry.kind !== 'plan' && entry.kind !== 'notice' && entry.kind !== 'compaction' && entry.kind !== 'worktree_offer' && entry.kind !== 'device_snapshot')
         .map((entry) => entry.id))
   const expandedFold = input.expandedTurnIds.has(turn.id)
   let foldPlaced = false
@@ -168,6 +172,8 @@ function appendTurnRows(rows: ThreadFeedRow[], turn: Turn, active: boolean, inpu
       rows.push({ type: 'compaction', id: entry.id })
     } else if (entry.kind === 'worktree_offer') {
       rows.push({ type: 'worktree-offer', id: entry.id })
+    } else if (entry.kind === 'device_snapshot') {
+      rows.push({ type: 'device-snapshot', id: entry.id })
     }
   })
   flushAgents()

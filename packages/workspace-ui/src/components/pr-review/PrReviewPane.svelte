@@ -46,6 +46,7 @@
   import PrViewTabs from "./PrViewTabs.svelte";
   import PrCheckoutButton from "./PrCheckoutButton.svelte";
   import PrReviewButton from "./PrReviewButton.svelte";
+  import PrStackMenu from "./PrStackMenu.svelte";
   import PageComposer from "../page-composer/PageComposer.svelte";
   import LensSurface from "../review/LensSurface.svelte";
   import { reviewLensStore, type LensSubject } from "../review/review-lens.store.svelte";
@@ -57,6 +58,7 @@
   import {
     buildPrChecksFixPrompt,
     buildPrCommentsFixPrompt,
+    buildPrGuideSectionQuestionDraft,
     buildPrQuestionDraft,
     type PrFailingCheck,
     type PrFixFeedback,
@@ -83,6 +85,7 @@
     onExit,
     onUnresolvedCountChange,
     onRefreshTarget,
+    onOpenPullRequest,
     onAttachFile,
     onScreenshot,
     onDesignMode,
@@ -114,6 +117,8 @@
     onExit?: () => void;
     onUnresolvedCountChange?: (count: number) => void;
     onRefreshTarget?: () => Promise<void>;
+    /** Show a layer of this pull request's stack; defaults to its review route. */
+    onOpenPullRequest?: (number: number) => void;
   } = $props();
 
   const session = getWorkspaceContext();
@@ -795,6 +800,7 @@
            and the external host page live in the overflow, and the check
            state is read on Activity. -->
       {#snippet actions()}
+        <PrStackMenu pullRequest={reviewDetail} {serverId} {projectCtx} onOpen={onOpenPullRequest} />
         {@render reviewButton()}
         {@render checkoutButton()}
       {/snippet}
@@ -812,6 +818,7 @@
       {maximized}
     >
       {#snippet actions()}
+        <PrStackMenu pullRequest={reviewDetail} {serverId} {projectCtx} onOpen={onOpenPullRequest} />
         {@render reviewButton()}
         {@render checkoutButton()}
         <!-- The same overflow the panel band carries, so refresh, external
@@ -857,6 +864,7 @@
           comments={diffComments}
           onCommentSave={saveDiffComment}
           onCommentDelete={removeDraft}
+          onAsk={(section) => void openPrComposer(buildPrGuideSectionQuestionDraft(target, section))}
           meta={{
             repo: pr.repo,
             number: pr.number,

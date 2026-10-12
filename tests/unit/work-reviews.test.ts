@@ -164,7 +164,7 @@ describe('decisions', () => {
     expect(reviewerOf(review, 'bob')).toMatchObject({ displayName: 'Bob Reviewer', decision: 'commented', decisionSummary: 'Fine now' })
   })
 
-  test('a person outside the organization reviews through a link, named from their guest grant', async () => {
+  test('a person outside the organization reviews through a link, named as the guest of that link', async () => {
     const work = await newWork()
     const review = await call<WorkReview>('workReviewDecide', GUEST, work.id, { target: { kind: 'current', contentVersion: work.contentVersion }, decision: 'approved' })
     expect(reviewerOf(review, 'guest:g1')).toMatchObject({ displayName: 'Maya (typed)', requestedBy: null, isAwaiting: false })

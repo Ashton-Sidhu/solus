@@ -1,8 +1,8 @@
-import type { LedgerRecord } from '@solus/contracts/review'
+import type { GuideAttentionKind } from '@solus/contracts/review'
 
 // Private logic for the native Guide renderer: turning the whole-episode patch
-// into the per-file segments each section embeds, and resolving a section's
-// ledgerRefs back to the records that carry the deeper detail.
+// into the per-file segments each section embeds, and naming the decision a
+// section asks for.
 
 /**
  * Payload emitted when a reviewer saves a comment on a guide diff. Mirrors the
@@ -53,13 +53,15 @@ export function splitPatchByFile(patch: string): Map<string, string> {
   return map
 }
 
-/**
- * Resolve a section's `ledgerRefs` (ids) to the records that hold the
- * why/assumptions/alternatives/edge-case detail. `normalizeGuide` already drops
- * unknown ids at write time, but we guard again so a stale cache never throws.
- */
-export function resolveLedgerRefs(refs: string[], records: LedgerRecord[]): LedgerRecord[] {
-  if (refs.length === 0) return []
-  const byId = new Map(records.map((r) => [r.id, r]))
-  return refs.map((id) => byId.get(id)).filter((r): r is LedgerRecord => !!r)
+const ATTENTION_LABELS = {
+  tradeoff: 'A tradeoff to weigh',
+  contract: 'A contract that changes',
+  product: 'A product decision',
+  risk: 'A risk to accept',
+  accessibility: 'An accessibility effect',
+} satisfies Record<GuideAttentionKind, string>
+
+/** The heading of a section's attention callout. */
+export function attentionLabel(kind: GuideAttentionKind): string {
+  return ATTENTION_LABELS[kind]
 }

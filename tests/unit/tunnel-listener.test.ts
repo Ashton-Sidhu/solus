@@ -57,6 +57,21 @@ describe('the tunnel listener', () => {
     }
   })
 
+  // A sign-in started through the tunnel URL names that URL as its redirect, so the
+  // browser comes back through the tunnel; a 404 there strands the sign-in.
+  test('the OAuth callbacks are offered through the tunnel', async () => {
+    const completeIntegrationOAuth = mock(async () => ({ status: 200 as const, html: 'connected' }))
+    const { server, baseUrl } = await listen({ isTunnelRequest: () => true, completeIntegrationOAuth })
+    try {
+      const integration = await fetch(`${baseUrl}/oauth/integration/callback?state=s&code=c`)
+      expect(integration.status).toBe(200)
+      expect(completeIntegrationOAuth).toHaveBeenCalledTimes(1)
+      expect((await fetch(`${baseUrl}/oauth/google/callback?state=s&code=c`)).status).not.toBe(404)
+    } finally {
+      await close(server)
+    }
+  })
+
   test('the same request on the ordinary listener keeps the ordinary policy', async () => {
     const { server, baseUrl } = await listen({
       requireAuth: () => false,
@@ -77,7 +92,7 @@ describe('the tunnel listener', () => {
       requireAuth: () => true,
       isTunnelRequest: () => true,
       verifyAccessToken: async (token) => token === 'good-grant'
-        ? { ok: true, claims: { iss: 'https://app.example.test', aud: 'abcdefghijklmnop', sub: 'user_1', deviceId: 'session_1', jti: 'jti_1', iat: 1, exp: Math.floor(Date.now() / 1000) + 600 } }
+        ? { ok: true, claims: { iss: 'https://app.example.test', aud: 'abcdefghijklmnop', sub: 'user_1', grant_id: 'grant_1', access: 'owner', jti: 'jti_1', iat: 1, exp: Math.floor(Date.now() / 1000) + 300 } }
         : { ok: false, reason: 'bad-signature' },
     })
     try {
@@ -90,14 +105,14 @@ describe('the tunnel listener', () => {
       expect(verified?.kind).toBe('grant')
       if (verified?.kind === 'grant') {
         expect(verified.userId).toBe('user_1')
-        expect(verified.deviceId).toBe('session_1')
+        expect(verified.deviceId).toBe('grant_1')
       }
     } finally {
       await close(server)
     }
   })
 
-  test('a grant for a device the owner revoked on this host earns no ticket', async () => {
+  test('a client grant the owner revoked on this host earns no ticket', async () => {
     // WHY: the Access tab's Revoke on a "Solus cloud" row is the host's own kill
     // switch; it must hold even though the control plane still signs grants.
     const { server, baseUrl } = await listen({
@@ -105,11 +120,11 @@ describe('the tunnel listener', () => {
       isTunnelRequest: () => true,
       verifyAccessToken: async () => ({
         ok: true,
-        claims: { iss: 'https://app.example.test', aud: 'abcdefghijklmnop', sub: 'user_1', deviceId: 'session_revoked', jti: 'jti_2', iat: 1, exp: Math.floor(Date.now() / 1000) + 600 },
+        claims: { iss: 'https://app.example.test', aud: 'abcdefghijklmnop', sub: 'user_1', grant_id: 'grant_revoked', access: 'owner', jti: 'jti_2', iat: 1, exp: Math.floor(Date.now() / 1000) + 300 },
       }),
     })
     try {
-      auth.revokeDevice('session_revoked')
+      auth.revokeDevice('grant_revoked')
       const refused = await fetch(`${baseUrl}/auth/ws-ticket`, { method: 'POST', headers: { authorization: 'Bearer any' } })
       expect(refused.status).toBe(401)
     } finally {

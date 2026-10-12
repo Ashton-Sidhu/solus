@@ -67,10 +67,23 @@ describe('setting up a build', () => {
         asked.push(`list ${path}`)
         return { entries: [{ name: 'Solus.xcworkspace', isDir: true, path: `${path}/Solus.xcworkspace` }], parentPath: null, currentPath: path, error: null }
       },
+      deviceSigningTeams: async () => [{ teamId: 'F4AQ9YJ7Q3', name: 'Ashton Sidhu' }],
     }
     const fitted = await fitPresetToProject(api, '/Users/me/solus/', ios)
     expect(asked).toEqual(['detect /Users/me/solus/', 'list /Users/me/solus/apps/mobile/ios'])
     expect(fitted.command[2]).toBe('Solus.xcworkspace')
+    // WHY: a phone build with no team fails to sign; the host's team is filled in, as a build setting before the action.
+    expect(fitted.command.slice(-2)).toEqual(['DEVELOPMENT_TEAM=F4AQ9YJ7Q3', 'build'])
+  })
+
+  test('a host with no signing team leaves the phone build for the person to finish', async () => {
+    const api = {
+      deviceProjectDetect: async () => solus,
+      listDirectory: async () => { throw new Error('offline') },
+      deviceSigningTeams: async () => { throw new Error('older host') },
+    }
+    const fitted = await fitPresetToProject(api, '/Users/me/solus', ios)
+    expect(fitted.command.some((word) => word.startsWith('DEVELOPMENT_TEAM='))).toBe(false)
   })
 })
 

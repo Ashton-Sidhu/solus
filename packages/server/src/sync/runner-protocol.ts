@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { shareResourceSchema, shareRoleSchema } from '@solus/contracts/sharing'
 import type { OutboxOp } from '@solus/contracts/outbox-types'
 import type { SessionRecordUpsert } from '@solus/contracts/types'
 import { activitySchema } from '@solus/contracts/activity'
@@ -100,7 +101,7 @@ export type RunnerSessionRecordsResponse = z.infer<typeof runnerSessionRecordsRe
 
 // ── Mirror (§6) ──────────────────────────────────────────────────────────────
 
-export const mirrorDomainWireSchema = z.enum(['transcripts', 'insights', 'activity'])
+export const mirrorDomainWireSchema = z.enum(['transcripts', 'insights', 'activity', 'shares'])
 export type MirrorDomainWire = z.infer<typeof mirrorDomainWireSchema>
 
 /**
@@ -110,6 +111,8 @@ export type MirrorDomainWire = z.infer<typeof mirrorDomainWireSchema>
  * - `insights`: `{ span, events }`, one finished span and the log events it owns.
  * - `activity`: `{ activity }`, one activity row of a mirrored session (plans/012 §5),
  *   its subject named by the id the session's transcript is mirrored under.
+ * - `shares`: `{ resource, rows }`, the share list of a mirrored session as its host
+ *   holds it, every row but the owner's, replaced whole (host-sharing.md §2).
  */
 export const runnerMirrorItemSchema = z.object({ seq: seqSchema, domain: mirrorDomainWireSchema, key: z.string().min(1), payload: z.unknown() })
 /** One item as it arrives; the sink for its domain parses the payload and refuses one that does not read. */
@@ -134,6 +137,20 @@ export type TranscriptMirrorPayload = z.infer<typeof transcriptMirrorPayloadSche
 
 export const activityMirrorPayloadSchema = z.object({ activity: activitySchema })
 export type ActivityMirrorPayload = z.infer<typeof activityMirrorPayloadSchema>
+
+/** A host's share rows for one resource, the owner row left out: the API admits a guest and lists members from this copy. The link travels as its hash only. */
+export const sharesMirrorPayloadSchema = z.object({
+  resource: shareResourceSchema,
+  rows: z.array(z.object({
+    subjectKind: z.enum(['user', 'team', 'organization', 'everyone']),
+    subjectId: z.string(),
+    role: shareRoleSchema,
+    linkSecretHash: z.string().nullable(),
+    grantedByUserId: z.string(),
+    createdAt: z.number(),
+  })),
+})
+export type SharesMirrorPayload = z.infer<typeof sharesMirrorPayloadSchema>
 
 const spanWireSchema = z.object({
   spanId: z.string().min(1),

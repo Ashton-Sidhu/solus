@@ -3,14 +3,14 @@ import { cloudShareUrl, parseCloudShareLink } from '@solus/contracts/sharing'
 import {
   guestRouteUrl,
   loadGuestIdentity,
-  mintGuestGrant,
+  resolveShareLink,
   newGuestId,
   saveGuestIdentity,
 } from '@solus/client-core/guest-link'
 
 // docs/plans/multiplayer-sharing.md §4.2: a share link is `#/h/<hostId>/s/<secret>` on
-// the account origin. The visitor keeps one identity in the browser; the origin mints a
-// guest grant that names the host's route; the page dials the first route it can open.
+// the account origin. The visitor keeps one identity in the browser; the origin answers
+// the host's routes for the secret; the page dials the first route it can open.
 
 describe('cloud resource links', () => {
   test('works and sessions keep the secret in the fragment; host links and task links open nothing', () => {
@@ -61,27 +61,31 @@ describe('the guest identity', () => {
   })
 })
 
-describe('minting a guest grant', () => {
-  test('posts the identity to the account origin and keeps the routes the grant names', async () => {
+describe('resolving a share link', () => {
+  test('posts the secret to the account origin and keeps the host it names', async () => {
+    // WHY: docs/plans/host-sharing.md §4.2 — the secret is the whole credential; the
+    // account origin only says which host to dial first.
     const calls: Array<{ url: string; body: string }> = []
     const fetchImpl: typeof fetch = async (input, init) => {
       calls.push({ url: String(input), body: String(init?.body) })
-      return Response.json({
-        grant: 'g.r.ant', hostId: 'abcdefghijklmnop', expiresAt: 1, guestId: 'abcdefghijklmnopqrstuvwx', displayName: 'Maya',
-        routes: [{ kind: 'tunnel', url: 'https://h-abcdefghijklmnop.solus.sh' }],
-      })
+      return Response.json({ resource: { kind: 'session', id: 's1' }, role: 'viewer', organizationId: 'org-1', host: { hostId: 'abcdefghijklmnop', routes: [{ kind: 'tunnel', url: 'https://h-abcdefghijklmnop.solus.sh' }] } })
     }
-    const grant = await mintGuestGrant('https://app.solus.sh', { guestId: 'abcdefghijklmnopqrstuvwx', displayName: 'Maya' }, fetchImpl)
-    expect(grant?.routes).toEqual([{ kind: 'tunnel', url: 'https://h-abcdefghijklmnop.solus.sh' }])
-    expect(calls[0]?.url).toBe('https://app.solus.sh/v1/workspace/guest-grant')
-    expect(JSON.parse(calls[0]!.body)).toEqual({ guestId: 'abcdefghijklmnopqrstuvwx', displayName: 'Maya' })
+    const resolution = await resolveShareLink('https://app.solus.sh', 'secretsecretsecretsecretsecretsecret', fetchImpl)
+    expect(resolution.kind === 'resolved' && resolution.target.host?.routes).toEqual([{ kind: 'tunnel', url: 'https://h-abcdefghijklmnop.solus.sh' }])
+    expect(calls[0]?.url).toBe('https://app.solus.sh/auth/share-link')
+    expect(JSON.parse(calls[0]!.body)).toEqual({ shareSecret: 'secretsecretsecretsecretsecretsecret' })
   })
 
-  test('a refusal or an answer without routes is no grant', async () => {
-    const refused: typeof fetch = async () => new Response('', { status: 404 })
-    expect(await mintGuestGrant('https://app.solus.sh', { guestId: 'abcdefghijklmnopqrstuvwx', displayName: 'M' }, refused)).toBeNull()
-    const legacy: typeof fetch = async () => Response.json({ grant: 'g', hostId: 'x', expiresAt: 1, guestId: 'abcdefghijklmnopqrstuvwx', displayName: 'M' })
-    expect(await mintGuestGrant('https://app.solus.sh', { guestId: 'abcdefghijklmnopqrstuvwx', displayName: 'M' }, legacy)).toBeNull()
+  test('the API\'s named 404 opens nothing; a host\'s unnamed 404 means the host serves the page', async () => {
+    // WHY: a host has no resolve door and answers the path with its own 404 (`{ error: 'not found' }`);
+    // the API's 404 names SHARE_LINK_UNKNOWN. That is how the page tells which origin
+    // serves it, since a host also answers `/v1/hosts` with a JSON 401 and fools the cloud probe.
+    const refused: typeof fetch = async () => Response.json({ error: { code: 'SHARE_LINK_UNKNOWN' } }, { status: 404 })
+    expect(await resolveShareLink('https://app.solus.sh', 'x', refused)).toEqual({ kind: 'unknown-link' })
+    const garbled: typeof fetch = async () => Response.json({ resource: { kind: 'session', id: 's1' } })
+    expect(await resolveShareLink('https://app.solus.sh', 'x', garbled)).toEqual({ kind: 'unknown-link' })
+    const host: typeof fetch = async () => Response.json({ error: 'not found' }, { status: 404 })
+    expect(await resolveShareLink('http://10.0.0.2:3001', 'x', host)).toEqual({ kind: 'no-door' })
   })
 
   test('the page dials the first route it can open: no http route from an https page', () => {

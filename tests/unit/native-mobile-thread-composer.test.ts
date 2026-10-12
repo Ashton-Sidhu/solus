@@ -149,7 +149,8 @@ describe('native new-task project picker', () => {
     expect(scopes.map((scope) => scope.key)).toEqual(['github.com/solus/solus', 'mac:/Users/a/notes'])
   })
 
-  test('two projects with one folder name get names that tell them apart', () => {
+  test('a project is named by its folder alone, never by its owner or host', () => {
+    // WHY: project lists name a project by its plain name everywhere.
     const onHost = (hostId: string, hostLabel: string, path: string, repositoryKey: string | null) => ({ ...project(hostId, path, repositoryKey), hostLabel })
     const scopes = groupProjectScopes([
       onHost('mac', 'MacBook', '/Users/a/web', 'github.com/acme/web'),
@@ -159,10 +160,10 @@ describe('native new-task project picker', () => {
       onHost('box', 'Build box', '/src/api', null),
     ])
     expect(scopes.map((scope) => [scope.title, scope.projects.length])).toEqual([
-      ['acme/web', 2],
-      ['other/web', 1],
-      ['api · MacBook', 1],
-      ['api · Build box', 1],
+      ['web', 2],
+      ['web', 1],
+      ['api', 1],
+      ['api', 1],
     ])
   })
 

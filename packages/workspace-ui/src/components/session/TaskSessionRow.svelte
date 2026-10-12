@@ -33,6 +33,8 @@
     /** The session on screen: the list shows a session under its row only
      *  while it is the one being read, so this row is always the selected one. */
     session: SidebarSessionChild;
+    /** The project of the task this session belongs to (`SidebarTask.groupKey`). */
+    groupKey: string;
     projectLabel: string;
     /** True while this row's name is being edited in place. */
     renaming: boolean;
@@ -46,6 +48,7 @@
   }
   let {
     session,
+    groupKey,
     projectLabel,
     renaming,
     onSelect,
@@ -375,6 +378,7 @@
   <SessionSidebarTooltip
     title={session.label}
     projectKey={session.projectKey}
+    {groupKey}
     {projectLabel}
     branchName={session.branchName}
     serverId={session.serverId}

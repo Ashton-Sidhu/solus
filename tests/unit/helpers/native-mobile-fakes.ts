@@ -5,7 +5,8 @@ import type { HostEventMap } from '@solus/contracts/host-events'
 import type { WireNormalizedEvent } from '@solus/contracts/types'
 import { HostConnections, type HostTransport } from '../../../apps/mobile/src/features/hosts/host-connections'
 import { HostRegistry } from '../../../apps/mobile/src/features/hosts/host-registry'
-import { memoryKeyValueStore, memorySecretStore } from '../../../apps/mobile/src/platform/ports'
+import { ACCOUNT_GRANT_KEY } from '../../../apps/mobile/src/features/account/keychain-token-store'
+import { memoryKeyValueStore, memorySecretStore, type SecretStore } from '../../../apps/mobile/src/platform/ports'
 
 type Handler = (...args: never[]) => unknown
 
@@ -130,11 +131,12 @@ export function createHostWorld(options: { fetch?: typeof fetch; api?: () => Fak
       transports.push(transport)
       return transport
     },
-    acquireHostAccessToken: async (host, options) => {
+    hostAccessToken: async (host, options) => {
       grants.push(host.id)
       grantOptions.push(options)
       return `grant-for-${host.id}`
     },
+    dialOrganizationId: (host) => host.uplink?.organizationIds?.[0] ?? null,
     organizationId: () => null,
     fetch: options.fetch ?? healthFetch({}),
     setTimeoutFn: timers.setTimeoutFn,
@@ -145,4 +147,14 @@ export function createHostWorld(options: { fetch?: typeof fetch; api?: () => Fak
 
 export async function flushPromises(): Promise<void> {
   for (let i = 0; i < 10; i += 1) await Promise.resolve()
+}
+
+/** A sign-in kept in the keychain from an earlier run, as the mobile account stores it. */
+export async function seedAccountGrant(secrets: SecretStore, options: { userId: string; refreshToken?: string }): Promise<void> {
+  await secrets.set(ACCOUNT_GRANT_KEY, JSON.stringify({
+    refreshToken: options.refreshToken ?? 'rt-seeded',
+    idToken: 'id-token',
+    identity: { sub: options.userId, email: 'a@b.c', emailVerified: true, name: null, picture: null },
+    signedInAt: 0,
+  }))
 }

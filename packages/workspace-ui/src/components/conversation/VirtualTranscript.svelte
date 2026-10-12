@@ -32,6 +32,15 @@
     const last = slots.at(-1);
     return virtualizer.geometry.total - (last ? virtualizer.geometry.offsets[last.index + 1] : 0);
   });
+  // The list never gets shorter than the whole transcript while its rows are
+  // swapped. A layout read in the middle of a swap otherwise sees one spacer
+  // already shrunk and the next not yet grown, and the browser clamps the
+  // scroll to that short list. In Safari the scroll thread then puts the
+  // reader's position back, and the next swap clamps it again.
+  const totalHeight = $derived.by(() => {
+    void virtualizer.revision;
+    return virtualizer.geometry.total;
+  });
   $effect(() => {
     if (active && slots.length) return observeStartupTranscriptPaint(tabId);
   });
@@ -44,7 +53,7 @@
   });
 </script>
 
-<div bind:this={element} class="relative messages-list cv-list" style="overflow-anchor:none">
+<div bind:this={element} class="relative messages-list cv-list" style="overflow-anchor:none" style:min-height="{totalHeight}px">
   {#each slots as slot (slot.key)}
     <div aria-hidden="true" style:height="{slot.space}px"></div>
     <div use:virtualizer.row={slot.key} data-transcript-turn-id={slot.key} class="virtual-turn flow-root pb-4">

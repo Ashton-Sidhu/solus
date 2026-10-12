@@ -2,11 +2,11 @@
   import {
     Cloud as CloudIcon,
     Earth as GlobeSimpleIcon,
-    Terminal as LinuxLogoIcon,
-    PanelsTopLeft as WindowsLogoIcon,
   } from "@lucide/svelte";
   import type { HostOperatingSystem } from "@solus/contracts/types";
-  import AppleLogoIcon from "./AppleLogoIcon.svelte";
+  import AppleLogoIcon from "../ui/AppleLogoIcon.svelte";
+  import LinuxLogoIcon from "../ui/LinuxLogoIcon.svelte";
+  import WindowsLogoIcon from "../ui/WindowsLogoIcon.svelte";
 
   /**
    * The mark for a machine you are not sitting at: its operating system's logo,

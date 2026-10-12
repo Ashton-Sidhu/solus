@@ -17,7 +17,7 @@
     Share as ShareIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import { getSessionSidebarStore, getWorkspaceContext, accountStore, sharesStore } from "../../contexts";
+  import { getSessionSidebarStore, getWorkspaceContext, sharesStore } from "../../contexts";
   import { sessionTitle } from "../../lib/sessionUtils";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -25,7 +25,7 @@
   import { selectSessionRename } from "./lib/session-context-menu";
   import { askInsights } from "../insights/lib/ask-insights";
   import { taskOfTab, unlinkTabFromTask } from "../../contexts/workspace/session-task-link";
-  import { canDriveSession } from "../../contexts/sharing/session-drive";
+  import { canDriveSession } from "../../contexts/sharing/resource-roles";
 
   interface Props {
     x: number;
@@ -248,9 +248,8 @@
     if (targetTabId) session.ui.linkPrompt = { kind: "session-pull-request", tabId: targetTabId };
   }
 
-  /** Sharing needs the session's host, which only an open tab names, and that host linked to Solus cloud. */
+  /** Sharing needs the session's host, which only an open tab names. */
   const hasSession = $derived(!!tabId && !!sess?.id);
-  // Live sharing needs the host linked: the item stays, disabled, and says so (docs/plans/cloud-sharing.md §6).
   const canShare = $derived(hasSession && sharesStore.canShareFrom(session.serverIdFor(tabId!), "session"));
 
   function share() {
@@ -387,7 +386,7 @@
       </ContextMenu.Item>
     {/if}
     {#if hasSession}
-      <ContextMenu.Item onSelect={share} disabled={!accountStore.isSignedIn || !canShare} title={!accountStore.isSignedIn ? "Sign in to share" : canShare ? undefined : "Live sharing needs this computer linked"}>
+      <ContextMenu.Item onSelect={share} disabled={!canShare}>
         <ShareIcon />
         Share…
         <ContextMenu.Shortcut>⌥⇧.</ContextMenu.Shortcut>

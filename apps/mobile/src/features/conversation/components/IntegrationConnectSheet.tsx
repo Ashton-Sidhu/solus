@@ -44,9 +44,9 @@ export function IntegrationConnectSheet({ store, onClose }: { store: Conversatio
           />
         ) : <>
           <Text style={{ color: palette.textSecondary, fontSize: type.chrome }}>
-            {`The agent needs your ${integrationName} account to use its tools. Your sign-in stays on the host.`}
+            {`The agent needs your ${integrationName} account to use its tools.`}
           </Text>
-          <Button tone="primary" label="Connect" disabled={!flows.connected} onPress={() => void flows.connect(integrationId, integrationName)} />
+          <Button tone="primary" label="Connect" disabled={!flows.connected} onPress={() => void flows.connect({ id: integrationId, name: integrationName })} />
         </>}
         {!flow || flow.step === 'starting' ? <Button label="Dismiss" onPress={dismiss} /> : null}
       </ScrollView>

@@ -16,7 +16,7 @@
     splitPathTail,
   } from './lib/interrupt'
   import { presenceStore } from '../../contexts/presence/presence.store.svelte'
-  import { canDriveSession } from '../../contexts/sharing/session-drive'
+  import { canDriveSession } from '../../contexts/sharing/resource-roles'
   import { othersTurnLabel } from '../presence/lib/actor-name'
   import { formatReleaseTime } from './lib/queued-prompts'
   import InterruptCard from './InterruptCard.svelte'

@@ -5,6 +5,11 @@ import { modelProfilesStore } from '../updates/model-profiles.store.svelte'
 import { onDestroy } from 'svelte'
 import { SettingsContext, setSettingsContext } from './settings.context.svelte'
 import { settingsSyncStore } from './settings-sync.store.svelte'
+import { agentProfileLocalStore } from '../seats/agent-profile-local.store.svelte'
+import { accountAgentProfileRequests, agentProfileSyncStore } from '../seats/agent-profile-sync.store.svelte'
+import { agentProfileStore } from '../seats/agent-profile.store.svelte'
+import { browserSyncClock } from './settings-sync.store.svelte'
+import { integrationsStore } from '../../components/settings/integrations.store.svelte'
 import { hostSettingsStore } from './host-settings.store.svelte'
 import { accountStore } from '../account/account.store.svelte'
 import { WorkspaceContext, setWorkspaceContext } from '../workspace/workspace.context.svelte'
@@ -69,6 +74,18 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   // One sync coordinator and one host-settings follower per client, not per tab.
   onDestroy(settingsSyncStore.start(settings.personal))
   onDestroy(settingsSyncStore.followAccount(accountStore))
+  onDestroy(agentProfileSyncStore.start(agentProfileLocalStore))
+  onDestroy(agentProfileSyncStore.followAccount(accountStore))
+  // A signed-in person's MCP sign-ins run at the cloud (plans/020 §5.3); the store itself holds no account state.
+  integrationsStore.useCloudSignIn({
+    requests: accountAgentProfileRequests,
+    accountUserId: () => (accountStore.state.kind === 'signed-in' ? accountStore.state.identity.sub : null),
+    pullHosts: async (serverId) => {
+      await agentProfileStore.pull(serverId)
+      agentProfileStore.pullEverywhere()
+    },
+    setTimer: browserSyncClock.setTimer,
+  })
   onDestroy(hostSettingsStore.start())
   const statusBar = new StatusBarContext(settings)
   const planStore = new PlanStore()
@@ -91,7 +108,7 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   )
   // The shell opens resources in the workspace it now has.
   shell.attachWorkspace(session)
-  sharesStore.works = session.worksStore
+  sharesStore.publication.works = session.worksStore
   const sessionSidebarStore = new SessionSidebarStore(settings, session, planStore, pullRequests.projects, pullRequests.checks, {
     // Reactive: a runner coming back or a cloud row appearing re-merges the rows.
     isSolusApi: isSolusApiId,

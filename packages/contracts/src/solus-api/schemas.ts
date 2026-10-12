@@ -10,7 +10,7 @@ const page = <T extends z.ZodType>(item: T) => z.strictObject({
   nextCursor: z.string().max(2048).nullable(),
 })
 
-export const solusApiScopeSchema = z.enum(['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:admit', 'insights:read'])
+export const solusApiScopeSchema = z.enum(['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:admit', 'insights:read', 'profile:read', 'integrations:read', 'integrations:write'])
 export type SolusApiScope = z.infer<typeof solusApiScopeSchema>
 
 export const workspaceIdSchema = z.string().min(1).max(256).regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/)
@@ -66,7 +66,8 @@ const record = {
 export const workspaceAuthSessionRequestSchema = z.strictObject({
   scopes: z.array(solusApiScopeSchema).min(1).max(7).refine(uniqueItems, 'Duplicate values are not allowed.').meta({ uniqueItems: true }),
   shareSecret: z.string().min(32).max(256).meta({ writeOnly: true }).optional(),
-}).meta({ description: 'Source authority determines the actor, service and Local or organization context. No organization selector is accepted here. A resource-bound guest grant also requires its shareSecret. Requested scopes only narrow authority.', examples: [{ scopes: ['tasks:read', 'tasks:write'] }] })
+  organizationId: workspaceIdSchema.optional(),
+}).meta({ description: 'Source authority determines the actor, service and Local or organization context. A source token that lists several organizations admits only the organizationId named here, and only when it lists it; a source that names one organization ignores it. The guest of a share link holds no token and is admitted by the host that made the link, so shareSecret admits nothing here. Requested scopes only narrow authority.', examples: [{ scopes: ['tasks:read', 'tasks:write'] }] })
 export type WorkspaceAuthSessionRequest = z.infer<typeof workspaceAuthSessionRequestSchema>
 
 export const workspaceAuthSessionSchema = z.strictObject({

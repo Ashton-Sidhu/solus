@@ -47,7 +47,7 @@ export function integrationStatusText(auth: IntegrationAuth, connection: Integra
   if (afterAddStep(auth) === 'oauth-client' && connection?.status !== 'connected') return { text: 'Needs an OAuth client', tone: 'attention', canConnect: false }
   const status = connectionStatusText(connection)
   if (connection?.status === 'connected') return { text: status.text, tone: 'ready', canConnect: false }
-  return { text: status.text, tone: connection ? 'error' : 'attention', canConnect: true }
+  return { text: status.text, tone: connection ? 'error' : 'attention', canConnect: status.action !== null }
 }
 
 /** "1,306 servers" for the whole catalog, or every match of a query. */
@@ -60,15 +60,20 @@ export interface ConnectionStatusText {
   text: string
   /** Why the connection does not work, when the host said. */
   detail: string | null
-  /** The one action that changes this state. */
-  action: 'Connect' | 'Reconnect' | 'Disconnect'
+  /** The one action that changes this state; null when no sign-in would change it. */
+  action: 'Connect' | 'Reconnect' | 'Disconnect' | null
 }
 
-/** The caller's own connection to an integration, in words (mcp-integrations.md §4.1 rule 5). */
+/**
+ * The caller's own connection to an integration, in words (mcp-integrations.md
+ * §4.1 rule 5). A connection held in the account says so (plans/020 §5), and a
+ * cloud the host could not reach is not a sign-in problem: no Connect for it.
+ */
 export function connectionStatusText(connection: IntegrationConnection | null): ConnectionStatusText {
   if (!connection) return { text: 'Not connected', detail: null, action: 'Connect' }
   switch (connection.status) {
     case 'connected': {
+      if (connection.source === 'cloud') return { text: 'Connected through Solus Cloud', detail: null, action: 'Disconnect' }
       const account = connection.label?.trim() || connection.info?.displayName?.trim() || connection.info?.email?.trim()
       return { text: account ? `Connected as ${account}` : 'Connected', detail: null, action: 'Disconnect' }
     }
@@ -76,6 +81,8 @@ export function connectionStatusText(connection: IntegrationConnection | null): 
       return { text: 'Needs sign-in', detail: connection.error, action: 'Reconnect' }
     case 'error':
       return { text: 'Connection error', detail: connection.error, action: 'Reconnect' }
+    case 'cloud-unreachable':
+      return { text: 'Solus Cloud unreachable', detail: connection.error, action: null }
   }
 }
 

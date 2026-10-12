@@ -130,7 +130,7 @@ The remaining host facts have these owners:
 | Read | Startup owner | Loading rule |
 | --- | --- | --- |
 | `detectEditors` | Installed editor capability advertisement | Join the async boot PATH probe; inspect that PATH without launching `which` for each app. Keep installed GUI bundle detection. |
-| `resolveTerminal` | Terminal action details | Load when the row gets pointer input or focus, in Tools settings, or after a terminal action. The logo only displays cached state and is generic before a read. |
+| `resolveTerminal` | Terminal action details | Load when the row gets pointer input or focus, in Tools settings, or after a terminal action. The logo displays the configured terminal before a read, then the resolved terminal. It does not start a read. |
 | `hostUpdateStatus` | Update notices, Settings badge, and active installation progress | Read on connection and follow host events. Deferring this would hide an available update or an active installation. |
 | `modelProfilesStatus` | Model picker, model names, and reasoning options | Read on connection and follow model-profile events. The bundled list can be older than the host's list. |
 | `voiceModelStatus` | Visible microphone readiness and download progress | Read from the transcription host. Voice settings reuse the same host fact. |
@@ -144,3 +144,9 @@ opens. Hidden Git and setup sections keep their existing active guards. No new
 RPC batch or second cache was added in this audit. Desktop and web share the
 terminal-row change; mobile has no desktop terminal launcher. The editor probe
 remains a host capability with the same contract for all clients.
+
+Terminal inspection reads attached tmux client IDs once and reads one bounded
+process-table snapshot for all parent walks on macOS. It joins the existing async
+PATH warmup before using the CLI environment. An attached client with no known
+application remains an attached terminal; inspection never launches a fallback.
+The `terminal_resolved` event records the duration for the next live check.

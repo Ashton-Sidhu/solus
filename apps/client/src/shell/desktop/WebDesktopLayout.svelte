@@ -8,8 +8,10 @@
 
   interface Props {
     onAttachFile: (tabId?: string) => void | Promise<void>;
+    /** Why the composer takes nothing right now, when the page knows better than the session does. */
+    readOnlyReason?: string | null;
   }
-  let { onAttachFile }: Props = $props();
+  let { onAttachFile, readOnlyReason = null }: Props = $props();
 
   const connectionLabel = $derived(
     connectionStatusLabel(webState.connectionStatus, {
@@ -32,6 +34,7 @@
         active
         class="mx-auto max-w-(--solus-reading-max)"
         onAttachFile={() => onAttachFile()}
+        {readOnlyReason}
       >
         {#snippet trailingActions()}
           {#if showConnectionStatus}

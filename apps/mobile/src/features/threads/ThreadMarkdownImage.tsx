@@ -13,7 +13,7 @@ import {
 import { AppText as Text } from "../../components/AppText";
 import type { ResolvedFilePreviewSource } from "../../components/FilePreview";
 import type { HostConnection } from "../hosts/host-connections";
-import { useHostMediaUrl, type HostMediaRequest } from "../files/host-media-url";
+import { useHostMediaUrl, type HostPathRequest } from "../files/host-media-url";
 import {
   MARKDOWN_IMAGE_MAX_WIDTH,
   type MarkdownImageDisplaySize,
@@ -165,7 +165,7 @@ function ThreadMarkdownImageRequest(props: {
 /** A host file image that loads through a URL the host signs. */
 export function ThreadMarkdownImage(props: {
   readonly connection: HostConnection | null;
-  readonly request: HostMediaRequest;
+  readonly request: HostPathRequest;
   readonly alt: string | null;
   readonly name: string;
   readonly onPressPreview: (source: ResolvedFilePreviewSource) => void;

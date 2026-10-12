@@ -11,6 +11,7 @@ import {
 } from '../../apps/mobile/src/features/live-activity/agent-live-activity-controller'
 import { threadKey, type SolusThreadShell } from '../../apps/mobile/src/features/threads/thread-directory'
 import { parseDeepLink } from '../../apps/mobile/src/navigation/deep-links'
+import { appPairLink, pairLink } from '@solus/client-core/pairing'
 import type { AgentActivityProps } from '../../apps/mobile/src/widgets/AgentActivity'
 
 const shell = (sessionId: string, fields: Partial<SessionRecord> = {}): SolusThreadShell => ({
@@ -157,10 +158,17 @@ describe('Live Activity lifecycle', () => {
 })
 
 describe('deep links and native config', () => {
-  test('only session links open anything', () => {
+  test('only session and pairing links open anything', () => {
     expect(parseDeepLink('solus://thread/h%2F1/s1')).toEqual({ screen: 'Thread', params: { hostId: 'h/1', sessionId: 's1' } })
     expect(parseDeepLink('solus://settings')).toBeNull()
     expect(parseDeepLink('https://thread/a/b')).toBeNull()
+  })
+
+  test('a host pairing page hands its link to the app, which only accepts an http(s) host', () => {
+    const link = pairLink({ kind: 'lan', host: '10.10.1.79', port: 3000 }, 'abc123')
+    expect(parseDeepLink(appPairLink(link))).toEqual({ screen: 'PairHost', params: { link } })
+    expect(parseDeepLink(appPairLink('javascript:alert(1)'))).toBeNull()
+    expect(parseDeepLink('solus://pair')).toBeNull()
   })
 
   test('the Live Activity extension is configured without push, with the logo plugin first', () => {

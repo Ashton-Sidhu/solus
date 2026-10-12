@@ -44,6 +44,7 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
     return detail
   })
   backend.register('prListCommits', () => store.prOverview().commits)
+  backend.register('prGetStack', () => null)
   backend.register('prListReviewers', () => store.prOverview().reviewers)
   backend.register('prListReviewerCandidates', () => [
     { kind: 'user', login: 'marisol' },

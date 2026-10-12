@@ -33,8 +33,11 @@ export interface WorkspaceCredentialOptions {
   /** Process-bound credentials stop working after restart; source authority can exchange again. */
   secret?: Buffer
   now?: () => number
-  /** A host's delegated token also names the host acting for the person; its credential then speaks for that host's agent work. */
-  authenticateSource(bearer: string, shareSecret?: string): Promise<{ principal: Principal; expiresAt: number; delegation?: WorkspaceDelegation } | null>
+  /**
+   * A host's delegated token also names the host acting for the person; its credential then speaks for that host's agent work.
+   * `organizationId` is the organization the request names: a token that lists organizations admits only one it lists.
+   */
+  authenticateSource(bearer: string, shareSecret?: string, organizationId?: string): Promise<{ principal: Principal; expiresAt: number; delegation?: WorkspaceDelegation } | null>
   isRevoked(principal: Principal): Promise<boolean>
   homeFor(principal: Principal): WorkspaceRecordHome | null
 }
@@ -50,7 +53,7 @@ export class WorkspaceCredentials {
 
   async exchange(bearer: string, request: WorkspaceAuthSessionRequest): Promise<WorkspaceAuthSession | null> {
     if (!bearer || bearer.length > 16_384) return null
-    const source = await this.options.authenticateSource(bearer, request.shareSecret)
+    const source = await this.options.authenticateSource(bearer, request.shareSecret, request.organizationId)
     if (!source || source.principal.kind === 'system' || source.principal.kind === 'runner') return null
     if (await this.options.isRevoked(source.principal)) return null
     const home = this.options.homeFor(source.principal)

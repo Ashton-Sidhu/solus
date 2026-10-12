@@ -2,7 +2,7 @@
   import { untrack } from "svelte";
 import Icon from "@iconify/svelte";
   import { GitBranch as GitBranchIcon } from "@lucide/svelte";
-  import { getWorkspaceContext, getSessionEnvironmentStore } from "../../contexts";
+  import { getWorkspaceContext, getSessionEnvironmentStore, hosts } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { repositorySetupStore } from "../../contexts/git/repository-setup.store.svelte";
   import { toasts } from "../../lib/toasts";
@@ -27,6 +27,7 @@ import Icon from "@iconify/svelte";
   const ctx = $derived(session.ctxForEnvironment(env.cwd, env.checkout, sourceId));
 
   const status = $derived(repositorySetupStore.statusFor(serverId, cwd));
+  const canWriteGit = $derived(hosts.find(serverId)?.me.may("host.git.write") ?? true);
   const showInit = $derived(!!status && !status.isRepository);
   // Publishing normally belongs to the Git rows' pull-request row. This card is
   // only for the stage before those rows exist: a repository whose HEAD is
@@ -90,7 +91,7 @@ import Icon from "@iconify/svelte";
       variant="outline"
       size="sm"
       class="w-full justify-center gap-1.5 text-chrome-dense"
-      disabled={initializing}
+      disabled={initializing || !canWriteGit}
       onclick={initializeGit}
     >
       <GitBranchIcon size={13} />
@@ -106,6 +107,7 @@ import Icon from "@iconify/svelte";
       variant="outline"
       size="sm"
       class="w-full justify-center gap-1.5 text-chrome-dense"
+      disabled={!canWriteGit}
       onclick={() => (publishDialogOpen = true)}
     >
       <Icon icon="logos:github-icon" size={13} />

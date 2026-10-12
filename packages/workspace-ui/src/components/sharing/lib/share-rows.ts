@@ -1,4 +1,3 @@
-import type { UplinkStatus } from '@solus/contracts/uplink'
 import { cloudShareUrl, isGuestLinkResource, type ShareList, type ShareRole, type ShareSetRequest } from '@solus/contracts/sharing'
 import { parseUserKey, userKey, type User } from '@solus/contracts/user'
 import { memberByKey, type OrganizationPeople } from '../../users/lib/organization-people'
@@ -54,14 +53,19 @@ export function scopeOf(list: ShareList): ShareScope {
 }
 
 /**
- * Whether the people who may open the resource are all signed-in members: a
- * team, the organization, or people invited by name, and no link. Their link
- * is the app's own address, not a guest link that asks for a name.
+ * What Copy link copies: the link of the scope the list already has, never a
+ * wider one. Copying does not change who can open the resource; only the access
+ * choice does. With the link scope it is the guest link; with any other scope it
+ * is the app's own address, which each person opens with their own sign-in, so
+ * only the people with access get in. Null when there is nothing to copy yet.
  */
-export function sharedWithMembers(list: ShareList): boolean {
-  const scope = scopeOf(list)
-  if (scope.kind === 'link') return false
-  return scope.kind !== 'private' || list.grants.some((grant) => grant.subject.kind === 'user')
+export type LinkToCopy = { kind: 'guest'; text: string } | { kind: 'member'; text: string }
+
+export function linkToCopy(list: ShareList, guestLink: LinkPresentation | null, memberLink: string | null): LinkToCopy | null {
+  if (list.link) {
+    return guestLink?.kind === 'url' ? { kind: 'guest', text: guestLink.url } : null
+  }
+  return memberLink ? { kind: 'member', text: memberLink } : null
 }
 
 /** One row of the dialog's choice. `role` is the row's current role when it is on, else the role it would start with. */
@@ -71,7 +75,12 @@ export interface ScopeOption {
   name: string
   detail: string
   role: ShareRole | null
+  /** Why this row cannot be chosen here, when it cannot: the host would refuse it. */
+  unavailable?: string
 }
+
+/** What the dialog says on a team or organization row of a host members cannot reach (host-sharing.md §4.3). */
+export const MEMBERS_CANNOT_REACH_ROW = 'Link this computer so members can reach it'
 
 const can = (role: ShareRole) => (role === 'editor' ? 'edit' : role === 'commenter' ? 'comment' : 'view')
 
@@ -90,8 +99,10 @@ function option(scope: ShareScope, name: string, detail: (role: ShareRole) => st
  * not on starts people as editors, and the link as viewers, so the guest door
  * never runs a turn unless someone asks it to.
  */
-export function scopeOptions(list: ShareList, directory: OrganizationPeople | null, organizationId: string | null, ownerLabel: string): ScopeOption[] {
+export function scopeOptions(list: ShareList, directory: OrganizationPeople | null, organizationId: string | null, ownerLabel: string, reach: { membersReachable: boolean } = { membersReachable: true }): ScopeOption[] {
   const current = scopeOf(list)
+  /** A team or organization row on a host members cannot reach: shown, so the choice reads whole, but not to be chosen. */
+  const named = (option: ScopeOption): ScopeOption => (reach.membersReachable ? option : { ...option, unavailable: MEMBERS_CANNOT_REACH_ROW })
   const roleIfCurrent = (scope: ShareScope) => (scopeKey(scope) === scopeKey(current) ? scopeRole(current) : null)
   const options: ScopeOption[] = [
     { key: 'private', scope: { kind: 'private' }, name: `Only ${ownerLabel}`, detail: 'Nobody else can open it', role: null },
@@ -102,22 +113,22 @@ export function scopeOptions(list: ShareList, directory: OrganizationPeople | nu
   for (const team of teams) {
     const scope: ShareScope = { kind: 'team', teamId: team.teamId, role: 'editor' }
     const count = team.memberUserIds.length
-    options.push(option(scope, team.name, (role) => `Team · ${count} ${count === 1 ? 'person' : 'people'} can ${can(role)}`, roleIfCurrent(scope), 'editor'))
+    options.push(named(option(scope, team.name, (role) => `Team · ${count} ${count === 1 ? 'person' : 'people'} can ${can(role)}`, roleIfCurrent(scope), 'editor')))
   }
   if (current.kind === 'team' && !teams.some((team) => team.teamId === current.teamId)) {
-    options.push(option(current, 'A team', (role) => `Team · everyone in it can ${can(role)}`, current.role, 'editor'))
+    options.push(named(option(current, 'A team', (role) => `Team · everyone in it can ${can(role)}`, current.role, 'editor')))
   }
   const organizationName = directory?.name
   const knownOrganizationId = directory?.organizationId ?? organizationId ?? (current.kind === 'organization' ? current.organizationId : null)
   if (knownOrganizationId) {
     const scope: ShareScope = { kind: 'organization', organizationId: knownOrganizationId, role: 'editor' }
-    options.push(option(
+    options.push(named(option(
       scope,
       organizationName ? `Everyone in ${organizationName}` : 'Everyone in the organization',
       (role) => `Organization · everyone in it can ${can(role)}`,
       roleIfCurrent(scope),
       'editor',
-    ))
+    )))
   }
   options.push(option({ kind: 'link', role: 'viewer' }, 'Anyone with the link', (role) => `Anyone on the internet with the link can ${can(role)}`, roleIfCurrent({ kind: 'link', role: 'viewer' }), 'viewer'))
   return options
@@ -240,40 +251,35 @@ export function withoutPerson(list: ShareList, userId: string): ShareSetRequest 
   }
 }
 
-/** The guest link (§4.2): the secret rides the fragment, so the cloud server never sees it. */
+/** The guest link: the secret rides the fragment, so no server on the way sees it. */
 
 /**
- * Whether a guest link can be built for a host: it needs the host id and the
- * account origin the host is listed under. `checking` until the host has
- * answered `uplinkStatus`; `unlinked` when it answered that it is not in Solus
- * cloud and no saved row knows better.
+ * The origin a guest link names (docs/plans/host-sharing.md §2), as the host that
+ * holds the resource answers it: the account origin for a mirrored session, else
+ * the host's own route; or the account origin for a record in an organization.
+ * `checking` until the host has answered; `unreachable` when it answered that
+ * nobody off the machine can reach it — no tunnel, and no address on a network.
  */
 export type GuestLinkContext =
   | { kind: 'checking' }
-  | { kind: 'unlinked' }
-  | { kind: 'linked'; hostId: string; directoryUrl: string }
+  | { kind: 'unreachable' }
+  | { kind: 'origin'; origin: string }
 
-export function guestLinkContext(
-  status: UplinkStatus | undefined,
-  saved: { hostId: string; directoryUrl: string } | undefined,
-): GuestLinkContext {
-  if (status?.linked) return { kind: 'linked', hostId: status.link.hostId, directoryUrl: status.link.directoryUrl }
-  // Named fields, not a spread: the saved row is the registry's uplink record, which
-  // carries a `kind` of its own (the host kind) that must not become the context's.
-  if (saved) return { kind: 'linked', hostId: saved.hostId, directoryUrl: saved.directoryUrl }
-  return status ? { kind: 'unlinked' } : { kind: 'checking' }
+export function hostLinkContext(origin: string | null | undefined): GuestLinkContext {
+  if (origin === undefined) return { kind: 'checking' }
+  return origin ? { kind: 'origin', origin } : { kind: 'unreachable' }
 }
 
 /**
- * What the dialog shows for the link: the full guest URL when the host is linked
- * to Solus cloud, the bare secret when it is not, `unavailable` for a link the host
- * kept no secret for (made before it did; regenerate), and nothing for a viewer,
- * who only sees that a link exists.
+ * What the dialog shows for the link: the full guest URL when its origin is
+ * known, `unreachable` when the host offers no route, `unavailable` for a link
+ * the host kept no secret for (made before it did; regenerate), and nothing for
+ * a viewer, who only sees that a link exists.
  */
 export type LinkPresentation =
   | { kind: 'url'; url: string }
-  | { kind: 'secret'; secret: string }
   | { kind: 'checking' }
+  | { kind: 'unreachable' }
   | { kind: 'unavailable' }
   | { kind: 'hidden' }
 
@@ -282,9 +288,9 @@ export function linkPresentation(link: ShareList['link'], context: GuestLinkCont
   if (!canShare) return { kind: 'hidden' }
   if (!link.secret) return { kind: 'unavailable' }
   switch (context.kind) {
-    case 'linked': return resource && isGuestLinkResource(resource) ? { kind: 'url', url: cloudShareUrl(context.directoryUrl, resource, link.secret) } : { kind: 'unavailable' }
+    case 'origin': return resource && isGuestLinkResource(resource) ? { kind: 'url', url: cloudShareUrl(context.origin, resource, link.secret) } : { kind: 'unavailable' }
     case 'checking': return { kind: 'checking' }
-    case 'unlinked': return { kind: 'secret', secret: link.secret }
+    case 'unreachable': return { kind: 'unreachable' }
   }
 }
 

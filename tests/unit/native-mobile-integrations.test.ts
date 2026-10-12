@@ -1,13 +1,18 @@
 import { describe, expect, test } from 'bun:test'
+import type { DocumentSyncClock } from '@solus/client-core/document-sync'
+import type { AccountProfileConnectStartResult, AccountProfileConnectionsResult } from '@solus/contracts/host-api'
 import { integrationUrlSchema, type Integration, type IntegrationConnection } from '@solus/contracts/integration-types'
+import type { ProfileConnection } from '@solus/contracts/integrations/profile-credentials'
 import {
   afterCreate,
   appendCatalogEntries,
   catalogCountText,
   isNearEnd,
+  cloudConnectStarted,
   connectFailed,
   connectFinished,
   connectReset,
+  connectsThroughCloud,
   connectStarted,
   connectSubmitted,
   connectSubmitting,
@@ -31,6 +36,7 @@ import {
   urlHost,
   withoutIntegration,
 } from '../../apps/mobile/src/features/settings/integrations'
+import { CLOUD_CONNECT_POLL_MS, CLOUD_CONNECT_TIMEOUT_MS, CloudConnect, type CloudConnectRequests } from '../../apps/mobile/src/features/settings/lib/cloud-connect'
 
 // docs/plans/mcp-integrations.md §3.2 and §7 on the phone: Add checks the
 // server and creates it in one step. Only a server the probe cannot place
@@ -41,13 +47,13 @@ import {
 const signals: never[] = []
 
 const record = (id: string, name: string, patch: Partial<Integration> = {}): Integration => ({
-  id, organizationId: 'local', kind: 'mcp', slug: id, name, url: `https://${id}.example/mcp`,
+  id, organizationId: 'local', ownerUserId: null, kind: 'mcp', slug: id, name, url: `https://${id}.example/mcp`,
   auth: { kind: 'none' }, createdBy: null, createdAt: '', updatedAt: '', ...patch,
 })
 const oauthAuth = (registration: 'dynamic' | 'client-required', clientId?: string): Integration['auth'] =>
   ({ kind: 'oauth', discover: 'https://example.com/.well-known/oauth-protected-resource', registration, ...(clientId ? { clientId } : {}) })
 const connectionOf = (integrationId: string, patch: Partial<IntegrationConnection> = {}): IntegrationConnection => ({
-  integrationId, status: 'connected', label: null, info: null, error: null, updatedAt: '', ...patch,
+  integrationId, status: 'connected', source: 'host', label: null, info: null, error: null, updatedAt: '', ...patch,
 })
 const loaded = (...connections: IntegrationConnection[]): ConnectionListState =>
   ({ kind: 'loaded', byIntegration: new Map(connections.map((connection) => [connection.integrationId, connection])) })
@@ -245,12 +251,12 @@ describe('connect flow', () => {
     connectFinished(waiting, { flowId, integrationId: 'linear', outcome, message }, 'Linear')
 
   test('a browser sign-in waits for the address the browser ended on', () => {
-    expect(waiting).toEqual({ step: 'waiting', flowId: 'f1', url: 'https://auth.example/authorize', input: 'redirect-url', expiresAt: '', submitted: false, busy: false, error: null })
+    expect(waiting).toEqual({ step: 'waiting', through: 'host', flowId: 'f1', url: 'https://auth.example/authorize', input: 'redirect-url', expiresAt: '', submitted: false, busy: false, error: null })
   })
 
   test('a key integration asks for the key; an integration with nothing to do is connected at once', () => {
-    expect(connectStarted({ kind: 'token', integrationId: 'linear' }, 'Linear')).toEqual({ step: 'token', busy: false, error: null })
-    const connection: IntegrationConnection = { integrationId: 'linear', status: 'connected', label: null, info: null, error: null, updatedAt: '' }
+    expect(connectStarted({ kind: 'token', integrationId: 'linear' }, 'Linear')).toEqual({ step: 'token', through: 'host', busy: false, error: null })
+    const connection: IntegrationConnection = { integrationId: 'linear', status: 'connected', source: 'host', label: null, info: null, error: null, updatedAt: '' }
     expect(connectStarted({ kind: 'connected', connection }, 'Linear')).toEqual({ step: 'finished', ok: true, message: 'Connected to Linear.' })
   })
 
@@ -319,5 +325,153 @@ describe('administrator OAuth client', () => {
     expect(oauthClientText.secretSaved).toBe('Secret saved')
     expect(oauthClientText.noSecret).toBe('No secret')
     expect(oauthClientText.clientSecretNote).toContain('stays on the host')
+  })
+})
+
+// plans/020-agent-profile.md §5.3 on the phone: a signed-in person signs in at
+// Solus Cloud, for any server the host shows them. The cloud is the one
+// refresher, so the sign-in ends when the account reports the server connected,
+// and every host is then asked to pull so its row moves to the cloud path.
+
+describe('a sign-in through Solus Cloud', () => {
+  const SERVER = 'https://mcp.linear.app/mcp'
+  const mine = record('linear', 'Linear', { ownerUserId: 'user-1', url: SERVER, auth: oauthAuth('dynamic') })
+
+  test('whenever the person is signed in, shared server or own, unless only the host holds the OAuth client', () => {
+    // WHY: signed in, the connection lives in the account and every host reads it from there.
+    expect(connectsThroughCloud(mine, 'user-1')).toBe(true)
+    expect(connectsThroughCloud(record('shared', 'Shared', { ownerUserId: null, url: SERVER, auth: oauthAuth('dynamic') }), 'user-1')).toBe(true)
+    expect(connectsThroughCloud(mine, null)).toBe(false)
+    expect(connectsThroughCloud(record('admin', 'Admin', { url: SERVER, auth: oauthAuth('client-required') }), 'user-1')).toBe(false)
+    // Without the record's address and auth there is nothing to send the cloud.
+    expect(connectsThroughCloud({ id: 'linear', name: 'Linear' }, 'user-1')).toBe(false)
+  })
+
+  test('the labels: connected through the account, and a cloud the host could not reach offers no Reconnect', () => {
+    expect(installedStatus(mine, loaded(connectionOf('linear', { source: 'cloud', label: 'ada@example.com' })))).toEqual({ text: 'Connected through Solus Cloud', tone: 'muted', action: null })
+    expect(installedStatus(mine, loaded(connectionOf('linear', { source: 'cloud', status: 'cloud-unreachable' })))).toEqual({ text: 'Solus Cloud unreachable', tone: 'danger', action: null })
+    expect(installedStatus(mine, loaded(connectionOf('linear', { source: 'cloud', status: 'needs-sign-in' })))).toMatchObject({ action: 'reconnect' })
+    // A host reset ends a host flow, never a cloud one.
+    const cloudWaiting = cloudConnectStarted({ kind: 'browser', url: 'https://app.solus.sh/connect' }, SERVER, 'Linear')
+    expect(connectReset(cloudWaiting)).toBe(cloudWaiting)
+    expect(connectReset(connectStarted({ kind: 'waiting', flowId: 'f', url: 'u', input: 'callback', expiresAt: '' }, 'Linear')).step).toBe('finished')
+  })
+
+  /** A fake account session: the connections it holds, and every call made. */
+  function fakeAccount(start: AccountProfileConnectStartResult, held: ProfileConnection[] = []) {
+    const calls: string[] = []
+    const connections = held
+    const list = (): AccountProfileConnectionsResult => ({ kind: 'ok', connections: structuredClone(connections) })
+    const requests: CloudConnectRequests = {
+      accountAgentProfileConnections: async () => { calls.push('list'); return list() },
+      accountAgentProfileConnectStart: async (request) => { calls.push(`start:${request.serverUrl}`); return start },
+      accountAgentProfileConnectKey: async (request) => {
+        calls.push(`key:${request.key}`)
+        if (request.key === 'good') connections.push({ serverUrl: request.serverUrl, kind: 'bearer', status: 'connected', label: null, updatedAt: 1 })
+        return list()
+      },
+      accountAgentProfileDisconnect: async (request) => { calls.push(`disconnect:${request.serverUrl}`); return { kind: 'ok', connections: [] } },
+    }
+    return { requests, calls, connections }
+  }
+
+  function clockAt(start = 0): DocumentSyncClock & { advance(ms: number): Promise<void> } {
+    let now = start
+    const timers = new Map<number, { at: number; callback: () => void }>()
+    let next = 1
+    return {
+      now: () => now,
+      setTimer: (callback, ms) => {
+        const id = next++
+        timers.set(id, { at: now + ms, callback })
+        return () => { timers.delete(id) }
+      },
+      async advance(ms) {
+        now += ms
+        for (const [id, timer] of [...timers]) {
+          if (timer.at > now) continue
+          timers.delete(id)
+          timer.callback()
+          await Promise.resolve()
+          await Promise.resolve()
+        }
+      },
+    }
+  }
+
+  function device(account: ReturnType<typeof fakeAccount>, clock = clockAt()) {
+    const opened: string[] = []
+    let pulls = 0
+    const states: Array<ConnectFlowState | null> = []
+    const cloud = new CloudConnect({ requests: account.requests, openBrowser: async (url) => { opened.push(url) }, pullEverywhere: () => { pulls += 1 }, clock }, (_key, state) => states.push(state))
+    return { cloud, opened, pulls: () => pulls, states, last: () => states.at(-1) }
+  }
+
+  test('a browser sign-in opens the page, reads the account until the server is connected, then every host pulls', async () => {
+    const account = fakeAccount({ kind: 'ok', start: { kind: 'browser', url: 'https://app.solus.sh/connect?x' } })
+    const clock = clockAt()
+    const { cloud, opened, pulls, last } = device(account, clock)
+    await cloud.start('linear', SERVER, 'Linear', oauthAuth('dynamic'))
+    expect(opened).toEqual(['https://app.solus.sh/connect?x'])
+    expect(last()).toMatchObject({ step: 'waiting', through: 'cloud', input: 'callback', url: 'https://app.solus.sh/connect?x' })
+    await clock.advance(CLOUD_CONNECT_POLL_MS)
+    await clock.advance(CLOUD_CONNECT_POLL_MS)
+    expect(account.calls.filter((call) => call === 'list')).toHaveLength(2)
+    expect(last()).toMatchObject({ step: 'waiting' })
+    expect(pulls()).toBe(0)
+    account.connections.push({ serverUrl: SERVER, kind: 'oauth', status: 'connected', label: 'ada', updatedAt: 1 })
+    await clock.advance(CLOUD_CONNECT_POLL_MS)
+    expect(last()).toEqual({ step: 'finished', ok: true, message: 'Connected to Linear through Solus Cloud.' })
+    expect(pulls()).toBe(1)
+    expect(cloud.has('linear')).toBe(false)
+    // The flow ended: no further reads.
+    await clock.advance(CLOUD_CONNECT_POLL_MS * 3)
+    expect(account.calls.filter((call) => call === 'list')).toHaveLength(3)
+  })
+
+  test('a sign-in nobody finishes ends after ten minutes without a pull; Cancel ends it at once', async () => {
+    const account = fakeAccount({ kind: 'ok', start: { kind: 'browser', url: 'https://app.solus.sh/connect' } })
+    const clock = clockAt()
+    const { cloud, pulls, last, states } = device(account, clock)
+    await cloud.start('linear', SERVER, 'Linear', oauthAuth('dynamic'))
+    for (let elapsed = 0; elapsed < CLOUD_CONNECT_TIMEOUT_MS; elapsed += CLOUD_CONNECT_POLL_MS) await clock.advance(CLOUD_CONNECT_POLL_MS)
+    expect(last()).toEqual({ step: 'finished', ok: false, message: 'The sign-in did not finish in time. Connect again.' })
+    expect(pulls()).toBe(0)
+
+    await cloud.start('linear', SERVER, 'Linear', oauthAuth('dynamic'))
+    const before = states.length
+    cloud.cancel('linear')
+    expect(states.slice(before)).toEqual([null])
+    await clock.advance(CLOUD_CONNECT_POLL_MS * 2)
+    expect(states).toHaveLength(before + 1)
+  })
+
+  test('a pasted key goes to the account, and a refused start says why', async () => {
+    const account = fakeAccount({ kind: 'ok', start: { kind: 'token' } })
+    const { cloud, pulls, last } = device(account)
+    await cloud.start('linear', SERVER, 'Linear', oauthAuth('dynamic'))
+    expect(last()).toEqual({ step: 'token', through: 'cloud', busy: false, error: null })
+    await cloud.submitKey('linear', ' bad ')
+    expect(last()).toEqual({ step: 'token', through: 'cloud', busy: false, error: 'The server did not accept the key.' })
+    await cloud.submitKey('linear', 'good')
+    expect(account.calls).toEqual([`start:${SERVER}`, 'key:bad', 'key:good'])
+    expect(last()).toMatchObject({ step: 'finished', ok: true })
+    expect(pulls()).toBe(1)
+
+    const refused = device(fakeAccount({ kind: 'refused', message: 'This server is not in your agent profile.' }))
+    await refused.cloud.start('linear', SERVER, 'Linear', oauthAuth('dynamic'))
+    expect(refused.last()).toEqual({ step: 'finished', ok: false, message: 'This server is not in your agent profile.' })
+    expect(refused.pulls()).toBe(0)
+  })
+
+  test('a disconnect of an account-held connection leaves the account, then every host pulls', async () => {
+    const account = fakeAccount({ kind: 'ok', start: { kind: 'none' } })
+    const { cloud, pulls } = device(account)
+    await cloud.disconnect(SERVER)
+    expect(account.calls).toEqual([`disconnect:${SERVER}`])
+    expect(pulls()).toBe(1)
+    const offline = device({ ...account, requests: { ...account.requests, accountAgentProfileDisconnect: async () => ({ kind: 'offline' }) } })
+    await expect(offline.cloud.disconnect(SERVER)).rejects.toThrow('Solus Cloud did not answer')
+    expect(offline.pulls()).toBe(0)
   })
 })

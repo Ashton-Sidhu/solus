@@ -1,7 +1,15 @@
 import { z } from 'zod'
 import type { DeviceSignInEnd } from '@solus/contracts/account-types'
+import { SIGN_IN_SCOPES } from '@solus/contracts/auth/clients'
+import { oauthTokenResponseSchema, type OAuthTokenResponse } from './oauth-session'
 
-/** RFC 8628 device authorization shared by desktop and the server CLI. */
+/**
+ * RFC 8628 device authorization for the server CLI
+ * (docs/adr/0001-standard-authentication.md §2.2 rule 1). The device-authorization
+ * plugin gives the code and the approval page; the account plane's token endpoint
+ * answers the approved code with OAuth tokens and a new client grant, which the
+ * caller adopts into an `OAuthSession`.
+ */
 
 export const DEVICE_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code'
 
@@ -14,7 +22,6 @@ const deviceCodeResponseSchema = z.object({
   interval: z.number().positive(),
 })
 
-const tokenSuccessSchema = z.object({ access_token: z.string().min(1) })
 const tokenErrorSchema = z.object({
   error: z.enum(['authorization_pending', 'slow_down', 'expired_token', 'access_denied', 'invalid_grant']).or(z.string()),
 })
@@ -29,7 +36,7 @@ export interface DeviceCodeGrant {
 }
 
 export type DeviceSignInResult =
-  | { end: 'approved'; sessionToken: string }
+  | { end: 'approved'; tokens: OAuthTokenResponse }
   | { end: Exclude<DeviceSignInEnd, 'approved'>; message: string }
 
 export interface DeviceAuthorizationDeps {
@@ -48,7 +55,7 @@ export async function requestDeviceCode(
   const response = await deps.fetch(`${deps.cloudOrigin}/api/auth/device/code`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify({ client_id: deps.clientId }),
+    body: JSON.stringify({ client_id: deps.clientId, scope: SIGN_IN_SCOPES.join(' ') }),
   })
   if (!response.ok) throw new DeviceAuthorizationError(`device code request failed (${response.status})`)
   const parsed = deviceCodeResponseSchema.safeParse(await response.json())
@@ -82,14 +89,14 @@ export async function waitForDeviceApproval(
 
     let response: Response
     try {
-      response = await deps.fetch(`${deps.cloudOrigin}/api/auth/device/token`, {
+      response = await deps.fetch(`${deps.cloudOrigin}/api/auth/oauth2/token`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify({
+        headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
+        body: new URLSearchParams({
           grant_type: DEVICE_GRANT_TYPE,
           device_code: grant.deviceCode,
           client_id: grant.clientId,
-        }),
+        }).toString(),
         signal,
       })
     } catch {
@@ -99,9 +106,9 @@ export async function waitForDeviceApproval(
 
     const body: unknown = await response.json().catch(() => null)
     if (response.ok) {
-      const success = tokenSuccessSchema.safeParse(body)
-      if (success.success) return { end: 'approved', sessionToken: success.data.access_token }
-      return { end: 'error', message: 'The website answered without a session.' }
+      const success = oauthTokenResponseSchema.safeParse(body)
+      if (success.success && success.data.refresh_token && success.data.id_token) return { end: 'approved', tokens: success.data }
+      return { end: 'error', message: 'The website answered without OAuth tokens.' }
     }
 
     const failure = tokenErrorSchema.safeParse(body)

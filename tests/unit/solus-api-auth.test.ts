@@ -57,7 +57,10 @@ describe('workspace request credentials', () => {
     const [payload, signature] = result!.accessToken.split('.')
     const changed = Buffer.from(Buffer.from(payload, 'base64url').toString().replace('org-a', 'org-b')).toString('base64url')
     expect(await credentials.verify(`${changed}.${signature}`)).toBeNull()
-    expect(workspaceAuthSessionRequestSchema.safeParse({ scopes: ['tasks:read'], organizationId: 'org-b' }).success).toBe(false)
+    // A named organization only selects among those the source token lists (ADR 0001 §6.4,
+    // `ticketForGrant`); the credential's context is still the source's, never the name's.
+    const named = await fixture().credentials.exchange('cloud-source', workspaceAuthSessionRequestSchema.parse({ scopes: ['tasks:read'], organizationId: 'org-b' }))
+    expect(named?.home).toEqual({ kind: 'organization', serviceId: 'api-a', organizationId: 'org-a' })
     expect(workspaceTaskQuerySchema.safeParse({ organizationId: 'org-b' }).success).toBe(false)
     expect(workspaceTaskQuerySchema.safeParse({ limit: 201 }).success).toBe(false)
   })

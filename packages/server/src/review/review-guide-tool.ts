@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import type { GuideSignificance, ReviewGuideDraft } from '@solus/contracts/review'
+import type { GuideFileRef, GuideSection, GuideSignificance, ReviewGuideDraft } from '@solus/contracts/review'
+import { parsePatch, renderFile, type ParsedFile, type ParsedHunk } from '../git/interdiff'
 import { createLogger } from '../logger'
 import type { AgentTool } from '../execution/agents/tools/agent-tool'
 
@@ -11,19 +12,33 @@ const log = createLogger('review', 'review-guide-tool.ts')
 // with the whole guide as its arguments — those args ARE the guide, captured
 // directly (no markup, no parsing of free text).
 
+const lineRangeSchema = z.object({
+  side: z
+    .enum(['old', 'new'])
+    .describe("'new' for lines of the changed file (added or context lines); 'old' for lines that exist only in the base (deleted lines)."),
+  start: z.number().int().min(1).describe('First line number on that side, as shown in the diff.'),
+  end: z.number().int().min(1).describe('Last line number on that side, inclusive.'),
+})
+
 const fileReferenceSchema = z.object({
   path: z.string().describe('Repo-relative path EXACTLY as it appears in the diff (the b/ post-image path).'),
-  additions: z.number().int().min(0).describe('Lines added to this file in the change.'),
-  deletions: z.number().int().min(0).describe('Lines removed from this file in the change.'),
-  hunks: z
-    .string()
+  ranges: z
+    .array(lineRangeSchema)
     .describe(
-      'The unified-diff hunks for THIS file that are relevant to THIS concern — a valid single-file ' +
-        'patch: the `diff --git`/`---`/`+++` header lines for the file followed by only the `@@ … @@` ' +
-        'hunks that matter to this concern. Copy them VERBATIM from `git diff` output; keep each hunk ' +
-        'whole (never edit or trim lines inside a hunk, or the diff will render wrong). Include only the ' +
-        "hunks the concern is about, not the file's entire diff, and omit the rest.",
+      'The lines of THIS file that THIS concern is about. The host shows every diff hunk that a range ' +
+        'touches, cut from the real patch with real line numbers. Use [] to show the whole file diff.',
     ),
+})
+
+const attentionSchema = z.object({
+  kind: z
+    .enum(['tradeoff', 'contract', 'product', 'risk', 'accessibility'])
+    .describe(
+      'tradeoff = a design choice with a real cost; contract = a changed API, schema, or protocol that ' +
+        'other code or clients depend on; product = a user-visible behavior decision; risk = data, ' +
+        'security, or migration exposure; accessibility = an effect on keyboard, screen reader, or contrast.',
+    ),
+  note: z.string().describe('One or two sentences: the decision the reviewer must make, and why it matters.'),
 })
 
 const sectionSchema = z.object({
@@ -41,13 +56,16 @@ const sectionSchema = z.object({
   explanation: z
     .string()
     .describe(
-      'The "why" for this concern — woven from the ledger when present, verified against the diff. ' +
+      'The "why" for this concern, verified against the diff. ' +
         'Renders as Markdown: when listing more than one thing to verify, use a Markdown list ' +
         '(one `- ` or `1. ` item per line) rather than inline `(1) … (2) …` in a paragraph.',
     ),
-  ledgerRefs: z
-    .array(z.string())
-    .describe('Ledger record ids that inform this section. Use [] when no ledger is present or none apply.'),
+  attention: attentionSchema
+    .optional()
+    .describe(
+      'The one call a reviewer must make in this concern. Omit it on most sections. It is not a bug ' +
+        'finding: do not hunt for bugs and do not invent concerns.',
+    ),
   files: z.array(fileReferenceSchema).describe('Files this concern spans. A file may legitimately appear in more than one section.'),
 })
 
@@ -72,14 +90,20 @@ const SUBMIT_REVIEW_GUIDE_DESC = [
   'then what depends on it, then mechanical/peripheral edits as low-signal. A concern may span',
   'several files, and the same file may appear in more than one concern.',
   '',
-  "For each file in a concern, embed the relevant diff hunks in the file's `hunks` field —",
-  'copied verbatim from `git diff`, trimmed to just the hunks that concern is about — so the',
-  "reader sees only what matters, not the file's entire diff.",
+  "For each file in a concern, name the line ranges the concern is about in the file's `ranges`",
+  'field. The host cuts the matching hunks from the real diff, so the reader sees only what',
+  "matters, not the file's entire diff.",
+  '',
+  'Set `attention` only on a section where the reviewer must make a real decision. Most',
+  'sections have none. Do not hunt for bugs and do not invent concerns.',
 ].join('\n')
+
+/** The guide as the agent submits it: line ranges, not yet the stored hunks. */
+export type SubmittedGuide = z.infer<typeof submitReviewGuideObject>
 
 export interface ParseGuideResult {
   ok: boolean
-  guide?: ReviewGuideDraft
+  guide?: SubmittedGuide
   error?: string
 }
 
@@ -95,7 +119,7 @@ export function parseGuideArgs(args: Parameters<typeof submitReviewGuideObject.s
 }
 
 export function createReviewGuideAgentTool(
-  capture: (guide: ReviewGuideDraft) => void,
+  capture: (guide: SubmittedGuide) => void,
 ): AgentTool {
   return {
     name: SUBMIT_REVIEW_GUIDE_TOOL_NAME,
@@ -119,35 +143,53 @@ export function createReviewGuideAgentTool(
 // ─── post-capture validation ───
 
 export interface NormalizeGuideContext {
-  /** Every file in the diff (post-image paths) — the coverage target. */
-  changedFiles: string[]
-  /** Known ledger record ids — anything else a section cites is a hallucination. */
-  ledgerIds: string[]
+  /** The exact patch the guide reviews: the coverage target, and the only
+   *  source of the hunks and line counts the guide stores. */
+  patch: string
 }
+
+type LineRange = SubmittedGuide['sections'][number]['files'][number]['ranges'][number]
 
 const BAND = { core: 0, supporting: 1, 'low-signal': 2 } satisfies Record<GuideSignificance, number>
 
 /**
- * Validate + normalize a captured draft against the real change so the persisted
- * guide always satisfies its invariants:
- *  - drop `ledgerRefs` that don't match a known record (hallucination guard);
- *  - guarantee coverage — any changed file absent from every section is appended
- *    to a synthesized low-signal "Remaining changes" section, so an omission
- *    never silently reads as "fully reviewed";
- *  - sort sections into the core → supporting → low-signal bands and re-number
- *    `order` contiguously for a stable reading sequence.
+ * Turn a submitted guide into the stored guide, checked against the real
+ * change, so the persisted guide always satisfies its invariants:
+ *  - every file reference names a file of the patch; others are dropped;
+ *  - a file's hunks and line counts come from the patch, never from the agent:
+ *    the hunks are the ones its ranges touch, copied verbatim, so the line
+ *    numbers are real and the text cannot drift from the change;
+ *  - coverage — any changed file absent from every section is appended to a
+ *    synthesized low-signal "Remaining changes" section, so an omission never
+ *    silently reads as "fully reviewed";
+ *  - sections sort into the core → supporting → low-signal bands, with
+ *    `order` renumbered contiguously for a stable reading sequence.
  */
-export function normalizeGuide(draft: ReviewGuideDraft, ctx: NormalizeGuideContext): ReviewGuideDraft {
-  const ledgerSet = new Set(ctx.ledgerIds)
-  const sections = draft.sections.map((s) => {
-    const refs = s.ledgerRefs.filter((r) => ledgerSet.has(r))
-    const dropped = s.ledgerRefs.length - refs.length
-    if (dropped > 0) log.warn('guide_section_unknown_ledger_refs_dropped', { sectionId: s.id, dropped })
-    return { ...s, ledgerRefs: refs }
+export function normalizeGuide(submitted: SubmittedGuide, ctx: NormalizeGuideContext): ReviewGuideDraft {
+  const patchFiles = new Map(parsePatch(ctx.patch).map((file) => [file.filePath, file]))
+  const sections: GuideSection[] = submitted.sections.map((section) => {
+    const files = section.files.flatMap((ref) => {
+      const file = patchFiles.get(ref.path)
+      if (!file) {
+        log.warn('guide_section_unknown_file_dropped', { sectionId: section.id })
+        return []
+      }
+      return [fileReference(file, ref.ranges, section.id)]
+    })
+    const normalized: GuideSection = {
+      id: section.id,
+      title: section.title,
+      order: section.order,
+      significance: section.significance,
+      explanation: section.explanation,
+      files,
+    }
+    if (section.attention) normalized.attention = section.attention
+    return normalized
   })
 
   const covered = new Set(sections.flatMap((s) => s.files.map((f) => f.path)))
-  const missing = ctx.changedFiles.filter((f) => !covered.has(f))
+  const missing = [...patchFiles.values()].filter((file) => !covered.has(file.filePath))
   if (missing.length > 0) {
     log.warn('guide_omitted_changed_files', { count: missing.length })
     sections.push({
@@ -157,8 +199,7 @@ export function normalizeGuide(draft: ReviewGuideDraft, ctx: NormalizeGuideConte
       significance: 'low-signal',
       explanation:
         'Files changed on this branch that the guide did not place into a concern. Skim them for anything unexpected.',
-      ledgerRefs: [],
-      files: missing.map((path) => ({ path, additions: 0, deletions: 0 })),
+      files: missing.map((file) => fileReference(file, [], 'remaining-changes')),
     })
   }
 
@@ -167,5 +208,33 @@ export function normalizeGuide(draft: ReviewGuideDraft, ctx: NormalizeGuideConte
     s.order = i
   })
 
-  return { ...draft, sections }
+  return { title: submitted.title, summary: submitted.summary, sections }
+}
+
+function fileReference(file: ParsedFile, ranges: LineRange[], sectionId: string): GuideFileRef {
+  let additions = 0
+  let deletions = 0
+  for (const hunk of file.hunks) {
+    for (const line of hunk.body) {
+      if (line.startsWith('+')) additions++
+      else if (line.startsWith('-')) deletions++
+    }
+  }
+  const touched = file.hunks.filter((hunk) => ranges.some((range) => touches(hunk, range)))
+  if (ranges.length > 0 && touched.length === 0) {
+    log.warn('guide_file_ranges_outside_diff', { sectionId })
+  }
+  // A whole file is shown when no range lands on a hunk.
+  return touched.length > 0 && touched.length < file.hunks.length
+    ? { path: file.filePath, additions, deletions, hunks: renderFile(file, file.filePath, touched) }
+    : { path: file.filePath, additions, deletions }
+}
+
+/** Whether a line range overlaps the lines a hunk covers on that side. A hunk
+ *  with no lines on a side (a pure addition or deletion) sits at its start. */
+function touches(hunk: ParsedHunk, range: LineRange): boolean {
+  const start = range.side === 'new' ? hunk.newStart : hunk.oldStart
+  const count = range.side === 'new' ? hunk.newLines : hunk.oldLines
+  const end = start + Math.max(count, 1) - 1
+  return range.start <= end && Math.max(range.start, range.end) >= start
 }

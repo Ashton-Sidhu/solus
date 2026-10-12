@@ -163,8 +163,7 @@
  : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
             >
               <ProjectFavicon
-                projectRoot={projectDir}
-                serverId={hostId}
+                projectKey={inChat ? projectDir : currentKey}
                 class="size-4 shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
  ? 'opacity-100'
  : 'opacity-70'}"
@@ -214,11 +213,7 @@
               data-menu-current={isCurrent ? "" : undefined}
               class="group/project-row relative menu-item-stagger pr-9 pointer-coarse:pr-11"
             >
-              <ProjectFavicon
-                projectRoot={project.checkout.projectRoot}
-                serverId={project.checkout.serverId}
-                class="size-[13px]"
-              />
+              <ProjectFavicon projectKey={project.key} class="size-[13px]" />
               <span class="min-w-0 flex-1 truncate">
                 {project.label}
               </span>

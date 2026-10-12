@@ -36,6 +36,7 @@ async function main(): Promise<void> {
     await buildHeadless(staging)
     copyBundledPlugins(staging)
     copyPreviewBrowserDriver(staging)
+    await installFileFinder(target, staging, workDir)
     writeLaunchers(staging)
     if (target.platform === 'linux') copyManagedBoot(staging)
     writeNativeNote(staging)
@@ -210,6 +211,32 @@ function copyPreviewBrowserDriver(staging: string): void {
   cpSync(source, join(staging, 'libexec', 'server', 'node_modules', 'playwright-core'), { recursive: true })
 }
 
+/**
+ * Ship the file finder, which the bundle keeps external, for the release target.
+ *
+ * Its native library comes in a package per platform, and the repo holds only
+ * the one for the machine that packages the release. So npm fetches the
+ * target's packages, at the versions this repo locks, and they land beside the
+ * bundle as `playwright-core` does. A Linux release targets glibc. The
+ * repo's patch to `@ff-labs/fff-node` only resolves paths inside an Electron
+ * `app.asar`, so the standalone server does not need it.
+ */
+async function installFileFinder(target: Target, staging: string, workDir: string): Promise<void> {
+  const installDir = join(workDir, 'file-finder')
+  mkdirSync(installDir, { recursive: true })
+  writeFileSync(join(installDir, 'package.json'), '{ "private": true }\n')
+  const packages = ['@ff-labs/fff-node', 'ffi-rs'].map((name) =>
+    `${name}@${JSON.parse(readFileSync(join(repoRoot, 'node_modules', name, 'package.json'), 'utf8')).version}`)
+  await run('npm', [
+    'install', '--prefix', installDir,
+    '--no-save', '--no-package-lock', '--no-audit', '--no-fund', '--ignore-scripts', '--omit=dev',
+    `--os=${target.platform}`, `--cpu=${target.arch}`,
+    ...(target.platform === 'linux' ? ['--libc=glibc'] : []),
+    ...packages,
+  ])
+  cpSync(join(installDir, 'node_modules'), join(staging, 'libexec', 'server', 'node_modules'), { recursive: true })
+}
+
 /** The server links these into the state dir on boot, so they must ship where
  *  bundledResourcesDir() looks: `$SOLUS_INSTALL_DIR/resources`. */
 function copyBundledPlugins(staging: string): void {
@@ -267,11 +294,14 @@ function writeNativeNote(staging: string): void {
   const nativeDir = join(staging, 'libexec', 'native')
   mkdirSync(nativeDir, { recursive: true })
   writeFileSync(join(nativeDir, 'README.txt'), [
-    'Optional native modules are intentionally not bundled.',
+    'onnxruntime-node is intentionally not bundled. Its platform-specific loader',
+    'is not trivially copyable across release targets, and the features that',
+    'depend on it degrade through existing capability checks.',
     '',
-    '@ff-labs/fff-node and onnxruntime-node are externalized from the server bundle.',
-    'Their platform-specific loaders are not trivially copyable across release targets.',
-    'Features that depend on them degrade through existing capability checks.',
+    '@ff-labs/fff-node (the file finder) IS shipped, at',
+    'libexec/server/node_modules/@ff-labs/fff-node, with the native library for',
+    'this release target. A Linux release targets glibc; on a musl host the file',
+    'finder does not load and file search returns no results.',
     '',
     'playwright-core IS shipped, at libexec/server/node_modules/playwright-core,',
     'because the browser host is a feature of this server. Its browser binaries are',

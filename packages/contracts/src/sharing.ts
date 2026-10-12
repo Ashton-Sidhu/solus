@@ -7,6 +7,7 @@
 
 import { z } from 'zod'
 import type { User } from './user'
+import { hostRouteSchema } from './uplink'
 
 /**
  * What can be shared. A task's share reaches everything in it: the task page and
@@ -151,5 +152,27 @@ export function parseCloudShareLink(pathname: string, hash: string): GuestLink |
   return { resource: { kind, id: path[2]! }, secret: secret[1]! }
 }
 
-export const SHARE_ERROR_CODES = ['FORBIDDEN', 'NOT_FOUND', 'NOT_SHARED', 'SEAT_REQUIRED'] as const
+/**
+ * `POST /auth/share-link` on the Solus API (docs/plans/host-sharing.md §4.2): what a
+ * link's secret opens and where its guest page dials first. `host` is the machine
+ * that runs a mirrored session, with the routes the directory knows for it; null for
+ * a resource no host runs. The page falls back to the API's own copy, read only,
+ * when the host does not answer.
+ */
+export const shareLinkRequestSchema = z.object({ shareSecret: z.string().min(1).max(256) })
+export type ShareLinkRequest = z.infer<typeof shareLinkRequestSchema>
+
+/** The resolve door's 404 for a secret it does not know; a host's 404 on the same path carries no code. */
+export const SHARE_LINK_UNKNOWN = 'SHARE_LINK_UNKNOWN'
+
+export const shareLinkTargetSchema = z.object({
+  resource: shareResourceSchema,
+  role: shareRoleSchema,
+  /** The resource's organization: a signed-in member of it opens the member link instead. */
+  organizationId: z.string().min(1),
+  host: z.object({ hostId: z.string().min(1), routes: z.array(hostRouteSchema) }).nullable(),
+})
+export type ShareLinkTarget = z.infer<typeof shareLinkTargetSchema>
+
+export const SHARE_ERROR_CODES = ['FORBIDDEN', 'NOT_FOUND', 'NOT_SHARED', 'SEAT_REQUIRED', 'HOST_NOT_LINKED'] as const
 export type ShareErrorCode = (typeof SHARE_ERROR_CODES)[number]

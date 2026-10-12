@@ -6,12 +6,14 @@ import {
   type DeviceAuthorizationDeps,
 } from '@solus/client-core/device-authorization'
 
-// The device flow is the one path a person takes to sign the desktop app in. These
+// The device flow is how a person signs the server CLI in (ADR 0001 §2.2 rule 1). These
 // tests pin the RFC 8628 behaviours that decide whether that path ends well: polling
-// obeys the website's interval, `slow_down` backs off, and every verdict is terminal.
+// obeys the website's interval, `slow_down` backs off, every verdict is terminal, and
+// approval gives OAuth tokens — never a session token.
 
 const ORIGIN = 'https://cloud.test'
 const CLIENT_ID = 'solus-test'
+const TOKENS = { access_token: 'at', expires_in: 300, refresh_token: 'rt', id_token: 'h.p.s' }
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
@@ -74,7 +76,7 @@ describe('requestDeviceCode', () => {
       },
     }
     const result = await requestDeviceCode(d)
-    expect(JSON.parse(sentBody)).toEqual({ client_id: CLIENT_ID })
+    expect(JSON.parse(sentBody)).toEqual({ client_id: CLIENT_ID, scope: 'openid profile email offline_access' })
     expect(result).toEqual({
       deviceCode: 'dc',
       userCode: 'BCDFGHJK',
@@ -87,21 +89,42 @@ describe('requestDeviceCode', () => {
 })
 
 describe('waitForApproval', () => {
-  test('waits the website\'s interval before each poll and returns the token when approved', async () => {
+  test('waits the website\'s interval before each poll and returns the OAuth tokens when approved', async () => {
     const d = deps([
       jsonResponse(400, { error: 'authorization_pending' }),
-      jsonResponse(200, { access_token: 'session-token' }),
+      jsonResponse(200, TOKENS),
     ])
     const result = await waitForDeviceApproval(grant(), d, new AbortController().signal)
-    expect(result).toEqual({ end: 'approved', sessionToken: 'session-token' })
+    expect(result).toEqual({ end: 'approved', tokens: TOKENS })
     expect(d.sleeps).toEqual([5000, 5000])
+  })
+
+  test('polls the OAuth token endpoint with the device-code grant, form encoded', async () => {
+    const sent: Array<{ url: string; body: string }> = []
+    const d = deps([])
+    d.fetch = async (url, init) => {
+      sent.push({ url: String(url), body: String(init?.body) })
+      return jsonResponse(200, TOKENS)
+    }
+    await waitForDeviceApproval(grant(), d, new AbortController().signal)
+    expect(sent[0]!.url).toBe(`${ORIGIN}/api/auth/oauth2/token`)
+    expect(Object.fromEntries(new URLSearchParams(sent[0]!.body))).toEqual({
+      grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+      device_code: 'device-1',
+      client_id: CLIENT_ID,
+    })
+  })
+
+  test('an approval without a refresh token or ID token is an error: a session token is not a sign-in', async () => {
+    const d = deps([jsonResponse(200, { access_token: 'session-token' })])
+    expect(await waitForDeviceApproval(grant(), d, new AbortController().signal)).toMatchObject({ end: 'error' })
   })
 
   test('slow_down adds five seconds to every later poll, per RFC 8628', async () => {
     const d = deps([
       jsonResponse(400, { error: 'slow_down' }),
       jsonResponse(400, { error: 'authorization_pending' }),
-      jsonResponse(200, { access_token: 't' }),
+      jsonResponse(200, TOKENS),
     ])
     await waitForDeviceApproval(grant(), d, new AbortController().signal)
     expect(d.sleeps).toEqual([5000, 10000, 10000])
@@ -121,7 +144,7 @@ describe('waitForApproval', () => {
 
   test('cancelling stops polling with a cancelled verdict, never an error', async () => {
     const abort = new AbortController()
-    const d = deps([jsonResponse(400, { error: 'authorization_pending' }), jsonResponse(200, { access_token: 'late' })])
+    const d = deps([jsonResponse(400, { error: 'authorization_pending' }), jsonResponse(200, TOKENS)])
     d.sleep = async () => {
       abort.abort()
     }
@@ -131,7 +154,7 @@ describe('waitForApproval', () => {
   })
 
   test('a transient network failure retries instead of ending the attempt', async () => {
-    const d = deps([new Error('offline'), jsonResponse(200, { access_token: 't' })])
+    const d = deps([new Error('offline'), jsonResponse(200, TOKENS)])
     const result = await waitForDeviceApproval(grant(), d, new AbortController().signal)
     expect(result).toMatchObject({ end: 'approved' })
     expect(d.calls).toBe(2)

@@ -1,6 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/components/MediaImagePreview.tsx (MIT, see UPSTREAM.md).
 import { createContext, useContext } from "react";
-import { Pressable, View } from "react-native";
+import { Platform, Pressable, View } from "react-native";
 import ImageViewing from "react-native-image-viewing";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -49,7 +49,8 @@ export function MediaImagePreview(props: MediaImagePreviewProps) {
         visible
         presentationStyle="fullScreen"
         onRequestClose={props.onRequestClose}
-        swipeToCloseEnabled
+        // On Android, swipe-to-close takes the pinch gesture and blocks zoom.
+        swipeToCloseEnabled={Platform.OS !== "android"}
         doubleTapToZoomEnabled
         HeaderComponent={ImagePreviewHeader}
       />

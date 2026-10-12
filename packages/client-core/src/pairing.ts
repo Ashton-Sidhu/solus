@@ -56,6 +56,11 @@ export function bestPairEndpoint<E extends PairEndpoint>(endpoints: readonly E[]
   return [...endpoints].sort((a, b) => ENDPOINT_REACH[a.kind] - ENDPOINT_REACH[b.kind])[0] ?? null
 }
 
+/** The same pairing link handed to the Solus mobile app, which checks the host before it pairs. */
+export function appPairLink(pairingLink: string): string {
+  return `solus://pair?link=${encodeURIComponent(pairingLink)}`
+}
+
 /** The link another device opens or scans to pair; `parsePairLink` reads it back. */
 export function pairLink(endpoint: PairEndpoint, pairToken: string): string {
   return `http://${endpoint.host}:${endpoint.port}/pair#token=${pairToken}`

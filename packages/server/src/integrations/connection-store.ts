@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { z } from 'zod'
 import type { IntegrationConnection, IntegrationConnectionStatus } from '@solus/contracts/integration-types'
+import { oauthClientSchema, oauthTokenSchema, type OAuthClient, type OAuthToken } from '@solus/contracts/integrations/oauth-protocol'
 import { getDb } from '../db'
 import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
@@ -32,7 +33,8 @@ type ConnectionInfo = z.infer<typeof connectionInfoSchema>
 const connectionRowSchema = z.object({
   integration_id: z.string(),
   user_id: z.string().nullable(),
-  status: z.enum(['connected', 'needs-sign-in', 'error']),
+  status: z.enum(['connected', 'needs-sign-in', 'error', 'cloud-unreachable']),
+  source: z.enum(['host', 'cloud']),
   label: z.string().nullable(),
   info: z.string().nullable(),
   error: z.string().nullable(),
@@ -40,10 +42,12 @@ const connectionRowSchema = z.object({
 })
 type ConnectionRow = z.infer<typeof connectionRowSchema>
 
-const COLUMNS = 'integration_id, user_id, status, label, info, error, updated_at'
+const COLUMNS = 'integration_id, user_id, status, source, label, info, error, updated_at'
 
 export interface ConnectionWrite {
   status: IntegrationConnectionStatus
+  /** Left out, a write keeps where the credential lives; a new row's is the host. */
+  source?: IntegrationConnection['source']
   label?: string | null
   info?: ConnectionInfo | null
   error?: string | null
@@ -58,6 +62,7 @@ function connectionFromRow(row: ConnectionRow): IntegrationConnection {
   return {
     integrationId: row.integration_id,
     status: row.status,
+    source: row.source,
     label: row.label,
     info: info?.success ? info.data : null,
     error: row.error,
@@ -79,14 +84,15 @@ export class IntegrationConnectionStore {
   /** Writes the status; a field left out keeps its stored value. Returns the row as the person reads it. */
   upsert(integrationId: string, credentialUserId: string | null, write: ConnectionWrite): IntegrationConnection {
     const existing = this.get(integrationId, credentialUserId)
+    const source = write.source ?? existing?.source ?? 'host'
     const label = write.label === undefined ? existing?.label ?? null : write.label
     const info = write.info === undefined ? existing?.info ?? null : write.info
     const error = write.error === undefined ? existing?.error ?? null : write.error
     getDb().prepare(`
-      INSERT INTO integration_connection (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT (integration_id, user_id) DO UPDATE SET status = excluded.status, label = excluded.label,
+      INSERT INTO integration_connection (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (integration_id, user_id) DO UPDATE SET status = excluded.status, source = excluded.source, label = excluded.label,
         info = excluded.info, error = excluded.error, updated_at = excluded.updated_at
-    `).run(integrationId, rowUser(credentialUserId), write.status, label, info ? JSON.stringify(info) : null, error, new Date().toISOString())
+    `).run(integrationId, rowUser(credentialUserId), write.status, source, label, info ? JSON.stringify(info) : null, error, new Date().toISOString())
     const saved = this.get(integrationId, credentialUserId)
     if (!saved) throw new Error('The connection could not be saved.')
     return saved
@@ -108,42 +114,14 @@ export class IntegrationConnectionStore {
 
 // ── Secrets ─────────────────────────────────────────────────────────────────
 
-/**
- * One person's credential for one integration. An OAuth token, or a pasted key
- * (`tokenType: 'api-key'`). `expiresAt` is epoch milliseconds. `clientId` names
- * the client that issued an OAuth token, for its refresh.
- */
-export const integrationTokenSchema = z.object({
-  accessToken: z.string().min(1),
-  refreshToken: z.string().min(1).optional(),
-  expiresAt: z.number().optional(),
-  tokenType: z.string().min(1),
-  scope: z.string().optional(),
-  clientId: z.string().min(1).optional(),
-})
-export type IntegrationToken = z.infer<typeof integrationTokenSchema>
-
-/**
- * The host's OAuth client for one integration: registered by dynamic client
- * registration (with the redirect addresses it was registered for), or a secret
- * an administrator saved for `auth.oauth.clientId`.
- */
-export const integrationClientSchema = z.object({
-  clientId: z.string().min(1),
-  clientSecret: z.string().min(1).optional(),
-  tokenEndpointAuthMethod: z.enum(['none', 'client_secret_post', 'client_secret_basic']).optional(),
-  redirectUris: z.array(z.string()).optional(),
-})
-export type IntegrationClient = z.infer<typeof integrationClientSchema>
-
 /** Where integration secrets are kept; a test passes its own. */
 export interface IntegrationSecrets {
-  token(integrationId: string, credentialUserId: string | null): IntegrationToken | null
+  token(integrationId: string, credentialUserId: string | null): OAuthToken | null
   /** `EncryptionUnavailableError` when the store cannot save safely. */
-  saveToken(integrationId: string, credentialUserId: string | null, token: IntegrationToken): void
+  saveToken(integrationId: string, credentialUserId: string | null, token: OAuthToken): void
   removeToken(integrationId: string, credentialUserId: string | null): void
-  client(integrationId: string): IntegrationClient | null
-  saveClient(integrationId: string, client: IntegrationClient): void
+  client(integrationId: string): OAuthClient | null
+  saveClient(integrationId: string, client: OAuthClient): void
   removeClient(integrationId: string): void
 }
 
@@ -177,10 +155,10 @@ function remove(key: string): void {
 
 /** The host secret store (`platform/secrets.ts`), which the desktop encrypts with `safeStorage`. */
 export const hostIntegrationSecrets: IntegrationSecrets = {
-  token: (integrationId, credentialUserId) => load(tokenKey(integrationId, credentialUserId), integrationTokenSchema),
+  token: (integrationId, credentialUserId) => load(tokenKey(integrationId, credentialUserId), oauthTokenSchema),
   saveToken: (integrationId, credentialUserId, token) => save(tokenKey(integrationId, credentialUserId), token),
   removeToken: (integrationId, credentialUserId) => remove(tokenKey(integrationId, credentialUserId)),
-  client: (integrationId) => load(clientKey(integrationId), integrationClientSchema),
+  client: (integrationId) => load(clientKey(integrationId), oauthClientSchema),
   saveClient: (integrationId, client) => save(clientKey(integrationId), client),
   removeClient: (integrationId) => remove(clientKey(integrationId)),
 }

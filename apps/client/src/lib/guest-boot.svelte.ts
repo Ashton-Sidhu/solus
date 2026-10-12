@@ -32,6 +32,8 @@ class GuestBootState {
   signedInAs = $state<string | null>(null)
   serverId = $state<string | null>(null)
   share = $state<GuestShare | null>(null)
+  /** Whether the guest is on the host that runs the session; false on the Solus API's copy while that host is unreachable, which reads only (docs/plans/host-sharing.md §4.2). */
+  live = $state(true)
   link: GuestLink | null = null
 
   /** Read through a getter: the boot path assigns `phase` and would otherwise narrow it away. */

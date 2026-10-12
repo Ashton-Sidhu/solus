@@ -30,6 +30,18 @@ replace the standard package. `release/SHA256SUMS` includes both package variant
 
 Without `--headless`, the package command still includes the existing web client
 build from `dist/client`. It requires that client build, but no desktop build.
+
+Deploy the current source with the web client to an SSH host:
+
+```sh
+bun run deploy:server -- 10.10.1.79
+```
+
+This command builds only the web client, packages the server from source for the
+host's operating system and architecture, and installs it in `/opt/solus`. It
+restarts `solus.service` and checks `/health`. If startup fails, it restores the
+previous installation. The command does not build the desktop app.
+
 The server release workflow packages with `--headless` and publishes that archive
 under the standard `solus-server-<platform>-<arch>.tar.gz` name. The published
 installer and automatic updates therefore install a headless server. They do not
@@ -38,4 +50,6 @@ use a desktop or mobile client to connect to the host.
 
 For local network discovery, allow UDP port `34117` from the local subnet in the
 host firewall. Also allow the server's TCP port (default `3000`) for client
-connections. Discovery broadcasts stay within the local network.
+connections. Discovery broadcasts stay within the local network. The mobile app
+also sends the discovery query directly to each address in its /24, so a host
+must answer UDP `34117` from any local address, not only broadcasts.

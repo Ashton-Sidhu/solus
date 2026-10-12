@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { PrProjectListing, PullRequest } from '@solus/contracts/providers'
 import type { ProjectEntry } from '@solus/contracts/types'
 import { PullRequestDirectory, notificationRepositoryKey } from '../../apps/mobile/src/features/prs/pull-request-directory'
-import { canGiveVerdict, checksLabel, hostPrSections, prSections, prStateTone } from '../../apps/mobile/src/features/prs/lib/pr-presentation'
+import { canGiveVerdict, checksLabel, hostPrSections, prSections, prStateTone, stackLabel } from '../../apps/mobile/src/features/prs/lib/pr-presentation'
 import { nativeDestination } from '../../apps/mobile/src/features/notifications/lib/native-destinations'
 import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
 
@@ -81,6 +81,34 @@ describe('native pull request directory', () => {
     expect(state.value.files).toHaveLength(1)
   })
 
+  test('a detail carries its GitHub stack, and a failed stack read only hides the stack', async () => {
+    // WHY: the phone steps between stack layers from this answer; the stack is
+    // a preview on GitHub, so its failure must not fail the pull request.
+    const stack = {
+      number: 4, url: 'https://github.com/o/r/stacks/4', base: 'main',
+      layers: [{ number: 6, title: 'Base', headRef: 'one', state: 'merged' as const, draft: false }, { number: 7, title: 'PR 7', headRef: 'two', state: 'open' as const, draft: false }],
+    }
+    let stackRead: () => typeof stack = () => stack
+    const api = new FakeApi()
+      .on('prGetOverview', () => ({ pullRequest: pullRequest(7), commits: [], reviewers: [] }))
+      .on('prListComments', () => [])
+      .on('prChangedFiles', () => [])
+      .on('prChecks', () => ({ checks: [] }))
+      .on('prGetStack', () => stackRead())
+    const { directory } = await setup(api)
+    const ref = { hostId: 'inst-a', projectPath: '/work/app', number: 7 }
+    await directory.loadDetail(ref)
+    const read = directory.detailOf(ref)
+    expect(read.kind === 'loaded' && read.value.stack).toEqual(stack)
+
+    stackRead = () => { throw new Error('rate limited') }
+    await directory.loadDetail(ref)
+    const failed = directory.detailOf(ref)
+    expect(failed.kind).toBe('loaded')
+    expect(failed.kind === 'loaded' && failed.value.stack).toBeNull()
+    expect(failed.kind === 'loaded' && failed.value.missing).toEqual([])
+  })
+
   test('a review is anchored to the head the person was shown', async () => {
     const api = new FakeApi()
       .on('prSubmitReview', () => undefined)
@@ -134,6 +162,12 @@ describe('pull request presentation', () => {
       ],
     })
     expect(sections[0]!.data.map((row) => [row.pr.number, row.folderName])).toEqual([[2, 'b'], [1, 'a']])
+  })
+
+  test('a row in a stack says its layer counted from the base', () => {
+    expect(stackLabel({ number: 4, position: 2, size: 3, base: 'main' })).toBe('Stack 2/3')
+    expect(stackLabel(null)).toBeNull()
+    expect(stackLabel(undefined)).toBeNull()
   })
 
   test('a draft reads as a draft, not as open', () => {

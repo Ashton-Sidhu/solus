@@ -120,6 +120,16 @@ export type FollowStep =
   | { kind: 'stop'; reason: 'left' | 'navigated' }
 
 /**
+ * Follow mode reads where a person goes from the host room. A session room can
+ * hold people the host room does not show this reader: a guest is told only its
+ * one session's room, never the host's. Following such a person would end at
+ * once as if they had left, so they are not offered.
+ */
+export function canFollow(userId: string, hostPeople: readonly PresencePerson[]): boolean {
+  return hostPeople.some((person) => person.userId === userId)
+}
+
+/**
  * Follow mode is a chain of jumps: each time the followed person's focus
  * changes, the client opens it once. A reader who then opens something else
  * has chosen for themselves, and that ends the follow — it is a tether, not a lock.

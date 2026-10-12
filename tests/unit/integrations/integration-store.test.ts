@@ -53,11 +53,11 @@ describe('integration store', () => {
     const a = store.create(input('DeepWiki'), 'org-a', 'alice')
     const b = store.create(input('DeepWiki'), 'org-b', null)
 
-    expect(store.list('org-a').map((each) => each.id)).toEqual([a.id])
+    expect(store.list('org-a', null).map((each) => each.id)).toEqual([a.id])
     expect(store.get(b.id, 'org-a')).toBeNull()
-    expect(store.getBySlug('deepwiki', 'org-b')?.id).toBe(b.id)
-    expect(store.list(principal.ANY_ORGANIZATION).map((each) => each.id).sort()).toEqual([a.id, b.id].sort())
-    expect(a).toMatchObject({ organizationId: 'org-a', kind: 'mcp', slug: 'deepwiki', createdBy: 'alice', auth: anonymous })
+    expect(store.getBySlug('deepwiki', 'org-b', null)?.id).toBe(b.id)
+    expect(store.list(principal.ANY_ORGANIZATION, null).map((each) => each.id).sort()).toEqual([a.id, b.id].sort())
+    expect(a).toMatchObject({ organizationId: 'org-a', ownerUserId: null, kind: 'mcp', slug: 'deepwiki', createdBy: 'alice', auth: anonymous })
   })
 
   test('a second integration with a taken slug gets a numeric suffix in that organization only', () => {
@@ -99,8 +99,30 @@ describe('integration store', () => {
     expect(store.remove(created.id, 'org-b')).toBe(false)
     expect(store.get(created.id, 'org-a')).not.toBeNull()
     expect(store.remove(created.id, 'org-a')).toBe(true)
-    expect(store.list(principal.ANY_ORGANIZATION)).toEqual([])
+    expect(store.list(principal.ANY_ORGANIZATION, null)).toEqual([])
     // The slug is free again.
     expect(store.create(input('DeepWiki'), 'org-a', null).slug).toBe('deepwiki')
+  })
+
+  test('a personal integration is seen by its owner alone, and its slug may equal a shared one\'s', () => {
+    // WHY (plans/020-agent-profile.md §2.1): a person's own MCP server follows
+    // them to a host, where another member must neither see it nor call its
+    // tools, and where the shared record of the same name keeps its tool prefix.
+    const store = new storeModule.IntegrationStore()
+    const shared = store.create(input('DeepWiki'), 'org-a', null)
+    const alices = store.create(input('My DeepWiki'), 'org-a', 'alice', 'alice')
+    expect(alices).toMatchObject({ ownerUserId: 'alice', slug: 'deepwiki' })
+    expect(store.list('org-a', 'alice').map((each) => each.id).sort()).toEqual([shared.id, alices.id].sort())
+    expect(store.list('org-a', 'bob').map((each) => each.id)).toEqual([shared.id])
+    expect(store.list('org-a', null).map((each) => each.id)).toEqual([shared.id])
+    expect(store.getVisible(alices.id, 'org-a', 'bob')).toBeNull()
+    expect(store.getVisible(alices.id, 'org-a', 'alice')?.id).toBe(alices.id)
+    expect(store.listOwned('org-a', 'alice').map((each) => each.id)).toEqual([alices.id])
+    // Her own record before the shared one of the same URL; Bob finds the shared one.
+    expect(store.findByUrl('https://mcp.deepwiki.com/mcp', 'org-a', 'alice')?.id).toBe(alices.id)
+    expect(store.findByUrl('https://mcp.deepwiki.com/mcp', 'org-a', 'bob')?.id).toBe(shared.id)
+    // A second personal record of hers with the same name gets the suffix among hers.
+    expect(store.create(input('Again'), 'org-a', 'alice', 'alice').slug).toBe('deepwiki-2')
+    expect(store.all('org-a')).toHaveLength(3)
   })
 })

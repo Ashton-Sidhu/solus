@@ -129,11 +129,7 @@
               : `${abbreviateHome(project.projectKey)} — ${project.unavailableNote ?? "host unavailable"}`}
             onSelect={() => onSelect?.(project)}
           >
-            <ProjectFavicon
-              projectRoot={project.projectKey}
-              serverId={project.serverId}
-              class="size-3.5"
-            />
+            <ProjectFavicon projectKey={project.key} class="size-3.5" />
             <span class="min-w-0 flex-1 truncate {isActive ? 'font-medium' : ''}">
               {project.label}
             </span>

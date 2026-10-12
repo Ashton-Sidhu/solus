@@ -75,17 +75,25 @@ describe('host project list (project-model §2)', () => {
     expect(changes).toBe(3)
   })
 
-  test('a chat, a dispatch clone and the home placeholder are never listed', async () => {
-    const dispatch = join(dataDir, 'repos', 'solus-remote', 'o', 'github.com', 'o', 'r')
-    mkdirSync(dispatch, { recursive: true })
+  test('a chat and the home placeholder are never listed', async () => {
     const chat = join(dataDir, 'repos', '.solus-chats')
     mkdirSync(chat, { recursive: true })
-    await manifest.recordProject(dispatch)
     await manifest.recordProject(chat)
     await manifest.recordProject('~')
 
     expect(await manifest.listProjects()).toEqual([])
     expect(changes).toBe(0)
+  })
+
+  test('a dispatch clone is listed', async () => {
+    // WHY: the sessions another machine ran here live in this clone. A client
+    // finds a host's checkout of a project from this list; unlisted, the host
+    // is passed over and those sessions do not show in a project scope.
+    const dispatch = join(dataDir, 'repos', 'solus-remote', 'o', 'github.com', 'o', 'r')
+    mkdirSync(dispatch, { recursive: true })
+    await manifest.recordProject(dispatch)
+
+    expect((await manifest.listProjects()).map((project) => project.path)).toEqual([dispatch])
   })
 
   test('the projects root is never a project, and an old row for it leaves the list', async () => {

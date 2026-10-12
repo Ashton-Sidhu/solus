@@ -20,7 +20,7 @@
   import { useKeybinding, useScope } from "../../../lib/keybindings/use-keybinding.svelte";
   import { createSessionPreviewStore } from "../../../lib/preview.svelte";
   import { boundHitWindow } from "../../../lib/sessionPreviewMessages";
-  import type { PickerEntry as PreviewSource } from "../../../lib/sessionUtils";
+  import type { AttentionState, PickerEntry as PreviewSource } from "../../../lib/sessionUtils";
   import { toasts } from "../../../lib/toasts";
   import { getPopoverLayer } from "../../popoverLayer.svelte";
   import { portal } from "../../portal";
@@ -54,6 +54,7 @@
     selectedRowIndex,
     isTaskGroup,
     type PickerEntry,
+    type PickerRow,
   } from "./lib/picker-rows";
   import { openPickerLinkedItem } from "./lib/picker-linked-actions";
   import { ownsTask } from "../../tasks/lib/task-ownership";
@@ -131,6 +132,14 @@
   // through one reported every such task as empty.
   function sessionsFor(task: Task): SidebarSessionChild[] {
     return sidebarStore.sessionsForPickableTask(task);
+  }
+  // A session row's live state, so a running session reads as running in
+  // every row shape. A session no task claims has no sidebar child, so the
+  // sidebar answers for it by its host and id.
+  function rowAttention(row: PickerRow): AttentionState {
+    if (row.kind === "session") return row.session.attention;
+    if (row.kind === "conversation") return sidebarStore.sessionAttention(row.meta.serverId ?? null, row.meta.sessionId);
+    return null;
   }
   // The picker opens where the user already is. Without this it listed every
   // root task on every connected host, so ⌘P from a project's own composer
@@ -725,6 +734,7 @@
                 {style}
                 {selectedIndex}
                 {query}
+                attention={rowAttention(row)}
                 onActivate={clickEntry}
                 onHover={hoverEntry}
                 onToggle={toggleTask}

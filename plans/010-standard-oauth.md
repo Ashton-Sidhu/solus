@@ -1,6 +1,7 @@
 # 010 Standard OAuth for accounts, hosts, and the Solus API
 
-Status: IMPLEMENTED (uncommitted), 2026-09-29; see §11. Workers support is not
+Status: IMPLEMENTED (uncommitted), 2026-09-29; see §11. Partly superseded by
+`docs/adr/0001-standard-authentication.md` (ACCEPTED, 2026-10-09; all six stages done). Workers support is not
 proven yet. It replaces the credential design of plan 009
 §4 (run authority, remembered grants, runner grants). The product rules of 009 do not
 change: attachment, new root versus continuation, API admission before the provider,
@@ -76,6 +77,9 @@ runner grant, the run authority, and the account branch of the API credential.
 
 Unchanged: the link code, the host token for link and tunnel management, the socket
 ticket, pairing and host session tokens, guest tokens, and connection tokens.
+(Changed: ADR 0001 replaced the host token with the host key, removed guest tokens,
+and keeps host session tokens for local mode and the desktop window's local-owner
+credential only. See ADR 0001 §5.)
 
 Claims on every person token: `sub` (`user:<id>`), `organizationId`, `organizationRole`,
 `teamIds`, `email`, `displayName`. Delegated tokens add `act` and the host id. The
@@ -272,7 +276,8 @@ Read from `@better-auth/oauth-provider` 1.7.6 source, installed with `better-aut
   the subject token with `validateAccessToken`, requires its audience to be this
   host, checks membership, attachment, and policy, then calls `issueTokens` with the
   person, `offline_access`, resources `[workspace, account]`, and `referenceId` =
-  the organization.
+  the organization. (Changed: since ADR 0001 stage 4, the reference is the client
+  grant and the scope, which is `personal` or one organization. See ADR 0001 §5.)
 - **Claims survive refresh.** The refresh token keeps `referenceId` and the client.
   An access-token claims contributor derives `organizationId`, `organizationRole`,
   `teamIds`, `act`, and `host_id` again on every issue, and on `refresh_token` it runs
@@ -337,7 +342,10 @@ kept beside the new tokens.
   organization, exchanged once with the token the person's client presented
   (`vault/account-integrations.ts` remembers it; on the desktop the owner's token
   comes from the account session), refreshed within a minute of its end, persisted in
-  the secret store. A refused refresh stops the person's sessions, drops their queued
+  the secret store. (Changed: since ADR 0001 stage 4, a delegation is per person and
+  scope, is made at the ticket door, and is bound to a client grant. Since stage 6 the
+  desktop's main process presents its own token to its host as a client
+  (`transport/local-client.ts`); the host asks no one for a token. See ADR 0001 §5.) A refused refresh stops the person's sessions, drops their queued
   rows, and pauses their automations.
 - Delivery: `outbox_ops`, `runner_session_reports`, and `mirror_log` carry
   `actor_user_id`; each (organization, person) queue is sent with that person's token;

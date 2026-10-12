@@ -38,10 +38,15 @@ export type IntegrationAuth = z.infer<typeof integrationAuthSchema>
 export const integrationKindSchema = z.literal('mcp')
 export type IntegrationKind = z.infer<typeof integrationKindSchema>
 
-/** A root record (§3.3). `slug` is unique per organization and is the tool prefix. */
+/**
+ * A root record (§3.3). `slug` is unique per organization and is the tool prefix.
+ * A personal integration (plans/020-agent-profile.md §2.1) names its owner, is
+ * seen and used by them alone, and its slug is unique among theirs.
+ */
 export const integrationSchema = z.object({
   id: z.string().min(1),
   organizationId: z.string().min(1),
+  ownerUserId: z.string().nullable(),
   kind: integrationKindSchema,
   slug: z.string().min(1),
   name: z.string().min(1),
@@ -146,6 +151,8 @@ export const integrationCreateRequestSchema = z.object({
   name: integrationNameSchema,
   url: integrationUrlSchema,
   slug: z.string().trim().min(1).max(40).optional(),
+  /** The caller's own, on a host they do not administer; on their own host every record is theirs already. */
+  personal: z.boolean().optional(),
 }).strict()
 export type IntegrationCreateRequest = z.infer<typeof integrationCreateRequestSchema>
 
@@ -193,9 +200,10 @@ export interface IntegrationChangedEvent {
 
 /**
  * Per-person sign-in (§4). `needs-sign-in`: a refresh failed or the server
- * answered 401; the person signs in again.
+ * answered 401; the person signs in again. `cloud-unreachable`: the connection
+ * lives in the account and Solus Cloud did not answer (plans/020 §5.2).
  */
-export const integrationConnectionStatusSchema = z.enum(['connected', 'needs-sign-in', 'error'])
+export const integrationConnectionStatusSchema = z.enum(['connected', 'needs-sign-in', 'error', 'cloud-unreachable'])
 export type IntegrationConnectionStatus = z.infer<typeof integrationConnectionStatusSchema>
 
 /**
@@ -205,6 +213,13 @@ export type IntegrationConnectionStatus = z.infer<typeof integrationConnectionSt
 export const integrationConnectionSchema = z.object({
   integrationId: z.string().min(1),
   status: integrationConnectionStatusSchema,
+  /**
+   * Where the credential lives (plans/020-agent-profile.md §5): on this host, or
+   * in the person's account, from which the host reads an access token per call.
+   * `cloud-unreachable` is a `cloud` connection whose cached token ran out while
+   * Solus Cloud did not answer; it is not a sign-in problem.
+   */
+  source: z.enum(['host', 'cloud']),
   label: z.string().nullable(),
   /** The account the server reported at `initialize`, when it reported one. */
   info: z.object({

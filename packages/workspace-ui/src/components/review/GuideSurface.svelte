@@ -1,6 +1,6 @@
 <script lang="ts">
   import { CircleAlert as CircleAlertIcon, Clock as ClockIcon, Info as InfoIcon, LoaderCircle as SpinnerIcon } from "@lucide/svelte";
-  import type { ReviewGuideStatus, ReviewGuideStatusEvent } from "@solus/contracts/review";
+  import type { GuideSection, ReviewGuideStatus, ReviewGuideStatusEvent } from "@solus/contracts/review";
   import type { DiffComment } from "@solus/contracts/types";
   import type { GuideDiffCommentSave } from "../pr-review/guide/lib/guide-data";
   import GuideView from "../pr-review/guide/GuideView.svelte";
@@ -19,6 +19,7 @@
     comments = [],
     onCommentSave,
     onCommentDelete,
+    onAsk,
     emptyHint,
     generationStatus,
     generationEvent,
@@ -36,6 +37,8 @@
     comments?: DiffComment[];
     onCommentSave?: (comment: GuideDiffCommentSave) => void;
     onCommentDelete?: (id: string) => void;
+    /** Ask an agent about one section; absent where the host has no place to ask. */
+    onAsk?: (section: GuideSection) => void;
     /** What generating will cost, in this change's terms ("18 files · about a
      *  minute"). Hosts that can't size the change omit it. */
     emptyHint?: string;
@@ -111,7 +114,6 @@
   {:else if loader.guide}
     <GuideView
       guide={loader.guide}
-      ledger={loader.ledger}
       patch={loader.patch}
       loadDiffFiles={loader.loadDiffFiles}
       {meta}
@@ -119,6 +121,7 @@
       {comments}
       {onCommentSave}
       {onCommentDelete}
+      {onAsk}
     />
   {:else}
     <!-- Guides are opt-in, so this is a real offer, not an error. Center it in

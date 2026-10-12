@@ -13,7 +13,7 @@ import { solusApiOperations } from './operations'
 const RECORD_V1_SEGMENTS: ReadonlySet<string> = new Set(
   Object.values(solusApiOperations).map(operation => operation.path.split('/')[1]),
 )
-const RECORD_PATHS: ReadonlySet<string> = new Set(['/health', '/auth/ws-ticket', '/auth/refresh', '/auth/revoke'])
+const RECORD_PATHS: ReadonlySet<string> = new Set(['/health', '/auth/ws-ticket', '/auth/share-link', '/auth/refresh', '/auth/revoke'])
 const RECORD_PATH_ROOTS = ['/ws', '/runner', '/api/assets', '/api/uploads'] as const
 
 export function isRecordServicePath(pathname: string): boolean {

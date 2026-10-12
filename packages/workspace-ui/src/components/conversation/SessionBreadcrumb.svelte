@@ -24,7 +24,7 @@
     LoaderCircle as SpinnerGapIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import { getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
+  import { getWorkspaceContext, getSessionSidebarStore, groupKeyFor, hosts } from "../../contexts";
   import { frameChrome } from "../layout/frame-chrome.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
@@ -41,7 +41,7 @@
     existingTaskId,
     type SessionDraft,
   } from "../../contexts/workspace/session-draft.svelte";
-  import { groupKeyFor, type SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
+  import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import { projectsStore } from "../../contexts/projects/projects.store.svelte";
   import * as Breadcrumb from "../ui/breadcrumb";
   import * as Command from "../ui/command";
@@ -56,7 +56,7 @@
   import ShareButton from "../sharing/ShareButton.svelte";
   import SessionPresence from "../presence/SessionPresence.svelte";
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
-  import { canDriveSession } from "../../contexts/sharing/session-drive";
+  import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { needsLabel } from "../presence/lib/actor-name";
   import SessionNameInput from "../session/SessionNameInput.svelte";
   import TaskContextMenu from "../session/TaskContextMenu.svelte";
@@ -421,6 +421,9 @@
     requestInputFocus();
   }
 
+  /** Starting a session is the host's to give (permissions.md): a guest has only the one it was let into. */
+  const canStartSessions = $derived(hosts.find(session.serverIdFor(tabId))?.me.may("host.sessions.start") ?? true);
+
   async function newSession() {
     menu = null;
     session.drafts.openSessionDraft({ via: "click", sourceId: tabId });
@@ -548,7 +551,7 @@
                 aria-expanded={menu === "project"}
                 onclick={() => toggleMenu("project")}
               >
-                <ProjectFavicon projectRoot={projectKey} class="size-4" />
+                <ProjectFavicon projectKey={projectGroupKey} class="size-4" />
                 <span class="whitespace-nowrap text-muted-foreground"
                   >{projectLabel}</span
                 >
@@ -570,8 +573,7 @@
                       pickProject(summary.leadTaskKey, summary.project.key)}
                   >
                     <ProjectFavicon
-                      projectRoot={summary.project.projectKey}
-                      serverId={summary.project.serverId || null}
+                      projectKey={summary.project.key}
                       class="size-[1.125rem]"
                     />
                     <span
@@ -898,6 +900,7 @@
                     {/if}
                   </div>
                 {/each}
+                {#if canStartSessions}
                 <div
                   class="mx-[0.5625rem] my-[0.3125rem] h-px bg-[color-mix(in_oklch,var(--foreground)_10%,transparent)]"
                 ></div>
@@ -912,6 +915,7 @@
                     >{comboHint("global.new-session-in-task")}</span
                   >
                 </button>
+                {/if}
               </div>
             </div>
           {/if}
@@ -1034,7 +1038,7 @@
       ></span>
     {/if}
 
-    {#if showNewSessionAction}
+    {#if showNewSessionAction && canStartSessions}
       <button
         type="button"
         class={PAGE_SOFT_ICON_BTN}

@@ -1,4 +1,4 @@
-import { isRepositoryKey, localProjectKey } from '@solus/contracts/repository-key'
+import { localProjectKey } from '@solus/contracts/repository-key'
 import { remoteDispatchRepositoryKey } from '@solus/contracts/types'
 
 /**
@@ -6,7 +6,8 @@ import { remoteDispatchRepositoryKey } from '@solus/contracts/types'
  * project is a repository with every checkout of it on any host; a folder with
  * no hosted remote is its own local-only project, keyed by its host and path.
  * Every project selector — desktop, web and mobile — groups checkouts and
- * names projects here, so one project is one row with one name everywhere.
+ * names projects here, so one project is one row with one name everywhere:
+ * its plain name, never qualified by its owner or its host.
  */
 
 /** What a list knows about one checkout. */
@@ -57,42 +58,4 @@ export function localProjectParts(projectKey: string): CheckoutFacts | null {
 export function projectKeyLabel(projectKey: string): string {
   const path = localProjectParts(projectKey)?.path ?? projectKey
   return path.replace(/\/+$/, '').split('/').at(-1) || path
-}
-
-/**
- * The labels a list shows, one per project, in order. A name two projects in
- * the list share is told apart: a repository by its owner (`acme/web`, or its
- * whole key when that is still shared), a local-only folder by its host.
- */
-export function distinctProjectLabels(
-  projects: readonly { key: string; label: string }[],
-  hostLabelFor: (serverId: string) => string,
-): string[] {
-  const shared = repeated(projects.map((project) => project.label))
-  const labels = projects.map((project) => {
-    if (!shared.has(fold(project.label))) return project.label
-    if (isRepositoryKey(project.key)) return project.key.split('/').slice(1).join('/') || project.key
-    const local = localProjectParts(project.key)
-    return local ? `${project.label} · ${hostLabelFor(local.serverId)}` : project.label
-  })
-  const stillShared = repeated(labels)
-  return labels.map((label, index) => {
-    const { key } = projects[index]!
-    return stillShared.has(fold(label)) && isRepositoryKey(key) ? key : label
-  })
-}
-
-function fold(label: string): string {
-  return label.toLocaleLowerCase()
-}
-
-function repeated(labels: readonly string[]): Set<string> {
-  const seen = new Set<string>()
-  const twice = new Set<string>()
-  for (const label of labels) {
-    const folded = fold(label)
-    if (seen.has(folded)) twice.add(folded)
-    seen.add(folded)
-  }
-  return twice
 }

@@ -2,10 +2,10 @@ import { GUEST_RESOURCE_KINDS } from '@solus/workspace-ui/contexts/app/resource-
 import { WebShell } from './web-shell.svelte'
 
 /**
- * The shell a share link opens into (docs/plans/multiplayer-sharing.md §4.2): the
- * browser's composition, with no workspace around the one resource. Surfaces ask
- * `canOpenResource` and offer no Workspace crumb, chat, publishing, sharing, or
- * pane controls, because there is nowhere for those to lead.
+ * The shell a share link opens into (docs/plans/host-sharing.md §10): the
+ * browser's composition with the real workspace around the one resource. What a
+ * guest may do inside it is the host's answer (`host.me.may`), not the shell's;
+ * the shell only leaves out the pages a guest cannot read at all.
  */
 export class GuestShell extends WebShell {
   protected override readonly resourceKinds = GUEST_RESOURCE_KINDS

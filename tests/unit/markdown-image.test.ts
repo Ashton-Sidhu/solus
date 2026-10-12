@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isMarkdownVideo, markdownAssetId, markdownImagePath } from "@solus/workspace-ui/components/conversation/lib/markdown-image";
+import { isMarkdownVideo, markdownAssetId, markdownImagePath, zoomScrollOffset } from "@solus/workspace-ui/components/conversation/lib/markdown-image";
 import { standaloneLocalVideoHref, standaloneMarkdownMediaLink } from "@solus/workspace-ui/lib/githubMarkdown";
 
 describe("markdown image paths", () => {
@@ -63,5 +63,19 @@ describe("markdown videos", () => {
 
   test("GitHub recordings keep their existing handling", () => {
     expect(standaloneMarkdownMediaLink("https://github.com/user-attachments/assets/abc")?.provider).toBe("GitHub");
+  });
+});
+
+describe("zooming an expanded image", () => {
+  test("keeps the clicked point under the pointer at actual size", () => {
+    // A click 300px into an 800px viewer, at 40% of the fitted picture. At
+    // 2622px tall that point sits 1048.8px down, so the viewer scrolls until
+    // it is 300px from the top again.
+    const scroll = zoomScrollOffset(0.4, 2622, 300);
+    expect(0.4 * 2622 - scroll).toBe(300);
+  });
+
+  test("never scrolls past the leading edge", () => {
+    expect(zoomScrollOffset(0.05, 2622, 400)).toBe(0);
   });
 });

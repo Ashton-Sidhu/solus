@@ -84,8 +84,8 @@ test('mounted transcript stays bounded, retains disclosure, and anchors prepend 
     Object.defineProperty(scroll, 'clientHeight', { get: () => viewportHeight });
     Object.defineProperty(scroll, 'scrollHeight', { get() {
       const content = scroll.querySelector('.messages-list');
-      return content ? [...content.children].reduce((sum, node) => sum + (node.dataset.transcriptTurnId
-        ? heights.get(node.dataset.transcriptTurnId) ?? 240 : parseFloat(node.style.height) || 0), 0) : 0;
+      return content ? Math.max(parseFloat(content.style.minHeight) || 0, [...content.children].reduce((sum, node) => sum + (node.dataset.transcriptTurnId
+        ? heights.get(node.dataset.transcriptTurnId) ?? 240 : parseFloat(node.style.height) || 0), 0)) : 0;
     } });
     let scrollTop = 0;
     Object.defineProperty(scroll, 'scrollTop', { get: () => scrollTop, set(value) { scrollTop = Math.max(0, Math.min(value, scroll.scrollHeight - viewportHeight)); } });
@@ -123,6 +123,17 @@ test('mounted transcript stays bounded, retains disclosure, and anchors prepend 
     assert.ok(document.contains(firstButton));
     firstButton.blur(); await drain();
     assert.ok(!document.contains(firstButton));
+    // Safari: a layout read in the middle of a row swap, with one spacer
+    // already shrunk and the next not yet grown, must not clamp the reader's
+    // scroll to the short list. The scroll thread puts the position back and
+    // the next swap clamps it again, so the view never settles.
+    const swapTop = scroll.scrollTop;
+    const spacers = [...document.querySelectorAll('.messages-list > [aria-hidden="true"]')];
+    const spacerHeights = spacers.map(node => node.style.height);
+    for (const node of spacers) node.style.height = '0px';
+    scroll.scrollTop = scroll.scrollTop;
+    assert.equal(scroll.scrollTop, swapTop, 'a half-swapped list keeps the whole transcript height');
+    spacers.forEach((node, index) => { node.style.height = spacerHeights[index]; });
     await move(0);
     assert.equal(document.querySelector('button').textContent.trim(), 'turn-0:true');
     await move(1200024);

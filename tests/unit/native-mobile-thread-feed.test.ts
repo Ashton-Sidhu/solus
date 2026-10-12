@@ -40,6 +40,13 @@ describe('native thread feed', () => {
     expect(shape(present([user('u1'), assistant('a1')], { turnActive: true, working: false }))).toEqual(['user:u1', 'assistant:a1'])
   })
 
+  test('a device screenshot stays on screen when its turn folds', () => {
+    // WHY: the picture is what the agent saw on the device; folding it leaves
+    // only the agent's prose about what the screen looked like.
+    const rows = present([user('u1'), assistant('a1'), tool('t1'), { id: 's1', kind: 'device_snapshot' }, tool('t2'), assistant('a2')])
+    expect(shape(rows)).toEqual(['user:u1', 'assistant:a1', 'run-fold', 'device-snapshot', 'assistant:a2'])
+  })
+
   test('a turn that failed stays open so its error is read in place', () => {
     const rows = present([user('u1'), tool('t1'), { id: 'n1', kind: 'notice', tone: 'error' }])
     expect(shape(rows)).toEqual(['user:u1', 'work:t1', 'notice'])

@@ -2,11 +2,11 @@ import {
   Cloud as CloudIcon,
   CloudOff as CloudSlashIcon,
   Earth as GlobeSimpleIcon,
-  Terminal as LinuxLogoIcon,
-  PanelsTopLeft as WindowsLogoIcon,
 } from '@lucide/svelte'
 import type { Component } from 'svelte'
-import AppleLogoIcon from '../../components/servers/AppleLogoIcon.svelte'
+import AppleLogoIcon from '../../components/ui/AppleLogoIcon.svelte'
+import LinuxLogoIcon from '../../components/ui/LinuxLogoIcon.svelte'
+import WindowsLogoIcon from '../../components/ui/WindowsLogoIcon.svelte'
 import type { HostOperatingSystem } from '@solus/contracts/types'
 import type { SavedServerUplink } from '@solus/client-core/server-registry'
 import type { ServerItemStatus } from './servers.store.svelte'

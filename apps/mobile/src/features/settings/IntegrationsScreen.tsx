@@ -77,7 +77,7 @@ export function IntegrationsScreen({ route }: ScreenProps<"Integrations">) {
       if (!integration) return;
       const next = afterCreate(integration);
       if (next !== "none") integrations.expand(integration.id);
-      if (next === "connect") void integrations.flows.connect(integration.id, integration.name);
+      if (next === "connect") void integrations.flows.connect(integration);
     });
   };
 
@@ -222,7 +222,7 @@ function InstalledRow(props: {
   const host = urlHost(integration.url);
   const connect = () => {
     integrations.expand(integration.id);
-    void flows.connect(integration.id, integration.name);
+    void flows.connect(integration);
   };
   return (
     <View className={cn(!props.first && "border-t border-border-subtle")}>

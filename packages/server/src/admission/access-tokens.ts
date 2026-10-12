@@ -1,20 +1,22 @@
 import { createPublicKey, verify as verifySignature, type KeyObject } from 'crypto'
 import { z } from 'zod'
-import { FIRST_PARTY_ACCESS_TOKEN_TTL_SECONDS, GUEST_GRANT_TTL_SECONDS, accessTokenClaimsSchema, tokenAudiences, type AccessTokenClaims } from '@solus/contracts/uplink'
+import { ACCESS_TOKEN_TTL_SECONDS, accessTokenClaimsSchema, tokenAudiences, type AccessTokenClaims } from '@solus/contracts/uplink'
 import { createLogger } from '../logger'
 
 const log = createLogger('main', 'access-tokens')
 
 /**
  * Verifies the account plane's tokens offline (plans/010-standard-oauth.md): its OAuth
- * access tokens (RFC 9068) and its guest grants. A host trusts exactly one issuer and
+ * access tokens (RFC 9068). A host trusts exactly one issuer and
  * one key set, both named in its link config, and accepts a token for one resource:
  * its own (`hostAudience(hostId)`), or `SOLUS_API_AUDIENCE` on the Solus API.
  *
  * A token is a bearer credential for its life, as OAuth access tokens are: it is not
- * spent. A first-party token lives eight hours, a guest grant ten minutes, and a
- * delegated token five minutes. Removal reaches a host when the token runs out and
- * the next one is refused.
+ * spent. Every token lives five minutes (`ACCESS_TOKEN_TTL_SECONDS`); a token that
+ * says it lives longer is refused. Removal reaches a host when the token runs out and
+ * the next one is refused. A person's token names its client grant (`grant_id`); a
+ * delegated token names the host that acts (`act`)
+ * (docs/adr/0001-standard-authentication.md §3.1).
  *
  * JWKS is cached and survives an account-plane outage: keys already seen keep
  * verifying. An unknown `kid` triggers one refresh, rate-limited, so a key rotation is
@@ -54,6 +56,8 @@ export interface AccessTokenVerifierOptions {
 export const JWKS_REFRESH_MIN_INTERVAL_MS = 60_000
 /** Allowed clock skew for `iat`. */
 const IAT_SKEW_MS = 60_000
+/** The longest life a token may state: five minutes, and a little for a provider's rounding. */
+const MAX_TOKEN_LIFE_SECONDS = ACCESS_TOKEN_TTL_SECONDS + 60
 
 const headerSchema = z.object({ alg: z.literal('ES256'), kid: z.string().min(1) })
 const jwkSchema = z.object({
@@ -116,8 +120,7 @@ export class AccessTokenVerifier {
     if (!tokenAudiences(claims).includes(this.options.audience)) return { ok: false, reason: 'wrong-audience' }
     if (claims.exp * 1000 <= now) return { ok: false, reason: 'expired' }
     if (claims.iat * 1000 > now + IAT_SKEW_MS) return { ok: false, reason: 'not-yet-valid' }
-    const maxLifeSeconds = claims.access === 'guest' ? GUEST_GRANT_TTL_SECONDS : FIRST_PARTY_ACCESS_TOKEN_TTL_SECONDS
-    if (claims.exp - claims.iat > maxLifeSeconds) return { ok: false, reason: 'too-long-lived' }
+    if (claims.exp - claims.iat > MAX_TOKEN_LIFE_SECONDS) return { ok: false, reason: 'too-long-lived' }
     return { ok: true, claims }
   }
 

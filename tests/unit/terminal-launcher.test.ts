@@ -9,6 +9,7 @@ let failSessionCreation = false
 let attachedClientPids: number[] = []
 /** `pid -> "<ppid> <comm>"`, the process tree `ps` reports for those clients. */
 let processTree: Record<number, string> = {}
+let cliPathReady: Promise<string> = Promise.resolve('/usr/bin:/bin')
 
 const execFileSync = mock((file: string, args: string[]) => {
   execCalls.push({ file, args })
@@ -16,16 +17,14 @@ const execFileSync = mock((file: string, args: string[]) => {
   if (file === 'tmux' && args[0] === 'new-session' && failSessionCreation) throw new Error('tmux unavailable')
   if (file === 'tmux' && args[0] === 'list-clients') return attachedClientPids.join('\n')
   if (file === '/bin/ps') {
-    const line = processTree[Number(args.at(-1))]
-    if (!line) throw new Error('no such process')
-    return line
+    return Object.entries(processTree).map(([pid, line]) => `${pid} ${line}`).join('\n')
   }
   return Buffer.from('')
 })
 
 // The read path (which clients are attached, which app draws them) runs off
 // the main thread; it answers through the same fake, one tick later.
-const execFile = mock((file: string, args: string[], _options: unknown, callback: (error: Error | null, stdout: string) => void) => {
+const execFile = mock((file: string, args: string[], _options: { env: NodeJS.ProcessEnv; timeout: number; maxBuffer: number; encoding: string }, callback: (error: Error | null, stdout: string) => void) => {
   let result: string
   try {
     result = String(execFileSync(file, args))
@@ -37,7 +36,7 @@ const execFile = mock((file: string, args: string[], _options: unknown, callback
 })
 
 mock.module('child_process', () => ({ execFileSync, execFile }))
-mock.module('@solus/server/cli-env', () => ({ hostCliEnv: () => ({ PATH: '/usr/bin:/bin' }) }))
+mock.module('@solus/server/cli-env', () => ({ hostCliEnv: () => ({ PATH: '/usr/bin:/bin' }), warmCliPath: () => cliPathReady }))
 mock.module('@solus/server/logger', () => ({
   createLogger: () => ({ info() {}, warn() {}, error() {} }),
 }))
@@ -59,6 +58,7 @@ beforeEach(() => {
   failSessionCreation = false
   attachedClientPids = []
   processTree = {}
+  cliPathReady = Promise.resolve('/usr/bin:/bin')
 })
 
 const ATTACH_COMMAND = 'exec tmux attach-session -t solus'
@@ -179,6 +179,17 @@ describe('launchInTerminal', () => {
 })
 
 describe('resolveTerminal', () => {
+  test('waits for the shared PATH warmup before starting terminal probes', async () => {
+    // WHY: a cold inspection must not invoke the synchronous login-shell fallback.
+    let completeWarmup!: (path: string) => void
+    cliPathReady = new Promise((resolve) => { completeWarmup = resolve })
+    const read = resolveTerminal('ghostty')
+    await Promise.resolve()
+    expect(execCalls).toHaveLength(0)
+    completeWarmup('/usr/bin:/bin')
+    expect((await read).source).toBe('fallback')
+  })
+
   test('names the terminal already attached to the shared session', async () => {
     // WHY: the clients badge the action with this. Naming the configured
     // fallback while a different terminal holds the session is the stale label
@@ -196,6 +207,33 @@ describe('resolveTerminal', () => {
     } else {
       expect(resolved.source).toBe('attached')
     }
+  })
+
+  test('reads tmux once and shares one process snapshot across clients and deep parent trees', async () => {
+    // WHY: inspection must not start another subprocess for each shell parent,
+    // and an unidentified client must not hide a later identifiable terminal.
+    attachedClientPids = [7, 4242]
+    processTree = {
+      7: '1 /usr/bin/tmux',
+      4242: '4200 /usr/local/bin/tmux',
+      4200: '4100 /bin/zsh',
+      4100: '4000 /bin/zsh',
+      4000: '1 /Applications/iTerm.app/Contents/MacOS/iTerm2',
+    }
+
+    const resolved = await resolveTerminal('ghostty')
+
+    expect(execCalls.filter((call) => call.file === 'tmux' && call.args[0] === 'list-clients')).toHaveLength(1)
+    expect(execCalls.filter((call) => call.file === '/bin/ps')).toHaveLength(process.platform === 'darwin' ? 1 : 0)
+    expect(resolved.source).toBe('attached')
+    if (process.platform === 'darwin') expect(resolved.id).toBe('iterm2')
+  })
+
+  test('keeps the attached result when a client exits during the process snapshot', async () => {
+    // WHY: a missing process is not evidence that tmux has no attached clients.
+    attachedClientPids = [4242]
+    const resolved = await resolveTerminal('ghostty')
+    expect(resolved).toEqual({ id: null, name: 'Attached terminal', source: 'attached' })
   })
 
   test('names a terminal it can see but cannot launch', async () => {

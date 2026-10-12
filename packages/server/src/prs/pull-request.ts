@@ -5,6 +5,7 @@ import type {
   PrCommit,
   PrConversationItem,
   PrReviewer,
+  PrStack,
   PullRequestOverview,
   RepoRef,
   ReviewThread,
@@ -56,6 +57,7 @@ export class PullRequest {
   private readonly commentsField = new CachedField<PrConversationItem[]>(ACTIVITY_TTL_MS)
   private readonly commitsField = new CachedField<PrCommit[]>(ACTIVITY_TTL_MS)
   private readonly reviewersField = new CachedField<PrReviewer[]>(ACTIVITY_TTL_MS)
+  private readonly stackField = new CachedField<PrStack | null>(ACTIVITY_TTL_MS)
   private readonly changedFilesField = new CachedField<ChangedFileStat[]>(FILE_STATS_TTL_MS)
   /** The revision `changedFilesField` was last read at, where a caller named one. */
   private changedFilesSha: string | null = null
@@ -139,6 +141,10 @@ export class PullRequest {
 
   async commits(): Promise<PrCommit[]> {
     return this.commitsField.read(() => this.provider.review.listCommits(this.repo, this.number))
+  }
+
+  async stack(): Promise<PrStack | null> {
+    return this.stackField.read(() => this.provider.review.getPullRequestStack(this.repo, this.number))
   }
 
   async reviewers(): Promise<PrReviewer[]> {

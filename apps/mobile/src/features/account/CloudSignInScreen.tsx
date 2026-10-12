@@ -12,11 +12,10 @@ import { ConnectionSheetButton } from "../connection/ConnectionSheetButton";
 import { SettingsScreen } from "../settings/components/SettingsScreen";
 
 /**
- * Sign in to Solus Cloud with the account's device flow: the approval page
- * opens in the system browser and this screen shows the code to confirm.
- * Leaving the app and returning resumes the same wait; an expired code ends
- * it. T3 signs in with Clerk's native views; Solus keeps its device flow in
- * T3's onboarding sheet.
+ * Sign in to Solus Cloud: the sign-in page opens in the system authentication
+ * session, and the app continues when it closes (docs/adr/0001-standard-authentication.md).
+ * T3 signs in with Clerk's native views; Solus keeps its browser sign-in in T3's
+ * onboarding sheet.
  */
 export function CloudSignInScreen({ navigation }: ScreenProps<"CloudSignIn">) {
   const app = useApp();
@@ -48,26 +47,9 @@ export function CloudSignInScreen({ navigation }: ScreenProps<"CloudSignIn">) {
               className="items-center gap-3 rounded-[24px] bg-grouped-card p-5"
             >
               <Text className="text-center text-sm leading-normal text-foreground-muted">
-                Confirm this code on the sign-in page:
-              </Text>
-              <Text
-                selectable
-                accessibilityLabel={`Code ${view.userCode.split("").join(" ")}`}
-                className="text-3xl font-t3-bold tracking-[2px] text-foreground"
-                style={{ fontVariant: ["tabular-nums"] }}
-              >
-                {view.userCode}
-              </Text>
-              <Text className="text-center text-xs leading-normal text-foreground-muted">
-                Waiting for approval. You can switch apps; this screen continues when you return.
+                Continue on the Solus sign-in page. This screen continues when the page closes.
               </Text>
             </View>
-            <ConnectionSheetButton
-              icon="safari"
-              label="Open sign-in page"
-              tone="secondary"
-              onPress={() => void app.platform.openBrowser(view.verificationUrl)}
-            />
             <Pressable
               accessibilityRole="button"
               hitSlop={8}

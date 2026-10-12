@@ -5,7 +5,11 @@ import { makePrompt } from '@solus/workspace-ui/contexts/workspace/session.facto
 import type { SessionSidebarStore as SidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 
 mock.module('@solus/workspace-ui/contexts/connections/connections.store.svelte', () => ({ connectionsStore: {} }))
-mock.module('@solus/workspace-ui/contexts/projects/projects.store.svelte', () => ({ projectsStore: {} }))
+mock.module('@solus/workspace-ui/contexts/projects/projects.store.svelte', () => ({
+  projectsStore: {},
+  CHATS_GROUP_KEY: 'solus:chats',
+  groupKeyFor: (_serverId: string, projectKey: string) => projectKey,
+}))
 mock.module('@solus/workspace-ui/components/review/review-guide.store.svelte', () => ({ reviewGuideStore: {}, sessionGuideIdentity: () => null }))
 mock.module('@solus/workspace-ui/contexts/prs/session-pull-requests.store.svelte', () => ({ sessionPullRequestsStore: {}, sessionPrLink: () => null }))
 mock.module('@solus/workspace-ui/contexts/workspace/session-states.store.svelte', () => ({ sessionStatesStore: {} }))

@@ -1,6 +1,5 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { accountStore } from "../../contexts/account/account.store.svelte";
   import { Users as UsersIcon } from "@lucide/svelte";
   import { userKey } from "@solus/contracts/user";
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
@@ -8,7 +7,7 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import UserAvatar from "../users/UserAvatar.svelte";
   import PresenceStack from "./PresenceStack.svelte";
-  import type { PresencePerson } from "./lib/presence-people";
+  import { canFollow, type PresencePerson } from "./lib/presence-people";
 
   /**
    * Who else is in this session, for the band above the transcript: the faces
@@ -36,6 +35,7 @@
   });
 
   const people = $derived(serverId && sessionId ? presenceStore.sessionPeople(serverId, sessionId) : []);
+  const hostPeople = $derived(serverId ? presenceStore.hostPeople(serverId) : []);
   const room = $derived(serverId && sessionId ? presenceStore.sessionRoom(serverId, sessionId) : undefined);
   const activeUserId = $derived(room?.activeTurn ? userKey(room.activeTurn.author.id) : null);
   const summary = $derived(people.length === 1 ? `${people[0].displayName} is here` : `${people.length} people are here`);
@@ -85,8 +85,7 @@
       {#each people as person (person.userId)}
         {@const line = detail(person)}
         {@const followed = isFollowed(person)}
-        <!-- The row is the follow toggle; its trailing word says which way. -->
-        <DropdownMenu.Item class="h-auto min-h-9 gap-2.5 py-1.5 pointer-coarse:min-h-12" data-testid="session-presence-person" data-user={person.userId} onSelect={() => toggleFollow(person)}>
+        {#snippet personLine()}
           <UserAvatar user={person.user} size={20} ringed={person.userId === activeUserId || followed} composing={person.isComposing} />
           <span class="flex min-w-0 flex-1 flex-col gap-px leading-tight">
             <span class="truncate text-(--solus-text-primary)">{person.displayName}</span>
@@ -96,12 +95,23 @@
               <span class="truncate text-[0.875em] text-(--solus-text-tertiary)">{line}</span>
             {/if}
           </span>
-          <span class="shrink-0 text-[0.875em] text-(--solus-text-tertiary)">{followed ? "Stop following" : "Follow"}</span>
-        </DropdownMenu.Item>
+        {/snippet}
+        {#if canFollow(person.userId, hostPeople)}
+          <!-- The row is the follow toggle; its trailing word says which way. -->
+          <DropdownMenu.Item class="h-auto min-h-9 gap-2.5 py-1.5 pointer-coarse:min-h-12" data-testid="session-presence-person" data-user={person.userId} onSelect={() => toggleFollow(person)}>
+            {@render personLine()}
+            <span class="shrink-0 text-[0.875em] text-(--solus-text-tertiary)">{followed ? "Stop following" : "Follow"}</span>
+          </DropdownMenu.Item>
+        {:else}
+          <!-- This reader cannot see where they go, so there is nothing to follow. -->
+          <div class="flex min-h-9 items-center gap-2.5 px-2.5 py-1.5 text-menu text-(--solus-text-secondary) pointer-coarse:min-h-12" data-testid="session-presence-person" data-user={person.userId}>
+            {@render personLine()}
+          </div>
+        {/if}
       {/each}
       {#if canShare}
         <DropdownMenu.Separator />
-        <DropdownMenu.Item onSelect={openScope} disabled={!accountStore.isSignedIn} title={!accountStore.isSignedIn ? "Sign in to share" : undefined}>
+        <DropdownMenu.Item onSelect={openScope}>
           <UsersIcon /><span class="flex-1">Who can open…</span>
         </DropdownMenu.Item>
       {/if}

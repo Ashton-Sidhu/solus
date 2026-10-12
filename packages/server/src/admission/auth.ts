@@ -270,7 +270,7 @@ export interface GrantWsTicket {
   displayName?: string
 }
 
-/** A ticket for a visitor who presented a guest grant and a share secret: one resource, one role. */
+/** A ticket for a visitor who presented a share secret: one resource, one role. */
 export interface GuestWsTicket {
   kind: 'guest'
   accountUserId?: string
@@ -402,7 +402,7 @@ export function issueGrantWsTicket(grant: GrantTicketSubject, now = Date.now()):
 
 export type GuestTicketSubject = Omit<GuestWsTicket, 'kind' | 'issuedAt' | 'jti'>
 
-/** A guest grant plus a matching share secret earn a ticket bound to that one resource (§3.4). */
+/** A matching share secret earns a ticket bound to that one resource (host-sharing.md §4.1). */
 export function issueGuestWsTicket(guest: GuestTicketSubject, now = Date.now()): string {
   return signWsTicket({ kind: 'guest', ...guest, issuedAt: now, jti: randomBytes(12).toString('hex') })
 }

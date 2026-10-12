@@ -177,9 +177,10 @@ client. This host reaches the other host in one of two ways:
   the address still answers as the paired host. The other host lists this one
   under Devices with access; revoke it there to end the pairing. Pairing needs
   no Solus account. A managed host cannot be paired.
-- **Solus account.** On a host signed in to the owner's Solus account (the
-  desktop app), every other host in the account that is not paired. This host
-  gets a five-minute token for that host from the account at each connection.
+- **Solus account.** On the desktop app while it is signed in to the owner's
+  Solus account, every other host in the account that is not paired. The
+  app's sign-in gets a five-minute token for that host at each connection. When
+  the app signs out, this way ends at once; paired hosts stay.
 
 A paired host always uses its pairing, even when it is also in the account.
 

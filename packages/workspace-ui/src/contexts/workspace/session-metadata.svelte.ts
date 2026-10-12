@@ -7,7 +7,7 @@ import { hasHostCapability } from '@solus/client-core/host-capabilities'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { existingTaskId, taskRoleOf } from './session-draft.svelte'
 import { UNTITLED_TASK_TITLE, type Task } from '../tasks/task.svelte'
-import { canDriveSession } from '../sharing/session-drive'
+import { canDriveSession } from '../sharing/resource-roles'
 
 /** The workspace members this controller reads or calls, and no others. */
 type SessionMetadataWorkspace = Pick<WorkspaceContext,

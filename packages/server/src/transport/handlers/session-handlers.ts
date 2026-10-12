@@ -223,6 +223,10 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
         .filter((metadata): metadata is AgentMetadata => metadata !== undefined)
         .map(enrichAgentMetadata),
     )
+    // A guest reads the agents for the composer's picker and nothing of the machine: no paths, no binaries (permissions.md).
+    if (handlerCtx.principal.kind === 'guest') {
+      return { projectPath: '', homePath: '', version: appVersion(), agents: agents.map(({ binaryPath: _binaryPath, ...agent }) => agent) }
+    }
     // A member's home on a shared host is their member folder (managed-hosts.md §3).
     const projectPath = projectsRootFor(handlerCtx.principal)
     const homePath = handlerCtx.principal.kind === 'org-member' ? projectPath : homedir()
@@ -330,6 +334,8 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     }
     const origin: Parameters<SessionRuntime['dispatch']['promptSession']>[3] = { actor: handlerCtx.actor, clientPromptId: request.promptId }
     if (request.imageAttachmentRefs?.length) origin.imageAttachmentRefs = request.imageAttachmentRefs
+    // A link visitor's turn keeps tool approvals with the people on the session (host-sharing.md §4.1).
+    if (handlerCtx.principal.kind === 'guest') origin.permissionMode = 'supervised'
     return sessionRuntime.dispatch.promptSession(request.sessionId, request.prompt, request.delivery, origin)
   })
 
@@ -375,6 +381,8 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     log.info('rpc_prompt', { sessionId })
     if (!sessionId) throw new Error('No sessionId provided — prompt rejected')
     resolveChat(ctx, handlerCtx.principal)
+    // A link visitor's turn keeps tool approvals with the people on the session (host-sharing.md §4.1).
+    if (handlerCtx.principal.kind === 'guest') ctx.session.permissionMode = 'supervised'
     await claimSession(sessionId, handlerCtx, ctx.session.workingDirectory)
     await admitTurn(ctx, handlerCtx.actor)
     // A recording sent to an agent is part of the transcript now, so the

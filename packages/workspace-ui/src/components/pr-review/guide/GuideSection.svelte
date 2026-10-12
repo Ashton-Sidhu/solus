@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { ExternalLink as ArrowSquareOutIcon } from "@lucide/svelte";
+  import { ExternalLink as ArrowSquareOutIcon, MessageCircleQuestion as AskIcon } from "@lucide/svelte";
   import type { FileDiffContentsLoader } from "@pierre/diffs";
   import { SvelteSet } from "svelte/reactivity";
-  import type { GuideSection, LedgerRecord } from "@solus/contracts/review";
+  import type { GuideSection } from "@solus/contracts/review";
   import type { DiffComment } from "@solus/contracts/types";
   import { detectMovedBlocksInPatches } from "../../../lib/diff-moves";
   import { Button } from "../../ui/button";
@@ -10,7 +10,7 @@
   import DiffFileCardHeader from "../../diff/DiffFileCardHeader.svelte";
   import DiffFileTypeBadge from "../../diff/DiffFileTypeBadge.svelte";
   import { dirName, fileName } from "../../diff/lib/diff-file-path";
-  import { resolveLedgerRefs, type GuideDiffCommentSave } from "./lib/guide-data";
+  import type { GuideDiffCommentSave } from "./lib/guide-data";
   import GuideExplanation from "./GuideExplanation.svelte";
 
   // One concern in the walkthrough: a sticky "why" summary (title, explanation,
@@ -20,18 +20,17 @@
   // viewport. When index/total are set the section shows its place in the guide.
   let {
     section,
-    records,
     patchByPath,
     loadDiffFiles,
     onFileJump,
     comments = [],
     onCommentSave,
     onCommentDelete,
+    onAsk,
     index,
     total,
   }: {
     section: GuideSection;
-    records: LedgerRecord[];
     patchByPath: Map<string, string>;
     loadDiffFiles?: FileDiffContentsLoader;
     /** When set, the diff-card "open" action routes here (the PR-review surface
@@ -42,6 +41,9 @@
     comments?: DiffComment[];
     onCommentSave?: (comment: GuideDiffCommentSave) => void;
     onCommentDelete?: (id: string) => void;
+    /** When set, the section offers a question to an agent about it. The host
+     *  owns where that question opens. */
+    onAsk?: (section: GuideSection) => void;
     index?: number;
     total?: number;
   } = $props();
@@ -52,9 +54,6 @@
   const page = $derived(Math.min(requestedPage, pageCount - 1));
   const pageFiles = $derived(section.files.slice(page * 40, (page + 1) * 40));
 
-  const sectionRecords = $derived(
-    resolveLedgerRefs(section.ledgerRefs, records),
-  );
   const moveAnalysis = $derived(detectMovedBlocksInPatches(patchByPath));
 
   // Comments for a given card. Derived map so each card reads its slice without
@@ -136,7 +135,20 @@
       {section.title}
     </h2>
 
-    <GuideExplanation {section} records={sectionRecords} />
+    <GuideExplanation {section} />
+
+    {#if onAsk}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        class="-ml-2.5 self-start text-workspace-chrome text-(--solus-text-secondary)"
+        onclick={() => onAsk?.(section)}
+      >
+        <AskIcon size={16} />
+        Ask about this section
+      </Button>
+    {/if}
 
     {#if pageCount > 1}
       <nav aria-label={`Files in ${section.title}`} class="flex flex-wrap items-center gap-2 text-workspace-chrome">

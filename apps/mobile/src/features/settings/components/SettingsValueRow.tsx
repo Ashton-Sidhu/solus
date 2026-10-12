@@ -1,6 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/features/settings/SettingsAboutRouteScreen.tsx (MIT, see UPSTREAM.md).
 import type { ComponentProps } from "react";
 import { View } from "react-native";
+import { Image } from "expo-image";
 
 import { SymbolView } from "../../../components/AppSymbol";
 import { AppText as Text } from "../../../components/AppText";
@@ -14,6 +15,8 @@ export function SettingsValueRow(props: {
   readonly label: string;
   readonly value: string;
   readonly detail?: string;
+  /** A picture in place of the icon, such as the account's photo. */
+  readonly imageUri?: string | null;
 }) {
   return (
     <View
@@ -21,13 +24,21 @@ export function SettingsValueRow(props: {
       accessibilityLabel={[props.label, props.value, props.detail].filter(Boolean).join(", ")}
       className="flex-row items-center gap-4 p-4"
     >
-      <SymbolView
-        name={props.icon}
-        size={22}
-        tintColorClassName="accent-icon"
-        type="monochrome"
-        weight="regular"
-      />
+      {props.imageUri ? (
+        <Image
+          source={{ uri: props.imageUri }}
+          accessibilityIgnoresInvertColors
+          style={{ width: 22, height: 22, borderRadius: 11 }}
+        />
+      ) : (
+        <SymbolView
+          name={props.icon}
+          size={22}
+          tintColorClassName="accent-icon"
+          type="monochrome"
+          weight="regular"
+        />
+      )}
       <Text className="shrink-0 text-lg text-foreground">{props.label}</Text>
       <View className="min-w-0 flex-1 items-end">
         <Text

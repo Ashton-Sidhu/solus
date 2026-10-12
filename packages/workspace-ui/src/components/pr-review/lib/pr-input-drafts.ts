@@ -1,5 +1,5 @@
 import type { CheckItem } from '@solus/contracts/checks-types'
-import type { ReviewDraftComment } from '@solus/contracts/review'
+import type { GuideSection, ReviewDraftComment } from '@solus/contracts/review'
 
 export interface PrFixFeedback {
   body: string
@@ -10,6 +10,20 @@ export function buildPrQuestionDraft(
   pr: { number: number; title: string },
 ): string {
   return `Answer my question about PR #${pr.number}: ${promptField(pr.title)}.\n\nQuestion: `
+}
+
+/** A question about one section of the PR's review guide: the agent gets the
+ *  section's claim and files, and the reader writes the question. */
+export function buildPrGuideSectionQuestionDraft(
+  pr: { number: number; title: string },
+  section: Pick<GuideSection, 'title' | 'attention' | 'files'>,
+): string {
+  // A catch-all section can hold thousands of files; the agent can list the rest.
+  const shown = section.files.slice(0, 20).map((file) => `- \`${file.path}\``)
+  if (section.files.length > shown.length) shown.push(`- and ${section.files.length - shown.length} more`)
+  const files = shown.join('\n')
+  const attention = section.attention ? `\nDecision it asks for: ${promptField(section.attention.note)}` : ''
+  return `Answer my question about the "${promptField(section.title, 200)}" section of the review guide for PR #${pr.number}: ${promptField(pr.title)}.${attention}${files ? `\n\nFiles in this section:\n${files}` : ''}\n\nQuestion: `
 }
 
 export function buildPrCommentsFixPrompt(

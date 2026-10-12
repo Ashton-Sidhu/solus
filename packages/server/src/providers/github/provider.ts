@@ -24,11 +24,14 @@ import type {
   PrLabel,
   PrRequestedReviewer,
   PrRevertResult,
+  PrStack,
+  PrStackMembership,
   PrStateAction,
   ProviderRepository,
   ProviderViewer,
 } from '@solus/contracts/providers'
 import { createLogger } from '../../logger'
+import { readPullRequestStack, stackMembershipOf, STACK_MEMBERSHIP_FIELDS, type GqlStackMembership } from './stacks'
 import { canonicalRepoRef } from './canonical-repo'
 import {
   buildChecksQuery,
@@ -295,6 +298,7 @@ const NEEDS_REVIEW_FIELDS = `
     reviews(first: 1) { totalCount }
     baseRepository { nameWithOwner }
     headRepository { nameWithOwner name owner { login } }
+    ${STACK_MEMBERSHIP_FIELDS}
   }
 `
 
@@ -396,7 +400,7 @@ interface PrConversationResponse {
   }
 }
 
-interface GqlNeedsReviewPullRequest {
+interface GqlNeedsReviewPullRequest extends GqlStackMembership {
   number: number
   url: string
   title: string
@@ -583,6 +587,7 @@ function toNeedsReviewPullRequest(
     // request; search rows say "not computed" rather than guessing a state.
     mergeStateStatus: null,
     reviewStatus: reviewStatusOf(pr.reviewDecision, pr.reviews.totalCount),
+    stack: stackMembershipOf(pr),
     ...access,
   }
 }
@@ -600,7 +605,7 @@ function reviewStatusOf(
 }
 
 interface ReviewStatusResponse {
-  nodes: Array<{
+  nodes: Array<GqlStackMembership & {
     id: string
     reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
     reviews: { totalCount: number }
@@ -614,6 +619,7 @@ interface ListedRowFacts {
   reviewStatus: PullRequestReviewStatus
   additions: number
   deletions: number
+  stack: PrStackMembership | null
 }
 
 interface ListReviewStatusResponse {
@@ -631,6 +637,7 @@ const REVIEW_STATUS_QUERY = `
         reviews(first: 1) { totalCount }
         additions
         deletions
+        ${STACK_MEMBERSHIP_FIELDS}
       }
     }
   }
@@ -655,6 +662,7 @@ const LIST_REVIEW_STATUS_QUERY = `
           reviews(first: 1) { totalCount }
           additions
           deletions
+          ${STACK_MEMBERSHIP_FIELDS}
         }
       }
     }
@@ -668,6 +676,7 @@ function listedRowFactsMap(nodes: ReviewStatusResponse['nodes']): Map<string, Li
           reviewStatus: reviewStatusOf(node.reviewDecision, node.reviews.totalCount),
           additions: node.additions,
           deletions: node.deletions,
+          stack: stackMembershipOf(node),
         }] as const]
       : []),
   )
@@ -1154,7 +1163,7 @@ export class GitHubProvider implements ReviewProvider {
         wanted.map(async (pr) => {
           const row = pr.node_id ? facts.get(pr.node_id) : undefined
           const item = toPullRequest(pr, repo, await accessFor(client, repo, pr.user?.login ?? '', pr.base.ref), row?.reviewStatus)
-          return row ? { ...item, additions: row.additions, deletions: row.deletions } : item
+          return row ? { ...item, additions: row.additions, deletions: row.deletions, stack: row.stack } : item
         }),
       )
       return { items, page, hasMore: data.length === perPage }
@@ -1396,6 +1405,19 @@ export class GitHubProvider implements ReviewProvider {
         loadRequiredApprovalCount(client, repo, pr.base.ref, number),
       ])
       return toPullRequest(pr, repo, access, undefined, requiredApprovingReviewCount)
+    })
+  }
+
+  async getPullRequestStack(repo: RepoRef, number: number): Promise<PrStack | null> {
+    return this.withClient('get_pull_request_stack', repo.host, async (client) => {
+      return readPullRequestStack(client, repo, number).catch(async (error) => {
+        // GitHub answers 404 both where stacks are not on and for a repository
+        // this credential cannot see. Only the second should try the next credential.
+        if (!isGithubNotFound(error)) throw error
+        const repositoryVisible = await githubPullRequestAccessFor(client, repo, '', '').then(() => true, () => false)
+        if (repositoryVisible) return null
+        throw error
+      })
     })
   }
 

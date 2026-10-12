@@ -46,7 +46,7 @@ describe('workspace projects', () => {
     const second = await projects.addWorkspaceProject('org-a', { repositoryKey: 'git@github.com:Acme/web.git' }, 'bob')
 
     expect(second.id).toBe(first.id)
-    expect(first).toMatchObject({ repositoryKey: 'github.com/acme/web', displayName: 'acme/web', createdBy: 'alice' })
+    expect(first).toMatchObject({ repositoryKey: 'github.com/acme/web', displayName: 'web', createdBy: 'alice' })
     expect(await projects.listWorkspaceProjects('org-a')).toHaveLength(1)
   })
 

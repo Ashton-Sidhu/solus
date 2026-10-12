@@ -2,7 +2,10 @@
 
 Status: done, 2026-09-30. Replaces the "one server publication operation"
 rule in `organization-scope.md` §4 for works and tasks. Since 2026-10-07 no
-session is published either, and Insights reports are not shared (§8).
+session is published either, and Insights reports are not shared (§8). Since
+2026-10-09 this is the document model only (`host-sharing.md` §2): a session's
+link names its host and needs no sign-in, so §2's "sharing requires sign-in"
+and decision 2 hold for works and tasks only.
 
 Where it lives:
 
@@ -11,7 +14,9 @@ Where it lives:
   `data/works/works.ts` and `data/tasks/task-transfer.ts`).
 - Solus API: `workUpload` and `taskUpload`
   (`transport/solus-api/cloud-uploads.ts`).
-- Client: `SharesStore.uploadWork` and `uploadTask`.
+- Client: `CloudPublication` (`contexts/sharing/cloud-publication.ts`) uploads
+  a Local work or task; `TaskLinks` (`contexts/tasks/task-links.ts`) copies a
+  task's link. `SharesStore` keeps the dialog and the share lists.
 - A session stays on its host: Share opens the host's own share list. The
   host has no publication operation.
 
@@ -53,7 +58,7 @@ There are two kinds of share.
 
 For a cloud copy, the host is only a source of content. The client reads the
 content from the host over the ordinary host RPC, then writes it to the Solus
-API as the signed-in person. The host token, the host OAuth client, and
+API as the signed-in person. The host's key, its OAuth client, and
 delegations have no part in it.
 
 Linking a host registers it and runs the tunnel. Linking is necessary only
@@ -332,3 +337,12 @@ workspace panes set a fixed space for their close and pane controls.
    organization. The separate "Publish to <organization>" menu command is
    removed. A work already in an organization opens on that organization's
    list, read from the work's own record.
+10. **2026-10-09:** Copy link copies the link of the scope the list already has.
+    It never widens the scope: only the access choice changes who can open a
+    resource. With the link scope it copies the guest link; with any other scope
+    it copies the member link (`linkToCopy`). A session's member link names its
+    host by installation id, the one id every client of that host knows.
+11. **2026-10-09:** the share dialog names one organization: the one the
+    account works in (`serversStore.activeOrganizationId`). It no longer takes
+    the organization from the host's answer, a workspace service id, or a saved
+    directory row.

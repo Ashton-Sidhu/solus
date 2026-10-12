@@ -148,8 +148,6 @@ export const RPC_INVOKE_METHODS = [
 
   // Sessions / plans / projects
   'bindRuntimeSession',
-  'sharedSessionAvailable',
-  'sharedSessionPrompt',
   'sessionRecordUpsert',
   'workspaceProjectList',
   'workspaceProjectAdd',
@@ -254,6 +252,8 @@ export const RPC_INVOKE_METHODS = [
   'connectionsGetServerInfo',
   'connectionsSetRemoteAccess',
   'connectionsSetTrustLocalNetwork',
+  // The next access token on an open socket (docs/adr/0001-standard-authentication.md rule 4)
+  'authRenew',
   // Paired hosts: other hosts this host's agents start sessions on (docs/plans/cross-host-sessions.md §10)
   'pairedHostsList',
   'pairedHostsPair',
@@ -278,6 +278,8 @@ export const RPC_INVOKE_METHODS = [
   'shareSet',
   'shareSetLink',
   'shareTransfer',
+  // The origin a resource's share link names (docs/plans/host-sharing.md §2)
+  'shareLinkOrigin',
   // Provider seats: a member's own Claude or Codex login on this host
   'seatList',
   'seatConnectStart',
@@ -305,9 +307,10 @@ export const RPC_INVOKE_METHODS = [
   'integrationConnectSubmit',
   'integrationConnectCancel',
   'integrationDisconnect',
-  // Agent profile: a member's own instructions and skills, copied into their seats
+  // Agent profile: a person's instructions, skills, and MCP servers on this host (plans/020-agent-profile.md)
   'agentProfileRead',
   'agentProfileApply',
+  'agentProfilePull',
   'agentProfileStatus',
   // Presence: who is here, what they are looking at, and whether they are typing
   'presenceSnapshot',
@@ -444,6 +447,7 @@ export const RPC_INVOKE_METHODS = [
   'prListThreads',
   'prListComments',
   'prListCommits',
+  'prGetStack',
   'prListReviewers',
   'prListReviewerCandidates',
   'prRequestReviewers',
@@ -467,9 +471,7 @@ export const RPC_INVOKE_METHODS = [
   'prPrepareConflictResolution',
   'prRefresh',
 
-  // Review guide (agent code-review ledger + guided walkthrough)
-  'readLedger',
-  'writeLedger',
+  // Review guide (guided walkthrough)
   'getReviewContext',
   'generateGuide',
   'requestReviewGuide',
@@ -598,6 +600,7 @@ export const RPC_INVOKE_METHODS = [
   'deviceHostTest',
   'deviceToolUpdate',
   'deviceHostRetry',
+  'devicePair',
   'deviceOpen',
   'deviceClose',
   'deviceShutdown',
@@ -611,6 +614,7 @@ export const RPC_INVOKE_METHODS = [
   'deviceBuildImport',
   'deviceBuildDelete',
   'deviceProjectDetect',
+  'deviceSigningTeams',
   'deviceRunStart',
   'deviceRunCancel',
   'deviceRunLog',

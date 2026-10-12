@@ -15,6 +15,7 @@ import {
   MAX_VOICE_SAMPLES,
 } from '@solus/contracts/voice-audio'
 import { z } from 'zod'
+import { randomId } from './random-id'
 import type { DialOutcome } from './host-supervisor'
 
 /** WebSocket transport shared by the browser client, the Electron renderer,
@@ -43,6 +44,9 @@ export interface WsTransportOptions {
   /** A guest's link secret, presented with every grant: the host admits the pair
    *  to one resource (docs/plans/multiplayer-sharing.md §3.4). */
   shareSecret?: string
+  /** A host-admitted guest (docs/plans/host-sharing.md §4.1): no grant, the secret
+   *  alone with the id and name the visitor states. Set only with `shareSecret`. */
+  guestIdentity?: { guestId: string; displayName: string }
   onStatusChange?: (status: ConnectionStatus, attempt: number) => void
   /** Called after /auth/refresh returns a fresh token. */
   onSessionTokenRefreshed?: (sessionToken: string) => void
@@ -58,6 +62,10 @@ export interface WsTransportOptions {
   /** The organization the client works in, named in the record API's context
    *  key so a response for another organization is discarded. */
   organizationId?: () => string | null
+  /** The organization a grant's connection works in, named at the ticket and the
+   *  record API's credential exchange: a token that lists several organizations is
+   *  admitted only in the one named (ADR 0001 §6.4). */
+  dialOrganizationId?: () => string | null
 }
 
 /** A server request as Socket.IO delivers it: the payload, then the acknowledgement the server waits on. */
@@ -95,11 +103,21 @@ type RpcInvocationResult = Awaited<ReturnType<SolusAPI[RpcInvokeMethod]>>
 
 /** How a dial's credential exchange ended. `unreachable` means the route did not
  *  answer at all, which the socket on the same route would only confirm later. */
+/** The body of `POST /auth/ws-ticket`: the share secret, and the guest's own name when no grant names it. */
+interface WsTicketRequest {
+  organizationId?: string
+  shareSecret?: string
+  guestId?: string
+  displayName?: string
+}
+
 interface TicketExchange {
   ticket: string | null
   unreachable: boolean
   /** The host answered 401: it does not take this credential. */
   refused: boolean
+  /** The access token the ticket was exchanged for, when the credential was a grant. */
+  grant?: string
 }
 
 /** The work a dial needs besides the socket. It starts with the dial, so it runs
@@ -110,6 +128,8 @@ interface DialPreparation {
 }
 
 const RECONNECT_QUEUE_MAX_AGE_MS = 15_000
+/** A token-admitted socket sends its next access token this long before the current one ends (`authRenew`). */
+export const GRANT_RENEWAL_LEAD_MS = 60_000
 const WAKE_PROBE_TIMEOUT_MS = 5_000
 const WAKE_PROBE_METHOD: RpcInvokeMethod = 'connectionsGetServerInfo'
 
@@ -128,7 +148,7 @@ export class WsTransport {
   readonly frames = new BrowserFrameSubscriber()
   /** Native device video for this host, routed by device host and device. */
   private socket: Socket
-  private readonly clientInstanceId = createClientInstanceId()
+  private readonly clientInstanceId = randomId()
   private nextId = 1
   private requests = new Map<string, RequestEntry>()
   private onResetCallback: (() => void) | null = null
@@ -149,6 +169,8 @@ export class WsTransport {
   private dialPreparation: DialPreparation | null = null
   /** Requests the server sends and waits on, by event; installed on every socket this transport opens. */
   private readonly serverRequests = new Map<string, ServerRequestListener>()
+  /** Sends the socket's next access token before the current one ends (docs/adr/0001-standard-authentication.md rule 4). */
+  private grantRenewalTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(private opts: WsTransportOptions) {
     this.socket = this.createSocket()
@@ -189,6 +211,7 @@ export class WsTransport {
     this.logConnection('switching route', { from: this.opts.serverUrl, to: serverUrl })
     this.socket.removeAllListeners()
     this.socket.disconnect()
+    this.cancelGrantRenewal()
     this.connectedGeneration += 1
     this.isAcceptedConnection = false
     this.dialPreparation = null
@@ -254,6 +277,7 @@ export class WsTransport {
   destroy(finalStatus: ConnectionStatus = 'disconnected'): void {
     if (this.destroyed) return
     this.destroyed = true
+    this.cancelGrantRenewal()
     if (this.authRefreshResetTimer) clearTimeout(this.authRefreshResetTimer)
     this.authRefreshResetTimer = null
     this.socket.disconnect()
@@ -289,6 +313,7 @@ export class WsTransport {
     const records = workspaceRecordMethods(new SolusApiClient({
       baseUrl: () => this.opts.serverUrl,
       contextKey: () => JSON.stringify([this.opts.serverId, this.opts.organizationId?.() ?? null]),
+      organizationId: () => this.opts.acquireGrant ? this.opts.dialOrganizationId?.() ?? null : null,
       acquireSource: async () => {
         if (this.opts.acquireGrant) return this.opts.acquireGrant()
         await this.refreshToken()
@@ -315,25 +340,76 @@ export class WsTransport {
   private async fetchWsTicket(): Promise<TicketExchange> {
     this.grantRefusedByHost = false
     const { acquireGrant } = this.opts
-    if (!acquireGrant) return this.exchangeForTicket(this.opts.sessionToken)
-    const exchange = await this.exchangeForTicket(await acquireGrant().catch(() => null))
-    if (!exchange.refused) return exchange
+    if (!acquireGrant) return this.exchangeForTicket(this.opts.guestIdentity ? null : this.opts.sessionToken)
+    const grant = await acquireGrant().catch(() => null)
+    const exchange = await this.exchangeForTicket(grant)
+    if (!exchange.refused) return { ...exchange, grant: grant ?? undefined }
     // A kept grant can outlive the host's trust in it, as when the host was linked
     // again since. Only a new grant the host refuses means this device is done here.
-    const retry = await this.exchangeForTicket(await acquireGrant({ fresh: true }).catch(() => null))
+    const fresh = await acquireGrant({ fresh: true }).catch(() => null)
+    const retry = await this.exchangeForTicket(fresh)
     this.grantRefusedByHost = retry.refused
-    return retry
+    return { ...retry, grant: fresh ?? undefined }
+  }
+
+  /**
+   * Plans the next `authRenew` for the token this socket was admitted or renewed
+   * with: a little before it ends, the same grant source gives the next token, and the
+   * host moves the socket's end to it. A token whose end cannot be read, a host that
+   * refuses, or a source that has none leaves the socket to end at its expiry; the
+   * supervisor then dials again as for any drop.
+   */
+  private scheduleGrantRenewal(grant: string | undefined, generation: number): void {
+    this.cancelGrantRenewal()
+    const endsAt = grant ? accessTokenEndsAt(grant) : null
+    if (!grant || endsAt === null || !this.opts.acquireGrant) return
+    this.grantRenewalTimer = setTimeout(() => {
+      this.grantRenewalTimer = null
+      void this.renewGrant(grant, generation)
+    }, Math.max(0, endsAt - GRANT_RENEWAL_LEAD_MS - Date.now()))
+  }
+
+  private cancelGrantRenewal(): void {
+    if (this.grantRenewalTimer) clearTimeout(this.grantRenewalTimer)
+    this.grantRenewalTimer = null
+  }
+
+  private async renewGrant(current: string, generation: number): Promise<void> {
+    const acquireGrant = this.opts.acquireGrant
+    if (!acquireGrant) return
+    let next = await acquireGrant().catch(() => null)
+    // A source that keeps tokens may hand back the one in use; ask it for a new one.
+    if (next === current) next = await acquireGrant({ fresh: true }).catch(() => null)
+    if (!next || next === current || generation !== this.connectedGeneration) return
+    try {
+      await this.invoke('authRenew', [{ accessToken: next }])
+      if (generation === this.connectedGeneration) this.scheduleGrantRenewal(next, generation)
+    } catch (error) {
+      this.logConnection('grant renewal refused', { message: error instanceof Error ? error.message : String(error) })
+    }
   }
 
   private async exchangeForTicket(credential: string | null): Promise<TicketExchange> {
-    if (!credential) return { ticket: null, unreachable: false, refused: false }
+    const { shareSecret, guestIdentity } = this.opts
+    if (!credential && !(shareSecret && guestIdentity)) return { ticket: null, unreachable: false, refused: false }
+    const headers: Record<string, string> = {}
+    if (credential) headers.authorization = `Bearer ${credential}`
+    // With a grant, the grant names the guest; without one, the guest names itself.
+    const request: WsTicketRequest = {}
+    const organizationId = credential && this.opts.acquireGrant ? this.opts.dialOrganizationId?.() : null
+    if (organizationId) request.organizationId = organizationId
+    if (shareSecret) request.shareSecret = shareSecret
+    if (shareSecret && !credential && guestIdentity) {
+      request.guestId = guestIdentity.guestId
+      request.displayName = guestIdentity.displayName
+    }
+    const hasBody = Object.keys(request).length > 0
+    if (hasBody) headers['content-type'] = 'application/json'
     try {
       const response = await fetch(`${this.opts.serverUrl}/auth/ws-ticket`, {
         method: 'POST',
-        headers: this.opts.shareSecret
-          ? { authorization: `Bearer ${credential}`, 'content-type': 'application/json' }
-          : { authorization: `Bearer ${credential}` },
-        body: this.opts.shareSecret ? JSON.stringify({ shareSecret: this.opts.shareSecret }) : undefined,
+        headers,
+        body: hasBody ? JSON.stringify(request) : undefined,
         signal: AbortSignal.timeout(3_000),
       })
       if (!response.ok) return { ticket: null, unreachable: false, refused: response.status === 401 }
@@ -354,6 +430,7 @@ export class WsTransport {
       void this.acceptConnectedSocket(generation)
     })
     this.socket.on('disconnect', (reason) => {
+      this.cancelGrantRenewal()
       this.connectedGeneration += 1
       this.isAcceptedConnection = false
       this.pendingHostEvents = []
@@ -403,6 +480,7 @@ export class WsTransport {
     const identity = this.dialPreparation?.identity
       ?? this.opts.verifyConnectedHost?.().catch(() => false)
       ?? Promise.resolve(true)
+    const exchange = this.dialPreparation?.exchange
     this.dialPreparation = null
     const accepted = await identity
     if (this.destroyed || generation !== this.connectedGeneration || !this.socket.connected) return
@@ -425,6 +503,7 @@ export class WsTransport {
     if (shouldReset) this.onResetCallback?.()
     this.opts.onDialOutcome?.({ kind: 'accepted', recovered: this.socket.recovered })
     this.flushQueuedRequests()
+    if (exchange) void exchange.then(({ grant }) => this.scheduleGrantRenewal(grant, generation))
     if (this.authRefreshAttempted) {
       if (this.authRefreshResetTimer) clearTimeout(this.authRefreshResetTimer)
       this.authRefreshResetTimer = setTimeout(() => { this.authRefreshAttempted = false }, 30_000)
@@ -647,14 +726,6 @@ export class WsTransport {
   }
 }
 
-function createClientInstanceId(): string {
-  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
-  const bytes = new Uint8Array(16)
-  if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes)
-  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256)
-  return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
-}
-
 export type RefreshResult = 'refreshed' | 'fresh' | 'unauthorized' | 'unavailable'
 
 async function refreshSessionToken(serverUrl: string, sessionToken: string): Promise<{ result: RefreshResult; sessionToken?: string }> {
@@ -671,6 +742,21 @@ async function refreshSessionToken(serverUrl: string, sessionToken: string): Pro
       : { result: 'unavailable' }
   } catch {
     return { result: 'unavailable' }
+  }
+}
+
+const accessTokenEndSchema = z.object({ exp: z.number() })
+
+/** When a JWT access token ends (ms), read from its `exp`; null when the token is not a JWT with one. */
+export function accessTokenEndsAt(token: string): number | null {
+  const payload = token.split('.')[1]
+  if (!payload) return null
+  try {
+    const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(payload.length / 4) * 4, '='))
+    const claims = accessTokenEndSchema.safeParse(JSON.parse(json))
+    return claims.success ? claims.data.exp * 1000 : null
+  } catch {
+    return null
   }
 }
 

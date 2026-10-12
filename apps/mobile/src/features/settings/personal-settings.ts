@@ -12,7 +12,13 @@ import {
   type PersonalSettingsDocument,
 } from '@solus/contracts/settings'
 import type { AgentId } from '@solus/contracts/types'
-import { settingsAccountKey, type PersonalSettingsChange, type SyncAccount } from '@solus/client-core/settings-sync'
+import {
+  type PersonalSettingsChange,
+} from '@solus/client-core/settings-sync'
+import {
+  syncAccountKey,
+  type SyncAccount,
+} from '@solus/client-core/document-sync'
 import { Listeners } from '../../lib/listeners'
 import type { KeyValueStore } from '../../platform/ports'
 
@@ -61,7 +67,7 @@ export type PersonalSetOutcome = 'saved' | 'invalid'
 
 export class PersonalSettingsStore {
   readonly changes = new Listeners()
-  private accountKey = settingsAccountKey(null)
+  private accountKey = syncAccountKey(null)
   private profile: Profile
   private values: PersonalSettings
   private readonly localChangeListeners = new Set<(change: PersonalSettingsChange) => void>()
@@ -111,9 +117,9 @@ export class PersonalSettingsStore {
    * signing in does not reset what the person chose here. Nothing is uploaded.
    */
   setAccount(account: SyncAccount | null): void {
-    const accountKey = settingsAccountKey(account)
+    const accountKey = syncAccountKey(account)
     if (accountKey === this.accountKey) return
-    const anonymous = settingsAccountKey(null)
+    const anonymous = syncAccountKey(null)
     const stored = this.load(accountKey)
     const profile = stored ?? { settings: account ? this.load(anonymous)?.settings ?? {} : {} }
     this.accountKey = accountKey

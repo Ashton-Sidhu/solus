@@ -188,16 +188,11 @@ class FakeDelegations {
   readonly away = new Set<string>()
   /** People the account plane refused: removal ends everything. */
   readonly refused = new Set<string>()
-  async ensure(userId: string, _organizationId: string): Promise<void> {
+  async accessToken(userId: string, scope: { organizationId: string }, _resource: { kind: 'api' }): Promise<string> {
     if (this.refused.has(userId)) throw new delegationsModule.DelegationError('ORGANIZATION_ACCESS_REFUSED', 'The person is not a member of the organization.')
     if (this.away.has(userId)) throw new delegationsModule.DelegationError('ORGANIZATION_AUTHORITY_MISSING', 'Nobody has connected as this person yet.')
-  }
-  async accessToken(userId: string, organizationId: string): Promise<string> {
-    this.asked.push(`${userId}/${organizationId}`)
-    return `delegated-${userId}-${organizationId}`
-  }
-  holders(): Array<{ userId: string; organizationId: string }> {
-    return []
+    this.asked.push(`${userId}/${scope.organizationId}`)
+    return `delegated-${userId}-${scope.organizationId}`
   }
 }
 
@@ -462,7 +457,7 @@ describe('runner delivery', () => {
     }
   })
 
-  test('a 403 from the token exchange waits for the person to connect; a stream of writes does not turn it into a request loop', async () => {
+  test('a 403 from the token endpoint waits for the person to connect; a stream of writes does not turn it into a request loop', async () => {
     // WHY: a 403 was treated as an outage. Every queued write kicked a new pass past
     // the backoff, so a busy turn asked Solus for a token hundreds of times, the
     // rows never moved, and nobody was told to reconnect.
@@ -471,14 +466,18 @@ describe('runner delivery', () => {
     let exchanges = 0
     const delegations = new delegationsModule.Delegations({
       link: () => link(api),
-      client: () => ({ clientId: 'host-client', clientSecret: 'host-secret' }),
-      personToken: () => 'erin-access-token',
+      credential: () => ({ clientId: 'host-client', tokenEndpoint: 'https://cloud.invalid/api/auth/oauth2/token', assertion: async () => 'signed-assertion' }),
       onRevoked: () => {},
-      fetchImpl: async () => {
+      fetchImpl: async (_url, init) => {
+        // Erin's client made the delegation; its first token is about to end, and every refresh is forbidden.
+        if (new URLSearchParams(String(init?.body)).get('grant_type') !== 'refresh_token') return Response.json({ access_token: 'erin-first', refresh_token: 'erin-refresh', expires_in: 1 })
         exchanges++
         return new Response(JSON.stringify({ error: 'forbidden' }), { status: 403, headers: { 'content-type': 'application/json' } })
       },
     })
+    delegations.clear()
+    const erinsToken = `e30.${Buffer.from(JSON.stringify({ sub: 'erin', grant_id: 'grant_erin' })).toString('base64url')}.c2ln`
+    await delegations.establish(erinsToken, { organizationId: 'org1' })
     const erin = { organizationId: 'org1', actorUserId: 'erin' }
     const runner = new delivery.RunnerDelivery({
       link: () => link(api),
@@ -514,7 +513,7 @@ describe('runner delivery', () => {
     let passes = 0
     const counting = new FakeDelegations()
     const accessToken = counting.accessToken.bind(counting)
-    counting.accessToken = async (userId, organizationId) => { passes++; return accessToken(userId, organizationId) }
+    counting.accessToken = async (userId, scope, resource) => { passes++; return accessToken(userId, scope, resource) }
     const runner = new delivery.RunnerDelivery({
       link: () => link(api),
       delegations: counting,

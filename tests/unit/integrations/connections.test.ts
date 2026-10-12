@@ -3,7 +3,8 @@ import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import type { Integration, IntegrationConnectionChangedEvent } from '@solus/contracts/integration-types'
-import type { IntegrationClient, IntegrationSecrets, IntegrationToken } from '@solus/server/integrations/connection-store'
+import type { IntegrationSecrets } from '@solus/server/integrations/connection-store'
+import type { OAuthClient, OAuthToken } from '@solus/contracts/integrations/oauth-protocol'
 import { resetTestDatabase } from '../helpers/test-db'
 import { startFakeServers, type FakeServers } from './fake-servers'
 
@@ -26,8 +27,8 @@ const ALICE = 'account:alice'
 let fake: FakeServers
 
 function memorySecrets(): IntegrationSecrets {
-  const tokens = new Map<string, IntegrationToken>()
-  const clients = new Map<string, IntegrationClient>()
+  const tokens = new Map<string, OAuthToken>()
+  const clients = new Map<string, OAuthClient>()
   const key = (id: string, user: string | null) => `${id}/${user ?? 'host'}`
   return {
     token: (id, user) => tokens.get(key(id, user)) ?? null,
@@ -40,7 +41,7 @@ function memorySecrets(): IntegrationSecrets {
 }
 
 function record(id: string, auth: Integration['auth']): Integration {
-  return { id, organizationId: 'local', kind: 'mcp', slug: id, name: id, url: fake.mcpUrl, auth, createdBy: null, createdAt: '2026-10-08T00:00:00Z', updatedAt: '2026-10-08T00:00:00Z' }
+  return { id, organizationId: 'local', ownerUserId: null, kind: 'mcp', slug: id, name: id, url: fake.mcpUrl, auth, createdBy: null, createdAt: '2026-10-08T00:00:00Z', updatedAt: '2026-10-08T00:00:00Z' }
 }
 
 function setup(integrations: Integration[]) {

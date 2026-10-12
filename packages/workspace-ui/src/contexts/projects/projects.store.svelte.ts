@@ -1,4 +1,5 @@
-import { isRemoteDispatchCheckoutPath, type ProjectEntry, type RecentProject } from '@solus/contracts/types'
+import type { ProjectEntry, RecentProject } from '@solus/contracts/types'
+import { isChat } from '@solus/contracts/chat'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import type { HostApi } from '@solus/client-core/host-api'
@@ -11,6 +12,7 @@ import {
   groupLogicalProjects,
   logicalProjectKeyFor,
   normalizeProjectRoot,
+  representativeCheckout,
   type LogicalProject,
   type ProjectCatalogEntry,
   type ProjectRef,
@@ -151,6 +153,19 @@ export class ProjectsStore {
     return this.entries.filter((entry) => logicalProjectKeyFor(entry) === projectKey)
   }
 
+  /** The checkout a project's own files (its favicon) are read from: a listed
+   *  checkout, on a connected host first, else the folder a local-only key
+   *  names. Null when no host has listed one. */
+  checkoutFor(projectKey: string): ProjectRef | null {
+    const listed = representativeCheckout(
+      { checkouts: this.checkoutsOf(projectKey) },
+      (serverId) => serverConnections.statusFor(serverId) === 'connected',
+    )
+    if (listed) return listed
+    const local = localProjectParts(projectKey)
+    return local ? { serverId: local.serverId, projectRoot: local.path } : null
+  }
+
   /** The folder that holds a project on one host: its listed checkout there,
    *  or the folder a local-only key names on it. Null when the host holds none. */
   checkoutPathOn(serverId: string, projectKey: string): string | null {
@@ -235,7 +250,7 @@ export class ProjectsStore {
     path: string,
   ): ProjectRef | null {
     const projectRoot = normalizeProjectRoot(path)
-    if (!serverId || !projectRoot || projectRoot === '~' || isRemoteDispatchCheckoutPath(projectRoot)) return null
+    if (!serverId || !projectRoot || projectRoot === '~') return null
     const now = new Date().toISOString()
     this.setProjects(serverId, [
       // The host's own entry replaces this one on the next read; it names the
@@ -345,3 +360,12 @@ export class ProjectsStore {
 }
 
 export const projectsStore = new ProjectsStore()
+
+/** Every chat files under one heading: each has its own folder, but none is a project. */
+export const CHATS_GROUP_KEY = 'solus:chats'
+
+/** The project a folder on a host belongs to, with every chat under one key. */
+export function groupKeyFor(serverId: string, projectKey: string): string {
+  if (isChat(projectKey)) return CHATS_GROUP_KEY
+  return projectKey === '~' ? projectKey : projectsStore.projectKeyFor(serverId, projectKey)
+}

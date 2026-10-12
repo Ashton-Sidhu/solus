@@ -10,8 +10,9 @@ const log = createLogger('orchestration', 'remote-hosts.ts')
 
 /**
  * What this host may do for its owner on the owner's other hosts
- * (docs/plans/cross-host-sessions.md §5.1). The process that holds the owner's
- * account session supplies it; a host without one has no host access.
+ * (docs/plans/cross-host-sessions.md §5.1). The owner's signed-in client in this
+ * process lends it (`LocalClient.lendHostAccess`) and takes it back on sign-out; a
+ * host with no such client has no host access.
  */
 export interface HostAccess {
   /** The hosts the owner's account can reach; null when signed out or the account plane did not answer. */
@@ -39,6 +40,8 @@ export interface HostTarget {
   paired: boolean
   /** The credential for one dial; null when none could be had. */
   credential(): Promise<string | null>
+  /** A directory host the person reaches as a member: the organization its ticket names (ADR 0001 §6.4). */
+  organizationId?: string
 }
 
 /** One target host, reached as a client reaches it, with the owner's token. */
@@ -73,8 +76,8 @@ export class RemoteHosts {
   private readonly connections = new Map<string, Connection>()
 
   constructor(
-    /** The owner's account; null on a host with no account session. */
-    private readonly access: HostAccess | null,
+    /** The owner's account, as the signed-in client lends it; null with no signed-in client. */
+    private readonly access: () => HostAccess | null,
     private readonly paired: PairedHostSource,
     /** This host's own id in the directory, so it is never its own target. */
     private readonly selfHostId: () => string | null,
@@ -90,10 +93,10 @@ export class RemoteHosts {
       paired: true,
       credential: () => this.paired.credential(host.installationId),
     }))
-    if (!this.access) {
+    const access = this.access()
+    if (!access) {
       return paired.length > 0 ? paired : { error: 'This host has no other hosts. Pair a host in Settings → Hosts → this host → Access, or sign in to your Solus account in the desktop app.' }
     }
-    const access = this.access
     const directory = await access.hosts().catch(() => null)
     if (!directory) {
       return paired.length > 0 ? paired : { error: 'Your Solus account did not answer. Sign in to Solus on this host and try again.' }
@@ -104,7 +107,7 @@ export class RemoteHosts {
       // A `direct` route is dialed before the `tunnel`.
       const route = host.routes.find((candidate) => candidate.kind === 'direct') ?? host.routes[0]
       if (host.hostId === self || pairedIds.has(host.installationId) || !route) return []
-      return [{
+      const target: HostTarget = {
         hostId: host.hostId,
         installationId: host.installationId,
         label: host.label,
@@ -112,7 +115,10 @@ export class RemoteHosts {
         url: route.url,
         paired: false,
         credential: () => access.accessToken(host.hostId),
-      }]
+      }
+      const [organizationId] = host.organizationIds
+      if (organizationId) target.organizationId = organizationId
+      return [target]
     })
     return [...paired, ...reachable]
   }
@@ -148,6 +154,7 @@ export class RemoteHosts {
       // pairing token after the paired host proves its identity.
       sessionToken: '',
       acquireGrant: () => host.credential(),
+      dialOrganizationId: () => host.organizationId ?? null,
     })
     const supervisor = new HostSupervisor({
       transport,
@@ -206,13 +213,3 @@ function withTimeout<T>(work: Promise<T>, message: () => string): Promise<T> {
   return Promise.race([work, timeout]).finally(() => clearTimeout(timer))
 }
 
-/** The owner's other hosts: the paired hosts, and the directory where the process holds the owner's account session. */
-export function remoteHostsFor(
-  owner: { ownerAccessToken?: (hostId: string) => Promise<string | null>; ownerHosts?: () => Promise<DirectoryHost[] | null> },
-  paired: PairedHostSource,
-  selfHostId: () => string | null,
-): RemoteHosts {
-  const { ownerAccessToken, ownerHosts } = owner
-  const access = ownerAccessToken && ownerHosts ? { hosts: ownerHosts, accessToken: ownerAccessToken } : null
-  return new RemoteHosts(access, paired, selfHostId)
-}

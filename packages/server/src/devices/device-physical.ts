@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { DeviceSummary } from '@solus/contracts/device-types'
-import type { DeviceCommandRunner } from './device-process'
+import { boundedDetail, type DeviceCommandRunner } from './device-process'
+import { DeviceDomainError } from './device-errors'
 
 /**
  * iPhones, iPads and Android phones connected to a device host by cable or
@@ -38,6 +39,14 @@ const devicectlListSchema = z.object({
   result: z.object({ devices: z.array(z.unknown()).catch([]) }),
 })
 
+/** Why an iPhone or iPad cannot take an install, the first thing to fix first. */
+function iosUnavailableReason(name: string, connected: boolean, needsPairing: boolean, developerModeOff: boolean): string | undefined {
+  if (!connected) return `${name} is not connected. Connect it with a cable, or put it on the same network as this Mac.`
+  if (needsPairing) return `${name} is not paired with this Mac. Unlock it and select Pair, then tap Trust on ${name}.`
+  if (developerModeOff) return `Turn on Developer Mode on ${name}: Settings → Privacy & Security → Developer Mode.`
+  return undefined
+}
+
 /** iPhones and iPads from `devicectl list devices` JSON. Watches, TVs and Macs are left out. */
 export function parseDevicectlDevices(stdout: string, deviceHostId: string): DeviceSummary[] {
   let list: z.ZodSafeParseResult<z.infer<typeof devicectlListSchema>>
@@ -66,14 +75,10 @@ export function parseDevicectlDevices(stdout: string, deviceHostId: string): Dev
       booted: connected,
       physical: true,
     }
-    const reason = !connected
-      ? `${name} is not connected. Connect it with a cable, or put it on the same network as this Mac.`
-      : connection.pairingState !== undefined && connection.pairingState !== 'paired'
-        ? `${name} does not trust this Mac. Unlock it and tap Trust.`
-        : properties.developerModeStatus === 'disabled'
-          ? `Turn on Developer Mode on ${name}: Settings → Privacy & Security → Developer Mode.`
-          : undefined
+    const needsPairing = connected && connection.pairingState !== undefined && connection.pairingState !== 'paired'
+    const reason = iosUnavailableReason(name, connected, needsPairing, properties.developerModeStatus === 'disabled')
     if (reason) device.unavailableReason = reason
+    if (needsPairing) device.needsPairing = true
     devices.push(device)
   }
   return devices
@@ -93,6 +98,25 @@ export function parseAdbDevices(stdout: string, deviceHostId: string): DeviceSum
     devices.push(device)
   }
   return devices
+}
+
+/** The person has this long to unlock the device and accept the prompt. */
+const PAIR_TIMEOUT_MS = 120_000
+
+/**
+ * Pair an iPhone or iPad with the device host. Since iOS 17, tapping Trust on
+ * the USB prompt is not enough: CoreDevice pairs only when the Mac asks, and
+ * the device then shows its own prompt. Throws an error a person can act on.
+ */
+export async function pairPhysicalDevice(run: DeviceCommandRunner, device: DeviceSummary): Promise<void> {
+  if (!device.physical || device.platform !== 'ios') throw new DeviceDomainError('action_unsupported', `${device.name} does not pair with this Mac.`)
+  const paired = await run('xcrun', ['devicectl', 'manage', 'pair', '--device', device.deviceId], { timeoutMs: PAIR_TIMEOUT_MS })
+  if (paired.code === 0) return
+  const output = `${paired.stderr}\n${paired.stdout}`
+  if (/already paired/i.test(output)) return
+  if (/timed out/i.test(output)) throw new DeviceDomainError('command_failed', `${device.name} did not accept in time. Unlock it, select Pair again, and tap Trust on ${device.name}.`)
+  if (/denied|declined|rejected|cancel/i.test(output)) throw new DeviceDomainError('command_failed', `Pairing was not accepted on ${device.name}. Select Pair again and tap Trust.`)
+  throw new DeviceDomainError('command_failed', `Could not pair with ${device.name}: ${boundedDetail(output, 200) || 'no output'}`)
 }
 
 /** Connected devices of each available platform. A failed tool lists none. */

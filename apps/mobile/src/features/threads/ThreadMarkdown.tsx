@@ -21,7 +21,7 @@ import {
 } from "../../native/SelectableMarkdownText";
 import type { ConversationStore } from "../conversation/conversation-store";
 import { projectContext } from "../conversation/lib/ipc-context";
-import { useHostMediaUrl, type HostMediaRequest } from "../files/host-media-url";
+import { useHostMediaUrl, type HostPathRequest } from "../files/host-media-url";
 import type { HostConnection } from "../hosts/host-connections";
 import {
   ThreadMarkdownImage,
@@ -41,7 +41,7 @@ function fileName(path: string): string {
 
 function HostMarkdownVideo(props: {
   readonly connection: HostConnection | null;
-  readonly request: HostMediaRequest;
+  readonly request: HostPathRequest;
   readonly name: string;
 }) {
   const { state, refresh } = useHostMediaUrl(props.connection, props.request);
@@ -74,7 +74,7 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
   const [preview, setPreview] = useState<ResolvedFilePreviewSource | null>(null);
 
   const hostRequest = useCallback(
-    (path: string): HostMediaRequest | null =>
+    (path: string): HostPathRequest | null =>
       isAbsoluteHostPath(path)
         ? { path }
         : workingDirectory

@@ -1,11 +1,10 @@
 import { sql } from 'drizzle-orm'
 import { createServer, type RequestListener, type Server as HttpServer } from 'node:http'
 import { workspacePresence } from './transport/solus-api/presence'
-import { SharedPromptRelay, sharedPromptRequestSchema } from './sharing/shared-prompt'
 import { onWorkspaceProjectsChanged } from './projects/workspace-projects'
 import { z } from 'zod'
 import { DEFAULT_SERVER_PORT } from '@solus/contracts/types'
-import { SOLUS_API_AUDIENCE } from '@solus/contracts/uplink'
+import { SOLUS_API_AUDIENCE, type HostRoute } from '@solus/contracts/uplink'
 import { getInstallationId } from './admission/auth'
 import { AccessTokenVerifier } from './admission/access-tokens'
 import { ANY_ORGANIZATION } from './admission/principal'
@@ -64,6 +63,8 @@ export interface SolusApiServiceOptions {
   /** The listener's port, read when a client asks; the caller knows it only after listening. */
   port: () => number
   staticDir?: string
+  /** The routes the directory knows for one host, for a share link's guest page (host-sharing.md §4.2); none when the caller keeps no directory. */
+  hostRoutes?: (hostId: string) => Promise<HostRoute[]>
 }
 
 /** The service's own work runs as the host; each request sets its person's scope (plans/019-acting-identity.md). */
@@ -111,21 +112,24 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
   const uninstallWorkLive = installWorkLiveBridge(workLive.bridge())
   const presence = workspacePresence(server, events)
   registerSolusApiHandlers(server, { shares, presence, events, workLive, serviceId: settings.serviceId, host: options.host, port: options.port })
-  const sharedPrompts = new SharedPromptRelay(shares, (clientId, event, command, receipt, timeoutMs) => {
-    if (!socket) throw new Error('The live transport is not attached.')
-    return socket.request(clientId, event, command, receipt, timeoutMs)
-  })
-  server.register('sharedSessionAvailable', ([sessionId], ctx) => sharedPrompts.available(ctx.principal, sessionId))
-  server.register('sharedSessionPrompt', ([request], ctx) => sharedPrompts.prompt(ctx.principal, sharedPromptRequestSchema.parse(request)))
   const { requestListener, routes } = buildHttpServer({
     host: options.host, port: options.port(), getPort: options.port, staticDir: options.staticDir, pairingDisabled: true, isApiMode: true, requireAuth: () => true,
     solusApi: { ...settings, operations: createWorkspaceOperations(shares) },
     verifyAccessToken: (token) => tokens.verify(token),
     resolveShareSecret: secret => shares.resolveLinkSecret(secret),
+    // A link's guest page dials the host that runs the session first, and reads this copy when it does not answer (host-sharing.md §4.2).
+    resolveShareLink: async secret => {
+      const share = await shares.resolveLinkSecret(secret)
+      if (!share) return null
+      const record = share.resource.kind === 'session' ? await getSessionRecord(share.organizationId, share.resource.id) : null
+      const hostId = record?.runnerHostId ?? null
+      const routes = hostId && options.hostRoutes ? await options.hostRoutes(hostId) : []
+      return { resource: share.resource, role: share.role, organizationId: share.organizationId, host: hostId ? { hostId, routes } : null }
+    },
     runner: {
       applyOutbox: (runner, request) => applyRunnerOutbox(runner, request, shares),
       applySessionRecords: (runner, request) => applyRunnerSessionRecords(runner, request, shares),
-      applyMirror: (runner, request) => applyRunnerMirror(runner, request, sessionId => { void events.broadcast('session.transcriptChanged', { sessionId }) }),
+      applyMirror: (runner, request) => applyRunnerMirror(runner, request, sessionId => { void events.broadcast('session.transcriptChanged', { sessionId }) }, shares),
     },
   })
   const unsubscribeProjects = onWorkspaceProjectsChanged(() => { void events.broadcast('workspaceProjects.changed', {}) })
@@ -159,15 +163,12 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
     server, requestListener, routes,
     attachLiveTransport(http) {
       if (socket || liveClosed) throw new Error('The live transport is already attached or closed.')
-      socket = attachWebSocketTransport(http, server, { clientEvents: clients, requireAuth: true,
+      socket = attachWebSocketTransport(http, server, { clientEvents: clients, requireAuth: true, verifyAccessToken: (token) => tokens.verify(token),
         onClientConnected: ({ clientId }) => {
           const principal = socket?.principalOf(clientId)
-          if (!principal) return
-          // A runner's socket carries shared prompts to its host; it is not a person in the room.
-          if (principal.kind === 'runner') sharedPrompts.runnerConnected(clientId, principal)
-          else presence.connected(clientId, principal)
+          if (principal) presence.connected(clientId, principal)
         },
-        onClientDisconnected: ({ clientId }) => { sharedPrompts.runnerDisconnected(clientId); presence.disconnected(clientId); workLive.disconnected(clientId) },
+        onClientDisconnected: ({ clientId }) => { presence.disconnected(clientId); workLive.disconnected(clientId) },
         onClientExpired: ({ clientId }) => presence.expired(clientId),
       })
     },

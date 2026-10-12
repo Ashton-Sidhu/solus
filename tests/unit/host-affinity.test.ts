@@ -3,12 +3,10 @@ import {
   hostAffinityGlyph,
   hostStatusLabel,
 } from '@solus/workspace-ui/contexts/connections/host-affinity'
-import {
-  Earth as GlobeSimpleIcon,
-  Terminal as LinuxLogoIcon,
-  PanelsTopLeft as WindowsLogoIcon,
-} from '@lucide/svelte'
-import AppleLogoIcon from '@solus/workspace-ui/components/servers/AppleLogoIcon.svelte'
+import { Earth as GlobeSimpleIcon } from '@lucide/svelte'
+import AppleLogoIcon from '@solus/workspace-ui/components/ui/AppleLogoIcon.svelte'
+import LinuxLogoIcon from '@solus/workspace-ui/components/ui/LinuxLogoIcon.svelte'
+import WindowsLogoIcon from '@solus/workspace-ui/components/ui/WindowsLogoIcon.svelte'
 
 describe('host affinity badge', () => {
   test('every host surface shares one availability vocabulary', () => {

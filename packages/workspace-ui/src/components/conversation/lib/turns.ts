@@ -1,4 +1,5 @@
 import { isQuestionTool } from '@solus/contracts/question-history'
+import { solusAgentToolName } from '@solus/contracts/agent-tools'
 import type { User } from '@solus/contracts/user'
 import type { Activity } from '@solus/contracts/activity'
 import type { Message, SessionStatus } from '@solus/contracts/types'
@@ -23,13 +24,15 @@ export type GroupedItem =
   | { kind: 'automation'; message: Message }
   | { kind: 'task'; message: Message }
   | { kind: 'browser-snapshot'; messages: Message[] }
+  /** The device_screenshot calls of a turn that returned a picture. */
+  | { kind: 'device-snapshot'; messages: Message[] }
   | { kind: 'browser-recording'; message: Message }
   | { kind: 'agent-conversation-group'; messages: Message[] }
   | { kind: 'artifact'; message: Message }
   | { kind: 'review-guide'; message: Message }
 
 /** The card kinds that gather a whole turn's members into one card. */
-type CardGroupKind = 'subagent-group' | 'agent-conversation-group' | 'browser-snapshot' | 'document'
+type CardGroupKind = 'subagent-group' | 'agent-conversation-group' | 'browser-snapshot' | 'device-snapshot' | 'document'
 
 export function groupMessages(messages: Message[]): GroupedItem[] {
   const result: GroupedItem[] = []
@@ -72,6 +75,11 @@ export function groupMessages(messages: Message[]): GroupedItem[] {
     } else if (msg.role === 'tool' && msg.subMessages) {
       flushActivity()
       openOrGrowCard('subagent-group', msg)
+    } else if (msg.role === 'tool' && msg.toolImages?.length && solusAgentToolName(msg.toolName ?? '') === 'device_screenshot') {
+      // A device screenshot is a picture the agent looked at, like a browser
+      // capture: it leaves the activity row once it has one, so no fold hides it.
+      flushActivity()
+      openOrGrowCard('device-snapshot', msg)
     } else if (msg.role === 'tool') {
       activity.push(msg)
     } else if (msg.agentConversationRef) {
@@ -137,6 +145,7 @@ export function itemKey(item: GroupedItem): string {
   if (item.kind === 'subagent-group') return `sg-${item.messages[0].id}`
   if (item.kind === 'agent-conversation-group') return `ag-${item.messages[0].id}`
   if (item.kind === 'browser-snapshot') return `bs-${item.messages[0].id}`
+  if (item.kind === 'device-snapshot') return `dv-${item.messages[0].id}`
   if (item.kind === 'document') return `ds-${item.messages[0].id}`
   if (item.kind === 'thought') return `th-${item.message.id}`
   return item.message.id
@@ -291,6 +300,8 @@ const COLLAPSE_EXCLUDED_KINDS = new Set<GroupedItem['kind']>([
   // A screenshot is the visual result of the turn. Folding it would leave the
   // user with only the agent's prose about what the page looked like.
   'browser-snapshot',
+  // A device screenshot is the same result, from a simulator or a phone.
+  'device-snapshot',
   // A recording is the same kind of result, in motion.
   'browser-recording',
   // A plan is what the turn produced, not a step it took to get there — and it
@@ -535,6 +546,7 @@ function firstTimestamp(items: GroupedItem[]): number {
       item.kind === 'subagent-group' ||
       item.kind === 'agent-conversation-group' ||
       item.kind === 'browser-snapshot' ||
+      item.kind === 'device-snapshot' ||
       item.kind === 'document'
     )
       return item.messages[0].timestamp
@@ -605,7 +617,7 @@ export function turnDurationMs(turn: Turn): number | null {
   // transcript rebuild, so no merged copy per call.
   for (const items of [turn.body, turn.tail]) {
     for (const item of items) {
-      if (item.kind === 'browser-snapshot' || item.kind === 'document') {
+      if (item.kind === 'browser-snapshot' || item.kind === 'device-snapshot' || item.kind === 'document') {
         // A plate is several messages but one outcome, and the pass's last
         // frame is as much the end of the turn as a sentence would be.
         for (const member of item.messages) end = Math.max(end, member.timestamp)

@@ -10,6 +10,7 @@ import {
 } from '@solus/contracts/uplink'
 import { createLogger } from '../logger'
 import type { FetchLike } from '../admission/access-tokens'
+import { HostCredentialError, type HostCredential } from './host-credential'
 import { hostCategory } from './host-category'
 import { LOCAL_ORGANIZATION_ID } from './host-category'
 
@@ -40,10 +41,17 @@ export interface HostStanding {
 
 export interface HostOrganizationsDeps {
   link: () => UplinkLinkConfig | null
-  hostToken: () => string | null
+  /** The host credential of the current link; its control token authenticates the read. */
+  credential: () => Pick<HostCredential, 'hostAccessToken'> | null
   fetchImpl?: FetchLike
   setTimeoutFn?: typeof setTimeout
   clearTimeoutFn?: typeof clearTimeout
+}
+
+/** A key the account plane refused reads as no token: the link is gone. Anything else is an outage. */
+function refusedAsNull(error: Error): null {
+  if (error instanceof HostCredentialError && error.code === 'refused') return null
+  throw error
 }
 
 const REFRESH_MS = 5 * 60_000
@@ -121,16 +129,23 @@ export class HostOrganizations {
   private async refreshNow(): Promise<void> {
     this.clearTimer()
     const link = this.deps.link()
-    const hostToken = link ? this.deps.hostToken() : null
-    if (!link || !hostToken) {
+    const credential = link ? this.deps.credential() : null
+    if (!link || !credential) {
       this.setStanding(null)
       return
     }
     const fetchImpl: FetchLike = this.deps.fetchImpl ?? fetch
     let answer: HostOrganizationsResponse | null = null
     try {
+      const token = await credential.hostAccessToken().catch(refusedAsNull)
+      if (!token) {
+        // The account plane no longer knows this host's key: the link is gone or superseded.
+        log.info('host_organizations_unlinked', { status: 'key_refused' })
+        this.setStanding(null)
+        return
+      }
       const response = await fetchImpl(`${link.directoryUrl}/v1/hosts/${link.hostId}/organizations`, {
-        headers: { authorization: `Bearer ${hostToken}`, accept: 'application/json' },
+        headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       })
       if (response.ok) {
@@ -138,7 +153,7 @@ export class HostOrganizations {
         if (parsed.success) answer = parsed.data
         else log.warn('host_organizations_unreadable', { issues: parsed.error.issues.map((issue) => issue.path.join('.')) })
       } else if (response.status === 401 || response.status === 404) {
-        // The token is no longer this host's: the link is gone or superseded. Nothing to deliver to.
+        // The control token is not of this host's current link: the link is gone or superseded. Nothing to deliver to.
         log.info('host_organizations_unlinked', { status: response.status })
         this.setStanding(null)
         return

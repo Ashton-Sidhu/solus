@@ -181,6 +181,7 @@ describe('connection_status for an integration', () => {
   const integration: Integration = {
     id: 'int-secure',
     organizationId: 'local',
+    ownerUserId: null,
     kind: 'mcp',
     slug: 'secure',
     name: 'Secure',

@@ -1,10 +1,12 @@
 import type { NativeSolusAPI } from '@solus/contracts/host-api'
-import { configureCloudAccount, cookieCloudAccount } from './cloud-account'
-import { cookieUplinkAccountSource, probeCloudOrigin, type CloudOriginProbe, type UplinkAccountSource } from './uplink-session'
+import type { UplinkDirectory } from '@solus/contracts/uplink'
+import { configureCloudAccount, oauthCloudAccount, type CloudAccountSession } from './cloud-account'
+import { isCloudOrigin, oauthUplinkAccountSource, type UplinkAccountSource } from './uplink-session'
+import { webAccountSession } from './web-sign-in'
 
 /**
  * The one account source this page has, resolved once (decision U9): the native
- * bridge on desktop, the account cookie on the cloud-served web client, nothing
+ * bridge on desktop, the page's own sign-in on the cloud-served web client, nothing
  * anywhere else. `configureUplinkAccountSource` lets the web boot path record what
  * its origin probe found before any host is dialed.
  */
@@ -19,7 +21,7 @@ function detectSource(): UplinkAccountSource | null {
   if (!native) return null
   return {
     listDirectory: () => native.uplinkListDirectory(),
-    acquireHostAccessToken: (hostId, organizationId, options) => native.uplinkAcquireHostAccessToken(hostId, organizationId, options),
+    accessToken: (resource, options) => native.accountAccessToken(resource, options),
     issueEnrollmentTicket: () => native.uplinkIssueEnrollmentTicket(),
     loadOrganizationDirectory: (organizationId) => native.uplinkOrganizationDirectory(organizationId),
     startManagedHost: (hostId) => native.uplinkStartManagedHost(hostId),
@@ -35,10 +37,35 @@ export function uplinkAccountSource(): UplinkAccountSource | null {
   return configuredSource
 }
 
-/** Web boot: adopt the serving origin as the account source when it is one. */
-export async function adoptCloudOriginIfPresent(origin: string): Promise<CloudOriginProbe> {
-  const verdict = await probeCloudOrigin(origin)
-  if (verdict.kind !== 'not-cloud') configureUplinkAccountSource(cookieUplinkAccountSource(origin))
-  if (verdict.kind === 'signed-in') configureCloudAccount(cookieCloudAccount(origin))
-  return verdict
+const cloudOrigins = new Map<string, Promise<boolean>>()
+
+/** Whether the page's serving origin is a Solus account origin; asked once per origin. */
+export function servingOriginIsCloud(origin: string): Promise<boolean> {
+  let answer = cloudOrigins.get(origin)
+  if (!answer) {
+    answer = isCloudOrigin(origin)
+    cloudOrigins.set(origin, answer)
+  }
+  return answer
+}
+
+export interface CloudOriginProbe {
+  kind: 'signed-in' | 'signed-out' | 'not-cloud'
+  /** The directory when signed in and the account origin answered. */
+  directory: UplinkDirectory | null
+}
+
+/**
+ * Web boot: adopt the serving origin as the account source when it is one. The page's
+ * sign-in (`web-sign-in.ts`) is already resumed; signed in, the directory is read once
+ * here, with an account-plane access token.
+ */
+export async function adoptCloudOriginIfPresent(origin: string, accountSession?: CloudAccountSession): Promise<CloudOriginProbe> {
+  if (!(await servingOriginIsCloud(origin))) return { kind: 'not-cloud', directory: null }
+  const session = accountSession ?? webAccountSession(origin)
+  const source = oauthUplinkAccountSource(origin, session)
+  configureUplinkAccountSource(source)
+  if (session.state().kind !== 'signed-in') return { kind: 'signed-out', directory: null }
+  configureCloudAccount(oauthCloudAccount(origin, session))
+  return { kind: 'signed-in', directory: await source.listDirectory() }
 }

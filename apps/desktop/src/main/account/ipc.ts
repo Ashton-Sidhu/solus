@@ -1,15 +1,18 @@
-import { hostname } from 'os'
 import { join } from 'path'
 import { app, ipcMain, safeStorage, shell } from 'electron'
 import { z } from 'zod'
 import type { AccountState } from '@solus/contracts/account-types'
 import type { SettingsRequestFailure } from '@solus/contracts/host-api'
+import { accountAgentProfilePatchRequestSchema } from '@solus/contracts/agent-profile'
+import { profileConnectKeyRequestSchema, profileConnectStartRequestSchema, profileDisconnectRequestSchema } from '@solus/contracts/integrations/profile-credentials'
 import {
   accountSettingsPatchRequestSchema,
   organizationSettingsPatchRequestSchema,
 } from '@solus/contracts/settings'
+import { desktopAgentProfileRequests } from './agent-profile-client'
 import { AccountStore } from './account-store'
 import { AccountSession } from './account-session'
+import { loopbackAuthorizer } from './loopback-authorizer'
 import { desktopSettingsRequests } from './settings-client'
 import { issueEnrollmentTicket, listDirectory, loadOrganizationDirectory, startManagedHost } from './uplink-client'
 
@@ -21,13 +24,20 @@ export const ACCOUNT_CHANNELS = {
   retryVerify: 'solus:account-retry-verify',
   stateChanged: 'solus:account-state-changed',
   uplinkDirectory: 'solus:uplink-directory',
-  uplinkAccessToken: 'solus:uplink-access-token',
+  accountAccessToken: 'solus:account-access-token',
   uplinkStartManagedHost: 'solus:uplink-start-managed-host',
   uplinkTicket: 'solus:uplink-enrollment-ticket',
   uplinkOrganizationDirectory: 'solus:uplink-organization-directory',
   accountSettingsGet: 'solus:account-settings-get',
   accountSettingsPatch: 'solus:account-settings-patch',
   accountSettingsDelete: 'solus:account-settings-delete',
+  accountAgentProfileGet: 'solus:account-agent-profile-get',
+  accountAgentProfilePatch: 'solus:account-agent-profile-patch',
+  accountAgentProfileDelete: 'solus:account-agent-profile-delete',
+  accountAgentProfileConnections: 'solus:account-agent-profile-connections',
+  accountAgentProfileConnectStart: 'solus:account-agent-profile-connect-start',
+  accountAgentProfileConnectKey: 'solus:account-agent-profile-connect-key',
+  accountAgentProfileDisconnect: 'solus:account-agent-profile-disconnect',
   organizationSettingsGet: 'solus:organization-settings-get',
   organizationSettingsPatch: 'solus:organization-settings-patch',
 } as const
@@ -37,6 +47,11 @@ const INVALID_REQUEST: SettingsRequestFailure = { kind: 'error', code: 'invalid_
 
 const hostIdSchema = z.string().min(1).max(64)
 const organizationIdSchema = z.string().min(1).max(128)
+/** What a renderer may get a token for: one host or the Solus API, never the account plane. */
+const connectionTokenResourceSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('host'), hostId: hostIdSchema }).strict(),
+  z.object({ kind: z.literal('api') }).strict(),
+])
 
 /** Production origin; `SOLUS_CLOUD_URL` overrides it for development and staging. */
 export const DEFAULT_CLOUD_ORIGIN = 'https://app.solus.sh'
@@ -52,24 +67,9 @@ export function resolveCloudOrigin(env: NodeJS.ProcessEnv = process.env): string
   return url.origin
 }
 
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) return reject(new Error('aborted'))
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort)
-      resolve()
-    }, ms)
-    const onAbort = () => {
-      clearTimeout(timer)
-      reject(new Error('aborted'))
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-  })
-}
-
 /**
  * Wires the account session into Electron: IPC for the renderer, the keychain for
- * the token, the system browser for the approval page. Returns the session so the
+ * the refresh token, the system browser and a loopback callback for the sign-in. Returns the session so the
  * app can verify on boot and on window focus.
  */
 export function registerAccountIpc(broadcast: (channel: string, state: AccountState) => void): AccountSession {
@@ -77,12 +77,8 @@ export function registerAccountIpc(broadcast: (channel: string, state: AccountSt
     cloudOrigin: resolveCloudOrigin(),
     fetch: (input, init) => fetch(input, init),
     now: () => Date.now(),
-    sleep,
     store: new AccountStore(join(app.getPath('userData'), 'account.bin'), safeStorage),
-    openExternal: async (url) => {
-      await shell.openExternal(url)
-    },
-    deviceLabel: () => `Solus for Mac — ${hostname().replace(/\.local$/, '')}`,
+    authorizer: loopbackAuthorizer({ openExternal: (url) => shell.openExternal(url) }),
     onStateChange: (state) => broadcast(ACCOUNT_CHANNELS.stateChanged, state),
   })
 
@@ -93,12 +89,11 @@ export function registerAccountIpc(broadcast: (channel: string, state: AccountSt
   ipcMain.handle(ACCOUNT_CHANNELS.retryVerify, () => session.verify('retry'))
   // Personal Uplink on the account's behalf; the renderer gets answers, never the token.
   ipcMain.handle(ACCOUNT_CHANNELS.uplinkDirectory, () => listDirectory(session))
-  ipcMain.handle(ACCOUNT_CHANNELS.uplinkAccessToken, (_event, rawHostId, rawOrganizationId, rawOptions) => {
-    const hostId = hostIdSchema.safeParse(rawHostId)
-    const organizationId = organizationIdSchema.optional().safeParse(rawOrganizationId)
+  ipcMain.handle(ACCOUNT_CHANNELS.accountAccessToken, (_event, rawResource, rawOptions) => {
+    const resource = connectionTokenResourceSchema.safeParse(rawResource)
     const options = z.object({ fresh: z.boolean().optional() }).strict().optional().safeParse(rawOptions)
-    if (!hostId.success || !organizationId.success || !options.success) return null
-    return session.acquireHostAccessToken(hostId.data, organizationId.data, options.data)
+    if (!resource.success || !options.success) return null
+    return session.accessToken(resource.data, options.data)
   })
   ipcMain.handle(ACCOUNT_CHANNELS.uplinkStartManagedHost, (_event, rawHostId) => {
     const hostId = hostIdSchema.safeParse(rawHostId)
@@ -118,6 +113,27 @@ export function registerAccountIpc(broadcast: (channel: string, state: AccountSt
     return request.success ? settings.accountSettingsPatch(request.data) : INVALID_REQUEST
   })
   ipcMain.handle(ACCOUNT_CHANNELS.accountSettingsDelete, () => settings.accountSettingsDelete())
+  // The agent profile document (plans/020-agent-profile.md §3): the same three narrow calls.
+  const agentProfile = desktopAgentProfileRequests(session)
+  ipcMain.handle(ACCOUNT_CHANNELS.accountAgentProfileGet, () => agentProfile.accountAgentProfileGet())
+  ipcMain.handle(ACCOUNT_CHANNELS.accountAgentProfilePatch, (_event, rawRequest) => {
+    const request = accountAgentProfilePatchRequestSchema.safeParse(rawRequest)
+    return request.success ? agentProfile.accountAgentProfilePatch(request.data) : INVALID_REQUEST
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.accountAgentProfileDelete, () => agentProfile.accountAgentProfileDelete())
+  ipcMain.handle(ACCOUNT_CHANNELS.accountAgentProfileConnections, () => agentProfile.accountAgentProfileConnections())
+  ipcMain.handle(ACCOUNT_CHANNELS.accountAgentProfileConnectStart, (_event, rawRequest) => {
+    const request = profileConnectStartRequestSchema.safeParse(rawRequest)
+    return request.success ? agentProfile.accountAgentProfileConnectStart(request.data) : INVALID_REQUEST
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.accountAgentProfileConnectKey, (_event, rawRequest) => {
+    const request = profileConnectKeyRequestSchema.safeParse(rawRequest)
+    return request.success ? agentProfile.accountAgentProfileConnectKey(request.data) : INVALID_REQUEST
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.accountAgentProfileDisconnect, (_event, rawRequest) => {
+    const request = profileDisconnectRequestSchema.safeParse(rawRequest)
+    return request.success ? agentProfile.accountAgentProfileDisconnect(request.data) : INVALID_REQUEST
+  })
   ipcMain.handle(ACCOUNT_CHANNELS.organizationSettingsGet, (_event, rawOrganizationId) => {
     const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
     return organizationId.success ? settings.organizationSettingsGet(organizationId.data) : INVALID_REQUEST

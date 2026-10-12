@@ -63,6 +63,8 @@ import { WorktreeOfferCard } from "./WorktreeOfferCard";
 import { useTranscriptItem } from "./use-transcript-items";
 import { CompactionDivider, SessionOriginDivider } from "./thread-context-divider";
 import type { SessionOrigin } from "@solus/contracts/types";
+import { solusAgentToolName } from "@solus/contracts/agent-tools";
+import { ToolResultImages } from "./ToolResultImages";
 
 const TURN_FOLD_HEIGHT = 42; // min-h-11 (38.5) + mb-1 (3.5), with the mobile 14px rem
 // Let neighboring rows move out of the new rows' space before showing their text.
@@ -298,6 +300,32 @@ const WorktreeOfferRow = memo(function WorktreeOfferRow(props: { readonly store:
   return <WorktreeOfferCard store={props.store} offer={item} />;
 });
 
+/** The screen a device_screenshot call returned. Until it has one (running,
+ *  or failed) it is the call's own work-log line. */
+const DeviceSnapshotRow = memo(function DeviceSnapshotRow(props: { readonly id: string; readonly context: FeedRowContext }) {
+  const { context } = props;
+  const item = useTranscriptItem(context.store, props.id);
+  if (item?.kind !== "tool") return null;
+  if (item.images?.length) {
+    return <ToolResultImages images={item.images} label="Device screenshot" store={context.store} />;
+  }
+  return (
+    <ThreadWorkLog
+      store={context.store}
+      toolIds={[props.id]}
+      continuesWorkLog={false}
+      anchorKey={props.id}
+      copiedRowId={context.copiedRowId}
+      expandedRows={context.expandedWorkRows}
+      rowSizing={context.workRowSizing}
+      iconSubtleColor={context.iconSubtleColor}
+      edgeFadeColor={context.screenColor}
+      onCopyRow={context.onCopyWorkRow}
+      onToggleRow={context.onToggleWorkRow}
+    />
+  );
+});
+
 function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
   if (row.type === "run-fold") {
     return (
@@ -377,6 +405,10 @@ function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
 
   if (row.type === "worktree-offer") {
     return <WorktreeOfferRow store={context.store} id={row.id} />;
+  }
+
+  if (row.type === "device-snapshot") {
+    return <DeviceSnapshotRow id={row.id} context={context} />;
   }
 
   if (row.type === "agents") {
@@ -524,7 +556,14 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         const item = store.item(id);
         if (!item) return [];
         // A provider subagent's call is an agent in the feed, not a tool row.
-        const kind = item.kind === "tool" && item.subagent ? "agent" : item.kind;
+        // A device screenshot is a picture in the feed. Both are known from the
+        // call's name, which never changes for an id.
+        const kind =
+          item.kind === "tool" && item.subagent
+            ? "agent"
+            : item.kind === "tool" && solusAgentToolName(item.toolName) === "device_screenshot"
+              ? "device_snapshot"
+              : item.kind;
         return [{ id, kind, ...(item.kind === "notice" ? { tone: item.tone } : {}) }];
       }),
     [order, store],

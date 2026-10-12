@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { formatRunElapsed, readRunLog } from '@solus/workspace-ui/components/devices/lib/run-log'
+import { formatRunElapsed, readRunLog } from '@solus/client-core/device-run-log'
 
 /**
  * The build log shows steps a person reads, not the compiler commands Xcode

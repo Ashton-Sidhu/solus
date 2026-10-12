@@ -62,7 +62,7 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
   import { useComposerFold } from "./lib/composer-fold.svelte";
-  import { canDriveSession, VIEW_ONLY_REASON } from "../../contexts/sharing/session-drive";
+  import { canDriveSession, VIEW_ONLY_REASON } from "../../contexts/sharing/resource-roles";
 
   import type { Snippet } from "svelte";
 

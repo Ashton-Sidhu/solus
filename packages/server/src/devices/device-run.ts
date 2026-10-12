@@ -20,6 +20,7 @@ import { DeviceDomainError, deviceErrorDetail } from './device-errors'
 import type { DeviceManager } from './device-manager'
 import { deviceHostEnvironment, findAndroidSdk } from './device-platform-probe'
 import { runDeviceCommand, type DeviceCommandRunner } from './device-process'
+import { explainSigningFailure } from './device-signing'
 
 const log = createLogger('devices', 'device-run.ts')
 
@@ -238,7 +239,7 @@ export class DeviceRuns {
     try {
       const code = await this.build(record, profile, cwd)
       if (record.cancelled) return this.finish(record, 'cancelled', null)
-      if (code !== 0) return this.finish(record, 'failed', `The build failed (exit ${code}). Open the log to see why.`)
+      if (code !== 0) return this.finish(record, 'failed', explainSigningFailure(record.log) ?? `The build failed (exit ${code}). Open the log to see why.`)
 
       const artifact = await findArtifact(cwd, profile.artifact)
       if (!artifact) return this.finish(record, 'failed', `The build finished, but nothing matches ${profile.artifact} in ${profile.cwd}. Check the profile's output path.`)

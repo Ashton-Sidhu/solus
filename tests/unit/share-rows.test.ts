@@ -2,10 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import { userKey } from '@solus/contracts/user'
 import { organizationPeople } from '@solus/workspace-ui/components/users/lib/organization-people'
 import type { ShareList } from '@solus/contracts/sharing'
-import type { SavedServerUplink } from '@solus/client-core/server-registry'
 import {
   scopeRequestFor,
-  guestLinkContext,
+  hostLinkContext,
   linkPresentation,
   ownerLabel,
   personCandidates,
@@ -13,7 +12,7 @@ import {
   scopeOf,
   scopeOptions,
   shareSummary,
-  sharedWithMembers,
+  linkToCopy,
   withPersonRole,
   withoutPerson,
 } from '../../packages/workspace-ui/src/components/sharing/lib/share-rows'
@@ -71,6 +70,20 @@ describe('scope', () => {
     expect(scopeOptions(base, null, null, 'you').map((option) => option.key)).toEqual(['private', 'link'])
     // The host named the organization though the directory has not loaded: the row is still offered.
     expect(scopeOptions(base, null, 'org1', 'you').map((option) => option.key)).toEqual(['private', 'organization:org1', 'link'])
+  })
+
+  test('on a host members cannot reach, the team and organization rows are shown but not to be chosen', () => {
+    // WHY (host-sharing.md §4.3): a member arrives through the cloud app with a host
+    // access token, which needs the host linked. Offering the organization on an
+    // unlinked host moved the record into an organization nobody could open.
+    const rows = scopeOptions(base, directory, null, 'you', { membersReachable: false })
+    expect(rows.map((option) => [option.key, option.unavailable ?? null])).toEqual([
+      ['private', null],
+      ['team:team-a', 'Link this computer so members can reach it'],
+      ['organization:org1', 'Link this computer so members can reach it'],
+      ['link', null],
+    ])
+    expect(scopeOptions(base, directory, null, 'you').every((option) => !option.unavailable)).toBe(true)
   })
 
   test('a current scope the directory cannot name is still offered, so the choice is never empty', () => {
@@ -168,70 +181,50 @@ describe('people named on the list', () => {
 })
 
 describe('the guest link', () => {
-  test('the host is the authority on whether a guest link can be built', () => {
-    // WHY: the desktop's own host is never in the saved-server registry, so a
-    // registry-only rule told a linked host it was not in Solus cloud and showed a
-    // bare secret instead of a link.
-    const linked = {
-      linked: true as const,
-      link: {
-        hostId: 'abcdefghijklmnop',
-        directoryUrl: 'https://app.solus.sh',
-        hostname: 'h-abcdefghijklmnop.solus.sh',
-        issuer: 'https://app.solus.sh',
-        jwksUrl: 'https://app.solus.sh/api/auth/jwks',
-        proxiedPort: 34118,
-        connectionGeneration: 1,
-      },
-      state: { observed: 'online' as const },
-    }
-    expect(guestLinkContext(linked, undefined)).toEqual({ kind: 'linked', hostId: 'abcdefghijklmnop', directoryUrl: 'https://app.solus.sh' })
-    // An older host that cannot answer: the saved directory row still names it.
-    expect(guestLinkContext(undefined, { hostId: 'h2', directoryUrl: 'https://app.solus.sh' })).toEqual({ kind: 'linked', hostId: 'h2', directoryUrl: 'https://app.solus.sh' })
-    expect(guestLinkContext({ linked: false }, undefined)).toEqual({ kind: 'unlinked' })
-    // Until the host answers, the dialog must not claim the host is unlinked.
-    expect(guestLinkContext(undefined, undefined)).toEqual({ kind: 'checking' })
-  })
-
-  test('a saved directory entry keeps the context linked whatever host kind it carries', () => {
-    // WHY: the registry's uplink record is the saved row, and it names the host kind
-    // under `kind`. The workspace service has no link record of its own, so its
-    // answer is always "unlinked" and its directory entry is what proves it can
-    // share; a spread of a row once turned the context's kind into the host kind,
-    // and every Share control on the organization's pages hid behind `canShareFrom`.
-    const workspaceEntry: SavedServerUplink = { hostId: 'workspace:org-1', directoryUrl: 'https://app.solus.sh', organizationIds: ['org-1'] }
-    expect(guestLinkContext({ linked: false }, workspaceEntry)).toEqual({ kind: 'linked', hostId: 'workspace:org-1', directoryUrl: 'https://app.solus.sh' })
-    const personalRow: SavedServerUplink = { hostId: 'abcdefghijklmnop', directoryUrl: 'https://app.solus.sh', kind: 'personal' }
-    expect(guestLinkContext(undefined, personalRow).kind).toBe('linked')
+  test('the host is the authority on where its link opens', () => {
+    // WHY: docs/plans/host-sharing.md §2 — the host says where a resource's link
+    // opens: the account origin for a mirrored session, else its own route. Until it
+    // answers, the dialog must not claim there is no link, and a host nobody can reach
+    // gets no link at all rather than one nobody can open.
+    expect(hostLinkContext('https://h-abc.solus.sh')).toEqual({ kind: 'origin', origin: 'https://h-abc.solus.sh' })
+    expect(hostLinkContext('http://192.168.1.42:7777')).toEqual({ kind: 'origin', origin: 'http://192.168.1.42:7777' })
+    expect(hostLinkContext(null)).toEqual({ kind: 'unreachable' })
+    expect(hostLinkContext(undefined)).toEqual({ kind: 'checking' })
   })
 
   test('the link is always at hand for whoever may share, and only a fact for a viewer', () => {
     // WHY: a share control is only useful when the link can be copied any time, not
     // once at creation; a viewer must never be handed the secret through the list.
-    const linked = { kind: 'linked' as const, hostId: 'abcdefghijklmnop', directoryUrl: 'https://app.solus.sh' }
-    expect(linkPresentation({ role: 'viewer', secret: 's3' }, linked, true, { kind: 'work', id: 'w1' })).toEqual({ kind: 'url', url: 'https://app.solus.sh/w/w1#s3' })
-    expect(linkPresentation({ role: 'viewer', secret: 's3' }, { kind: 'unlinked' }, true)).toEqual({ kind: 'secret', secret: 's3' })
+    const onHost = { kind: 'origin' as const, origin: 'http://192.168.1.42:7777' }
+    expect(linkPresentation({ role: 'viewer', secret: 's3' }, onHost, true, { kind: 'work', id: 'w1' })).toEqual({ kind: 'url', url: 'http://192.168.1.42:7777/w/w1#s3' })
+    expect(linkPresentation({ role: 'viewer', secret: 's3' }, { kind: 'unreachable' }, true)).toEqual({ kind: 'unreachable' })
     expect(linkPresentation({ role: 'viewer', secret: 's3' }, { kind: 'checking' }, true)).toEqual({ kind: 'checking' })
-    expect(linkPresentation({ role: 'viewer' }, linked, true)).toEqual({ kind: 'unavailable' })
-    expect(linkPresentation({ role: 'viewer' }, linked, false)).toEqual({ kind: 'hidden' })
-    expect(linkPresentation(null, linked, true)).toBeNull()
+    expect(linkPresentation({ role: 'viewer' }, onHost, true)).toEqual({ kind: 'unavailable' })
+    expect(linkPresentation({ role: 'viewer' }, onHost, false)).toEqual({ kind: 'hidden' })
+    expect(linkPresentation(null, onHost, true)).toBeNull()
   })
 })
 
 describe('the member link', () => {
   const grant = (subject: ShareList['grants'][number]['subject']) => ({ subject, role: 'viewer' as const, grantedByUserId: 'alice', createdAt: 1 })
 
-  test('a resource shared only with members copies their link, never a guest link', () => {
-    // WHY: a guest link asks every visitor who they are. People who were given
-    // access by name, team, or organization are signed in to Solus and must open
-    // the resource as themselves.
-    expect(sharedWithMembers({ ...base, grants: [grant({ kind: 'organization', id: 'org1' })] })).toBe(true)
-    expect(sharedWithMembers({ ...base, grants: [grant({ kind: 'team', id: 'team-a' })] })).toBe(true)
-    expect(sharedWithMembers({ ...base, grants: [grant({ kind: 'user', id: 'bob' })] })).toBe(true)
-    // The link is for people outside: it stays the guest link.
-    expect(sharedWithMembers({ ...base, link: { role: 'viewer', secret: 's3' }, grants: [grant({ kind: 'user', id: 'bob' })] })).toBe(false)
-    // Nobody else has access: Copy link still opens it to anyone with the link.
-    expect(sharedWithMembers(base)).toBe(false)
+  test('Copy link copies the link of the scope the list has, and never widens it', () => {
+    // WHY: copying must not change who can open the resource; only the access
+    // choice does, as in a shared document. A list without a link copies the
+    // member link, whatever its scope, so only people with access get in.
+    const member = 'https://app.solus.sh/work/w1'
+    const guest = { kind: 'url' as const, url: 'https://app.solus.sh/w/w1#secret' }
+    expect(linkToCopy({ ...base, grants: [grant({ kind: 'organization', id: 'org1' })] }, null, member)).toEqual({ kind: 'member', text: member })
+    expect(linkToCopy({ ...base, grants: [grant({ kind: 'user', id: 'bob' })] }, null, member)).toEqual({ kind: 'member', text: member })
+    expect(linkToCopy(base, null, member)).toEqual({ kind: 'member', text: member })
+    // The link scope copies the guest link, never the member link.
+    const withLink: ShareList = { ...base, link: { role: 'viewer', secret: 'secret' } }
+    expect(linkToCopy(withLink, guest, member)).toEqual({ kind: 'guest', text: guest.url })
+    // A host that offers no route has no guest link to copy, and the member link is not a stand-in for it.
+    expect(linkToCopy(withLink, { kind: 'unreachable' }, member)).toBeNull()
+    // Nothing to copy is nothing: no fallback to a wider link.
+    expect(linkToCopy(withLink, { kind: 'unavailable' }, member)).toBeNull()
+    expect(linkToCopy(base, null, null)).toBeNull()
   })
 
   test('the member link opens the resource as a page of the app, with no secret', () => {

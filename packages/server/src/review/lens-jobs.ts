@@ -1,7 +1,6 @@
 import { reviewedSessionId } from './review-target'
 import type {
   ReviewContext,
-  ReviewLedger,
   ReviewLens,
   ReviewLensAddress,
   ReviewLensChangedEvent,
@@ -22,7 +21,7 @@ import { createLogger } from '../logger'
 import { providerForRepo } from '../providers/registry'
 import { prIndex } from '../prs/pr-index'
 import { resolvedGuideHead, resolveTarget, resolveTargetBase, type GuideTarget } from './guide-producer'
-import { readLedgerByKey, resolveReviewContext, reviewCheckout } from './ledger'
+import { resolveReviewContext, reviewCheckout } from './review-context'
 import { runLensAgent, type LensAgentInput } from './lens-agent'
 import { contextPreferences } from '../execution/agents/run-input'
 import {
@@ -61,7 +60,6 @@ export interface ReviewLensJobDependencies {
   locate: (ctx: IpcContext, target: ReviewTarget) => Promise<LocatedLens | null>
   resolveChange: (ctx: IpcContext, target: ReviewTarget) => Promise<ResolvedLensChange>
   isOutdated: (ctx: IpcContext, target: ReviewTarget, lens: ReviewLens) => Promise<boolean>
-  readLedger: (resolved: ResolvedLensChange) => Promise<ReviewLedger | null>
   runAgent: (input: LensAgentInput) => Promise<LensDraft | null>
   read: (address: ReviewLensAddress) => Promise<ReviewLensRecord | null>
   write: (address: ReviewLensAddress, record: ReviewLensRecord, canCommit?: () => boolean) => Promise<boolean>
@@ -108,14 +106,6 @@ async function isOutdated(ctx: IpcContext, target: ReviewTarget, lens: ReviewLen
   return change.changeFingerprint !== lens.changeFingerprint
 }
 
-async function readLedger({ review, change }: ResolvedLensChange): Promise<ReviewLedger | null> {
-  const ledger = await readLedgerByKey(review.repoRoot, review.key)
-  // The branch ledger is shared; a session lens reads that session's records.
-  return change.sessionId && ledger
-    ? { ...ledger, records: ledger.records.filter((record) => record.sessionId === change.sessionId) }
-    : ledger
-}
-
 function pullRequestFor(target: PrGuideTarget) {
   const provider = providerForRepo(target)
   if (!provider) throw new Error(`PR review is not supported for ${target.host} yet.`)
@@ -147,7 +137,6 @@ function defaultDependencies(dispatcher: AgentDispatcher): ReviewLensJobDependen
     locate,
     resolveChange,
     isOutdated,
-    readLedger,
     runAgent: (input) => runLensAgent(dispatcher, input),
     read: readLensRecord,
     write: writeLensRecord,
@@ -404,7 +393,6 @@ export class ReviewLensJobs {
         base: change.base,
         head: change.head,
         inlineDiff: change.patch.length <= MAX_INLINE_DIFF_CHARS ? change.patch : null,
-        ledger: await this.deps.readLedger(resolved),
         prompt: runPlan.source.prompt,
         edit: runPlan.edit,
         agent,

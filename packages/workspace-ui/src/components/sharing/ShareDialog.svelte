@@ -5,10 +5,12 @@
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import BottomSheet from "../ui/bottom-sheet/bottom-sheet.svelte";
-  import { runtime, sharesStore } from "../../contexts";
+  import { accountStore, runtime, serversStore, sharesStore } from "../../contexts";
+  import { uplinkStore } from "../../contexts/connections/uplink.store.svelte";
+  import { isSolusApiId } from "@solus/contracts/uplink";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { linkPresentation, ownerLabel, personCandidates, personRows, scopeKey, scopeOf, scopeOptions, sharedWithMembers, type PersonRow, type ScopeOption } from "./lib/share-rows";
+  import { linkPresentation, ownerLabel, personCandidates, personRows, scopeKey, scopeOf, scopeOptions, linkToCopy, type PersonRow, type ScopeOption } from "./lib/share-rows";
   import { publishProblemMessage } from "./lib/publish-copy";
   import { userKey } from "@solus/contracts/user";
   import UserAvatar from "../users/UserAvatar.svelte";
@@ -52,9 +54,11 @@
 
   const people = $derived(list ? personRows(list, directory, identity?.user ?? null) : []);
   const candidates = $derived(list && canShare ? personCandidates(list, directory, query) : []);
-  const canInvite = $derived(!!directory && directory.members.length > 1);
+  /** A member reaches a host through the cloud app, which needs the host linked; the Solus API is reached as itself. Assumed until the host answers. */
+  const membersReachable = $derived(!target || isSolusApiId(target.serverId) || uplinkStore.statusFor(target.serverId)?.linked !== false);
+  const canInvite = $derived(!!directory && directory.members.length > 1 && membersReachable);
 
-  const options = $derived(list ? scopeOptions(list, directory, identity?.organizationId ?? null, ownerLabel(list, directory)) : []);
+  const options = $derived(list ? scopeOptions(list, directory, serversStore.activeOrganizationId, ownerLabel(list, directory), { membersReachable }) : []);
   const selectedKey = $derived(list ? scopeKey(scopeOf(list)) : "private");
   const selected = $derived(options.find((option) => option.key === selectedKey) ?? options[0]);
   const consentSentence = $derived(
@@ -71,7 +75,7 @@
 
   /** The general-access choice, or a role on it: either way the option becomes the scope, with that role. */
   async function chooseScope(option: ScopeOption, role?: ShareRole): Promise<void> {
-    if (!target || !list || !canShare) return;
+    if (!target || !list || !canShare || option.unavailable) return;
     copied = false;
     const scope = role && option.scope.kind !== "private" ? { ...option.scope, role } : option.scope;
     await sharesStore.setScope(target.serverId, list, scope);
@@ -97,32 +101,21 @@
   // Only a work has comments and review decisions, so only a work offers a commenter.
   const roleChoices = $derived<readonly ShareRole[]>(target?.resource.kind === "work" ? ["viewer", "commenter", "editor"] : ["viewer", "editor"]);
 
-  const linkContext = $derived(target ? sharesStore.linkContext(target.serverId) : null);
+  const linkContext = $derived(target ? sharesStore.linkContext(target.serverId, target.resource) : null);
   /** The link as the host now holds it: always at hand for whoever may share. */
   const link = $derived(list && linkContext ? linkPresentation(list.link, linkContext, canShare, list.resource) : null);
-  /** Shared with members only: the app's address, which each opens with their own sign-in. */
-  const memberLink = $derived(target && list && sharedWithMembers(list) ? sharesStore.memberLinkUrl(target.serverId, target.resource) : null);
-  const copyText = $derived(memberLink ?? (link?.kind === "url" ? link.url : link?.kind === "secret" ? link.secret : null));
-  /** Copy is one click on every open. With no link yet it widens the scope to the
-   *  link first, so the dialog never sends the person to a choice before the verb. */
-  const canCopy = $derived(canShare && !sharesStore.busy && link?.kind !== "checking" && link?.kind !== "unavailable");
+  /** The app's address, which each person opens with their own sign-in. */
+  const memberLink = $derived(target ? sharesStore.memberLinkUrl(target.serverId, target.resource) : null);
+  /** Copy copies the current scope's link; only the access choice changes who can open it. */
+  const copyTarget = $derived(list ? linkToCopy(list, link, memberLink) : null);
+  const canCopy = $derived(canShare && !sharesStore.busy && !!copyTarget);
 
   async function copyLink(): Promise<void> {
-    if (!target || !list || !canCopy) return;
-    let text = copyText;
-    let widened = false;
-    if (!text) {
-      await sharesStore.setScope(target.serverId, list, { kind: "link", role: "viewer" });
-      const now = sharesStore.listFor(target.serverId, target.resource);
-      const fresh = now && linkContext ? linkPresentation(now.link, linkContext, true, now.resource) : null;
-      text = fresh?.kind === "url" ? fresh.url : fresh?.kind === "secret" ? fresh.secret : null;
-      if (!text) return;
-      widened = true;
-    }
+    if (!copyTarget || !canCopy) return;
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(copyTarget.text);
       copied = true;
-      toasts.success(widened ? "Link copied · anyone with it can view" : memberLink ? "Link copied · only people with access can open it" : "Link copied");
+      toasts.success(copyTarget.kind === "guest" ? "Link copied · anyone with it can open it" : "Link copied · only people with access can open it");
     } catch {
       toasts.error("Couldn't copy the link");
     }
@@ -247,11 +240,11 @@
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Content align="start" class="w-auto min-w-72 p-1.5" portalProps={menuPortal}>
                   {#each options as option (option.key)}
-                    <DropdownMenu.Item onSelect={() => void chooseScope(option)} class="h-auto gap-3 py-2" data-testid="share-scope-option" data-scope={option.key}>
+                    <DropdownMenu.Item onSelect={(event) => { if (option.unavailable) event.preventDefault(); else void chooseScope(option); }} aria-disabled={option.unavailable ? true : undefined} title={option.unavailable} class="h-auto gap-3 py-2 {option.unavailable ? 'opacity-50' : ''}" data-testid="share-scope-option" data-scope={option.key} data-unavailable={option.unavailable ? "true" : undefined}>
                       {@render scopeIcon(option)}
                       <span class="flex min-w-0 flex-1 flex-col gap-0.5 leading-tight">
                         <span class="truncate">{option.name}</span>
-                        <span class="truncate text-[0.875em] text-muted-foreground">{option.detail}</span>
+                        <span class="truncate text-[0.875em] text-muted-foreground">{option.unavailable ?? option.detail}</span>
                       </span>
                       {#if option.key === selected.key}<CheckIcon />{/if}
                     </DropdownMenu.Item>
@@ -274,8 +267,11 @@
       {#if consentSentence}
         <p class="text-pretty text-[0.875em] text-muted-foreground" data-testid="share-consent">{consentSentence}</p>
       {/if}
-      {#if link?.kind === "secret"}
-        <p class="text-pretty text-[0.875em] text-muted-foreground">Copy link copies the bare secret. Link this host under Connections to get a link.</p>
+      {#if canShare && !accountStore.isSignedIn}
+        <p class="text-pretty text-[0.875em] text-muted-foreground" data-testid="share-sign-in">Sign in to share with people, a team, or your organization.</p>
+      {/if}
+      {#if link?.kind === "unreachable"}
+        <p class="text-pretty text-[0.875em] text-muted-foreground" data-testid="share-unreachable">Nobody can reach this computer for a link. Allow connections from your network, or link this computer, under Connections.</p>
       {:else if link?.kind === "unavailable"}
         <p class="text-pretty text-[0.875em] text-muted-foreground">This old link cannot be copied. Choose another access, then the link again, to get a new one.</p>
       {/if}
@@ -316,7 +312,7 @@
       <span></span>
     {/if}
   {:else if canShare}
-    <Button variant="outline" class="h-10 gap-2 rounded-full px-4 text-workspace-chrome" onclick={copyLink} disabled={!canCopy} data-testid="share-copy-link" data-link={copyText ?? undefined}>
+    <Button variant="outline" class="h-10 gap-2 rounded-full px-4 text-workspace-chrome" onclick={copyLink} disabled={!canCopy} data-testid="share-copy-link" data-link={copyTarget?.text ?? undefined}>
       {#if copied}<CheckIcon />{:else}<LinkIcon />{/if}
       {copied ? "Copied" : "Copy link"}
     </Button>

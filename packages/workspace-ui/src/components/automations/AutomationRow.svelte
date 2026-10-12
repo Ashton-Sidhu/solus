@@ -12,6 +12,7 @@
   import type { Automation, AutomationRunPoint } from "@solus/contracts/types";
   import { compactRelativeTime } from "../ui/list-page";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
+  import { groupKeyFor } from "../../contexts";
   import AutomationRunChart from "./AutomationRunChart.svelte";
   import { triggerSummary } from "./lib/automation-format";
 
@@ -131,7 +132,7 @@
       class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
       title="Project: {projectLabel}"
     >
-      <ProjectFavicon {serverId} projectRoot={projectPath} class="size-3 shrink-0" />
+      <ProjectFavicon projectKey={groupKeyFor(serverId ?? "", projectPath)} class="size-3 shrink-0" />
       <span class="truncate">{projectLabel}</span>
     </span>
 

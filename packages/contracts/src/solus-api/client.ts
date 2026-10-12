@@ -12,6 +12,8 @@ export interface SolusApiClientOptions {
   baseUrl(): string
   contextKey(): string
   acquireSource(): Promise<string | null>
+  /** The organization the credential is for. A source token that lists several organizations admits only the one named. */
+  organizationId?(): string | null
   shareSecret?: string
   /** What the credential may do; a client, the default set; an execution host's agent run, its run's operations. */
   scopes?: SolusApiScope[]
@@ -40,6 +42,8 @@ export class SolusApiClient {
       this.assertContext(key)
       if (!source) throw new WorkspaceRequestError(401, 'UNAUTHENTICATED', 'Sign in or pair with this host.')
       const request: z.input<typeof solusApiOperations.exchangeCredential.body> = { scopes: this.options.scopes ?? ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'insights:read'], shareSecret: this.options.shareSecret }
+      const organizationId = this.options.organizationId?.()
+      if (organizationId) request.organizationId = organizationId
       const response = await (this.options.fetchImpl ?? fetch)(new URL('/v1/auth/session', this.options.baseUrl()), {
         method: 'POST', headers: { Authorization: 'Bearer ' + source, 'Content-Type': 'application/json' },
         body: JSON.stringify(request),

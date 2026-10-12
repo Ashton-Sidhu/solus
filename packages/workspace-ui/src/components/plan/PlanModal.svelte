@@ -28,7 +28,7 @@
   import WorkPublishMenu from "../work/WorkPublishMenu.svelte";
   import { setCommentViewer } from "../comments/lib/comment-viewer";
   import { SINGLE_READER } from "../comments/lib/thread";
-  import { canDriveSession } from "../../contexts/sharing/session-drive";
+  import { canDriveSession } from "../../contexts/sharing/resource-roles";
 
   const commentExtensions = [CommentHighlights];
 

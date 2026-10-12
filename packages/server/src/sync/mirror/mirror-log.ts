@@ -20,7 +20,7 @@ const log = createLogger('main', 'mirror-log')
  * machine; the log holds only what the Solus API has not confirmed.
  */
 
-export const MIRROR_DOMAINS = ['transcripts', 'insights', 'activity'] as const
+export const MIRROR_DOMAINS = ['transcripts', 'insights', 'activity', 'shares'] as const
 export type MirrorDomain = (typeof MIRROR_DOMAINS)[number]
 export const mirrorDomainSchema = z.enum(MIRROR_DOMAINS)
 

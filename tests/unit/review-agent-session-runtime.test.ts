@@ -45,7 +45,6 @@ describe('review agent control-plane dispatch', () => {
     const result = await runReviewAgent(dispatcher, {
       workTree: '/tmp/project',
       base: 'HEAD',
-      ledger: null,
       context: {
         key: 'review-1',
         branch: 'feature',

@@ -1,3 +1,4 @@
+import { hostActionOf } from '@solus/contracts/permissions'
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import type { Principal } from '@solus/server/admission/principal'
@@ -6,11 +7,9 @@ import { RPC_PLANES } from '@solus/contracts/rpc-planes'
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 let notificationRecipientClients: typeof import('@solus/server/notifications/hub-events').notificationRecipientClients
-let rpcAccessClass: typeof import('@solus/server/admission/access-policy').rpcAccessClass
 
 beforeAll(async () => {
   ;({ notificationRecipientClients } = await import('@solus/server/notifications/hub-events'))
-  ;({ rpcAccessClass } = await import('@solus/server/admission/access-policy'))
 })
 
 // plans/015-notifications-hub.md §3, stage 2: `notifications.changed` reaches only
@@ -45,7 +44,7 @@ describe('notification event audience', () => {
   test('the hub methods are collaboration-plane personal reads, refused to guests', () => {
     for (const method of ['notificationsCapability', 'notificationsList', 'notificationsCount', 'notificationsSetRead', 'notificationsSetArchived'] as const) {
       expect(RPC_PLANES[method]).toBe('collaboration')
-      expect(rpcAccessClass(method)).toBe('host-wide')
+      expect(hostActionOf(method)).toBe('host.use')
     }
   })
 })

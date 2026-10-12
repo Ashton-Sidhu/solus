@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import path, { basename, isAbsolute, relative, sep } from 'node:path'
-import { isRemoteDispatchCheckoutPath, worktreeProjectRoot, type ProjectEntry } from '@solus/contracts/types'
+import { worktreeProjectRoot, type ProjectEntry } from '@solus/contracts/types'
 import { isChat } from '@solus/contracts/chat'
 
 /** A folder as the manifest records it. Its repository is read from Git when
@@ -73,13 +73,10 @@ async function readManifest(): Promise<ManifestProject[]> {
   return rows.map(fromRow)
 }
 
-/** Whether a session in this path belongs to no project: the home placeholder,
- *  a chat, or a delegated remote-dispatch checkout (host-internal, kept out of
- *  the list the same way recents excludes it). */
-/** No folder, a chat, a dispatch clone, or the projects root: the folder that
- *  holds the host's projects and chats is never a project of its own. */
+/** No folder, a chat, or the projects root: the folder that holds the host's
+ *  projects and chats is never a project of its own. */
 function isOutsideProjects(cwd: string): boolean {
-  return !cwd || cwd === '~' || isChat(cwd) || isRemoteDispatchCheckoutPath(cwd)
+  return !cwd || cwd === '~' || isChat(cwd)
     || path.resolve(cwd) === path.resolve(setupProjectsRoot())
 }
 

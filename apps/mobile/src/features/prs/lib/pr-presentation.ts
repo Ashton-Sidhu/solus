@@ -62,6 +62,11 @@ export function prStateTone(pr: Pick<PullRequest, 'state' | 'draft'>): PrStateTo
   return pr.draft ? 'draft' : 'open'
 }
 
+/** `Stack 2/3`, counted from the base; null outside a stack. */
+export function stackLabel(stack: PullRequest['stack']): string | null {
+  return stack ? `Stack ${stack.position}/${stack.size}` : null
+}
+
 export const PR_STATE_LABELS = {
   open: 'Open',
   draft: 'Draft',

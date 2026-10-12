@@ -28,7 +28,9 @@ into each seat (`--copy`), with no links. The member's agent finds the skills
 there, and no other person on the host sees them. The page says "your agents"
 for a member's list. The host owner manages the host's own skills, as before.
 Skills from the member's computer arrive in the same seats through the
-[agent profile](agent-profile.md).
+[agent profile](agent-profile.md): a skill installed from skills.sh travels as
+a reference and is installed here with the same CLI, into the member's seats;
+a hand-written skill travels as its files.
 
 Desktop, web, and mobile use the same Settings component and host-addressed RPC
 methods (`skillsList`, `skillsRemove`, `skillsSearch`, and `skillsInstall`). The

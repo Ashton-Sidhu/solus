@@ -1,5 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/components/FilePreview.tsx and FilePreviewModal.types.ts (MIT, see UPSTREAM.md).
 // Images only: T3's document viewer and iOS Quick Look module are not ported.
+import { Platform } from "react-native";
 import ImageViewing from "react-native-image-viewing";
 
 import { MediaImagePreview } from "./MediaImagePreview";
@@ -23,7 +24,8 @@ export function FilePreview(props: {
       imageIndex={0}
       visible
       onRequestClose={props.onRequestClose}
-      swipeToCloseEnabled
+      // On Android, swipe-to-close takes the pinch gesture and blocks zoom.
+      swipeToCloseEnabled={Platform.OS !== "android"}
       doubleTapToZoomEnabled
     />
   );

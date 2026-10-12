@@ -37,7 +37,7 @@
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import { comboHint } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
-  import { canDriveSession } from "../../contexts/sharing/session-drive";
+  import { canDriveSession } from "../../contexts/sharing/resource-roles";
 
   interface Props {
     /** The tab or draft this rail describes — it lives inside that view. The
@@ -358,7 +358,7 @@
         onOpenFiles={openFiles}
       />
     </PanelSection>
-    {#if panelEnvironment.branch}
+    {#if gitCtx}
       <PanelSection
         title="Git"
         collapsed={collapsedSections.git}

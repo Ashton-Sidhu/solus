@@ -2,12 +2,19 @@
 import { StackActions, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMemo } from "react";
-import { Platform, View } from "react-native";
+import { Platform, useWindowDimensions, View } from "react-native";
 
 import type { AppNativeStackNavigationOptions } from "../../native/StackHeader";
 import type { ScreenHeaderAction } from "../../components/ScreenHeader.types";
 import type { RootStackParamList } from "../../navigation/routes";
+import { AppText as Text } from "../../components/AppText";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
+
+// Bar geometry the title view must clear: the Back button on the left, the
+// action group on the right, and the bar's margins.
+const BACK_ITEM_WIDTH = 68;
+const ACTION_GROUP_INSET = 32;
+const HEADER_ACTION_WIDTH = 53;
 
 /**
  * The thread header: title and subtitle, the native back button (a cold
@@ -61,9 +68,30 @@ export function useThreadHeaderOptions(props: {
       <ProjectFavicon environmentId={hostId} size={size} projectTitle={projectTitle} workspaceRoot={faviconRoot} />
     ) : null;
   const subtitle = props.usesNativeHeaderGlass ? props.subtitle : undefined;
+  // UIKit's subtitle is a plain string, so a project thread draws its own
+  // title view to put the favicon beside the project name. It is as wide as
+  // the space between the bar items; UIKit moves it off centre to fit there.
+  const customTitle = Boolean(faviconRoot && subtitle && Platform.OS === "ios");
+  const { width: windowWidth } = useWindowDimensions();
+  const titleWidth =
+    windowWidth - BACK_ITEM_WIDTH - ACTION_GROUP_INSET - actions.length * HEADER_ACTION_WIDTH;
   const options: AppNativeStackNavigationOptions = {
     headerShown: true,
-    headerTitle: props.title,
+    headerTitle: customTitle
+      ? () => (
+          <View style={{ width: Math.max(titleWidth, 120) }} className="items-center">
+            <Text numberOfLines={1} className="text-[17px] font-extrabold text-foreground">
+              {props.title}
+            </Text>
+            <View className="max-w-full flex-row items-center gap-1">
+              {favicon(13)}
+              <Text numberOfLines={1} className="min-w-0 flex-shrink text-[13px] text-foreground-muted">
+                {subtitle}
+              </Text>
+            </View>
+          </View>
+        )
+      : props.title,
     headerTitleStyle: props.usesNativeHeaderGlass
       ? {
           fontSize: 17,
@@ -72,36 +100,16 @@ export function useThreadHeaderOptions(props: {
       : undefined,
     title: props.title,
     headerBackVisible: canGoBack,
-    // Title and subtitle stay UIKit's own strings, as T3's header: the bar
-    // lays them out between its items and truncates them before the action
-    // group on any width. A custom title view keeps its own size and is
-    // centred over the items instead.
-    unstable_headerSubtitle: subtitle,
+    // Without a favicon, title and subtitle stay UIKit's own strings, as T3's
+    // header: the bar lays them out between its items and truncates them
+    // before the action group on any width.
+    unstable_headerSubtitle: customTitle ? undefined : subtitle,
     contentStyle: undefined,
-    // The favicon is a left bar item beside Back, without a glass background.
-    // With Back visible, UIKit keeps both (`leftItemsSupplementBackButton`).
-    ...(faviconRoot && Platform.OS === "ios"
-      ? {
-          unstable_headerLeftItems: () => [
-            {
-              type: "custom" as const,
-              identifier: "thread-project-favicon",
-              hidesSharedBackground: true,
-              element: (
-                // Decorative: the subtitle names the project.
-                <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-                  {favicon(20)}
-                </View>
-              ),
-            },
-          ],
-        }
-      : undefined),
   };
   return {
     options,
-    // The left item is a function whose source never changes: re-apply it when the project does.
-    optionsVersion: [props.title, subtitle, faviconRoot],
+    // The title view is a function whose source never changes: re-apply it when its content does.
+    optionsVersion: [props.title, subtitle, faviconRoot, titleWidth],
     subtitleLeading: favicon(13),
     actions,
     onBack: () => {

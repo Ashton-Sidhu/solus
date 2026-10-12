@@ -1,42 +1,34 @@
-/**
- * The Solus account as the client shell sees it. The desktop main process owns the
- * account session (an encrypted Better Auth session token); the renderer only ever
- * receives this state. Hosts never see any of it.
- */
+import type { AccountIdentity } from './auth/clients'
 
-export interface AccountProfile {
-  id: string
-  email: string
-  name: string | null
-  avatarUrl: string | null
-}
+/**
+ * The Solus account as the client shell sees it
+ * (docs/adr/0001-standard-authentication.md §3.1). The client's `OAuthSession` owns
+ * the sign-in (a refresh token); a renderer only receives this state. Hosts never see
+ * any of it.
+ */
 
 export type AccountInvalidReason = 'revoked' | 'expired' | 'unreachable'
 
 export type AccountState =
   | { kind: 'signed-out' }
-  | {
-      kind: 'signing-in'
-      /** The code the person confirms in the browser, formatted `BCDF-GHJK`. */
-      userCode: string
-      /** The approval page with the code prefilled; opened automatically once. */
-      verificationUrl: string
-      expiresAt: number
-    }
+  /** The browser step runs: the person signs in at `authorizeUrl` in the browser. */
+  | { kind: 'signing-in'; authorizeUrl: string }
   | {
       kind: 'signed-in'
-      profile: AccountProfile
-      /** The account website this session belongs to, where the account and its teams are managed. */
+      /** The OIDC identity, from the ID token and then `/userinfo`. */
+      identity: AccountIdentity
+      /** The account website this sign-in belongs to, where the account and its teams are managed. */
       consoleUrl: string
       signedInAt: number
-      /** When the website last confirmed the session; older than `signedInAt` never. */
-      lastVerifiedAt: number
-      /** True when the last verification could not reach the website. */
+      /** True when the last call to the account website did not get an answer. */
       isStale: boolean
     }
   | { kind: 'invalid'; reason: AccountInvalidReason }
-  /** The OS keychain is unavailable, so a session cannot be stored safely. */
+  /** The OS keychain is unavailable, so a sign-in cannot be stored safely. */
   | { kind: 'unavailable'; reason: 'encryption' }
 
-/** How one device sign-in attempt ended. */
-export type DeviceSignInEnd = 'approved' | 'denied' | 'expired' | 'cancelled' | 'error'
+/** How one sign-in attempt ended. */
+export type SignInEnd = 'approved' | 'denied' | 'cancelled' | 'error'
+
+/** How one device-grant sign-in (the CLI) ended: a code can also expire. */
+export type DeviceSignInEnd = SignInEnd | 'expired'

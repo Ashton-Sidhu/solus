@@ -13,7 +13,7 @@ import type { ExchangeRequest, SessionOutput } from '@solus/contracts/session-ex
  * from history yet (see apps/mobile/README.md).
  */
 
-type ExchangeStatus = 'dispatched' | 'queued' | 'running' | 'awaiting_input' | 'rate_limited' | 'answered' | 'done' | 'failed' | 'interrupted'
+type ExchangeStatus = 'dispatched' | 'queued' | 'running' | 'awaiting_input' | 'rate_limited' | 'waiting_for_children' | 'answered' | 'done' | 'failed' | 'interrupted'
 
 interface Exchange {
   messageId: string

@@ -8,11 +8,12 @@ import {
   integrationProbeRequestSchema,
   integrationSlug,
   integrationUpdateRequestSchema,
+  type Integration,
   type IntegrationAuth,
   type IntegrationOAuthClientInput,
   type IntegrationProbeUndeterminedReason,
 } from '@solus/contracts/integration-types'
-import { organizationForNew, recordScopeOf, type RecordScope } from '../../admission/principal'
+import { isHostAdmin, organizationForNew, personalRecordOwnerOf, recordScopeOf, type Principal, type RecordScope } from '../../admission/principal'
 import type { IntegrationCatalog } from '../../integrations/catalog'
 import type { IntegrationConnectionStore, IntegrationSecrets } from '../../integrations/connection-store'
 import type { IntegrationConnections } from '../../integrations/connections'
@@ -64,10 +65,18 @@ function withOAuthClient(auth: IntegrationAuth, input: IntegrationOAuthClientInp
 }
 
 /**
+ * Who may change a record (plans/020-agent-profile.md §2.1): a personal
+ * integration is its owner's; a shared one is the host administrator's.
+ */
+function mayChange(principal: Principal, integration: Integration): boolean {
+  return integration.ownerUserId !== null ? integration.ownerUserId === personalRecordOwnerOf(principal) : isHostAdmin(principal)
+}
+
+/**
  * Integrations (docs/plans/mcp-integrations.md §12): the remote MCP servers this
- * host knows. Reads take the caller's record scope; a new integration starts in
- * the caller's organization for new records. Every write tells the gateway and
- * sends `integration.changed`.
+ * host knows. Reads take the caller's record scope and include the caller's own
+ * personal records; a new integration starts in the caller's organization for
+ * new records. Every write tells the gateway and sends `integration.changed`.
  */
 export function registerIntegrationHandlers(server: SolusServer, deps: {
   store: IntegrationStore
@@ -83,9 +92,14 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
   getServerInfo(): { host: string; port: number }
 }): void {
   const { store, catalog, gateway, events, connectionStore, connections, oauth, secrets } = deps
-  const requireIntegration = (id: string, scope: RecordScope) => {
-    const integration = store.get(id, scope)
+  const requireIntegration = (id: string, scope: RecordScope, viewer: string | null) => {
+    const integration = store.getVisible(id, scope, viewer)
     if (!integration) throw new Error('That integration is no longer on this host.')
+    return integration
+  }
+  const requireOwn = (id: string, principal: Principal) => {
+    const integration = requireIntegration(id, recordScopeOf(principal), personalRecordOwnerOf(principal))
+    if (!mayChange(principal, integration)) throw new Error(integration.ownerUserId ? 'That integration is not yours to change.' : 'Only the host administrator changes a shared integration.')
     return integration
   }
 
@@ -93,18 +107,22 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
 
   server.register('integrationProbe', (args) => probeMcpServer(integrationProbeRequestSchema.parse(args[0]).url))
 
-  server.register('integrationList', (_args, ctx) => store.list(recordScopeOf(ctx.principal)))
+  server.register('integrationList', (_args, ctx) => store.list(recordScopeOf(ctx.principal), personalRecordOwnerOf(ctx.principal)))
 
-  server.register('integrationGet', (args, ctx) => store.get(integrationIdRequestSchema.parse(args[0]).id, recordScopeOf(ctx.principal)))
+  server.register('integrationGet', (args, ctx) => store.getVisible(integrationIdRequestSchema.parse(args[0]).id, recordScopeOf(ctx.principal), personalRecordOwnerOf(ctx.principal)))
 
   server.register('integrationCreate', async (args, ctx) => {
     const request = integrationCreateRequestSchema.parse(args[0])
+    // A person's own record on a host they do not administer; on their own host every record is the host's.
+    const ownerUserId = request.personal ? personalRecordOwnerOf(ctx.principal) : null
+    if (ownerUserId === null && !isHostAdmin(ctx.principal)) throw new Error('Only the host administrator adds a shared integration.')
     const probe = await probeForWrite(request.url)
     const createdBy = ctx.principal.kind === 'org-member' ? ctx.principal.userId : null
     const integration = store.create(
       { name: request.name, url: request.url, slug: integrationSlug(request.slug ?? request.name), auth: probe.auth },
       organizationForNew(ctx.principal),
       createdBy,
+      ownerUserId,
     )
     void events.broadcast('integration.changed', { integrationId: integration.id, change: 'created' })
     void gateway.warm(integration.id)
@@ -114,7 +132,7 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
   server.register('integrationUpdate', async (args, ctx) => {
     const { id, name, url, oauthClient } = integrationUpdateRequestSchema.parse(args[0])
     const scope = recordScopeOf(ctx.principal)
-    const existing = requireIntegration(id, scope)
+    const existing = requireOwn(id, ctx.principal)
     let auth = url !== undefined && url !== existing.url ? (await probeForWrite(url)).auth : undefined
     if (oauthClient !== undefined) {
       auth = withOAuthClient(auth ?? existing.auth, oauthClient)
@@ -137,7 +155,8 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
   server.register('integrationRemove', (args, ctx) => {
     const { id } = integrationIdRequestSchema.parse(args[0])
     const scope = recordScopeOf(ctx.principal)
-    if (!store.get(id, scope)) return { removed: false }
+    if (!store.getVisible(id, scope, personalRecordOwnerOf(ctx.principal))) return { removed: false }
+    requireOwn(id, ctx.principal)
     gateway.invalidate(id)
     const removed = store.remove(id, scope)
     if (removed) connections.removeAllFor(id)
@@ -147,7 +166,7 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
 
   server.register('integrationTools', (args, ctx) => {
     const { id } = integrationIdRequestSchema.parse(args[0])
-    requireIntegration(id, recordScopeOf(ctx.principal))
+    requireIntegration(id, recordScopeOf(ctx.principal), personalRecordOwnerOf(ctx.principal))
     return gateway.tools(id)
   })
 
@@ -155,7 +174,7 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
 
   server.register('integrationConnectStart', async (args, ctx) => {
     const request = integrationConnectStartRequestSchema.parse(args[0])
-    const integration = requireIntegration(request.id, recordScopeOf(ctx.principal))
+    const integration = requireIntegration(request.id, recordScopeOf(ctx.principal), personalRecordOwnerOf(ctx.principal))
     const user = currentCredentialUserId()
     switch (integration.auth.kind) {
       case 'none':
@@ -174,7 +193,7 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     if (request.flowId !== undefined) {
       await oauth.submitRedirect(request.flowId, request.value)
     } else if (request.id !== undefined) {
-      await connections.submitKey(requireIntegration(request.id, recordScopeOf(ctx.principal)), currentCredentialUserId(), request.value)
+      await connections.submitKey(requireIntegration(request.id, recordScopeOf(ctx.principal), personalRecordOwnerOf(ctx.principal)), currentCredentialUserId(), request.value)
     }
     return { submitted: true as const }
   })
@@ -183,6 +202,6 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
 
   server.register('integrationDisconnect', async (args, ctx) => {
     const { id } = integrationIdRequestSchema.parse(args[0])
-    return { disconnected: await connections.disconnect(requireIntegration(id, recordScopeOf(ctx.principal)), currentCredentialUserId()) }
+    return { disconnected: await connections.disconnect(requireIntegration(id, recordScopeOf(ctx.principal), personalRecordOwnerOf(ctx.principal)), currentCredentialUserId()) }
   })
 }

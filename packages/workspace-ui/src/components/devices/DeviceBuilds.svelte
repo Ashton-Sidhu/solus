@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { Download, Ellipsis, FolderOpen, Smartphone, Trash2 } from "@lucide/svelte";
-  import { isDeviceRunActive, type DeviceBuild, type DeviceState, type DeviceSummary } from "@solus/contracts/device-types";
+  import { Download, Ellipsis, FolderOpen, Smartphone, Trash2, TriangleAlert } from "@lucide/svelte";
+  import { type DeviceBuild, type DeviceState, type DeviceSummary } from "@solus/contracts/device-types";
   import { buildCardSummary, buildDetails, buildDownloadName, buildRunBlocker, deviceBuildTargets, isBuildOutput, shownNewBuild } from "@solus/client-core/device-builds";
   import { isChat } from "@solus/contracts/chat";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -19,7 +19,6 @@
   import DeviceRunProfiles from "./DeviceRunProfiles.svelte";
   import { runDeviceBuild } from "./lib/run-build";
   import { conversationCheckout } from "./lib/device-pane";
-  import { runStageLabel } from "./lib/run-profiles";
 
   /**
    * App builds on this host (plan 016, S02), one row each in a Settings-style
@@ -45,6 +44,10 @@
   /** The host folder browser, open to choose a build output to add. */
   let browsing = $state(false);
   let importing = $state(false);
+  /** Discovery runs again after the user fixes a phone that cannot take builds. */
+  let rechecking = $state(false);
+  /** The phone asked to pair, while it waits for the user to accept on it. */
+  let pairingDeviceId = $state<string | null>(null);
   const now = Date.now();
   const hostLabel = $derived(serversStore.hostFor(serverId)?.label ?? "This computer");
   const isBusy = $derived(installing !== null || deletingBuildId !== null);
@@ -53,6 +56,28 @@
   $effect(() => {
     void devicesStore.refresh(serverId).catch(() => {});
   });
+
+  async function recheckDevices() {
+    rechecking = true;
+    try {
+      await devicesStore.refresh(serverId);
+    } catch (cause) {
+      toasts.error("Couldn't check devices", { description: deviceErrorMessage(cause) });
+    } finally {
+      rechecking = false;
+    }
+  }
+
+  async function pair(device: DeviceSummary) {
+    pairingDeviceId = device.deviceId;
+    try {
+      await devicesStore.pair(serverId, device);
+    } catch (cause) {
+      toasts.error(`Couldn't pair with ${device.name}`, { description: deviceErrorMessage(cause) });
+    } finally {
+      pairingDeviceId = null;
+    }
+  }
 
   function details(build: DeviceBuild) {
     const source = build.sessionId ? session.sessions.byId[build.sessionId] : undefined;
@@ -128,9 +153,9 @@
     void projectsStore.loadProjectsFor(serverId, serverConnections.apiFor(serverId));
   });
   let editingProfiles = $state(false);
+  let newBuildOpen = $state(false);
   /** The New build shown above the list while it runs, or after it failed until dismissed. */
   let dismissedRunId = $state<string | null>(null);
-  let logRunId = $state<string | null>(null);
   const newBuild = $derived.by(() => {
     const run = shownNewBuild(devicesStore.runs(serverId), checkoutPath);
     return run && run.runId !== dismissedRunId ? run : null;
@@ -143,32 +168,15 @@
     <button type="button" class="{PAGE_SECONDARY_BTN} disabled:cursor-not-allowed disabled:opacity-50" disabled={importing} title="Add a build that is already on {hostLabel}" onclick={() => (browsing = true)}>
       <FolderOpen size={14} />{importing ? "Adding…" : "Add existing…"}
     </button>
-    <DeviceNewBuild {serverId} {sessionId} {checkoutPath} {projects} onChooseProject={(path) => { chosenCheckout = path; editingProfiles = false; }} onEditProfiles={() => (editingProfiles = true)} />
+    <DeviceNewBuild {serverId} {sessionId} {checkoutPath} {projects} bind:open={newBuildOpen} onChooseProject={(path) => { chosenCheckout = path; editingProfiles = false; }} onEditProfiles={() => (editingProfiles = true)} />
   </div>
   {#if editingProfiles && checkoutPath}
-    <DeviceRunProfiles {serverId} {checkoutPath} onDone={() => (editingProfiles = false)} />
+    <!-- Saved: the next step is to build one, so New build opens on the saved profiles. -->
+    <DeviceRunProfiles {serverId} {checkoutPath} onDone={() => (editingProfiles = false)} onSaved={() => { editingProfiles = false; newBuildOpen = true; }} />
   {:else}
   {#if newBuild}
-    {@const isActive = isDeviceRunActive(newBuild)}
-    <RowCard>
-      <div class="flex min-w-0 items-center gap-2 py-2.5 pr-2.5 pl-4" role="status" aria-live="polite">
-        <div class="flex min-w-0 flex-1 flex-col">
-          <span class="truncate font-medium {isActive ? 'text-(--solus-text-primary)' : 'text-(--failure)'}">{isActive ? runStageLabel(newBuild) : `${newBuild.profileName} failed`}</span>
-          {#if (isActive ? newBuild.lastLine : newBuild.error)}
-            <span class="truncate text-chrome-dense text-(--solus-text-tertiary)">{isActive ? newBuild.lastLine : newBuild.error}</span>
-          {/if}
-        </div>
-        <Button size="xs" variant="ghost" onclick={() => (logRunId = logRunId === newBuild.runId ? null : newBuild.runId)}>{logRunId === newBuild.runId ? "Hide log" : "Log"}</Button>
-        {#if isActive}
-          <Button size="xs" variant="ghost" onclick={() => void devicesStore.cancelRun(serverId, newBuild.runId).catch((cause: unknown) => toasts.error("Couldn't cancel the build", { description: deviceErrorMessage(cause) }))}>Cancel</Button>
-        {:else}
-          <Button size="xs" variant="ghost" onclick={() => { dismissedRunId = newBuild.runId; logRunId = null; }}>Dismiss</Button>
-        {/if}
-      </div>
-    </RowCard>
-    {#if logRunId === newBuild.runId}
-      <DeviceRunLog {serverId} runId={newBuild.runId} visible onClose={() => (logRunId = null)} />
-    {/if}
+    <!-- The build while it runs, or after it failed: its stage, step, issues and log in one card. -->
+    <DeviceRunLog {serverId} runId={newBuild.runId} visible class="rounded-xl border border-border/50" onClose={() => (dismissedRunId = newBuild.runId)} />
   {/if}
   {#if deviceState.builds.length > 0}
     <!-- One card of rows, as Settings draws it. A row says what the build is
@@ -248,7 +256,15 @@
   {/if}
   {#if installing}<span class="sr-only" role="status" aria-live="polite">Installing on {installing.deviceName}</span>{/if}
   {#each deviceState.devices.filter((device) => device.physical && device.unavailableReason) as device (`${device.deviceHostId}:${device.deviceId}`)}
-    <p class="text-(--solus-text-tertiary)">{device.unavailableReason}</p>
+    <div role="status" class="flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 py-2 pr-2 pl-3 text-(--solus-text-primary)">
+      <TriangleAlert class="size-4 shrink-0 text-amber-600 dark:text-amber-500" aria-hidden="true" />
+      <span class="min-w-0 flex-1">{pairingDeviceId === device.deviceId ? `Unlock ${device.name} and tap Trust.` : device.unavailableReason}</span>
+      {#if device.needsPairing}
+        <Button size="xs" class="shrink-0" disabled={pairingDeviceId !== null} onclick={() => void pair(device)}>{pairingDeviceId === device.deviceId ? "Waiting…" : "Pair"}</Button>
+      {:else}
+        <Button size="xs" variant="outline" class="shrink-0" disabled={rechecking} onclick={() => void recheckDevices()}>{rechecking ? "Checking…" : "Check again"}</Button>
+      {/if}
+    </div>
   {/each}
   {/if}
 </div>

@@ -1,6 +1,6 @@
 import type { FileDiffLoadedFiles, FileDiffMetadata } from "@pierre/diffs";
 import { reviewGuideTargetId } from "@solus/contracts/review";
-import type { ReviewContext, ReviewGuide, ReviewGuideRequestOptions, ReviewLedger, ReviewProgressStep, ReviewTarget } from "@solus/contracts/review";
+import type { ReviewContext, ReviewGuide, ReviewGuideRequestOptions, ReviewProgressStep, ReviewTarget } from "@solus/contracts/review";
 import type { AgentId, DiffScope, IpcContext, ReasoningEffort } from "@solus/contracts/types";
 import { loadDiffFiles as loadScopedDiffFiles } from "../../../lib/diff-file-loader";
 import { requestInputFocus } from "../../../lib/inputFocus";
@@ -64,7 +64,7 @@ function guideRequestOptions(
 }
 
 /**
- * Loads the structured review guide for a key plus its ledger + episode diff, and
+ * Loads the structured review guide for a key plus its episode diff, and
  * hands them to the native GuideView. Prefers the cached guide; generates on
  * first open (or `refresh()`) and streams the producer's phase.
  *
@@ -74,7 +74,6 @@ function guideRequestOptions(
  */
 export class GuideLoader {
   guide = $state<ReviewGuide | null>(null);
-  ledger = $state<ReviewLedger | null>(null);
   diffScope = $state<Extract<DiffScope, { kind: "pr" }> | null>(null);
   // Background generation has its own status. Only an active load owns this flag.
   loading = $state(false);
@@ -151,7 +150,6 @@ export class GuideLoader {
     };
     if (identity !== this.#loadedIdentity) {
       this.guide = null;
-      this.ledger = null;
       this.diffScope = null;
       this.#loadedPatch = "";
       this.#loadedRevision = null;
@@ -185,7 +183,6 @@ export class GuideLoader {
       // Commit content and its comparison together. A failed replacement keeps
       // the previous guide, patch, and outdated warning intact.
       this.guide = guide;
-      this.ledger = comparison.ledger;
       this.diffScope = comparison.diffScope;
       this.#loadedPatch = comparison.patch;
       this.#loadedRevision = comparison.revision;
@@ -205,33 +202,26 @@ export class GuideLoader {
     target: ReviewTarget | undefined,
     current: () => boolean,
   ): Promise<{
-    ledger: ReviewLedger | null;
     revision: { headSha?: string; baseSha?: string } | null;
     diffScope: Extract<DiffScope, { kind: "pr" }> | null;
     patch: string;
   }> {
-    let ledger: ReviewLedger | null = null;
     let revision: { headSha?: string; baseSha?: string } | null = null;
-    if (!guide || guide.sections.length === 0) return { ledger, revision, diffScope: null, patch: "" };
+    if (!guide || guide.sections.length === 0) return { revision, diffScope: null, patch: "" };
     if (target?.kind === "pr") {
       revision = this.currentRevision;
     } else {
-      const hostContext = this.#opts.getResolvedReviewContext?.() ?? null;
-      const [reviewContext, loadedLedger] = await Promise.all([
-        hostContext ?? api.getReviewContext(ctx), api.readLedger(ctx),
-      ]);
-      revision = reviewContext;
-      ledger = loadedLedger;
+      revision = this.#opts.getResolvedReviewContext?.() ?? await api.getReviewContext(ctx);
     }
     const baseSha = guide.baseSha ?? revision?.baseSha;
     const diffScope: Extract<DiffScope, { kind: "pr" }> | null = baseSha ? { kind: "pr", baseSha } : null;
     if (!current() || !diffScope || this.#hostPatchFor(guide, diffScope, revision) != null) {
-      return { ledger, revision, diffScope, patch: "" };
+      return { revision, diffScope, patch: "" };
     }
     const patch = target?.kind === "pr"
       ? await this.#loadPrPatch(api, ctx, target, guide, diffScope.baseSha, current)
       : (await api.diff(ctx, { scope: diffScope }))?.patch ?? "";
-    return { ledger, revision, diffScope, patch };
+    return { revision, diffScope, patch };
   }
 
   async #loadPrPatch(

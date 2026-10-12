@@ -2,6 +2,7 @@ import { writeFile, rename } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
 import type { HostActivityReport, UplinkLinkConfig } from '@solus/contracts/uplink'
 import type { FetchLike } from '../admission/access-tokens'
+import type { HostCredential } from './host-credential'
 import { createLogger } from '../logger'
 import { hostCategory } from './host-category'
 
@@ -58,7 +59,8 @@ export interface ManagedHostActivityDeps {
   /** When a client last reported it was foregrounded (its activity lease). */
   lastForegroundAt: () => number | null
   link:() => UplinkLinkConfig | null
-  hostToken: () => string | null
+  /** The host credential of the current link; its control token authenticates the report. */
+  credential: () => Pick<HostCredential, 'hostAccessToken'> | null
   fetchImpl?: FetchLike
   spriteTask?: SpriteTaskCall
   now?: () => number
@@ -143,13 +145,14 @@ export class ManagedHostActivity {
     const unchanged = this.reported && this.reported.busy === next.busy && this.reported.nextWakeAt === next.nextWakeAt
     if (unchanged && now - this.reportedAt < REPORT_RENEW_MS) return
     const link = this.deps.link()
-    const hostToken = link ? this.deps.hostToken() : null
-    if (!link || !hostToken) return
+    const credential = link ? this.deps.credential() : null
+    if (!link || !credential) return
     const fetchImpl: FetchLike = this.deps.fetchImpl ?? fetch
     try {
+      const token = await credential.hostAccessToken()
       const response = await fetchImpl(`${link.directoryUrl}/v1/hosts/${link.hostId}/activity`, {
         method: 'PUT',
-        headers: { authorization: `Bearer ${hostToken}`, 'content-type': 'application/json' },
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
         body: JSON.stringify(next),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       })

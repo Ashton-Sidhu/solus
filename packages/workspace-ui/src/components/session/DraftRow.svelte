@@ -75,8 +75,7 @@
         <SquarePenIcon size={14} />
       </span>
       <ProjectFavicon
-        projectRoot={row.projectKey}
-        serverId={row.serverId}
+        projectKey={row.groupKey}
         class="size-4 @max-[15rem]:size-[0.875rem] pointer-fine:[&_.lucide-folder]:size-[82%]"
       />
       <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"

@@ -395,7 +395,12 @@ Add to `RPC_INVOKE_METHODS` (`rpc.ts`), with plane `execution` in
 
 - Status and install: `deviceStatus`, `deviceToolsInstall`
 - Devices: `deviceList`, `deviceOpen`, `deviceClose`, `deviceShutdown`,
-  `deviceCreateClone`, `deviceDeleteClone`
+  `deviceCreateClone`, `deviceDeleteClone`, `devicePair` (asks a connected
+  iPhone or iPad to pair with the device host: since iOS 17, tapping Trust on
+  the USB prompt does not pair it for `devicectl`), `deviceSigningTeams` (the
+  Apple teams the host's signing certificates belong to: a phone build is
+  signed by xcodebuild with `DEVELOPMENT_TEAM=<team>` and
+  `-allowProvisioningUpdates`, and the profile editor fills the team in)
 - Control: `deviceAction`, `deviceActions`, `deviceInput`
 - Frames: `deviceSubscribeFrames`, `deviceUnsubscribeFrames`
 - Evidence: `deviceCaptureEvidence`, `deviceRecordingStart`,

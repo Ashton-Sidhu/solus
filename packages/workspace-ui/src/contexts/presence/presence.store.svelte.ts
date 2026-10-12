@@ -7,7 +7,7 @@ import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { followStep, peopleFrom, sameFocus, type FocusReport, type PeopleOptions, type PresencePerson } from '../../components/presence/lib/presence-people'
 import { hostPeopleAcrossHosts, rosterPeople, type RosterPerson } from '../../components/presence/lib/host-people'
 import { sharesStore } from '../sharing/shares.store.svelte'
-import { roleCanDrive } from '../sharing/session-drive'
+import { canDriveSession } from '../sharing/resource-roles'
 import { toasts } from '../../lib/toasts'
 import { notificationsStore } from '../notifications/notifications.store.svelte'
 import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
@@ -239,7 +239,7 @@ class PresenceStore {
   /** The person pressed a key in a session's prompt; the host hears it at most once per repeat interval. */
   noteTyping(serverId: string | null | undefined, sessionId: string | null | undefined): void {
     // A member who may only read the session is not composing in it; the host refuses the report.
-    if (!serverId || !sessionId || !roleCanDrive(sharesStore.listFor(serverId, { kind: 'session', id: sessionId })?.callerRole)) return
+    if (!serverId || !sessionId || !canDriveSession(serverId, sessionId)) return
     const key = sessionKey(serverId, sessionId)
     this.typingRooms.set(key, { serverId, sessionId })
     this.typing.keystroke(key)

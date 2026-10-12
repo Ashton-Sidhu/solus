@@ -10,7 +10,8 @@ export type RootStackParamList = {
   /** T3 Code's new-task sheet; the pickers preselect a host and project. */
   NewTask: { hostId?: string; projectPath?: string } | undefined
   Welcome: undefined
-  PairHost: undefined
+  /** `link` is a pairing link, or a nearby host's address, to check before pairing. */
+  PairHost: { link?: string } | undefined
   CloudSignIn: undefined
   CloudHosts: undefined
   Hosts: undefined
@@ -26,9 +27,12 @@ export type RootStackParamList = {
   BuildFolder: { hostId: string; path?: string }
   NewBuild: { hostId: string; projectPath?: string }
   BuildProfiles: { hostId: string; projectPath: string }
+  BuildLog: { hostId: string; runId: string }
   Settings: undefined
   /** The person's own settings and their sync (plans/018); no host needed. */
   PersonalSettings: undefined
+  /** The person's instructions, skills, and MCP servers, their sync, and their copy on each host (plans/020). */
+  AgentProfile: undefined
   AppearanceSettings: undefined
   AgentDefaults: undefined
   NotificationSettings: undefined

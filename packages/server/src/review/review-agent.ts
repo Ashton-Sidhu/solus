@@ -1,5 +1,5 @@
 import { createLogger } from '../logger'
-import type { ReviewContext, ReviewLedger, ReviewGuideDraft } from '@solus/contracts/review'
+import type { ReviewContext } from '@solus/contracts/review'
 import type { AgentId, ReasoningEffort } from '@solus/contracts/types'
 import type { ReviewProgressStep } from '@solus/contracts/review'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
@@ -7,9 +7,7 @@ import type { TurnSeat } from '../execution/seats/seat-manager'
 import { buildSystemPrompt } from '../execution/agents/system-hint'
 import { instructionsFor } from '../execution/agents/run-input'
 import type { ExecutionPreferences } from '@solus/contracts/settings'
-import {
-  createReviewGuideAgentTool,
-} from './review-guide-tool'
+import { createReviewGuideAgentTool, type SubmittedGuide } from './review-guide-tool'
 import { SPAN_SERVICES } from '../data/insights/registries'
 
 const log = createLogger('review', 'review-agent.ts')
@@ -22,7 +20,6 @@ export interface ReviewAgentInput {
   base: string
   /** Exact captured head for session reviews. Null means compare with the live tree. */
   head?: string | null
-  ledger: ReviewLedger | null
   context: ReviewContext
   agent: AgentId
   model?: string | null
@@ -46,9 +43,9 @@ export interface ReviewAgentInput {
 }
 
 /**
- * Run the review agent and return the structured guide it authored. The agent
- * gathers the diff ITSELF with git (the prompt tells it how), so the change never
- * bloats the prompt; the ledger, when present, is the only context handed inline.
+ * Run the review agent and return the structured guide it authored. A small
+ * diff is inlined into the prompt; a large one the agent gathers itself with git
+ * (the prompt tells it how), so the change never bloats the prompt.
  *
  * The guide arrives as the arguments of a `submit_review_guide` tool call, so
  * there is no text-scrape. Returns null when the agent never produced a usable
@@ -57,14 +54,13 @@ export interface ReviewAgentInput {
 export async function runReviewAgent(
   dispatcher: AgentDispatcher,
   input: ReviewAgentInput,
-): Promise<ReviewGuideDraft | null> {
-  const ledgerPresent = !!input.ledger && input.ledger.records.length > 0
-  const prompt = buildPrompt(input, ledgerPresent)
+): Promise<SubmittedGuide | null> {
+  const prompt = buildPrompt(input)
   // Effort is settings-driven (resolveReviewAgent defaults it to medium); 'high'
   // is only a safety fallback for callers that don't resolve one.
   const reasoningEffort = input.reasoningEffort ?? 'high'
 
-  let captured: ReviewGuideDraft | null = null
+  let captured: SubmittedGuide | null = null
   const submitGuideTool = createReviewGuideAgentTool((guide) => {
     input.onProgress?.('writing')
     captured = guide
@@ -108,7 +104,7 @@ export async function runReviewAgent(
 
 // ─── prompt ───
 
-function buildPrompt(input: ReviewAgentInput, ledgerPresent: boolean): string {
+function buildPrompt(input: ReviewAgentInput): string {
   const parts: string[] = []
   const diffRange = input.head ? `${input.base} ${input.head}` : input.base
 
@@ -139,19 +135,6 @@ function buildPrompt(input: ReviewAgentInput, ledgerPresent: boolean): string {
       ...(input.head
         ? []
         : ['List untracked files with `git ls-files --others --exclude-standard` and read each one in full.']),
-      '',
-    )
-  }
-
-  if (ledgerPresent && input.ledger) {
-    parts.push(
-      'A review ledger is available — the authoring sessions recorded, per change, what changed (title),',
-      'why we made it (intent), why it was done this way (why), assumptions, alternatives, and edge cases.',
-      'Use these as the primary source for each concern\'s explanation; verify them against the diff and',
-      'fill any gaps the ledger leaves.',
-      '',
-      'Ledger records (JSON):',
-      JSON.stringify(input.ledger.records, null, 2),
       '',
     )
   }

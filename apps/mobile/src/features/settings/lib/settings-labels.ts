@@ -1,6 +1,6 @@
 import type { AppNoticeEvent, NotificationChannel, SessionNotificationEvent } from '@solus/contracts/notification-types'
 import type { RateLimitBehavior, ResponseStreamingMode } from '@solus/contracts/settings'
-import type { SettingsSyncState } from '@solus/client-core/settings-sync'
+import type { DocumentSyncState } from '@solus/client-core/document-sync'
 import type { AppearanceMode } from '../appearance'
 
 /** The words the settings screens show for each choice. */
@@ -66,4 +66,4 @@ export const SYNC_STATE_LABELS = {
   offline: 'Offline',
   conflict: 'Needs your choice',
   error: 'Not synced',
-} as const satisfies Record<SettingsSyncState, string>
+} as const satisfies Record<DocumentSyncState, string>

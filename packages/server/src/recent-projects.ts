@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { basename } from 'node:path'
-import { isRemoteDispatchCheckoutPath, worktreeProjectRoot, type RecentProject } from '@solus/contracts/types'
+import { worktreeProjectRoot, type RecentProject } from '@solus/contracts/types'
 import { getDb, withTx } from './db'
 import { isChat } from '@solus/contracts/chat'
 import { recordProject } from './project-config/projects-manifest'
@@ -33,9 +33,6 @@ export async function trackRecentProject(path: string): Promise<void> {
   path = worktreeProjectRoot(path)
   // A chat is a session with no project — never log its folder as one.
   if (isChat(path)) return
-  // A delegated remote-dispatch checkout is host-internal plumbing for running a
-  // session on another machine, not a project the user opened — keep it hidden.
-  if (isRemoteDispatchCheckoutPath(path)) return
   withTx(() => {
     const db = getDb()
     db.prepare('DELETE FROM recent_projects WHERE path = ?').run(path)

@@ -26,7 +26,7 @@ import { DeviceControl, type DeviceControlTarget } from './device-control'
 import { DeviceDomainError, deviceErrorDetail } from './device-errors'
 import type { AgentDeviceEndpoint, DeviceHost, DeviceHostAgentReady, DeviceHostReady } from './device-host'
 import { DeviceHubClient, parseSimctlDevices, pngDimensions } from './device-hub-client'
-import { discoverPhysicalDevices } from './device-physical'
+import { discoverPhysicalDevices, pairPhysicalDevice } from './device-physical'
 import { installBuild, type DeviceBuildStore, type StoredDeviceBuild } from './device-builds'
 import type { DeviceSettingsStore } from './device-settings-store'
 import type { DeviceToolName } from './device-toolchain'
@@ -591,6 +591,15 @@ export class DeviceManager {
   async deleteBuild(buildId: string): Promise<DeviceState> {
     await this.requireBuilds().remove(buildId)
     this.publish()
+    return this.state()
+  }
+
+  /** Ask a connected iPhone or iPad to pair with its device host, then discover it again. */
+  async pairDevice(target: DeviceControlTarget): Promise<DeviceState> {
+    const { ready, device } = await this.resolveDevice(target.deviceHostId, target.deviceId)
+    await pairPhysicalDevice(ready.run, device)
+    log.info('device_paired', { deviceHostId: device.deviceHostId, deviceId: device.deviceId })
+    await this.refreshHost(ready)
     return this.state()
   }
 

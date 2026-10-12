@@ -26,7 +26,7 @@ function pairsOf(hosts: PairedHostSummary[]): PairedHostSource {
 }
 
 function hostsOf(directory: DirectoryHost[] | null, self: string | null = 'this-host', paired: PairedHostSource = noPairs) {
-  return new RemoteHosts({ hosts: async () => directory, accessToken: async (hostId) => `account-token-${hostId}` }, paired, () => self)
+  return new RemoteHosts(() => ({ hosts: async () => directory, accessToken: async (hostId) => `account-token-${hostId}` }), paired, () => self)
 }
 
 const studio: PairedHostSummary = { installationId: 'install-h-mini', label: 'Studio Mini', url: 'http://100.64.0.2:7777', pairedAt: 1 }
@@ -64,7 +64,7 @@ describe('the owner\'s other hosts', () => {
 
 describe('paired hosts', () => {
   test('a paired host is a target on a host with no account session', async () => {
-    const hosts = new RemoteHosts(null, pairsOf([studio]), () => null)
+    const hosts = new RemoteHosts(() => null, pairsOf([studio]), () => null)
     const found = await hosts.find('studio mini')
     if ('error' in found) throw new Error(found.error)
     expect(found).toMatchObject({ hostId: 'install-h-mini', url: 'http://100.64.0.2:7777', paired: true })
@@ -90,6 +90,6 @@ describe('paired hosts', () => {
   })
 
   test('with no account and no pairing, the error says how to add a host', async () => {
-    expect(await new RemoteHosts(null, noPairs, () => null).list()).toEqual({ error: expect.stringContaining('Pair a host in Settings → Hosts') })
+    expect(await new RemoteHosts(() => null, noPairs, () => null).list()).toEqual({ error: expect.stringContaining('Pair a host in Settings → Hosts') })
   })
 })

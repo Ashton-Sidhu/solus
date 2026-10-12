@@ -35,7 +35,7 @@ class NotificationHubStore {
   /** The identity a feed is read for: a signed-in account, or this device's own hosts. */
   private get identity(): string {
     const account = accountStore.state
-    return account.kind === 'signed-in' ? `account:${account.profile.id}` : 'device'
+    return account.kind === 'signed-in' ? `account:${account.identity.sub}` : 'device'
   }
 
   private get sourceList(): NotificationSourceList {

@@ -1,4 +1,3 @@
-import { hostAudience } from '@solus/contracts/uplink'
 import { afterAll, afterEach, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -23,7 +22,8 @@ const { installTestIdentities } = await import('./helpers/acting-identities')
 // Members act from homes of their own, as on a booted server (plans/019).
 installTestIdentities()
 const { readProviderCredential, writeProviderCredential, clearProviderCredential } = await import('@solus/server/vault/provider-credentials')
-const { useIntegrationExecutor, rememberPersonToken, useDelegatedTokens, resetAccountIntegrationsForTests } = await import('@solus/server/vault/account-integrations')
+const { AccountReads, useAccountReads } = await import('@solus/server/vault/account-reads')
+type DelegationScope = import('@solus/server/sync/delegations').DelegationScope
 const { actorFor, credentialUserFor } = await import('@solus/server/admission/actor')
 const { userKey } = await import('@solus/contracts/user')
 type Principal = import('@solus/server/admission/principal').Principal
@@ -35,26 +35,32 @@ const credentialKeyFor = (principal: Principal): string | null => {
 const { adoptProvisionedLink, resetHostCategoryForTests } = await import('@solus/server/host/host-category')
 const { githubCredentialChain } = await import('@solus/server/providers/github/credentials')
 const token = z.object({ accessToken: z.string() })
-const realFetch = globalThis.fetch
 const localOwner = { kind: 'local-owner', deviceId: null, deviceLabel: 'This Mac' } as const
 const remoteOwner = { kind: 'remote-owner', userId: 'alice', deviceId: 'device', deviceLabel: 'Web', expiresAt: Date.now() + 60_000 } as const
-afterEach(() => { resetAccountIntegrationsForTests(); values.clear(); touches.length = 0; globalThis.fetch = realFetch; resetHostCategoryForTests() })
+afterEach(() => { useAccountReads(null); values.clear(); touches.length = 0; resetHostCategoryForTests() })
 afterAll(() => { if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR; else process.env.SOLUS_DATA_DIR = previousDataDir; rmSync(temp, { recursive: true, force: true }) })
 
-/** A runner linked to the account backend, holding alice's current access token. */
-function linkAccount(respond: (path: string) => Response): string[] {
-  const calls: string[] = []
-  const now = Math.floor(Date.now() / 1000)
-  useIntegrationExecutor({
-    link: () => ({ hostId: 'h1', issuer: 'https://account.test', jwksUrl: 'https://account.test/jwks', directoryUrl: 'https://account.test', hostname: 'h-h1.test', proxiedPort: 1, connectionGeneration: 1 }),
-    hostToken: () => 'host-token',
-  })
-  rememberPersonToken('alice-token', { iss: 'https://account.test', aud: hostAudience('h1'), sub: 'alice', deviceId: 'd1', jti: 'j1', iat: now, exp: now + 300, access: 'org-member' })
-  globalThis.fetch = (async (input: string | URL | Request) => {
-    const path = new URL(input instanceof Request ? input.url : input).pathname
-    calls.push(path)
-    return respond(path)
-  }) as typeof fetch
+interface AccountCall { path: string; authorization: string | null; body: string | null }
+
+/**
+ * A host linked to the account plane that acts for the people in `delegated` (ADR 0001
+ * §3.4): every account read carries that person's delegated token as the bearer.
+ */
+function linkAccount(respond: (path: string) => Response, delegated: string[] = ['alice']): AccountCall[] {
+  const calls: AccountCall[] = []
+  const held = new Set(delegated)
+  useAccountReads(new AccountReads({
+    origin: () => 'https://account.test',
+    delegations: () => ({
+      holders: () => [...held].map((userId): { userId: string; scope: DelegationScope } => ({ userId, scope: 'personal' })),
+      accessToken: async (userId) => `delegated-${userId}`,
+    }),
+    fetchImpl: async (input, init) => {
+      const path = new URL(String(input)).pathname
+      calls.push({ path, authorization: new Headers(init?.headers).get('authorization'), body: init?.body ? String(init.body) : null })
+      return respond(path)
+    },
+  }))
   return calls
 }
 
@@ -69,27 +75,19 @@ describe('account integration identity', () => {
     expect(await withUserScope('alice', () => githubCredentialChain('enterprise.example'))).toEqual([])
     expect(touches).toEqual([])
   })
-  test('after the person\'s token expires, the host keeps their own connection with its delegation for them, and nobody else\'s', async () => {
-    // WHY: work continues after every client closed (plans/010-standard-oauth.md); its
-    // tools still act as its person, and only as that person.
-    const bodies: string[] = []
-    useIntegrationExecutor({
-      link: () => ({ hostId: 'h1', issuer: 'https://account.test', jwksUrl: 'https://account.test/jwks', directoryUrl: 'https://account.test', hostname: 'h-h1.test', proxiedPort: 1, connectionGeneration: 1 }),
-      hostToken: () => 'host-token',
-    })
-    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
-      bodies.push(String(init?.body ?? ''))
-      return Response.json({ accessToken: 'carol-only', scope: 'repo', login: 'carol' })
-    }) as typeof fetch
-    // No live token and no delegation for carol: nothing is sent, and the call says so.
+  test('a person\'s connection is read with the host\'s delegation for them as the bearer, never a token in a body, and nobody else\'s', async () => {
+    // WHY: ADR 0001 §2.2 rule 7 — work continues after every client closed, its tools
+    // still act as its person, and only as that person.
+    const calls = linkAccount(() => Response.json({ accessToken: 'carol-only', scope: 'repo', login: 'carol' }), [])
+    // No delegation for carol: nothing is sent, and the call says so.
     await expect(withUserScope('carol', () => githubCredentialChain('github.com'))).rejects.toThrow('Reconnect')
-    expect(bodies).toEqual([])
-    useDelegatedTokens(async (userId) => (userId === 'carol' ? 'carol-delegated' : null))
+    expect(calls).toEqual([])
+    const withCarol = linkAccount(() => Response.json({ accessToken: 'carol-only', scope: 'repo', login: 'carol' }), ['carol'])
     expect(await withUserScope('carol', () => githubCredentialChain('github.com'))).toEqual([{ source: 'account', token: 'carol-only' }])
-    expect(JSON.parse(bodies.at(-1)!)).toEqual({ accessToken: 'carol-delegated' })
+    expect(withCarol).toEqual([{ path: '/v1/integrations/github/credential', authorization: 'Bearer delegated-carol', body: null }])
     // Another person's call does not borrow it.
     await expect(withUserScope('dave', () => githubCredentialChain('github.com'))).rejects.toThrow('Reconnect')
-    expect(bodies).toHaveLength(1)
+    expect(withCarol).toHaveLength(1)
   })
   test('host-scoped calls keep their host connection', async () => {
     await withUserScope(null, () => writeProviderCredential('github', { accessToken: 'host-only' }))
@@ -115,7 +113,8 @@ describe('account integration identity', () => {
   })
   test('missing account authority never falls back to another local login', async () => {
     values.set('github-oauth', JSON.stringify({ accessToken: 'host-only' }))
-    await expect(withUserScope('bob', () => readProviderCredential('github', token))).rejects.toThrow('Reconnect')
+    // Unlinked: there is no account plane to ask, and the host's own login is not bob's.
+    await expect(withUserScope('bob', () => readProviderCredential('github', token))).rejects.toThrow('not linked')
     expect(touches).toEqual([])
   })
   test('an account-scoped call never writes or clears the host store', async () => {
@@ -131,6 +130,6 @@ describe('account integration identity', () => {
     expect(await withUserScope('alice', () => readProviderCredential('github', token))).toBeNull()
     status = 503
     await expect(withUserScope('alice', () => readProviderCredential('github', token))).rejects.toThrow('unavailable')
-    expect(calls).toEqual(Array(3).fill('/v1/integrations/github/credential'))
+    expect(calls.map((call) => call.path)).toEqual(Array(3).fill('/v1/integrations/github/credential'))
   })
 })

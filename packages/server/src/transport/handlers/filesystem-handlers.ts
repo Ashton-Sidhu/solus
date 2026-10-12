@@ -1,3 +1,4 @@
+import { assertPathInScope } from '../../admission/scope'
 import { basename, dirname, join, relative as pathRelative, resolve as pathResolve } from 'path'
 import { mkdir, readdir, readFile, realpath, stat, writeFile } from 'fs/promises'
 import { z } from 'zod'
@@ -131,9 +132,10 @@ function friendlyFsError(error: Error, fallback: string): string {
 }
 
 export function registerFilesystemHandlers(server: SolusServer): void {
-  server.register('listDirectory', async (args) => {
+  server.register('listDirectory', async (args, handlerCtx) => {
     const [rawPath, showHidden, annotate] = args
     const resolved = expandHome(rawPath)
+    assertPathInScope('listDirectory', handlerCtx.principal, resolved)
     const parent = dirname(resolved)
 
     try {
@@ -194,9 +196,10 @@ export function registerFilesystemHandlers(server: SolusServer): void {
   // Indexed (gitignore-aware) project listing, here rather than in the
   // desktop-only file handlers: the diff heat map and file surfaces need it on
   // a paired headless host too.
-  server.register('listProjectFiles', async (args) => {
+  server.register('listProjectFiles', async (args, handlerCtx) => {
     const [ctx, request] = args
     const rawRoot = projectRootForRequest(ctx, request?.cwd)
+    assertPathInScope('listProjectFiles', handlerCtx.principal, rawRoot)
     if (!rawRoot) {
       return { ok: false, error: 'No project directory is available.' } satisfies ProjectFilesResult
     }
@@ -233,8 +236,9 @@ export function registerFilesystemHandlers(server: SolusServer): void {
     return await applyProjectFileMutation(root, request.mutation)
   })
 
-  server.register('searchFiles', async (args) => {
+  server.register('searchFiles', async (args, handlerCtx) => {
     const [query, cwd] = args
+    assertPathInScope('searchFiles', handlerCtx.principal, cwd)
     // Keep the native page small: results render ranked by match score, and a
     // large page buries good matches in noise. fff does not index dotfiles or
     // dot-directories, so hidden paths are intentionally absent from results.
@@ -280,8 +284,9 @@ export function registerFilesystemHandlers(server: SolusServer): void {
     return { files }
   })
 
-  server.register('searchProjectContents', async (args) => {
+  server.register('searchProjectContents', async (args, handlerCtx) => {
     const [ctx, request] = args
+    assertPathInScope('searchProjectContents', handlerCtx.principal, ctx.session.workingDirectory)
     // Scoped to the caller's environment cwd, which already resolves to the
     // worktree path for an isolated session — searching the main checkout would
     // return matches the session cannot act on.
@@ -297,8 +302,9 @@ export function registerFilesystemHandlers(server: SolusServer): void {
     return searchProjectContents(root, request)
   })
 
-  server.register('readProjectFile', async (args) => {
+  server.register('readProjectFile', async (args, handlerCtx) => {
     const [ctx, request] = args
+    assertPathInScope('readProjectFile', handlerCtx.principal, projectRootForRequest(ctx, request.cwd))
     return readFilePreview(ctx, request)
   })
 

@@ -1,6 +1,7 @@
 import type { z } from 'zod'
-import { MAX_DEVICE_RUN_PROFILES, deviceRunProfileSchema, type DeviceProjectInfo, type DeviceRunProfile } from '@solus/contracts/device-types'
+import { MAX_DEVICE_RUN_PROFILES, deviceRunProfileSchema, type DeviceProjectInfo, type DeviceRunProfile, type DeviceSigningTeam } from '@solus/contracts/device-types'
 import type { HostApi } from './host-api'
+import { profileTargetLabel } from './device-builds'
 
 /**
  * Build profiles as a person edits them (plan 016, S02), shared by the
@@ -14,10 +15,15 @@ export interface RunProfilePreset {
   profile: DeviceRunProfile
 }
 
-/** Common native builds. The scheme and folders are guesses the person edits. */
+/**
+ * The three starting points, one for each place a build runs. Detection fits
+ * the folder, the Xcode workspace and its scheme to the project. Each starts
+ * as a Debug build; Release is one choice away (`withConfiguration`). An Expo
+ * or React Native Debug build loads its JavaScript from Metro.
+ */
 export const RUN_PROFILE_PRESETS: RunProfilePreset[] = [
   {
-    label: 'Xcode — simulator',
+    label: 'iOS Simulator',
     profile: {
       name: 'iOS simulator',
       platform: 'ios',
@@ -28,20 +34,20 @@ export const RUN_PROFILE_PRESETS: RunProfilePreset[] = [
     },
   },
   {
-    label: 'Xcode — iPhone or iPad',
+    label: 'iPhone or iPad',
     profile: {
       name: 'iOS device',
       platform: 'ios',
       target: 'device',
       cwd: 'ios',
-      command: ['xcodebuild', '-scheme', 'App', '-configuration', 'Debug', '-destination', 'generic/platform=iOS', '-derivedDataPath', 'build', '-allowProvisioningUpdates', 'build'],
+      command: ['xcodebuild', '-scheme', 'App', '-configuration', 'Debug', '-destination', 'generic/platform=iOS', '-derivedDataPath', 'build', '-allowProvisioningUpdates', '-allowProvisioningDeviceRegistration', 'build'],
       artifact: 'build/Build/Products/Debug-iphoneos/*.app',
     },
   },
   {
-    label: 'Gradle — debug APK',
+    label: 'Android',
     profile: {
-      name: 'Android debug',
+      name: 'Android',
       platform: 'android',
       target: 'any',
       cwd: 'android',
@@ -51,40 +57,55 @@ export const RUN_PROFILE_PRESETS: RunProfilePreset[] = [
   },
 ]
 
-/**
- * Expo's two iOS builds of the prebuilt `ios` folder. The dev build is Debug:
- * it loads JavaScript from Metro (`npx expo start`), so edits show without a
- * rebuild. The production build is Release, with the JavaScript bundled in,
- * so it runs alone as users get it.
- */
-export const EXPO_PRESETS: RunProfilePreset[] = [
-  {
-    label: 'Expo — dev (simulator, with Metro)',
-    profile: {
-      name: 'iOS dev',
-      platform: 'ios',
-      target: 'simulator',
-      cwd: 'ios',
-      command: ['xcodebuild', '-scheme', 'App', '-configuration', 'Debug', '-destination', 'generic/platform=iOS Simulator', '-derivedDataPath', 'build', 'build'],
-      artifact: 'build/Build/Products/Debug-iphonesimulator/*.app',
-    },
-  },
-  {
-    label: 'Expo — production (simulator)',
-    profile: {
-      name: 'iOS production',
-      platform: 'ios',
-      target: 'simulator',
-      cwd: 'ios',
-      command: ['xcodebuild', '-scheme', 'App', '-configuration', 'Release', '-destination', 'generic/platform=iOS Simulator', '-derivedDataPath', 'build', 'build'],
-      artifact: 'build/Build/Products/Release-iphonesimulator/*.app',
-    },
-  },
-]
+/** The preset for what a profile builds for. */
+export function presetFor(draft: Pick<RunProfileDraft, 'platform' | 'target'>): RunProfilePreset {
+  const preset = RUN_PROFILE_PRESETS.find((candidate) => candidate.profile.platform === draft.platform && (draft.platform === 'android' || candidate.profile.target === draft.target))
+  return preset ?? RUN_PROFILE_PRESETS[0]!
+}
 
-/** The presets to offer for a project: Expo's own first when it is an Expo app, then the common builds. */
-export function presetsForProject(info: DeviceProjectInfo | null | undefined): RunProfilePreset[] {
-  return info?.usesExpo ? [...EXPO_PRESETS, ...RUN_PROFILE_PRESETS] : RUN_PROFILE_PRESETS
+export type BuildConfiguration = 'Debug' | 'Release'
+
+/** Whether a profile builds Debug or Release, read from its command; null for a command Solus does not know. */
+export function draftConfiguration(draft: Pick<RunProfileDraft, 'commandText'>): BuildConfiguration | null {
+  const words = splitCommand(draft.commandText)
+  if (words[0] === 'xcodebuild') {
+    const value = words[words.indexOf('-configuration') + 1]
+    return words.includes('-configuration') && (value === 'Debug' || value === 'Release') ? value : null
+  }
+  const task = words.find((word) => /^assemble(Debug|Release)$/.test(word))
+  return task ? (task.endsWith('Release') ? 'Release' : 'Debug') : null
+}
+
+/** The command and output for the other configuration. The output path follows the command. */
+export function withConfiguration(draft: Pick<RunProfileDraft, 'commandText' | 'artifact'>, configuration: BuildConfiguration): Pick<RunProfileDraft, 'commandText' | 'artifact'> {
+  const words = splitCommand(draft.commandText)
+  if (words[0] === 'xcodebuild') {
+    const at = words.indexOf('-configuration')
+    if (at >= 0) words[at + 1] = configuration
+    return { commandText: joinCommand(words), artifact: draft.artifact.replace(/(^|\/)(Debug|Release)-(iphoneos|iphonesimulator)\//, `$1${configuration}-$3/`) }
+  }
+  return {
+    commandText: joinCommand(words.map((word) => (/^assemble(Debug|Release)$/.test(word) ? `assemble${configuration}` : word))),
+    artifact: draft.artifact.replace(/(^|\/)apk\/(debug|release)\//, `$1apk/${configuration.toLowerCase()}/`),
+  }
+}
+
+/**
+ * The profile changed to build for something else: the preset for it, fitted
+ * to the project, keeping the person's name (unless it was a preset's),
+ * configuration and app id. A command for one platform never builds another.
+ */
+export async function draftForPreset(
+  api: Parameters<typeof fitPresetToProject>[0],
+  checkoutPath: string,
+  draft: RunProfileDraft,
+  preset: RunProfilePreset,
+): Promise<RunProfileDraft> {
+  const fitted = profileDraft(await fitPresetToProject(api, checkoutPath, preset.profile))
+  const hasOwnName = draft.name.trim() !== '' && !RUN_PROFILE_PRESETS.some((candidate) => candidate.profile.name === draft.name)
+  const next = { ...fitted, name: hasOwnName ? draft.name : fitted.name, appId: draft.appId }
+  const configuration = draftConfiguration(draft)
+  return configuration ? { ...next, ...withConfiguration(next, configuration) } : next
 }
 
 /**
@@ -121,19 +142,72 @@ export function projectPreset(profile: DeviceRunProfile, info: DeviceProjectInfo
 
 /**
  * Fit a preset to a checkout on its host: detect where the app is, and for
- * Xcode find the workspace in that folder. A host that cannot answer leaves
- * the preset's own folder, which the person edits.
+ * Xcode find the workspace in that folder. A phone build is signed for the
+ * host's first signing team. A host that cannot answer leaves the preset's
+ * own folder and no team, which the person edits.
  */
 export async function fitPresetToProject(
-  api: Pick<HostApi, 'deviceProjectDetect' | 'listDirectory'>,
+  api: Pick<HostApi, 'deviceProjectDetect' | 'listDirectory' | 'deviceSigningTeams'>,
   checkoutPath: string,
   profile: DeviceRunProfile,
 ): Promise<DeviceRunProfile> {
   const info = await api.deviceProjectDetect(checkoutPath).catch(() => null)
   if (profile.platform !== 'ios') return projectPreset(profile, info)
   const folder = presetFolder(profile, info)
-  const listing = await api.listDirectory(`${checkoutPath.replace(/\/+$/, '')}/${folder}`).catch(() => null)
-  return projectPreset(profile, info, listing?.entries.map((entry) => entry.name) ?? [])
+  const [listing, teams] = await Promise.all([
+    api.listDirectory(`${checkoutPath.replace(/\/+$/, '')}/${folder}`).catch(() => null),
+    profile.target === 'device' ? api.deviceSigningTeams().catch(() => []) : [],
+  ])
+  const fitted = projectPreset(profile, info, listing?.entries.map((entry) => entry.name) ?? [])
+  const team = teams[0]
+  return team ? { ...fitted, command: splitCommand(withSigningTeam(joinCommand(fitted.command), team.teamId)) } : fitted
+}
+
+const TEAM_SETTING = /(^|\s)DEVELOPMENT_TEAM=(\S*)/
+
+/** The signing team an xcodebuild command names with `DEVELOPMENT_TEAM=`, or ''. */
+export function commandSigningTeam(commandText: string): string {
+  return TEAM_SETTING.exec(commandText)?.[2] ?? ''
+}
+
+/**
+ * The command with its signing team set, before the final build action so
+ * it reads as a build setting. An empty team removes the setting.
+ */
+export function withSigningTeam(commandText: string, teamId: string): string {
+  const team = teamId.trim()
+  const without = commandText.replace(TEAM_SETTING, '').trim()
+  if (!team) return without
+  if (TEAM_SETTING.test(commandText)) return commandText.replace(TEAM_SETTING, `$1DEVELOPMENT_TEAM=${team}`)
+  const words = splitCommand(without)
+  const at = words.at(-1) === 'build' ? words.length - 1 : words.length
+  return joinCommand([...words.slice(0, at), `DEVELOPMENT_TEAM=${team}`, ...words.slice(at)])
+}
+
+/** Whether a profile's build is signed by xcodebuild: an iPhone or iPad build made with xcodebuild. */
+export function needsSigningTeam(draft: Pick<RunProfileDraft, 'platform' | 'target' | 'commandText'>): boolean {
+  return draft.platform === 'ios' && draft.target === 'device' && splitCommand(draft.commandText)[0] === 'xcodebuild'
+}
+
+/** The teams a host can sign for, with the help a person needs when it has none. */
+export function signingTeamHint(teams: readonly DeviceSigningTeam[]): string {
+  return teams.length
+    ? 'Every app on an iPhone or iPad is signed. xcodebuild signs it for this team.'
+    : 'Every app on an iPhone or iPad is signed. This Mac has no Apple certificate yet: add your Apple account in Xcode → Settings → Accounts, or enter your team id.'
+}
+
+/**
+ * One line that says what a profile is, for its row in the editor: what it
+ * builds for, where, and who signs it. A phone build with no team says so,
+ * because xcodebuild cannot sign it.
+ */
+export function profileSummary(draft: RunProfileDraft, teams: readonly DeviceSigningTeam[]): string {
+  const parts = [profileTargetLabel(draft), draft.cwd.trim() || '.']
+  if (needsSigningTeam(draft)) {
+    const teamId = commandSigningTeam(draft.commandText)
+    parts.push(teamId ? `signed by ${teams.find((team) => team.teamId === teamId)?.name ?? teamId}` : 'needs a signing team')
+  }
+  return parts.join(' · ')
 }
 
 /** Split a command line into arguments. Quotes group words; nothing is expanded. */

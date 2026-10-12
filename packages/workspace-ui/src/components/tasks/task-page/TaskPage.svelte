@@ -12,6 +12,8 @@
     getSurfaceContext,
     getPullRequestsContext,
     sharesStore,
+    taskLinks,
+    groupKeyFor,
   } from "../../../contexts";
   import { attemptServerId } from "../../../lib/sessionUtils";
   import { toasts } from "../../../lib/toasts";
@@ -172,7 +174,11 @@
   const taskServerId = $derived(store.get(taskId).serverId);
   // A task is not shared on its own: its link opens it for everyone in its organization.
   const linkServerId = $derived(taskServerId ?? serverConnections.defaultServerId());
-  const canCopyLink = $derived(!!linkServerId && sharesStore.canCopyTaskLink(linkServerId));
+  const taskProjectKey = $derived(
+    (task && store.projectKeyOf(task)) ??
+      (projectCwd && linkServerId ? groupKeyFor(linkServerId, projectCwd) : null),
+  );
+  const canCopyLink = $derived(!!linkServerId && taskLinks.canCopy(linkServerId));
   // An organization task's comments mention its members (plan 004 D17). Task
   // comments carry no account id, so the picker orders people by name.
   provideMentionScope(() => task && taskServerId
@@ -194,7 +200,7 @@
     if (taskServerId) void sharesStore.load(taskServerId, { kind: "task", id: taskId });
   });
   function copyLink(record: Task): void {
-    if (linkServerId) void sharesStore.copyTaskLink(linkServerId, record.id);
+    if (linkServerId) void taskLinks.copy(linkServerId, record.id);
   }
   $effect(() => {
     const workIds = linkedWorkIds;
@@ -802,8 +808,7 @@
       {task}
       {variant}
       {projectLabel}
-      projectRoot={projectCwd}
-      serverId={taskServerId}
+      projectKey={taskProjectKey}
       canEdit={capabilities?.canEditContent ?? false}
       canEditPlanningFields={capabilities?.canEditPlanningFields ?? false}
       canEditPriority={capabilities?.canEditPriority ?? false}

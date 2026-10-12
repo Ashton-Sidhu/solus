@@ -35,9 +35,11 @@ import { BuildsScreen } from '../features/devices/BuildsScreen'
 import { BuildFolderScreen } from '../features/devices/BuildFolderScreen'
 import { NewBuildScreen } from '../features/devices/NewBuildScreen'
 import { BuildProfilesScreen } from '../features/devices/BuildProfilesScreen'
+import { BuildLogScreen } from '../features/devices/BuildLogScreen'
 import { SettingsScreen } from '../features/settings/SettingsScreen'
 import { AppearanceScreen } from '../features/settings/AppearanceScreen'
 import { PersonalSettingsScreen } from '../features/settings/PersonalSettingsScreen'
+import { AgentProfileScreen } from '../features/settings/AgentProfileScreen'
 import { OrganizationSettingsScreen } from '../features/settings/OrganizationSettingsScreen'
 import { HostSettingsScreen } from '../features/settings/HostSettingsScreen'
 import { HostAccessScreen } from '../features/settings/HostAccessScreen'
@@ -118,6 +120,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
   'NewTask',
   'Settings',
   'PersonalSettings',
+  'AgentProfile',
   'AppearanceSettings',
   'AgentDefaults',
   'NotificationSettings',
@@ -156,14 +159,16 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
     navigation.goBack()
   })
   useEffect(() => {
-    // A `solus://` link (a Live Activity row) opens its session over where the
-    // person was; one that arrives before the navigator is ready waits for it.
+    // A `solus://` link (a Live Activity row, or a host's pairing page) opens
+    // over where the person was; one that arrives before the navigator is
+    // ready waits for it.
     let pending: string | null = null
     const open = (url: string | null | undefined) => {
       const target = url ? parseDeepLink(url) : null
       if (!target) return
-      if (navigation.isReady()) navigation.navigate(target.screen, target.params)
-      else pending = url ?? null
+      if (!navigation.isReady()) pending = url ?? null
+      else if (target.screen === 'Thread') navigation.navigate('Thread', target.params)
+      else navigation.navigate('PairHost', target.params)
     }
     void Linking.getInitialURL().then(open).catch(() => undefined)
     const subscription = Linking.addEventListener('url', (event) => open(event.url))
@@ -232,9 +237,11 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
         <Stack.Screen name="BuildFolder" component={BuildFolderScreen} options={{ title: 'Add a build' }} />
         <Stack.Screen name="NewBuild" component={NewBuildScreen} options={{ title: 'New build' }} />
         <Stack.Screen name="BuildProfiles" component={BuildProfilesScreen} options={{ title: 'Build profiles' }} />
+        <Stack.Screen name="BuildLog" component={BuildLogScreen} options={{ title: 'Build log' }} />
         <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications', headerLargeTitle: true }} />
         <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings', gestureEnabled: true }} />
         <Stack.Screen name="PersonalSettings" component={PersonalSettingsScreen} options={{ title: 'Personal' }} />
+        <Stack.Screen name="AgentProfile" component={AgentProfileScreen} options={{ title: 'Agent profile' }} />
         <Stack.Screen name="AppearanceSettings" component={AppearanceScreen} options={{ title: 'Appearance' }} />
         <Stack.Screen name="OrganizationSettings" component={OrganizationSettingsScreen} options={{ title: 'Organization' }} />
         <Stack.Screen name="HostSettings" component={HostSettingsScreen} options={{ title: 'Host settings' }} />

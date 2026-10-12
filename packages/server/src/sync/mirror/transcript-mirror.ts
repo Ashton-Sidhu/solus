@@ -9,7 +9,7 @@ import { createLogger } from '../../logger'
 import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../../admission/principal'
 import { projectSessionHistory } from '../../data/sessions/result-projection'
 import { getSessionRecord } from '../../data/sessions/session-records'
-import type { ActivityMirrorPayload, TranscriptMirrorPayload } from '../runner-protocol'
+import type { SharesMirrorPayload, ActivityMirrorPayload, TranscriptMirrorPayload } from '../runner-protocol'
 import type { Activity } from '@solus/contracts/activity'
 import { activityFor } from '../../data/activity/activity'
 import { sessionRecords } from '../../data/sessions/schema'
@@ -50,6 +50,8 @@ export interface TranscriptSource {
 }
 
 export interface TranscriptMirrorDeps {
+  /** The session's share rows but the owner's (`ShareManager.mirroredRows`); absent on a host that mirrors no rows. */
+  shareRows?: (sessionId: string) => Promise<SharesMirrorPayload['rows']>
   /** The lineage-aware reader: every row of the session's history, every thread, in order. */
   loadSession: (provider: AgentId, sessionId: string, projectPath?: string) => Promise<SessionLoadMessage[]>
   debounceMs?: number
@@ -80,6 +82,8 @@ export async function transcriptDestination(sessionId: string): Promise<Delivery
 
 export class TranscriptMirror {
   private readonly pending = new Map<string, PendingSync>()
+  /** The share rows last sent per session, serialized; in memory, so a restart sends them again once. */
+  private readonly sentShareHashes = new Map<string, string>()
   /** One sync per session at a time; a later flush waits for the earlier one and reads again. */
   private readonly running = new Map<string, Promise<void>>()
   private disposed = false
@@ -130,6 +134,10 @@ export class TranscriptMirror {
     if (this.disposed) return 0
     const destination = await transcriptDestination(sessionId)
     if (!destination) return 0
+    // The session's share rows ride with its transcript (host-sharing.md §2): sent when
+    // they differ from what this process last sent, so a restart sends them once more.
+    const shareRows = this.deps.shareRows ? await this.deps.shareRows(sessionId) : null
+    const shareHash = shareRows ? JSON.stringify(shareRows) : null
     const messages = projectSessionHistory(await this.deps.loadSession(source.provider, sessionId, source.projectPath))
     // Whatever organization a row was recorded in: a session published from Local brings the activity it had.
     const activity = await activityFor(ANY_ORGANIZATION, { kind: 'session', id: sessionId })
@@ -157,6 +165,10 @@ export class TranscriptMirror {
         log.info('transcript_mirrored', { sessionId, organizationId: destination.organizationId, provider: source.provider, changed: changedPositions.length, total: messages.length, truncated })
       }
       lastSeq = Math.max(lastSeq, this.appendNewActivity(sessionId, destination, activity))
+      if (shareRows && shareHash !== this.sentShareHashes.get(sessionId)) {
+        lastSeq = Math.max(lastSeq, appendMirror(destination, 'shares', [{ key: `session:${sessionId}`, payload: { resource: { kind: 'session', id: sessionId }, rows: shareRows } }]).lastSeq)
+        this.sentShareHashes.set(sessionId, shareHash!)
+      }
     })
     return lastSeq
   }

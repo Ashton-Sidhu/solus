@@ -78,7 +78,7 @@
           closeOnSelect={false}
           onCheckedChange={(checked) => setChecked(option.value, checked)}
         >
-          <ProjectFavicon projectRoot={option.projectKey} class="size-3.5" />
+          <ProjectFavicon projectKey={option.projectKey} class="size-3.5" />
           <span class="min-w-0 flex-1 truncate">{option.label}</span>
           <span class="mr-4 text-xs tabular-nums opacity-60">
             {option.count}

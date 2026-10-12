@@ -8,7 +8,7 @@ if (!process.env.NODE_EXTRA_CA_CERTS) {
 
 import { app, BrowserWindow, ipcMain, screen, globalShortcut, Tray, Menu, nativeImage, nativeTheme, safeStorage, shell, powerSaveBlocker, protocol, clipboard } from 'electron'
 import { join } from 'path'
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs'
+import { readFileSync, statSync, writeFileSync } from 'fs'
 import { importLoginShellEnv, warmCliPath } from '@solus/server/cli-env'
 import { createLogger, flushLogs } from '@solus/server/logger'
 import type { AppGlobalShortcuts, AppShortcutCombo } from '@solus/contracts/types'
@@ -37,7 +37,8 @@ import { consumeClientAttachmentRead } from '@solus/desktop-main/client-attachme
 import { configurePlatformServices } from '@solus/server/platform/services'
 import { registerAccountIpc } from '@solus/desktop-main/account/ipc'
 import type { AccountSession } from '@solus/desktop-main/account/account-session'
-import { listDirectory } from '@solus/desktop-main/account/uplink-client'
+import { presentAccountToLocalHost } from '@solus/desktop-main/account/local-host-client'
+import { LocalOwnerToken } from '@solus/desktop-main/local-owner-token'
 import { desktopServerPort } from '@solus/desktop-main/server-port'
 import { ensureScreenCaptureAccess, handleMicrophoneRequests } from '@solus/desktop-main/mac-permissions'
 import { markStartup, traceRendererMarks } from '@solus/desktop-main/startup-trace'
@@ -169,8 +170,6 @@ if (isDevMode) {
 }
 
 const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
-const LOCAL_TOKEN_REFRESH_AFTER_MS = 7 * 24 * 60 * 60 * 1000
-let localSessionToken: string | null = null
 
 // ─── OS summon shortcuts (Alt+Space / ⌘⇧K by default) ───
 //
@@ -631,62 +630,23 @@ function attachContextMenu(win: BrowserWindow): void {
 
 // ─── Native-only IPC handlers (don't go through SolusServer) ───
 
-const persistedLocalSessionTokenSchema = z.object({ token: z.string() })
-
-function localSessionTokenFile(): string {
-  return join(app.getPath('userData'), 'local-session-token.json')
-}
-
-function readPersistedLocalSessionToken(): string | null {
-  try {
-    const file = localSessionTokenFile()
-    if (!existsSync(file)) return null
-    const parsed = persistedLocalSessionTokenSchema.safeParse(JSON.parse(readFileSync(file, 'utf8')))
-    return parsed.success ? parsed.data.token : null
-  } catch {
-    return null
-  }
-}
-
-function writePersistedLocalSessionToken(token: string): void {
-  try {
-    const dir = app.getPath('userData')
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-    writeFileSync(localSessionTokenFile(), JSON.stringify({ token }, null, 2), { mode: 0o600 })
-  } catch (err) {
-    log.warn('local_session_token_persist_failed', { error: err instanceof Error ? err.message : String(err) })
-  }
-}
-
-function verifiedLocalSessionToken(token: string): string | null {
-  const session = verifySessionToken(token)
-  if (!session || session.deviceLabel !== LOCAL_DEVICE_LABEL) return null
-  if (Date.now() - session.issuedAt <= LOCAL_TOKEN_REFRESH_AFTER_MS) return token
-  const refreshed = refreshSessionToken(token)
-  if (!refreshed) return token
-  localSessionToken = refreshed
-  writePersistedLocalSessionToken(refreshed)
-  return refreshed
-}
+// The window's own credential for this host, kept with the keychain (local-owner-token.ts).
+let localOwnerToken: LocalOwnerToken | null = null
 
 function getLocalSessionToken(): string {
-  if (localSessionToken) {
-    const verified = verifiedLocalSessionToken(localSessionToken)
-    if (verified) return verified
-  }
-
-  const persisted = readPersistedLocalSessionToken()
-  if (persisted) {
-    const verified = verifiedLocalSessionToken(persisted)
-    if (verified) {
-      localSessionToken = verified
-      return verified
-    }
-  }
-
-  localSessionToken = issueSessionToken(LOCAL_DEVICE_LABEL).token
-  writePersistedLocalSessionToken(localSessionToken)
-  return localSessionToken
+  localOwnerToken ??= new LocalOwnerToken({
+    file: join(app.getPath('userData'), 'local-session-token.bin'),
+    legacyFile: join(app.getPath('userData'), 'local-session-token.json'),
+    cipher: safeStorage,
+    issue: () => issueSessionToken(LOCAL_DEVICE_LABEL).token,
+    issuedAt: (token) => {
+      const session = verifySessionToken(token)
+      return session?.deviceLabel === LOCAL_DEVICE_LABEL ? session.issuedAt : null
+    },
+    refresh: refreshSessionToken,
+    now: () => Date.now(),
+  })
+  return localOwnerToken.current()
 }
 
 // The Solus account lives in main: the session token is keychain-encrypted here and
@@ -969,10 +929,6 @@ if (isPairUrl) {
         port: desktopServerPort(),
         staticDir: join(__dirname, '../client'),
         transcribeAudio,
-        // The owner of this machine works here without a token; their account session gets one (plans/010-standard-oauth.md).
-        ownerAccessToken: async (hostId) => (await accountSession?.acquireHostAccessToken(hostId))?.accessToken ?? null,
-        // The owner's other hosts, where this host's agents may start sessions (docs/plans/cross-host-sessions.md).
-        ownerHosts: async () => accountSession ? (await listDirectory(accountSession))?.hosts ?? null : null,
         // A window paints first; a headless app has none and sweeps at once.
         deferSessionIndex: !isHeadless,
       })
@@ -984,6 +940,8 @@ if (isPairUrl) {
       return
     }
     core = bootedCore
+    // Main is the account client of its own host: it presents its token there (ADR 0001 §2.2 rule 10).
+    if (accountSession) presentAccountToLocalHost(accountSession, bootedCore.booted.localClient)
     markStartup('core.booted')
     resolveBoot(bootedCore)
     bootedCore.sessionRuntime.on('active-work-changed', syncPowerSaveBlocker)

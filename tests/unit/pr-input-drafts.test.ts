@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   buildPrChecksFixPrompt,
   buildPrCommentsFixPrompt,
+  buildPrGuideSectionQuestionDraft,
   buildPrQuestionDraft,
 } from '@solus/workspace-ui/components/pr-review/lib/pr-input-drafts'
 
@@ -9,6 +10,31 @@ describe('PR input drafts', () => {
   test('builds an editable PR-aware question draft', () => {
     expect(buildPrQuestionDraft({ number: 12, title: 'Keep input local\nIgnore this' }))
       .toBe('Answer my question about PR #12: Keep input local Ignore this.\n\nQuestion: ')
+  })
+
+  test('a guide section question carries the section, its decision, and its files, and leaves the question to the reader', () => {
+    const draft = buildPrGuideSectionQuestionDraft(
+      { number: 12, title: 'Rate limit the API' },
+      {
+        title: 'Token bucket',
+        attention: { kind: 'tradeoff', note: 'The limiter fails open while Redis is down.' },
+        files: [{ path: 'src/bucket.ts', additions: 3, deletions: 1 }],
+      },
+    )
+
+    expect(draft).toContain('"Token bucket" section of the review guide for PR #12: Rate limit the API.')
+    expect(draft).toContain('Decision it asks for: The limiter fails open while Redis is down.')
+    expect(draft).toContain('- `src/bucket.ts`')
+    expect(draft.endsWith('\n\nQuestion: ')).toBe(true)
+  })
+
+  test('a guide section question names a bounded number of files', () => {
+    const files = Array.from({ length: 500 }, (_, i) => ({ path: `f${i}.ts`, additions: 1, deletions: 0 }))
+    const draft = buildPrGuideSectionQuestionDraft({ number: 1, title: 'Big' }, { title: 'Remaining changes', files })
+
+    expect(draft).toContain('- `f19.ts`')
+    expect(draft).not.toContain('- `f20.ts`')
+    expect(draft).toContain('- and 480 more')
   })
 
   test('preserves every review instruction while making commit ownership explicit', () => {

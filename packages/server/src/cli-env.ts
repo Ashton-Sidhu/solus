@@ -35,24 +35,32 @@ function baseEntries(): PathEntries {
   const ordered: string[] = []
   const seen = new Set<string>()
   appendPathEntries(ordered, seen, process.env.PATH)
-  appendPathEntries(ordered, seen, `${homedir()}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`)
   return { ordered, seen }
 }
 
+/** The usual install folders, for a login shell that names none of them. They
+ *  come after its PATH: a version manager's folders must stay ahead of
+ *  `~/.local/bin`, or a wrapper there that runs `mise x codex -- codex` finds
+ *  itself again and never starts the tool. */
+function appendFallbackEntries({ ordered, seen }: PathEntries): string {
+  appendPathEntries(ordered, seen, `${homedir()}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`)
+  return ordered.join(':')
+}
+
 function computeCliPathSync(): string {
-  const { ordered, seen } = baseEntries()
+  const entries = baseEntries()
   for (const cmd of PATH_PROBE_COMMANDS) {
     try {
       const discovered = execSync(cmd, { encoding: 'utf-8', timeout: 3000 }).trim()
       if (discovered) {
-        appendPathEntries(ordered, seen, discovered)
+        appendPathEntries(entries.ordered, entries.seen, discovered)
         break // First login shell that answers is authoritative — don't pay for the rest.
       }
     } catch {
       // Keep trying fallbacks.
     }
   }
-  return ordered.join(':')
+  return appendFallbackEntries(entries)
 }
 
 /** One probe's stdout, or null when it printed nothing, failed, or ran out of
@@ -72,15 +80,15 @@ function probeShell(cmd: string, timeoutMs: number): Promise<string | null> {
 
 /** Exported for its test; production callers go through `warmCliPath`. */
 export async function computeCliPathAsync(commands: readonly string[] = PATH_PROBE_COMMANDS, timeoutMs = 3000): Promise<string> {
-  const { ordered, seen } = baseEntries()
+  const entries = baseEntries()
   for (const cmd of commands) {
     const discovered = await probeShell(cmd, timeoutMs)
     if (discovered) {
-      appendPathEntries(ordered, seen, discovered)
+      appendPathEntries(entries.ordered, entries.seen, discovered)
       break // First login shell that answers is authoritative — don't pay for the rest.
     }
   }
-  return ordered.join(':')
+  return appendFallbackEntries(entries)
 }
 
 // The login shell's environment, between NUL-delimited markers: a profile that

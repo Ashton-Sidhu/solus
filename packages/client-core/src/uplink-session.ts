@@ -1,36 +1,34 @@
 import {
   directoryResponseSchema,
   enrollmentTicketResponseSchema,
-  hostAccessTokenResponseSchema,
   managedHostStartResponseSchema,
   organizationDirectorySchema,
   type ManagedHostLifecycle,
   type DirectoryHost,
-  type HostAccessTokenRequest,
-  type HostAccessTokenResponse,
   type OrganizationDirectory,
   type UplinkDirectory,
   type UplinkEnrollmentTicket,
 } from '@solus/contracts/uplink'
+import type { ConnectionTokenResource } from '@solus/contracts/auth/clients'
+import type { OAuthSession } from './oauth-session'
 import { savedServerRoutes, type SavedServer, type SavedServerUplink } from './server-registry'
 
 /**
  * Personal Uplink from the client's side (docs/plans/personal-uplink.md, C1/C2).
  *
  * Two things a client does on behalf of the signed-in account: read the host
- * directory and mint grants for one host. Where the account credential lives decides
- * how: on desktop the Electron main process holds it and answers over the native
- * bridge; on the cloud-served web client the account cookie rides a same-origin
- * `fetch`. Neither path ever hands the credential to this module. A grant is minted
- * for a host and may be reused until its expiry.
+ * directory and get access tokens for one host or the Solus API. Where the account
+ * sign-in lives decides how: on desktop the Electron main process holds it and
+ * answers over the native bridge; on the cloud-served web client the page's own
+ * `OAuthSession` does (docs/adr/0001-standard-authentication.md §3.2). Neither path
+ * hands the refresh token to this module.
  */
 
 export interface UplinkAccountSource {
   /** Null when signed out or the website could not be reached. */
   listDirectory(): Promise<UplinkDirectory | null>
-  /** A grant for one host. A member of several organizations the host is shared
-   *  with names the one their window works in; the owner may name nothing. */
-  acquireHostAccessToken(hostId: string, organizationId?: string, options?: { fresh?: boolean }): Promise<HostAccessTokenResponse | null>
+  /** A five-minute access token for one host or the Solus API; `fresh` after the resource refused the kept one. */
+  accessToken(resource: ConnectionTokenResource, options?: { fresh?: boolean }): Promise<string | null>
   issueEnrollmentTicket(): Promise<UplinkEnrollmentTicket | null>
   /** People and teams of one organization, for the share dialog; null when not a member. */
   loadOrganizationDirectory(organizationId: string): Promise<OrganizationDirectory | null>
@@ -40,17 +38,25 @@ export interface UplinkAccountSource {
 }
 
 /**
- * The web client served from the account origin: the cookie is the credential and
- * the same origin serves `/v1`. Every call names the origin explicitly so a bundle
- * served by a host (which has no `/v1`) never mistakes a 404 for an empty directory.
+ * The web client served from the account origin: its `OAuthSession` gives an
+ * account-plane access token for each call, and the same origin serves `/v1`. The
+ * account cookie is the website's own and is not sent. Every call names the origin
+ * explicitly so a bundle served by a host (which has no `/v1`) never mistakes a 404
+ * for an empty directory.
  */
-export function cookieUplinkAccountSource(origin: string, fetchImpl: typeof fetch = fetch): UplinkAccountSource {
+export function oauthUplinkAccountSource(
+  origin: string,
+  session: Pick<OAuthSession, 'accessToken'>,
+  fetchImpl: typeof fetch = fetch,
+): UplinkAccountSource {
   const call = async (path: string, init: RequestInit = {}): Promise<Response | null> => {
+    const token = await session.accessToken({ kind: 'account' })
+    if (!token) return null
     try {
       return await fetchImpl(`${origin}${path}`, {
         ...init,
-        credentials: 'same-origin',
-        headers: { accept: 'application/json', ...init.headers },
+        credentials: 'omit',
+        headers: { accept: 'application/json', authorization: `Bearer ${token}`, ...init.headers },
         signal: AbortSignal.timeout(8_000),
       })
     } catch {
@@ -64,17 +70,7 @@ export function cookieUplinkAccountSource(origin: string, fetchImpl: typeof fetc
       const parsed = directoryResponseSchema.safeParse(await response.json().catch(() => null))
       return parsed.success ? { directoryUrl: origin, ...parsed.data } : null
     },
-    async acquireHostAccessToken(hostId, organizationId) {
-      const body: HostAccessTokenRequest = organizationId ? { organizationId } : {}
-      const response = await call(`/v1/hosts/${encodeURIComponent(hostId)}/access-token`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (!response?.ok) return null
-      const parsed = hostAccessTokenResponseSchema.safeParse(await response.json().catch(() => null))
-      return parsed.success ? parsed.data : null
-    },
+    accessToken: (resource, options) => session.accessToken(resource, options),
     async issueEnrollmentTicket() {
       const response = await call('/v1/enrollment-tickets', { method: 'POST' })
       if (!response?.ok) return null
@@ -96,37 +92,22 @@ export function cookieUplinkAccountSource(origin: string, fetchImpl: typeof fetc
   }
 }
 
-export interface CloudOriginProbe {
-  kind: 'signed-in' | 'signed-out' | 'not-cloud'
-  directory: UplinkDirectory | null
-}
-
 /**
  * Whether `origin` is a Solus account origin serving this client (decision U8). The
- * directory answers JSON with 200 or 401 there. A Solus *host* serving this client
- * answers 200 too — its SPA fallback returns `index.html` for any route — so the
- * status alone proves nothing: only a JSON answer counts as the account origin.
- * Return the validated directory too so startup can use this same response.
+ * directory answers JSON there: 401 to this probe, which sends no credential. A Solus
+ * *host* serving this client answers 200 with its SPA fallback (`index.html`) for any
+ * route, so only a JSON answer counts as the account origin.
  */
-export async function probeCloudOrigin(origin: string, fetchImpl: typeof fetch = fetch): Promise<CloudOriginProbe> {
+export async function isCloudOrigin(origin: string, fetchImpl: typeof fetch = fetch): Promise<boolean> {
   try {
     const response = await fetchImpl(`${origin}/v1/hosts`, {
-      credentials: 'same-origin',
+      credentials: 'omit',
       headers: { accept: 'application/json' },
       signal: AbortSignal.timeout(5_000),
     })
-    if (!response.headers.get('content-type')?.includes('application/json')) return { kind: 'not-cloud', directory: null }
-    if (response.status === 200) {
-      const parsed = directoryResponseSchema.safeParse(await response.json().catch(() => null))
-      return {
-        kind: 'signed-in',
-        directory: parsed.success ? { directoryUrl: origin, ...parsed.data } : null,
-      }
-    }
-    if (response.status === 401) return { kind: 'signed-out', directory: null }
-    return { kind: 'not-cloud', directory: null }
+    return !!response.headers.get('content-type')?.includes('application/json') && response.status < 500
   } catch {
-    return { kind: 'not-cloud', directory: null }
+    return false
   }
 }
 

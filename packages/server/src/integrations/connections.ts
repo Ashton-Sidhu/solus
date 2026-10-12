@@ -1,9 +1,12 @@
 import type { Integration, IntegrationConnection } from '@solus/contracts/integration-types'
+import type { ProfileConnection, ProfileCredential } from '@solus/contracts/integrations/profile-credentials'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { createLogger } from '../logger'
+import type { ProfileIntegrationOwner } from '../execution/seats/agent-profile'
+import type { CloudIntegrationCredentials } from './cloud-credentials'
 import type { IntegrationConnectionStore, IntegrationSecrets } from './connection-store'
 import type { IntegrationStore } from './integration-store'
-import type { IntegrationConnectionEvents, IntegrationOAuth } from './oauth'
+import { discoverAddressOf, type IntegrationConnectionEvents, type IntegrationOAuth } from './oauth'
 import { readServerIdentity } from './server-identity'
 
 const log = createLogger('integrations', 'connections.ts')
@@ -20,11 +23,20 @@ export interface IntegrationCredentials {
 
 export interface IntegrationConnectionsDeps {
   store: IntegrationConnectionStore
-  integrations: Pick<IntegrationStore, 'get'>
+  integrations: Pick<IntegrationStore, 'get' | 'list'>
   secrets: IntegrationSecrets
   oauth: IntegrationOAuth
   events: IntegrationConnectionEvents
+  /** The person's credentials in their account, for a `cloud` connection (plans/020 §5.2). Absent on a host that cannot reach the account plane. */
+  cloud?: CloudIntegrationCredentials
   fetch?: typeof fetch
+}
+
+/** What a reconcile did, by slug: moved into the account, adopted from it, or left on the host. */
+export interface ReconcileOutcome {
+  uploaded: string[]
+  adopted: string[]
+  kept: string[]
 }
 
 /** A pasted key as its header: the whole key after the scheme the probe saw. */
@@ -35,7 +47,9 @@ function keyAuthorization(integration: Integration, key: string): string {
 /**
  * Each person's connections to the host's integrations (§4): the credential the
  * gateway sends, pasted keys, and disconnect. OAuth sign-in itself is
- * `IntegrationOAuth`'s.
+ * `IntegrationOAuth`'s. A connection lives on this host, or in the person's
+ * account (plans/020 §5): then the host reads an access token from the cloud per
+ * call and holds nothing else.
  */
 export class IntegrationConnections implements IntegrationCredentials {
   constructor(private readonly deps: IntegrationConnectionsDeps) {}
@@ -43,8 +57,10 @@ export class IntegrationConnections implements IntegrationCredentials {
   async authorizationFor(integrationId: string, credentialUserId: string | null): Promise<string | null> {
     const integration = this.deps.integrations.get(integrationId, ANY_ORGANIZATION)
     if (!integration || integration.auth.kind === 'none') return null
+    const connection = this.deps.store.get(integrationId, credentialUserId)
     // A refused credential waits for the person to sign in again.
-    if (this.deps.store.get(integrationId, credentialUserId)?.status === 'needs-sign-in') return null
+    if (connection?.status === 'needs-sign-in') return null
+    if (connection?.source === 'cloud') return this.cloudAuthorization(integration, credentialUserId)
     if (integration.auth.kind === 'bearer') {
       const key = this.deps.secrets.token(integrationId, credentialUserId)
       return key ? keyAuthorization(integration, key.accessToken) : null
@@ -58,9 +74,36 @@ export class IntegrationConnections implements IntegrationCredentials {
     }
   }
 
+  /**
+   * A `cloud` connection's authorization (plans/020 §5.2): the cached token while
+   * it lasts, else the cloud's answer. When the cloud does not answer and the
+   * cache ran out, the row says `cloud-unreachable`, never `needs-sign-in`.
+   */
+  private async cloudAuthorization(integration: Integration, credentialUserId: string | null): Promise<string | null> {
+    const cloud = this.deps.cloud
+    if (!cloud) return null
+    const read = await cloud.read(credentialUserId, integration.url)
+    switch (read.kind) {
+      case 'ok':
+        this.recover(integration.id, credentialUserId)
+        return read.delivery.authorization
+      case 'not-connected':
+      case 'reconnect-required':
+        this.record(integration.id, credentialUserId, 'needs-sign-in', 'Sign in to this server again.')
+        return null
+      case 'no-executor':
+      case 'unreachable': {
+        const cached = cloud.cached(credentialUserId, integration.url)
+        if (cached) return cached.authorization
+        this.record(integration.id, credentialUserId, 'cloud-unreachable', 'Solus Cloud is unreachable, so this connection cannot be used right now.')
+        return null
+      }
+    }
+  }
+
   markNeedsSignIn(integrationId: string, credentialUserId: string | null, message: string): void {
-    const connection = this.deps.store.upsert(integrationId, credentialUserId, { status: 'needs-sign-in', error: message })
-    this.deps.events.connectionChanged(credentialUserId, { integrationId, connection })
+    this.deps.cloud?.forget(credentialUserId, this.deps.integrations.get(integrationId, ANY_ORGANIZATION)?.url ?? '')
+    this.record(integrationId, credentialUserId, 'needs-sign-in', message)
     log.info('integration_needs_sign_in', { integrationId, credentialUserId })
   }
 
@@ -82,6 +125,7 @@ export class IntegrationConnections implements IntegrationCredentials {
     this.deps.secrets.saveToken(integration.id, credentialUserId, { accessToken: key, tokenType: 'api-key' })
     const connection = this.deps.store.upsert(integration.id, credentialUserId, {
       status: 'connected',
+      source: 'host',
       label: identity.label,
       info: identity.label ? { displayName: identity.label } : null,
       error: null,
@@ -95,6 +139,7 @@ export class IntegrationConnections implements IntegrationCredentials {
   async disconnect(integration: Integration, credentialUserId: string | null): Promise<boolean> {
     const token = this.deps.secrets.token(integration.id, credentialUserId)
     this.deps.secrets.removeToken(integration.id, credentialUserId)
+    this.deps.cloud?.forget(credentialUserId, integration.url)
     const removed = this.deps.store.remove(integration.id, credentialUserId)
     this.deps.events.connectionChanged(credentialUserId, { integrationId: integration.id, connection: null })
     if (token && integration.auth.kind === 'oauth') await this.deps.oauth.revoke(integration, token)
@@ -106,5 +151,109 @@ export class IntegrationConnections implements IntegrationCredentials {
   removeAllFor(integrationId: string): void {
     for (const credentialUserId of this.deps.store.removeAllFor(integrationId)) this.deps.secrets.removeToken(integrationId, credentialUserId)
     this.deps.secrets.removeClient(integrationId)
+  }
+
+  // ── The reconcile (plans/020 §5.4) ──
+
+  /**
+   * After a pull, for every integration the person sees here, shared or their own:
+   * a connection the account holds and this host does not use yet is read from
+   * the account from now on, which is how a sign-in at the cloud reaches this
+   * host. A connection that still lives on this host moves into their account.
+   * When the cloud holds none, the host uploads its credential and drops its copy
+   * once the cloud confirms. When the cloud holds one, or the upload finds one,
+   * the cloud wins: the host revokes its own token and reads from the account
+   * from then on. When the cloud is unreachable, nothing is deleted; the next
+   * pull tries again.
+   */
+  async reconcile(owner: ProfileIntegrationOwner, cloudConnections: ProfileConnection[]): Promise<ReconcileOutcome> {
+    const outcome: ReconcileOutcome = { uploaded: [], adopted: [], kept: [] }
+    const cloud = this.deps.cloud
+    if (!cloud) return outcome
+    const held = new Map(cloudConnections.map((connection) => [connection.serverUrl, connection]))
+    const user = owner.ownerUserId
+    for (const integration of this.deps.integrations.list(owner.organizationId, owner.ownerUserId)) {
+      if (integration.auth.kind === 'none') continue
+      const connection = this.deps.store.get(integration.id, user)
+      if (connection?.source === 'cloud') continue
+      const cloudHeld = held.get(integration.url)
+      if (cloudHeld?.status === 'connected' && connection?.status !== 'connected') {
+        await this.adoptCloud(integration, user, { revokeLocal: true, label: cloudHeld.label })
+        outcome.adopted.push(integration.slug)
+        continue
+      }
+      if (!connection || connection.status !== 'connected') continue
+      if (cloudHeld) {
+        await this.adoptCloud(integration, user, { revokeLocal: true, label: cloudHeld.label })
+        outcome.adopted.push(integration.slug)
+        continue
+      }
+      const credential = await this.exportable(integration, user)
+      if (!credential) {
+        outcome.kept.push(integration.slug)
+        continue
+      }
+      const result = await cloud.upload(user, integration.url, credential, connection.label)
+      if (result.kind === 'uploaded') {
+        // The cloud holds this very token now: one refresher, so the host's copy goes without a revocation.
+        await this.adoptCloud(integration, user, { revokeLocal: false, label: connection.label })
+        outcome.uploaded.push(integration.slug)
+      } else if (result.kind === 'held') {
+        await this.adoptCloud(integration, user, { revokeLocal: true, label: connection.label })
+        outcome.adopted.push(integration.slug)
+      } else {
+        log.info('integration_connection_kept_on_host', { integrationId: integration.id, reason: result.kind })
+        outcome.kept.push(integration.slug)
+      }
+    }
+    if (outcome.uploaded.length || outcome.adopted.length) log.info('integration_connections_reconciled', { credentialUserId: user, ...outcome })
+    return outcome
+  }
+
+  /**
+   * What this host holds for a person and integration, as the account vault
+   * takes it: the key, or the OAuth token with the client that received it and
+   * the endpoints the cloud needs to refresh and revoke. Null when the host holds
+   * nothing, or an OAuth token it cannot refresh anyway.
+   */
+  private async exportable(integration: Integration, credentialUserId: string | null): Promise<ProfileCredential | null> {
+    const token = this.deps.secrets.token(integration.id, credentialUserId)
+    if (!token) return null
+    if (integration.auth.kind === 'bearer') return { kind: 'bearer', key: token.accessToken, scheme: integration.auth.scheme }
+    const discover = discoverAddressOf(integration)
+    if (!token.refreshToken || !discover) return null
+    try {
+      const tokenEndpoint = (await this.deps.oauth.tokenEndpointOf(integration)).href
+      return { kind: 'oauth', token, client: this.deps.oauth.clientForToken(integration.id, token), tokenEndpoint, discover }
+    } catch (error) {
+      log.warn('integration_export_failed', { integrationId: integration.id, error: error instanceof Error ? error.message : String(error) })
+      return null
+    }
+  }
+
+  /**
+   * The cloud holds this connection now: the host's copy goes, revoked at the
+   * server when the cloud did not take this very token, and the row reads from
+   * the account from here on.
+   */
+  private async adoptCloud(integration: Integration, credentialUserId: string | null, options: { revokeLocal: boolean; label: string | null }): Promise<void> {
+    const token = this.deps.secrets.token(integration.id, credentialUserId)
+    this.deps.secrets.removeToken(integration.id, credentialUserId)
+    if (token && options.revokeLocal && integration.auth.kind === 'oauth') await this.deps.oauth.revoke(integration, token)
+    const connection = this.deps.store.upsert(integration.id, credentialUserId, { status: 'connected', source: 'cloud', label: options.label, error: null })
+    this.deps.events.connectionChanged(credentialUserId, { integrationId: integration.id, connection })
+    log.info('integration_connection_adopted_cloud', { integrationId: integration.id, credentialUserId, revoked: Boolean(token && options.revokeLocal) })
+  }
+
+  /** A `cloud` row whose read worked again: back to `connected`. */
+  private recover(integrationId: string, credentialUserId: string | null): void {
+    const connection = this.deps.store.get(integrationId, credentialUserId)
+    if (!connection || connection.status === 'connected') return
+    this.record(integrationId, credentialUserId, 'connected', null)
+  }
+
+  private record(integrationId: string, credentialUserId: string | null, status: IntegrationConnection['status'], error: string | null): void {
+    const connection = this.deps.store.upsert(integrationId, credentialUserId, { status, error })
+    this.deps.events.connectionChanged(credentialUserId, { integrationId, connection })
   }
 }

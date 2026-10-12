@@ -1,7 +1,7 @@
 <script lang="ts">
   import { GitBranch as GitBranchIcon } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
-  import { canDriveSession } from "../../contexts/sharing/session-drive";
+  import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import AttentionCard from "./AttentionCard.svelte";
   import TranscriptCardAction from "./TranscriptCardAction.svelte";
   import { worktreeOfferView, type WorktreeOffer } from "./lib/worktree-offer";

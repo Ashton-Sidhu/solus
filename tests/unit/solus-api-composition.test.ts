@@ -69,7 +69,6 @@ test('the record service answers its own paths on a listener it does not own, an
     expect(poll.status).not.toBe(404)
     expect(service.server.hasHandler('prompt')).toBe(false)
     expect(service.server.hasHandler('automationRun')).toBe(false)
-    expect(service.server.hasHandler('sharedSessionPrompt')).toBe(true)
   } finally {
     service.closeLiveTransport()
     await new Promise<void>(resolve => http.close(() => resolve()))

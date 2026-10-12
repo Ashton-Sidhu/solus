@@ -1,5 +1,5 @@
 import { usesAccountIntegration } from '../vault/provider-credentials'
-import { accountConnectionsUrl } from '../vault/account-integrations'
+import { accountConnectionsUrl } from '../vault/account-reads'
 import { z } from 'zod'
 import {
   CONNECTION_LABELS,

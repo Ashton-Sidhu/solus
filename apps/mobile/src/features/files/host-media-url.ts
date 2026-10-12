@@ -12,12 +12,14 @@ import type { HostConnection } from '../hosts/host-connections'
 
 const REFRESH_WINDOW_MS = 60_000
 
+export interface HostPathRequest {
+  /** A path on the host: absolute, `~`-relative, or relative to the project `ctx` names. */
+  path: string
+  ctx?: IpcContext
+}
+
 export type HostMediaRequest =
-  | {
-      /** A path on the host: absolute, `~`-relative, or relative to the project `ctx` names. */
-      path: string
-      ctx?: IpcContext
-    }
+  | HostPathRequest
   /** A file in the host asset store, such as a picture a tool returned. */
   | { assetId: string; ctx?: undefined }
 

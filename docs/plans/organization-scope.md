@@ -118,10 +118,14 @@ shows Local only. An explicit public share link opens its limited guest view.
 | Continue a session admitted before the server was attached | Its saved home, Local included; the attachment converts nothing |
 | Move a Local session to an organization | Changes its collaboration home to that organization |
 | Share a Local resource | Publishes that resource to a chosen organization before creating its cloud share |
+| Share a Local session with everyone in an organization | Assigns the session to that organization once, on its host; a session of another organization is refused (`ShareManager.joinNamedOrganization`) |
 
 The host is a separate choice. An organization session can run on the owner's
 laptop without granting other members general access to that laptop.
 A task created by an agent normally inherits its session's record home.
+A record's share rows always carry the record's organization. Rows written
+while a session was Local move with it when it is assigned, by any path
+(`ShareManager.followRecordOrganization`); otherwise no member could open it.
 An operation on an existing record always uses that record's explicit home.
 
 A cloud home does not mean every member can read the record. Preserve the
@@ -141,8 +145,11 @@ all in scope. A fix limited to the Share dialog's error message is incomplete.
 
 ### One cloud sharing path
 
-Keep the existing cloud-resource links. Do not add a second public link path
-that asks guests to connect directly to a laptop.
+Superseded for sessions on 2026-10-09 by `host-sharing.md`: a session's link
+names the host that holds it, and that host admits the guest, signed in or
+not. The rules below stay for a work or a task that an account publishes into
+an organization (the document model). Keep the existing cloud-resource links
+for those.
 
 1. Resolve the record's existing home. An existing cloud record stays in its
    organization; the current window selection cannot redirect it.
@@ -340,8 +347,8 @@ Use the account user ID for cloud authorship; retain the Local owner sentinel
 for Local records only.
 
 The host needs cloud delivery for an owner's authorized session/publication
-without being shared with that organization. A host token only identifies the
-machine. Establish the actor, destination, and allowed work through an
+without being shared with that organization. A host's control token only
+identifies the machine. Establish the actor, destination, and allowed work through an
 authorized start or publication; do not grant the machine unrestricted access
 to all organizations its owner belongs to. Renew that authority with current
 membership and resource/host permission checks.
