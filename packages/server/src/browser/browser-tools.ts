@@ -727,9 +727,9 @@ async function renderSnapshot(
     assetId = stored.id
     // The user gets the same capture as a card in the conversation, published
     // by the caller — so nothing here asks the model to remember to show it.
-    image = agentToolImageFromDataUrl(snapshot.screenshot)
+    image = await agentToolImageFromDataUrl(snapshot.screenshot)
     const path = join(dataDir(), 'assets', stored.id)
-    lines.push(image ? `screenshot: attached to this result; saved at ${path}` : `screenshot: ${path}  (too large to attach; read this path to look at it)`)
+    lines.push(image ? `screenshot: attached to this result, scaled down; full resolution saved at ${path}` : `screenshot: ${path}  (too large to attach; read this path to look at it)`)
   }
 
   // Between the picture and the structure on purpose: a page can look correct

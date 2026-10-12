@@ -24,7 +24,8 @@ import { destroyAllFinders } from '@solus/server/files/file-finder'
 import { registerBrowserHeadlessHost } from './browser/headless-window'
 import { registerBrowserRecordingEncoderHost } from './browser/recording-encoder-window'
 import { registerBrowserWebviewHost } from './browser/webview-driver'
-import { preserveApplicationReloadShortcut } from './browser/guest-shortcuts'
+import { forwardGuestShortcuts, preserveApplicationReloadShortcut } from './browser/guest-shortcuts'
+import type { GuestShortcut } from '@solus/contracts/host-api'
 import { getInstallationId, issueSessionToken, refreshSessionToken, verifySessionToken } from '@solus/server/admission/auth'
 import { closeDb } from '@solus/server/db'
 import { closeDatabase } from '@solus/server/db/database'
@@ -119,6 +120,8 @@ const bootPromise = new Promise<BootCore>((resolve, reject) => {
 // The tab whose conversation owns the renderer's current text selection. Pushed
 // on selectionchange so native context-menu actions keep their exact source.
 let quoteContextTabId: string | null = null
+/** The Solus shortcuts a focused browser page gives up; the renderer names them. */
+let guestShortcuts: GuestShortcut[] = []
 let hiddenUntilTrayShow = false
 let sessionIndexerStartTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -372,6 +375,9 @@ function createMainWindow(): BrowserWindow {
       // above the DOM, which would put every modal, palette, and toast behind
       // the guest; `<webview>` stays in the page's own z-order.
       webviewTag: true,
+      // A browser page that asks for fullscreen fills its pane's surface. Without
+      // this, Electron also puts the whole Solus window into OS fullscreen.
+      disableHtmlFullscreenWindowResize: true,
     },
   }
   // Edge-to-edge content with native traffic lights on macOS.
@@ -402,11 +408,17 @@ function createMainWindow(): BrowserWindow {
     delete webPreferences.preload
     webPreferences.nodeIntegration = false
     webPreferences.contextIsolation = true
+    webPreferences.disableHtmlFullscreenWindowResize = true
   })
   mainContents.on('did-attach-webview', (_event, browserContents) => {
     // Electron applies menu shortcuts to the focused WebContents. A browser
     // guest therefore steals Cmd/Ctrl+R from the workspace while it has focus.
     preserveApplicationReloadShortcut(browserContents, reloadMain)
+    // For the same reason, the renderer's keybinding listener never sees a key
+    // pressed in the guest.
+    forwardGuestShortcuts(browserContents, () => guestShortcuts, (shortcut) => {
+      sendNativeEvent('solus:guest-shortcut', shortcut)
+    })
   })
 
   mainWindow.on('close', (e) => {
@@ -790,6 +802,19 @@ ipcMain.on('solus:renderer-ready', (event) => {
 
 ipcMain.on('solus:set-quote-context', (_event, tabId: string | null) => {
   quoteContextTabId = tabId || null
+})
+
+const guestShortcutsSchema = z.array(z.object({
+  code: z.string(),
+  alt: z.boolean(),
+  shift: z.boolean(),
+  meta: z.boolean(),
+  ctrl: z.boolean(),
+}))
+
+ipcMain.on('solus:set-guest-shortcuts', (_event, rawShortcuts) => {
+  const shortcuts = guestShortcutsSchema.safeParse(rawShortcuts)
+  if (shortcuts.success) guestShortcuts = shortcuts.data
 })
 
 ipcMain.on('solus:set-zoom-factor', (event, rawFactor) => {

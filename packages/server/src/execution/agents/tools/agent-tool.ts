@@ -3,6 +3,7 @@ import { isSolusToolEnabled } from '@solus/contracts/agent-tools'
 import { typeSafeApiKey } from '../../../typesafe/credentials'
 import { getHostConfig } from '../../../host/settings'
 import type { AgentId, NormalizedEvent } from '@solus/contracts/types'
+import { downscalePng } from './bounded-png'
 
 export interface AgentToolResult {
   ok: boolean
@@ -27,9 +28,16 @@ export function agentToolImage(png: Uint8Array): AgentToolImage | null {
   return { mimeType: 'image/png', data: Buffer.from(png).toString('base64') }
 }
 
-/** The same, from a PNG data URL such as a headless-browser screenshot. */
-export function agentToolImageFromDataUrl(dataUrl: string): AgentToolImage | null {
-  return agentToolImage(Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64'))
+/** The long edge of a browser capture an agent sees. Claude scales a larger
+ *  image down to this before it looks, and a provider replays the bytes on
+ *  every later request, so more pixels cost history and show nothing. */
+export const MAX_AGENT_TOOL_IMAGE_EDGE = 1568
+
+/** The same, from a PNG data URL such as a headless-browser screenshot, scaled
+ *  down to `MAX_AGENT_TOOL_IMAGE_EDGE`. Keep the full capture for the user. */
+export async function agentToolImageFromDataUrl(dataUrl: string): Promise<AgentToolImage | null> {
+  const png = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64')
+  return agentToolImage(await downscalePng(png, MAX_AGENT_TOOL_IMAGE_EDGE))
 }
 
 export interface AgentToolContext {

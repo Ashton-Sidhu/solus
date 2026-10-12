@@ -215,7 +215,11 @@ export class ChromiumBrowserDriver implements BrowserSurfaceDriver {
       // Back returns — one page, one surface, one owner. A link that turns out
       // to be a download aborts the navigation and keeps the current page,
       // which is why the rejection is ignored rather than reported.
-      contents.loadURL(url).catch(() => {})
+      // A blank `window.open` names no page to follow. Loading it would replace
+      // the opener with an empty document, so it is only refused: `window.open`
+      // returns null and the page keeps going (a sign-in library falls back to
+      // a redirect, for example).
+      if (url !== '' && url !== 'about:blank') contents.loadURL(url).catch(() => {})
       return { action: 'deny' }
     })
     const driver = new ChromiumBrowserDriver(contents, cdp, ownership)

@@ -90,6 +90,17 @@ describe('runtime instructions', () => {
     expect(claude).not.toContain(BROWSER_HEADING)
   })
 
+  // WHY: an agent whose Solus browser calls kept failing on an open page, or
+  // whose user invoked a workflow that names another browser, stopped to ask
+  // which browser to use. The Solus browser stays the default, but those two
+  // cases must let the agent continue without a question.
+  test('the browser rule lets an agent fall back after repeated failures or a named workflow', () => {
+    const prompt = runtimeInstructions({ harness: 'Codex', ...codexRuntime }, [browserStatusTool])
+    expect(prompt).toContain('invokes a skill or documented repository workflow that names one')
+    expect(prompt).toContain('fail twice on the same step')
+    expect(prompt).toContain('switch without asking the user which browser to use')
+  })
+
   // WHY: Solus sees a pull request on the session's own branch, or one its own
   // git action opened. One the agent opens with gh, on another branch, or as a
   // stack layer stays unlinked unless the agent calls link. Every session needs

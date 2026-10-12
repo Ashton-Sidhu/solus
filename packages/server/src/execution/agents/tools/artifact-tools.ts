@@ -114,7 +114,7 @@ const ERROR_LEVELS = new Set(['error'])
 /** The screenshot comes back as an image the agent sees, so checking a page
  *  takes one call. One too large for a tool result is stored as a file to read. */
 async function previewReport(title: string, preview: HtmlPreview): Promise<AgentToolResult> {
-  const image = agentToolImageFromDataUrl(preview.screenshot)
+  const image = await agentToolImageFromDataUrl(preview.screenshot)
   const lines = [
     `Preview of "${title}" at ${preview.width}px, ${preview.appearance}: the page is ${preview.contentHeight}px tall. No work was saved and nothing was rendered in the conversation.`,
   ]
