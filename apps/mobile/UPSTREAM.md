@@ -62,6 +62,16 @@ checkout at build time.
 | `src/features/prs/` | `src/features/threads/thread-list-v2-items.tsx`, `src/state/thread-pr-presentation.ts`, `src/features/review/ReviewCommentComposerSheet.tsx` | The pull request row anatomy and state colors (open green, merged violet, closed rose, draft muted), and the comment sheet's layout. | Solus's own list (host-wide, in the web's Authored / Review requested / Others sections) and detail screen; no T3 review or diff code. |
 | `src/features/files/FilesScreen.tsx` | `src/features/files/ThreadFilesRouteScreen.tsx` | A pushed folder screen per level, folders first. | Built on the host's flat file index (`listProjectFiles`); read-only. |
 
+## Upstream fixes ported (2026-10-09)
+
+T3 Code mobile fixes merged after the port, applied where Solus has the same defect.
+
+| T3 pull request | Solus files | Local changes |
+| --- | --- | --- |
+| #16729, highlight batches keep grammar state | `src/features/review/shikiReviewHighlighter.ts` | None. |
+| #15397, elapsed-time clocks pause while hidden | `src/features/threads/use-visible-second-clock.ts` | The working timer and the agent rows share it. The AppState gate is a plain function (`tickWhileAppActive`) so a Bun test can drive it. |
+| #16296, collect the UI runtime on an iOS memory warning | `src/lib/ui-runtime-memory-warning-gc.ts`, `src/App.tsx` | A start/stop function in the app's lifecycle effect instead of a hook. |
+
 ## Evaluated, not adopted in milestone one
 
 | T3 source | Reason |

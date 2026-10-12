@@ -27,6 +27,7 @@ import { ControlPill } from "../../components/ControlPill";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { formatWorkingDuration, type FloatingWorkingStatus } from "./floating-working-status";
 import { ShimmeringWorkContent } from "./thread-work-log";
+import { useVisibleSecondClock } from "./use-visible-second-clock";
 
 const CONTROL_HEIGHT = 38.5; // h-11 with the mobile 14px rem
 // The collapsed composer capsule starts 6 below its overlay's top edge, so
@@ -448,11 +449,7 @@ function WorkingDuration(props: {
 }
 
 export function WorkingTimer(props: { readonly startedAt: number }) {
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    const intervalId = setInterval(() => setNowMs(Date.now()), 1_000);
-    return () => clearInterval(intervalId);
-  }, []);
+  const nowMs = useVisibleSecondClock(true);
   return (
     <SystemText
       className="shrink text-xs text-foreground"

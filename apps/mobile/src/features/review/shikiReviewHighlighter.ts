@@ -1,6 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/review/shikiReviewHighlighter.ts (MIT, see UPSTREAM.md).
 // Only the snippet and source-file highlighting; no review diffs.
-import { createHighlighterCore, type HighlighterCore } from "@shikijs/core";
+import { createHighlighterCore, type GrammarState, type HighlighterCore } from "@shikijs/core";
 import { createJavaScriptRegexEngine } from "@shikijs/engine-javascript";
 import bashLanguage from "@shikijs/langs/bash";
 import javascriptLanguage from "@shikijs/langs/javascript";
@@ -106,7 +106,12 @@ const REVIEW_HIGHLIGHTER_ENGINE_PREFERENCE = resolveReviewHighlighterEnginePrefe
   REVIEW_HIGHLIGHTER_ENGINE_ENV_VALUE,
 );
 const REVIEW_HIGHLIGHT_CHUNK_LINE_THRESHOLD = 8;
-const REVIEW_HIGHLIGHT_CHUNK_SIZE = 200;
+// Bounds each tokenizing call by characters, not lines, so a file of long
+// lines still yields to touches and renders between short batches.
+const REVIEW_HIGHLIGHT_CHUNK_CHARACTERS = 2_000;
+// A yield waits a timer turn, so batches run back to back until about one
+// frame of work has passed instead of yielding after every batch.
+const REVIEW_HIGHLIGHT_YIELD_AFTER_MS = 16;
 const REVIEW_TOKENIZE_MAX_LINE_LENGTH = 1_000;
 const REVIEW_INITIAL_LANGUAGE_MODULES = [
   bashLanguage,
@@ -498,45 +503,51 @@ async function highlightLines(
   const highlighter = await getHighlighter();
   const sourceLines = code.split("\n");
   const highlightedLines: Array<ReadonlyArray<ReviewHighlightedToken>> = [];
-  const shortLineBatch: string[] = [];
+  // Each batch resumes from the previous batch's grammar state, so a comment
+  // or template string that spans a batch boundary keeps its colors.
+  let grammarState: GrammarState | undefined;
+  let start = 0;
+  let sliceStartedAt = performance.now();
 
-  const flushShortLineBatch = async (): Promise<void> => {
-    if (shortLineBatch.length === 0) {
-      return;
-    }
-
-    const tokenLines = highlighter.codeToTokensBase(shortLineBatch.join("\n"), {
-      lang: language,
-      theme,
-    });
-    highlightedLines.push(...normalizeHighlightedLines(tokenLines));
-    shortLineBatch.length = 0;
-  };
-
-  for (let lineIndex = 0; lineIndex < sourceLines.length; lineIndex += 1) {
-    const line = sourceLines[lineIndex] ?? "";
-
-    if (line.length > REVIEW_TOKENIZE_MAX_LINE_LENGTH) {
-      await flushShortLineBatch();
-      highlightedLines.push([{ content: line, color: null, fontStyle: null }]);
+  while (start < sourceLines.length) {
+    if (sourceLines[start]!.length > REVIEW_TOKENIZE_MAX_LINE_LENGTH) {
+      highlightedLines.push([{ content: sourceLines[start]!, color: null, fontStyle: null }]);
+      // A skipped line's ending state is unknown; the next batch starts fresh.
+      grammarState = undefined;
+      start += 1;
     } else {
-      shortLineBatch.push(line);
-    }
-
-    if (shortLineBatch.length >= REVIEW_HIGHLIGHT_CHUNK_SIZE) {
-      await flushShortLineBatch();
+      let end = start;
+      let characters = 0;
+      while (end < sourceLines.length) {
+        const length = sourceLines[end]!.length;
+        if (
+          length > REVIEW_TOKENIZE_MAX_LINE_LENGTH ||
+          (end > start && characters + length + 1 > REVIEW_HIGHLIGHT_CHUNK_CHARACTERS)
+        ) {
+          break;
+        }
+        characters += length + (end > start ? 1 : 0);
+        end += 1;
+      }
+      const tokenLines = highlighter.codeToTokensBase(sourceLines.slice(start, end).join("\n"), {
+        lang: language,
+        theme,
+        grammarState,
+      });
+      grammarState = highlighter.getLastGrammarState(tokenLines);
+      highlightedLines.push(...normalizeHighlightedLines(tokenLines));
+      start = end;
     }
 
     if (
       sourceLines.length > REVIEW_HIGHLIGHT_CHUNK_LINE_THRESHOLD &&
-      lineIndex + 1 < sourceLines.length &&
-      (shortLineBatch.length === 0 || line.length > REVIEW_TOKENIZE_MAX_LINE_LENGTH)
+      start < sourceLines.length &&
+      performance.now() - sliceStartedAt >= REVIEW_HIGHLIGHT_YIELD_AFTER_MS
     ) {
       await waitForNextFrame();
+      sliceStartedAt = performance.now();
     }
   }
-
-  await flushShortLineBatch();
 
   return highlightedLines;
 }

@@ -18,6 +18,7 @@ import {
   AppearancePreferencesProvider,
   useAppearancePreferences,
 } from './features/settings/appearance/AppearancePreferencesProvider'
+import { collectUiRuntimeGarbageOnMemoryWarning } from './lib/ui-runtime-memory-warning-gc'
 import { RootNavigator } from './navigation/RootNavigator'
 import { expoPlatform, watchAppLifecycle } from './platform/expo'
 import { ThemeProvider, usePalette } from './theme/theme'
@@ -58,9 +59,11 @@ function AppContent() {
       setInitialState({ index: routes.length - 1, routes })
     })
     const stopLifecycle = watchAppLifecycle(app.connections, () => void app.notifications.refresh())
+    const stopUiRuntimeGc = collectUiRuntimeGarbageOnMemoryWarning()
     return () => {
       active = false
       stopLifecycle()
+      stopUiRuntimeGc()
       stopNotifications()
     }
   }, [])
