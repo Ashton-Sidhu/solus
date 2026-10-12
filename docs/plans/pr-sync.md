@@ -171,6 +171,12 @@ request it gets back to `prSync.apply(repo, pullRequest)`. That broadcasts
 `pr.changed`. Head SHA and permission guards read `prSync.readFresh(repo, number)`.
 This is the only forced read.
 
+A read on another path (a fresh read for a guard or a review pane, or a PR
+watch) can see a state that PR sync does not hold yet. `prIndex` tells PR sync
+about each answer. When the state is different, PR sync makes the repository
+due now and reads that number again itself. It does not write the other answer
+to a link. The cost is one read when a state changes.
+
 ### 3.5 Durable link snapshot
 
 `task_links` gets columns for the last observation: `pr_result`, `pr_state`,
