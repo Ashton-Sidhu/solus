@@ -6,7 +6,7 @@ import { AppText as Text } from "../../components/AppText";
 import { ConnectOptionCard } from "../connection/ConnectOptionCard";
 import type { NearbyHosts } from "./use-nearby-hosts";
 
-const OS_LABELS = {
+export const OS_LABELS = {
   macos: "macOS",
   windows: "Windows",
   linux: "Linux",
@@ -28,7 +28,7 @@ export function NearbyHostsSection({
   return (
     <View collapsable={false} className="gap-2">
       <View className="flex-row items-center justify-between px-1">
-        <Text className="text-sm font-t3-bold uppercase text-foreground-muted" accessibilityRole="header">
+        <Text className="text-sm font-t3-medium text-foreground-muted" accessibilityRole="header">
           On this network
         </Text>
         {nearby.isScanning ? (
@@ -56,7 +56,7 @@ export function NearbyHostsSection({
         />
       ))}
       {nearby.hosts.length === 0 && nearby.hasScanned && !nearby.isScanning ? (
-        <Text className="px-1 text-xs leading-normal text-foreground-muted">
+        <Text className="px-1 text-[13px] leading-normal text-foreground-muted">
           No unpaired hosts found. The computer must run Solus on this Wi-Fi network, with access from other
           devices turned on.
         </Text>

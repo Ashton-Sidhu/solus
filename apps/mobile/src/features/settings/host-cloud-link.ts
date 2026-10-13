@@ -4,10 +4,12 @@ import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
 
 /**
- * Each host's link to the person's Solus Cloud account, as the desktop and web
- * Access tab shows it. A paired phone is the host's local owner, so it links and
- * unlinks; a phone that reached the host through the tunnel only sees the link
- * (`uplinkControl`). The ticket comes from the phone's own account session.
+ * Each host's registration to the person's Solus Cloud account and, apart from it,
+ * its link, as the desktop and web Access tab shows them
+ * (docs/adr/0001-standard-authentication.md §2.2 rules 8 and 9). A paired phone is the
+ * host's local owner: signed in, it registers a host that is not registered by itself,
+ * and it turns the link on and off. A phone that reached the host through the tunnel
+ * only sees them (`uplinkControl`). The ticket comes from the phone's own account session.
  */
 
 export type HostCloudLinkState =
@@ -27,6 +29,8 @@ export class HostCloudLink {
   constructor(
     private readonly connectionFor: (hostId: string) => HostConnection | null,
     private readonly issueTicket: () => Promise<UplinkEnrollmentTicket | null>,
+    /** Whether the phone is signed in to Solus Cloud: then it registers the hosts it manages. */
+    private readonly isSignedIn: () => boolean,
   ) {}
 
   stateOf = (hostId: string): HostCloudLinkState => this.states.get(hostId) ?? IDLE
@@ -44,22 +48,34 @@ export class HostCloudLink {
       const status = control === 'none' ? null : await connection.api.uplinkStatus()
       if (this.connectionFor(hostId) !== connection) return
       this.set(hostId, { kind: 'loaded', control, status, busy: false })
+      // Rule 8: a signed-in owner's client registers a host that is not registered.
+      if (control === 'manage' && status && !status.registration.registered && this.isSignedIn()) {
+        await this.register(hostId).catch(() => {})
+      }
     } catch (error) {
       if (this.connectionFor(hostId) !== connection) return
       this.set(hostId, { kind: 'error', message: error instanceof Error ? error.message : String(error) })
     }
   }
 
-  /** Links the host to the signed-in account. Throws what the account or the host refused. */
+  /** Registers the host to the signed-in account. Throws what the account or the host refused. */
+  async register(hostId: string): Promise<void> {
+    await this.change(hostId, (connection) => this.registerWith(connection))
+  }
+
+  /** Turns the tunnel on: the host is reachable from the internet. A host that is not registered is registered first. */
   async link(hostId: string): Promise<void> {
     await this.change(hostId, async (connection) => {
-      const ticket = await this.issueTicket()
-      if (!ticket) throw new Error('Sign in to Solus Cloud to link this host.')
-      return connection.api.uplinkLink({ ticket: ticket.ticket, directoryUrl: ticket.directoryUrl })
+      const current = this.stateOf(hostId)
+      const isRegistered = current.kind === 'loaded' && current.status?.registration.registered === true
+      if (!isRegistered && !(await this.registerWith(connection)).registration.registered) {
+        throw new Error('Solus Cloud did not register this host.')
+      }
+      return connection.api.uplinkLink()
     })
   }
 
-  /** Unlinking needs no account: the host holds its own token for that. */
+  /** Turns the tunnel off. The registration stays; it needs no account: the host holds its own key. */
   async unlink(hostId: string): Promise<void> {
     await this.change(hostId, (connection) => connection.api.uplinkUnlink())
   }
@@ -69,6 +85,12 @@ export class HostCloudLink {
     this.watches.delete(hostId)
     this.states.delete(hostId)
     this.changes.notify()
+  }
+
+  private async registerWith(connection: HostConnection): Promise<UplinkStatus> {
+    const ticket = await this.issueTicket()
+    if (!ticket) throw new Error('Sign in to Solus Cloud to register this host.')
+    return connection.api.uplinkRegister({ ticket: ticket.ticket, directoryUrl: ticket.directoryUrl })
   }
 
   private async change(hostId: string, run: (connection: HostConnection) => Promise<UplinkStatus>): Promise<void> {
@@ -103,17 +125,30 @@ export class HostCloudLink {
   }
 }
 
-/** The row value and the note under the Solus Cloud section of a loaded host. */
-export function cloudLinkSummary(state: Extract<HostCloudLinkState, { kind: 'loaded' }>) {
+/** The registration row: whose account the host belongs to, or why it is not registered. */
+export function cloudRegistrationSummary(state: Extract<HostCloudLinkState, { kind: 'loaded' }>) {
   const { status, control } = state
-  const change = control === 'view' ? ' Change the link from the host itself or from a paired device.' : ''
-  if (!status) return { value: 'Checking', note: 'Reading the link…' }
-  if (!status.linked) {
+  const change = control === 'view' ? ' Change it from the host itself or from a paired device.' : ''
+  if (!status) return { value: 'Checking', note: 'Reading the registration…' }
+  const { registration } = status
+  if (!registration.registered) {
     return {
-      value: 'Not linked',
-      note: status.error ?? `Link this host to reach it from your other devices through your Solus account.${change}`,
+      value: state.busy ? 'Registering' : 'Not registered',
+      note: `Signing in registers this host to your account, so your account and your organizations work here.${change}`,
     }
   }
-  const tunnel = status.state.observed === 'online' ? 'tunnel online' : `tunnel offline${status.state.error ? `. ${status.state.error}` : ''}`
-  return { value: 'Linked', note: `Reachable at ${status.link.hostname} · ${tunnel}.${change}` }
+  const owner = registration.owner
+  const account = owner ? owner.email ?? owner.name ?? 'your account' : 'your account'
+  return { value: 'Registered', note: `Registered to ${account}. Your devices reach it on your local network or by pairing.${change}` }
+}
+
+/** The link row: whether the internet reaches the host through its Cloudflare tunnel, and nothing else. */
+export function cloudLinkSummary(state: Extract<HostCloudLinkState, { kind: 'loaded' }>) {
+  const { status, control } = state
+  const change = control === 'view' ? ' Change it from the host itself or from a paired device.' : ''
+  const off = `Turn on to expose this host to the internet through a Cloudflare tunnel. Nothing else changes.${change}`
+  if (!status || !status.link.linked) return { isLinked: false, note: status?.link.linked === false && status.link.error ? `${status.link.error} ${off}` : off }
+  const { link } = status
+  const tunnel = link.state.observed === 'online' ? 'tunnel online' : `tunnel offline${link.state.error ? `. ${link.state.error}` : ''}`
+  return { isLinked: true, note: `Reachable at ${link.tunnel.hostname} · ${tunnel}.${change}` }
 }

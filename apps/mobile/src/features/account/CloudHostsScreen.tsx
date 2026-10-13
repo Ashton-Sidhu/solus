@@ -50,7 +50,7 @@ export function CloudHostsScreen({ navigation }: ScreenProps<"CloudHosts">) {
   const origin = view.kind === "signed-in" ? view.origin : "";
 
   const confirmSignOut = () =>
-    Alert.alert("Sign out?", signOutMessage(app.personalSync.current().pendingKeys.length), [
+    Alert.alert("Sign out?", signOutMessage(app.accountSync.current().pendingCount), [
       { text: "Cancel", style: "cancel" },
       { text: "Sign out", style: "destructive", onPress: () => void app.account.signOut() },
     ]);
@@ -152,6 +152,12 @@ export function CloudHostsScreen({ navigation }: ScreenProps<"CloudHosts">) {
               onPress={() => navigation.navigate("Hosts")}
             />
             <SettingsRow
+              icon="arrow.clockwise"
+              label="Account & sync"
+              accessibilityHint="Your synced settings and agent profile, and your hosts"
+              onPress={() => navigation.navigate("AccountSync")}
+            />
+            <SettingsRow
               icon="doc.text"
               label="Agent profile"
               accessibilityHint="Your instructions, skills, and MCP servers on every host"
@@ -170,9 +176,9 @@ export function CloudHostsScreen({ navigation }: ScreenProps<"CloudHosts">) {
   );
 }
 
-/** Sign-out also ends settings sync here; unsent changes are named before they go (plans/018 §5). */
-function signOutMessage(unsentSettings: number): string {
+/** Sign-out also ends sync here; unsent changes are named before they go (plans/018 §5). */
+function signOutMessage(unsent: number): string {
   const hosts = "Hosts from your account leave this device. Hosts you paired directly stay.";
-  if (unsentSettings === 0) return hosts;
-  return `${hosts} ${unsentSettings === 1 ? "1 settings change has" : `${unsentSettings} settings changes have`} not synced and will not reach your account.`;
+  if (unsent === 0) return hosts;
+  return `${hosts} ${unsent === 1 ? "1 change has" : `${unsent} changes have`} not synced and will not reach your account.`;
 }

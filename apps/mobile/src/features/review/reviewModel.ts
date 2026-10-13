@@ -1,0 +1,401 @@
+// Adapted from T3 Code apps/mobile/src/features/review/reviewModel.ts (MIT, see UPSTREAM.md).
+// Only the patch model: T3's thread checkpoint sections (`ReviewSectionItem`,
+// `buildReviewSectionItems`, `applyReviewDiffMetadata`) need T3 thread state
+// and are not ported. Plain arrays replace Effect.
+//
+// The parse entry point keeps T3's name: `buildReviewParsedDiff(patch, cacheScope)`
+// returns a `ReviewParsedDiff` (`empty`, `raw`, or `files` with hunk and line rows).
+import { parsePatchFiles } from "@pierre/diffs/utils/parsePatchFiles";
+import type { ChangeTypes, FileDiffMetadata } from "@pierre/diffs/types";
+import { decodeGitPath } from "@solus/client-core/git-path-name";
+
+export interface ReviewRenderableHunkRow {
+  readonly kind: "hunk";
+  readonly id: string;
+  readonly header: string;
+  readonly context: string | null;
+}
+
+export interface ReviewRenderableLineRow {
+  readonly kind: "line";
+  readonly id: string;
+  readonly change: "context" | "add" | "delete";
+  readonly oldLineNumber: number | null;
+  readonly newLineNumber: number | null;
+  readonly content: string;
+  readonly additionTokenIndex: number | null;
+  readonly deletionTokenIndex: number | null;
+  readonly comparison: {
+    readonly change: "add" | "delete";
+    readonly tokenIndex: number;
+  } | null;
+}
+
+export type ReviewRenderableRow = ReviewRenderableHunkRow | ReviewRenderableLineRow;
+
+export interface ReviewRenderableFile {
+  readonly id: string;
+  readonly cacheKey: string;
+  readonly notice?: string;
+  readonly path: string;
+  readonly previousPath: string | null;
+  readonly changeType: ChangeTypes;
+  readonly additions: number;
+  readonly deletions: number;
+  readonly languageHint: string | null;
+  readonly additionLines: ReadonlyArray<string>;
+  readonly deletionLines: ReadonlyArray<string>;
+  readonly rows: ReadonlyArray<ReviewRenderableRow>;
+}
+
+export type ReviewFilePreviewState =
+  | {
+      readonly kind: "render";
+    }
+  | {
+      readonly kind: "suppressed";
+      readonly reason: "non-text" | "large";
+      readonly title: string;
+      readonly message: string;
+      readonly actionLabel: string | null;
+    };
+
+export type ReviewParsedDiff =
+  | {
+      readonly kind: "empty";
+    }
+  | {
+      readonly kind: "raw";
+      readonly text: string;
+      readonly reason: string;
+      readonly notice: string | null;
+    }
+  | {
+      readonly kind: "files";
+      readonly files: ReadonlyArray<ReviewRenderableFile>;
+      readonly fileCount: number;
+      readonly additions: number;
+      readonly deletions: number;
+      readonly notice: string | null;
+    };
+
+function stripTrailingNewline(value: string): string {
+  return value.endsWith("\n") ? value.slice(0, -1) : value;
+}
+
+type TruncationSplit = {
+  readonly text: string;
+  readonly truncated: boolean;
+};
+
+function splitTruncationMarker(diff: string): TruncationSplit {
+  const trimmed = diff.trimEnd();
+  if (!trimmed.endsWith("[truncated]")) {
+    return { text: trimmed, truncated: false };
+  }
+
+  return {
+    text: trimmed.replace(/\n*\[truncated\]\s*$/, "").trimEnd(),
+    truncated: true,
+  };
+}
+
+function runDiffParserSilently<T>(callback: () => T): T {
+  const originalConsoleError = console.error;
+  console.error = () => undefined;
+  try {
+    return callback();
+  } finally {
+    console.error = originalConsoleError;
+  }
+}
+
+const FNV_OFFSET_BASIS_32 = 0x811c9dc5;
+const FNV_PRIME_32 = 0x01000193;
+const SECONDARY_HASH_SEED = 0x9e3779b9;
+const SECONDARY_HASH_MULTIPLIER = 0x85ebca6b;
+const LARGE_DIFF_LINE_THRESHOLD = 400;
+const LARGE_DIFF_CHARACTER_THRESHOLD = 24_000;
+const NON_TEXT_FILE_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "bmp",
+  "ico",
+  "icns",
+  "avif",
+  "heic",
+  "tif",
+  "tiff",
+  "mp3",
+  "wav",
+  "flac",
+  "ogg",
+  "m4a",
+  "aac",
+  "mp4",
+  "mov",
+  "avi",
+  "mkv",
+  "webm",
+  "pdf",
+  "zip",
+  "gz",
+  "tgz",
+  "bz2",
+  "7z",
+  "rar",
+  "woff",
+  "woff2",
+  "ttf",
+  "otf",
+  "eot",
+  "wasm",
+  "exe",
+  "dll",
+  "so",
+  "dylib",
+]);
+
+function fnv1a32(input: string, seed: number, multiplier: number): number {
+  let hash = seed >>> 0;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, multiplier) >>> 0;
+  }
+  return hash >>> 0;
+}
+
+function buildPatchCacheKey(patch: string, scope: string): string {
+  const normalizedPatch = patch.trim();
+  const primary = fnv1a32(normalizedPatch, FNV_OFFSET_BASIS_32, FNV_PRIME_32).toString(36);
+  const secondary = fnv1a32(
+    normalizedPatch,
+    SECONDARY_HASH_SEED,
+    SECONDARY_HASH_MULTIPLIER,
+  ).toString(36);
+  return `${scope}:${normalizedPatch.length}:${primary}:${secondary}`;
+}
+
+function getFileExtension(path: string): string | null {
+  const match = /\.([a-z0-9]+)$/i.exec(path);
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+function countReviewRenderableLineRows(file: ReviewRenderableFile): number {
+  return file.rows.reduce((total, row) => total + (row.kind === "line" ? 1 : 0), 0);
+}
+
+function countReviewRenderableCharacters(file: ReviewRenderableFile): number {
+  return file.rows.reduce(
+    (total, row) => total + (row.kind === "line" ? row.content.length : row.header.length),
+    0,
+  );
+}
+
+export function getReviewFilePreviewState(file: ReviewRenderableFile): ReviewFilePreviewState {
+  const extension = getFileExtension(file.path);
+  if (extension && NON_TEXT_FILE_EXTENSIONS.has(extension)) {
+    return {
+      kind: "suppressed",
+      reason: "non-text",
+      title: "Non-text file",
+      message: "Diff preview is not available for this file format.",
+      actionLabel: null,
+    };
+  }
+
+  const lineCount = countReviewRenderableLineRows(file);
+  const characterCount = countReviewRenderableCharacters(file);
+  if (lineCount > LARGE_DIFF_LINE_THRESHOLD || characterCount > LARGE_DIFF_CHARACTER_THRESHOLD) {
+    return {
+      kind: "suppressed",
+      reason: "large",
+      title: "Large diff",
+      message: "Large diffs are not rendered by default.",
+      actionLabel: "Load diff",
+    };
+  }
+
+  return { kind: "render" };
+}
+
+function fallbackHunkHeader(hunk: FileDiffMetadata["hunks"][number]): string {
+  return `@@ -${hunk.deletionStart},${hunk.deletionCount} +${hunk.additionStart},${hunk.additionCount} @@`;
+}
+
+function buildRenderableRows(file: FileDiffMetadata): ReadonlyArray<ReviewRenderableRow> {
+  const rows: ReviewRenderableRow[] = [];
+  let rowIndex = 0;
+
+  file.hunks.forEach((hunk, hunkIndex) => {
+    rows.push({
+      kind: "hunk",
+      id: `${file.cacheKey ?? file.name}:hunk:${hunkIndex}`,
+      header: fallbackHunkHeader(hunk),
+      context: hunk.hunkContext ? stripTrailingNewline(hunk.hunkContext) : null,
+    });
+
+    let deletionLineNumber = hunk.deletionStart;
+    let additionLineNumber = hunk.additionStart;
+    let deletionTokenIndex = hunk.deletionLineIndex;
+    let additionTokenIndex = hunk.additionLineIndex;
+
+    hunk.hunkContent.forEach((segment) => {
+      if (segment.type === "context") {
+        for (let index = 0; index < segment.lines; index += 1) {
+          rows.push({
+            kind: "line",
+            id: `${file.cacheKey ?? file.name}:row:${rowIndex++}`,
+            change: "context",
+            oldLineNumber: deletionLineNumber,
+            newLineNumber: additionLineNumber,
+            content: stripTrailingNewline(
+              file.additionLines[additionTokenIndex] ??
+                file.deletionLines[deletionTokenIndex] ??
+                "",
+            ),
+            additionTokenIndex,
+            deletionTokenIndex,
+            comparison: null,
+          });
+          deletionLineNumber += 1;
+          additionLineNumber += 1;
+          deletionTokenIndex += 1;
+          additionTokenIndex += 1;
+        }
+        return;
+      }
+
+      const pairedLineCount = Math.min(segment.deletions, segment.additions);
+      const deletionTokenIndexStart = deletionTokenIndex;
+      const additionTokenIndexStart = additionTokenIndex;
+
+      for (let index = 0; index < segment.deletions; index += 1) {
+        rows.push({
+          kind: "line",
+          id: `${file.cacheKey ?? file.name}:row:${rowIndex++}`,
+          change: "delete",
+          oldLineNumber: deletionLineNumber,
+          newLineNumber: null,
+          content: stripTrailingNewline(file.deletionLines[deletionTokenIndex] ?? ""),
+          additionTokenIndex: null,
+          deletionTokenIndex,
+          comparison:
+            index < pairedLineCount
+              ? {
+                  change: "add",
+                  tokenIndex: additionTokenIndexStart + index,
+                }
+              : null,
+        });
+        deletionLineNumber += 1;
+        deletionTokenIndex += 1;
+      }
+
+      for (let index = 0; index < segment.additions; index += 1) {
+        rows.push({
+          kind: "line",
+          id: `${file.cacheKey ?? file.name}:row:${rowIndex++}`,
+          change: "add",
+          oldLineNumber: null,
+          newLineNumber: additionLineNumber,
+          content: stripTrailingNewline(file.additionLines[additionTokenIndex] ?? ""),
+          additionTokenIndex,
+          deletionTokenIndex: null,
+          comparison:
+            index < pairedLineCount
+              ? {
+                  change: "delete",
+                  tokenIndex: deletionTokenIndexStart + index,
+                }
+              : null,
+        });
+        additionLineNumber += 1;
+        additionTokenIndex += 1;
+      }
+    });
+  });
+
+  return rows;
+}
+
+function mapRenderableFile(file: FileDiffMetadata): ReviewRenderableFile {
+  // The parser keeps git's quotes and escapes; the host sends real paths.
+  const previousPath = file.prevName ? decodeGitPath(file.prevName) : null;
+  const path = file.name ? decodeGitPath(file.name) : (previousPath ?? "");
+  const additions = file.hunks.reduce((total, hunk) => total + hunk.additionLines, 0);
+  const deletions = file.hunks.reduce((total, hunk) => total + hunk.deletionLines, 0);
+  const cacheKey = file.cacheKey ?? `${previousPath ?? "none"}:${path}:${file.type}`;
+
+  return {
+    id: cacheKey,
+    cacheKey,
+    path,
+    previousPath,
+    changeType: file.type,
+    additions,
+    deletions,
+    languageHint: file.lang ?? null,
+    additionLines: file.additionLines,
+    deletionLines: file.deletionLines,
+    rows: buildRenderableRows(file),
+  };
+}
+
+export function buildReviewParsedDiff(
+  diff: string | null | undefined,
+  cacheScope: string,
+): ReviewParsedDiff {
+  const normalized = diff?.trim();
+  if (!normalized) {
+    return { kind: "empty" };
+  }
+
+  const { text, truncated } = splitTruncationMarker(normalized);
+  if (text.length === 0) {
+    return { kind: "empty" };
+  }
+
+  const notice = truncated
+    ? "Diff output hit the server size cap. Showing the available excerpt."
+    : null;
+
+  try {
+    const parsedPatches = runDiffParserSilently(() =>
+      parsePatchFiles(text, buildPatchCacheKey(text, cacheScope)),
+    );
+    const files = parsedPatches.flatMap((patch) => patch.files).map(mapRenderableFile);
+
+    if (files.length === 0) {
+      return {
+        kind: "raw",
+        text,
+        reason: truncated
+          ? "Diff was truncated before it could be parsed completely. Showing the raw excerpt."
+          : "Unsupported diff format. Showing raw patch.",
+        notice,
+      };
+    }
+
+    return {
+      kind: "files",
+      files,
+      fileCount: files.length,
+      additions: files.reduce((total, file) => total + file.additions, 0),
+      deletions: files.reduce((total, file) => total + file.deletions, 0),
+      notice,
+    };
+  } catch {
+    return {
+      kind: "raw",
+      text,
+      reason: truncated
+        ? "Diff was truncated before it could be parsed completely. Showing the raw excerpt."
+        : "Failed to parse patch. Showing raw patch.",
+      notice,
+    };
+  }
+}

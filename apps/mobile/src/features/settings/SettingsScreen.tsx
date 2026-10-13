@@ -35,8 +35,7 @@ function SettingsIndex({ navigation }: ScreenProps<"Settings">) {
   const directory = useListened(app.account.changes, () => app.account.directory);
   const organizationId = useListened(app.account.changes, () => app.account.organizationId);
   const appearance = useListened(app.appearance.changes, app.appearance.current);
-  const sync = useListened(app.personalSync.changes, app.personalSync.current);
-  const agentProfileSync = useListened(app.agentProfileSync.changes, app.agentProfileSync.current);
+  const sync = useListened(app.accountSync.changes, app.accountSync.current);
   const organizationName =
     directory.kind === "loaded"
       ? directory.organizations.find(
@@ -87,10 +86,10 @@ function SettingsIndex({ navigation }: ScreenProps<"Settings">) {
         <SettingsSection title="Personal">
           <SettingsRow
             icon="arrow.clockwise"
-            label="Sync"
+            label="Account & sync"
             value={SYNC_STATE_LABELS[sync.state]}
-            accessibilityHint="Sync your settings with your account"
-            onPress={() => navigation.navigate("PersonalSettings")}
+            accessibilityHint="Your account, your synced settings and agent profile, and your hosts"
+            onPress={() => navigation.navigate("AccountSync")}
           />
           <SettingsRow
             icon="paintbrush"
@@ -107,7 +106,6 @@ function SettingsIndex({ navigation }: ScreenProps<"Settings">) {
           <SettingsRow
             icon="doc.text"
             label="Agent profile"
-            value={SYNC_STATE_LABELS[agentProfileSync.state]}
             accessibilityHint="Your instructions, skills, and MCP servers on every host"
             onPress={() => navigation.navigate("AgentProfile")}
           />

@@ -25,7 +25,7 @@ export const CompactionDivider = memo(function CompactionDivider(props: {
   const text = detail ? `${label} · ${detail}` : label;
   return (
     <View accessible accessibilityRole="text" accessibilityLabel={text} className="mb-3 flex-row items-center gap-3 px-1 py-1">
-      <View className="h-px min-w-2 flex-1 bg-adaptive-neutral-200-a80-white-a8" />
+      <View className="h-px min-w-2 flex-1 bg-separator" />
       <View className="shrink flex-row flex-wrap items-center justify-center gap-1.5">
         <SymbolView
           name="arrow.down.right.and.arrow.up.left"
@@ -47,7 +47,7 @@ export const CompactionDivider = memo(function CompactionDivider(props: {
           <Text className="font-t3-medium text-xs text-foreground-muted">{text}</Text>
         )}
       </View>
-      <View className="h-px min-w-2 flex-1 bg-adaptive-neutral-200-a80-white-a8" />
+      <View className="h-px min-w-2 flex-1 bg-separator" />
     </View>
   );
 });
@@ -63,12 +63,12 @@ export const SessionOriginDivider = memo(function SessionOriginDivider(props: {
   const text = `Started by an agent on ${props.origin.hostLabel}`;
   return (
     <View accessible accessibilityRole="text" accessibilityLabel={text} className="mb-3 flex-row items-center gap-3 px-1 py-1">
-      <View className="h-px min-w-2 flex-1 bg-adaptive-neutral-200-a80-white-a8" />
+      <View className="h-px min-w-2 flex-1 bg-separator" />
       <View className="shrink flex-row flex-wrap items-center justify-center gap-1.5">
         <SymbolView name="desktopcomputer" size={12} tintColor={props.iconSubtleColor} type="monochrome" />
         <Text className="font-t3-medium text-xs text-foreground-muted">{text}</Text>
       </View>
-      <View className="h-px min-w-2 flex-1 bg-adaptive-neutral-200-a80-white-a8" />
+      <View className="h-px min-w-2 flex-1 bg-separator" />
     </View>
   );
 });

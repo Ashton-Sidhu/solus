@@ -266,6 +266,7 @@ export interface ThreadListV2ThreadListItem {
   /** The live status, carried on the item so a status event reaches a
       recycled row through list equality. */
   readonly status: ThreadListV2Status;
+  readonly unread: boolean;
   readonly pr: ThreadPrPresentation | null;
   /** Precomputed so recycled-list equality can see a minute-tick change. */
   readonly snoozeWakeLabelText: string | undefined;
@@ -314,7 +315,10 @@ export function isThreadListV2ListItem(value: {
 
 /** A reload rebuilds every shell; a row only re-renders when what it draws
     changed. */
-function sameThreadRow(previous: SolusThreadShell, next: SolusThreadShell): boolean {
+function sameThreadRow(previousItem: ThreadListV2ThreadListItem, nextItem: ThreadListV2ThreadListItem): boolean {
+  if (previousItem.unread !== nextItem.unread) return false;
+  const previous = previousItem.item.thread;
+  const next = nextItem.item.thread;
   if (previous === next) return true;
   const a = previous.record;
   const b = next.record;
@@ -354,7 +358,7 @@ export function threadListV2ListItemsAreEqual(
       return (
         previous.type === "v2-thread" &&
         previous.key === item.key &&
-        sameThreadRow(previous.item.thread, item.item.thread) &&
+        sameThreadRow(previous, item) &&
         previous.item.variant === item.item.variant &&
         previous.item.snoozed === item.item.snoozed &&
         previous.status === item.status &&
@@ -387,6 +391,8 @@ export interface ThreadListV2Facts {
   readonly shelf: ReadonlyMap<string, SessionState>;
   /** Last live status by thread key. */
   readonly liveStatus: ReadonlyMap<string, SessionStatus>;
+  /** Read state announced by each host, by thread key. */
+  readonly unread?: ReadonlyMap<string, boolean>;
   /** Pull request links by thread key. */
   readonly pullRequests: ReadonlyMap<string, ReadonlyArray<SessionPullRequestLink>>;
 }
@@ -425,6 +431,7 @@ export function buildThreadListV2ListItems(input: {
       key: `v2-thread:${key}`,
       item,
       status,
+      unread: input.facts.unread?.get(key) ?? false,
       pr: presentThreadPullRequests(input.facts.pullRequests.get(key)),
       snoozeWakeLabelText,
       timeLabel: resolveThreadListV2ItemTimeLabel(item, status, state, snoozeWakeLabelText !== undefined),

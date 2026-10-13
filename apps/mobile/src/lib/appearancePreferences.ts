@@ -245,12 +245,6 @@ export function resolveNativeMarkdownTypography(baseFontSize: number): NativeMar
   };
 }
 
-export function stepTerminalFontSize(current: number, direction: -1 | 1): number {
-  const next =
-    direction === -1 ? current - TERMINAL_FONT_SIZE_STEP : current + TERMINAL_FONT_SIZE_STEP;
-  return normalizeTerminalFontSize(next);
-}
-
 export {
   DEFAULT_TERMINAL_FONT_SIZE,
   MAX_TERMINAL_FONT_SIZE,

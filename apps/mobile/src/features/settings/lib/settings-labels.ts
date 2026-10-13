@@ -59,7 +59,6 @@ export const APP_NOTICE_LABELS = {
 /** Personal sync on this device, in one or two words (plans/018 §5). Never "Synced" for an unconfirmed edit. */
 export const SYNC_STATE_LABELS = {
   'signed-out': 'Signed out',
-  off: 'Off',
   loading: 'Checking…',
   synced: 'Synced',
   pending: 'Waiting to send',

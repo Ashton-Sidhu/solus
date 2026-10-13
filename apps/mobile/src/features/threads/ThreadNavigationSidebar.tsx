@@ -153,8 +153,8 @@ function ThreadNavigationSidebarPane(
     () => new Set(environments.map((environment) => environment.environmentId)),
     [environments],
   );
-  const { options, setSelectedEnvironmentId } = useHomeListOptions(availableEnvironmentIds);
-  const [selectedProjectKey, setSelectedProjectKey] = useState<string | null>(null);
+  const { options, setSelectedEnvironmentId, setSelectedProjectKey } =
+    useHomeListOptions(availableEnvironmentIds);
   const knownProjectKeys = useMemo(
     () => new Set(projects.map((project) => project.key)),
     [projects],
@@ -185,21 +185,11 @@ function ThreadNavigationSidebarPane(
       ),
     [projectScopes],
   );
-  const selectedProjectScope = useMemo(
-    () =>
-      selectedProjectKey === null
-        ? null
-        : (projectScopes.find((scope) => scope.key === selectedProjectKey) ?? null),
-    [projectScopes, selectedProjectKey],
-  );
-  useEffect(() => {
-    if (
-      selectedProjectKey !== null &&
-      !projectFilterOptions.some((project) => project.key === selectedProjectKey)
-    ) {
-      setSelectedProjectKey(null);
-    }
-  }, [projectFilterOptions, selectedProjectKey]);
+  // A saved project its host has not listed yet is kept, not cleared.
+  const { selectedProjectScope, selectedProjectKey } = useMemo(() => {
+    const scope = projectScopes.find((candidate) => candidate.key === options.selectedProjectKey);
+    return { selectedProjectScope: scope ?? null, selectedProjectKey: scope?.key ?? null };
+  }, [projectScopes, options.selectedProjectKey]);
   const projectByKey = useMemo(() => {
     const map = new Map<string, SolusProjectShell>();
     for (const project of projects) map.set(project.key, project);
@@ -459,6 +449,7 @@ function ThreadNavigationSidebarPane(
               variant={item.item.variant}
               snoozed={item.item.snoozed}
               status={item.status}
+              unread={item.unread}
               pr={item.pr}
               snoozePresetMinute={item.snoozePresetMinute ?? ""}
               snoozeWakeLabelText={item.snoozeWakeLabelText}

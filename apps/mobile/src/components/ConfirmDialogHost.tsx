@@ -20,10 +20,6 @@ let presentRequest: ((request: DialogRequest) => void) | null = null;
  * Android, where the native dialog can only theme all confirm buttons at
  * once. Requires ConfirmDialogHost to be mounted at the app root.
  */
-export function showConfirmDialog(request: ConfirmDialogRequest): void {
-  presentRequest?.({ kind: "confirm", request });
-}
-
 export function showTextInputDialog(request: TextInputDialogRequest): void {
   presentRequest?.({ kind: "text-input", request });
 }

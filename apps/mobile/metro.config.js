@@ -47,6 +47,22 @@ config.resolver.extraNodeModules = {
   '@shikijs/vscode-textmate': resolveShikiDependencyRoot('@shikijs/vscode-textmate'),
 }
 
+// T3 Code imports single `@pierre/diffs` utilities by path, as its patched
+// package exports them. The published package exports only its root, which
+// would pull in the whole web renderer and Shiki's language bundle, so these
+// paths resolve to the built files. `tsconfig.json` maps the same paths.
+// The package exports neither `package.json` nor a `require` entry, so
+// `require.resolve` cannot find it; look in the module folders Metro reads.
+const pierreDiffsDist = config.resolver.nodeModulesPaths
+  .map((modules) => path.join(modules, '@pierre/diffs/dist'))
+  .find((dist) => fs.existsSync(dist))
+const resolveRequest = config.resolver.resolveRequest
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  const pierreUtility = /^@pierre\/diffs\/(utils\/[\w-]+)$/.exec(moduleName)
+  if (pierreUtility) return { type: 'sourceFile', filePath: path.join(pierreDiffsDist, `${pierreUtility[1]}.js`) }
+  return (resolveRequest ?? context.resolveRequest)(context, moduleName, platform)
+}
+
 // T3 Code's styling system: uniwind with a 14px rem (see global.css).
 module.exports = withUniwindConfig(config, {
   cssEntryFile: './global.css',

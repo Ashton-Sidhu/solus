@@ -9,21 +9,21 @@ type ConnectionFormFieldProps = Omit<AppTextInputProps, "accessibilityLabel" | "
   readonly className?: string;
 };
 
-/** Labeled connection input with a native wrapper retained inside form sheets. */
+/** Labeled connection input with a native wrapper retained inside form sheets. As desktop: a short sentence-case label over a bordered input. */
 export function ConnectionFormField({ label, className, ...inputProps }: ConnectionFormFieldProps) {
   return (
-    <View collapsable={false} className={cn("gap-1.5", className)}>
+    <View collapsable={false} className={cn("gap-2", className)}>
       <AppText
         accessibilityElementsHidden
         importantForAccessibility="no-hide-descendants"
-        className="text-2xs font-t3-bold tracking-[0.8px] uppercase text-foreground-muted"
+        className="text-[13px] text-foreground-muted"
       >
         {label}
       </AppText>
       <AppTextInput
         {...inputProps}
         accessibilityLabel={label}
-        className="rounded-[14px] px-4 py-3.5"
+        className="min-h-11 rounded-[12px] px-3.5 py-2.5"
       />
     </View>
   );

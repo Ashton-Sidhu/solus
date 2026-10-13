@@ -4,7 +4,11 @@
     "strict": true,
     "allowImportingTsExtensions": true,
     "noEmit": true,
-    "types": []
+    "types": [],
+    "paths": {
+      "@pierre/diffs/types": ["../../node_modules/@pierre/diffs/dist/types.d.ts"],
+      "@pierre/diffs/utils/*": ["../../node_modules/@pierre/diffs/dist/utils/*"]
+    }
   },
   "include": ["index.ts", "uniwind-types.d.ts", "src/**/*.ts", "src/**/*.tsx"]
 }

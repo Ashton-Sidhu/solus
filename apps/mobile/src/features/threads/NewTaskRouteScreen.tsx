@@ -42,7 +42,7 @@ import { modelLabel, offersPlanToggle, PERMISSION_MODE_ICON, PERMISSION_MODE_TEX
 import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
 import { useProjectsFolder } from "../projects/use-open-project";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
-import { pickComposerFiles, pickComposerMedia } from "./composer-attachment-pickers";
+import { pickComposerClipboardImage, pickComposerFiles, pickComposerMedia } from "./composer-attachment-pickers";
 import { rememberNewThreadTarget } from "./new-thread-targets";
 import {
   filterProjectScopes,
@@ -833,6 +833,7 @@ function NewTaskDraftContent(props: {
                   supportsFiles
                   onPickMedia={() => attach(pickComposerMedia)}
                   onPickFiles={() => attach(pickComposerFiles)}
+                  onPasteImage={() => attach(pickComposerClipboardImage)}
                 />
                 <View className="min-w-0 flex-1 flex-row items-center justify-end gap-2">
                   <View className="min-w-0 shrink">

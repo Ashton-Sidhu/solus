@@ -1,3 +1,4 @@
+// Adapted from T3 Code apps/mobile/src/native/NativeHeaderToolbar.tsx (MIT, see UPSTREAM.md): only the v5 tab guard, in-place updates, image icons, and the prominent button variant are taken from its newer copy.
 import { useNavigation, type ParamListBase } from "@react-navigation/native";
 import type {
   NativeStackHeaderItem,
@@ -8,12 +9,14 @@ import type {
 import {
   Children,
   isValidElement,
+  use,
   useLayoutEffect,
   useMemo,
   type ReactElement,
   type ReactNode,
 } from "react";
-import type { ColorValue } from "react-native";
+import type { ColorValue, ImageSourcePropType } from "react-native";
+import { NativeWorkspaceTabActivityContext } from "./v5-workspace-context";
 
 function useNativeStackNavigation(): NativeStackNavigationProp<ParamListBase> | null {
   return useNavigation<NativeStackNavigationProp<ParamListBase>>();
@@ -38,11 +41,17 @@ type NativeStackOptionsWithToolbar = NativeStackNavigationOptions & {
   unstable_headerToolbarItems?: () => NativeStackHeaderItem[];
 };
 
+/** A toolbar icon: an SF Symbol name, or a template image for a glyph SF Symbols lacks. */
+export type NativeHeaderToolbarIcon = string | { readonly type: "image"; readonly source: ImageSourcePropType };
+
 function iconFromProp(icon: unknown): NativeStackHeaderIcon | undefined {
-  if (typeof icon !== "string") {
-    return undefined;
+  if (typeof icon === "string") {
+    return { type: "sfSymbol", name: icon as never };
   }
-  return { type: "sfSymbol", name: icon as never };
+  if (typeof icon === "object" && icon !== null && (icon as { type?: unknown }).type === "image") {
+    return icon as NativeStackHeaderIcon;
+  }
+  return undefined;
 }
 
 type ToolbarElementProps = Record<string, unknown> & { readonly children?: ReactNode };
@@ -134,7 +143,7 @@ function convertToolbarChild(child: ReactNode): NativeStackHeaderItem | null {
           : () => undefined,
       sharesBackground: !child.props.separateBackground,
       tintColor: child.props.tintColor as ColorValue | undefined,
-      variant: "plain",
+      variant: child.props.variant === "prominent" ? "prominent" : "plain",
     };
   }
 
@@ -190,34 +199,46 @@ function NativeHeaderToolbarRoot(props: {
   readonly children?: ReactNode;
 }) {
   const navigation = useNativeStackNavigation();
+  // A retained iOS tab must not set the header of the tab shown (T3 Code's v5 shell).
+  const tabActivity = use(NativeWorkspaceTabActivityContext);
+  const tabActive = tabActivity?.active ?? true;
+  const isTabActive = tabActivity?.isActive;
   const items = useMemo(() => collectToolbarItems(props.children), [props.children]);
 
-  // Swap toolbar owners before paint so split and compact headers cannot clear each other.
+  // Update items in place. Clearing them on every render causes UIKit to run a
+  // second transition and detach custom views while the stack is animating.
   useLayoutEffect(() => {
-    if (!navigation) {
+    if (!navigation || !tabActive) {
       return;
     }
     if (props.placement === "bottom") {
       navigation.setOptions({
         unstable_headerToolbarItems: () => items,
       } as NativeStackOptionsWithToolbar);
-      return () => {
-        navigation.setOptions({
-          unstable_headerToolbarItems: () => [],
-        } as NativeStackOptionsWithToolbar);
-      };
+      return;
     }
     if (props.placement === "left") {
       navigation.setOptions({ unstable_headerLeftItems: () => items });
-      return () => {
-        navigation.setOptions({ unstable_headerLeftItems: () => [] });
-      };
+      return;
     }
     navigation.setOptions({ unstable_headerRightItems: () => items });
+  }, [items, navigation, props.placement, tabActive]);
+
+  useLayoutEffect(() => {
+    if (!navigation) return;
     return () => {
-      navigation.setOptions({ unstable_headerRightItems: () => [] });
+      if (isTabActive && !isTabActive()) return;
+      if (props.placement === "bottom") {
+        navigation.setOptions({
+          unstable_headerToolbarItems: () => [],
+        } as NativeStackOptionsWithToolbar);
+      } else if (props.placement === "left") {
+        navigation.setOptions({ unstable_headerLeftItems: () => [] });
+      } else {
+        navigation.setOptions({ unstable_headerRightItems: () => [] });
+      }
     };
-  }, [items, navigation, props.placement]);
+  }, [navigation, props.placement, isTabActive]);
 
   return null;
 }
@@ -225,11 +246,13 @@ function NativeHeaderToolbarRoot(props: {
 function NativeHeaderToolbarButton(_props: {
   readonly accessibilityLabel?: string;
   readonly disabled?: boolean;
-  readonly icon?: string;
+  readonly icon?: NativeHeaderToolbarIcon;
   readonly label?: string;
   readonly onPress?: () => void;
   readonly separateBackground?: boolean;
   readonly tintColor?: ColorValue;
+  /** "prominent" fills the button with its tint (iOS 26 and later). */
+  readonly variant?: "plain" | "prominent";
 }) {
   return null;
 }

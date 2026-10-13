@@ -44,6 +44,8 @@ export interface HostPreview {
   name: string
   installationId: string
   os?: HostOperatingSystem
+  /** The host trusts this device by network position, so it pairs without a code. */
+  trusted: boolean
 }
 
 const healthSchema = z.object({
@@ -51,6 +53,7 @@ const healthSchema = z.object({
   installationId: z.string().min(1),
   name: z.string().min(1),
   os: z.enum(['macos', 'windows', 'linux']).optional().catch(undefined),
+  requireAuth: z.boolean().optional().catch(undefined),
 })
 
 export type PreviewResult =
@@ -71,7 +74,7 @@ export async function previewHost(fetchImpl: typeof fetch, url: string, timeoutM
   if (!body.success) return { kind: 'not-solus' }
   return {
     kind: 'found',
-    preview: { url, host: urlHost(url), name: body.data.name, installationId: body.data.installationId, os: body.data.os },
+    preview: { url, host: urlHost(url), name: body.data.name, installationId: body.data.installationId, os: body.data.os, trusted: body.data.requireAuth === false },
   }
 }
 

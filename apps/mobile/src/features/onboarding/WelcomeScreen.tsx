@@ -48,7 +48,7 @@ export function WelcomeScreen({ navigation }: ScreenProps<"Welcome">) {
                 onPress={() => navigation.navigate("PairHost")}
               />
               <ConnectOptionCard
-                icon="cloud"
+                icon="solus-mark"
                 title="Solus Cloud"
                 detail="Sign in to see the hosts linked to your account."
                 onPress={() => navigation.navigate("CloudSignIn")}

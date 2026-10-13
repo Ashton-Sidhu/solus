@@ -34,7 +34,7 @@ import {
   type IntegrationToolsState,
 } from './integrations'
 import { CloudConnect } from './lib/cloud-connect'
-import { timerClock } from './personal-sync'
+import { timerClock } from '../account/account-sync'
 
 const CATALOG_DELAY_MS = 250
 
@@ -408,7 +408,7 @@ export function useIntegrationConnect(hostId: string) {
   const cloud = useMemo(() => new CloudConnect({
     requests: app.account.agentProfileRequests(),
     openBrowser: (url) => app.platform.openBrowser(url),
-    pullEverywhere: () => app.agentProfileSync.pullEverywhere(),
+    pullEverywhere: () => app.accountSync.pullEverywhere(),
     clock: timerClock,
   }, put), [app, put])
   useEffect(() => () => cloud.dispose(), [cloud])

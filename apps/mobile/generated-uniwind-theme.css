@@ -33,6 +33,8 @@
       --color-inline-skill-border: rgba(217, 119, 87, 0.42);
       --color-inline-skill-foreground: #2a2618;
       --color-primary: #b85c39;
+      --color-prominent-action: #2a2618;
+      --color-prominent-action-foreground: #fffffd;
       --color-primary-foreground: #ffffff;
       --color-primary-text: #ad5635;
       --color-primary-shadow: #000000;
@@ -123,6 +125,8 @@
       --color-inline-skill-border: rgba(230, 142, 107, 0.42);
       --color-inline-skill-foreground: #f0ede5;
       --color-primary: #e68e6b;
+      --color-prominent-action: #f0ede5;
+      --color-prominent-action-foreground: #262522;
       --color-primary-foreground: #2c1a12;
       --color-primary-text: #e68e6b;
       --color-primary-shadow: #000000;

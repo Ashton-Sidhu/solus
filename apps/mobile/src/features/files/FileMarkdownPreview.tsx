@@ -1,17 +1,19 @@
 // Adapted from T3 Code apps/mobile/src/features/files/FileMarkdownPreview.tsx (MIT, see UPSTREAM.md).
 // Images and file links resolve on the host, next to the Markdown file.
-import { resolveMarkdownLinkPresentation } from "@t3tools/mobile-markdown-text/links";
 import { useCallback, useMemo, useState } from "react";
 import { Linking, RefreshControl, ScrollView, View } from "react-native";
 
 import { useApp } from "../../app/app-context";
 import { FilePreview, type ResolvedFilePreviewSource } from "../../components/FilePreview";
+import { resolveMarkdownLinkPresentation } from "../../lib/markdownLinks";
 import { useNativeMarkdownTextStyle } from "../../lib/nativeMarkdownTextStyle";
 import {
   SelectableMarkdownText,
   type MarkdownImageRenderer,
+  type MarkdownImageSourceResolver,
 } from "../../native/SelectableMarkdownText";
 import { projectContext } from "../conversation/lib/ipc-context";
+import { resolveHostMediaUrl } from "./host-media-url";
 import { ThreadMarkdownImage, ThreadMarkdownImageView } from "../threads/ThreadMarkdownImage";
 import { resolveMarkdownRelativePath } from "./lib/file-preview-kind";
 
@@ -72,6 +74,45 @@ export function FileMarkdownPreview(props: {
     },
     [app, ctx, props.hostId, props.path],
   );
+  /** The address of an image: its own URL, or a URL the host signs for the file next to this one. */
+  const imageUri = useCallback(
+    async (href: string): Promise<string | null> => {
+      const presentation = resolveMarkdownLinkPresentation(href);
+      if (presentation.kind === "external") return presentation.href;
+      if (presentation.kind !== "file") return null;
+      const connection = app.connections.connection(props.hostId);
+      if (!connection) return null;
+      const path = resolveMarkdownRelativePath(props.path, presentation.path);
+      return resolveHostMediaUrl(connection, { path, ctx });
+    },
+    [app, ctx, props.hostId, props.path],
+  );
+  const resolveImageSource = useCallback<MarkdownImageSourceResolver>(
+    async (image) => {
+      const uri = await imageUri(image.href);
+      if (uri === null) throw new Error("Markdown image is unavailable");
+      return { uri };
+    },
+    [imageUri],
+  );
+  const onImagePress = useCallback(
+    (href: string) => {
+      void imageUri(href).then(
+        (uri) => {
+          if (uri === null) return;
+          const presentation = resolveMarkdownLinkPresentation(href);
+          setPreview({
+            kind: "image",
+            uri,
+            name: presentation.kind === "file" ? presentation.label : "Image",
+            caption: presentation.kind === "file" ? presentation.path : uri,
+          });
+        },
+        () => undefined,
+      );
+    },
+    [imageUri],
+  );
   const onLinkPress = useCallback(
     (href: string) => {
       const presentation = resolveMarkdownLinkPresentation(href);
@@ -105,6 +146,8 @@ export function FileMarkdownPreview(props: {
           markdown={props.markdown}
           onLinkPress={onLinkPress}
           renderImage={renderImage}
+          resolveImageSource={resolveImageSource}
+          onImagePress={onImagePress}
           textStyle={textStyle}
         />
       </View>

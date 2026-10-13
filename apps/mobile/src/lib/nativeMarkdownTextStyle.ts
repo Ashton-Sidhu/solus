@@ -4,14 +4,13 @@ import { useMemo } from "react";
 import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
 import type { NativeMarkdownTextStyle } from "../native/SelectableMarkdownText";
 import { resolveNativeMarkdownTypography } from "./appearancePreferences";
-import { flattenThemeColor } from "./mobileTheme";
 import { MOBILE_FONTS } from "./typography";
 import { useUniwindTheme } from "./useUniwindTheme";
 
 /** `user` is text in the person's message bubble; `assistant` is everything else. */
 export type MarkdownTone = "assistant" | "user";
 
-/** T3's colors and type scale for the native markdown renderer, from Solus's theme. */
+/** T3's colors and type scale for the Enriched Markdown renderer, from Solus's theme. */
 export function useNativeMarkdownTextStyle(tone: MarkdownTone): NativeMarkdownTextStyle {
   const { appearance } = useAppearancePreferences();
   const typography = useMemo(
@@ -20,13 +19,7 @@ export function useNativeMarkdownTextStyle(tone: MarkdownTone): NativeMarkdownTe
   );
   const theme = useUniwindTheme();
   return useMemo(() => {
-    // Native chip drawing parses opaque hex only, and this role is translucent.
-    const contextChipBorderColor = flattenThemeColor(
-      theme["--color-border"],
-      theme["--color-user-bubble"],
-    );
     const shared = {
-      contextChipBorderColor,
       fontSize: typography.fontSize,
       lineHeight: typography.lineHeight,
       headingFontSizes: typography.headingFontSizes,
@@ -47,14 +40,12 @@ export function useNativeMarkdownTextStyle(tone: MarkdownTone): NativeMarkdownTe
         codeBackgroundColor: theme["--color-md-user-code-bg"],
         codeBlockBackgroundColor: theme["--color-md-user-fence-bg"],
         fileTextColor: body,
-        skillTextColor: theme["--color-user-bubble-skill-foreground"],
         quoteMarkerColor: body,
         dividerColor: body,
       };
     }
     return {
       ...shared,
-      boldFontWeight: "700",
       color: theme["--color-md-body"],
       strongColor: theme["--color-md-strong"],
       mutedColor: theme["--color-md-body"],
@@ -64,7 +55,6 @@ export function useNativeMarkdownTextStyle(tone: MarkdownTone): NativeMarkdownTe
       codeBackgroundColor: theme["--color-md-code-bg"],
       codeBlockBackgroundColor: theme["--color-md-code-bg"],
       fileTextColor: theme["--color-md-code-text"],
-      skillTextColor: theme["--color-inline-skill-foreground"],
       quoteMarkerColor: theme["--color-md-blockquote-border"],
       dividerColor: theme["--color-md-hr"],
     };

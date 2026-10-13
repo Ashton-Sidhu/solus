@@ -1,4 +1,5 @@
 import type { AccountState, SignInEnd } from '@solus/contracts/account-types'
+import type { DiscoveredServer } from '@solus/contracts/types'
 import { SOLUS_CLIENT_IDS, type AccountIdentity } from '@solus/contracts/auth/clients'
 import { OAuthSession, type BrowserAuthorizer, type OAuthSessionDeps } from '@solus/client-core/oauth-session'
 import { ACTIVE_ORGANIZATION_KEY, OrganizationSelection } from '@solus/client-core/organization-selection'
@@ -50,6 +51,8 @@ export interface AccountSessionDeps {
   authorizer?: BrowserAuthorizer
   /** Random bytes and SHA-256 where the runtime has no Web Crypto (Hermes). */
   crypto?: Pick<OAuthSessionDeps, 'randomBytes' | 'sha256'>
+  /** The Solus hosts on the local network (LAN discovery); absent where the build cannot scan. */
+  scanLocalNetwork?: () => Promise<DiscoveredServer[]>
 }
 
 export class AccountSession {
@@ -176,6 +179,10 @@ export class AccountSession {
       return
     }
     this.deps.registry.applyDirectory(identity.sub, directory.value.directoryUrl, directory.value.hosts)
+    // A registered host that is not linked has no route: look for it on the local network (ADR 0001 §2.2 rule 9).
+    if (this.deps.scanLocalNetwork && directory.value.hosts.some((host) => host.routes.length === 0)) {
+      void this.deps.scanLocalNetwork().then((found) => this.deps.registry.applyNearby(found)).catch(() => {})
+    }
     this.organizations.reconcile(directory.value.workspaces)
     const organizations = account.status === 'fulfilled'
       ? account.value.organizations

@@ -165,7 +165,7 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
         style={{ flexShrink: 1 }}
       >
         {props.pendingUserInput.expired ? (
-          <Text className="font-sans text-sm leading-5 text-adaptive-neutral-600-400">
+          <Text className="font-sans text-sm leading-5 text-foreground-muted">
             {requestExpiryText(props.pendingUserInput.expired)}
           </Text>
         ) : null}

@@ -14,6 +14,7 @@ import type { HostConnections } from '../features/hosts/host-connections'
 import { authSessionAuthorizer } from '../features/account/auth-session-authorizer'
 import type { KeyValueStore, SecretStore } from './ports'
 import { scanLocalNetwork } from './lan-scan'
+import { sqlitePullRequestCache } from './pull-request-cache-sqlite'
 
 /** Plain data in the app's SQLite key-value store: synchronous, not secret. */
 const storage: KeyValueStore = {
@@ -100,6 +101,7 @@ export const expoPlatform: PlatformAdapters = {
   settingsSyncEnvironment: settingsSyncEnvironment(),
   appVersion: appConfig.expo.version,
   scanLocalNetwork,
+  pullRequestCache: sqlitePullRequestCache(),
   attachmentIo: {
     readBase64: (uri) => readAsStringAsync(uri, { encoding: EncodingType.Base64 }),
     // Raw bytes, as the host's signed upload route expects; the length is the file's.

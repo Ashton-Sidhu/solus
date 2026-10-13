@@ -11,6 +11,7 @@ import {
 import { integrationSlug, type IntegrationProbeResult } from '@solus/contracts/integration-types'
 import type { SeatProvider } from '@solus/contracts/seats'
 import type { RemoteSkill } from '@solus/contracts/types'
+import type { DocumentSyncUnavailable } from '@solus/client-core/document-sync'
 import { urlHost } from '../integrations'
 
 /**
@@ -164,11 +165,30 @@ export function integrationEntryFromProbe(url: string, probe: IntegrationProbeRe
   return { kind: 'integration', slug: integrationSlug(name), name, url: url.trim(), auth: probe.auth }
 }
 
+// ─── Disabled entries ───
+
+/**
+ * An entry turned off (2026-10-12): it stays in the profile, so the person can
+ * turn it on again, and every host removes it on its next pull. On is the
+ * absence of the flag, never `disabled: false`, so an entry turned on again is
+ * the entry it was before.
+ */
+export function withDisabled<T extends AgentProfileEntry>(entry: T, disabled: boolean): T {
+  const next = { ...entry }
+  if (disabled) next.disabled = true
+  else delete next.disabled
+  return next
+}
+
+export const DISABLED_ENTRY_TEXT = 'Off on every host'
+
 /** A hand-written skill: the files under `skills/<name>/` of one provider. */
 export interface HandWrittenSkill {
   name: string
   provider: SeatProvider
   keys: AgentProfileKey[]
+  /** Its files turn off and on together, so one is off when they all are. */
+  disabled: boolean
 }
 
 export interface AgentProfileParts {
@@ -192,8 +212,9 @@ export function agentProfileParts(entries: AgentProfile): AgentProfileParts {
     else if (entry.path.startsWith('skills/')) {
       const name = entry.path.split('/')[1] ?? ''
       const id = `${entry.provider}/${name}`
-      const skill = skillsByFolder.get(id) ?? { name, provider: entry.provider, keys: [] }
+      const skill = skillsByFolder.get(id) ?? { name, provider: entry.provider, keys: [], disabled: true }
       skill.keys.push(agentProfileKeyOf(entry))
+      skill.disabled &&= entry.disabled === true
       skillsByFolder.set(id, skill)
     } else files.push(entry)
   }
@@ -264,6 +285,13 @@ export function hostProfileText(status: AgentProfileStatus | null, error: string
   const installs = failed > 0 ? ` ${failed} ${failed === 1 ? 'skill' : 'skills'} could not be installed.` : ''
   const skipped = notSent > 0 ? ` ${notSent} left out: over the size limit or unreadable.` : ''
   return `Copied ${from} ${formatTime(status.syncedAt)}: ${agentProfileCounts(status.counts)}.${kept}${installs}${skipped}`
+}
+
+/** Why turning sync on or clearing it did not reach Solus Cloud. */
+export function syncUnavailableText(outcome: DocumentSyncUnavailable): string {
+  if (outcome.kind === 'signed-out') return 'Sign in to Solus Cloud again to sync.'
+  if (outcome.kind === 'offline') return 'Solus Cloud did not answer. Check your connection.'
+  return `Solus Cloud refused: ${outcome.message ?? outcome.code}.`
 }
 
 export function skillFileCountText(count: number): string {

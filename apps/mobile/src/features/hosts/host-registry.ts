@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { hostRouteSchema, type DirectoryHost, type HostRoute } from '@solus/contracts/uplink'
-import type { HostOperatingSystem } from '@solus/contracts/types'
+import type { DiscoveredServer, HostOperatingSystem } from '@solus/contracts/types'
 import type { SavedServerUplink } from '@solus/client-core/server-registry'
 import { forwardCompatibleArray } from '@solus/client-core/forward-compat'
 import { savedServerFromDirectory } from '@solus/client-core/uplink-session'
@@ -187,6 +187,30 @@ export class HostRegistry {
     this.list = next
     this.write()
     for (const hostId of removed) this.cleanUp(hostId)
+    this.changes.notify()
+  }
+
+  /**
+   * A registered host that is not linked has no route in the directory
+   * (docs/adr/0001-standard-authentication.md §2.2 rule 9): this device reaches it on
+   * the local network. A LAN discovery answer whose installation id is a directory
+   * host's gives that host its address there as a direct route, dialed before a tunnel.
+   * A paired host keeps the address it paired at.
+   */
+  applyNearby(discovered: readonly DiscoveredServer[]): void {
+    const nearby = new Map(discovered.map((server) => [server.installationId, `http://${server.host}:${server.port}`]))
+    let changed = false
+    const next = this.list.map((host) => {
+      const url = nearby.get(host.id)
+      if (!url || !host.uplink || host.paired) return host
+      const direct = host.routes.filter((route) => route.kind === 'direct')
+      if (direct.length === 1 && direct[0]?.url === url) return host
+      changed = true
+      return { ...host, routes: [{ kind: 'direct' as const, url }, ...host.routes.filter((route) => route.kind !== 'direct')] }
+    })
+    if (!changed) return
+    this.list = next
+    this.write()
     this.changes.notify()
   }
 

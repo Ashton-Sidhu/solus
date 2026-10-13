@@ -22,6 +22,9 @@ export type HostMediaRequest =
   | HostPathRequest
   /** A file in the host asset store, such as a picture a tool returned. */
   | { assetId: string; ctx?: undefined }
+  /** GitHub media that the host fetches with its own GitHub credential:
+   *  only a URL that `githubMediaFetchUrl` gives. */
+  | { githubMediaUrl: string; ctx?: IpcContext }
 
 interface SignedUrl {
   url: string
@@ -34,15 +37,20 @@ const pendingMints = new Map<string, Promise<SignedUrl>>()
 const cacheKey = (hostId: string, request: HostMediaRequest) =>
   'assetId' in request
     ? `${hostId}\u0000asset\u0000${request.assetId}`
-    : `${hostId}\u0000${request.ctx?.session.workingDirectory ?? ''}\u0000${request.path}`
+    : 'githubMediaUrl' in request
+      ? `${hostId}\u0000github\u0000${request.githubMediaUrl}`
+      : `${hostId}\u0000${request.ctx?.session.workingDirectory ?? ''}\u0000${request.path}`
 
 async function mint(connection: HostConnection, request: HostMediaRequest): Promise<SignedUrl> {
-  if (!hasHostCapability(await connection.facts.when('capabilities'), 'assetUrls')) {
+  const capability = 'githubMediaUrl' in request ? 'githubMediaUrls' : 'assetUrls'
+  if (!hasHostCapability(await connection.facts.when('capabilities'), capability)) {
     throw new Error('Update the host to show media from it.')
   }
   const signed = 'assetId' in request
     ? await connection.api.assetCreateUrl(undefined, { assetId: request.assetId })
-    : await connection.api.assetCreateUrl(request.ctx, { path: request.path })
+    : 'githubMediaUrl' in request
+      ? await connection.api.prMediaUrl(request.ctx, request.githubMediaUrl)
+      : await connection.api.assetCreateUrl(request.ctx, { path: request.path })
   const origin = new URL(connection.transport.serverUrl).origin
   return { url: new URL(signed.relativeUrl, `${origin}/`).toString(), expiresAt: signed.expiresAt }
 }
@@ -76,6 +84,12 @@ export type HostMediaUrlState =
   | { kind: 'ready'; url: string }
   | { kind: 'failed'; message: string }
 
+export interface HostMediaUrl {
+  state: HostMediaUrlState
+  /** Mints a new URL; null when it cannot. */
+  refresh: () => Promise<string | null>
+}
+
 /**
  * The URL of one host file while a screen shows it. Null `request` shows
  * nothing. The request is read by its host, path, and project, so a caller
@@ -84,7 +98,7 @@ export type HostMediaUrlState =
 export function useHostMediaUrl(
   connection: HostConnection | null,
   request: HostMediaRequest | null,
-): { state: HostMediaUrlState; refresh: () => Promise<string | null> } {
+): HostMediaUrl {
   const key = connection && request ? cacheKey(connection.hostId, request) : null
   const requestRef = useRef(request)
   useEffect(() => { requestRef.current = request })

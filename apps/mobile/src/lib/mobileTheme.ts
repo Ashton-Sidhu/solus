@@ -31,32 +31,6 @@ function rgbChannels(color: string): readonly [number, number, number] | null {
   return [Number.parseInt(red, 16), Number.parseInt(green, 16), Number.parseInt(blue, 16)];
 }
 
-/**
- * An opaque form of a theme colour, composited over the surface behind it. Native chip drawing
- * parses only opaque hex — an `rgba()` string falls back to a default that is nothing like the
- * colour asked for — so a translucent role like `--color-border` has to be flattened first.
- */
-export function flattenThemeColor(color: string, surface: string): string {
-  const alphaHex = /^#([\da-f]{6})([\da-f]{2})$/i.exec(color);
-  if (alphaHex) {
-    const channels = rgbChannels(color)!;
-    return flattenThemeColor(
-      `rgba(${channels[0]}, ${channels[1]}, ${channels[2]}, ${Number.parseInt(alphaHex[2]!, 16) / 255})`,
-      surface,
-    );
-  }
-  const match = /^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+))?\s*\)$/i.exec(
-    color.trim(),
-  );
-  if (!match) return color;
-  const alpha = match[4] === undefined ? 1 : Number(match[4]);
-  const behind = rgbChannels(surface) ?? [0, 0, 0];
-  const channels = [match[1], match[2], match[3]].map((channel, index) =>
-    Math.max(0, Math.min(255, Math.round(Number(channel) * alpha + behind[index]! * (1 - alpha)))),
-  );
-  return `#${channels.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
-}
-
 function relativeLuminance(channels: readonly [number, number, number]): number {
   const [red, green, blue] = channels.map((channel) => {
     const value = channel / 255;
@@ -125,6 +99,7 @@ export function createMobileThemeVariables(
   colors: ThemeColors,
   appearance: ThemeAppearance,
   groupedCardColor = colors.surface,
+  prominentAction: readonly [string, string] = [colors.text, colors.canvas],
 ) {
   const c = colors;
   const groupedCard = groupedCardColor;
@@ -167,6 +142,8 @@ export function createMobileThemeVariables(
     "--color-inline-skill-border": withAlpha(c.accent, 0.42),
     "--color-inline-skill-foreground": c.accentSurfaceForeground,
     "--color-primary": c.messageAction,
+    "--color-prominent-action": prominentAction[0],
+    "--color-prominent-action-foreground": prominentAction[1],
     "--color-primary-foreground": c.messageActionForeground,
     "--color-primary-text": readableTextColor(c.messageAction, textSurfaces),
     "--color-primary-shadow": "#000000",

@@ -1,13 +1,11 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/sidebar-navigation-shell.tsx (MIT, see UPSTREAM.md).
 import { NavigationContainer, NavigationIndependentTree } from "@react-navigation/native";
-import {
-  createNativeStackNavigator,
-  type NativeStackNavigationOptions,
-} from "@react-navigation/native-stack";
+import type { NativeStackNavigationOptions } from "@react-navigation/native-stack";
 import type { ReactNode } from "react";
 import { Platform } from "react-native";
 
 import { getCompactBrandHeaderOptions } from "../../components/CompactBrandTitle";
+import { createV5StackNavigator } from "../../native/createV5StackNavigator";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { nativeHeaderScrollEdgeEffects } from "../../native/StackHeader";
 import { useMobileNavigationTheme } from "../../lib/useMobileNavigationTheme";
@@ -15,7 +13,7 @@ import { useMobileNavigationTheme } from "../../lib/useMobileNavigationTheme";
 const SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
 
 type SidebarScreenOptions = NativeStackNavigationOptions & {
-  // Same patched RNS option the GLASS/SOLID presets in Stack.tsx use — the
+  // Same react-native-screens option the GLASS/SOLID presets use — the
   // iOS 26 "editor" navigation-item style leading-aligns the inline title.
   readonly unstable_navigationItemStyle?: "editor";
 };
@@ -39,7 +37,7 @@ const SIDEBAR_SCREEN_OPTIONS: SidebarScreenOptions = {
   unstable_navigationItemStyle: NATIVE_LIQUID_GLASS_SUPPORTED ? "editor" : undefined,
 };
 
-const SidebarStack = createNativeStackNavigator();
+const SidebarStack = createV5StackNavigator();
 
 /**
  * Hosts the iPad sidebar pane inside its own single-screen native stack.

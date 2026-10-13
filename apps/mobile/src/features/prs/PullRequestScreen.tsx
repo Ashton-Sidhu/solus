@@ -1,332 +1,318 @@
-// Adapted from T3 Code apps/mobile/src/features/threads/git/GitOverviewSheet.tsx (MIT, see UPSTREAM.md).
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
+// Adapted from T3 Code apps/mobile/src/features/pull-requests/PullRequestRouteScreen.tsx (MIT, see UPSTREAM.md).
 import { useFocusEffect } from '@react-navigation/native'
-import { ActionSheetIOS, ActivityIndicator, Alert, Linking, Platform, RefreshControl, ScrollView, View } from 'react-native'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { ActivityIndicator, FlatList, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View, type ScrollViewProps } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import type { PrCommentActivityItem, PrStack, PullRequest } from '@solus/contracts/providers'
 import { useApp, useListened } from '../../app/app-context'
+import { SymbolView } from '../../components/AppSymbol'
 import { AppText as Text } from '../../components/AppText'
+import { ControlPillMenu } from '../../components/ControlPillMenu'
 import { EmptyState } from '../../components/EmptyState'
 import { ErrorBanner } from '../../components/ErrorBanner'
-import { resolveMarkdownLinkPresentation } from '@t3tools/mobile-markdown-text/links'
-import { useNativeMarkdownTextStyle } from '../../lib/nativeMarkdownTextStyle'
+import { SegmentedControl } from '../../components/SegmentedControl'
+import { copyTextWithHaptic } from '../../lib/copyTextWithHaptic'
 import type { ScreenProps } from '../../navigation/routes'
-import { SelectableMarkdownText } from '../../native/SelectableMarkdownText'
 import { CODE_FONT } from '../../theme/tokens'
+import { NativeScrollViewMarker } from '../../native/NativeScrollViewMarker'
+import { NativeHeaderToolbar, NativeStackScreenOptions } from '../../native/StackHeader'
 import { HostStatusBanner } from '../hosts/HostStatusBanner'
-import { PrComposerSheet, type PrComposerIntent } from './components/PrComposerSheet'
-import { PR_STATE_TINT_CLASS, PrStateBadge } from './components/PrStateBadge'
-import { MetaCard, SheetCard, SheetListRow, SheetRowDivider, SheetSectionLabel, SheetValueRow } from './components/pr-sheet'
-import { canGiveVerdict, checkItemLabel, checksLabel, PR_STATE_LABELS, prAge, prStateTone, reviewerStateLabel, reviewStatusLabel, type CheckStatus } from './lib/pr-presentation'
-import { shownValue, type PullRequestDetail, type PullRequestRef } from './pull-request-directory'
+import { prAge } from './lib/pr-presentation'
+import { DEFAULT_ACTIVITY_FILTER, filterPullRequestActivity, type ActivityFilter } from './lib/pull-request-activity'
+import { pullRequestTabOffset } from './lib/pull-request-file-filters'
+import type { GuideDiffFocus } from './lib/pull-request-guide-tour'
+import { pullRequestRepositoryKey } from './lib/pull-request-list'
+import type { PullRequestRef } from './pull-request-directory'
+import { shownValue } from './pull-request-reads'
+import { usePullRequestHostFallback } from './use-pull-request-host-fallback'
+import { PullRequestActionToolbar, ANDROID_PULL_REQUEST_TOOLBAR_HEIGHT } from './detail/PullRequestActionToolbar'
+import { PullRequestActivityFilters, pullRequestActivityRows, type ActivityRow } from './detail/PullRequestActivity'
+import { PullRequestGuideTab } from './detail/PullRequestGuide'
+import { PullRequestOverview } from './detail/PullRequestOverview'
+import { PullRequestStatusMenu } from './detail/PullRequestStatusRows'
+import { PullRequestAvatar, PullRequestDiffStats } from './detail/pull-request-ui'
+import type { PullRequestView } from './detail/pull-request-view'
+import { usePullRequestView } from './detail/use-pull-request-view'
+import { PullRequestMediaContext } from './detail/use-pull-request-media-url'
 
-const CHECK_TONE_TEXT = {
-  passing: 'text-adaptive-emerald-600-400',
-  failing: 'text-adaptive-rose-600-400',
-  pending: 'text-adaptive-amber-700-400',
-  neutral: 'text-foreground-muted',
-} as const satisfies Record<CheckStatus['tone'], string>
+type Tab = 'overview' | 'guide' | 'activity'
 
 /**
- * One pull request as T3 Code's git sheet: actions in a card, what it changes
- * in meta cards, then checks, reviewers, files, and the conversation. The
- * phone comments, approves, or requests changes; merging and the diff stay
- * on the computer for now (apps/mobile/README.md).
+ * iOS: register the tab's list with the native header so UIKit samples the
+ * list's own surface for the scroll-edge material, and inset the content by
+ * hand so the resting top sits under the bar.
+ */
+function PullRequestTabScrollView(props: ScrollViewProps) {
+  const insets = useSafeAreaInsets()
+  return (
+    <NativeScrollViewMarker style={{ flex: 1 }}>
+      <ScrollView
+        {...props}
+        automaticallyAdjustContentInsets={false}
+        contentInsetAdjustmentBehavior="never"
+        contentOffset={props.contentOffset ?? { x: 0, y: -insets.top }}
+      />
+    </NativeScrollViewMarker>
+  )
+}
+
+/**
+ * One pull request, as T3 Code's pull request screen: the pull request at the
+ * top, then the tabs Overview, Guide, and Activity, and a toolbar with the
+ * agent tasks, the main action, and the changed files. Every tab stays
+ * mounted, so each keeps its own scroll position; while the shared header is
+ * in view, a tab switch keeps it where it is. A file, a commit, or a guide
+ * stop opens the diff on its own screen. Offline, the device copy shows with
+ * a "not refreshed" line, and the writes say why they are off.
  */
 export function PullRequestScreen({ navigation, route }: ScreenProps<'PullRequest'>) {
-  const ref: PullRequestRef = route.params
-  const { hostId, projectPath, number } = ref
+  const { hostId, projectPath, number } = route.params
+  const ref = useMemo<PullRequestRef>(() => ({ hostId, projectPath, number }), [hostId, projectPath, number])
   const app = useApp()
   const insets = useSafeAreaInsets()
-  const state = useListened(app.pullRequests.changes, () => app.pullRequests.detailOf({ hostId, projectPath, number }))
-  const viewerLogin = useListened(app.pullRequests.changes, () => shownValue(app.pullRequests.hostOf(hostId))?.viewerLogin ?? null)
-  const phase = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase)
-  const [intent, setIntent] = useState<PrComposerIntent | null>(null)
-  const reload = useCallback(() => { void app.pullRequests.loadDetail({ hostId, projectPath, number }) }, [app, hostId, projectPath, number])
+  const { state, view, connected, reload } = usePullRequestView(ref)
+  const guideState = useListened(app.pullRequestGuides.changes, () => app.pullRequestGuides.guideOf(ref))
+  const pr = view?.pr ?? null
+  const permissions = view?.permissions ?? null
+  // While this host is offline, another connected host with the repository reads the pull request.
+  const moveToHost = useCallback((target: { hostId: string; projectPath: string }) => navigation.setParams(target), [navigation])
+  usePullRequestHostFallback(ref, pr ? pullRequestRepositoryKey(pr) : null, moveToHost)
+  useEffect(() => { void app.reviewDrafts.load(ref) }, [app, ref])
 
+  // The guide follows its job while the screen is shown.
+  const guidePr = useMemo(() => pr && { baseRepo: pr.baseRepo, number: pr.number, url: pr.url, baseSha: pr.baseSha, headSha: pr.headSha },
+    // The guide target changes only with these facts of the pull request.
+    [pr?.headSha, pr?.baseSha, pr?.number, pr?.url])
+  useFocusEffect(useCallback(() => {
+    if (!guidePr) return
+    void app.pullRequestGuides.load(ref, guidePr)
+    return app.pullRequestGuides.watch(ref, guidePr)
+  }, [app, ref, guidePr]))
+  // A host that can read guides answers the status read; a failed read with no device copy hides the tab.
+  const guidesShown = shownValue(guideState) !== null
+
+  const [tab, setTab] = useState<Tab>('overview')
+  const [activityFilter, setActivityFilter] = useState<ActivityFilter>(DEFAULT_ACTIVITY_FILTER)
+  const lists = useRef<Partial<Record<Tab, FlatList<ActivityRow> | null>>>({})
+  const offsets = useRef<Partial<Record<Tab, number>>>({})
+  // On iOS the lists rest at -topInset: their content starts under the bar.
+  const topInset = Platform.OS === 'ios' ? insets.top : 0
+  const currentOffset = useRef(-topInset)
+  const headerHeight = useRef(0)
+  const shownTab: Tab = tab === 'guide' && !guidesShown ? 'overview' : tab
+  // Rows keep these commands, so they read the tab shown now from a ref.
+  const shownTabRef = useRef(shownTab)
+  shownTabRef.current = shownTab
+
+  const selectTab = useCallback((next: Tab) => {
+    const shown = shownTabRef.current
+    if (next === shown) return
+    offsets.current[shown] = currentOffset.current
+    const offset = pullRequestTabOffset(currentOffset.current, offsets.current[next], headerHeight.current - topInset)
+    offsets.current[next] = offset
+    currentOffset.current = offset
+    lists.current[next]?.scrollToOffset({ offset, animated: false })
+    shownTabRef.current = next
+    setTab(next)
+  }, [topInset])
+  const openFile = useCallback((path: string, focus: GuideDiffFocus | null = null) => {
+    navigation.navigate('PullRequestFiles', { ...ref, path, ...(focus ? { focus } : {}) })
+  }, [navigation, ref])
+  const openCommit = useCallback((sha: string) => navigation.navigate('PullRequestFiles', { ...ref, commitSha: sha }), [navigation, ref])
+  const openThread = useCallback((threadId: string) => navigation.navigate('PullRequestDiscussion', { ...ref, threadId }), [navigation, ref])
+
+  const canReview = Boolean(permissions?.verdicts.length)
+  const canComment = Boolean(permissions?.canComment)
+  // Android draws the actions in its header; iOS has the native menu below.
   useLayoutEffect(() => {
-    navigation.setOptions({ title: `#${number}` })
-  }, [navigation, number])
+    const actions = [
+      ...(canReview ? [{ id: 'review', title: 'Submit review', image: 'text.bubble' }] : []),
+      ...(canComment ? [{ id: 'comment', title: 'Add comment', image: 'plus.bubble' }] : []),
+      ...(pr ? [{ id: 'open', title: 'Open on GitHub', image: 'arrow.up.right' }, { id: 'copy', title: 'Copy link', image: 'doc.on.doc' }] : []),
+    ]
+    navigation.setOptions({
+      title: `#${number}`,
+      headerRight: Platform.OS === 'android' && actions.length ? () => (
+        <ControlPillMenu
+          accessibilityLabel="Pull request actions"
+          title="Pull request"
+          actions={actions}
+          onPressAction={({ nativeEvent }) => {
+            if (nativeEvent.event === 'review' || nativeEvent.event === 'comment') navigation.navigate('PullRequestReview', { ...ref, mode: nativeEvent.event })
+            else if (nativeEvent.event === 'open' && pr) void app.platform.openBrowser(pr.url)
+            else if (nativeEvent.event === 'copy' && pr) copyTextWithHaptic(pr.url)
+          }}
+        >
+          <Pressable accessibilityRole="button" accessibilityLabel="Pull request actions" hitSlop={8} className="h-9 w-9 items-center justify-center">
+            <SymbolView name="ellipsis" size={18} tintColorClassName="accent-icon" type="monochrome" />
+          </Pressable>
+        </ControlPillMenu>
+      ) : undefined,
+    })
+  }, [app, navigation, number, canReview, canComment, pr, ref])
 
-  useEffect(() => {
-    if (phase === 'connected') reload()
-  }, [phase, reload])
+  const activity = useMemo(() => {
+    if (!view) return null
+    return filterPullRequestActivity({ comments: view.detail.comments, threads: view.detail.threads, commits: view.detail.overview.commits }, activityFilter)
+  }, [view, activityFilter])
+  const rowsByTab = useMemo((): Record<Tab, ActivityRow[]> => {
+    if (!view || !activity) return { overview: [], activity: [], guide: [] }
+    const timeline = pullRequestActivityRows(activity.activity, activityFilter.newestFirst, { openThread, openCommit })
+    const unread = (['comments', 'threads'] as const).filter((part) => view.detail.missing.includes(part))
+    return {
+      overview: [{ key: 'overview', date: '', content: <PullRequestOverview view={view} onOpenFile={openFile} /> }],
+      activity: [
+        { key: 'filters', date: '', content: <PullRequestActivityFilters value={activityFilter} onChange={setActivityFilter} hiddenCount={activity.hiddenCount} /> },
+        ...(unread.length ? [{ key: 'unread', date: '', content: <Text className="pb-4 text-xs text-foreground-muted">Some of the conversation could not be read.</Text> }] : []),
+        ...(timeline.length ? timeline : [{ key: 'empty', date: '', content: <Text className="py-6 text-sm text-foreground-muted">No activity matches these filters.</Text> }]),
+      ],
+      guide: [{ key: 'guide', date: '', content: <PullRequestGuideTab view={view} onOpenFile={openFile} /> }],
+    }
+  }, [view, activity, activityFilter, openThread, openFile, openCommit])
 
-  useFocusEffect(reload)
+  const subtitle = pr ? `${pr.baseRepo.owner}/${pr.baseRepo.repo}${connected ? '' : ' · Offline'}` : connected ? undefined : 'Offline'
+  const header = (
+    <>
+      {/* T3's header: the number, the repository under it, and the actions menu. */}
+      <NativeStackScreenOptions options={{ unstable_headerSubtitle: subtitle }} />
+      <NativeHeaderToolbar placement="right">
+        <NativeHeaderToolbar.Menu title="Pull request" accessibilityLabel="Pull request actions" icon="ellipsis">
+          {canReview ? (
+            <NativeHeaderToolbar.MenuAction icon="text.bubble" onPress={() => navigation.navigate('PullRequestReview', { ...ref, mode: 'review' })}>
+              <NativeHeaderToolbar.Label>Submit review</NativeHeaderToolbar.Label>
+            </NativeHeaderToolbar.MenuAction>
+          ) : null}
+          {canComment ? (
+            <NativeHeaderToolbar.MenuAction icon="plus.bubble" onPress={() => navigation.navigate('PullRequestReview', { ...ref, mode: 'comment' })}>
+              <NativeHeaderToolbar.Label>Add comment</NativeHeaderToolbar.Label>
+            </NativeHeaderToolbar.MenuAction>
+          ) : null}
+          {pr ? (
+            <NativeHeaderToolbar.MenuAction icon="arrow.up.right" onPress={() => void app.platform.openBrowser(pr.url)}>
+              <NativeHeaderToolbar.Label>Open on GitHub</NativeHeaderToolbar.Label>
+            </NativeHeaderToolbar.MenuAction>
+          ) : null}
+          {pr ? (
+            <NativeHeaderToolbar.MenuAction icon="doc.on.doc" onPress={() => copyTextWithHaptic(pr.url)}>
+              <NativeHeaderToolbar.Label>Copy link</NativeHeaderToolbar.Label>
+            </NativeHeaderToolbar.MenuAction>
+          ) : null}
+        </NativeHeaderToolbar.Menu>
+      </NativeHeaderToolbar>
+    </>
+  )
 
-  const detail = shownValue(state)
-  if (!detail) {
+  if (!view) {
     return (
-      <View className="flex-1 bg-sheet">
+      <View className="flex-1 bg-screen" style={{ paddingTop: topInset }}>
+        {header}
         <HostStatusBanner hostId={hostId} />
         {state.kind === 'error' ? (
           <View className="px-5 pt-4">
             {state.githubAuth ? (
-              <EmptyState
-                title="Connect GitHub to read this pull request"
-                detail="The host reads pull requests with its own GitHub connection."
-                actionLabel="Connect GitHub"
-                onAction={() => navigation.navigate('GitHubConnection', { hostId })}
-              />
+              <EmptyState title="Connect GitHub to read this pull request" detail="The host reads pull requests with its own GitHub connection." actionLabel="Connect GitHub" onAction={() => navigation.navigate('GitHubConnection', { hostId })} />
             ) : (
-              <EmptyState title="Pull request unavailable" detail={state.message} actionLabel="Try again" onAction={reload} />
+              <EmptyState title="Pull request unavailable" detail={state.offline ? 'This pull request was not read on this device before, and the host cannot be reached now.' : state.message} actionLabel="Try again" onAction={reload} />
             )}
           </View>
         ) : (
           <View className="items-center py-16">
             <ActivityIndicator colorClassName="accent-icon" />
-            <Text className="mt-3 text-sm text-foreground-muted">Loading pull request...</Text>
+            <Text className="mt-3 text-sm text-foreground-muted">Loading pull request…</Text>
           </View>
         )}
       </View>
     )
   }
 
-  const pr = detail.overview.pullRequest
-  const submit = async (next: PrComposerIntent, body: string) => {
-    if (next.kind === 'comment') await app.pullRequests.comment(ref, body)
-    else await app.pullRequests.review(ref, next.verdict, body, pr.headSha)
-  }
-  const reviewVerdicts = (['approve', 'request-changes'] as const).filter((verdict) => canGiveVerdict(pr, verdict, viewerLogin))
-  const chooseReview = () => {
-    const labels = reviewVerdicts.map((verdict) => (verdict === 'approve' ? 'Approve' : 'Request changes'))
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions({ title: 'Review', options: [...labels, 'Cancel'], cancelButtonIndex: labels.length }, (index) => {
-        const verdict = reviewVerdicts[index]
-        if (verdict) setIntent({ kind: 'review', verdict })
-      })
-      return
-    }
-    Alert.alert('Review', undefined, [
-      ...reviewVerdicts.map((verdict, index) => ({ text: labels[index]!, onPress: () => setIntent({ kind: 'review', verdict }) })),
-      { text: 'Cancel', style: 'cancel' as const },
-    ])
-  }
-  const review = reviewStatusLabel(pr.reviewStatus)
-  const comments = detail.comments.filter((item): item is PrCommentActivityItem => item.kind !== 'label')
+  const tabs = [
+    { value: 'overview' as const, label: 'Overview' },
+    ...(guidesShown ? [{ value: 'guide' as const, label: 'Guide' }] : []),
+    { value: 'activity' as const, label: 'Activity' },
+  ]
+  const bottomPadding = Platform.OS === 'android' ? insets.bottom + ANDROID_PULL_REQUEST_TOOLBAR_HEIGHT + 24 : 24
 
   return (
-    <>
-      <ScrollView
-        alwaysBounceVertical
-        className="flex-1 android:bg-sheet-solid ios:bg-screen"
-        contentInsetAdjustmentBehavior="automatic"
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingHorizontal: Platform.OS === 'android' ? 8 : 20,
-          paddingTop: 8,
-          paddingBottom: Math.max(insets.bottom, 18) + 18,
-          gap: Platform.OS === 'android' ? 8 : 14,
-        }}
-        refreshControl={<RefreshControl refreshing={state.kind === 'loading'} onRefresh={reload} />}
-      >
-        <HostStatusBanner hostId={hostId} />
-        {state.kind === 'error' ? <ErrorBanner message={`Not refreshed: ${state.message}`} /> : null}
-        <PrHeader pr={pr} />
-
-        <SheetCard>
-          <SheetListRow
-            icon="safari"
-            title="Open on GitHub"
-            subtitle={`${pr.headRef} → ${pr.baseRef}`}
-            onPress={() => void app.platform.openBrowser(pr.url)}
-          />
-          {pr.viewerPermissions.comment ? (
-            <>
-              <SheetRowDivider />
-              <SheetListRow icon="text.bubble" title="Comment" subtitle="Reply on the pull request as a whole" onPress={() => setIntent({ kind: 'comment' })} />
-            </>
-          ) : null}
-          {reviewVerdicts.length > 0 ? (
-            <>
-              <SheetRowDivider />
-              <SheetListRow icon="checkmark.circle" title="Review" subtitle={reviewVerdicts.length > 1 ? 'Approve or request changes' : 'Approve'} onPress={chooseReview} />
-            </>
-          ) : null}
-        </SheetCard>
-
-        <View className="flex-row gap-2">
-          <View className="flex-1"><MetaCard label="Changes" value={`+${pr.additions} −${pr.deletions}`} mono /></View>
-          <View className="flex-1"><MetaCard label="Updated" value={prAge(pr.updatedAt, Date.now())} /></View>
-        </View>
-        {review ? <MetaCard label="Review" value={review} /> : null}
-        <MetaCard label="Branch" value={pr.headRef} mono />
-
-        {detail.stack ? (
-          <StackSection
-            stack={detail.stack}
-            current={number}
-            onOpen={(layer) => navigation.push('PullRequest', { hostId, projectPath, number: layer })}
-          />
-        ) : null}
-
-        <View className="gap-2">
-          <SheetSectionLabel>Description</SheetSectionLabel>
-          <SheetCard className="ios:py-3 android:px-4 android:py-3">
-            {pr.body.trim() ? <PrMarkdown markdown={pr.body} /> : <Text className="text-sm text-foreground-muted">No description.</Text>}
-          </SheetCard>
-        </View>
-
-        <ChecksSection detail={detail} pr={pr} onOpen={(url) => void app.platform.openBrowser(url)} />
-
-        {detail.overview.reviewers.length > 0 ? (
-          <View className="gap-2">
-            <SheetSectionLabel>Reviewers</SheetSectionLabel>
-            <SheetCard>
-              {detail.overview.reviewers.map((reviewer, index) => (
-                <View key={reviewer.login}>
-                  {index > 0 ? <SheetRowDivider inset={false} /> : null}
-                  <SheetValueRow label={reviewer.login} value={reviewerStateLabel(reviewer.state)} />
+    <PullRequestMediaContext.Provider value={ref}>
+      <View className="flex-1 bg-screen">
+        {header}
+        {(['overview', 'guide', 'activity'] as const).filter((entry) => entry !== 'guide' || guidesShown).map((entry) => (
+          <TabPane key={entry} shown={shownTab === entry}>
+            <FlatList
+              ref={(list) => { lists.current[entry] = list }}
+              data={rowsByTab[entry]}
+              keyExtractor={(row) => row.key}
+              renderItem={({ item }) => <View>{item.content}</View>}
+              renderScrollComponent={Platform.OS === 'ios' ? PullRequestTabScrollView : undefined}
+              contentInsetAdjustmentBehavior="never"
+              contentInset={Platform.OS === 'ios' ? { top: insets.top, bottom: insets.bottom } : undefined}
+              scrollIndicatorInsets={Platform.OS === 'ios' ? { top: insets.top, bottom: insets.bottom } : undefined}
+              keyboardShouldPersistTaps="handled"
+              alwaysBounceVertical
+              scrollsToTop={shownTab === entry}
+              onScroll={(event) => {
+                const offset = event.nativeEvent.contentOffset.y
+                offsets.current[entry] = offset
+                if (shownTabRef.current === entry) currentOffset.current = offset
+              }}
+              scrollEventThrottle={32}
+              refreshControl={<RefreshControl refreshing={shownTab === entry && state.kind === 'loading'} onRefresh={reload} />}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: bottomPadding }}
+              ListHeaderComponent={
+                <View className="gap-5 pb-5" onLayout={(event) => { headerHeight.current = event.nativeEvent.layout.height }}>
+                  <HostStatusBanner hostId={hostId} />
+                  {state.kind === 'error' ? <ErrorBanner message={`Not refreshed: ${state.message}`} /> : null}
+                  {!connected ? <Text className="text-xs text-foreground-muted">This is the copy on this device. Reviews, merges, and agent work need the host to be connected.</Text> : null}
+                  <PullRequestIdentity view={view} />
+                  <SegmentedControl options={tabs} selected={shownTab} onSelect={selectTab} role="tab" size="compact" className={Platform.OS === 'android' ? undefined : 'bg-grouped-card'} />
                 </View>
-              ))}
-            </SheetCard>
-          </View>
-        ) : null}
-
-        <View className="gap-2">
-          <SheetSectionLabel>{`Files · ${detail.files.length}`}</SheetSectionLabel>
-          <SheetCard>
-            {detail.files.length === 0 ? <SheetValueRow label="Files" value={detail.missing.includes('files') ? 'Unavailable' : 'None'} /> : null}
-            {detail.files.map((file, index) => (
-              <View key={file.path}>
-                {index > 0 ? <SheetRowDivider inset={false} /> : null}
-                <SheetValueRow label={file.path} value={`+${file.additions} −${file.deletions}`} mono />
-              </View>
-            ))}
-          </SheetCard>
-          {detail.missing.includes('files') && detail.files.length > 0 ? (
-            <Text className="px-1 text-xs text-foreground-muted">Some changed files could not be read.</Text>
-          ) : null}
-        </View>
-
-        <Conversation items={comments} unavailable={detail.missing.includes('comments')} />
-      </ScrollView>
-      <PrComposerSheet intent={intent} prTitle={pr.title} onSubmit={submit} onClose={() => setIntent(null)} />
-    </>
+              }
+            />
+          </TabPane>
+        ))}
+        <PullRequestActionToolbar view={view} />
+      </View>
+    </PullRequestMediaContext.Provider>
   )
 }
 
-function PrHeader({ pr }: { pr: PullRequest }) {
+/** A hidden tab stays mounted, so its scroll position and measured rows stay. */
+function TabPane(props: { readonly shown: boolean; readonly children: ReactNode }) {
   return (
-    <View className="gap-1.5 px-1 pt-1">
-      <PrStateBadge pr={pr} />
-      <Text selectable accessibilityRole="header" className="text-xl font-t3-bold text-foreground">{pr.title}</Text>
-      <Text className="text-sm leading-snug text-foreground-muted">
-        {pr.author} wants to merge{' '}
-        <Text className="text-foreground-secondary" style={{ fontFamily: CODE_FONT }}>{pr.headRef}</Text>
-        {' '}into{' '}
-        <Text className="text-foreground-secondary" style={{ fontFamily: CODE_FONT }}>{pr.baseRef}</Text>
-      </Text>
+    <View
+      style={[StyleSheet.absoluteFill, { opacity: props.shown ? 1 : 0 }]}
+      pointerEvents={props.shown ? 'auto' : 'none'}
+      accessibilityElementsHidden={!props.shown}
+      importantForAccessibility={props.shown ? 'auto' : 'no-hide-descendants'}
+    >
+      {props.children}
     </View>
   )
 }
 
-/** Every layer of the GitHub stack, top first as GitHub draws it, ending on
- *  the branch the stack lands on. A layer opens its own pull request. */
-function StackSection({ stack, current, onOpen }: { stack: PrStack; current: number; onOpen: (number: number) => void }) {
-  const position = stack.layers.findIndex((layer) => layer.number === current) + 1
+function PullRequestIdentity({ view }: { readonly view: PullRequestView }) {
+  const { pr } = view
   return (
-    <View className="gap-2">
-      <SheetSectionLabel>{position > 0 ? `Stack · ${position} of ${stack.layers.length}` : 'Stack'}</SheetSectionLabel>
-      <SheetCard>
-        {[...stack.layers].reverse().map((layer, index) => {
-          const tone = prStateTone(layer)
-          const isCurrent = layer.number === current
-          return (
-            <View key={layer.number}>
-              {index > 0 ? <SheetRowDivider /> : null}
-              <SheetListRow
-                icon="arrow.triangle.pull"
-                iconTintClassName={PR_STATE_TINT_CLASS[tone]}
-                title={layer.title || layer.headRef}
-                subtitle={`#${layer.number} · ${isCurrent ? 'This pull request' : PR_STATE_LABELS[tone]}`}
-                disabled={isCurrent}
-                accessibilityHint="Opens this layer of the stack"
-                onPress={() => onOpen(layer.number)}
-              />
-            </View>
-          )
-        })}
-      </SheetCard>
-      <Text className="px-1 text-xs text-foreground-muted" style={{ fontFamily: CODE_FONT }}>{`↳ ${stack.base}`}</Text>
-    </View>
-  )
-}
-
-function ChecksSection({ detail, pr, onOpen }: { detail: PullRequestDetail; pr: PullRequest; onOpen: (url: string) => void }) {
-  const summary = checksLabel(detail.checks, pr.headSha)
-  const checks = detail.checks && detail.checks.headSha === pr.headSha ? [...detail.checks.required, ...detail.checks.optional] : []
-  if (!summary && !detail.missing.includes('checks')) return null
-  return (
-    <View className="gap-2">
-      <SheetSectionLabel>{summary?.label ?? 'Checks'}</SheetSectionLabel>
-      <SheetCard>
-        {checks.map((check, index) => {
-          const status = checkItemLabel(check)
-          const url = check.detailsUrl
-          return (
-            <View key={check.id}>
-              {index > 0 ? <SheetRowDivider inset={false} /> : null}
-              <SheetValueRow
-                label={check.name}
-                value={status.label}
-                valueClassName={CHECK_TONE_TEXT[status.tone]}
-                {...(url ? { onPress: () => onOpen(url) } : {})}
-              />
-            </View>
-          )
-        })}
-        {checks.length === 0 ? <SheetValueRow label="Checks" value="Unavailable" /> : null}
-      </SheetCard>
-    </View>
-  )
-}
-
-/** A description or comment, in the transcript's selectable markdown. Web links open in the browser. */
-function PrMarkdown({ markdown }: { markdown: string }) {
-  const app = useApp()
-  const textStyle = useNativeMarkdownTextStyle('assistant')
-  const onLinkPress = useCallback((href: string) => {
-    const presentation = resolveMarkdownLinkPresentation(href)
-    if (presentation.kind === 'external') void app.platform.openBrowser(presentation.href)
-    else if (presentation.kind === 'link' && presentation.href) void Linking.openURL(presentation.href)
-  }, [app])
-  return <SelectableMarkdownText markdown={markdown} textStyle={textStyle} onLinkPress={onLinkPress} />
-}
-
-/** Each comment as T3 Code's review comment card: author and age, then the body. */
-function Conversation({ items, unavailable }: { items: PrCommentActivityItem[]; unavailable: boolean }) {
-  const now = Date.now()
-  return (
-    <View className="gap-2">
-      <SheetSectionLabel>Conversation</SheetSectionLabel>
-      {items.length === 0 ? (
-        <SheetCard>
-          <SheetValueRow label="Comments" value={unavailable ? 'Unavailable' : 'None yet'} />
-        </SheetCard>
-      ) : (
-        items.map((item) => (
-          <View key={item.id} className="w-full overflow-hidden rounded-[16px] border border-border bg-card">
-            <View className="flex-row items-center gap-2 border-b border-border px-3 py-2">
-              <View className="size-6 items-center justify-center rounded-[7px] bg-subtle">
-                <Text className="text-2xs font-t3-bold text-foreground-muted">{item.author.slice(0, 1).toUpperCase()}</Text>
-              </View>
-              <View className="min-w-0 flex-1">
-                <Text className="text-xs text-foreground" numberOfLines={1} style={{ fontFamily: CODE_FONT }}>{item.author}</Text>
-              </View>
-              <Text className="text-xs text-foreground-muted">
-                {[item.reviewState ? reviewerStateLabel(item.reviewState) : null, prAge(item.createdAt, now)].filter(Boolean).join(' · ')}
-              </Text>
-            </View>
-            {item.body.trim() ? (
-              <View className="px-3 py-3">
-                <PrMarkdown markdown={item.body} />
-              </View>
-            ) : null}
-          </View>
-        ))
-      )}
-      {unavailable && items.length > 0 ? <Text className="px-1 text-xs text-foreground-muted">Some of the conversation could not be read.</Text> : null}
+    <View className="gap-3">
+      <View className="flex-row flex-wrap items-center gap-2">
+        <PullRequestStatusMenu view={view} />
+        <PullRequestDiffStats additions={pr.additions} deletions={pr.deletions} compact />
+        {pr.changedFiles !== null ? <Text className="text-2xs text-foreground-muted">{pr.changedFiles} {pr.changedFiles === 1 ? 'file' : 'files'}</Text> : null}
+      </View>
+      <Text selectable accessibilityRole="header" className="text-xl font-t3-bold leading-7">{pr.title}</Text>
+      <View className="flex-row items-center gap-2">
+        <PullRequestAvatar login={pr.author} avatarUrl={pr.authorAvatarUrl} size={20} />
+        <Text className="min-w-0 flex-1 text-xs font-t3-medium" numberOfLines={1}>{pr.author}</Text>
+        <Text className="shrink text-right text-2xs text-foreground-muted" numberOfLines={1}>Updated {prAge(pr.updatedAt, Date.now())}</Text>
+      </View>
+      <View className="flex-row items-start gap-1.5">
+        <Pressable accessibilityRole="button" accessibilityLabel={`Copy base branch ${pr.baseRef}`} onPress={() => copyTextWithHaptic(pr.baseRef)} className="min-w-0 shrink active:opacity-70" hitSlop={8}>
+          <Text className="text-2xs text-foreground-muted" style={{ fontFamily: CODE_FONT }}>{pr.baseRef}</Text>
+        </Pressable>
+        <View className="pt-0.5"><SymbolView name="arrow.left" size={11} tintColorClassName="accent-icon-muted" /></View>
+        <Pressable accessibilityRole="button" accessibilityLabel={`Copy head branch ${pr.headRef}`} onPress={() => copyTextWithHaptic(pr.headRef)} className="min-w-0 shrink active:opacity-70" hitSlop={8}>
+          <Text className="text-2xs text-foreground-muted" style={{ fontFamily: CODE_FONT }}>{pr.headRef}</Text>
+        </Pressable>
+      </View>
     </View>
   )
 }

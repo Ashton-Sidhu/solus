@@ -79,9 +79,9 @@ export function HostOrganizationsSection(props: {
         )}
       </SettingsSection>
       <SettingsNote>
-        {status.linked
+        {status.registered
           ? hostCategoryLabel(status.category)
-          : `${hostCategoryLabel(status.category)} · not linked to Solus Cloud, so it stands in no organization.`}
+          : `${hostCategoryLabel(status.category)} · not registered to a Solus account, so it stands in no organization.`}
       </SettingsNote>
     </View>
   );
@@ -296,8 +296,8 @@ export function HostPairedHostsSection(props: {
         />
       </SettingsSection>
       <SettingsNote>
-        Agents on this host can start sessions on these hosts. On the other host, open Pair a device and enter its
-        address and code here.
+        Agents on this host and on these hosts can start sessions on each other. On the other host, open Pair a
+        device and enter its address and code here.
       </SettingsNote>
     </View>
   );

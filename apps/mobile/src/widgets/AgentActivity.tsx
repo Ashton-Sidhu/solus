@@ -71,13 +71,19 @@ export function AgentActivity(
   // (T3 patches it in); hierarchical styles already follow tinted hosts.
   const monochrome = false;
 
-  // Status tints mirror the web sidebar's pills
-  // (apps/web/src/components/Sidebar.logic.ts resolveThreadStatusPill): amber
-  // for approval, indigo for input, sky for working, emerald for completed.
-  // On iPhone the LA sits on a dark material, but macOS (iPhone Mirroring /
-  // Mac notification center) renders it on a light one — so pick the web
-  // palette's light (-600) or dark (-300) variant off the color scheme.
+  // The Lock Screen card wears the app's own surface and text
+  // (src/theme/theme-colors.ts: canvas, text, textMuted, accent) in the
+  // system appearance, as the app does, instead of the default black material.
+  // The Dynamic Island is always black, so it keeps the hierarchical styles.
   const isLightScheme = environment.colorScheme === "light";
+  const cardBackground = isLightScheme ? "#fffffd" : "#262522";
+  const cardForeground: Foreground = isLightScheme ? "#2a2618" : "#f0ede5";
+  const cardMutedForeground: Foreground = isLightScheme ? "#7d7a6e" : "#9a978f";
+  const cardAccent: Foreground = isLightScheme ? "#d97757" : "#e68e6b";
+
+  // Status tints are the app thread list's (thread-list-v2-items.tsx): the
+  // warning and danger foregrounds for approval, limits and failures, indigo
+  // for input, sky for working, and the workspace's complete green for done.
   const phaseTint = (phase: AgentActivityPhase | undefined): Foreground => {
     if (environment.isLuminanceReduced) {
       return secondaryForeground;
@@ -87,21 +93,20 @@ export function AgentActivity(
     }
     switch (phase) {
       case "waiting_for_approval":
-        return isLightScheme ? "#d97706" : "#fcd34d"; // amber-600 / amber-300
+      case "limited":
+        return isLightScheme ? "#965f10" : "#f0c070"; // warningForeground
       case "waiting_for_input":
         return isLightScheme ? "#4f46e5" : "#a5b4fc"; // indigo-600 / indigo-300
-      case "limited":
-        return isLightScheme ? "#b45309" : "#fcd34d"; // amber-700 / amber-300
       case "failed":
-        return isLightScheme ? "#dc2626" : "#fca5a5"; // red-600 / red-300
+        return isLightScheme ? "#a8503f" : "#f08a84"; // errorForeground
       case "completed":
-        return isLightScheme ? "#059669" : "#6ee7b7"; // emerald-600 / emerald-300
+        return isLightScheme ? "#5a9e6f" : "#6fc884"; // --solus-status-complete
       case "stale":
         return secondaryForeground;
       case "starting":
       case "running":
       default:
-        return isLightScheme ? "#0284c7" : "#7dd3fc"; // sky-600 / sky-300
+        return isLightScheme ? "#0284c7" : "#38bdf8"; // sky-600 / sky-400
     }
   };
 
@@ -221,12 +226,16 @@ export function AgentActivity(
   // out it's the title that truncates, never the (short) project name or the
   // status label. Single-line keeps rows inside the expanded island's hard
   // height budget (~160pt) and lets the banner fit more agents.
-  const renderCompactRow = (row: AgentActivityRowProps) => (
+  const renderCompactRow = (
+    row: AgentActivityRowProps,
+    textColor: Foreground,
+    mutedColor: Foreground,
+  ) => (
     <HStack spacing={7} alignment="center">
       <Text
         modifiers={[
           font({ weight: "semibold", size: 13 }),
-          foregroundStyle(primaryForeground),
+          foregroundStyle(textColor),
           lineLimit(1),
         ]}
       >
@@ -238,7 +247,7 @@ export function AgentActivity(
           truncate together. (A maxWidth frame is greedy and reserved its full
           width even for short names; layoutPriority let the project starve the
           title.) */}
-      <Text modifiers={[font({ size: 11 }), foregroundStyle(secondaryForeground), lineLimit(1)]}>
+      <Text modifiers={[font({ size: 11 }), foregroundStyle(mutedColor), lineLimit(1)]}>
         {row.projectTitle}
       </Text>
       <Spacer minLength={8} />
@@ -272,9 +281,7 @@ export function AgentActivity(
         spacing={6}
         modifiers={[
           padding({ all: 14 }),
-          // The standard Live Activity surface: this expo-widgets release does
-          // not report Liquid Glass availability (T3 patches it in).
-          activityBackgroundTint(null),
+          activityBackgroundTint(cardBackground),
           ...(deepLink ? [widgetURL(deepLink)] : []),
         ]}
       >
@@ -283,7 +290,7 @@ export function AgentActivity(
             overflow beyond the visible rows is inferable from the count. */}
         <ZStack>
           <HStack spacing={0} alignment="center">
-            {renderLogo(13, primaryForeground)}
+            {renderLogo(13, cardAccent)}
             <Spacer minLength={0} />
           </HStack>
           <HStack spacing={6} alignment="center">
@@ -293,14 +300,14 @@ export function AgentActivity(
                 font({ weight: "semibold", size: 13 }),
                 // The all-done header carries the outcome tint (emerald /
                 // red) the way the Done/Failed status labels do.
-                foregroundStyle(allDone ? headerTint : primaryForeground),
+                foregroundStyle(allDone ? headerTint : cardForeground),
                 lineLimit(1),
               ]}
             >
               {agentsLabel}
             </Text>
             {attentionSuffix ? (
-              <Text modifiers={[font({ size: 13 }), foregroundStyle(secondaryForeground)]}>·</Text>
+              <Text modifiers={[font({ size: 13 }), foregroundStyle(cardMutedForeground)]}>·</Text>
             ) : null}
             {attentionSuffix ? (
               <Text
@@ -316,11 +323,11 @@ export function AgentActivity(
             <Spacer minLength={0} />
           </HStack>
         </ZStack>
-        {row0 ? renderCompactRow(row0) : null}
-        {row1 ? renderCompactRow(row1) : null}
-        {row2 ? renderCompactRow(row2) : null}
-        {row3 ? renderCompactRow(row3) : null}
-        {row4 ? renderCompactRow(row4) : null}
+        {row0 ? renderCompactRow(row0, cardForeground, cardMutedForeground) : null}
+        {row1 ? renderCompactRow(row1, cardForeground, cardMutedForeground) : null}
+        {row2 ? renderCompactRow(row2, cardForeground, cardMutedForeground) : null}
+        {row3 ? renderCompactRow(row3, cardForeground, cardMutedForeground) : null}
+        {row4 ? renderCompactRow(row4, cardForeground, cardMutedForeground) : null}
       </VStack>
     ),
     // Compact card for the watchOS Smart Stack + CarPlay (the `.small` family):
@@ -406,9 +413,9 @@ export function AgentActivity(
             : [padding({ vertical: 2, horizontal: 8 })]
         }
       >
-        {row0 ? renderCompactRow(row0) : null}
-        {row1 ? renderCompactRow(row1) : null}
-        {row2 ? renderCompactRow(row2) : null}
+        {row0 ? renderCompactRow(row0, primaryForeground, secondaryForeground) : null}
+        {row1 ? renderCompactRow(row1, primaryForeground, secondaryForeground) : null}
+        {row2 ? renderCompactRow(row2, primaryForeground, secondaryForeground) : null}
       </VStack>
     ),
   };

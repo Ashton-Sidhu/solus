@@ -1,7 +1,7 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useEffect, useState } from "react";
-import { Platform, Pressable, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useApp, useListened } from "../../app/app-context";
@@ -13,8 +13,13 @@ import { ScreenScrollView } from "../../components/ScreenScrollView";
 import { cn } from "../../lib/cn";
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 import type { RootStackParamList } from "../../navigation/routes";
-import { ConnectionStatusDot } from "../connection/ConnectionStatusDot";
-import { ConnectOptionCard } from "../connection/ConnectOptionCard";
+import {
+  ConnectCardPill,
+  ConnectCardTile,
+  ConnectOptionCard,
+  connectCardClassName,
+  SolusMarkIcon,
+} from "../connection/ConnectOptionCard";
 import { hostConnectionStatus, hostMachineKind } from "../connection/lib/host-connection-status";
 import type { NativeHost } from "../hosts/host-registry";
 import {
@@ -117,13 +122,16 @@ export function NewTaskConnectHost(props: {
         </Text>
 
         {connectingHost ? (
-          <Pressable
-            accessibilityRole="button"
-            className="items-center py-2 active:opacity-70"
-            onPress={() => setConnectingHostId(null)}
-          >
-            <Text className="text-sm font-t3-medium text-foreground-muted">Choose another host</Text>
-          </Pressable>
+          <View className="gap-2">
+            <ConnectHostCard host={connectingHost} hasFailed={false} isConnecting onAction={() => {}} />
+            <Pressable
+              accessibilityRole="button"
+              className="items-center py-2 active:opacity-70"
+              onPress={() => setConnectingHostId(null)}
+            >
+              <Text className="text-sm font-t3-medium text-foreground-muted">Choose another host</Text>
+            </Pressable>
+          </View>
         ) : (
           <View className="gap-2">
             {hosts.map((host) => (
@@ -143,8 +151,8 @@ export function NewTaskConnectHost(props: {
                   onPress={() => navigation.navigate("PairHost")}
                 />
                 <ConnectOptionCard
-                  icon="cloud"
-                  title="Cloud host"
+                  icon="solus-mark"
+                  title="Solus Cloud host"
                   detail="A machine Solus runs for your organization."
                   onPress={() => navigation.navigate("CloudHosts")}
                 />
@@ -197,43 +205,55 @@ export function NewTaskConnectHost(props: {
 function ConnectHostCard(props: {
   readonly host: NativeHost;
   readonly hasFailed: boolean;
+  /** The person asked this host to connect, so the card waits on it. */
+  readonly isConnecting?: boolean;
   readonly onAction: (action: ReturnType<typeof connectHostAction>) => void;
 }) {
   const app = useApp();
   const state = useListened(app.connections.changes, () => app.connections.state(props.host.id));
   const status = hostConnectionStatus(props.host, state);
-  const action = connectHostAction(props.host, state);
-  const detail = props.hasFailed && action === "retry" ? "Did not answer · try again" : status.text;
+  const isDialing = props.isConnecting || state?.phase === "connecting" || state?.phase === "reconnecting";
+  const action = props.isConnecting ? null : connectHostAction(props.host, state);
+  const detail = isDialing
+    ? "Connecting…"
+    : props.hasFailed && action === "retry"
+      ? "Did not answer · try again"
+      : status.text;
   return (
     <Pressable
       accessibilityRole={action ? "button" : undefined}
       accessibilityLabel={action ? `${CONNECT_HOST_ACTION_LABELS[action]} ${props.host.label}` : `${props.host.label}. ${detail}`}
       disabled={!action}
       onPress={() => props.onAction(action)}
-      className="flex-row items-center gap-3 rounded-[24px] bg-grouped-card px-4 py-3.5 active:opacity-70"
+      className={connectCardClassName}
+      style={{ borderWidth: StyleSheet.hairlineWidth }}
     >
-      <View className="size-9 items-center justify-center rounded-xl bg-subtle">
-        <EnvironmentMachineSymbol kind={hostMachineKind(props.host)} size={15} tintColorClassName="accent-foreground-muted" />
-      </View>
+      {/* No status dot: the line under the name says the state in words. */}
+      <ConnectCardTile>
+        {props.host.uplink?.kind === "managed" ? (
+          <SolusMarkIcon size={18} />
+        ) : (
+          <EnvironmentMachineSymbol kind={hostMachineKind(props.host)} size={15} tintColorClassName="accent-foreground-muted" />
+        )}
+      </ConnectCardTile>
       <View className="min-w-0 flex-1 gap-0.5">
-        <View className="min-w-0 flex-row items-center gap-2">
-          {/* A host that never answers would pulse for ever; the dot holds still. */}
-          <ConnectionStatusDot state={status.dot} pulse={false} size={7} />
-          <Text className="min-w-0 flex-shrink text-base font-t3-bold leading-snug text-foreground" numberOfLines={1}>
-            {props.host.label}
-          </Text>
-        </View>
+        <Text className="min-w-0 text-[15px] font-t3-medium leading-snug text-foreground" numberOfLines={1}>
+          {props.host.label}
+        </Text>
         <Text
-          className={cn("min-w-0 text-xs", status.failed || props.hasFailed ? "text-danger-foreground" : "text-foreground-muted")}
+          className={cn(
+            "min-w-0 text-[13px]",
+            !isDialing && (status.failed || props.hasFailed) ? "text-danger-foreground" : "text-foreground-muted",
+          )}
           numberOfLines={1}
         >
           {detail}
         </Text>
       </View>
-      {action ? (
-        <View className="rounded-full bg-subtle px-3.5 py-2">
-          <Text className="text-xs font-t3-bold text-foreground">{CONNECT_HOST_ACTION_LABELS[action]}</Text>
-        </View>
+      {isDialing ? (
+        <ActivityIndicator accessibilityLabel={`Connecting to ${props.host.label}`} colorClassName="accent-icon-muted" />
+      ) : action ? (
+        <ConnectCardPill label={CONNECT_HOST_ACTION_LABELS[action]} />
       ) : null}
     </Pressable>
   );

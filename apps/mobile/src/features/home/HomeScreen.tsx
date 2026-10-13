@@ -2,7 +2,7 @@
 import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import { LegendList, type LegendListRef } from "@legendapp/list/react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -20,6 +20,7 @@ import { AppText as Text } from "../../components/AppText";
 import { EmptyState } from "../../components/EmptyState";
 import { MaterialFloatingActionButton } from "../../components/MaterialFloatingActionButton";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
+import { NativePrimaryColumnContext } from "../../native/v5-workspace-context";
 import type { SolusProjectShell, SolusThreadShell } from "../threads/thread-directory";
 import {
   ThreadListV2Row,
@@ -61,6 +62,8 @@ interface HomeScreenProps {
   readonly searchQuery: string;
   readonly selectedEnvironmentId: string | null;
   readonly selectedProjectKey: string | null;
+  /** The host and project filter pills above the list (iOS). */
+  readonly listFilters?: ReactNode;
   readonly onAddConnection: () => void;
   /** Dials every saved host again now. */
   readonly onRetryHosts: () => void;
@@ -87,7 +90,6 @@ const ESTIMATED_THREAD_LIST_V2_ROW_HEIGHT = 72;
 // swipe-row-activation), so render further ahead: a fast fling then reaches
 // rows that are already built instead of rows still being rebuilt.
 const THREAD_LIST_V2_DRAW_DISTANCE = 1_000;
-const PRE_LIQUID_GLASS_BOTTOM_TOOLBAR_HEIGHT = 44;
 
 /** EmptyState's own button look, for a state with more than one action. */
 function HomeEmptyButton(props: {
@@ -128,10 +130,9 @@ export function HomeScreen(props: HomeScreenProps) {
   const openSwipeableRef = useRef<SwipeableMethods | null>(null);
   const insets = useSafeAreaInsets();
   const { fabClearance } = useAndroidControlSizing();
-  const iosBottomToolbarClearance =
-    Platform.OS === "ios" && !NATIVE_LIQUID_GLASS_SUPPORTED
-      ? PRE_LIQUID_GLASS_BOTTOM_TOOLBAR_HEIGHT
-      : 0;
+  // In the iPad primary column Home is the sidebar: rows take its padding and mark the open thread.
+  const primaryColumn = use(NativePrimaryColumnContext);
+  const selectedThreadKey = primaryColumn?.selectedThreadKey ?? null;
   const handleSwipeableWillOpen = useCallback((methods: SwipeableMethods) => {
     if (openSwipeableRef.current !== methods) {
       openSwipeableRef.current?.close();
@@ -297,9 +298,10 @@ export function HomeScreen(props: HomeScreenProps) {
         now: Date.now(),
         snoozedShelfExpanded,
         settledShelfExpanded,
-        selectedThreadKey: null,
+        selectedThreadKey,
       }),
     [
+      selectedThreadKey,
       knownProjectKeys,
       nowMinute,
       snoozeWakeTick,
@@ -387,11 +389,14 @@ export function HomeScreen(props: HomeScreenProps) {
           variant={item.item.variant}
           snoozed={item.item.snoozed}
           status={item.status}
+          unread={item.unread}
           pr={item.pr}
           snoozePresetMinute={item.snoozePresetMinute ?? ""}
           snoozeWakeLabelText={item.snoozeWakeLabelText}
           timeLabel={item.timeLabel}
           showTrailingDivider={item.showTrailingDivider}
+          pane={primaryColumn ? "sidebar" : "screen"}
+          selected={thread.key === selectedThreadKey}
           projectPath={threadFaviconRoot(thread.record, project?.project.path ?? null)}
           projectTitle={
             v2ProjectTitleByProjectKey.get(projectKey) ?? threadProjectFallbackTitle(thread.record)
@@ -420,8 +425,10 @@ export function HomeScreen(props: HomeScreenProps) {
       handleUnsettleThread,
       handleUnsnoozeThread,
       knownProjectKeys,
+      primaryColumn,
       projectByKey,
       props.onSelectThread,
+      selectedThreadKey,
       toggleSettledShelf,
       toggleSnoozedShelf,
       v2ProjectTitleByProjectKey,
@@ -438,8 +445,9 @@ export function HomeScreen(props: HomeScreenProps) {
       projectByKey,
       projectTitleByProjectKey: v2ProjectTitleByProjectKey,
       environmentCount: props.environments.length,
+      selectedThreadKey,
     }),
-    [projectByKey, props.environments.length, v2ProjectTitleByProjectKey],
+    [projectByKey, props.environments.length, selectedThreadKey, v2ProjectTitleByProjectKey],
   );
 
   /* Empty states */
@@ -470,7 +478,7 @@ export function HomeScreen(props: HomeScreenProps) {
             Platform.OS === "android" && "overflow-hidden rounded-t-[28px]",
           )}
           style={{
-            paddingBottom: Math.max(insets.bottom, 24) + iosBottomToolbarClearance,
+            paddingBottom: Math.max(insets.bottom, 24),
             paddingTop: NATIVE_LIQUID_GLASS_SUPPORTED ? insets.top + 72 : 0,
           }}
         >
@@ -513,9 +521,14 @@ export function HomeScreen(props: HomeScreenProps) {
 
   const listHeader = Platform.OS === "ios" ? undefined : <HomeTopContentSpacer />;
 
-  // Project scoping lives in the header filter menu (no inline chip row on
-  // mobile — the menu is the one filter surface).
-  const v2ListHeader = listHeader;
+  // Project scoping lives in the header filter menu on Android and in the
+  // filter pills above the list on iOS.
+  const v2ListHeader = (
+    <>
+      {listHeader}
+      {props.listFilters}
+    </>
+  );
 
   // Use the v2 project scope for its empty state. Snoozed threads need no
   // special empty state: their shelf header is a list row even while collapsed.
@@ -607,7 +620,7 @@ export function HomeScreen(props: HomeScreenProps) {
             contentContainerStyle={{
               paddingBottom:
                 Platform.OS === "ios"
-                  ? Math.max(insets.bottom, 24) + 96 + iosBottomToolbarClearance
+                  ? Math.max(insets.bottom, 24) + 16
                   : Math.max(insets.bottom, 16) + (Platform.OS === "android" ? fabClearance : 88),
             }}
           />

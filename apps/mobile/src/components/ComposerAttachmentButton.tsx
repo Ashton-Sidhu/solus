@@ -9,6 +9,7 @@ import { ControlPillMenu } from "./ControlPill";
 const ATTACHMENT_MENU_ACTIONS: MenuAction[] = [
   { id: "photos", title: "Photo Library", image: "photo" },
   { id: "files", title: "Choose Files", image: "folder" },
+  { id: "paste", title: "Paste Image", image: "doc.on.clipboard" },
 ];
 
 export function ComposerAttachmentButton(props: {
@@ -16,6 +17,7 @@ export function ComposerAttachmentButton(props: {
   readonly supportsFiles: boolean;
   readonly onPickMedia: () => Promise<void>;
   readonly onPickFiles: () => Promise<void>;
+  readonly onPasteImage: () => Promise<void>;
 }) {
   const { scale } = useAndroidControlSizing();
   const button = (
@@ -52,6 +54,8 @@ export function ComposerAttachmentButton(props: {
           void props.onPickMedia();
         } else if (nativeEvent.event === "files") {
           void props.onPickFiles();
+        } else if (nativeEvent.event === "paste") {
+          void props.onPasteImage();
         }
       }}
     >

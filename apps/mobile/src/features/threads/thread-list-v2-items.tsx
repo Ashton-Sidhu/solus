@@ -18,6 +18,7 @@ import { ControlPillMenu } from "../../components/ControlPill";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
 import { ProviderInstanceIcon } from "../../components/ProviderIcon";
 import { cn } from "../../lib/cn";
+import { useThreadListState } from "./use-thread-list";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useSwipeRowDormant } from "../home/swipe-row-activation";
@@ -211,6 +212,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   /** Snoozed-shelf row: shows its wake time and offers Wake. */
   readonly snoozed?: boolean;
   readonly status: ThreadListV2Status;
+  readonly unread: boolean;
   readonly pr: ThreadPrPresentation | null;
   /** Preformatted against the parent minute tick so this memoized row's
       countdown keeps moving. */
@@ -265,6 +267,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     onUnsettleThread,
     onSetPullRequestWatch,
   } = props;
+  const list = useThreadListState();
   const record = thread.record;
   const title = threadTitle(record);
   const snoozedRow = props.snoozed === true;
@@ -279,6 +282,13 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   // The timestamp is precomputed on the list item so a minute tick only
   // re-renders rows that draw it.
   const timeLabel = props.timeLabel;
+
+  const handleSelect = useCallback(() => {
+    if (props.unread) {
+      void list.markRead(thread.hostId, record.sessionId, true).catch(() => undefined);
+    }
+    onSelectThread(thread);
+  }, [list, onSelectThread, props.unread, record.sessionId, thread]);
 
   const handleRename = useCallback((): void => onRenameThread(thread), [onRenameThread, thread]);
   const handleSettle = useCallback((): Promise<boolean> => onSettleThread(thread), [onSettleThread, thread]);
@@ -318,6 +328,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           ? { id: "stop-watching-pr", title: `Stop Watching #${watchTarget.number}`, image: "eye.slash" }
           : { id: "watch-pr", title: `Watch #${watchTarget.number}`, subtitle: "Wake the agent on checks and reviews", image: "eye" }]
         : []),
+      { id: "mark-unread", title: "Mark Unread", image: "circle.fill" },
       { id: "rename", title: "Rename", image: "square.and.pencil" },
     ],
     [watchTarget],
@@ -356,6 +367,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       if (nativeEvent.event === "unsettle") handleUnsettle();
       if (nativeEvent.event === "unsnooze") handleUnsnooze();
       if (nativeEvent.event === "rename") handleRename();
+      if (nativeEvent.event === "mark-unread") {
+        void list.markRead(thread.hostId, record.sessionId, false).catch((error: Error) => {
+          Alert.alert("Could not mark session unread", error.message);
+        });
+      }
       if (watchTarget && nativeEvent.event === "watch-pr") onSetPullRequestWatch(thread, watchTarget, true);
       if (watchTarget && nativeEvent.event === "stop-watching-pr") onSetPullRequestWatch(thread, watchTarget, false);
       if (nativeEvent.event === "copy-thread-id") {
@@ -374,6 +390,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     },
     [
       handleRename,
+      list,
       handleSettle,
       handleSnooze,
       handleUnsettle,
@@ -444,6 +461,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     <>
       <View className="flex-row items-center gap-1.5">
         {favicon}
+        {props.unread ? (
+          <View accessibilityLabel="Unread session" className="h-2 w-2 rounded-full bg-primary" />
+        ) : null}
         <Text
           className={cn(
             "flex-1 text-sm font-t3-medium",
@@ -579,7 +599,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         accessibilityState={{ selected }}
         onPress={() => {
           close();
-          onSelectThread(thread);
+          handleSelect();
         }}
         style={rowAppearance.cardStyle}
       >
@@ -610,7 +630,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         className={rowAppearance.className}
         onPress={() => {
           close();
-          onSelectThread(thread);
+          handleSelect();
         }}
         style={rowAppearance.style}
       >
@@ -622,6 +642,9 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           )}
         >
           <View className="opacity-40">{favicon}</View>
+          {props.unread ? (
+            <View accessibilityLabel="Unread session" className="h-2 w-2 rounded-full bg-primary" />
+          ) : null}
           <View className="min-w-0 flex-1">
             <Text
               className={cn(

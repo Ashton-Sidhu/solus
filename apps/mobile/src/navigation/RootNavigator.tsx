@@ -4,7 +4,7 @@ import {
   type InitialState,
   type NavigationState,
 } from '@react-navigation/native'
-import { createNativeStackNavigator, type NativeStackNavigationOptions } from '@react-navigation/native-stack'
+import type { NativeStackNavigationOptions } from '@react-navigation/native-stack'
 import { useEffect } from 'react'
 import { Linking, Platform, useWindowDimensions } from 'react-native'
 import { parseDeepLink } from './deep-links'
@@ -24,6 +24,8 @@ import { NewTaskRouteScreen } from '../features/threads/NewTaskRouteScreen'
 import { HostsScreen } from '../features/hosts/HostsScreen'
 import { PairHostScreen } from '../features/hosts/PairHostScreen'
 import { AdaptiveWorkspaceLayout, type WorkspaceLocation } from '../features/layout/AdaptiveWorkspaceLayout'
+import { createWorkspaceStackNavigator } from '../features/layout/createWorkspaceStackNavigator'
+import { WorkspaceTabsProvider } from '../features/workspace/WorkspaceTabsContext'
 import { WelcomeScreen } from '../features/onboarding/WelcomeScreen'
 import { OpenProjectScreen } from '../features/projects/OpenProjectScreen'
 import { NewProjectScreen } from '../features/projects/NewProjectScreen'
@@ -31,14 +33,12 @@ import { OpenFolderScreen } from '../features/projects/OpenFolderScreen'
 import { ProjectFromGithubScreen } from '../features/projects/ProjectFromGithubScreen'
 import { CloneProjectScreen } from '../features/projects/CloneProjectScreen'
 import { NotificationsScreen } from '../features/notifications/NotificationsScreen'
-import { BuildsScreen } from '../features/devices/BuildsScreen'
-import { BuildFolderScreen } from '../features/devices/BuildFolderScreen'
-import { NewBuildScreen } from '../features/devices/NewBuildScreen'
+import { RunAppScreen } from '../features/devices/RunAppScreen'
 import { BuildProfilesScreen } from '../features/devices/BuildProfilesScreen'
 import { BuildLogScreen } from '../features/devices/BuildLogScreen'
 import { SettingsScreen } from '../features/settings/SettingsScreen'
 import { AppearanceScreen } from '../features/settings/AppearanceScreen'
-import { PersonalSettingsScreen } from '../features/settings/PersonalSettingsScreen'
+import { AccountSyncScreen } from '../features/settings/AccountSyncScreen'
 import { AgentProfileScreen } from '../features/settings/AgentProfileScreen'
 import { OrganizationSettingsScreen } from '../features/settings/OrganizationSettingsScreen'
 import { HostSettingsScreen } from '../features/settings/HostSettingsScreen'
@@ -48,18 +48,24 @@ import { AgentDefaultsScreen } from '../features/settings/AgentDefaultsScreen'
 import { NotificationSettingsScreen } from '../features/settings/NotificationSettingsScreen'
 import { GitHubConnectionScreen } from '../features/settings/GitHubConnectionScreen'
 import { AboutScreen } from '../features/settings/AboutScreen'
-import { PullRequestsScreen } from '../features/prs/PullRequestsScreen'
 import { PullRequestScreen } from '../features/prs/PullRequestScreen'
+import { PullRequestReviewSheet } from '../features/prs/PullRequestReviewSheet'
+import { PullRequestInlineCommentScreen } from '../features/prs/PullRequestInlineCommentScreen'
+import { PullRequestDiscussionScreen } from '../features/prs/PullRequestDiscussionScreen'
+import { PullRequestFilesScreen } from '../features/prs/PullRequestFilesScreen'
+import { PullRequestAskScreen } from '../features/prs/PullRequestAskScreen'
+import { PullRequestReviewersScreen } from '../features/prs/PullRequestReviewersScreen'
+import { PullRequestLabelsScreen } from '../features/prs/PullRequestLabelsScreen'
 import { FilesScreen } from '../features/files/FilesScreen'
 import { FileScreen } from '../features/files/FileScreen'
 import { useKeyboardCommand } from '../features/keyboard/use-keyboard-command'
 import type { RootStackParamList } from './routes'
 
-// Header presets adapted from T3 Code apps/mobile/src/Stack.tsx (MIT, see UPSTREAM.md).
+// Header presets and the workspace navigator adapted from T3 Code apps/mobile/src/Stack.tsx (MIT, see UPSTREAM.md).
 const HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version)
 
 type AppScreenOptions = NativeStackNavigationOptions & {
-  /** T3's patched react-native-screens option (patches/react-native-screens@4.28.0.patch). */
+  /** The fork's UINavigationItem style (apps/mobile/deps/README.md). */
   readonly unstable_navigationItemStyle?: 'editor'
 }
 
@@ -119,7 +125,7 @@ const SHEET_ROUTES = new Set<keyof RootStackParamList>(['Settings', 'NewTask'])
 const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
   'NewTask',
   'Settings',
-  'PersonalSettings',
+  'AccountSync',
   'AgentProfile',
   'AppearanceSettings',
   'AgentDefaults',
@@ -130,6 +136,10 @@ const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
   'Integrations',
   'GitHubConnection',
   'About',
+  'PullRequestReview',
+  'PullRequestInlineComment',
+  'PullRequestReviewers',
+  'PullRequestLabels',
 ])
 
 /** The topmost non-overlay route, with its key so thread selection can
@@ -145,7 +155,8 @@ function workspaceLocationFromState(state: NavigationState<RootStackParamList>):
   }
 }
 
-const Stack = createNativeStackNavigator<RootStackParamList>()
+// iOS: the v5 workspace (system tab bar, iPad columns, v5 headers); Android: the native stack.
+const Stack = createWorkspaceStackNavigator<RootStackParamList>()
 const navigation = createNavigationContainerRef<RootStackParamList>()
 
 export function RootNavigator({ initialState }: { initialState: InitialState }) {
@@ -184,78 +195,107 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
     }
   }, [])
   return (
-    <NavigationContainer ref={navigation} theme={navigationTheme} initialState={initialState}>
-      <Stack.Navigator
-        layout={({ children, state }) => (
-          <AdaptiveWorkspaceLayout location={workspaceLocationFromState(state)}>{children}</AdaptiveWorkspaceLayout>
-        )}
-        screenOptions={({ route }) => {
-          // As T3 Code's stack: no header tint, so titles take the theme's
-          // header foreground and buttons draw their own symbols.
-          const base: NativeStackNavigationOptions = {
-            contentStyle: { backgroundColor: themeVariables['--color-screen'] },
-          }
-          if (!SHEET_ROUTES.has(route.name)) return base
-          return usesWorkspaceFlowScreens
-            ? { ...base, presentation: 'card' }
-            : { ...base, ...FORM_SHEET_PRESENTATION_OPTIONS, sheetAllowedDetents: [0.92], sheetGrabberVisible: true }
-        }}
-      >
-        <Stack.Screen
-          name="Home"
-          component={HomeRouteScreen}
-          options={{
-            ...GLASS_HEADER_OPTIONS,
-            contentStyle: { backgroundColor: 'transparent' },
-            headerBackVisible: false,
-            ...getCompactBrandHeaderOptions(),
+    <WorkspaceTabsProvider>
+      <NavigationContainer ref={navigation} theme={navigationTheme} initialState={initialState}>
+        <Stack.Navigator
+          layout={({ children, state }) => (
+            <AdaptiveWorkspaceLayout location={workspaceLocationFromState(state)}>{children}</AdaptiveWorkspaceLayout>
+          )}
+          screenOptions={({ route }) => {
+            // As T3 Code's stack: no header tint, so titles take the theme's
+            // header foreground and buttons draw their own symbols.
+            const base: NativeStackNavigationOptions = {
+              contentStyle: { backgroundColor: themeVariables['--color-screen'] },
+            }
+            if (!SHEET_ROUTES.has(route.name)) return base
+            return usesWorkspaceFlowScreens
+              ? { ...base, presentation: 'card' }
+              : { ...base, ...FORM_SHEET_PRESENTATION_OPTIONS, sheetAllowedDetents: [0.92], sheetGrabberVisible: true }
           }}
-        />
-        <Stack.Screen name="Thread" component={ThreadRouteScreen} options={GLASS_HEADER_OPTIONS} />
-        <Stack.Screen
-          name="ThreadAgents"
-          component={ThreadAgentsSheet}
-          // T3 Code's Agents sheet (Stack.tsx): half height, drawn up to 0.9.
-          options={{ ...FORM_SHEET_PRESENTATION_OPTIONS, headerShown: false, sheetAllowedDetents: [0.5, 0.9], sheetGrabberVisible: true }}
-        />
-        <Stack.Screen
-          name="NewTask"
-          component={NewTaskRouteScreen}
-          options={{ ...SHEET_GLASS_HEADER_OPTIONS, title: 'Choose project', gestureEnabled: true }}
-        />
-        <Stack.Screen name="Welcome" component={WelcomeScreen} options={{ headerShown: false }} />
-        <Stack.Screen name="PairHost" component={PairHostScreen} options={{ title: 'Connect to a host' }} />
-        <Stack.Screen name="CloudSignIn" component={CloudSignInScreen} options={{ title: 'Solus Cloud' }} />
-        <Stack.Screen name="CloudHosts" component={CloudHostsScreen} options={{ title: 'Your hosts' }} />
-        <Stack.Screen name="Hosts" component={HostsScreen} options={{ title: 'Hosts', headerLargeTitle: true }} />
-        <Stack.Screen name="OpenProject" component={OpenProjectScreen} options={{ title: 'Open project' }} />
-        <Stack.Screen name="NewProject" component={NewProjectScreen} options={{ title: 'Start a new project' }} />
-        <Stack.Screen name="OpenFolder" component={OpenFolderScreen} options={{ title: 'Open an existing folder' }} />
-        <Stack.Screen name="ProjectFromGithub" component={ProjectFromGithubScreen} options={{ title: 'Get a project from GitHub' }} />
-        <Stack.Screen name="CloneProject" component={CloneProjectScreen} options={{ title: 'Clone from a URL' }} />
-        <Stack.Screen name="Builds" component={BuildsScreen} options={{ title: 'App builds' }} />
-        <Stack.Screen name="BuildFolder" component={BuildFolderScreen} options={{ title: 'Add a build' }} />
-        <Stack.Screen name="NewBuild" component={NewBuildScreen} options={{ title: 'New build' }} />
-        <Stack.Screen name="BuildProfiles" component={BuildProfilesScreen} options={{ title: 'Build profiles' }} />
-        <Stack.Screen name="BuildLog" component={BuildLogScreen} options={{ title: 'Build log' }} />
-        <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications', headerLargeTitle: true }} />
-        <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings', gestureEnabled: true }} />
-        <Stack.Screen name="PersonalSettings" component={PersonalSettingsScreen} options={{ title: 'Personal' }} />
-        <Stack.Screen name="AgentProfile" component={AgentProfileScreen} options={{ title: 'Agent profile' }} />
-        <Stack.Screen name="AppearanceSettings" component={AppearanceScreen} options={{ title: 'Appearance' }} />
-        <Stack.Screen name="OrganizationSettings" component={OrganizationSettingsScreen} options={{ title: 'Organization' }} />
-        <Stack.Screen name="HostSettings" component={HostSettingsScreen} options={{ title: 'Host settings' }} />
-        <Stack.Screen name="HostAccess" component={HostAccessScreen} options={{ title: 'Access' }} />
-        <Stack.Screen name="Integrations" component={IntegrationsScreen} options={{ title: 'MCP' }} />
-        <Stack.Screen name="AgentDefaults" component={AgentDefaultsScreen} options={{ title: 'Agent defaults' }} />
-        <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} options={{ title: 'Notifications' }} />
-        <Stack.Screen name="GitHubConnection" component={GitHubConnectionScreen} options={{ title: 'GitHub' }} />
-        <Stack.Screen name="About" component={AboutScreen} options={{ title: 'About Solus' }} />
-        <Stack.Screen name="PullRequests" component={PullRequestsScreen} options={{ title: 'Pull requests' }} />
-        <Stack.Screen name="PullRequest" component={PullRequestScreen} options={{ title: 'Pull request' }} />
-        <Stack.Screen name="Files" component={FilesScreen} options={{ title: 'Files' }} />
-        <Stack.Screen name="File" component={FileScreen} options={{ title: 'File' }} />
-      </Stack.Navigator>
-    </NavigationContainer>
+        >
+          <Stack.Screen
+            name="Home"
+            component={HomeRouteScreen}
+            options={{
+              ...GLASS_HEADER_OPTIONS,
+              contentStyle: { backgroundColor: 'transparent' },
+              headerBackVisible: false,
+              ...getCompactBrandHeaderOptions(),
+            }}
+          />
+          <Stack.Screen name="Thread" component={ThreadRouteScreen} options={GLASS_HEADER_OPTIONS} />
+          <Stack.Screen
+            name="ThreadAgents"
+            component={ThreadAgentsSheet}
+            // T3 Code's Agents sheet (Stack.tsx): half height, drawn up to 0.9.
+            options={{ ...FORM_SHEET_PRESENTATION_OPTIONS, headerShown: false, sheetAllowedDetents: [0.5, 0.9], sheetGrabberVisible: true }}
+          />
+          <Stack.Screen
+            name="NewTask"
+            component={NewTaskRouteScreen}
+            options={{ ...SHEET_GLASS_HEADER_OPTIONS, title: 'Choose project', gestureEnabled: true }}
+          />
+          <Stack.Screen name="Welcome" component={WelcomeScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="PairHost" component={PairHostScreen} options={{ title: 'Connect to a host' }} />
+          <Stack.Screen name="CloudSignIn" component={CloudSignInScreen} options={{ title: 'Solus Cloud' }} />
+          <Stack.Screen name="CloudHosts" component={CloudHostsScreen} options={{ title: 'Your hosts' }} />
+          <Stack.Screen name="Hosts" component={HostsScreen} options={{ title: 'Hosts', headerLargeTitle: true }} />
+          <Stack.Screen name="OpenProject" component={OpenProjectScreen} options={{ title: 'Open project' }} />
+          <Stack.Screen name="NewProject" component={NewProjectScreen} options={{ title: 'Start a new project' }} />
+          <Stack.Screen name="OpenFolder" component={OpenFolderScreen} options={{ title: 'Open an existing folder' }} />
+          <Stack.Screen name="ProjectFromGithub" component={ProjectFromGithubScreen} options={{ title: 'Get a project from GitHub' }} />
+          <Stack.Screen name="CloneProject" component={CloneProjectScreen} options={{ title: 'Clone from a URL' }} />
+          <Stack.Screen name="RunApp" component={RunAppScreen} options={{ title: 'Run app' }} />
+          <Stack.Screen name="BuildProfiles" component={BuildProfilesScreen} options={{ title: 'Advanced configuration' }} />
+          <Stack.Screen name="BuildLog" component={BuildLogScreen} options={{ title: 'Build log' }} />
+          <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications', headerLargeTitle: true }} />
+          <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings', gestureEnabled: true }} />
+          <Stack.Screen name="AccountSync" component={AccountSyncScreen} options={{ title: 'Account & sync' }} />
+          <Stack.Screen name="AgentProfile" component={AgentProfileScreen} options={{ title: 'Agent profile' }} />
+          <Stack.Screen name="AppearanceSettings" component={AppearanceScreen} options={{ title: 'Appearance' }} />
+          <Stack.Screen name="OrganizationSettings" component={OrganizationSettingsScreen} options={{ title: 'Organization' }} />
+          <Stack.Screen name="HostSettings" component={HostSettingsScreen} options={{ title: 'Host settings' }} />
+          <Stack.Screen name="HostAccess" component={HostAccessScreen} options={{ title: 'Access' }} />
+          <Stack.Screen name="Integrations" component={IntegrationsScreen} options={{ title: 'MCP' }} />
+          <Stack.Screen name="AgentDefaults" component={AgentDefaultsScreen} options={{ title: 'Agent defaults' }} />
+          <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} options={{ title: 'Notifications' }} />
+          <Stack.Screen name="GitHubConnection" component={GitHubConnectionScreen} options={{ title: 'GitHub' }} />
+          <Stack.Screen name="About" component={AboutScreen} options={{ title: 'About Solus' }} />
+          <Stack.Screen name="PullRequest" component={PullRequestScreen} options={{ title: 'Pull request' }} />
+          <Stack.Screen name="PullRequestFiles" component={PullRequestFilesScreen} options={{ title: 'Changed files' }} />
+          {/* T3 Code's pull request sheets (Stack.tsx): the review and the line comment are form sheets without a header. */}
+          <Stack.Screen
+            name="PullRequestReview"
+            component={PullRequestReviewSheet}
+            options={{ ...FORM_SHEET_PRESENTATION_OPTIONS, headerShown: false, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
+          />
+          <Stack.Screen
+            name="PullRequestAsk"
+            component={PullRequestAskScreen}
+            options={{ ...FORM_SHEET_PRESENTATION_OPTIONS, headerShown: false, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
+          />
+          <Stack.Screen
+            name="PullRequestInlineComment"
+            component={PullRequestInlineCommentScreen}
+            options={Platform.OS === 'android'
+              ? { presentation: 'fullScreenModal', headerShown: false }
+              : { ...FORM_SHEET_PRESENTATION_OPTIONS, headerShown: false, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
+          />
+          <Stack.Screen name="PullRequestDiscussion" component={PullRequestDiscussionScreen} options={{ ...SOLID_HEADER_OPTIONS, title: 'Discussion' }} />
+          <Stack.Screen
+            name="PullRequestReviewers"
+            component={PullRequestReviewersScreen}
+            options={{ ...SHEET_SOLID_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, title: 'Request review', headerBackVisible: false, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
+          />
+          <Stack.Screen
+            name="PullRequestLabels"
+            component={PullRequestLabelsScreen}
+            options={{ ...SHEET_SOLID_HEADER_OPTIONS, ...FORM_SHEET_PRESENTATION_OPTIONS, title: 'Labels', headerBackVisible: false, sheetAllowedDetents: [0.75, 0.92], sheetGrabberVisible: true }}
+          />
+          <Stack.Screen name="Files" component={FilesScreen} options={{ title: 'Files' }} />
+          <Stack.Screen name="File" component={FileScreen} options={{ title: 'File' }} />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </WorkspaceTabsProvider>
   )
 }

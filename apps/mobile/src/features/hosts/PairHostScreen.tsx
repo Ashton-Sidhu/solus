@@ -2,7 +2,7 @@
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Linking, Platform, View } from "react-native";
+import { Alert, Linking, Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useApp } from "../../app/app-context";
@@ -21,7 +21,7 @@ import {
   type HostPreview,
   type PairInput,
 } from "./lib/pair-input";
-import { NearbyHostsSection } from "./NearbyHostsSection";
+import { NearbyHostsSection, OS_LABELS } from "./NearbyHostsSection";
 import { nearbyHostUrl, useNearbyHosts } from "./use-nearby-hosts";
 
 /**
@@ -128,14 +128,15 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
   );
 
   const pair = useCallback(async () => {
-    if (!target?.pairToken) {
+    if (!target) return;
+    if (!target.pairToken && !target.preview.trusted) {
       setError("Enter the pairing code the host shows.");
       return;
     }
     setIsSubmitting(true);
     setError(null);
     try {
-      await app.pair(target.preview, target.pairToken, label.trim() || undefined);
+      await app.pair(target.preview, target.pairToken ?? undefined, label.trim() || undefined);
       navigation.reset({ index: 0, routes: [{ name: "Home" }] });
     } catch (failure) {
       setError(pairFailureMessage(failure instanceof Error ? failure : new Error(String(failure))));
@@ -186,21 +187,10 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
       >
         <View collapsable={false} className="gap-5">
           {target ? (
-            <View collapsable={false} className="gap-4 rounded-[24px] bg-grouped-card p-4">
-              <View className="gap-1">
-                <Text className="text-lg font-t3-bold text-foreground" accessibilityRole="header">
-                  {target.preview.name}
-                </Text>
-                <Text className="text-sm text-foreground-muted">
-                  {target.preview.host}
-                  {target.preview.os ? ` · ${target.preview.os}` : ""}
-                </Text>
-                <Text className="text-xs leading-normal text-foreground-muted">
-                  Pair only with a host you trust. It will run agents for this device.
-                </Text>
-              </View>
+            <View collapsable={false} className="gap-5">
+              <PairTargetHeading preview={target.preview} />
 
-              {target.pairToken === null ? (
+              {target.pairToken === null && !target.preview.trusted ? (
                 <ConnectionFormField
                   label="Pairing code"
                   autoCapitalize="none"
@@ -225,10 +215,10 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
 
               {error ? <ErrorBanner message={error} /> : null}
 
-              <View className="gap-3 android:flex-row android:justify-end">
+              <View className="gap-2 android:flex-row android:justify-end">
                 <ConnectionSheetButton
                   icon="checkmark"
-                  label={isSubmitting ? "Pairing…" : "Pair with this host"}
+                  label={pairActionLabel(isSubmitting, target.preview, target.pairToken)}
                   disabled={isSubmitting}
                   tone="primary"
                   onPress={() => {
@@ -258,7 +248,10 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
                 />
               </View>
             ) : (
-              <View className="items-center gap-3 rounded-[24px] border-continuous bg-grouped-card px-5 py-8">
+              <View
+                className="items-center gap-3 rounded-2xl border-composer-border px-5 py-8"
+                style={{ borderWidth: StyleSheet.hairlineWidth }}
+              >
                 <Text className="text-center text-sm leading-normal text-foreground-muted">
                   Camera permission is required to scan a QR code.
                 </Text>
@@ -279,7 +272,10 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
                 nearby={nearby}
                 onSelect={(server) => void inspect(decodePairInput(nearbyHostUrl(server)))}
               />
-              <View collapsable={false} className="gap-4 rounded-[24px] bg-grouped-card p-4">
+              <View collapsable={false} className="gap-4">
+                <Text className="text-sm font-t3-medium text-foreground-muted" accessibilityRole="header">
+                  Enter an address
+                </Text>
                 <ConnectionFormField
                   label="Host"
                   autoCapitalize="none"
@@ -308,8 +304,8 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
 
                 <View className="android:flex-row android:justify-end">
                   <ConnectionSheetButton
-                    icon="plus"
-                    label={isSubmitting ? "Checking…" : "Add host"}
+                    icon="arrow.right"
+                    label={isSubmitting ? "Checking…" : "Continue"}
                     disabled={connectDisabled}
                     tone="primary"
                     onPress={() => {
@@ -323,11 +319,33 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
           {!target && !showScanner ? (
             <SettingsNote>
               On the computer running Solus, open Settings → Hosts → this computer → Access → Pairing. Scan its
-              QR code with the camera button, or type the address and code it shows.
+              QR code with the camera button, or type the address and code it shows. A host that trusts your
+              local network needs no code.
             </SettingsNote>
           ) : null}
         </View>
       </ScrollView>
     </SettingsScreen>
   );
+}
+
+/** As the desktop pairing stage: the address over the host's name, then the one-line why. */
+function PairTargetHeading({ preview }: { readonly preview: HostPreview }) {
+  const address = preview.os ? `${preview.host} · ${OS_LABELS[preview.os]}` : preview.host;
+  return (
+    <View className="gap-1.5">
+      <Text className="text-[13px] text-foreground-muted">{address}</Text>
+      <Text className="text-[22px] leading-7 font-t3-medium text-foreground" accessibilityRole="header">
+        {preview.name}
+      </Text>
+      <Text className="text-[15px] leading-normal text-foreground-muted">
+        Pair only with a host you trust. It will run agents for this device.
+      </Text>
+    </View>
+  );
+}
+
+function pairActionLabel(isSubmitting: boolean, preview: HostPreview, pairToken: string | null): string {
+  if (isSubmitting) return "Pairing…";
+  return preview.trusted && !pairToken ? "Connect" : "Pair";
 }

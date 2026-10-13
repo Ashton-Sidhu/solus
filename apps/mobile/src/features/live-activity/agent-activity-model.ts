@@ -34,8 +34,11 @@ export interface AgentActivityInput {
   readonly threads: readonly SolusThreadShell[]
   readonly liveStatus: ReadonlyMap<string, SessionStatus>
   readonly projectTitleOf: (thread: SolusThreadShell) => string
-  /** Sessions this card has shown as live: once they settle they stay as Done or Failed. */
-  readonly tracked: ReadonlySet<string>
+  /**
+   * Sessions this card has shown as live: once they settle they stay as Done
+   * or Failed. Each holds the time this device saw it settle, or null while live.
+   */
+  readonly tracked: ReadonlyMap<string, number | null>
   readonly now: number
 }
 
@@ -43,7 +46,7 @@ export interface AgentActivityState {
   /** Null when there is nothing to show. */
   readonly props: AgentActivityProps | null
   readonly activeCount: number
-  readonly tracked: ReadonlySet<string>
+  readonly tracked: ReadonlyMap<string, number | null>
 }
 
 function clip(text: string): string {
@@ -58,23 +61,28 @@ export function agentActivityDeepLink(hostId: string, sessionId: string): string
 
 export function deriveAgentActivity(input: AgentActivityInput): AgentActivityState {
   const updatedAt = new Date(input.now).toISOString()
-  const tracked = new Set(input.tracked)
+  const tracked = new Map(input.tracked)
   const live: Array<{ thread: SolusThreadShell; status: ThreadListV2Status }> = []
-  const settled: Array<{ thread: SolusThreadShell; status: ThreadListV2Status }> = []
+  const settled: Array<{ thread: SolusThreadShell; status: ThreadListV2Status; settledAt: number }> = []
   for (const thread of input.threads) {
     const key = threadKey(thread.hostId, thread.record.sessionId)
     const status = resolveThreadListV2Status(thread.record, input.liveStatus.get(key))
     if (LIVE.has(status)) {
       live.push({ thread, status })
-      tracked.add(key)
+      tracked.set(key, null)
     } else if (tracked.has(key)) {
-      settled.push({ thread, status })
+      const settledAt = tracked.get(key) ?? input.now
+      tracked.set(key, settledAt)
+      settled.push({ thread, status, settledAt })
     }
   }
   if (live.length === 0 && settled.length === 0) return { props: null, activeCount: 0, tracked }
-  // Newest first within each group; the card orders by attention itself.
+  // Newest first within each group; the card orders by attention itself. A
+  // settled session sorts by when it finished, not by its record, which the
+  // host sends again only after the status: the latest finish keeps its row.
   const newest = (a: { thread: SolusThreadShell }, b: { thread: SolusThreadShell }) => b.thread.record.lastActivityAt - a.thread.record.lastActivityAt
-  const rows = [...live.sort(newest), ...settled.sort(newest)].slice(0, MAX_ROWS).map(({ thread, status }): AgentActivityRowProps => ({
+  const latestFinish = (a: (typeof settled)[number], b: (typeof settled)[number]) => b.settledAt - a.settledAt || newest(a, b)
+  const rows = [...live.sort(newest), ...settled.sort(latestFinish)].slice(0, MAX_ROWS).map(({ thread, status }): AgentActivityRowProps => ({
     hostId: thread.hostId,
     sessionId: thread.record.sessionId,
     projectTitle: clip(input.projectTitleOf(thread)),

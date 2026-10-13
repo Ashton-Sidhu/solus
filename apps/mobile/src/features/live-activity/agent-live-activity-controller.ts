@@ -1,3 +1,4 @@
+import type { KeyValueStore } from '../../platform/ports'
 import type { AgentActivityProps } from '../../widgets/AgentActivity'
 import { deriveAgentActivity, type AgentActivityInput } from './agent-activity-model'
 
@@ -14,6 +15,8 @@ import { deriveAgentActivity, type AgentActivityInput } from './agent-activity-m
  */
 
 export interface LiveActivityHandle {
+  /** The ActivityKit id: each read of the cards answers new handles for the same card. */
+  getId(): string
   update(props: AgentActivityProps, staleDate: Date): Promise<void>
   end(policy: 'default' | 'immediate', props?: AgentActivityProps): Promise<void>
 }
@@ -33,15 +36,18 @@ export interface AgentLiveActivityDeps {
   readonly enabled: () => boolean
   readonly foreground: () => boolean
   readonly now: () => number
+  /** Keeps the card's sessions across a restart, so a card left running can show how its work ended. */
+  readonly storage: Pick<KeyValueStore, 'getItem' | 'setItem' | 'removeItem'>
   readonly onError?: (error: unknown) => void
 }
 
 export const LIVE_ACTIVITY_STALE_AFTER_MS = 10 * 60_000
+const TRACKED_KEY = 'solus.liveActivities.tracked'
 
 export class AgentLiveActivityController {
   private activity: LiveActivityHandle | null = null
   private adopted = false
-  private tracked: ReadonlySet<string> = new Set()
+  private tracked: ReadonlyMap<string, number | null> = new Map()
   /** The last content sent, without its timestamps, so a repeat is not sent again. */
   private sent = ''
 
@@ -56,8 +62,10 @@ export class AgentLiveActivityController {
     // Before the hosts answer, an empty list would end a card that is still true.
     if (!this.deps.ready()) return
     this.adopt()
+    // A card the person swiped away takes no updates: the next one starts fresh.
+    if (this.activity && !this.isActive(this.activity)) this.drop(this.activity)
     const state = deriveAgentActivity({ ...this.deps.read(), tracked: this.tracked, now: this.deps.now() })
-    this.tracked = state.tracked
+    this.track(state.tracked)
     if (!state.props) {
       // Nothing this run knows of: a card left from an earlier run cannot be vouched for.
       this.endAll('immediate')
@@ -68,7 +76,7 @@ export class AgentLiveActivityController {
       // Lock Screen for a while before removing it.
       const finished = this.activity
       this.activity = null
-      this.tracked = new Set()
+      this.track(new Map())
       this.sent = ''
       if (finished) this.guard(finished.end('default', state.props))
       return
@@ -87,7 +95,12 @@ export class AgentLiveActivityController {
     }
     if (content === this.sent) return
     this.sent = content
-    this.guard(this.activity.update(state.props, staleDate))
+    const card = this.activity
+    card.update(state.props, staleDate).catch((error: unknown) => {
+      // The card is gone: the next change starts a new one.
+      this.drop(card)
+      this.deps.onError?.(error)
+    })
   }
 
   /** Push the stale date out while the app runs, so a quiet card does not read as out of date. */
@@ -109,15 +122,53 @@ export class AgentLiveActivityController {
     // One card per device; extras from a race end now.
     for (const card of extra) this.guard(card.end('immediate'))
     this.activity = first ?? null
+    // The sessions the earlier run's card showed: the ones that finished
+    // since then stay on it as Done or Failed.
+    if (first) this.tracked = new Map(this.savedKeys().map((key) => [key, null]))
+    else this.deps.storage.removeItem(TRACKED_KEY)
   }
 
   private endAll(policy: 'default' | 'immediate'): void {
     this.adopt()
     const card = this.activity
     this.activity = null
-    this.tracked = new Set()
+    this.track(new Map())
     this.sent = ''
     if (card) this.guard(card.end(policy))
+  }
+
+  /** False once the card is gone: the person swiped it away, or iOS ended it. */
+  private isActive(card: LiveActivityHandle): boolean {
+    try {
+      const id = card.getId()
+      return this.deps.bridge.instances().some((instance) => instance.getId() === id)
+    } catch (error) {
+      this.deps.onError?.(error)
+      return true
+    }
+  }
+
+  private drop(card: LiveActivityHandle): void {
+    if (this.activity !== card) return
+    this.activity = null
+    this.sent = ''
+  }
+
+  private track(next: ReadonlyMap<string, number | null>): void {
+    const changed = next.size !== this.tracked.size || [...next.keys()].some((key) => !this.tracked.has(key))
+    this.tracked = next
+    if (!changed) return
+    if (next.size === 0) this.deps.storage.removeItem(TRACKED_KEY)
+    else this.deps.storage.setItem(TRACKED_KEY, JSON.stringify([...next.keys()]))
+  }
+
+  private savedKeys(): string[] {
+    try {
+      const saved: unknown = JSON.parse(this.deps.storage.getItem(TRACKED_KEY) ?? '[]')
+      return Array.isArray(saved) ? saved.filter((key): key is string => typeof key === 'string') : []
+    } catch {
+      return []
+    }
   }
 
   private guard(work: Promise<void>): void {

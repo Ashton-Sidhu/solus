@@ -22,7 +22,6 @@
         "croner": "^10.0.1",
         "drizzle-orm": "^0.45.2",
         "electron-updater": "^6.8.9",
-        "expo": "~58.0.7",
         "formidable": "^3.5.4",
         "google-auth-library": "^11.0.2",
         "hono": "^4.13.7",
@@ -31,8 +30,6 @@
         "pngjs": "^7.0.0",
         "postgres": "^3.4.9",
         "posthog-node": "^5.51.7",
-        "react": "19.3.0",
-        "react-native": "0.88.0-rc.4",
         "socket.io": "^4.8.3",
         "socket.io-client": "^4.8.3",
         "ws": "^8.21.0",
@@ -196,6 +193,7 @@
         "@expo-google-fonts/jetbrains-mono": "^0.4.1",
         "@expo/ui": "~58.0.15",
         "@legendapp/list": "3.3.5",
+        "@pierre/diffs": "1.4.1",
         "@react-native-menu/menu": "^2.0.0",
         "@react-navigation/elements": "2.9.26",
         "@react-navigation/native": "7.3.4",
@@ -206,9 +204,10 @@
         "@shikijs/themes": "4.2.0",
         "@solus/client-core": "workspace:*",
         "@solus/contracts": "workspace:*",
-        "@t3tools/mobile-markdown-text": "file:./modules/t3-markdown-text",
+        "@t3tools/mobile-review-diff-native": "file:./modules/t3-review-diff",
         "@tabler/icons-react-native": "^3.44.0",
         "clsx": "^2.1.1",
+        "diff": "9.0.0",
         "expo": "~58.0.7",
         "expo-audio": "58.0.4",
         "expo-blur": "~58.0.3",
@@ -234,25 +233,28 @@
         "expo-widgets": "~58.0.15",
         "react": "19.3.0",
         "react-native": "0.88.0-rc.3",
+        "react-native-enriched-markdown": "file:deps/react-native-enriched-markdown-1.2.0-t3.11.tgz",
         "react-native-gesture-handler": "~3.2.1",
         "react-native-image-viewing": "^0.2.2",
         "react-native-keyboard-controller": "1.22.6",
-        "react-native-nitro-markdown": "0.5.8",
-        "react-native-nitro-modules": "0.35.9",
         "react-native-reanimated": "4.7.0",
         "react-native-safe-area-context": "~5.9.1",
-        "react-native-screens": "~4.28.0",
+        "react-native-screens": "file:deps/react-native-screens-5.0.0-t3.27.tgz",
         "react-native-shiki-engine": "^0.3.12",
         "react-native-svg": "15.15.5",
         "react-native-worklets": "0.13.0",
+        "remark-gfm": "^4.0.1",
+        "remark-parse": "^11.0.0",
         "shiki": "4.2.0",
         "socket.io-client": "^4.8.3",
         "tailwind-merge": "^3.7.0",
         "tailwindcss": "^4",
+        "unified": "^11.0.5",
         "uniwind": "1.11.0",
         "zod": "^4.5.4",
       },
       "devDependencies": {
+        "@types/mdast": "^4.0.4",
         "@types/react": "~19.3.0",
         "babel-preset-expo": "~58.0.0",
         "typescript": "^5.9.3",
@@ -364,26 +366,32 @@
       },
     },
   },
+  "trustedDependencies": [
+    "electron-winstaller",
+    "esbuild",
+    "macos-alias",
+    "fs-xattr",
+    "react-native-enriched-markdown",
+    "workerd",
+  ],
   "patchedDependencies": {
     "expo-audio@58.0.4": "patches/expo-audio@58.0.4.patch",
     "@ff-labs/fff-node@0.11.0": "patches/@ff-labs%2Ffff-node@0.11.0.patch",
     "uniwind@1.11.0": "patches/uniwind@1.11.0.patch",
-    "expo-blur@58.0.3": "patches/expo-blur@58.0.3.patch",
-    "react-native-nitro-markdown@0.5.8": "patches/react-native-nitro-markdown@0.5.8.patch",
-    "react-native-keyboard-controller@1.22.6": "patches/react-native-keyboard-controller@1.22.6.patch",
-    "react-native-gesture-handler@3.2.1": "patches/react-native-gesture-handler@3.2.1.patch",
-    "expo-glass-effect@58.0.3": "patches/expo-glass-effect@58.0.3.patch",
     "@react-navigation/native-stack@7.17.6": "patches/@react-navigation%2Fnative-stack@7.17.6.patch",
+    "expo-blur@58.0.3": "patches/expo-blur@58.0.3.patch",
     "@legendapp/list@3.3.5": "patches/@legendapp__list@3.3.5.patch",
     "@react-native-menu/menu@2.0.0": "patches/@react-native-menu__menu@2.0.0.patch",
-    "react-native-nitro-modules@0.35.9": "patches/react-native-nitro-modules@0.35.9.patch",
-    "react-native-screens@4.28.0": "patches/react-native-screens@4.28.0.patch",
+    "react-native-gesture-handler@3.2.1": "patches/react-native-gesture-handler@3.2.1.patch",
+    "expo-glass-effect@58.0.3": "patches/expo-glass-effect@58.0.3.patch",
+    "react-native-keyboard-controller@1.22.6": "patches/react-native-keyboard-controller@1.22.6.patch",
   },
   "overrides": {
     "fast-uri": "3.1.7",
     "prosemirror-model": "1.25.11",
     "qs": "6.16.0",
     "react-native": "0.88.0-rc.3",
+    "react-native-screens": "file:apps/mobile/deps/react-native-screens-5.0.0-t3.27.tgz",
     "react-native-worklets": "0.13.0",
     "socket.io-parser": "4.2.7",
   },
@@ -3188,9 +3196,11 @@
 
     "react-freeze": ["react-freeze@1.0.4", "", { "peerDependencies": { "react": ">=17.0.0" } }, "sha512-r4F0Sec0BLxWicc7HEyo2x3/2icUTrRmDjaaRyzzn+7aDyFZliszMDOgLVwSnQnYENOlL1o569Ze2HZefk8clA=="],
 
-    "react-is": ["react-is@18.3.1", "", {}, "sha512-/LLMVyas0ljjAtoYiPqYiL8VWXzUUdThrmU5+n20DZv+a+ClRoevUzw5JxU+Ieh5/c87ytoTBV9G1FiKfNJdmg=="],
+    "react-is": ["react-is@19.3.0", "", {}, "sha512-UpMYezM4v5/18F28aC66AEsjXIgE02kyEMH6yLdgLXu/UTfa1Ntwck/nNLrbqJsEXW7gPb0coNO9FQse9WTovA=="],
 
     "react-native": ["react-native@0.88.0-rc.3", "", { "dependencies": { "@react-native/asset-utils": "0.88.0-rc.3", "@react-native/codegen": "0.88.0-rc.3", "@react-native/community-cli-plugin": "0.88.0-rc.3", "@react-native/gradle-plugin": "0.88.0-rc.3", "@react-native/normalize-colors": "0.88.0-rc.3", "@react-native/virtualized-lists": "0.88.0-rc.3", "anser": "^1.4.9", "ansi-regex": "^5.0.0", "base64-js": "^1.5.1", "flow-enums-runtime": "^0.0.6", "flow-parser": "0.327.0", "hermes-compiler": "260318099.0.4", "invariant": "^2.2.4", "memoize-one": "^5.0.0", "metro-runtime": "^0.87.1", "metro-source-map": "^0.87.1", "nullthrows": "^1.1.1", "pretty-format": "^29.7.0", "promise": "^8.3.0", "react-devtools-core": "^6.1.5", "react-refresh": "^0.14.0", "regenerator-runtime": "^0.13.2", "scheduler": "0.28.0", "semver": "^7.1.3", "stacktrace-parser": "^0.1.10", "tinyglobby": "^0.2.15", "whatwg-fetch": "^3.0.0", "ws": "^7.5.10", "yargs": "^17.6.2" }, "peerDependencies": { "@types/react": "^19.1.1", "react": "^19.3.0" }, "optionalPeers": ["@types/react"], "bin": { "react-native": "cli.js" } }, "sha512-8gTeprAQP1j3B8lUJGZNmo33jH41Hmrd1Jm9PoOr7D/uImnifPqkagpFSKyK9fPJTWtwAK2TLDqTo+eFxlUcvA=="],
+
+    "react-native-enriched-markdown": ["react-native-enriched-markdown@deps/react-native-enriched-markdown-1.2.0-t3.11.tgz", { "peerDependencies": { "katex": ">=0.16.0", "react": "*", "react-native": "*" }, "optionalPeers": ["katex"] }, "sha512-flSZglM98BMtQHffAu1HVq8Y295sff1aT9vMdUZMnSj/3QojV21DSlSITNNhPAArIsAr1rdUrLhipggO8TvfIg=="],
 
     "react-native-gesture-handler": ["react-native-gesture-handler@3.2.1", "", { "dependencies": { "@types/react-test-renderer": "^19.1.0", "invariant": "^2.2.4" }, "peerDependencies": { "react": "*", "react-native": "*" } }, "sha512-VEWscxUN29aeccbD2McF0LSXrwOhSdisaSRFiEWg0O/3WrVghNJp/tOtLrCgzb9gfcZ3xdA+K2Sp8F5G3iHx/Q=="],
 
@@ -3200,15 +3210,11 @@
 
     "react-native-keyboard-controller": ["react-native-keyboard-controller@1.22.6", "", { "dependencies": { "react-native-is-edge-to-edge": "^1.2.1" }, "peerDependencies": { "react": "*", "react-native": "*", "react-native-reanimated": ">=3.0.0" } }, "sha512-gwJAI3Bhbqs/Ja3uaeBz7EFQSFcem8q4wsXkrC9sy1CL14gjWhBICLu2Ecn7HmezpIu33uhLbirLGyqSawxRtg=="],
 
-    "react-native-nitro-markdown": ["react-native-nitro-markdown@0.5.8", "", { "peerDependencies": { "react": "*", "react-native": ">=0.75.0", "react-native-mathjax-svg": ">=0.9.0", "react-native-nitro-modules": ">=0.35.5", "react-native-svg": ">=13.0.0" }, "optionalPeers": ["react-native-mathjax-svg", "react-native-svg"] }, "sha512-bBKmdWgMqZoNozuHzJgc8VxWRSjLnrHAK0bRRvz7gj5FqPxLJz+KhRV0VYZDZgvsR3S8hnmmeEqluTRBTRw+yA=="],
-
-    "react-native-nitro-modules": ["react-native-nitro-modules@0.35.9", "", { "peerDependencies": { "react": "*", "react-native": "*" } }, "sha512-yCO6eJ85SPPUo4a4an7H5oj6wPCSIT72fbjr5WZ/20n6zswaJ2gNNpnWtg2We0AZwkAOjSqkOJ0Vjc05p6kGiA=="],
-
     "react-native-reanimated": ["react-native-reanimated@4.7.0", "", { "dependencies": { "react-native-is-edge-to-edge": "^1.3.1", "semver": "^7.7.3" }, "peerDependencies": { "react": "*", "react-native": "0.86 - 0.88", "react-native-worklets": "0.13.x" } }, "sha512-8TyTrPisqz7WzmbhCz8F60Uw7NI2QeYWrY5Hk58/kurCA5L5KuHmhyQjxeq5k2YalpXUAKbdkn/mAMZWm/fU0g=="],
 
     "react-native-safe-area-context": ["react-native-safe-area-context@5.9.1", "", { "peerDependencies": { "react": "*", "react-native": "*" } }, "sha512-Zpx9Iwg6VhgNarWFpcIM61xK2lUbSfSXemQUmcvOVRpux49lJsUompY1S3E5jKUJbLq233qEpj28DgmXVsgZMQ=="],
 
-    "react-native-screens": ["react-native-screens@4.28.0", "", { "dependencies": { "react-freeze": "^1.0.0", "warn-once": "^0.1.0" }, "peerDependencies": { "react": "*", "react-native": "*" } }, "sha512-0/79Z8RCibuaAHti+DJ2Dq0m6UFWh4+p1bH58K3cjiQ7IDWs5kU9tCAj4lXcJMHHonbF2mIE2BeaPSEvOpIiFg=="],
+    "react-native-screens": ["react-native-screens@apps/mobile/deps/react-native-screens-5.0.0-t3.27.tgz", { "dependencies": { "react-freeze": "^1.0.0", "warn-once": "^0.1.0" }, "peerDependencies": { "react": "*", "react-native": "*" } }, "sha512-krNMVmduM2fXeJYveadSz6NkYI/AFN3hAAirjk42Z9wkBrPtuhmcp3E2+Me95Xdj5LBL3G3dgltUjo5vYeEtLw=="],
 
     "react-native-shiki-engine": ["react-native-shiki-engine@0.3.12", "", { "dependencies": { "@shikijs/types": "^4.2.0", "@shikijs/vscode-textmate": "^10.0.2" }, "peerDependencies": { "react": "*", "react-native": "*" } }, "sha512-CE6CA3uHGZT5OmY909H+vTv5lrmILV7zuPOF2pXRYXWN2qYm5KG7XacEB/Pq1U2+8D0zJoeMveTny/FHEqnipg=="],
 
@@ -4028,8 +4034,6 @@
 
     "@react-native/metro-config/@react-native/js-polyfills": ["@react-native/js-polyfills@0.87.1", "", {}, "sha512-L9yKwEJCq7e8RjhthMUht2CP/CPnBR134h9xHkJ0XOO15QOWBAOqSZltTZG/wiokidqePvK+exMsRinuFLsN9w=="],
 
-    "@react-navigation/core/react-is": ["react-is@19.3.0", "", {}, "sha512-UpMYezM4v5/18F28aC66AEsjXIgE02kyEMH6yLdgLXu/UTfa1Ntwck/nNLrbqJsEXW7gPb0coNO9FQse9WTovA=="],
-
     "@react-navigation/native-stack/@react-navigation/elements": ["@react-navigation/elements@2.9.44", "", { "dependencies": { "color": "^4.2.3", "use-latest-callback": "^0.2.4", "use-sync-external-store": "^1.5.0" }, "peerDependencies": { "@react-native-masked-view/masked-view": ">= 0.2.0", "@react-navigation/native": "^7.5.0", "react": ">= 18.2.0", "react-native": "*", "react-native-safe-area-context": ">= 4.0.0" }, "optionalPeers": ["@react-native-masked-view/masked-view"] }, "sha512-mtngxVeRtB20yPu7AZiNNej0hw5FaKuFtYi3rhsQI2dxQOVgnQh9hi98DxLKrnJDQSiHXa0AX1t/evpywx6UbQ=="],
 
     "@shikijs/core/@shikijs/types": ["@shikijs/types@4.2.0", "", { "dependencies": { "@shikijs/vscode-textmate": "^10.0.2", "@types/hast": "^3.0.4" } }, "sha512-VT/MKtlpOhEPZloSH3Pb9WCZEBDoQVMa9jedp5UAwmJOar1DVc9DRODAxmYPW9M93IK4ryuqRejFfmlvlVDemw=="],
@@ -4046,7 +4050,7 @@
 
     "@shikijs/transformers/@shikijs/types": ["@shikijs/types@3.23.0", "", { "dependencies": { "@shikijs/vscode-textmate": "^10.0.2", "@types/hast": "^3.0.4" } }, ""],
 
-    "@solus/mobile/@t3tools/mobile-markdown-text": ["@t3tools/mobile-markdown-text@file:apps/mobile/modules/t3-markdown-text", { "peerDependencies": { "expo": "*", "expo-clipboard": "*", "expo-haptics": "*", "expo-symbols": "*", "react": "*", "react-native": "*", "react-native-nitro-markdown": "*" } }],
+    "@solus/mobile/@t3tools/mobile-review-diff-native": ["@t3tools/mobile-review-diff-native@file:apps/mobile/modules/t3-review-diff", {}],
 
     "@solus/mobile/shiki": ["shiki@4.2.0", "", { "dependencies": { "@shikijs/core": "4.2.0", "@shikijs/engine-javascript": "4.2.0", "@shikijs/engine-oniguruma": "4.2.0", "@shikijs/langs": "4.2.0", "@shikijs/themes": "4.2.0", "@shikijs/types": "4.2.0", "@shikijs/vscode-textmate": "^10.0.2", "@types/hast": "^3.0.4" } }, "sha512-hjNax6o/ylDy9lefQEaSDtzaT3iVNtZ3WmpQnbuQNoG4xvnSKf2kSKbihZVO4JRG1TTMejs7CmNRYlWgAL66pQ=="],
 
@@ -4345,6 +4349,8 @@
     "postject/commander": ["commander@9.5.0", "", {}, ""],
 
     "pretty-format/ansi-styles": ["ansi-styles@5.2.0", "", {}, "sha512-Cxwpt2SfTzTtXcfOlzGEee8O+c+MmUgGrNiBcXnuWxuFJHe6a5Hz7qwhwe5OgaSYI0IJvkLqWX1ASG+cJOkEiA=="],
+
+    "pretty-format/react-is": ["react-is@18.3.1", "", {}, "sha512-/LLMVyas0ljjAtoYiPqYiL8VWXzUUdThrmU5+n20DZv+a+ClRoevUzw5JxU+Ieh5/c87ytoTBV9G1FiKfNJdmg=="],
 
     "prompts/kleur": ["kleur@3.0.3", "", {}, "sha512-eTIzlVOSUR+JxdDFepEYcBMtZ9Qqdef+rnzWdRZuMbOywu5tO2w2N7rqjoANZ5k9vywhL6Br1VRjUIgTQx4E8w=="],
 

@@ -77,17 +77,23 @@ export class AgentProfileLocalStore {
 
   // ── Writing ──
 
-  /** An entry the person made or changed. Refused when it fails the schema. */
-  setEntry(entry: AgentProfileEntry): AgentProfileSetOutcome {
-    const parsed = agentProfileEntrySchema.safeParse(entry)
-    if (!parsed.success) return 'invalid'
-    const key = agentProfileKeyOf(parsed.data)
-    const next = { ...this.stored, [key]: parsed.data }
+  /**
+   * Entries the person made or changed, as one change: a hand-written skill's
+   * files turn off and on together. Refused, all of them, when one fails the schema.
+   */
+  setEntry(entry: AgentProfileEntry | readonly AgentProfileEntry[]): AgentProfileSetOutcome {
+    const set: AgentProfile = {}
+    for (const candidate of Array.isArray(entry) ? entry : [entry]) {
+      const parsed = agentProfileEntrySchema.safeParse(candidate)
+      if (!parsed.success) return 'invalid'
+      set[agentProfileKeyOf(parsed.data)] = parsed.data
+    }
+    const next = { ...this.stored, ...set }
     if (!agentProfileSchema.safeParse(next).success) return 'invalid'
     this.stored = next
     this.save()
     this.changes.notify()
-    for (const listener of this.localChangeListeners) listener({ set: { [key]: structuredClone(parsed.data) }, reset: [] })
+    for (const listener of this.localChangeListeners) listener({ set: structuredClone(set), reset: [] })
     return 'saved'
   }
 

@@ -53,6 +53,11 @@ export function ScreenHeader(props: ScreenHeaderProps) {
         ]}
         options={{
           headerShown: true,
+          // The v5 header draws its own Back; hide it where the split view shows a custom one.
+          headerBackVisible:
+            !layout.usesSplitView ||
+            !props.backInSplitView ||
+            !(props.backInSplitView.onPress || props.onBack),
           title: props.title,
           unstable_headerSubtitle: props.subtitle || undefined,
           ...(props.matchSearchSurface

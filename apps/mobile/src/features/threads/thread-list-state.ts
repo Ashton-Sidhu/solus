@@ -28,6 +28,7 @@ export interface ThreadListConnection {
     | "sessionSetSettled"
     | "sessionSnooze"
     | "setSessionTitle"
+    | "setSessionReadState"
   >;
   readonly events: Pick<HostEventSubscriber, "subscribe">;
   onReset(listener: () => void): () => void;
@@ -63,6 +64,7 @@ export class ThreadListState {
   readonly changes = new Listeners();
   private readonly shelf = new Map<string, SessionState>();
   private readonly liveStatus = new Map<string, SessionStatus>();
+  private readonly unread = new Map<string, boolean>();
   private readonly pullRequests = new Map<string, ReadonlyArray<SessionPullRequestLink>>();
   private readonly readers = new WeakMap<ThreadListConnection, SessionPullRequestReader>();
   private readonly watched = new WeakSet<ThreadListConnection>();
@@ -127,6 +129,17 @@ export class ThreadListState {
     await this.shelfChanges.get(threadKey(hostId, sessionId));
   }
 
+  /** A read boundary belongs to one session on one host. Watch before writing
+   *  so changes from other clients update the same list. */
+  async markRead(hostId: string, sessionId: string, read: boolean): Promise<void> {
+    const connection = this.requireConnection(hostId);
+    this.watch(hostId, connection);
+    await connection.api.setSessionReadState(sessionId, read ? Date.now() : null);
+    if (this.connectionFor(hostId) !== connection) return;
+    this.unread.set(threadKey(hostId, sessionId), !read);
+    this.publish();
+  }
+
   /** Watch a session's pull request, or stop: its agent wakes on news
       (docs/plans/pr-watch.md). Answers what the host did. */
   async setWatching(
@@ -150,12 +163,17 @@ export class ThreadListState {
     this.dropHostEntries(this.shelf, hostId);
     this.dropHostEntries(this.pullRequests, hostId);
     this.dropHostEntries(this.liveStatus, hostId);
+    this.dropHostEntries(this.unread, hostId);
     this.publish();
   }
 
   private watch(hostId: string, connection: ThreadListConnection): void {
     if (this.watched.has(connection)) return;
     this.watched.add(connection);
+    connection.events.subscribe("session.readStateChanged", ({ sessionId, viewedAt }) => {
+      this.unread.set(threadKey(hostId, sessionId), viewedAt === null);
+      this.publish();
+    });
     connection.events.subscribe("session.stateChanged", ({ sessionId }) => {
       const key = threadKey(hostId, sessionId);
       const read = this.refreshShelf(hostId, sessionId).catch(() => undefined).finally(() => {
@@ -223,6 +241,7 @@ export class ThreadListState {
     this.snapshot = {
       shelf: new Map(this.shelf),
       liveStatus: new Map(this.liveStatus),
+      unread: new Map(this.unread),
       pullRequests: new Map(this.pullRequests),
     };
     this.changes.notify();

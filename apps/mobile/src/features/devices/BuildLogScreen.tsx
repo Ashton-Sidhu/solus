@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Compone
 import { Alert, ScrollView, View } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 import { isDeviceRunActive, type DeviceRun } from '@solus/contracts/device-types'
+import { runStageLabel } from '@solus/client-core/device-builds'
 import { formatRunElapsed, readRunLog, type RunLogLine } from '@solus/client-core/device-run-log'
 import { useApp } from '../../app/app-context'
 import { SymbolView } from '../../components/AppSymbol'
@@ -104,7 +105,7 @@ export function BuildLogScreen({ navigation, route }: ScreenProps<'BuildLog'>) {
 function RunSummary(props: { readonly run: DeviceRun; readonly now: number; readonly currentStep: RunLogLine | undefined; readonly onCancel: () => void }) {
   const { run, now, currentStep } = props
   const isActive = isDeviceRunActive(run)
-  const title = isActive ? `Building ${run.profileName}...` : run.stage === 'failed' ? `${run.profileName} failed` : `${run.profileName} is built`
+  const title = runStageLabel(run)
   const detail = (isActive && currentStep ? [currentStep.text, currentStep.target] : [run.checkout, run.branch]).filter(Boolean).join(' · ')
   return (
     <View className="gap-1 rounded-[20px] bg-grouped-card px-4 py-3" accessibilityLiveRegion="polite">

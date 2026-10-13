@@ -30,6 +30,7 @@ export function useAgentLiveActivity(): void {
       enabled: app.liveActivity.enabled,
       foreground: () => AppState.currentState === "active",
       now: Date.now,
+      storage: app.platform.storage,
     });
     let timer: ReturnType<typeof setTimeout> | null = null;
     const schedule = () => {

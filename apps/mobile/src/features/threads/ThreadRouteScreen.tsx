@@ -198,6 +198,8 @@ function ThreadRouteContent(props: {
     subtitle: headerSubtitle,
     usesNativeHeaderGlass: NATIVE_LIQUID_GLASS_SUPPORTED,
     hostId,
+    sessionId: props.sessionId,
+    conversationCheckoutPath: store.controller.run.workingDirectory,
     projectPath: chat || !props.projectPath ? null : props.projectPath,
     faviconRoot: props.faviconRoot,
   });

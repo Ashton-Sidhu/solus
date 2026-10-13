@@ -1,175 +1,242 @@
-// Adapted from T3 Code apps/mobile/src/features/archive/ArchivedThreadsScreen.tsx (MIT, see UPSTREAM.md).
-import { useCallback, useEffect, useLayoutEffect, useMemo } from 'react'
-import { useFocusEffect } from '@react-navigation/native'
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, View } from 'react-native'
+// Adapted from T3 Code apps/mobile/src/features/pull-requests/PullRequestsScreen.tsx (MIT, see UPSTREAM.md).
+import { useNavigation } from '@react-navigation/native'
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { ActivityIndicator, FlatList, Keyboard, Platform, Pressable, RefreshControl, ScrollView, View, type ScrollViewProps } from 'react-native'
+import { ScrollViewMarker } from 'react-native-screens'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useApp, useListened } from '../../app/app-context'
-import { SymbolView } from '../../components/AppSymbol'
 import { AppText as Text } from '../../components/AppText'
 import { EmptyState } from '../../components/EmptyState'
-import { cn } from '../../lib/cn'
-import type { ScreenProps } from '../../navigation/routes'
-import { HostStatusBanner } from '../hosts/HostStatusBanner'
-import { PR_STATE_TINT_CLASS, PrStateBadge } from './components/PrStateBadge'
-import { hostPrSections, prAge, prStateTone, prUnavailableTitle, reviewStatusLabel, stackLabel, type PrRowItem } from './lib/pr-presentation'
-import { shownValue } from './pull-request-directory'
+import type { RootStackParamList } from '../../navigation/routes'
+import { resolvePullRequestListScope, type PullRequestListPreferences } from '../workspace/list-preferences'
+import { prUnavailableTitle } from './lib/pr-presentation'
+import { filterPullRequestRows, pullRequestListFacets, pullRequestRowKey, type PullRequestRow } from './lib/pull-request-list'
+import { PullRequestListFilters, type PullRequestFilterProject } from './PullRequestListFilters'
+import { PullRequestListRow } from './PullRequestListRow'
+import { shownValue } from './pull-request-reads'
+import { usePullRequestList } from './use-pull-request-list'
 
-type PrListItem =
-  | { kind: 'section'; key: string; title: string }
-  | { kind: 'pr'; key: string; item: PrRowItem; isFirst: boolean; isLast: boolean }
+/** T3 waits this long after the last keystroke before the hosts search. */
+const SEARCH_DELAY_MS = 180
+
+function useDebouncedValue(value: string, delay: number): string {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(timer)
+  }, [value, delay])
+  return debounced
+}
 
 /**
- * The host's open pull requests across its projects, in the web's sections:
- * Authored, Review requested, Others. Grouped cards as T3 Code's archive
- * list. A project that cannot be read says why under the list instead of
- * hiding the rest.
+ * iOS: register the list with the native header so UIKit samples the list's
+ * own surface for the scroll-edge material, and inset the content by hand so
+ * the resting top sits under the bar. Without the marker the bar draws a grey
+ * band over the filter pills.
  */
-export function PullRequestsScreen({ navigation, route }: ScreenProps<'PullRequests'>) {
-  const { hostId } = route.params
+function PullRequestScrollView(props: ScrollViewProps) {
+  const insets = useSafeAreaInsets()
+  return (
+    <ScrollViewMarker>
+      <ScrollView
+        {...props}
+        automaticallyAdjustContentInsets={false}
+        contentInsetAdjustmentBehavior="never"
+        contentOffset={props.contentOffset ?? { x: 0, y: -insets.top }}
+      />
+    </ScrollViewMarker>
+  )
+}
+
+/** Why one host's rows are missing or old, and what the person can do. */
+interface HostNotice {
+  key: string
+  title: string
+  detail: string
+  actionLabel: string | null
+  onAction: (() => void) | null
+}
+
+/**
+ * The Pull Requests tab: the pull requests of every paired host in one list,
+ * newest activity first. The hosts answer the state and the search text; the
+ * pill filters narrow the rows on the device. A host that cannot be read now
+ * shows its device copy with a notice, or says why it shows nothing.
+ */
+export function PullRequestsScreen(props: {
+  readonly query: string
+  readonly preferences: PullRequestListPreferences
+  readonly onPreferencesChange: (preferences: PullRequestListPreferences) => void
+}) {
   const app = useApp()
-  const host = useListened(app.registry.changes, () => app.registry.host(hostId))
-  const state = useListened(app.pullRequests.changes, () => app.pullRequests.hostOf(hostId))
-  const phase = useListened(app.connections.changes, () => app.connections.state(hostId)?.phase)
-  const reload = useCallback(() => { void app.pullRequests.loadHost(hostId) }, [app, hostId])
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>()
+  const insets = useSafeAreaInsets()
+  const registryHosts = useListened(app.registry.changes, app.registry.hosts)
+  const hostLabels = useMemo(() => new Map(registryHosts.map((host) => [host.id, host.label])), [registryHosts])
+  const hostOptions = useMemo(
+    () => registryHosts.map((host) => ({ id: host.id, label: host.label })).sort((left, right) => left.label.localeCompare(right.label)),
+    [registryHosts],
+  )
+  const pairedHostIds = useMemo(() => hostOptions.map((host) => host.id), [hostOptions])
+  const { preferences, onPreferencesChange } = props
+  const scope = useMemo(() => resolvePullRequestListScope(preferences, pairedHostIds), [preferences, pairedHostIds])
+  const query = useDebouncedValue(props.query.trim(), SEARCH_DELAY_MS)
+  const list = usePullRequestList(scope.hostIds, { state: preferences.state, query }, scope.project)
 
-  useLayoutEffect(() => {
-    navigation.setOptions({ title: 'Pull requests' })
-  }, [navigation])
-
-  useEffect(() => {
-    if (phase === 'connected') reload()
-  }, [phase, reload])
-
-  useFocusEffect(reload)
-
-  const listing = shownValue(state)
-  const items = useMemo<PrListItem[]>(() => {
-    const result: PrListItem[] = []
-    for (const section of hostPrSections(listing)) {
-      result.push({ kind: 'section', key: `section:${section.title}`, title: section.title })
-      section.data.forEach((item, index) => {
-        result.push({ kind: 'pr', key: `${item.projectPath}#${item.pr.number}`, item, isFirst: index === 0, isLast: index === section.data.length - 1 })
-      })
+  const viewerOf = useMemo(() => {
+    const viewers = new Map(list.hosts.map((host) => [host.hostId, shownValue(host.state)?.viewerLogin ?? null]))
+    return (hostId: string) => viewers.get(hostId) ?? null
+  }, [list.hosts])
+  const rows = useMemo(() => filterPullRequestRows(list.rows, scope.controls, viewerOf, list.connectedHostIds), [list.rows, scope.controls, viewerOf, list.connectedHostIds])
+  const facets = useMemo(() => pullRequestListFacets(list.rows), [list.rows])
+  const showsHost = scope.hostIds.length > 1
+  const projects = useMemo((): PullRequestFilterProject[] => {
+    const result: PullRequestFilterProject[] = []
+    for (const hostId of scope.hostId ? [scope.hostId] : pairedHostIds) {
+      for (const project of shownValue(app.pullRequests.hostOf(hostId))?.projects ?? []) {
+        const hostLabel = hostLabels.get(hostId)
+        result.push({ hostId, projectPath: project.projectPath, label: scope.hostId || !hostLabel ? project.folderName : `${project.folderName} · ${hostLabel}` })
+      }
+    }
+    // A saved project stays a choice while its host has not listed it.
+    const saved = scope.project
+    if (saved && !result.some((project) => project.hostId === saved.hostId && project.projectPath === saved.projectPath)) {
+      result.push({ ...saved, label: saved.projectPath.split(/[\\/]/).filter(Boolean).at(-1) ?? saved.projectPath })
     }
     return result
-  }, [listing])
-  const notShown = listing?.projects.filter((project) => project.kind !== 'page') ?? []
-  const now = Date.now()
+    // `list.hosts` changes with every directory change, so the listings are current.
+  }, [app, list.hosts, scope.hostId, scope.project, pairedHostIds, hostLabels])
 
-  if (state.kind === 'error' && state.githubAuth) {
-    return (
-      <View className="flex-1 bg-sheet">
-        <HostStatusBanner hostId={hostId} />
-        <View className="px-4 pt-4">
-          <EmptyState
-            title="Connect GitHub to see pull requests"
-            detail={`${host?.label ?? 'This host'} reads pull requests with its own GitHub connection.`}
-            actionLabel={`Connect GitHub on ${host?.label ?? 'this host'}`}
-            onAction={() => navigation.navigate('GitHubConnection', { hostId })}
-          />
-        </View>
-      </View>
-    )
-  }
+  const openPullRequest = useCallback((row: PullRequestRow) => {
+    Keyboard.dismiss()
+    navigation.navigate('PullRequest', { hostId: row.hostId, projectPath: row.projectPath, number: row.pr.number })
+  }, [navigation])
+
+  const reads = list.hosts.map((host) => ({ ...host, label: hostLabels.get(host.hostId) ?? 'This host' }))
+  const allNeedGithub = reads.length > 0 && reads.every((host) => host.state.kind === 'error' && host.state.githubAuth)
+  const notices = rows.length === 0 && allNeedGithub ? [] : reads.flatMap((host): HostNotice[] => {
+    const read = host.state
+    if (read.kind !== 'error') return []
+    if (read.githubAuth) {
+      return [{ key: host.hostId, title: `GitHub is not connected on ${host.label}`, detail: `${host.label} reads pull requests with its own GitHub connection.`, actionLabel: 'Connect GitHub', onAction: () => navigation.navigate('GitHubConnection', { hostId: host.hostId }) }]
+    }
+    if (read.offline) {
+      return [{
+        key: host.hostId,
+        title: read.previous ? `Not refreshed: ${host.label} is offline` : `${host.label} is offline`,
+        detail: read.previous ? 'These pull requests are the copy saved on this device.' : 'Reconnect to load pull requests that are not saved on this device.',
+        actionLabel: null,
+        onAction: null,
+      }]
+    }
+    return [{ key: host.hostId, title: `Could not read pull requests on ${host.label}`, detail: read.message, actionLabel: 'Try again', onAction: () => list.reloadHost(host.hostId) }]
+  })
+  const notShown = reads.flatMap((host) => (shownValue(host.state)?.projects ?? []).flatMap((project) => {
+    if (scope.project && (scope.project.hostId !== host.hostId || scope.project.projectPath !== project.projectPath)) return []
+    if (project.kind === 'unavailable') return [{ key: `${host.hostId}:${project.projectPath}`, text: prUnavailableTitle(project.reason, project.folderName) }]
+    if (project.kind === 'error') return [{ key: `${host.hostId}:${project.projectPath}`, text: `${project.folderName}: ${project.message}` }]
+    return []
+  }))
+  const waiting = list.rows.length === 0 && reads.some((host) => host.state.kind === 'idle' || host.state.kind === 'loading')
 
   return (
     <FlatList
-      className="flex-1 bg-sheet"
-      contentInsetAdjustmentBehavior="automatic"
-      contentContainerStyle={{ paddingBottom: 32, paddingHorizontal: 16, paddingTop: 4 }}
-      data={items}
-      keyExtractor={(item) => item.key}
-      showsVerticalScrollIndicator={false}
-      refreshControl={<RefreshControl refreshing={state.kind === 'loading' && listing !== null} onRefresh={reload} />}
-      ListHeaderComponent={<>
-        <HostStatusBanner hostId={hostId} />
-        {state.kind === 'error' ? <ListError message={state.message} onRetry={reload} /> : null}
-      </>}
-      ListEmptyComponent={state.kind === 'loading' && listing === null ? (
-        <View className="items-center py-16">
-          <ActivityIndicator colorClassName="accent-icon" />
-          <Text className="mt-3 text-sm text-foreground-muted">Loading pull requests...</Text>
-        </View>
-      ) : state.kind === 'loaded' ? (
-        listing?.projects.length === 0
-          ? <EmptyState title="No projects with a remote" detail="Pull requests appear for projects whose repository is on GitHub." />
-          : <EmptyState title="No open pull requests" detail="Open pull requests from this host’s projects appear here. Pull to refresh." />
-      ) : undefined}
-      renderItem={({ item }) => item.kind === 'section' ? (
-        <View className="pt-4">
-          <Text accessibilityRole="header" className="px-1 pb-2 text-xs font-t3-medium tracking-[0.5px] uppercase text-foreground-muted" numberOfLines={1}>
-            {item.title}
-          </Text>
-        </View>
-      ) : (
-        <PrRow
-          item={item.item}
-          isLast={item.isLast}
-          isFirst={item.isFirst}
-          now={now}
-          onPress={() => navigation.navigate('PullRequest', { hostId, projectPath: item.item.projectPath, number: item.item.pr.number })}
-        />
+      className="flex-1 bg-screen"
+      renderScrollComponent={Platform.OS === 'ios' ? PullRequestScrollView : undefined}
+      contentInsetAdjustmentBehavior="never"
+      contentInset={Platform.OS === 'ios' ? { top: insets.top } : undefined}
+      scrollIndicatorInsets={Platform.OS === 'ios' ? { top: insets.top } : undefined}
+      contentContainerStyle={{ paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, 24) + 16 : Math.max(insets.bottom, 16) + 16 }}
+      data={rows}
+      keyExtractor={pullRequestRowKey}
+      renderItem={({ item }) => (
+        <PullRequestListRow row={item} hostLabel={showsHost ? (hostLabels.get(item.hostId) ?? null) : null} onSelect={openPullRequest} />
       )}
-      ListFooterComponent={notShown.length > 0 ? (
-        <View className="gap-1 px-1 pt-6">
-          <Text accessibilityRole="header" className="pb-1 text-xs font-t3-medium tracking-[0.5px] uppercase text-foreground-muted">Not shown</Text>
-          {notShown.map((project) => (
-            <Text key={project.projectPath} className="text-xs leading-snug text-foreground-tertiary">
-              {project.kind === 'unavailable'
-                ? prUnavailableTitle(project.reason, project.folderName)
-                : project.kind === 'error' ? `${project.folderName}: ${project.message}` : null}
-            </Text>
+      keyboardDismissMode="on-drag"
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+      onEndReached={() => void list.loadMore()}
+      onEndReachedThreshold={0.5}
+      refreshControl={
+        <RefreshControl
+          refreshing={list.refreshing}
+          onRefresh={() => void list.refresh()}
+          // Place the native refresh control in the revealed pull-down space under the bar.
+          progressViewOffset={Platform.OS === 'ios' ? 60 : undefined}
+        />
+      }
+      ListHeaderComponent={pairedHostIds.length > 0 ? (
+        <>
+          <PullRequestListFilters
+            hosts={hostOptions}
+            hostId={scope.hostId}
+            project={scope.project}
+            value={preferences}
+            onChange={onPreferencesChange}
+            authors={facets.authors}
+            labels={facets.labels}
+            projects={projects}
+          />
+          {notices.map((notice) => (
+            <View key={notice.key} className="mx-4 mb-2 rounded-[20px] border border-border bg-card p-4">
+              <Text className="text-sm font-t3-bold text-foreground">{notice.title}</Text>
+              <Text className="mt-1 text-sm text-foreground-muted">{notice.detail}</Text>
+              {notice.actionLabel && notice.onAction ? (
+                <Pressable accessibilityRole="button" className="mt-2 self-start active:opacity-60" onPress={notice.onAction}>
+                  <Text className="text-sm font-t3-bold text-primary-text">{notice.actionLabel}</Text>
+                </Pressable>
+              ) : null}
+            </View>
           ))}
-        </View>
+        </>
       ) : undefined}
+      ListEmptyComponent={
+        pairedHostIds.length === 0 ? (
+          <EmptyState
+            variant="plain"
+            title="Connect a host"
+            detail="Pull requests of your hosts’ projects appear here."
+            actionLabel="Connect a host"
+            onAction={() => navigation.navigate('PairHost')}
+          />
+        ) : waiting ? (
+          <View className="items-center py-12">
+            <ActivityIndicator colorClassName="accent-icon" accessibilityLabel="Loading pull requests" />
+          </View>
+        ) : allNeedGithub ? (
+          <EmptyState
+            variant="plain"
+            title="Connect GitHub to see pull requests"
+            detail={`${reads[0]!.label} reads pull requests with its own GitHub connection.`}
+            actionLabel="Connect GitHub"
+            onAction={() => navigation.navigate('GitHubConnection', { hostId: reads[0]!.hostId })}
+          />
+        ) : reads.every((host) => host.state.kind === 'error') ? undefined : (
+          <EmptyState
+            variant="plain"
+            title={query ? 'No results' : 'No matching pull requests'}
+            detail={query ? 'No pull request matches this search.' : 'Pull requests of the selected hosts’ projects appear here. Pull to refresh.'}
+          />
+        )
+      }
+      ListFooterComponent={
+        <>
+          {list.loadingMore ? (
+            <View className="items-center py-5">
+              <ActivityIndicator colorClassName="accent-icon" accessibilityLabel="Loading more pull requests" />
+            </View>
+          ) : null}
+          {notShown.length > 0 ? (
+            <View className="gap-1 px-5 pt-6">
+              <Text accessibilityRole="header" className="pb-1 text-xs font-t3-medium tracking-[0.5px] uppercase text-foreground-muted">Not shown</Text>
+              {notShown.map((entry) => (
+                <Text key={entry.key} className="text-xs leading-snug text-foreground-tertiary">{entry.text}</Text>
+              ))}
+            </View>
+          ) : null}
+        </>
+      }
     />
-  )
-}
-
-/** T3 Code's archive error card. */
-function ListError(props: { readonly message: string; readonly onRetry: () => void }) {
-  return (
-    <View className="mt-2 rounded-[20px] border border-danger-border bg-danger p-4">
-      <Text className="text-base font-t3-bold text-danger-foreground">Could not read pull requests</Text>
-      <Text className="mt-1 text-sm text-foreground-muted">{props.message}</Text>
-      <Pressable accessibilityRole="button" className="mt-3 self-start active:opacity-60" onPress={props.onRetry}>
-        <Text className="text-sm font-t3-bold text-danger-foreground">Try again</Text>
-      </Pressable>
-    </View>
-  )
-}
-
-/** T3 Code's archived-thread row: a state tile, the title and age, then the
- *  number, project, author, review, and size. */
-function PrRow({ item, isFirst, isLast, now, onPress }: { item: PrRowItem; isFirst: boolean; isLast: boolean; now: number; onPress: () => void }) {
-  const { pr } = item
-  const review = reviewStatusLabel(pr.reviewStatus)
-  const subtitle = [item.folderName, pr.author, stackLabel(pr.stack), review, `+${pr.additions} −${pr.deletions}`].filter(Boolean).join(' · ')
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityHint="Opens the pull request"
-      onPress={onPress}
-      className={cn('overflow-hidden bg-grouped-card active:bg-subtle', isFirst && 'rounded-t-[20px]', isLast && 'rounded-b-[20px]')}
-    >
-      <View className={cn('flex-row items-center gap-3 px-4 py-3', !isLast && 'border-b border-separator')}>
-        <View className="h-[34px] w-[34px] items-center justify-center rounded-[11px] bg-subtle">
-          <SymbolView name="arrow.triangle.pull" size={15} tintColorClassName={PR_STATE_TINT_CLASS[prStateTone(pr)]} type="monochrome" />
-        </View>
-        <View className="min-w-0 flex-1 gap-1">
-          <View className="flex-row items-center gap-2">
-            <Text className="min-w-0 flex-1 text-base font-t3-bold leading-snug text-foreground" numberOfLines={1}>
-              {pr.title}
-            </Text>
-            <Text className="min-w-[30px] text-right text-xs tabular-nums text-foreground-tertiary">{prAge(pr.updatedAt, now)}</Text>
-          </View>
-          <View className="flex-row items-center gap-1.5">
-            <PrStateBadge pr={pr} showLabel={false} />
-            <Text className="min-w-0 flex-1 text-2xs text-foreground-tertiary" numberOfLines={1}>
-              {subtitle}
-            </Text>
-          </View>
-        </View>
-      </View>
-    </Pressable>
   )
 }

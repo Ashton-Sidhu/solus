@@ -28,16 +28,23 @@ export function useThreadHeaderOptions(props: {
   readonly subtitle: string;
   readonly usesNativeHeaderGlass: boolean;
   readonly hostId: string;
+  readonly sessionId: string;
+  readonly conversationCheckoutPath: string;
   /** The project folder, or null for a chat, which has no files to browse. */
   readonly projectPath: string | null;
   /** The project root whose favicon the header shows; null for a chat. */
   readonly faviconRoot: string | null;
 }) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { hostId, projectPath } = props;
+  const { hostId, projectPath, sessionId, conversationCheckoutPath } = props;
   const actions = useMemo<ReadonlyArray<ScreenHeaderAction>>(() => {
     const items: ScreenHeaderAction[] = [];
     if (projectPath) {
+      items.push({
+        accessibilityLabel: "Run app",
+        icon: "play",
+        onPress: () => navigation.navigate("RunApp", { hostId, projectPath, sessionId, conversationCheckoutPath }),
+      });
       items.push({
         accessibilityLabel: "Open files",
         icon: "folder",
@@ -47,7 +54,8 @@ export function useThreadHeaderOptions(props: {
     items.push({
       accessibilityLabel: "Open pull requests",
       icon: "arrow.triangle.pull",
-      onPress: () => navigation.navigate("PullRequests", { hostId }),
+      // The host's pull requests are the Pull Requests tab narrowed to it.
+      onPress: () => navigation.popTo("Home", { tab: "pullRequests", hostId }),
     });
     // A chat has no project to keep, so its new thread starts at the project choice.
     items.push({
@@ -56,7 +64,7 @@ export function useThreadHeaderOptions(props: {
       onPress: () => navigation.navigate("NewTask", projectPath ? { hostId, projectPath } : { hostId }),
     });
     return items;
-  }, [hostId, navigation, projectPath]);
+  }, [hostId, navigation, projectPath, sessionId, conversationCheckoutPath]);
 
   // Deep links and cold starts land with Thread as the only route, where the
   // native back button does not render; Home is the way out.
@@ -79,7 +87,7 @@ export function useThreadHeaderOptions(props: {
     headerShown: true,
     headerTitle: customTitle
       ? () => (
-          <View style={{ width: Math.max(titleWidth, 120) }} className="items-center">
+          <View style={{ width: Math.max(titleWidth, 0) }} className="items-center">
             <Text numberOfLines={1} className="text-[17px] font-extrabold text-foreground">
               {props.title}
             </Text>

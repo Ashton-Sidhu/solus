@@ -145,9 +145,3 @@ export function EmptyState({ title, message, action }: { title: string; message:
     </View>
   )
 }
-
-export function StatusDot({ tone }: { tone: 'ok' | 'pending' | 'error' | 'idle' }) {
-  const palette = usePalette()
-  const color = tone === 'ok' ? '#22a06b' : tone === 'pending' ? palette.accent : tone === 'error' ? palette.danger : palette.textTertiary
-  return <View accessible={false} style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
-}

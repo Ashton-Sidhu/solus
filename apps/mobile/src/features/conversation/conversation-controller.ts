@@ -211,6 +211,7 @@ export class ConversationController {
       if (generation !== this.loadGeneration) return
       this.applyWatch(watched)
       this.setPhase({ kind: 'ready' })
+      void this.deps.connection.api.setSessionReadState(this.run.sessionId, Date.now()).catch(() => undefined)
       this.flush(true)
       void this.drainOutbox()
     } catch (error) {
@@ -222,12 +223,14 @@ export class ConversationController {
 
   /** The person's run settings, applied once: new work runs in their
    *  default mode and model, as on desktop; a live run's own settings replace
-   *  them when the watch answers. */
+   *  them when the watch answers. A saved session that recorded no model takes
+   *  the default too, never Auto: Auto routes only a session's first prompt. */
   private async applyRunSettingsOnce(): Promise<void> {
     if (this.settings) return
     this.settings = await this.deps.runSettings()
     this.run.permissionMode = this.settings.defaultPermissionMode
     if (!this.target.record) Object.assign(this.run, newSessionModel(this.run.provider, this.settings))
+    else if (!this.run.preferredModel) Object.assign(this.run, newSessionModel(this.run.provider, this.defaultsWithoutAuto(this.run.provider)))
     else this.run.fastMode = rememberedFastMode(this.run.provider, this.run.preferredModel, this.settings)
     this.settleRun()
   }

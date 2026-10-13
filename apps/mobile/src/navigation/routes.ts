@@ -1,8 +1,10 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack'
 
 export type RootStackParamList = {
-  /** T3 Code's home: every session on every host, newest first. */
-  Home: undefined
+  /** The workspace root with the Chats and Pull Requests tabs. `tab` selects
+   *  a tab, and `hostId` narrows the Pull Requests tab to one host; Home
+   *  reads them once and clears them. */
+  Home: { tab?: 'chats' | 'pullRequests'; hostId?: string } | undefined
   /** One session, as T3 Code's thread screen. */
   Thread: { hostId: string; sessionId: string }
   /** The newest turn's agents, as a sheet over its thread. `conversationId` names the open conversation. */
@@ -23,14 +25,12 @@ export type RootStackParamList = {
   ProjectFromGithub: { hostId: string }
   CloneProject: { hostId: string }
   Notifications: undefined
-  Builds: { hostId: string }
-  BuildFolder: { hostId: string; path?: string }
-  NewBuild: { hostId: string; projectPath?: string }
+  RunApp: { hostId: string; projectPath?: string; sessionId?: string; conversationCheckoutPath?: string }
   BuildProfiles: { hostId: string; projectPath: string }
   BuildLog: { hostId: string; runId: string }
   Settings: undefined
   /** The person's own settings and their sync (plans/018); no host needed. */
-  PersonalSettings: undefined
+  AccountSync: undefined
   /** The person's instructions, skills, and MCP servers, their sync, and their copy on each host (plans/020). */
   AgentProfile: undefined
   AppearanceSettings: undefined
@@ -45,8 +45,20 @@ export type RootStackParamList = {
   /** The remote MCP servers one host knows, their tools, and the way to add one. */
   Integrations: { hostId: string }
   About: undefined
-  PullRequests: { hostId: string }
   PullRequest: { hostId: string; projectPath: string; number: number }
+  /** Submit a review (`review`) or comment on the conversation (`comment`), as a sheet. */
+  PullRequestReview: { hostId: string; projectPath: string; number: number; mode: 'review' | 'comment' }
+  /** The pull request's diff on the native surface, as T3 Code's files screen. `commitSha` shows one
+   *  commit; `path` opens at one file, and `focus` marks the lines a guide stop names. */
+  PullRequestFiles: { hostId: string; projectPath: string; number: number; commitSha?: string; path?: string; focus?: { side: 'old' | 'new'; start: number; end: number } }
+  /** A question to an agent about the pull request, as a sheet. */
+  PullRequestAsk: { hostId: string; projectPath: string; number: number }
+  /** A draft review comment on `line` (and from `startLine`) of `path`, written on `headSha`; `draftId` edits one. */
+  PullRequestInlineComment: { hostId: string; projectPath: string; number: number; path: string; side: 'LEFT' | 'RIGHT'; line: number; startLine?: number; headSha: string; code: string; draftId?: string }
+  /** One review thread of a pull request. */
+  PullRequestDiscussion: { hostId: string; projectPath: string; number: number; threadId: string }
+  PullRequestReviewers: { hostId: string; projectPath: string; number: number }
+  PullRequestLabels: { hostId: string; projectPath: string; number: number }
   /** A project folder; `folderPath` is root-relative, `''` for the root. */
   Files: { hostId: string; projectPath: string; folderPath: string }
   /** One file; `path` is root-relative. */

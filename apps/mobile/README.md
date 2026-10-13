@@ -18,7 +18,12 @@ desktop and web clients. It adds no server code and no mobile protocol.
   under `patchedDependencies`, and its `overrides` keep one React Native: Expo
   packages do not accept a prerelease as a peer, and without the override Bun
   installs a second React Native for them.
-- React Navigation 7 native stack.
+- React Navigation 7 native stack, on T3 Code's react-native-screens 5 fork
+  (`deps/README.md`). iOS draws it with the fork's v5 `Stack`, `Split` (iPad
+  columns), and `Tabs` (system tab bar); Android uses the native stack. The
+  root `overrides` pin the fork for every package: React Navigation's peer
+  range does not accept its prerelease version, and Bun would install a
+  second react-native-screens.
 - **T3 Code's interface with Solus's theme** (plan 017 §3 amendment): uniwind
   1.11 (Tailwind v4 for React Native, 14px rem, patched like T3), DM Sans,
   `react-native-reanimated` and `react-native-worklets`,
@@ -39,12 +44,11 @@ desktop and web clients. It adds no server code and no mobile protocol.
   Solus default code font) and DM Sans (T3's interface font); `expo-build-properties` to allow plain `http://` to LAN hosts on
   Android; `expo-system-ui` for Android light and dark; `expo-symbols` for
   icons: SF Symbols on iOS, T3's Tabler mapping on Android (`src/components/AppSymbol.tsx`).
-- Two local native modules, autolinked from `modules/`:
-  `modules/solus-keyboard-commands` (iOS) for hardware keyboard commands, and
-  T3 Code's `modules/t3-markdown-text` (iOS Fabric text view, Android copy
-  helper) for selectable Markdown. The Markdown module is a `file:` dependency,
-  so Bun copies it into `node_modules`: run `bun install` after editing it.
-- Markdown parsing through `react-native-nitro-markdown` (md4c); code colors
+- Local native modules, autolinked from `modules/`, among them
+  `modules/solus-keyboard-commands` (iOS) for hardware keyboard commands.
+- Markdown through `react-native-enriched-markdown`, T3 Code's fork vendored in
+  `deps/` (`deps/README.md`): native selectable text, file link pills, tables,
+  and tree-sitter code colors. Code colors elsewhere (source files, diffs)
   through Shiki 4.2.0 with `react-native-shiki-engine` (Metro resolves every
   `@shikijs/*` package from this app's Shiki copy); media through `expo-video`,
   `expo-audio`, and `react-native-image-viewing`. Host files load through a URL
@@ -67,7 +71,9 @@ desktop and web clients. It adds no server code and no mobile protocol.
 | `src/features/conversation/` | Transcript model, conversation controller and store |
 | `src/features/projects/` | Open project: new, existing folder, GitHub, or a URL; reached from the new-task sheet |
 | `src/features/layout/` | The iPad split view and the Mail-style search toolbar |
-| `src/features/prs/` | Pull requests across a host's projects, one pull request, comments and reviews |
+| `src/features/prs/` | The Pull Requests tab across every host, one pull request (overview, activity, commits, files, guide), reviews, merge, and the pull request cache |
+| `src/features/workspace/` | The Chats and Pull Requests tabs and their saved filters |
+| `src/features/review/`, `src/features/diffs/` | Diff parsing and the native diff surface (`modules/t3-review-diff`) |
 | `src/features/files/` | A project's files from the host index, and a read-only file view |
 | `src/features/settings/` | Settings by owner (plans/018): the personal profile (theme, agent defaults, notifications) and its opt-in sync, organization rules and host policy, each host's own settings and GitHub connection, and About |
 | `src/features/notifications/` | Notifications across hosts, and where each one opens on this device |
@@ -172,9 +178,9 @@ feature area that implements it.
 | Voice input | input | missing | yes | Needs a native recorder feeding `transcribeAudio` |
 | Hardware keyboard commands | keyboard | source (iOS), unbuilt | yes | `native-mobile-run-settings` (registry); Swift typechecked against UIKit; Android has none |
 | Adaptive iPad sidebar | layout | source | n/a | `native-mobile-layout`; device proof in full and reduced windows |
-| Markdown, code, selectable text | conversation | source | yes | `native-mobile-markdown-text`, `native-mobile-incremental-snippet`; T3's native text view with Shiki code colors, tables, and images and videos from the host |
+| Markdown, code, selectable text | conversation | source, unbuilt | yes | `native-mobile-enriched-markdown`, `native-mobile-incremental-snippet`; Enriched Markdown (T3's fork) with file link pills, tables, code colors, and images and videos from the host; device proof needs a new native build |
 | Tasks, goals | tasks | missing | yes | Next step after milestone one |
-| PRs, diffs, reviews | prs, review | source: list, detail, checks, reviewers, files, comment, approve, request changes; diff, merge, and lifecycle missing | yes | `native-mobile-prs`; `t3-review-diff` is the diff candidate |
+| PRs, diffs, reviews | prs, review | source: Pull Requests tab across hosts with saved filters; detail with checks, activity, commits, native diff, inline review drafts, threads, reviewers, labels, merge, auto-merge, lifecycle, agent work, guides; offline copy; diff surface unbuilt | yes | `native-mobile-prs*`, `native-mobile-review*`; device proof of the diff surface needs a new native build |
 | Plans gallery, works, documents, artifacts, diagrams | plan, work | missing | yes | Later parity |
 | Automations | automations | missing | yes | Later parity |
 | Files, browser panes, terminal | files, browser | source: browse and read files with Shiki colors, Markdown preview, images, and video; audio plays only from a host that signs audio URLs (current hosts do not); PDF and SVG open in the browser; edit, browser, terminal missing | yes | `native-mobile-files-settings`, `native-mobile-file-preview-kind`, `native-mobile-host-media-url`; device previews are plan 016 |

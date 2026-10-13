@@ -45,10 +45,6 @@ const OPEN_STATUSES: ReadonlySet<AgentExchangeStatus> = new Set([
   'dispatched', 'queued', 'running', 'awaiting_input', 'rate_limited', 'waiting_for_children', 'answered',
 ])
 
-export function isOpenExchangeStatus(status: AgentExchangeStatus): boolean {
-  return OPEN_STATUSES.has(status)
-}
-
 const SETTLED_STATUS = {
   completed: 'done',
   interrupted: 'interrupted',

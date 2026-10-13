@@ -98,8 +98,8 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
             <SettingsSection title="Devices">
               <SettingsRow
                 icon="hammer"
-                label="App builds"
-                onPress={() => navigation.navigate("Builds", { hostId })}
+                label="Run app"
+                onPress={() => navigation.navigate("RunApp", { hostId })}
               />
             </SettingsSection>
 

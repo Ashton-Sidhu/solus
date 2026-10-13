@@ -1,11 +1,10 @@
-// Adapted from T3 Code apps/mobile/src/features/threads/ThreadFeed.tsx (MIT, see UPSTREAM.md).
-// T3's native-markdown text styles (`useMarkdownStyles`), link press handler
-// (`onMarkdownLinkPress`), and image renderer (`renderMarkdownImage`), on
-// Solus's host connection. Every host file opens through the host: a signed
-// URL for media, the file screen for anything else.
+// Adapted from T3 Code apps/mobile/src/features/threads/ThreadFeed.tsx and src/native/useMarkdownImageSource.ts (MIT, see UPSTREAM.md).
+// T3's Markdown text styles (`useMarkdownStyles`), link press handler
+// (`onMarkdownLinkPress`), image renderer (`renderMarkdownImage`), and native
+// image source, on Solus's host connection. Every host file opens through the
+// host: a signed URL for media, the file screen for anything else.
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { resolveMarkdownLinkPresentation } from "@t3tools/mobile-markdown-text/links";
 import * as Haptics from "expo-haptics";
 import { memo, useCallback, useState } from "react";
 import { Linking } from "react-native";
@@ -14,14 +13,16 @@ import { useApp } from "../../app/app-context";
 import { FilePreview, type ResolvedFilePreviewSource } from "../../components/FilePreview";
 import { MediaVideoPlayer } from "../../components/MediaVideoPlayer";
 import type { RootStackParamList } from "../../navigation/routes";
+import { resolveMarkdownLinkPresentation } from "../../lib/markdownLinks";
 import { useNativeMarkdownTextStyle, type MarkdownTone } from "../../lib/nativeMarkdownTextStyle";
 import {
   SelectableMarkdownText,
   type MarkdownImageRenderer,
+  type MarkdownImageSourceResolver,
 } from "../../native/SelectableMarkdownText";
 import type { ConversationStore } from "../conversation/conversation-store";
 import { projectContext } from "../conversation/lib/ipc-context";
-import { useHostMediaUrl, type HostPathRequest } from "../files/host-media-url";
+import { resolveHostMediaUrl, useHostMediaUrl, type HostPathRequest } from "../files/host-media-url";
 import type { HostConnection } from "../hosts/host-connections";
 import {
   ThreadMarkdownImage,
@@ -57,8 +58,9 @@ function HostMarkdownVideo(props: {
 }
 
 /**
- * Selectable transcript markdown: T3's native text view on iOS, React Native
- * text on Android, with Shiki-colored code blocks.
+ * Selectable transcript Markdown, drawn by Enriched on iOS and Android. A
+ * standalone image or video is a React media slot; an image Enriched draws
+ * itself (in a table, list, or quote) loads through `resolveImageSource`.
  */
 export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
   readonly markdown: string;
@@ -103,6 +105,49 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
       if (presentation.href) void Linking.openURL(presentation.href);
     },
     [app, hostId, navigation, workingDirectory],
+  );
+
+  /** The address of an image: its own URL, or a URL the host signs for a host file. */
+  const imageUri = useCallback(
+    async (href: string): Promise<string | null> => {
+      const presentation = resolveMarkdownLinkPresentation(href);
+      if (presentation.kind === "external") return presentation.href;
+      if (presentation.kind !== "file") return null;
+      const request = hostRequest(presentation.path);
+      const connection = app.connections.connection(hostId);
+      if (!request || !connection) return null;
+      return resolveHostMediaUrl(connection, request);
+    },
+    [app, hostId, hostRequest],
+  );
+
+  const resolveImageSource = useCallback<MarkdownImageSourceResolver>(
+    async (image) => {
+      const uri = await imageUri(image.href);
+      if (uri === null) throw new Error("Markdown image is unavailable");
+      return { uri };
+    },
+    [imageUri],
+  );
+
+  const onImagePress = useCallback(
+    (href: string) => {
+      void imageUri(href).then(
+        (uri) => {
+          if (uri === null) return;
+          void Haptics.selectionAsync();
+          const presentation = resolveMarkdownLinkPresentation(href);
+          setPreview({
+            kind: "image",
+            uri,
+            name: presentation.kind === "file" ? presentation.label : fileName(new URL(uri).pathname),
+            caption: presentation.kind === "file" ? presentation.path : uri,
+          });
+        },
+        () => undefined,
+      );
+    },
+    [imageUri],
   );
 
   const renderImage = useCallback<MarkdownImageRenderer>(
@@ -156,6 +201,8 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
         preserveSoftBreaks={props.tone === "user"}
         onLinkPress={onLinkPress}
         renderImage={renderImage}
+        resolveImageSource={resolveImageSource}
+        onImagePress={onImagePress}
       />
       {preview ? <FilePreview source={preview} onRequestClose={() => setPreview(null)} /> : null}
     </>

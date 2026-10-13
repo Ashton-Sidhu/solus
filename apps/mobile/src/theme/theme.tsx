@@ -13,7 +13,3 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 export function usePalette(): Palette {
   return useContext(ThemeContext)
 }
-
-export function useIsDark(): boolean {
-  return useColorScheme() === 'dark'
-}

@@ -126,6 +126,8 @@ export class HostConnections {
       sessionToken: this.deps.registry.credential(host.id),
       acquireGrant: host.paired ? undefined : (options) => this.deps.hostAccessToken(host, options),
       dialOrganizationId: host.paired ? undefined : () => this.deps.dialOrganizationId(this.deps.registry.host(host.id) ?? host),
+      // A paired host the account also lists is shown the signed-in person's token, so it keeps their delegation (ADR 0001 §6 item 5).
+      accountToken: host.paired ? () => this.deps.hostAccessToken(this.deps.registry.host(host.id) ?? host) : undefined,
       onSessionTokenRefreshed: (sessionToken) => { void this.deps.registry.updateCredential(host.id, sessionToken) },
       verifyConnectedHost: () => this.verifyIdentity(host, connection?.transport.serverUrl ?? route.url),
       organizationId: this.deps.organizationId,

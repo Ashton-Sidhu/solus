@@ -1,58 +1,12 @@
-import type { CheckItem, PrChecksSummary } from '@solus/contracts/checks-types'
+import type { CheckItem } from '@solus/contracts/checks-types'
 import type { PrReviewer, PrReviewVerdict, PrUnavailableReason, PullRequest } from '@solus/contracts/providers'
-import type { HostPullRequests } from '../pull-request-directory'
 
 /**
- * The words and groups the pull request screens show. The rules follow the web
+ * The words the pull request screens show. The rules follow the web
  * client's (`workspace-ui/src/components/prs/lib/prs-list-view.ts` and
  * `pr-surface-error.ts`), which native code cannot import; a changed rule there
  * is changed here too.
  */
-
-export interface PrSection {
-  key: 'authored' | 'review-requested' | 'others'
-  label: string
-  prs: PullRequest[]
-}
-
-/** Authored first, then waiting on the viewer's review, then the rest. An
- *  empty section is left out. Without a known viewer nothing is "authored". */
-export function prSections(prs: readonly PullRequest[], viewerLogin: string | null): PrSection[] {
-  const authored: PullRequest[] = []
-  const reviewRequested: PullRequest[] = []
-  const others: PullRequest[] = []
-  for (const pr of prs) {
-    if (viewerLogin && pr.author.toLowerCase() === viewerLogin.toLowerCase()) authored.push(pr)
-    else if (pr.needsMyReview) reviewRequested.push(pr)
-    else others.push(pr)
-  }
-  const sections: PrSection[] = [
-    { key: 'authored', label: 'Authored', prs: authored },
-    { key: 'review-requested', label: 'Review requested', prs: reviewRequested },
-    { key: 'others', label: 'Others', prs: others },
-  ]
-  return sections.filter((section) => section.prs.length > 0)
-}
-
-/** One row of the host list: a pull request and the project it came from. */
-export interface PrRowItem {
-  pr: PullRequest
-  projectPath: string
-  folderName: string
-}
-
-/** The host's pull requests from every readable project, newest activity
- *  first, in sections. */
-export function hostPrSections(listing: HostPullRequests | null): { title: string; data: PrRowItem[] }[] {
-  if (!listing) return []
-  const rows = new Map<PullRequest, PrRowItem>()
-  for (const project of listing.projects) {
-    if (project.kind !== 'page') continue
-    for (const pr of project.prs) rows.set(pr, { pr, projectPath: project.projectPath, folderName: project.folderName })
-  }
-  const newestFirst = Array.from(rows.keys()).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
-  return prSections(newestFirst, listing.viewerLogin).map((section) => ({ title: section.label, data: section.prs.map((pr) => rows.get(pr)!) }))
-}
 
 export type PrStateTone = 'open' | 'draft' | 'merged' | 'closed'
 
@@ -60,11 +14,6 @@ export function prStateTone(pr: Pick<PullRequest, 'state' | 'draft'>): PrStateTo
   if (pr.state === 'merged') return 'merged'
   if (pr.state === 'closed') return 'closed'
   return pr.draft ? 'draft' : 'open'
-}
-
-/** `Stack 2/3`, counted from the base; null outside a stack. */
-export function stackLabel(stack: PullRequest['stack']): string | null {
-  return stack ? `Stack ${stack.position}/${stack.size}` : null
 }
 
 export const PR_STATE_LABELS = {
@@ -90,15 +39,6 @@ export function prUnavailableTitle(reason: PrUnavailableReason, projectLabel: st
   if (reason === 'not-a-repository') return `${projectLabel} is not a git repository.`
   if (reason === 'no-remote') return `${projectLabel} has no git remote.`
   return `Solus can’t read pull requests from ${projectLabel}’s host yet.`
-}
-
-/** The checks in a word, or null when the PR has none. Only checks for the
- *  PR's current head count: an older run says nothing about this one. */
-export function checksLabel(checks: PrChecksSummary | null, headSha: string): CheckStatus | null {
-  if (!checks || checks.headSha !== headSha || checks.state === 'none') return null
-  if (checks.state === 'passing') return { label: 'Checks passing', tone: 'passing' }
-  if (checks.state === 'failing') return { label: 'Checks failing', tone: 'failing' }
-  return { label: 'Checks running', tone: 'pending' }
 }
 
 /** A check's outcome in a word, and its color family. */
@@ -133,13 +73,6 @@ export function reviewerStateLabel(state: PrReviewer['state']): string {
   }
 }
 
-export function reviewStatusLabel(status: PullRequest['reviewStatus']): string | null {
-  if (status === 'approved') return 'Approved'
-  if (status === 'changes-requested') return 'Changes requested'
-  if (status === 'review-required') return 'Review required'
-  return null
-}
-
 /** A review verdict the viewer may give, which needs both the repository's
  *  support and the viewer's permission. GitHub refuses a verdict on your own
  *  pull request, so the author is offered a comment only. */
@@ -163,4 +96,19 @@ export function prAge(iso: string, now: number): string {
   if (age < DAY) return `${Math.floor(age / HOUR)}h`
   if (age < 7 * DAY) return `${Math.floor(age / DAY)}d`
   return new Date(at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+/** Whether a branch merges into its base: with conflicts, cleanly, or not reported. */
+export type BranchMergeState = 'conflicts' | 'clean' | 'unknown'
+
+export function branchMergeState(conflicting: boolean, clean: boolean): BranchMergeState {
+  if (conflicting) return 'conflicts'
+  return clean ? 'clean' : 'unknown'
+}
+
+/** The value at the end of the branch row; undefined when the title says it all. */
+export function branchRowValue(input: { readonly updating: boolean; readonly behind: boolean; readonly mergeState: BranchMergeState; readonly baseRef: string }): string | undefined {
+  if (input.updating) return 'Updating…'
+  if (input.behind) return `Behind ${input.baseRef}`
+  return input.mergeState === 'unknown' ? 'Not reported' : undefined
 }

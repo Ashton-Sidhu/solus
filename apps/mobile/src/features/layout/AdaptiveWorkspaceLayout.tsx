@@ -1,9 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/features/layout/AdaptiveWorkspaceLayout.tsx (MIT, see UPSTREAM.md).
-import { useFocusEffect } from "@react-navigation/native";
 import {
   CommonActions,
-  NavigationContext,
-  NavigationRouteContext,
   StackActions,
   useNavigation,
 } from "@react-navigation/native";
@@ -51,6 +48,7 @@ import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderE
 import { WORKSPACE_PANE_TIMING } from "./workspace-pane-animation";
 import { WorkspaceInspectorPane } from "./workspace-inspector-pane";
 import { WorkspaceContentWidthContext } from "./workspace-content-width";
+import { NativeWorkspaceModeContext } from "../../native/v5-workspace-context";
 
 /**
  * Where the workspace is: the topmost root route that is not a sheet over it.
@@ -116,91 +114,6 @@ export function useAdaptiveWorkspaceLayout(): AdaptiveWorkspaceContextValue {
   return use(AdaptiveWorkspaceContext);
 }
 
-export function useAdaptiveWorkspacePaneRole(role: WorkspaceAuxiliaryPaneRole) {
-  const { activateAuxiliaryPaneRole } = useAdaptiveWorkspaceLayout();
-
-  useFocusEffect(
-    useCallback(() => activateAuxiliaryPaneRole(role), [activateAuxiliaryPaneRole, role]),
-  );
-}
-
-/**
- * Register this screen's inspector pane content with the workspace column.
- *
- * The column renders BESIDE the navigator — outside any screen — so the
- * registering screen's navigation and route contexts are captured here and
- * re-provided around the portal content. Without them, useNavigation/useRoute
- * inside the pane throw "Couldn't find a route object".
- *
- * Registration is FOCUS-scoped, driven by navigation events rather than the
- * screen's own render cycle: react-native-screens freezes blurred screens, so
- * a cleanup that depends on the blurred subtree re-rendering never runs and
- * would leak the pane into the next route. Blur deactivates the pane (it
- * animates closed, or is replaced seamlessly when the next route registers in
- * the same commit); focus re-registers it.
- */
-export function useRegisterWorkspaceInspector(render: (() => ReactNode) | undefined) {
-  const { registerWorkspaceInspector } = useAdaptiveWorkspaceLayout();
-  // Raw context values (not the useNavigation/useRoute wrappers) so the
-  // portal re-provides exactly what this screen sees.
-  const navigation = use(NavigationContext);
-  const route = use(NavigationRouteContext);
-
-  const wrappedRender = useMemo(() => {
-    if (render === undefined) {
-      return undefined;
-    }
-    return () => (
-      <NavigationContext.Provider value={navigation}>
-        <NavigationRouteContext.Provider value={route}>{render()}</NavigationRouteContext.Provider>
-      </NavigationContext.Provider>
-    );
-  }, [navigation, render, route]);
-
-  const wrappedRenderRef = useRef(wrappedRender);
-  wrappedRenderRef.current = wrappedRender;
-  const focusedRef = useRef(false);
-  const deactivateRef = useRef<(() => void) | null>(null);
-
-  const syncRegistration = useCallback(() => {
-    if (!focusedRef.current || wrappedRenderRef.current === undefined) {
-      deactivateRef.current?.();
-      return;
-    }
-    deactivateRef.current = registerWorkspaceInspector(wrappedRenderRef.current);
-  }, [registerWorkspaceInspector]);
-
-  // Focus lifecycle. Blur/focus events fire even when the blurred subtree is
-  // frozen (events are navigation-driven, renders are not).
-  useFocusEffect(
-    useCallback(() => {
-      focusedRef.current = true;
-      syncRegistration();
-      return () => {
-        focusedRef.current = false;
-        syncRegistration();
-      };
-    }, [syncRegistration]),
-  );
-
-  // Content changes while focused re-register in place.
-  useEffect(() => {
-    if (focusedRef.current) {
-      syncRegistration();
-    }
-  }, [syncRegistration, wrappedRender]);
-
-  // Unmount: hand the pane back (owner-guarded, so a route that already
-  // took over is unaffected).
-  useEffect(
-    () => () => {
-      deactivateRef.current?.();
-      deactivateRef.current = null;
-    },
-    [],
-  );
-}
-
 /** File routes own the inspector role; T3 matches a `/files` path. */
 function isFileRoute(routeName: WorkspaceLocation["routeName"]): boolean {
   return routeName === "Files" || routeName === "File";
@@ -210,6 +123,7 @@ export function AdaptiveWorkspaceLayout(props: {
   readonly children: ReactNode;
   readonly location: WorkspaceLocation;
 }) {
+  const nativeWorkspace = use(NativeWorkspaceModeContext);
   const { width, height } = useWindowDimensions();
   const routeName = props.location.routeName;
   const isHome = routeName === "Home";
@@ -384,9 +298,10 @@ export function AdaptiveWorkspaceLayout(props: {
     panes.primarySidebarVisible ? (layout.listPaneWidth ?? 0) : 0,
   );
   useEffect(() => {
+    if (nativeWorkspace) return;
     const targetWidth = panes.primarySidebarVisible ? (layout.listPaneWidth ?? 0) : 0;
     renderedSidebarWidth.value = withTiming(targetWidth, WORKSPACE_PANE_TIMING);
-  }, [layout.listPaneWidth, panes.primarySidebarVisible, renderedSidebarWidth]);
+  }, [nativeWorkspace, layout.listPaneWidth, panes.primarySidebarVisible, renderedSidebarWidth]);
   const sidebarAnimatedStyle = useAnimatedStyle(() => ({
     opacity: Math.min(1, renderedSidebarWidth.value / 80),
     width: renderedSidebarWidth.value,
@@ -480,6 +395,16 @@ export function AdaptiveWorkspaceLayout(props: {
     ],
   );
 
+  // iPad columns: UIKit draws the sidebar and the detail (createWorkspaceStackNavigator.ios.tsx).
+  if (nativeWorkspace) {
+    return (
+      <HomeListOptionsProvider>
+        <AdaptiveWorkspaceContext.Provider value={contextValue}>
+          {props.children}
+        </AdaptiveWorkspaceContext.Provider>
+      </HomeListOptionsProvider>
+    );
+  }
   return (
     <HomeListOptionsProvider>
       <AdaptiveWorkspaceContext.Provider value={contextValue}>

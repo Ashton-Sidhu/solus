@@ -3,8 +3,8 @@ import { Alert } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 import { useApp, useListened } from '../../app/app-context'
 
-/** A host's Solus Cloud link for a settings screen: read on connect and on
- *  focus; a refused link or unlink says why. */
+/** A host's Solus Cloud registration and link for a settings screen: read on
+ *  connect and on focus; a refused registration, link, or unlink says why. */
 export function useHostCloudLink(hostId: string) {
   const app = useApp()
   const state = useListened(app.hostCloudLink.changes, () => app.hostCloudLink.stateOf(hostId))
@@ -20,8 +20,11 @@ export function useHostCloudLink(hostId: string) {
   const report = (title: string) => (cause: unknown) => {
     Alert.alert(title, cause instanceof Error ? cause.message : String(cause))
   }
-  const link = () => { void app.hostCloudLink.link(hostId).catch(report('Not linked')) }
-  const unlink = () => { void app.hostCloudLink.unlink(hostId).catch(report('Not unlinked')) }
+  const register = () => { void app.hostCloudLink.register(hostId).catch(report('Not registered')) }
+  const setLinked = (isLinked: boolean) => {
+    const change = isLinked ? app.hostCloudLink.link(hostId) : app.hostCloudLink.unlink(hostId)
+    void change.catch(report(isLinked ? 'Not reachable from the internet' : 'Still reachable from the internet'))
+  }
 
-  return { state, link, unlink }
+  return { state, register, setLinked }
 }

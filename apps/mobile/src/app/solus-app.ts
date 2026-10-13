@@ -31,11 +31,16 @@ import { HostCloudLink } from '../features/settings/host-cloud-link'
 import { HostAccess } from '../features/settings/host-access'
 import { LiveActivityPreference } from '../features/live-activity/live-activity-preference'
 import { PersonalSettingsStore } from '../features/settings/personal-settings'
-import { alwaysOnlineEnvironment, PersonalSync, timerClock } from '../features/settings/personal-sync'
 import { AgentProfileLocalStore } from '../features/settings/agent-profile-local'
-import { DeviceAgentProfileSync, type ReachableHost } from '../features/settings/agent-profile-sync'
+import { AccountSync, alwaysOnlineEnvironment, timerClock, type ReachableHost } from '../features/account/account-sync'
 import { OrganizationSettingsStore } from '../features/settings/organization-settings'
 import { PullRequestDirectory } from '../features/prs/pull-request-directory'
+import { PullRequestDiffs } from '../features/prs/pull-request-diffs'
+import { PullRequestGuides } from '../features/prs/pull-request-guides'
+import { PullRequestReviewDrafts } from '../features/prs/pull-request-review-drafts'
+import { PullRequestActions } from '../features/prs/pull-request-actions'
+import { memoryPullRequestCacheDatabase, PullRequestCache, type PullRequestCacheDatabase } from '../features/prs/pull-request-cache'
+import { rememberNewThreadTarget } from '../features/threads/new-thread-targets'
 import { ProjectFiles } from '../features/files/project-files'
 import { removeKeysWithPrefix, type KeyValueStore, type SecretStore } from '../platform/ports'
 
@@ -69,6 +74,8 @@ export interface PlatformAdapters {
   appVersion?: string
   /** Finds Solus hosts on this device's local network; absent where the build cannot scan. */
   scanLocalNetwork?(): Promise<DiscoveredServer[]>
+  /** Where the pull request cache is kept; absent keeps it in memory for this app run. */
+  pullRequestCache?: PullRequestCacheDatabase
 }
 
 /** Where the person was, restored on a returning launch once access is known. */
@@ -113,12 +120,10 @@ export class SolusApp {
   readonly keyboard = new KeyboardCommands()
   /** The person's own settings: one local profile per account (plans/018). */
   readonly personal: PersonalSettingsStore
-  /** Opt-in sync of the personal profile with the account. */
-  readonly personalSync: PersonalSync
   /** The person's agent profile on this device: one local copy per account (plans/020). */
   readonly agentProfile: AgentProfileLocalStore
-  /** Opt-in sync of the agent profile with the account, and its copy on each host. */
-  readonly agentProfileSync: DeviceAgentProfileSync
+  /** The account's sync of both, signed in, and the profile's copy on each host (plans/018 decision 9). */
+  readonly accountSync: AccountSync
   /** Organization rules and host policy, read for everyone and edited by owners. */
   readonly organizationSettings: OrganizationSettingsStore
   /** The personal light or dark choice, as this device applies it. */
@@ -129,7 +134,13 @@ export class SolusApp {
   readonly hostCloudLink: HostCloudLink
   /** How each host is reached and who reaches it. */
   readonly hostAccess: HostAccess
+  /** The device copy of pull request data, for offline reading, and the review drafts. */
+  readonly pullRequestCache: PullRequestCache
   readonly pullRequests: PullRequestDirectory
+  readonly pullRequestDiffs: PullRequestDiffs
+  readonly pullRequestGuides: PullRequestGuides
+  readonly reviewDrafts: PullRequestReviewDrafts
+  readonly pullRequestActions: PullRequestActions
   readonly files: ProjectFiles
   private readonly conversations = new Map<string, ConversationStore>()
   /** Each host's model list, read once per host per app run. */
@@ -148,6 +159,7 @@ export class SolusApp {
       now: () => Date.now(),
       authorizer: platform.accountAuthorizer,
       crypto: platform.accountCrypto,
+      scanLocalNetwork: platform.scanLocalNetwork,
     })
     this.connections = new HostConnections({
       registry: this.registry,
@@ -162,15 +174,10 @@ export class SolusApp {
     this.liveActivity = new LiveActivityPreference(storage)
     this.personal = new PersonalSettingsStore(storage)
     this.appearance = new AppearancePreference(this.personal, (mode) => platform.applyAppearance?.(mode))
-    this.personalSync = new PersonalSync(this.personal, {
-      requests: this.account.settingsRequests(),
-      storage,
-      environment: platform.settingsSyncEnvironment ?? alwaysOnlineEnvironment,
-      clock: timerClock,
-    })
     this.agentProfile = new AgentProfileLocalStore(storage)
-    this.agentProfileSync = new DeviceAgentProfileSync(this.agentProfile, {
-      requests: this.account.agentProfileRequests(),
+    this.accountSync = new AccountSync(this.personal, this.agentProfile, {
+      settingsRequests: this.account.settingsRequests(),
+      profileRequests: this.account.agentProfileRequests(),
       storage,
       environment: platform.settingsSyncEnvironment ?? alwaysOnlineEnvironment,
       clock: timerClock,
@@ -179,8 +186,21 @@ export class SolusApp {
     this.account.changes.subscribe(() => this.followAccount())
     this.hostSettings = new HostSettings((hostId) => this.connections.connection(hostId))
     this.hostAccess = new HostAccess((hostId) => this.connections.connection(hostId))
-    this.hostCloudLink = new HostCloudLink((hostId) => this.connections.connection(hostId), () => this.account.issueEnrollmentTicket())
-    this.pullRequests = new PullRequestDirectory((hostId) => this.connections.connection(hostId), () => this.account.organizationId)
+    this.hostCloudLink = new HostCloudLink((hostId) => this.connections.connection(hostId), () => this.account.issueEnrollmentTicket(), () => this.account.isSignedIn)
+    this.pullRequestCache = new PullRequestCache(platform.pullRequestCache ?? memoryPullRequestCacheDatabase())
+    const connectionFor = (hostId: string) => this.connections.connection(hostId)
+    const organizationId = () => this.account.organizationId
+    this.pullRequests = new PullRequestDirectory(connectionFor, organizationId, this.pullRequestCache)
+    this.pullRequestDiffs = new PullRequestDiffs(connectionFor, organizationId, this.pullRequestCache)
+    this.pullRequestGuides = new PullRequestGuides(connectionFor, organizationId, this.pullRequestCache)
+    this.reviewDrafts = new PullRequestReviewDrafts(this.pullRequestCache, platform.uuid)
+    this.pullRequestActions = new PullRequestActions({
+      connectionFor,
+      organizationId,
+      directory: this.pullRequests,
+      drafts: this.reviewDrafts,
+      startSession: (hostId, workingDirectory, prompt) => this.startSession(hostId, workingDirectory, prompt),
+    })
     this.files = new ProjectFiles((hostId) => this.connections.connection(hostId), () => this.account.organizationId)
     this.outbox = new SendOutbox(() => storage)
     this.notifications = new NativeNotificationHub({
@@ -237,6 +257,8 @@ export class SolusApp {
   /** Hosts on the local network that this device has not paired yet. */
   async scanNearby(): Promise<DiscoveredServer[]> {
     const found = await this.platform.scanLocalNetwork?.() ?? []
+    // A directory host found here is dialed here (ADR 0001 §2.2 rule 9).
+    this.registry.applyNearby(found)
     return found.filter((server) => !this.registry.host(server.installationId)?.paired)
   }
 
@@ -245,7 +267,7 @@ export class SolusApp {
     return previewHost(this.platform.fetch, url)
   }
 
-  async pair(preview: Pick<HostPreview, 'url'> & Partial<HostPreview>, pairToken: string, serverLabel?: string): Promise<NativeHost> {
+  async pair(preview: Pick<HostPreview, 'url'> & Partial<HostPreview>, pairToken: string | undefined, serverLabel?: string): Promise<NativeHost> {
     const { server, sessionToken } = await pairServer({
       url: preview.url,
       pairToken,
@@ -314,6 +336,18 @@ export class SolusApp {
     return this.platform.uuid()
   }
 
+  /** A new session that sends its first prompt now, as the new-task sheet
+   *  starts one. The thread route opens it by its id. */
+  private startSession(hostId: string, workingDirectory: string, prompt: string): string {
+    const sessionId = this.newSessionId()
+    const store = this.conversation(hostId, { newSession: { sessionId, provider: 'claude-code', workingDirectory } })
+    if (!store) throw new Error('This host cannot be reached now.')
+    rememberNewThreadTarget(hostId, { sessionId, provider: store.controller.run.provider, workingDirectory: store.controller.run.workingDirectory })
+    // A send that fails shows in the session's own transcript.
+    void store.controller.send(prompt).catch(() => undefined)
+    return sessionId
+  }
+
   /** The person's run settings, after the host's model list is in: it
    *  replaces the bundled one, as on desktop, because a host may know a model
    *  this build does not. A host too old to serve it keeps the bundle. */
@@ -331,8 +365,7 @@ export class SolusApp {
   /** Personal settings, sync, and organization views follow who is signed in. */
   private followAccount(): void {
     const account = this.account.syncAccount
-    this.personalSync.followAccount(account)
-    this.agentProfileSync.followAccount(account)
+    this.accountSync.followAccount(account)
     const accountKey = account ? syncAccountKey(account) : null
     if (accountKey !== this.accountKey) this.organizationSettings.clear()
     this.accountKey = accountKey
@@ -361,8 +394,12 @@ export class SolusApp {
     this.hostSettings.forgetHost(hostId)
     this.hostCloudLink.forgetHost(hostId)
     this.hostAccess.forgetHost(hostId)
-    this.agentProfileSync.forgetHost(hostId)
+    this.accountSync.forgetHost(hostId)
     this.pullRequests.forgetHost(hostId)
+    this.pullRequestDiffs.forgetHost(hostId)
+    this.pullRequestGuides.forgetHost(hostId)
+    this.reviewDrafts.forgetHost(hostId)
+    void this.pullRequestCache.forgetHost(hostId)
     this.files.forgetHost(hostId)
     this.modelProfiles.delete(hostId)
     removeKeysWithPrefix(this.platform.storage, conversationOutboxPrefix(hostId))

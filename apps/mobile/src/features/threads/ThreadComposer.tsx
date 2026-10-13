@@ -52,7 +52,7 @@ import {
   type ActiveTurnComposerAction,
   type ComposerSendPresentation,
 } from "./composerSendPresentation";
-import { pickComposerFiles, pickComposerMedia } from "./composer-attachment-pickers";
+import { pickComposerClipboardImage, pickComposerFiles, pickComposerMedia } from "./composer-attachment-pickers";
 import { ThreadSettingsSheet } from "./ThreadSettingsSheet";
 
 /**
@@ -357,6 +357,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   );
   const onPickDraftMedia = useCallback(() => attach(pickComposerMedia), [attach]);
   const onPickDraftFiles = useCallback(() => attach(pickComposerFiles), [attach]);
+  const onPasteDraftImage = useCallback(() => attach(pickComposerClipboardImage), [attach]);
   const attachmentsFull = meta.attachments.length + meta.uploading >= MAX_ATTACHMENT_UPLOAD_COUNT;
 
   const openSettings = useCallback(() => {
@@ -429,6 +430,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 supportsFiles
                 onPickMedia={onPickDraftMedia}
                 onPickFiles={onPickDraftFiles}
+                onPasteImage={onPasteDraftImage}
               />
             ) : null}
             {isExpanded && (stripAttachments.length > 0 || meta.uploading > 0) ? (
@@ -555,6 +557,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                         supportsFiles
                         onPickMedia={onPickDraftMedia}
                         onPickFiles={onPickDraftFiles}
+                        onPasteImage={onPasteDraftImage}
                       />
                       <View className="min-w-0 shrink">
                         <ComposerInlineControl

@@ -43,7 +43,7 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
         </Text>
       ) : null}
       {props.approval.expired ? (
-        <Text className="font-sans text-sm leading-5 text-adaptive-neutral-600-400">
+        <Text className="font-sans text-sm leading-5 text-foreground-muted">
           {requestExpiryText(props.approval.expired)}
         </Text>
       ) : null}

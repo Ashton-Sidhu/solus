@@ -54,20 +54,7 @@ export function ConnectionSheetButton(props: {
       ? "accent-primary-foreground"
       : tone === "danger"
         ? "accent-danger-foreground"
-        : "accent-secondary-foreground";
-
-  const primaryShadow =
-    tone === "primary"
-      ? Platform.select({
-          ios: {
-            shadowColor: "#000",
-            shadowOffset: { width: 0, height: 3 },
-            shadowOpacity: 0.14,
-            shadowRadius: 6,
-          },
-          android: { elevation: 3 },
-        })
-      : undefined;
+        : "accent-foreground";
 
   return (
     <Pressable
@@ -76,18 +63,17 @@ export function ConnectionSheetButton(props: {
       accessibilityState={{ disabled: props.disabled ?? false }}
       className={cn(
         props.compact
-          ? "min-h-[42px] flex-row items-center justify-center gap-1.5 rounded-[14px] px-3.5 py-2.5"
-          : "min-h-[48px] flex-row items-center justify-center gap-2 rounded-[16px] px-4 py-3",
-        "disabled:opacity-50",
+          ? "min-h-9 flex-row items-center justify-center gap-1.5 rounded-[10px] px-3"
+          : "min-h-11 flex-row items-center justify-center gap-1.5 rounded-[12px] px-4",
+        "active:opacity-80 disabled:opacity-50",
         tone === "primary"
           ? "bg-primary"
           : tone === "danger"
             ? "border border-danger-border bg-danger"
-            : "border border-border bg-secondary",
+            : "border border-border",
       )}
       disabled={props.disabled}
       onPress={props.onPress}
-      style={primaryShadow}
     >
       <SymbolView
         name={props.icon}
@@ -97,12 +83,12 @@ export function ConnectionSheetButton(props: {
       />
       <Text
         className={cn(
-          "text-xs font-t3-bold tracking-[0.8px] uppercase",
+          "text-[15px] font-t3-medium",
           tone === "primary"
             ? "text-primary-foreground"
             : tone === "danger"
               ? "text-danger-foreground"
-              : "text-secondary-foreground",
+              : "text-foreground",
         )}
       >
         {props.label}
