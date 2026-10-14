@@ -227,7 +227,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'workspaceProjects.changed': { owner: 'projects', category: 'invalidation', recovery: 'reload', description: "The organization's project directory changed." },
   'projects.changed': { owner: 'projects', category: 'invalidation', recovery: 'reload', description: "This host's project list changed." },
   'outbox.changed': { owner: 'outbox', category: 'invalidation', recovery: 'reload', description: 'The host outbox changed; connected clients should drain it.' },
-  'pr.changed': { owner: 'prs', category: 'delta', recovery: 'reload', description: 'PR sync saw pull requests, checks, or review requests change in one repository.' },
+  'pr.changed': { owner: 'prs', category: 'delta', recovery: 'reload', description: 'PR sync saw pull requests, checks, or review requests change in one repository, or a list of it must be read again.' },
   'annotations.changed': { owner: 'annotations', category: 'delta', recovery: 'reload', description: 'Plan or work annotations changed.' },
   'works.changed': { owner: 'works', category: 'delta', recovery: 'reload', description: 'A work was created, deleted, or its record or content changed; read it again by id.' },
   'workLive.update': { owner: 'works', category: 'targeted', recovery: 'reset', description: 'A Yjs update to a work open live; the room applies it. A client that missed one opens the work again.' },

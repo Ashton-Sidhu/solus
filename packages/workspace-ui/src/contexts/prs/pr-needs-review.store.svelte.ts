@@ -3,7 +3,8 @@
 // Its own store because it is its own question: not "what is in this project"
 // but "what is being asked of me". A surface that shows the count asks PR sync
 // to keep it fresh (`want`); the answer arrives with `pr.changed`. The host
-// asks the code host every few minutes, and only while some surface wants it.
+// asks the code host once when a surface first wants it and on a refresh; after
+// that, each pull request list read updates it. No clock asks again.
 
 import type { HostApi } from '@solus/client-core/host-api'
 import type { PullRequest } from '@solus/contracts/providers'

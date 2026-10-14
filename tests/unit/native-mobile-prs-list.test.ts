@@ -85,25 +85,23 @@ describe('pull request list filters (ported from T3 pullRequestList.test.ts)', (
 })
 
 describe('pull request rows across hosts', () => {
-  test('rows carry the checks of the current head only', () => {
+  test('rows carry each pull request\'s own checks, and none or unknown is no state', () => {
     const listing: HostPullRequests = {
       viewerLogin: null,
       projects: [{
-        kind: 'page', projectPath: '/work/app', folderName: 'app', hasMore: false, page: 1,
-        prs: [pullRequest(1), pullRequest(2)],
-        checks: [{ number: 1, state: 'failing', headSha: 'head-1' }, { number: 2, state: 'passing', headSha: 'old' }],
+        kind: 'page', projectPath: '/work/app', folderName: 'app', hasMore: false, page: 1, cursor: null,
+        prs: [pullRequest(1, { checksState: 'failing' }), pullRequest(2, { checksState: 'none' }), pullRequest(3)],
       }],
     }
-    expect(pullRequestRows([{ hostId: 'a', listing }, { hostId: 'b', listing: null }]).map((r) => [r.pr.number, r.checks])).toEqual([[1, 'failing'], [2, null]])
+    expect(pullRequestRows([{ hostId: 'a', listing }, { hostId: 'b', listing: null }]).map((r) => [r.pr.number, r.checks])).toEqual([[1, 'failing'], [2, null], [3, null]])
   })
 
   test('the list state and search go to the host, and each filter keeps its own listing', async () => {
     const api = new FakeApi()
       .on('listProjects', () => [project('/work/app', 'github.com/o/r')])
       .on('prListProjects', (_ctx: unknown, roots: string[], filter: { state: string }): PrProjectListing[] =>
-        [{ projectRoot: roots[0]!, page: { items: [pullRequest(filter.state === 'closed' ? 2 : 1)], page: 1, hasMore: true } }])
+        [{ projectRoot: roots[0]!, page: { items: [pullRequest(filter.state === 'closed' ? 2 : 1, { checksState: 'passing' })], page: 1, hasMore: true, cursor: 'next' } }])
       .on('providerViewer', () => ({ login: 'me' }))
-      .on('prChecks', () => ({ checks: [{ number: 1, summary: { state: 'passing', required: [], optional: [], headSha: 'head-1', inFlight: false } }], loadFailed: false }))
     const world = await hostWorld(api)
     const directory = new PullRequestDirectory((hostId) => world.connections.connection(hostId), () => null)
     await directory.loadHosts(['inst-a'])
@@ -121,15 +119,15 @@ describe('pull request rows across hosts', () => {
   test('more of one project adds its next page below, without repeats', async () => {
     const api = new FakeApi()
       .on('listProjects', () => [project('/work/app', 'github.com/o/r')])
-      .on('prListProjects', (): PrProjectListing[] => [{ projectRoot: '/work/app', page: { items: [pullRequest(3), pullRequest(2)], page: 1, hasMore: true } }])
+      .on('prListProjects', (): PrProjectListing[] => [{ projectRoot: '/work/app', page: { items: [pullRequest(3), pullRequest(2)], page: 1, hasMore: true, cursor: 'search:2' } }])
       .on('prList', () => ({ items: [pullRequest(2), pullRequest(1)], page: 2, hasMore: false }))
       .on('providerViewer', () => ({ login: 'me' }))
-      .on('prChecks', () => { throw new Error('rate limited') })
     const world = await hostWorld(api)
     const directory = new PullRequestDirectory((hostId) => world.connections.connection(hostId), () => null)
     await directory.loadHost('inst-a')
     await directory.loadMore('inst-a', '/work/app')
-    expect(api.callsOf('prList')[0]!.slice(1)).toEqual([{ state: 'open' }, 2])
+    // The next page continues from the cursor the first page answered.
+    expect(api.callsOf('prList')[0]!.slice(1)).toEqual([{ state: 'open' }, 2, 'search:2'])
     const listing = shownValue(directory.hostOf('inst-a'))
     const page = listing?.projects[0]
     expect(page?.kind === 'page' && [page.prs.map((pr) => pr.number), page.hasMore, page.page]).toEqual([[3, 2, 1], false, 2])

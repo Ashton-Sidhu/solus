@@ -12,10 +12,9 @@
    * Settings → Account & sync; an entry two devices changed is resolved here,
    * beside the content. The page needs no host: it reads this device's copy,
    * and asks a host only to search skills or check a server address. On the
-   * desktop, this computer's own skills, files, and MCP servers fill an empty
-   * copy when the page opens, and join it again on "Import from this computer".
+   * desktop, this computer's own skills, files, and MCP servers join the copy
+   * only on "Import from this computer": the profile never fills by itself.
    */
-  import { untrack } from "svelte";
   import { LoaderCircle, HardDriveDownload } from "@lucide/svelte";
   import { agentProfileLocalStore, agentProfileStore, hosts } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -37,9 +36,6 @@
   const toolHost = $derived(settingsToolHost?.presence === "present" ? settingsToolHost : hosts.device ?? hosts.runOn);
   const isVisible = $derived(!searchQuery || searchWords.some((keyword) => keyword.toLowerCase().includes(searchQuery.toLowerCase())));
 
-  // The page opened on a desktop: an empty copy fills from this computer, so the person's skills and servers are already here.
-  $effect(() => untrack(() => agentProfileStore.importComputerIfEmpty()));
-
   async function importComputer() {
     await agentProfileStore.importComputer();
     requestInputFocus();
@@ -50,7 +46,7 @@
   <div class="flex flex-col gap-8">
     <SettingsSection
       label="This computer"
-      description="Your profile starts from this computer: its skills, subagents, commands, prompts, and MCP servers. Import again to add what you installed since. Nothing is removed from the profile; remove or disable an entry here."
+      description="Add this computer's skills, subagents, commands, prompts, and MCP servers to your profile. Import again to add what you installed since. An import removes nothing; remove or disable an entry here."
       visible={agentProfileStore.canCopy}
       plain
     >

@@ -70,15 +70,13 @@ export function pullRequestRows(listings: readonly { hostId: string; listing: Ho
   for (const { hostId, listing } of listings) {
     for (const project of listing?.projects ?? []) {
       if (project.kind !== 'page') continue
-      const checks = new Map(project.checks.map((entry) => [entry.number, entry]))
       for (const pr of project.prs) {
-        const summary = checks.get(pr.number)
         rows.push({
           hostId,
           projectPath: project.projectPath,
           folderName: project.folderName,
           pr,
-          checks: summary && summary.headSha === pr.headSha && summary.state !== 'none' ? summary.state : null,
+          checks: pr.checksState && pr.checksState !== 'none' ? pr.checksState : null,
         })
       }
     }

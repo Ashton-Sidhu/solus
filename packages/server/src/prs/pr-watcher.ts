@@ -55,9 +55,9 @@ interface LastRead {
  * watch them when there is news.
  *
  * The watches live in memory: they are read from the database at start and
- * when a change names a session, never on a sweep. A sweep reads one batch of
- * fingerprints per repository, and reads a pull request in full only when its
- * fingerprint moved. Sessions that watch one pull request share its read.
+ * when a change names a session, never on a sweep. A sweep reads the
+ * fingerprints of every repository one account watches in shared documents,
+ * and reads a pull request in full only when its fingerprint moved. Sessions that watch one pull request share its read.
  */
 export class PrWatcher {
   private readonly watches = new Map<string, PullRequestWatch>()
@@ -147,28 +147,49 @@ export class PrWatcher {
     const watched = new Set([...groups.values()].flatMap(({ group, numbers }) => [...numbers.keys()].map((number) => pullRequestKey(group, number))))
     for (const key of this.lastReads.keys()) if (!watched.has(key)) this.lastReads.delete(key)
     for (const key of this.readFailures.keys()) if (!watched.has(key)) this.readFailures.delete(key)
-    for (const { group, numbers } of groups.values()) {
-      // A timer acts for whoever the work is for (plans/019-acting-identity.md).
-      await withUserScope(group.actingUserKey, () => this.sweepGroup(group, numbers))
+    // A timer acts for whoever the work is for (plans/019-acting-identity.md).
+    // The fingerprints of every group go at once, so the groups of one account
+    // share one document (docs/plans/pr-watch.md §11). The full reads that
+    // follow go one group at a time.
+    const entries = [...groups.values()]
+    const looks = await Promise.all(entries.map(({ group, numbers }) =>
+      withUserScope(group.actingUserKey, () => this.readFingerprints(group, numbers))))
+    for (const [index, { group, numbers }] of entries.entries()) {
+      const look = looks[index]
+      if (look) await withUserScope(group.actingUserKey, () => this.readGroup(look.host, group, numbers, look.fingerprints))
     }
   }
 
-  private async sweepGroup(group: ReadGroup, numbers: Map<number, PullRequestWatch[]>): Promise<void> {
-    if ((this.pausedUntil.get(groupKey(group)) ?? 0) > this.now()) return
+  /** The fingerprints of one group, or null when there is nothing to read. */
+  private async readFingerprints(
+    group: ReadGroup,
+    numbers: Map<number, PullRequestWatch[]>,
+  ): Promise<{ host: CodeHost; fingerprints: Map<number, PullRequestWatchFingerprint> } | null> {
+    if ((this.pausedUntil.get(groupKey(group)) ?? 0) > this.now()) return null
     const host = await this.codeHost(group.repository).catch(() => null)
     if (!host) {
       for (const [number, watches] of numbers) await this.readFailed(group, number, watches, 'no code host')
-      return
+      return null
     }
-    let fingerprints: Map<number, PullRequestWatchFingerprint>
     try {
-      fingerprints = await host.provider.review.readWatchFingerprints(host.repo, [...numbers.keys()])
+      return { host, fingerprints: await host.provider.review.readWatchFingerprints(host.repo, [...numbers.keys()]) }
     } catch (error) {
       const limited = githubRateLimitOf(error)
-      if (limited) return this.pause(group, limited)
+      if (limited) {
+        this.pause(group, limited)
+        return null
+      }
       for (const [number, watches] of numbers) await this.readFailed(group, number, watches, error instanceof Error ? error.message : String(error))
-      return
+      return null
     }
+  }
+
+  private async readGroup(
+    host: CodeHost,
+    group: ReadGroup,
+    numbers: Map<number, PullRequestWatch[]>,
+    fingerprints: Map<number, PullRequestWatchFingerprint>,
+  ): Promise<void> {
     for (const [number, watches] of numbers) {
       if (await this.readPullRequest(host, group, number, watches, fingerprints.get(number) ?? null) === 'paused') return
     }

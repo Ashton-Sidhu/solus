@@ -53,7 +53,8 @@ Consequences:
 - **interest** — a reason to keep something fresh. A client or the host declares
   it. With no interest, a repository sync does not run.
 - **settled** — a pull request that is merged or closed, or a record that is
-  `missing`. A settled record is not read again by number.
+  `missing`. A merged or `missing` record is not read again by number. A
+  closed one is read again every 15 min, because it can open again.
 
 Do not use "reconcile", "mirror", "invalidate", or "observe" for this domain after
 the change.
@@ -67,7 +68,6 @@ repository that has interest.
 
 ```ts
 type PrInterest =
-  | { kind: 'repository' }             // list pages, project panel open PRs, palette
   | { kind: 'pull-request'; number: number }
   | { kind: 'branch'; head: string }   // GitSection, mobile navbar, link discovery
   | { kind: 'review'; number: number } // an open review pane: fast tick + check runs
@@ -76,7 +76,7 @@ type PrInterest =
 interface RepositorySync {
   records: Map<number, PrRecord>
   byBranch: Map<string, number>
-  watermark: string | null             // largest updatedAt seen
+  branchesLookedUpAt: Map<string, number> // when each branch was last looked up
   facts: RepositoryFacts               // viewer, permissions, merge methods,
                                        // approval requirement, branch rules
   interests: Map<InterestOwner, PrInterest[]>
@@ -89,7 +89,7 @@ host drops its interest. No release protocol is needed, and a lost release canno
 leak.
 
 `host:tasks` interest comes from the database: `pull-request` for each link on a
-task that is not done or dropped and whose record is not settled, and `branch` for
+task that is not done or dropped and whose record is not merged or missing, and `branch` for
 each isolated-checkout session branch of such a task. This replaces
 `PrReconciler.watchList` and `PrLinkDiscovery`.
 
@@ -97,9 +97,8 @@ each isolated-checkout session branch of such a task. This replaces
 
 Each repository sync with interest runs every 60 s. A `review` interest makes it
 run every 15 s, and every 10 s while that pull request has a check in progress.
-A faster pass reads only the check runs (step 4); the recent list keeps the 60 s
-cadence. The first list read asks for 50 rows a page; after a watermark exists,
-10 rows a page.
+A faster pass reads only the check runs (step 4); the read by number keeps the
+60 s cadence.
 
 A rate limit from the code host (REST 403 or 429 with
 `x-ratelimit-remaining: 0` or `retry-after`, or GraphQL `RATE_LIMITED`) is not
@@ -118,37 +117,82 @@ with a 304, which does not count against the quota.
 
 A tick:
 
-1. **Recent changes — 1 GraphQL request.** List the repository's pull requests by
-   `UPDATED_AT` descending, in all states, until `updatedAt <= watermark`. Each row
-   has the full `PullRequest` fields that the UI draws, with review status,
-   mergeable state, head ref, and the check rollup state. This one query replaces
-   `pulls.list` + the review status query, the per-number detail reads, branch
-   discovery, and the reconciler reads. A reopened or pushed pull request has a new
-   `updatedAt`, so it appears here. A settled pull request that does not change
-   costs nothing.
-2. **Unknown numbers — at most 1 GraphQL request.** Numbers with interest and no
-   record are read in one aliased query (`pr60: pullRequest(number: 60)`). GitHub
-   answers a number that does not exist with a `null` alias and a `NOT_FOUND`
-   error for that path. The other aliases still return data. That pair is
-   `missing`.
-3. **Branch matching — no requests.** Match session and worktree branches against
-   the repository rows already loaded by step 1 and the known-number batch.
-   An unmatched branch stays unknown; it does not trigger a `head` lookup.
-   Later repository reads can discover its PR. Restarting does not cause one
-   request per saved worktree. A branch outside the loaded pages is not proof
-   that no PR exists.
-4. **Check runs** — only for `review` interest, the existing batched query
-   (`listChecks`). Other surfaces use the rollup state from step 1.
-5. **Needs review** — only for `needs-review` interest, every 5 min, one search
-   request.
+1. **Branch lookups — shared GraphQL documents, only when due.** A branch in
+   interest that has no open pull request is looked up by name:
+   `h0: pullRequests(headRefName: "topic", first: 5, orderBy: CREATED_AT DESC)`
+   in all states. The lookups of every repository on one account share one
+   `PrSyncByHead` document (§11, item 4). The branch matches its open pull
+   request, or else its newest one. A lookup is due when the branch joins the
+   interest, when a turn of a session on that branch ends (§3.4), and on a
+   person's refresh. No clock looks a branch up (2026-10-14, after T3 Code's
+   on-demand lookups). A branch whose open pull request is matched is not looked up:
+   step 2 keeps that pull request fresh. A row reads no base branch rules: its
+   access is the repository's. Before PR sync stores or publishes a row, it
+   takes the merge methods, the default method, and
+   `requiredApprovingReviewCount` from the detail read that the server holds
+   for the same base branch (`withBranchRules` in `prs/pull-request.ts`). A
+   row with no held detail keeps the repository's methods. No client shows a
+   detail from it: a client opens a detail with `prGetOverview` or
+   `prGetDetail`, and the entity does not answer them with a row that has no
+   branch rules.
+2. **Numbers — shared GraphQL documents.** Numbers with interest and no
+   record, numbers another read path saw change (§3.4), every 60 s the open
+   pull requests with interest, and every 15 min the closed ones, are read in
+   one aliased query (`r0:
+   repository(...) { p60: pullRequest(number: 60) }`), shared with the other
+   repositories of the same account (§11, item 4). A merged or missing record
+   is not read again. A closed one that is open again returns to the 60 s
+   reads, and its branch matches it again. GitHub answers a number that does not exist with a `null` alias and a
+   `NOT_FOUND` error for that path. The other aliases still return data. That
+   pair is `missing`.
+3. **Branch linking — no requests.** A pull request found for a session branch
+   is linked to the session (§3.3).
+4. **Check runs** — only for `review` interest, a conditional read
+   (`listChecks`, §11 item 4). The checks of a merged or closed pull request are
+   read once, and again only when it opens again; such a pane keeps the 60 s
+   cadence. Other surfaces use the rollup state of the rows.
+5. **Needs review** — only for `needs-review` interest, and only when no read
+   has answered it yet: a new interest, or a person's refresh. One search
+   request. After that, each list read keeps it current: the review-requested
+   search of `prListProjects` reaches PR sync through
+   `PrIndex.onNeedsReviewRead`, which publishes the numbers when they change
+   and gives every new answer to the notifications hub. No clock asks
+   (2026-10-14).
 
 Repository facts load once per repository and reload after 1 h or after a write
 fails with a permission or merge-rule error. The detail read no longer fetches
 branch rules or the approval requirement.
 
-Warm cost for one repository with no changes: **1 request per minute**. The number
-of clients, surfaces, and linked tasks does not change this. Today it is about
-6 requests per minute (`dev.log`).
+**Detail reads (implemented).** One pull request page costs one GraphQL request,
+`PullRequestDetail` (`providers/github/pull-request-detail.ts`). It holds the
+pull request, the viewer, the repository merge settings and `viewerPermission`,
+the base branch rules (`baseRef.rules` and `branchProtectionRule`), the reviewers
+(`latestReviews`, `latestOpinionatedReviews`, `reviewRequests`) and the first 100
+commits. More commits cost one request per 100. `mergeStateStatus` needs no
+preview header. The base branch rules give the merge methods and the approval
+count at no extra cost. No other read asks for branch rules: list rows, PR
+sync rows, and the answers of writes are repository-level, and GitHub refuses a
+merge that the rules forbid. A refusal under `baseRef` keeps the rest of the
+answer, with the rules unknown.
+
+| Read | Before | Now |
+|---|---|---|
+| Open a pull request, cold | up to 6 requests in 3 hops, then `compare` | 1 GraphQL; `compare` beside it when a list row named the revisions |
+| Overview after open | 3 REST (commits, reviews, requested reviewers) | 0 |
+| Activity | 2 GraphQL, in parallel | unchanged |
+| Diff, small | 1 `pulls/{n}/files` per 100 files | 1 `pulls/{n}` with the `.diff` media type |
+| Diff, over 300 files, 406, or over 8 MiB | 1 per 100 files | the same file pages |
+| File contents | 2 reads in sequence | 2 reads in parallel |
+
+Thread comments stay at 100 for each thread. No RPC loads more comments of one
+thread, and the clients show whole threads.
+
+Warm cost: one share of a by-number document per minute for each open pull
+request with interest, 25 pull requests to a document across the repositories of
+one account. A repository whose branches are all matched costs no lookup. A
+repository with no open pull request and no unmatched branch costs nothing. The
+number of clients, surfaces, and linked tasks does not change this. Before PR
+sync it was about 6 requests per minute (`dev.log`).
 
 ### 3.3 Output
 
@@ -170,6 +214,27 @@ Every pull request mutation handler (`prMerge`, `prUpdate`, `prSetLabels`,
 request it gets back to `prSync.apply(repo, pullRequest)`. That broadcasts
 `pr.changed`. Head SHA and permission guards read `prSync.readFresh(repo, number)`.
 This is the only forced read.
+
+A Solus git action that opens a pull request (`gitRunAction`) also gives it to
+`prSync.apply`, so an open list shows it at once and the session links it
+(`linkSessionPullRequest`) without a lookup.
+
+**Turn ends.** PR sync does not poll a repository for new pull requests. When a
+turn of a session ends (status `completed`, `background`, `failed`, or
+`interrupted`; `boot-server.ts`), `prSync.turnEnded(sessionId)`:
+
+- makes the session's branches with no open pull request due for a lookup on
+  this tick, and reads the live checkouts again, so a branch the agent made is
+  in the interest;
+- forgets the server's cached lists of the session's repository
+  (`prIndex.invalidate`), and broadcasts `pr.changed` with `listChanged: true`
+  and no rows. A list that shows the repository reads its first page again
+  while it is on screen. A list that is not on screen reads it at its next
+  open or focus. This is how a pull request that PR sync does not track, for
+  example one that a person opened on GitHub, gets to an open list.
+
+The Solus API's PR sync (`organization-pr-sync.ts`) gets no turn ends: its
+branches are looked up when they join the interest and every 5 min.
 
 A read on another path (a fresh read for a guard or a review pane, or a PR
 watch) can see a state that PR sync does not hold yet. `prIndex` tells PR sync
@@ -283,7 +348,8 @@ display memory, not a scheduler.
 Only GitHub implements `ReviewProvider`. Add two operations and use them only
 from `PrSync`:
 
-- `listRecentPullRequests(repo, since) → PullRequest[]` (§3.2 step 1).
+- `getPullRequestsByHead(repo, heads) → Map<string, PullRequest[]>`, newest
+  first (§3.2 step 1, `providers/github/pull-requests-by-head.ts`).
 - `getPullRequests(repo, numbers) → Map<number, PullRequest | null>`
   (§3.2 step 2).
 
@@ -341,8 +407,10 @@ Tests: `pr-sync`, `github-pr-sync-reads`, `pr-checks-read`, `prs-store-sync`,
   current web/mobile gap for checks and needs-review.
 - **Connection modes:** interest is tied to the connection, so local IPC and
   WebSocket work the same way. Two devices on one repository cost the same as one.
-- **Reverse states:** `missing` can become `found` if a link changes. A reopened
-  pull request leaves `settled` through step 1.
+- **Reverse states:** `missing` can become `found` if a link changes. A closed
+  pull request that opens again is seen by the lookup of its branch, by another
+  read path (§3.4), or by a person's refresh; PR sync does not read a settled
+  record by number.
 - **Stale:** a record carries `observedAt`. The UI can show the age when a tick
   fails.
 
@@ -355,6 +423,59 @@ Tests: `pr-sync`, `github-pr-sync-reads`, `pr-checks-read`, `prs-store-sync`,
    path. It stops costing requests when the page closes.
 3. **Missing links.** Shown as "Pull request not found" with a Remove action.
    Never deleted automatically. New links store the canonical repository key.
+4. **Request cost** (2026-10-14, after T3 Code's `gitHubConditionalChecks.ts`
+   and its batched reactors).
+   - **Conditional checks** (`providers/github/conditional-checks.ts`). Before
+     the GraphQL check read, three REST reads ask whether anything moved:
+     `pulls/{n}`, then `commits/{sha}/check-runs` and `commits/{sha}/status`.
+     They go through the ETag layer, and a 304 costs no quota. When the answers
+     are the same and the last GraphQL read is younger than 5 minutes, its
+     summary is used again. Only the pull requests that moved are read in
+     GraphQL, so whether a check is required still comes from GraphQL. A merged
+     pull request's summary is final: it costs no request again. This applies to
+     `prChecks`, to PR sync, and to the watcher, because all of them call
+     `listChecks`. The ETag layer keeps 600 answers per account, as a polled
+     pull request holds three.
+   - **Host-wide documents** (`providers/github/host-batches.ts`). The reads by
+     number, the check reads and the watch fingerprints of every repository on
+     one account wait 10 ms for each other and go as shared aliased documents
+     of at most 25 pull requests. The branch lookups do the same, at most 20
+     branches for each document, because each names up to 5 rows. A tick
+     reads the branch lookups, then by number, then the checks, of every
+     repository at once. A spent quota
+     fails the one document that finds it, and every repository in it; then
+     the tick stops for every repository on the code host, and background
+     work stops before it spends the reserve (`request-budget.ts`). A watch sweep reads the fingerprints
+     of every group at once. An error that GitHub places on one repository
+     fails only that repository, so its credential chain can go on. When a
+     shared document fails as a whole, each repository is read alone, except on
+     a rate limit, which fails them all.
+   - **Cost.** An unchanged check poll: 0 GraphQL requests and 3 REST 304s per
+     pull request (before: 1 GraphQL request per repository). A moved pull
+     request: 3 REST reads and its share of one GraphQL document. A tick of N
+     repositories with unknown numbers or review panes: one shared document per
+     25 pull requests (before: one per repository). Branch lookups of a tick:
+     one document per 20 due branches, none when every branch is matched.
+     Branch rules for
+     PR sync rows: none (before: 2 requests per repository and base branch for
+     each client). A watch sweep of N
+     repositories: one fingerprint document per 25 pull requests (before: N).
+5. **No recent list** (2026-10-14, after T3 Code's `PullRequestsByHeadRead` and
+   `refreshAfterTurn`). Until this date, a tick read each repository's pull
+   requests by `UPDATED_AT` (`PrSyncRecent`) every 60 s, to match branches and
+   to push new pull requests to open lists. That cost one document per 10
+   repositories each minute, also when nothing changed. It was replaced by
+   branch lookups that run when a branch can have a new pull request (§3.2
+   step 1), by reads by number of the open pull requests already matched, and
+   by the `listChanged` signal at a turn end (§3.4). The `repository` interest
+   kind was removed: no surface needs PR sync to read a repository that has
+   nothing tracked in it. What stays on a clock: the read by number of open
+   tracked pull requests (60 s), the read by number of closed tracked pull
+   requests (15 min), and check runs for a review pane (15 s or 10 s). The
+   needs-review clock (5 min) and the lookup of unmatched branches (5 min)
+   were removed the same day: needs-review comes from list reads (§3.2 step
+   5), and a branch is looked up when it joins the interest, at a turn end of
+   its session, or on a refresh.
 
 ## 12. Where the build differs from this plan
 
@@ -364,11 +485,25 @@ Tests: `pr-sync`, `github-pr-sync-reads`, `pr-checks-read`, `prs-store-sync`,
   caused the startup traffic. They stay, with their client mirrors, so the list
   page, pagination, search and the merge controls keep working as before. What
   was removed is every timer and every refresh a client ran on its own.
-- **The list page subscribes and still reads its first page.** It sends
-  `repository` interest while open and still reads its first page with
-  `prListProjects`. A pushed row updates in place, and a new pull request joins
-  the unsearched list at the top. `PrSync` sends no rows for `repository`
-  interest in the answer to `prSetInterest`.
+- **The list page reads its first page and listens.** It reads its first page
+  with `prListProjects` when it opens. A pushed row updates in place, and a new
+  pull request joins the unsearched list at the top. While it is open, a
+  `pr.changed` with `listChanged` for one of its repositories makes it read its
+  first page again (`PrsStore.onListChanged`).
+- **One search answers a page of many projects.** `prListProjects` reads a
+  page of every GitHub project on one account with one GraphQL search per 100
+  repositories (`providers/github/pull-request-search.ts`). On page one of a
+  list with no search, the same document holds the viewer's own pull requests
+  and their review requests as cross-repository searches. The answers go into
+  `PrIndex` under the keys that `prList` and `listNeedsReview` read, so the
+  30-second lifetime works as before. Each project continues from a cursor
+  (`updated:<=` its last row, or a listing cursor), and `prListProjects` takes
+  the cursors of several projects to read their next pages in one search. A
+  repository that search misses is read from `repository.pullRequests`; one
+  that the account cannot see is read alone, with its own credential and
+  viewer. List rows carry `checksState` from the head commit's
+  `statusCheckRollup`, so the list reads no checks, and a pushed check summary
+  updates that field.
 - **Pushed rows do not supersede a list read.** `ProjectPrs.absorbSynced` takes
   a pushed row without the revision bump that `applyPullRequest` uses for this
   client's own writes. Otherwise a tick that lands while the first page is on
@@ -377,11 +512,11 @@ Tests: `pr-sync`, `github-pr-sync-reads`, `pr-checks-read`, `prs-store-sync`,
   checkouts of one repository on one client do not replace each other's set.
 - **The mobile app has its own store** (`apps/mobile/src/features/prs/
   pull-request-directory.ts`), not `PrsStore`, because it does not share the
-  Svelte code. It follows the same rules: the Pull Requests tab sends
-  `repository` interest for each listed project while it has focus, and a pull
-  request screen sends `review` interest for its number. A `pr.changed` change
-  updates the list rows, the list checks, and an open detail in place, and an
-  accepted connection sends the interest again. A screen that gets focus again
+  Svelte code. It follows the same rules: the Pull Requests tab reads the host
+  again on a `listChanged` for a listed repository while it has focus
+  (`showList`), and a pull request screen sends `review` interest for its
+  number. A `pr.changed` change updates the list rows, the list checks, and an
+  open detail in place, and an accepted connection sends the interest again. A screen that gets focus again
   within 30 seconds of a full read does not read again; a refresh always does.
 - **Only three columns** were added to `task_links` (`pr_state`, `pr_draft`,
   `pr_updated_at`). The existing `title` and `url` carry the rest, and the

@@ -54,7 +54,6 @@
   const order = $derived(pullRequests.view.listOrder);
 
   const rowContext = $derived<PrRowContext>({
-    checks: (pr) => pullRequests.checks.summaryFor(serverId, projectCtx(), pr.number),
     guideStatus: (pr) =>
       pullRequests.guides.statusFor(serverId, projectCtx(), pr.number),
     lensJob: (pr) => reviewLensStore.pullRequestJobFor(serverId, { ...pr.baseRepo, number: pr.number }),

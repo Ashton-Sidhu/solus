@@ -252,14 +252,10 @@
   // ── The shared row grammar's view of a PR ──
   // `isMine` needs the connected viewer's login; until `loadViewer` lands it
   // falls back to "nobody is me", which files every row under Others rather
-  // than mislabelling someone else's PR as yours. `checks` resolves through the
-  // PR's own project across every project — a bare PR number cannot tell two
-  // repos apart.
+  // than mislabelling someone else's PR as yours. The lookups resolve through
+  // the PR's own project across every project — a bare PR number cannot tell
+  // two repos apart.
   const rowContext = $derived<PrRowContext>({
-    checks: (pr) => {
-      const scope = lookupScopeFor(pr);
-      return scope ? pullRequests.checks.summaryFor(scope.serverId, scope.ctx, pr.number) : undefined;
-    },
     guideStatus: (pr) => {
       const scope = lookupScopeFor(pr);
       return scope
@@ -285,8 +281,7 @@
   }
 
   function currentChecksState(pr: PullRequest): PrChecksState | null {
-    const checks = rowContext.checks(pr);
-    return checks?.headSha === pr.headSha && checks.state !== "none" ? checks.state : null;
+    return pr.checksState && pr.checksState !== "none" ? pr.checksState : null;
   }
 
   const arranged = $derived(
@@ -626,7 +621,8 @@
     return pageScope.projectTargets.map((project) => store.get(project.api, project.serverId, project.ctx));
   }
 
-  /** Read the list the page is on, then the checks and guides for the rows it holds. */
+  /** Read the list the page is on, then the guides for the rows it holds. Each
+   *  row carries its own check state. */
   function readList(force = false): void {
     const scopes = readTargets();
     const readKey = listReadKey;
@@ -639,12 +635,6 @@
       .then(() => {
         if (open && pageScope.allProjects && readKey === listReadKey) notifyPartialFailure();
         for (const scope of scopes) {
-          void pullRequests.checks.load(
-            scope.hostApi,
-            scope.serverId,
-            scope.hostContext,
-            scope.items.map((pullRequest) => pullRequest.number),
-          );
           void pullRequests.guides.loadListed(scope);
           loadListedLenses(scope);
         }
@@ -708,21 +698,16 @@
     void projectsStore.removeProject(option.key);
   }
 
-  // While the page is open, PR sync keeps every project it lists fresh, and
-  // what changes reaches the rows with no read. Closing the page stops it.
+  // While the page is open, a host that says a listed repository changed —
+  // an agent turn ended there — makes the list read again. Pull requests PR
+  // sync tracks reach the rows with no read.
   $effect(() => {
     if (!open) return;
-    void pageScope.reachableKey;
-    void pageScope.scopeKey;
-    void pageScope.allProjects;
-    return untrack(() => {
-      const releases = readTargets().map((scope) =>
-        store.want(scope.hostApi, scope.serverId, scope.hostContext, [{ kind: "repository" }]),
-      );
-      return () => {
-        for (const release of releases) release();
-      };
-    });
+    return untrack(() =>
+      store.onListChanged((projects) => {
+        if (readTargets().some((scope) => projects.includes(scope))) readList();
+      }),
+    );
   });
 
   /** Open a pull request in the panel beside the list. The row stays selected,
@@ -880,23 +865,14 @@
     }
   }
 
-  /** Ask every project with more rows for its next page. */
-  function loadMoreAll() {
-    for (const scope of paginating) {
-      if (scope.hasMore && !scope.loading && !scope.loadingMore) void loadMore(scope);
+  /** Ask every project with more rows for its next page: one read per host. */
+  async function loadMoreAll(): Promise<void> {
+    const scopes = paginating.filter((scope) => scope.hasMore && !scope.loading && !scope.loadingMore);
+    await store.loadMore(scopes);
+    for (const scope of scopes) {
+      void pullRequests.guides.loadListed(scope);
+      loadListedLenses(scope);
     }
-  }
-
-  async function loadMore(scope: ProjectPrs): Promise<void> {
-    await scope.loadMore();
-    void pullRequests.guides.loadListed(scope);
-    loadListedLenses(scope);
-    await pullRequests.checks.load(
-      scope.hostApi,
-      scope.serverId,
-      scope.hostContext,
-      scope.items.map((pullRequest) => pullRequest.number),
-    );
   }
 </script>
 

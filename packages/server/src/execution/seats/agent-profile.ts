@@ -21,6 +21,8 @@ import {
   type AgentProfileSkillEntry,
   type AgentProfileSkip,
   type AgentProfileStatus,
+  retiredAgentProfileKeys,
+  withoutRetiredEntries,
 } from '@solus/contracts/agent-profile'
 import type { Integration } from '@solus/contracts/integration-types'
 import { profileConnectionSchema, type ProfileConnection } from '@solus/contracts/integrations/profile-credentials'
@@ -33,7 +35,6 @@ import { planProfileFiles, readProfileFiles, resolvedHome, writeProfileFiles } f
 import { hostClaudeDir, hostCodexHome } from './seat-login'
 import type { AccountReads } from '../../vault/account-reads'
 
-export { isProfilePath } from './profile-files'
 
 const log = createLogger('seats', 'agent-profile.ts')
 
@@ -176,7 +177,8 @@ function byKind(profile: AgentProfile) {
   const files: AgentProfileFileEntry[] = []
   const skills: AgentProfileSkillEntry[] = []
   const integrations: AgentProfileIntegrationEntry[] = []
-  for (const entry of Object.values(profile)) {
+  // A retired entry (a home's CLAUDE.md or AGENTS.md from an older copy) is left out, not a refusal of the whole profile.
+  for (const entry of Object.values(withoutRetiredEntries(profile))) {
     if (entry.kind === 'file') files.push(entry)
     else if (entry.kind === 'skill') skills.push(entry)
     else integrations.push(entry)
@@ -306,8 +308,12 @@ export class AgentProfileManager {
     // The target's own MCP servers the profile does not name yet join it: signed in, the
     // account is the one list. A record a pull put here and the profile dropped is going, not new.
     const adopted = this.unnamedRecords(target, read.profile?.entries ?? {}, held?.integrations ?? [])
-    const profile = adopted.length > 0 ? await this.writeEntries(target, agentProfileFrom(adopted), []) ?? read.profile : read.profile
+    // A retired entry the account still holds leaves it here, in the same write, so no client lists it again.
+    const retired = retiredAgentProfileKeys(read.profile?.entries ?? {})
+    const changed = adopted.length > 0 || retired.length > 0
+    const profile = changed ? await this.writeEntries(target, agentProfileFrom(adopted), retired) ?? read.profile : read.profile
     if (adopted.length > 0) log.info('agent_profile_adopted_integrations', { target: target.kind, count: adopted.length })
+    if (retired.length > 0) log.info('agent_profile_removed_retired_entries', { target: target.kind, count: retired.length })
     let status: AgentProfileStatus
     // No synced profile: a copy pushed from the computer stays as it is. The connections still apply.
     if (!profile || profile.revision === null) status = this.status(target)

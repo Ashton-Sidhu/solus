@@ -624,7 +624,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // sync asks on the workspace's behalf and turns what it finds into the same
   // event an in-Solus write sends (docs/plans/pr-sync.md).
   // Pull request assignments and review requests reach the host user's hub from
-  // PR sync's own needs-review read; no second poller asks the code host.
+  // every needs-review answer the server reads: a list read's review-requested
+  // search, or PR sync's read for the sidebar count. No poller asks the code host.
   const prObserver = hostPrObserver()
   const prSync = new PrSync({
     publish: (change) => events.broadcast('pr.changed', change),
@@ -687,7 +688,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   opts.sessionRuntime.on('event', (sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
     if (!to) worktreeOffers.observe(sessionId, event)
   })
-  registerWorktreeHandlers(server, { sessionRuntime: opts.sessionRuntime, events, worktreeMover, worktreeOffers })
+  registerWorktreeHandlers(server, { sessionRuntime: opts.sessionRuntime, events, worktreeMover, worktreeOffers, prSync })
   registerGitPublishHandlers(server)
   // Browsing a host's filesystem must work headless — that is the whole point
   // of pairing a server that has no window.
@@ -1099,6 +1100,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // A settled turn is mirrored at once, so the cloud copy is whole when the session goes quiet.
     touchTranscript(event.sessionId)
     if (event.agentSessionId && !isSessionBusyStatus(event.status)) void transcriptMirror.flushNow(event.sessionId)
+    // A turn that ended may have pushed a branch or opened a pull request (docs/plans/pr-sync.md §3.4).
+    if (event.status === 'completed' || event.status === 'background' || event.status === 'failed' || event.status === 'interrupted') {
+      void prSync.turnEnded(event.sessionId).catch((error) => log.warn('pr_sync_turn_end_failed', { sessionId: event.sessionId, error: String(error) }))
+    }
   })
   opts.sessionRuntime.on('watchers-changed', (sessionId: string) => publishSessionPresence(sessionId))
 
@@ -1183,6 +1188,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     statusOf: (sessionId) => opts.sessionRuntime.statuses.liveSessionStatus(sessionId),
     registration: () => registrar.current(),
     credential: () => registrar.credential(),
+    savePath: join(dataDir(), 'live-activities.json'),
   })
   registerLiveActivityHandlers(server, liveActivityRelay)
   opts.sessionRuntime.on('session-status', (event: HostEventMap['session.statusChanged']) => liveActivityRelay.sessionStatusChanged(event))

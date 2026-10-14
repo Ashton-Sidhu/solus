@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { PullRequest } from '@solus/contracts/providers'
 import { pullRequestFixture } from './__fixtures__/pull-request'
 import { attachReviewAttention } from '@solus/server/transport/handlers/review-attention'
-import { needsReviewSearchTerms } from '@solus/server/providers/github/provider'
+import { needsReviewSearchTerms } from '@solus/server/providers/github/pull-request-rows'
 
 function pr(overrides: Partial<PullRequest> = {}): PullRequest {
   return pullRequestFixture(1, { title: 'Review me', author: 'author', ...overrides })

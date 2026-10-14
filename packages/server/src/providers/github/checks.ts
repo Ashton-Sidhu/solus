@@ -1,5 +1,6 @@
 import type { CheckConclusion, CheckItem, PrChecksSummary } from '@solus/contracts/checks-types'
 import type { NumberedPrChecksSummary } from '@solus/contracts/checks-rpc-types'
+import { HostBatches, pullRequestByNumber, type RepositoryRows } from './host-batches'
 
 interface GqlCheckRun {
   __typename: 'CheckRun'
@@ -41,56 +42,49 @@ export interface GqlChecksPullRequest {
   }
 }
 
-export interface GqlChecksResponse {
-  repository: Record<string, GqlChecksPullRequest | null>
-}
-
 const PASSING_CONCLUSIONS = new Set<CheckConclusion>(['success', 'neutral', 'skipped'])
 
-export function buildChecksQuery(numbers: number[]): string {
-  const selections = uniquePrNumbers(numbers).map((number) => `
-    p${number}: pullRequest(number: ${number}) {
-      number
-      headRefOid
-      commits(last: 1) {
-        nodes {
-          commit {
-            statusCheckRollup {
-              state
-              contexts(first: 100) {
-                totalCount
-                nodes {
-                  __typename
-                  ... on CheckRun {
-                    databaseId name status conclusion detailsUrl startedAt completedAt
-                    isRequired(pullRequestNumber: ${number})
-                    checkSuite { app { name } }
-                  }
-                  ... on StatusContext {
-                    context state targetUrl description createdAt
-                    isRequired(pullRequestNumber: ${number})
+/** Check runs of pull requests, in documents shared by the repositories of
+ *  one account (host-batches.ts). Each context says whether it is required. */
+export const checkRows = new HostBatches<GqlChecksPullRequest>({
+  operation: 'PrChecks',
+  perDocument: 25,
+  field: pullRequestByNumber((number) => `
+        number
+        headRefOid
+        commits(last: 1) {
+          nodes {
+            commit {
+              statusCheckRollup {
+                state
+                contexts(first: 100) {
+                  totalCount
+                  nodes {
+                    __typename
+                    ... on CheckRun {
+                      databaseId name status conclusion detailsUrl startedAt completedAt
+                      isRequired(pullRequestNumber: ${number})
+                      checkSuite { app { name } }
+                    }
+                    ... on StatusContext {
+                      context state targetUrl description createdAt
+                      isRequired(pullRequestNumber: ${number})
+                    }
                   }
                 }
               }
             }
           }
-        }
-      }
-    }`).join('\n')
-
-  return `query PrChecks($owner: String!, $repo: String!) {
-    repository(owner: $owner, name: $repo) {${selections}
-    }
-  }`
-}
+        }`),
+})
 
 export function normalizeChecksResponse(
-  response: GqlChecksResponse,
+  repository: RepositoryRows<GqlChecksPullRequest>,
   numbers: number[],
   warn: (message: string) => void = () => {},
 ): NumberedPrChecksSummary[] {
   return uniquePrNumbers(numbers).map((number) => {
-    const pullRequest = response.repository[`p${number}`]
+    const pullRequest = repository[`p${number}`]
     if (!pullRequest) throw new Error(`GitHub did not return PR #${number} while loading checks.`)
     return { number, summary: normalizePullRequestChecks(pullRequest, warn) }
   })
@@ -178,7 +172,7 @@ function normalizeCheckRunConclusion(conclusion: string | null): CheckConclusion
   }
 }
 
-function uniquePrNumbers(numbers: number[]): number[] {
+export function uniquePrNumbers(numbers: number[]): number[] {
   const unique = [...new Set(numbers)]
   if (unique.some((number) => !Number.isSafeInteger(number) || number <= 0)) {
     throw new Error('PR numbers must be positive integers.')

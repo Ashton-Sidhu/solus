@@ -12,7 +12,7 @@ import type { HostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
 import type { GitPullRequestStep } from '@solus/contracts/git-types'
 import type * as Contracts from '@solus/contracts/providers'
-import type { PrFilter, PrListPage, PrProjectListing } from '@solus/contracts/providers'
+import type { PrFilter, PrListPage, PrProjectCursor, PrProjectListing } from '@solus/contracts/providers'
 import { repositoryKeyOf } from '@solus/contracts/repository-key'
 import { projectScopeOf, worktreeProjectRoot, type IpcContext } from '@solus/contracts/types'
 import { SvelteMap } from 'svelte/reactivity'
@@ -37,6 +37,8 @@ export function projectPrsKey(serverId: string, ctx: IpcContext): string {
  *  host has already fetched. */
 export interface PrQuery {
   page?: number
+  /** Where `page` starts, as the page before it answered. */
+  cursor?: string
   force?: boolean
 }
 
@@ -62,6 +64,8 @@ export class ProjectPrs {
   filter = $state<PrFilter>({ state: 'open' })
   /** The page a `list` with none of its own would ask for next. */
   nextPage = $state(1)
+  /** Where `nextPage` starts; null when the host named no next page. */
+  nextCursor = $state<string | null>(null)
   hasMore = $state(false)
   loaded = $state(false)
   loading = $state(false)
@@ -248,15 +252,16 @@ export class ProjectPrs {
    * was asked for while this one was on the wire.
    */
   async loadMore(): Promise<void> {
-    if (!this.hasMore || this.loadingMore) return
+    if (!this.hasMore || this.loadingMore || !this.nextCursor) return
     const filter = structuredClone($state.snapshot(this.filter))
     const page = this.nextPage
+    const cursor = this.nextCursor
     const startedAt = this.listKey(filter)
 
     this.loading = true
     this.loadingMore = true
     try {
-      const result = await this.query(filter, { page })
+      const result = await this.query(filter, { page, cursor })
       if (!this.mirrors.list.holds(this.listKey(filter, page), result)) return
       if (this.listKey(this.filter) !== startedAt || this.nextPage !== page) return
 
@@ -267,6 +272,40 @@ export class ProjectPrs {
       this.loading = false
       this.loadingMore = false
     }
+  }
+
+  /**
+   * Mark the next page as on its way from a read that covers several projects
+   * (`PrsStore.loadMore`). Answers where it continues, or null when there is
+   * no next page to ask for.
+   */
+  beginMore(): PrProjectCursor | null {
+    if (!this.hasMore || this.loadingMore || !this.nextCursor) return null
+    this.loading = true
+    this.loadingMore = true
+    return { projectRoot: this.projectScope, page: this.nextPage, cursor: this.nextCursor }
+  }
+
+  /** Take this project's next page from that read. Dropped, as `loadMore`
+   *  drops it, if the list moved while the page was on the wire. */
+  acceptMore(from: PrProjectCursor, filter: PrFilter, listing: PrProjectListing): void {
+    if (this.listKey(this.filter) !== this.listKey(filter) || this.nextPage !== from.page) return
+    if (!('page' in listing)) {
+      this.error = 'unavailable' in listing ? prUnavailable(listing.unavailable) : prSurfaceError(listing.error)
+      return
+    }
+    this.mirrors.list.seed(this.listKey(filter, from.page), listing.page)
+    this.absorbListed(filter, listing.page)
+    this.acceptPage(listing.page, true)
+  }
+
+  failMore(error: Parameters<typeof prSurfaceError>[0]): void {
+    this.error = prSurfaceError(error)
+  }
+
+  endMore(): void {
+    this.loading = false
+    this.loadingMore = false
   }
 
   /**
@@ -346,6 +385,7 @@ export class ProjectPrs {
     }
     this.hasMore = result.hasMore
     this.nextPage = result.page + 1
+    this.nextCursor = result.cursor ?? null
   }
 
   /**
@@ -361,7 +401,7 @@ export class ProjectPrs {
     const safeFilter = structuredClone(filter)
     const page = opts.page ?? 1
     const key = this.listKey(safeFilter, page)
-    const result = await this.mirrors.list.read(key, !!opts.force, () => this.api.prList(ctx, safeFilter, page))
+    const result = await this.mirrors.list.read(key, !!opts.force, () => this.api.prList(ctx, safeFilter, page, opts.cursor))
     if (this.mirrors.list.holds(key, result)) this.absorbListed(safeFilter, result)
     return result
   }

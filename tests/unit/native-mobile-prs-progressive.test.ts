@@ -15,6 +15,11 @@ import { deferred, detailApi, hostWorld, PR_REF, project, pullRequest } from './
 const REPO = 'github.com/o/r'
 const page = (projectRoot: string, items: PullRequest[]): PrProjectListing => ({ projectRoot, page: { items, page: 1, hasMore: false } })
 const checksOf = (headSha: string, state: PrChecksSummary['state']): PrChecksSummary => ({ state, required: [], optional: [], headSha, inFlight: false })
+/** A summary with one failing check, as PR sync pushes it. */
+const failingChecks = (headSha: string): PrChecksSummary => ({
+  ...checksOf(headSha, 'failing'),
+  required: [{ id: 'ci', name: 'ci', conclusion: 'failure', inFlight: false, detailsUrl: null, appName: null, startedAt: null, completedAt: null }],
+})
 const sync = (change: Partial<PrSyncChange>): PrSyncChange => ({ repo: REPO, pullRequests: [], missing: [], checks: [], ...change })
 
 function listApi(api: FakeApi, prs: PullRequest[] = [pullRequest(7)]): FakeApi {
@@ -81,24 +86,19 @@ describe('pull request detail paints part by part', () => {
   })
 })
 
-describe('pull request list paints before its checks', () => {
-  test('rows show while their checks are read, and the checks follow', async () => {
-    const checks = deferred<{ repo: { host: string; owner: string; repo: string }; checks: { number: number; summary: PrChecksSummary }[]; loadFailed: boolean }>()
-    const api = listApi(new FakeApi()).on('prChecks', () => checks.promise)
+describe('pull request list paints in one read', () => {
+  test('rows carry their own checks, so the list asks for no checks', async () => {
+    // WHY: a checks read per project after the list cost one more round trip
+    // per project. The host's list rows say each head's check state.
+    const api = listApi(new FakeApi(), [pullRequest(7, { checksState: 'failing' })])
     const world = await hostWorld(api, { connected: true })
     const directory = new PullRequestDirectory((hostId) => world.connections.connection(hostId), () => null)
-    const read = directory.loadHost('inst-a')
-    await flushPromises()
-    const shown = directory.hostOf('inst-a')
-    expect(shown.kind).toBe('loading')
-    const rows = shown.kind === 'loading' ? shown.previous?.projects[0] : undefined
-    expect(rows?.kind === 'page' && rows.prs.map((pr) => pr.number)).toEqual([7])
+    await directory.loadHost('inst-a')
 
-    checks.resolve({ repo: { host: 'github.com', owner: 'o', repo: 'r' }, checks: [{ number: 7, summary: checksOf('head-7', 'failing') }], loadFailed: false })
-    await read
     const loaded = directory.hostOf('inst-a')
     const project = loaded.kind === 'loaded' ? loaded.value.projects[0] : undefined
-    expect(project?.kind === 'page' && project.checks.map((entry) => entry.state)).toEqual(['failing'])
+    expect(project?.kind === 'page' && project.prs.map((pr) => pr.checksState)).toEqual(['failing'])
+    expect(api.callsOf('prChecks')).toHaveLength(0)
   })
 
   test('a list read again starts with the projects it showed, and reads once when they are the same', async () => {
@@ -121,12 +121,12 @@ describe('pull requests kept fresh by PR sync', () => {
     const api = listApi(new FakeApi())
     const world = await hostWorld(api, { connected: true })
     const directory = new PullRequestDirectory((hostId) => world.connections.connection(hostId), () => null)
-    const releaseList = directory.want('inst-a', '/work/app', [{ kind: 'repository' }])
+    const releaseRow = directory.want('inst-a', '/work/app', [{ kind: 'pull-request', number: 7 }])
     const releaseDetail = directory.want('inst-a', '/work/app', [{ kind: 'review', number: 7 }])
     await flushPromises()
-    expect(api.callsOf('prSetInterest')).toEqual([[expect.anything(), [{ kind: 'repository' }, { kind: 'review', number: 7 }]]])
+    expect(api.callsOf('prSetInterest')).toEqual([[expect.anything(), [{ kind: 'pull-request', number: 7 }, { kind: 'review', number: 7 }]]])
     releaseDetail()
-    releaseList()
+    releaseRow()
     await flushPromises()
     expect(api.callsOf('prSetInterest').at(-1)![1]).toEqual([])
   })
@@ -143,14 +143,14 @@ describe('pull requests kept fresh by PR sync', () => {
 
     world.transports[0]!.emit('pr.changed', sync({
       pullRequests: [pullRequest(7, { title: 'Renamed', updatedAt: '2026-02-01T00:00:00Z' }), pullRequest(9, { state: 'open' })],
-      checks: [{ number: 7, summary: checksOf('head-7', 'failing') }],
+      checks: [{ number: 7, summary: failingChecks('head-7') }],
     }))
     expect(api.calls.length).toBe(reads)
     const list = directory.hostOf('inst-a')
     const rows = list.kind === 'loaded' ? list.value.projects[0] : undefined
     // A new open pull request joins the open list; the changed one is replaced.
     expect(rows?.kind === 'page' && rows.prs.map((pr) => `${pr.number} ${pr.title}`)).toEqual(['9 PR 9', '7 Renamed'])
-    expect(rows?.kind === 'page' && rows.checks.find((entry) => entry.number === 7)?.state).toBe('failing')
+    expect(rows?.kind === 'page' && rows.prs.find((pr) => pr.number === 7)?.checksState).toBe('failing')
     const detail = directory.detailOf(PR_REF)
     expect(detail.kind === 'loaded' && detail.value.overview.pullRequest.title).toBe('Renamed')
     expect(detail.kind === 'loaded' && detail.value.checks?.state).toBe('failing')
@@ -165,12 +165,41 @@ describe('pull requests kept fresh by PR sync', () => {
     const api = listApi(new FakeApi())
     const world = await hostWorld(api, { connected: true })
     const directory = new PullRequestDirectory((hostId) => world.connections.connection(hostId), () => null)
-    directory.want('inst-a', '/work/app', [{ kind: 'repository' }])
+    directory.want('inst-a', '/work/app', [{ kind: 'review', number: 7 }])
     await flushPromises()
     expect(api.callsOf('prSetInterest')).toHaveLength(1)
     await world.transports[0]!.accept(true)
     await flushPromises()
     expect(api.callsOf('prSetInterest')).toHaveLength(2)
+  })
+
+  test('a list on screen reads again when the host says its repository changed; a list off screen reads at the next focus', async () => {
+    // WHY: PR sync does not poll the repository for new pull requests. An
+    // agent turn that ends there may have opened one, and the host says so.
+    const api = listApi(new FakeApi())
+    const world = await hostWorld(api, { connected: true })
+    const directory = new PullRequestDirectory((hostId) => world.connections.connection(hostId), () => null)
+    await directory.loadHost('inst-a')
+    const releaseList = directory.showList()
+
+    world.transports[0]!.emit('pr.changed', sync({ repo: 'github.com/o/other', listChanged: true }))
+    await flushPromises()
+    expect(api.callsOf('prListProjects')).toHaveLength(1)
+
+    api.on('prListProjects', () => [page('/work/app', [pullRequest(8), pullRequest(7)])])
+    world.transports[0]!.emit('pr.changed', sync({ listChanged: true }))
+    await flushPromises()
+    expect(api.callsOf('prListProjects')).toHaveLength(2)
+    const list = directory.hostOf('inst-a')
+    const rows = list.kind === 'loaded' ? list.value.projects[0] : undefined
+    expect(rows?.kind === 'page' && rows.prs.map((pr) => pr.number)).toEqual([8, 7])
+
+    releaseList()
+    world.transports[0]!.emit('pr.changed', sync({ listChanged: true }))
+    await flushPromises()
+    expect(api.callsOf('prListProjects')).toHaveLength(2)
+    await directory.loadHost('inst-a', { freshFor: 30_000 })
+    expect(api.callsOf('prListProjects')).toHaveLength(3)
   })
 
   test('a focus within the fresh time does not read again; a refresh always does', async () => {

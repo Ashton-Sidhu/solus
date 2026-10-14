@@ -95,10 +95,12 @@ says where the resource opens instead.
 
 ## Limits
 
-- Pull request events are recorded only when PR sync reads the needs-review
-  list for a repository, which happens while a client shows that list. A request
-  made and removed between two reads is never seen, and none is recorded while
-  no read runs. The first read for a repository records nothing.
+- Pull request events are recorded only when the server reads the needs-review
+  list for a repository: a pull request list read (its review-requested
+  search), a person's refresh, or the first time a client shows the sidebar
+  count for that repository. No clock reads it. A request made and removed
+  between two reads is never seen, and none is recorded while no read runs.
+  The first read for a repository records nothing.
 - The hub raises no sound, toast, system alert, or push. Those stay with the
   existing delivery owner; background push for personal rows is a separate
   feature that needs recipient-bound device registration.

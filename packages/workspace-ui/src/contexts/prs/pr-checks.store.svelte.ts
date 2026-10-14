@@ -1,16 +1,18 @@
 // CI status for a project's pull requests.
 //
-// A list reads the check runs of the rows it shows (`load`). An open review
-// pane asks PR sync to keep its pull request's check runs fresh (`wantReview`),
-// and what changes arrives with `pr.changed`. Keyed by project, because what
-// arrives is a repository's answer.
+// The check runs of the pull requests a surface shows in full: a review pane,
+// the git rail, a linked pull request. A list row reads its pull request's own
+// `checksState` and asks for nothing here. An open review pane asks PR sync to
+// keep its pull request's check runs fresh (`wantReview`), and what changes
+// arrives with `pr.changed`. Keyed by project, because what arrives is a
+// repository's answer.
 
 import type { HostApi } from '@solus/client-core/host-api'
 import type { PrChecksSummary } from '@solus/contracts/checks-types'
 import type { NumberedPrChecksSummary, PrChecksSnapshot } from '@solus/contracts/checks-rpc-types'
 import type { IpcContext } from '@solus/contracts/types'
 import { SvelteMap } from 'svelte/reactivity'
-import { detached, projectPrsKey, type ProjectPrs } from './project-prs.svelte'
+import { projectPrsKey, type ProjectPrs } from './project-prs.svelte'
 import type { PrsStore } from './prs.store.svelte'
 
 export class PrChecksStore {
@@ -39,12 +41,6 @@ export class PrChecksStore {
 
   loadFailedFor(serverId: string, ctx: IpcContext): boolean {
     return this.byProject.get(projectPrsKey(serverId, ctx))?.loadFailed ?? false
-  }
-
-  /** Ask for the checks of the rows now on screen. */
-  async load(api: HostApi, serverId: string, ctx: IpcContext, numbers: number[]): Promise<void> {
-    if (numbers.length === 0) return
-    this.byProject.set(projectPrsKey(serverId, ctx), await api.prChecks(detached(ctx), numbers))
   }
 
   /** Keep one pull request's check runs fresh while a review pane shows it. */

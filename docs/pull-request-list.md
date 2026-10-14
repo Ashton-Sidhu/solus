@@ -49,7 +49,7 @@ The page keeps the sort and the filters that you chose on this device, and resto
 
 After a reload, the page shows the last list that it read without a search for that scope. The live read then replaces those rows. The remembered list holds at most 99 rows, is used only for the same State filter, and is ignored after seven days.
 
-While the page is open, the host keeps each listed project fresh (docs/plans/pr-sync.md). A change on the code host reaches the rows in about a minute, with no read by the page: an edited title, a new state, or a new pull request, which joins the unsearched list at the top. The page does not poll. When you close it, the host stops reading those projects unless something else wants them. The refresh button asks the host to read the projects at once.
+While the page is open, the host pushes changes to the rows (docs/plans/pr-sync.md). A change on the code host to a pull request that Solus tracks (one that a session or a task links, or that a screen shows) reaches its row in about a minute, with no read by the page. A pull request that Solus opens joins the unsearched list at the top at once. When an agent turn ends in a listed repository, the page reads its first page again, so a pull request that the agent opened shows. The page does not poll, and the host does not read the repository for the page. A pull request that someone opens on GitHub shows at the next open of the page, after a turn ends in that repository, or when you push the refresh button, which asks the host to read the projects at once. On mobile, the Pull Requests tab reads the hosts again when it gets focus more than 30 seconds after its last read.
 
 When you change a filter, the rows on screen stay and are narrowed to the new filter until the host answers. The page shows the loading skeleton only when no row matches yet, or when you change the project.
 
@@ -214,6 +214,39 @@ Merge always asks for confirmation first, and merges with the default method
 that the host names. Every action changes the row at once. If the host refuses, the
 row goes back to its earlier state and an error message tells you why.
 
+## How the host reads the list
+
+The host reads the list with GitHub search, not one request for each project.
+For each host and GitHub account, one GraphQL search finds the pull requests of
+up to 100 projects: `is:pr is:open repo:a repo:b … sort:updated-desc`, then the
+State filter and the search text. The host splits the rows by project. The
+same document holds three more searches across the same projects: your pull
+requests (`author:`), and the pull requests that ask for your review
+(`review-requested:`) or are assigned to you (`assignee:`). These fill the
+Authored and Review requested sections. A page holds up to 100 rows across the
+projects. The next page is the same search with `updated:<=` the last row of
+the page before it, so projects at the same place share one search.
+
+| Read | GraphQL requests | REST requests |
+|---|---|---|
+| Page one of N projects, with sections | one for each 100 projects | 0 |
+| The next page of several projects | 1 | 0 |
+| A search across N projects | one for each 100 projects | 0 |
+
+Each row carries the combined state of the checks on its head commit
+(`checksState`), so the list asks for no checks. Optional checks count, as on
+GitHub's own list. PR sync pushes new checks to the row. Each row carries the
+merge methods that the repository allows. The detail read narrows them by the
+rules of the base branch, so the list reads no branch rules.
+
+Search can miss a project. GitHub knows a renamed repository only by its new
+name: the host reads the new name beside the search, searches again with it,
+and keeps it. The search index can also be late with a new pull request. When
+the search found every match but fewer rows than the repository has, the host
+reads that project's own listing (`repository.pullRequests`) in one more
+request. A project that the account cannot see is read alone with the next
+credential.
+
 ## Row colours
 
 The state glyph, review verdict, checks mark and diff counts use full-strength
@@ -225,7 +258,9 @@ red; "Approved" emerald and "Changes requested" amber.
 
 The list does not load pages on scroll. When the host has more, the end of the
 list shows **Load more pull requests**; while a page loads it reads "Loading
-more". At 500 rows it reads "Narrow your search to find more pull requests."
+more". Each project continues from a cursor that its last page gave. With
+**All projects**, one read for each host gets the next page of every project
+that has more. At 500 rows it reads "Narrow your search to find more pull requests."
 If the filters hide every loaded row while the host still has more, the empty
 state offers **Load more pull requests** next to **Clear filters**.
 

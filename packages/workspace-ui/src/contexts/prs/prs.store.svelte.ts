@@ -14,7 +14,7 @@ import type { HostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { serverConnections } from '@solus/client-core/server-connections'
-import type { PrFilter, PrInterest, PrSyncChange } from '@solus/contracts/providers'
+import type { PrFilter, PrInterest, PrProjectCursor, PrSyncChange } from '@solus/contracts/providers'
 import { projectScopeOf, worktreeProjectRoot, type IpcContext } from '@solus/contracts/types'
 import { SvelteMap } from 'svelte/reactivity'
 import { detached, ProjectPrs, projectPrsKey } from './project-prs.svelte'
@@ -86,6 +86,15 @@ export class PrsStore {
     return () => this.listeners.delete(listener)
   }
 
+  /** Hear when the lists of these projects must be read again: an agent turn
+   *  ended or a git action ran in their repository (docs/plans/pr-sync.md §3.4). */
+  onListChanged(listener: (projects: ProjectPrs[]) => void): () => void {
+    this.listen()
+    return this.onChange((change, projects) => {
+      if (change.listChanged && projects.length) listener(projects)
+    })
+  }
+
   /** Send a project's interest after the current task, so the surfaces that
    *  mount together cost one request. */
   private send(wants: ProjectWants): void {
@@ -152,6 +161,7 @@ export class PrsStore {
     const projects = this.projectsReading(serverId, change.repo)
     for (const project of projects) {
       for (const pullRequest of change.pullRequests) project.absorbSynced(pullRequest)
+      for (const { number, summary } of change.checks) project.prs.get(number)?.absorbChecks(summary)
     }
     for (const listener of this.listeners) listener(change, projects)
   }
@@ -283,6 +293,42 @@ export class PrsStore {
     } finally {
       for (const { project, token } of reads) project.endListing(token)
     }
+  }
+
+  /**
+   * The next page of each of these projects that has one, in one
+   * `prListProjects` per host: the host reads them all in one search.
+   */
+  async loadMore(projects: ProjectPrs[]): Promise<void> {
+    const byHost = new Map<string, Array<{ project: ProjectPrs; from: PrProjectCursor }>>()
+    for (const project of projects) {
+      const from = project.beginMore()
+      if (!from) continue
+      const reads = byHost.get(project.serverId) ?? []
+      reads.push({ project, from })
+      byHost.set(project.serverId, reads)
+    }
+    await Promise.all([...byHost.values()].map(async (reads) => {
+      const [{ project: first }] = reads
+      const filter = detached(first.filter)
+      try {
+        const listings = await first.hostApi.prListProjects(
+          detached(first.hostContext),
+          reads.map(({ project }) => project.projectScope),
+          filter,
+          reads.map(({ from }) => from),
+        )
+        const byRoot = new Map(listings.map((listing) => [listing.projectRoot, listing]))
+        for (const { project, from } of reads) {
+          const listing = byRoot.get(project.projectScope)
+          if (listing) project.acceptMore(from, filter, listing)
+        }
+      } catch (error) {
+        for (const { project } of reads) project.failMore(error)
+      } finally {
+        for (const { project } of reads) project.endMore()
+      }
+    }))
   }
 
   /**

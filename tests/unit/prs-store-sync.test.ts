@@ -151,7 +151,7 @@ describe('pr.changed', () => {
     const projectB = store.get(b.api, 'host-b', ctx)
     await readFirstPage(store, projectA)
     await readFirstPage(store, projectB)
-    const release = store.want(a.api, 'host-a', ctx, [{ kind: 'repository' }])
+    const release = store.want(a.api, 'host-a', ctx, [{ kind: 'pull-request', number: 33 }])
     await settle()
 
     serverConnectionsMock.emit('host-a', 'pr.changed', emptyChange({
@@ -168,7 +168,7 @@ describe('pr.changed', () => {
     const store = await newStore()
     const project = store.get(api, 'host-a', ctx)
     await readFirstPage(store, project)
-    const release = store.want(api, 'host-a', ctx, [{ kind: 'repository' }])
+    const release = store.want(api, 'host-a', ctx, [{ kind: 'pull-request', number: 33 }])
     await settle()
 
     serverConnectionsMock.emit('host-a', 'pr.changed', emptyChange({
@@ -207,6 +207,30 @@ describe('pr.changed', () => {
     release()
   })
 
+  test('pushed checks reach the list row of the same head, and only that head', async () => {
+    // WHY: the list reads no checks of its own. A push is how a row learns
+    // that CI finished, and checks of an older head are not this row's.
+    const { api } = host('host-a')
+    const store = await newStore()
+    const project = store.get(api, 'host-a', ctx)
+    await readFirstPage(store, project)
+    const release = store.want(api, 'host-a', ctx, [{ kind: 'pull-request', number: 33 }])
+    await settle()
+    const failing = { id: 'ci', name: 'ci', conclusion: 'failure', inFlight: false, detailsUrl: null, appName: null, startedAt: null, completedAt: null }
+
+    serverConnectionsMock.emit('host-a', 'pr.changed', emptyChange({
+      checks: [{ number: 33, summary: { state: 'passing', required: [], optional: [failing], headSha: 'old-head', inFlight: false } } as never],
+    }))
+    expect(project.prFor(33)?.checksState).toBeUndefined()
+
+    // An optional failure fails the row, as on GitHub's own list.
+    serverConnectionsMock.emit('host-a', 'pr.changed', emptyChange({
+      checks: [{ number: 33, summary: { state: 'passing', required: [], optional: [failing], headSha: 'head-33', inFlight: false } } as never],
+    }))
+    expect(project.prFor(33)?.checksState).toBe('failing')
+    release()
+  })
+
   test('a sidebar row reads the checks of its repository only', async () => {
     // WHY: a sidebar row has a pull request, not a host context. It must find
     // the checks the PR surfaces read, and the same number in another
@@ -229,6 +253,44 @@ describe('pr.changed', () => {
   })
 })
 
+describe('list changes', () => {
+  test('a host that says a repository changed reaches the listener of its projects, which reads the list again', async () => {
+    // WHY: PR sync does not poll a repository for new pull requests. When an
+    // agent turn ends there, the host says so, and an open list reads its
+    // first page again to show what the agent opened.
+    const a = host('host-a')
+    host('host-b')
+    let listed = 0
+    a.api.prListProjects = async (_ctx: IpcContext, roots: string[]) => {
+      listed += 1
+      return roots.map((projectRoot) => ({ projectRoot, page: { items: [pullRequestFixture(34), pullRequestFixture(33)], page: 1, hasMore: false } }))
+    }
+    const store = await newStore()
+    const project = store.get(a.api, 'host-a', ctx)
+    const release = store.want(a.api, 'host-a', ctx, [{ kind: 'pull-request', number: 33 }])
+    await settle()
+    const heard: string[][] = []
+    const stop = store.onListChanged((projects) => {
+      heard.push(projects.map(({ key }) => key))
+      if (projects.includes(project)) void readFirstPage(store, project)
+    })
+
+    serverConnectionsMock.emit('host-a', 'pr.changed', emptyChange())
+    serverConnectionsMock.emit('host-a', 'pr.changed', emptyChange({ repo: 'github.com/acme/other', listChanged: true }))
+    serverConnectionsMock.emit('host-b', 'pr.changed', emptyChange({ listChanged: true }))
+    expect(heard).toEqual([])
+
+    serverConnectionsMock.emit('host-a', 'pr.changed', emptyChange({ listChanged: true }))
+    await settle()
+    expect(heard).toEqual([[project.key]])
+    expect(listed).toBe(1)
+    expect(project.items.map((item) => item.number)).toEqual([34, 33])
+
+    stop()
+    release()
+  })
+})
+
 describe('linked pull requests', () => {
   test('a URL-named link reads the live state of the project it was found in', async () => {
     // WHY: a link names its repository (`github.com/acme/repo`), but a project
@@ -239,7 +301,7 @@ describe('linked pull requests', () => {
     const store = await newStore()
     const project = store.get(api, 'host-a', ctx)
     await readFirstPage(store, project)
-    const release = store.want(api, 'host-a', ctx, [{ kind: 'repository' }])
+    const release = store.want(api, 'host-a', ctx, [{ kind: 'pull-request', number: 33 }])
     await settle()
     serverConnectionsMock.emit('host-a', 'pr.changed', emptyChange({
       pullRequests: [pullRequestFixture(33, { state: 'merged', updatedAt: '2026-02-01T00:00:00Z' })],

@@ -9,7 +9,7 @@ import { sessionIdOfThread } from '../data/sessions/session-lineage'
 import { readPrLinkInterests, recordPullRequestObservation, type PrLinkInterest } from '../data/tasks/task-links'
 import { unfinishedTaskProjects } from '../data/tasks/task-store'
 import { taskSessions } from '../data/tasks/task-sessions'
-import { recentWorktreeSessions } from '../data/tasks/host-records'
+import { recentWorktreeSessions, sessionRecordsFor } from '../data/tasks/host-records'
 import {
   linkSessionPullRequest,
   readSessionPullRequestInterests,
@@ -20,6 +20,7 @@ import { GitHubRateLimitedError } from '../providers/github/rate-limit'
 import { asBackgroundWork } from '../providers/github/request-budget'
 import { codeHostFor, type CodeHost } from './code-host'
 import { prIndex, repoKeyOf } from './pr-index'
+import { withBranchRules } from './pull-request'
 import { HOST_SCOPE } from '../execution/seats/acting-identity'
 import { requireActingScope, withActingScope, withUserScope, type ActingScope } from '../vault/acting-scope'
 
@@ -27,12 +28,14 @@ const log = createLogger('main', 'pr-sync')
 /** How often the clock looks for a repository that is due. */
 const CLOCK_MS = 5_000
 /** Cadence of a repository with interest (docs/plans/pr-sync.md §11). The
- *  recent list keeps this cadence; a faster pass for a review pane reads only
- *  check runs. */
+ *  open pull requests it tracks are read by number at this cadence; a faster
+ *  pass for a review pane reads only check runs. */
 const REPOSITORY_MS = 60_000
+/** The closed pull requests it tracks are read by number at this cadence:
+ *  a closed pull request can open again. A merged one cannot. */
+const CLOSED_MS = 15 * 60_000
 const REVIEW_MS = 15_000
 const CHECKS_IN_FLIGHT_MS = 10_000
-const NEEDS_REVIEW_MS = 5 * 60_000
 /** Live tasks change slowly; their interest is read from the database this often. */
 const TASK_INTEREST_MS = 60_000
 /** A repository the code host would not answer for waits this long. */
@@ -60,7 +63,8 @@ interface TaskInterest {
   scopes: Set<string>
   /** Every number a link names, live or not, so an observation reaches it. */
   linked: Set<number>
-  /** Numbers live work links whose pull request is not settled. */
+  /** Numbers live work links whose pull request is open or closed: a closed
+   *  one can open again. */
   open: Set<number>
   /** Numbers live work links that were seen merged, with the merge time. A
    *  task can still be waiting on a busy session. */
@@ -83,6 +87,9 @@ interface Wanted {
   numbers: Set<number>
   review: Set<number>
   needsReview: boolean
+  /** Branches with no open pull request whose lookup is due: new in the
+   *  interest, or a turn of their session ended. */
+  branches: Set<string>
   /** A client holds this repository open, so it hears every change. */
   clientsListening: boolean
 }
@@ -94,20 +101,23 @@ interface RepositorySync {
   byBranch: Map<string, number>
   /** Branch owners already linked, as `branch#number`. */
   linkedBranches: Set<string>
-  watermark: string | null
-  /** When a tick last read this repository; 0 before the first. */
-  syncedAt: number
+  /** When each branch was last looked up on the code host. */
+  branchesLookedUpAt: Map<string, number>
   nextAt: number
-  /** When the recent list is next read; 0 reads it on the next pass. */
-  listAt: number
+  /** When the open pull requests are next read by number; 0 reads them on
+   *  the next pass. */
+  numbersAt: number
+  /** When the closed pull requests are next read by number. */
+  closedNumbersAt: number
   /** Numbers another read path saw in a new state. The next tick reads them
    *  again itself before it writes a link: that other answer is not trusted. */
   reread: Set<number>
   /** Check runs last published, as JSON, by number. */
   checks: Map<number, string>
   checksInFlight: boolean
+  /** The open pull requests waiting on the viewer, from the last answer any
+   *  read gave; null until one did. */
   needsReview: number[] | null
-  needsReviewAt: number
 }
 
 interface Observation {
@@ -115,6 +125,24 @@ interface Observation {
   pullRequest: PullRequest | null
   /** Clients hold an earlier answer that this one replaces. */
   isNews: boolean
+}
+
+/** One repository's reads in one tick. */
+interface RepositoryRun {
+  key: string
+  sync: RepositorySync
+  wanted: Wanted
+  /** Numbers held before this tick: a change to one of them is news. */
+  heldBefore: Set<number>
+  /** One tick can see a pull request twice (a branch lookup, then a read by
+   *  number); the later sight replaces the first. */
+  observations: Map<number, Observation>
+  /** Numbers a read of this tick answered, changed or not. */
+  seen: Set<number>
+  /** Check runs that changed since they were last published. */
+  checks: NumberedPrChecksSummary[]
+  /** A step failed or was skipped; the later steps do not run. */
+  stopped: boolean
 }
 
 export interface PrSyncDeps {
@@ -134,17 +162,26 @@ export interface PrSyncDeps {
    *  user key. A machine reads as itself; the Solus API, which has no connection
    *  of its own, as a person whose live session works in that repository. */
   repositoryReader?: (repositoryKey: string) => string | null
+  /** The checkout a session works in, to find the repository of a turn that
+   *  ended. A machine reads its session index. */
+  sessionCheckout?: (sessionId: string) => string | null
 }
 
 /**
  * The one host service that reads pull request state from the code host.
  *
  * A repository is read only while a live task or a connected client has
- * interest in it. A tick costs one request, however many tasks, surfaces and
- * devices want the repository: the pull requests updated since the last tick.
- * Numbers never seen are read in one batch. A merged, closed, or missing pull
- * request is not read again by number, and its answer is written to the task
- * and session links, so a restart does not ask again either. Clients hear changes as
+ * interest in it. A tick reads the open pull requests that live work and
+ * clients name, by number, however many tasks, surfaces and devices want
+ * them; the repositories of one account share that request. A closed pull
+ * request is read by number less often, because it can open again. A branch
+ * with no open pull request is looked up by its name when it first joins the
+ * interest, when a turn of its session ends, and on a person's refresh, never
+ * on a clock. A merged or missing pull request is not read again by number,
+ * and its answer is written to the task and session links, so a restart does
+ * not ask again either. The pull requests waiting on the viewer come from
+ * every list read's review-requested search; PR sync asks for them only when a
+ * client wants them and no read has answered yet. Clients hear changes as
  * `pr.changed` and never poll.
  */
 export class PrSync {
@@ -155,12 +192,15 @@ export class PrSync {
   private readonly rateLimitedUntil = new Map<string, number>()
   private taskInterests = new Map<string, TaskInterest>()
   private taskInterestsAt = 0
+  /** Sessions whose turn ended since the last tick, by stable id. */
+  private readonly endedTurns = new Set<string>()
   private readonly codeHost: NonNullable<PrSyncDeps['codeHost']>
   private readonly isSessionBusy: NonNullable<PrSyncDeps['isSessionBusy']>
   private readonly liveCheckouts: NonNullable<PrSyncDeps['liveCheckouts']>
+  private readonly sessionCheckout: NonNullable<PrSyncDeps['sessionCheckout']>
   private readonly now: () => number
   private timer: ReturnType<typeof setInterval> | null = null
-  private stopHearingReads: (() => void) | null = null
+  private stopHearingReads: Array<() => void> = []
   private running: Promise<void> | null = null
   private rerun = false
 
@@ -168,6 +208,7 @@ export class PrSync {
     this.codeHost = deps.codeHost ?? codeHostFor
     this.isSessionBusy = deps.isSessionBusy ?? (() => false)
     this.liveCheckouts = deps.liveCheckouts ?? liveCheckouts
+    this.sessionCheckout = deps.sessionCheckout ?? ((sessionId) => sessionRecordsFor([sessionId]).get(sessionId)?.checkout_path ?? null)
     this.now = deps.now ?? Date.now
   }
 
@@ -176,21 +217,24 @@ export class PrSync {
     // Nobody waits on a clock tick, so it leaves GitHub's reserve to people.
     this.timer = setInterval(() => void asBackgroundWork(() => this.tick()), CLOCK_MS)
     this.timer.unref?.()
-    this.stopHearingReads = prIndex.onPullRequestRead((repo, pullRequest) => this.hearRead(repo, pullRequest))
+    this.stopHearingReads = [
+      prIndex.onPullRequestRead((repo, pullRequest) => this.hearRead(repo, pullRequest)),
+      prIndex.onNeedsReviewRead((repo, viewer, rows) => this.hearNeedsReview(repo, viewer, rows)),
+    ]
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer)
     this.timer = null
-    this.stopHearingReads?.()
-    this.stopHearingReads = null
+    for (const stopHearing of this.stopHearingReads) stopHearing()
+    this.stopHearingReads = []
   }
 
   /**
    * Another read path — a review pane's fresh read, a PR watch — saw a pull
    * request in a state other than the one PR sync holds. Without this, the
-   * links, tasks, and sessions waited for the repository's next list read, up
-   * to a minute. The repository is due now, and the tick reads the number
+   * links, tasks, and sessions waited for the repository's next read by
+   * number, up to a minute. The repository is due now, and the tick reads the number
    * again itself; the cost is one read when a state changes.
    */
   private hearRead(repo: RepoRef, pullRequest: PullRequest): void {
@@ -200,6 +244,33 @@ export class PrSync {
     sync.reread.add(pullRequest.number)
     sync.nextAt = 0
     void this.tick()
+  }
+
+  /**
+   * A new answer about the pull requests waiting on a viewer: the
+   * review-requested search of a list read, or PR sync's own read. The
+   * notifications hub records what is new in it. A repository PR sync holds
+   * keeps the answer, and its clients hear when it changed.
+   */
+  private hearNeedsReview(repo: RepoRef, viewer: string, answer: PullRequest[]): void {
+    void this.deps.observeNeedingAttention?.(repo, viewer, answer).catch((error) => {
+      log.warn('pr_sync_attention_observation_failed', { repo: repoKeyOf(repo), error: error instanceof Error ? error.message : String(error) })
+    })
+    const sync = this.repositories.get(repoKeyOf(repo).toLowerCase())
+    if (sync) this.keepNeedsReview(sync, viewer, answer)
+  }
+
+  /** Keep an answer about the pull requests waiting on the viewer, and
+   *  publish it when the numbers changed. */
+  private keepNeedsReview(sync: RepositorySync, viewer: string, answer: PullRequest[]): void {
+    const rows = attachReviewAttention(answer, viewer)
+      .filter((pullRequest) => pullRequest.needsMyReview)
+      .map((pullRequest) => withHeldBranchRules(sync.host, pullRequest))
+    const numbers = rows.map(({ number }) => number).sort((a, b) => a - b)
+    if (sync.needsReview && sync.needsReview.join() === numbers.join()) return
+    for (const row of rows) sync.records.set(row.number, { result: 'found', pullRequest: row })
+    sync.needsReview = numbers
+    this.deps.publish({ repo: repoKeyOf(sync.host.repo).toLowerCase(), pullRequests: rows, missing: [], checks: [], needsReview: numbers })
   }
 
   /** Run every repository that is due. A call during a run runs once more after it. */
@@ -247,6 +318,25 @@ export class PrSync {
     return snapshotOf(key, sync, interests)
   }
 
+  /**
+   * A turn ended in a session. Its agent may have pushed a branch or opened a
+   * pull request, so this tick looks up the branches of its checkouts that
+   * have no open pull request, and a list that shows its repository reads its
+   * first page again (`listChanged`). The answer arrives as `pr.changed`.
+   */
+  async turnEnded(sessionId: string): Promise<void> {
+    this.endedTurns.add(sessionId)
+    // A new checkout, or a branch the agent made, joins the interest now.
+    this.taskInterestsAt = 0
+    void this.tick()
+    const checkout = this.sessionCheckout(sessionId)
+    const host = checkout ? await this.codeHost(checkout).catch(() => null) : null
+    if (!host) return
+    // The lists the server holds are older than the turn.
+    prIndex.invalidate(host.repo)
+    this.deps.publish({ repo: repoKeyOf(host.repo).toLowerCase(), pullRequests: [], missing: [], checks: [], listChanged: true })
+  }
+
   /** Every connection closed at once, as when the transport rebinds. */
   dropClients(): void {
     this.clientInterests.clear()
@@ -268,15 +358,18 @@ export class PrSync {
   refresh(host: CodeHost): void {
     prIndex.invalidate(host.repo)
     const sync = this.syncFor(repoKeyOf(host.repo).toLowerCase(), host)
-    sync.needsReviewAt = 0
+    sync.needsReview = null
     sync.nextAt = 0
-    sync.listAt = 0
+    sync.numbersAt = 0
+    sync.closedNumbersAt = 0
+    sync.branchesLookedUpAt.clear()
     void this.tick()
   }
 
   /** A write's answer: the host's word on the pull request it changed. */
-  async apply(host: CodeHost, pullRequest: PullRequest): Promise<void> {
+  async apply(host: CodeHost, answer: PullRequest): Promise<void> {
     const key = repoKeyOf(host.repo).toLowerCase()
+    const pullRequest = withHeldBranchRules(host, answer)
     const sync = this.repositories.get(key)
     sync?.records.set(pullRequest.number, { result: 'found', pullRequest })
     seedIndex(host, pullRequest)
@@ -289,8 +382,8 @@ export class PrSync {
     let sync = this.repositories.get(key)
     if (!sync) {
       sync = {
-        host, records: new Map(), byBranch: new Map(), linkedBranches: new Set(),
-        watermark: null, syncedAt: 0, nextAt: 0, listAt: 0, reread: new Set(), checks: new Map(), checksInFlight: false, needsReview: null, needsReviewAt: 0,
+        host, records: new Map(), byBranch: new Map(), linkedBranches: new Set(), branchesLookedUpAt: new Map(),
+        nextAt: 0, numbersAt: 0, closedNumbersAt: 0, reread: new Set(), checks: new Map(), checksInFlight: false, needsReview: null,
       }
       this.repositories.set(key, sync)
     }
@@ -306,28 +399,58 @@ export class PrSync {
     for (const key of this.repositories.keys()) {
       if (!keys.has(key)) this.repositories.delete(key)
     }
+    const endedTurns = new Set(this.endedTurns)
+    this.endedTurns.clear()
+    const runs: RepositoryRun[] = []
     for (const key of keys) {
       const host = this.clientInterests.get(key)?.host ?? this.taskInterests.get(key)?.host
       if (!host) continue
       const sync = this.syncFor(key, host)
-      if (sync.nextAt > this.now() || (this.rateLimitedUntil.get(host.repo.host) ?? 0) > this.now()) continue
-      const wanted = this.wantedIn(key)
-      try {
-        await this.readAsItsReader(key, () => this.syncRepository(key, sync, wanted))
-        sync.syncedAt = this.now()
-        sync.nextAt = this.now() + cadenceOf(sync, wanted)
-      } catch (error) {
-        if (error instanceof GitHubRateLimitedError) {
-          sync.nextAt = error.retryAt ?? this.now() + FAILURE_BACKOFF_MS
-          this.rateLimitedUntil.set(host.repo.host, sync.nextAt)
-          log.warn('pr_sync_rate_limited', { repository: key, retryAt: new Date(sync.nextAt).toISOString() })
-          continue
-        }
-        sync.nextAt = this.now() + FAILURE_BACKOFF_MS
-        log.warn('pr_sync_repository_failed', { repository: key, error: String(error) })
-      }
+      const turnEnded = [...this.taskInterests.get(key)?.branches.values() ?? []].some((owners) => owners.some((id) => endedTurns.has(id)))
+      if ((sync.nextAt > this.now() && !turnEnded) || (this.rateLimitedUntil.get(host.repo.host) ?? 0) > this.now()) continue
+      runs.push({
+        key, sync, wanted: this.wantedIn(key, sync, endedTurns), heldBefore: new Set(sync.records.keys()),
+        observations: new Map(), seen: new Set(), checks: [], stopped: false,
+      })
+    }
+    // Each read of every repository goes at once, and the reads of one
+    // account share its documents (docs/plans/pr-sync.md §11). A spent quota
+    // fails the one document that found it, and every repository in it.
+    await Promise.all(runs.map((run) => this.step(run, () => this.readBranches(run))))
+    await Promise.all(runs.map((run) => this.step(run, () => this.readNumbers(run))))
+    await Promise.all(runs.map((run) => this.step(run, () => this.readChecks(run))))
+    for (const run of runs) await this.step(run, () => this.readNeedsReview(run))
+    // The records already hold what the reads found, so it is written and
+    // published also when a later read of the repository stopped.
+    for (const run of runs) await this.finish(run)
+    for (const { sync, wanted, stopped } of runs) {
+      if (stopped) continue
+      sync.nextAt = this.now() + cadenceOf(sync, wanted)
     }
     await this.settleSessions()
+  }
+
+  /** One step of one repository's tick, read as its reader. A failure, or a
+   *  rate limit on its code host, stops the repository's tick. */
+  private async step(run: RepositoryRun, read: () => Promise<void>): Promise<void> {
+    const { key, sync } = run
+    if (run.stopped || (this.rateLimitedUntil.get(sync.host.repo.host) ?? 0) > this.now()) {
+      run.stopped = true
+      return
+    }
+    try {
+      await this.readAsItsReader(key, read)
+    } catch (error) {
+      run.stopped = true
+      if (error instanceof GitHubRateLimitedError) {
+        sync.nextAt = error.retryAt ?? this.now() + FAILURE_BACKOFF_MS
+        this.rateLimitedUntil.set(sync.host.repo.host, sync.nextAt)
+        log.warn('pr_sync_rate_limited', { repository: key, retryAt: new Date(sync.nextAt).toISOString() })
+        return
+      }
+      sync.nextAt = this.now() + FAILURE_BACKOFF_MS
+      log.warn('pr_sync_repository_failed', { repository: key, error: String(error) })
+    }
   }
 
   /**
@@ -343,31 +466,54 @@ export class PrSync {
     return reader ? withUserScope(reader, read) : withActingScope(HOST_SCOPE, read)
   }
 
-  private wantedIn(key: string): Wanted {
+  private wantedIn(key: string, sync: RepositorySync, endedTurns: Set<string>): Wanted {
     const task = this.taskInterests.get(key)
     const clients = this.clientInterests.get(key)
     const wanted: Wanted = {
       numbers: new Set(task?.open),
       review: new Set(),
       needsReview: false,
+      branches: new Set(),
       clientsListening: !!clients,
     }
+    /** A matched pull request is read by number; a branch with no open one is
+     *  looked up when it is new in the interest or its session's turn ended. */
+    const wantBranch = (branch: string, turnEnded: boolean): void => {
+      const number = sync.byBranch.get(branch)
+      const record = number === undefined ? undefined : sync.records.get(number)
+      if (number !== undefined) wanted.numbers.add(number)
+      if (record?.result === 'found' && record.pullRequest.state === 'open') return
+      if (!sync.branchesLookedUpAt.has(branch) || turnEnded) wanted.branches.add(branch)
+    }
+    for (const [branch, owners] of task?.branches ?? []) wantBranch(branch, owners.some((id) => endedTurns.has(id)))
     for (const interests of clients?.owners.values() ?? []) {
       for (const interest of interests) {
         if (interest.kind === 'pull-request') wanted.numbers.add(interest.number)
         else if (interest.kind === 'review') {
           wanted.numbers.add(interest.number)
           wanted.review.add(interest.number)
-        } else if (interest.kind === 'needs-review') wanted.needsReview = true
+        } else if (interest.kind === 'branch') wantBranch(interest.head, false)
+        else wanted.needsReview = true
       }
     }
     return wanted
   }
 
-  private async syncRepository(key: string, sync: RepositorySync, wanted: Wanted): Promise<void> {
-    const observations = await this.readChanges(sync, wanted)
-    const checks = await this.readChecks(sync, wanted)
-    const needsReview = await this.readNeedsReview(sync, wanted, observations)
+  /** What the reads of this tick found reaches the links, the tasks, and
+   *  the clients, one repository at a time. */
+  private async finish(run: RepositoryRun): Promise<void> {
+    try {
+      await this.readAsItsReader(run.key, () => this.finishRepository(run))
+    } catch (error) {
+      run.stopped = true
+      run.sync.nextAt = this.now() + FAILURE_BACKOFF_MS
+      log.warn('pr_sync_repository_failed', { repository: run.key, error: String(error) })
+    }
+  }
+
+  private async finishRepository(run: RepositoryRun): Promise<void> {
+    const { key, sync, wanted, checks } = run
+    const observations = [...run.observations.values()]
     const task = this.taskInterests.get(key)
     if (task) {
       for (const { number, pullRequest } of observations) {
@@ -375,15 +521,13 @@ export class PrSync {
       }
     }
     const published = wanted.clientsListening ? observations : observations.filter(({ isNews }) => isNews)
-    if (published.length || checks.length || needsReview) {
-      const change: PrSyncChange = {
+    if (published.length || checks.length) {
+      this.deps.publish({
         repo: key,
         pullRequests: published.flatMap(({ pullRequest }) => pullRequest ? [pullRequest] : []),
         missing: published.flatMap(({ number, pullRequest }) => pullRequest ? [] : [number]),
         checks,
-      }
-      if (needsReview) change.needsReview = needsReview
-      this.deps.publish(change)
+      })
     }
     if (task) {
       await this.linkBranches(sync, task)
@@ -403,55 +547,70 @@ export class PrSync {
     this.taskInterestsAt = 0
   }
 
-  /**
-   * One tick's reads: what changed since the last list read, when the list is
-   * due, and linked numbers never seen. Branches match these stored rows; an
-   * unmatched branch costs no read.
-   */
-  private async readChanges(sync: RepositorySync, wanted: Wanted): Promise<Observation[]> {
+  /** The pull requests of each branch whose lookup is due. The branch
+   *  matches its open pull request, or else its newest one. */
+  private async readBranches(run: RepositoryRun): Promise<void> {
+    const { sync, wanted } = run
+    if (!wanted.branches.size) return
     const { repo, provider } = sync.host
-    // News is a change since an earlier tick. One tick can see a pull request
-    // twice (a recent-list read, then a numbered read); the later sight replaces it.
-    const heldBefore = new Set(sync.records.keys())
-    const observations = new Map<number, Observation>()
-    const observe = (number: number, pullRequest: PullRequest | null) => {
-      const previous = sync.records.get(number)
-      sync.records.set(number, pullRequest ? { result: 'found', pullRequest } : { result: 'missing' })
-      if (pullRequest && (!sync.byBranch.has(pullRequest.headRef) || pullRequest.state === 'open')) {
-        sync.byBranch.set(pullRequest.headRef, number)
-      }
-      if (previous && !recordChanged(previous, pullRequest)) return
-      if (pullRequest) seedIndex(sync.host, pullRequest)
-      observations.set(number, { number, pullRequest, isNews: heldBefore.has(number) })
+    const heads = [...wanted.branches]
+    const found = await provider.review.getPullRequestsByHead(repo, heads)
+    for (const head of heads) {
+      sync.branchesLookedUpAt.set(head, this.now())
+      const rows = found.get(head) ?? []
+      const pullRequest = rows.find(({ state }) => state === 'open') ?? rows[0]
+      if (!pullRequest) continue
+      observe(run, pullRequest.number, pullRequest)
+      sync.byBranch.set(head, pullRequest.number)
     }
-
-    if (this.now() >= sync.listAt) {
-      for (const pullRequest of await provider.review.listRecentPullRequests(repo, sync.watermark)) {
-        observe(pullRequest.number, pullRequest)
-        if (!sync.watermark || pullRequest.updatedAt > sync.watermark) sync.watermark = pullRequest.updatedAt
-      }
-      sync.listAt = this.now() + REPOSITORY_MS
-    }
-    const unknown = [...wanted.numbers].filter((number) => !sync.records.has(number))
-    const numbers = [...new Set([...unknown, ...sync.reread])]
-    sync.reread.clear()
-    if (numbers.length) {
-      for (const [number, pullRequest] of await provider.review.getPullRequests(repo, numbers)) observe(number, pullRequest)
-    }
-    return [...observations.values()]
   }
 
-  /** Check runs of the pull requests an open review pane shows. Only what changed. */
-  private async readChecks(sync: RepositorySync, wanted: Wanted): Promise<NumberedPrChecksSummary[]> {
-    if (!wanted.review.size) {
+  /**
+   * Numbers never seen, numbers another read path saw change, each
+   * `REPOSITORY_MS` the open pull requests that are wanted, and each
+   * `CLOSED_MS` the closed ones. A merged or missing one is not read again;
+   * nor is one this tick has read.
+   */
+  private async readNumbers(run: RepositoryRun): Promise<void> {
+    const { sync, wanted } = run
+    const isDue = this.now() >= sync.numbersAt
+    const isClosedDue = this.now() >= sync.closedNumbersAt
+    const numbers = [...new Set([...wanted.numbers, ...sync.reread])].filter((number) => {
+      if (run.seen.has(number)) return false
+      const record = sync.records.get(number)
+      if (!record || sync.reread.has(number)) return true
+      if (record.result !== 'found') return false
+      const { state } = record.pullRequest
+      return (isDue && state === 'open') || (isClosedDue && state === 'closed')
+    })
+    sync.reread.clear()
+    if (isDue) sync.numbersAt = this.now() + REPOSITORY_MS
+    if (isClosedDue) sync.closedNumbersAt = this.now() + CLOSED_MS
+    if (!numbers.length) return
+    const { repo, provider } = sync.host
+    for (const [number, pullRequest] of await provider.review.getPullRequests(repo, numbers)) observe(run, number, pullRequest)
+  }
+
+  /**
+   * Check runs of the pull requests an open review pane shows. Only what
+   * changed is published. The checks of a merged or closed pull request are
+   * read once, and again only when it opens again.
+   */
+  private async readChecks(run: RepositoryRun): Promise<void> {
+    const { sync, wanted } = run
+    const numbers = [...wanted.review].filter((number) => {
+      const record = sync.records.get(number)
+      return record?.result === 'found' && (record.pullRequest.state === 'open' || !sync.checks.has(number))
+    })
+    if (!numbers.length) {
       sync.checksInFlight = false
-      return []
+      return
     }
     const { repo, provider } = sync.host
-    const summaries = await provider.review.listChecks(repo, [...wanted.review])
+    const summaries = await provider.review.listChecks(repo, numbers)
     prIndex.absorbChecks(repo, provider, summaries)
     sync.checksInFlight = summaries.some(({ summary }) => summary.inFlight)
-    return summaries.filter((summary) => {
+    run.checks = summaries.filter((summary) => {
       const json = JSON.stringify(summary.summary)
       if (sync.checks.get(summary.number) === json) return false
       sync.checks.set(summary.number, json)
@@ -459,28 +618,19 @@ export class PrSync {
     })
   }
 
-  /** The open pull requests waiting on the viewer, when a client shows that
-   *  count. Null when it did not change. */
-  private async readNeedsReview(sync: RepositorySync, wanted: Wanted, observations: Observation[]): Promise<number[] | null> {
-    if (!wanted.needsReview || sync.needsReviewAt > this.now()) return null
-    sync.needsReviewAt = this.now() + NEEDS_REVIEW_MS
+  /**
+   * The open pull requests waiting on the viewer, when a client shows that
+   * count and no read has answered it yet: a new interest, or a person's
+   * refresh. After that, list reads keep it current (`hearNeedsReview`);
+   * no clock asks again.
+   */
+  private async readNeedsReview(run: RepositoryRun): Promise<void> {
+    const { sync, wanted } = run
+    if (!wanted.needsReview || sync.needsReview !== null) return
     const { repo, provider } = sync.host
     const viewer = await provider.review.getViewer(repo)
-    const answer = await prIndex.listNeedsReview(repo, provider, viewer)
-    await this.deps.observeNeedingAttention?.(repo, viewer, answer).catch((error) => {
-      log.warn('pr_sync_attention_observation_failed', { repo: repoKeyOf(repo), error: error instanceof Error ? error.message : String(error) })
-    })
-    const rows = attachReviewAttention(answer, viewer).filter((pullRequest) => pullRequest.needsMyReview)
-    const known = new Set(observations.map(({ number }) => number))
-    for (const row of rows) {
-      if (known.has(row.number)) continue
-      sync.records.set(row.number, { result: 'found', pullRequest: row })
-      observations.push({ number: row.number, pullRequest: row, isNews: false })
-    }
-    const numbers = rows.map(({ number }) => number).sort((a, b) => a - b)
-    if (sync.needsReview && sync.needsReview.join() === numbers.join()) return null
-    sync.needsReview = numbers
-    return numbers
+    // A new answer reaches `hearNeedsReview` first; a remembered one is kept here.
+    this.keepNeedsReview(sync, viewer, await prIndex.listNeedsReview(repo, provider, viewer))
   }
 
   private async linkBranches(sync: RepositorySync, task: TaskInterest): Promise<void> {
@@ -562,7 +712,7 @@ export class PrSync {
       ...await sessionLinkInterests(),
     ]
     for (const link of links) {
-      if (!link.isActive || link.state === 'closed' || link.state === 'missing') continue
+      if (!link.isActive || link.state === 'missing') continue
       const host = await hostFor(link.projectScope)
       if (!host) continue
       const interest = interestFor(host)
@@ -644,22 +794,41 @@ async function sessionLinkInterests(): Promise<PrLinkInterest[]> {
   }))
 }
 
+/** One sight of a pull request in a tick. */
+function observe(run: RepositoryRun, number: number, row: PullRequest | null): void {
+  const { sync } = run
+  const pullRequest = row && withHeldBranchRules(sync.host, row)
+  const previous = sync.records.get(number)
+  run.seen.add(number)
+  sync.records.set(number, pullRequest ? { result: 'found', pullRequest } : { result: 'missing' })
+  if (pullRequest && (!sync.byBranch.has(pullRequest.headRef) || pullRequest.state === 'open')) {
+    sync.byBranch.set(pullRequest.headRef, number)
+  }
+  if (previous && !recordChanged(previous, pullRequest)) return
+  if (pullRequest) seedIndex(sync.host, pullRequest)
+  run.observations.set(number, { number, pullRequest, isNews: run.heldBefore.has(number) })
+}
+
+/** A review pane of a merged or closed pull request keeps the minute: its
+ *  checks are not polled. */
 function cadenceOf(sync: RepositorySync, wanted: Wanted): number {
-  if (!wanted.review.size) return REPOSITORY_MS
+  const openReview = [...wanted.review].some((number) => {
+    const record = sync.records.get(number)
+    return record?.result === 'found' && record.pullRequest.state === 'open'
+  })
+  if (!openReview) return REPOSITORY_MS
   return sync.checksInFlight ? CHECKS_IN_FLIGHT_MS : REVIEW_MS
 }
 
 /** Whether PR sync already holds an answer for this interest. */
 function isAnswered(sync: RepositorySync, interest: PrInterest): boolean {
-  if (interest.kind === 'repository') return sync.syncedAt > 0
   if (interest.kind === 'pull-request') return sync.records.has(interest.number)
   if (interest.kind === 'review') return sync.records.has(interest.number) && sync.checks.has(interest.number)
-  if (interest.kind === 'branch') return sync.byBranch.has(interest.head) || sync.syncedAt > 0
+  if (interest.kind === 'branch') return sync.byBranch.has(interest.head) || sync.branchesLookedUpAt.has(interest.head)
   return sync.needsReview !== null
 }
 
-/** What is known about what one connection asked for. A repository interest
- *  gets no rows: the list that asked reads its own first page. */
+/** What is known about what one connection asked for. */
 function snapshotOf(key: string, sync: RepositorySync, interests: PrInterest[]): PrSyncChange {
   const numbers = new Set<number>()
   for (const interest of interests) {
@@ -672,7 +841,7 @@ function snapshotOf(key: string, sync: RepositorySync, interests: PrInterest[]):
   const change: PrSyncChange = { repo: key, pullRequests: [], missing: [], checks: [] }
   for (const number of numbers) {
     const record = sync.records.get(number)
-    if (record?.result === 'found') change.pullRequests.push(record.pullRequest)
+    if (record?.result === 'found') change.pullRequests.push(withHeldBranchRules(sync.host, record.pullRequest))
     else if (record?.result === 'missing') change.missing.push(number)
   }
   const review = new Set(interests.flatMap((interest) => interest.kind === 'review' ? [interest.number] : []))
@@ -681,6 +850,13 @@ function snapshotOf(key: string, sync: RepositorySync, interests: PrInterest[]):
     change.needsReview = sync.needsReview
   }
   return change
+}
+
+/** A row with the base branch rules of the detail this server holds for
+ *  its pull request. Without one, no client shows a detail of it from this
+ *  server, so the row's repository-level merge methods widen nothing. */
+function withHeldBranchRules({ repo }: CodeHost, row: PullRequest): PullRequest {
+  return withBranchRules(row, prIndex.lastRead(repoKeyOf(repo), row.number))
 }
 
 /** Share a row with other readers of the pull request, unless one of them

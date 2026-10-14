@@ -1,7 +1,7 @@
 import type { NumberedPrChecksSummary } from '@solus/contracts/checks-rpc-types'
 import type * as Contracts from '@solus/contracts/providers'
 import type { PrFilter, PrListPage, RepoRef } from '@solus/contracts/providers'
-import type { Provider } from '../providers/types'
+import type { PrPageRequest, Provider, RepositoryPage } from '../providers/types'
 import { CachedField } from './cached-field'
 import { PullRequest } from './pull-request'
 
@@ -22,6 +22,44 @@ const LISTING_CAPACITY = 64
 
 export function repoKeyOf(repo: RepoRef): string {
   return `${repo.host}/${repo.owner}/${repo.repo}`
+}
+
+function listingKey(repo: RepoRef, viewer: string, filter: PrFilter | undefined, page: number, cursor: string | null): string {
+  return [
+    repoKeyOf(repo),
+    viewer,
+    filter?.state ?? 'open',
+    filter?.author ?? '',
+    filter?.head ?? '',
+    filter?.query?.trim() ?? '',
+    page,
+    cursor ?? '',
+  ].join('::')
+}
+
+/** The answers `PrIndex.listPages` gives for one repository. */
+export interface PageReads {
+  page: Promise<PrListPage>
+  /** Null past page one and for a searched list, which has no sections. */
+  authored: Promise<PrListPage> | null
+  /** Null where `authored` is, and for closed pull requests, which no review
+   *  request stands on. */
+  needsReview: Promise<Contracts.PullRequest[]> | null
+}
+
+/** Hears one new answer about the open pull requests waiting on `viewer`. */
+type NeedsReviewListener = (repo: RepoRef, viewer: string, rows: Contracts.PullRequest[]) => void
+
+/** Whether a list read is the sectioned list: page one, nothing typed. */
+function isSectioned(filter: PrFilter | undefined, page: number): boolean {
+  return page === 1 && !filter?.query?.trim() && !filter?.author && !filter?.head
+}
+
+/** One repository read on its own, down the provider's whole credential chain. */
+async function readAlone(provider: Provider, request: PrPageRequest, filter: PrFilter | undefined, viewer: string): Promise<PrListPage> {
+  const [found] = await provider.review.listPullRequestPages([request], filter, viewer, false)
+  if (!found) throw new Error(`Could not read the pull requests of ${request.repo.owner}/${request.repo.repo}.`)
+  return found.page
 }
 
 /** GitHub owners and repositories are case-insensitive, and the same pull
@@ -62,6 +100,7 @@ export class PrIndex {
   private readonly listings = new Map<string, CachedField<PrListPage>>()
   private readonly needsReview = new Map<string, CachedField<Contracts.PullRequest[]>>()
   private readonly readListeners = new Set<(repo: RepoRef, pullRequest: Contracts.PullRequest) => void>()
+  private readonly needsReviewListeners = new Set<NeedsReviewListener>()
 
   /**
    * Hear every pull request answer an entity reads or is handed: a review pane's
@@ -72,6 +111,18 @@ export class PrIndex {
   onPullRequestRead(listener: (repo: RepoRef, pullRequest: Contracts.PullRequest) => void): () => void {
     this.readListeners.add(listener)
     return () => { this.readListeners.delete(listener) }
+  }
+
+  /**
+   * Hear every new answer about the pull requests waiting on a viewer: the
+   * review-requested search of a list read, and PR sync's own read. A
+   * remembered answer is not heard again. PR sync listens, so the sidebar
+   * count and the notifications hub get what a list read found, and no clock
+   * asks the code host for it.
+   */
+  onNeedsReviewRead(listener: NeedsReviewListener): () => void {
+    this.needsReviewListeners.add(listener)
+    return () => { this.needsReviewListeners.delete(listener) }
   }
 
   /**
@@ -132,26 +183,103 @@ export class PrIndex {
   }
 
   /** `viewer` is the caller's login: the listing is cached per account, and the
-   *  caller has already resolved it to attach review attention. */
-  async list(repo: RepoRef, provider: Provider, viewer: string, filter: PrFilter | undefined, page: number): Promise<PrListPage> {
-    const key = [
-      repoKeyOf(repo),
-      viewer,
-      filter?.state ?? 'open',
-      filter?.author ?? '',
-      filter?.head ?? '',
-      filter?.query?.trim() ?? '',
-      page,
-    ].join('::')
-    return this.listingField(key).read(() => provider.review.listPullRequestsPage(repo, filter, page))
+   *  caller has already resolved it to attach review attention. A page past
+   *  the first needs the cursor the page before it answered. */
+  async list(
+    repo: RepoRef,
+    provider: Provider,
+    viewer: string,
+    filter: PrFilter | undefined,
+    page: number,
+    cursor: string | null = null,
+  ): Promise<PrListPage> {
+    // A later page with no place to start from has nothing to continue.
+    if (page > 1 && !cursor) return { items: [], page, hasMore: false }
+    return this.listingField(listingKey(repo, viewer, filter, page, cursor))
+      .read(() => readAlone(provider, { repo, page, cursor }, filter, viewer))
   }
 
   async listNeedsReview(repo: RepoRef, provider: Provider, viewer: string): Promise<Contracts.PullRequest[]> {
-    const key = `${repoKeyOf(repo)}::${viewer}`
-    let field = this.needsReview.get(key)
-    if (!field) field = new CachedField<Contracts.PullRequest[]>(NEEDS_REVIEW_TTL_MS)
-    touch(this.needsReview, key, field, LISTING_CAPACITY)
-    return field.read(() => provider.review.listPullRequestsNeedingReview(repo, viewer))
+    return this.readNeedsReview(repo, viewer, () => provider.review.listPullRequestsNeedingReview(repo, viewer))
+  }
+
+  /**
+   * A page of each repository — page one, or the page its cursor names — and
+   * on page one of the sectioned list the viewer's own pull requests and the
+   * ones waiting on their review: the same answers `list` and
+   * `listNeedsReview` give, filed under the same keys.
+   *
+   * What is still young costs nothing. Every repository with a part to read
+   * goes into one provider read, so many projects cost one search instead of
+   * several requests each. A part the read could not answer is read alone.
+   *
+   * A repository the read could not see at all is left out of the answer, so
+   * the caller reads it the ordinary way: with the credential, and the viewer,
+   * that can see it. Its parts are still read alone here, so a reader that
+   * joined them gets an answer. Keyed by `repoKeyOf`.
+   */
+  async listPages(
+    provider: Provider,
+    requests: PrPageRequest[],
+    viewer: string,
+    filter: PrFilter | undefined,
+  ): Promise<Map<string, PageReads>> {
+    const pending: PrPageRequest[] = []
+    let startBatch: (rows: Promise<Array<RepositoryPage | null>>) => void = () => {}
+    const batch = new Promise<Array<RepositoryPage | null>>((resolve) => { startBatch = resolve })
+    // Called only by a part that is not young, while the loop below runs; the
+    // batch starts once the loop has named every repository it needs.
+    const batched = (request: PrPageRequest): Promise<RepositoryPage | null> => {
+      let index = pending.indexOf(request)
+      if (index < 0) index = pending.push(request) - 1
+      return batch.then((rows) => rows[index] ?? null)
+    }
+
+    const state = filter?.state ?? 'open'
+    const reads = new Map<string, { request: PrPageRequest; reads: PageReads }>()
+    for (const request of requests) {
+      const { repo, page, cursor } = request
+      const key = repoKeyOf(repo)
+      if (reads.has(key)) continue
+      const sectioned = isSectioned(filter, page)
+      const authoredFilter: PrFilter = { state, query: `author:${viewer}` }
+      reads.set(key, {
+        request,
+        reads: {
+          page: page > 1 && !cursor
+            ? Promise.resolve({ items: [], page, hasMore: false })
+            : this.listingField(listingKey(repo, viewer, filter, page, cursor)).read(() => batched(request).then((found) =>
+                found?.page ?? readAlone(provider, request, filter, viewer))),
+          authored: sectioned
+            ? this.listingField(listingKey(repo, viewer, authoredFilter, 1, null)).read(() => batched(request).then((found) =>
+                found?.authored ?? readAlone(provider, { repo, page: 1, cursor: null }, authoredFilter, viewer)))
+            : null,
+          // A review request only stands on an open pull request.
+          needsReview: sectioned && state !== 'closed'
+            ? this.readNeedsReview(repo, viewer, () => batched(request).then((found) =>
+                found?.needsReview ?? provider.review.listPullRequestsNeedingReview(repo, viewer)))
+            : null,
+        },
+      })
+    }
+    const withPriority = pending.some((request) => isSectioned(filter, request.page))
+    startBatch(pending.length > 0
+      // A failed read answers nothing: each project is then read alone.
+      ? provider.review.listPullRequestPages(pending, filter, viewer, withPriority).catch(() => pending.map(() => null))
+      : Promise.resolve([]))
+
+    const rows = await batch
+    const answered = new Map<string, PageReads>()
+    for (const [key, entry] of reads) {
+      const index = pending.indexOf(entry.request)
+      if (index < 0 || rows[index]) {
+        answered.set(key, entry.reads)
+      } else {
+        // The caller reads this one itself; these parts answer whoever joined them.
+        for (const part of [entry.reads.page, entry.reads.authored, entry.reads.needsReview]) part?.catch(() => {})
+      }
+    }
+    return answered
   }
 
   /**
@@ -174,6 +302,25 @@ export class PrIndex {
   /** Exposed for tests: how many entities are held right now. */
   get size(): number {
     return this.entities.size
+  }
+
+  /** The remembered answer, or a new one that every listener hears. */
+  private readNeedsReview(
+    repo: RepoRef,
+    viewer: string,
+    load: () => Promise<Contracts.PullRequest[]>,
+  ): Promise<Contracts.PullRequest[]> {
+    return this.needsReviewField(repo, viewer).read(() => load().then((rows) => {
+      for (const listener of this.needsReviewListeners) listener(repo, viewer, rows)
+      return rows
+    }))
+  }
+
+  private needsReviewField(repo: RepoRef, viewer: string): CachedField<Contracts.PullRequest[]> {
+    const key = `${repoKeyOf(repo)}::${viewer}`
+    const field = this.needsReview.get(key) ?? new CachedField<Contracts.PullRequest[]>(NEEDS_REVIEW_TTL_MS)
+    touch(this.needsReview, key, field, LISTING_CAPACITY)
+    return field
   }
 
   private listingField(key: string): CachedField<PrListPage> {

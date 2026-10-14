@@ -16,7 +16,6 @@ import {
   TriangleAlert as TriangleAlertIcon,
 } from '@lucide/svelte'
 import type { PrStackMembership, PullRequest } from '@solus/contracts/providers'
-import type { PrChecksSummary } from '@solus/contracts/checks-types'
 import type { PrGuideStatus, ReviewLensJob } from '@solus/contracts/review'
 import { z } from 'zod'
 import {
@@ -106,7 +105,6 @@ export function prStatusGlyph(status: PrStatusKey): PrStatusGlyph {
  *  the full record, not a bare number — a workspace-wide list can hold the
  *  same PR number from two different repos, so only the record disambiguates. */
 export interface PrRowContext {
-  checks: (pr: PullRequest) => PrChecksSummary | undefined
   guideStatus?: (pr: PullRequest) => PrGuideStatus | undefined
   /** The lens job this client saw the host run, if any (`reviewLensStore`). */
   lensJob?: (pr: PullRequest) => ReviewLensJob | null
@@ -232,21 +230,15 @@ function revealFor(pr: PullRequest, stackParent: number | null): ListRevealSpec 
 }
 
 /**
- * Slot 5 — the check state, in words. A stale result is not this head's, and a
- * PR with no checks configured has nothing to report, so both hold the slot in
- * silence rather than asserting anything.
+ * Slot 5 — the check state, in words, as the list read or a push gave it for
+ * this head. A PR whose checks are not known, or that has none configured, has
+ * nothing to report, so it holds the slot in silence rather than asserting
+ * anything.
  */
-function checksFor(pr: PullRequest, checks: PrChecksSummary | undefined): ListChecksSpec {
-  if (!checks || checks.headSha !== pr.headSha) return { state: 'none', label: '' }
-  if (checks.state === 'failing') {
-    const failing = checks.required.filter((check) => check.conclusion === 'failure').length
-    return {
-      state: 'failing',
-      label: failing > 0 ? `${failing} check${failing === 1 ? '' : 's'} failing` : 'Checks failing',
-    }
-  }
-  if (checks.state === 'passing') return { state: 'passing', label: 'Checks passing' }
-  if (checks.state === 'pending') return { state: 'pending', label: 'Checks running' }
+function checksFor(pr: PullRequest): ListChecksSpec {
+  if (pr.checksState === 'failing') return { state: 'failing', label: 'Checks failing' }
+  if (pr.checksState === 'passing') return { state: 'passing', label: 'Checks passing' }
+  if (pr.checksState === 'pending') return { state: 'pending', label: 'Checks running' }
   return { state: 'none', label: '' }
 }
 
@@ -286,7 +278,7 @@ export function prRow(
     // the only elastic thing in the middle of the row.
     chips: [...conflictChips(pr), ...guideChips(pr, ctx), ...lensChips(pr, ctx)],
     reveal: revealFor(pr, stackParent),
-    checks: checksFor(pr, ctx.checks(pr)),
+    checks: checksFor(pr),
     meta: '',
     // 0 / 0 is what a listing without line counts reports, not an empty
     // change, so it says nothing rather than a false "+0 −0".

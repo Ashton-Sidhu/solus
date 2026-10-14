@@ -93,8 +93,8 @@ belongs to a session, not to a task.
     watch's `watchId`; the write does nothing when the watch was stopped or
     restarted while the read ran.
 11. **Cost.** Each sweep reads the fingerprints of every watched pull request
-    of a repository in one GraphQL request (25 pull requests per request, about
-    1 point). A watch read happens only when a fingerprint moved, while a check
+    of every repository one account watches in shared GraphQL documents (25
+    pull requests per document, about 1 point; docs/plans/pr-sync.md §11). A watch read happens only when a fingerprint moved, while a check
     is in progress, and every 30 minutes (edits inside review threads are not in
     the fingerprint). Remarks are read only when the remark half of the
     fingerprint moved, or every 30 minutes. Sessions that watch the same pull

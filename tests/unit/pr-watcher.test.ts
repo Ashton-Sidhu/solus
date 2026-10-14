@@ -164,6 +164,32 @@ describe('PR watcher', () => {
     watcher.stop()
   })
 
+  test('the fingerprints of every watched repository go at once, so they can share one document', async () => {
+    // WHY: the provider gathers the reads of one account for a short window
+    // (host-batches.ts). A sweep that read one repository after another paid
+    // one document per repository.
+    const host = new FakeHost()
+    const read = host.review.readWatchFingerprints
+    let inFlight = 0
+    let mostInFlight = 0
+    host.review.readWatchFingerprints = async (repo, numbers) => {
+      mostInFlight = Math.max(mostInFlight, ++inFlight)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      inFlight -= 1
+      return read(repo, numbers)
+    }
+    for (const suffix of ['a', 'b', 'c']) {
+      const startedAt = Date.now() - 60_000
+      await watches.startPullRequestWatch(`session-${suffix}`, `${REPOSITORY}-${suffix}`, 7, rules.initialWatchState(startedAt), null, startedAt)
+    }
+    const { watcher } = setup(host)
+    await watcher.start()
+    await watcher.sweep()
+    watcher.stop()
+
+    expect(mostInFlight).toBe(3)
+  })
+
   test('what a session was told survives a restart', async () => {
     const host = new FakeHost()
     host.checks = [check('build', 'failure')]

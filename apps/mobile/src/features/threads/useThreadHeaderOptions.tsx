@@ -2,7 +2,7 @@
 import { StackActions, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useMemo } from "react";
-import { Platform, useWindowDimensions, View } from "react-native";
+import { Platform, View } from "react-native";
 
 import type { AppNativeStackNavigationOptions } from "../../native/StackHeader";
 import type { ScreenHeaderAction } from "../../components/ScreenHeader.types";
@@ -27,6 +27,8 @@ const HEADER_ACTION_WIDTH = 53;
 export function useThreadHeaderOptions(props: {
   readonly title: string;
   readonly subtitle: string;
+  /** The width of the column the thread shows in: the window on a phone, the detail column on iPad. */
+  readonly columnWidth: number;
   readonly usesNativeHeaderGlass: boolean;
   readonly hostId: string;
   /** The project folder, or null for a chat, which has no files to browse. */
@@ -82,15 +84,16 @@ export function useThreadHeaderOptions(props: {
   // UIKit's subtitle is a plain string, so a project thread draws its own
   // title view to put the favicon beside the project name. It is as wide as
   // the space between the bar items; UIKit moves it off centre to fit there.
+  // On iPad the title sits at the leading edge, beside the Back button.
   const customTitle = Boolean(faviconRoot && subtitle && Platform.OS === "ios");
-  const { width: windowWidth } = useWindowDimensions();
   const titleWidth =
-    windowWidth - BACK_ITEM_WIDTH - ACTION_GROUP_INSET - actions.length * HEADER_ACTION_WIDTH;
+    props.columnWidth - BACK_ITEM_WIDTH - ACTION_GROUP_INSET - actions.length * HEADER_ACTION_WIDTH;
+  const titleAlignment = Platform.OS === "ios" && Platform.isPad ? "items-start" : "items-center";
   const options: AppNativeStackNavigationOptions = {
     headerShown: true,
     headerTitle: customTitle
       ? () => (
-          <View style={{ width: Math.max(titleWidth, 0) }} className="items-center">
+          <View style={{ width: Math.max(titleWidth, 0) }} className={titleAlignment}>
             <Text numberOfLines={1} className="text-[17px] font-extrabold text-foreground">
               {props.title}
             </Text>

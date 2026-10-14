@@ -220,10 +220,10 @@ describe('GitHub commit-scoped pull request diff', () => {
       changeType: 'change',
     })
 
-    expect(provider.contentReads).toEqual([
-      { owner: 'acme', path: 'src/a.ts', ref: 'parent-sha' },
-      { owner: 'acme', path: 'src/a.ts', ref: commitSha },
-    ])
+    // Both sides are read at once, so their order is not part of the answer.
+    expect(provider.contentReads).toHaveLength(2)
+    expect(provider.contentReads).toContainEqual({ owner: 'acme', path: 'src/a.ts', ref: 'parent-sha' })
+    expect(provider.contentReads).toContainEqual({ owner: 'acme', path: 'src/a.ts', ref: commitSha })
     expect(contents.oldContents).toBe('parent-sha:src/a.ts')
     expect(contents.newContents).toBe(`${commitSha}:src/a.ts`)
   })

@@ -29,6 +29,23 @@ function newerPullRequest(previous: Contracts.PullRequest | undefined, next: Con
 }
 
 /**
+ * `row` with the fields that the detail read takes from the base branch's
+ * rules (pull-request-detail.ts): the merge methods they leave, the default
+ * among them, and the approvals they require. A list or PR sync row is read
+ * without those rules, so it takes them from `held` when that is a detail
+ * read of the same base branch. Then a row pushed to a client never widens
+ * the merge methods of the detail it shows. Only a detail read reports
+ * `requiredApprovingReviewCount`, so that field tells one apart.
+ */
+export function withBranchRules(row: Contracts.PullRequest, held: Contracts.PullRequest | undefined): Contracts.PullRequest {
+  if (row.requiredApprovingReviewCount !== undefined || held?.requiredApprovingReviewCount === undefined || held.baseRef !== row.baseRef) return row
+  const capabilities = { ...row.capabilities, mergeMethods: held.capabilities.mergeMethods }
+  delete capabilities.defaultMergeMethod
+  if (held.capabilities.defaultMergeMethod) capabilities.defaultMergeMethod = held.capabilities.defaultMergeMethod
+  return { ...row, capabilities, requiredApprovingReviewCount: held.requiredApprovingReviewCount }
+}
+
+/**
  * One pull request, as the server knows it. Identity is `(repo, number)`.
  *
  * **Everything about a pull request is the same for everyone here.** Its title,
@@ -78,10 +95,26 @@ export class PullRequest {
     private readonly onRead: (pullRequest: Contracts.PullRequest) => void = () => {},
   ) {}
 
+  /** The one detail read in flight. The pull request, its commits and its
+   *  reviewers come in one answer, so a reader of any of them joins it. */
+  private overviewFlight: Promise<PullRequestOverview> | null = null
+
+  /** Read the pull request with its commits and reviewers, and keep all three. */
+  private loadOverview(): Promise<PullRequestOverview> {
+    this.overviewFlight ??= this.provider.review.getPullRequestOverview(this.repo, this.number)
+      .then((overview) => {
+        this.pullRequestField.seed(overview.pullRequest)
+        this.commitsField.seed(overview.commits)
+        this.reviewersField.seed(overview.reviewers)
+        this.onRead(overview.pullRequest)
+        return overview
+      })
+      .finally(() => { this.overviewFlight = null })
+    return this.overviewFlight
+  }
+
   private async load(): Promise<Contracts.PullRequest> {
-    const pullRequest = await this.provider.review.getPullRequest(this.repo, this.number)
-    this.onRead(pullRequest)
-    return pullRequest
+    return (await this.loadOverview()).pullRequest
   }
 
   /**
@@ -114,17 +147,21 @@ export class PullRequest {
   }
 
   /** Take a pull request that arrived another way — a listing row, a write's
-   *  response — so the next read does not pay for it again. */
+   *  response — so the next read does not pay for it again. A row that has no
+   *  base branch rules, from this detail or its own, is only remembered: a
+   *  surface that opens the pull request reads the detail, so it does not
+   *  offer a merge method that the branch forbids. */
   seed(detail: Contracts.PullRequest): void {
-    this.pullRequestField.seed(detail)
+    const held = this.pullRequestField.seed(withBranchRules(detail, this.pullRequestField.peek()))
+    if (held.requiredApprovingReviewCount === undefined) this.pullRequestField.clear()
     this.onRead(detail)
   }
 
   /**
-   * Composed from the fields it carries rather than read as one unit, so the
-   * pull request `prOpenReview` just read fresh is reused instead of fetched a
-   * second time — and each part keeps its own lifetime for the callers that
-   * ask for it alone.
+   * Composed from the fields it carries, so the pull request `prOpenReview`
+   * just read fresh is reused with the commits and reviewers that came in the
+   * same answer — and each part keeps its own lifetime for the callers that
+   * ask for it alone. Parts that are not young share one detail read.
    */
   async overview(): Promise<PullRequestOverview> {
     const [pullRequest, commits, reviewers] = await Promise.all([
@@ -146,7 +183,7 @@ export class PullRequest {
   }
 
   async commits(): Promise<PrCommit[]> {
-    return this.commitsField.read(() => this.provider.review.listCommits(this.repo, this.number))
+    return this.commitsField.read(async () => (await this.loadOverview()).commits)
   }
 
   async stack(): Promise<PrStack | null> {
@@ -154,7 +191,7 @@ export class PullRequest {
   }
 
   async reviewers(): Promise<PrReviewer[]> {
-    return this.reviewersField.read(() => this.provider.review.listReviewers(this.repo, this.number))
+    return this.reviewersField.read(async () => (await this.loadOverview()).reviewers)
   }
 
   /**

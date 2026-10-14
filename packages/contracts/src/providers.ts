@@ -1,4 +1,5 @@
 import type { NumberedPrChecksSummary } from './checks-rpc-types'
+import type { PrChecksState } from './checks-types'
 
 // Host-neutral code-host DTOs shared across main, preload, and renderer. These
 // never leak Octokit/GraphQL response types — that is the whole point of the
@@ -61,7 +62,6 @@ export interface PrFilter {
  *  repository only while some client or live task has interest in it
  *  (docs/plans/pr-sync.md §3.1). */
 export type PrInterest =
-  | { kind: 'repository' }
   | { kind: 'pull-request'; number: number }
   | { kind: 'branch'; head: string }
   /** An open review pane: a faster tick, and the pull request's check runs. */
@@ -79,12 +79,27 @@ export interface PrSyncChange {
   /** Open pull requests waiting on the viewer's review. Absent when PR sync
    *  has no answer, or when a change does not touch it. */
   needsReview?: number[]
+  /** Pull requests this change does not name can be new or changed: an agent
+   *  turn ended or a git action ran in the repository. A list that shows the
+   *  repository reads its first page again (docs/plans/pr-sync.md §3.4). */
+  listChanged?: true
 }
 
 export interface PrListPage {
   items: PullRequest[]
   page: number
   hasMore: boolean
+  /** Where the next page starts. Send it back with the next page number to
+   *  read that page. Absent when `hasMore` is false. */
+  cursor?: string
+}
+
+/** Where one project's list continues, in a read of several projects. */
+export interface PrProjectCursor {
+  projectRoot: string
+  /** The page to read: one more than the page that gave `cursor`. */
+  page: number
+  cursor: string
 }
 
 /** Why a project has no pull requests to read. A state, not a failure. */
@@ -162,6 +177,11 @@ export interface PullRequest {
    *  host says it is in no stack; absent when the read did not ask, which is
    *  not the same as "not stacked". */
   stack?: PrStackMembership | null
+  /** The combined state of every check and status on the head commit, as the
+   *  host's own list shows it. Optional checks count, unlike
+   *  `PrChecksSummary.state`. `none` when no check ran; absent when the read
+   *  did not ask. */
+  checksState?: PrChecksState
 }
 
 /** One pull request's place in a GitHub stack: a chain of pull requests, each

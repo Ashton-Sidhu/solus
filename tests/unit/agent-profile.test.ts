@@ -7,6 +7,7 @@ import {
   AGENT_PROFILE_MAX_FILE_BYTES,
   agentProfileSchema,
   agentProfileKeyOf,
+  isAgentProfilePath,
   type AgentProfile,
   type AgentProfileEntry,
   type AgentProfileCopy,
@@ -15,7 +16,7 @@ import {
   type AgentProfileSkip,
 } from '@solus/contracts/agent-profile'
 import type { Integration } from '@solus/contracts/integration-types'
-import { AGENT_PROFILE_READ_PATH, AgentProfileManager, AgentProfileRefused, isProfilePath, type ProfileAccount, type ProfileIntegrationOwner, type ProfileIntegrations, type ProfileSkills } from '@solus/server/execution/seats/agent-profile'
+import { AGENT_PROFILE_READ_PATH, AgentProfileManager, AgentProfileRefused, type ProfileAccount, type ProfileIntegrationOwner, type ProfileIntegrations, type ProfileSkills } from '@solus/server/execution/seats/agent-profile'
 import { AccountReads } from '@solus/server/vault/account-reads'
 
 const directories: string[] = []
@@ -264,10 +265,19 @@ test('a path outside the profile is refused before anything is written', async (
   // climb out of the seat.
   const target = seat()
   for (const path of ['.credentials.json', '../escape.md', 'skills/../../x', 'settings.json', '/etc/passwd', 'skills', 'CLAUDE.md', 'agents']) {
-    expect(isProfilePath('claude-code', path)).toBe(false)
+    expect(isAgentProfilePath('claude-code', path)).toBe(false)
   }
   await expect(target.profiles.apply(MEMBER, profile(text('agents/ok.md', 'ok'), text('.credentials.json', 'stolen')), PUSH)).rejects.toThrow('is not part of an agent profile')
   expect(existsSync(join(target.homeFor('claude-code'), 'agents/ok.md'))).toBe(false)
+})
+
+test('a home\'s CLAUDE.md or AGENTS.md from an older copy is left out, and the rest of the profile applies', async () => {
+  // WHY: instruction files left the profile. A copy kept from before must not make every host refuse the person's whole profile.
+  const target = seat()
+  const status = await target.profiles.apply(MEMBER, profile(text('agents/ok.md', 'ok'), text('CLAUDE.md', 'old instructions')), PUSH)
+  expect(status.counts.files).toBe(1)
+  expect(existsSync(join(target.homeFor('claude-code'), 'agents/ok.md'))).toBe(true)
+  expect(existsSync(join(target.homeFor('claude-code'), 'CLAUDE.md'))).toBe(false)
 })
 
 test('a registry skill and a hand-written skill of one name are refused before anything is written', async () => {
@@ -492,6 +502,20 @@ test('a pull adopts the owner\'s own MCP servers the profile does not name, and 
   expect(status).toMatchObject({ source: 'account', counts: { integrations: 1 } })
   expect(host.integrations.rows.map((row) => row.slug)).toEqual(['planetscale'])
   await host.profiles.pull(OWNER)
+  expect(cloud.writes).toHaveLength(1)
+})
+
+test('a pull removes a retired AGENTS.md from the account and applies the rest', async () => {
+  // WHY: the account is the one list. An entry no host applies must leave it, or every client lists it again.
+  const agents = text('AGENTS.md', 'old', 'codex')
+  const rules = text('agents/rules.md', 'rules')
+  const cloud = cloudOf({ [agentProfileKeyOf(agents)]: agents, [agentProfileKeyOf(rules)]: rules })
+  const host = linked({ answer: cloud.answer })
+  const status = await host.profiles.pull(MEMBER)
+  expect(cloud.writes).toEqual([{ set: [], reset: ['file:codex/AGENTS.md'] }])
+  expect(Object.keys(cloud.entries() ?? {})).toEqual(['file:claude-code/agents/rules.md'])
+  expect(status).toMatchObject({ source: 'account', counts: { files: 1 } })
+  await host.profiles.pull(MEMBER)
   expect(cloud.writes).toHaveLength(1)
 })
 

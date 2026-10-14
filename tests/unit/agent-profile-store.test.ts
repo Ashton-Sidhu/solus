@@ -114,46 +114,42 @@ test('a profile applies to a member\'s seats and to a host the person owns, neve
   expect(profileAppliesTo(null, 'managed-vm', 'laptop')).toBe(false)
 })
 
-test('this computer fills an empty copy by itself, and an import keeps what the person turned off and added', async () => {
-  // WHY: a desktop's page must start with the skills and servers the person
-  // already has; an import adds what is new and never undoes an edit here.
+test('the copy never fills by itself: only an import reads this computer, and it keeps what the person added', async () => {
+  // WHY: the profile is the person's list. A desktop must not fill it, or push it, until they ask.
   calls.length = 0
   localServerId = 'laptop'
   const local = new AgentProfileLocalStore(memoryStorage())
   const store = new AgentProfileStore()
   store.attachLocalCopy(local)
-  store.importComputerIfEmpty()
+  store.noteHost('cloud', 'org-member')
   await settle()
-  expect(calls).toEqual(['read:laptop'])
-  expect(Object.keys(local.entries).sort()).toEqual(['file:claude-code/agents/rules.md', 'integration:deepwiki'])
+  expect(calls).toEqual([])
+  expect(local.entryCount).toBe(0)
 
-  // A full copy is not read again on its own.
-  store.importComputerIfEmpty()
-  await settle()
-  expect(calls).toEqual(['read:laptop'])
+  // An explicit push of an empty copy is refused with a reason, and the host is not touched.
+  await store.copy('cloud')
+  expect(calls).toEqual([])
+  expect(store.errors.get('cloud')).toContain('empty')
 
   local.setEntry({ kind: 'skill', name: 'deploy', source: 'acme/skills', skillId: 'deploy' })
   await store.importComputer()
-  expect(local.entries['integration:deepwiki']?.kind).toBe('integration')
-  expect(local.entries['skill:deploy']?.kind).toBe('skill')
+  expect(calls).toEqual(['read:laptop'])
+  expect(Object.keys(local.entries).sort()).toEqual(['file:claude-code/agents/rules.md', 'integration:deepwiki', 'skill:deploy'])
   expect(store.importError).toBeNull()
 })
 
-test('a push sends this client\'s copy, so an entry removed on the page stays off the host; an empty copy fills first', async () => {
+test('a push sends this client\'s copy, so an entry removed on the page stays off the host', async () => {
   // WHY: the page is the person's list. If a push read the computer again, "Remove" would undo itself on every push.
   calls.length = 0
   localServerId = 'laptop'
   const local = new AgentProfileLocalStore(memoryStorage())
   const store = new AgentProfileStore()
   store.attachLocalCopy(local)
-  await store.copy('cloud')
-  expect(calls).toEqual(['read:laptop', 'apply:cloud:2'])
-
-  calls.length = 0
+  await store.importComputer()
   local.removeKey('integration:deepwiki')
+  calls.length = 0
   await store.copy('cloud')
   expect(calls).toEqual(['apply:cloud:1'])
-  expect(Object.keys(local.entries)).toEqual(['file:claude-code/agents/rules.md'])
 })
 
 test('merging this computer into the copy keeps the copy\'s own entries and takes the computer\'s content', () => {

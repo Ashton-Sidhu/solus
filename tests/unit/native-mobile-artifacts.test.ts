@@ -92,6 +92,8 @@ describe('native artifacts: frame', () => {
     const document = artifactDocument(PAGE, css)
     expect(document).toContain('Content-Security-Policy')
     expect(document).toContain('ReactNativeWebView')
+    // A page laid out wider than the phone reports heights in larger pixels than its frame, and the frame grows without end.
+    expect(document).toContain('width=device-width')
     expect(document.endsWith(PAGE)).toBe(true)
   })
 

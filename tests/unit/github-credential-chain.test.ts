@@ -4,6 +4,7 @@ import type { GithubCredentialSource } from '@solus/server/providers/github/cred
 import { GitHubReauthRequiredError, type GitHubClient } from '@solus/server/providers/github/octokit'
 import { GitHubProvider } from '@solus/server/providers/github/provider'
 import { GitHubTaskProvider } from '@solus/server/data/tasks/providers/github'
+import { githubPullRequestDetailAnswer } from './helpers/github-pull-request-detail'
 
 /**
  * One request, many credentials.
@@ -41,6 +42,34 @@ interface ScriptedClient extends GitHubClient {
 }
 
 /** A client whose every call answers the same way, recording what was asked. */
+/** One row of a GraphQL pull request list. */
+const listedRow = {
+  number: 65,
+  url: 'https://github.com/acme/app/pull/65',
+  title: 'Listed',
+  headRefOid: 'head-sha',
+  author: { login: 'sidhu', avatarUrl: '' },
+  state: 'OPEN',
+  createdAt: '2026-08-01T00:00:00Z',
+  updatedAt: '2026-08-02T00:00:00Z',
+  isDraft: false,
+  labels: { nodes: [] },
+  additions: 1,
+  deletions: 1,
+  reviewRequests: { nodes: [] },
+  assignees: { nodes: [] },
+  body: '',
+  baseRefName: 'main',
+  baseRefOid: 'base-sha',
+  headRefName: 'feature',
+  changedFiles: 1,
+  mergeable: 'MERGEABLE',
+  reviewDecision: 'APPROVED',
+  reviews: { totalCount: 1 },
+  baseRepository: { nameWithOwner: 'acme/app' },
+  headRepository: { nameWithOwner: 'acme/app', name: 'app', owner: { login: 'acme' } },
+}
+
 function scriptedClient(source: GithubCredentialSource, answer: Answer): ScriptedClient {
   const calls: string[] = []
   const respond = <T>(name: string, data: T): { data: T } => {
@@ -107,14 +136,23 @@ function scriptedClient(source: GithubCredentialSource, answer: Answer): Scripte
     (await request()).data
   const graphql = async (query: string) => {
     respond('graphql', null)
-    if (query.includes('PrReviewStatuses')) {
+    if (query.includes('PullRequestDetail')) return githubPullRequestDetailAnswer()
+    if (query.includes('PrListPages')) {
       return {
-        nodes: [{ id: 'PR_1', reviewDecision: 'APPROVED', reviews: { totalCount: 1 } }],
+        p0: {
+          nameWithOwner: 'acme/app',
+          viewerPermission: 'WRITE',
+          mergeCommitAllowed: true,
+          squashMergeAllowed: true,
+          rebaseMergeAllowed: true,
+          autoMergeAllowed: false,
+          pullRequests: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [listedRow] },
+        },
       }
     }
     if (query.includes('PrChecks')) {
       return {
-        repository: {
+        r0: {
           p65: {
             number: 65,
             headRefOid: 'head-sha',
@@ -212,28 +250,24 @@ describe('GitHub requests run down the credential chain', () => {
 
     const pullRequest = await provider.getPullRequest(repo, 65)
 
-    expect(host.calls).toEqual(['pulls.get'])
-    expect(cli.calls).toContain('pulls.get')
-    expect(pullRequest.authorAvatarUrl).toBe('https://avatars.test/sidhu')
+    expect(host.calls).toEqual(['graphql'])
+    expect(cli.calls).toEqual(['graphql'])
+    expect(pullRequest.authorAvatarUrl).toBe('https://avatars.test/octocat')
     expect(pullRequest.viewerPermissions.actions).toContain('merge')
   })
 
-  test('reviewers keep the GitHub avatars returned by the review endpoints', async () => {
+  test('reviewers keep the GitHub avatars and standing state the detail read returns', async () => {
     // WHY: the PR page must show the same GitHub identity image for reviewers
     // that it shows for the author, whether the reviewer answered or is pending.
+    // An approval holds over a later comment, as it does on GitHub.
     const provider = new ChainedProvider([scriptedClient('host', 'accepts')])
 
-    await expect(provider.listReviewers(repo, 65)).resolves.toEqual([
-      {
-        login: 'octocat',
-        avatarUrl: 'https://avatars.test/octocat',
-        state: 'APPROVED',
-      },
-      {
-        login: 'hubot',
-        avatarUrl: 'https://avatars.test/hubot',
-        state: null,
-      },
+    const { reviewers } = await provider.getPullRequestOverview(repo, 65)
+
+    expect(reviewers).toEqual([
+      { login: 'monalisa', avatarUrl: 'https://avatars.test/monalisa', state: 'APPROVED' },
+      { login: 'linus', state: 'COMMENTED' },
+      { login: 'hubot', avatarUrl: 'https://avatars.test/hubot', state: null },
     ])
   })
 
@@ -248,9 +282,8 @@ describe('GitHub requests run down the credential chain', () => {
 
       const pullRequest = await provider.getPullRequest(repo, 65)
 
-      // A 404 first asks whether this credential can see the repository at all.
-      expect(host.calls).toEqual(answer === 'not-found' ? ['pulls.get', 'repos.get'] : ['pulls.get'])
-      expect(cli.calls).toContain('pulls.get')
+      expect(host.calls).toEqual(['graphql'])
+      expect(cli.calls).toEqual(['graphql'])
       expect(pullRequest.number).toBe(65)
     }
   })
@@ -261,10 +294,14 @@ describe('GitHub requests run down the credential chain', () => {
     // 404 is about the PR, so asking the next credential only doubles the
     // GitHub traffic for an answer that cannot change.
     const host = scriptedClient('host', 'accepts')
-    host.rest.pulls.get = (async () => {
-      host.calls.push('pulls.get')
-      throw Object.assign(new Error('Not Found'), { status: 404 })
-    }) as unknown as typeof host.rest.pulls.get
+    // GraphQL answers the repository and says the pull request is missing.
+    host.graphql = (async () => {
+      host.calls.push('graphql')
+      throw Object.assign(new Error('Could not resolve to a PullRequest with the number of 99.'), {
+        data: { viewer: { login: 'sidhu' }, repository: { viewerPermission: 'READ', pullRequest: null } },
+        errors: [{ type: 'NOT_FOUND', path: ['repository', 'pullRequest'] }],
+      })
+    }) as typeof host.graphql
     const cli = scriptedClient('gh-cli', 'accepts')
     const provider = new ChainedProvider([host, cli])
 
@@ -278,12 +315,12 @@ describe('GitHub requests run down the credential chain', () => {
     const cli = scriptedClient('gh-cli', 'accepts')
     const provider = new ChainedProvider([host, cli])
 
-    const page = await provider.listPullRequestsPage(repo, { state: 'open', head: 'feature' }, 1, 1)
+    const [page] = await provider.listPullRequestPages([{ repo, page: 1, cursor: null }], { state: 'open', head: 'feature' }, 'sidhu', false)
 
-    expect(host.calls).toEqual(['pulls.list'])
-    expect(cli.calls).toContain('pulls.list')
-    expect(page.items[0]?.headRef).toBe('feature')
-    expect(page.items[0]?.reviewStatus).toBe('approved')
+    expect(host.calls).toEqual(['graphql'])
+    expect(cli.calls).toEqual(['graphql'])
+    expect(page?.page.items[0]?.headRef).toBe('feature')
+    expect(page?.page.items[0]?.reviewStatus).toBe('approved')
   })
 
   test('pull request checks fall through to the gh credential', async () => {
@@ -295,8 +332,9 @@ describe('GitHub requests run down the credential chain', () => {
 
     const checks = await provider.listChecks(repo, [65])
 
-    expect(host.calls).toEqual(['graphql'])
-    expect(cli.calls).toEqual(['graphql'])
+    // The REST reads before it only ask whether the checks moved.
+    expect(host.calls.filter((call) => call === 'graphql')).toEqual(['graphql'])
+    expect(cli.calls.filter((call) => call === 'graphql')).toEqual(['graphql'])
     expect(checks[0]?.summary.headSha).toBe('head-sha')
   })
 
@@ -311,7 +349,8 @@ describe('GitHub requests run down the credential chain', () => {
     const viewer = await provider.getViewer(repo)
 
     expect(host.calls).toEqual(['users.getAuthenticated', 'repos.get'])
-    expect(cli.calls).toEqual(['users.getAuthenticated', 'repos.get'])
+    // The accepted credential also reads the merge settings every row's access shares.
+    expect(cli.calls).toEqual(['users.getAuthenticated', 'repos.get', 'graphql'])
     expect(viewer).toBe('sidhu')
   })
 
@@ -408,9 +447,22 @@ describe('GitHub requests run down the credential chain', () => {
     const cli = scriptedClient('gh-cli', 'accepts')
     const provider = new ChainedProvider([cli])
 
-    await Promise.all([provider.getPullRequest(repo, 65), provider.getPullRequest(repo, 65)])
+    const input = { baseRef: 'main', headRef: 'feature', title: 'Unify credentials', body: '' }
+    await Promise.all([provider.createPullRequest(repo, input), provider.createPullRequest(repo, input)])
 
     expect(cli.calls.filter((call) => call === 'users.getAuthenticated')).toHaveLength(1)
     expect(cli.calls.filter((call) => call === 'repos.get')).toHaveLength(1)
+  })
+
+  test('a pull request read names the viewer in its own request', async () => {
+    // WHY: the detail used to wait on `/user` and `repos.get` before it could
+    // say what the viewer may do. The one GraphQL read carries both.
+    const cli = scriptedClient('gh-cli', 'accepts')
+    const provider = new ChainedProvider([cli])
+
+    const pullRequest = await provider.getPullRequest(repo, 65)
+
+    expect(cli.calls).toEqual(['graphql'])
+    expect(pullRequest.viewerPermissions.actions).toContain('merge')
   })
 })

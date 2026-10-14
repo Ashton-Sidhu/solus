@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import type { PrListPage, RepoRef } from '@solus/contracts/providers'
+import type { PrFilter, PrListPage, RepoRef } from '@solus/contracts/providers'
 import type { GitHubClient } from '@solus/server/providers/github/octokit'
-import type { Provider } from '@solus/server/providers/types'
-import { GitHubProvider, pullRequestSearchTerms } from '@solus/server/providers/github/provider'
+import type { PrPageRequest, Provider } from '@solus/server/providers/types'
+import { GitHubProvider } from '@solus/server/providers/github/provider'
+import { pullRequestSearchQuery } from '@solus/server/providers/github/pull-request-search'
 import { PrIndex } from '@solus/server/prs/pr-index'
 
 const repo: RepoRef = { host: 'github.com', owner: 'acme', repo: 'app' }
@@ -48,56 +49,44 @@ function searchRow(number: number) {
 
 describe('GitHub pull request search', () => {
   test('the list state becomes a qualifier; closed includes merged and all has none', () => {
-    // WHY: the search replaces the listing for one page, so it must answer the
-    // same state the list is on — otherwise a search under Open finds merged work.
-    expect(pullRequestSearchTerms(repo, 'open', ' label:"bug" login ')).toBe('repo:acme/app is:pr is:open label:"bug" login')
-    expect(pullRequestSearchTerms(repo, 'closed', 'x')).toBe('repo:acme/app is:pr is:closed x')
-    expect(pullRequestSearchTerms(repo, 'all', 'x')).toBe('repo:acme/app is:pr x')
+    // WHY: the search is the listing, so it must answer the state the list is
+    // on — otherwise a search under Open finds merged work.
+    expect(pullRequestSearchQuery(['acme/app'], 'open', { query: ' label:"bug" login ' }))
+      .toBe('is:pr is:open repo:acme/app sort:updated-desc label:"bug" login')
+    expect(pullRequestSearchQuery(['acme/app', 'acme/site'], 'closed', { query: 'x' }))
+      .toBe('is:pr is:closed repo:acme/app repo:acme/site sort:updated-desc x')
+    expect(pullRequestSearchQuery(['acme/app'], 'all', { before: '2026-09-01T00:00:00Z' }))
+      .toBe('is:pr repo:acme/app sort:updated-desc updated:<=2026-09-01T00:00:00Z')
   })
 
-  test('a typed query reads GitHub search and answers in the listing\'s shape, in search order', async () => {
+  test('a typed query is one GraphQL search, answered in the listing\'s shape and in search order', async () => {
     // WHY: every surface draws a pull request from one shape; a search result
     // missing branches or heads would break the row and the detail panel.
-    let searched: { q: string; per_page: number; page: number } | undefined
-    let listed = false
+    const searched: string[] = []
+    let restCalls = 0
+    const rest = () => { restCalls++; throw new Error('not a list read') }
     const client = {
-      rest: {
-        search: {
-          issuesAndPullRequests: async (options: { q: string; per_page: number; page: number }) => {
-            searched = options
-            return {
-              data: {
-                total_count: 2,
-                items: [
-                  { node_id: 'PR_9', pull_request: {} },
-                  { node_id: 'ISSUE_1' },
-                  { node_id: 'PR_4', pull_request: {} },
-                ],
-              },
-            }
-          },
-        },
-        pulls: { list: async () => { listed = true; return { data: [] } } },
-        users: { getAuthenticated: async () => ({ data: { login: 'sidhu', avatar_url: '' } }) },
-        repos: {
-          get: async () => ({ data: { full_name: 'acme/app', permissions: { push: true } } }),
-        },
+      rest: { search: { issuesAndPullRequests: rest }, pulls: { list: rest }, users: { getAuthenticated: rest }, repos: { get: rest } },
+      graphql: async (_query: string, variables: { [name: string]: string }) => {
+        searched.push(variables.p0q)
+        return {
+          p0: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [searchRow(9), { }, searchRow(4)] },
+          p1: { nameWithOwner: 'acme/app', viewerPermission: 'WRITE', mergeCommitAllowed: true, squashMergeAllowed: true, rebaseMergeAllowed: true, autoMergeAllowed: false },
+        }
       },
-      graphql: async (_query: string, variables: { ids: string[] }) => ({
-        nodes: variables.ids.map((id) => searchRow(Number(id.replace('PR_', '')))),
-      }),
       credential: { source: 'host', token: 'test-token' },
     } as unknown as GitHubClient
 
-    const page = await new SearchProvider(client).listPullRequestsPage(repo, { state: 'open', query: 'label:"bug"' }, 1)
+    const [found] = await new SearchProvider(client).listPullRequestPages(
+      [{ repo, page: 1, cursor: null }], { state: 'open', query: 'label:"bug"' }, 'sidhu', false)
 
-    expect(listed).toBe(false)
-    expect(searched?.q).toBe('repo:acme/app is:pr is:open label:"bug"')
-    expect(page.items.map((item) => [item.number, item.headRef, item.baseRepo.repo, item.reviewStatus])).toEqual([
+    expect(restCalls).toBe(0)
+    expect(searched).toEqual(['is:pr is:open repo:acme/app sort:updated-desc label:"bug"'])
+    expect(found?.page.items.map((item) => [item.number, item.headRef, item.baseRepo.repo, item.reviewStatus])).toEqual([
       [9, 'feature/9', 'app', 'approved'],
       [4, 'feature/4', 'app', 'approved'],
     ])
-    expect(page.hasMore).toBe(false)
+    expect(found?.page.hasMore).toBe(false)
   })
 
   test('the index caches a search apart from the listing it replaces', async () => {
@@ -106,9 +95,9 @@ describe('GitHub pull request search', () => {
     const asked: (string | undefined)[] = []
     const provider = {
       review: {
-        listPullRequestsPage: async (_repo: RepoRef, filter?: { query?: string }): Promise<PrListPage> => {
+        listPullRequestPages: async (requests: PrPageRequest[], filter?: PrFilter) => {
           asked.push(filter?.query)
-          return { items: [], page: 1, hasMore: false }
+          return requests.map(() => ({ page: { items: [], page: 1, hasMore: false } satisfies PrListPage, authored: null, needsReview: null }))
         },
       },
     } as unknown as Provider

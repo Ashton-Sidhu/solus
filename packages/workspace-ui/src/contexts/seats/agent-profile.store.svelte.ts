@@ -1,6 +1,6 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
-import type { AgentProfile, AgentProfileCopy, AgentProfileSkip, AgentProfileStatus } from '@solus/contracts/agent-profile'
+import type { AgentProfileCopy, AgentProfileSkip, AgentProfileStatus } from '@solus/contracts/agent-profile'
 import type { HostIdentity } from '../sharing/shares.store.svelte'
 import type { AgentProfileLocalStore } from './agent-profile-local.store.svelte'
 import { mergeComputerProfile } from './lib/agent-profile-local'
@@ -26,9 +26,9 @@ export function profileAppliesTo(principal: HostIdentity['principal'] | null, se
  * copy there, can ask for a pull, and can remove it.
  *
  * On the desktop, this computer's own skills, files, and MCP servers join this
- * client's copy of the profile (`importComputer`): when the copy is empty, by
- * itself; later, when the person asks. A push sends that copy, so what the
- * person removed or turned off on the Agent profile page holds on every host.
+ * client's copy of the profile only when the person asks (`importComputer`).
+ * A push sends that copy, so the Agent profile page is the one list a host
+ * gets, and an empty copy is not pushed.
  */
 export class AgentProfileStore {
   /** serverId → whether the caller has a profile on that host (`profileAppliesTo`). */
@@ -88,7 +88,8 @@ export class AgentProfileStore {
       void this.pull(serverId)
       return
     }
-    if (!this.canCopy) return
+    // An empty copy has nothing to send, and an empty push would remove an earlier copy from the host.
+    if (!this.canCopy || this.local?.entryCount === 0) return
     this.copiedThisRun.add(serverId)
     void this.copy(serverId)
   }
@@ -96,24 +97,22 @@ export class AgentProfileStore {
   /**
    * Push to a host: this client's copy, which is what the Agent profile page
    * shows, so an entry the person removed or turned off there stays off the
-   * host. An empty copy fills from this computer first. Without a copy
-   * attached, the computer's profile goes as it is.
+   * host. An empty copy is refused: the person imports or adds entries first.
+   * Without a copy attached, the computer's profile goes as it is.
    */
   async copy(serverId: string): Promise<void> {
     const localServerId = serverConnections.localServerId()
     if (!localServerId || localServerId === serverId) return
     await this.run(serverId, async () => {
-      const copy = this.local ? await this.localCopy() : await serverConnections.apiFor(localServerId).agentProfileRead()
+      const copy = this.local ? this.localCopy() : await serverConnections.apiFor(localServerId).agentProfileRead()
       this.statuses.set(serverId, await serverConnections.apiFor(serverId).agentProfileApply(copy))
     })
   }
 
-  /** This client's copy as a push sends it; an empty copy fills from this computer first. */
-  private async localCopy(): Promise<AgentProfileCopy> {
-    if (!this.local) throw new Error('No copy of the profile on this client.')
-    if (this.local.entryCount === 0) {
-      await this.importComputer()
-      if (this.importError) throw new Error(this.importError)
+  /** This client's copy as a push sends it. */
+  private localCopy(): AgentProfileCopy {
+    if (!this.local || this.local.entryCount === 0) {
+      throw new Error('Your agent profile is empty. Import from this computer or add an entry in Settings → Agent profile first.')
     }
     return { profile: this.local.storedEntries, skipped: this.computerSkipped }
   }
@@ -137,18 +136,6 @@ export class AgentProfileStore {
     } finally {
       this.importing = false
     }
-  }
-
-  /** The first look: an empty copy on a client with a computer fills from it, so the page never starts blank. */
-  importComputerIfEmpty(): void {
-    if (this.local && this.local.entryCount === 0) void this.importComputer()
-  }
-
-  /** This machine's profile as it is now, for a first synced copy. Null on a client with no machine of its own. */
-  async readComputer(): Promise<AgentProfile | null> {
-    const localServerId = serverConnections.localServerId()
-    if (!localServerId) return null
-    return (await serverConnections.apiFor(localServerId).agentProfileRead()).profile
   }
 
   /** Ask a host to read the profile from the account: after this client's own write, and once per run when sync is on. */
