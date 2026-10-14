@@ -548,3 +548,35 @@ test('a write reaches clients and the task links without a read', async () => {
   expect((await linksOf(task.id))[0]?.snapshot?.state).toBe('closed')
   expect(host.recentReads).toBe(0)
 })
+
+describe("an organization's Solus API", () => {
+  test("links an organization session's branch pull request, reading as the session's owner", async () => {
+    // WHY: the machines that run organization sessions rotate and go offline,
+    // so the session's home keeps its pull requests fresh
+    // (docs/plans/session-archive.md). It has no checkout and no connection of
+    // its own: it reads the branch from the record, and GitHub as the owner.
+    // The Solus API installs acting identities at boot; the test does as it does.
+    const { installTestIdentities } = await import('./helpers/acting-identities')
+    installTestIdentities()
+    const { scope, host, pullRequest } = codeHost('org-branch')
+    host.rows = [pullRequest(5, { headRef: 'feat', updatedAt: later(1) })]
+    const readers: Array<string | null> = []
+    const { requireActingScope } = await import('@solus/server/vault/acting-scope')
+    const provider = providers.get('org-branch')!
+    const list = provider.review!.listRecentPullRequests.bind(provider.review)
+    provider.review!.listRecentPullRequests = (async (...args: Parameters<typeof list>) => {
+      readers.push(requireActingScope('a test read').credentialUserId)
+      return list(...args)
+    }) as typeof list
+    const records = await import('@solus/server/data/sessions/session-records')
+    await records.upsertSessionRecord('A', { sessionId: 'org-s1', provider: 'codex', projectPath: '-repo', lastActivityAt: Date.now(), ownerUserId: 'alice', projectRemote: scope, branch: 'feat' }, { organizationId: 'A', published: true })
+
+    const { organizationPrSync } = await import('@solus/server/prs/organization-pr-sync')
+    await organizationPrSync(() => {}).tick()
+
+    const { readSessionPullRequests } = await import('@solus/server/data/sessions/session-pull-requests')
+    const { ANY_ORGANIZATION } = await import('@solus/server/admission/principal')
+    expect((await readSessionPullRequests(ANY_ORGANIZATION, ['org-s1']))['org-s1']?.map((link) => [link.number, link.source])).toEqual([[5, 'branch']])
+    expect(readers).toEqual(['alice'])
+  })
+})

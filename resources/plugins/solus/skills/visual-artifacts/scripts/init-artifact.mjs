@@ -1,5 +1,6 @@
 import { cp, mkdir, writeFile } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -20,7 +21,9 @@ export async function initArtifact(directory, { install = true } = {}) {
   return projectDirectory
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// Compare real paths: the skill is often reached through a symlink (~/.solus/plugins),
+// and a mismatch would skip the command without a word.
+if (process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url))) {
   const args = process.argv.slice(2)
   if (args.length < 1 || args.length > 2 || (args[1] && args[1] !== '--no-install') || args[0].startsWith('--')) {
     console.error('Usage: node init-artifact.mjs <new-directory> [--no-install]')

@@ -4,7 +4,7 @@ import { getDatabase } from '../db/database'
 import { createLogger } from '../logger'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { completeTasksForMergedPullRequest } from '../data/tasks/sync-engine'
-import { archiveIdleSessions, settledSessionIds, settleSessionsWithEndedPullRequests } from '../data/sessions/session-states'
+import { settledSessionIds, settleSessionsWithEndedPullRequests } from '../data/sessions/session-states'
 import { sessionIdOfThread } from '../data/sessions/session-lineage'
 import { readPrLinkInterests, recordPullRequestObservation, type PrLinkInterest } from '../data/tasks/task-links'
 import { unfinishedTaskProjects } from '../data/tasks/task-store'
@@ -21,7 +21,7 @@ import { asBackgroundWork } from '../providers/github/request-budget'
 import { codeHostFor, type CodeHost } from './code-host'
 import { prIndex, repoKeyOf } from './pr-index'
 import { HOST_SCOPE } from '../execution/seats/acting-identity'
-import { requireActingScope, withActingScope, type ActingScope } from '../vault/acting-scope'
+import { requireActingScope, withActingScope, withUserScope, type ActingScope } from '../vault/acting-scope'
 
 const log = createLogger('main', 'pr-sync')
 /** How often the clock looks for a repository that is due. */
@@ -46,7 +46,7 @@ const BRANCH_LOOKUP_MS = 30 * 24 * 60 * 60_000
 type PrRecord = { result: 'found'; pullRequest: PullRequest } | { result: 'missing' }
 
 /** A live session that runs in its own worktree on a branch. */
-interface LiveCheckout {
+export interface LiveCheckout {
   projectScope: string
   branch: string
   /** The stable Solus session id. */
@@ -126,6 +126,14 @@ export interface PrSyncDeps {
   /** Every complete answer about the pull requests asking the viewer's attention,
    *  as read: the notifications hub records what is new in it (plans/015 §5). */
   observeNeedingAttention?: (repo: RepoRef, viewer: string, pullRequests: PullRequest[]) => Promise<void>
+  /** The branches live sessions work on. A machine reads its own checkouts; the
+   *  Solus API reads the session records its runners report
+   *  (docs/plans/session-archive.md). */
+  liveCheckouts?: (now: number) => Promise<LiveCheckout[]>
+  /** The person whose connection reads a repository no client asked about, by
+   *  user key. A machine reads as itself; the Solus API, which has no connection
+   *  of its own, as a person whose live session works in that repository. */
+  repositoryReader?: (repositoryKey: string) => string | null
 }
 
 /**
@@ -149,6 +157,7 @@ export class PrSync {
   private taskInterestsAt = 0
   private readonly codeHost: NonNullable<PrSyncDeps['codeHost']>
   private readonly isSessionBusy: NonNullable<PrSyncDeps['isSessionBusy']>
+  private readonly liveCheckouts: NonNullable<PrSyncDeps['liveCheckouts']>
   private readonly now: () => number
   private timer: ReturnType<typeof setInterval> | null = null
   private stopHearingReads: (() => void) | null = null
@@ -158,6 +167,7 @@ export class PrSync {
   constructor(private readonly deps: PrSyncDeps) {
     this.codeHost = deps.codeHost ?? codeHostFor
     this.isSessionBusy = deps.isSessionBusy ?? (() => false)
+    this.liveCheckouts = deps.liveCheckouts ?? liveCheckouts
     this.now = deps.now ?? Date.now
   }
 
@@ -302,11 +312,8 @@ export class PrSync {
       const sync = this.syncFor(key, host)
       if (sync.nextAt > this.now() || (this.rateLimitedUntil.get(host.repo.host) ?? 0) > this.now()) continue
       const wanted = this.wantedIn(key)
-      // Each repository is read as the person who wants it, whatever started this
-      // tick; one only tasks want is read as the host, as the task sync's own clock is.
-      const scope = this.clientInterests.get(key)?.scope ?? HOST_SCOPE
       try {
-        await withActingScope(scope, () => this.syncRepository(key, sync, wanted))
+        await this.readAsItsReader(key, () => this.syncRepository(key, sync, wanted))
         sync.syncedAt = this.now()
         sync.nextAt = this.now() + cadenceOf(sync, wanted)
       } catch (error) {
@@ -321,6 +328,19 @@ export class PrSync {
       }
     }
     await this.settleSessions()
+  }
+
+  /**
+   * Each repository is read as the person who wants it, whatever started this
+   * tick. One only live work wants is read as the host, as the task sync's own
+   * clock is; at the Solus API, which has no connection of its own, as a person
+   * whose live session works in it.
+   */
+  private readAsItsReader(key: string, read: () => Promise<void>): Promise<void> {
+    const scope = this.clientInterests.get(key)?.scope
+    if (scope) return withActingScope(scope, read)
+    const reader = this.deps.repositoryReader?.(key)
+    return reader ? withUserScope(reader, read) : withActingScope(HOST_SCOPE, read)
   }
 
   private wantedIn(key: string): Wanted {
@@ -373,14 +393,11 @@ export class PrSync {
 
   /**
    * Settle the sessions whose pull requests all ended
-   * (docs/plans/session-pull-requests.md), and archive the sessions that had
-   * no activity for a long time (docs/plans/session-archive.md). A settled
-   * session is no longer live work, so interest is read again.
+   * (docs/plans/session-pull-requests.md). A settled session is no longer
+   * live work, so interest is read again.
    */
   private async settleSessions(): Promise<void> {
     const settled = await settleSessionsWithEndedPullRequests(this.isSessionBusy)
-    const archived = await archiveIdleSessions(this.isSessionBusy, this.now())
-    if (archived.length) log.info('pr_sync_sessions_archived', { count: archived.length })
     if (!settled.length) return
     log.info('pr_sync_sessions_settled', { count: settled.length })
     this.taskInterestsAt = 0
@@ -504,7 +521,7 @@ export class PrSync {
    */
   private async linkBranchOwners(pullRequest: PullRequest, branch: string, sessionIds: string[]): Promise<void> {
     const repositoryKey = repoKeyOf(pullRequest.baseRepo)
-    const live = new Set((await liveCheckouts(this.now())).flatMap((checkout) =>
+    const live = new Set((await this.liveCheckouts(this.now())).flatMap((checkout) =>
       checkout.branch === branch ? [checkout.sessionId] : []))
     for (const sessionId of sessionIds) {
       if (!live.has(sessionId)) continue
@@ -552,7 +569,7 @@ export class PrSync {
       if (link.state !== 'merged') interest.open.add(link.number)
       else if (link.updatedAt) interest.merged.set(link.number, link.updatedAt)
     }
-    for (const { projectScope, branch, sessionId } of await liveCheckouts(this.now())) {
+    for (const { projectScope, branch, sessionId } of await this.liveCheckouts(this.now())) {
       const host = await hostFor(projectScope)
       if (!host) continue
       const owners = interestFor(host).branches

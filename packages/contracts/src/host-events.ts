@@ -22,7 +22,7 @@ import type {
   VoiceModelStatus,
 } from './types'
 import type { GitActionProgressEvent } from './git-types'
-import type { SessionState } from './session-state'
+import type { SessionState, SessionView } from './session-state'
 import type { BrowserPage, BrowserProfileSet } from './browser-types'
 import type { CodeIntelStatus } from './code-intel'
 import type { InsightPullState } from './observability-types'
@@ -56,9 +56,11 @@ export interface HostEventMap {
   /** The pull requests linked to this session changed, or PR sync saw one of
    *  them change. Clients read `sessionPullRequestsList` for the session. */
   'session.pullRequestsChanged': { sessionId: string }
-  /** The session was settled, made active, snoozed, woken, archived or
-   *  returned to the list. `state` is its state now. */
+  /** The session was settled or made active. `state` is its state now. */
   'session.stateChanged': { sessionId: string; state: SessionState }
+  /** One person archived, returned, snoozed, or woke a session. Only that
+   *  person's connections hear it; `view` is their view now. */
+  'session.viewChanged': { sessionId: string; view: SessionView }
   /** `agentSessionId` is a correlation attribute, not a second address: the
    *  picker and agent-conversation cards hold only a provider thread id. */
   'session.transcriptChanged': { sessionId: string }
@@ -206,7 +208,8 @@ export const HOST_EVENT_DEFINITIONS = {
   'session.indexChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A provider session index changed.' },
   'session.titleChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A persisted session title changed.' },
   'session.pullRequestsChanged': { owner: 'sessions', category: 'invalidation', recovery: 'reload', description: "A session's pull request links changed." },
-  'session.stateChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A session was settled, made active, snoozed, woken, archived or returned to the list.' },
+  'session.stateChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A session was settled or made active.' },
+  'session.viewChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: "One person's view of a session changed: archived, returned, snoozed, or woken." },
   'session.transcriptChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'The cloud transcript changed.' },
   'session.statusChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A provider session changed live status.' },
   'session.readStateChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A session was read or returned to unread on some client.' },

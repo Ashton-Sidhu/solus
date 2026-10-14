@@ -1,71 +1,67 @@
-import { SessionPullRequestReader } from '@solus/client-core/session-pull-request-reader'
 import { SvelteMap } from 'svelte/reactivity'
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from '@solus/contracts/session-pull-requests'
 import type { TaskSidebarPrLink } from '@solus/contracts/task-types'
+import type { SessionRecord } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
 
 /**
  * The pull requests sessions work on (docs/plans/session-pull-requests.md).
  *
- * A session owns its links on its host. This store holds them for the rows
- * that stand for a session. A task's pull requests are not here: the host
+ * A session's home keeps its links (docs/plans/session-archive.md): the
+ * organization's Solus API for an organization session, else its machine. The
+ * session list carries each session's links; a change is read again from the
+ * home that announced it. A task's pull requests are not here: the home
  * answers those with the task, from the links of the task's sessions.
  */
 export class SessionPullRequestsStore {
   /** Links by stable session id. A session with none has no entry. */
   private linksBySession = new SvelteMap<string, SessionPullRequestLink[]>()
-  /** The sessions each host last answered for, so a reload drops what is gone. */
-  private sessionIdsByServer = new Map<string, Set<string>>()
-  private readonly readers = new WeakMap<ReturnType<typeof serverConnections.apiFor>, SessionPullRequestReader>()
+  /** The home each listed session's links came from. */
+  private homeBySession = new Map<string, string>()
   private watchedServerIds = new Set<string>()
 
-  /** Read every connected host's links. A host that fails the read keeps the
-   *  links it answered with last time. */
-  async load(): Promise<void> {
-    await Promise.all(serverConnections.connectedServerIds().map(async (serverId) => {
-      this.watchHost(serverId)
-      let answer: Awaited<ReturnType<ReturnType<typeof serverConnections.apiFor>['sessionPullRequestsList']>>
-      try {
-        answer = await serverConnections.apiFor(serverId).sessionPullRequestsList()
-      } catch {
-        return
-      }
-      const answered = new Set(Object.keys(answer))
-      for (const sessionId of this.sessionIdsByServer.get(serverId) ?? []) {
-        if (!answered.has(sessionId)) this.linksBySession.delete(sessionId)
-      }
-      for (const [sessionId, links] of Object.entries(answer)) this.linksBySession.set(sessionId, links)
-      this.sessionIdsByServer.set(serverId, answered)
-    }))
+  /** Take the links a home's session list carries. A listed session of this
+   *  home that has none now has none here. */
+  adopt(homeServerId: string, records: readonly Pick<SessionRecord, 'sessionId' | 'pullRequests'>[]): void {
+    this.watchHost(homeServerId)
+    const answered = new Set(records.map((record) => record.sessionId))
+    for (const [sessionId, home] of this.homeBySession) {
+      if (home !== homeServerId || answered.has(sessionId)) continue
+      this.homeBySession.delete(sessionId)
+      this.linksBySession.delete(sessionId)
+    }
+    for (const record of records) {
+      this.homeBySession.set(record.sessionId, homeServerId)
+      this.write(record.sessionId, record.pullRequests ?? [])
+    }
   }
 
-  /** Each host announces its own changes, so each is subscribed once. */
+  /** Each home announces its own changes, so each is subscribed once. */
   private watchHost(serverId: string): void {
     if (this.watchedServerIds.has(serverId)) return
     this.watchedServerIds.add(serverId)
     serverConnections.eventsFor(serverId).subscribe('session.pullRequestsChanged', ({ sessionId }) => {
-      void this.refresh(serverId, sessionId)
+      const home = this.homeBySession.get(sessionId)
+      if (!home || home === serverId) void this.refresh(serverId, sessionId)
     })
   }
 
+  /** The home of a session's links: the one its list named, else the machine the caller acts through. */
+  private homeFor(serverId: string, sessionId: string): string {
+    return this.homeBySession.get(sessionId) ?? serverId
+  }
+
   private async refresh(serverId: string, sessionId: string): Promise<void> {
-    const api = serverConnections.apiFor(serverId)
-    let reader = this.readers.get(api)
-    if (!reader) {
-      reader = new SessionPullRequestReader(api)
-      this.readers.set(api, reader)
-    }
-    const answer = await reader.read(sessionId).catch(() => null)
-    if (!answer || serverConnections.apiFor(serverId) !== api) return
-    const known = this.sessionIdsByServer.get(serverId) ?? new Set<string>()
-    this.sessionIdsByServer.set(serverId, known)
-    // The host answers under the stable id, which the event may not name.
-    this.linksBySession.delete(sessionId)
-    known.delete(sessionId)
-    for (const [sessionId, links] of Object.entries(answer)) {
-      this.linksBySession.set(sessionId, links)
-      known.add(sessionId)
-    }
+    const home = this.homeFor(serverId, sessionId)
+    const api = serverConnections.apiFor(home)
+    const links = await api.sessionPullRequests(sessionId).catch(() => null)
+    if (!links || serverConnections.apiFor(home) !== api) return
+    this.write(sessionId, links)
+  }
+
+  private write(sessionId: string, links: SessionPullRequestLink[]): void {
+    if (links.length) this.linksBySession.set(sessionId, links)
+    else this.linksBySession.delete(sessionId)
   }
 
   /** The links of one session. */
@@ -73,14 +69,17 @@ export class SessionPullRequestsStore {
     return sessionId ? this.linksBySession.get(sessionId) ?? [] : []
   }
 
-  /** Link a pull request to a session by its URL. */
+  /** Link a pull request to a session by its URL, at the session's home. */
   async link(serverId: string, sessionId: string, url: string): Promise<void> {
-    await serverConnections.apiFor(serverId).sessionPullRequestLink(sessionId, url)
-    await this.refresh(serverId, sessionId)
+    const home = this.homeFor(serverId, sessionId)
+    this.watchHost(home)
+    await serverConnections.apiFor(home).sessionPullRequestPut(sessionId, url)
+    await this.refresh(home, sessionId)
   }
 
   /** Watch a session's pull request, or stop: the session's agent wakes on
-   *  its news (docs/plans/pr-watch.md). Answers what the host did. */
+   *  its news (docs/plans/pr-watch.md). Watching is the machine's: it is
+   *  where the agent runs. Answers what the machine did. */
   async setWatching(
     serverId: string,
     link: Pick<SessionPullRequestLink, 'sessionId' | 'repository' | 'number'>,
@@ -91,10 +90,12 @@ export class SessionPullRequestsStore {
     return outcome
   }
 
-  /** Remove a pull request from a session. PR sync does not link it again. */
+  /** Remove a pull request from a session, at its home. PR sync does not link it again. */
   async unlink(serverId: string, link: Pick<SessionPullRequestLink, 'sessionId' | 'repository' | 'number'>): Promise<void> {
-    await serverConnections.apiFor(serverId).sessionPullRequestUnlink(link.sessionId, link.repository, link.number)
-    await this.refresh(serverId, link.sessionId)
+    const home = this.homeFor(serverId, link.sessionId)
+    this.watchHost(home)
+    await serverConnections.apiFor(home).sessionPullRequestDelete(link.sessionId, link)
+    await this.refresh(home, link.sessionId)
   }
 }
 

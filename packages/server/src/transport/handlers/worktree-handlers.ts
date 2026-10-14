@@ -10,6 +10,9 @@ import { getDiff, getDiffFileContents, getDiffStats, listTurnSnapshots } from '.
 import { TextGenerator } from '../../execution/agents/text-generator'
 import { createLogger } from '../../logger'
 import { linkSessionPullRequest } from '../../data/sessions/session-pull-requests'
+import { workspaceToolContext } from '../../data/workspace/tool-context'
+import { recordOutboxOp } from '../../sync/outbox/outbox-store'
+import type { Attribution } from '@solus/contracts/user'
 import { providerForRepo } from '../../providers/registry'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { assertPathInScope } from '../../admission/scope'
@@ -218,11 +221,10 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     if (sessionId && pullRequest.status !== 'skipped' && pullRequest.url) {
       // Solus opened this pull request from the session, so the session owns
       // the link; its task, when it has one, reads it from there.
-      await linkSessionPullRequest(sessionId, {
-        url: pullRequest.url,
-        source: 'created',
-        by: attributionOf(handlerCtx.actor, { sessionId, provider: ctx.session.provider ?? undefined }),
-      }).catch((error) => {
+      const by = attributionOf(handlerCtx.actor, { sessionId, provider: ctx.session.provider ?? undefined })
+      await linkSessionPullRequest(sessionId, { url: pullRequest.url, source: 'created', by })
+        .then(() => queueLinkForHome(sessionId, pullRequest.url!, by))
+        .catch((error) => {
         log.warn('session_pr_link_failed', {
           sessionId,
           error: error instanceof Error ? error.message : String(error),
@@ -353,5 +355,19 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
       log.error('rpc_write_plan_file_failed', { filePath, error: err instanceof Error ? err.message : String(err) })
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
+  })
+}
+
+/**
+ * An organization session's home is its Solus API (docs/plans/session-archive.md):
+ * the link Solus made on this machine travels there in the delivery queue, as an
+ * agent's link does. Any other session's home is this machine, which holds it already.
+ */
+async function queueLinkForHome(sessionId: string, url: string, actor: Attribution): Promise<void> {
+  const home = await workspaceToolContext(sessionId).catch(() => null)
+  if (!home?.remote || home.context.home.kind !== 'organization') return
+  recordOutboxOp({
+    domain: 'sessions', resourceId: sessionId, name: 'link-pull-request', payload: { url, actor, source: 'created' }, sessionId,
+    destination: 'cloud', organizationId: home.context.home.organizationId, actorUserId: home.deliveryActor ?? '',
   })
 }

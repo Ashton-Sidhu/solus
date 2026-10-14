@@ -105,7 +105,7 @@ export default cloudModeScenario('organization work: an attached host runs an or
   ctx.check('bob sees the task the agent created', after.tasks === before.tasks + 1, `${before.tasks} → ${after.tasks}`)
   ctx.check('bob sees the work the agent created', after.works === before.works + 1, `${before.works} → ${after.works}`)
   // The runner's report carries the record; the Solus API keeps its own copy (its `publication` is the API's, not the runner's).
-  const records = await ctx.until(() => bobApi.records.sessionRecordList({}).then((list) => list.records), (list) => list.some((row) => row.sessionId === sessionId), 15_000)
+  const records = await ctx.until(() => bobApi.records.sessionRecordList({ scope: 'all' }).then((list) => list.records), (list) => list.some((row) => row.sessionId === sessionId), 15_000)
   const record = records.find((row) => row.sessionId === sessionId)
   ctx.check('bob sees the session record, in the organization', record?.organizationId === lab, JSON.stringify(record?.organizationId))
   ctx.check('the record names alice as its owner and her host as its runner', record?.ownerUserId === persona.userId && record.runnerHostId === hostId, JSON.stringify(record && { ownerUserId: record.ownerUserId, runnerHostId: record.runnerHostId }))
@@ -123,7 +123,7 @@ export default cloudModeScenario('organization work: an attached host runs an or
   if (carolDial.ok) {
     const carolCounts = await countTitled(carolApi)
     ctx.check('carol\'s organization has no such task or work', carolCounts.tasks === 0 && carolCounts.works === 0, JSON.stringify(carolCounts))
-    const carolRecords = (await carolApi.records.sessionRecordList({})).records
+    const carolRecords = (await carolApi.records.sessionRecordList({ scope: 'all' })).records
     ctx.check('carol lists no record of the session', !carolRecords.some((row) => row.sessionId === sessionId), String(carolRecords.length))
   }
   const intruder = apiClient(ctx, carol, lab)

@@ -119,7 +119,7 @@ function ThreadNavigationSidebarPane(
   const { fabClearance } = useAndroidControlSizing();
   const projects = useListened(app.threads.changes, app.threads.projects);
   const threads = useListened(app.threads.changes, app.threads.threads);
-  const archivedThreads = useListened(app.threads.changes, app.threads.archivedThreads);
+  const unlistedThreads = useListened(app.threads.changes, app.threads.unlistedThreads);
   const hosts = useListened(app.registry.changes, app.registry.hosts);
   const list = useThreadListState();
   const facts = useListened(list.changes, list.facts);
@@ -251,7 +251,7 @@ function ThreadNavigationSidebarPane(
     () =>
       buildThreadListV2Items({
         threads,
-        archivedThreads,
+        unlistedThreads,
         facts,
         hostId: options.selectedEnvironmentId,
         projectKeys: selectedProjectScope === null ? null : selectedProjectScope.projectKeys,
@@ -264,7 +264,7 @@ function ThreadNavigationSidebarPane(
         selectedThreadKey: props.selectedThreadKey ?? null,
       }),
     [
-      archivedThreads,
+      unlistedThreads,
       facts,
       knownProjectKeys,
       nowMinute,

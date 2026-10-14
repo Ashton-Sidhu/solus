@@ -2,12 +2,12 @@ import { expect, spyOn, test } from 'bun:test'
 import { asHostApi } from '@solus/client-core/host-api'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { ACTIVE_SESSION_STATE } from '@solus/contracts/session-state'
+import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE } from '@solus/contracts/session-state'
 import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
 import { SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 
 // The X on a row (docs/plans/session-archive.md): a started session's row
-// archives the session on its host, for every device. A task's row and a
+// archives the session in this person's list, at its home, on every device. A task's row and a
 // session that has not started only leave this client.
 
 type Harness = Pick<SessionSidebarStore, 'removeRow'> & {
@@ -22,9 +22,9 @@ function row(fields: Partial<SidebarTask>): SidebarTask {
 test('the X archives a started session on its host and closes its tab', async () => {
   const archived: Array<[string, boolean]> = []
   const api = spyOn(serverConnections, 'apiFor').mockReturnValue(asHostApi({
-    sessionSetArchived: async (sessionId, isArchived) => {
-      archived.push([sessionId, isArchived])
-      return { ...ACTIVE_SESSION_STATE, archivedAt: 1 }
+    sessionUpdate: async (sessionId, change) => {
+      archived.push([sessionId, change.archived === true])
+      return { state: UNSETTLED_SESSION_STATE, view: { ...EMPTY_SESSION_VIEW, archivedAt: 1 } }
     },
   }))
   const events = spyOn(serverConnections, 'eventsFor').mockReturnValue(new HostEventSubscriber())

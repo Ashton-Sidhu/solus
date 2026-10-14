@@ -53,9 +53,12 @@ HTML blocks, artifact works, document embeds, and HTML file previews share
 `SandboxFrame`. The frame gets t3code's theme token set (`--background`, `--card`,
 `--primary`, `--chart-1` … `--chart-6`, and the others in `artifactSandbox.ts`),
 filled from the live Solus theme, so a page matches the conversation around it.
-The chart series is the Solus orange accent first, then teal, blue, purple,
-rose, and green. Inside the app, `--chart-N` keeps its hue meaning instead
-(chart-2 amber for warnings, chart-3 green for done). Warning and info, which Solus has no token for, are fixed values. The
+The frame's neutrals and series are the render palette (`--solus-render-*` in
+`workspace.css`): a warm grey with almost no chroma for `--card`, `--muted`,
+and `--border`, and a chart series that is one family around the brand
+terracotta: terracotta, teal, indigo, plum, ochre, moss, each at the same
+OKLCH lightness and chroma per mode. Inside the app, `--chart-N` keeps its hue
+meaning instead (chart-2 amber for warnings, chart-3 green for done). Warning and info, which Solus has no token for, are fixed values. The
 older `--solus-*` names are still supplied for renders that use them. Theme changes update the injected stylesheet through a message
 from its parent; they do not assign `srcdoc`. Changing the HTML or selecting Reload
 still reloads the document. A frame starts at the height its markup last

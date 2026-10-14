@@ -36,6 +36,7 @@ export const session_admissions = sessionsSchema.sessionAdmissions.pg
 export const session_pull_requests = sessionsSchema.sessionPullRequests.pg
 export const session_pull_request_watches = sessionsSchema.sessionPullRequestWatches.pg
 export const session_states = sessionsSchema.sessionStates.pg
+export const session_views = sessionsSchema.sessionViews.pg
 export const runner_cursors = outboxSchema.runnerCursors.pg
 export const session_transcripts = transcriptSchema.sessionTranscripts.pg
 export const insight_spans = insightSchema.insightSpans.pg

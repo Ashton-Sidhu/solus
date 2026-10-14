@@ -1,5 +1,6 @@
 import { readFile, writeFile, rename, rm, realpath } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -92,7 +93,9 @@ export async function bundleArtifact(directory) {
   return { output, bytes }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// Compare real paths: the skill is often reached through a symlink (~/.solus/plugins),
+// and a mismatch would skip the command without a word.
+if (process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url))) {
   if (process.argv.length > 3) {
     console.error('Usage: node bundle-artifact.mjs [artifact-directory]')
     process.exitCode = 1

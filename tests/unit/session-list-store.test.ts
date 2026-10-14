@@ -2,146 +2,107 @@ import { expect, spyOn, test } from 'bun:test'
 import { asHostApi } from '@solus/client-core/host-api'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { ACTIVE_SESSION_STATE, type SessionState } from '@solus/contracts/session-state'
+import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE, type SessionState, type SessionView } from '@solus/contracts/session-state'
 import type { SessionRecord, SessionRecordListFilter } from '@solus/contracts/types'
 import { SessionListStore } from '@solus/workspace-ui/contexts/workspace/session-list.store.svelte'
+import { sessionPullRequestsStore } from '@solus/workspace-ui/contexts/prs/session-pull-requests.store.svelte'
 
-// The sidebar shows each host's session list (docs/plans/session-archive.md).
-// Each session carries its state, and a change arrives with the state it
-// leaves: the client writes it and reads nothing back.
+// This person's session list (docs/plans/session-archive.md). Each session
+// carries its shared settle and the person's own archive and snooze; a change
+// arrives with what it leaves, and the client reads nothing back.
 
-const snoozed: SessionState = { ...ACTIVE_SESSION_STATE, snoozedUntil: 100 }
-const record = (sessionId: string, state: SessionState | null = null) =>
-  ({ sessionId, title: sessionId, customTitle: null, slug: null, projectRoot: '/repo', projectPath: '-repo', createdAt: 1, state }) as SessionRecord
+const snoozed: SessionView = { ...EMPTY_SESSION_VIEW, snoozedUntil: 100 }
+const record = (sessionId: string, fields: Partial<SessionRecord> = {}) =>
+  ({ sessionId, title: sessionId, customTitle: null, slug: null, projectRoot: '/repo', projectPath: '-repo', createdAt: 1, organizationId: 'local', state: null, view: null, listed: true, pullRequests: [], ...fields }) as SessionRecord
 
-function fakeHost(records: SessionRecord[]) {
-  const events = new HostEventSubscriber()
-  const lists: Array<SessionRecordListFilter | undefined> = []
-  const archived: Array<[string, boolean]> = []
-  let refuseArchive = false
-  const api = spyOn(serverConnections, 'apiFor').mockReturnValue(asHostApi({
-    sessionRecordList: async (filter) => { lists.push(filter); return { records, indexing: false } },
-    sessionSetArchived: async (sessionId, isArchived) => {
-      if (refuseArchive) throw new Error('refused')
-      archived.push([sessionId, isArchived])
-      return { ...ACTIVE_SESSION_STATE, archivedAt: isArchived ? 5 : null }
+interface FakeHome { records: SessionRecord[]; events: HostEventSubscriber; lists: Array<SessionRecordListFilter | undefined>; viewWrites: string[] }
+
+function fakeHomes(homes: Record<string, SessionRecord[]>, runners: Record<string, string> = {}) {
+  const fakes = new Map<string, FakeHome>(Object.entries(homes).map(([serverId, records]) => [serverId, { records, events: new HostEventSubscriber(), lists: [], viewWrites: [] }]))
+  const apis = new Map([...fakes].map(([serverId, home]) => [serverId, asHostApi({
+    sessionRecordList: async (filter) => { home.lists.push(filter); return { records: home.records, indexing: false } },
+    sessionUpdate: async (sessionId, change) => {
+      home.viewWrites.push(sessionId)
+      return { state: UNSETTLED_SESSION_STATE, view: change.archived ? { ...EMPTY_SESSION_VIEW, archivedAt: 5 } : EMPTY_SESSION_VIEW }
     },
-  }))
-  const subscription = spyOn(serverConnections, 'eventsFor').mockReturnValue(events)
-  const connected = spyOn(serverConnections, 'connectedServerIds').mockReturnValue(['host'])
-  const announce = (sessionId: string, state: SessionState) =>
-    events.receive({ type: 'session.stateChanged', payload: { sessionId, state }, occurredAt: 1 })
-  return {
-    lists, archived, announce, setRecords: (next: SessionRecord[]) => { records = next },
-    refuseArchive: () => { refuseArchive = true },
-    restore: () => { api.mockRestore(); subscription.mockRestore(); connected.mockRestore() },
-  }
+  })]))
+  const api = spyOn(serverConnections, 'apiFor').mockImplementation((serverId: string) => apis.get(serverId)!)
+  const events = spyOn(serverConnections, 'eventsFor').mockImplementation((serverId: string) => fakes.get(serverId)!.events)
+  const store = new SessionListStore({
+    connectedRunnerFor: (runnerHostId) => runners[runnerHostId] ?? null,
+    connectedServerIds: () => [...fakes.keys()],
+  })
+  const announce = (serverId: string, type: 'session.stateChanged' | 'session.viewChanged', sessionId: string, value: SessionState | SessionView) =>
+    fakes.get(serverId)!.events.receive(type === 'session.stateChanged'
+      ? { type, payload: { sessionId, state: value as SessionState }, occurredAt: 1 }
+      : { type, payload: { sessionId, view: value as SessionView }, occurredAt: 1 })
+  return { store, fakes, announce, restore: () => { api.mockRestore(); events.mockRestore() } }
 }
 
-test('reads each host list of sessions not archived, and keeps a snooze across reloads', async () => {
-  // WHY: the old shelf read had a limit, and a session missing from it came
-  // back active on each reload. The list carries every session's own state.
-  const host = fakeHost([record('asleep', snoozed), record('active')])
-  const store = new SessionListStore()
+test("reads each home's list for this person, and keeps their snooze across reloads", async () => {
+  // WHY: a count limit once made a snoozed session come back active on each
+  // reload. Each record carries the person's own view now.
+  const { store, fakes, restore } = fakeHomes({ host: [record('asleep', { view: snoozed }), record('active')] })
   try {
     await store.load()
-    expect(host.lists).toEqual([{ archived: false, roots: true }])
+    expect(fakes.get('host')!.lists).toEqual([undefined])
     expect(store.sessions.map((listed) => listed.sessionId).sort()).toEqual(['active', 'asleep'])
     expect(store.stateFor('asleep')?.snoozedUntil).toBe(100)
     expect(store.stateFor('active')).toBeNull()
-
     await store.load()
     expect(store.stateFor('asleep')?.snoozedUntil).toBe(100)
-  } finally { host.restore() }
+  } finally { restore() }
 })
 
-test('a state change moves one session, and an archive takes it out of the list', async () => {
-  const host = fakeHost([record('one'), record('two')])
-  const store = new SessionListStore()
+test('a shared settle and a personal archive each move one session, and nothing is read back', async () => {
+  const { store, fakes, announce, restore } = fakeHomes({ host: [record('one'), record('two')] })
   try {
     await store.load()
-    host.announce('one', snoozed)
-    expect(store.stateFor('one')?.snoozedUntil).toBe(100)
-    expect(store.stateFor('two')).toBeNull()
-
-    host.announce('one', { ...ACTIVE_SESSION_STATE, archivedAt: 3 })
-    expect(store.sessions.map((listed) => listed.sessionId)).toEqual(['two'])
-    // A session woken on another device is active again.
-    host.announce('two', ACTIVE_SESSION_STATE)
-    expect(store.stateFor('two')).toBeNull()
-    expect(host.lists).toHaveLength(1)
-  } finally { host.restore() }
+    announce('host', 'session.stateChanged', 'one', { settledAt: 7, settledBy: 'person' })
+    expect(store.stateFor('one')).toMatchObject({ settledAt: 7, archivedAt: null })
+    announce('host', 'session.viewChanged', 'two', { ...EMPTY_SESSION_VIEW, archivedAt: 3 })
+    expect(store.sessions.map((listed) => listed.sessionId)).toEqual(['one'])
+    expect(fakes.get('host')!.lists).toHaveLength(1)
+  } finally { restore() }
 })
 
-test('a session returned to the list that this client does not hold reads the list again', async () => {
-  const host = fakeHost([record('one')])
-  const store = new SessionListStore()
-  try {
-    await store.load()
-    host.setRecords([record('one'), record('back')])
-    host.announce('back', ACTIVE_SESSION_STATE)
-    await Promise.resolve()
-    expect(host.lists).toHaveLength(2)
-  } finally { host.restore() }
-})
-
-test('archive leaves the list at once, and comes back when the host refuses', async () => {
-  const host = fakeHost([record('one')])
-  const store = new SessionListStore()
+test('archive leaves the list at once, at the session home', async () => {
+  const { store, fakes, restore } = fakeHomes({ host: [record('one')] })
   try {
     await store.load()
     await store.setArchived({ serverId: 'host', sessionId: 'one' }, true)
-    expect(host.archived).toEqual([['one', true]])
+    expect(fakes.get('host')!.viewWrites).toEqual(['one'])
     expect(store.sessions).toEqual([])
     expect(store.stateFor('one')?.archivedAt).toBe(5)
-
-    host.setRecords([record('two')])
-    await store.load()
-    host.refuseArchive()
-    await expect(store.setArchived({ serverId: 'host', sessionId: 'two' }, true)).rejects.toThrow('refused')
-    expect(store.sessions.map((listed) => listed.sessionId)).toEqual(['two'])
-  } finally { host.restore() }
+  } finally { restore() }
 })
 
-test('the Solus API keeps an organization session in the list, and the session opens on its machine', async () => {
+test('the Solus API keeps an organization session; it opens on its machine, and its links come with it', async () => {
   // WHY: the machines that run organization sessions rotate and go offline, so
   // the organization's Solus API keeps their place in the list. A machine's own
-  // list or state of such a session must not stand for it, and an archive goes
-  // to the API even when the session opens on its machine.
-  const orgRecord = (sessionId: string, runnerHostId: string, state: SessionState | null = null) =>
-    ({ ...record(sessionId, state), organizationId: 'org-1', runnerHostId }) as SessionRecord
-  const lists = new Map<string, SessionRecord[]>([
-    ['workspace:org-1', [orgRecord('on-runner', 'vm-on', snoozed), orgRecord('runner-gone', 'vm-off')]],
-    ['runner', [orgRecord('on-runner', 'vm-on'), { ...record('local-only'), organizationId: 'local' } as SessionRecord]],
-  ])
-  const archivedOn: string[] = []
-  const events = new Map([['workspace:org-1', new HostEventSubscriber()], ['runner', new HostEventSubscriber()]])
-  const apis = new Map([...lists].map(([serverId, records]) => [serverId, asHostApi({
-    sessionRecordList: async () => ({ records, indexing: false }),
-    sessionSetArchived: async () => { archivedOn.push(serverId); return { ...ACTIVE_SESSION_STATE, archivedAt: 9 } },
-  })]))
-  const api = spyOn(serverConnections, 'apiFor').mockImplementation((serverId: string) => apis.get(serverId)!)
-  const subscription = spyOn(serverConnections, 'eventsFor').mockImplementation((serverId: string) => events.get(serverId)!)
-  const connected = spyOn(serverConnections, 'connectedServerIds').mockReturnValue(['workspace:org-1', 'runner'])
-  const store = new SessionListStore({
-    connectedRunnerFor: (runnerHostId) => runnerHostId === 'vm-on' ? 'runner' : null,
-    connectedSolusApiFor: (organizationId) => organizationId === 'org-1' ? 'workspace:org-1' : null,
-  })
+  // list and state of such a session do not stand for it.
+  const link = { sessionId: 'on-runner', repository: 'github.com/acme/web', number: 1, url: 'https://github.com/acme/web/pull/1', title: 'One', source: 'manual' as const, linkedAt: 1 }
+  const { store, fakes, announce, restore } = fakeHomes({
+    'workspace:org-1': [
+      record('on-runner', { organizationId: 'org-1', runnerHostId: 'vm-on', view: snoozed, pullRequests: [link] }),
+      record('runner-gone', { organizationId: 'org-1', runnerHostId: 'vm-off' }),
+    ],
+    runner: [record('on-runner', { organizationId: 'org-1' }), record('local-only')],
+  }, { 'vm-on': 'runner' })
   try {
     await store.load()
     const byId = new Map(store.sessions.map((listed) => [listed.sessionId, listed]))
-    expect(byId.get('on-runner')).toMatchObject({ serverId: 'runner', stateServerId: 'workspace:org-1', runnerOffline: false })
-    expect(byId.get('runner-gone')).toMatchObject({ serverId: 'workspace:org-1', stateServerId: 'workspace:org-1', runnerOffline: true })
-    expect(byId.get('local-only')).toMatchObject({ serverId: 'runner', stateServerId: 'runner' })
+    expect(byId.get('on-runner')).toMatchObject({ serverId: 'runner', homeServerId: 'workspace:org-1', runnerOffline: false })
+    expect(byId.get('runner-gone')).toMatchObject({ serverId: 'workspace:org-1', runnerOffline: true })
+    expect(byId.get('local-only')).toMatchObject({ serverId: 'runner', homeServerId: 'runner' })
     expect(store.stateFor('on-runner')?.snoozedUntil).toBe(100)
+    expect(sessionPullRequestsStore.linksFor('on-runner')).toEqual([link])
 
-    // The machine's own state of the session does not move it.
-    events.get('runner')!.receive({ type: 'session.stateChanged', payload: { sessionId: 'on-runner', state: ACTIVE_SESSION_STATE }, occurredAt: 1 })
+    announce('runner', 'session.viewChanged', 'on-runner', EMPTY_SESSION_VIEW)
     expect(store.stateFor('on-runner')?.snoozedUntil).toBe(100)
 
     await store.setArchived({ serverId: 'runner', sessionId: 'on-runner' }, true)
-    await store.setArchived({ serverId: 'workspace:org-1', sessionId: 'runner-gone' }, true)
-    expect(archivedOn).toEqual(['workspace:org-1', 'workspace:org-1'])
-    expect(store.sessions.map((listed) => listed.sessionId)).toEqual(['local-only'])
-  } finally { api.mockRestore(); subscription.mockRestore(); connected.mockRestore() }
+    expect(fakes.get('workspace:org-1')!.viewWrites).toEqual(['on-runner'])
+    expect(fakes.get('runner')!.viewWrites).toEqual([])
+  } finally { restore() }
 })

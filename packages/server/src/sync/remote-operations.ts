@@ -2,6 +2,7 @@ import { WorkspaceRequestError, type SolusApiClient } from '@solus/contracts/sol
 import { workspaceErrorCodeSchema } from '@solus/contracts/solus-api'
 import { SolusApiError } from '../admission/workspace-error'
 import type { WorkspaceOperations } from '../data/workspace/operations'
+import { sessionPullRequestId } from '@solus/contracts/session-pull-requests'
 
 /**
  * The record operations of an organization run, answered by its Solus API
@@ -57,6 +58,14 @@ export function remoteWorkspaceOperations(
     searchSessions: (_context, query) => call(() => client.request('searchSessions', { query })),
     admitSession: (_context, input) => call(() => client.request('admitSession', { body: input })),
     getSession: (_context, sessionId) => call(() => client.request('getSession', { id: sessionId })),
+    admitSessionTurn: async (_context, sessionId) => { await sessionReported(sessionId); await call(() => client.request('admitSessionTurn', { id: sessionId, body: {} })) },
+    updateSession: async (_context, sessionId, input) => { await sessionReported(sessionId); return call(() => client.request('updateSession', { id: sessionId, body: input })) },
+    listSessionPullRequests: (_context, sessionId) => call(() => client.request('listSessionPullRequests', { id: sessionId })),
+    putSessionPullRequest: async (_context, sessionId, pullRequest, input) => {
+      await sessionReported(sessionId)
+      return call(() => client.request('putSessionPullRequest', { id: sessionId, pullRequestId: sessionPullRequestId(pullRequest), body: input }))
+    },
+    deleteSessionPullRequest: (_context, sessionId, pullRequest) => call(() => client.request('deleteSessionPullRequest', { id: sessionId, pullRequestId: sessionPullRequestId(pullRequest) })),
     listSessionMessages: (_context, sessionId, query) => call(() => client.request('listSessionMessages', { id: sessionId, query })),
     listInsights: (_context, query) => call(() => client.request('listInsights', { query })),
     getInsight: (_context, insightId) => call(() => client.request('getInsight', { id: insightId })),

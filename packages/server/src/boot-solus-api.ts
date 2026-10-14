@@ -32,6 +32,13 @@ import { ClientEventRegistry } from './transport/events/client-event-registry'
 import { HostEventPublisher } from './transport/events/host-event-publisher'
 import { registerSolusApiHandlers } from './transport/solus-api/service-handlers'
 import { onSessionStateChanged } from './data/sessions/session-states'
+import { publishSessionViewChanges } from './transport/events/session-view-events'
+import { organizationPrSync } from './prs/organization-pr-sync'
+import type { PrSync } from './prs/pr-sync'
+import { useAccountCredentialSource, type AccountCredentialSource } from './vault/provider-credentials'
+import { registerTaskOutboxApplier } from './data/tasks/task-applier'
+import { registerSessionOutboxApplier } from './data/sessions/session-applier'
+import { registerWorkOutboxApplier } from './data/works/work-applier'
 
 /**
  * The record service without a listener: the request handler, the live transport,
@@ -66,6 +73,13 @@ export interface SolusApiServiceOptions {
   staticDir?: string
   /** The routes the directory knows for one host, for a share link's guest page (host-sharing.md §4.2); none when the caller keeps no directory. */
   hostRoutes?: (hostId: string) => Promise<HostRoute[]>
+  /**
+   * A person's account connection, read where the account plane runs in the same
+   * process (solus-cloud), parsed with the schema it is given. With it, the service
+   * keeps its organization sessions' pull requests fresh as their owners
+   * (docs/plans/session-archive.md); without it, it reads none.
+   */
+  accountCredential?: AccountCredentialSource
 }
 
 /** The service's own work runs as the host; each request sets its person's scope (plans/019-acting-identity.md). */
@@ -113,6 +127,11 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
   const uninstallWorkLive = installWorkLiveBridge(workLive.bridge())
   const presence = workspacePresence(server, events)
   registerSolusApiHandlers(server, { shares, presence, events, workLive, serviceId: settings.serviceId, host: options.host, port: options.port })
+  // A runner's outbox carries an organization's task, work, and session writes
+  // here (`/runner/outbox`); without its appliers, the first op stops the queue.
+  registerTaskOutboxApplier()
+  registerSessionOutboxApplier()
+  registerWorkOutboxApplier()
   const { requestListener, routes } = buildHttpServer({
     host: options.host, port: options.port(), getPort: options.port, staticDir: options.staticDir, pairingDisabled: true, isApiMode: true, requireAuth: () => true,
     solusApi: { ...settings, operations: createWorkspaceOperations(shares) },
@@ -137,6 +156,14 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
   // An organization session's place in the list lives here, not on the machine
   // that ran it: machines rotate and go offline (docs/plans/session-archive.md).
   const unsubscribeSessionStates = onSessionStateChanged((sessionId, state) => { void events.broadcast('session.stateChanged', { sessionId, state }) })
+  const unsubscribeSessionViews = publishSessionViewChanges(events, () => clients.routableClientIds(), clientId => socket?.principalOf(clientId))
+  // The home of organization sessions keeps their pull requests fresh: their machines rotate and go offline.
+  let prSync: PrSync | null = null
+  if (options.accountCredential) {
+    useAccountCredentialSource(options.accountCredential)
+    prSync = organizationPrSync((change) => { void events.broadcast('pr.changed', change) })
+    prSync.start()
+  }
   const unsubscribeTasks = onTasksChanged(taskId => {
     // A task's links reach sessions and works: room members are checked again.
     events.forgetRoomAdmissions()
@@ -182,7 +209,8 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
     closeLiveTransport,
     close() {
       return closing ??= (async () => {
-        unsubscribeProjects(); unsubscribeSessionStates(); unsubscribeTasks(); unsubscribeWorks(); unsubscribeWorkDeletes(); unsubscribeWorkReviews(); unsubscribeNotifications(); unsubscribeLiveDeletes(); uninstallWorkLive(); unsubscribeShares()
+        prSync?.stop(); useAccountCredentialSource(null)
+        unsubscribeProjects(); unsubscribeSessionStates(); unsubscribeSessionViews(); unsubscribeTasks(); unsubscribeWorks(); unsubscribeWorkDeletes(); unsubscribeWorkReviews(); unsubscribeNotifications(); unsubscribeLiveDeletes(); uninstallWorkLive(); unsubscribeShares()
         closeLiveTransport()
         // Disconnected rooms write their bodies in the background; finish before the database closes.
         await workLive.flushAll()

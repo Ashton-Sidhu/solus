@@ -19,7 +19,7 @@ export function useReloadThreadLists(): () => void {
     for (const host of app.registry.hosts()) {
       app.connections.connection(host.id);
       void app.threads.load(host.id);
-      void list.load(host.id);
+      list.follow(host.id);
     }
   }, [app, list]);
 }

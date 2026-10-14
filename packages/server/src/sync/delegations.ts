@@ -81,7 +81,7 @@ export interface DelegationsDeps {
  * its sessions, admitting one, reading Insights (the person's own turns other hosts
  * ran), and the person's agent profile and its MCP connections (plans/020 §4, §5).
  */
-const DELEGATED_SCOPES = ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:admit', 'insights:read', 'profile:read', 'integrations:read', 'integrations:write'] as const
+const DELEGATED_SCOPES = ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:write', 'sessions:admit', 'insights:read', 'profile:read', 'integrations:read', 'integrations:write'] as const
 
 const REQUEST_TIMEOUT_MS = 15_000
 /** An access token this close to its end is replaced before it is used. */

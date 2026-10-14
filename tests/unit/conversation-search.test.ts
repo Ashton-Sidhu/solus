@@ -351,7 +351,7 @@ describe('RecentSessions', () => {
       () => ({ repositoryKey: 'github.com/me/web' }),
     )
     await recent.load('github.com/me/web')
-    expect(filters).toEqual([{ repositoryKey: 'github.com/me/web' }])
+    expect(filters).toEqual([{ repositoryKey: 'github.com/me/web', scope: 'all' }])
     expect(recent.sessions.map((meta) => meta.sessionId)).toEqual(['vm-session'])
   })
 

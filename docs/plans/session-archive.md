@@ -1,14 +1,14 @@
-# Session archive and the session list
+# Session archive, the session list, and the session's home
 
 Status: implemented, 2026-10-14.
 
-A session's place in a person's list (active, settled, snoozed, archived) is
-part of the session. Each client reads the host's full list of sessions that
-are not archived, and each session in it carries its state. This follows
-T3 Code: a thread shell carries `settledAt`, `snoozedUntil` and `archivedAt`,
-the client gets every thread that is not archived, and a change arrives as an
-event with the new state (`thread.snoozed`, `thread.unsnoozed`; read at
-`pingdotgg/t3code` main, 2026-10-14).
+A session's place in a person's list is part of the session. Each client reads
+the full list each home keeps for the person, and each session in it carries
+its state, its view, and its pull requests. A change arrives as an event with
+what it leaves. This follows T3 Code: a thread shell carries `settledAt`,
+`snoozedUntil` and `archivedAt`, the client gets every thread that is not
+archived, and the archive bounds the list (read at `pingdotgg/t3code` main,
+2026-10-14).
 
 This replaces the shelf read of `docs/plans/session-pull-requests.md`
 (`sessionShelfList`). That read had a limit of 500, and a client took a session
@@ -17,112 +17,118 @@ snoozed session came back to the active list on each reload.
 
 ## Vocabulary
 
-- **archived** — the state of a session a person removed from their list. It
-  says nothing about the work. Its transcript stays, and the session picker
-  finds it.
-- **session list** — the sessions a host answers for a person's list: every
-  root session that is not archived. The sidebar on desktop and web and the
-  thread list on mobile show it.
+- **home** — the host that keeps a session's records: its list state, its pull
+  requests, and its record. An organization session's home is the
+  organization's Solus API. A personal session's home is its machine.
+- **machine** — where the session runs: prompt, stop, the live transcript,
+  permission answers, and PR watches that wake the agent. It does not change.
+- **settled** — the session's work is finished. Shared: every person sees one
+  settle.
+- **archived**, **snoozed** — one person's own view of a session. They change
+  that person's list, and nobody else's.
+- **session list** — the sessions in a person's list: every root session of
+  theirs that they did not archive and that was active in the last 30 days,
+  that they snoozed, or that waits on an open pull request. A session is theirs
+  when they own it, when they prompted or organized it, or when it has no
+  owner (a machine's personal sessions).
 - **session picker** — the search that finds any session, archived ones too.
-- **settled**, **snoozed**, **active** — as in `session-pull-requests.md`. An
-  active session is not settled, not snoozed and not archived.
 
-Do not say "closed", "hidden" or "dismissed" for an archived session. Closing
-a tab is a different action: it changes nothing on the host.
+Do not say "closed", "hidden" or "dismissed" for an archived session. Closing a
+tab is a different action: it changes nothing on the home.
 
 ## Decisions
 
-1. **The host holds the archive.** `session_states.archived_at`. Archive and
-   unarchive change only that column. An archived session keeps its settle and
-   its snooze, so unarchive returns it to the shelf it was on.
-2. **The X on a session's row archives the session**, on its host, for every
-   device, with an Undo toast. It also closes the session's tab. The keyboard
-   close of a row, the bulk close, and Archive in the row menu do the same.
-   "Close Tab" in the row menu only closes the tab: the session stays in the
-   list. A task row keeps its X as it is: it hides the row on this client. A
-   task is not archived. A session that has not started, and a session the
-   reader may only view, only leave this client.
-3. **A prompt makes a session active**: it un-settles, wakes and unarchives
-   it (`recordSessionPrompt`).
-4. **A session idle for 30 days is archived**, not settled. The rule covers a
-   session record with no `session_states` row. Migration `0017` archives the
-   old sessions that nothing ever put away, once, before a client reads the
-   list, so the first sweep does not send one event per session. PR sync
-   archives the later ones (`archiveIdleSessions`). A session with an open
-   pull request, a snooze still running, or a turn in progress stays.
-   `settledBy: 'idle'` stays only on old rows.
-5. **The state is part of the session.** `SessionRecord.state` and
-   `WorkspaceSession.state` carry `settledAt`, `settledBy`, `snoozedUntil`,
-   `snoozeNote` and `archivedAt`. The host reads them with the record in one
-   query (`LEFT JOIN session_states`). For an organization session, the
-   organization's Solus API keeps the state (decision 8).
-6. **The list has no count limit.** `listSessions` gets two filters,
-   `archived` and `roots`. A client reads the list with
-   `archived=false&roots=true`, every page. The bound is the archive, as in
-   T3 Code.
-7. **A change carries the new state.** `session.stateChanged` is
-   `{ sessionId, state }`, and `sessionSetSettled`, `sessionSnooze` and
-   `sessionSetArchived` answer the same state. A client writes it into the
-   session it holds and reads nothing back. A session that comes back to the
-   list and that the client does not hold is read with its host's list.
-8. **Every client shows the list.** On desktop and web the sidebar shows each
-   session of the list, with or without a tab, on its shelf. A session with a
-   tab that is not in the list (an archived session opened from the picker)
-   shows while its tab is open. Mobile reads the same list for its thread
-   list.
-   **Organization sessions.** The organization's Solus API keeps an
-   organization session's place in the list, because the machines that run
-   sessions rotate and go offline. The API lists the session with its state,
-   settle, snooze, and archive go to the API, and the API announces
-   `session.stateChanged`. A machine's own list and state of the session do
-   not stand for it while the client is connected to the API. The session
-   opens on the machine that ran it while that machine is connected, and from
-   the API, read-only, while it is not (`cloud-service-model.md`, R1/R8). A
-   turn that a runner reports (`status: 'running'`) is a prompt: the API makes
-   the session active and returns it to the list (`applyRunnerSessionRecords`).
-9. **The picker shows everything.** An archived session has an "Archived"
-   mark. An "Archived" filter shows only archived sessions. Opening one does
-   not unarchive it; its menu has Unarchive.
-10. **Agents can archive.** `organize_session` gets `archive` and
-    `unarchive`.
+1. **Every call about a session goes to its home, except execution.** The
+   machines that run organization sessions rotate and go offline, so the Solus
+   API keeps their state. `sessionHomeId` (`client-core/session-home.ts`)
+   names the home: the organization's Solus API when the client is connected
+   to it, else the machine.
+2. **Shared and personal state are apart.** `session_states` keeps the shared
+   settle (`SessionShelf`). `session_views` keeps each person's archive and
+   snooze (`SessionViewer`, keyed by `ownerKeyOf`). An archive keeps the settle
+   and the snooze, so a return puts the session back on its shelf.
+3. **A person's list holds their own sessions.** In an organization every
+   member can read every session, but a list of everyone's work is no list.
+   The list keeps a session the person owns (`owner_user_id`), and one they
+   have a view row for: their first prompt writes an empty one
+   (`SessionViewer.returnToList`), and so does an archive or a snooze. The
+   picker and search still find every session they can read.
+4. **Idle is a rule, not a write.** The list query leaves out a session with no
+   activity for 30 days, unless the person snoozed it or it waits on an open
+   pull request (`sessionListedClause`). Nothing sweeps, and a new prompt
+   brings the session back by its activity.
+5. **One set of `/v1` resources on both homes.**
 
-## Implementation
+   | Route | Methods | Holds |
+   |---|---|---|
+   | `/v1/sessions/:sessionId` | GET, PATCH | `settled` for every person (editor); `archived`, `snoozedUntil`, `snoozeNote` in the caller's own view (viewer) |
+   | `/v1/sessions/:sessionId/pull-requests` | GET | the session's links |
+   | `/v1/sessions/:sessionId/pull-requests/:pullRequestId` | PUT, DELETE | link (idempotent), remove (tombstone) |
+   | `/v1/sessions/:sessionId/turns` | POST | a prompt reached the session (a host acting for the person only) |
 
-- Server data: `data/sessions/session-states.ts` becomes the `SessionShelf`
-  class, one per session id: `settle`, `unsettle`, `snooze`, `archive`,
-  `unarchive`, `recordPrompt`, `state`. The sweeps (`settleSessionsWithEndedPullRequests`,
-  `archiveIdleSessions`) stay functions, because they act on many sessions.
-  A migration adds `archived_at` (`bun run db:generate`).
-- `listSessionRecords` and `readSessionMetadataPage` join the state.
-  `SessionApiOperations.list` answers `archived` and `roots`.
-- RPC: `sessionSetArchived(sessionId, archived)` beside `sessionSetSettled` and
-  `sessionSnooze`. `sessionShelfList` is removed.
-- `boot-server.ts` broadcasts `session.stateChanged` with the state.
-- Desktop and web: `SessionListStore` (`contexts/workspace/session-list.store.svelte.ts`)
-  replaces `SessionStatesStore`. It holds each host's list and writes each
-  `session.stateChanged` into it. `SessionSidebarStore` builds a row for each
-  listed session that has no tab, and reads the state of a session with a
-  tab from the store.
-- Mobile: `thread-directory.ts` reads the list; `ThreadListState` writes each
-  state change into its threads and drops its shelf map. Swipe and menu get
-  Archive; search reaches archived sessions through `sessionRecordSearch`.
-- Picker: `conversation-search.svelte.ts` shows the mark and the filter.
-- Agent tool: `execution/agents/tools/session-organize-tool.ts`.
+   One PATCH carries both kinds of field: the server checks the role each
+   field needs before it writes anything, and answers the session with its
+   state and the caller's view. A session the home does not keep is 404.
+   `:pullRequestId` is `host/owner/repo#number`, URL-encoded. `GET /v1/sessions`
+   answers each session with `state`, `view` (the caller's), `listed`, and
+   `pullRequests`. It answers top-level sessions in the caller's list by
+   default. `scope=all` answers every top-level session they may read, as the
+   tasks list does; `parentSessionId` answers the sessions one session started.
+   The RPCs
+   `sessionSetSettled`, `sessionSnooze`, `sessionSetArchived`,
+   `sessionPullRequestsList`, `sessionPullRequestLink` and
+   `sessionPullRequestUnlink` are gone. `sessionPullRequestWatch` stays an RPC:
+   watching is execution.
+6. **A change carries what it leaves.** `session.stateChanged` is
+   `{ sessionId, state }`, broadcast. `session.viewChanged` is
+   `{ sessionId, view }`, sent only to that person's connections
+   (`session-view-events.ts`). A client writes either one and reads nothing back.
+7. **The machine tells the home.** At each prompt the machine records it
+   locally and posts the turn to an organization session's home
+   (`admitTurnAtHome`, `run-launcher.ts`). An agent's pull request link and the
+   link Solus makes when it opens a pull request travel in the delivery queue
+   (`sessions/link-pull-request`, with `source`). The agent tool
+   `organize_session` uses the home's operations (`workspaceToolContext`).
+8. **The home keeps pull requests fresh.** The Solus API runs PR sync for its
+   organization sessions (`organization-pr-sync.ts`): it reads the branches the
+   records name and each repository as a person whose live session works in
+   it. solus-cloud gives it the person's GitHub connection in the process
+   (`accountCredential`, `useAccountCredentialSource`). Settling sessions whose
+   pull requests ended runs there too.
+9. **Clients.**
+   - Desktop and web: `SessionListStore` holds the list, the shared states, and
+     this person's views; `SessionPullRequestsStore` takes the links the list
+     carries and reads one session again on `session.pullRequestsChanged`.
+     The X on a session's row archives it in the person's list, with Undo.
+     "Close Tab" only closes the tab.
+   - The picker lists every session; an archived one has a mark and "Return to
+     List", and the Archive filter shows only archived ones.
+   - Mobile reads the list and the sessions out of it, and archives, snoozes,
+     and settles through the same methods.
 
-## Compatibility
+## Limits
 
-A host older than this change refuses `archived` and `roots` (the query is
-strict) and sends no state. The client reads such a host without the new
-filters, as `workspace-records.ts` does for `order`, and shows its sessions as
-active. An old client reads a new host as before: it has no shelf read, so it
-shows no shelves.
+- Mobile does not connect to an organization's Solus API. Its home for an
+  organization session is the machine the session came from, so its archive and
+  snooze of one land on that machine until mobile connects to the API.
+- A Solus API with no `accountCredential` (local development) runs no PR sync.
+- Read state, titles, branches, pins, and the thread goal are not on the home's
+  routes yet. Each needs its own route.
+- `watchSession` and `unwatchSession` are execution: the Solus API registers
+  them for presence, but its plane refuses them.
+- A machine still settles its own copy of an organization session by its pull
+  requests. Clients read the home's copy, so the machine's copy shows nowhere.
 
 ## Verification
 
-- `session-states`: archive and its reverse, a prompt unarchives, the idle
-  archive covers a record with no state row and spares an open pull request.
-- The list: `archived=false&roots=true` answers every session that is not
-  archived, past 500, with its state.
-- `SessionListStore`: a state change moves one session; a reload keeps a
-  snoozed session snoozed.
-- Sidebar: a listed session with no tab has a row; X archives it.
+- `session-states`: shared settle; one person's archive and snooze leave
+  another's view; a prompt returns the session to its person's list; a
+  session someone else owns joins a list at that person's prompt; the list
+  rule past 500 sessions; the API list, one PATCH, and turn admission.
+- `session-home-routes`: the pull request resource over HTTP, `listed`, and the
+  turn route's refusal.
+- `pr-sync`: the Solus API links an organization session's branch pull
+  request, reading as the session's owner.
+- `session-list-store`, `session-sidebar-archive`, `session-organize-tool`,
+  `solus-api-composition` (the API applies a runner's outbox), and the mobile
+  thread list tests.

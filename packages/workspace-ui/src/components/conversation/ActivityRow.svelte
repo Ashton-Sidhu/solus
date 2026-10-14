@@ -80,8 +80,9 @@
         <span class="activity-target truncate" class:is-prose={proseTarget} class:is-foreground={foregroundTarget} class:font-mono={!proseTarget}
           >{@render target()}</span
         >
+      {:else}
+        <span class="flex-1"></span>
       {/if}
-      <span class="flex-1"></span>
     </button>
 
     {#if actions}{@render actions()}{/if}
@@ -199,7 +200,11 @@
     font-size: var(--text-tool-step);
   }
 
+  /* The target gives up its width before the label does: a zero basis keeps a long
+     command out of the shrink, so "Running" survives beside it whole, and the
+     grow fills the row in place of the spacer. */
   .activity-target {
+    flex: 1 1 0;
     min-width: 0;
     font-size: var(--text-tool-step);
     color: var(--muted-foreground);

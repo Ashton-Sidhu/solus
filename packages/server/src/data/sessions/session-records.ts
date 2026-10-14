@@ -15,8 +15,9 @@ import { getDatabase, type Db } from '../../db/database'
 import { ANY_ORGANIZATION, isAnyOrganization, LOCAL_ORGANIZATION_ID, type RecordScope } from '../../admission/principal'
 import { provisionedOrganizationId } from '../../host/host-category'
 import { scopeClause } from '../scope'
-import { sessionRecords, sessionStates } from './schema'
-import { stateFromColumns } from './session-state-columns'
+import { SESSION_LIST_IDLE_MS } from '@solus/contracts/session-state'
+import { sessionPullRequests, sessionRecords, sessionStates, sessionViews } from './schema'
+import { stateFromColumns, viewFromColumns } from './session-state-columns'
 
 /**
  * The collaboration plane's session records
@@ -70,19 +71,46 @@ const RECORD_COLUMN_NAMES = [
   'cwd', 'slug', 'is_worktree', 'branch', 'project_root', 'delegation_message_id', 'delegation_depth', 'delegation_intent', 'delegation_created_at',
 ]
 const RECORD_COLUMNS = sql.raw(RECORD_COLUMN_NAMES.join(', '))
-/** The record's columns and its list state, for a read that joins `session_states`. */
+/** The record's columns, its shared state, and the reader's view, for a read
+ *  that joins `session_states` and `session_views`. */
 const RECORD_WITH_STATE_COLUMNS = sql.raw([
   ...RECORD_COLUMN_NAMES.map((name) => `session_records.${name}`),
-  ...['settled_at', 'settled_by', 'snoozed_until', 'snooze_note', 'archived_at'].map((name) => `session_states.${name}`),
+  'session_states.settled_at', 'session_states.settled_by',
+  'session_views.archived_at', 'session_views.snoozed_until', 'session_views.snooze_note',
 ].join(', '))
 
 const recordWithStateRowSchema = recordRowSchema.extend({
   settled_at: z.number().nullable(),
   settled_by: z.enum(['person', 'pull-request', 'task', 'idle']).nullable(),
+  archived_at: z.number().nullable(),
   snoozed_until: z.number().nullable(),
   snooze_note: z.string().nullable(),
-  archived_at: z.number().nullable(),
+  listed: z.coerce.number(),
 })
+
+/**
+ * Whether a session is in the reader's list (docs/plans/session-archive.md):
+ * it is the reader's — they own it, they prompted it (a prompt leaves their
+ * view row), or it has no owner, as a machine's personal sessions do — they
+ * did not archive it, and it was active recently, they snoozed it, or it
+ * waits on an open pull request. Reads the `session_views` row the page
+ * joins for the reader.
+ */
+export function sessionListedClause(reader: SessionPageReader): SQL {
+  const { personKey, now } = reader
+  return sql`(session_views.archived_at IS NULL
+  AND (session_records.owner_user_id IS NULL OR session_records.owner_user_id = ${personKey ?? ''} OR session_views.person_key IS NOT NULL)
+  AND (
+    session_records.last_activity_at >= ${now - SESSION_LIST_IDLE_MS}
+    OR session_views.snoozed_until IS NOT NULL
+    OR EXISTS (
+      SELECT 1 FROM ${sessionPullRequests}
+      WHERE session_pull_requests.session_id = session_records.session_id
+        AND session_pull_requests.source <> 'dismissed'
+        AND (session_pull_requests.pr_state IS NULL OR session_pull_requests.pr_state NOT IN ('merged', 'closed', 'missing'))
+    )
+  ))`
+}
 
 function delegationFromRow(row: RecordRow): SessionRecordDelegation | null {
   if (row.delegation_message_id === null || row.delegation_depth === null || row.delegation_intent === null || row.delegation_created_at === null) return null
@@ -149,18 +177,26 @@ export async function getSessionRecords(scope: RecordScope, sessionIds: readonly
   return records
 }
 
+/** Who reads a page: their person key, for their own view and list; null for a reader who is no person. */
+export interface SessionPageReader {
+  personKey: string | null
+  now: number
+}
+
 /**
  * Scoped, authorized seek predicate is applied before LIMIT. The seek must use the same time column.
- * Each record carries its list state (docs/plans/session-archive.md), read in the same query;
- * `where` names `session_states` columns for the state filters.
+ * Each record carries its shared state and the reader's view (docs/plans/session-archive.md),
+ * read in the same query; `where` may use `sessionListedClause`.
  */
-export async function readSessionMetadataPage(where: SQL, limit: number, time: 'created_at' | 'last_activity_at' = 'created_at'): Promise<SessionRecord[]> {
+export async function readSessionMetadataPage(where: SQL, limit: number, time: 'created_at' | 'last_activity_at' = 'created_at', reader: SessionPageReader = { personKey: null, now: Date.now() }): Promise<SessionRecord[]> {
   const rows = recordWithStateRowSchema.array().parse(await getDatabase().all(sql`
-    SELECT ${RECORD_WITH_STATE_COLUMNS} FROM ${sessionRecords}
+    SELECT ${RECORD_WITH_STATE_COLUMNS}, CASE WHEN ${sessionListedClause(reader)} THEN 1 ELSE 0 END AS listed
+    FROM ${sessionRecords}
     LEFT JOIN ${sessionStates} ON session_states.session_id = session_records.session_id
+    LEFT JOIN ${sessionViews} ON session_views.session_id = session_records.session_id AND session_views.person_key = ${reader.personKey ?? ''}
     WHERE ${where} ORDER BY session_records.${sql.identifier(time)} DESC, session_records.session_id DESC LIMIT ${limit}
   `))
-  return rows.map((row) => ({ ...recordFromRow(row), state: stateFromColumns(row) }))
+  return rows.map((row) => ({ ...recordFromRow(row), state: stateFromColumns(row), view: viewFromColumns(row), listed: row.listed === 1 }))
 }
 
 /**
@@ -585,6 +621,35 @@ export async function organizationsOfSessions(sessionIds: readonly string[]): Pr
   `))
   for (const row of rows) result.set(row.session_id, row.organization_id)
   return result
+}
+
+/** A session a home's PR sync keeps fresh: an organization session that is not
+ *  settled, active recently, on a branch of a known repository. */
+export interface LiveSessionBranch {
+  sessionId: string
+  /** The repository key (`host/owner/repo`) its runner reported. */
+  repositoryKey: string
+  branch: string
+  ownerUserId: string | null
+  isRunning: boolean
+}
+
+/** The live organization sessions whose branches PR sync asks about (docs/plans/session-archive.md). */
+export async function liveSessionBranches(activeSince: number): Promise<LiveSessionBranch[]> {
+  const rows = z.object({
+    session_id: z.string(), project_remote: z.string(), branch: z.string(), owner_user_id: z.string().nullable(), status: z.string(),
+  }).array().parse(await getDatabase().all(sql`
+    SELECT session_records.session_id, session_records.project_remote, session_records.branch, session_records.owner_user_id, session_records.status
+    FROM ${sessionRecords}
+    LEFT JOIN ${sessionStates} ON session_states.session_id = session_records.session_id
+    WHERE session_records.organization_id <> ${LOCAL_ORGANIZATION_ID}
+      AND session_records.project_remote IS NOT NULL AND session_records.branch IS NOT NULL
+      AND session_records.last_activity_at >= ${activeSince}
+      AND session_states.settled_at IS NULL
+  `))
+  return rows.map((row) => ({
+    sessionId: row.session_id, repositoryKey: row.project_remote, branch: row.branch, ownerUserId: row.owner_user_id, isRunning: row.status === 'running',
+  }))
 }
 
 /** Newest activity first, with the picker's filters. */

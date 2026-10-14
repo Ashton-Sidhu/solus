@@ -2,20 +2,23 @@ import { z } from 'zod'
 import type { OutboxOp } from '@solus/contracts/outbox-types'
 import { attributionSchema } from '@solus/contracts/user'
 import { PermanentApplyError, registerOutboxApplier } from '../../sync/outbox/outbox-store'
-import { linkSessionPullRequest, pullRequestIdentityOf } from './session-pull-requests'
+import { pullRequestIdentityOf } from '@solus/contracts/session-pull-requests'
+import { linkSessionPullRequest } from './session-pull-requests'
 import { organizationOfSession } from './session-records'
 
 const sessionPullRequestPayloadSchema = z.object({
   url: z.string(),
   title: z.string().optional(),
   actor: attributionSchema,
+  source: z.enum(['agent', 'created']).optional(),
 })
 
 /**
  * Owner-side writes for `sessions` outbox ops: the pull request links an agent
- * makes on an attached machine, applied by the organization's Solus API to
- * the same session (docs/plans/session-pull-requests.md). The verb survives
- * redelivery: a link that exists changes nothing.
+ * makes, and the ones Solus makes when it opens a pull request, on an attached
+ * machine, applied by the organization's Solus API to the same session
+ * (docs/plans/session-pull-requests.md). The verb survives redelivery: a link
+ * that exists changes nothing.
  */
 export function registerSessionOutboxApplier(): void {
   registerOutboxApplier('sessions', async (op: OutboxOp, organizationId: string) => {
@@ -30,6 +33,6 @@ export function registerSessionOutboxApplier(): void {
     if (await organizationOfSession(op.resourceId) !== organizationId) {
       throw new PermanentApplyError(`Session ${op.resourceId} does not belong to this organization.`)
     }
-    await linkSessionPullRequest(op.resourceId, { url: identity.url, title: payload.title, source: 'agent', by: payload.actor })
+    await linkSessionPullRequest(op.resourceId, { url: identity.url, title: payload.title, source: payload.source ?? 'agent', by: payload.actor })
   })
 }

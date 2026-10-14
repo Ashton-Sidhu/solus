@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { formatParentPrompt, type SessionReport } from '@solus/contracts/session-exchange'
 import type { SessionHistoryPage } from '@solus/contracts/session-history'
-import type { AgentConversationUpdate, SessionRecord, WireNormalizedEvent } from '@solus/contracts/types'
+import type { AgentConversationUpdate, SessionRecord, SessionRecordListFilter, WireNormalizedEvent } from '@solus/contracts/types'
 import { agentCardStatus, type AgentItem } from '../../apps/mobile/src/features/conversation/lib/agent-cards'
 import { TranscriptModel, type TranscriptItem } from '../../apps/mobile/src/features/conversation/lib/transcript-model'
 import {
@@ -188,20 +188,28 @@ describe('native feed: agent groups', () => {
 })
 
 describe('native directory: child sessions', () => {
-  test('a child session opens by id but is not listed', async () => {
+  test('a child session is read for its parent, opens by id, and is not listed', async () => {
+    // WHY: the list answers top-level sessions only; an agent card still needs its child's record.
     const record = (sessionId: string, parentSessionId: string | null) => ({ sessionId, parentSessionId, lastActivityAt: 1, projectPath: '/p' }) as SessionRecord
     const connection = {
       state: { sessionGeneration: 0 },
       api: {
-        sessionRecordList: async () => ({ records: [record('parent', null), record('child', 'parent')], indexing: false }),
+        sessionRecordList: async (filter: SessionRecordListFilter) => ({
+          records: filter.parentSessionId === 'parent' ? [record('child', 'parent')] : [record('parent', null)],
+          indexing: false,
+        }),
         listProjects: async () => [],
       },
     }
     const registry = { host: () => ({ id: 'h', label: 'Mac' }), hosts: () => [{ id: 'h', label: 'Mac' }] }
     const directory = new ThreadDirectory(registry as never, () => connection as never)
     await directory.load('h')
+    expect(directory.thread('h', 'child')).toBeNull()
+    await directory.loadChildren('h', 'parent')
     expect(directory.threads().map((thread) => thread.record.sessionId)).toEqual(['parent'])
     expect(directory.thread('h', 'child')?.record.parentSessionId).toBe('parent')
+    directory.forgetHost('h')
+    expect(directory.thread('h', 'child')).toBeNull()
   })
 })
 

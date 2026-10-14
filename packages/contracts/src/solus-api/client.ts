@@ -7,6 +7,8 @@ type ResponseFor<K extends SolusApiOperation> = Operations[K] extends { response
 type BodyFor<K extends SolusApiOperation> = Operations[K] extends { body: z.ZodType<infer T> } ? T : never
 type RequestInput<K extends SolusApiOperation> = {
   id?: string; query?: z.input<Operations[K]['query']>; body?: BodyFor<K>; version?: string; key?: string
+  /** A session's link id, `host/owner/repo#number`: the second path parameter of a pull request route. */
+  pullRequestId?: string
 }
 export interface SolusApiClientOptions {
   baseUrl(): string
@@ -46,7 +48,7 @@ export class SolusApiClient {
       const { shareSecret, guestIdentity } = this.options
       const asGuest = !source && !!shareSecret && !!guestIdentity
       if (!source && !asGuest) throw new WorkspaceRequestError(401, 'UNAUTHENTICATED', 'Sign in or pair with this host.')
-      const request: z.input<typeof solusApiOperations.exchangeCredential.body> = { scopes: this.options.scopes ?? ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'insights:read'], shareSecret }
+      const request: z.input<typeof solusApiOperations.exchangeCredential.body> = { scopes: this.options.scopes ?? ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:write', 'insights:read'], shareSecret }
       if (asGuest) Object.assign(request, guestIdentity)
       const organizationId = this.options.organizationId?.()
       if (organizationId) request.organizationId = organizationId
@@ -78,7 +80,9 @@ export class SolusApiClient {
     const operation = solusApiOperations[operationId]
     const key = this.key()
     const query = operation.query.parse(input.query ?? {})
-    const path = operation.path.replace(/:[A-Za-z]+/, () => encodeURIComponent(input.id ?? ''))
+    const path = operation.path
+      .replace(':pullRequestId', () => encodeURIComponent(input.pullRequestId ?? ''))
+      .replace(/:[A-Za-z]+/, () => encodeURIComponent(input.id ?? ''))
     const url = new URL('/v1' + path, this.options.baseUrl())
     for (const [name, value] of Object.entries(query)) if (value !== undefined) url.searchParams.set(name, String(value))
     const headers = new Headers()

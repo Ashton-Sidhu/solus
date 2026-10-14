@@ -147,24 +147,6 @@ describe('runner intake', () => {
     expect(await taskStore.listTasks('local')).toMatchObject({ tasks: [] })
   })
 
-  test('a turn a runner reports returns its archived session to the list, on the Solus API', async () => {
-    // WHY: the Solus API keeps an organization session's place in the list,
-    // because the machines that run sessions rotate and go offline
-    // (docs/plans/session-archive.md). A new prompt makes a session active
-    // again, wherever it ran.
-    const states = await import('@solus/server/data/sessions/session-states')
-    const report = (seq: number, status: 'idle' | 'running') =>
-      ({ seq, record: { sessionId: 'archived-1', provider: 'codex' as const, projectPath: '-repo', status, lastActivityAt: seq } })
-    await intake.applyRunnerSessionRecords(runner(), { hostId: 'runner-1', reports: [report(10, 'idle')] })
-    await new states.SessionShelf('archived-1').archive()
-    // A report with no new turn leaves it archived.
-    await intake.applyRunnerSessionRecords(runner(), { hostId: 'runner-1', reports: [report(11, 'idle')] })
-    expect((await new states.SessionShelf('archived-1').state()).archivedAt).not.toBeNull()
-
-    await intake.applyRunnerSessionRecords(runner(), { hostId: 'runner-1', reports: [report(12, 'running')] })
-    expect((await new states.SessionShelf('archived-1').state()).archivedAt).toBeNull()
-  })
-
   test('an uploaded work is linked to its session task, and the same upload again does not duplicate the link', async () => {
     // The upload replaced the runner's work delivery (docs/plans/cloud-sharing.md); it keeps its task link.
     const { SolusServer } = await import('@solus/server/transport/server')

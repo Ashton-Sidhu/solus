@@ -14,14 +14,8 @@ import { readTasksLinkingTargets } from '../../data/tasks/task-links'
 import { attachLinkedContent } from '../../data/tasks/linked-content'
 import { attachArtifactToTask } from '../../data/tasks/task-artifacts'
 import { prepareSessionTask, taskSessions, tasksForSession } from '../../data/tasks/task-sessions'
-import {
-  linkSessionPullRequest,
-  readSessionPullRequests,
-  unlinkSessionPullRequest,
-} from '../../data/sessions/session-pull-requests'
 import { stopPullRequestWatch } from '../../data/sessions/pull-request-watches'
 import { startSessionPullRequestWatch } from '../../prs/start-pull-request-watch'
-import { SessionShelf } from '../../data/sessions/session-states'
 import { markTaskRead, recordTaskActivity } from '../../data/tasks/task-lifecycle'
 import { readTaskSnoozes, snoozeTaskFor } from '../../data/tasks/task-snoozes'
 import { getDatabase } from '../../db/database'
@@ -243,25 +237,8 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
   })
 
   // A session owns its pull request links; a task reads the links of its
-  // sessions (docs/plans/session-pull-requests.md).
-  server.register('sessionPullRequestsList', async (args, ctx) => {
-    const [sessionIds] = args
-    const links = await readSessionPullRequests(recordScopeOf(ctx.principal), sessionIds)
-    if (!deps.shares) return links
-    const visible = await deps.shares.filterVisible(ctx.principal, 'session', Object.keys(links), (sessionId) => sessionId)
-    return Object.fromEntries(visible.map((sessionId) => [sessionId, links[sessionId] ?? []]))
-  })
-
-  server.register('sessionPullRequestLink', async (args, ctx) => {
-    const [sessionId, url] = args
-    await linkSessionPullRequest(sessionId, { url, source: 'manual', by: attributionOf(ctx.actor) })
-  })
-
-  server.register('sessionPullRequestUnlink', async (args) => {
-    const [sessionId, repository, number] = args
-    await unlinkSessionPullRequest(sessionId, repository, number)
-  })
-
+  // sessions (docs/plans/session-pull-requests.md). The links themselves are
+  // `/v1/sessions/:sessionId/pull-requests`; watching one is execution.
   server.register('sessionPullRequestWatch', async (args) => {
     const [sessionId, repository, number, watching] = args
     if (!watching) {
@@ -269,31 +246,6 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
       return 'stopped'
     }
     return startSessionPullRequestWatch(sessionId, repository, number)
-  })
-
-  // Where a session is in a person's list: active, settled, snoozed, or
-  // archived. The list itself is `sessionRecordList` (docs/plans/session-archive.md).
-  server.register('sessionSetSettled', async (args) => {
-    const [sessionId, settled] = args
-    const shelf = new SessionShelf(sessionId)
-    if (settled) await shelf.settle('person')
-    else await shelf.unsettle()
-    return shelf.state()
-  })
-
-  server.register('sessionSnooze', async (args) => {
-    const [sessionId, until, note] = args
-    const shelf = new SessionShelf(sessionId)
-    await shelf.snooze(until, note)
-    return shelf.state()
-  })
-
-  server.register('sessionSetArchived', async (args) => {
-    const [sessionId, archived] = args
-    const shelf = new SessionShelf(sessionId)
-    if (archived) await shelf.archive()
-    else await shelf.unarchive()
-    return shelf.state()
   })
 
   server.register('tasksLink', async (args, ctx) => {

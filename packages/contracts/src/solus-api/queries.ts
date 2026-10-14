@@ -36,10 +36,11 @@ export const workspaceSessionQuerySchema = z.strictObject({
   includeWorktrees: z.enum(['true', 'false']).optional(),
   /** Only chats, the sessions with no project, in every chat folder. */
   chats: z.enum(['true', 'false']).optional(),
-  /** Only archived sessions (`true`), or only sessions in the list (`false`; docs/plans/session-archive.md). */
-  archived: z.enum(['true', 'false']).optional(),
-  /** Only sessions no other session started. */
-  roots: z.enum(['true', 'false']).optional(),
+  /** `list` (the default): the caller's session list. `all`: every session they may read,
+   *  archived ones too, each marked with `listed` (docs/plans/session-archive.md). */
+  scope: z.enum(['list', 'all']).default('list'),
+  /** The sessions this session started. Without it, only top-level sessions are answered. */
+  parentSessionId: workspaceIdSchema.optional(),
   ...page,
   projectId: workspaceIdSchema.optional(),
   /** One repository's sessions on every machine that ran them, by repository key (`github.com/acme/web`; project-model §1). */

@@ -5,26 +5,29 @@ import type { RecordScope } from '../../admission/principal'
 import { sql, type SQL } from 'drizzle-orm'
 import { encodePathAsFolder, isSolusWorktreePath, SOLUS_WORKTREE_ENCODED_MARKER, type SessionRecord } from '@solus/contracts/types'
 import { CHAT_ROOT_NAME } from '@solus/contracts/chat'
-import { workspaceSessionAdmissionRequestSchema } from '@solus/contracts/solus-api'
-import type { WorkspaceSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage } from '@solus/contracts/solus-api'
+import { workspaceSessionAdmissionRequestSchema, workspaceSessionPullRequestPutSchema, workspaceUpdateSessionSchema } from '@solus/contracts/solus-api'
+import type { WorkspaceSession, WorkspaceSessionPullRequest, WorkspaceSessionPullRequestList, WorkspaceSessionPullRequestPut, WorkspaceUpdateSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage } from '@solus/contracts/solus-api'
 import { getDatabase } from '../../db/database'
 import { hostUserKey } from '../../host/host-user'
 import { searchIndexFor } from '../../db/search-index'
 import { sessionMessagesRebuilding } from '../../db/session-indexer'
 import { searchSessionIndex } from '../../db/session-search'
 import { isApiMode } from '../../host/api-mode'
-import type { WorkspaceRequestContext } from '../../admission/workspace-credentials'
 import { SolusApiError } from '../../admission/workspace-error'
 import type { ShareManager } from '../../sharing/share-manager'
 import { scopeClause } from '../scope'
 import { apiScope, projectIdsForKeys, projectKeyForId, requireResource, requireScope } from '../workspace/context'
 import { pageOf, readCursor, seekClause } from '../workspace/page'
 import { workspaceResourceVisibility } from '../tasks/resource-visibility'
-import { getSessionRecord, readSessionMetadataPage, sessionRecordsIndexing } from './session-records'
+import { readSessionMetadataPage, sessionListedClause, sessionRecordsIndexing } from './session-records'
 import { readApiTranscript } from './api-transcript'
 import { admitSessionRecord, SessionAdmissionConflict } from './session-admissions'
 import { resolveSessionLineageById } from './session-lineage'
-import { readSessionPullRequests } from './session-pull-requests'
+import { linkSessionPullRequest, readSessionPullRequests, unlinkSessionPullRequest } from './session-pull-requests'
+import { SessionShelf, SessionViewer } from './session-states'
+import { pullRequestIdentityOf } from '@solus/contracts/session-pull-requests'
+import { actorFor, ownerKeyOf } from '../../admission/actor'
+import { requestAttribution, type WorkspaceRequestContext } from '../../admission/workspace-credentials'
 
 /**
  * The words each session is also known by: the number and title of each pull
@@ -68,6 +71,7 @@ export class SessionApiOperations {
 
   private async records(context: WorkspaceRequestContext, records: SessionRecord[]): Promise<WorkspaceSession[]> {
     const projects = await projectIdsForKeys(context, records.flatMap(session => session.projectRemote ? [session.projectRemote] : []))
+    const links = records.length ? await readSessionPullRequests(apiScope(context), records.map(session => session.sessionId)) : {}
     return records.map(session => ({
       id: session.sessionId, home: context.home, organizationId: session.organizationId === 'local' ? null : session.organizationId,
       ownerUserId: session.ownerUserId ?? hostUserKey(), version: String(session.lastActivityAt),
@@ -80,7 +84,90 @@ export class SessionApiOperations {
       publication: session.publication, size: session.size,
       cwd: session.cwd, slug: withinNameLimit(session.slug), isWorktree: session.isWorktree, branch: session.branch, projectRoot: session.projectRoot, delegation: session.delegation,
       state: session.state ?? null,
+      view: session.view ?? null,
+      listed: session.listed ?? true,
+      pullRequests: links[session.sessionId] ?? [],
     }))
+  }
+
+  /** Who reads a page: the caller's person, for their view and list. */
+  private reader(context: WorkspaceRequestContext) {
+    return { personKey: ownerKeyOf(actorFor(context.principal)), now: Date.now() }
+  }
+
+  /** One record with the caller's view, or 404. */
+  private async readOne(context: WorkspaceRequestContext, sessionId: string): Promise<WorkspaceSession> {
+    const [record] = await readSessionMetadataPage(sql.join([...this.visible(context), sql`session_records.session_id = ${sessionId}`], sql` AND `), 1, 'created_at', this.reader(context))
+    if (!record) throw new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
+    return (await this.records(context, [record]))[0]
+  }
+
+  /** The person a view belongs to. A host and a runner are no person, so they have none. */
+  private personKey(context: WorkspaceRequestContext): string {
+    const personKey = ownerKeyOf(actorFor(context.principal))
+    if (!personKey) throw new SolusApiError(403, 'FORBIDDEN', 'A view of a session belongs to a person, and this credential acts for none.')
+    return personKey
+  }
+
+  /**
+   * A prompt reached the session on its machine (docs/plans/session-archive.md):
+   * the session is active, and back in the list of the person the turn is for.
+   * Only a host acting for that person reports it.
+   */
+  async admitTurn(context: WorkspaceRequestContext, sessionId: string): Promise<void> {
+    requireScope(context, 'sessions:admit')
+    if (!context.delegation) throw new SolusApiError(403, 'FORBIDDEN', 'Only a host acting for a person reports a turn.')
+    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'editor')
+    await new SessionShelf(sessionId).recordPrompt(this.personKey(context))
+  }
+
+  /**
+   * Settle a session for every person (editor), or archive and snooze it in
+   * the caller's own list (viewer). Every check runs before any write, so a
+   * refused change writes nothing.
+   */
+  async update(context: WorkspaceRequestContext, sessionId: string, input: WorkspaceUpdateSession): Promise<WorkspaceSession> {
+    input = workspaceUpdateSessionSchema.parse(input)
+    requireScope(context, 'sessions:write')
+    await this.readOne(context, sessionId)
+    const changesView = input.archived !== undefined || input.snoozedUntil !== undefined
+    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, input.settled === undefined ? 'viewer' : 'editor')
+    const viewer = changesView ? new SessionViewer(sessionId, this.personKey(context)) : null
+    const shelf = new SessionShelf(sessionId)
+    if (input.settled === true) await shelf.settle('person')
+    if (input.settled === false) await shelf.unsettle()
+    if (input.archived === true) await viewer?.archive()
+    if (input.archived === false) await viewer?.unarchive()
+    if (input.snoozedUntil !== undefined) await viewer?.snooze(input.snoozedUntil, input.snoozeNote)
+    return this.readOne(context, sessionId)
+  }
+
+  async pullRequests(context: WorkspaceRequestContext, sessionId: string): Promise<WorkspaceSessionPullRequestList> {
+    requireScope(context, 'sessions:read')
+    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'viewer')
+    return { items: (await readSessionPullRequests(apiScope(context), [sessionId]))[sessionId] ?? [] }
+  }
+
+  /** Link the pull request the path names. An agent's turn links as the agent, anyone else as a person. */
+  async linkPullRequest(context: WorkspaceRequestContext, sessionId: string, pullRequest: { repository: string; number: number }, input: WorkspaceSessionPullRequestPut): Promise<WorkspaceSessionPullRequest> {
+    input = workspaceSessionPullRequestPutSchema.parse(input)
+    requireScope(context, 'sessions:write')
+    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'editor')
+    const identity = pullRequestIdentityOf(input.url)
+    if (!identity || identity.repository !== pullRequest.repository || identity.number !== pullRequest.number) {
+      throw new SolusApiError(400, 'INVALID_REQUEST', 'The URL must name the pull request in the path.')
+    }
+    await linkSessionPullRequest(sessionId, { url: input.url, source: context.actingAgent ? 'agent' : 'manual', by: requestAttribution(context) })
+    const link = ((await readSessionPullRequests(apiScope(context), [sessionId]))[sessionId] ?? [])
+      .find(candidate => candidate.repository === identity.repository && candidate.number === identity.number)
+    if (!link) throw new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
+    return link
+  }
+
+  async unlinkPullRequest(context: WorkspaceRequestContext, sessionId: string, pullRequest: { repository: string; number: number }): Promise<void> {
+    requireScope(context, 'sessions:write')
+    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'editor')
+    await unlinkSessionPullRequest(sessionId, pullRequest.repository, pullRequest.number)
   }
 
   /** The records a caller may read: its scope, then what sharing and parentage let it see. */
@@ -113,9 +200,7 @@ export class SessionApiOperations {
   async get(context: WorkspaceRequestContext, sessionId: string): Promise<WorkspaceSession> {
     requireScope(context, 'sessions:read')
     await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'viewer')
-    const record = await getSessionRecord(apiScope(context), sessionId)
-    if (!record) throw new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
-    return (await this.records(context, [record]))[0]
+    return this.readOne(context, sessionId)
   }
 
   async list(context: WorkspaceRequestContext, query: WorkspaceSessionQuery): Promise<WorkspaceSessionPage> {
@@ -137,10 +222,12 @@ export class SessionApiOperations {
     // A chat's folder is `.solus-chats/<id>`, which the provider spells `--solus-chats-<id>`.
     if (query.chats === 'true') filters.push(sql`project_path LIKE ${`%${encodePathAsFolder(`/${CHAT_ROOT_NAME}/`)}%`}`)
     if (query.provider) filters.push(sql`provider = ${query.provider}`)
-    // The session list (docs/plans/session-archive.md): sessions in the list, or the archived ones.
-    if (query.archived) filters.push(query.archived === 'true' ? sql`session_states.archived_at IS NOT NULL` : sql`session_states.archived_at IS NULL`)
-    if (query.roots === 'true') filters.push(sql`session_records.parent_session_id IS NULL`)
-    const page = pageOf(await this.records(context, await readSessionMetadataPage(sql.join(filters, sql` AND `), query.limit + 1, time)), query.limit,
+    // Top-level sessions, or the ones one session started; the caller's session list
+    // unless they ask for every session they may read (docs/plans/session-archive.md).
+    const reader = this.reader(context)
+    filters.push(query.parentSessionId ? sql`session_records.parent_session_id = ${query.parentSessionId}` : sql`session_records.parent_session_id IS NULL`)
+    if (query.scope === 'list' && !query.parentSessionId) filters.push(sessionListedClause(reader))
+    const page = pageOf(await this.records(context, await readSessionMetadataPage(sql.join(filters, sql` AND `), query.limit + 1, time, reader)), query.limit,
       item => ({ time: Date.parse(byActivity ? item.updatedAt : item.createdAt), id: item.id }))
     return { ...page, indexing: sessionRecordsIndexing() }
   }
@@ -161,7 +248,7 @@ export class SessionApiOperations {
     if (hits.length === 0) return { items: [], total, indexing }
     const ids = [...new Set(hits.map(hit => hit.sessionId))]
     const records = await readSessionMetadataPage(sql.join([...this.visible(context),
-      sql`session_records.session_id IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`], sql` AND `), ids.length)
+      sql`session_records.session_id IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`], sql` AND `), ids.length, 'created_at', this.reader(context))
     const sessions = new Map((await this.records(context, records)).map(session => [session.id, session]))
     const items: WorkspaceSessionSearchResult['items'] = []
     for (const hit of hits) {
