@@ -447,6 +447,7 @@ export type DeviceRunMode = (typeof DEVICE_RUN_MODES)[number]
 /** What a production build runs on. An iOS simulator build and an iPhone build are different binaries. */
 export const DEVICE_RUN_TARGETS = ['ios-simulator', 'ios-device', 'android'] as const
 export type DeviceRunTarget = (typeof DEVICE_RUN_TARGETS)[number]
+export const DEVICE_RUN_TARGET_LABELS = { 'ios-simulator': 'iOS Simulator', 'ios-device': 'iPhone or iPad', android: 'Android' } as const satisfies { [target in DeviceRunTarget]: string }
 
 export type DeviceRunStage = 'preparing' | 'starting' | 'running' | 'stopping' | 'building' | 'installing' | 'done' | 'failed' | 'cancelled'
 

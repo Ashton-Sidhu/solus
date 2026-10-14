@@ -1,6 +1,6 @@
 <script lang="ts">
   import { ChevronDown, Download, LoaderCircle } from "@lucide/svelte";
-  import { DEVICE_RUN_TARGETS, isDeviceRunActive, type DeviceRunStartRequest, type DeviceRunTarget, type DeviceState, type DeviceSummary } from "@solus/contracts/device-types";
+  import { DEVICE_RUN_TARGETS, DEVICE_RUN_TARGET_LABELS, isDeviceRunActive, type DeviceRunStartRequest, type DeviceState, type DeviceSummary } from "@solus/contracts/device-types";
   import { buildRunsOn } from "@solus/client-core/device-builds";
   import { isChat } from "@solus/contracts/chat";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -18,7 +18,6 @@
   let { serverId, sessionId, deviceState, onInstalled }: Props = $props();
   const workspace = getWorkspaceContext();
   const pickerId = $props.id();
-  const TARGET_LABELS: { [target in DeviceRunTarget]: string } = { "ios-simulator": "iOS Simulator", "ios-device": "iPhone or iPad", android: "Android" };
   const conversation = $derived(sessionId ? workspace.sessions.byId[sessionId]?.run : undefined);
   const selection = $derived(deviceViewState.runAppSelection(serverId, sessionId));
   const projectPath = $derived(selection.projectPath ?? (conversation && conversation.workingDirectory !== '~' && !isChat(conversation.workingDirectory) ? conversation.workingDirectory : null));
@@ -203,14 +202,14 @@
           <DropdownMenu.Trigger>
             {#snippet child({ props })}
               <Button {...props} variant="outline" class="h-auto w-full justify-between px-3 py-2 font-normal pointer-coarse:py-3" aria-labelledby="{pickerId}-target {pickerId}-target-value" disabled={active || starting}>
-                <span id="{pickerId}-target-value" class="min-w-0 truncate">{TARGET_LABELS[selection.target]}</span>
+                <span id="{pickerId}-target-value" class="min-w-0 truncate">{DEVICE_RUN_TARGET_LABELS[selection.target]}</span>
                 <ChevronDown class="size-4 text-(--solus-text-secondary)" />
               </Button>
             {/snippet}
           </DropdownMenu.Trigger>
           <DropdownMenu.Content>
             <DropdownMenu.RadioGroup value={selection.target} onValueChange={(value) => { selection.target = DEVICE_RUN_TARGETS.find((target) => target === value) ?? selection.target; }}>
-              {#each DEVICE_RUN_TARGETS as target (target)}<DropdownMenu.RadioItem value={target}>{TARGET_LABELS[target]}</DropdownMenu.RadioItem>{/each}
+              {#each DEVICE_RUN_TARGETS as target (target)}<DropdownMenu.RadioItem value={target}>{DEVICE_RUN_TARGET_LABELS[target]}</DropdownMenu.RadioItem>{/each}
             </DropdownMenu.RadioGroup>
           </DropdownMenu.Content>
         </DropdownMenu.Root>
@@ -238,12 +237,13 @@
   </div>
 
   {#if latest}
-    <DeviceRunLog {serverId} runId={latest.runId} visible class="rounded-lg border border-border" />
+    <DeviceRunLog {serverId} runId={latest.runId} visible
+      class="rounded-[var(--tx-card-radius)] bg-[var(--solus-tx-card-bg)] shadow-[shadow:var(--solus-tx-quiet-shadow)] data-failed:shadow-[shadow:0_0_0_0.03125rem_color-mix(in_oklch,var(--destructive)_26%,transparent),0_0.0625rem_0.125rem_rgba(60,45,30,0.04)]" />
   {/if}
 
   {#if output}
     <div class="flex flex-col gap-3 border-t border-[var(--hairline)] pt-4">
-      {@render devicePicker(`${pickerId}-install`, `Install ${output.name} on`, installTargets, installDevice, `No ${TARGET_LABELS[selection.target]} devices on this host`, (value) => { selection.installDeviceId = value; })}
+      {@render devicePicker(`${pickerId}-install`, `Install ${output.name} on`, installTargets, installDevice, `No ${DEVICE_RUN_TARGET_LABELS[selection.target]} devices on this host`, (value) => { selection.installDeviceId = value; })}
       <div class="flex flex-wrap gap-1">
         <Button size="sm" disabled={!installDevice || !!installDevice.unavailableReason || installing} onclick={() => void install()}>
           {#if installing}<LoaderCircle class="animate-spin motion-reduce:animate-none" />{/if}

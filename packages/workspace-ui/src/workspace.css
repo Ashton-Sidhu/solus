@@ -863,6 +863,17 @@
   /* Not-started-yet. The one status that is an absence, so it borrows the
      neutral grey rather than a palette hue. */
   --idle: var(--solus-status-idle);
+  /* The terminal a build's raw output shows in. It is the dark theme in both
+     themes, so each value is the `.dark` value it names, and nothing is
+     restated under `.dark`: the edge background, the secondary and tertiary
+     text, the container border, the failed-glyph mix of --destructive, and
+     the amber of --chart-2. */
+  --solus-terminal-bg: #21201d;
+  --solus-terminal-fg: #bdbab3;
+  --solus-terminal-dim: #8d8a83;
+  --solus-terminal-border: #ffffff20;
+  --solus-terminal-error: color-mix(in oklch, #ef4444 70%, #f0ede5);
+  --solus-terminal-warning: #fbbf24;
 
   /* Elevation — rings, not borders. A ring costs no layout, never doubles
      between adjacent surfaces, and renders true sub-pixel. Both halves are

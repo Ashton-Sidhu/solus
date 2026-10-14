@@ -17,6 +17,8 @@ import {
 export const ProjectFavicon = memo(function ProjectFavicon(props: {
   /** The Solus host the project lives on. */
   readonly environmentId: string;
+  /** A chat has no project: it shows a chat bubble, not a folder. */
+  readonly chat?: boolean;
   readonly open?: boolean;
   readonly size?: number;
   readonly projectTitle: string;
@@ -43,6 +45,7 @@ export const ProjectFavicon = memo(function ProjectFavicon(props: {
     <ProjectFaviconImage
       key={cacheKey}
       cacheKey={cacheKey}
+      chat={props.chat}
       faviconUrl={renderableFaviconUrl}
       open={props.open}
       projectTitle={props.projectTitle}
@@ -53,6 +56,7 @@ export const ProjectFavicon = memo(function ProjectFavicon(props: {
 
 function ProjectFaviconImage(props: {
   readonly cacheKey: string | null;
+  readonly chat?: boolean;
   readonly faviconUrl: string | null;
   readonly open?: boolean;
   readonly projectTitle: string;
@@ -89,10 +93,14 @@ function ProjectFaviconImage(props: {
         justifyContent: "center",
       }}
     >
-      {/* Folder icon fallback (matches web's FolderIcon) */}
+      {/* Folder icon fallback (matches web's FolderIcon); a chat shows a bubble */}
       {!showImage ? (
         <SymbolView
-          name={{ ios: "folder.fill", android: props.open ? "folder_open" : "folder" }}
+          name={
+            props.chat
+              ? { ios: "bubble.left.fill", android: "chat_bubble" }
+              : { ios: "folder.fill", android: props.open ? "folder_open" : "folder" }
+          }
           size={props.size}
           tintColorClassName={"accent-icon-subtle"}
           type="monochrome"

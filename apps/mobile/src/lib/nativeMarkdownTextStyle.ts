@@ -48,7 +48,7 @@ export function useNativeMarkdownTextStyle(tone: MarkdownTone): NativeMarkdownTe
         codeColor: theme["--color-md-user-code-text"],
         codeBackgroundColor: theme["--color-md-user-code-bg"],
         codeBlockBackgroundColor: theme["--color-md-user-fence-bg"],
-        codeBlockBorderColor: body,
+        blockBorderColor: body,
         tableHeaderBackgroundColor: theme["--color-md-user-fence-bg"],
         fileTextColor: body,
         quoteMarkerColor: body,
@@ -65,9 +65,10 @@ export function useNativeMarkdownTextStyle(tone: MarkdownTone): NativeMarkdownTe
       codeColor: theme["--color-md-code-text"],
       codeBackgroundColor: theme["--color-md-code-bg"],
       codeBlockBackgroundColor: theme["--color-md-code-bg"],
-      codeBlockBorderColor: theme["--color-md-code-border"],
-      // Desktop's `.prose-cloud th` sits on a plain surface fill, not the code panel.
-      tableHeaderBackgroundColor: theme["--color-subtle"],
+      blockBorderColor: theme["--color-md-block-border"],
+      // Desktop's `.prose-cloud th` fill (`--solus-surface-primary`): a 5% wash of ink
+      // in light, 7% of white in dark.
+      tableHeaderBackgroundColor: theme["--color-subtle-strong"],
       fileTextColor: theme["--color-md-code-text"],
       quoteMarkerColor: theme["--color-md-blockquote-border"],
       dividerColor: theme["--color-md-hr"],

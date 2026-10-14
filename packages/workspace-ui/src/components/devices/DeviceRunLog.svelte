@@ -5,7 +5,7 @@
   import { devicesStore, deviceErrorMessage } from "../../contexts/devices/devices.store.svelte";
   import { copyText, toasts } from "../../lib/toasts";
   import { Button } from "../ui/button";
-  import { formatRunElapsed, readRunLog } from "@solus/client-core/device-run-log";
+  import { formatRunElapsed, rawLineTone, readRunLog } from "@solus/client-core/device-run-log";
   import { runStageLabel } from "@solus/client-core/device-builds";
 
   /**
@@ -27,7 +27,7 @@
 
   type LogView = "steps" | "issues" | "raw";
 
-  let { serverId, runId, visible, onClose, class: frame = "max-h-[45%] border-b border-[var(--hairline)]" }: Props = $props();
+  let { serverId, runId, visible, onClose, class: frame = "max-h-[45%] border-b border-[var(--hairline)] bg-[var(--card)]" }: Props = $props();
 
   const run = $derived(devicesStore.runs(serverId).find((candidate) => candidate.runId === runId));
   const isActive = $derived(!!run && isDeviceRunActive(run));
@@ -49,6 +49,7 @@
   const elapsed = $derived(run ? formatRunElapsed((run.endedAt ?? now) - run.startedAt) : "");
   const view = $derived<LogView>(steps.length === 0 ? "raw" : (chosenView ?? (run?.stage === "failed" && errors > 0 ? "issues" : "steps")));
   const shownSteps = $derived(view === "issues" ? issues : steps);
+  const rawLines = $derived(view === "raw" ? text.split("\n").map((line) => ({ line, tone: rawLineTone(line) })) : []);
   const tabs = $derived<{ key: LogView; label: string }[]>([
     { key: "steps", label: "Steps" },
     { key: "issues", label: issues.length ? `Issues (${issues.length})` : "Issues" },
@@ -93,17 +94,21 @@
 </script>
 
 {#if run}
-  <section class="flex min-h-0 shrink-0 flex-col overflow-hidden bg-[var(--card)] {frame}" aria-label="Build" data-testid="device-run-log">
-    <header class="flex shrink-0 items-center gap-2.5 px-3 py-2">
-      {#if run.stage === "failed"}
-        <CircleX class="size-4 shrink-0 text-[var(--failure)]" aria-hidden="true" />
-      {:else if run.stage === "done"}
-        <CircleCheck class="size-4 shrink-0 text-[var(--success)]" aria-hidden="true" />
-      {:else}
-        <Hammer class="size-4 shrink-0 text-(--solus-text-tertiary)" aria-hidden="true" />
-      {/if}
+  <section class="flex min-h-0 shrink-0 flex-col overflow-hidden {frame}" aria-label="Build" data-failed={run.stage === "failed" || undefined} data-testid="device-run-log">
+    <!-- The transcript card shell (docs/transcript-cards.md): the glyph carries
+         the state, so the title stays in the text colour. -->
+    <header class="flex min-h-[var(--tx-card-head)] shrink-0 items-center gap-[var(--tx-card-gap)] py-1.5 pr-[var(--tx-card-pad-r)] pl-[var(--tx-card-pad-l)]">
+      <span class="flex size-[var(--tx-card-glyph)] shrink-0 items-center justify-center" aria-hidden="true">
+        {#if run.stage === "failed"}
+          <CircleX class="size-3.5 text-[color:color-mix(in_oklch,var(--destructive)_70%,var(--foreground))]" />
+        {:else if run.stage === "done"}
+          <CircleCheck class="size-3.5 text-[color:color-mix(in_oklch,var(--chart-3)_70%,var(--foreground))]" />
+        {:else}
+          <Hammer class="size-3.5 text-(--solus-text-tertiary)" />
+        {/if}
+      </span>
       <div class="flex min-w-0 flex-1 flex-col">
-        <span class="text-workspace-chrome truncate font-medium {run.stage === 'failed' ? 'text-[var(--failure)]' : 'text-(--solus-text-primary)'}" role="status" aria-live="polite">{runStageLabel(run)}</span>
+        <span class="text-workspace-chrome truncate font-medium text-(--solus-text-primary)" role="status" aria-live="polite">{runStageLabel(run)}</span>
         <span class="text-chrome-dense truncate text-(--solus-text-tertiary)">
           {#if isActive && currentStep}{currentStep.text}{currentStep.target ? ` · ${currentStep.target}` : ""}{:else}{run.checkout}{run.branch ? ` · ${run.branch}` : ""}{run.deviceName ? ` · ${run.deviceName}` : ""}{/if}
         </span>
@@ -126,48 +131,69 @@
       {#if onClose}<Button size="icon-xs" variant="ghost" aria-label="Close the build" onclick={onClose}><X /></Button>{/if}
     </header>
     {#if run.error}
-      <p class="text-chrome-dense mx-3 mb-2 rounded-md bg-[color-mix(in_oklab,var(--failure)_10%,transparent)] px-2.5 py-1.5 text-[var(--failure)]">{run.error}</p>
+      <p class="text-chrome-dense pr-3 pb-2.5 pl-[var(--tx-card-body-indent)] text-[color:color-mix(in_oklch,var(--destructive)_80%,var(--foreground))]">{run.error}</p>
     {/if}
     {#if isOpen}
-      <div class="mx-3 mb-3 flex min-h-0 flex-col overflow-hidden rounded-lg border border-[var(--hairline)] bg-[var(--wash-1)]">
-        <div class="flex shrink-0 items-center gap-0.5 border-b border-[var(--hairline)] px-1.5 py-1">
-          <div class="flex gap-0.5" role="tablist" aria-label="Log view">
-            {#each tabs as tab (tab.key)}
-              <Button size="xs" variant="ghost" role="tab" aria-selected={view === tab.key} disabled={tab.key !== "raw" && steps.length === 0}
-                class={view === tab.key ? "bg-[var(--wash-2)] text-(--solus-text-primary)" : "text-(--solus-text-tertiary)"}
-                onclick={() => (chosenView = tab.key)}>{tab.label}</Button>
-            {/each}
-          </div>
-          <Button size="icon-xs" variant="ghost" class="ml-auto" aria-label="Copy the build log" title="Copy the build log" disabled={!text} onclick={copyLog}><Copy /></Button>
+      <!-- The log reads like a tool row's detail in the transcript: a rule drops
+           from the glyph, and the steps and output sit beside it, unboxed. -->
+      <div class="mx-3 flex min-h-0 flex-col border-t-[0.5px] border-[var(--solus-tx-rule)] pb-2">
+        <div class="flex shrink-0 items-center gap-3 py-1.5 pl-6">
+          {#if steps.length > 0}
+            <div class="flex gap-3" role="tablist" aria-label="Log view">
+              {#each tabs as tab (tab.key)}
+                <button type="button" role="tab" aria-selected={view === tab.key}
+                  class="text-chrome-dense rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)] {view === tab.key ? 'font-medium text-(--solus-text-primary)' : 'text-(--solus-text-tertiary) hover:text-(--solus-text-secondary)'}"
+                  onclick={() => (chosenView = tab.key)}>{tab.label}</button>
+              {/each}
+            </div>
+          {:else}
+            <span class="text-chrome-dense text-(--solus-text-tertiary)">Output</span>
+          {/if}
+          <Button size="icon-xs" variant="ghost" class="ml-auto text-(--solus-text-tertiary)" aria-label="Copy the build log" title="Copy the build log" disabled={!text} onclick={copyLog}><Copy /></Button>
         </div>
-        <div bind:this={output} class="max-h-64 min-h-0 overflow-auto py-1.5">
+        {#if view === "raw"}
+          <!-- Raw output reads as a terminal: dark in both themes, mono, and
+               problem lines in colour. The cursor shows while the run writes. -->
+          <div bind:this={output} class="ml-[0.6875rem] max-h-72 min-h-0 overflow-auto rounded-lg bg-[var(--solus-terminal-bg)] px-[0.8125rem] py-3 font-mono text-tool-step leading-[1.6] text-[var(--solus-terminal-fg)] shadow-[shadow:0_0_0_0.03125rem_var(--solus-terminal-border)] selection:bg-[color:color-mix(in_oklch,var(--solus-terminal-fg)_25%,transparent)]" role="log" aria-label="Raw output">
+            {#if truncated}<p class="text-[var(--solus-terminal-dim)]">… earlier output is not kept</p>{/if}
+            {#if !text}
+              <p class="text-[var(--solus-terminal-dim)]">{isActive ? "Waiting for output" : "No output."}{#if isActive}<span class="ml-1 inline-block h-[1.1em] w-[0.55em] translate-y-[0.2em] bg-[var(--solus-terminal-fg)] opacity-70" aria-hidden="true"></span>{/if}</p>
+            {:else}
+              <pre class="break-words whitespace-pre-wrap">{#each rawLines as { line, tone }, index (index)}<span class={tone === "error" ? "text-[var(--solus-terminal-error)]" : tone === "warning" ? "text-[var(--solus-terminal-warning)]" : ""}>{line}</span>{"\n"}{/each}{#if isActive}<span class="inline-block h-[1.1em] w-[0.55em] translate-y-[0.2em] bg-[var(--solus-terminal-fg)] opacity-70" aria-hidden="true"></span>{/if}</pre>
+            {/if}
+          </div>
+        {:else}
+        <div bind:this={output} class="ml-[0.6875rem] max-h-64 min-h-0 overflow-auto border-l border-[color:color-mix(in_oklch,var(--foreground)_9%,transparent)] pl-3">
           {#if truncated}
-            <p class="text-chrome-dense px-3 pb-1 text-(--solus-text-tertiary)">Earlier output is not kept.</p>
+            <p class="text-tool-step pb-1 text-(--solus-text-tertiary)">Earlier output is not kept.</p>
           {/if}
           {#if !text}
-            <p class="text-chrome-dense px-3 text-(--solus-text-tertiary)">{isActive ? "Waiting for output…" : "No output."}</p>
-          {:else if view === "raw"}
-            <pre class="px-3 font-mono text-[0.6875rem] leading-relaxed break-all whitespace-pre-wrap text-(--solus-text-secondary)">{text}</pre>
+            <p class="text-tool-step py-1 text-(--solus-text-tertiary)">{isActive ? "Waiting for output…" : "No output."}</p>
           {:else if shownSteps.length === 0}
-            <p class="text-chrome-dense px-3 text-(--solus-text-tertiary)">No errors or warnings{isActive ? " yet" : ""}.</p>
+            <p class="text-tool-step py-1 text-(--solus-text-tertiary)">No errors or warnings{isActive ? " yet" : ""}.</p>
           {:else}
-            <ol class="text-chrome-dense">
+            <ol>
               {#each shownSteps as step, index (index)}
-                <li class="flex min-w-0 items-start gap-2 px-3 py-0.5 {step.tone === 'error' ? 'text-[var(--failure)]' : step.tone === 'warning' ? 'text-[var(--warning)]' : view === 'steps' && index === steps.length - 1 && isActive ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary)'}">
-                  {#if step.tone === "error"}
-                    <CircleX class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-                  {:else if step.tone === "warning"}
-                    <TriangleAlert class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-                  {/if}
+                <li class="text-tool-step flex min-w-0 items-start gap-2.5 py-1 {step.tone === 'step' && !(view === 'steps' && index === steps.length - 1 && isActive) ? 'text-muted-foreground' : 'text-(--solus-text-primary)'}">
+                  <span class="flex h-4 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
+                    {#if step.tone === "error"}
+                      <CircleX class="size-3 text-[color:color-mix(in_oklch,var(--destructive)_70%,var(--foreground))]" />
+                    {:else if step.tone === "warning"}
+                      <TriangleAlert class="size-3 text-[var(--warning)]" />
+                    {:else}
+                      <span class="size-1 rounded-full bg-current opacity-50"></span>
+                    {/if}
+                  </span>
                   <span class="min-w-0 flex-1 {step.tone === 'step' ? 'truncate' : 'break-words'}">{step.text}</span>
                   {#if step.target}
-                    <span class="max-w-[40%] shrink-0 truncate text-(--solus-text-tertiary)">{step.target}</span>
+                    <span class="max-w-[40%] shrink-0 truncate font-mono text-(--solus-text-tertiary)">{step.target}</span>
                   {/if}
                 </li>
               {/each}
             </ol>
           {/if}
         </div>
+        {/if}
       </div>
     {/if}
   </section>

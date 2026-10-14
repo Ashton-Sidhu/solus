@@ -125,6 +125,11 @@ export function threadProjectKey(
   return `${thread.hostId}\u0000${thread.record.projectPath}`;
 }
 
+/** Whether a session is a chat: it runs in a chat folder, not a project. */
+export function isChatSession(record: { readonly projectPath: string; readonly cwd?: string | null }): boolean {
+  return isChat(record.projectPath) || isChat(record.cwd);
+}
+
 /** The folder whose favicon a thread row shows: the listed project's, else the
     session's own project root, so a project the host does not list (a removed
     project, a dispatch checkout) still shows its mark. A chat has none. */
@@ -133,14 +138,14 @@ export function threadFaviconRoot(
   listedProjectPath: string | null,
 ): string | null {
   if (listedProjectPath) return listedProjectPath;
-  if (isChat(record.projectPath) || isChat(record.cwd)) return null;
+  if (isChatSession(record)) return null;
   const path = threadProjectPath(record);
   return path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path) ? path : null;
 }
 
 /** The project label for a session whose project the host does not list. */
 export function threadProjectFallbackTitle(record: SessionRecord): string {
-  if (isChat(record.projectPath) || isChat(record.cwd)) return "Chat";
+  if (isChatSession(record)) return "Chat";
   const path = threadProjectPath(record).replace(/[\\/]+$/, "");
   return path.split(/[\\/]/).at(-1) || path;
 }

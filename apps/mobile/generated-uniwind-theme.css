@@ -78,7 +78,7 @@
       --color-md-blockquote-bg: #f4f2ec;
       --color-md-code-bg: #fcfaf5;
       --color-md-code-text: #2a2618;
-      --color-md-code-border: rgba(210, 207, 197, 0.6);
+      --color-md-block-border: rgba(210, 207, 197, 0.6);
       --color-md-inline-code: #a86045;
       --color-md-user-code-bg: rgba(42, 38, 24, 0.18);
       --color-md-user-code-text: #2a2618;
@@ -176,7 +176,7 @@
       --color-md-blockquote-bg: #2c2b28;
       --color-md-code-bg: #3d3c38;
       --color-md-code-text: #f0ede5;
-      --color-md-code-border: rgba(69, 68, 63, 0.6);
+      --color-md-block-border: rgba(69, 68, 63, 0.6);
       --color-md-inline-code: #e9a98d;
       --color-md-user-code-bg: rgba(240, 237, 229, 0.18);
       --color-md-user-code-text: #f0ede5;

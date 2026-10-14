@@ -205,8 +205,8 @@ export function createMobileThemeVariables(
     "--color-md-blockquote-bg": c.muted,
     "--color-md-code-bg": c.codeBackground,
     "--color-md-code-text": c.codeForeground,
-    // Desktop's `.prose-cloud pre` and `.solus-code-block` border: the container border at 60%.
-    "--color-md-code-border": withAlpha(c.input, 0.6),
+    // Desktop's code block border and table rules: the container border at 55-60%.
+    "--color-md-block-border": withAlpha(c.input, 0.6),
     // Desktop's `.prose-cloud code`: the accent toned 72% toward the text color.
     "--color-md-inline-code": mixColors(c.accent, c.text, 0.72),
     "--color-md-user-code-bg": withAlpha(c.messageForeground, 0.18),

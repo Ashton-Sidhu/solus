@@ -13,7 +13,7 @@ export interface NativeMarkdownTextStyle {
   readonly codeColor: string;
   readonly codeBackgroundColor: string;
   readonly codeBlockBackgroundColor: string;
-  readonly codeBlockBorderColor: string;
+  readonly blockBorderColor: string;
   readonly tableHeaderBackgroundColor: string;
   readonly fileTextColor: string;
   readonly quoteMarkerColor: string;

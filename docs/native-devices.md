@@ -107,25 +107,27 @@ of pretending to work.
 
 Open **Run app** from the Devices pane, the command palette, or the
 project panel. The mobile app does not have Run app.
-Choose **Dev server** or **Production build**, then a project and a device.
+Choose **Dev server** or **Production build**, then a project.
 
-- **Dev server** opens the app on a simulator or emulator with the
-  project's Metro dev server, for live reload. It builds nothing: the
+- **Dev server** opens the app on simulators and emulators with the
+  project's Metro dev server, for live reload. It builds nothing: each
   simulator must already have a debug build of the app (for example from
-  `npx expo run:ios` once). If Metro for this project already runs on port
-  8081, Solus joins it. If the port is free, Solus starts Metro in the
-  project folder and stops it when you stop the run. Solus never adopts a
-  dev server that serves another project. It uses the project as it is on
-  disk, uncommitted changes included. An Expo app with `expo-dev-client`
-  opens through its `exp+<slug>` link; other debug builds restart and load
-  from Metro. Android uses an adb connection to the server.
-- **Production build** builds a Release app with its JavaScript included
-  from the chosen branch, installs it, and opens it. It works on
-  simulators and connected phones.
-
-For an Android phone that is not connected to the host, choose **Android
-phone (download)** and **Build APK**, then install the downloaded APK
-yourself.
+  `npx expo run:ios` once). Choose a simulator and **Open on simulator**;
+  repeat it to open the app on more simulators against the same server.
+  If Metro for this project already runs on port 8081, Solus joins it. If
+  the port is free, Solus starts Metro in the project folder and stops it
+  when you stop the run. Solus never adopts a dev server that serves
+  another project. It uses the project as it is on disk, uncommitted
+  changes included. An Expo app with `expo-dev-client` opens through its
+  `exp+<slug>` link; other debug builds restart and load from Metro.
+  Android uses an adb connection to the server.
+- **Production build** builds a Release app with its JavaScript included,
+  once, from the chosen branch. **Build for** chooses what it runs on:
+  iOS Simulator, iPhone or iPad, or Android. An iOS simulator build and an
+  iPhone build are different apps. When the build is ready, choose a device
+  under **Install on** and click **Install**; repeat it for every device
+  that should have the same build. An Android build can also be
+  downloaded as an APK to install on a phone that is not connected.
 
 A production build uses the newest commit of the chosen branch in a
 separate checkout that Solus owns. It does not switch your conversation's

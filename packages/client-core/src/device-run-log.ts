@@ -114,6 +114,16 @@ export function readRunLog(text: string, limit = 200): RunLogLine[] {
   return lines.slice(-limit)
 }
 
+/**
+ * The colour a raw output line takes in the terminal view: Xcode and Gradle
+ * problems, and the `CommandError:`-style lines Node tools such as Expo print.
+ */
+export function rawLineTone(line: string): 'error' | 'warning' | null {
+  if (ERROR_LINE.test(line) || /^\s*[A-Za-z]*Error:/.test(line)) return 'error'
+  if (WARNING_LINE.test(line)) return 'warning'
+  return null
+}
+
 /** Minutes and seconds, as a build timer shows them: `0:42`, `12:05`. */
 export function formatRunElapsed(ms: number): string {
   const seconds = Math.max(0, Math.floor(ms / 1000))

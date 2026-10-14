@@ -5,6 +5,7 @@ import { cp, mkdir, readdir, realpath, rename, rm, stat, writeFile } from 'node:
 import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import { z } from 'zod'
 import {
+  DEVICE_RUN_TARGET_LABELS,
   LOCAL_DEVICE_HOST_ID,
   isDeviceRunActive,
   type DeviceControlHolder,
@@ -63,11 +64,9 @@ interface RunRecord {
   dev: { appFolder: string; usesExpo: boolean } | null
 }
 
-const TARGET_NAMES: { [target in DeviceRunTarget]: string } = { 'ios-simulator': 'iOS Simulator', 'ios-device': 'iPhone or iPad', android: 'Android' }
-
 /** What a target stands for when build profiles are matched. The build installs nothing. */
 function targetDevice(target: DeviceRunTarget): DeviceSummary {
-  return { deviceHostId: LOCAL_DEVICE_HOST_ID, deviceId: target, platform: target === 'android' ? 'android' : 'ios', name: TARGET_NAMES[target], version: '', booted: true, physical: target === 'ios-device' }
+  return { deviceHostId: LOCAL_DEVICE_HOST_ID, deviceId: target, platform: target === 'android' ? 'android' : 'ios', name: DEVICE_RUN_TARGET_LABELS[target], version: '', booted: true, physical: target === 'ios-device' }
 }
 
 export type BuildSpawner = (command: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv }) => ChildProcess
@@ -252,14 +251,7 @@ export class DeviceRuns {
     }
     // The scan goes by depth, so the last manifest is the app's, not a monorepo root's.
     const appFolder = join(checkoutPath, dirname(manifest))
-    const server = await this.probeDevServer()
-    if (server.state === 'other') throw new DeviceDomainError('command_failed', `Another process uses port ${DEV_SERVER_PORT}. Stop it, or start this project's dev server there.`)
-    if (server.state === 'running' && !(await servesCheckout(server.projectRoot, checkoutPath))) {
-      throw new DeviceDomainError('command_failed', `The dev server on port ${DEV_SERVER_PORT} serves ${server.projectRoot}. Stop it, or choose that project.`)
-    }
-    const command = server.state === 'free'
-      ? (info.usesExpo ? ['npx', 'expo', 'start', '--localhost', '--port', String(DEV_SERVER_PORT)] : ['npx', 'react-native', 'start', '--port', String(DEV_SERVER_PORT)])
-      : null
+    const command = await this.devServerCommand(checkoutPath, info.usesExpo ?? false)
     if (command) {
       const approval = createHash('sha256').update(JSON.stringify([projectRoot, appFolder, command, 'dev'])).digest('hex')
       if (!this.approvals.has(approval)) {
@@ -301,6 +293,17 @@ export class DeviceRuns {
     this.changed()
     void this.executeDev(record, record.dev!, device, command, request.sessionId, holder)
     return { ...record.run }
+  }
+
+  /** The command that starts Metro when the port is free; null when this project's Metro already runs there. */
+  private async devServerCommand(checkoutPath: string, usesExpo: boolean): Promise<string[] | null> {
+    const server = await this.probeDevServer()
+    if (server.state === 'other') throw new DeviceDomainError('command_failed', `Another process uses port ${DEV_SERVER_PORT}. Stop it, or start this project's dev server there.`)
+    if (server.state === 'running') {
+      if (await servesCheckout(server.projectRoot, checkoutPath)) return null
+      throw new DeviceDomainError('command_failed', `The dev server on port ${DEV_SERVER_PORT} serves ${server.projectRoot}. Stop it, or choose that project.`)
+    }
+    return usesExpo ? ['npx', 'expo', 'start', '--localhost', '--port', String(DEV_SERVER_PORT)] : ['npx', 'react-native', 'start', '--port', String(DEV_SERVER_PORT)]
   }
 
   private async executeDev(record: RunRecord, dev: { appFolder: string; usesExpo: boolean }, device: DeviceSummary, command: string[] | null, sessionId: string | undefined, holder: DeviceControlHolder & { kind: 'user' }): Promise<void> {

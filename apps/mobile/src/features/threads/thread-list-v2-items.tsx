@@ -27,6 +27,7 @@ import type { SolusThreadShell } from "./thread-directory";
 import { resolveSnoozePresets, resolveThreadListV2SnoozeMenuSelection } from "./thread-snooze";
 import {
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
+  isChatSession,
   resolveThreadListV2SwipeActions,
   threadTitle,
   type ThreadListV2Status,
@@ -450,6 +451,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   const favicon = (
     <ProjectFavicon
       environmentId={thread.hostId}
+      chat={props.projectPath === null && isChatSession(thread.record)}
       size={15}
       projectTitle={props.projectTitle}
       workspaceRoot={props.projectPath}

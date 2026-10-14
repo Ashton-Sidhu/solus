@@ -51,7 +51,7 @@ import {
   type ActiveTurnComposerAction,
   type ComposerSendPresentation,
 } from "./composerSendPresentation";
-import { pastedComposerImages, pickComposerClipboardImage, pickComposerFiles, pickComposerMedia } from "./composer-attachment-pickers";
+import { pastedComposerImages, pickComposerFiles, pickComposerMedia } from "./composer-attachment-pickers";
 import { ThreadSettingsSheet } from "./ThreadSettingsSheet";
 import { ComposerQueuedEditAttachments } from "./ComposerQueuedEdit";
 import { composerDraftView, useComposerQueuedEdit } from "./use-composer-queued-edit";
@@ -396,7 +396,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   );
   const onPickDraftMedia = useCallback(() => attach(pickComposerMedia), [attach]);
   const onPickDraftFiles = useCallback(() => attach(pickComposerFiles), [attach]);
-  const onPasteDraftImage = useCallback(() => attach(pickComposerClipboardImage), [attach]);
   const onPasteDraftImages = useCallback((uris: string[]) => void attach(pastedComposerImages(uris)), [attach]);
 
   const openSettings = useCallback(() => {
@@ -472,7 +471,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 supportsFiles
                 onPickMedia={onPickDraftMedia}
                 onPickFiles={onPickDraftFiles}
-                onPasteImage={onPasteDraftImage}
               />
             ) : null}
             {isExpanded && queuedAttachments !== null ? (
@@ -617,7 +615,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                         supportsFiles
                         onPickMedia={onPickDraftMedia}
                         onPickFiles={onPickDraftFiles}
-                        onPasteImage={onPasteDraftImage}
                       />
                       <View className="min-w-0 shrink">
                         <ComposerInlineControl

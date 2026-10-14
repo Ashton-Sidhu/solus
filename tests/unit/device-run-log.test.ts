@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { formatRunElapsed, readRunLog } from '@solus/client-core/device-run-log'
+import { formatRunElapsed, rawLineTone, readRunLog } from '@solus/client-core/device-run-log'
 
 /**
  * The build log shows steps a person reads, not the compiler commands Xcode
@@ -54,4 +54,20 @@ describe('readRunLog', () => {
 test('formatRunElapsed shows minutes and seconds', () => {
   expect(formatRunElapsed(42_400)).toBe('0:42')
   expect(formatRunElapsed(725_000)).toBe('12:05')
+})
+
+describe('rawLineTone', () => {
+  // The terminal view colours the lines a person scans for: a failure must
+  // stand out in the raw output, whichever tool printed it.
+  test('marks compiler and Node tool failures as errors', () => {
+    expect(rawLineTone("/Users/me/app/ios/App/AppDelegate.swift:20:1: error: cannot find 'foo' in scope")).toBe('error')
+    expect(rawLineTone("CommandError: Port 8081 is unavailable and 'npx expo' is running in non-interactive mode")).toBe('error')
+    expect(rawLineTone('** BUILD FAILED **')).toBe('error')
+  })
+
+  test('marks warnings, and leaves ordinary output plain', () => {
+    expect(rawLineTone("/Users/me/app/ios/App/AppDelegate.swift:12:5: warning: variable 'x' was never used")).toBe('warning')
+    expect(rawLineTone('Starting project at /Users/me/app')).toBeNull()
+    expect(rawLineTone('› Port 8081 is running this app in another window')).toBeNull()
+  })
 })

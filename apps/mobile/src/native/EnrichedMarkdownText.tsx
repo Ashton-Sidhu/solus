@@ -3,7 +3,7 @@
 // phone, so a link's long press shows the iOS link menu (Open, Copy, Share). The text
 // recognition slot T3 uses for skills finds `@path` mentions.
 import { useCallback, useMemo, useState } from "react";
-import { Platform, Share, StyleSheet, View } from "react-native";
+import { Platform, Share, View } from "react-native";
 import {
   EnrichedMarkdownText,
   type DocumentAssetsEvent,
@@ -81,7 +81,7 @@ function enrichedStyle(
       ...block,
       borderRadius: 10,
       borderWidth: 1,
-      borderColor: style.codeBlockBorderColor,
+      borderColor: style.blockBorderColor,
       padding: 12,
       syntaxColors: dark
         ? {
@@ -119,14 +119,15 @@ function enrichedStyle(
     },
     list: { ...body, bulletColor: style.mutedColor, markerColor: style.mutedColor, gapWidth: 6 },
     thematicBreak: { color: style.dividerColor, height: 1, marginTop: 8, marginBottom: 8 },
-    // Desktop's `.prose-cloud table`: square, hairline rules, and a plain header fill.
-    // A square table also avoids iOS clipping cell borders at rounded corners.
+    // Desktop's `.prose-cloud table`: square, soft 1px rules, and a plain header fill.
+    // Enriched draws a full grid (it has no style for row rules only), so the
+    // column lines take the same soft color as the rows.
     table: {
       ...body,
       ...block,
       borderRadius: 0,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: style.dividerColor,
+      borderWidth: 1,
+      borderColor: style.blockBorderColor,
       headerFontFamily: style.tableHeaderFontFamily,
       headerTextColor: style.strongColor,
       headerBackgroundColor: style.tableHeaderBackgroundColor,

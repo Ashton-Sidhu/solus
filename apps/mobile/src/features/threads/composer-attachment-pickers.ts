@@ -1,14 +1,13 @@
-import * as Clipboard from 'expo-clipboard'
 import * as DocumentPicker from 'expo-document-picker'
-import { Directory, File, Paths } from 'expo-file-system'
+import { File } from 'expo-file-system'
 import * as ImagePicker from 'expo-image-picker'
 import { mimeTypeFor } from '@solus/contracts/media-types'
 import { MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
 import type { PickedFile } from '../conversation/lib/attachments'
 
 /**
- * The sources behind T3's attachment button ("Photo Library", "Choose
- * Files", and "Paste Image"), answering the files as the Solus attachment upload reads them.
+ * The sources behind T3's attachment button ("Photo Library" and "Choose
+ * Files") and pasted images, answering the files as the Solus attachment upload reads them.
  * `existingCount` counts attachments already on the draft or uploading.
  */
 export async function pickComposerMedia(existingCount: number): Promise<PickedFile[]> {
@@ -38,22 +37,4 @@ export function pastedComposerImages(uris: string[]): (existingCount: number) =>
       const name = decodeURIComponent(uri.split('/').pop() ?? 'pasted-image')
       return { uri, name, mimeType: mimeTypeFor(name) ?? null, size: new File(uri).size }
     })
-}
-
-/**
- * The attachment menu's "Paste Image": the clipboard image without the text
- * menu, for example with the keyboard closed. The image is written to
- * the cache because the upload reads files, not data URLs.
- */
-export async function pickComposerClipboardImage(existingCount: number): Promise<PickedFile[]> {
-  if (MAX_ATTACHMENT_UPLOAD_COUNT - existingCount <= 0) return []
-  const image = await Clipboard.getImageAsync({ format: 'png' })
-  if (!image) throw new Error('The clipboard has no image.')
-  const directory = new Directory(Paths.cache, 'solus-clipboard-images')
-  directory.create({ idempotent: true, intermediates: true })
-  const name = `pasted-image-${Date.now()}.png`
-  const file = new File(directory, name)
-  file.create()
-  file.write(image.data.slice(image.data.indexOf(',') + 1), { encoding: 'base64' })
-  return [{ uri: file.uri, name, mimeType: 'image/png', size: file.size }]
 }

@@ -151,8 +151,11 @@ installed on the host at runtime, not bundled with Solus.
 Changed 2026-10-13. Run app replaces the Builds archive and New build flow.
 Changed again 2026-10-13: Run app has two paths. **Dev server** (`mode: dev`)
 opens the debug app already on a simulator or emulator against the project's
-Metro; it builds nothing. **Production build** (`mode: device`) builds Release
-and installs it on any device. The run `mode` is `dev` or `device`; every
+Metro; it builds nothing, and each request opens one more simulator against the
+same server. **Production build** (`mode: device`) builds Release once for a
+`target` (`ios-simulator`, `ios-device`, or `android`); the client then installs
+that one output on any number of matching devices through `deviceInstall`. The
+build itself installs nothing. The run `mode` is `dev` or `device`; every
 run records its mode, source, delivery, branch, and commit. The Branch picker lists
 local and remote branches for the selected project. It starts on main when available,
 otherwise the current branch. Each named branch has its own owned build checkout.
