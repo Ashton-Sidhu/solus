@@ -4,7 +4,7 @@ import { getDatabase } from '../db/database'
 import { createLogger } from '../logger'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { completeTasksForMergedPullRequest } from '../data/tasks/sync-engine'
-import { settledSessionIds, settleIdleSessions, settleSessionsWithEndedPullRequests } from '../data/sessions/session-states'
+import { archiveIdleSessions, settledSessionIds, settleSessionsWithEndedPullRequests } from '../data/sessions/session-states'
 import { sessionIdOfThread } from '../data/sessions/session-lineage'
 import { readPrLinkInterests, recordPullRequestObservation, type PrLinkInterest } from '../data/tasks/task-links'
 import { unfinishedTaskProjects } from '../data/tasks/task-store'
@@ -372,16 +372,15 @@ export class PrSync {
   }
 
   /**
-   * Settle the sessions whose work ended: every pull request of the session
-   * is merged or closed, or the session had no prompt for a long time
-   * (docs/plans/session-pull-requests.md). A settled session is no longer
-   * live work, so interest is read again.
+   * Settle the sessions whose pull requests all ended
+   * (docs/plans/session-pull-requests.md), and archive the sessions that had
+   * no activity for a long time (docs/plans/session-archive.md). A settled
+   * session is no longer live work, so interest is read again.
    */
   private async settleSessions(): Promise<void> {
-    const settled = [
-      ...await settleSessionsWithEndedPullRequests(this.isSessionBusy),
-      ...await settleIdleSessions(this.isSessionBusy, this.now()),
-    ]
+    const settled = await settleSessionsWithEndedPullRequests(this.isSessionBusy)
+    const archived = await archiveIdleSessions(this.isSessionBusy, this.now())
+    if (archived.length) log.info('pr_sync_sessions_archived', { count: archived.length })
     if (!settled.length) return
     log.info('pr_sync_sessions_settled', { count: settled.length })
     this.taskInterestsAt = 0

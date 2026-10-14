@@ -8499,6 +8499,30 @@
             }
           },
           {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "roots",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -8912,6 +8936,84 @@
                                 "type": "null"
                               }
                             ]
+                          },
+                          "state": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "settledAt": {
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "settledBy": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "enum": [
+                                          "person",
+                                          "pull-request",
+                                          "task",
+                                          "idle"
+                                        ]
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "snoozedUntil": {
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "snoozeNote": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "archivedAt": {
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "settledAt",
+                                  "settledBy",
+                                  "snoozedUntil",
+                                  "snoozeNote",
+                                  "archivedAt"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
                         "required": [
@@ -8977,7 +9079,8 @@
                             "isWorktree": false,
                             "branch": "main",
                             "projectRoot": "/home/example/project",
-                            "delegation": null
+                            "delegation": null,
+                            "state": null
                           }
                         ]
                       }
@@ -9581,6 +9684,84 @@
                                     "type": "null"
                                   }
                                 ]
+                              },
+                              "state": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "settledAt": {
+                                        "anyOf": [
+                                          {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 9007199254740991
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      },
+                                      "settledBy": {
+                                        "anyOf": [
+                                          {
+                                            "type": "string",
+                                            "enum": [
+                                              "person",
+                                              "pull-request",
+                                              "task",
+                                              "idle"
+                                            ]
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      },
+                                      "snoozedUntil": {
+                                        "anyOf": [
+                                          {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 9007199254740991
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      },
+                                      "snoozeNote": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "archivedAt": {
+                                        "anyOf": [
+                                          {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 9007199254740991
+                                          },
+                                          {
+                                            "type": "null"
+                                          }
+                                        ]
+                                      }
+                                    },
+                                    "required": [
+                                      "settledAt",
+                                      "settledBy",
+                                      "snoozedUntil",
+                                      "snoozeNote",
+                                      "archivedAt"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               }
                             },
                             "required": [
@@ -9646,7 +9827,8 @@
                                 "isWorktree": false,
                                 "branch": "main",
                                 "projectRoot": "/home/example/project",
-                                "delegation": null
+                                "delegation": null,
+                                "state": null
                               }
                             ]
                           },
@@ -10174,6 +10356,84 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "state": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "settledAt": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "settledBy": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "person",
+                                    "pull-request",
+                                    "task",
+                                    "idle"
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "snoozedUntil": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "snoozeNote": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "archivedAt": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "settledAt",
+                            "settledBy",
+                            "snoozedUntil",
+                            "snoozeNote",
+                            "archivedAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -10239,7 +10499,8 @@
                       "isWorktree": false,
                       "branch": "main",
                       "projectRoot": "/home/example/project",
-                      "delegation": null
+                      "delegation": null,
+                      "state": null
                     }
                   ]
                 }

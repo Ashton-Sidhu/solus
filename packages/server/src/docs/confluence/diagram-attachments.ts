@@ -82,7 +82,7 @@ export function canAttachDiagrams(scopes: readonly string[]): boolean {
 }
 
 export const ATTACHMENT_SCOPE_MISSING =
-  'This Atlassian connection was granted before Solus published diagrams to Confluence. Disconnect and sign in again in Settings → Providers to publish them as pictures.'
+  'This Atlassian connection was granted before Solus published diagrams to Confluence. Disconnect and sign in again in Settings → Integrations to publish them as pictures.'
 
 /**
  * Put every diagram on the page.

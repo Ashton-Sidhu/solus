@@ -62,7 +62,7 @@ import { ThreadAgentGroup } from "./ThreadAgents";
 import { ThreadPlanCard } from "./ThreadPlanCard";
 import { WorktreeOfferCard } from "./WorktreeOfferCard";
 import { useTranscriptItem, useTranscriptItems } from "./use-transcript-items";
-import { CompactionDivider, SessionOriginDivider } from "./thread-context-divider";
+import { CompactionDivider, HandoffDivider, HandoffPendingDivider, SessionOriginDivider } from "./thread-context-divider";
 import type { SessionOrigin } from "@solus/contracts/types";
 import { solusAgentToolName } from "@solus/contracts/agent-tools";
 import { ToolResultImages } from "./ToolResultImages";
@@ -106,6 +106,8 @@ export interface ThreadFeedProps {
   readonly historyControls?: ThreadFeedHistoryControls;
   /** The agent session on another host that started this one; shown above the first message. */
   readonly startedBy?: SessionOrigin | null;
+  /** The composer picked another provider; the next prompt hands off (plans/021). */
+  readonly handoffPending?: boolean;
   readonly contentMaxWidth?: number;
   readonly layoutVariant?: LayoutVariant;
   readonly usesAutomaticContentInsets?: boolean;
@@ -471,6 +473,14 @@ function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
     return <CompactionDivider store={context.store} id={row.id} iconSubtleColor={context.iconSubtleColor} />;
   }
 
+  if (row.type === "handoff") {
+    return <HandoffDivider store={context.store} id={row.id} iconSubtleColor={context.iconSubtleColor} />;
+  }
+
+  if (row.type === "handoff-pending") {
+    return <HandoffPendingDivider iconSubtleColor={context.iconSubtleColor} />;
+  }
+
   if (row.type === "plan") {
     return <PlanRow store={context.store} id={row.id} />;
   }
@@ -654,8 +664,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         working: props.working,
         expandedTurnIds,
         expandedWorkGroupIds: expandedWorkGroups,
+        handoffPending: props.handoffPending,
       }),
-    [entries, expandedTurnIds, expandedWorkGroups, props.turnActive, props.working],
+    [entries, expandedTurnIds, expandedWorkGroups, props.handoffPending, props.turnActive, props.working],
   );
 
   const handleScroll = useCallback(

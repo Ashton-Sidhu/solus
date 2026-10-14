@@ -466,6 +466,9 @@ export class PromptDispatch {
       session.run.workingDirectory = resolvedPath
     }
     session.run.provider = session.run.provider ?? this.workspace.settings.activeAgent
+    // The first prompt starts the thread on the provider it carries; after that
+    // only the host moves the thread (plans/021).
+    if (!isBusy && !session.agentSessionId && !session.handoffPending) session.threadProvider = session.run.provider
 
     const isFirstMessage = session.messages.length === 0 || (session.forked && !session.forkedFromSessionId)
     const agent = session.run.provider ?? this.workspace.settings.activeAgent

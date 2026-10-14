@@ -1,7 +1,7 @@
-import type { CatalogEntry, Integration } from '@solus/contracts/integration-types'
+import type { CatalogCategoryId, CatalogEntry, Integration } from '@solus/contracts/integration-types'
 import { SvelteMap } from 'svelte/reactivity'
 import { integrationsStore } from '../integrations.store.svelte'
-import { afterAddStep, probeRefusal, urlHost } from './integration-labels'
+import { probeRefusal, urlHost } from './integration-labels'
 
 /** An Add that runs, or the reason the last one stopped, for one server address. */
 export type InstallState =
@@ -13,12 +13,14 @@ export const CATALOG_PAGE_SIZE = 24
 const SEARCH_DELAY_MS = 250
 
 /**
- * The catalog of one MCP page on one host: search, a list that grows as the
- * person scrolls, and the one-step Add
- * (probe, create, then sign-in). Ephemeral: it lives as long as the page.
+ * The catalog of one MCP page on one host: search, a category, a list that
+ * grows as the person scrolls, and Add (probe, then create). The sign-in
+ * that follows is the connect dialog's. Ephemeral: it lives as long as the page.
  */
 export class McpCatalog {
   query = $state('')
+  /** One Solus category, or null for every entry. */
+  category = $state<CatalogCategoryId | null>(null)
   entries = $state<CatalogEntry[]>([])
   total = $state(0)
   /** The first page of a query is loading. */
@@ -50,6 +52,13 @@ export class McpCatalog {
     this.timer = setTimeout(() => void this.load(), value.trim() ? SEARCH_DELAY_MS : 0)
   }
 
+  /** A new category starts the list again at once. */
+  setCategory(value: CatalogCategoryId | null): void {
+    if (value === this.category) return
+    this.category = value
+    void this.load()
+  }
+
   /** Reads the first page of the query. */
   async load(): Promise<void> {
     if (this.timer) clearTimeout(this.timer)
@@ -58,7 +67,7 @@ export class McpCatalog {
     this.loadingMore = false
     this.error = ''
     try {
-      const page = await integrationsStore.catalogPage(this.serverId, this.query.trim(), 0, CATALOG_PAGE_SIZE)
+      const page = await integrationsStore.catalogPage(this.serverId, this.query.trim(), this.category, 0, CATALOG_PAGE_SIZE)
       if (sequence !== this.sequence) return
       this.entries = page.entries
       this.total = page.total
@@ -77,7 +86,7 @@ export class McpCatalog {
     const sequence = this.sequence
     this.loadingMore = true
     try {
-      const page = await integrationsStore.catalogPage(this.serverId, this.query.trim(), this.entries.length, CATALOG_PAGE_SIZE)
+      const page = await integrationsStore.catalogPage(this.serverId, this.query.trim(), this.category, this.entries.length, CATALOG_PAGE_SIZE)
       if (sequence !== this.sequence) return
       const shown = new Set(this.entries.map((entry) => entry.id))
       this.entries.push(...page.entries.filter((entry) => !shown.has(entry.id)))
@@ -89,11 +98,7 @@ export class McpCatalog {
     }
   }
 
-  /**
-   * Checks the server from the host, adds it, and starts the person's sign-in
-   * when it needs one, so one action takes a server from the catalog to usable.
-   * Null when it stopped; the reason is in `installs`.
-   */
+  /** Checks the server from the host and adds it. Null when it stopped; the reason is in `installs`. */
   async install(name: string, url: string): Promise<Integration | null> {
     const running = this.installs.get(url)
     if (running && running.kind !== 'failed') return null
@@ -113,7 +118,6 @@ export class McpCatalog {
       return null
     }
     this.installs.delete(url)
-    if (afterAddStep(integration.auth) === 'connect') void integrationsStore.connect(this.serverId, integration.id)
     return integration
   }
 

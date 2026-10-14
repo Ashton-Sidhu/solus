@@ -8,7 +8,7 @@ import { loadServers } from '@solus/client-core/server-registry'
 import { makePrompt, makeSession, makeTab } from './session.factories'
 import { taskTargetFrom } from './session-draft.svelte'
 import { loadRestoredSessionTranscript } from './session-transcript'
-import { applyRuntimeConfig, nextMsgId } from './session.utils'
+import { applyRuntimeConfig, followThreadProvider, nextMsgId } from './session.utils'
 import { initDraftState, loadCachedStart, loadDrafts, loadPersistedSessionDrafts, loadPersistedTabs, type PersistedTab, type PersistedTabs, type TabDrafts } from './tab-persistence'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { readSessionMeta, stampSessionMeta } from '@solus/client-core/session-meta'
@@ -300,11 +300,14 @@ function restoredModelConfig(snapTab: PersistedTab): ModelConfig {
  * separate active-first operation and cannot gate these fields on selection. */
 export function applyRestoredSessionMeta(session: Session, meta: SessionMeta): void {
   if (meta.status) session.status = meta.status
-  session.run.provider = meta.provider
-  if (meta.model && session.run.modelConfig.modelId !== AUTO_MODEL_ID) {
+  // The host's provider owns the thread. An open pick keeps the composer's
+  // provider and model; the next send hands over (plans/021).
+  followThreadProvider(session, meta.provider)
+  const followsThread = session.run.provider === meta.provider
+  if (followsThread && meta.model && session.run.modelConfig.modelId !== AUTO_MODEL_ID) {
     session.run.modelConfig.modelId = meta.model
   }
-  if (meta.reasoningEffort) session.run.modelConfig.reasoningEffort = meta.reasoningEffort
+  if (followsThread && meta.reasoningEffort) session.run.modelConfig.reasoningEffort = meta.reasoningEffort
   session.startedBy = meta.startedBy
   if (meta.organizationId) session.organizationId = meta.organizationId
   session.currentTurnStartedAt = isSessionBusyStatus(session.status)
@@ -510,7 +513,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   const activeMember = handoff?.active
   if (activeMember) {
     session.handoffPending = !activeMember.providerSessionId
-    session.run.provider = activeMember.provider
+    followThreadProvider(session, activeMember.provider)
     session.agentSessionId = activeMember.providerSessionId
   }
 

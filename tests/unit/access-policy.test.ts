@@ -36,7 +36,7 @@ describe('the action tables', () => {
     // unless it is a catalog read (listSessions, listWorks) or a creation.
     // `tasksPrepareForSession` binds a task before any session exists; the others list or create.
     // `sessionPullRequestsList` lists across sessions, and its handler keeps only the sessions the caller may open.
-    const catalog = new Set(['sessionPullRequestsList', 'sessionShelfList', 'sessionRecordList', 'sessionRecordUpsert', 'listWorks', 'createWork', 'createHeadlessSession', 'connectionsListSessions', 'pinnedSessionsList', 'tasksPrepareForSession', 'generateSessionMetadata', 'importDocFromUrl', 'docDestinations', 'docProviderStatuses', 'connectionsSetTrustLocalNetwork', 'sessionGuideStatuses', 'workReviewInbox', 'workReviewStates', 'workUpload'])
+    const catalog = new Set(['sessionPullRequestsList', 'sessionRecordList', 'sessionRecordUpsert', 'listWorks', 'createWork', 'createHeadlessSession', 'connectionsListSessions', 'pinnedSessionsList', 'tasksPrepareForSession', 'generateSessionMetadata', 'importDocFromUrl', 'docDestinations', 'docProviderStatuses', 'connectionsSetTrustLocalNetwork', 'sessionGuideStatuses', 'workReviewInbox', 'workReviewStates', 'workUpload'])
     const unclassified = RPC_INVOKE_METHODS.filter((method) => /session|work(?!tree|space)/i.test(method) && !catalog.has(method) && !isResourceMethod(method))
     expect(unclassified).toEqual([])
   })
@@ -140,7 +140,7 @@ describe('guests', () => {
     const table = resources({ 'session:s1': 'viewer' })
     await expect(assertRpcAccess('watchSession', GUEST, [{ sessionId: 's1' }], table)).resolves.toBeUndefined()
     await expect(assertRpcAccess('prompt', GUEST, [ctx('s1'), {}], table)).rejects.toThrow(RpcAccessError)
-    for (const method of ['connectionsGetServerInfo', 'start', 'modelProfilesStatus', 'sessionShelfList', 'pinnedSessionsList', 'gitRefreshState', 'listProjectFiles', 'readProjectFile'] as const) {
+    for (const method of ['connectionsGetServerInfo', 'start', 'modelProfilesStatus', 'pinnedSessionsList', 'gitRefreshState', 'listProjectFiles', 'readProjectFile'] as const) {
       await expect(assertRpcAccess(method, GUEST, [], table)).resolves.toBeUndefined()
     }
     for (const method of ['listWorks', 'listProjects', 'writeFile', 'mutateProjectFile', 'gitRunAction', 'openWorktreeTerminal', 'usageLimits', 'configGet', 'createHeadlessSession'] as const) {

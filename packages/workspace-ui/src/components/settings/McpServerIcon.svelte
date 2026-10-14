@@ -10,8 +10,8 @@
 </script>
 
 {#if hasFailed}
-  <span class="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-workspace-chrome font-medium text-muted-foreground" aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
+  <span class="grid size-8 shrink-0 place-items-center rounded-lg border border-border/50 bg-muted text-workspace-chrome font-medium text-muted-foreground" aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
 {:else}
   <img {src} alt="" loading="lazy" referrerpolicy="no-referrer" onerror={() => (hasFailed = true)}
-    class="size-8 shrink-0 rounded-lg border border-border bg-white object-contain p-1" />
+    class="size-8 shrink-0 rounded-lg border border-border/50 bg-white object-contain p-1.5 shadow-xs" />
 {/if}

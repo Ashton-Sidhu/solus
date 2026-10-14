@@ -81,7 +81,7 @@ import { mergeSessionHomes, type SessionHomeHosts } from '../../components/sessi
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { sessionPrLink, sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
 import type { SessionPullRequestLink } from '@solus/contracts/session-pull-requests'
-import { sessionStatesStore, type ShelvedSession } from './session-states.store.svelte'
+import { sessionListStore, type ListedSession, type SessionListTarget } from './session-list.store.svelte'
 import { canDriveSession } from '../sharing/resource-roles'
 import {
   prLinkDiscoveryAttempts,
@@ -430,7 +430,7 @@ export class SessionSidebarStore {
     const environment = this.session.environment.environmentFor(this.session.sessionFor(tabId)?.run)
     const projectKey = environmentProjectKey(environment, session.run.projectGroupPath)
     const attention = getAttentionState(session, tab, this.planStore.plans)
-    const state = sessionStatesStore.stateFor(session.id)
+    const state = sessionListStore.stateFor(session.id)
     const isSettled = !!state?.settledAt
     const lifecycle = sessionRowLifecycle(state, attention, this.lifecycleNow)
     return {
@@ -461,33 +461,35 @@ export class SessionSidebarStore {
   }
 
   /**
-   * The row of a settled or snoozed session that has no conversation open on
-   * this client. The host names it; selecting the row opens the session.
+   * The row of a session in its host's list that has no conversation open on
+   * this client (docs/plans/session-archive.md). The host names it; selecting
+   * the row opens the session.
    */
-  private buildShelvedSessionRow(entry: ShelvedSession): SidebarTask {
-    const projectKey = worktreeProjectRoot(entry.projectPath ?? '~')
-    const lifecycle = sessionRowLifecycle(entry, null, this.lifecycleNow)
-    const rowId = `session:${entry.sessionId}`
+  private buildListedSessionRow(listed: ListedSession): SidebarTask {
+    const projectKey = worktreeProjectRoot(listed.projectPath ?? '~')
+    const state = sessionListStore.stateFor(listed.sessionId)
+    const lifecycle = sessionRowLifecycle(state, null, this.lifecycleNow)
+    const rowId = `session:${listed.sessionId}`
     return {
       id: rowId,
       key: rowId,
-      sessionId: entry.sessionId,
-      title: entry.title ?? 'Session',
+      sessionId: listed.sessionId,
+      title: listed.title ?? 'Session',
       projectKey,
       projectLabel: projectLabel(projectKey),
-      groupKey: groupKeyFor(entry.serverId, projectKey),
+      groupKey: groupKeyFor(listed.serverId, projectKey),
       branchName: null,
-      serverId: entry.serverId,
+      serverId: listed.serverId,
       prNumber: null,
-      status: taskStatusFor(null, !!entry.settledAt),
+      status: taskStatusFor(null, !!state?.settledAt),
       attention: null,
       unread: false,
-      createdAt: entry.settledAt ?? entry.snoozedUntil ?? 0,
+      createdAt: listed.createdAt,
       runStartedAt: 0,
       lifecycle: lifecycle.lifecycle,
       completedAt: lifecycle.completedAt,
       snoozedUntil: lifecycle.snoozedUntil,
-      snoozeNote: entry.snoozeNote,
+      snoozeNote: state?.snoozeNote ?? null,
       lastReadAt: 0,
       woke: lifecycle.woke,
       tabIds: [],
@@ -531,22 +533,27 @@ export class SessionSidebarStore {
       ))
     }
 
-    // A settled or snoozed session with no conversation here still has a row,
-    // so a session a person put away on one client is on the shelf of every
-    // client. A session its task's finish settled has none: the finished task
-    // is on the Completed shelf. A snooze that ended and was seen has none
-    // either.
+    // Each session in its host's list has a row, with or without a
+    // conversation here, so every client shows the same list
+    // (docs/plans/session-archive.md). A session whose task has a row is in
+    // that row. A session its task's finish settled has none either: the
+    // finished task is on the Completed shelf.
     const mountedSessionIds = new Set(this.visibleTabIds.flatMap((tabId) => {
       const session = this.session.sessionFor(tabId)
       return session ? [session.id] : []
     }))
-    const shelvedSessions = sessionStatesStore.entries
-      .filter((entry) => !mountedSessionIds.has(entry.sessionId) && entry.settledBy !== 'task')
-      .map((entry) => this.buildShelvedSessionRow(entry))
+    const listedSessions = sessionListStore.sessions
+      .filter((listed) => {
+        if (mountedSessionIds.has(listed.sessionId)) return false
+        if (sessionListStore.stateFor(listed.sessionId)?.settledBy === 'task') return false
+        const ownerTask = this.session.tasksStore.taskForSession(listed.sessionId)
+        return !ownerTask || !shownTaskIds.has(ownerTask.id)
+      })
+      .map((listed) => this.buildListedSessionRow(listed))
 
     return reconcileSidebarTasks(
       this.taskModelsById,
-      sortSidebarRowsByCreation([...durableTasks, ...looseTasks, ...shelvedSessions]),
+      sortSidebarRowsByCreation([...durableTasks, ...looseTasks, ...listedSessions]),
     )
   })
 
@@ -1155,7 +1162,7 @@ export class SessionSidebarStore {
     $effect(() => {
       const now = this.lifecycleNow
       let nextWake = 0
-      for (const { snoozedUntil } of [...sessionStatesStore.entries, ...this.session.tasksStore.tasks]) {
+      for (const { snoozedUntil } of [...sessionListStore.states, ...this.session.tasksStore.tasks]) {
         if (snoozedUntil && snoozedUntil > now && (nextWake === 0 || snoozedUntil < nextWake)) {
           nextWake = snoozedUntil
         }
@@ -1430,9 +1437,9 @@ export class SessionSidebarStore {
     return tabId && sessionId ? { serverId: this.session.serverIdFor(tabId), sessionId } : null
   }
 
-  /** Whether the row's session can be settled and snoozed: tasks cannot,
-   *  neither can a session that has not started, and neither can a member who
-   *  may only read a shared session (the host requires an editor). */
+  /** Whether the row's session can be settled, snoozed, and archived: tasks
+   *  cannot, neither can a session that has not started, and neither can a
+   *  member who may only read a shared session (the host requires an editor). */
   canShelve(row: SidebarTask): boolean {
     const target = this.sessionOfRow(row)
     return target !== null && canDriveSession(target.serverId, target.sessionId)
@@ -1458,7 +1465,7 @@ export class SessionSidebarStore {
     const write = row.taskId
       ? this.session.tasksStore.get(row.taskId).snooze(until, note)
       : target
-        ? sessionStatesStore.snooze(target.serverId, target.sessionId, until, note)
+        ? sessionListStore.snooze(target, until, note)
         : null
     if (!write) return
     void write
@@ -1472,8 +1479,8 @@ export class SessionSidebarStore {
       })
   }
 
-  /** Open a settled or snoozed session that has no conversation here. */
-  private async openShelvedSession(row: SidebarTask): Promise<void> {
+  /** Open a listed session that has no conversation here. */
+  private async openListedSession(row: SidebarTask): Promise<void> {
     if (!row.sessionId || !row.serverId) return
     const meta = await readSessionMeta(row.serverId, row.sessionId)
     if (meta) await this.session.opening.resumeSession(meta)
@@ -1493,11 +1500,11 @@ export class SessionSidebarStore {
       return
     }
     if (row.lifecycle === 'completed') {
-      if (!row.tabIds.length) await this.openShelvedSession(row)
-      await sessionStatesStore.setSettled(target.serverId, target.sessionId, false)
+      if (!row.tabIds.length) await this.openListedSession(row)
+      await sessionListStore.setSettled(target, false)
       return
     }
-    await sessionStatesStore.setSettled(target.serverId, target.sessionId, true)
+    await sessionListStore.setSettled(target, true)
     this.closeTask(row)
   }
 
@@ -1655,10 +1662,10 @@ export class SessionSidebarStore {
       return
     }
     // A session's own row stands for one conversation: the mounted one, or
-    // the one its host names for a shelved session.
+    // the one its host names for a listed session.
     const tabId = task.tabIds[0]
     if (tabId) this.selectTab(tabId)
-    else await this.openShelvedSession(task)
+    else await this.openListedSession(task)
     timing?.shown()
   }
 
@@ -1793,6 +1800,38 @@ export class SessionSidebarStore {
     }
     this.closeTabs(tabIdsToClose)
     if (tabIdsToClose.length) this.composeNextPromptIfNoActiveTask(task)
+  }
+
+  /**
+   * The X on a row (docs/plans/session-archive.md). A started session's row
+   * archives the session on its host, so it leaves the list on every device,
+   * and closes its tabs; the session picker still finds it. A task's row, a
+   * session that has not started, and a session the reader may not drive
+   * only leave this client.
+   */
+  removeRow(row: SidebarTask): void {
+    const target = this.canShelve(row) ? this.sessionOfRow(row) : null
+    this.closeTask(row)
+    if (!target) return
+    void this.archiveOnHost(target)
+  }
+
+  /** Archive one session on its host. Only a refused archive says it failed,
+   *  with the host's reason; Undo returns the session to the list. */
+  private async archiveOnHost(target: SessionListTarget): Promise<void> {
+    const archiving = sessionListStore.setArchived(target, true)
+    const { toasts } = await import('../../lib/toasts')
+    try {
+      await archiving
+    } catch (error) {
+      toasts.error("Couldn't archive it", { description: error instanceof Error ? error.message : String(error) })
+      return
+    }
+    toasts.undo('Session archived', () => {
+      void sessionListStore.setArchived(target, false).catch(() => {
+        toasts.error("Couldn't return it to the list")
+      })
+    })
   }
 
   /** Hide tasks for their Undo window, and close their mounted conversations

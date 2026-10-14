@@ -172,10 +172,23 @@ export function returnsToProjectHome(run: RunConfig, serverId: string): boolean 
 }
 
 /**
- * Point a run at a checkout that already exists on `serverId`. Your own
- * machine and a dispatched run's home switch at once: the checkout is there
- * and nothing needs a connection. Any other host is recorded as intent, and
- * Send connects to it before the run moves.
+ * Whether opening a checkout on `serverId` moves the run at once. Your own
+ * machine, a host that is online, and a dispatched run's home need no
+ * connection first. The run must name the host that holds its checkout, or
+ * nothing can read that checkout's Git before Send: the branch chip, the
+ * worktree list, and the plugin commands would all ask the wrong machine.
+ * A host that is not online is recorded as intent, and Send connects to it.
+ */
+export function opensCheckoutNow(
+  run: RunConfig,
+  host: { id: string; local: boolean; online: boolean },
+): boolean {
+  return host.local || host.online || returnsToProjectHome(run, host.id)
+}
+
+/**
+ * Point a run at a checkout that already exists on `serverId`, at once or as
+ * intent that Send acts on (`opensCheckoutNow` decides which).
  */
 export function withCheckoutOnHost(
   run: RunConfig,

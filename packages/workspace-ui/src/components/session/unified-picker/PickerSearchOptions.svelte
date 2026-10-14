@@ -14,9 +14,11 @@
   import {
     activeFilterCount,
     PICKER_AGENT_LABELS,
+    PICKER_ARCHIVE_LABELS,
     PICKER_STATUS_LABELS,
     PICKER_UPDATED_LABELS,
     type PickerAgentFilter,
+    type PickerArchiveFilter,
     type PickerFilters,
     type PickerStatusFilter,
     type PickerUpdatedFilter,
@@ -146,6 +148,16 @@
     >
       <DropdownMenu.GroupHeading>Session agent</DropdownMenu.GroupHeading>
       {#each Object.entries(PICKER_AGENT_LABELS) as [value, label] (value)}
+        <DropdownMenu.RadioItem {value}><span class="flex-1">{label}</span></DropdownMenu.RadioItem>
+      {/each}
+    </DropdownMenu.RadioGroup>
+    <DropdownMenu.Separator />
+    <DropdownMenu.RadioGroup
+      value={filters.archive}
+      onValueChange={(value) => onFilters({ ...filters, archive: value as PickerArchiveFilter })}
+    >
+      <DropdownMenu.GroupHeading>Archive</DropdownMenu.GroupHeading>
+      {#each Object.entries(PICKER_ARCHIVE_LABELS) as [value, label] (value)}
         <DropdownMenu.RadioItem {value}><span class="flex-1">{label}</span></DropdownMenu.RadioItem>
       {/each}
     </DropdownMenu.RadioGroup>

@@ -138,13 +138,15 @@ export async function approvePlanWithModel(
 
   const isActive = session.status === 'running' || session.status === 'connecting'
     || session.status === 'awaiting_plan' || session.status === 'awaiting_input'
-  const providerChanged = !!opts.provider && opts.provider !== session.run.provider
+  const hasThread = !!session.agentSessionId || !!session.handoffPending
+  // A session with a thread compares with the provider that owns it, not with
+  // an open pick in its composer (plans/021).
+  const currentProvider = hasThread ? session.threadProvider ?? session.run.provider : session.run.provider
+  const providerChanged = !!opts.provider && opts.provider !== currentProvider
   // A session with no provider thread has nothing to hand over: its agent
   // changes here, and the host only records the decision.
-  if (providerChanged && !session.agentSessionId && !session.handoffPending) {
-    await ctx.config.switchActiveAgent(opts.provider!, tabId)
-  }
-  const handsOver = providerChanged && session.run.provider !== opts.provider
+  if (providerChanged && !hasThread) ctx.config.switchActiveAgent(opts.provider!, tabId)
+  const handsOver = providerChanged && hasThread
   // A cross-provider handoff already detaches the old provider session and
   // preserves it as lineage for the next run. Resetting here would erase that
   // pending handoff. Same-provider model changes still require a fresh session.
@@ -171,7 +173,10 @@ export async function approvePlanWithModel(
   // session, not because the reader stopped it, so no stop notice is written.
   if (isActive) ctx.controls.interruptTabSession(tabId, { notice: false })
   if (accepted.handoff) ctx.config.adoptHandoff(session, opts.provider!, accepted.handoff, tabId)
-  if (startNewSession) session.agentSessionId = null
+  if (startNewSession) {
+    session.agentSessionId = null
+    session.threadProvider = null
+  }
 
   if (opts.provider && opts.modelId) {
     if (!providerChanged) {

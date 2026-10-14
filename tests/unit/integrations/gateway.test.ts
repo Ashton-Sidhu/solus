@@ -17,6 +17,8 @@ const { IntegrationGateway } = await import('@solus/server/integrations/gateway'
 const { withActingScope } = await import('@solus/server/vault/acting-scope')
 const { HOST_IDENTITY, HOST_SCOPE } = await import('@solus/server/execution/seats/acting-identity')
 const { InputRequests } = await import('@solus/server/execution/sessions/input-requests')
+const { integrationAgentTools, setIntegrationGateway } = await import('@solus/server/integrations/integration-tools')
+const { INTERNAL_PRINCIPAL } = await import('@solus/server/admission/principal')
 
 /**
  * The gateway (docs/plans/mcp-integrations.md §5.1) against a real streamable
@@ -102,6 +104,7 @@ beforeAll(async () => {
     name: 'Fake',
     url: `http://127.0.0.1:${port}/mcp`,
     auth: { kind: 'none' },
+    disabledTools: [],
     createdBy: null,
     createdAt: '2026-10-08T00:00:00Z',
     updatedAt: '2026-10-08T00:00:00Z',
@@ -132,6 +135,26 @@ describe('integration gateway', () => {
     // WHY: a second list and a call reuse the session the first list opened.
     expect(upstream.length - opened).toBe(1)
     await gateway.close()
+  })
+
+  test('a tool the owner turned off leaves the agents\' catalog, and a call to it is refused', async () => {
+    // WHY: turning a tool off in Settings must keep agents from using it, also in a run
+    // whose tool list was built before the change (docs/plans/mcp-integrations.md §6.1).
+    const record: Integration = { ...integration, id: 'int-off', disabledTools: ['delete_all'] }
+    const gateway = gatewayFor(record)
+    await withActingScope(HOST_SCOPE, () => gateway.tools(record.id))
+    setIntegrationGateway(gateway)
+    try {
+      expect(integrationAgentTools(INTERNAL_PRINCIPAL).map((tool) => tool.name).sort()).toEqual(['fake__confirm', 'fake__echo'])
+      const refused = await withActingScope(HOST_SCOPE, () => gateway.call(record.id, 'delete_all', {}, context()))
+      expect(refused.ok).toBe(false)
+      expect(refused.text).toContain('turned off')
+      // The list for Settings still names every tool, so the person can turn it on again.
+      expect((await withActingScope(HOST_SCOPE, () => gateway.tools(record.id))).map((tool) => tool.name)).toContain('delete_all')
+    } finally {
+      setIntegrationGateway(null)
+      await gateway.close()
+    }
   })
 
   test('two people get two upstream sessions', async () => {

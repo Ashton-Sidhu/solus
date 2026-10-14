@@ -2,7 +2,6 @@ import {
   agentProfileEntrySchema,
   agentProfileKeyOf,
   type AgentProfile,
-  type AgentProfileEntry,
   type AgentProfileFileEntry,
   type AgentProfileIntegrationEntry,
   type AgentProfileKey,
@@ -43,8 +42,6 @@ export interface WrittenSkill {
   providers: SeatProvider[]
   keys: AgentProfileKey[]
   fileCount: number
-  /** Every file is off, so the skill is off on every host. */
-  disabled: boolean
 }
 
 export interface AgentProfileSections {
@@ -69,9 +66,8 @@ export function sectionsOf(entries: AgentProfile): AgentProfileSections {
     else {
       const skillName = writtenSkillName(entry)
       if (skillName !== null) {
-        const skill = writtenSkills.get(skillName) ?? { name: skillName, providers: [], keys: [], fileCount: 0, disabled: true }
+        const skill = writtenSkills.get(skillName) ?? { name: skillName, providers: [], keys: [], fileCount: 0 }
         if (!skill.providers.includes(entry.provider)) skill.providers.push(entry.provider)
-        skill.disabled &&= entry.disabled === true
         // The schema refuses a document whose key disagrees with its entry, so the entry's own key is the stored one.
         skill.keys.push(agentProfileKeyOf(entry))
         skill.fileCount += 1
@@ -89,24 +85,6 @@ export function sectionsOf(entries: AgentProfile): AgentProfileSections {
     writtenSkills: [...writtenSkills.values()].sort(byName),
     integrations: integrations.sort(byName),
   }
-}
-
-// ─── Off and on ───
-
-/** The same entry, off on every host (`disabled`) or on again. Nothing else changes: the content is not encoded again. */
-export function withDisabled(entry: AgentProfileEntry, disabled: boolean): AgentProfileEntry {
-  const next: AgentProfileEntry = { ...entry }
-  if (disabled) next.disabled = true
-  else delete next.disabled
-  return next
-}
-
-/** The entries of these keys, each off or on: one change for a hand-written skill's every file. */
-export function entriesWithDisabled(entries: AgentProfile, keys: readonly AgentProfileKey[], disabled: boolean): AgentProfileEntry[] {
-  return keys.flatMap((key) => {
-    const entry = entries[key]
-    return entry ? [withDisabled(entry, disabled)] : []
-  })
 }
 
 // ─── New entries ───
@@ -180,4 +158,21 @@ export function agentProfileSearchWords(entries: AgentProfile): string[] {
       case 'integration': return entry.name
     }
   })
+}
+
+// ─── Paging ───
+
+/** A long list shows this many rows before "Show more". */
+export const PROFILE_PAGE_SIZE = 8
+
+/** One page of a long list: the rows shown, and how many wait behind "Show more". */
+export interface ListPage<T> {
+  rows: readonly T[]
+  hiddenCount: number
+}
+
+/** The rows a list shows, and the words for the rest: all of them, or the first page with "Show N more". */
+export function pageOf<T>(items: readonly T[], expanded: boolean): ListPage<T> {
+  if (expanded || items.length <= PROFILE_PAGE_SIZE) return { rows: items, hiddenCount: 0 }
+  return { rows: items.slice(0, PROFILE_PAGE_SIZE), hiddenCount: items.length - PROFILE_PAGE_SIZE }
 }

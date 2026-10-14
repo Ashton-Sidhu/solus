@@ -127,7 +127,7 @@ There is no `desktop-owner` scenario. The desktop's main process presents its si
 
 ### Development-only parts of the cloud
 
-- `DEVELOPMENT_ACCESS_TOKEN_TTL_SECONDS` (solus-cloud `src/lib/server/config.ts`): in development only, the account, Solus API, and host control tokens live this long (61 to 300 s; the Lab uses 90). Host tokens keep five minutes. Staging and production never read it (`config.test.ts`). A host still learns of a sign-out only from its refused refresh; the shorter life only brings that refresh sooner.
+- `DEVELOPMENT_ACCESS_TOKEN_TTL_SECONDS` (solus-cloud `src/lib/server/config.ts`): in development only, the account, Solus API, and host control tokens live this long (61 to 3600 s; the Lab uses 90). Host tokens keep one hour. Staging and production never read it (`config.test.ts`). A host still learns of a sign-out only from its refused refresh; the shorter life only brings that refresh sooner.
 - The directory route of a link made by the development stub tunnel is `http://127.0.0.1:<proxiedPort>`, the host's own listener (solus-cloud `stubTunnelRoute`). A real tunnel keeps `https://<hostname>`; staging and production never use the stub (`tunnels.test.ts`, `hosts.test.ts`).
 - `MANAGED_HOST_RELEASE` is set, so the in-memory provider accepts a managed host. It never downloads the release.
 

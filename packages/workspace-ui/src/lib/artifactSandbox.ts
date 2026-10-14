@@ -4,10 +4,14 @@
 // without allow-same-origin.
 import { sandboxThemeCss, wrapSandboxDocument } from "@solus/contracts/artifact-sandbox";
 
-/** Read the host palette for initial injection and live theme messages. */
+/** Read the host palette for initial injection and live theme messages. The
+ *  root is transparent, so a render has no background of its own and shows
+ *  whatever surface holds the frame. Chromium keeps the frame canvas
+ *  transparent only while the iframe's color-scheme matches the document's;
+ *  SandboxFrame sets both from the same theme. */
 export function buildSandboxThemeCss(isDark: boolean): string {
   const cs = getComputedStyle(document.documentElement);
-  return sandboxThemeCss(isDark, (name) => cs.getPropertyValue(name).trim());
+  return `${sandboxThemeCss(isDark, (name) => cs.getPropertyValue(name).trim())}html{background:transparent}`;
 }
 
 /** Wrap inner HTML into a full sandbox srcdoc in the live theme. */

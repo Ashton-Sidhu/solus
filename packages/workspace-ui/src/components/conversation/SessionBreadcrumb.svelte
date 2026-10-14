@@ -366,7 +366,7 @@
    *  the menu open — you came here to tidy up, and one close is rarely one. */
   function closeTask(item: SidebarTask) {
     if (item.key === task?.key) menu = null;
-    sidebarStore.closeTask(item);
+    sidebarStore.removeRow(item);
     requestInputFocus();
   }
 
@@ -491,8 +491,8 @@
     <button
       type="button"
       class={ROW_CLOSE}
-      title="Close task"
-      aria-label="Close {item.title}"
+      title={item.taskId ? "Close task" : "Archive session"}
+      aria-label="{item.taskId ? 'Close' : 'Archive'} {item.title}"
       onclick={() => closeTask(item)}
     >
       <XIcon size={14} weight="bold" />

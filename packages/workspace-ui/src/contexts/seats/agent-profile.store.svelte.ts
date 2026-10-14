@@ -103,17 +103,19 @@ export class AgentProfileStore {
     const localServerId = serverConnections.localServerId()
     if (!localServerId || localServerId === serverId) return
     await this.run(serverId, async () => {
-      const copy = this.local ? await this.localCopy(localServerId) : await serverConnections.apiFor(localServerId).agentProfileRead()
+      const copy = this.local ? await this.localCopy() : await serverConnections.apiFor(localServerId).agentProfileRead()
       this.statuses.set(serverId, await serverConnections.apiFor(serverId).agentProfileApply(copy))
     })
   }
 
-  private async localCopy(localServerId: string): Promise<AgentProfileCopy> {
-    if (this.local!.entryCount === 0) {
+  /** This client's copy as a push sends it; an empty copy fills from this computer first. */
+  private async localCopy(): Promise<AgentProfileCopy> {
+    if (!this.local) throw new Error('No copy of the profile on this client.')
+    if (this.local.entryCount === 0) {
       await this.importComputer()
       if (this.importError) throw new Error(this.importError)
     }
-    return { profile: this.local!.storedEntries, skipped: this.computerSkipped }
+    return { profile: this.local.storedEntries, skipped: this.computerSkipped }
   }
 
   /**

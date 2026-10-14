@@ -12,7 +12,7 @@ mock.module('@solus/workspace-ui/contexts/projects/projects.store.svelte', () =>
 }))
 mock.module('@solus/workspace-ui/components/review/review-guide.store.svelte', () => ({ reviewGuideStore: {}, sessionGuideIdentity: () => null }))
 mock.module('@solus/workspace-ui/contexts/prs/session-pull-requests.store.svelte', () => ({ sessionPullRequestsStore: {}, sessionPrLink: () => null }))
-mock.module('@solus/workspace-ui/contexts/workspace/session-states.store.svelte', () => ({ sessionStatesStore: {} }))
+mock.module('@solus/workspace-ui/contexts/workspace/session-list.store.svelte', () => ({ sessionListStore: {} }))
 let SessionSidebarStore: typeof SidebarStore
 beforeAll(async () => {
   ;({ SessionSidebarStore } = await import('@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'))

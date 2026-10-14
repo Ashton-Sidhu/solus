@@ -87,7 +87,7 @@ describe('pull request watches', () => {
     expect(await watches.readPullRequestWatches(['session-1'])).toEqual([])
 
     await watchSeven('session-2')
-    await states.settleSession('session-2', 'person')
+    await new states.SessionShelf('session-2').settle('person')
     expect(await watches.readPullRequestWatches(['session-2'])).toEqual([])
     stopListening()
     expect(changed).toEqual(['session-1', 'session-1', 'session-2', 'session-2'])

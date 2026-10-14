@@ -127,3 +127,29 @@ and reports console errors and missing images in the tool result. A host with no
 headless browser saves without the check, and a preview there returns an error
 that says why.
 
+
+## Links and shortcuts inside a page
+
+The page runs in a sandboxed frame with no access to the app. Two forwarders in
+`@solus/contracts/artifact-sandbox` send reader actions to the frame's parent.
+`SandboxFrame` accepts a message only from its own frame, while that frame has
+focus and the reader has just acted in it.
+
+- **Links.** A click on an `http`, `https`, or `mailto` link goes to the app.
+  The app opens it with the same rule as a chat link: a GitHub pull request
+  opens in the workspace, and other links open in the system browser. Before,
+  a plain link replaced the page in the frame. A page that handles a click
+  itself keeps it. A review lens forwards no links, because a link could carry
+  the change out of the lens.
+- **Shortcuts.** A focused frame gets all keys. The app sends the frame the
+  chords of a short list of view commands (command palette, go to file, search,
+  pickers, panel toggles, back and forward, tab and session switching), in the
+  reader's own bindings. The page passes a chord on unless a text field has
+  focus or the page handled the key. The app replays it as a key on the frame
+  element. A chord that another command also uses stays with the page, so a
+  forged message cannot reach a command that changes a session.
+
+A frame that a document editor mounts outside the component tree has no
+workspace and no keybindings. Its links open in the system browser, and it
+forwards no shortcuts. On mobile, the web view opens `http` and `https` links
+in the system browser and has no shortcuts to forward.

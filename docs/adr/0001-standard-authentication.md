@@ -129,7 +129,7 @@ tunnel token.
 // auth/clients.ts (new)
 export const SOLUS_CLIENT_IDS = { desktop: 'solus-desktop', mobile: 'solus-mobile', web: 'solus-web', cli: 'solus-cli' } as const
 export const SIGN_IN_SCOPES = ['openid', 'profile', 'email', 'offline_access'] as const
-export const ACCESS_TOKEN_TTL_SECONDS = 300
+export const ACCESS_TOKEN_TTL_SECONDS = 60 * 60
 
 /** What one access token is for (RFC 8707 `resource`). */
 export type TokenResource =
@@ -731,7 +731,9 @@ It made these decisions where the text above was not exact:
   with the same installation id gives (`withNearbyRoutes`, `HostRegistry.applyNearby`,
   `RemoteHosts`), with an account token for the host's audience. The address is a
   `direct` route, so it is also dialed before a linked host's tunnel. A web page on
-  `https:` cannot dial it (mixed content); pairing stays the way in there.
+  `https:` cannot dial it (mixed content), so the account site does not show it: there
+  a personal host appears only when it is linked (or paired). A managed host is always
+  shown (`mergeDirectoryIntoSaved`).
 - **Migration 0009.** A host whose link was `linked` and that has a `private_key_jwt`
   client (or a managed host's unused ticket) is registered, with its generation, so
   its control tokens stay valid. Any other host is not registered, and its link is set
@@ -776,6 +778,41 @@ presented. These parts make the rule true:
   connects again.
 - **Desktop.** When a delegation ends, the host asks its own client again
   (`LocalClientDoor.standingChanged`), and a signed-in desktop presents its token.
+
+### A delegation derives from the sign-in (2026-10-14)
+
+A signed-in desktop showed "Solus Cloud unreachable" on an MCP connection for hours.
+The cloud answered. The token endpoint refused the owner's delegation refresh with a
+400 that was not `invalid_grant`. The host read every non-`invalid_grant` answer as an
+outage, so it kept a delegation that could not be refreshed. `has()` said it was held,
+so nothing asked the desktop again. The account menu said "signed in" and the row said
+"unreachable": two states for one sign-in.
+
+The rule: a delegation is derived from the person's sign-in. It is not a second sign-in
+with its own life. While the sign-in is good, the host acts for the person. Only an
+outage keeps a delegation that does not work.
+
+- **Refusal and outage are told apart by status** (`Delegations.tokenRequest`). No
+  answer, a 5xx, a 408, or a 429 is an outage: the delegation is kept and the call fails
+  as `ORGANIZATION_API_UNAVAILABLE`. A 401 refuses the host's client, not the person.
+  Every other 4xx is a refusal. A refused refresh ends the delegation (`onRevoked`, then
+  `forget`), whatever its OAuth error code. A 403 keeps its code
+  `ORGANIZATION_AUTHORITY_MISSING`. Each refusal logs its status and OAuth `error`.
+- **Derived again during the call** (`DelegationsDeps.renew`). When `accessToken` finds
+  no delegation, or the account plane refused it, the host asks the person's client in
+  this process for a token, waits for it, and tries once more. Only then does the call
+  fail. Calls at the same time share one ask (`LocalClientDoor.renew`). The host asks
+  only for its owner. A standalone host has no client in its process: there, a connected
+  client presents again before its token ends (`accountPresent`), so the host makes the
+  delegation again once it dropped the refused one.
+- **The sign-in fails, or the delegation does not.** If the desktop is signed out, or its
+  token cannot make a delegation, the call fails with no delegation. An MCP connection
+  held in the account then says `needs-solus-sign-in` ("Sign in to Solus"), not
+  `cloud-unreachable`: the cloud was not asked. When the owner's personal delegation is
+  made, connection rows that waited on it are read again
+  (`IntegrationConnections.recheckCloud`).
+- **Offline.** An outage changes nothing: the sign-in, the delegation, and the cached
+  tokens stay, and the next call after the cloud answers goes on.
 
 ### Limits
 

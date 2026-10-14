@@ -3,6 +3,7 @@ import type { BrowserCookieSource } from '@solus/contracts/browser-types'
 import {
   blockedSourceDetail,
   importSummary,
+  offersCookieImport,
   sourceDetail,
 } from '@solus/workspace-ui/components/browser/lib/profiles'
 
@@ -67,5 +68,25 @@ describe('the result', () => {
       .toEqual({ headline: '1 cookie imported', detail: null })
     expect(importSummary({ profileId: 'default', read: 0, imported: 0, failed: 0, skipped }).headline)
       .toBe('No cookies imported')
+  })
+})
+
+describe('the "Stay signed in" prompt', () => {
+  test('appears when a browser has cookies to import', () => {
+    const scan = { supported: true, sources: [
+      source({ id: 'safari:default', browser: 'safari', importable: 0, unavailable: 'Needs Full Disk Access.' }),
+      source({ id: 'firefox:default', browser: 'firefox', label: 'Firefox' }),
+    ] }
+    expect(offersCookieImport(scan)).toBe(true)
+  })
+
+  test('stays away when nothing could be imported now', () => {
+    // WHY: an offer whose button leads to "Nothing to import" or a blocked row
+    // is a lying prompt. The profile chip still reaches the import.
+    expect(offersCookieImport({ supported: false, unavailable: 'Not on Linux.', sources: [] })).toBe(false)
+    expect(offersCookieImport({ supported: true, sources: [
+      source({ importable: 0 }),
+      source({ id: 'safari:default', browser: 'safari', importable: 0, unavailable: 'Needs Full Disk Access.' }),
+    ] })).toBe(false)
   })
 })

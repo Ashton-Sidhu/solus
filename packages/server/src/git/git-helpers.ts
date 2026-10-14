@@ -145,7 +145,8 @@ async function computeGitStateUncached(
   // identity call is usually still in flight and gets shared.
   const [identity, statusRaw, mergeInProgress] = await Promise.all([
     computeGitIdentity(cwd),
-    runAsync('git', ['status', '--porcelain=v2', '--branch', '--untracked-files=normal'], cwd).catch(() => null),
+    // Raw: trimming the output would drop a trailing space from the last path.
+    runAsync('git', ['status', '--porcelain=v2', '--branch', '--untracked-files=normal'], cwd, { raw: true }).catch(() => null),
     isGitOperationInProgress(cwd),
   ])
   // A null identity is the ordinary "not a repository" answer, so stay quiet;

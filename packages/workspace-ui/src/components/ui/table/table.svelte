@@ -11,7 +11,10 @@
   }: WithElementRef<HTMLTableAttributes> & { containerClass?: string } = $props()
 </script>
 
-<div data-slot="table-container" class={cn('relative w-full overflow-x-auto', containerClass)}>
+<!-- The table as Settings draws its cards (RowCard): a soft border, the page
+     background, and hairlines inset to the cells' text. A full-pane data table
+     passes `containerClass` to drop the card. -->
+<div data-slot="table-container" class={cn('relative w-full overflow-x-auto rounded-xl border border-border/50 bg-background text-foreground', containerClass)}>
   <table
     bind:this={ref}
     data-slot="table"

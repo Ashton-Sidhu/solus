@@ -47,7 +47,7 @@ describe('background writing on a host with seats', () => {
     expect(metadata?.title).toBe('Cloud Session Names')
     expect(dispatcher.requests).toHaveLength(1)
     expect(dispatcher.requests[0].provider).toBe('claude-code')
-    expect(dispatcher.requests[0].model).toBe('claude-haiku-4-5-20251001')
+    expect(dispatcher.requests[0].model).toBe('claude-haiku-5-5')
     expect(dispatcher.requests[0].seat).toBe(claudeSeat)
   })
 

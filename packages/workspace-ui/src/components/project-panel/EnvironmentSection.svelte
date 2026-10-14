@@ -1,11 +1,9 @@
 <script lang="ts">
   import {
-    Eraser as EraserIcon,
     Folder as FolderIcon,
     Globe as GlobeIcon,
     Laptop as LaptopIcon,
     Smartphone as SmartphoneIcon,
-    X as XIcon,
   } from "@lucide/svelte";
   import {
     getSessionEnvironmentStore,
@@ -16,28 +14,23 @@
     groupKeyFor,
     hosts,
   } from "../../contexts";
-  import { browserStore } from "../../contexts/browser/browser.store.svelte";
   import { devicesStore } from "../../contexts/devices/devices.store.svelte";
   import { openRunApp } from "../devices/lib/device-view-state.svelte";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
+  import { fileManagerNameFor } from "../../lib/file-manager";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { projectDirLabel } from "../../lib/paths";
   import { toasts } from "../../lib/toasts";
   import TerminalAppLogo from "../settings/TerminalAppLogo.svelte";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
+  import * as DropdownMenu from "../ui/dropdown-menu";
   import MenuRow, { type ActionRowItem } from "./MenuRow.svelte";
+  import FileManagerIcon from "./FileManagerIcon.svelte";
+  import solusIcon from "../../../../../resources/icon.iconset/icon_32x32@2x.png";
   import UsageMeters from "./UsageMeters.svelte";
-  import {
-    clearedBrowserDataLabel,
-    clearBrowserDataLabel,
-    confirmClearBrowserDataLabel,
-    isClearBrowserArmed,
-    browserProfileProject,
-  } from "./lib/browser-row";
   import { NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
   import { worktreeProjectRoot } from "@solus/contracts/types";
-  import { browserPartition } from "@solus/contracts/browser-types";
   import { serverConnections } from "@solus/client-core/server-connections";
 
   interface Props {
@@ -77,6 +70,22 @@
   const runHost = $derived(host ?? serversStore.hostFor(detailServerId));
   const runHostLabel = $derived(runHost?.label);
 
+  // The project row opens a menu of the places that can show the folder: the
+  // files pane here, and the host's file manager. The file manager opens on
+  // the host's own screen, so only a local connection is offered it.
+  const fileManager = $derived(
+    me?.may("host.local.window") ? hosts.get(detailServerId)?.capabilityRecord?.fileManager : undefined,
+  );
+  const mayReadFiles = $derived(me?.may("host.files.read") ?? true);
+  let openInMenuOpen = $state(false);
+  let openInAnchor = $state<HTMLElement | null>(null);
+
+  async function openInFileManager() {
+    if (!projectRoot) return;
+    const opened = await session.apiFor(sourceId).openInFileManager(projectRoot).catch(() => false);
+    if (!opened && fileManager) toasts.error(`Couldn’t open this folder in ${fileManagerNameFor(fileManager)}`);
+  }
+
   // The Devices row is for projects that build a mobile app (at the root or
   // in a subfolder), or a conversation already showing a device. It counts
   // Run app, before a simulator or phone is opened.
@@ -86,16 +95,6 @@
   $effect(() => {
     if (active && showsDevices && !devicesStore.state(detailServerId) && !devicesStore.unavailable.get(detailServerId)) void devicesStore.load(detailServerId);
   });
-
-  // Clearing the browser profile arms in place, the way "Discard changes…"
-  // does in the Git section: the row itself becomes the confirmation, so an
-  // action that signs the user out everywhere still costs a second, deliberate
-  // click, and the caret beside it is the way back out.
-  let clearBrowserArmedFor = $state<string | null>(null);
-  const confirmingClearBrowser = $derived(
-    isClearBrowserArmed(clearBrowserArmedFor, projectRoot),
-  );
-  const browserProject = $derived(browserProfileProject(projectRoot));
 
   const actionRows = $derived.by<(ActionRowItem & { run: () => void })[]>(
     () => [
@@ -118,23 +117,16 @@
         },
       },
       // The third way into this environment, beside its files and its shell:
-      // look at what it serves. The caret carries the profile's reverse state,
-      // because the login those pages share outlives every page.
+      // look at what it serves. Its login is cleared from the browser pane.
       {
         key: "browser",
-        label: confirmingClearBrowser
-          ? confirmClearBrowserDataLabel(browserProject)
-          : "Browser",
-        icon: confirmingClearBrowser ? EraserIcon : GlobeIcon,
-        danger: confirmingClearBrowser,
+        label: "Browser",
+        icon: GlobeIcon,
         phase: "idle",
         disabled: !(me?.may("host.use") ?? true),
         run: () => {
-          if (confirmingClearBrowser) void clearBrowserData();
-          else {
-            session.openBrowser();
-            requestInputFocus();
-          }
+          session.openBrowser();
+          requestInputFocus();
         },
       },
       // App execution starts with the project and chosen device.
@@ -151,23 +143,6 @@
       }] : []),
     ],
   );
-
-  async function clearBrowserData() {
-    clearBrowserArmedFor = null;
-    const project = browserProject;
-    try {
-      await browserStore.clearProfile(
-        detailServerId,
-        browserPartition(projectRoot ?? undefined),
-      );
-      toasts.success(clearedBrowserDataLabel(project));
-    } catch (error) {
-      toasts.error("Couldn't clear the browser data", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    }
-    requestInputFocus();
-  }
 </script>
 
 <div class="env">
@@ -182,13 +157,21 @@
         icon: FolderIcon,
         badge: runHost?.local ? undefined : runHostLabel,
         badgeIcon: runHost?.local ? LaptopIcon : undefined,
-        hint: comboHint("global.toggle-files"),
         phase: "idle",
         // A new chat has no folder until its first prompt, so no files yet.
-        disabled: !onOpenFiles || projectRoot === NEW_CHAT_DIRECTORY || !(me?.may("host.files.read") ?? true),
+        disabled: projectRoot === NEW_CHAT_DIRECTORY || !mayReadFiles || (!onOpenFiles && !fileManager),
         tooltip: runHostLabel ? `Runs on ${runHostLabel}` : undefined,
+        disclosure: "open-in",
       }}
-      onActivate={() => onOpenFiles?.()}
+      menuOpen={openInMenuOpen}
+      onActivate={(event) => {
+        if (openInMenuOpen) {
+          openInMenuOpen = false;
+          return;
+        }
+        openInAnchor = event.currentTarget;
+        openInMenuOpen = true;
+      }}
     >
       {#snippet iconSnippet()}
         <ProjectFavicon projectKey={groupKeyFor(detailServerId, projectRoot)} class="size-4" />
@@ -197,35 +180,6 @@
   {/if}
   <div class="menu-list">
     {#each actionRows as row (row.key)}
-      {#if row.key === "browser"}
-        <!-- Split row: the label opens the browser, the caret holds the
-             profile's reverse state. Two clicks apart, because opening a page
-             is routine and forgetting a login is not. The caret is inert with
-             no project, where there is nothing to name and nothing to clear. -->
-        <div class="split-row">
-          <MenuRow item={row} split onActivate={row.run} />
-          <button
-            type="button"
-            class="split-caret"
-            class:is-cancel={confirmingClearBrowser}
-            disabled={!browserProject}
-            aria-label={confirmingClearBrowser
-              ? "Keep the browser data"
-              : clearBrowserDataLabel(browserProject)}
-            title={confirmingClearBrowser
-              ? "Keep the browser data"
-              : `${clearBrowserDataLabel(browserProject)} — signs out of every site you signed into while browsing, in every worktree of this project`}
-            onclick={() =>
-              (clearBrowserArmedFor = confirmingClearBrowser
-                ? null
-                : projectRoot)}
-          >
-            {#if confirmingClearBrowser}<XIcon size={11} />{:else}<EraserIcon
-                size={11}
-              />{/if}
-          </button>
-        </div>
-      {:else}
         <MenuRow
           item={row}
           onInspect={() => {
@@ -233,9 +187,41 @@
           }}
           onActivate={row.run}
         />
-      {/if}
     {/each}
   </div>
+  <DropdownMenu.Root bind:open={openInMenuOpen}>
+    <DropdownMenu.Content
+      customAnchor={openInAnchor}
+      side="left"
+      align="start"
+      sideOffset={10}
+      alignOffset={-6}
+      collisionPadding={8}
+      onInteractOutside={(event) => {
+        // The row is the menu's trigger — let its click toggle the menu rather
+        // than closing here and immediately reopening.
+        if (openInAnchor?.contains(event.target as Node | null)) event.preventDefault();
+      }}
+      onCloseAutoFocus={(event) => {
+        // No bits-ui trigger to return to; the prompt is the next natural stop.
+        event.preventDefault();
+        requestInputFocus();
+      }}
+      class="w-[min(14rem,calc(100vw-2rem))]"
+    >
+      <DropdownMenu.Item disabled={!onOpenFiles} onSelect={() => onOpenFiles?.()}>
+        <img src={solusIcon} alt="" class="size-4 shrink-0" />
+        <span class="min-w-0 flex-1 truncate">Open in Solus</span>
+        <DropdownMenu.Shortcut>{comboHint("global.toggle-files")}</DropdownMenu.Shortcut>
+      </DropdownMenu.Item>
+      {#if fileManager}
+        <DropdownMenu.Item onSelect={() => void openInFileManager()}>
+          <FileManagerIcon kind={fileManager} />
+          <span class="min-w-0 flex-1 truncate">Open in {fileManagerNameFor(fileManager)}</span>
+        </DropdownMenu.Item>
+      {/if}
+    </DropdownMenu.Content>
+  </DropdownMenu.Root>
   <!-- Subscription quota closes the section: what's left to spend in this
        environment, per provider. -->
   <UsageMeters serverId={detailServerId} {active} />
@@ -253,56 +239,5 @@
     display: flex;
     flex-direction: column;
     gap: 0.0625rem;
-  }
-
-  /* Split row: primary action + a trailing button for its secondary one. The
-     two read as one unit (tight gap), each carrying the menu-row hover
-     language. Mirrors the Git section's split rows; worth promoting to a shared
-     row component the next time either side changes. */
-  .split-row {
-    display: flex;
-    align-items: stretch;
-    gap: 0.0625rem;
-  }
-  .split-caret {
-    flex-shrink: 0;
-    width: 1.625rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    border-radius: 0.4375rem;
-    background: transparent;
-    color: var(--solus-text-tertiary);
-    cursor: pointer;
-    transition:
-      background-color 0.15s ease,
-      color 0.15s ease;
-  }
-  /* Destructive on hover only: at rest this row means "open the browser", and a
-     standing red glyph would misreport what the row is for. */
-  .split-caret:hover {
-    background: var(--solus-status-error-bg);
-    color: var(--solus-status-error);
-  }
-  /* Once armed the caret is the way out, not the destructive half — the row
-     beside it carries the danger tone, and two red controls would leave no
-     visible difference between confirming and cancelling. */
-  .split-caret.is-cancel:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-  .split-caret:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 0.125rem
-      color-mix(in srgb, var(--solus-accent) 35%, transparent);
-  }
-  .split-caret:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-  .split-caret:disabled:hover {
-    background: transparent;
-    color: var(--solus-text-tertiary);
   }
 </style>

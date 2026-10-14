@@ -29,7 +29,7 @@ const METADATA_ATTEMPT_TIMEOUT_MS = 20_000
  * its lowest reasoning setting — scaffolding a thread must never cost a real turn. */
 const METADATA_MODELS = {
   codex: { model: 'gpt-6-luna', reasoningEffort: 'low' },
-  'claude-code': { model: 'claude-haiku-4-5-20251001', reasoningEffort: 'low' },
+  'claude-code': { model: 'claude-haiku-5-5', reasoningEffort: 'low' },
 } satisfies { codex: { model: string; reasoningEffort: ReasoningEffort }; 'claude-code': { model: string; reasoningEffort: ReasoningEffort } }
 
 const sessionMetadataSchema = z.object({

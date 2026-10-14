@@ -1,4 +1,4 @@
-import type { CatalogPage, Integration, IntegrationAuthFinishedEvent, IntegrationChangedEvent, IntegrationConnection, IntegrationConnectionChangedEvent, IntegrationOAuthClientInput, IntegrationProbeResult, IntegrationToolSummary } from '@solus/contracts/integration-types'
+import type { CatalogCategoryId, CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationAuthFinishedEvent, IntegrationChangedEvent, IntegrationConnection, IntegrationConnectionChangedEvent, IntegrationOAuthClientInput, IntegrationProbeResult, IntegrationToolSummary } from '@solus/contracts/integration-types'
 import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { localApi } from '@solus/client-core/local-api'
@@ -230,7 +230,7 @@ class IntegrationsStore {
     })
   }
 
-  async update(serverId: string, request: { id: string; name?: string; url?: string }): Promise<Integration | null> {
+  async update(serverId: string, request: { id: string; name?: string; url?: string; disabledTools?: string[] }): Promise<Integration | null> {
     return this.write(serverId, 'Could not save the integration.', async () => {
       const integration = await serverConnections.apiFor(serverId).integrationUpdate(request)
       this.upsert(serverId, integration)
@@ -275,8 +275,11 @@ class IntegrationsStore {
   }
 
   /** One page of the catalog. Throws when the catalog is unavailable. */
-  catalogPage(serverId: string, query: string, offset: number, limit: number): Promise<CatalogPage> {
-    return serverConnections.apiFor(serverId).integrationCatalogList({ query: query || undefined, offset, limit })
+  catalogPage(serverId: string, query: string, category: CatalogCategoryId | null, offset: number, limit: number): Promise<CatalogPage> {
+    const request: IntegrationCatalogListRequest = { query: query || undefined, offset, limit }
+    // A host from before categories refuses the field, so it is sent only when set.
+    if (category) request.category = category
+    return serverConnections.apiFor(serverId).integrationCatalogList(request)
   }
 
   /** The caller's connection to one integration, or null when they have none. */

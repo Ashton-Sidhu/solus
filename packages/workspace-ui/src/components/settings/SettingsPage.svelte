@@ -13,7 +13,7 @@
     Keyboard as KeyboardIcon,
     Mic as MicrophoneIcon,
     Binoculars as BinocularsIcon,
-    Cloud as CloudIcon,
+    Bot as ProvidersIcon,
     Folder as FolderIcon,
     Radio as BroadcastIcon,
     FlaskConical as FlaskIcon,
@@ -27,6 +27,7 @@
     Building2 as OrganizationIcon,
     Server as HostIcon,
     Plug as PlugIcon,
+    Blocks as McpIcon,
   } from "@lucide/svelte";
   import {
     getWorkspaceContext,
@@ -50,8 +51,9 @@
   import ConnectionsPanel from "../connections/ConnectionsPanel.svelte";
   import SettingsTabTools, { settingItems as toolsSearch } from "./SettingsTabTools.svelte";
   import SettingsTabProviders from "./SettingsTabProviders.svelte";
+  import IntegrationAccounts from "./IntegrationAccounts.svelte";
   import SettingsTabSkills from "./SettingsTabSkills.svelte";
-  import SettingsTabIntegrations, { searchWords as integrationsSearch } from "./SettingsTabIntegrations.svelte";
+  import SettingsTabMcp, { searchWords as mcpSearch } from "./SettingsTabMcp.svelte";
   import { integrationsStore } from "./integrations.store.svelte";
   import SettingsTabVoice from "./SettingsTabVoice.svelte";
   import SettingsTabExperimental, { settingItems as experimentalSearch } from "./SettingsTabExperimental.svelte";
@@ -83,7 +85,7 @@
   function tabMatchesSearch(tab: TabMeta, query: string): boolean {
     return (
       wordsMatch(query, [tab.label, ...(SEARCH_WORDS[tab.id] ?? [])]) ||
-      (tab.id === "integrations" && wordsMatch(query, integrationsStore.names())) ||
+      (tab.id === "mcp" && wordsMatch(query, integrationsStore.names())) ||
       (tab.id === "agent-profile" && wordsMatch(query, agentProfileSearchWords(agentProfileLocalStore.entries))) ||
       dataMatches(tab.id, query, settings.keybindings)
     );
@@ -193,12 +195,20 @@
       icon: WrenchIcon,
       group: "Capabilities",
     },
-    // Host-scoped, so it stays visible on web: the integrations are the host's.
+    // Host-scoped, so they stay visible on web: the accounts and the MCP
+    // servers are the host's.
     {
       id: "integrations",
-      label: "MCP",
-      description: "Remote MCP servers whose tools your agents can use.",
+      label: "Integrations",
+      description: "Accounts Solus acts on your behalf with.",
       icon: PlugIcon,
+      group: "Capabilities",
+    },
+    {
+      id: "mcp",
+      label: "MCP",
+      description: "MCP servers whose tools your agents can use.",
+      icon: McpIcon,
       group: "Capabilities",
     },
     {
@@ -221,8 +231,8 @@
     {
       id: "providers",
       label: "Providers",
-      description: "Accounts Solus acts on your behalf with.",
-      icon: CloudIcon,
+      description: "The agent harnesses your sessions run through, such as Claude Code and Codex.",
+      icon: ProvidersIcon,
       group: "Capabilities",
     },
     // Web-visible: a phone or browser manages its hosts through the same
@@ -274,7 +284,7 @@
   ];
 
   // What each page can be found by, beside its label. Pages without a list
-  // (Projects, Providers, Skills, …) are found by their label alone.
+  // (Projects, Skills, …) are found by their label alone.
   const keywordsOf = (items: { keywords: readonly string[] }[]) => items.flatMap((item) => item.keywords);
   const SEARCH_WORDS: Partial<Record<SettingsTab, readonly string[]>> = {
     account: accountSearch,
@@ -286,7 +296,9 @@
     tasks: keywordsOf(tasksSearch),
     review: keywordsOf(reviewSearch),
     tools: keywordsOf(toolsSearch),
-    integrations: integrationsSearch,
+    integrations: ["integration", "google", "drive", "atlassian", "jira", "confluence", "cloudflare", "account", "accounts"],
+    mcp: mcpSearch,
+    providers: ["claude", "claude code", "codex", "agent", "harness", "seat", "sign in", "login", "cli"],
     telemetry: [...analyticsSearch, ...keywordsOf(telemetrySearch)],
     host: hostSearch,
     experimental: keywordsOf(experimentalSearch),
@@ -333,6 +345,7 @@
       session.settingsTab === "providers" ||
       session.settingsTab === "tools" ||
       session.settingsTab === "integrations" ||
+      session.settingsTab === "mcp" ||
       session.settingsTab === "skills" ||
       session.settingsTab === "devices" ||
       session.settingsTab === "voice",
@@ -369,7 +382,7 @@
       : null,
   );
 
-  // Settings search finds the Integrations page by an integration's name, so
+  // Settings search finds the MCP page by an installed server's name, so
   // the selected host's list is read while Settings is open.
   $effect(() => {
     const serverId = selectedSettingsHost?.serverId;
@@ -409,7 +422,7 @@
   }
 
   // Hosts is the one tab with a page under it, so the crumb trail grows a
-  // third step rather than the host page having to draw its own header.
+  // third step. The host page draws its own header.
   const openHostLabel = $derived(
     session.settingsTab === "api-access" && connectionsNav.hostId
       ? (serversStore.servers.find(
@@ -536,7 +549,11 @@
     />
   {:else if session.settingsTab === "integrations" && selectedSettingsHost}
     {#key selectedSettingsHost.serverId}
-      <SettingsTabIntegrations
+      <IntegrationAccounts serverId={selectedSettingsHost.serverId} />
+    {/key}
+  {:else if session.settingsTab === "mcp" && selectedSettingsHost}
+    {#key selectedSettingsHost.serverId}
+      <SettingsTabMcp
         searchQuery={pageQuery}
         serverId={selectedSettingsHost.serverId}
         hostLabel={selectedSettingsHost.label}
@@ -760,16 +777,18 @@
            so a column that grew with the pane put a 1200px gap between a
            description and the switch it describes on a wide display. A wide
            pane shows margin instead. `w-full` keeps it from overflowing
-           panes narrower than that. -->
-      <div class="mx-auto w-full max-w-3xl pt-8 pb-12">
-        <header class="mb-10 flex flex-col gap-1.5">
-          <h1 class="text-[1.75rem] leading-tight font-medium tracking-[-0.015em] text-foreground">
-            {openHostLabel ?? activeTabMeta.label}
-          </h1>
-          {#if !openHostLabel}
+           panes narrower than that. The MCP page is a catalog with a
+           category rail, not a column of rows, so it takes a wider measure. -->
+      <div class="mx-auto w-full pt-8 pb-12 {session.settingsTab === 'mcp' ? 'max-w-6xl' : 'max-w-3xl'}">
+        <!-- A host page heads itself with the host's name and address. -->
+        {#if !openHostLabel}
+          <header class="mb-10 flex flex-col gap-1.5">
+            <h1 class="text-[1.75rem] leading-tight font-medium tracking-[-0.015em] text-foreground">
+              {activeTabMeta.label}
+            </h1>
             <p class="text-sm text-(--solus-text-secondary)">{activeTabMeta.description}</p>
-          {/if}
-        </header>
+          </header>
+        {/if}
         <div class="flex flex-col gap-10">
           {@render tabContent()}
         </div>

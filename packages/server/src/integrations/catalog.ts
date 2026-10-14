@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { CatalogEntry, CatalogPage, IntegrationCatalogListRequest } from '@solus/contracts/integration-types'
+import { catalogEntryInCategory, type CatalogEntry, type CatalogPage, type IntegrationCatalogListRequest } from '@solus/contracts/integration-types'
 import { createLogger } from '../logger'
 
 const log = createLogger('main', 'integration-catalog')
@@ -109,7 +109,10 @@ export class IntegrationCatalog {
   async list(request: IntegrationCatalogListRequest = {}): Promise<CatalogPage> {
     const query = request.query?.trim().toLowerCase()
     const entries = await this.entries()
-    const listed = (query ? entries.filter((entry) => matches(entry, query)) : [...entries]).sort(byPopularityThenName)
+    const { category } = request
+    const listed = entries
+      .filter((entry) => (!query || matches(entry, query)) && (!category || catalogEntryInCategory(entry, category)))
+      .sort(byPopularityThenName)
     const offset = request.offset ?? 0
     return { entries: listed.slice(offset, request.limit ? offset + request.limit : undefined), total: listed.length }
   }

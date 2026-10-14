@@ -548,5 +548,9 @@ describe('integrations store: sign-in through Solus Cloud', () => {
     expect(connectionStatusText(unreachable)).toEqual({ text: 'Solus Cloud unreachable', detail: 'Solus Cloud did not answer.', action: null })
     expect(integrationStatusText(oauthIntegration('linear').auth, unreachable)).toEqual({ text: 'Solus Cloud unreachable', tone: 'error', canConnect: false })
     expect(integrationStatusText(oauthIntegration('linear').auth, cloudConnected('linear'))).toEqual({ text: 'Connected through Solus Cloud', tone: 'ready', canConnect: false })
+    // No Solus sign-in lets the host read the account: the cloud was not asked, so it is not called unreachable, and no server sign-in fixes it.
+    const signedOut: IntegrationConnection = { ...cloudConnected('linear'), status: 'needs-solus-sign-in', error: 'Sign in to Solus so this host can use your account connections.' }
+    expect(connectionStatusText(signedOut)).toEqual({ text: 'Sign in to Solus', detail: 'Sign in to Solus so this host can use your account connections.', action: null })
+    expect(integrationStatusText(oauthIntegration('linear').auth, signedOut)).toEqual({ text: 'Sign in to Solus', tone: 'error', canConnect: false })
   })
 })

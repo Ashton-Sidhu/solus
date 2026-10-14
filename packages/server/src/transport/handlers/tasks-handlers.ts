@@ -21,7 +21,7 @@ import {
 } from '../../data/sessions/session-pull-requests'
 import { stopPullRequestWatch } from '../../data/sessions/pull-request-watches'
 import { startSessionPullRequestWatch } from '../../prs/start-pull-request-watch'
-import { readSessionShelf, settleSession, snoozeSession, unsettleSession } from '../../data/sessions/session-states'
+import { SessionShelf } from '../../data/sessions/session-states'
 import { markTaskRead, recordTaskActivity } from '../../data/tasks/task-lifecycle'
 import { readTaskSnoozes, snoozeTaskFor } from '../../data/tasks/task-snoozes'
 import { getDatabase } from '../../db/database'
@@ -271,24 +271,29 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
     return startSessionPullRequestWatch(sessionId, repository, number)
   })
 
-  // Where a session is in a person's list: active, settled, or snoozed.
-  server.register('sessionShelfList', async (args, ctx) => {
-    const [sessionIds] = args
-    const shelf = await readSessionShelf(recordScopeOf(ctx.principal), sessionIds)
-    return deps.shares
-      ? deps.shares.filterVisible(ctx.principal, 'session', shelf, (entry) => entry.sessionId)
-      : shelf
-  })
-
+  // Where a session is in a person's list: active, settled, snoozed, or
+  // archived. The list itself is `sessionRecordList` (docs/plans/session-archive.md).
   server.register('sessionSetSettled', async (args) => {
     const [sessionId, settled] = args
-    if (settled) await settleSession(sessionId, 'person')
-    else await unsettleSession(sessionId)
+    const shelf = new SessionShelf(sessionId)
+    if (settled) await shelf.settle('person')
+    else await shelf.unsettle()
+    return shelf.state()
   })
 
   server.register('sessionSnooze', async (args) => {
     const [sessionId, until, note] = args
-    await snoozeSession(sessionId, until, note)
+    const shelf = new SessionShelf(sessionId)
+    await shelf.snooze(until, note)
+    return shelf.state()
+  })
+
+  server.register('sessionSetArchived', async (args) => {
+    const [sessionId, archived] = args
+    const shelf = new SessionShelf(sessionId)
+    if (archived) await shelf.archive()
+    else await shelf.unarchive()
+    return shelf.state()
   })
 
   server.register('tasksLink', async (args, ctx) => {

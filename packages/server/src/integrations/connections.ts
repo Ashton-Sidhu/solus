@@ -77,7 +77,9 @@ export class IntegrationConnections implements IntegrationCredentials {
   /**
    * A `cloud` connection's authorization (plans/020 §5.2): the cached token while
    * it lasts, else the cloud's answer. When the cloud does not answer and the
-   * cache ran out, the row says `cloud-unreachable`, never `needs-sign-in`.
+   * cache ran out, the row says `cloud-unreachable`, never `needs-sign-in`. When no
+   * Solus sign-in lets this host ask (the delegation could not be derived), it says
+   * `needs-solus-sign-in`: the cloud was not asked, so it was not unreachable.
    */
   private async cloudAuthorization(integration: Integration, credentialUserId: string | null): Promise<string | null> {
     const cloud = this.deps.cloud
@@ -92,12 +94,26 @@ export class IntegrationConnections implements IntegrationCredentials {
         this.record(integration.id, credentialUserId, 'needs-sign-in', 'Sign in to this server again.')
         return null
       case 'no-executor':
+        this.record(integration.id, credentialUserId, 'needs-solus-sign-in', 'Sign in to Solus so this host can use your account connections.')
+        return null
       case 'unreachable': {
         const cached = cloud.cached(credentialUserId, integration.url)
         if (cached) return cached.authorization
         this.record(integration.id, credentialUserId, 'cloud-unreachable', 'Solus Cloud is unreachable, so this connection cannot be used right now.')
         return null
       }
+    }
+  }
+
+  /**
+   * The person's delegation was made: their `cloud` rows that waited on it (no sign-in,
+   * or no answer) are read again, so a row says what is true now, not at its last call.
+   */
+  async recheckCloud(credentialUserId: string | null): Promise<void> {
+    for (const connection of this.deps.store.list(credentialUserId)) {
+      if (connection.source !== 'cloud' || (connection.status !== 'cloud-unreachable' && connection.status !== 'needs-solus-sign-in')) continue
+      const integration = this.deps.integrations.get(connection.integrationId, ANY_ORGANIZATION)
+      if (integration) await this.cloudAuthorization(integration, credentialUserId)
     }
   }
 

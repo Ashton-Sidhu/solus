@@ -258,7 +258,7 @@
       </span>
       <span class="min-w-0 flex-1">
         <span class="block truncate {attention === 'running' || isSelected ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary) group-hover/row:text-(--solus-text-primary)'}"
-          >{@render marked(highlightWordRuns(pickerSessionTitle(row), query))}</span
+          >{@render marked(highlightWordRuns(pickerSessionTitle(row), query))}{#if row.kind === "conversation" && row.meta.archived}<span class="ml-1.5 text-micro text-(--solus-text-tertiary)" data-testid="picker-session-archived">Archived</span>{/if}</span
         >
         <span class="mt-px block truncate text-micro text-(--solus-text-tertiary)"
           >{#if row.hit}{@render marked(snippetRuns(row.hit.snippet))}{:else}{pickerSessionProject(row)}{/if}</span

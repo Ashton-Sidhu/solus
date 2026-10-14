@@ -133,6 +133,7 @@ export const RESOURCE_LOCATORS = {
   sessionPullRequestWatch: sessionIdAt(0),
   sessionSetSettled: sessionIdAt(0),
   sessionSnooze: sessionIdAt(0),
+  sessionSetArchived: sessionIdAt(0),
   setThreadGoal: sessionFieldAt(0, 'threadId'),
   clearThreadGoal: sessionIdAt(0),
   savePlanAnnotations: sessionFieldAt(0, 'sessionId'),

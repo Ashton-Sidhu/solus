@@ -2,8 +2,8 @@
   /**
    * One installed MCP server on the MCP page: its state in a few words and the
    * one action that changes it, with its account, OAuth client, and tools one step
-   * down, and Rename and Remove in its menu. A sign-in that runs keeps the row open, so the person
-   * always sees where it stands.
+   * down, and Rename and Remove in its menu. Connect opens the connect dialog.
+   * Each tool's switch saves at once, so a tool can be turned off after the sign-in too.
    */
   import { ChevronRight, Ellipsis, LoaderCircle } from "@lucide/svelte";
   import type { Snippet } from "svelte";
@@ -14,9 +14,10 @@
   import * as Popover from "../ui/popover";
   import IntegrationConnectForm from "./IntegrationConnectForm.svelte";
   import McpServerIcon from "./McpServerIcon.svelte";
+  import McpToolSwitches from "./McpToolSwitches.svelte";
   import IntegrationOAuthClientForm from "./IntegrationOAuthClientForm.svelte";
   import { integrationsStore } from "./integrations.store.svelte";
-  import { canListTools, firstLine, integrationStatusText, urlHost } from "./lib/integration-labels";
+  import { canListTools, integrationStatusText, urlHost } from "./lib/integration-labels";
 
   interface Props {
     serverId: string;
@@ -25,9 +26,10 @@
     isExpanded: boolean;
     onToggle: () => void;
     onRemoved: () => void;
+    onConnect: () => void;
   }
 
-  let { serverId, hostLabel, integration, isExpanded, onToggle, onRemoved }: Props = $props();
+  let { serverId, hostLabel, integration, isExpanded, onToggle, onRemoved, onConnect }: Props = $props();
 
   let isRenaming = $state(false);
   let renameDraft = $state("");
@@ -46,6 +48,14 @@
   const isOpen = $derived(isExpanded || (!!flow && flow.kind !== "failed"));
   const showConnect = $derived(status.canConnect && !isOpen && hostState?.connectionsStatus === "loaded");
   const needsOAuthClient = $derived(integration.auth.kind === "oauth" && integration.auth.registration === "client-required");
+  const disabledTools = $derived(new Set(integration.disabledTools));
+
+  function setTool(toolName: string, isOn: boolean) {
+    const next = new Set(integration.disabledTools);
+    if (isOn) next.delete(toolName);
+    else next.add(toolName);
+    void integrationsStore.update(serverId, { id: integration.id, disabledTools: [...next] });
+  }
 
   // Tools load once the row is open and the host can list them; never for a server the person has not connected.
   $effect(() => {
@@ -111,23 +121,10 @@
   {:else if list.length === 0}
     <p class="text-workspace-chrome text-muted-foreground">This server lists no tools.</p>
   {:else}
-    <ul class="flex max-h-80 flex-col gap-3 overflow-y-auto" aria-label="Tools of {integration.name}">
-      {#each list as tool (tool.name)}
-        <li class="flex min-w-0 flex-col gap-0.5">
-          <div class="flex min-w-0 items-center gap-2">
-            <span class="truncate text-workspace-chrome text-foreground">{tool.title || tool.name}</span>
-            {#if tool.destructive}
-              <span class="shrink-0 text-chrome-dense text-destructive">Destructive</span>
-            {:else if tool.readOnly}
-              <span class="shrink-0 text-chrome-dense text-(--solus-text-tertiary)">Read-only</span>
-            {/if}
-          </div>
-          {#if firstLine(tool.description)}
-            <p class="truncate text-chrome-dense text-(--solus-text-secondary)" title={tool.description}>{firstLine(tool.description)}</p>
-          {/if}
-        </li>
-      {/each}
-    </ul>
+    <McpToolSwitches integrationName={integration.name} tools={list} {disabledTools} isDisabled={isBusy || isOffline} onToggle={setTool} />
+    {#if !isRenaming && !isConfirmingRemove && hostState?.writeError}
+      <p role="alert" class="mt-2 break-words text-chrome-dense text-(--solus-status-error)">{hostState.writeError}</p>
+    {/if}
   {/if}
 {/snippet}
 
@@ -151,7 +148,7 @@
     </button>
     {#if showConnect}
       <Button variant="outline" size="sm" class="shrink-0 text-workspace-chrome pointer-coarse:min-h-11" disabled={isOffline}
-        onclick={() => integrationsStore.connect(serverId, integration.id)} aria-label="{connection ? 'Reconnect' : 'Connect'} {integration.name}">{connection ? "Reconnect" : "Connect"}</Button>
+        onclick={onConnect} aria-label="{connection ? 'Reconnect' : 'Connect'} {integration.name}">{connection ? "Reconnect" : "Connect"}</Button>
     {/if}
     <DropdownMenu.Root>
       <DropdownMenu.Trigger>

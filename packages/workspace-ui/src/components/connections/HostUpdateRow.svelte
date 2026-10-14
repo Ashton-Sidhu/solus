@@ -51,11 +51,11 @@
       {#if operation}<p>{serverUpdateText(operation, host.label, host.status === 'online')}</p>{#if operation.message}<p>{operation.message}</p>{/if}{/if}
       {#if desktop}<p>{updateStatusLine(updatesStore.state)}</p>{/if}
       {#if status?.check.kind === 'available'}
-        {#if !status.serverUpdate?.supported}<p>{status.remediation}</p><p>{status.serverUpdate?.reason}</p>{/if}
+        {#if !status.serverUpdate?.supported}<p>{status.serverUpdate?.reason ?? status.remediation}</p>{/if}
         {#if status.releaseUrl}<a class="underline" href={status.releaseUrl} target="_blank" rel="noreferrer">Release notes</a>{/if}
       {/if}
       {#if hostUpdatesStore.errors.get(host.id)}<p>{hostUpdatesStore.errors.get(host.id)}</p>{/if}
-      {#if skew}<p>{skew.remediation}</p>{/if}
+      {#if skew && status?.check.kind !== 'available'}<p>{skew.remediation}</p>{/if}
     </div>
   {/snippet}
 </SettingsRow>

@@ -307,22 +307,6 @@ describe('writes', () => {
     expect(pulls()).toEqual(['pull:cloud', 'pull:vm'])
   })
 
-  test('disabling an entry sends it with the flag, and every host pulls; enabling sends it without', async () => {
-    const { local, cloud, signIn } = await storesOn()
-    await signIn()
-    hostCalls.length = 0
-    const { entriesWithDisabled } = await import('@solus/workspace-ui/components/settings/agent-profile/lib/agent-profile-entries')
-    local.setEntry(...entriesWithDisabled(local.storedEntries, ['file:claude-code/agents/rules.md'], true))
-    await settle()
-    // WHY: a disabled entry stays in the profile, so the person can turn it on again; only the hosts drop it.
-    expect(cloud.profile.entries['file:claude-code/agents/rules.md']).toMatchObject({ path: 'agents/rules.md', disabled: true })
-    expect(pulls()).toEqual(['pull:cloud', 'pull:vm'])
-
-    local.setEntry(...entriesWithDisabled(local.storedEntries, ['file:claude-code/agents/rules.md'], false))
-    await settle()
-    expect(cloud.profile.entries['file:claude-code/agents/rules.md']).toEqual(computer['file:claude-code/agents/rules.md'])
-  })
-
   test('signed in a host pulls on first sight; signed out this computer pushes', async () => {
     const { hosts, signIn } = await storesOn()
     hosts.noteHost('new-vm', 'remote-owner')
@@ -386,36 +370,5 @@ describe('the local copy', () => {
       { set: {}, reset: ['skill:deploy'] },
     ])
     expect(JSON.parse(storage.getItem('solus.agent-profile.v1:anonymous') ?? '{}')).toEqual(local.entries)
-  })
-
-  test('disabling records one change with the same entry flagged, enabling one without, and a hand-written skill\'s files move together', async () => {
-    const { local } = await storesOn()
-    const { entriesWithDisabled, sectionsOf } = await import('@solus/workspace-ui/components/settings/agent-profile/lib/agent-profile-entries')
-    const skillFile = (provider: 'claude-code' | 'codex', path: string) => ({ kind: 'file' as const, provider, path, contentBase64: 'IyBSZXZpZXc=', hash: 'b'.repeat(64) })
-    local.setEntry(skillFile('claude-code', 'skills/review/SKILL.md'), skillFile('codex', 'skills/review/SKILL.md'))
-    const changes: unknown[] = []
-    local.onLocalChange((change) => changes.push(change))
-    const [skill] = sectionsOf(local.entries).writtenSkills
-
-    local.setEntry(...entriesWithDisabled(local.storedEntries, skill.keys, true))
-    expect(changes).toEqual([{
-      set: {
-        'file:claude-code/skills/review/SKILL.md': { ...skillFile('claude-code', 'skills/review/SKILL.md'), disabled: true },
-        'file:codex/skills/review/SKILL.md': { ...skillFile('codex', 'skills/review/SKILL.md'), disabled: true },
-      },
-      reset: [],
-    }])
-    expect(sectionsOf(local.entries).writtenSkills[0].disabled).toBe(true)
-
-    local.setEntry(...entriesWithDisabled(local.storedEntries, skill.keys, false))
-    expect(changes[1]).toEqual({
-      set: {
-        'file:claude-code/skills/review/SKILL.md': skillFile('claude-code', 'skills/review/SKILL.md'),
-        'file:codex/skills/review/SKILL.md': skillFile('codex', 'skills/review/SKILL.md'),
-      },
-      reset: [],
-    })
-    expect(changes).toHaveLength(2)
-    expect(sectionsOf(local.entries).writtenSkills[0].disabled).toBe(false)
   })
 })

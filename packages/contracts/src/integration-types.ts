@@ -52,6 +52,12 @@ export const integrationSchema = z.object({
   name: z.string().min(1),
   url: z.string().min(1),
   auth: integrationAuthSchema,
+  /**
+   * The upstream tools the owner turned off: agents do not see them and the
+   * gateway refuses a call to one. A tool the server adds later is on.
+   * A host from before this field sends none.
+   */
+  disabledTools: z.array(z.string()).default([]),
   createdBy: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -82,6 +88,14 @@ export const integrationToolSummarySchema = z.object({
   destructive: z.boolean(),
 })
 export type IntegrationToolSummary = z.infer<typeof integrationToolSummarySchema>
+
+/** What a tool does, from the server's own hints: a tool with no read-only hint may write. */
+export type ToolAccess = 'Read' | 'Write' | 'Destructive'
+
+export function toolAccess(tool: Pick<IntegrationToolSummary, 'readOnly' | 'destructive'>): ToolAccess {
+  if (tool.destructive) return 'Destructive'
+  return tool.readOnly ? 'Read' : 'Write'
+}
 
 /**
  * What the probe saw (§3.2). Signals record status, media type, challenge, and
@@ -172,14 +186,52 @@ export const integrationUpdateRequestSchema = z.object({
   name: integrationNameSchema.optional(),
   url: integrationUrlSchema.optional(),
   oauthClient: z.union([integrationOAuthClientInputSchema, z.null()]).optional(),
+  /** Replaces the whole list of tools turned off. */
+  disabledTools: z.array(z.string().min(1).max(200)).max(1000).optional(),
 }).strict()
 export type IntegrationUpdateRequest = z.infer<typeof integrationUpdateRequestSchema>
 
 export const integrationIdRequestSchema = z.object({ id: z.string().min(1) }).strict()
 export type IntegrationIdRequest = z.infer<typeof integrationIdRequestSchema>
 
+/**
+ * The catalog's categories as Solus shows them. The feed's own category names
+ * are few and inconsistent, so each Solus category gathers several of them.
+ * Most entries have none and are listed under All only.
+ */
+export const catalogCategoryIdSchema = z.enum(['productivity', 'code', 'data', 'knowledge', 'design', 'communication', 'sales', 'finance', 'health'])
+export type CatalogCategoryId = z.infer<typeof catalogCategoryIdSchema>
+
+interface CatalogCategory {
+  id: CatalogCategoryId
+  label: string
+  /** The feed's category names it gathers, in lower case. */
+  feed: readonly string[]
+}
+
+/** In the order the MCP page lists them. */
+export const CATALOG_CATEGORIES: readonly CatalogCategory[] = [
+  { id: 'productivity', label: 'Productivity', feed: ['productivity', 'project-management', 'collaboration', 'automation'] },
+  { id: 'code', label: 'Code and CI', feed: ['code', 'developer-tools', 'devtools', 'version-control', 'hosting', 'api', 'write code'] },
+  { id: 'data', label: 'Data and analytics', feed: ['data', 'analytics', 'database', 'observability'] },
+  { id: 'knowledge', label: 'Docs and knowledge', feed: ['documentation', 'knowledge-base', 'search', 'web-scraping'] },
+  { id: 'design', label: 'Design', feed: ['design', 'creative'] },
+  { id: 'communication', label: 'Communication', feed: ['communication'] },
+  { id: 'sales', label: 'Sales and marketing', feed: ['sales-and-marketing', 'marketing', 'commerce', 'e-commerce', 'business', 'write copy'] },
+  { id: 'finance', label: 'Finance', feed: ['financial-services', 'payments'] },
+  { id: 'health', label: 'Health and science', feed: ['life-sciences', 'health'] },
+]
+
+/** True when the entry is in the Solus category. */
+export function catalogEntryInCategory(entry: Pick<CatalogEntry, 'categories'>, categoryId: CatalogCategoryId): boolean {
+  const feed = CATALOG_CATEGORIES.find((category) => category.id === categoryId)?.feed ?? []
+  return entry.categories.some((name) => feed.includes(name.trim().toLowerCase()))
+}
+
 export const integrationCatalogListRequestSchema = z.object({
   query: z.string().trim().max(200).optional(),
+  /** Only the entries of one Solus category. */
+  category: catalogCategoryIdSchema.optional(),
   /** The first entry of the page, in popularity order. */
   offset: z.number().int().min(0).optional(),
   limit: z.number().int().min(1).max(500).optional(),
@@ -202,8 +254,10 @@ export interface IntegrationChangedEvent {
  * Per-person sign-in (§4). `needs-sign-in`: a refresh failed or the server
  * answered 401; the person signs in again. `cloud-unreachable`: the connection
  * lives in the account and Solus Cloud did not answer (plans/020 §5.2).
+ * `needs-solus-sign-in`: the connection lives in the account and no Solus sign-in
+ * lets this host read it; the person signs in to Solus, not to the server.
  */
-export const integrationConnectionStatusSchema = z.enum(['connected', 'needs-sign-in', 'error', 'cloud-unreachable'])
+export const integrationConnectionStatusSchema = z.enum(['connected', 'needs-sign-in', 'error', 'cloud-unreachable', 'needs-solus-sign-in'])
 export type IntegrationConnectionStatus = z.infer<typeof integrationConnectionStatusSchema>
 
 /**

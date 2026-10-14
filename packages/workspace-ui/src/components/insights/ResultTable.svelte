@@ -126,7 +126,7 @@
   </header>
 
   <div class="min-h-0 flex-1 overflow-auto" data-sb>
-    <Table.Root containerClass="overflow-visible" class="min-w-full border-separate border-spacing-0">
+    <Table.Root containerClass="overflow-visible rounded-none border-0 bg-transparent" class="min-w-full border-separate border-spacing-0 [&_td]:bg-none">
       <Table.Header class="sticky top-0 z-10 bg-background shadow-[0_1px_0_var(--hairline-strong),0_3px_8px_-6px_rgba(0,0,0,0.28)]">
         {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}
           <Table.Row class="border-0 bg-[color-mix(in_oklch,var(--wash-1)_82%,var(--background))] hover:bg-[color-mix(in_oklch,var(--wash-1)_82%,var(--background))]">

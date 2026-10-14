@@ -52,6 +52,7 @@ import { GITHUB_CREDENTIAL_KEY, solusGitHelper } from '../../providers/github/gi
 import { dispatchCheckoutOwnerKey, dispatchCheckoutPath, resolveDispatchHistoryRoots, resolveDispatchWorktree } from '../../project-config/dispatch-checkouts'
 import type { CheckoutService } from '../../git/checkout-service'
 import { PARTIAL_CLONE_ARGS, ensureFullHistory } from '../../git/partial-clone'
+import { hostFileManager } from '../../platform/file-manager'
 
 const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g')
 const MAX_SETUP_LOG_LINES = 1_000
@@ -139,7 +140,7 @@ export interface AgentAuthProbeDeps {
 /** The capability fields a host learns by probing itself; the handler list adds the rest. */
 export type ProbedHostCapabilities = Required<Pick<HostCapabilities,
   'headless' | 'desktopHandlers' | 'agents' | 'dictation' | 'platform' | 'version' | 'projectCount' | 'agentAuth' | 'gitAuth'>>
-  & Pick<HostCapabilities, 'projectsBaseDirectory' | 'projectsBaseDirectoryIsSet'>
+  & Pick<HostCapabilities, 'projectsBaseDirectory' | 'projectsBaseDirectoryIsSet' | 'fileManager'>
 
 export interface CapabilityProbeOptions {
   headless: boolean
@@ -160,6 +161,7 @@ export async function probeHostCapabilities(opts: CapabilityProbeOptions): Promi
     },
     dictation: existsSync(join(PARAKEET_MODEL_DIR, '.installed')),
     platform: process.platform,
+    fileManager: await hostFileManager(),
     version: opts.version,
     projectCount: projects.length,
     agentAuth: {

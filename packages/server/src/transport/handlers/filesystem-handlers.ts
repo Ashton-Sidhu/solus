@@ -15,6 +15,7 @@ import { projectRootForRequest, readFilePreview, resolvePreviewPath } from '../.
 import { directoriesHoldingFiles } from '../../files/project-listing'
 import { applyProjectFileMutation } from '../../files/project-mutations'
 import { applyHostPathMutation } from '../../files/host-path-mutations'
+import { openInFileManager } from '../../platform/file-manager'
 
 const log = createLogger('main', 'filesystem-handlers')
 
@@ -184,6 +185,11 @@ export function registerFilesystemHandlers(server: SolusServer): void {
           : 'Couldn’t create this folder.',
       } satisfies CreateDirectoryResult
     }
+  })
+
+  server.register('openInFileManager', async (args) => {
+    const [rawPath] = args
+    return openInFileManager(expandHome(rawPath))
   })
 
   server.register('mutateHostPath', async (args) => {

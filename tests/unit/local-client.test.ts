@@ -176,6 +176,66 @@ describe('the desktop presents its token to its own host', () => {
   })
 })
 
+describe('the owner’s delegation follows the desktop’s sign-in', () => {
+  // WHY: while the desktop is signed in, the host acts for its owner. A delegation the
+  // account plane refused, or one the host never got, is made again from the sign-in
+  // during the call that needs it, so an account read does not fail for a signed-in owner.
+
+  test('a refused refresh is made again from the desktop’s token, and the read goes on with it', async () => {
+    let now = 1_000_000
+    let issued = 0
+    let refuseRefresh = false
+    let door!: LocalClientDoor
+    const delegations: Delegations = new Delegations({
+      registration: () => REGISTRATION,
+      credential: () => credential,
+      onRevoked: () => {},
+      renew: () => door.renew(),
+      fetchImpl: async (_url, init) => {
+        const form = init?.body as URLSearchParams
+        if (form.get('grant_type') === 'refresh_token' && refuseRefresh) return Response.json({ error: 'invalid_request' }, { status: 400 })
+        issued += 1
+        return Response.json({ access_token: `delegated-${issued}`, refresh_token: `refresh-${issued}`, expires_in: 300 })
+      },
+      now: () => now,
+    })
+    instances.push(delegations)
+    door = new LocalClientDoor({
+      hostId: () => REGISTRATION.hostId,
+      needsRegistration: () => false,
+      register: async () => {},
+      verify: async (presented) => ({ ok: true, claims: verifiedClaims(presented) }),
+      delegations: () => delegations,
+      organizationIds: () => [],
+      onEstablished: () => {},
+      onOwnerIdentity: () => {},
+    })
+    // The desktop: asked for a token, it presents one and the ask resolves after it.
+    let asked = 0
+    door.onTokenWanted(async () => {
+      asked += 1
+      await door.presentToken(owner)
+    })
+    await door.presentToken(owner)
+    refuseRefresh = true
+    now += 400_000
+    // Two reads at once share one ask.
+    const tokens = await Promise.all([
+      delegations.accessToken('alice', 'personal', { kind: 'account' }),
+      delegations.accessToken('alice', 'personal', { kind: 'account' }),
+    ])
+    expect(tokens).toEqual(['delegated-2', 'delegated-2'])
+    expect(asked).toBe(1)
+  })
+
+  test('with no client to ask, the ask resolves and the read fails as no delegation', async () => {
+    const w = world()
+    await w.door.renew()
+    const reads = new AccountReads({ origin: () => REGISTRATION.directoryUrl, delegations: () => w.delegations, fetchImpl: async () => Response.json({}) })
+    expect(await reads.fetch('alice', null, '/v1/account/agent-profile/read')).toMatchObject({ refused: 'NO_DELEGATION' })
+  })
+})
+
 describe('the host’s registration and its client', () => {
   test('a host its desktop registered, and never linked, gets the owner’s personal delegation and reads the account with it', async () => {
     // WHY: the developer's desktop was not linked, so it had no key at the cloud, no

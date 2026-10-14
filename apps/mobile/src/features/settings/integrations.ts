@@ -63,7 +63,7 @@ export type AddState =
   | { url: string; step: 'failed'; message: string }
 
 /** The one change in flight, so its control shows progress and the others wait. */
-export type IntegrationAction = 'create' | `rename:${string}` | `remove:${string}` | `disconnect:${string}` | `oauth-client:${string}`
+export type IntegrationAction = 'create' | `rename:${string}` | `remove:${string}` | `disconnect:${string}` | `oauth-client:${string}` | `tools:${string}`
 
 export const UNSUPPORTED_NOTE = 'This host does not support MCP servers. Update Solus on it.'
 
@@ -292,6 +292,8 @@ export function installedStatus(integration: Pick<Integration, 'id' | 'auth'>, c
   if (!connection) return { text: 'Not connected', tone: 'muted', action: 'connect' }
   // The account holds the credential and Solus Cloud did not answer: not a sign-in problem, so no Reconnect.
   if (connection.status === 'cloud-unreachable') return { text: 'Solus Cloud unreachable', tone: 'danger', action: null }
+  // No Solus sign-in lets the host read the account: the person signs in to Solus, not to the server.
+  if (connection.status === 'needs-solus-sign-in') return { text: 'Sign in to Solus', tone: 'danger', action: null }
   if (connection.status === 'needs-sign-in') return { text: 'Needs sign-in', tone: 'danger', action: 'reconnect' }
   return { text: 'Connection error', tone: 'danger', action: 'reconnect' }
 }

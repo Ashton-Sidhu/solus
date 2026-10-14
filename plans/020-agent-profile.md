@@ -584,3 +584,32 @@ tab went; the Agent profile tab holds the editor. Clients list the copied
 `agents/`, `commands/`, and `prompts/` files under "Files". The per-model
 instructions (`modelInstructions`) went with it, from the settings contract,
 the run input, and the system prompt: one instruction text per person.
+
+### The desktop's copy starts from the computer (2026-10-14)
+
+The Agent profile page read this client's local copy, which started empty on
+the desktop: the computer's skills and MCP servers reached a host through the
+signed-out push (`agentProfileRead` straight to `agentProfileApply`) and the
+first sign-in's seed, and never the page. A removal on the page changed
+nothing a host received. Now:
+
+- `AgentProfileStore.importComputer` joins this computer's profile to the
+  local copy (`mergeComputerProfile`: the computer's entries win their content,
+  the copy keeps its `disabled` flags and its own entries, nothing is removed).
+  The page runs it on an empty copy when it opens, and on "Import from this
+  computer" (desktop only: `canCopy`).
+- The signed-out push sends the local copy, filling an empty one first, so the
+  page is the one list a host gets. The seed at sign-in and after a clear is the
+  same join of the local copy and the computer, computed without writing the
+  local copy (the engine applies the confirmed copy whole).
+- "In your profile" on a skills.sh result also names a hand-written skill of
+  that name, which a host would refuse beside a registry one.
+
+### Remove only; paged lists (2026-10-14)
+
+Maintainer decision: there is no Disable. An entry is in the profile and on
+every host, or removed from both; the optional `disabled` flag left the
+contract, the host's apply, every client, and the console (`toggle` action
+gone). A long list on the Agent profile page (skills, servers, files) shows
+eight rows, then "Show N more" and "Show fewer", on desktop, web, mobile, and
+the console.

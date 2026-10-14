@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { resetTestDatabase } from './helpers/test-db'
+import { ACTIVE_SESSION_STATE } from '@solus/contracts/session-state'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -44,9 +45,8 @@ afterAll(() => {
   else process.env.SOLUS_DATA_DIR = previousDataDir
 })
 
-async function stateOf(sessionId: string) {
-  const [entry] = await states.readSessionShelf('local', [sessionId], NOW)
-  return entry
+function stateOf(sessionId: string) {
+  return new states.SessionShelf(sessionId).state()
 }
 
 describe('organize_session', () => {
@@ -55,7 +55,7 @@ describe('organize_session', () => {
     expect(await stateOf('caller')).toMatchObject({ settledBy: 'person', settledAt: NOW })
 
     expect(await tool.organizeSession({ action: 'unsettle' }, 'caller', NOW)).toMatchObject({ ok: true })
-    expect(await stateOf('caller')).toBeUndefined()
+    expect(await stateOf('caller')).toEqual(ACTIVE_SESSION_STATE)
   })
 
   test('snoozes another session until a future time with a note, and unsnooze wakes it', async () => {
@@ -65,7 +65,19 @@ describe('organize_session', () => {
     expect(await stateOf('other-session')).toMatchObject({ snoozedUntil: Date.parse(until), snoozeNote: 'after CI' })
 
     expect(await tool.organizeSession({ action: 'unsnooze', session_id: 'other-session' }, 'caller', NOW)).toMatchObject({ ok: true })
-    expect(await stateOf('other-session')).toBeUndefined()
+    expect(await stateOf('other-session')).toEqual(ACTIVE_SESSION_STATE)
+  })
+
+  test('archives a session and returns it to the list, keeping its shelf', async () => {
+    // WHY: archive takes a session out of the list on every device. Its
+    // reverse must put it back where it was, not make it active.
+    await tool.organizeSession({ action: 'settle' }, 'caller', NOW)
+    expect(await tool.organizeSession({ action: 'archive' }, 'caller', NOW)).toMatchObject({ ok: true, text: 'This session is archived.' })
+    expect(await stateOf('caller')).toMatchObject({ archivedAt: NOW, settledBy: 'person' })
+    expect(await tool.organizeSession({ action: 'archive' }, 'caller', NOW)).toMatchObject({ text: 'This session was archived already.' })
+
+    expect(await tool.organizeSession({ action: 'unarchive' }, 'caller', NOW)).toMatchObject({ ok: true, text: 'This session is back in the list.' })
+    expect(await stateOf('caller')).toMatchObject({ archivedAt: null, settledBy: 'person' })
   })
 
   test('refuses a snooze the list could not show', async () => {
@@ -84,7 +96,7 @@ describe('organize_session', () => {
   test('refuses a session that does not exist instead of writing a stray row', async () => {
     const result = await tool.organizeSession({ action: 'settle', session_id: 'missing' }, 'caller', NOW)
     expect(result).toMatchObject({ ok: false, text: 'Session missing not found.' })
-    expect(await stateOf('missing')).toBeUndefined()
+    expect(await stateOf('missing')).toEqual(ACTIVE_SESSION_STATE)
   })
 
   test('mark_unread clears the read boundary and tells listeners, so every client sees it', async () => {

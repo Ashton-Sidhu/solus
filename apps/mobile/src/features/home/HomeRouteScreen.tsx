@@ -41,6 +41,7 @@ export function HomeRouteScreen() {
   const { layout, panes } = useAdaptiveWorkspaceLayout();
   const projects = useListened(app.threads.changes, app.threads.projects);
   const threads = useListened(app.threads.changes, app.threads.threads);
+  const archivedThreads = useListened(app.threads.changes, app.threads.archivedThreads);
   const list = useThreadListState();
   const facts = useListened(list.changes, list.facts);
   const shelfExpansion = useListened(list.changes, list.shelfExpansion);
@@ -80,11 +81,27 @@ export function HomeRouteScreen() {
   useFocusEffect(reloadThreadLists);
   useKeyboardCommand("newSession", () => navigation.navigate("NewTask"));
 
-  const { settleThread, snoozeThread, unsnoozeThread, renameThread, unsettleThread, setPullRequestWatch } =
-    useThreadListActions();
+  const {
+    settleThread,
+    snoozeThread,
+    unsnoozeThread,
+    renameThread,
+    unsettleThread,
+    archiveThread,
+    unarchiveThread,
+    setPullRequestWatch,
+  } = useThreadListActions();
   const handleUnsettleThread = useCallback(
     (thread: SolusThreadShell) => void unsettleThread(thread),
     [unsettleThread],
+  );
+  const handleArchiveThread = useCallback(
+    (thread: SolusThreadShell) => void archiveThread(thread),
+    [archiveThread],
+  );
+  const handleUnarchiveThread = useCallback(
+    (thread: SolusThreadShell) => void unarchiveThread(thread),
+    [unarchiveThread],
   );
   const handleToggleShelf = useCallback(
     (shelf: keyof ThreadListShelfExpansion) => list.toggleShelf(shelf),
@@ -278,6 +295,8 @@ export function HomeRouteScreen() {
               onSnoozeThread={snoozeThread}
               onUnsnoozeThread={unsnoozeThread}
               onUnsettleThread={handleUnsettleThread}
+              onArchiveThread={handleArchiveThread}
+              onUnarchiveThread={handleUnarchiveThread}
               onSetPullRequestWatch={setPullRequestWatch}
               onRenameThread={renameThread}
               onSelectThread={handleSelectThread}
@@ -287,6 +306,7 @@ export function HomeRouteScreen() {
               selectedEnvironmentId={selectedEnvironmentId}
               selectedProjectKey={selectedProjectKey}
               threads={threads}
+              archivedThreads={archivedThreads}
             />
           </>
         </AndroidHomeFabLayout>

@@ -9,7 +9,7 @@ import type { SessionMeta, SessionRecord } from './types'
  */
 export function sessionMetaFromRecord(record: SessionRecord): SessionMeta {
   const { delegation, parentSessionId, rootSessionId } = record
-  return {
+  const meta: SessionMeta = {
     provider: record.provider,
     sessionId: record.sessionId,
     slug: record.slug,
@@ -31,4 +31,6 @@ export function sessionMetaFromRecord(record: SessionRecord): SessionMeta {
       : undefined,
     organizationId: record.organizationId,
   }
+  if (record.state?.archivedAt != null) meta.archived = true
+  return meta
 }

@@ -6,7 +6,6 @@ import { createLogger } from '../../logger'
 import type { AgentTool } from '../agents/tools/agent-tool'
 import { solusToolbox } from '../agents/tools/solus-toolbox'
 import { runInputFromContext } from '../agents/run-input'
-import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { getIndexedSession } from '../../db/session-indexer'
 import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import type { NormalizedEvent, IpcContext, QueuedPromptSnapshot, QueuedPromptReason, SessionRunInput } from '@solus/contracts/types'
@@ -64,13 +63,16 @@ export class RunScheduler {
       rateLimitType?: string
     },
   ): SessionRunLifecycle {
-    const requestedInput = { ...run.input }
+    // A prompt keeps the provider it was sent with (plans/021). Behind a
+    // deprecated queued switch from an older client, it takes that switch's
+    // provider: such a client sends the provider it had before the switch.
     const target = this.requestQueue.lastSwitchInput(metadata.sessionId)
     if (target) {
       run.input = { ...run.input, provider: target.provider, agentSessionId: null, model: target.model,
         preferredModel: target.preferredModel, reasoningEffort: target.reasoningEffort,
         contextWindow: target.contextWindow, fastMode: target.fastMode }
     }
+    const requestedInput = { ...run.input }
     const { options } = run
     const queueKey = metadata.sessionId
 
@@ -247,6 +249,8 @@ export class RunScheduler {
     }
   }
 
+  /** @deprecated plans/021: a provider change happens when a prompt on another
+   *  provider starts. Kept for one release for clients that still queue a switch. */
   private async queueProviderSwitch(sessionId: string, sourceInput: SessionRunInput, mutation: Extract<SessionQueueMutation, { kind: 'switch' }>, actor: Actor): Promise<void> {
     this.rt.assertNewWorkAllowed()
     const backend = this.rt.backendFor(mutation.provider)
@@ -314,13 +318,7 @@ export class RunScheduler {
       const sourceProvider = session?.backendId ?? current?.provider ?? getIndexedSession(threadId ?? '')?.provider
       if (sourceProvider && threadId && sourceProvider !== target.provider) {
         // Check the incoming budget before committing a provider change.
-        await this.rt.handoffs.handoffBuilder(threadId, target.projectPath, {
-          loadSession: async (id, path) => this.rt.handoffs.handoffCarry.merge(id, await this.rt.history.loadSession(sourceProvider, id, path)),
-          fromProvider: sourceProvider, targetProvider: target.provider, targetModel: target.model,
-          contextWindow: target.contextWindow, nextPrompt: (this.requestQueue.get(sessionId)?.[0]?.run.options.prompt ?? '') + target.extraInstructions,
-          historyTokens: target.executionPreferences?.handoffHistoryTokens ?? DEFAULT_EXECUTION_PREFERENCES.handoffHistoryTokens,
-          sourceStatus: this.rt.handoffs.handoffCarry.get(threadId)?.status ?? session?.status,
-        })
+        await this.rt.handoffs.assertHandoffFits(threadId, sourceProvider, target, this.requestQueue.get(sessionId)?.[0]?.run.options.prompt ?? '', session?.status)
       }
       const result = sourceProvider === target.provider
         ? null : await this.rt.handoffs.switchSessionProvider(sessionId, target.provider, threadId, entry.run.actor ?? HOST_ACTOR)
@@ -482,7 +480,7 @@ export class RunScheduler {
     // A session in 'background' still has its provider query open. A second
     // run would resume the same thread beside it, so the prompt goes into the
     // open query; a fresh run is only the fallback once that query has closed.
-    const lifecycle = dispatchSession?.status === 'background' && dispatchSession.agentSessionId
+    const lifecycle = dispatchSession?.status === 'background' && dispatchSession.agentSessionId && dispatchSession.backendId === freshProvider
       ? this.rt.launcher.steerActiveTurn(run, dispatchSession.agentSessionId, dispatchSession)
         .then((steered) => steered ?? this.rt.launcher.startRunLifecycle(run))
       : this.rt.launcher.startRunLifecycle(run)

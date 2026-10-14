@@ -37,6 +37,7 @@ import { createSidebarHeaderItems } from "./sidebar-native-header-items";
 import { SidebarNavigationShell } from "./sidebar-navigation-shell";
 import type { SolusProjectShell, SolusThreadShell } from "./thread-directory";
 import {
+  ThreadListV2ArchivedSectionHeader,
   ThreadListV2Row,
   ThreadListV2SettledShelfHeader,
   ThreadListV2ShowMoreRow,
@@ -118,6 +119,7 @@ function ThreadNavigationSidebarPane(
   const { fabClearance } = useAndroidControlSizing();
   const projects = useListened(app.threads.changes, app.threads.projects);
   const threads = useListened(app.threads.changes, app.threads.threads);
+  const archivedThreads = useListened(app.threads.changes, app.threads.archivedThreads);
   const hosts = useListened(app.registry.changes, app.registry.hosts);
   const list = useThreadListState();
   const facts = useListened(list.changes, list.facts);
@@ -128,8 +130,16 @@ function ThreadNavigationSidebarPane(
   const searchBarRef = useRef<SearchBarCommands>(null);
   const openSwipeableRef = useRef<SwipeableMethods | null>(null);
   const sidebarScrollGesture = useNativeGesture();
-  const { settleThread, snoozeThread, unsnoozeThread, unsettleThread, renameThread, setPullRequestWatch } =
-    useThreadListActions();
+  const {
+    settleThread,
+    snoozeThread,
+    unsnoozeThread,
+    unsettleThread,
+    archiveThread,
+    unarchiveThread,
+    renameThread,
+    setPullRequestWatch,
+  } = useThreadListActions();
   const handleSnoozeThread = useCallback(
     (thread: SolusThreadShell, snoozedUntil: number) => void snoozeThread(thread, snoozedUntil),
     [snoozeThread],
@@ -141,6 +151,14 @@ function ThreadNavigationSidebarPane(
   const handleUnsettleThread = useCallback(
     (thread: SolusThreadShell) => void unsettleThread(thread),
     [unsettleThread],
+  );
+  const handleArchiveThread = useCallback(
+    (thread: SolusThreadShell) => void archiveThread(thread),
+    [archiveThread],
+  );
+  const handleUnarchiveThread = useCallback(
+    (thread: SolusThreadShell) => void unarchiveThread(thread),
+    [unarchiveThread],
   );
   const environments = useMemo(
     () =>
@@ -233,6 +251,7 @@ function ThreadNavigationSidebarPane(
     () =>
       buildThreadListV2Items({
         threads,
+        archivedThreads,
         facts,
         hostId: options.selectedEnvironmentId,
         projectKeys: selectedProjectScope === null ? null : selectedProjectScope.projectKeys,
@@ -245,6 +264,7 @@ function ThreadNavigationSidebarPane(
         selectedThreadKey: props.selectedThreadKey ?? null,
       }),
     [
+      archivedThreads,
       facts,
       knownProjectKeys,
       nowMinute,
@@ -281,10 +301,14 @@ function ThreadNavigationSidebarPane(
       settledCount: threadListV2Layout.settledCount,
       settledShelfExpanded,
       settledShelfHeaderIndex: threadListV2Layout.settledShelfHeaderIndex,
+      archivedCount: threadListV2Layout.archivedCount,
+      archivedHeaderIndex: threadListV2Layout.archivedHeaderIndex,
       now: nowMinute,
     });
     if (settledShelfExpanded && threadListV2Layout.hiddenSettledCount > 0) {
-      items.push({
+      // The pager ends the settled shelf, above any archived search results.
+      const archivedSection = items.findIndex((item) => item.type === "v2-archived-section");
+      items.splice(archivedSection === -1 ? items.length : archivedSection, 0, {
         type: "v2-show-more",
         key: "v2-show-more",
         hiddenCount: threadListV2Layout.hiddenSettledCount,
@@ -448,6 +472,7 @@ function ThreadNavigationSidebarPane(
               thread={thread}
               variant={item.item.variant}
               snoozed={item.item.snoozed}
+              archived={item.item.archived}
               status={item.status}
               unread={item.unread}
               pr={item.pr}
@@ -468,6 +493,8 @@ function ThreadNavigationSidebarPane(
               onSnoozeThread={handleSnoozeThread}
               onUnsnoozeThread={handleUnsnoozeThread}
               onUnsettleThread={handleUnsettleThread}
+              onArchiveThread={handleArchiveThread}
+              onUnarchiveThread={handleUnarchiveThread}
               onSetPullRequestWatch={setPullRequestWatch}
               onSwipeableClose={handleSwipeableClose}
               onSwipeableWillOpen={handleSwipeableWillOpen}
@@ -495,6 +522,8 @@ function ThreadNavigationSidebarPane(
               pane="sidebar"
             />
           );
+        case "v2-archived-section":
+          return <ThreadListV2ArchivedSectionHeader pane="sidebar" />;
         case "v2-show-more":
           return (
             <ThreadListV2ShowMoreRow
@@ -511,6 +540,8 @@ function ThreadNavigationSidebarPane(
       handleSnoozeThread,
       handleSwipeableClose,
       handleSwipeableWillOpen,
+      handleArchiveThread,
+      handleUnarchiveThread,
       handleUnsettleThread,
       handleUnsnoozeThread,
       knownProjectKeys,

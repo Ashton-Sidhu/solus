@@ -385,17 +385,17 @@
             <CheckIcon size={14} weight="bold" />
           {/if}
         </button>
-        <!-- Close takes a row out of the working column. A finished task is not
-             in the working column any more — the shelf lists it from the task
-             store and retention decides when it goes — and a shelved session
-             with no conversation here has nothing to unload. So on the shelf
-             the control only earns its place while there are still tabs to
-             unload. Otherwise it would be a button that visibly does nothing. -->
-        {#if task.tabIds.length > 0 || (task.taskId && task.lifecycle !== "completed")}
+        <!-- Close takes a row out of the column. A session's row archives the
+             session, on every device (docs/plans/session-archive.md). A
+             finished task is not in the working column any more — the shelf
+             lists it from the task store and retention decides when it goes —
+             so on the shelf a task's control only earns its place while there
+             are still tabs to unload. -->
+        {#if task.tabIds.length > 0 || task.sessionId || (task.taskId && task.lifecycle !== "completed")}
           <button
             class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
-            title="Remove from sidebar"
-            aria-label={task.taskId ? "Remove task from sidebar" : "Remove session from sidebar"}
+            title={task.taskId ? "Remove from sidebar" : "Archive"}
+            aria-label={task.taskId ? "Remove task from sidebar" : "Archive session"}
             onclick={(event) => {
               event.stopPropagation();
               onClose();

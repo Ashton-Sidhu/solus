@@ -2,7 +2,7 @@ import type { ProjectRef } from '../../../contexts/projects/project-catalog'
 import { serversStore } from '../../../contexts/connections/servers.store.svelte'
 import type { SessionEnvironmentStore } from '../../../contexts/git/session-environment.store.svelte'
 import type { WorkspaceContext } from '../../../contexts/workspace/workspace.context.svelte'
-import { withCheckoutOnHost } from '../../servers/run-on'
+import { opensCheckoutNow, withCheckoutOnHost } from '../../servers/run-on'
 
 type SelectionWorkspace = Pick<WorkspaceContext, 'runFor' | 'defaultRunConfig' | 'sessionFor' | 'drafts' | 'config'>
 
@@ -23,9 +23,12 @@ export async function aimRunAtCheckout(
     return
   }
   const next = withCheckoutOnHost(current, checkout.serverId, checkout.projectRoot, {
-    immediate: serversStore.hostFor(checkout.serverId)?.local ?? false,
+    immediate: opensCheckoutNow(current, {
+      id: checkout.serverId,
+      local: serversStore.hostFor(checkout.serverId)?.local ?? false,
+      online: serversStore.statusFor(checkout.serverId) === 'online',
+    }),
   })
-  // Inert until Send: nothing connects or moves, so changing your mind is free.
   const owner = workspace.sessionFor(sourceId) ?? workspace.drafts.sessionDrafts.get(sourceId)
   if (owner) owner.run = next
   const settled = workspace.runFor(sourceId) ?? workspace.defaultRunConfig

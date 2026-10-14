@@ -3,6 +3,7 @@ import type { Session } from '@solus/contracts/types'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import {
   isRunOnHostLocked,
+  opensCheckoutNow,
   projectHostId,
   repoKeyForPath,
   returnsToProjectHome,
@@ -221,6 +222,40 @@ describe('moving a run into an existing checkout', () => {
     expect(next.pendingHostDispatch).toBeNull()
     expect(next.projectGroupPath).toBeNull()
     expect(next.workingDirectory).toBe('/home/dev/solus')
+  })
+})
+
+describe('opening a checkout on another host', () => {
+  const run = {
+    serverId: 'local',
+    taskServerId: 'local',
+    projectGroupPath: null,
+    workingDirectory: '/home/dev/solus',
+    gitContext: null,
+    worktree: null,
+    pendingHostDispatch: null,
+  } as RunConfig
+
+  test('an online host takes the run at once, so its checkout can be read before Send', () => {
+    // WHY: a pending choice leaves the run on this machine with a path that
+    // exists only on the other one. Git is read on the run's host, so the
+    // branch chip found no repository and disappeared until Send.
+    const next = withCheckoutOnHost(run, 'studio', '/srv/solus', {
+      immediate: opensCheckoutNow(run, { id: 'studio', local: false, online: true }),
+    })
+    expect(next.serverId).toBe('studio')
+    expect(next.pendingHostDispatch).toBeNull()
+    expect(next.workingDirectory).toBe('/srv/solus')
+  })
+
+  test('a host that is not online stays a choice that Send connects to', () => {
+    // WHY: a stopped Cloud host must be started, and an offline one dialled,
+    // before anything can run there. Send owns that work.
+    expect(opensCheckoutNow(run, { id: 'studio', local: false, online: false })).toBe(false)
+  })
+
+  test('your own machine opens at once even before it reports online', () => {
+    expect(opensCheckoutNow(run, { id: 'local', local: true, online: false })).toBe(true)
   })
 })
 

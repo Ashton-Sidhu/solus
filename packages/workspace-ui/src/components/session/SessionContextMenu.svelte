@@ -2,6 +2,8 @@
   import TaskIcon from "../ui/TaskIcon.svelte";
   import UnreadDot from "./UnreadDot.svelte";
   import {
+    Archive as ArchiveIcon,
+    ArchiveRestore as ArchiveRestoreIcon,
     ChartBar as ChartBarIcon,
     Check as CheckIcon,
     GitFork as GitForkIcon,
@@ -58,6 +60,10 @@
       onToggleDone?: () => void;
       /** Opens the snooze prompt for the row. Absent on a snoozed row. */
       onSnooze?: () => void;
+      /** Archives the row's session (docs/plans/session-archive.md). */
+      onArchive?: () => void;
+      /** Returns an archived session to the list. */
+      onUnarchive?: () => void;
     } | null;
     /** A sidebar can dismiss its row without closing the mounted tab. Other
      *  surfaces keep the ordinary workspace close behavior. */
@@ -98,7 +104,7 @@
   const sess = $derived(tabId ? session.sessionFor(tabId) : null);
   // A member who may only read a shared session gets the menu's reading
   // actions; stopping, renaming, linking, settling, and snoozing are an editor's.
-  const canDrive = $derived(canDriveSession(tabId ? session.serverIdFor(tabId) : null, sess?.id));
+  const canDrive = $derived(canDriveSession(tabId ? session.serverIdFor(tabId) : serverId, sess?.id ?? sessionId));
   const copyableSessionId = $derived(sess?.agentSessionId ?? sessionId ?? null);
   /** Telemetry is keyed by Solus's own session id, not the provider thread's,
    *  so an open session answers from its tab and a closed one from the id the
@@ -343,7 +349,29 @@
         Snooze…
       </ContextMenu.Item>
     {/if}
-    {#if (unreadSessionId && unreadServerId) || (canDrive && (rowActions?.onStop || rowActions?.onToggleDone || rowActions?.onSnooze))}
+    {#if canDrive && rowActions?.onArchive}
+      <ContextMenu.Item
+        onSelect={() => {
+          onClose();
+          rowActions?.onArchive?.();
+        }}
+      >
+        <ArchiveIcon />
+        Archive
+      </ContextMenu.Item>
+    {/if}
+    {#if canDrive && rowActions?.onUnarchive}
+      <ContextMenu.Item
+        onSelect={() => {
+          onClose();
+          rowActions?.onUnarchive?.();
+        }}
+      >
+        <ArchiveRestoreIcon />
+        Return to List
+      </ContextMenu.Item>
+    {/if}
+    {#if (unreadSessionId && unreadServerId) || (canDrive && (rowActions?.onStop || rowActions?.onToggleDone || rowActions?.onSnooze || rowActions?.onArchive || rowActions?.onUnarchive))}
       <ContextMenu.Separator />
     {/if}
     {#if sess?.agentSessionId}

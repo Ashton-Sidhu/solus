@@ -92,6 +92,18 @@ describe('integration store', () => {
     expect(store.get(created.id, 'org-a')?.name).toBe('Wiki')
   })
 
+  test('the tools turned off are kept on the record, and a rename keeps them', () => {
+    // WHY: the list is what keeps a tool from agents; an unrelated edit must not turn it back on.
+    const store = new storeModule.IntegrationStore()
+    const created = store.create(input('DeepWiki'), 'org-a', null)
+    expect(created.disabledTools).toEqual([])
+    store.update(created.id, { disabledTools: ['write_page', 'delete_page', 'write_page'] }, 'org-a')
+    store.update(created.id, { name: 'Wiki' }, 'org-a')
+    expect(store.get(created.id, 'org-a')).toMatchObject({ name: 'Wiki', disabledTools: ['delete_page', 'write_page'] })
+    store.update(created.id, { disabledTools: [] }, 'org-a')
+    expect(store.get(created.id, 'org-a')?.disabledTools).toEqual([])
+  })
+
   test('remove deletes only inside the scope', () => {
     const store = new storeModule.IntegrationStore()
     const created = store.create(input('DeepWiki'), 'org-a', null)

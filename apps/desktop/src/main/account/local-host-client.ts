@@ -35,10 +35,19 @@ export function presentAccountToLocalHost(
     if (!isSignedIn) return
     if (host.needsRegistration()) await register()
     const hostId = host.hostId()
-    if (!isSignedIn || !hostId) return
+    if (!isSignedIn) return
+    if (!hostId) {
+      log.info('local_host_present_skipped', { reason: 'not-registered' })
+      return
+    }
     const token = await session.accessToken({ kind: 'host', hostId })
     // A sign-out while the token was on its way presents nothing.
-    if (token && isSignedIn) await host.presentToken(token)
+    if (!isSignedIn) return
+    if (!token) {
+      log.info('local_host_present_skipped', { reason: 'no-token', state: session.current().kind })
+      return
+    }
+    await host.presentToken(token)
   }
   let presentedIdentity: string | null = null
   const follow = (state: AccountState): void => {
@@ -62,7 +71,7 @@ export function presentAccountToLocalHost(
     presentedIdentity = null
     host.presentIdentity(null)
   }
-  const stopAsking = host.onTokenWanted(() => void present())
+  const stopAsking = host.onTokenWanted(present)
   const stopFollowing = session.onChange(follow)
   follow(session.current())
   return () => {

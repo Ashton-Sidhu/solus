@@ -6,6 +6,7 @@ import { AgentCards, isAgentConversationTool, type AgentItem } from './agent-car
 import { promptImageAttachments, splitAttachedFiles, type MessageAttachment } from './message-attachments'
 import { AgentPlans } from './agent-plans'
 import { artifactFromCreated, artifactFromHistory, type ArtifactRender } from './artifacts'
+import type { AgentSwitch } from './provider-handoff'
 
 /**
  * One conversation's transcript as the native client shows it (plan 017
@@ -68,6 +69,8 @@ export type TranscriptItem =
       /** Null while the user has not answered. */
       resolution: WorktreeOfferResolution | null
     }
+  /** The host handed the session's thread to another provider (plans/021). */
+  | { kind: 'handoff'; id: string; activity: AgentSwitch }
 
 /** What changed since the last read: rows replaced, rows added, or the chrome around them. */
 export interface TranscriptChanges {
@@ -193,7 +196,9 @@ export class TranscriptModel {
   /** One history row as an item; null for rows this client does not render yet
    *  (reasoning, most activity). */
   private historyItem(row: WireSessionLoadMessage): string | null {
-    if (row.activity) return row.activity.kind === 'worktree_offered' ? this.addWorktreeOffer(row.activity, false) : null
+    if (row.activity?.kind === 'worktree_offered') return this.addWorktreeOffer(row.activity, false)
+    if (row.activity?.kind === 'agent_switched') return this.addHandoff(row.activity, false)
+    if (row.activity) return null
     const id = row.messageId ?? this.mintId('h')
     if (row.compaction) {
       this.items.set(id, { kind: 'compaction', id, compaction: row.compaction })
@@ -328,6 +333,7 @@ export class TranscriptModel {
       case 'activity':
         if (event.activity.kind === 'worktree_offered') this.addWorktreeOffer(event.activity, true)
         else if (event.activity.kind === 'worktree_offer_decided') this.setWorktreeOfferResolution(event.activity.offerId, event.activity.resolution)
+        else if (event.activity.kind === 'agent_switched') this.addHandoff(event.activity, true)
         return true
       default:
         return false
@@ -696,6 +702,29 @@ export class TranscriptModel {
     } else {
       this.items.set(id, item)
     }
+    return id
+  }
+
+  /** The handoff's row id, or null when the row is already shown. Live, the
+   *  host records the handoff after the prompt that caused it is on screen:
+   *  the divider goes before that prompt, as history orders it. */
+  private addHandoff(activity: AgentSwitch, live: boolean): string | null {
+    const id = `activity:${activity.id}`
+    if (this.items.has(id)) return null
+    const item: TranscriptItem = { kind: 'handoff', id, activity }
+    if (!live) {
+      this.items.set(id, item)
+      return id
+    }
+    this.streamTarget = null
+    const lastId = this.order.at(-1)
+    if (lastId === undefined || this.items.get(lastId)?.kind !== 'user') {
+      this.append(item)
+      return id
+    }
+    this.items.set(id, item)
+    this.order = [...this.order.slice(0, -1), id, lastId]
+    this.orderChanged = true
     return id
   }
 

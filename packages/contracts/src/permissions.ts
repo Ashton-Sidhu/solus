@@ -33,6 +33,8 @@ const HOST_ACTION_OF_METHOD = {
   getAppGlobalShortcuts: 'host.local.window',
   setAppGlobalShortcuts: 'host.local.window',
   restartApp: 'host.local.window',
+  // Opens a window on the host's own screen.
+  openInFileManager: 'host.local.window',
   // Changes how the host is reached: local only, and never on a managed host, where Solus cloud owns reach.
   connectionsSetRemoteAccess: 'host.local.reach',
   connectionsSetTrustLocalNetwork: 'host.local.reach',
@@ -104,8 +106,6 @@ const HOST_ACTION_OF_METHOD = {
   // What the composer offers: the agents here and the models they run.
   start: 'host.agents.read',
   modelProfilesStatus: 'host.models.read',
-  // The session catalog. Each listing keeps only the sessions the caller may open (`filterVisible`).
-  sessionShelfList: 'host.sessions.read',
   // The card shows the statuses of sessions the caller can list.
   liveActivityRegister: 'host.sessions.read',
   liveActivityUnregister: 'host.sessions.read',
@@ -202,6 +202,7 @@ export const RESOURCE_VERB_OF_METHOD = {
   // Sessions — editing the record
   setSessionTitle: 'edit', ensureBackgroundSessionTitle: 'edit', setSessionBranch: 'edit', sessionPullRequestLink: 'edit',
   sessionPullRequestUnlink: 'edit', sessionPullRequestWatch: 'edit', sessionSetSettled: 'edit', sessionSnooze: 'edit',
+  sessionSetArchived: 'edit',
   setThreadGoal: 'edit', clearThreadGoal: 'edit', savePlanAnnotations: 'edit', toggleBookmarkPlan: 'edit', publishPlan: 'edit',
   pullPlanUpstream: 'edit', refreshPlanUpstream: 'edit', unlinkPlanUpstream: 'edit', tasksLinkSession: 'edit', tasksUnlinkSession: 'edit',
   // Works — reading

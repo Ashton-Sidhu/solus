@@ -18,7 +18,7 @@ import {
   enrichedLinkVariantPattern,
 } from "../lib/enrichedLinkPresentation";
 import { FILE_MENTION_REGEX } from "../lib/fileMentions";
-import { markdownWithHtml } from "../lib/markdownDocument";
+import { markdownWithBlockImages, markdownWithHtml } from "../lib/markdownDocument";
 import type { SelectableMarkdownTextProps } from "./SelectableMarkdownText.types";
 import { useEnrichedLinkVariants } from "./useEnrichedLinkVariants";
 
@@ -147,7 +147,10 @@ function enrichedStyle(
 
 export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
   const { onLinkPress, onImagePress, renderImage, resolveImageSource } = props;
-  const markdown = useMemo(() => markdownWithHtml(props.markdown), [props.markdown]);
+  const markdown = useMemo(
+    () => markdownWithBlockImages(markdownWithHtml(props.markdown)),
+    [props.markdown],
+  );
   const { themeAppearance } = useAppearancePreferences();
   const [documentAssets, setDocumentAssets] = useState<DocumentAssetsEvent["assets"]>([]);
   const onDocumentAssets = useCallback(({ assets }: DocumentAssetsEvent) => {

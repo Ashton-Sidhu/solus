@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import type { IpcContext, Session, SessionProviderSwitchResult } from '@solus/contracts/types'
 import type { ModelOptionsByProvider } from '@solus/contracts/settings'
-import type { SessionQueueMutation } from '@solus/contracts/session-queue'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
@@ -61,7 +60,8 @@ async function makeController(
     openSessionDraft?: (cwd?: string, freshTask?: boolean, gitContext?: unknown) => void
     apiForRun?: () => unknown
     refreshGitState?: () => Promise<{ status: boolean; details: boolean; refs: boolean; registration: boolean; ok: boolean }>
-    queueChanges?: SessionQueueMutation[]
+    /** Every host method the controller called, by name. */
+    hostCalls?: string[]
   },
 ) {
   ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
@@ -79,8 +79,11 @@ async function makeController(
     defaultRunConfig: () => ({ workingDirectory: '/repo', gitContext: null }) as any,
     ctx: () => ({ session: { sessionId: 'tab-1' } }) as IpcContext,
     ctxForDirectory: () => ({ session: { sessionId: 'tab-1' } }) as IpcContext,
-    apiFor: () => ({ switchSessionAgent: async () => switchResult,
-      sessionQueueChange: async (_ctx: IpcContext, mutation: SessionQueueMutation) => { worktreeHarness?.queueChanges?.push(mutation) },
+    apiFor: () => new Proxy({}, {
+      get: (_target, method: string) => async () => {
+        worktreeHarness?.hostCalls?.push(method)
+        return switchResult
+      },
     }) as any,
     apiForRun: (worktreeHarness?.apiForRun ?? (() => ({}))) as any,
     refreshPluginCommands: () => {},
@@ -179,10 +182,10 @@ describe('default model preference', () => {
     controller.setDefaultModel('codex', 'gpt-5.4')
     expect(controller.globalDefaults.modelConfig.modelId).toBe('claude-sonnet-5')
 
-    await controller.switchActiveAgent('codex')
+    controller.switchActiveAgent('codex')
     expect(controller.globalDefaults.modelConfig.modelId).toBe('gpt-5.4')
 
-    await controller.switchActiveAgent('claude-code')
+    controller.switchActiveAgent('claude-code')
     expect(controller.globalDefaults.modelConfig.modelId).toBe('claude-sonnet-5')
   })
 
@@ -197,73 +200,79 @@ describe('default model preference', () => {
     expect(controller.globalDefaults.modelConfig.fastMode).toBe(false)
   })
 
-  test('queues a pinned provider choice and waits for the host before changing the active provider', async () => {
-    const settings = makeSettings({ codex: 'gpt-5.4' })
-    const session = {
-      id: 'stable-session',
-      agentSessionId: 'claude-session',
-      status: 'idle',
-      sessionModel: 'claude-opus-5[1m]',
-      messages: [],
-      run: {
-        provider: 'claude-code',
-        modelConfig: {
-          modelId: 'claude-opus-5',
-          reasoningEffort: 'high',
-          contextWindow: 200_000,
-          fastMode: false,
-        },
-        workingDirectory: '/repo',
+})
+
+function threadSession(): Session {
+  return {
+    id: 'stable-session',
+    agentSessionId: 'claude-session',
+    threadProvider: 'claude-code',
+    status: 'rate_limited',
+    rateLimitInfo: { resetsAt: 1 },
+    sessionModel: 'claude-opus-5',
+    messages: [],
+    run: {
+      provider: 'claude-code',
+      modelConfig: {
+        modelId: 'claude-opus-5',
+        reasoningEffort: 'max',
+        contextWindow: 1_000_000,
+        fastMode: false,
       },
-    } as Session
-    const queueChanges: SessionQueueMutation[] = []
-    const controller = await makeController(settings, session, {
-      fromProvider: 'claude-code',
-      fromSessionId: 'claude-session',
-    }, undefined, { queueChanges })
+      workingDirectory: '/repo',
+    },
+  } as unknown as Session
+}
 
-    await controller.switchActiveAgent('codex')
+describe('agent pick on a session with a provider thread', () => {
+  test('changes only the composer: no host call, the thread and its rate limit stay', async () => {
+    // WHY: a pick used to end the thread on the host at once, and on a
+    // rate-limited session it dropped the parked prompt; a pick back could not
+    // restore either. The host now hands over only when a prompt carries the
+    // picked provider (plans/021).
+    const session = threadSession()
+    const hostCalls: string[] = []
+    const controller = await makeController(makeSettings({ codex: 'gpt-5.4' }), session, undefined, undefined, { hostCalls })
 
-    // WHY: the host records the switch as `agent_switched` activity, which draws
-    // the one divider every client and a reload read (plans/012 §5). A divider
-    // written here as well showed the switch twice.
+    controller.switchActiveAgent('codex')
+
+    expect(hostCalls).toEqual([])
+    expect(session.run.provider).toBe('codex')
+    expect(session.run.modelConfig.modelId).toBe('gpt-5.4')
+    expect(session.threadProvider).toBe('claude-code')
+    expect(session.agentSessionId).toBe('claude-session')
+    expect(session.status).toBe('rate_limited')
+    expect(session.rateLimitInfo).toEqual({ resetsAt: 1 } as Session['rateLimitInfo'])
     expect(session.messages).toEqual([])
-    expect(session.run.provider).toBe('claude-code')
-    expect(session.run.modelConfig.modelId).toBe('claude-opus-5')
-    expect(queueChanges).toMatchObject([{ kind: 'switch', provider: 'codex', modelConfig: { modelId: 'gpt-5.4' } }])
   })
 
-  test('hands a resumed session a concrete model even when the default is Auto', async () => {
-    // WHY: Auto only routes a first prompt. A handoff carries the provider
-    // thread of a conversation already underway, so passing the sentinel on
-    // would make the next send fail with "Auto can only select a model for a
-    // new session."
-    const settings = makeSettings({ codex: 'auto' })
-    const session = {
-      id: 'stable-session',
-      agentSessionId: 'claude-session',
-      status: 'idle',
-      messages: [],
-      run: {
-        provider: 'claude-code',
-        modelConfig: {
-          modelId: 'claude-opus-5',
-          reasoningEffort: 'high',
-          contextWindow: 200_000,
-          fastMode: false,
-        },
-        workingDirectory: '/repo',
-      },
-    } as Session
-    const queueChanges: SessionQueueMutation[] = []
-    const controller = await makeController(settings, session, {
-      fromProvider: 'claude-code',
-      fromSessionId: 'claude-session',
-    }, undefined, { queueChanges })
+  test('a pick back restores the model the thread ran with', async () => {
+    // WHY: an accidental pick must undo cleanly — the next send has to run on
+    // the thread's own model and options, not the agent's default.
+    const session = threadSession()
+    const hostCalls: string[] = []
+    const controller = await makeController(makeSettings({ 'claude-code': 'claude-sonnet-5' }), session, undefined, undefined, { hostCalls })
 
-    await controller.switchActiveAgent('codex')
+    controller.switchActiveAgent('codex')
+    controller.switchActiveAgent('claude-code')
 
-    expect(queueChanges).toMatchObject([{ kind: 'switch', modelConfig: { modelId: 'gpt-6-astra' } }])
+    expect(hostCalls).toEqual([])
+    expect(session.run.provider).toBe('claude-code')
+    expect(session.run.modelConfig).toEqual({
+      modelId: 'claude-opus-5', reasoningEffort: 'max', contextWindow: 1_000_000, fastMode: false,
+    })
+  })
+
+  test('picks a concrete model even when the default is Auto', async () => {
+    // WHY: Auto only routes a first prompt. The send hands over a thread already
+    // underway, so carrying the sentinel would make it fail with "Auto can only
+    // select a model for a new session."
+    const session = threadSession()
+    const controller = await makeController(makeSettings({ codex: 'auto' }), session)
+
+    controller.switchActiveAgent('codex')
+
+    expect(session.run.modelConfig.modelId).toBe('gpt-6-astra')
   })
 })
 
@@ -325,7 +334,7 @@ describe('settings written against a draft composer', () => {
     const draft = makeDraft()
     const controller = await makeController(makeSettings({}), null, undefined, draft)
 
-    await controller.switchActiveAgent('codex', draft.id)
+    controller.switchActiveAgent('codex', draft.id)
 
     expect(draft.run.provider).toBe('codex')
     expect(draft.run.modelConfig.modelId).toBe('gpt-6-astra')
@@ -338,7 +347,7 @@ describe('settings written against a draft composer', () => {
     const draft = makeDraft()
     const controller = await makeController(settings, null, undefined, draft)
 
-    await controller.switchActiveAgent('codex', draft.id)
+    controller.switchActiveAgent('codex', draft.id)
 
     expect(settings.activeAgent).toBe('claude-code')
     expect(controller.globalDefaults.modelConfig.modelId).toBe('claude-opus-5-5')

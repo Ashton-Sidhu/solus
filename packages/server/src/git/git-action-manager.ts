@@ -56,10 +56,12 @@ function validateCommitMessage(raw: string): string {
 /** Paths `git status` reports as untracked (`??`), scoped to the given set —
  *  the only selected-file kind `git commit -- <pathspec>` can't see on its own. */
 async function untrackedPathsAmong(cwd: string, paths: string[]): Promise<string[]> {
-  const out = await runAsync('git', ['status', '--porcelain=v1', '--', ...paths], cwd)
+  // `-z` and raw output keep each path exact: without them git quotes a path
+  // that holds whitespace, and trimming drops its leading or trailing spaces.
+  const out = await runAsync('git', ['status', '--porcelain=v1', '-z', '--', ...paths], cwd, { raw: true })
   const untracked = new Set<string>()
-  for (const line of out.split('\n')) {
-    if (line.startsWith('?? ')) untracked.add(line.slice(3).trim())
+  for (const entry of out.split('\0')) {
+    if (entry.startsWith('?? ')) untracked.add(entry.slice(3))
   }
   return paths.filter((filePath) => untracked.has(filePath))
 }

@@ -856,10 +856,6 @@
               maxSize={secondaryBounds.max}
               class={`secondary-pane-wrap relative ${
                 closing ? "secondary-pane-wrap--closing" : ""
-              } ${
-                FLUSH_PAGES.has(ref?.name ?? "")
-                  ? "secondary-pane-wrap--flush"
-                  : ""
               } ${isResizingSecondary ? "is-resizing" : ""}`}
               style={closing ? `width:${secondaryClosingWidth}px` : undefined}
             >
@@ -869,7 +865,7 @@
                      workspace behind never relayouts on maximize or restore —
                      only the surface re-measures to the window. -->
                 <div
-                  class="secondary-pane-content flex h-full min-h-0 flex-col"
+                  class="secondary-pane-content flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-[color-mix(in_srgb,var(--solus-container-border)_85%,transparent)] bg-(--solus-container-bg) shadow-[0_1px_2px_rgba(42,38,24,0.03),0_8px_24px_-12px_rgba(42,38,24,0.08)] dark:border-[color-mix(in_srgb,var(--solus-text-primary)_11%,transparent)] dark:shadow-none"
                   class:secondary-pane-content--maximized={maximized}
                   class:secondary-pane-content--continuous={IMMEDIATE_COMPANIONS.has(ref?.name ?? "")}
                   onfocusin={() => router.focusPane(pane.id)}
@@ -963,23 +959,17 @@
   .secondary-pane-content {
     container: pane / inline-size;
   }
-  /* The seam between the pane and the one before it. One line for the whole
-     pane, strip included, stopping 16px short of the top and bottom edges.
-     Drawn on the wrap, whose box is the pane's whole height whatever its
-     bottom padding; a maximized surface covers it. It sits above the layers a
-     surface stacks across its full width (a chat's transcript fade at 5, its
-     composer dock at 10), which otherwise cut a gap into it. Same hairline as
-     a Settings card border (RowCard's `border-border/50`). */
-  :global(.secondary-pane-wrap)::before {
-    content: "";
-    position: absolute;
-    top: 1rem;
-    bottom: 1rem;
-    left: 0;
-    z-index: 30;
-    width: 1px;
-    background: color-mix(in oklab, var(--border) 50%, transparent);
-    pointer-events: none;
+  /* The card sits one step lighter than the workspace behind it. Its surfaces
+     paint their own fill from these tokens, so the card restates them rather
+     than setting a background they would cover. `--background` resolves at
+     :root, so it has to be restated too. Maximized, the card is the window and
+     takes the workspace fill again. */
+  .secondary-pane-content:not(.secondary-pane-content--maximized) {
+    --solus-container-bg: #ffffff;
+    --background: var(--solus-container-bg);
+  }
+  :global(.dark) .secondary-pane-content:not(.secondary-pane-content--maximized) {
+    --solus-container-bg: color-mix(in oklch, white 4%, #262522);
   }
   /* Touch grows every chrome button to 2.75rem (PAGE_ICON_BTN), so the same
      arithmetic gives the cluster proportionally more room. */
@@ -990,9 +980,12 @@
     }
   }
   /* The secondary pane is a sibling of the primary one, not a child of
-     .content-column, so it has to spend the gutter itself. */
+     .content-column, so it has to spend the gutter itself. It spends it on
+     three sides: the pane floats as a card, inset from the window edges. The
+     primary column's own right gutter is the gap on its leading side. */
   :global(.secondary-pane-wrap) {
-    padding-bottom: var(--solus-pane-gutter);
+    padding: var(--solus-pane-gutter) var(--solus-pane-gutter)
+      var(--solus-pane-gutter) 0;
     opacity: 1;
     /* No resting transform, and none may be added: any transform other than
        `none` makes this wrap the containing block for the `position: fixed`
@@ -1005,11 +998,6 @@
     transition:
       transform 180ms cubic-bezier(0.2, 0, 0, 1),
       opacity 160ms cubic-bezier(0.2, 0, 0, 1);
-  }
-  /* …unless it holds a full-page surface, whose footer band has to reach the
-     window edge the same way it does in the primary slot. */
-  :global(.secondary-pane-wrap--flush) {
-    padding-bottom: 0;
   }
   :global(.secondary-pane-wrap--closing) {
     position: absolute;
@@ -1033,6 +1021,10 @@
        every dropdown in the surface read as a dead button. */
     z-index: 1000;
     background: var(--solus-container-bg);
+    /* Maximized, the card fills the window: no inset edge to round or lift. */
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
     /* Maximized panes cover the whole window (inset:0), so their top-left lands
        under the macOS traffic lights. Publish the lead inset so the surface's
        leading control strip clears them — this is the "diff fully expanded" and

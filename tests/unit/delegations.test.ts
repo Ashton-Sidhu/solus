@@ -45,7 +45,7 @@ afterEach(() => {
   else process.env.SOLUS_DATA_DIR = originalDataDir
 })
 
-function delegations(fetchImpl: (form: URLSearchParams) => Promise<Response> | Response, options: { now?: () => number; revoked?: Array<[string, DelegationScope, DelegationRefusal, string[]]> } = {}) {
+function delegations(fetchImpl: (form: URLSearchParams) => Promise<Response> | Response, options: { now?: () => number; revoked?: Array<[string, DelegationScope, DelegationRefusal, string[]]>; established?: Array<[string, DelegationScope]> } = {}) {
   const forms: URLSearchParams[] = []
   const headers: Headers[] = []
   const held: Delegations = new Delegations({
@@ -53,6 +53,7 @@ function delegations(fetchImpl: (form: URLSearchParams) => Promise<Response> | R
     credential: () => credential,
     // What the host does on a refusal: it reads the sessions acting for the person to stop them.
     onRevoked: (userId, scope, refusal) => { options.revoked?.push([userId, scope, refusal, held.sessionsActingFor(userId, scope)]) },
+    onEstablished: (userId, scope) => { options.established?.push([userId, scope]) },
     fetchImpl: async (_url, init) => {
       const form = init?.body as URLSearchParams
       forms.push(form)
@@ -133,6 +134,16 @@ describe('making a delegation', () => {
     expect(held.holders()).toEqual([{ userId: 'alice', scope: 'personal' }, { userId: 'alice', scope: ORG_A }])
     expect(await held.accessToken('alice', 'personal', { kind: 'account' })).toBe('access-1')
     expect(await held.accessToken('alice', ORG_A, { kind: 'api' })).toBe('access-2')
+  })
+
+  test('a delegation made is announced once, so what waited on the account (an integration\'s cloud sign-in) is read again', async () => {
+    // WHY: a host whose boot came before its owner's delegation listed an integration with
+    // no token, and nothing listed it again: the agent never saw the integration's tools.
+    const established: Array<[string, DelegationScope]> = []
+    const { held } = delegations(() => answer(), { established })
+    await held.establish(presented('alice', 'grant_desktop'), 'personal')
+    await held.establish(presented('alice', 'grant_phone'), 'personal')
+    expect(established).toEqual([['alice', 'personal']])
   })
 
   test('a token that names no person and grant makes nothing, and nothing is sent', async () => {
@@ -308,6 +319,108 @@ describe('signing out', () => {
     now += 400_000
     await expect(held.accessToken('bob', ORG_A, { kind: 'api' })).rejects.toMatchObject({ code: 'ORGANIZATION_ACCESS_REFUSED' })
     expect(revoked).toEqual([['bob', ORG_A, 'ORGANIZATION_ACCESS_REFUSED', []]])
+  })
+})
+
+describe('a delegation derives from the sign-in', () => {
+  // WHY: the host's delegation is made from the person's sign-in, not a second sign-in
+  // of its own. A delegation the account plane will not refresh must not stay held: it
+  // read as held, so nothing made it again, and the host told a signed-in person that
+  // Solus Cloud was unreachable for hours. Only an outage keeps what is held.
+
+  test('any refusal of a refresh ends the delegation, not only invalid_grant; an outage keeps it', async () => {
+    let now = 1_000_000
+    let reply: () => Response = () => answer()
+    const revoked: Array<[string, DelegationScope, DelegationRefusal, string[]]> = []
+    const { held } = delegations(() => reply(), { now: () => now, revoked })
+    await held.establish(presented('alice', 'g'), 'personal')
+
+    reply = () => Response.json({ error: 'temporarily_unavailable' }, { status: 503 })
+    now += 400_000
+    await expect(held.accessToken('alice', 'personal', { kind: 'account' })).rejects.toMatchObject({ code: 'ORGANIZATION_API_UNAVAILABLE' })
+    expect(held.has('alice', 'personal')).toBe(true)
+
+    reply = () => Response.json({ error: 'invalid_request' }, { status: 400 })
+    await expect(held.accessToken('alice', 'personal', { kind: 'account' })).rejects.toMatchObject({ code: 'ORGANIZATION_ACCESS_REFUSED' })
+    expect(held.has('alice', 'personal')).toBe(false)
+    expect(revoked).toEqual([['alice', 'personal', 'ORGANIZATION_ACCESS_REFUSED', []]])
+  })
+
+  test('a 403 on a refresh ends the delegation too, and keeps its own code', async () => {
+    let now = 1_000_000
+    let refuse = false
+    const { held } = delegations(() => refuse ? new Response(null, { status: 403 }) : answer(), { now: () => now })
+    await held.establish(presented('bob', 'g'), ORG_A)
+    refuse = true
+    now += 400_000
+    await expect(held.accessToken('bob', ORG_A, { kind: 'api' })).rejects.toMatchObject({ code: 'ORGANIZATION_AUTHORITY_MISSING' })
+    expect(held.has('bob', ORG_A)).toBe(false)
+  })
+
+  test('a refused delegation is made again from the sign-in before the call fails, and the call gets its token', async () => {
+    let now = 1_000_000
+    let issued = 0
+    let refuseRefresh = false
+    const cloud = (form: URLSearchParams) => {
+      if (form.get('grant_type') === 'refresh_token' && refuseRefresh) return Response.json({ error: 'invalid_request' }, { status: 400 })
+      issued += 1
+      return Response.json({ access_token: `access-${issued}`, refresh_token: `refresh-${issued}`, expires_in: 300 })
+    }
+    const renewals: Array<[string, DelegationScope]> = []
+    let renew: (userId: string, scope: DelegationScope) => Promise<void> = async () => {}
+    const held: Delegations = new Delegations({
+      registration: () => LINK,
+      credential: () => credential,
+      onRevoked: () => {},
+      // The signed-in desktop presents a fresh token: the host exchanges it again.
+      renew: (userId, scope) => renew(userId, scope),
+      fetchImpl: async (_url, init) => cloud(init?.body as URLSearchParams),
+      now: () => now,
+    })
+    instances.push(held)
+    renew = async (userId, scope) => {
+      renewals.push([userId, scope])
+      await held.establish(presented(userId, 'g2'), scope)
+    }
+    await held.establish(presented('alice', 'g1'), 'personal')
+    refuseRefresh = true
+    now += 400_000
+    expect(await held.accessToken('alice', 'personal', { kind: 'account' })).toBe('access-2')
+    expect(renewals).toEqual([['alice', 'personal']])
+    expect(held.has('alice', 'personal')).toBe(true)
+  })
+
+  test('an outage is not renewed: the delegation stays and the call fails as unreachable', async () => {
+    let now = 1_000_000
+    let down = false
+    let renewals = 0
+    const held: Delegations = new Delegations({
+      registration: () => LINK,
+      credential: () => credential,
+      onRevoked: () => {},
+      renew: async () => { renewals += 1 },
+      fetchImpl: async () => { if (down) throw new TypeError('fetch failed'); return answer() },
+      now: () => now,
+    })
+    instances.push(held)
+    await held.establish(presented('alice', 'g'), 'personal')
+    down = true
+    now += 400_000
+    await expect(held.accessToken('alice', 'personal', { kind: 'account' })).rejects.toMatchObject({ code: 'ORGANIZATION_API_UNAVAILABLE' })
+    expect(renewals).toBe(0)
+    expect(held.has('alice', 'personal')).toBe(true)
+  })
+
+  test('a person with no delegation and no client that can make one fails as before', async () => {
+    const held: Delegations = new Delegations({
+      registration: () => LINK,
+      credential: () => credential,
+      onRevoked: () => {},
+      renew: async () => {},
+      fetchImpl: async () => answer(),
+    })
+    instances.push(held)
+    await expect(held.accessToken('carol', 'personal', { kind: 'account' })).rejects.toMatchObject({ code: 'ORGANIZATION_AUTHORITY_MISSING' })
   })
 })
 

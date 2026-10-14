@@ -10,7 +10,7 @@ import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDi
 import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCommentHit, TaskCommentSearchQuery, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarFilter, TaskSidebarSnapshot, TaskSnapshot, TaskSnooze, TaskTransfer, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
 import type { SessionPullRequestsBySession, SessionPullRequestWatchOutcome } from './session-pull-requests'
-import type { SessionShelfEntry } from './session-state'
+import type { SessionState } from './session-state'
 import type { WorkspaceProject, WorkspaceProjectAddRequest, WorkspaceProjectPatch } from './workspace-projects'
 import type { SessionHistoryPageRequest, SessionHistoryPage, SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult, WireSessionLoadMessage, SessionToolInputsRequest, SessionToolInput } from './session-history'
 import type { AttentionEntry } from './attention-types'
@@ -254,13 +254,14 @@ export interface SolusAPI {
   /** Watch a pull request the session links, or stop watching it. The agent
    *  wakes on news (docs/plans/pr-watch.md). Answers what starting did. */
   sessionPullRequestWatch(sessionId: string, repository: string, number: number, watching: boolean): Promise<SessionPullRequestWatchOutcome>
-  /** The settled and snoozed sessions: the named ones, or every session
-   *  settled recently or snoozed now. */
-  sessionShelfList(sessionIds?: string[]): Promise<SessionShelfEntry[]>
-  /** Settle a session, or make a settled one active again. */
-  sessionSetSettled(sessionId: string, settled: boolean): Promise<void>
-  /** Snooze a session until a wake time; null wakes it now. */
-  sessionSnooze(sessionId: string, until: number | null, note?: string): Promise<void>
+  /** Settle a session, or make a settled one active again. Answers its state now;
+   *  a host older than the session list answers nothing. */
+  sessionSetSettled(sessionId: string, settled: boolean): Promise<SessionState | void>
+  /** Snooze a session until a wake time; null wakes it now. Answers its state now. */
+  sessionSnooze(sessionId: string, until: number | null, note?: string): Promise<SessionState | void>
+  /** Archive a session, or return an archived one to the list
+   *  (docs/plans/session-archive.md). Answers its state now. */
+  sessionSetArchived(sessionId: string, archived: boolean): Promise<SessionState>
   listRecentProjects(): Promise<RecentProject[]>
   trackRecentProject(path: string): Promise<void>
   listPlans(projectPath?: string, allProjects?: boolean, ctx?: IpcContext): Promise<PlanDescriptor[]>

@@ -473,9 +473,8 @@
     if (activeTabId) sessionSidebarStore.closeTabs([activeTabId], "keybinding");
   });
   useKeybinding("global.attach-file", handleAttachFile);
-  useKeybinding("global.cycle-agent", async () => {
-    if (!isRunning) await cycleAgentProvider("keybinding");
-  });
+  // A pick is composer state (plans/021), so it never waits for the run.
+  useKeybinding("global.cycle-agent", () => cycleAgentProvider("keybinding"));
   useKeybinding("global.cycle-model", () => {
     if (isRunning) return;
     // The list to cycle is the *composer's* provider's, not the app-wide active
@@ -674,7 +673,7 @@
     },
   ]);
 
-  async function cycleAgentProvider(via: "click" | "keybinding" | "palette" = "click") {
+  function cycleAgentProvider(via: "click" | "keybinding" | "palette" = "click") {
     const enabledAgents = agent.agents.filter(
       (candidate) => agent.metadata[candidate.id]?.available === true,
     );
@@ -686,6 +685,7 @@
     );
     const next = enabledAgents[(idx + 1) % enabledAgents.length];
     session.config.switchActiveAgent(next.id, composerSourceId, via);
+    requestInputFocus();
   }
 
   let isDraggingFile = $state(false);

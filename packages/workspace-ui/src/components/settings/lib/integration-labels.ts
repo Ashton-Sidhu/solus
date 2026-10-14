@@ -34,6 +34,26 @@ export function canListTools(auth: IntegrationAuth, connection: IntegrationConne
   return auth.kind === 'none' || connection?.status === 'connected'
 }
 
+/** "3 tools are ready" for the connect dialog's last step. */
+export function readyToolsText(count: number): string {
+  if (count === 0) return 'No tools are on. Agents get none from this server.'
+  return `${count} ${count === 1 ? 'tool is' : 'tools are'} ready for the next run`
+}
+
+/**
+ * Where the connect dialog stands for one server (docs/integrations.md):
+ * `adding` until the host has the record, then the administrator's OAuth client
+ * when the server needs one, then the person's sign-in, then the tools to keep on.
+ * A server without sign-in goes straight to its tools.
+ */
+export type ConnectStep = 'adding' | 'oauth-client' | 'sign-in' | 'tools'
+
+export function connectStep(auth: IntegrationAuth | null, connection: IntegrationConnection | null): ConnectStep {
+  if (!auth) return 'adding'
+  if (canListTools(auth, connection)) return 'tools'
+  return afterAddStep(auth) === 'oauth-client' ? 'oauth-client' : 'sign-in'
+}
+
 export interface IntegrationStatusText {
   text: string
   tone: 'ready' | 'attention' | 'error'
@@ -83,6 +103,8 @@ export function connectionStatusText(connection: IntegrationConnection | null): 
       return { text: 'Connection error', detail: connection.error, action: 'Reconnect' }
     case 'cloud-unreachable':
       return { text: 'Solus Cloud unreachable', detail: connection.error, action: null }
+    case 'needs-solus-sign-in':
+      return { text: 'Sign in to Solus', detail: connection.error, action: null }
   }
 }
 

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import { resetTestDatabase } from './helpers/test-db'
+import { ACTIVE_SESSION_STATE } from '@solus/contracts/session-state'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -64,10 +65,10 @@ describe('session read state', () => {
     expect(await states.markSessionViewed('s3', earlier)).toBe(earlier)
   })
 
-  test('a read session is not on the shelf', async () => {
-    // WHY: the shelf lists settled and snoozed sessions. A row that exists only
-    // to hold read state must not put an active session there.
+  test('a read session is still active', async () => {
+    // WHY: a row that exists only to hold read state must not settle, snooze,
+    // or archive the session.
     await states.markSessionViewed('s1', Date.now() - 1_000)
-    expect(await states.readSessionShelf('local')).toEqual([])
+    expect(await new states.SessionShelf('s1').state()).toEqual(ACTIVE_SESSION_STATE)
   })
 })

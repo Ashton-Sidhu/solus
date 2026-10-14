@@ -56,6 +56,17 @@ folder and its Git repository.
 A new project opens on the host the dialog is set to. Use the host chip in the
 dialog header to change it.
 
+## Open the project folder
+
+In the project panel, click the project row to open the **Open in** menu:
+
+- **Open in Solus** opens the files pane (`⌥⇧;`).
+- **Open in Finder** (File Explorer on Windows and WSL, Files on a Linux
+  desktop) opens the folder in the file manager of the host. It shows only on
+  a local connection, because the folder opens on the screen of the host. A
+  host without a desktop, or a Linux host that has no application for folders,
+  does not show it.
+
 ## The folder browser
 
 The folder browser opens a folder and saves a file. It has the same folder
@@ -67,7 +78,7 @@ operations for the two tasks:
 | Rename | Context menu on a folder | `F2` |
 | Move to Trash | Context menu on a folder | `⌘⌫` on the highlighted folder |
 | Copy path | Context menu | — |
-| Open in Finder (Explorer, File Manager) | Context menu, only for your own machine | — |
+| Open in Finder (File Explorer, Files) | Context menu, only for your own machine | — |
 
 To open the context menu, right-click, touch and hold on a phone, or push
 `⇧F10` or the menu key. A right-click on empty space shows the operations for

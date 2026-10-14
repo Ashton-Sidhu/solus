@@ -5,7 +5,11 @@ import {
   ENRICHED_INLINE_FILE_LINK_REGEX,
   enrichedLinkVariantPattern,
 } from "../../apps/mobile/src/lib/enrichedLinkPresentation";
-import { markdownHtmlContent, markdownWithHtml } from "../../apps/mobile/src/lib/markdownDocument";
+import {
+  markdownHtmlContent,
+  markdownWithBlockImages,
+  markdownWithHtml,
+} from "../../apps/mobile/src/lib/markdownDocument";
 import {
   resolveMarkdownLinkIcon,
   resolveMarkdownLinkPresentation,
@@ -224,5 +228,21 @@ describe("HTML in native Markdown", () => {
     expect(result).toContain("![](<one.png>)");
     const plain = "# Title\n\nNo tags, `a < b`.";
     expect(markdownWithHtml(plain)).toBe(plain);
+  });
+});
+
+describe("Images on a line of their own", () => {
+  // Enriched draws an image that shares a paragraph with text as a 20pt icon.
+  it("moves a captioned screenshot into its own paragraph", () => {
+    const markdown = "**Step 1: Sign in**\n![](/tmp/shot.png)\n\n**Step 2**  \n![Tools](</tmp/a b.png>) \\\nAfter";
+    expect(markdownWithBlockImages(markdown)).toBe(
+      "**Step 1: Sign in**\n\n![](/tmp/shot.png)\n\n**Step 2**\n\n![Tools](</tmp/a b.png>)\n\nAfter",
+    );
+  });
+
+  it("keeps an image inside a sentence, list, quote, or code inline", () => {
+    const markdown =
+      "Build ![badge](b.svg) passing\n\n- Item\n  ![](l.png)\n\n> Quote\n> ![](q.png)\n\n```md\nText\n![](c.png)\n```\n\n![](alone.png)";
+    expect(markdownWithBlockImages(markdown)).toBe(markdown);
   });
 });

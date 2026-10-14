@@ -32,7 +32,7 @@ async function connectedProvidersHint(): Promise<string> {
     // The reasons state the situation; the agent needs the route as well, since
     // only the user can complete a sign-in.
     const reasons = statuses.map((status) => status.reason).filter(Boolean).join(' ')
-    return `No document provider is connected. ${reasons} The user connects one in Settings → Providers.`
+    return `No document provider is connected. ${reasons} The user connects one in Settings → Integrations.`
   }
   // A failure a narrower grant explains — a Drive doc Solus did not create
   // answers 404 — is unreadable without this.

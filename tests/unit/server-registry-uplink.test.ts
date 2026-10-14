@@ -96,6 +96,20 @@ describe('a registered host that is not linked is reached on the local network (
     expect(savedServerRoutes(linked[0]!)).toEqual([tunnel])
   })
 
+  test('an https page (the account site) shows only linked hosts: it cannot dial a local address', () => {
+    const notLinked = listed({ routes: [] })
+    expect(mergeDirectoryIntoSaved([], [notLinked], DIRECTORY, 10, DIRECTORY)).toEqual([])
+    // A row saved before, on this page, goes on the next read.
+    const saved = mergeDirectoryIntoSaved([], [notLinked], DIRECTORY, 10, 'app://solus')
+    expect(saved).toHaveLength(1)
+    expect(mergeDirectoryIntoSaved(saved, [notLinked], DIRECTORY, 11, DIRECTORY)).toEqual([])
+    // Linked, it is shown; paired, it is kept; managed and stopped, it can still be started.
+    expect(mergeDirectoryIntoSaved([], [listed()], DIRECTORY, 10, DIRECTORY)).toHaveLength(1)
+    expect(mergeDirectoryIntoSaved([paired({ url: 'https://studio.example.test' })], [notLinked], DIRECTORY, 10, DIRECTORY)).toHaveLength(1)
+    const stopped = listed({ routes: [], kind: 'managed', category: 'managed', managedState: 'stopped' })
+    expect(mergeDirectoryIntoSaved([], [stopped], DIRECTORY, 10, DIRECTORY)).toHaveLength(1)
+  })
+
   test('a paired host keeps the address it paired at, and a linked host its tunnel', () => {
     expect(withNearbyRoutes([paired({ uplink: { hostId: 'abcdefghijklmnop', directoryUrl: DIRECTORY } })], [nearby])).toBeNull()
     expect(withNearbyRoutes(mergeDirectoryIntoSaved([], [listed()], DIRECTORY, 10), [nearby])).toBeNull()

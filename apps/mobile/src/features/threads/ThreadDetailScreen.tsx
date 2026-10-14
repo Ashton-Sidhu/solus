@@ -474,6 +474,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
             }
             historyControls={props.historyControls}
             startedBy={props.startedBy}
+            handoffPending={meta.handoffPending}
             layoutVariant={props.layoutVariant}
             usesAutomaticContentInsets={props.usesAutomaticContentInsets}
             onEndFollowEnabledChange={setEndFollowEnabled}

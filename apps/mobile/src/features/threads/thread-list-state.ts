@@ -12,21 +12,22 @@ import type { ThreadListV2Facts } from "./threadListV2";
 
 /**
  * What T3 Code's thread list shows beyond a session's record, read from each
- * host (docs/plans/session-pull-requests.md): where the session is in the
- * list (settled, snoozed), its live status, and its pull requests. The host
- * holds the state, so this keeps no settle or snooze of its own; it reads
- * after every change the host announces.
+ * host (docs/plans/session-pull-requests.md): its live status, its pull
+ * requests, and where the session is in the list when that changed after the
+ * record was read. The record carries its state (docs/plans/session-archive.md);
+ * each change the host announces or answers arrives with the new state and is
+ * written here, so nothing is read back.
  */
 
 /** The part of a host connection this store uses. */
 export interface ThreadListConnection {
   readonly api: Pick<
     HostApi,
-    | "sessionShelfList"
     | "sessionPullRequestsList"
     | "sessionPullRequestWatch"
     | "sessionSetSettled"
     | "sessionSnooze"
+    | "sessionSetArchived"
     | "setSessionTitle"
     | "setSessionReadState"
   >;
@@ -89,44 +90,42 @@ export class ThreadListState {
     this.changes.notify();
   }
 
-  /** Reads one host's settled and snoozed sessions and pull request links,
-   *  and follows the host's announcements from then on. A host that fails the
-   *  read keeps what it answered last time. */
+  /** Reads one host's pull request links, and follows the host's
+   *  announcements from then on. A host that fails the read keeps what it
+   *  answered last time. */
   async load(hostId: string): Promise<void> {
     const connection = this.connectionFor(hostId);
     if (!connection) return;
     this.watch(hostId, connection);
-    const [shelf, pullRequests] = await Promise.all([
-      connection.api.sessionShelfList().catch(() => null),
-      connection.api.sessionPullRequestsList().catch(() => null),
-    ]);
-    if (shelf) {
-      this.dropHostEntries(this.shelf, hostId);
-      for (const entry of shelf) this.shelf.set(threadKey(hostId, entry.sessionId), entry);
+    const pullRequests = await connection.api.sessionPullRequestsList().catch(() => null);
+    if (!pullRequests) return;
+    this.dropHostEntries(this.pullRequests, hostId);
+    for (const [sessionId, links] of Object.entries(pullRequests)) {
+      this.pullRequests.set(threadKey(hostId, sessionId), links);
     }
-    if (pullRequests) {
-      this.dropHostEntries(this.pullRequests, hostId);
-      for (const [sessionId, links] of Object.entries(pullRequests)) {
-        this.pullRequests.set(threadKey(hostId, sessionId), links);
-      }
-    }
-    if (shelf || pullRequests) this.publish();
+    this.publish();
   }
 
   /** Settle a session, or make a settled one active again. */
   async setSettled(hostId: string, sessionId: string, settled: boolean): Promise<void> {
     const connection = this.requireConnection(hostId);
     this.watch(hostId, connection);
-    await connection.api.sessionSetSettled(sessionId, settled);
-    await this.shelfChanges.get(threadKey(hostId, sessionId));
+    this.writeState(hostId, connection, sessionId, await connection.api.sessionSetSettled(sessionId, settled));
   }
 
   /** Snooze a session until a wake time; null wakes it now. */
   async snooze(hostId: string, sessionId: string, until: number | null): Promise<void> {
     const connection = this.requireConnection(hostId);
     this.watch(hostId, connection);
-    await connection.api.sessionSnooze(sessionId, until);
-    await this.shelfChanges.get(threadKey(hostId, sessionId));
+    this.writeState(hostId, connection, sessionId, await connection.api.sessionSnooze(sessionId, until));
+  }
+
+  /** Archive a session, or return an archived one to the list. Archive keeps
+   *  its settle and snooze, so it returns to the shelf it left. */
+  async setArchived(hostId: string, sessionId: string, archived: boolean): Promise<void> {
+    const connection = this.requireConnection(hostId);
+    this.watch(hostId, connection);
+    this.writeState(hostId, connection, sessionId, await connection.api.sessionSetArchived(sessionId, archived));
   }
 
   /** A read boundary belongs to one session on one host. Watch before writing
@@ -174,12 +173,8 @@ export class ThreadListState {
       this.unread.set(threadKey(hostId, sessionId), viewedAt === null);
       this.publish();
     });
-    connection.events.subscribe("session.stateChanged", ({ sessionId }) => {
-      const key = threadKey(hostId, sessionId);
-      const read = this.refreshShelf(hostId, sessionId).catch(() => undefined).finally(() => {
-        if (this.shelfChanges.get(key) === read) this.shelfChanges.delete(key);
-      });
-      this.shelfChanges.set(key, read);
+    connection.events.subscribe("session.stateChanged", ({ sessionId, state }) => {
+      this.writeState(hostId, connection, sessionId, state);
     });
     connection.events.subscribe("session.pullRequestsChanged", ({ sessionId }) => {
       void this.refreshPullRequests(hostId, sessionId);
@@ -190,24 +185,27 @@ export class ThreadListState {
       if (agentSessionId) this.liveStatus.set(threadKey(hostId, agentSessionId), status);
       this.publish();
     });
-    // A fresh server session forgets what was live; the records answer again.
+    // A fresh server session forgets what was live, and a state change may
+    // have been missed; the records answer again.
     connection.onReset(() => {
       this.dropHostEntries(this.liveStatus, hostId);
+      this.dropHostEntries(this.shelf, hostId);
       this.publish();
       void this.load(hostId);
     });
   }
 
-  private readonly shelfChanges = new Map<string, Promise<void>>();
-
-  private async refreshShelf(hostId: string, sessionId: string): Promise<void> {
-    const connection = this.connectionFor(hostId);
-    if (!connection) return;
-    const answer = await connection.api.sessionShelfList([sessionId]);
-    if (this.connectionFor(hostId) !== connection) return;
-    // The host answers under the stable id, which the caller may not hold.
-    if (answer.length === 0) this.shelf.delete(threadKey(hostId, sessionId));
-    for (const entry of answer) this.shelf.set(threadKey(hostId, entry.sessionId), entry);
+  /** A state the host announced or answered overrides the record read
+   *  before it. An active state is kept too, so it overrides a stale record.
+   *  A host older than the session list answers and announces no state. */
+  private writeState(
+    hostId: string,
+    connection: ThreadListConnection,
+    sessionId: string,
+    state: SessionState | void,
+  ): void {
+    if (!state || this.connectionFor(hostId) !== connection) return;
+    this.shelf.set(threadKey(hostId, sessionId), state);
     this.publish();
   }
 

@@ -12,7 +12,7 @@ const log = createLogger('main', 'access-tokens')
  * its own (`hostAudience(hostId)`), or `SOLUS_API_AUDIENCE` on the Solus API.
  *
  * A token is a bearer credential for its life, as OAuth access tokens are: it is not
- * spent. Every token lives five minutes (`ACCESS_TOKEN_TTL_SECONDS`); a token that
+ * spent. Every token lives one hour (`ACCESS_TOKEN_TTL_SECONDS`); a token that
  * says it lives longer is refused. The one exception is a host-reach token another
  * host holds to start sessions here (`reachAudience`, docs/plans/host-reach.md §3):
  * it names the acting host and lives up to eight hours. Removal reaches a host when the token runs out and
@@ -60,7 +60,7 @@ export interface AccessTokenVerifierOptions {
 export const JWKS_REFRESH_MIN_INTERVAL_MS = 60_000
 /** Allowed clock skew for `iat`. */
 const IAT_SKEW_MS = 60_000
-/** The longest life a token may state: five minutes, and a little for a provider's rounding. */
+/** The longest life a token may state: one hour, and a little for a provider's rounding. */
 const MAX_TOKEN_LIFE_SECONDS = ACCESS_TOKEN_TTL_SECONDS + 60
 /** The longest life of a host-reach token: eight hours, and the same margin. */
 const MAX_REACH_TOKEN_LIFE_SECONDS = HOST_REACH_TOKEN_TTL_SECONDS + 60

@@ -62,6 +62,24 @@ as its task.
 `bun tests/benchmarks/picker-search.ts` measures the search speed and where
 planted targets land in the list.
 
+## The session list and the archive
+
+The sidebar on desktop and web, and the thread list on mobile, show each
+host's session list: every root session that is not archived
+(`GET /v1/sessions?archived=false&roots=true`, every page). Each record carries
+its state: settled, snoozed, or archived (`state`). The list has no count
+limit; the archive bounds it (`docs/plans/session-archive.md`).
+
+- The X on a session's row archives the session on its host, for every device.
+  Undo returns it. Archive is also in the row's menu. "Close Tab" only closes
+  the tab; the session stays in the list.
+- The picker lists archived sessions too, with an "Archived" mark. The
+  **Archive** filter shows only archived sessions. Their menu has "Return to
+  List".
+- A session with no activity for 30 days and no open pull request is archived.
+  A new prompt returns a session to the list.
+- The `organize_session` tool can archive and unarchive a session.
+
 ## Organization sessions
 
 A record from the Solus API names its runner (`runnerHostId`). When a

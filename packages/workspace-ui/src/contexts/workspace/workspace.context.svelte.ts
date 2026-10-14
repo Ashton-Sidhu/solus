@@ -1418,6 +1418,7 @@ export class WorkspaceContext implements SurfaceContext {
     session.agentSessionId = null
     session.handoffPending = false
     session.run.provider = null
+    session.threadProvider = null
     session.handoffFrom = undefined
     session.messages = []
     session.sessionChangedFiles = []

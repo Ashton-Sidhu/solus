@@ -10,7 +10,6 @@ import {
   agentProfileParts,
   integrationEntryFromProbe,
   skillEntryFromRemote,
-  withDisabled,
 } from './lib/agent-profile-entries'
 
 /** One host as the profile screen lists it: its copy of the profile, and whether it can be asked now. */
@@ -88,15 +87,6 @@ export function useAgentProfile() {
 
   const removeKeys = (keys: readonly AgentProfileKey[]) => { app.agentProfile.removeKeys(keys) }
 
-  /** Turns the entries at `keys` off or on in one change; a hand-written skill passes all its files. */
-  const setDisabled = (keys: readonly AgentProfileKey[], disabled: boolean) => {
-    const changed = keys.flatMap((key) => {
-      const entry = entries[key]
-      return entry ? [withDisabled(entry, disabled)] : []
-    })
-    if (changed.length > 0) app.agentProfile.setEntry(changed)
-  }
-
   const searchSkills = (query: string): Promise<RemoteSkill[]> => toolApi().skillsSearch(query)
 
   const addSkill = (skill: RemoteSkill): AgentProfileSetOutcome => app.agentProfile.setEntry(skillEntryFromRemote(skill))
@@ -127,7 +117,6 @@ export function useAgentProfile() {
     extraInstructions,
     saveExtraInstructions,
     removeKeys,
-    setDisabled,
     searchSkills,
     addSkill,
     addServer,

@@ -5,6 +5,7 @@ import { createLogger } from '../logger'
 import { applyOutboxOp, PermanentApplyError } from './outbox/outbox-store'
 import { runnerCursors } from './outbox/schema'
 import { getSessionRecord, upsertSessionRecord } from '../data/sessions/session-records'
+import { SessionShelf } from '../data/sessions/session-states'
 import { readSessionAdmission } from '../data/sessions/session-admissions'
 import { applyMirrorItem } from './mirror/mirror-sinks'
 import type { ShareManager } from '../sharing/share-manager'
@@ -98,10 +99,12 @@ export async function applyRunnerSessionRecords(runner: RunnerPrincipal, request
   let lastSeq = await readCursor(database, runner, 'session-records')
   for (const { seq, record } of ascending(request.reports)) {
     if (seq <= lastSeq) continue
+    let isNewTurn = false
     // The record names the runner that holds the transcript; a runner cannot speak for another.
     await database.transaction(async (db) => {
       const { admissionId, privateToOwner, ownerUserId: _reportedOwner, ...facts } = record
       const existing = await getSessionRecord(runner.organizationId, record.sessionId)
+      isNewTurn = record.status === 'running' && existing?.status !== 'running'
       // The owner is established once, from verified authority (organization-vms §4): a
       // session admitted before its provider started belongs to the person whose run
       // authority admitted it; any other new record to the account that linked the
@@ -117,6 +120,9 @@ export async function applyRunnerSessionRecords(runner: RunnerPrincipal, request
       if (shares) await shares.claimForRunner({ kind: 'session', id: record.sessionId }, owner ? { ...runner, ownerUserId: owner } : runner, { shareWithOrganization: !privateToOwner })
       await writeCursor(db, runner, 'session-records', seq)
     })
+    // A turn that starts is a prompt: the session is active and in the list
+    // again. Its list state lives here (docs/plans/session-archive.md).
+    if (isNewTurn) await new SessionShelf(record.sessionId).recordPrompt()
     lastSeq = seq
   }
   return { lastSeq }

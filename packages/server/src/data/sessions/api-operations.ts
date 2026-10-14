@@ -79,6 +79,7 @@ export class SessionApiOperations {
       parentSessionId: session.parentSessionId, rootSessionId: session.rootSessionId,
       publication: session.publication, size: session.size,
       cwd: session.cwd, slug: withinNameLimit(session.slug), isWorktree: session.isWorktree, branch: session.branch, projectRoot: session.projectRoot, delegation: session.delegation,
+      state: session.state ?? null,
     }))
   }
 
@@ -136,6 +137,9 @@ export class SessionApiOperations {
     // A chat's folder is `.solus-chats/<id>`, which the provider spells `--solus-chats-<id>`.
     if (query.chats === 'true') filters.push(sql`project_path LIKE ${`%${encodePathAsFolder(`/${CHAT_ROOT_NAME}/`)}%`}`)
     if (query.provider) filters.push(sql`provider = ${query.provider}`)
+    // The session list (docs/plans/session-archive.md): sessions in the list, or the archived ones.
+    if (query.archived) filters.push(query.archived === 'true' ? sql`session_states.archived_at IS NOT NULL` : sql`session_states.archived_at IS NULL`)
+    if (query.roots === 'true') filters.push(sql`session_records.parent_session_id IS NULL`)
     const page = pageOf(await this.records(context, await readSessionMetadataPage(sql.join(filters, sql` AND `), query.limit + 1, time)), query.limit,
       item => ({ time: Date.parse(byActivity ? item.updatedAt : item.createdAt), id: item.id }))
     return { ...page, indexing: sessionRecordsIndexing() }

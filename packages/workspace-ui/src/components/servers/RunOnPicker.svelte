@@ -26,7 +26,7 @@
   import {
     projectHostId,
     repoKeyForPath,
-    returnsToProjectHome,
+    opensCheckoutNow,
     shouldShowRunOnPicker,
     withCheckoutOnHost,
     withRemoteDispatch,
@@ -235,7 +235,11 @@
       case "checkout":
         onRun(
           withCheckoutOnHost(run, server.id, action.path, {
-            immediate: server.local || returnsToProjectHome(run, server.id),
+            immediate: opensCheckoutNow(run, {
+              id: server.id,
+              local: server.local,
+              online: server.status === "online",
+            }),
           }),
         );
         return;

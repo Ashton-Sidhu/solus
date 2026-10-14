@@ -17,7 +17,8 @@
   import SettingsRow from "../SettingsRow.svelte";
   import { integrationsStore } from "../integrations.store.svelte";
   import { customUrlProblem, probeRefusal, urlHost } from "../lib/integration-labels";
-  import { authKindLabel, entriesWithDisabled, integrationEntryOf, type AgentProfileSections } from "./lib/agent-profile-entries";
+  import ShowMoreRow from "./ShowMoreRow.svelte";
+  import { authKindLabel, pageOf, integrationEntryOf, type AgentProfileSections } from "./lib/agent-profile-entries";
 
   interface Props {
     integrations: AgentProfileSections["integrations"];
@@ -83,8 +84,11 @@
     requestInputFocus();
   }
 
-  function setDisabled(key: AgentProfileKey, disabled: boolean) {
-    agentProfileLocalStore.setEntry(...entriesWithDisabled(agentProfileLocalStore.storedEntries, [key], disabled));
+  let expanded = $state(false);
+  const page = $derived(pageOf(integrations, expanded));
+
+  function toggleExpanded() {
+    expanded = !expanded;
     requestInputFocus();
   }
 </script>
@@ -131,17 +135,12 @@
   {#if integrations.length === 0 && !isAdding}
     <p class="p-8 text-center text-workspace-chrome text-muted-foreground">No MCP servers in your profile yet.</p>
   {/if}
-  {#each integrations as integration (integration.slug)}
+  {#each page.rows as integration (integration.slug)}
     <SettingsRow label={integration.name} description="{urlHost(integration.url)} · {authKindLabel(integration.auth)}" testId="agent-profile-server">
-      {#snippet labelExtra()}
-        {#if integration.disabled}<span class="ml-2 text-chrome-dense text-muted-foreground">Off on every host</span>{/if}
-      {/snippet}
       {#snippet control()}
-        <span class="flex gap-1.5">
-          <Button variant="ghost" size="sm" onclick={() => setDisabled(agentProfileKeyOf(integration), !integration.disabled)} aria-label="{integration.disabled ? 'Enable' : 'Disable'} {integration.name}">{integration.disabled ? "Enable" : "Disable"}</Button>
-          <Button variant="ghost" size="sm" class="text-muted-foreground hover:text-destructive" onclick={() => remove(agentProfileKeyOf(integration))} aria-label="Remove {integration.name}">Remove</Button>
-        </span>
+        <Button variant="ghost" size="sm" class="text-muted-foreground hover:text-destructive" onclick={() => remove(agentProfileKeyOf(integration))} aria-label="Remove {integration.name}">Remove</Button>
       {/snippet}
     </SettingsRow>
   {/each}
+  <ShowMoreRow hiddenCount={page.hiddenCount} {expanded} noun="servers" onToggle={toggleExpanded} />
 </SettingsSection>

@@ -7,6 +7,6 @@
   > = $props()
 </script>
 
-<thead bind:this={ref} data-slot="table-header" class={cn('[&_tr]:border-b', className)} {...restProps}>
+<thead bind:this={ref} data-slot="table-header" class={cn('[&_tr]:border-b [&_tr]:border-border/40', className)} {...restProps}>
   {@render children?.()}
 </thead>

@@ -194,17 +194,40 @@ a turn that was running when it came. A queued message that host B drops (a Stop
 drains the queue) settles as interrupted. Attachments go to host B first,
 through `attachUpload`, and the prompt names the paths on host B. In this version `task` must
 be `none`, `cwd` is a path on the other host (default: a new chat folder there),
-and `read_session` does not reach another host. After a restart of this host, an
+`list_agent_targets` with `host` lists that host's projects so an agent can
+pass one as `cwd`, and `read_session` does not reach another host. After a restart of this host, an
 open request to another host is reported as interrupted. The design is in
 `docs/plans/cross-host-sessions.md`.
 
 ## Queue and provider changes
 
-The host saves accepted queue entries before it confirms them. Prompts and
-provider switches use one ordered queue. For example, a switch to Codex, a
-prompt, and a switch to Claude run in that order after the current turn ends.
-Moving or removing a switch changes the provider of the prompts after it.
-The current turn keeps its provider and model options.
+A provider pick in the composer changes nothing on the host. The provider
+changes when you send (`plans/021-provider-switch-on-send.md`). Each prompt
+carries its provider and model. The host compares that provider with the
+thread provider (the provider of the session's active provider thread):
+
+- Same provider: the prompt continues the thread. A model change inside one
+  provider is not a handoff.
+- Another provider, session idle: the host hands the session off, then runs
+  the prompt on the new provider with the handoff seed.
+- Another provider, session busy: the prompt queues and never steers into the
+  current turn. The handoff happens when that prompt starts. A prompt queued
+  before it keeps its own provider.
+- Another provider, session rate-limited: the prompt that the limit holds is
+  abandoned, the limit card clears, and the prompt runs after the handoff.
+
+Each handoff records one `agent_switched` activity. Its `provider` is the new
+thread provider and `fromProvider` the old one. Clients read the thread
+provider from it. A session that has a provisional handoff from an older
+client continues it: a prompt on the provisional provider starts it, and a
+prompt on the provider it left takes the old thread back.
+
+The host saves accepted queue entries before it confirms them. Prompts keep
+their provider in the queue. Older clients can still queue a provider switch
+(`sessionQueueChange` with `kind: 'switch'`) or call `switchSessionAgent`.
+Both are deprecated and stay for one release. A queued switch applies in queue
+order, and a prompt queued after it takes its provider. The current turn keeps
+its provider and model options.
 
 Desktop, web, and mobile expose Edit, Remove, Up, Down, Steer now, and Resume.
 Edits have a separate draft, so the main composer's text and files stay intact.

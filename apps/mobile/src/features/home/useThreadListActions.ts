@@ -12,9 +12,9 @@ import { withThreadDismissal } from "./thread-dismissal";
 
 /**
  * The thread list's actions on Solus sessions: settle and un-settle, snooze
- * and wake (the host's session state), and rename. T3's archive, delete, pin,
- * reorder, auto-settle, and title regeneration have no Solus session
- * counterpart and are not offered.
+ * and wake, archive and return to the list (the host's session state), and
+ * rename. T3's delete, pin, reorder, auto-settle, and title regeneration have
+ * no Solus session counterpart and are not offered.
  */
 
 function selectionHaptic() {
@@ -30,6 +30,8 @@ export function useThreadListActions(): {
   readonly unsettleThread: (thread: SolusThreadShell) => Promise<boolean>;
   readonly snoozeThread: (thread: SolusThreadShell, snoozedUntil: number) => Promise<boolean>;
   readonly unsnoozeThread: (thread: SolusThreadShell) => Promise<boolean>;
+  readonly archiveThread: (thread: SolusThreadShell) => Promise<boolean>;
+  readonly unarchiveThread: (thread: SolusThreadShell) => Promise<boolean>;
   readonly renameThread: (thread: SolusThreadShell) => void;
   readonly setPullRequestWatch: (thread: SolusThreadShell, target: ThreadPrWatchTarget, watching: boolean) => void;
 } {
@@ -92,6 +94,20 @@ export function useThreadListActions(): {
     (thread: SolusThreadShell) =>
       run(thread, "Could not wake thread", "The thread could not be woken.", () =>
         list.snooze(thread.hostId, thread.record.sessionId, null),
+      ),
+    [list, run],
+  );
+  const archiveThread = useCallback(
+    (thread: SolusThreadShell) =>
+      run(thread, "Could not archive thread", "The thread could not be archived.", () =>
+        list.setArchived(thread.hostId, thread.record.sessionId, true),
+      ),
+    [list, run],
+  );
+  const unarchiveThread = useCallback(
+    (thread: SolusThreadShell) =>
+      run(thread, "Could not return thread to the list", "The thread could not be returned to the list.", () =>
+        list.setArchived(thread.hostId, thread.record.sessionId, false),
       ),
     [list, run],
   );
@@ -158,5 +174,14 @@ export function useThreadListActions(): {
     [list],
   );
 
-  return { settleThread, unsettleThread, snoozeThread, unsnoozeThread, renameThread, setPullRequestWatch };
+  return {
+    settleThread,
+    unsettleThread,
+    snoozeThread,
+    unsnoozeThread,
+    archiveThread,
+    unarchiveThread,
+    renameThread,
+    setPullRequestWatch,
+  };
 }

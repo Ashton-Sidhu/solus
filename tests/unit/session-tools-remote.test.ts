@@ -13,7 +13,8 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 // docs/plans/host-reach.md). The tool must refuse what it cannot honour — no way to
 // reach other hosts here, a task across hosts, a turn whose person reaches no other
 // host — before it reaches the other host; it must look the host up for that person; check the model against what that host offers, not
-// this one; never resolve the other host's path here; and tell the other host
+// this one; list that host's projects so an agent can pick a cwd there; never
+// resolve the other host's path here; and tell the other host
 // which session started it. A message to a session it started there goes to
 // that host, with its attachments; a read names the host rather than "not found".
 
@@ -34,6 +35,7 @@ let dataDir = ''
 const remoteHost = {
   hostId: 'host-b', installationId: 'install-b', label: 'Host B',
   api: {
+    listProjects: async () => [{ key: 'k', path: '/srv/b/solus', folderName: 'solus', addedAt: '', lastUsedAt: '', repositoryKey: null }],
     start: async () => ({ agents: [{ id: 'codex', label: 'Codex', available: true, defaultModel: 'model-on-b', models: [{ id: 'model-on-b', label: 'B model' }] }] }),
   },
   call: (_what: string, request: () => Promise<unknown>) => request(),
@@ -134,10 +136,27 @@ describe('start_session on another host', () => {
 })
 
 describe('a session on another host', () => {
+  test('list_agent_targets still shows what that host offers when its project list fails', async () => {
+    const listProjects = remoteHost.api.listProjects
+    remoteHost.api.listProjects = async () => { throw new Error('forbidden') }
+    try {
+      sessionTools.setRemoteHosts(remoteHosts as never)
+      const result = await sessionTools.executeSessionTool('list_agent_targets', { host: 'Host B' }, { ctx })
+      expect(result.ok).toBe(true)
+      const there = JSON.parse(result.text)
+      expect(there.targets).toHaveLength(1)
+      expect(there.projects).toBeUndefined()
+    } finally {
+      remoteHost.api.listProjects = listProjects
+    }
+  })
+
   test('list_agent_targets shows what that host offers, and this host lists the other hosts', async () => {
     sessionTools.setRemoteHosts(remoteHosts as never)
     const there = JSON.parse((await sessionTools.executeSessionTool('list_agent_targets', { host: 'Host B' }, { ctx })).text)
     expect(there).toMatchObject({ host: 'Host B', targets: [{ provider: 'codex', models: [{ id: 'model-on-b' }] }] })
+    // The projects there are the only paths an agent here can know to pass as cwd.
+    expect(there.projects).toEqual([{ name: 'solus', path: '/srv/b/solus' }])
     const here = JSON.parse((await sessionTools.executeSessionTool('list_agent_targets', {}, { ctx })).text)
     expect(here.otherHosts).toEqual([{ id: 'host-b', name: 'Host B' }])
   })

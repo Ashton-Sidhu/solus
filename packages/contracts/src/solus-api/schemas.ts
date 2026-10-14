@@ -336,7 +336,17 @@ export const workspaceSessionSchema = z.strictObject({
     intent: z.enum(['delegate', 'fire_and_forget']),
     createdAt: z.number().int().min(0),
   }).nullable(),
-}).meta({ description: 'Storage and organization do not grant visibility. Explicit sharing or a verified parent relationship may grant access. `updatedAt` is the last activity.', examples: [{ id: 'session_example', home: { kind: 'organization', serviceId: 'api_example', organizationId: 'org_example' }, organizationId: 'org_example', ownerUserId: 'user_example', version: 'v1-example', createdAt: '2026-09-28T16:00:00Z', updatedAt: '2026-09-28T16:00:00Z', provider: 'codex', title: 'Review the API', customTitle: null, projectId: 'project_example', projectPath: 'project-example', projectRemote: null, runnerHostId: 'host_example', status: 'idle', model: null, reasoningEffort: null, parentSessionId: null, rootSessionId: null, publication: 'published', size: 0, cwd: '/home/example/project', slug: null, isWorktree: false, branch: 'main', projectRoot: '/home/example/project', delegation: null }] })
+  /** Where the session is in the person's list (docs/plans/session-archive.md). Null when
+   *  nothing settled, snoozed, or archived it, and from the workspace service, which keeps no
+   *  list state. Absent from a host older than the session list. */
+  state: z.strictObject({
+    settledAt: z.number().int().min(0).nullable(),
+    settledBy: z.enum(['person', 'pull-request', 'task', 'idle']).nullable(),
+    snoozedUntil: z.number().int().min(0).nullable(),
+    snoozeNote: z.string().nullable(),
+    archivedAt: z.number().int().min(0).nullable(),
+  }).nullable().optional(),
+}).meta({ description: 'Storage and organization do not grant visibility. Explicit sharing or a verified parent relationship may grant access. `updatedAt` is the last activity.', examples: [{ id: 'session_example', home: { kind: 'organization', serviceId: 'api_example', organizationId: 'org_example' }, organizationId: 'org_example', ownerUserId: 'user_example', version: 'v1-example', createdAt: '2026-09-28T16:00:00Z', updatedAt: '2026-09-28T16:00:00Z', provider: 'codex', title: 'Review the API', customTitle: null, projectId: 'project_example', projectPath: 'project-example', projectRemote: null, runnerHostId: 'host_example', status: 'idle', model: null, reasoningEffort: null, parentSessionId: null, rootSessionId: null, publication: 'published', size: 0, cwd: '/home/example/project', slug: null, isWorktree: false, branch: 'main', projectRoot: '/home/example/project', delegation: null, state: null }] })
 export type WorkspaceSession = z.infer<typeof workspaceSessionSchema>
 
 export const workspaceSessionAdmissionRequestSchema = z.strictObject({

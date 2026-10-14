@@ -141,3 +141,51 @@ export function markdownWithHtml(markdown: string): string {
     markdown = markdown.slice(0, edit.start) + edit.content + markdown.slice(edit.end);
   return markdown;
 }
+
+/**
+ * Give an image on a line of its own its own paragraph. Markdown joins a caption
+ * and the image on the next line into one paragraph, and Enriched draws an image
+ * inside a paragraph as a 20pt inline icon. Desktop's browser draws the same
+ * image at full size, so the phone matches it. An image inside a sentence, list,
+ * or quote keeps its place.
+ */
+export function markdownWithBlockImages(markdown: string): string {
+  if (!markdown.includes("![")) return markdown;
+  const edits: Array<{ start: number; end: number; content: string }> = [];
+  for (const paragraph of parser.parse(markdown).children) {
+    if (paragraph.type !== "paragraph") continue;
+    const start = paragraph.position?.start.offset;
+    const end = paragraph.position?.end.offset;
+    if (start === undefined || end === undefined) continue;
+    const firstLine = paragraph.position!.start.line;
+    const imageLines = new Set<number>();
+    for (const child of paragraph.children) {
+      const imageStart = child.position?.start.offset;
+      const imageEnd = child.position?.end.offset;
+      if (child.type !== "image" || imageStart === undefined || imageEnd === undefined) continue;
+      if (child.position!.start.line !== child.position!.end.line) continue;
+      const lineStart = markdown.lastIndexOf("\n", imageStart - 1) + 1;
+      const lineEnd = markdown.indexOf("\n", imageEnd);
+      const before = markdown.slice(lineStart, imageStart);
+      const after = markdown.slice(imageEnd, lineEnd === -1 ? markdown.length : lineEnd);
+      if (/^\s*$/.test(before) && /^\s*\\?\s*$/.test(after))
+        imageLines.add(child.position!.start.line - firstLine);
+    }
+    const lines = markdown.slice(start, end).split("\n");
+    if (imageLines.size === 0 || imageLines.size === lines.length) continue;
+    const blocks: string[][] = [];
+    lines.forEach((line, index) => {
+      if (imageLines.has(index)) blocks.push([line.trim().replace(/\s*\\$/, "")]);
+      else if (index === 0 || imageLines.has(index - 1)) blocks.push([line]);
+      else blocks.at(-1)!.push(line);
+    });
+    // A hard break that ended a caption has nothing left to break.
+    const content = blocks
+      .map((block) => block.join("\n").replace(/(?: {2,}|\\)$/, ""))
+      .join("\n\n");
+    edits.push({ start, end, content });
+  }
+  for (const edit of edits.reverse())
+    markdown = markdown.slice(0, edit.start) + edit.content + markdown.slice(edit.end);
+  return markdown;
+}

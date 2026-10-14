@@ -36,6 +36,7 @@ export type SettingsTab =
   | 'api-access'
   | 'tools'
   | 'integrations'
+  | 'mcp'
   | 'skills'
   | 'devices'
   | 'voice'
@@ -59,6 +60,7 @@ const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
   'api-access',
   'tools',
   'integrations',
+  'mcp',
   'skills',
   'devices',
   'voice',

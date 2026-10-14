@@ -6,6 +6,10 @@ import { join } from 'path'
 import { runGitAction, type GitActionManagerOptions } from '@solus/server/git/git-action-manager'
 import type { GitActionRequest, GitCheckout } from '@solus/contracts/types'
 import type { TextGenerator } from '@solus/server/execution/agents/text-generator'
+import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity'
+
+// The Git helpers start processes; with no caller, they act as the host (plans/019).
+actAsHostForTests()
 
 let roots: string[] = []
 
@@ -238,5 +242,27 @@ describe('selective commit', () => {
     expect(result.push).toEqual({ status: 'pushed', branch: 'feature/selective' })
     expect(git(local, ['status', '--porcelain'])).toBe('A  b.txt')
     expect(git(origin, ['rev-parse', 'feature/selective'])).toBe(git(local, ['rev-parse', 'HEAD']))
+  })
+
+  test('commits a selected untracked file whose name has outer whitespace', async () => {
+    // WHY: git quotes such a path in line-based porcelain and trimming changes
+    // it, so the file was never staged and the commit left it out (t3code #12464).
+    const repo = createRepo()
+    writeFileSync(join(repo, 'base.txt'), 'base\n')
+    git(repo, ['add', '-A'])
+    git(repo, ['commit', '-q', '-m', 'init'])
+    writeFileSync(join(repo, ' leading space.txt'), 'a\n')
+    writeFileSync(join(repo, 'other.txt'), 'b\n')
+
+    await runGitAction(
+      commitAction({ filePaths: [' leading space.txt'], commitMessage: 'add file' }),
+      mainCheckout,
+      repo,
+      baseOptions(),
+    )
+
+    const committed = spawnSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', '-z', 'HEAD'], { cwd: repo, encoding: 'utf8' }).stdout
+    expect(committed).toBe(' leading space.txt\0')
+    expect(git(repo, ['status', '--porcelain=v1'])).toBe('?? other.txt')
   })
 })

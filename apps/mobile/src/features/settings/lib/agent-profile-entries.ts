@@ -59,34 +59,30 @@ export function integrationEntryFromProbe(url: string, probe: IntegrationProbeRe
   return { kind: 'integration', slug: integrationSlug(name), name, url: url.trim(), auth: probe.auth }
 }
 
-// ─── Disabled entries ───
+/** A long list shows this many rows before "Show more". */
+export const PROFILE_PAGE_SIZE = 8
 
-/**
- * An entry turned off (2026-10-12): it stays in the profile, so the person can
- * turn it on again, and every host removes it on its next pull. On is the
- * absence of the flag, never `disabled: false`, so an entry turned on again is
- * the entry it was before.
- */
-export function withDisabled<T extends AgentProfileEntry>(entry: T, disabled: boolean): T {
-  const next = { ...entry }
-  if (disabled) next.disabled = true
-  else delete next.disabled
-  return next
+/** One page of a long list: the rows shown, and how many wait behind "Show more". */
+export interface ListPage<T> {
+  rows: readonly T[]
+  hiddenCount: number
 }
 
-export const DISABLED_ENTRY_TEXT = 'Off on every host'
+/** The rows a list shows, and how many it hides: all of them, or the first page. */
+export function pageOf<T>(items: readonly T[], expanded: boolean): ListPage<T> {
+  if (expanded || items.length <= PROFILE_PAGE_SIZE) return { rows: items, hiddenCount: 0 }
+  return { rows: items.slice(0, PROFILE_PAGE_SIZE), hiddenCount: items.length - PROFILE_PAGE_SIZE }
+}
 
 /** A hand-written skill: the files under `skills/<name>/` of one provider. */
 export interface HandWrittenSkill {
   name: string
   provider: SeatProvider
   keys: AgentProfileKey[]
-  /** Its files turn off and on together, so one is off when they all are. */
-  disabled: boolean
 }
 
 export interface AgentProfileParts {
-  /** Files that are not a skill's, by provider: the instruction file first. */
+  /** Files that are not a skill's, by provider then path. */
   files: AgentProfileFileEntry[]
   handWrittenSkills: HandWrittenSkill[]
   registrySkills: AgentProfileSkillEntry[]
@@ -106,9 +102,8 @@ export function agentProfileParts(entries: AgentProfile): AgentProfileParts {
     else if (entry.path.startsWith('skills/')) {
       const name = entry.path.split('/')[1] ?? ''
       const id = `${entry.provider}/${name}`
-      const skill = skillsByFolder.get(id) ?? { name, provider: entry.provider, keys: [], disabled: true }
+      const skill = skillsByFolder.get(id) ?? { name, provider: entry.provider, keys: [] }
       skill.keys.push(agentProfileKeyOf(entry))
-      skill.disabled &&= entry.disabled === true
       skillsByFolder.set(id, skill)
     } else files.push(entry)
   }

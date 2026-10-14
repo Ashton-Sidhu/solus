@@ -33,7 +33,7 @@ type ConnectionInfo = z.infer<typeof connectionInfoSchema>
 const connectionRowSchema = z.object({
   integration_id: z.string(),
   user_id: z.string().nullable(),
-  status: z.enum(['connected', 'needs-sign-in', 'error', 'cloud-unreachable']),
+  status: z.enum(['connected', 'needs-sign-in', 'error', 'cloud-unreachable', 'needs-solus-sign-in']),
   source: z.enum(['host', 'cloud']),
   label: z.string().nullable(),
   info: z.string().nullable(),

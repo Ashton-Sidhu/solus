@@ -10,6 +10,7 @@ import type { DeviceRunProfile } from './device-types'
 import type { WorkExternalLink } from './docs'
 import type { Attribution, User } from './user'
 import type { Activity } from './activity'
+import type { SessionState } from './session-state'
 import type { MediaType } from './media-types'
 import type { WorktreeBranchNaming } from './worktree-branch-naming'
 import type { ExecutionPreferenceSnapshot, ExecutionPreferences } from './settings'
@@ -33,6 +34,9 @@ export const AGENT_BIN = {
  * the clients: an address a user types without a port means this one, not 80.
  */
 export const DEFAULT_SERVER_PORT = 3000
+
+/** Finder on macOS, File Explorer on Windows and WSL, the desktop's default on Linux. */
+export type FileManagerKind = 'finder' | 'file-explorer' | 'files'
 
 /** What one authenticated host can do and what it has, from
  * `serverGetCapabilities`. Missing keys are unsupported so newer clients remain
@@ -85,6 +89,8 @@ export interface HostCapabilities {
   /** The local transcription model is installed. */
   dictation?: boolean
   platform?: string
+  /** The file manager this host opens a folder in; absent when it has none (a headless Linux box). */
+  fileManager?: FileManagerKind
   /** Projects this caller can see on the host. */
   projectCount?: number
   agentAuth?: { claude: boolean }
@@ -999,9 +1005,14 @@ export interface Session {
   /** The agent session on another host that started this one (docs/plans/cross-host-sessions.md). */
   startedBy?: SessionOrigin
   agentSessionId: string | null
-  /** A provider switch waits for the new provider's first thread: the host
-   *  holds the session although it has no thread now. */
+  /** A handoff the host began waits for the new provider's first thread: the
+   *  host holds the session although it has no thread now. */
   handoffPending?: boolean
+  /** Renderer-local: the provider that owns the session's provider thread now.
+   *  `run.provider` is the composer's picked provider; when the two differ, a
+   *  handoff is pending until the next send (plans/021). Null or absent before
+   *  the first thread. */
+  threadProvider?: AgentId | null
   handoffFrom?: SessionHandoffLineage
   status: SessionStatus
   messages: Message[]
@@ -2411,6 +2422,9 @@ export interface SessionMeta {
   /** The organization of the session's record: `local` or an organization id
    *  (organization-scope §3). Absent when the host keeps no record of it. */
   organizationId?: string
+  /** The session is out of the person's list (docs/plans/session-archive.md).
+   *  The session picker still lists it, with a mark. */
+  archived?: boolean
 }
 
 export interface SessionDelegation {
@@ -2481,6 +2495,10 @@ export interface SessionRecord {
   projectRoot: string | null
   /** How the parent session started this one; null for a session nobody delegated. */
   delegation: SessionRecordDelegation | null
+  /** Where the session is in the person's list (docs/plans/session-archive.md).
+   *  Null when nothing settled, snoozed, or archived it. Absent from a host
+   *  older than the session list: read it as active. */
+  state?: SessionState | null
 }
 
 /** `SessionDelegation` less the two ids the record already carries. */
@@ -2488,7 +2506,7 @@ export type SessionRecordDelegation = Omit<SessionDelegation, 'parentSessionId' 
 
 /** `sessionRecordUpsert`: a field left out keeps the stored value; `lastActivityAt`
  *  is always the caller's. The organization is the caller's, never an argument. */
-export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'lastActivityAt' | 'organizationId' | 'publication'>> {
+export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'lastActivityAt' | 'organizationId' | 'publication' | 'state'>> {
   sessionId: string
   provider: AgentId
   projectPath: string
@@ -2517,6 +2535,10 @@ export interface SessionRecordListFilter {
   repositoryKey?: string
   /** Only chats, the sessions with no project, in every chat folder. */
   chats?: boolean
+  /** Only archived sessions (true), or only sessions in the list (false). */
+  archived?: boolean
+  /** Only sessions no other session started. */
+  roots?: boolean
   limit?: number
 }
 

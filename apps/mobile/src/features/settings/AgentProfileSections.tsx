@@ -12,8 +12,8 @@ import { SettingsSection } from "./components/SettingsSection";
 import { urlHost } from "./integrations";
 import {
   AUTH_LABELS,
-  DISABLED_ENTRY_TEXT,
   hostProfileText,
+  pageOf,
   PROVIDER_LABELS,
   skillFileCountText,
   type HandWrittenSkill,
@@ -27,8 +27,9 @@ export const formatTime = (epochMs: number) => new Date(epochMs).toLocaleString(
 /**
  * The parts of the agent profile screen (plans/020-agent-profile.md §3): the
  * person's instructions, the skills, the MCP servers, and the copied files;
- * and, on the account's sync screen, the hosts. Each add, remove, and turn off or on goes through
- * `useAgentProfile`. An entry turned off stays listed and leaves every host.
+ * and, on the account's sync screen, the hosts. Each add and remove goes
+ * through `useAgentProfile`; removing takes the entry off every host. A long
+ * list shows a page, then "Show more".
  */
 
 // ─── Instructions ───
@@ -74,35 +75,35 @@ function ExtraInstructionsEditor(props: { readonly stored: string; readonly onSa
 
 /** Subagents, commands, and prompts copied from a computer: listed, not edited. Nothing when the profile holds none. */
 export function FilesSection({ profile }: { readonly profile: AgentProfileModel }) {
+  const [expanded, setExpanded] = useState(false);
   if (profile.parts.files.length === 0) return null;
+  const page = pageOf(profile.parts.files, expanded);
   return (
     <View className="gap-3">
       <SettingsSection title="Files">
-        {profile.parts.files.map((entry, index) => (
+        {page.rows.map((entry, index) => (
           <FileRow
             key={agentProfileKeyOf(entry)}
             entry={entry}
             first={index === 0}
-            onToggle={() => profile.setDisabled([agentProfileKeyOf(entry)], entry.disabled !== true)}
             onRemove={() => confirmRemove(`Remove ${entry.path}?`, () => profile.removeKeys([agentProfileKeyOf(entry)]))}
           />
         ))}
+        <ShowMoreRow hiddenCount={page.hiddenCount} expanded={expanded} noun="files" onToggle={() => setExpanded((value) => !value)} />
       </SettingsSection>
       <SettingsNote>Subagents, commands, and prompts from a computer's home, on every host you work on.</SettingsNote>
     </View>
   );
 }
 
-function FileRow(props: { readonly entry: AgentProfileFileEntry; readonly first: boolean; readonly onToggle: () => void; readonly onRemove: () => void }) {
-  const disabled = props.entry.disabled === true;
+function FileRow(props: { readonly entry: AgentProfileFileEntry; readonly first: boolean; readonly onRemove: () => void }) {
   return (
     <View className={cn("flex-row items-center gap-3 p-4", !props.first && "border-t border-border-subtle")}>
       <View className="min-w-0 flex-1 gap-0.5">
-        <EntryTitle disabled={disabled} middle>{props.entry.path}</EntryTitle>
+        <EntryTitle middle>{props.entry.path}</EntryTitle>
         <Text className="text-sm text-foreground-muted" numberOfLines={1}>{PROVIDER_LABELS[props.entry.provider]}</Text>
-        {disabled ? <DisabledLine /> : null}
       </View>
-      <EntryActions name={props.entry.path} disabled={disabled} onToggle={props.onToggle} onRemove={props.onRemove} />
+      <RemoveButton name={props.entry.path} onPress={props.onRemove} />
     </View>
   );
 }
@@ -110,6 +111,7 @@ function FileRow(props: { readonly entry: AgentProfileFileEntry; readonly first:
 // ─── Skills ───
 
 export function SkillsSection({ profile }: { readonly profile: AgentProfileModel }) {
+  const [expanded, setExpanded] = useState(false);
   const { registrySkills, handWrittenSkills } = profile.parts;
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState<{ kind: "idle" } | { kind: "searching" } | { kind: "results"; skills: RemoteSkill[] } | { kind: "failed"; message: string }>({ kind: "idle" });
@@ -127,33 +129,37 @@ export function SkillsSection({ profile }: { readonly profile: AgentProfileModel
   };
 
   const added = new Set(registrySkills.map((skill) => skill.name));
-  const rows = registrySkills.length + handWrittenSkills.length;
+  // One list: registry skills first, then hand-written, paged together.
+  const page = pageOf(
+    [...registrySkills.map((skill) => ({ kind: "registry" as const, skill })), ...handWrittenSkills.map((skill) => ({ kind: "written" as const, skill }))],
+    expanded,
+  );
   return (
     <View className="gap-3">
       <SettingsSection title="Skills">
-        {rows === 0 ? (
+        {page.rows.length === 0 ? (
           <View className="p-4">
             <SettingsNote>No skills yet. Search skills.sh below to add one.</SettingsNote>
           </View>
         ) : null}
-        {registrySkills.map((skill, index) => (
-          <RegistrySkillRow
-            key={skill.name}
-            skill={skill}
-            first={index === 0}
-            onToggle={() => profile.setDisabled([`skill:${skill.name}`], skill.disabled !== true)}
-            onRemove={() => confirmRemove(`Remove ${skill.name}?`, () => profile.removeKeys([`skill:${skill.name}`]))}
-          />
-        ))}
-        {handWrittenSkills.map((skill, index) => (
-          <HandWrittenSkillRow
-            key={`${skill.provider}/${skill.name}`}
-            skill={skill}
-            first={index === 0 && registrySkills.length === 0}
-            onToggle={() => profile.setDisabled(skill.keys, !skill.disabled)}
-            onRemove={() => confirmRemove(`Remove ${skill.name}?`, () => profile.removeKeys(skill.keys))}
-          />
-        ))}
+        {page.rows.map((row, index) =>
+          row.kind === "registry" ? (
+            <RegistrySkillRow
+              key={row.skill.name}
+              skill={row.skill}
+              first={index === 0}
+              onRemove={() => confirmRemove(`Remove ${row.skill.name}?`, () => profile.removeKeys([`skill:${row.skill.name}`]))}
+            />
+          ) : (
+            <HandWrittenSkillRow
+              key={`${row.skill.provider}/${row.skill.name}`}
+              skill={row.skill}
+              first={index === 0}
+              onRemove={() => confirmRemove(`Remove ${row.skill.name}?`, () => profile.removeKeys(row.skill.keys))}
+            />
+          ),
+        )}
+        <ShowMoreRow hiddenCount={page.hiddenCount} expanded={expanded} noun="skills" onToggle={() => setExpanded((value) => !value)} />
       </SettingsSection>
       <ToolHostPicker profile={profile} />
       <AddProjectTextInput
@@ -189,29 +195,26 @@ export function SkillsSection({ profile }: { readonly profile: AgentProfileModel
   );
 }
 
-function RegistrySkillRow(props: { readonly skill: AgentProfileSkillEntry; readonly first: boolean; readonly onToggle: () => void; readonly onRemove: () => void }) {
-  const disabled = props.skill.disabled === true;
+function RegistrySkillRow(props: { readonly skill: AgentProfileSkillEntry; readonly first: boolean; readonly onRemove: () => void }) {
   return (
     <View className={cn("flex-row items-center gap-3 p-4", !props.first && "border-t border-border-subtle")}>
       <View className="min-w-0 flex-1 gap-0.5">
-        <EntryTitle disabled={disabled}>{props.skill.name}</EntryTitle>
+        <EntryTitle>{props.skill.name}</EntryTitle>
         <Text className="text-sm text-foreground-muted" numberOfLines={1} ellipsizeMode="middle">{`skills.sh · ${props.skill.source}`}</Text>
-        {disabled ? <DisabledLine /> : null}
       </View>
-      <EntryActions name={props.skill.name} disabled={disabled} onToggle={props.onToggle} onRemove={props.onRemove} />
+      <RemoveButton name={props.skill.name} onPress={props.onRemove} />
     </View>
   );
 }
 
-function HandWrittenSkillRow(props: { readonly skill: HandWrittenSkill; readonly first: boolean; readonly onToggle: () => void; readonly onRemove: () => void }) {
+function HandWrittenSkillRow(props: { readonly skill: HandWrittenSkill; readonly first: boolean; readonly onRemove: () => void }) {
   return (
     <View className={cn("flex-row items-center gap-3 p-4", !props.first && "border-t border-border-subtle")}>
       <View className="min-w-0 flex-1 gap-0.5">
-        <EntryTitle disabled={props.skill.disabled}>{props.skill.name}</EntryTitle>
+        <EntryTitle>{props.skill.name}</EntryTitle>
         <Text className="text-sm text-foreground-muted" numberOfLines={1}>{`Hand-written · ${PROVIDER_LABELS[props.skill.provider]} · ${skillFileCountText(props.skill.keys.length)}`}</Text>
-        {props.skill.disabled ? <DisabledLine /> : null}
       </View>
-      <EntryActions name={props.skill.name} disabled={props.skill.disabled} onToggle={props.onToggle} onRemove={props.onRemove} />
+      <RemoveButton name={props.skill.name} onPress={props.onRemove} />
     </View>
   );
 }
@@ -233,6 +236,8 @@ function RemoteSkillRow(props: { readonly skill: RemoteSkill; readonly first: bo
 
 export function ServersSection({ profile }: { readonly profile: AgentProfileModel }) {
   const { integrations } = profile.parts;
+  const [expanded, setExpanded] = useState(false);
+  const page = pageOf(integrations, expanded);
   const [address, setAddress] = useState("");
   const [adding, setAdding] = useState<{ kind: "idle" } | { kind: "checking" } | { kind: "failed"; message: string }>({ kind: "idle" });
   const canAdd = profile.toolHost !== null && address.trim().length > 0 && adding.kind !== "checking";
@@ -253,16 +258,16 @@ export function ServersSection({ profile }: { readonly profile: AgentProfileMode
             <SettingsNote>No MCP servers yet. Add one by its address below.</SettingsNote>
           </View>
         ) : (
-          integrations.map((integration, index) => (
+          page.rows.map((integration, index) => (
             <ServerRow
               key={integration.slug}
               integration={integration}
               first={index === 0}
-              onToggle={() => profile.setDisabled([`integration:${integration.slug}`], integration.disabled !== true)}
               onRemove={() => confirmRemove(`Remove ${integration.name}?`, () => profile.removeKeys([`integration:${integration.slug}`]))}
             />
           ))
         )}
+        <ShowMoreRow hiddenCount={page.hiddenCount} expanded={expanded} noun="servers" onToggle={() => setExpanded((value) => !value)} />
       </SettingsSection>
       <View className="flex-row items-center gap-3">
         <View className="min-w-0 flex-1">
@@ -294,16 +299,14 @@ export function ServersSection({ profile }: { readonly profile: AgentProfileMode
   );
 }
 
-function ServerRow(props: { readonly integration: AgentProfileIntegrationEntry; readonly first: boolean; readonly onToggle: () => void; readonly onRemove: () => void }) {
-  const disabled = props.integration.disabled === true;
+function ServerRow(props: { readonly integration: AgentProfileIntegrationEntry; readonly first: boolean; readonly onRemove: () => void }) {
   return (
     <View className={cn("flex-row items-center gap-3 p-4", !props.first && "border-t border-border-subtle")}>
       <View className="min-w-0 flex-1 gap-0.5">
-        <EntryTitle disabled={disabled}>{props.integration.name}</EntryTitle>
+        <EntryTitle>{props.integration.name}</EntryTitle>
         <Text className="text-sm text-foreground-muted" numberOfLines={1} ellipsizeMode="middle">{`${urlHost(props.integration.url)} · ${AUTH_LABELS[props.integration.auth.kind]}`}</Text>
-        {disabled ? <DisabledLine /> : null}
       </View>
-      <EntryActions name={props.integration.name} disabled={disabled} onToggle={props.onToggle} onRemove={props.onRemove} />
+      <RemoveButton name={props.integration.name} onPress={props.onRemove} />
     </View>
   );
 }
@@ -368,30 +371,31 @@ function ToolHostPicker({ profile }: { readonly profile: AgentProfileModel }) {
 
 // ─── Shared ───
 
-/** A row's name; muted while the entry is off. */
-function EntryTitle(props: { readonly disabled: boolean; readonly middle?: boolean; readonly children: string }) {
+/** A row's name. */
+function EntryTitle(props: { readonly middle?: boolean; readonly children: string }) {
   return (
-    <Text className={cn("text-lg android:text-base", props.disabled ? "text-foreground-muted" : "text-foreground")} numberOfLines={1} ellipsizeMode={props.middle ? "middle" : "tail"}>
+    <Text className="text-lg text-foreground android:text-base" numberOfLines={1} ellipsizeMode={props.middle ? "middle" : "tail"}>
       {props.children}
     </Text>
   );
 }
 
-function DisabledLine() {
-  return <Text className="text-sm text-foreground-muted" numberOfLines={1}>{DISABLED_ENTRY_TEXT}</Text>;
+/** Remove takes the entry out of the profile and off every host. */
+function RemoveButton(props: { readonly name: string; readonly onPress: () => void }) {
+  return <PillButton label="Remove" accessibilityLabel={`Remove ${props.name}`} onPress={props.onPress} />;
 }
 
-/** Turn off or on, beside Remove. Off keeps the entry in the profile; Remove takes it out everywhere. */
-function EntryActions(props: { readonly name: string; readonly disabled: boolean; readonly onToggle: () => void; readonly onRemove: () => void }) {
+/** The last row of a long list: the rows not shown, and the way to show them or fold them again. */
+function ShowMoreRow(props: { readonly hiddenCount: number; readonly expanded: boolean; readonly noun: string; readonly onToggle: () => void }) {
+  if (props.hiddenCount === 0 && !props.expanded) return null;
   return (
-    <View className="flex-row gap-2">
-      <PillButton label={props.disabled ? "Enable" : "Disable"} accessibilityLabel={`${props.disabled ? "Enable" : "Disable"} ${props.name} on every host`} onPress={props.onToggle} />
-      <PillButton label="Remove" accessibilityLabel={`Remove ${props.name}`} onPress={props.onRemove} />
+    <View className="items-center border-t border-border-subtle p-3">
+      <PillButton label={props.expanded ? `Show fewer ${props.noun}` : `Show ${props.hiddenCount} more`} onPress={props.onToggle} />
     </View>
   );
 }
 
-function confirmRemove(title: string, remove: () => void, message = "It leaves this device and, when you are signed in, your account and every host. To keep it, disable it instead."): void {
+function confirmRemove(title: string, remove: () => void, message = "It leaves this device and, when you are signed in, your account and every host."): void {
   Alert.alert(title, message, [
     { text: "Cancel", style: "cancel" },
     { text: "Remove", style: "destructive", onPress: remove },

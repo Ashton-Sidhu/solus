@@ -350,6 +350,7 @@ describe('a sign-in through Solus Cloud', () => {
   test('the labels: connected through the account, and a cloud the host could not reach offers no Reconnect', () => {
     expect(installedStatus(mine, loaded(connectionOf('linear', { source: 'cloud', label: 'ada@example.com' })))).toEqual({ text: 'Connected through Solus Cloud', tone: 'muted', action: null })
     expect(installedStatus(mine, loaded(connectionOf('linear', { source: 'cloud', status: 'cloud-unreachable' })))).toEqual({ text: 'Solus Cloud unreachable', tone: 'danger', action: null })
+    expect(installedStatus(mine, loaded(connectionOf('linear', { source: 'cloud', status: 'needs-solus-sign-in' })))).toEqual({ text: 'Sign in to Solus', tone: 'danger', action: null })
     expect(installedStatus(mine, loaded(connectionOf('linear', { source: 'cloud', status: 'needs-sign-in' })))).toMatchObject({ action: 'reconnect' })
     // A host reset ends a host flow, never a cloud one.
     const cloudWaiting = cloudConnectStarted({ kind: 'browser', url: 'https://app.solus.sh/connect' }, SERVER, 'Linear')

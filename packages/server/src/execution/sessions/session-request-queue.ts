@@ -121,7 +121,8 @@ export class SessionRequestQueue {
     for (const entry of this.queues.get(sessionId) ?? []) {
       if (entry.kind === 'provider_switch') { target = entry.run.input; continue }
       const requested = entry.requestedInput ?? entry.run.input
-      const effective = target ?? (requested.provider === current.provider ? requested : current)
+      // A prompt keeps its own provider (plans/021); only a deprecated queued switch ahead of it changes it.
+      const effective = target ?? requested
       const input = entry.run.input
       if (input.provider !== effective.provider || input.model !== effective.model || input.reasoningEffort !== effective.reasoningEffort || input.fastMode !== effective.fastMode || input.contextWindow !== effective.contextWindow) {
         entry.revision = (entry.revision ?? 0) + 1
@@ -129,7 +130,7 @@ export class SessionRequestQueue {
       entry.run.input = { ...requested, provider: effective.provider, model: effective.model,
         preferredModel: effective.preferredModel, reasoningEffort: effective.reasoningEffort,
         contextWindow: effective.contextWindow, fastMode: effective.fastMode,
-        agentSessionId: target ? null : current.agentSessionId }
+        agentSessionId: target ? null : requested.provider === current.provider ? current.agentSessionId : requested.agentSessionId }
     }
     try { this.save(sessionId) } catch (error) {
       for (const saved of previous) {

@@ -85,7 +85,7 @@ describe('watch_pull_request', () => {
     expect(merged).toMatchObject({ ok: false })
     expect(merged.text).toContain('merged')
 
-    await states.settleSession('session-2', 'person')
+    await new states.SessionShelf('session-2').settle('person')
     const settled = await tool.watchPullRequestAgentTool.execute({ pull_request: URL_7 }, toolContext('session-2'))
     expect(settled).toMatchObject({ ok: false })
     expect(await watches.readPullRequestWatches()).toEqual([])

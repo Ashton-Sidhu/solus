@@ -19,7 +19,10 @@ async function notFoundAsNull<T>(read: Promise<T>): Promise<T | null> {
 /** A session list filter as the Solus API's query strings. */
 function sessionListFilters(filter: SessionRecordListFilter | undefined) {
   const flag = (value: boolean | undefined) => value === undefined ? undefined : value ? 'true' as const : 'false' as const
-  return { provider: filter?.provider, projectPath: filter?.projectPath, repositoryKey: filter?.repositoryKey, includeWorktrees: flag(filter?.includeWorktrees), chats: flag(filter?.chats) }
+  return {
+    provider: filter?.provider, projectPath: filter?.projectPath, repositoryKey: filter?.repositoryKey, includeWorktrees: flag(filter?.includeWorktrees), chats: flag(filter?.chats),
+    archived: flag(filter?.archived), roots: flag(filter?.roots),
+  }
 }
 
 /** Adapts the established UI records while their storage requests use the versioned HTTP contract. */
@@ -79,14 +82,23 @@ export function workspaceRecordMethods(client: SolusApiClient, extras: (id: stri
       let cursor: string | undefined
       let indexing = false
       let order: 'activity' | undefined = 'activity'
-      const filters = sessionListFilters(filter)
+      let filters = sessionListFilters(filter)
       for (;;) {
         let page
         try {
           page = await client.request('listSessions', { query: { ...filters, limit: 200, cursor, order } })
         } catch (error) {
+          const refused = cursor === undefined && error instanceof WorkspaceRequestError && error.status === 400
+          // A host older than the session list refuses `archived` and `roots`, and archives
+          // nothing (docs/plans/session-archive.md): it has no archived sessions, and every
+          // session it has is in the list.
+          if (refused && (filters.archived || filters.roots)) {
+            if (filters.archived === 'true') return { records: [], indexing: false }
+            filters = { ...filters, archived: undefined, roots: undefined }
+            continue
+          }
           // A host older than `order` refuses it. It pages by creation, so every page is read.
-          if (order && cursor === undefined && error instanceof WorkspaceRequestError && error.status === 400) { order = undefined; continue }
+          if (refused && order) { order = undefined; continue }
           throw error
         }
         for (const session of page.items) records.set(session.id, sessionRecord(session))
@@ -94,7 +106,8 @@ export function workspaceRecordMethods(client: SolusApiClient, extras: (id: stri
         cursor = page.nextCursor ?? undefined
         if (!cursor || (order && filter?.limit !== undefined && records.size >= filter.limit)) break
       }
-      const sorted = [...records.values()].sort((a, b) => b.lastActivityAt - a.lastActivityAt || a.sessionId.localeCompare(b.sessionId))
+      // A host that refused `roots` answered every session.
+      const sorted = [...records.values()].filter((record) => !filter?.roots || record.parentSessionId === null).sort((a, b) => b.lastActivityAt - a.lastActivityAt || a.sessionId.localeCompare(b.sessionId))
       return { records: filter?.limit === undefined ? sorted : sorted.slice(0, filter.limit), indexing }
     },
     async sessionRecordSearch(query) {

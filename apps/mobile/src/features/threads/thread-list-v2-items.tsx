@@ -58,6 +58,9 @@ const STATUS_LABEL_BY_STATUS: Record<
   ready: null,
 };
 
+/** Archive removes the thread from the list on its host, for every device. */
+const ARCHIVE_MENU_ACTION: MenuAction = { id: "archive", title: "Archive", image: "archivebox" };
+
 const PROVIDER_DISPLAY_NAME: Record<SolusThreadShell["record"]["provider"], string> = {
   "claude-code": "Claude Code",
   codex: "Codex",
@@ -181,6 +184,13 @@ export const ThreadListV2SettledShelfHeader = memo(function ThreadListV2SettledS
   return <ThreadListV2ShelfHeader {...props} kind="settled" />;
 });
 
+/** Heads the archived threads a search found. They are not in the list. */
+export const ThreadListV2ArchivedSectionHeader = memo(function ThreadListV2ArchivedSectionHeader(props: {
+  readonly pane?: "screen" | "sidebar";
+}) {
+  return <ThreadListV2Section label="Archived" pane={props.pane} />;
+});
+
 export const ThreadListV2ShowMoreRow = memo(function ThreadListV2ShowMoreRow(props: {
   readonly pane?: "screen" | "sidebar";
   readonly hiddenCount: number;
@@ -212,6 +222,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly variant: "card" | "slim";
   /** Snoozed-shelf row: shows its wake time and offers Wake. */
   readonly snoozed?: boolean;
+  /** Archived row a search found: offers Return to List. */
+  readonly archived?: boolean;
   readonly status: ThreadListV2Status;
   readonly unread: boolean;
   readonly pr: ThreadPrPresentation | null;
@@ -247,6 +259,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   readonly onSnoozeThread: (thread: SolusThreadShell, snoozedUntil: number) => void;
   readonly onUnsnoozeThread: (thread: SolusThreadShell) => void;
   readonly onUnsettleThread: (thread: SolusThreadShell) => void;
+  readonly onArchiveThread: (thread: SolusThreadShell) => void;
+  readonly onUnarchiveThread: (thread: SolusThreadShell) => void;
   readonly onSetPullRequestWatch: (thread: SolusThreadShell, target: ThreadPrWatchTarget, watching: boolean) => void;
   readonly onSwipeableWillOpen: (methods: SwipeableMethods) => void;
   readonly onSwipeableClose: (methods: SwipeableMethods) => void;
@@ -266,12 +280,15 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     onSnoozeThread,
     onUnsnoozeThread,
     onUnsettleThread,
+    onArchiveThread,
+    onUnarchiveThread,
     onSetPullRequestWatch,
   } = props;
   const list = useThreadListState();
   const record = thread.record;
   const title = threadTitle(record);
   const snoozedRow = props.snoozed === true;
+  const archivedRow = props.archived === true;
   const dormant = useSwipeRowDormant(props.activationKey);
 
   const theme = useUniwindTheme();
@@ -299,6 +316,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
   );
   const handleUnsnooze = useCallback((): void => onUnsnoozeThread(thread), [onUnsnoozeThread, thread]);
   const handleUnsettle = useCallback((): void => onUnsettleThread(thread), [onUnsettleThread, thread]);
+  const handleArchive = useCallback((): void => onArchiveThread(thread), [onArchiveThread, thread]);
+  const handleUnarchive = useCallback((): void => onUnarchiveThread(thread), [onUnarchiveThread, thread]);
 
   // Swipe: the v2 primary action is the lifecycle transition. Un-settling a
   // settled row makes it active until the host settles it again.
@@ -307,6 +326,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     variant,
     snoozable: props.snoozePresetMinute !== "",
     snoozed: snoozedRow,
+    archived: archivedRow,
   });
   const snoozePresets = useMemo(
     () => (swipeActions.secondary === "snooze" ? resolveSnoozePresets(new Date()) : ([] as const)),
@@ -344,22 +364,28 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         subactions: snoozePresetActions,
       },
       ...titleMenuItems,
+      ARCHIVE_MENU_ACTION,
     ],
     [snoozePresetActions, titleMenuItems],
   );
   const cardMenuActions = useMemo<MenuAction[]>(
-    () => [{ id: "settle", title: "Settle", image: "checkmark" }, ...titleMenuItems],
+    () => [{ id: "settle", title: "Settle", image: "checkmark" }, ...titleMenuItems, ARCHIVE_MENU_ACTION],
     [titleMenuItems],
   );
   const slimMenuActions = useMemo<MenuAction[]>(
     () => [
       { id: "unsettle", title: "Un-settle", image: "arrow.uturn.backward" },
       ...titleMenuItems,
+      ARCHIVE_MENU_ACTION,
     ],
     [titleMenuItems],
   );
   const snoozedMenuActions = useMemo<MenuAction[]>(
-    () => [{ id: "unsnooze", title: "Wake thread", image: "clock" }, ...titleMenuItems],
+    () => [{ id: "unsnooze", title: "Wake thread", image: "clock" }, ...titleMenuItems, ARCHIVE_MENU_ACTION],
+    [titleMenuItems],
+  );
+  const archivedMenuActions = useMemo<MenuAction[]>(
+    () => [{ id: "unarchive", title: "Return to List", image: "arrow.uturn.backward" }, ...titleMenuItems],
     [titleMenuItems],
   );
   const handleMenuAction = useCallback(
@@ -367,6 +393,8 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       if (nativeEvent.event === "settle") void handleSettle();
       if (nativeEvent.event === "unsettle") handleUnsettle();
       if (nativeEvent.event === "unsnooze") handleUnsnooze();
+      if (nativeEvent.event === "archive") handleArchive();
+      if (nativeEvent.event === "unarchive") handleUnarchive();
       if (nativeEvent.event === "rename") handleRename();
       if (nativeEvent.event === "mark-unread") {
         void list.markRead(thread.hostId, record.sessionId, false).catch((error: Error) => {
@@ -390,10 +418,12 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       }
     },
     [
+      handleArchive,
       handleRename,
       list,
       handleSettle,
       handleSnooze,
+      handleUnarchive,
       handleUnsettle,
       handleUnsnooze,
       onSetPullRequestWatch,
@@ -404,6 +434,14 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     ],
   );
   const primaryAction = useMemo(() => {
+    if (swipeActions.primary === "unarchive") {
+      return {
+        accessibilityLabel: `Return ${title} to the list`,
+        icon: "arrow.uturn.backward" as const,
+        label: "Return",
+        onPress: handleUnarchive,
+      };
+    }
     if (swipeActions.primary === "unsnooze") {
       return {
         accessibilityLabel: `Wake ${title} now`,
@@ -425,7 +463,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           label: "Settle",
           onPress: (): void => void handleSettle(),
         };
-  }, [handleSettle, handleUnsettle, handleUnsnooze, swipeActions.primary, title]);
+  }, [handleSettle, handleUnarchive, handleUnsettle, handleUnsnooze, swipeActions.primary, title]);
   const secondaryAction = useMemo(
     () =>
       swipeActions.secondary === "snooze"
@@ -698,7 +736,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         onSwipeableWillOpen={props.onSwipeableWillOpen}
         primaryAction={primaryAction}
         secondaryAction={secondaryAction}
-        resetKey={`${thread.key}:${variant}:${snoozedRow}`}
+        resetKey={`${thread.key}:${variant}:${snoozedRow}:${archivedRow}`}
         simultaneousWith={props.simultaneousSwipeGesture}
         threadTitle={title}
       >
@@ -706,13 +744,15 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
           <ControlPillMenu
             actions={[
               { id: "copy-thread-id", title: "Copy thread ID", image: "doc.on.doc" },
-              ...(snoozedRow
-                ? snoozedMenuActions
-                : canUnsettle
-                  ? slimMenuActions
-                  : swipeActions.secondary === "snooze"
-                    ? snoozableCardMenuActions
-                    : cardMenuActions),
+              ...(archivedRow
+                ? archivedMenuActions
+                : snoozedRow
+                  ? snoozedMenuActions
+                  : canUnsettle
+                    ? slimMenuActions
+                    : swipeActions.secondary === "snooze"
+                      ? snoozableCardMenuActions
+                      : cardMenuActions),
             ]}
             onPressAction={handleMenuAction}
             shouldOpenOnLongPress

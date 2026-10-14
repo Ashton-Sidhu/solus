@@ -138,7 +138,7 @@ describe('generateMetadataWith', () => {
       submitted: { title: 'Session Renaming', description: 'Allow users to rename sessions.' },
     })
     await generateMetadataWith(claude, 'claude-code', 'let me rename sessions', '/repo')
-    expect(claude.requests[0].model).toBe('claude-haiku-4-5-20251001')
+    expect(claude.requests[0].model).toBe('claude-haiku-5-5')
   })
 
   test('names the durable subject and excludes incidental workflow instructions', async () => {

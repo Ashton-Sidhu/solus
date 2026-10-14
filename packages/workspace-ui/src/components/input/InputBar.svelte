@@ -533,9 +533,9 @@
     track("permission_mode_set", { mode, via: "keybinding" });
     refocusComposer();
   }
-  // A started session hands off to the new agent (a real provider switch); a
-  // draft has none, so it rewrites its run and takes the new agent's default
-  // model — the same two branches the chip's agent row runs.
+  // A started session picks the new agent in its composer, and the next send
+  // hands its thread over (plans/021); a draft rewrites its run and takes the
+  // new agent's default model — the same two branches the chip's agent row runs.
   function cycleAgent() {
     if (!run) return;
     const enabledAgents = agent.agents.filter(
@@ -546,7 +546,7 @@
     const idx = enabledAgents.findIndex((candidate) => candidate.id === current);
     const next = enabledAgents[(idx + 1) % enabledAgents.length];
     if (sessionId) {
-      void session.config.switchActiveAgent(next.id, targetTabId, "keybinding");
+      session.config.switchActiveAgent(next.id, targetTabId, "keybinding");
     } else {
       const modelId = defaultModelIdFor(next.id, agent.metadata);
       onRun?.({

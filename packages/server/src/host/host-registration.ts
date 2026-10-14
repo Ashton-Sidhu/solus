@@ -281,8 +281,12 @@ export class HostRegistrar {
     }
   }
 
-  /** The registration, its generation, and its link as Solus cloud knows them; null when it could not ask or was refused. */
-  private async check(): Promise<HostLinkResponse | null> {
+  /**
+   * The registration, its generation, and its link as Solus cloud knows them; null when it
+   * could not ask or was refused. Also asked when another reader is refused (`HostOrganizations`):
+   * a refused registration is forgotten, so the owner's client registers the host again (rule 8).
+   */
+  async check(): Promise<HostLinkResponse | null> {
     const registration = this.current()
     // The record says registered but the key is gone: the host cannot prove itself, and
     // its owner's client registers it (`needsRegistration`).

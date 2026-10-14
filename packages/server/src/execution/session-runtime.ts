@@ -529,8 +529,18 @@ export class SessionRuntime extends EventEmitter {
       const sessionId = request.target.sessionId
       const session = this.activeSessions.get(sessionId)
       if (session) {
+        // A prompt on another provider hands the session off when it starts
+        // (plans/021): it never steers into, or parks behind, the thread provider.
+        const isOtherProvider = request.input.provider !== session.backendId
+        const queued = this.scheduler.requestQueue.get(sessionId) ?? []
+        if (isOtherProvider && session.status === 'rate_limited' && queued.every((entry) => entry.rateLimitSessionId === sessionId)) {
+          // Only a send on another provider abandons the parked prompt; its
+          // handoff, at launch, clears the limit.
+          return this.launcher.startRunLifecycle(request)
+        }
         const pendingRateLimit = this.rateLimitPark.currentRateLimitEvent(sessionId)
         if (
+          !isOtherProvider &&
           pendingRateLimit?.type === 'rate_limit' &&
           // A limit kept past its window is only holding the card's question
           // open. Nothing would drain a prompt queued behind it, so a prompt
@@ -548,10 +558,10 @@ export class SessionRuntime extends EventEmitter {
           })
         }
 
-        const hasQueuedForSession = (this.scheduler.requestQueue.get(sessionId)?.length ?? 0) > 0
+        const hasQueuedForSession = queued.length > 0
         const wasRunningAtDispatch = session.status === 'running'
         if (isSessionBusyStatus(session.status)) {
-          if (request.options.delivery !== 'queue') {
+          if (request.options.delivery !== 'queue' && !isOtherProvider) {
             const steered = session.agentSessionId && isSteerableStatus(session.status)
               ? await this.launcher.steerActiveTurn(request, session.agentSessionId, session)
               : null
@@ -586,7 +596,7 @@ export class SessionRuntime extends EventEmitter {
         }
         // The turn is over, so a queued delivery has nothing to wait behind:
         // any prompt goes into the query that the background work keeps open.
-        if (session.status === 'background' && session.agentSessionId) {
+        if (session.status === 'background' && session.agentSessionId && !isOtherProvider) {
           const steered = await this.launcher.steerActiveTurn(request, session.agentSessionId, session)
           if (steered) return steered
         }

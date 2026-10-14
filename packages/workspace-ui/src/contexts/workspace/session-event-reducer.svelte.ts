@@ -13,13 +13,14 @@ import type { TabRegistry } from './tab-registry.svelte'
 import type { SessionRecords } from './session-records.svelte'
 import type { WorkStreamTracker } from './work-stream-tracker.svelte'
 import { AgentConversationCards } from './agent-conversation-cards'
-import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, splitAttachedFiles, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest, expireRequest, dropExpiredRequests } from './session.utils'
+import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, followThreadProvider, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, splitAttachedFiles, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest, expireRequest, dropExpiredRequests } from './session.utils'
 import { mergeRemoteDispatchProgress } from '../../lib/remote-dispatch-card'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { NotificationSoundTrigger } from '@solus/contracts/notification-types'
 import type { UserId } from '@solus/contracts/user'
 import type { Activity } from '@solus/contracts/activity'
 import { showsActivity } from '../../components/activity/lib/activity-line'
+import { restoredModelConfig } from './model-options'
 import { foldWorktreeOfferDecision } from '../../components/conversation/lib/worktree-offer'
 import { canDriveSession } from '../sharing/resource-roles'
 
@@ -128,15 +129,30 @@ export class SessionEventReducer {
       return
     }
     if (!showsActivity(activity, this.reader(session))) return
-    for (let index = session.messages.length - 1; index >= 0; index--) {
-      if (session.messages[index].activity?.id === activity.id) return
-    }
+    if (this.hasActivity(session, activity.id)) return
     const message: Message = { id: `activity:${activity.id}`, role: 'system', content: '', timestamp: activity.at, activity }
     // A fork is recorded as its first prompt dispatches, after that prompt's
     // bubble is on screen: it goes before the prompt, where a reload puts it.
     const last = session.messages.length - 1
     if (activity.kind === 'forked' && session.messages[last]?.role === 'user') session.messages.splice(last, 0, message)
     else session.messages.push(message)
+  }
+
+  private hasActivity(session: Session, activityId: string): boolean {
+    for (let index = session.messages.length - 1; index >= 0; index--) {
+      if (session.messages[index].activity?.id === activityId) return true
+    }
+    return false
+  }
+
+  /** The host handed the thread over, at a send from this client or another
+   *  (plans/021). A composer with no open pick follows it to the new model. */
+  private followHandoff(session: Session, activity: Extract<Activity, { kind: 'agent_switched' }>): void {
+    if (!followThreadProvider(session, activity.provider)) return
+    const modelId = activity.model ?? null
+    session.run.modelConfig = restoredModelConfig(activity.provider, modelId,
+      modelId ? this.deps.settings.modelOptionsByProvider[activity.provider]?.[modelId] : undefined)
+    session.sessionModel = null
   }
 
   /** A compaction that starts draws its divider at once, marked as running, so
@@ -315,7 +331,9 @@ export class SessionEventReducer {
 
     switch (event.type) {
       case 'model_routed':
+        // Auto routes a first prompt, so the routed provider starts the thread.
         session.run.provider = event.provider
+        session.threadProvider = event.provider
         applyRoutedModelConfig(session, event.modelConfig)
         session.currentActivity = event.usedFallback ? 'Starting general fallback model...' : 'Starting selected model...'
         break
@@ -857,9 +875,9 @@ export class SessionEventReducer {
         session.queueVersion = (session.queueVersion ?? 0) + 1
         reconcileQueuedPromptsForSession(session, event.entries)
         break
+      // A switch an older client queued with the deprecated `switch` mutation.
       case 'provider_switch_applied':
-        session.run.provider = event.provider
-        session.run.modelConfig = { ...event.modelConfig }
+        if (followThreadProvider(session, event.provider)) session.run.modelConfig = { ...event.modelConfig }
         if (!event.result) break
         session.agentSessionId = event.result.restoredSessionId ?? null
         session.handoffPending = !event.result.restoredSessionId
@@ -928,6 +946,9 @@ export class SessionEventReducer {
         break
 
       case 'activity':
+        if (event.activity.kind === 'agent_switched' && !this.hasActivity(session, event.activity.id)) {
+          this.followHandoff(session, event.activity)
+        }
         this.appendActivity(session, event.activity)
         break
 

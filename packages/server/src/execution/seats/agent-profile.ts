@@ -177,8 +177,6 @@ function byKind(profile: AgentProfile) {
   const skills: AgentProfileSkillEntry[] = []
   const integrations: AgentProfileIntegrationEntry[] = []
   for (const entry of Object.values(profile)) {
-    // A disabled entry stays in the profile and is on no host.
-    if (entry.disabled) continue
     if (entry.kind === 'file') files.push(entry)
     else if (entry.kind === 'skill') skills.push(entry)
     else integrations.push(entry)
@@ -372,7 +370,7 @@ export class AgentProfileManager {
     }
   }
 
-  /** The target's own records whose URL no profile entry names, disabled ones included, and that no pull put here. */
+  /** The target's own records whose URL no profile entry names, and that no pull put here. */
   private unnamedRecords(target: AgentProfileTarget, profile: AgentProfile, owned: string[]): AgentProfileIntegrationEntry[] {
     const named = new Set(Object.values(profile).flatMap((entry) => entry.kind === 'integration' ? [entry.url] : []))
     const pulled = new Set(owned)

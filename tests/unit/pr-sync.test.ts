@@ -433,14 +433,14 @@ describe('a session with no task', () => {
 
     await new PrSync({ publish: () => {}, now: () => now }).tick()
     expect(host.numberReads).toEqual([[4]])
-    expect((await states.readSessionShelf('local', ['pr-sync-watch']))).toEqual([])
+    expect((await new states.SessionShelf('pr-sync-watch').state()).settledAt).toBeNull()
 
     host.rows = [pullRequest(4, { state: 'merged', updatedAt: later(1) })]
     now += 60_001
     const sync = new PrSync({ publish: () => {}, now: () => now })
     await sync.tick()
     expect((await sessionPrs.readSessionPullRequests('local', ['pr-sync-watch']))['pr-sync-watch']?.[0]?.snapshot?.state).toBe('merged')
-    expect((await states.readSessionShelf('local', ['pr-sync-watch']))[0]).toMatchObject({ settledBy: 'pull-request' })
+    expect(await new states.SessionShelf('pr-sync-watch').state()).toMatchObject({ settledBy: 'pull-request' })
 
     // A settled session is not live work: its repository is not read again.
     const reads = host.recentReads

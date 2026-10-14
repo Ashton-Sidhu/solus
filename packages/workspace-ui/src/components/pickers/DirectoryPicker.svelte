@@ -32,10 +32,10 @@
   import { eventMatches } from "../../lib/keybindings/match";
   import { copyText, toasts } from "../../lib/toasts";
   import { abbreviateHome } from "../../lib/paths";
+  import { fileManagerNameFor } from "../../lib/file-manager";
   import Kbd from "../ui/Kbd.svelte";
   import type { DirectoryEntry } from "@solus/contracts/types";
   import type { HostApi } from "@solus/client-core/host-api";
-  import { hostPolicy } from "@solus/client-core/host-policy";
   import {
     appendPathSegment,
     breadcrumbTrail,
@@ -100,7 +100,6 @@
   let path = $state("");
   let relativeAnchor = $state("");
   let hostPlatform = $state<BrowsePathPlatform>("posix");
-  let hostSystem = $state<string | null>(null);
   let hostReady = $state(false);
   let entries = $state<DirectoryEntry[]>([]);
   /** Host-resolved absolute form of `directoryPath`, with `~` already expanded. */
@@ -224,19 +223,12 @@
     projectsStore.recentProjectsFor(serverId),
   );
 
-  const fileManagerName = $derived(
-    hostPlatform === "win32"
-      ? "Explorer"
-      : hostSystem === "linux"
-        ? // The desktop's xdg default — could be Nautilus, Dolphin, Thunar…
-          "File Manager"
-        : "Finder",
+  // The file manager opens on the browsed host's own screen, so only a local
+  // connection is offered it.
+  const fileManager = $derived(
+    hosts.get(serverId)?.me.may("host.local.window") ? hosts.get(serverId)?.capabilityRecord?.fileManager : undefined,
   );
-  // The file manager opens on the machine running the handler, so it is only
-  // meaningful when the browsed host is this one.
-  const canOpenFileManager = $derived(
-    hostPolicy.isClientMachine(serverId) && (hosts.device?.hasDesktopHandlers ?? false),
-  );
+  const fileManagerName = $derived(fileManager ? fileManagerNameFor(fileManager) : null);
 
   function handleBackdropMousedown(e: MouseEvent) {
     if (e.target === e.currentTarget) onClose();
@@ -274,7 +266,6 @@
       recents.catch(() => []),
     ]).then(([capabilities, home]) => {
       if (cancelled) return;
-      hostSystem = capabilities?.platform ?? null;
       hostPlatform = browsePathPlatform(capabilities?.platform, initialPath);
 
       sidebarLocations = placesFor(hostPlatform, capabilities, home);
@@ -806,7 +797,7 @@
         {:else}
           <div class="flex-1"></div>
         {/if}
-        {#if canOpenFileManager}
+        {#if fileManagerName}
           <Button
             variant="ghost"
             class="shrink-0 text-[0.8125rem] text-muted-foreground"
@@ -837,7 +828,7 @@
       x={menu.x}
       y={menu.y}
       entry={menu.entry}
-      fileManagerName={canOpenFileManager ? fileManagerName : null}
+      {fileManagerName}
       portalTarget={layer.el}
       onNewFolder={startNewFolder}
       onRename={(entry) => edits.startRename(entry)}

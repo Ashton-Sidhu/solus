@@ -18,17 +18,17 @@ export function isInsideRoot(root: string, target: string): boolean {
 
 /**
  * Normalize an untrusted, client-supplied path into a root-relative posix path,
- * or throw when it is empty, names the root itself, or escapes the root.
+ * or throw when it is blank, names the root itself, or escapes the root. The
+ * path is kept exact: a file name may start or end with whitespace.
  *
  * Callers hand the result to tools that expect posix separators regardless of
  * platform (a `git` pathspec, for one), so the separator is normalized on the
  * way out rather than at each call site.
  */
 export function toRootRelativePath(root: string, raw: string): string {
-  const trimmed = raw.trim()
-  if (!trimmed) throw new Error('A file path cannot be empty.')
-  const fromRoot = relative(resolve(root), resolve(root, trimmed))
-  if (!fromRoot || !isInsideRoot(root, resolve(root, trimmed))) {
+  if (!raw.trim()) throw new Error('A file path cannot be empty.')
+  const fromRoot = relative(resolve(root), resolve(root, raw))
+  if (!fromRoot || !isInsideRoot(root, resolve(root, raw))) {
     throw new Error(`File path is outside the repository: ${raw}`)
   }
   return fromRoot.split(sep).join('/')

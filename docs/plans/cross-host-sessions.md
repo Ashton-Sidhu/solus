@@ -119,7 +119,10 @@ is refused.
 ### 5.3 Tool surface
 
 - `list_agent_targets` gets an optional `host`. With it, the answer is host
-  B's own targets (`listAgentTargets` on B). Without it, the answer also lists
+  B's own targets (`listAgentTargets` on B) and host B's projects
+  (`listProjects` on B, as `{ name, path }`), so an agent can choose a `cwd`
+  there. When host B does not answer the project list, the answer has no
+  `projects`. Without it, the answer also lists
   the hosts this host can start work on, when it has host access.
 - `start_session` gets an optional `host` (id or label). With it:
   - the provider and model are checked against host B's targets,

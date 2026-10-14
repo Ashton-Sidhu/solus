@@ -50,6 +50,18 @@ describe('what a render is allowed to load', () => {
   })
 })
 
+test('a render in the workspace has no background of its own', async () => {
+  // WHY: a root painted with --background showed as a slab whenever the
+  // surface around the frame was a different colour (a pane, dark mode's
+  // translucent container). The last root rule wins, so it must be transparent.
+  const { buildSandboxThemeCss } = await import('../../packages/workspace-ui/src/lib/artifactSandbox')
+  for (const isDark of [false, true]) {
+    stubTheme(isDark)
+    const rootBackgrounds = [...buildSandboxThemeCss(isDark).matchAll(/html\{[^}]*?background:([^;}]+)/g)].map((m) => m[1])
+    expect(rootBackgrounds.at(-1)).toBe('transparent')
+  }
+})
+
 test('a theme message updates the existing stylesheet without rerunning the document', async () => {
   const { runInNewContext } = await import('node:vm')
   const { buildSandboxThemeCss } = await import('../../packages/workspace-ui/src/lib/artifactSandbox')

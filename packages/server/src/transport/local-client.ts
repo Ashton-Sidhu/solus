@@ -36,8 +36,13 @@ export interface LocalClient {
   presentIdentity(owner: HostOwnerIdentity | null): void
   /** The client's grant ended: the delegations made from the tokens it presented end now. */
   signedOut(): void
-  /** Called when the host should get a token again: its registration or its organizations changed, or a delegation of the owner ended (another of their clients signed out), and a delegation is missing. */
-  onTokenWanted(listener: () => void): () => void
+  /**
+   * Called when the host should get a token again: its registration or its organizations
+   * changed, a delegation of the owner ended (another of their clients signed out), or a
+   * call found the owner's delegation missing or refused. The listener resolves once it
+   * presented, or could not.
+   */
+  onTokenWanted(listener: () => Promise<void> | void): () => void
 }
 
 export interface LocalClientDeps {
@@ -59,7 +64,9 @@ export interface LocalClientDeps {
 export class LocalClientDoor implements LocalClient {
   /** The grants of the tokens this client presented, so its sign-out ends only what they made. */
   private readonly presentedGrants = new Set<string>()
-  private readonly wantedListeners = new Set<() => void>()
+  private readonly wantedListeners = new Set<() => Promise<void> | void>()
+  /** The ask a call is waiting on; calls that find the delegation missing at once share it. */
+  private renewing: Promise<void> | null = null
 
   constructor(private readonly deps: LocalClientDeps) {}
 
@@ -104,7 +111,7 @@ export class LocalClientDoor implements LocalClient {
   }
 
 
-  onTokenWanted(listener: () => void): () => void {
+  onTokenWanted(listener: () => Promise<void> | void): () => void {
     this.wantedListeners.add(listener)
     return () => { this.wantedListeners.delete(listener) }
   }
@@ -115,7 +122,23 @@ export class LocalClientDoor implements LocalClient {
    * boot wants a new one (§2.2 rule 8).
    */
   registrationChanged(): void {
-    for (const listener of this.wantedListeners) listener()
+    for (const listener of this.wantedListeners) void listener()
+  }
+
+  /**
+   * A call found the owner's delegation missing, or the account plane refused it: ask the
+   * client for a token, and resolve once it presented or could not. The delegation is
+   * derived from the sign-in, so the call goes on with it.
+   */
+  renew(): Promise<void> {
+    if (this.renewing) return this.renewing
+    const renewing: Promise<void> = Promise.allSettled([...this.wantedListeners].map(async (listener) => listener()))
+      .then((outcomes) => {
+        for (const outcome of outcomes) if (outcome.status === 'rejected') log.warn('local_client_renew_failed', { error: String(outcome.reason) })
+      })
+      .finally(() => { if (this.renewing === renewing) this.renewing = null })
+    this.renewing = renewing
+    return renewing
   }
 
   /** The host's standing changed: ask the client again when the owner misses a delegation here. */
@@ -124,6 +147,6 @@ export class LocalClientDoor implements LocalClient {
     if (!ownerUserId || !delegations) return
     const scopes: DelegationScope[] = ['personal', ...this.deps.organizationIds().map((organizationId) => ({ organizationId }))]
     if (scopes.every((scope) => delegations.has(ownerUserId, scope))) return
-    for (const listener of this.wantedListeners) listener()
+    for (const listener of this.wantedListeners) void listener()
   }
 }

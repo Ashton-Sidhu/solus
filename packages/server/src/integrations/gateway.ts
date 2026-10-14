@@ -152,6 +152,8 @@ export class IntegrationGateway {
   async call(integrationId: string, tool: string, input: ToolArguments, context: AgentToolContext): Promise<AgentToolResult> {
     const integration = this.store.get(integrationId, ANY_ORGANIZATION)
     if (!integration) return { ok: false, text: 'This integration was removed.' }
+    // A run that started before the tool was turned off still lists it.
+    if (integration.disabledTools.includes(tool)) return { ok: false, text: `The ${tool} tool of ${integration.name} is turned off in Settings → MCP.` }
     let timer: ReturnType<typeof setTimeout> | null = null
     const timeout = new AbortController()
     const startTimer = () => { timer ??= setTimeout(() => timeout.abort(new Error('timeout')), CALL_TIMEOUT_MS) }

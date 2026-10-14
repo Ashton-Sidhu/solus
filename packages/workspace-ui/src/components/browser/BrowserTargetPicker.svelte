@@ -108,7 +108,7 @@
     </button>
 
     <div
-      class="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-[0.625rem] bg-[var(--wash-1)] px-2.5 shadow-[shadow:0_0_0_0.5px_var(--hairline-strong)] focus-within:shadow-[shadow:0_0_0_0.5px_var(--hairline-strongest)]"
+      class="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-[0.625rem] px-2.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
     >
       {#if openingUrl}
         <RotateCw
