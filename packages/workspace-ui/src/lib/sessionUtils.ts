@@ -13,6 +13,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import type { Tab, Session, SessionMeta, SessionStatus, Plan } from '@solus/contracts/types'
 import type { TabGroupMode } from '../contexts'
 import { hasAnswerableRequest } from '../contexts/workspace/session.utils'
+import { checkoutGit, checkoutPlace, runHost } from '../contexts/workspace/run-location'
 
 export type PickerEntry =
   | { kind: 'open'; tabId: string; tab: Tab; session: Session }
@@ -214,9 +215,9 @@ export function formatAbsoluteTimestamp(ts: number): string | null {
 }
 
 export function branchKeyFor(sess: Session | undefined): string {
-  const root = sess?.run.gitContext?.repoRoot ?? sess?.run.workingDirectory ?? '~'
-  const branch = sess?.run.gitContext?.branch ?? 'no branch'
-  const worktreeSuffix = sess?.run.gitContext?.worktreePath ? ' (worktree)' : ''
+  const root = checkoutGit(sess?.run)?.repoRoot ?? checkoutPlace(sess?.run)?.path ?? '~'
+  const branch = checkoutGit(sess?.run)?.branch ?? 'no branch'
+  const worktreeSuffix = checkoutGit(sess?.run)?.worktreePath ? ' (worktree)' : ''
   return `${root}::${branch}${worktreeSuffix}`
 }
 
@@ -341,7 +342,7 @@ export function findOpenTabForSession(
     const sess = sessions[tab.sessionId]
     if (!sess) continue
     if (provider && sess.run.provider !== provider) continue
-    if (serverId && sess.run.serverId !== serverId) continue
+    if (serverId && runHost(sess.run) !== serverId) continue
     // A tab names its session by the session id (docs/plans/session-identity.md).
     if (tab.sessionId === sessionId) return tabId
   }

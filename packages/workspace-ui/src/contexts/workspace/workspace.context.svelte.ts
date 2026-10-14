@@ -59,7 +59,7 @@ import { type SessionEnvironmentStore } from '../git/session-environment.store.s
 
 import { makeSession, makeTab } from './session.factories'
 import { SessionDraft, existingTaskId } from './session-draft.svelte'
-import { defaultStartProject, projectRootOf, resolveNewRunConfig, startsWorktree } from './run-config'
+import { defaultStartProject, resolveNewRunConfig } from './run-config'
 import { removeDraft, removePersistedTab } from './tab-persistence'
 import { applyRuntimeConfig, nextMsgId } from './session.utils'
 import type { DiffScope } from '@solus/contracts/git-types'
@@ -90,6 +90,7 @@ import {
   sessionGuideIdentity,
 } from '../../components/review/review-guide.store.svelte'
 import { z } from 'zod'
+import { checkoutGit, checkoutPlace, chooseStart, fileTasksOn, folderLocation, projectHome, projectRoot, runHost, startsWorktree } from './run-location'
 
 export interface PullRequestOpenTarget {
   number: number
@@ -106,7 +107,7 @@ const devSessionLogging = Boolean(import.meta.env.DEV)
 const outboxTaskPayloadSchema = z.object({ taskId: z.string().optional() })
 
 export interface PersistedSessionDrafts {
-  version: 1
+  version: 2
   order: string[]
   drafts: Record<string, SessionSpec>
 }
@@ -327,7 +328,7 @@ export class WorkspaceContext implements SurfaceContext {
       apiForRun: (run) => this.apiForRun(run),
       refreshPluginCommands: (dir, tabId) => { void this.lifecycle.refreshPluginCommands(dir, tabId) },
       refreshGitRefs: (run, projectRoot, ctx) => {
-        void this.environment.refreshRefs(run?.serverId ?? this.fallbackServerId, projectRoot, ctx, { force: true })
+        void this.environment.refreshRefs(checkoutPlace(run)?.serverId ?? this.fallbackServerId, projectRoot, ctx, { force: true })
       },
       refreshGitState: (opts) => this.environment.refreshEnvironment(this, opts),
       selectTab: (tabId) => this.selectTab(tabId),
@@ -538,9 +539,9 @@ export class WorkspaceContext implements SurfaceContext {
    *  to ask for it. False when the input bar names no project. */
   scopePageToCurrentProject(): boolean {
     const run = this.activeRun
-    const projectRoot = run?.gitContext?.repoRoot ?? run?.workingDirectory
-    if (!run || !projectRoot || projectRoot === '~') return false
-    this.scopeOpenProjectPage({ serverId: run.serverId, projectRoot: worktreeProjectRoot(projectRoot) })
+    const root = projectRoot(run)
+    if (!run || !root) return false
+    this.scopeOpenProjectPage({ serverId: projectHome(run).serverId, projectRoot: worktreeProjectRoot(root) })
     return true
   }
   /** The visible input bar's task environment, including its base project and
@@ -548,22 +549,24 @@ export class WorkspaceContext implements SurfaceContext {
    * the same source the input header uses — rather than the tab behind it. */
   get taskCreationContext(): TaskCreationContext | null {
     const run = this.activeRun ?? this.defaultRunConfig
-    const context = taskCreationContextFor(run.taskServerId, run.workingDirectory, run.gitContext)
-    return context ? this.taskDestinationFor(run.serverId, context) : null
+    const context = taskCreationContextFor(projectHome(run).serverId, checkoutPlace(run).path, checkoutGit(run))
+    return context ? this.taskDestinationFor(runHost(run), context) : null
   }
 
   projectDefaultBranchFor(run: RunConfig): string | null {
-    const directory = run.gitContext?.repoRoot ?? run.workingDirectory
+    const place = checkoutPlace(run)
+    const directory = checkoutGit(run)?.repoRoot ?? place.path
     if (!directory || directory === '~') return null
-    const repositoryKey = projectsStore.repositoryKeyFor(run.serverId, directory)
+    const repositoryKey = projectsStore.repositoryKeyFor(place.serverId, directory)
     return workspaceProjectsStore.projectFor(serversStore.activeCloudServerId, repositoryKey)?.defaultBranch ?? null
   }
 
   get activeCheckout(): ProjectRef | null {
     const run = this.activeRun ?? this.defaultRunConfig
-    const directory = run.gitContext?.repoRoot ?? run.workingDirectory
+    const place = checkoutPlace(run)
+    const directory = checkoutGit(run)?.repoRoot ?? place.path
     if (!directory || directory === '~') return null
-    return { serverId: run.serverId, projectRoot: worktreeProjectRoot(directory) }
+    return { serverId: place.serverId, projectRoot: worktreeProjectRoot(directory) }
   }
 
   taskContextForProject(projectKey: string, checkout: ProjectRef | null): TaskCreationContext | null {
@@ -776,7 +779,7 @@ export class WorkspaceContext implements SurfaceContext {
   /** Resolve the RPC surface that owns a run — the machine it runs on. With no
    *  run, the default run's: its directory names a folder on that host only. */
   apiForRun(run: RunConfig = this.defaultRunConfig): HostApi {
-    const resolvedId = serverConnections.resolveId(run.serverId)
+    const resolvedId = serverConnections.resolveId(runHost(run))
     const api = serverConnections.apiFor(resolvedId)
     serverConnections.retain(resolvedId)
     return api
@@ -792,7 +795,7 @@ export class WorkspaceContext implements SurfaceContext {
   apiForSession(sessionId: string): HostApi {
     const session = this.sessions.byId[sessionId]
     if (!session) return this.defaultHostApi()
-    const recordHome = serverConnections.presenceOf(session.run.serverId) === 'gone' ? recordHomeOf(session) : null
+    const recordHome = serverConnections.presenceOf(runHost(session.run)) === 'gone' ? recordHomeOf(session) : null
     return recordHome ? serverConnections.apiFor(recordHome) : this.apiForRun(session.run)
   }
 
@@ -810,7 +813,7 @@ export class WorkspaceContext implements SurfaceContext {
    *  holds only while that exact object is the registry's current connection.
    *  Answers only — the retain/bind side effects belong to `apiForRun`. */
   serverIdForRun(run: RunConfig = this.defaultRunConfig): string {
-    return serverConnections.resolveId(run.serverId)
+    return serverConnections.resolveId(runHost(run))
   }
 
   /** The host that owns this tab's — or draft's — session. */
@@ -863,7 +866,7 @@ export class WorkspaceContext implements SurfaceContext {
   }
 
   get galleryProjectPath(): string {
-    return (this.activeSession?.run ?? this.defaultRunConfig).workingDirectory
+    return checkoutPlace(this.activeSession?.run ?? this.defaultRunConfig).path
   }
 
   /** The run backing the leading pane — a started session's, or a draft's when
@@ -888,13 +891,13 @@ export class WorkspaceContext implements SurfaceContext {
     for (const tabId of this.tabOrder) {
       const sess = this.sessionFor(tabId)
       if (!sess) continue
-      const key = sess.run.gitContext?.repoRoot ?? sess.run.workingDirectory ?? '~'
+      const key = checkoutGit(sess.run)?.repoRoot ?? checkoutPlace(sess.run).path ?? '~'
       let project = byKey.get(key)
       if (!project) {
         project = { key, label: projectDirLabel(key), roots: [] }
         byKey.set(key, project)
       }
-      for (const root of [sess.run.gitContext?.repoRoot, sess.run.gitContext?.worktreePath, sess.run.workingDirectory]) {
+      for (const root of [checkoutGit(sess.run)?.repoRoot, checkoutGit(sess.run)?.worktreePath, checkoutPlace(sess.run).path]) {
         if (root && !project.roots.includes(root)) project.roots.push(root)
       }
       if (project.roots.length === 0) project.roots.push(key)
@@ -1030,7 +1033,7 @@ export class WorkspaceContext implements SurfaceContext {
     const sessionId = this.tabs[tabId]?.sessionId
     if (!this.shell.hasProjectPanel) {
       if (!sessionId) return
-      this.router.navigate({ name: 'goal', params: { sessionId, serverId: this.sessions.byId[sessionId]?.run.serverId } })
+      this.router.navigate({ name: 'goal', params: { sessionId, serverId: runHost(this.sessions.byId[sessionId]?.run) } })
       return
     }
     const isSplit = tabId === this.chatSurfaceTabId
@@ -1056,7 +1059,7 @@ export class WorkspaceContext implements SurfaceContext {
     const worktreeRequested = options.worktreeRequested ?? false
     // A tab is renderer-local now — the host only ever hears about the session,
     // and only once one is watched.
-    run.worktree = worktreeRequested ? { baseBranch: run.gitContext?.targetBranch ?? null } : null
+    if (worktreeRequested) run.location = chooseStart(run.location, { kind: 'new-worktree' })
     const session = makeSession(this.settings, {
       run,
       pluginCommands: this.pluginCommands,
@@ -1077,7 +1080,7 @@ export class WorkspaceContext implements SurfaceContext {
       if (options.gitInitialization === 'background') void gitInitialization
       else await gitInitialization
     }
-    if (!options.skipPluginCommands) void this.lifecycle.refreshPluginCommands(run.workingDirectory)
+    if (!options.skipPluginCommands) void this.lifecycle.refreshPluginCommands(checkoutPlace(run).path)
     if (options.activate !== false) requestInputFocus()
     return tabId
   }
@@ -1113,7 +1116,7 @@ export class WorkspaceContext implements SurfaceContext {
       // The composer's resolved target becomes the session's live one. Copied
       // rather than aliased: the composer may be reused, and a session's run
       // config is thereafter its own to change.
-      run: { ...spec.run, gitContext: spec.run.gitContext ? { ...spec.run.gitContext } : null },
+      run: { ...spec.run },
       pluginCommands: this.pluginCommands,
       task: spec.task,
       boundWorkId: spec.boundWorkId,
@@ -1129,7 +1132,7 @@ export class WorkspaceContext implements SurfaceContext {
     this.rememberLastProject(session.run)
     track('tab_created', {
       via: options.via,
-      worktree: !!session.run.worktree && !session.run.gitContext?.worktreePath,
+      worktree: startsWorktree(session.run),
     })
     if (options.activate !== false) {
       this.setActiveTab(tabId)
@@ -1137,22 +1140,23 @@ export class WorkspaceContext implements SurfaceContext {
     }
     void this.config.refreshSessionStartTarget(
       tabId,
-      spec.run.workingDirectory,
+      checkoutPlace(spec.run).path,
       startsWorktree(spec.run),
     ).catch(() => null)
-    void this.lifecycle.refreshPluginCommands(spec.run.workingDirectory, tabId)
+    void this.lifecycle.refreshPluginCommands(checkoutPlace(spec.run).path, tabId)
     if (options.activate !== false && options.reveal !== false) requestInputFocus({ tabId })
     return tabId
   }
 
   /** The one write to `lastProject`: a session the user composed has started. */
   private rememberLastProject(run: RunConfig): void {
-    const directory = projectRootOf(run)
+    const directory = projectRoot(run)
     // A chat is not a project to start in again: its folder is its own.
     if (!directory || isChat(directory)) return
+    const { serverId } = projectHome(run)
     const last = this.settings.lastProject
-    if (last?.serverId === run.serverId && last.directory === directory) return
-    this.settings.setLayout('lastProject', { serverId: run.serverId, directory })
+    if (last?.serverId === serverId && last.directory === directory) return
+    this.settings.setLayout('lastProject', { serverId, directory })
   }
 
   /** Where a session starts when nothing is carried over: the app's own saved
@@ -1169,18 +1173,11 @@ export class WorkspaceContext implements SurfaceContext {
       { serverId: this.fallbackServerId, directory: NEW_CHAT_DIRECTORY },
     )
     return {
-      workingDirectory: project.directory,
-      gitContext: null,
-      worktree: null,
+      location: folderLocation({ serverId: project.serverId, path: project.directory }),
       modelConfig: defaults.modelConfig,
       permissionMode: defaults.permissionMode,
       provider: configuredAgent(this.settings.activeAgent),
-      serverId: project.serverId,
-      // Nothing has dispatched yet, so a new run owns its own tasks.
-      taskServerId: project.serverId,
-      projectGroupPath: null,
       sessionSkills: [],
-      pendingHostDispatch: null,
     }
   }
 
@@ -1222,7 +1219,7 @@ export class WorkspaceContext implements SurfaceContext {
     if (companion && tabId === this.chatSurfaceTabId) {
       this.router.focusPane(companion.id)
       const surfaceSession = this.sessionFor(tabId)
-      if (surfaceSession) void this.lifecycle.refreshPluginCommands(surfaceSession.run.workingDirectory, tabId, { onlyIfStale: true })
+      if (surfaceSession) void this.lifecycle.refreshPluginCommands(checkoutPlace(surfaceSession.run).path, tabId, { onlyIfStale: true })
       requestInputFocus({ tabId })
       track('tab_selected', { via })
       return
@@ -1248,7 +1245,7 @@ export class WorkspaceContext implements SurfaceContext {
     if (session?.run.provider && this.settings.activeAgent !== session.run.provider) {
       this.config.followActiveSessionAgent(session.run.provider)
     }
-    if (session) void this.lifecycle.refreshPluginCommands(session.run.workingDirectory, tabId, { onlyIfStale: true })
+    if (session) void this.lifecycle.refreshPluginCommands(checkoutPlace(session.run).path, tabId, { onlyIfStale: true })
     track('tab_selected', { via })
   }
 
@@ -1288,7 +1285,7 @@ export class WorkspaceContext implements SurfaceContext {
     // The route is persisted and restored: it must name the session's host or
     // a restore resolves the bare id against whichever host answers first.
     this.router.navigate(
-      chatRoute(sessionId, this.sessions.byId[sessionId]?.run.serverId),
+      chatRoute(sessionId, runHost(this.sessions.byId[sessionId]?.run)),
       { target: 'companion', background: opts.background },
     )
     if (this.settings.splitProjectPanelOpen) this.settings.setLayout('splitProjectPanelOpen', false)
@@ -1351,7 +1348,7 @@ export class WorkspaceContext implements SurfaceContext {
   }
 
   closeTab(tabId: string, via: Via = 'click'): void {
-    const serverId = this.sessionFor(tabId)?.run.serverId
+    const serverId = runHost(this.sessionFor(tabId)?.run)
     const tab = this.tabs[tabId]
     const sessionId = tab?.sessionId
     const closedTabIndex = this.tabOrder.indexOf(tabId)
@@ -1372,7 +1369,7 @@ export class WorkspaceContext implements SurfaceContext {
       this.lifecycle.disposeSession(sessionId)
       delete this.sessions.byId[sessionId]
     }
-    if (serverId && !this.tabOrder.some((id) => id !== tabId && this.sessionFor(id)?.run.serverId === serverId)) {
+    if (serverId && !this.tabOrder.some((id) => id !== tabId && runHost(this.sessionFor(id)?.run) === serverId)) {
       serverConnections.unretain(serverId)
       serverConnections.release(serverId)
     }
@@ -1433,11 +1430,11 @@ export class WorkspaceContext implements SurfaceContext {
     session.status = 'idle'
     session.progress = null
     session.readOnlyReason = null
-    if (session.run.gitContext?.worktreePath) session.run.worktree = null
+    if (checkoutGit(session.run)?.worktreePath) session.run.location = chooseStart(session.run.location, { kind: 'checkout' })
     session.title = 'New Tab'
     session.titleCustom = false
     this.metadata.metadataFinalizedTabs.delete(targetTabId)
-    if (session.run.workingDirectory && !session.run.gitContext) {
+    if (checkoutPlace(session.run).path && !checkoutGit(session.run)) {
       void this.environment.refreshEnvironment(this, { sourceId: targetTabId })
     }
   }
@@ -1458,9 +1455,9 @@ export class WorkspaceContext implements SurfaceContext {
   }
 
   toggleWorktreeMode(sourceId?: string, via: Via = 'click'): void {
-    const wasEnabled = !!this.runFor(sourceId ?? this.activeTabId)?.worktree
+    const wasEnabled = startsWorktree(this.runFor(sourceId ?? this.activeTabId))
     this.config.toggleWorktreeMode(sourceId)
-    const enabled = !!this.runFor(sourceId ?? this.activeTabId)?.worktree
+    const enabled = startsWorktree(this.runFor(sourceId ?? this.activeTabId))
     if (enabled !== wasEnabled) track('worktree_mode_toggled', { enabled, via })
   }
 
@@ -1510,7 +1507,7 @@ export class WorkspaceContext implements SurfaceContext {
   /** The provider refused the last turn's login, live or in loaded history: the conversation offers sign-in again. */
   offerSignInAgain(sessionId: string, session: Session): void {
     const provider = seatProviderOf(session.run.provider)
-    if (provider && session.run.serverId) seatsStore.noteLoginRefused(session.run.serverId, sessionId, provider)
+    if (provider && runHost(session.run)) seatsStore.noteLoginRefused(runHost(session.run), sessionId, provider)
   }
 
   async approvePlanWithModel(planId: string, mode: PlanApprovalMode, opts: ApprovePlanOptions = {}): Promise<void> {
@@ -1618,7 +1615,7 @@ export class WorkspaceContext implements SurfaceContext {
     // the same run.
     const api = this.apiForRun(run)
     const serverId = this.serverIdForRun(run)
-    const work = await api.createWork(title, type, content, workPreview(type, content), undefined, provider, run.workingDirectory)
+    const work = await api.createWork(title, type, content, workPreview(type, content), undefined, provider, checkoutPlace(run).path)
     this.worksStore.acceptCreated(work, serverId)
     this.openWork(work.id)
   }
@@ -1668,7 +1665,7 @@ export class WorkspaceContext implements SurfaceContext {
         workPreview('artifact', html),
         undefined,
         provider,
-        run.workingDirectory,
+        checkoutPlace(run).path,
       )
       this.worksStore.acceptCreated(work, serverId)
       return { workId: work.id, title: work.title }
@@ -1771,7 +1768,7 @@ export class WorkspaceContext implements SurfaceContext {
       owningTask ? { taskId: owningTask.taskId, workId } : { withoutTask: true, workId },
       work.cwd,
     )
-    if (taskServerId) draft.run.taskServerId = taskServerId
+    if (taskServerId) draft.run.location = fileTasksOn(draft.run.location, taskServerId)
     const tabId = this.drafts.startSessionDraft(draft.id, { via: 'click' })
     if (!tabId) return false
 
@@ -2065,7 +2062,7 @@ export class WorkspaceContext implements SurfaceContext {
 
   /** Open one automation as a surface beside the destination. */
   openAutomationBuilder(automationId: string | null, opts: { sourceId?: string } = {}): void {
-    const serverId = opts.sourceId ? this.runFor(opts.sourceId)?.serverId : undefined
+    const serverId = opts.sourceId ? runHost(this.runFor(opts.sourceId)) : undefined
     const params: Extract<RouteRef, { name: 'automation' }>['params'] = { automationId }
     if (serverId) params.serverId = serverId
     this.router.navigate({ name: 'automation', params })
@@ -2186,7 +2183,7 @@ export class WorkspaceContext implements SurfaceContext {
       this.router.close('review')
       return
     }
-    if (!this.sessionFor(sourceTabId)?.run.workingDirectory) return
+    if (!checkoutPlace(this.sessionFor(sourceTabId)?.run)?.path) return
     this.showDiff(sourceTabId, scope)
   }
 
@@ -2235,7 +2232,7 @@ export class WorkspaceContext implements SurfaceContext {
     if (!sessionId) return
     this.router.navigate({
       name: 'subagent',
-      params: { sessionId, messageId, serverId: this.sessions.byId[sessionId]?.run.serverId },
+      params: { sessionId, messageId, serverId: runHost(this.sessions.byId[sessionId]?.run) },
     })
   }
 

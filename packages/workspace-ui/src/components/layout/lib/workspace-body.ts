@@ -1,6 +1,7 @@
 import type { RouteRef } from '../../../contexts/workspace/routing/route-registry'
 import { activeSurface, type PaneEntry, type PaneId } from '../../../contexts/workspace/routing/location'
 import type { Tab } from '@solus/contracts/types'
+import { checkoutPlace } from '../../../contexts/workspace/run-location'
 
 export const MIN_PRIMARY_PANE_WIDTH = 400
 
@@ -160,6 +161,6 @@ export function isCompanionVisible(
   workspace: Pick<WorkspaceTabs, 'sessionFor'>,
 ): boolean {
   if (!ref) return false
-  if (ref.name === 'review') return !!workspace.sessionFor(ref.params.sourceTabId)?.run.workingDirectory
+  if (ref.name === 'review') return !!checkoutPlace(workspace.sessionFor(ref.params.sourceTabId)?.run)?.path
   return true
 }

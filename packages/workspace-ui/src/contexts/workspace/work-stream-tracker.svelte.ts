@@ -4,6 +4,7 @@ import type { RouterStore } from './routing/router.store.svelte'
 import type { WorksStore } from '../works/works.store.svelte'
 import { runtime } from '../app/runtime.svelte'
 import { artifactHasBody, isPreviewArtifactCall, partialArtifactHtml } from './streaming-artifact'
+import { checkoutPlace, runHost } from './run-location'
 
 /** A floor, not a target: a slower host may raise it. Each tick re-creates the
  *  iframe, so the reader watches the render arrive in steps rather than
@@ -50,7 +51,7 @@ export class WorkStreamTracker {
 
   beginWorkStream(session: Session, toolName: string | undefined, agentProvider: AgentId): void {
     if (!isCreateWorkTool(toolName)) return
-    const tempId = this.worksStore.addProvisional(agentProvider, session.run.workingDirectory, session.run.serverId)
+    const tempId = this.worksStore.addProvisional(agentProvider, checkoutPlace(session.run).path, runHost(session.run))
     const msgId = nextMsgId()
     session.messages.push({
       id: msgId,
@@ -118,12 +119,12 @@ export class WorkStreamTracker {
     const stream = entries?.find((e) => !e.finalized)
     if (stream) {
       stream.finalized = true
-      this.worksStore.finalizeProvisional(stream.tempId, event.workId, event.title, event.docType, event.content, session.run.serverId)
+      this.worksStore.finalizeProvisional(stream.tempId, event.workId, event.title, event.docType, event.content, runHost(session.run))
       // If the user opened the provisional card mid-stream, follow the rekey so
       // the open pane points at the persisted id, not the deleted temp one.
       if (this.router.params('work')?.workId === stream.tempId) {
         this.router.navigate(
-          { name: 'work', params: { workId: event.workId, serverId: session.run.serverId } },
+          { name: 'work', params: { workId: event.workId, serverId: runHost(session.run) } },
           { replace: true },
         )
       }
@@ -136,7 +137,7 @@ export class WorkStreamTracker {
       }
     } else {
       // No streamed provisional (Codex/mock emit work_created directly).
-      this.worksStore.finalizeProvisional(null, event.workId, event.title, event.docType, event.content, session.run.serverId)
+      this.worksStore.finalizeProvisional(null, event.workId, event.title, event.docType, event.content, runHost(session.run))
       session.messages.push({
         id: nextMsgId(),
         role: 'assistant' as const,
@@ -154,7 +155,7 @@ export class WorkStreamTracker {
       ? { workId: event.workId, title: event.title ?? '', workType: 'artifact' as const, contentVersion: 1 }
       : undefined
     if (workRef && event.html !== undefined) {
-      this.worksStore.finalizeProvisional(null, workRef.workId, workRef.title, 'artifact', event.html, session.run.serverId)
+      this.worksStore.finalizeProvisional(null, workRef.workId, workRef.title, 'artifact', event.html, runHost(session.run))
     }
 
     this.completeArtifactPreview(session, event, workRef)

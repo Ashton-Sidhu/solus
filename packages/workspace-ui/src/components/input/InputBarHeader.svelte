@@ -15,20 +15,13 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import type {
     RunConfig,
+    RunLocation,
     TaskTarget,
     WorktreeEntry,
   } from "@solus/contracts/types";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
-  import {
-    isDispatch,
-    startsWorktree,
-    withWorktreeToggled,
-  } from "../../contexts/workspace/run-config";
   import type { ProjectRef } from "../../contexts";
-  import {
-    projectHostId,
-    worktreeBlockedReason,
-  } from "../servers/run-on";
+  import { worktreeBlockedReason } from "../servers/run-on";
   import { aimRunAtCheckout } from "./lib/project-selection";
   import { hasSessionStarted } from "../../lib/sessionUtils";
   import GitDropdown from "../GitDropdown.svelte";
@@ -40,8 +33,20 @@
     shouldResetTaskForProjectChange,
     type TaskProjectScope,
   } from "./lib/task-project-scope";
-  import { withSelectedWorktree } from "./lib/worktree-destination";
-
+  import {
+    checkoutGit,
+    checkoutPlace,
+    chooseStart,
+    cloneBaseBranch,
+    isDispatch,
+    pendingClone,
+    projectHome,
+    projectRoot,
+    runHost,
+    startsWorktree,
+    workingPlace,
+    worktreeBaseBranch,
+  } from "../../contexts/workspace/run-location";
   interface Props {
     active: boolean;
     /** The tab or draft this header describes. A draft has no tab, so the header
@@ -79,7 +84,7 @@
   // primary bar, so it takes no target.
   const focusTarget = $derived(sess ? { tabId: source } : undefined);
 
-  const projectDir = $derived((run ?? session.defaultRunConfig).workingDirectory);
+  const projectDir = $derived(checkoutPlace((run ?? session.defaultRunConfig)).path);
   // Tasks belong to a project. The directory picker updates a draft outside
   // this component, so observe the run rather than only the project-chip click.
   // Changing active tabs is not a project change for either composer.
@@ -97,7 +102,7 @@
   // With no run, the default run's checkout as Git last reported it.
   const defaultGitContext = $derived(run ? null : env.checkout);
   const gitHome = $derived(
-    homeGitDetails(projectDir, run?.gitContext, defaultGitContext),
+    homeGitDetails(projectDir, checkoutGit(run), defaultGitContext),
   );
   // The project keeps its own name even when the session runs in a worktree of
   // it, so the label reads off the repo root rather than the checkout.
@@ -106,27 +111,23 @@
   );
 
   const hasGitRepository = $derived(!!env.checkout || !!env.repoRoot);
-  const worktreeForced = $derived(isDispatch(run) && !!run?.worktree);
+  const worktreeForced = $derived(isDispatch(run) && startsWorktree(run));
   // Only a *pending* worktree changes where the next session starts. Choosing a
   // new worktree from an existing one re-anchors the draft to the project root;
   // creation still follows the normal origin/default-branch path.
   const startsNewWorktree = $derived(env.pending || worktreeForced);
-  const pendingDispatch = $derived(
-    run?.pendingHostDispatch?.intent === "dispatch"
-      ? run.pendingHostDispatch
-      : null,
+  const pendingDispatch = $derived(pendingClone(run));
+  const selectedDispatchWorktree = $derived(
+    pendingDispatch?.start.kind === "worktree" ? pendingDispatch.start : null,
   );
-  const selectedDispatchWorktree = $derived(pendingDispatch?.worktree ?? null);
-  const selectedDispatchBaseBranch = $derived(
-    pendingDispatch?.baseBranch ?? null,
-  );
+  const selectedDispatchBaseBranch = $derived(cloneBaseBranch(run));
   // A dispatch in the target host's checkout works on the default branch.
   const dispatchCheckoutBranch = $derived(env.targetBranch ?? "Default branch");
   const displayBranch = $derived(
     selectedDispatchWorktree?.branch ??
       selectedDispatchBaseBranch ??
       (pendingDispatch
-        ? run?.worktree
+        ? startsWorktree(run)
           ? "New worktree"
           : dispatchCheckoutBranch
         : (env.branch ?? env.name)),
@@ -145,7 +146,7 @@
       : selectedDispatchBaseBranch
         ? `Works on ${selectedDispatchBaseBranch} on the selected host`
         : pendingDispatch
-          ? run?.worktree
+          ? startsWorktree(run)
             ? "Creates a new worktree on the selected host"
             : `Works on ${env.targetBranch ?? "the default branch"} on the selected host`
           : startsNewWorktree
@@ -154,16 +155,17 @@
   );
 
   const worktreePath = $derived(
-    run?.gitContext?.worktreePath ?? defaultGitContext?.worktreePath ?? null,
+    checkoutGit(run)?.worktreePath ?? defaultGitContext?.worktreePath ?? null,
   );
   const gitStatusCwd = $derived(worktreePath ?? projectDir);
-  // The run's host holds this checkout; a path alone names no machine.
-  const gitServerId = $derived(run?.serverId ?? session.fallbackServerId);
+  // The host that holds the folder is the one asked; a path alone names no
+  // machine. A clone not yet made reads the checkout it copies.
+  const gitServerId = $derived(checkoutPlace(run ?? session.defaultRunConfig).serverId);
   const git = $derived(environmentStore.statusFor(gitServerId, gitStatusCwd));
   const worktrees = $derived(
     environmentStore.refsFor(gitServerId, gitHome.projectRoot ?? env.repoRoot).worktrees,
   );
-  const worktreeBaseBranch = $derived(run?.worktree?.baseBranch ?? null);
+  const newWorktreeBase = $derived(worktreeBaseBranch(run));
 
   let gitOpen = $state(false);
   let branchTooltipOpen = $state(false);
@@ -250,14 +252,18 @@
       requestInputFocus(focusTarget);
       return;
     }
-    const projectRoot = gitHome.projectRoot ?? env.repoRoot;
-    if (run && projectRoot) {
+    if (run && (gitHome.projectRoot ?? env.repoRoot)) {
       // This strip is pre-flight: selecting an existing worktree only changes
       // this composer's destination. Keep the stable project root and record
       // the selected checkout locally so the picker can change its mind again
       // without restoring or resetting a provider session between choices.
-      applyRun(
-        withSelectedWorktree(run, projectRoot, worktree, env.targetBranch),
+      applyLocation(
+        chooseStart(run.location, {
+          kind: "worktree",
+          path: worktree.path,
+          branch: worktree.branch,
+          targetBranch: env.targetBranch,
+        }),
       );
     } else {
       // Retain the controller fallback for an incomplete restored run. Honour
@@ -274,7 +280,11 @@
   }
 
   // Which host the run's project lives on, so "New project" browses that host.
-  const projectHost = $derived(projectHostId(run ?? session.defaultRunConfig));
+  // A run with no project yet browses its own host.
+  const projectHost = $derived.by(() => {
+    const current = run ?? session.defaultRunConfig;
+    return projectRoot(current) ? projectHome(current).serverId : runHost(current);
+  });
   const projectHostIsLocal = $derived(
     serversStore.hostFor(projectHost)?.local ?? true,
   );
@@ -290,7 +300,9 @@
 
   function selectStartIn(worktree: boolean) {
     const current = run ?? session.defaultRunConfig;
-    if (startsWorktree(current) !== worktree) applyRun(withWorktreeToggled(current));
+    if (startsWorktree(current) !== worktree) {
+      applyLocation(chooseStart(current.location, worktree ? { kind: "new-worktree" } : { kind: "checkout" }));
+    }
     requestInputFocus(focusTarget);
   }
 
@@ -352,17 +364,22 @@
     if (target) target.task = next;
   }
 
-  /** Every destination choice this strip offers lands here. Inert until Send —
-   *  nothing connects or moves, which is what makes changing your mind free. */
+  /** Every destination choice this strip offers lands here. Nothing starts or
+   *  clones until Send, which is what makes changing your mind free. */
   function applyRun(next: RunConfig) {
     const target = sess ?? draft;
     if (target) target.run = next;
   }
 
+  /** A branch or worktree choice: only where the run works changes. */
+  function applyLocation(next: RunLocation) {
+    const target = sess ?? draft;
+    if (target) target.run.location = next;
+  }
+
   function settleOnDestination() {
-    const nextRun = session.runFor(source) ?? session.defaultRunConfig;
-    const nextCwd = nextRun.gitContext?.worktreePath ?? nextRun.workingDirectory;
-    if (nextCwd) void environmentStore.refresh(nextRun.serverId, nextCwd, { force: true });
+    const place = workingPlace(session.runFor(source) ?? session.defaultRunConfig);
+    if (place.path) void environmentStore.refresh(place.serverId, place.path, { force: true });
     requestInputFocus(focusTarget);
   }
 </script>
@@ -477,7 +494,7 @@
     {displayBranch}
     selectedBranch={selectedDispatchWorktree?.branch ??
       selectedDispatchBaseBranch ??
-      worktreeBaseBranch ??
+      newWorktreeBase ??
       displayBranch}
     workingDirectory={gitStatusCwd}
     {run}

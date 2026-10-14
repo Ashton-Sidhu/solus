@@ -34,6 +34,7 @@
   import AgentRequestCard from "./AgentRequestCard.svelte";
   import { liveActivityClock } from "../../../lib/shared-clock";
   import { conversationIsVisible } from "../lib/conversation-visibility";
+  import { runHost } from "../../../contexts/workspace/run-location";
 
   /**
    * This session's conversation with one other agent's session — one card per
@@ -56,7 +57,7 @@
   // The caller's tab routes RPCs to the caller's host. A session started on
   // another host is read and opened there; any other on the caller's host.
   const api = $derived(session.apiFor(tabId));
-  const serverId = $derived(ref.serverId ?? session.sessionFor(tabId)?.run.serverId);
+  const serverId = $derived(ref.serverId ?? runHost(session.sessionFor(tabId)?.run));
   const sessionApi = $derived(ref.serverId ? serverConnections.apiFor(ref.serverId) : api);
 
   /** The session's provider has not started yet (or never did) —

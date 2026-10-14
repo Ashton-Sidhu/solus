@@ -76,6 +76,7 @@
   import { setHtmlBlockOrigin } from "./lib/html-block-origin";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { readSessionMeta } from "@solus/client-core/session-meta";
+  import { checkoutGit, checkoutPlace, runHost } from "../../contexts/workspace/run-location";
 
   const session = getWorkspaceContext();
   const outerScrollbar = getOuterScrollbarContext();
@@ -139,15 +140,12 @@
     return modelLabelFor(provider, modelId);
   });
   setMarkdownImageContext({
-    cwd: () => sess?.run.workingDirectory,
-    serverId: () => sess?.run.serverId,
+    cwd: () => checkoutPlace(sess?.run)?.path,
+    serverId: () => runHost(sess?.run),
     ctx: () => (sess ? session.ctxFor(tabId) : undefined),
-    api: () =>
-      sess?.run.serverId
-        ? serverConnections.apiFor(sess.run.serverId)
-        : undefined,
+    api: () => (sess ? serverConnections.apiFor(runHost(sess.run)) : undefined),
   });
-  setSessionLinkContext(() => sess?.run.serverId);
+  setSessionLinkContext(() => runHost(sess?.run));
   // What every card's Link control needs: the host that owns the
   // conversation's tasks, its project, and the task the conversation itself
   // belongs to — the one-click target. Resolved once here, not per card.
@@ -159,22 +157,23 @@
       : null,
   );
   const linkContext: TaskLinkContext = $derived({
-    serverId: sess?.run.serverId,
-    projectKey: sess?.run.gitContext?.repoRoot ?? sess?.run.workingDirectory ?? null,
+    serverId: runHost(sess?.run),
+    projectKey: checkoutGit(sess?.run)?.repoRoot ?? checkoutPlace(sess?.run)?.path ?? null,
     conversationTaskId,
   });
   // An HTML block renders from deep inside the markdown tree, where these props
   // do not reach. Saving one as an artifact still has to file the work against
   // this conversation's host and project rather than the active tab's.
   setHtmlBlockOrigin(() => ({ tabId, linkContext }));
+  const sessionHostId = $derived(runHost(sess?.run));
   const remoteServer = $derived(
-    sess?.run.serverId && sess.run.serverId !== LOCAL_SERVER_ID
-      ? serversStore.servers.find((server) => server.id === sess.run.serverId)
+    sessionHostId && sessionHostId !== LOCAL_SERVER_ID
+      ? serversStore.servers.find((server) => server.id === sessionHostId)
       : null,
   );
   const remoteStatus = $derived(
-    sess?.run.serverId && sess.run.serverId !== LOCAL_SERVER_ID
-      ? serversStore.statusFor(sess.run.serverId)
+    sessionHostId && sessionHostId !== LOCAL_SERVER_ID
+      ? serversStore.statusFor(sessionHostId)
       : "online",
   );
   // ─── Breadcrumb room ───
@@ -609,7 +608,7 @@
       enabled: () =>
         tabId === session.focusedChatTabId &&
         (sess?.status === "running" || sess?.status === "connecting") &&
-        canDriveSession(sess.run.serverId, sess.id),
+        canDriveSession(runHost(sess.run), sess.id),
     },
   );
 
@@ -653,7 +652,7 @@
     // The source session lives on the same host as the transcript citing it.
     const matchingTabId = session.tabIdForHostSession(
       sourceSessionId,
-      sess?.run.serverId,
+      runHost(sess?.run),
     );
     if (matchingTabId) {
       session.selectTab(matchingTabId);
@@ -662,7 +661,7 @@
     // Not open — read it on this conversation's host and resume it. The
     // source session delegated to this one, so it lives on the same host.
     if (!sess) return;
-    const meta = await readSessionMeta(sess.run.serverId, sourceSessionId);
+    const meta = await readSessionMeta(runHost(sess.run), sourceSessionId);
     if (meta) {
       await session.opening.resumeSession(meta);
     }
@@ -674,7 +673,7 @@
 
 <!-- §13 — the machine's reachability belongs to the host, not to a turn, so it
      is a row: the condition, the host, and the one thing the user can do. -->
-{#if sess?.run.serverId !== LOCAL_SERVER_ID && remoteStatus !== "online"}
+{#if runHost(sess?.run) !== LOCAL_SERVER_ID && remoteStatus !== "online"}
   <div class="mx-4 mt-2 shrink-0">
     <TranscriptStatusRow
       tone={remoteStatus === "connecting" ? "warning" : "destructive"}
@@ -799,7 +798,7 @@
                 onStopBackgroundWork={stopBackgroundWork}
                 attempt={sess.retryAttempt ?? 1} history={session.toolHistory}
                 onToggle={(expanded) => toggleTurn(turn.id, expanded)} onRetry={handleRetry}
-                serverId={sess.run.serverId} sessionId={sess.id} {transcriptItem} />
+                serverId={runHost(sess.run)} sessionId={sess.id} {transcriptItem} />
             {/snippet}
           </VirtualTranscript>
 
@@ -838,29 +837,29 @@
 
           <!-- The request belongs to the session whose agent needs Cloudflare;
                a different active conversation must not receive its Continue. -->
-          {#if connectRequestStore.visibleFor(sess.run.serverId, sess.id)}
+          {#if connectRequestStore.visibleFor(runHost(sess.run), sess.id)}
             <ConnectCard tabId={tab.id} />
           {/if}
           <!-- The host refused this conversation's prompt for want of a seat; the
                card offers the connect flow where the turn would have run. -->
           <!-- The organization model refused this reader's turn: which
                organization it needs, and the control that fixes it. -->
-          {#if turnRefusalStore.visibleFor(sess.run.serverId, sess.id)}
+          {#if turnRefusalStore.visibleFor(runHost(sess.run), sess.id)}
             <TurnRefusalCard />
           {/if}
-          {#if seatsStore.visibleFor(sess.run.serverId, sess.id)}
+          {#if seatsStore.visibleFor(runHost(sess.run), sess.id)}
             <SeatConnectCard />
-          {:else if sess.run.serverId}
+          {:else if runHost(sess.run)}
             <!-- Before they send: the reader's seat for this agent on this host. -->
-            <SeatNeededNotice serverId={sess.run.serverId} provider={sess.run.provider} turnRunning={isTurnLive} />
+            <SeatNeededNotice serverId={runHost(sess.run)} provider={sess.run.provider} turnRunning={isTurnLive} />
           {/if}
           <!-- A sign-in this conversation asked for with /design-login or /mcp login. -->
-          {#if agentAuthStore.visibleFor(sess.run.serverId, sess.id)}
+          {#if agentAuthStore.visibleFor(runHost(sess.run), sess.id)}
             <AgentAuthCard />
           {/if}
           <QueuedPromptGroup tabId={tab.id} />
           <!-- Someone else's prompt is on its way: it lands here, so the notice does too. -->
-          <ComposingLine serverId={sess.run.serverId} sessionId={sess.id} />
+          <ComposingLine serverId={runHost(sess.run)} sessionId={sess.id} />
 
           {#if showTurnDiffSummary && latestTurnScope}
             <!-- Stands off the turn it reports on: the summary is a footnote to

@@ -17,6 +17,7 @@
   import PlanApproveButton from './PlanApproveButton.svelte'
   import Kbd from '../ui/Kbd.svelte'
   import type { PlanApprovalMode } from '../../contexts/workspace/session-plan-operations'
+  import { checkoutGit, checkoutPlace } from '../../contexts/workspace/run-location'
 
   interface Props {
     planId: string
@@ -44,8 +45,8 @@
   let menuOpen = $state(false)
   let triggerEl: HTMLButtonElement | null = $state(null)
   const sess = $derived(session.sessionFor(session.activeTabId))
-  const hasGit = $derived(!!sess?.run.gitContext)
-  const alreadyInWorktree = $derived(!!sess?.run.gitContext?.worktreePath)
+  const hasGit = $derived(!!checkoutGit(sess?.run))
+  const alreadyInWorktree = $derived(!!checkoutGit(sess?.run)?.worktreePath)
   let useWorktree = $state(false)
   let startNewSession = $state(true)
   const showWorktreeToggle = $derived((hasGit || forceShowWorktreeToggle) && !alreadyInWorktree)
@@ -122,7 +123,7 @@
     bind:value={actionComment}
     bind:collapsed
     tabId={session.activeTabId}
-    workingDirectory={sess?.run.workingDirectory}
+    workingDirectory={checkoutPlace(sess?.run)?.path}
     menuPlacement="up"
     placeholder={hasKeyboard ? "Add a note… (⌥L)" : "Add a note…"}
   >

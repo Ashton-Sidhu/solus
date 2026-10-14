@@ -1,16 +1,9 @@
 import { serverConnections } from '@solus/client-core/server-connections'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
-import { worktreeProjectRoot, type GithubDelegatedCredential, type IpcContext, type PendingHostDispatch, type ProjectIdentity, type RunConfig, type Session } from '@solus/contracts/types'
+import type { GithubDelegatedCredential, IpcContext, ProjectIdentity, RunLocation, Session } from '@solus/contracts/types'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import { hasSessionStarted } from '../../lib/sessionUtils'
-import {
-  startsWorktree,
-  withCheckout,
-  withDispatchDefaultBranch,
-  withHost,
-  withPendingHost,
-  withProjectHost,
-} from '../../contexts/workspace/run-config'
+import { runHost, startsWorktree, workingPlace } from '../../contexts/workspace/run-location'
 
 /** Exactly what moving a tab to another host needs from the workspace context. */
 export interface RunOnWorkspace {
@@ -24,30 +17,12 @@ export interface RunOnWorkspace {
 export interface MoveTabToHostOptions {
   workspace: RunOnWorkspace
   tabId: string
-  serverId: string
-  isLocalHost: boolean
-  /** The working directory on the new host; omitted keeps whatever the session had. */
-  path?: string
-  /** Stable repository identity used to preserve sidebar grouping across hosts. */
-  repoKey?: string | null
-  /**
-   * Which of the two moves this is. `dispatch` sends the session to another
-   * machine and leaves the project — and its tasks — where they are.
-   * `open-project` says the project itself lives on that machine, so its tasks
-   * are minted there and worktree mode stays the user's choice.
-   */
-  intent: 'dispatch' | 'open-project'
+  /** Where the tab's run works next. Its host may be the one it is on. */
+  location: RunLocation
 }
 
-export type MoveTabToHostResult =
-  | { ok: true; refreshStartTarget?: Promise<void> }
-  /** The tab is gone, or was never a session. */
-  | { ok: false; reason: 'no-session' }
-  /** Nothing on the target names a directory the session could run in. */
-  | { ok: false; reason: 'no-path-on-host' }
-
 /**
- * Point a tab at another host, before anything has started on it.
+ * Point a tab's run somewhere new, before anything has started on it.
  *
  * A *session* never moves between machines — it is created on the host it will
  * live on and stays there. What moves is the tab: its speculative registration
@@ -55,67 +30,36 @@ export type MoveTabToHostResult =
  * released once no other tab still needs it. Every caller is therefore
  * pre-start, which is what `isRunOnHostLocked` enforces at the picker.
  *
- * A move must carry the directory to run in: the current one is a path on the
- * *old* machine, and keeping it would start the session somewhere that does not
- * exist on the target. Staying put keeps whatever the run already had.
+ * Resolves with the Git read of the new folder when the host changed, so Send
+ * can wait for the checkout it is about to start in.
  */
-export function moveTabToHost(opts: MoveTabToHostOptions): MoveTabToHostResult {
-  const { workspace, tabId, serverId, isLocalHost, path, repoKey, intent } = opts
+export function moveTabToHost(opts: MoveTabToHostOptions): { ok: true; refreshStartTarget?: Promise<void> } | { ok: false } {
+  const { workspace, tabId, location } = opts
   const session = workspace.sessionFor(tabId)
-  if (!session) return { ok: false, reason: 'no-session' }
+  if (!session) return { ok: false }
 
-  const previousServerId = session.run.serverId
+  const previousServerId = runHost(session.run)
+  const serverId = runHost({ location })
   const movingHosts = previousServerId !== serverId
-  if (movingHosts && !path) return { ok: false, reason: 'no-path-on-host' }
-  const selectedDispatchWorktree = intent === 'dispatch'
-    && session.run.pendingHostDispatch?.intent === 'dispatch'
-    ? session.run.pendingHostDispatch.worktree
-    : undefined
-  const selectedDispatchBaseBranch = intent === 'dispatch'
-    && session.run.pendingHostDispatch?.intent === 'dispatch'
-    ? session.run.pendingHostDispatch.baseBranch
-    : undefined
-  const sourceProjectPath = session.run.projectGroupPath
-    ?? session.run.gitContext?.repoRoot
-    ?? session.run.workingDirectory
   if (movingHosts) {
     // The session is leaving this host, so stop listening to it there.
     void workspace.apiFor(tabId).unwatchSession(session.id).catch(() => {})
   }
   serverConnections.retain(serverId)
-  if (!isLocalHost) serverConnections.ensure(serverId)
-  session.run = intent === 'dispatch'
-    ? withHost(session.run, serverId, { path })
-    : withProjectHost(session.run, serverId, { path })
-  if (intent === 'open-project') session.task = { kind: 'none' }
-  const selectedDispatchBranch = selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch
-  if (selectedDispatchBranch && path) {
-    // Preserve the selected path as a worktree while the target host resolves
-    // its full Git identity. Without this provisional context the refresh would
-    // treat the exact worktree path as a plain branch checkout.
-    session.run.gitContext = {
-      repoRoot: worktreeProjectRoot(path),
-      branch: selectedDispatchBranch,
-      targetBranch: selectedDispatchBranch,
-      worktreePath: path,
-    }
-    session.run.worktree = null
-  }
+  if (serverId !== serverConnections.localServerId()) serverConnections.ensure(serverId)
+  session.run.location = location
 
   if (!movingHosts) return { ok: true }
-  if (repoKey && sourceProjectPath && sourceProjectPath !== '~') {
-    session.run.projectGroupPath = sourceProjectPath
-  }
-  const refreshed = workspace.refreshStartTarget(tabId, path!, startsWorktree(session.run))
+  const refreshed = workspace.refreshStartTarget(tabId, workingPlace(session.run).path, startsWorktree(session.run))
   const refreshStartTarget = refreshed instanceof Promise ? refreshed : undefined
-  const success = refreshStartTarget ? { ok: true as const, refreshStartTarget } : { ok: true as const }
   const stillInUse = workspace.tabOrder.some(
-    (id) => id !== tabId && workspace.sessionFor(id)?.run.serverId === previousServerId,
+    (id) => id !== tabId && runHost(workspace.sessionFor(id)?.run) === previousServerId,
   )
-  if (stillInUse) return success
-  serverConnections.unretain(previousServerId)
-  serverConnections.release(previousServerId)
-  return success
+  if (!stillInUse) {
+    serverConnections.unretain(previousServerId)
+    serverConnections.release(previousServerId)
+  }
+  return refreshStartTarget ? { ok: true, refreshStartTarget } : { ok: true }
 }
 
 export function isRunOnHostLocked(session: Session | undefined): boolean {
@@ -154,78 +98,6 @@ export function shouldShowRunOnPicker(input: RunOnPickerVisibility): boolean {
 export function worktreeBlockedReason(canToggleWorktree: boolean): string | null {
   if (canToggleWorktree) return null
   return 'This checkout has no base branch to create a worktree from.'
-}
-
-/**
- * Whether picking `serverId` returns a dispatched run to the host its project
- * already lives on — the reverse of a dispatch.
- *
- * A dispatch runs the agent on one host while the project (and its tasks) stay
- * on `taskServerId`; that home host still holds the real checkout, remembered as
- * `projectGroupPath`. Selecting it again is therefore a plain re-home: no clone,
- * and no project to pick, because the checkout is already there. Every other host
- * is a genuine move — a dispatch to it, or opening a folder on it — so this stays
- * false for them, and for a run already on its own home host.
- */
-export function returnsToProjectHome(run: RunConfig, serverId: string): boolean {
-  return run.serverId !== serverId && run.taskServerId === serverId && !!run.projectGroupPath
-}
-
-/**
- * Point a run at a checkout that already exists on `serverId`. Your own
- * machine and a dispatched run's home switch at once: the checkout is there
- * and nothing needs a connection. Any other host is recorded as intent, and
- * Send connects to it before the run moves.
- */
-export function withCheckoutOnHost(
-  run: RunConfig,
-  serverId: string,
-  path: string,
-  opts: { immediate: boolean },
-): RunConfig {
-  if (!opts.immediate) return withCheckout(withPendingHost(run, { serverId, intent: 'open-project' }), path, null)
-  const next = withProjectHost(withPendingHost(run, null), serverId, { path })
-  next.projectGroupPath = null
-  return next
-}
-
-/**
- * Queue a repository dispatch without changing the run's worktree mode.
- *
- * A run in its checkout works on the default branch over there, in the target
- * host's checkout. A run that asked for a worktree keeps that request, but the
- * old host's base branch names a branch over there, so its answer is dropped.
- */
-export function withRemoteDispatch(
-  run: RunConfig,
-  target: Extract<PendingHostDispatch, { intent: 'dispatch' }>,
-): RunConfig {
-  const next = withPendingHost(run, target)
-  return run.worktree ? { ...next, worktree: { baseBranch: null } } : withDispatchDefaultBranch(next)
-}
-
-/**
- * The host whose recent projects the project chip should list — where the run's
- * project *lives*, which is not always where it *runs*.
- *
- * The run-on picker chooses the run host and records the choice as a pending
- * dispatch; the project chip reads this back to know whose projects to offer:
- *
- * - **open-project** — the pending choice is "work on a project that lives over
- *   there", so the project host is that target host, before Send moves either id.
- * - **dispatch** — the agent runs elsewhere but the project (and its tasks) stay
- *   home, so the project host is `taskServerId`, and the chip keeps listing the
- *   local checkout being dispatched. A dispatch with no checkout at home (`~`:
- *   a repository the target host clones) has no home to list, so it lists the
- *   target host.
- * - **no pending choice** — the run already sits on its project host, named by
- *   `taskServerId` (a remote-owned project) or, failing that, `serverId`.
- */
-export function projectHostId(run: RunConfig): string {
-  const pending = run.pendingHostDispatch
-  if (pending?.intent === 'open-project') return pending.serverId
-  if (pending?.intent === 'dispatch' && (!run.workingDirectory || run.workingDirectory === '~')) return pending.serverId
-  return run.taskServerId ?? run.serverId
 }
 
 export function repoKeyForPath(identities: ProjectIdentity[], path: string | null | undefined): string | null {

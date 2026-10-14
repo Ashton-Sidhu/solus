@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { RunConfig } from '@solus/contracts/types'
 import { ProjectsStore } from '@solus/workspace-ui/contexts/projects/projects.store.svelte'
 import { GONE_MACHINE_READ_ONLY_REASON, reconcileMachineReferences, type MachineReferenceOwner } from '@solus/workspace-ui/contexts/workspace/machine-references'
+import { checkoutPlace, fileTasksOn, folderLocation, projectHome, runHost, worktreeBaseBranch, startsWorktree } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 // docs/plans/workspace-and-machines.md §6. WHY: the organization's managed host
 // was deleted while a remembered project, a draft, and a kept project list still
@@ -9,17 +10,11 @@ import { GONE_MACHINE_READ_ONLY_REASON, reconcileMachineReferences, type Machine
 
 function run(serverId: string, extra: Partial<RunConfig> = {}): RunConfig {
   return {
-    workingDirectory: `/on/${serverId}`,
-    gitContext: null,
-    worktree: null,
+    location: folderLocation({ serverId, path: `/on/${serverId}` }),
     modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
     permissionMode: 'supervised',
     provider: null,
-    serverId,
-    taskServerId: serverId,
-    projectGroupPath: null,
     sessionSkills: [],
-    pendingHostDispatch: null,
     ...extra,
   }
 }
@@ -41,7 +36,7 @@ function owner(
     unstartedRuns: () => runs,
     startedSessions: () => started,
     // Once the remembered project is cleared, a new session starts on the default machine.
-    get defaultRunConfig() { return run('laptop', { workingDirectory: '/home/me/workspace' }) },
+    get defaultRunConfig() { return run('laptop', { location: folderLocation({ serverId: 'laptop', path: '/home/me/workspace' }) }) },
     projects,
   }
 }
@@ -50,8 +45,12 @@ const presenceOf = (serverId: string) => serverId === 'laptop' || serverId === '
 
 describe('references to a machine that is gone', () => {
   test('the remembered project is cleared and unstarted work moves to where a new session starts', () => {
-    const draft = run('managed:gone', { worktree: { baseBranch: 'main' } })
-    const fromTask = run('managed:gone', { taskServerId: 'workspace:org-1' })
+    const draft = run('managed:gone', {
+      location: folderLocation({ serverId: 'managed:gone', path: '/on/managed:gone' }, { newWorktree: { baseBranch: 'main' } }),
+    })
+    const fromTask = run('managed:gone', {
+      location: fileTasksOn(folderLocation({ serverId: 'managed:gone', path: '/on/managed:gone' }), 'workspace:org-1'),
+    })
     const onLaptop = run('laptop')
     const workspace = owner({ serverId: 'managed:gone', directory: '/data/projects/app' }, [draft, fromTask, onLaptop])
 
@@ -59,10 +58,16 @@ describe('references to a machine that is gone', () => {
 
     expect(workspace.settings.lastProject).toBeNull()
     // The folder named a path on the gone machine, so the draft takes the new one.
-    expect(draft).toMatchObject({ serverId: 'laptop', taskServerId: 'laptop', workingDirectory: '/home/me/workspace', worktree: { baseBranch: null } })
-    // A draft opened from a task keeps the task's home: only the machine was deleted.
-    expect(fromTask).toMatchObject({ serverId: 'laptop', taskServerId: 'workspace:org-1' })
-    expect(onLaptop.workingDirectory).toBe('/on/laptop')
+    // Wanting a worktree survives; the base branch named a branch over there.
+    expect(runHost(draft)).toBe('laptop')
+    expect(projectHome(draft).serverId).toBe('laptop')
+    expect(checkoutPlace(draft).path).toBe('/home/me/workspace')
+    expect(startsWorktree(draft)).toBe(true)
+    expect(worktreeBaseBranch(draft)).toBeNull()
+    // A draft opened from a task keeps the task's project home: only the machine was deleted.
+    expect(runHost(fromTask)).toBe('laptop')
+    expect(projectHome(fromTask).serverId).toBe('workspace:org-1')
+    expect(checkoutPlace(onLaptop).path).toBe('/on/laptop')
   })
 
   test('a started session keeps its machine and becomes read-only; one on a known machine is left alone', () => {
@@ -74,7 +79,7 @@ describe('references to a machine that is gone', () => {
 
     reconcileMachineReferences(owner(null, [], [onGone, onLaptop, worktreeGone]), presenceOf, () => true)
 
-    expect(onGone.run.serverId).toBe('managed:gone')
+    expect(runHost(onGone.run)).toBe('managed:gone')
     expect(onGone.readOnlyReason).toBe(GONE_MACHINE_READ_ONLY_REASON)
     expect(onLaptop.readOnlyReason).toBeNull()
     // A reason already given is not replaced.
@@ -88,7 +93,7 @@ describe('references to a machine that is gone', () => {
     reconcileMachineReferences(workspace, presenceOf, () => false)
 
     expect(workspace.settings.lastProject).toBeNull()
-    expect(draft.serverId).toBe('managed:gone')
+    expect(runHost(draft)).toBe('managed:gone')
   })
 
   test('the project list kept from a gone machine is dropped, so no project reads a checkout there', () => {

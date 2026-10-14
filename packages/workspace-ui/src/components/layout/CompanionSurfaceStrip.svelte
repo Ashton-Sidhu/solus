@@ -27,6 +27,7 @@
   import * as ContextMenu from "../ui/context-menu";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { surfaceLabel, type SurfaceTitleSources } from "./lib/surface-labels";
+  import { checkoutPlace } from "../../contexts/workspace/run-location";
 
   /**
    * The companion pane's strip: one tab per surface the destination opened
@@ -92,7 +93,7 @@
     router.destination.name === "draft" ? router.destination.params.draftId : session.activeTabId,
   );
   const canOpenChanges = $derived(
-    router.destination.name === "chat" && !!session.sessionFor(session.activeTabId)?.run.workingDirectory,
+    router.destination.name === "chat" && !!checkoutPlace(session.sessionFor(session.activeTabId)?.run)?.path,
   );
   const canOpenFiles = $derived(!!leadingSourceId && !!session.runFor(leadingSourceId));
 

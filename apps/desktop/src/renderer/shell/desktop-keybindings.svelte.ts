@@ -25,6 +25,7 @@ import {
 import type { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
 type DesktopAppCore = ReturnType<typeof createAppCore>;
 import type { DesktopDialogs } from "./desktop-dialogs.svelte";
+import { runHost } from "@solus/workspace-ui/contexts/workspace/run-location";
 interface DesktopKeyboardActions {
   startOpenProject(options?: { sourceId?: string }): void;
   handleScreenshot(tabId?: string): Promise<void>;
@@ -96,7 +97,7 @@ export function installDesktopKeybindings(
         detail: {
           requesterId: session.focusedSourceId ?? undefined,
           serverId:
-            session.runFor(session.focusedSourceId ?? "")?.serverId ??
+            runHost(session.runFor(session.focusedSourceId ?? "")) ??
             serversStore.activeServerId,
         },
       }),
@@ -297,7 +298,7 @@ export function installDesktopKeybindings(
     {
       enabled: () =>
         desktopHandlersAvailable &&
-        session.activeSession?.run.serverId === LOCAL_SERVER_ID,
+        runHost(session.activeSession?.run) === LOCAL_SERVER_ID,
     },
   );
   useKeybinding("global.show-shortcuts", () => {

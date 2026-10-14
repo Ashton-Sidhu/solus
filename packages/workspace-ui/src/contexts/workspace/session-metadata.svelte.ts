@@ -8,6 +8,7 @@ import type { WorkspaceContext } from './workspace.context.svelte'
 import { existingTaskId, taskRoleOf } from './session-draft.svelte'
 import { UNTITLED_TASK_TITLE, type Task } from '../tasks/task.svelte'
 import { canDriveSession } from '../sharing/resource-roles'
+import { checkoutPlace, runHost } from './run-location'
 
 /** The workspace members this controller reads or calls, and no others. */
 type SessionMetadataWorkspace = Pick<WorkspaceContext,
@@ -90,7 +91,7 @@ export class SessionMetadata {
    * previous per-client behaviour.
    */
   publishSessionViewed(sessionId: string): void {
-    const serverId = this.workspace.sessions.byId[sessionId]?.run.serverId
+    const serverId = runHost(this.workspace.sessions.byId[sessionId]?.run)
     if (!serverId) return
     void serverConnections.apiFor(serverId)
       .setSessionReadState(sessionId, Date.now())
@@ -101,7 +102,7 @@ export class SessionMetadata {
    *  tabs. Task links and other sessions keep their own state. */
   async markSessionUnread(serverId: string, sessionId: string): Promise<void> {
     await serverConnections.apiFor(serverId).setSessionReadState(sessionId, null)
-    if (this.workspace.sessions.byId[sessionId]?.run.serverId === serverId) {
+    if (runHost(this.workspace.sessions.byId[sessionId]?.run) === serverId) {
       this.applySessionReadState(sessionId, null)
     }
   }
@@ -137,7 +138,7 @@ export class SessionMetadata {
     if (this.metadataFinalizedTabs.has(tabId)) return
     // A member who may only read a shared session does not name it: the host
     // requires an editor, and the session's driver names it.
-    if (!canDriveSession(session.run.serverId, session.id)) return
+    if (!canDriveSession(runHost(session.run), session.id)) return
 
     if (session.titleCustom) {
       // A name typed into a session before the provider knew about it had
@@ -155,14 +156,14 @@ export class SessionMetadata {
     if (userMessages.length !== 1) return
     this.metadataFinalizedTabs.add(tabId)
 
-    const runServerId = serverConnections.resolveId(session.run.serverId)
+    const runServerId = serverConnections.resolveId(runHost(session.run))
     const metadataContext = this.workspace.promptComposer.composeSessionMetadataContext(
       userMessages[0].attachments ?? [],
       runServerId,
       hasHostCapability(serverConnections.cachedCapabilitiesFor(runServerId), 'promptImageRefs'),
     )
     const metadata = await this.workspace.apiFor(tabId)
-      .generateSessionMetadata(userMessages[0].content, session.run.workingDirectory, { ...metadataContext, sessionId: session.id, executionPreferences: this.workspace.settings.executionPreferences })
+      .generateSessionMetadata(userMessages[0].content, checkoutPlace(session.run).path, { ...metadataContext, sessionId: session.id, executionPreferences: this.workspace.settings.executionPreferences })
       .catch(() => null)
     if (!metadata) return
     if (untitledTask) void untitledTask.nameFromLeadPrompt(metadata).catch(() => {})
@@ -221,7 +222,7 @@ export class SessionMetadata {
     this.regeneratingTitleSessionIds.add(session.id)
     try {
       const api = this.workspace.apiFor(tabId)
-      let workingDirectory = session.run.workingDirectory
+      let workingDirectory = checkoutPlace(session.run).path
       let openingPrompt = sessionTitleRegenerationInput(session.messages)
       if (!openingPrompt) {
         const indexedSession = await api.getSessionInfo(session.id)
@@ -230,7 +231,7 @@ export class SessionMetadata {
       }
       if (!openingPrompt) throw new Error("Couldn't find the session's opening prompt.")
 
-      const runServerId = serverConnections.resolveId(session.run.serverId)
+      const runServerId = serverConnections.resolveId(runHost(session.run))
       const metadataContext = this.workspace.promptComposer.composeSessionMetadataContext(
         session.messages.flatMap((message) => message.role === 'user' ? message.attachments ?? [] : []),
         runServerId,

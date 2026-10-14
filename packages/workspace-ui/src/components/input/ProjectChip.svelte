@@ -11,7 +11,6 @@
     type ProjectRef,
   } from "../../contexts";
   import { isChat, NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
-  import { projectHostId } from "../servers/run-on";
   import type { RunConfig } from "@solus/contracts/types";
   import { comboHint } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
@@ -25,6 +24,7 @@
     projectChipOptions,
     type ProjectChipOption,
   } from "./lib/project-chip-options";
+  import { projectHome, projectRoot, runHost } from "../../contexts/workspace/run-location";
 
   interface Props {
     /** Where the next session will run. Read for its host, never written here. */
@@ -65,8 +65,9 @@
 
   // The host the project lives on, and the host the run is headed for. They
   // differ for a dispatch, whose project stays home while the agent moves.
-  const hostId = $derived(projectHostId(run));
-  const selectedHostId = $derived(run.pendingHostDispatch?.serverId ?? run.serverId);
+  // A run with no project yet lists what its own host holds.
+  const hostId = $derived(projectRoot(run) ? projectHome(run).serverId : runHost(run));
+  const selectedHostId = $derived(runHost(run));
   // A chat draws no chip (its list opens from the + menu); a project's list
   // offers the way back to a chat.
   const inChat = $derived(isChat(projectDir));

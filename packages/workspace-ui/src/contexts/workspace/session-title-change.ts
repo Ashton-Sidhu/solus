@@ -1,4 +1,5 @@
 import type { Session, SessionTitleChangedEvent } from '@solus/contracts/types'
+import { projectHome, runHost } from './run-location'
 
 export interface ChangedSessionTitle {
   sessionId: string
@@ -21,10 +22,10 @@ export function applySessionTitleChange(
   const changed: ChangedSessionTitle[] = []
   for (const [sessionId, session] of Object.entries(sessions)) {
     if (session.forked) continue
-    if (session.run.serverId !== serverId || session.id !== event.sessionId) continue
+    if (runHost(session.run) !== serverId || session.id !== event.sessionId) continue
     session.title = event.title ?? 'New Tab'
     session.titleCustom = event.title !== null
-    changed.push({ sessionId, taskServerId: session.run.taskServerId })
+    changed.push({ sessionId, taskServerId: projectHome(session.run).serverId })
   }
   return changed
 }

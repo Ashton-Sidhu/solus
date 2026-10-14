@@ -17,7 +17,6 @@
     getWorkspaceContext,
     projectsStore,
   } from "../../contexts";
-  import { withProjectHost } from "../../contexts/workspace/run-config";
   import { openChatDraft } from "../../contexts/workspace/new-chat";
   import { getKeybindingsContext } from "../../lib/keybindings/dispatcher.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -36,6 +35,7 @@
   import OnboardingCloudConnectStage from "./OnboardingCloudConnectStage.svelte";
   import { cloudOnboardingStore as cloud } from "./cloud-onboarding.store.svelte";
   import type { OnboardingMode } from "./lib/onboarding-model";
+  import { openFolder } from "../../contexts/workspace/run-location";
 
   const settings = getSettingsContext();
   const workspace = getWorkspaceContext();
@@ -105,9 +105,7 @@
       { freshTask: true, target: "leading" },
       project.path,
     );
-    draft.run = withProjectHost(draft.run, project.serverId, {
-      path: project.path,
-    });
+    draft.run.location = openFolder(draft.run.location, { serverId: project.serverId, path: project.path });
     requestInputFocus();
   }
 

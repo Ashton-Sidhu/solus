@@ -36,6 +36,7 @@
   import LensSurface from "./LensSurface.svelte";
   import { reviewLensStore, type LensSubject } from "./review-lens.store.svelte";
   import { lensTabState } from "./lib/lens-surface";
+  import { checkoutGit, checkoutPlace } from "../../contexts/workspace/run-location";
 
   /**
    * The review pane: one surface for reading a local change, with the map, the
@@ -481,14 +482,14 @@
     {paneId}
     {getCtx}
     {getApi}
-    projectPath={checkoutRepoRoot ?? sourceSession?.run.workingDirectory ?? environment.cwd}
-    worktreePath={checkoutRepoRoot ?? sourceSession?.run.gitContext?.worktreePath ??
+    projectPath={checkoutRepoRoot ?? checkoutPlace(sourceSession?.run)?.path ?? environment.cwd}
+    worktreePath={checkoutRepoRoot ?? checkoutGit(sourceSession?.run)?.worktreePath ??
       environment.worktreePath ??
       environment.cwd}
-    worktreeBranch={targetLabel ?? sourceSession?.run.gitContext?.branch ??
+    worktreeBranch={targetLabel ?? checkoutGit(sourceSession?.run)?.branch ??
       environment.branch ??
       ""}
-    targetBranch={targetPullRequest?.baseSha?.slice(0, 7) ?? sourceSession?.run.gitContext?.targetBranch ??
+    targetBranch={targetPullRequest?.baseSha?.slice(0, 7) ?? checkoutGit(sourceSession?.run)?.targetBranch ??
       environment.targetBranch ??
       "HEAD"}
     isWorktree={!targetPullRequest && environment.isolated}

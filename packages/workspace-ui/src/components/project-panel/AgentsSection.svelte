@@ -25,6 +25,7 @@
     RAIL_AGENTS_PAGE_COUNT,
     type RailAgentRow,
   } from "./lib/rail-agents";
+  import { runHost } from "../../contexts/workspace/run-location";
 
   /**
    * Every agent the session dispatched, as one card (T3 Code's Lineage
@@ -48,7 +49,7 @@
   const currentSession = $derived(session.sessionFor(tabId));
   // A started session lives on this tab's host unless its card names another.
   const api = $derived(session.apiFor(tabId));
-  const serverId = $derived(currentSession?.run.serverId);
+  const serverId = $derived(runHost(currentSession?.run));
 
   // Keep the index's record of each started session (its slug title and
   // provider) while the card lists it. A string key of `sessionId host`, so

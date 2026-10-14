@@ -1,10 +1,10 @@
-import type { AgentId, GitCheckout, ModelConfig, PendingHostDispatch, ReasoningEffort, RunConfig, WorktreeEntry } from '@solus/contracts/types'
-import { MODEL_PROFILES, PERMISSION_MODES, isLegacyModel, worktreeProjectRoot } from '@solus/contracts/types'
+import type { AgentId, GitCheckout, ModelConfig, ReasoningEffort, RunConfig } from '@solus/contracts/types'
+import { MODEL_PROFILES, PERMISSION_MODES, isLegacyModel } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
-import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import type { ModelOptionsByProvider } from '@solus/contracts/settings'
 import { restoredModelConfig } from './model-options'
 import type { ProjectLocation } from '../app/settings.context.svelte'
+import { checkoutPlace, fileTasksOn, folderLocation, inheritedLocation, projectHome } from './run-location'
 
 /**
  * The rules that operate on a `RunConfig` — where a session starts and what it
@@ -18,8 +18,9 @@ import type { ProjectLocation } from '../app/settings.context.svelte'
  * — the session it was opened from. Saved model options override the source
  * tuning so new tabs and drafts use the latest choice for that model.
  *
- * Four fields deliberately do *not* carry over, because they describe one
- * session's history rather than where the next one should start.
+ * Where the new session works comes from `inheritedLocation`; the permission
+ * mode is an app-level preference, never inherited from a session that happened
+ * to be loosened for one piece of work.
  */
 export function inheritRunConfig(
   defaults: RunConfig,
@@ -32,25 +33,14 @@ export function inheritRunConfig(
 
   return {
     ...source,
-    // A chat's folder is its own: the next session from it is a new chat.
-    workingDirectory: isChat(source.workingDirectory) ? NEW_CHAT_DIRECTORY : source.workingDirectory,
-    gitContext: source.gitContext ? { ...source.gitContext } : null,
+    location: inheritedLocation(source.location),
     modelConfig: saved && source.provider ? restoredModelConfig(source.provider, modelId, saved) : {
       ...source.modelConfig,
       // The model's own default, not whatever the last session was tuned to.
       reasoningEffort: modelDefaultEffort(source) ?? defaults.modelConfig.reasoningEffort,
     },
     sessionSkills: [...source.sessionSkills],
-    // Isolation is a decision about one piece of work. A session that branched
-    // a worktree must not decide that for the next one, so a new draft always
-    // starts in its checkout and asks for isolation itself.
-    worktree: null,
-    // Permission mode is an app-level preference, never inherited from a session
-    // that happened to be loosened for one piece of work.
     permissionMode: defaults.permissionMode,
-    // A host choice is inert until Send, so it belongs to the session that made
-    // it and not to the next one.
-    pendingHostDispatch: null,
   }
 }
 
@@ -78,32 +68,23 @@ export function resolveNewRunConfig(
   remembered: ModelOptionsByProvider = {},
 ): RunConfig {
   const run = inheritRunConfig(defaults, target.freshTask ? null : source, remembered)
-
-  if (target.freshTask) {
-    const projectRoot = projectRootOf(source)
-    if (projectRoot) run.workingDirectory = isChat(projectRoot) ? NEW_CHAT_DIRECTORY : projectRoot
-    if (source) {
-      run.serverId = source.serverId
-      run.taskServerId = source.taskServerId
-      run.projectGroupPath = source.projectGroupPath
-    }
-    run.gitContext = null
-  }
-
-  if (target.serverId) {
-    run.serverId = target.serverId
-    run.taskServerId = target.serverId
-    run.projectGroupPath = null
-  }
-  if (target.taskServerId) run.taskServerId = target.taskServerId
+  let location = target.freshTask && source
+    ? inheritedLocation(source.location, { freshTask: true })
+    : run.location
+  const current = checkoutPlace({ location })
+  const serverId = target.serverId ?? current.serverId
 
   if (target.workingDirectory !== undefined) {
-    run.workingDirectory = target.workingDirectory
-    run.gitContext = target.gitContext ?? null
+    location = folderLocation({ serverId, path: target.workingDirectory }, { git: target.gitContext ?? null })
+  } else if (serverId !== current.serverId) {
+    // The old host's checkout describes a folder over there, not on this host.
+    location = folderLocation({ serverId, path: current.path }, { git: target.gitContext ?? null })
   } else if (target.gitContext !== undefined) {
-    run.gitContext = target.gitContext ? { ...target.gitContext } : null
+    location = folderLocation(current, { git: target.gitContext ? { ...target.gitContext } : null, project: projectHome({ location }) })
   }
+  if (target.taskServerId) location = fileTasksOn(location, target.taskServerId)
 
+  run.location = location
   return run
 }
 
@@ -199,18 +180,6 @@ export function nextPermissionMode(mode: RunConfig['permissionMode']): RunConfig
 }
 
 /**
- * The project a run config belongs to — the repo rather than the checkout —
- * or null when it names none. "New session" means new work on the project, so
- * it anchors here: inheriting a worktree path would bury the new session in a
- * branch the user has already moved on from.
- */
-export function projectRootOf(run: RunConfig | null | undefined): string | null {
-  if (!run) return null
-  return run.gitContext?.repoRoot
-    ?? (run.workingDirectory && run.workingDirectory !== '~' ? run.workingDirectory : null)
-}
-
-/**
  * Where a new session starts when nothing on screen names a project: the
  * project the last session started in, unless its host is known to be down;
  * else a new chat on the default host. "Known to be down", not
@@ -224,197 +193,4 @@ export function defaultStartProject(
   newChat: ProjectLocation,
 ): ProjectLocation {
   return lastProject && !isDown(lastProject.serverId) ? lastProject : newChat
-}
-
-/**
- * Point a run at a directory and whatever checkout was resolved for it.
- *
- * The three ways a person changes where work happens — picking a project,
- * checking out a branch, entering an existing worktree — differ only in how
- * they arrive at these two values, so they share the rule rather than each
- * restating it. The resolved base branch is always cleared — it named a branch in
- * the *previous* directory, and carrying it over would branch from the wrong
- * place — while the request itself survives, because wanting isolation is a
- * preference about the work, not about which folder it happens in.
- */
-export function withCheckout(
-  run: RunConfig,
-  workingDirectory: string,
-  gitContext: GitCheckout | null,
-): RunConfig {
-  return {
-    ...run,
-    workingDirectory,
-    gitContext,
-    worktree: run.worktree ? { baseBranch: null } : null,
-  }
-}
-
-/**
- * Flip where the next session starts: directly in its checkout, or in a
- * worktree branched from it.
- *
- * Compare `workingDirectory` against the input to tell whether the run was
- * re-anchored to the project root — that is the only case where anything keyed
- * on the directory needs refreshing.
- *
- * Only meaningful before a session starts — a running one moves through
- * `continueInWorktree` instead.
- */
-export function withWorktreeToggled(run: RunConfig): RunConfig {
-  if (!run.gitContext?.worktreePath) {
-    return {
-      ...run,
-      worktree: run.worktree ? null : { baseBranch: run.gitContext?.targetBranch ?? null },
-    }
-  }
-
-  const targetBranch = run.gitContext.targetBranch
-  // Nothing to branch from, so there is no second state to flip into.
-  if (!targetBranch) return run
-  if (run.worktree) return { ...run, worktree: null }
-
-  // Worktree creation expects a project-root checkout plus its target branch,
-  // so an unstarted run is re-anchored into that shape rather than the creation
-  // path learning a second one.
-  const projectRoot = run.gitContext.repoRoot ?? worktreeProjectRoot(run.gitContext.worktreePath)
-  return {
-    ...run,
-    workingDirectory: projectRoot,
-    gitContext: { repoRoot: projectRoot, branch: targetBranch, targetBranch },
-    worktree: { baseBranch: targetBranch },
-  }
-}
-
-/**
- * Whether this run is a dispatch: the agent runs on one host while the project
- * — and therefore the task — belongs to another.
- *
- * Reads the run config rather than a session, so a draft answers it identically.
- */
-export function isDispatch(run: RunConfig | undefined | null): boolean {
-  return !!run && run.serverId !== run.taskServerId
-}
-
-/**
- * Whether this run will branch its own worktree before the agent starts.
- *
- * `worktree` requests a new one, on this host or on a dispatch's target host
- * alike: a checkout there belongs to one person, so working in it directly is
- * as safe as on their own machine. A selected pending target worktree already
- * exists and therefore needs no creation.
- */
-export function startsWorktree(run: RunConfig | undefined | null): boolean {
-  if (!run) return false
-  if (run.pendingHostDispatch?.intent === 'dispatch' && run.pendingHostDispatch.worktree) return false
-  return !!run.worktree
-}
-
-/**
- * Point a run at another host to *run on*, leaving the project where it is.
- *
- * The old host's checkout describes a filesystem this run no longer uses, so it
- * is dropped rather than carried across and re-read as truth. `taskServerId` is
- * deliberately untouched: the project did not move, so neither did its tasks,
- * and that difference is what later reads back as "this is a dispatch". Staying
- * on the same host keeps whatever the run already had.
- */
-export function withHost(
-  run: RunConfig,
-  serverId: string,
-  opts: { path?: string },
-): RunConfig {
-  const movingHosts = run.serverId !== serverId
-  const next: RunConfig = {
-    ...run,
-    serverId,
-  }
-  if (opts.path) next.workingDirectory = opts.path
-  if (!movingHosts) return next
-  // The old host's base branch named a branch over there, so a worktree survives
-  // the move as a request with its answer dropped.
-  return { ...next, gitContext: null, worktree: run.worktree ? { baseBranch: null } : null }
-}
-
-/**
- * Point a run at a project that lives on another host — its tasks included.
- *
- * The opposite of `withHost`: opening a folder on a host makes that host the
- * project's own, so both ids move together and nothing about the run is a
- * dispatch. Worktree mode stays the user's choice, exactly as it is locally.
- */
-export function withProjectHost(
-  run: RunConfig,
-  serverId: string,
-  opts: { path?: string },
-): RunConfig {
-  return { ...withHost(run, serverId, opts), taskServerId: serverId }
-}
-
-/**
- * Record a host choice without acting on it. The move happens on Send, which is
- * why this only writes intent: choosing "run on Studio" and then changing your
- * mind should cost nothing. Picking the host you are already on clears it.
- */
-export function withPendingHost(
-  run: RunConfig,
-  target: PendingHostDispatch | null,
-): RunConfig {
-  return {
-    ...run,
-    pendingHostDispatch: target && target.serverId !== run.serverId ? target : null,
-  }
-}
-
-/** Choose where a pending remote dispatch works. An existing worktree records
- * its exact target-host path. Null returns to creating a new worktree. */
-export function withDispatchWorktree(run: RunConfig, worktree: WorktreeEntry | null): RunConfig {
-  const pending = run.pendingHostDispatch
-  if (pending?.intent !== 'dispatch') return run
-  const pendingHostDispatch: PendingHostDispatch = {
-    serverId: pending.serverId,
-    intent: 'dispatch',
-    repoKey: pending.repoKey,
-  }
-  if (worktree) {
-    pendingHostDispatch.worktree = { path: worktree.path, branch: worktree.branch }
-  }
-  return {
-    ...run,
-    worktree: worktree ? null : { baseBranch: null },
-    pendingHostDispatch,
-  }
-}
-
-/** Work on the repository's default branch on the target host: in its
- * checkout when that holds the branch, so no worktree is made by default. With
- * no known default branch, the target host resolves it on Send. */
-export function withDispatchDefaultBranch(run: RunConfig): RunConfig {
-  const pending = run.pendingHostDispatch
-  if (pending?.intent !== 'dispatch') return run
-  const pendingHostDispatch: PendingHostDispatch = {
-    serverId: pending.serverId,
-    intent: 'dispatch',
-    repoKey: pending.repoKey,
-  }
-  const baseBranch = run.gitContext?.targetBranch
-  if (baseBranch) pendingHostDispatch.baseBranch = baseBranch
-  return { ...run, worktree: null, pendingHostDispatch }
-}
-
-/** Materialize an origin branch as a target-host worktree. This records only
- * intent; it never checks out the branch in the source repository. */
-export function withDispatchBaseBranch(run: RunConfig, baseBranch: string): RunConfig {
-  const pending = run.pendingHostDispatch
-  if (pending?.intent !== 'dispatch') return run
-  return {
-    ...run,
-    worktree: { baseBranch },
-    pendingHostDispatch: {
-      serverId: pending.serverId,
-      intent: 'dispatch',
-      repoKey: pending.repoKey,
-      baseBranch,
-    },
-  }
 }

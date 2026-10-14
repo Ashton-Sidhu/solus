@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { TaskSessionLink } from '@solus/contracts/task-types'
 import type { DiffComment, Session, SessionStatus } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 import {
   applyRoutedModelConfig,
   computeCurrentActivity,
@@ -125,7 +126,7 @@ describe('findOpenTabForSession', () => {
   const sessions = {
     'local-session-1': {
       agentSessionId: 'agent-session-1',
-      run: { provider: 'codex', serverId: 'host-a' },
+      run: { provider: 'codex', location: folderLocation({ serverId: 'host-a', path: '/repo' }) },
     },
   }
 

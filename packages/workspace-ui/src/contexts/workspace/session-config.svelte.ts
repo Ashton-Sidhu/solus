@@ -1,4 +1,4 @@
-import type { AgentId, GitCheckout, IpcContext, ModelConfig, PermissionMode, ReasoningEffort, RunConfig, Session, SessionProviderSwitchResult, WorktreeEntry } from '@solus/contracts/types'
+import type { AgentId, GitCheckout, IpcContext, ModelConfig, PermissionMode, ReasoningEffort, RunConfig, RunLocation, Session, SessionProviderSwitchResult, WorktreeEntry } from '@solus/contracts/types'
 import type { Via } from '@solus/contracts/analytics-events'
 import { MODEL_PROFILES, gitCheckoutFromState, isSolusWorktreePath, worktreeProjectRoot } from '@solus/contracts/types'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
@@ -11,8 +11,8 @@ import type { StatusBarContext } from '../app/status-bar.context.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import type { SessionDraft } from './session-draft.svelte'
 import { toasts } from '../../lib/toasts'
-import { startsWorktree, withCheckout, withDispatchBaseBranch, withDispatchDefaultBranch, withDispatchWorktree, withWorktreeToggled } from './run-config'
 import type { HostApi } from '@solus/client-core/host-api'
+import { checkoutGit, checkoutPlace, chooseStart, isDispatch, openFolder, pendingClone, startsWorktree } from './run-location'
 
 /** What a destination command edits: the run a source owns, and the started
  *  session behind it when there is one. A draft resolves to a run with no
@@ -26,7 +26,9 @@ interface RunOwner {
   id: string
   run: RunConfig
   session?: Session
-  apply(next: RunConfig): void
+  /** Write where the run works next — one assignment, so nothing else on the
+   *  run is invalidated. */
+  apply(next: RunLocation): void
   /** The run is moving to another project, so it leaves the task it was under. */
   leaveTask(): void
 }
@@ -130,14 +132,14 @@ export class SessionConfigController {
         id: sourceId,
         run: session.run,
         session,
-        apply: (next) => { session.run = next },
+        apply: (next) => { session.run.location = next },
         leaveTask: () => { session.task = { kind: 'none' } },
       }
       const draft = this.deps.draftFor(sourceId)
       if (draft) return {
         id: sourceId,
         run: draft.run,
-        apply: (next) => { draft.run = next },
+        apply: (next) => { draft.run.location = next },
         leaveTask: () => { draft.task = { kind: 'none' } },
       }
       return null
@@ -148,7 +150,7 @@ export class SessionConfigController {
       id: this.deps.registry.activeTabId,
       run: session.run,
       session,
-      apply: (next) => { session.run = next },
+      apply: (next) => { session.run.location = next },
       leaveTask: () => { session.task = { kind: 'none' } },
     }
   }
@@ -215,7 +217,7 @@ export class SessionConfigController {
     this.deps.settings.setPersonal('activeAgent', agentId)
     this.globalDefaults.modelConfig = this.defaultModelConfigFor(agentId)
     this.deps.setPluginCommands({ global: [], project: [] })
-    this.deps.refreshPluginCommands(this.deps.defaultRunConfig().workingDirectory)
+    this.deps.refreshPluginCommands(checkoutPlace(this.deps.defaultRunConfig()).path)
   }
 
   /** Keep the next-session defaults aligned with the session brought to the
@@ -249,7 +251,7 @@ export class SessionConfigController {
       sessionSkills: [],
     }
     this.deps.setPluginCommands({ global: [], project: [] })
-    this.deps.refreshPluginCommands(draft.run.workingDirectory)
+    this.deps.refreshPluginCommands(checkoutPlace(draft.run).path)
     return true
   }
 
@@ -280,7 +282,7 @@ export class SessionConfigController {
       this.globalDefaults.modelConfig = newModelConfig
       this.deps.setPluginCommands({ global: [], project: [] })
       if (!session) {
-        this.deps.refreshPluginCommands(this.deps.defaultRunConfig().workingDirectory)
+        this.deps.refreshPluginCommands(checkoutPlace(this.deps.defaultRunConfig()).path)
         return
       }
       session.run.provider = agentId
@@ -289,7 +291,7 @@ export class SessionConfigController {
       session.sessionModel = null
       session.run.sessionSkills = []
       session.pluginCommands = { global: [], project: [] }
-      this.deps.refreshPluginCommands(session.run.workingDirectory, this.deps.registry.activeTabId)
+      this.deps.refreshPluginCommands(checkoutPlace(session.run).path, this.deps.registry.activeTabId)
       return
     }
 
@@ -333,7 +335,7 @@ export class SessionConfigController {
     session.status = 'idle'
     session.currentTurnStartedAt = null
     session.rateLimitInfo = null
-    this.deps.refreshPluginCommands(session.run.workingDirectory, targetTabId)
+    this.deps.refreshPluginCommands(checkoutPlace(session.run).path, targetTabId)
   }
 
   setPermissionMode(mode: PermissionMode, tabId?: string): void {
@@ -349,22 +351,18 @@ export class SessionConfigController {
     this.globalDefaults.permissionMode = mode
   }
 
-  setWorktreeBaseBranch(branch: string | null): void {
-    const session = this.deps.registry.activeSession
-    if (!session) return
-    session.run.worktree = branch ? { baseBranch: branch } : null
-  }
-
   setDispatchWorktree(worktree: WorktreeEntry | null, sourceId?: string): void {
     const owner = this.ownerFor(sourceId)
-    if (!owner) return
-    owner.apply(withDispatchWorktree(owner.run, worktree))
+    if (!owner || !pendingClone(owner.run)) return
+    owner.apply(chooseStart(owner.run.location, worktree
+      ? { kind: 'worktree', path: worktree.path, branch: worktree.branch }
+      : { kind: 'new-worktree' }))
   }
 
   setDispatchBaseBranch(branch: string, sourceId?: string): void {
     const owner = this.ownerFor(sourceId)
-    if (!owner) return
-    owner.apply(withDispatchBaseBranch(owner.run, branch))
+    if (!owner || !pendingClone(owner.run)) return
+    owner.apply(chooseStart(owner.run.location, { kind: 'new-worktree', baseBranch: branch }))
   }
 
   /**
@@ -382,18 +380,12 @@ export class SessionConfigController {
     // moves through continueInWorktree instead; this guard also keeps the global
     // shortcut from changing where an existing conversation runs.
     if (owner.session?.agentSessionId) return
-    // A pending dispatch keeps its target-host choice in the pending record, so
-    // the flip goes through the same commands as its branch menu.
-    if (owner.run.pendingHostDispatch?.intent === 'dispatch') {
-      owner.apply(startsWorktree(owner.run) ? withDispatchDefaultBranch(owner.run) : withDispatchWorktree(owner.run, null))
-      return
-    }
-    const next = withWorktreeToggled(owner.run)
-    const reanchored = next.workingDirectory !== owner.run.workingDirectory
-    owner.apply(next)
+    const before = checkoutPlace(owner.run).path
+    owner.apply(chooseStart(owner.run.location, startsWorktree(owner.run) ? { kind: 'checkout' } : { kind: 'new-worktree' }))
+    const after = checkoutPlace(owner.run).path
     // Same rule as the worktree switch: plugin commands belong to a started
     // session, so a draft's re-anchor has no tab to refresh them against.
-    if (reanchored && owner.session) this.deps.refreshPluginCommands(next.workingDirectory, owner.id)
+    if (after !== before && owner.session) this.deps.refreshPluginCommands(after, owner.id)
   }
 
   async switchToWorktree(worktreePath: string, sourceId?: string): Promise<void> {
@@ -403,7 +395,7 @@ export class SessionConfigController {
     // Worktrees can live anywhere, not only under Solus' managed directory.
     // The checkout already knows its canonical repository root, so retain that
     // identity instead of promoting an arbitrary worktree path to a project.
-    const projectRoot = contextRun?.gitContext?.repoRoot
+    const projectRoot = checkoutGit(contextRun)?.repoRoot
       ?? (isSolusWorktree ? worktreeProjectRoot(worktreePath) : worktreePath)
     const repoCtx = this.deps.ctxForDirectory(projectRoot)
     const api = this.deps.apiForRun(contextRun)
@@ -425,7 +417,9 @@ export class SessionConfigController {
       return
     }
     if (owner.session) api.resetSession(this.deps.ctx(owner.id))
-    owner.apply(withCheckout(owner.run, projectRoot, restored))
+    owner.apply(restored
+      ? chooseStart(owner.run.location, { kind: 'worktree', path: worktreePath, branch: restored.branch ?? '', git: restored })
+      : openFolder(owner.run.location, { serverId: checkoutPlace(owner.run).serverId, path: projectRoot }, { keepProject: isDispatch(owner.run) }))
     // Plugin commands and the reset scan belong to a started session; a draft
     // resolves its checkout through refreshGitRefs alone.
     if (owner.session) {
@@ -440,13 +434,11 @@ export class SessionConfigController {
     this.switchingBranch = true
     try {
       const owner = this.ownerFor(sourceId)
-      if (owner?.run.pendingHostDispatch?.intent === 'dispatch') {
-        return false
-      }
+      if (pendingClone(owner?.run)) return false
       // With no pre-flight owner the branch still checks out on disk against the
       // conversation on screen — its run names the repo and the host to do it on.
       const contextRun = owner?.run ?? this.deps.registry.activeSession?.run ?? this.deps.defaultRunConfig()
-      const baseDir = contextRun.gitContext?.repoRoot ?? contextRun.workingDirectory
+      const baseDir = checkoutGit(contextRun)?.repoRoot ?? checkoutPlace(contextRun).path
       if (!baseDir || baseDir === '~') {
         toasts.error("Couldn't switch branch", { description: "No active Git repository" })
         return false
@@ -464,7 +456,7 @@ export class SessionConfigController {
       // has started: the checkout still happens on disk, and the next session
       // starts there instead rather than switching beneath the user.
       if (owner) {
-        owner.apply(withCheckout(owner.run, projectRoot, result.gitContext))
+        owner.apply(chooseStart(owner.run.location, { kind: 'branch', git: result.gitContext }))
         // Detaching from the provider thread is session reset, not run config:
         // a draft has neither, so it never reaches this branch.
         if (owner.session) {
@@ -508,7 +500,9 @@ export class SessionConfigController {
     }
     const api = this.deps.apiForRun(owner.run)
     owner.leaveTask()
-    owner.apply(withCheckout(owner.run, dir, null))
+    // A folder named without a host is on the host of the checkout the run
+    // works from — for a clone not yet made, the one it copies.
+    owner.apply(openFolder(owner.run.location, { serverId: checkoutPlace(owner.run).serverId, path: dir }))
     // Detaching the provider thread and its plugin commands is session reset; a
     // draft has neither, so it only re-resolves its checkout below.
     if (owner.session) {
@@ -525,9 +519,9 @@ export class SessionConfigController {
       this.deps.refreshGitState({
         sourceId: owner.id,
         cwd: dir,
-        // `withCheckout` above carried the isolation request across the move —
+        // `openFolder` above carried the isolation request across the move —
         // wanting a worktree is a preference about the work, not the folder.
-        worktreeRequested: startsWorktree(owner.run),
+        worktreeRequested: startsWorktree(this.ownerFor(owner.id)?.run ?? owner.run),
       }),
     )
   }

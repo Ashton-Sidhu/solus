@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import type { RunConfig } from '@solus/contracts/types'
 import { defaultStartProject } from '@solus/workspace-ui/contexts/workspace/run-config'
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
+import { checkoutPlace, folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 /**
  * Where a new session starts. ⌘N used to land in the chat folder when it was
@@ -56,17 +57,11 @@ afterAll(() => {
 
 function runIn(workingDirectory: string): RunConfig {
   return {
-    workingDirectory,
-    gitContext: null,
-    worktree: null,
+    location: folderLocation({ serverId: 'local', path: workingDirectory }),
     modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
     permissionMode: 'full-access',
     provider: 'claude-code',
-    serverId: 'local',
-    taskServerId: 'local',
-    projectGroupPath: null,
     sessionSkills: [],
-    pendingHostDispatch: null,
   }
 }
 
@@ -120,7 +115,7 @@ describe('⌘N', () => {
 
     const next = drafts.openSessionDraft({ freshTask: true, via: 'keybinding' })
 
-    expect(next.run.workingDirectory).toBe('/code/solus')
+    expect(checkoutPlace(next.run).path).toBe('/code/solus')
     // The empty draft it replaced is still let go of: nothing lists it.
     expect(drafts.sessionDrafts.has(empty.id)).toBe(false)
   })
@@ -132,7 +127,7 @@ describe('⌘N', () => {
 
     const next = drafts.openSessionDraft({ freshTask: true, via: 'keybinding' })
 
-    expect(next.run.workingDirectory).toBe('/code/solus')
+    expect(checkoutPlace(next.run).path).toBe('/code/solus')
     expect(drafts.sessionDrafts.has(written.id)).toBe(true)
   })
 })

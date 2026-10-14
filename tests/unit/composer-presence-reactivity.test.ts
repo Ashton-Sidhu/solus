@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { compileModule } from 'svelte/compiler'
 import { effect_root } from 'svelte/internal/client'
+import { folderLocation, runHost } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 test('session metadata cannot stop typing; clearing, hiding, and changing rooms can', async () => {
   const runes = ['$state', '$effect', '$derived', '$inspect', '$props', '$bindable']
@@ -14,7 +15,7 @@ test('session metadata cannot stop typing; clearing, hiding, and changing rooms 
   const effect = source.slice(source.indexOf('  const typingServerId'), source.indexOf('  function handlePromptChange'))
   const compiled = compileModule(`
     import { untrack } from 'svelte';
-    export function install(initial, presenceStore) {
+    export function install(initial, presenceStore, runHost) {
       let sess = $state(initial);
       let active = $state(true);
       let editorHasText = $state(true);
@@ -29,10 +30,10 @@ test('session metadata cannot stop typing; clearing, hiding, and changing rooms 
   const code = compiled.replace(/from (["'])([^"']+)\1/g, (_match, _quote, name: string) => `from ${JSON.stringify(Bun.resolveSync(name === 'svelte' ? 'svelte/internal/client' : name, import.meta.dir))}`)
   const module = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
   const stops: string[] = []
-  const initial = { id: 'session', run: { serverId: 'host' }, title: 'Before' }
+  const initial = { id: 'session', run: { location: folderLocation({ serverId: 'host', path: '/repo' }) }, title: 'Before' }
   let controls!: { session(value: typeof initial): void; visible(value: boolean): void; text(value: boolean): void }
   const stop = effect_root(() => {
-    controls = module.install(initial, { stopTyping: (host: string, session: string) => { stops.push(`${host}:${session}`) } })
+    controls = module.install(initial, { stopTyping: (host: string, session: string) => { stops.push(`${host}:${session}`) } }, runHost)
   })
   try {
     await Promise.resolve()

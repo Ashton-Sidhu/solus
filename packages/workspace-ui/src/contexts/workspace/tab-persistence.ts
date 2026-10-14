@@ -1,4 +1,4 @@
-import type { AgentId, Message, ContextUsage, GitCheckout, ModelConfig, SessionHandoffLineage, SessionSpec, SessionStatus, StartInfo } from '@solus/contracts/types'
+import type { AgentId, Message, ContextUsage, ModelConfig, RunLocation, SessionHandoffLineage, SessionSpec, SessionStatus, StartInfo } from '@solus/contracts/types'
 import { z } from 'zod'
 import type { PersistedStrip } from './routing/router.store.svelte'
 
@@ -23,25 +23,19 @@ export interface PersistedTab {
   sessionId: string
   title: string
   titleCustom: boolean
-  /** Saved-server registry id used for routing. */
-  serverId: string
-  /** Stable server identity used to recover from a changed registry id after re-pairing. */
+  /** Stable identities of the run's host and its project's host, used to
+   *  recover from a changed registry id after re-pairing. */
   serverInstallationId?: string
+  projectInstallationId?: string
   agentSessionId: string | null
   /** A pending fork owns no provider thread yet. Keep its preview until send. */
   pendingFork?: { messages: Message[]; excludeLatestTurn: boolean }
   forkedFromSessionId?: string | null
   provider: AgentId | null
   handoffFrom?: SessionHandoffLineage
-  workingDirectory: string
-  /** Stable sidebar grouping path for a checkout dispatched to another host. */
-  projectGroupPath?: string | null
+  /** Where the run works. Its checkout's host routes the tab. */
+  location: RunLocation
   additionalDirs: string[]
-  gitContext: GitCheckout | null
-  worktreeBaseBranch: string | null
-  worktreeRequested: boolean
-  /** The host that owns this run's task record. */
-  taskServerId: string
   modelConfig: ModelConfig
   permissionMode: string
   hasUnread: boolean
@@ -69,7 +63,7 @@ export interface PersistedTab {
 }
 
 export interface PersistedTabs {
-  version: 2
+  version: 3
   activeTabId: string
   tabOrder: string[]
   tabs: PersistedTab[]
@@ -80,18 +74,28 @@ export interface PersistedTabs {
   strips?: PersistedStrip[]
 }
 
+const placeSchema = z.object({ serverId: z.string(), path: z.string() })
+const persistedTabFields = z.object({
+  tabId: z.string(),
+  sessionId: z.string(),
+  titleCustom: z.boolean(),
+  location: z.object({
+    checkout: z.union([
+      placeSchema.extend({ kind: z.literal('folder') }),
+      z.object({ kind: z.literal('clone'), serverId: z.string(), repoKey: z.string() }),
+    ]),
+    project: placeSchema,
+  }),
+})
+// Checked by shape, kept whole: the saved value is the tab as it was written.
+const persistedTabSchema = z.custom<PersistedTab>((value) => persistedTabFields.safeParse(value).success)
+
 const persistedTabsSchema = z.object({
-  version: z.literal(2),
+  // A snapshot in an older shape is dropped rather than translated.
+  version: z.literal(3),
   activeTabId: z.string(),
   tabOrder: z.array(z.string()),
-  tabs: z.array(z.object({
-    tabId: z.string(),
-    sessionId: z.string(),
-    titleCustom: z.boolean(),
-    serverId: z.string(),
-    worktreeRequested: z.boolean(),
-    taskServerId: z.string(),
-  }).passthrough()),
+  tabs: z.array(persistedTabSchema),
   location: z.string(),
   // Strips are a convenience on top of the tabs. A shape this build cannot read
   // drops the strips alone: rejecting the snapshot would boot empty and then
@@ -129,14 +133,15 @@ export function savePersistedTabs(snapshot: PersistedTabs): void {
 // a prompt the user had already written.
 
 export interface PersistedSessionDrafts {
-  version: 1
+  version: 2
   /** Open order, so a restored workspace re-enters the one it left on. */
   order: string[]
   drafts: Record<string, SessionSpec>
 }
 
 const persistedSessionDraftsSchema = z.object({
-  version: z.literal(1),
+  // Version 2 drafts carry `run.location`; older ones are dropped.
+  version: z.literal(2),
   order: z.array(z.string()),
   drafts: z.record(z.string(), z.object({}).passthrough()),
 })

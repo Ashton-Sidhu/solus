@@ -27,6 +27,7 @@
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
   import { limitTitle } from "../presence/lib/actor-name";
+  import { runHost } from "../../contexts/workspace/run-location";
 
   interface Props {
     tabId: string;
@@ -42,7 +43,7 @@
 
   const isVisible = $derived(needsRateLimitDecision(sess));
   // The decision is an editor's; a member who may only read sees the limit.
-  const canDrive = $derived(canDriveSession(sess?.run.serverId, sess?.id));
+  const canDrive = $derived(canDriveSession(runHost(sess?.run), sess?.id));
   let now = $state(Date.now());
   const secondsLeft = $derived(
     resetsAt ? Math.max(0, Math.ceil(resetsAt - now / 1000)) : 0,
@@ -117,7 +118,7 @@
        what stopped, until when, and the three ways out. The card leaves once
        the user decides, so it has no resolved line. -->
   <AttentionCard
-    title={limitTitle(limitWindow, rateLimitInfo?.turnAuthor, sess ? presenceStore.currentUserId(sess.run.serverId) : null)}
+    title={limitTitle(limitWindow, rateLimitInfo?.turnAuthor, sess ? presenceStore.currentUserId(runHost(sess.run)) : null)}
     type={hasReopened ? "window open" : "rate limited"}
     testId="rate-limit-card"
   >

@@ -36,6 +36,7 @@
   import IntegrationConnectForm from "../settings/IntegrationConnectForm.svelte";
   import { integrationsStore } from "../settings/integrations.store.svelte";
   import { connectCardCopy, integrationConnectCardCopy } from "./lib/connect-card-copy";
+  import { runHost } from "../../contexts/workspace/run-location";
 
   interface Props {
     tabId: string;
@@ -47,7 +48,7 @@
 
   const session = getWorkspaceContext();
   const request = $derived(connectRequestStore.request);
-  const serverId = $derived(session.sessionFor(tabId)?.run.serverId);
+  const serverId = $derived(runHost(session.sessionFor(tabId)?.run));
   const copy = $derived.by(() => {
     if (!request) return null;
     if (request.kind === "integration") return integrationConnectCardCopy(request.integrationName);

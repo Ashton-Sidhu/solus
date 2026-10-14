@@ -65,6 +65,7 @@
   import { canDriveSession, VIEW_ONLY_REASON } from "../../contexts/sharing/resource-roles";
 
   import type { Snippet } from "svelte";
+  import { checkoutGit, checkoutPlace, runHost } from "../../contexts/workspace/run-location";
 
   interface Props {
     active: boolean;
@@ -207,14 +208,14 @@
   const activeProvider = $derived(run?.provider ?? theme.activeAgent);
   // A chat is plain conversation; a project is where work gets planned and built.
   const defaultIdlePlaceholder = $derived(
-    isChat(run?.workingDirectory) ? "Ask anything" : "Plan, Build, Automate · @ for context",
+    isChat(checkoutPlace(run)?.path) ? "Ask anything" : "Plan, Build, Automate · @ for context",
   );
   // Every provider steers; the turn just has to have actually started.
   const canSteer = $derived(!!sess && isSteerableStatus(sess.status));
   const readOnlyReason = $derived(
     suppliedReadOnlyReason ??
       sess?.readOnlyReason ??
-      (sess && !canDriveSession(sess.run.serverId, sess.id) ? VIEW_ONLY_REASON : null),
+      (sess && !canDriveSession(runHost(sess.run), sess.id) ? VIEW_ONLY_REASON : null),
   );
   const isReadOnly = $derived(!!readOnlyReason);
   // Model and permission-mode shortcuts belong to the composer, not to a tab
@@ -261,12 +262,12 @@
   );
   // Working directory driving @-file search and plan/work lookup in the composer.
   const composerCwd = $derived(
-    run?.gitContext?.worktreePath ??
-      run?.workingDirectory ??
+    checkoutGit(run)?.worktreePath ??
+      checkoutPlace(run)?.path ??
       statusBar.ctxForRun(run).workingDirectory,
   );
   const composerServerId = $derived(
-    run?.serverId ?? session.fallbackServerId,
+    runHost(run) ?? session.fallbackServerId,
   );
   // The host a video chip plays from, addressed by this composer's own source,
   // as its uploads are.
@@ -368,7 +369,7 @@
   // The room hears that this person is typing from their keystrokes, and the
   // host clears the mark when they pause. A stop is sent at once when the draft
   // goes out or is cleared, the bar goes inactive, or it moves to another session.
-  const typingServerId = $derived(sess?.run.serverId);
+  const typingServerId = $derived(runHost(sess?.run));
   const typingSessionId = $derived(sess?.id);
   $effect(() => {
     if (!active || !editorHasText) return;
@@ -378,7 +379,7 @@
   });
   function handlePromptChange(md: string) {
     handleEditorChange(md);
-    if (active && md.trim()) presenceStore.noteTyping(sess?.run.serverId, sess?.id);
+    if (active && md.trim()) presenceStore.noteTyping(runHost(sess?.run), sess?.id);
   }
   const planRefs = $derived(prompt.planRefs);
   const workRefs = $derived(prompt.workRefs);
@@ -451,8 +452,8 @@
   const hasQueuedPrompts = $derived((sess?.outboundPrompts.length ?? 0) > 0);
   // A steer joins the running turn on its author's seat (D3): a teammate's turn is named.
   const othersTurn = $derived(sess ? otherPerson(
-    presenceStore.sessionRoom(sess.run.serverId, sess.id)?.activeTurn?.author,
-    presenceStore.currentUserId(sess.run.serverId),
+    presenceStore.sessionRoom(runHost(sess.run), sess.id)?.activeTurn?.author,
+    presenceStore.currentUserId(runHost(sess.run)),
   ) : null);
 
   const placeholder = $derived(
@@ -823,7 +824,7 @@
         {pluginCommands}
         provider={activeProvider}
         tabId={targetTabId}
-        serverId={run?.serverId}
+        serverId={runHost(run)}
         sessionId={sessionId ?? undefined}
         workingDirectory={composerCwd}
         onRefsChange={handleRefsChange}

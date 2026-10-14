@@ -68,6 +68,7 @@ import {
   track,
 } from "@solus/workspace-ui/lib/analytics";
 import type { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
+import { checkoutGit, checkoutPlace, runHost } from "@solus/workspace-ui/contexts/workspace/run-location";
 type DesktopAppCore = ReturnType<typeof createAppCore>;
 export function installDesktopRuntime(core: DesktopAppCore) {
   const {
@@ -111,7 +112,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
     if (session.lifecycle.hydrating) return;
     const tabs = snapshotPersistedTabs(session);
     const snapshot: PersistedTabs = {
-      version: 2,
+      version: 3,
       activeTabId: session.activeTabId,
       tabOrder: [...session.tabOrder],
       tabs,
@@ -170,7 +171,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   session.onTurnSettled = (sessionId, cwd) => {
     const sess = session.sessions.byId[sessionId];
     const tabId = session.tabIdForSession(sessionId);
-    const gitCwd = sess?.run.gitContext?.worktreePath ?? cwd;
+    const gitCwd = checkoutGit(sess?.run)?.worktreePath ?? cwd;
     if (!gitCwd || !tabId) return;
     // Tool settles, the Git watcher, and task completion can arrive together.
     // Keep all of them behind the store's two-second freshness window so the
@@ -323,7 +324,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       const unsubAtlassian = atlassianStore.listenForOAuthCompletion();
       const unsubShown = window.solusNative.onWindowShown(() => {
         const run = session.sessionFor(session.activeTabId)?.run ?? session.defaultRunConfig;
-        const cwd = run.gitContext?.worktreePath ?? run.workingDirectory;
+        const cwd = checkoutGit(run)?.worktreePath ?? checkoutPlace(run).path;
         if (cwd)
           void sessionEnvironmentStore.refreshEnvironment(session, {
             sourceId: session.activeTabId,
@@ -417,7 +418,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
 
   $effect(() =>
     localApi.onOpenSelectedLink((url, sourceTabId) => {
-      const serverId = session.sessionFor(sourceTabId)?.run.serverId;
+      const serverId = runHost(session.sessionFor(sourceTabId)?.run);
       if (!serverId) return;
       void session.openUrlInBrowser(url, serverId).catch((error) => {
         toasts.error("Couldn't open the link", {

@@ -16,6 +16,7 @@ import type { SessionRecords } from './session-records.svelte'
 import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
 import type { HostApi } from '@solus/client-core/host-api'
 import { hosts } from '../hosts/hosts.svelte'
+import { checkoutGit, checkoutPlace } from './run-location'
 
 export interface WorkspaceLifecycleStoreDeps {
   registry: TabRegistry
@@ -183,8 +184,8 @@ export class WorkspaceLifecycleStore {
       if (coldLoad) {
         await this.deps.refreshGitState({ force: false })
       }
-      const commandDirectory = this.deps.registry.activeSession?.run.workingDirectory
-        ?? this.deps.defaultRunConfig().workingDirectory
+      const commandDirectory = checkoutPlace(this.deps.registry.activeSession?.run)?.path
+        ?? checkoutPlace(this.deps.defaultRunConfig()).path
       void this.refreshPluginCommands(commandDirectory).catch((error) => {
         if (!(error instanceof TransportDisconnectedError)) {
           console.error('getPluginCommands failed', error)
@@ -280,7 +281,7 @@ export class WorkspaceLifecycleStore {
 
     if (targetSession) {
       const currentSession = this.deps.registry.sessionFor(targetTabId)
-      if (currentSession !== targetSession || currentSession.run.workingDirectory !== workingDirectory) return
+      if (currentSession !== targetSession || checkoutPlace(currentSession.run).path !== workingDirectory) return
       currentSession.pluginCommands = result
       this.pluginCommandSources.set(currentSession, source)
       if (this.deps.registry.activeTabId === targetTabId) this.pluginCommands = result
@@ -288,7 +289,7 @@ export class WorkspaceLifecycleStore {
     }
 
     if (this.deps.registry.activeSession) return
-    if (this.deps.defaultRunConfig().workingDirectory !== workingDirectory) return
+    if (checkoutPlace(this.deps.defaultRunConfig()).path !== workingDirectory) return
     this.composerCommands = { source, commands: result }
     this.pluginCommands = result
   }
@@ -344,8 +345,8 @@ export class WorkspaceLifecycleStore {
   private async prependHistoryPage(tabId: string, session: Session, agentSessionId: string, before: string): Promise<void> {
     const transcript = await this.deps.loadTranscript({
       sessionId: session.id,
-      loadPath: session.run.gitContext?.worktreePath || session.run.workingDirectory,
-      displayCwd: session.run.workingDirectory,
+      loadPath: checkoutGit(session.run)?.worktreePath || checkoutPlace(session.run).path,
+      displayCwd: checkoutPlace(session.run).path,
       provider: session.run.provider ?? this.deps.settings.activeAgent,
       ctx: this.deps.ctxFor(tabId), turnLimit: OLDER_HISTORY_TURNS, before,
       pendingMessages: session.historyPendingMessages,

@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
+import * as runLocation from '@solus/workspace-ui/contexts/workspace/run-location'
 
 // Run the production resume sequence with deferred host responses. This checks
 // display timing without constructing every workspace store or a provider.
@@ -13,7 +14,8 @@ const body = source.slice(start, end).trim()
 const compiled = new Bun.Transpiler({ loader: 'ts' }).transformSync(`async function resume() { ${body} }`)
 
 test('messages display while git identity and task binding are still pending', async () => {
-  const first = { messages: [] as { content: string }[], run: {}, loadingHistory: true }
+  const run = () => ({ location: runLocation.folderLocation({ serverId: 'local', path: '/repo' }) })
+  const first = { messages: [] as { content: string }[], run: run(), loadingHistory: true }
   let selected = first
   let resolveIdentity!: (identity: null) => void
   const identity = new Promise<null>((resolve) => { resolveIdentity = resolve })
@@ -21,7 +23,7 @@ test('messages display while git identity and task binding are still pending', a
   const context = {
     sessionFor: () => selected,
     apiFor: () => ({ gitIdentity: () => identity }),
-    ctxFor: () => ({}), runFor: () => ({}),
+    ctxFor: () => ({}), runFor: () => first.run,
     tasksStore: { ensureSessionBinding: () => new Promise(() => {}) },
     eventReducer: { rebuildAgentConversations() {} },
     environment: {
@@ -32,7 +34,8 @@ test('messages display while git identity and task binding are still pending', a
     planStore: { hydrateAnnotations() {} },
   }
   const transcript = { messages: [{ content: 'ready' }], progress: null, truncated: false, before: null, planIds: [] }
-  const execute = new Function('context', 'transcript', `
+  const execute = new Function('context', 'transcript', 'runLocation', `
+    const { projectHome, adoptGit, workingPlace } = runLocation;
     const defaultDir = '/repo', workingDirectory = '/repo', tabId = 'tab',
       resumedSessionId = 'session', provider = 'codex', meta = {}, background = false, intoTabId = undefined;
     const runtimeAttach = Promise.resolve(null), INITIAL_HISTORY_TURNS = 10;
@@ -42,16 +45,17 @@ test('messages display while git identity and task binding are still pending', a
     ${compiled}
     return resume.call({ workspace: context });
   `)
-  await execute(context, transcript)
+  await execute(context, transcript, runLocation)
   expect(first.messages).toEqual(transcript.messages)
   expect(first.loadingHistory).toBe(false)
   expect(registered).toBe(false)
   // Changing the tab before the late git response must not register metadata
   // against its replacement session.
-  selected = { messages: [], run: {}, loadingHistory: true }
+  const replacementLocation = run().location
+  selected = { messages: [], run: { location: replacementLocation }, loadingHistory: true }
   resolveIdentity(null)
   await Promise.resolve()
   await Promise.resolve()
   expect(registered).toBe(false)
-  expect(selected.run).toEqual({})
+  expect(selected.run.location).toBe(replacementLocation)
 })

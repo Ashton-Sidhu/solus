@@ -12,6 +12,7 @@
   import DeviceRunLog from "./DeviceRunLog.svelte";
   import DeviceBuildList from "./DeviceBuildList.svelte";
   import { runApps } from "./lib/run-app.svelte";
+  import { checkoutPlace } from "../../contexts/workspace/run-location";
 
   interface Props { serverId: string; sessionId: string | null; deviceState: DeviceState; onInstalled: () => void }
   let { serverId, sessionId, deviceState, onInstalled }: Props = $props();
@@ -20,7 +21,7 @@
   const conversation = $derived(sessionId ? workspace.sessions.byId[sessionId]?.run : undefined);
   // One Run app per host: builds and dev servers belong to the host, not to this conversation.
   const runApp = $derived(runApps.for(serverId));
-  const conversationProjectPath = $derived(conversation && conversation.workingDirectory !== '~' && !isChat(conversation.workingDirectory) ? conversation.workingDirectory : null);
+  const conversationProjectPath = $derived(conversation && checkoutPlace(conversation).path !== '~' && !isChat(checkoutPlace(conversation).path) ? checkoutPlace(conversation).path : null);
   const view = $derived(runApp.view(devicesStore.runs(serverId), conversationProjectPath, (path) => devicesStore.branches.get(`${serverId}\u0000${path}`)?.defaultBranch ?? ''));
   const projectPath = $derived(view.projectPath);
   const branchKey = $derived(`${serverId}\u0000${projectPath}`);

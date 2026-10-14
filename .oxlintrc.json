@@ -41,6 +41,7 @@
     "solus/no-pr-context-escapes": "error",
     "solus/no-tailwind-class-variables": "error",
     "solus/require-resolved-cwd": "error",
+    "solus/run-location-answers": "error",
     "complexity": "error"
   },
   "overrides": [{

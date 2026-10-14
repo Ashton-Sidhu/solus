@@ -11,6 +11,7 @@
   import type { TaskLinkContext } from "../tasks/link-control/lib/task-link-control";
   import ArtifactRail from "./ArtifactRail.svelte";
   import SandboxFrame from "./SandboxFrame.svelte";
+  import { runHost } from "../../contexts/workspace/run-location";
 
   /**
    * An `artifact` render in a conversation, a task, or a pane: the sandboxed
@@ -66,7 +67,7 @@
     const workspace = session.workspace;
     const run = tabId && workspace ? workspace.runFor(tabId) : undefined;
     if (!imagePath || !tabId || !run || !workspace) return null;
-    return { serverId: run.serverId, path: imagePath, ctx: workspace.ctxFor(tabId) };
+    return { serverId: runHost(run), path: imagePath, ctx: workspace.ctxFor(tabId) };
   });
   const image = new HostMediaUrl(() => imageRequest);
   const artifactUrl = $derived(image.url ?? "");

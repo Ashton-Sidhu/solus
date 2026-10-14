@@ -43,7 +43,7 @@ export const devFixtures: DemoFixtures = {
     }],
   },
   persistedTabs: {
-    version: 2,
+    version: 3,
     location: `/chat/${COMPLETED_SESSION_ID}`,
     activeTabId: COMPLETED_TAB_ID,
     tabOrder: [COMPLETED_TAB_ID, NEW_TAB_ID],
@@ -54,14 +54,21 @@ export const devFixtures: DemoFixtures = {
         title: 'Improve request validation',
         agentSessionId: SESSION_ID,
         provider: 'claude-code',
-        workingDirectory: DEMO_PROJECT,
-        additionalDirs: [],
-        gitContext: {
-          branch: 'feature/request-validation',
-          targetBranch: 'main',
-          repoRoot: DEMO_PROJECT,
+        location: {
+          checkout: {
+            kind: 'folder',
+            serverId: LOCAL_SERVER_ID,
+            path: DEMO_PROJECT,
+            git: {
+              branch: 'feature/request-validation',
+              targetBranch: 'main',
+              repoRoot: DEMO_PROJECT,
+            },
+            newWorktree: null,
+          },
+          project: { serverId: LOCAL_SERVER_ID, path: DEMO_PROJECT },
         },
-        worktreeBaseBranch: 'main',
+        additionalDirs: [],
         modelConfig: {
           modelId: 'claude-sonnet-5',
           reasoningEffort: 'high',
@@ -71,9 +78,7 @@ export const devFixtures: DemoFixtures = {
         permissionMode: 'full-access',
         hasUnread: false,
         titleCustom: false,
-        serverId: LOCAL_SERVER_ID,
-        taskServerId: LOCAL_SERVER_ID,
-        worktreeRequested: false,
+        organizationId: null,
       },
       {
         tabId: NEW_TAB_ID,
@@ -81,14 +86,21 @@ export const devFixtures: DemoFixtures = {
         title: 'New session',
         agentSessionId: null,
         provider: 'claude-code',
-        workingDirectory: DEMO_PROJECT,
-        additionalDirs: [],
-        gitContext: {
-          branch: 'feature/request-validation',
-          targetBranch: 'main',
-          repoRoot: DEMO_PROJECT,
+        location: {
+          checkout: {
+            kind: 'folder',
+            serverId: LOCAL_SERVER_ID,
+            path: DEMO_PROJECT,
+            git: {
+              branch: 'feature/request-validation',
+              targetBranch: 'main',
+              repoRoot: DEMO_PROJECT,
+            },
+            newWorktree: null,
+          },
+          project: { serverId: LOCAL_SERVER_ID, path: DEMO_PROJECT },
         },
-        worktreeBaseBranch: 'main',
+        additionalDirs: [],
         modelConfig: {
           modelId: 'claude-sonnet-5',
           reasoningEffort: 'high',
@@ -98,9 +110,7 @@ export const devFixtures: DemoFixtures = {
         permissionMode: 'full-access',
         hasUnread: false,
         titleCustom: false,
-        serverId: LOCAL_SERVER_ID,
-        taskServerId: LOCAL_SERVER_ID,
-        worktreeRequested: false,
+        organizationId: null,
       },
     ],
   },

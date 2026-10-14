@@ -8,6 +8,7 @@
   import WorktreeOfferCard from "./WorktreeOfferCard.svelte";
   import { worktreeDividerName } from "./lib/worktree-divider";
   import { presenceStore } from "../../contexts/presence/presence.store.svelte";
+  import { runHost } from "../../contexts/workspace/run-location";
 
   /**
    * One activity in the transcript (plans/012 §5): what a person did as a
@@ -27,7 +28,7 @@
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
   const sess = $derived(session.sessionFor(tabId));
-  const self = $derived(sess ? presenceStore.currentUserId(sess.run.serverId) : null);
+  const self = $derived(sess ? presenceStore.currentUserId(runHost(sess.run)) : null);
 </script>
 
 {#if activity.kind === "forked"}
@@ -42,7 +43,7 @@
     <ActivityRow {activity} {self} short title={`"${activity.sourceTitle || "session"}"`} />
   </TranscriptDivider>
 {:else if activity.kind === "moved_to_worktree"}
-  {@const movedCheckout = sess ? session.environment.checkouts.get(sess.run.serverId, activity.path) : undefined}
+  {@const movedCheckout = sess ? session.environment.checkouts.get(runHost(sess.run), activity.path) : undefined}
   <TranscriptDivider glyphClass="text-(--solus-accent)" testid="worktree-moved-message" {skipMotion}>
     {#snippet glyph()}<GitForkIcon size={12} />{/snippet}
     <ActivityRow

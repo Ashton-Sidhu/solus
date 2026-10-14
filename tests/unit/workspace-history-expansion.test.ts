@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { Message, Session } from '@solus/contracts/types'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 let WorkspaceLifecycleStore: typeof import('@solus/workspace-ui/contexts/workspace/workspace-lifecycle.store.svelte')['WorkspaceLifecycleStore']
@@ -30,7 +31,7 @@ describe('paged history expansion', () => {
     const oldest = message('user', 'oldest', 1)
     const session = {
       agentSessionId: 'current-session',
-      run: { provider: 'codex', workingDirectory: '/repo', gitContext: null },
+      run: { provider: 'codex', location: folderLocation({ serverId: 'local', path: '/repo' }) },
       historyTruncated: true, historyCursor: 'page-1',
       messages: [current], progress: null, sessionChangedFiles: [],
     } as unknown as Session
@@ -64,7 +65,7 @@ describe('paged history expansion', () => {
     const current = message('assistant', 'newest', 3)
     const session = {
       agentSessionId: 'current-session',
-      run: { provider: 'codex', workingDirectory: '/repo', gitContext: null },
+      run: { provider: 'codex', location: folderLocation({ serverId: 'local', path: '/repo' }) },
       historyTruncated: true, historyCursor: 'older', messages: [current],
     } as unknown as Session
     const store = new WorkspaceLifecycleStore({
@@ -87,7 +88,7 @@ describe('releasing older history', () => {
     const current = message('assistant', 'newest', 3)
     const session = {
       agentSessionId: 'current-session', status,
-      run: { provider: 'codex', workingDirectory: '/repo', gitContext: null },
+      run: { provider: 'codex', location: folderLocation({ serverId: 'local', path: '/repo' }) },
       historyTruncated: true, historyCursor: 'page-1', historyPendingMessages: undefined,
       messages: [current], progress: null, sessionChangedFiles: [],
     } as unknown as Session

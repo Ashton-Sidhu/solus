@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Plan } from '@solus/contracts/types'
 import { openPlanModal } from '@solus/workspace-ui/contexts/workspace/session-plan-operations'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 /**
  * Opening a plan reads its body off disk. The surface has to be revealed on the
@@ -18,7 +19,7 @@ function openContext(diskContent: string | null) {
 
   const ctx = {
     activeTabId: 'tab-1',
-    activeSession: { run: { workingDirectory: '/repo', provider: 'claude-code' } },
+    activeSession: { run: { location: folderLocation({ serverId: 'host', path: '/repo' }), provider: 'claude-code' } },
     ctx: undefined,
     planStore: {
       plans,

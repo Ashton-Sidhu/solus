@@ -3,6 +3,7 @@ import { runInputFromContext } from '@solus/server/execution/agents/run-input'
 import { IpcContextBuilder, type IpcContextBuilderDeps } from '@solus/workspace-ui/contexts/workspace/ipc-context'
 import type { RunConfig, StatusBarCtx } from '@solus/contracts/types'
 import { draftPluginCommandScope } from '@solus/workspace-ui/components/session-draft/lib/plugin-command-scope'
+import { checkoutGit, folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 function statusBar(
   model: string,
@@ -25,13 +26,13 @@ function statusBar(
 
 describe('IPC context', () => {
   test('outbound prompts use current checkout identity and honor removal', () => {
+    const git = { repoRoot: '/repo', worktreePath: '/repo/tree', branch: 'temporary', targetBranch: 'main' }
     const run = {
-      workingDirectory: '/repo/tree',
-      gitContext: { repoRoot: '/repo', worktreePath: '/repo/tree', branch: 'temporary', targetBranch: 'main' },
-      worktree: null, permissionMode: 'full-access', provider: 'codex', serverId: 'host',
+      location: folderLocation({ serverId: 'host', path: '/repo/tree' }, { git }),
+      permissionMode: 'full-access', provider: 'codex',
       modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
     }
-    const current = { ...run.gitContext, branch: 'renamed' }
+    const current = { ...git, branch: 'renamed' }
     const deps = {
       sessionFor: () => undefined, runFor: () => run, hasDraft: () => false,
       defaultRunConfig: () => run,
@@ -41,26 +42,25 @@ describe('IPC context', () => {
     expect(builder.sessionCtx('draft').gitContext?.branch).toBe('renamed')
     deps.checkoutForRun = () => null
     expect(builder.sessionCtx('draft').gitContext).toBeNull()
-    expect(run.gitContext.branch).toBe('temporary')
+    expect(checkoutGit(run)?.branch).toBe('temporary')
   })
 
   test('marks a cross-host run as dispatched in SessionCtx', () => {
     const run = {
-      workingDirectory: '/remote/repo',
-      gitContext: null,
-      worktree: { baseBranch: 'main' },
+      location: folderLocation(
+        { serverId: 'execution-host', path: '/remote/repo' },
+        { newWorktree: { baseBranch: 'main' }, project: { serverId: 'project-host', path: '/repo' } },
+      ),
       modelConfig: { modelId: 'model', reasoningEffort: 'high', contextWindow: null, fastMode: false },
       permissionMode: 'supervised',
       provider: 'codex',
-      serverId: 'execution-host',
-      taskServerId: 'project-host',
     }
     const deps = {
       sessionFor: () => undefined,
       runFor: () => run,
       hasDraft: () => false,
       defaultRunConfig: () => ({
-        workingDirectory: '/repo', gitContext: null, worktree: null, permissionMode: 'full-access', provider: null,
+        location: folderLocation({ serverId: 'host', path: '/repo' }), permissionMode: 'full-access', provider: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
       }),
       settings: { ctx: { activeAgent: 'codex' } },
@@ -79,7 +79,7 @@ describe('IPC context', () => {
       runFor: () => undefined,
       hasDraft: () => false,
       defaultRunConfig: () => ({
-        workingDirectory: '/repo', gitContext: null, worktree: null, permissionMode: 'full-access', provider: null,
+        location: folderLocation({ serverId: 'host', path: '/repo' }), permissionMode: 'full-access', provider: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
       }),
       settings: {
@@ -112,7 +112,7 @@ describe('IPC context', () => {
       runFor: () => undefined,
       hasDraft: (sourceId: string) => sourceId === 'draft-1',
       defaultRunConfig: () => ({
-        workingDirectory: '/repo', gitContext: null, worktree: null, permissionMode: 'full-access', provider: null,
+        location: folderLocation({ serverId: 'host', path: '/repo' }), permissionMode: 'full-access', provider: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
       }),
       settings: { ctx: { activeAgent: 'codex' } },
@@ -137,7 +137,7 @@ describe('IPC context', () => {
       sessionFor: () => undefined,
       runFor: () => undefined,
       defaultRunConfig: () => ({
-        workingDirectory: '/repo', gitContext: null, worktree: null, permissionMode: 'full-access', provider: null,
+        location: folderLocation({ serverId: 'host', path: '/repo' }), permissionMode: 'full-access', provider: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
       }),
       settings: { ctx: { activeAgent: 'codex' } },
@@ -161,8 +161,11 @@ describe('IPC context', () => {
       runFor: () => undefined,
       hasDraft: () => false,
       defaultRunConfig: () => ({
-        workingDirectory: '/elsewhere', gitContext: { repoRoot: '/elsewhere', branch: 'other', targetBranch: 'main' },
-        worktree: null, permissionMode: 'full-access', provider: null,
+        location: folderLocation(
+          { serverId: 'host', path: '/elsewhere' },
+          { git: { repoRoot: '/elsewhere', branch: 'other', targetBranch: 'main' } },
+        ),
+        permissionMode: 'full-access', provider: null,
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
       }),
       settings: { ctx: { activeAgent: 'codex' } },
@@ -186,8 +189,8 @@ describe('IPC context', () => {
   // lost the commands only a Claude model has.
   test("a draft's command lookup uses the draft's model, not the active session's", () => {
     const claudeDraft = {
-      workingDirectory: '/repo', gitContext: null, worktree: null, permissionMode: 'full-access',
-      provider: 'claude-code', serverId: 'host',
+      location: folderLocation({ serverId: 'host', path: '/repo' }), permissionMode: 'full-access',
+      provider: 'claude-code',
       modelConfig: { modelId: 'claude-opus-5-5', reasoningEffort: 'medium', contextWindow: null, fastMode: false },
     } as unknown as RunConfig
     const activeCodexStatus = statusBar('gpt-6-astra', 'low')

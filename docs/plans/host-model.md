@@ -170,7 +170,7 @@ hosts.transcription: Host | null     // hosts.device ?? hosts.runOn
 hosts.rolesFor(serverId)             // never opens a connection
 ```
 
-A tab's host is `hosts.get(run.serverId)`. A restored tab may name a host that
+A tab's host is `hosts.get(runHost(run))`. A restored tab may name a host that
 was deleted: its `Host` has `presence: 'gone'`, no roles, no grants, and every
 call to it fails with `HostGoneError` (`workspace-and-machines.md` §6).
 
@@ -192,7 +192,7 @@ A reader gets a `Host` from the owner it means:
 
 | Owner | Use | Examples |
 |---|---|---|
-| The tab | `hosts.get(run.serverId)` | usage in the project panel, a restored tab's project path, a resumed session's home folder, a new chat's folder |
+| The tab | `hosts.get(runHost(run))` | usage in the project panel, a restored tab's project path, a resumed session's home folder, a new chat's folder |
 | The device | `hosts.device` | mic and transcription (`hosts.transcription`), screenshots, open in editor, the resolved terminal |
 | The Run on picker | `hosts.runOn` | the agent list, a new session, automation drafting and seeding, onboarding, the first host in Settings, GitHub on the home page |
 | An explicit choice | `hosts.get(selectedServerId)` | Settings → General, Voice, Tools, and Skills for the selected host; an automation's own host |

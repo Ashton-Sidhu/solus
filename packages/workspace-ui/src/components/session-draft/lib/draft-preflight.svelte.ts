@@ -1,10 +1,9 @@
 import { untrack } from 'svelte'
 import type { PluginCommandsResult } from '@solus/contracts/types'
 import { getSettingsContext, getWorkspaceContext } from '../../../contexts'
-import { startsWorktree } from '../../../contexts/workspace/run-config'
 import type { SessionDraft } from '../../../contexts/workspace/session-draft.svelte'
 import { draftPluginCommandScope } from './plugin-command-scope'
-
+import { checkoutGit, checkoutPlace, pendingClone, startsWorktree } from '../../../contexts/workspace/run-location'
 /**
  * What a composer for a draft has to read before Send, since a draft has no
  * session to have read it already: the slash commands for the run its pickers
@@ -43,7 +42,7 @@ export function useDraftPreflight(getDraft: () => SessionDraft | null | undefine
         const latest = getDraft()
         if (!latest) return
         const latestIdentity =
-          `${latest.run.provider ?? theme.activeAgent}\0${latest.run.modelConfig.modelId ?? ''}\0${latest.run.workingDirectory}`
+          `${latest.run.provider ?? theme.activeAgent}\0${latest.run.modelConfig.modelId ?? ''}\0${checkoutPlace(latest.run).path}`
         if (latestIdentity !== requestIdentity) return
         pluginCommands = result
       })
@@ -65,8 +64,9 @@ export function useDraftPreflight(getDraft: () => SessionDraft | null | undefine
   // somewhere new, because choosing a project clears the checkout it had.
   $effect(() => {
     const current = getDraft()
-    const cwd = current?.run.workingDirectory
-    if (!current || current.run.gitContext || !cwd || cwd === '~') return
+    const cwd = checkoutPlace(current?.run)?.path
+    // A clone has no folder until Send; its branch list reads the checkout it copies.
+    if (!current || checkoutGit(current.run) || pendingClone(current.run) || !cwd || cwd === '~') return
     const sourceId = current.id
     const worktreeRequested = startsWorktree(current.run)
     untrack(() => { void session.refreshStartTarget(sourceId, cwd, worktreeRequested) })

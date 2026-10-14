@@ -37,6 +37,7 @@
   import type { SessionAction } from "./lib/session-actions";
   import { hostPolicy } from "@solus/client-core/host-policy";
   import "./SessionActionRow.css";
+  import { checkoutGit, runHost, workingPlace } from "../../contexts/workspace/run-location";
 
   let {
     tabId,
@@ -56,10 +57,10 @@
 
   const sessionChangedFiles = $derived(sess?.sessionChangedFiles ?? []);
   const gitCwd = $derived(
-    sess?.run.gitContext?.worktreePath ?? sess?.run.workingDirectory,
+    workingPlace(sess?.run)?.path,
   );
   const hasUncommittedChanges = $derived(
-    (environmentStore.statusFor(sess?.run.serverId ?? session.fallbackServerId, gitCwd)
+    (environmentStore.statusFor(runHost(sess?.run) ?? session.fallbackServerId, gitCwd)
       ?.uncommittedChanges.files.length ?? 0) > 0,
   );
   const showNativeDesktopActions = $derived(shell.supportsNativeSettings);
@@ -84,8 +85,8 @@
     showNativeDesktopActions && hasUncommittedChanges && hasSessionChanges,
   );
   const remoteHost = $derived.by(() => {
-    if (hostPolicy.isClientMachine(sess?.run.serverId)) return null;
-    return serversStore.hostFor(sess?.run.serverId) ?? null;
+    if (hostPolicy.isClientMachine(runHost(sess?.run))) return null;
+    return serversStore.hostFor(runHost(sess?.run)) ?? null;
   });
   // Names the terminal that will actually open — the one already attached to
   // the shared tmux session, or the Settings fallback when none is.
@@ -100,10 +101,10 @@
   // Forking mid-turn is allowed: the fork branches from the source's last
   // settled turn rather than the one still being written.
   const showContinueWorktree = $derived(
-    hasAgentSession && !isRunning && !sess?.run.gitContext?.worktreePath,
+    hasAgentSession && !isRunning && !checkoutGit(sess?.run)?.worktreePath,
   );
   const isPinned = $derived(
-    sidebarStore.isPinned(sess?.id, sess?.run.serverId),
+    sidebarStore.isPinned(sess?.id, runHost(sess?.run)),
   );
 
   // ── Review changes (background generation) ──

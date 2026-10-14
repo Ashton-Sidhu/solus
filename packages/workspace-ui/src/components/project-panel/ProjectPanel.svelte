@@ -38,6 +38,7 @@
   import { comboHint } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
+  import { runHost } from "../../contexts/workspace/run-location";
 
   interface Props {
     /** The tab or draft this rail describes — it lives inside that view. The
@@ -164,7 +165,7 @@
   const panelSession = $derived(session.sessionFor(sourceId));
   const panelRun = $derived(session.runFor(sourceId));
   // Linking a pull request is an editor's; a member who may only read sees the links.
-  const canDrive = $derived(canDriveSession(panelRun?.serverId, panelSession?.id));
+  const canDrive = $derived(canDriveSession(runHost(panelRun), panelSession?.id));
   const panelEnvironment = $derived(environmentStore.environmentFor(panelRun));
 
   const gitCtx = $derived(panelEnvironment.checkout);

@@ -4,6 +4,7 @@ import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/tas
 import { runGroupKey, SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 import { projectsStore } from '@solus/workspace-ui/contexts/projects/projects.store.svelte'
 import type { SessionHomeHosts } from '@solus/workspace-ui/components/session/lib/session-home'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 type SidebarStoreHarness = Pick<
   SessionSidebarStore,
@@ -243,13 +244,18 @@ describe('the project of a dispatched session', () => {
       }],
     }, { force: true })
 
-    const dispatched = { serverId: 'dispatch-box', taskServerId: 'dispatch-laptop', projectGroupPath: '/Users/me/web' }
+    const dispatched = {
+      location: folderLocation(
+        { serverId: 'dispatch-box', path: '/srv/web' },
+        { project: { serverId: 'dispatch-laptop', path: '/Users/me/web' } },
+      ),
+    }
     expect(runGroupKey(dispatched, '/Users/me/web')).toBe('github.com/acme/web')
     expect(projectsStore.checkoutFor(runGroupKey(dispatched, '/Users/me/web')))
       .toEqual({ serverId: 'dispatch-laptop', projectRoot: '/Users/me/web' })
 
     // A run that was not dispatched reads its folder on its own host.
-    const local = { serverId: 'dispatch-box', taskServerId: 'dispatch-box', projectGroupPath: null }
+    const local = { location: folderLocation({ serverId: 'dispatch-box', path: '/home/me/notes' }) }
     expect(runGroupKey(local, '/home/me/notes')).toBe('dispatch-box:/home/me/notes')
   })
 })

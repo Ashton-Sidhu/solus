@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import type { Message, Session, Tab, UsageData } from '@solus/contracts/types'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
@@ -283,7 +284,7 @@ async function createNotifyReducer(isVisible = false) {
     isReconnecting: false,
     permissionQueue: [],
     questionQueue: [],
-    run: { workingDirectory: null },
+    run: { location: folderLocation({ serverId: 'host', path: '~' }) },
   } as unknown as Session
   const tab = { id: 'tab-1', sessionId: 'session-1', hasUnread: false } as Tab
   let notifyCount = 0

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test'
 import type { IpcContext, PluginCommandsResult, Session } from '@solus/contracts/types'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
@@ -19,7 +20,7 @@ describe('plugin command freshness', () => {
       { snapshot: <T>(value: T) => value },
     )
     const session = {
-      run: { provider: 'claude-code', workingDirectory: '/repo' },
+      run: { provider: 'claude-code', location: folderLocation({ serverId: 'host-a', path: '/repo' }) },
       pluginCommands: { global: [], project: [] },
     } as unknown as Session
     const reads: string[] = []
@@ -98,7 +99,7 @@ describe('plugin command freshness', () => {
         sessionFor: () => undefined,
       } as never,
       settings: settings as never,
-      defaultRunConfig: () => ({ workingDirectory: directory }) as never,
+      defaultRunConfig: () => ({ location: folderLocation({ serverId, path: directory }) }) as never,
       serverIdFor: () => serverId,
       ctxFor: () => ({ session: { provider: settings.activeAgent } }) as IpcContext,
       apiFor: () => ({ getPluginCommands: async (cwd: string) => {

@@ -14,6 +14,7 @@ import {
   savePersistedTabsDebounced,
   type PersistedTabs,
 } from '@solus/workspace-ui/contexts/workspace/tab-persistence'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>()
@@ -47,7 +48,7 @@ const originalLocalStorage = (globalThis as any).localStorage
 
 function sampleSnapshot(): PersistedTabs {
   return {
-    version: 2,
+    version: 3,
     activeTabId: 'tab-1',
     tabOrder: ['tab-1'],
     tabs: [{
@@ -55,19 +56,15 @@ function sampleSnapshot(): PersistedTabs {
       sessionId: 'session-1',
       title: 'Local work',
       titleCustom: false,
-      serverId: 'local',
       agentSessionId: null,
       provider: null,
       handoffFrom: { provider: 'codex', sessionId: 'previous-session' },
-      workingDirectory: '/repo',
+      location: folderLocation({ serverId: 'local', path: '/repo' }),
       additionalDirs: [],
-      gitContext: null,
-      worktreeBaseBranch: null,
-      worktreeRequested: false,
-      taskServerId: 'local',
       modelConfig: {} as any,
       permissionMode: 'supervised',
       hasUnread: false,
+      organizationId: null,
     }],
     location: 'chat/session-1~local',
   }

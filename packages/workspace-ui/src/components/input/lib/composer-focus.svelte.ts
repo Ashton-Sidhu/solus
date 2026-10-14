@@ -5,6 +5,7 @@ import type PromptEditor from "../../ui/PromptEditor.svelte";
 import { localApi } from "@solus/client-core/local-api";
 import { FOCUS_INPUT_EVENT, requestInputFocus } from "../../../lib/inputFocus";
 import { quotedReplyDraft } from "../../../lib/quoted-reply";
+import { checkoutPlace } from "../../../contexts/workspace/run-location";
 
 interface ComposerFocusOptions {
   active: () => boolean;
@@ -55,7 +56,7 @@ export function useComposerFocus(options: ComposerFocusOptions) {
   let prevFocusable = untrack(() => options.active() && !session.ui.unifiedPickerOpen);
   $effect(() => {
     if (!options.isPrimary()) return;
-    void options.session()?.run.workingDirectory;
+    void checkoutPlace(options.session()?.run)?.path;
     void options.session()?.readOnlyReason;
     const isFocusable = options.active() && !session.ui.unifiedPickerOpen;
     const justBecameFocusable = isFocusable && !prevFocusable;

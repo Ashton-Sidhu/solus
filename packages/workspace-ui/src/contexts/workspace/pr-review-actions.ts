@@ -17,6 +17,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import { localApi } from '@solus/client-core/local-api'
 import { prReviewGitCheckout } from './pr-review-checkout'
 import type { PullRequestOpenTarget, WorkspaceContext } from './workspace.context.svelte'
+import { checkoutGit, checkoutPlace, folderLocation, runHost } from './run-location'
 
 /** The workspace members this controller reads or calls, and no others. */
 type PrReviewActionsWorkspace = Pick<WorkspaceContext,
@@ -66,12 +67,11 @@ export class PrReviewActions {
     opts: { ctx?: IpcContext } = {},
   ): Promise<void> {
     const actionCtx = opts.ctx ?? this.workspace.ctx
+    const activeFolder = checkoutPlace(this.workspace.activeSession?.run)?.path
     const placeholderDir = actionCtx.session.projectPath
       ?? actionCtx.session.workingDirectory
-      ?? this.workspace.activeSession?.run.gitContext?.repoRoot
-      ?? (this.workspace.activeSession?.run.workingDirectory && this.workspace.activeSession.run.workingDirectory !== '~'
-        ? worktreeProjectRoot(this.workspace.activeSession.run.workingDirectory)
-        : undefined)
+      ?? checkoutGit(this.workspace.activeSession?.run)?.repoRoot
+      ?? (activeFolder && activeFolder !== '~' ? worktreeProjectRoot(activeFolder) : undefined)
     const tabId = await this.workspace.createTab(placeholderDir)
     const session = this.workspace.sessionFor(tabId)
     if (!session) return
@@ -108,9 +108,10 @@ export class PrReviewActions {
     }
 
     const review = prepared.review
-    session.run.workingDirectory = worktreeProjectRoot(review.worktreePath)
-    session.run.gitContext = prReviewGitCheckout(review)
-    session.run.worktree = null
+    session.run.location = folderLocation(
+      { serverId: runHost(session.run), path: worktreeProjectRoot(review.worktreePath) },
+      { git: prReviewGitCheckout(review) },
+    )
     session.run.permissionMode = 'full-access'
     session.prReview = review
     session.statusCard = buildConflictResolverCard(pr.number, 'session')
@@ -300,12 +301,10 @@ export class PrReviewActions {
    *  session started from the PR page exists before its checkout does. Every
    *  PR session starts from this same destination. */
   aimAtPrCheckout(target: { run: RunConfig; prReview: PrReviewContext | null }, pr: PrReviewContext, serverId: string): void {
-    target.run.workingDirectory = worktreeProjectRoot(pr.worktreePath)
-    target.run.gitContext = prReviewGitCheckout(pr)
-    target.run.serverId = serverId
-    target.run.taskServerId = serverId
-    target.run.projectGroupPath = null
-    target.run.worktree = null
+    target.run.location = folderLocation(
+      { serverId, path: worktreeProjectRoot(pr.worktreePath) },
+      { git: prReviewGitCheckout(pr) },
+    )
     target.run.permissionMode = 'full-access'
     target.prReview = pr
   }
@@ -365,7 +364,7 @@ export class PrReviewActions {
       params: {
         number,
         cwd: projectScopeOf(ctx.session) || undefined,
-        serverId: this.workspace.sessions.byId[ctx.session.sessionId]?.run.serverId,
+        serverId: runHost(this.workspace.sessions.byId[ctx.session.sessionId]?.run),
       },
     })
   }

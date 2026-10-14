@@ -5,6 +5,7 @@
   import { setDiffGeneralComment } from "../../lib/diff-comments";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import type { DiffComment, GitCheckout } from "@solus/contracts/types";
+  import { checkoutGit, checkoutPlace } from "../../contexts/workspace/run-location";
 
   interface Props {
     /** Tab that owns the queued comments and receives current-session feedback. */
@@ -69,7 +70,7 @@
   // means something on that path — offer it whenever the source is a real repo
   // that isn't already inside a worktree.
   const showWorktree = $derived(
-    toNewSession && !!sess?.run.gitContext && !sess.run.gitContext.worktreePath,
+    toNewSession && !!checkoutGit(sess?.run) && !checkoutGit(sess?.run)?.worktreePath,
   );
 
   const inlineCount = $derived(
@@ -177,7 +178,7 @@
     bind:value={() => generalComment, (v) => setDiffGeneralComment(sess, v)}
     bind:collapsed
     tabId={targetTabId}
-    workingDirectory={sess?.run.workingDirectory}
+    workingDirectory={checkoutPlace(sess?.run)?.path}
     canSubmitWhenEmpty={inlineCount > 0}
     onKeyDown={handleKeyDown}
     onSubmit={toNewSession ? handleSendToNewSession : handleSend}

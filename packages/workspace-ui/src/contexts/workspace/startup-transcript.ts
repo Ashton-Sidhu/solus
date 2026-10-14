@@ -3,6 +3,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import { loadServers } from '@solus/client-core/server-registry'
 import { loadPersistedTabs } from './tab-persistence'
 import { afterPaint } from '../../lib/after-paint'
+import { checkoutPlace, runHost, workingPlace } from './run-location'
 
 let startupTabId: string | undefined
 const paintWaiters = new Set<() => void>()
@@ -29,10 +30,10 @@ export function prefetchStartupTranscript(): Promise<void> | undefined {
   try {
     const snapshot = loadPersistedTabs()
     const tab = snapshot?.tabs.find((tab) => tab.tabId === snapshot.activeTabId)
-    if (!tab?.agentSessionId || !tab.provider || tab.pendingFork || !tab.workingDirectory) return
+    if (!tab?.agentSessionId || !tab.provider || tab.pendingFork || !checkoutPlace(tab).path) return
     const serverId = tab.serverInstallationId
-      ? loadServers().find((server) => server.installationId === tab.serverInstallationId)?.id ?? tab.serverId
-      : tab.serverId
+      ? loadServers().find((server) => server.installationId === tab.serverInstallationId)?.id ?? runHost(tab)
+      : runHost(tab)
     // A tab on a gone host restores read-only from the mirror (`hydrateTab`).
     if (serverConnections.presenceOf(serverId) === 'gone') return
     const api = serverConnections.apiFor(serverId)
@@ -40,7 +41,7 @@ export function prefetchStartupTranscript(): Promise<void> | undefined {
     performance.mark('solus.boot.transcript.requested')
     const result = prefetchSessionHistoryPage(api, {
       sessionId: tab.sessionId || tab.agentSessionId,
-      projectPath: tab.gitContext?.worktreePath || tab.workingDirectory,
+      projectPath: workingPlace(tab).path,
       provider: tab.provider,
       turnLimit: INITIAL_HISTORY_TURNS,
     })

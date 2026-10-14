@@ -16,6 +16,7 @@
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
   import { unsupportedOnHost } from "@solus/client-core/host-capabilities";
   import { serverConnections } from "@solus/client-core/server-connections";
+  import { runHost } from "../../contexts/workspace/run-location";
 
   interface Props {
     active: boolean;
@@ -71,7 +72,7 @@
   const isRunning = $derived(
     sess?.status === "running" || sess?.status === "connecting",
   );
-  const serverId = $derived(sess?.run.serverId ?? run?.serverId ?? LOCAL_SERVER_ID);
+  const serverId = $derived(runHost(sess?.run) ?? runHost(run) ?? LOCAL_SERVER_ID);
   const hostLabel = $derived(
     serversStore.hostFor(serverId)?.label ??
       serverConnections.connectionFor(serverId)?.target.label ??
@@ -88,14 +89,14 @@
   );
   const chatRun = $derived(chatSourceId ? (run ?? sess?.run ?? null) : null);
 
-  /** A host choice is inert until Send, so it lands on the run as written. */
+  /** A host choice lands on the run as written; Send connects to that host. */
   function applyChatRun(next: RunConfig) {
     if (onRun) onRun(next);
     else if (sess) sess.run = next;
   }
 
   // A chat's Run on list opens from the + menu, when there is a host to choose.
-  const chatHostId = $derived(chatRun ? (chatRun.pendingHostDispatch?.serverId ?? chatRun.serverId) : null);
+  const chatHostId = $derived(chatRun ? runHost(chatRun) : null);
   const chatOffersHosts = $derived(
     !!chatHostId &&
       shouldShowRunOnPicker({

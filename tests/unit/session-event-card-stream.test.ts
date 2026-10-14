@@ -3,6 +3,7 @@ import type { Message, Session, Tab, SettingsCtx } from '@solus/contracts/types'
 
 import { needsRateLimitDecision } from '@solus/workspace-ui/components/conversation/lib/queued-prompts'
 import { CodexTurnNormalizer } from '@solus/server/execution/agents/codex/codex-event-normalizer'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
@@ -27,7 +28,7 @@ async function createReducer(
     outboundPrompts: [],
     permissionQueue: [],
     questionQueue: [],
-    run: {},
+    run: { location: folderLocation({ serverId: 'local', path: '~' }) },
     task: { kind: 'none' },
   } as unknown as Session
   const tab = { id: 'tab-1', sessionId: 'session-1' } as Tab
@@ -123,8 +124,7 @@ describe('SessionEventReducer card stream boundaries', () => {
     )
     session.task = { kind: 'existing', taskId: 'new-task-1' }
     session.currentTurnStart = 'fresh'
-    session.run.serverId = 'remote-host'
-    session.run.taskServerId = 'task-host'
+    session.run.location = folderLocation({ serverId: 'remote-host', path: '~' }, { project: { serverId: 'task-host', path: '~' } })
 
     reducer.apply('session-1', {
       type: 'session_init',
@@ -157,16 +157,19 @@ describe('SessionEventReducer card stream boundaries', () => {
     )
     session.task = { kind: 'existing', taskId: 'task-1' }
     session.currentTurnStart = 'fresh'
-    session.run.serverId = 'remote-host'
-    session.run.taskServerId = 'task-host'
     session.run.provider = 'claude-code'
-    session.run.projectGroupPath = '/Users/sidhu/solus'
-    session.run.gitContext = {
-      branch: 'solus/remote-worktree',
-      targetBranch: 'main',
-      repoRoot: '/home/sidhu/solus',
-      worktreePath: '/home/sidhu/solus/.git/solus/worktrees/remote-worktree',
-    }
+    session.run.location = folderLocation(
+      { serverId: 'remote-host', path: '/home/sidhu/solus' },
+      {
+        git: {
+          branch: 'solus/remote-worktree',
+          targetBranch: 'main',
+          repoRoot: '/home/sidhu/solus',
+          worktreePath: '/home/sidhu/solus/.git/solus/worktrees/remote-worktree',
+        },
+        project: { serverId: 'task-host', path: '/Users/sidhu/solus' },
+      },
+    )
 
     reducer.apply('session-1', {
       type: 'session_init',
@@ -201,8 +204,7 @@ describe('SessionEventReducer card stream boundaries', () => {
     )
     session.task = { kind: 'existing', taskId: 'task-1' }
     session.currentTurnStart = 'follow_up'
-    session.run.serverId = 'remote-host'
-    session.run.taskServerId = 'task-host'
+    session.run.location = folderLocation({ serverId: 'remote-host', path: '~' }, { project: { serverId: 'task-host', path: '~' } })
 
     reducer.apply('session-1', {
       type: 'session_init',

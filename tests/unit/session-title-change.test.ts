@@ -1,13 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import type { Session } from '@solus/contracts/types'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 import { applySessionTitleChange } from '@solus/workspace-ui/contexts/workspace/session-title-change'
 
 function workspace() {
   return {
     sessions: {
-      'local-session': { id: 'local-session', run: { serverId: 'local', taskServerId: 'local' }, agentSessionId: 'agent-1', title: 'Opening prompt', titleCustom: false } as Session,
-      'remote-session': { id: 'local-session', run: { serverId: 'remote', taskServerId: 'local' }, agentSessionId: 'agent-1', title: 'Remote title', titleCustom: false } as Session,
-      'other-session': { id: 'other-session', run: { serverId: 'local', taskServerId: 'local' }, agentSessionId: 'agent-2', title: 'Other title', titleCustom: false } as Session,
+      'local-session': { id: 'local-session', run: { location: folderLocation({ serverId: 'local', path: '/repo' }) }, agentSessionId: 'agent-1', title: 'Opening prompt', titleCustom: false } as Session,
+      'remote-session': { id: 'local-session', run: { location: folderLocation({ serverId: 'remote', path: '/clone' }, { project: { serverId: 'local', path: '/repo' } }) }, agentSessionId: 'agent-1', title: 'Remote title', titleCustom: false } as Session,
+      'other-session': { id: 'other-session', run: { location: folderLocation({ serverId: 'local', path: '/repo' }) }, agentSessionId: 'agent-2', title: 'Other title', titleCustom: false } as Session,
     },
   }
 }

@@ -10,6 +10,7 @@ import { noPierreDiffEscapesRule } from './rules/no-pierre-diff-escapes.ts'
 import { noPrContextEscapesRule } from './rules/no-pr-context-escapes.ts'
 import { noTailwindClassVariablesRule } from './rules/no-tailwind-class-variables.ts'
 import { requireResolvedCwdRule } from './rules/require-resolved-cwd.ts'
+import { runLocationAnswersRule } from './rules/run-location-answers.ts'
 
 const solusPlugin = definePlugin({
   meta: { name: 'solus' },
@@ -24,6 +25,7 @@ const solusPlugin = definePlugin({
     'no-pr-context-escapes': noPrContextEscapesRule,
     'no-tailwind-class-variables': noTailwindClassVariablesRule,
     'require-resolved-cwd': requireResolvedCwdRule,
+    'run-location-answers': runLocationAnswersRule,
   },
 })
 

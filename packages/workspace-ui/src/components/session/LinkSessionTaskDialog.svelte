@@ -11,6 +11,7 @@
   import { MenuSearch } from "../ui/menu";
   import TaskIcon from "../ui/TaskIcon.svelte";
   import { taskPickerSections } from "../tasks/lib/task-picker-sections";
+  import { projectHome } from "../../contexts/workspace/run-location";
 
   /**
    * Pick the task a session belongs to. The link is made at once, so the
@@ -31,15 +32,12 @@
   const sess = $derived(session.sessionFor(tabId));
   const projectKey = $derived(
     sess
-      ? environmentProjectKey(
-          session.environment.environmentFor(sess.run),
-          sess.run.projectGroupPath,
-        )
+      ? environmentProjectKey(session.environment.environmentFor(sess.run), sess.run)
       : "~",
   );
   const tasks = $derived(
     session.tasksStore
-      .tasksForCheckout(sess?.run.taskServerId ?? session.serverIdFor(tabId), projectKey)
+      .tasksForCheckout(projectHome(sess?.run)?.serverId ?? session.serverIdFor(tabId), projectKey)
       .filter((task) => task.status !== "done" && task.status !== "dropped"),
   );
   const sections = $derived(taskPickerSections(tasks));

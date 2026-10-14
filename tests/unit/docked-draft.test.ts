@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from 'bun:test'
 import type { RunConfig } from '@solus/contracts/types'
 import { leadingHomeRoute } from '@solus/workspace-ui/contexts/workspace/leading-home'
+import { checkoutPlace, folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 /**
  * A page's docked composer (documents, artifacts, diagrams, pull requests)
@@ -32,17 +33,11 @@ afterAll(() => {
 
 function runIn(workingDirectory: string): RunConfig {
   return {
-    workingDirectory,
-    gitContext: null,
-    worktree: null,
+    location: folderLocation({ serverId: 'local', path: workingDirectory }),
     modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
     permissionMode: 'full-access',
     provider: 'claude-code',
-    serverId: 'local',
-    taskServerId: 'local',
-    projectGroupPath: null,
     sessionSkills: [],
-    pendingHostDispatch: null,
   }
 }
 
@@ -81,7 +76,7 @@ describe('a page’s docked draft', () => {
     // WHY: Send must start a session that already knows the work it is about
     // and runs in the work's project, with no second step to bind them.
     expect(docked.boundWorkId).toBe('w1')
-    expect(docked.run.workingDirectory).toBe('/code/solus')
+    expect(checkoutPlace(docked.run).path).toBe('/code/solus')
   })
 
   test('is not taken as the leading pane’s home while the page holds it', () => {

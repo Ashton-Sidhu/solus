@@ -7,6 +7,7 @@
   import { toasts } from "../../lib/toasts";
   import type { DocProviderId } from "@solus/contracts/docs";
   import { importDocCopy } from "./lib/import-doc";
+  import { checkoutPlace } from "../../contexts/workspace/run-location";
 
   /**
    * Import an upstream document by pasting its link. A URL is what a user
@@ -46,7 +47,7 @@
       // The active session's directory is the imported work's origin.
       const work = await session.worksStore.importFromUrl(
         trimmed,
-        session.activeSession?.run.workingDirectory,
+        checkoutPlace(session.activeSession?.run)?.path,
       );
       toasts.success(`Imported “${work.title}”`);
       url = "";

@@ -3,6 +3,7 @@ import type { RunConfig } from '@solus/contracts/types'
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { CHAT_LABEL, displayDirName, projectDirLabel } from '@solus/workspace-ui/lib/paths'
 import { defaultStartProject, inheritRunConfig, resolveNewRunConfig } from '@solus/workspace-ui/contexts/workspace/run-config'
+import { checkoutPlace, folderLocation, runHost } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 // A chat (docs/plans/projectless-chat.md) is a session with no project. Its
 // folder is its own, so it never leaks into the next session, and every client
@@ -10,20 +11,13 @@ import { defaultStartProject, inheritRunConfig, resolveNewRunConfig } from '@sol
 
 const CHAT = '/data/projects/ada-1/.solus-chats/session-1'
 
-function run(workingDirectory: string, overrides: Partial<RunConfig> = {}): RunConfig {
+function run(path: string, serverId = 'studio'): RunConfig {
   return {
-    workingDirectory,
-    gitContext: null,
-    worktree: null,
+    location: folderLocation({ serverId, path }),
     modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
     permissionMode: 'full-access',
     provider: null,
-    serverId: 'studio',
-    taskServerId: 'studio',
-    projectGroupPath: null,
     sessionSkills: [],
-    pendingHostDispatch: null,
-    ...overrides,
   }
 }
 
@@ -43,18 +37,18 @@ describe('the chat label', () => {
 })
 
 describe('a session opened from a chat', () => {
-  const defaults = run('/Users/me/projects/solus', { serverId: 'local', taskServerId: 'local' })
+  const defaults = run('/Users/me/projects/solus', 'local')
 
   test('starts a new chat on the same host, never in the old chat folder', () => {
     // WHY: one folder per chat. Sharing it would mix the files of two chats.
     const fresh = resolveNewRunConfig(defaults, run(CHAT), { freshTask: true })
-    expect(fresh.workingDirectory).toBe(NEW_CHAT_DIRECTORY)
-    expect(fresh.serverId).toBe('studio')
-    expect(inheritRunConfig(defaults, run(CHAT)).workingDirectory).toBe(NEW_CHAT_DIRECTORY)
+    expect(checkoutPlace(fresh).path).toBe(NEW_CHAT_DIRECTORY)
+    expect(runHost(fresh)).toBe('studio')
+    expect(checkoutPlace(inheritRunConfig(defaults, run(CHAT))).path).toBe(NEW_CHAT_DIRECTORY)
   })
 
   test('a session opened from a project stays in that project', () => {
-    expect(resolveNewRunConfig(defaults, run('/data/projects/ada-1/web'), { freshTask: true }).workingDirectory)
+    expect(checkoutPlace(resolveNewRunConfig(defaults, run('/data/projects/ada-1/web'), { freshTask: true })).path)
       .toBe('/data/projects/ada-1/web')
   })
 })

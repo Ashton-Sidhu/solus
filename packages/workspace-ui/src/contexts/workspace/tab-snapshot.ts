@@ -1,9 +1,10 @@
 import type { Session } from '@solus/contracts/types'
-import { loadServers, LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
+import { loadServers } from '@solus/client-core/server-registry'
 import { existingTaskId } from './session-draft.svelte'
 import { firstActivityAt } from './session-activity'
 import type { PersistedTab } from './tab-persistence'
 import type { WorkspaceContext } from './workspace.context.svelte'
+import { projectHome, runHost } from './run-location'
 
 /** One tab snapshot builder for desktop and web. Reload state must not diverge
  * because two client entry points copied this mapping independently. */
@@ -19,9 +20,11 @@ export function snapshotPersistedTabs(session: WorkspaceContext): PersistedTab[]
         sessionId: tab.sessionId,
         title: restoredSession?.title ?? 'New Tab',
         titleCustom: restoredSession?.titleCustom ?? false,
-        serverId: restoredSession?.run.serverId ?? LOCAL_SERVER_ID,
         serverInstallationId: savedServers.find(
-          (server) => server.id === restoredSession?.run.serverId,
+          (server) => server.id === runHost(restoredSession?.run ?? session.defaultRunConfig),
+        )?.installationId,
+        projectInstallationId: savedServers.find(
+          (server) => server.id === projectHome(restoredSession?.run ?? session.defaultRunConfig).serverId,
         )?.installationId,
         agentSessionId: restoredSession?.agentSessionId ?? null,
         pendingFork: restoredSession?.forked ? {
@@ -31,14 +34,8 @@ export function snapshotPersistedTabs(session: WorkspaceContext): PersistedTab[]
         forkedFromSessionId: restoredSession?.forkedFromSessionId ?? null,
         provider: restoredSession?.run.provider ?? null,
         handoffFrom: restoredSession?.handoffFrom ? { ...restoredSession.handoffFrom } : undefined,
-        workingDirectory:
-          restoredSession?.run.workingDirectory ?? session.defaultRunConfig.workingDirectory,
-        projectGroupPath: restoredSession?.run.projectGroupPath ?? null,
+        location: (restoredSession?.run ?? session.defaultRunConfig).location,
         additionalDirs: restoredSession ? [...restoredSession.additionalDirs] : [],
-        gitContext: restoredSession?.run.gitContext ? { ...restoredSession.run.gitContext } : null,
-        worktreeBaseBranch: restoredSession?.run.worktree?.baseBranch ?? null,
-        worktreeRequested: !!restoredSession?.run.worktree,
-        taskServerId: restoredSession?.run.taskServerId ?? LOCAL_SERVER_ID,
         modelConfig: restoredSession
           ? { ...restoredSession.run.modelConfig }
           : { ...session.config.globalDefaults.modelConfig },

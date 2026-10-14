@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from 'bun:test'
 import { artifactRevisions, createArtifactRevisionIndexer } from '../../packages/workspace-ui/src/components/conversation/lib/artifact-revisions'
 import type { Message, Session } from '@solus/contracts/types'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 import type { WorksStore } from '../../packages/workspace-ui/src/contexts/works/works.store.svelte'
 import type { RouterStore } from '../../packages/workspace-ui/src/contexts/workspace/routing/router.store.svelte'
 
@@ -19,7 +20,7 @@ async function fixture() {
     {} as RouterStore,
   )
   const messages: Message[] = []
-  const session = { id: 's', messages, run: { workingDirectory: '/fixture', serverId: 'host' } } as Session
+  const session = { id: 's', messages, run: { location: folderLocation({ serverId: 'host', path: '/fixture' }) } } as Session
   return { tracker, session, messages, replacements: () => savedWorkReplacements }
 }
 

@@ -1,6 +1,7 @@
 import type { RunConfig } from '@solus/contracts/types'
 import type { ProjectRef } from '../../../contexts/projects/project-catalog'
 import { isChat } from '@solus/contracts/chat'
+import { checkoutPlace, projectHome } from '../../../contexts/workspace/run-location'
 
 /**
  * What choosing a host in the Run on picker does for the run's project. The
@@ -33,16 +34,17 @@ export interface RunOnHostInput {
 
 export function runOnHostAction(input: RunOnHostInput): RunOnHostAction {
   if (input.hostId === input.selectedHostId) return { kind: 'current' }
-  if (isChat(input.run.workingDirectory)) return { kind: 'chat' }
+  if (isChat(checkoutPlace(input.run).path)) return { kind: 'chat' }
   const path = checkoutPathOn(input.run, input.hostId, input.checkouts)
   if (path) return { kind: 'checkout', path }
   return input.cloneRepoKey ? { kind: 'clone' } : { kind: 'choose-folder' }
 }
 
-/** The folder on `hostId` that holds the run's project. A dispatched run's
- *  home remembers its own checkout; any other host is named by the catalog. */
+/** The folder on `hostId` that holds the run's project. The project's home
+ *  remembers its own folder; any other host is named by the catalog. */
 export function checkoutPathOn(run: RunConfig, hostId: string, checkouts: readonly ProjectRef[]): string | null {
-  if (run.projectGroupPath && run.taskServerId === hostId) return run.projectGroupPath
+  const home = projectHome(run)
+  if (home.serverId === hostId && home.path !== '~') return home.path
   return checkouts.find((checkout) => checkout.serverId === hostId)?.projectRoot ?? null
 }
 

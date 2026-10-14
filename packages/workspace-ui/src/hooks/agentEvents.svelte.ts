@@ -5,13 +5,14 @@ import type { SessionTitleChangedEvent } from '@solus/contracts/types'
 import { resyncRuntime } from '../contexts/workspace/session-bootstrap'
 import { serverConnections, type ManagedConnection } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
+import { checkoutGit, checkoutPlace, runHost } from '../contexts/workspace/run-location'
 
 /** Bind the session stream on every host that already exists and every host
  * added later. Kept outside the Svelte lifecycle wrapper so host routing can be
  * verified without mounting the application. */
 export function bindAgentEventSubscriptions(session: WorkspaceContext): () => void {
   const isOwnHost = (serverId: string, sessionId: string): boolean => {
-    const sessionServerId = session.sessions.byId[sessionId]?.run.serverId
+    const sessionServerId = runHost(session.sessions.byId[sessionId]?.run)
     return !!sessionServerId && serverConnections.resolveId(sessionServerId) === serverId
   }
 
@@ -49,8 +50,8 @@ export function bindAgentEventSubscriptions(session: WorkspaceContext): () => vo
 export function setupAgentEvents(session: WorkspaceContext): void {
   const unsubscribeCheckouts = session.environment.checkouts.subscribe((serverId) => [session.activeTabId, session.chatSurfaceTabId].flatMap((tabId) => {
     const run = tabId ? session.runFor(tabId) : null
-    const cwd = run?.gitContext?.worktreePath ?? run?.workingDirectory
-    return run && serverConnections.resolveId(run.serverId) === serverId && cwd && cwd !== '~' && !isChat(cwd) ? [cwd] : []
+    const cwd = checkoutGit(run)?.worktreePath ?? checkoutPlace(run)?.path
+    return run && serverConnections.resolveId(runHost(run)) === serverId && cwd && cwd !== '~' && !isChat(cwd) ? [cwd] : []
   }))
   const unsubscribeEvents = bindAgentEventSubscriptions(session)
   const resetUnsubscribes = new Map<string, () => void>()

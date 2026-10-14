@@ -2,6 +2,7 @@ import { afterAll, beforeEach, expect, mock, test } from 'bun:test'
 import type { SessionMeta } from '@solus/contracts/types'
 import type { Task, TaskSessionLink } from '@solus/contracts/task-types'
 import { SvelteRunes } from './helpers/svelte-runes'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 // WHY: opening a task is opening its lead conversation with the task page
 // beside it. The page must not wait for the lead's transcript, and a task the
@@ -57,7 +58,7 @@ function harness(openLeads: Record<string, string> = {}) {
   const workspace = {
     hasCompanionPanes: true,
     tabs: Object.fromEntries(Object.entries(openLeads).map(([sessionId, tabId]) => [tabId, { id: tabId, sessionId }])),
-    sessions: { byId: Object.fromEntries(Object.entries(openLeads).map(([sessionId]) => [sessionId, { id: sessionId, agentSessionId: sessionId, run: { serverId: 'local' } }])) },
+    sessions: { byId: Object.fromEntries(Object.entries(openLeads).map(([sessionId]) => [sessionId, { id: sessionId, agentSessionId: sessionId, run: { location: folderLocation({ serverId: 'local', path: '/repo' }) } }])) },
     tabOrder: Object.values(openLeads),
     tasksStore: {
       get: (taskId: string) => ({ sessions: [leadLink(`${taskId}-lead`)], ownerHost: async () => 'local' }),

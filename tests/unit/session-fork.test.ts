@@ -5,6 +5,7 @@ import type { Session } from '@solus/contracts/types'
 import { makeSession, makeTab } from '@solus/workspace-ui/contexts/workspace/session.factories'
 import { existingTaskId, ownedTaskId, taskRoleOf } from '@solus/workspace-ui/contexts/workspace/session-draft.svelte'
 import { sessionTitleRegenerationInput } from '@solus/workspace-ui/contexts/workspace/session-title-regeneration'
+import { checkoutPlace, folderLocation, projectHome, runHost } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 const root = '../../packages/workspace-ui/src/contexts/workspace/'
 function source(file: string) {
@@ -22,7 +23,7 @@ function transpile(code: string) {
 const settings = { rateLimitBehavior: 'ask' } as Parameters<typeof makeSession>[0]
 // The fork lives in SessionOpening and the naming in SessionMetadata; each
 // reaches the workspace through `this.workspace`, as in production.
-const { Opening, Metadata } = new Function('makeSession', 'makeTab', 'uuid', 'existingTaskId', 'ownedTaskId', 'requestInputFocus', 'findLastUserIndex', 'sessionTitleRegenerationInput', 'serverConnections', 'hasHostCapability', 'taskRoleOf', 'UNTITLED_TASK_TITLE', transpile(`
+const { Opening, Metadata } = new Function('makeSession', 'makeTab', 'uuid', 'existingTaskId', 'ownedTaskId', 'requestInputFocus', 'findLastUserIndex', 'sessionTitleRegenerationInput', 'serverConnections', 'hasHostCapability', 'taskRoleOf', 'UNTITLED_TASK_TITLE', 'checkoutPlace', 'runHost', transpile(`
 class Opening {
   ${methodCode('session-opening.ts', ['forkTab'])}
 }
@@ -35,13 +36,13 @@ return { Opening, Metadata }
 `))(makeSession, makeTab, crypto.randomUUID.bind(crypto), existingTaskId, ownedTaskId, () => {}, (messages: Session['messages']) => messages.findLastIndex((message) => message.role === 'user'), sessionTitleRegenerationInput, {
   resolveId: (serverId: string) => serverId,
   cachedCapabilitiesFor: () => ({}),
-}, () => false, taskRoleOf, 'Untitled task')
+}, () => false, taskRoleOf, 'Untitled task', checkoutPlace, runHost)
 
 function fixture() {
   const original = makeSession(settings, {
     id: 'source', agentSessionId: 'source-provider', task: { kind: 'existing', taskId: 'old-task' },
     messages: [{ id: 'answer', role: 'assistant', content: 'Settled answer', timestamp: 1 }],
-    run: { serverId: 'run-host', taskServerId: 'task-host' },
+    run: { location: folderLocation({ serverId: 'run-host', path: '/repo' }, { project: { serverId: 'task-host', path: '/repo' } }) },
   })
   // SAFETY: the fixture supplies every workspace field these methods read.
   const context: any = {}
@@ -152,8 +153,8 @@ describe('fork session ownership and identity', () => {
     const fork = context.sessionFor(tabId) as Session
     expect(fork.task).toEqual({ kind: 'existing', taskId: 'same-task' })
     expect(fork.id).not.toBe(original.id)
-    expect(fork.run.serverId).toBe('run-host')
-    expect(fork.run.taskServerId).toBe('task-host')
+    expect(runHost(fork.run)).toBe('run-host')
+    expect(projectHome(fork.run).serverId).toBe('task-host')
     expect(context.tabs[tabId].sessionId).toBe(fork.id)
     expect(original.agentSessionId).toBe('source-provider')
     // The fork forks the provider thread on its first prompt, and the host

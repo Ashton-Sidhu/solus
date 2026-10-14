@@ -3,6 +3,7 @@ import { connectRequestStore } from '../connections/connect-request.store.svelte
 import { turnRefusalStore } from '../connections/turn-refusal.store.svelte'
 import { agentAuthStore } from '../seats/agent-auth.store.svelte'
 import { seatsStore } from '../seats/seats.store.svelte'
+import { runHost } from './run-location'
 
 /**
  * The cards at the tail of a transcript (setup, host, connect, seat, sign-in,
@@ -13,7 +14,7 @@ import { seatsStore } from '../seats/seats.store.svelte'
  */
 export function clearSettledCards(session: Session): void {
   if (session.statusCard && session.statusCard.status !== 'active') session.statusCard = null
-  const { serverId } = session.run
+  const serverId = runHost(session.run)
   if (connectRequestStore.visibleFor(serverId, session.id)) connectRequestStore.dismiss()
   if (turnRefusalStore.visibleFor(serverId, session.id)) turnRefusalStore.dismiss()
   if (seatsStore.visibleFor(serverId, session.id)) seatsStore.dismiss()

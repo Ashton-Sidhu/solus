@@ -12,6 +12,7 @@
   import { isChat } from "@solus/contracts/chat";
   import { draftModelSelection } from "./lib/draft-selection";
   import { useDraftPreflight } from "./lib/draft-preflight.svelte";
+  import { checkoutPlace, runHost } from "../../contexts/workspace/run-location";
 
   /**
    * The composer a session draft is written in: where it will run, the seat it
@@ -86,7 +87,7 @@
     const current = draft;
     const files = await session
       .apiForRun(current.run)
-      .attachFiles(session.ctxForDirectory(current.run.workingDirectory));
+      .attachFiles(session.ctxForDirectory(checkoutPlace(current.run).path));
     for (const file of files ?? []) current.prompt.attachments.push(file);
   }
 </script>
@@ -103,11 +104,11 @@
   />
 {/if}
 
-{#if draft.run.serverId}
+{#if runHost(draft.run)}
   <!-- Before the first send, on a host that runs turns on the member's own
        seat: the seat this draft's agent still needs there. -->
   <SeatNeededNotice
-    serverId={draft.run.pendingHostDispatch?.serverId ?? draft.run.serverId}
+    serverId={runHost(draft.run)}
     provider={draft.run.provider ?? session.defaultRunConfig.provider ?? theme.activeAgent}
   />
 {/if}
@@ -156,7 +157,7 @@
         selection={modelSelection}
         onAttachFile={attachFile}
         {onScreenshot}
-        chatSourceId={!destinationFixed && isChat(draft.run.workingDirectory) ? draft.id : null}
+        chatSourceId={!destinationFixed && isChat(checkoutPlace(draft.run).path) ? draft.id : null}
       />
     {/snippet}
   </InputBar>

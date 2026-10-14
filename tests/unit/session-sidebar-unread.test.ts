@@ -4,6 +4,7 @@ import type { Session, Tab } from '@solus/contracts/types'
 import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
 import { SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 import { hostKey } from '@solus/client-core/host-key'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 type TaskRowHarness = {
   buildDurableTaskRow: (task: Task, tabs: Map<string, string>) => SidebarTask
@@ -217,7 +218,7 @@ function session(id: string): Session {
     status: 'completed',
     task: { kind: 'none' },
     agentSessionId: id,
-    run: { serverId: 'host-a' },
+    run: { location: folderLocation({ serverId: 'host-a', path: '/repo' }) },
     permissionQueue: [],
     questionQueue: [],
     messages: [],

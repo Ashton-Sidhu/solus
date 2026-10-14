@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
+import * as runLocation from '@solus/workspace-ui/contexts/workspace/run-location'
 
 const transpiler = new Bun.Transpiler({ loader: 'ts' })
 
@@ -11,7 +12,8 @@ test.each([
 ])('a restored %s tab with no live runtime settles to %s', async (restored, expected) => {
   const bootstrap = readFileSync(new URL('../../packages/workspace-ui/src/contexts/workspace/session-bootstrap.ts', import.meta.url), 'utf8')
   const hydration = transpiler.transformSync(bootstrap.slice(bootstrap.indexOf('async function hydrateTab(')))
-  const session = { id: 'stable', agentSessionId: 'thread', run: { provider: 'claude-code' }, messages: [], loadingHistory: false, status: restored, rateLimitInfo: null }
+  const location = runLocation.folderLocation({ serverId: 'local', path: '/repo' })
+  const session = { id: 'stable', agentSessionId: 'thread', run: { provider: 'claude-code', location }, messages: [], loadingHistory: false, status: restored, rateLimitInfo: null }
   const context = {
     tabs: { tab: { sessionId: 'stable' } }, sessions: { byId: { stable: session } },
     settings: { activeAgent: 'claude-code' }, apiFor: () => ({
@@ -26,10 +28,11 @@ test.each([
   }
   const hydrate = new Function('afterPaint', 'requestSessionHistoryPage', 'loadRestoredSessionTranscript',
     'replaceHydratedMessages', 'markStartupTranscriptApplied', 'INITIAL_HISTORY_TURNS', 'isSessionBusyStatus',
-    'serverConnections', `${hydration}\nreturn hydrateTab;`)(
+    'serverConnections', 'runLocation', 'machineProjectPath',
+    `const { runHost, checkoutPlace, checkoutGit, projectHome } = runLocation;\n${hydration}\nreturn hydrateTab;`)(
     () => new Promise(() => {}), async () => ({ messages: [] }),
     async () => ({ messages: [], planIds: [] }), () => {}, () => {}, 200, () => false,
-    { presenceOf: () => 'present' })
-  await hydrate(context, { tabId: 'tab', agentSessionId: 'thread', provider: 'claude-code', workingDirectory: '/repo' })
+    { presenceOf: () => 'present' }, runLocation, () => null)
+  await hydrate(context, { tabId: 'tab', agentSessionId: 'thread', provider: 'claude-code', location })
   expect(session.status).toBe(expected)
 })

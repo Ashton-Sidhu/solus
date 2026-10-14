@@ -23,15 +23,7 @@
     type ServerItem,
     type UnknownRemoteHost,
   } from "../../contexts";
-  import {
-    projectHostId,
-    repoKeyForPath,
-    returnsToProjectHome,
-    shouldShowRunOnPicker,
-    withCheckoutOnHost,
-    withRemoteDispatch,
-  } from "./run-on";
-  import { withPendingHost } from "../../contexts/workspace/run-config";
+  import { repoKeyForPath, shouldShowRunOnPicker } from "./run-on";
   import {
     listRunOnHosts,
     runHasProject,
@@ -46,6 +38,7 @@
     managedHostStateLabel,
   } from "./lib/managed-host";
   import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
+  import { checkoutGit, checkoutPlace, dispatchTo, openFolder, projectHome, projectRoot, runHost } from "../../contexts/workspace/run-location";
 
   interface Props {
     /** Where the next session will run. A started session and a session draft
@@ -100,7 +93,7 @@
   }: Props = $props();
 
   const selectedHostId = $derived(
-    run.pendingHostDispatch?.serverId ?? run.serverId ?? LOCAL_SERVER_ID,
+    runHost(run) ?? LOCAL_SERVER_ID,
   );
   const selectedServer = $derived(serversStore.hostFor(selectedHostId));
   const selectedAffinity = $derived(serversStore.affinityFor(selectedHostId));
@@ -118,7 +111,9 @@
   // hand — so the connected host is named instead ("This host" only for the
   // beat before /health answers).
   const shell = getClientShellContext();
-  const currentHostId = $derived(run.serverId ?? LOCAL_SERVER_ID);
+  // The host of the checkout the run works from: for a clone not yet made, the
+  // one it copies.
+  const currentHostId = $derived(checkoutPlace(run).serverId);
   const stayLabel = $derived(
     !shell.supportsLocalAttachments
       ? (serversStore.hostFor(currentHostId)?.label ?? "This host")
@@ -136,10 +131,9 @@
   // The project lives where its checkout is, which for a dispatch is its home,
   // not where the agent is headed. Its checkouts on every host come from the
   // catalog, so each row can say what that host would use.
-  const projectHost = $derived(projectHostId(run));
-  const projectDir = $derived(
-    run.projectGroupPath ?? run.gitContext?.repoRoot ?? run.workingDirectory,
-  );
+  // A run with no project yet lists what its own host holds.
+  const projectHost = $derived(projectRoot(run) ? projectHome(run).serverId : runHost(run));
+  const projectDir = $derived(projectHome(run).path);
   const checkouts = $derived(
     projectDir && projectDir !== "~"
       ? projectsStore.checkoutsOf(
@@ -152,7 +146,7 @@
   const detectedRepoKey = $derived(
     repoKeyForPath(
       serversStore.projectIdentitiesFor(currentHostId),
-      run.gitContext?.repoRoot ?? run.workingDirectory,
+      checkoutGit(run)?.repoRoot ?? checkoutPlace(run).path,
     ),
   );
 
@@ -224,7 +218,8 @@
     return server.label;
   }
 
-  /** Every row does what it said it would. Only intent is recorded; Send acts. */
+  /** Every row does what it said it would. A folder there is opened at once;
+   *  a clone is made, and a host that is not online connected, on Send. */
   function chooseServer(server: ServerItem) {
     if (locked) return;
     const action = actionFor(server);
@@ -233,40 +228,22 @@
       case "current":
         return;
       case "checkout":
-        onRun(
-          withCheckoutOnHost(run, server.id, action.path, {
-            immediate: server.local || returnsToProjectHome(run, server.id),
-          }),
-        );
+        onRun({ ...run, location: openFolder(run.location, { serverId: server.id, path: action.path }) });
         return;
       case "clone":
         // The repository travels as a clone; the project, and every task it
         // files, stays where it is.
         if (!sourceRepoKey) return;
-        onRun(
-          withRemoteDispatch(run, {
-            serverId: server.id,
-            intent: "dispatch",
-            repoKey: sourceRepoKey,
-          }),
-        );
+        onRun({ ...run, location: dispatchTo(run.location, server.id, sourceRepoKey) });
         return;
       case "chat":
-        onRun(
-          withCheckoutOnHost(run, server.id, NEW_CHAT_DIRECTORY, {
-            immediate: true,
-          }),
-        );
+        onRun({ ...run, location: openFolder(run.location, { serverId: server.id, path: NEW_CHAT_DIRECTORY }) });
         return;
       case "choose-folder":
+        // With no folder browser here the run waits on that host with no
+        // folder named; its project chip then lists that host's projects.
         if (onChooseFolder) onChooseFolder(server.id);
-        else
-          onRun(
-            withPendingHost(run, {
-              serverId: server.id,
-              intent: "open-project",
-            }),
-          );
+        else onRun({ ...run, location: openFolder(run.location, { serverId: server.id, path: "~" }) });
         return;
     }
   }
@@ -286,7 +263,7 @@
 
   function handleOpenAutoFocus() {
     void serversStore.probeHosts();
-    const path = run.gitContext?.repoRoot ?? run.workingDirectory;
+    const path = checkoutGit(run)?.repoRoot ?? checkoutPlace(run).path;
     if (!locked && path && path !== "~") {
       const serverId = currentHostId;
       if (!serversStore.hasProbedIdentities(serverId)) identitiesLoadingHostId = serverId;

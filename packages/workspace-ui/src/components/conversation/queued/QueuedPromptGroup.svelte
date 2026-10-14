@@ -13,6 +13,7 @@
   import type { OutboundPrompt } from "@solus/contracts/types";
   import { liveActivityClock } from "../../../lib/shared-clock";
   import { conversationIsVisible } from "../lib/conversation-visibility";
+  import { runHost } from "../../../contexts/workspace/run-location";
 
   interface Props {
     tabId: string;
@@ -26,7 +27,7 @@
   const prompts = $derived(sess?.outboundPrompts ?? []);
   const queued = $derived(prompts.filter((prompt) => !!prompt.queueId));
   const queueSessionId = $derived(sess?.id);
-  const queueServerId = $derived(sess?.run.serverId);
+  const queueServerId = $derived(runHost(sess?.run));
   $effect(() => {
     const source = tabId;
     if (!queueSessionId || !queueServerId) return;

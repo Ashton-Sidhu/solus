@@ -27,6 +27,7 @@
   import { askInsights } from "../insights/lib/ask-insights";
   import { taskOfTab, unlinkTabFromTask } from "../../contexts/workspace/session-task-link";
   import { canDriveSession } from "../../contexts/sharing/resource-roles";
+  import { checkoutGit } from "../../contexts/workspace/run-location";
 
   interface Props {
     x: number;
@@ -352,7 +353,7 @@
         Fork Session
         <ContextMenu.Shortcut>⌥F</ContextMenu.Shortcut>
       </ContextMenu.Item>
-      {#if !sess?.run.gitContext?.worktreePath}
+      {#if !checkoutGit(sess?.run)?.worktreePath}
         <ContextMenu.Item disabled={isContinuingWorktree} onSelect={continueWorktree}>
           <TreeStructureIcon class={isContinuingWorktree ? "tab-status-spin" : ""} />
           {isContinuingWorktree ? "Creating Worktree…" : "Continue in Worktree"}

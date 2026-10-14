@@ -15,6 +15,7 @@
   import { parseSessionHref, resolveSessionLinkMeta } from "./lib/session-link";
   import { getSessionLinkContext } from "./lib/session-link-context";
   import type { Snippet } from "svelte";
+  import { checkoutPlace } from "../../contexts/workspace/run-location";
 
   interface Props {
     href?: string;
@@ -77,8 +78,7 @@
   // The same tab a click would preview against, so the tooltip names the
   // directory the link would actually open in.
   const fileLinkWorkingDirectory = $derived(
-    session?.sessionFor(session.focusedChatTabId ?? session.activeTabId)?.run
-      .workingDirectory,
+    checkoutPlace(session?.sessionFor(session.focusedChatTabId ?? session.activeTabId)?.run)?.path,
   );
   // The destination comes from the codec; only the chip's own decoration is
   // read off the href here, and a plan's approval status is the whole of it.
