@@ -1,8 +1,7 @@
-import { SessionPullRequestReader } from '@solus/client-core/session-pull-request-reader';
 import type { HostApi } from "@solus/client-core/host-api";
 import type { HostEventSubscriber } from "@solus/client-core/host-event-subscriber";
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from "@solus/contracts/session-pull-requests";
-import type { SessionState } from "@solus/contracts/session-state";
+import type { SessionState, SessionView } from "@solus/contracts/session-state";
 import type { SessionStatus } from "@solus/contracts/types";
 
 import { Listeners } from "../../lib/listeners";
@@ -11,23 +10,26 @@ import { threadKey } from "./thread-directory";
 import type { ThreadListV2Facts } from "./threadListV2";
 
 /**
- * What T3 Code's thread list shows beyond a session's record, read from each
- * host (docs/plans/session-pull-requests.md): its live status, its pull
- * requests, and where the session is in the list when that changed after the
- * record was read. The record carries its state (docs/plans/session-archive.md);
- * each change the host announces or answers arrives with the new state and is
- * written here, so nothing is read back.
+ * What T3 Code's thread list shows beyond a session's record, from each host:
+ * its live status, and what changed after the record was read. The record
+ * carries its shared state, this person's own view, and its pull requests
+ * (docs/plans/session-archive.md). A settle arrives with the new shared state,
+ * an archive or snooze with this person's new view, and both are written here
+ * with nothing read back. A pull request change is read again for that one
+ * session.
+ *
+ * A session's home keeps its state, view, and links. On mobile the home is
+ * the host connection the session came from: this app does not connect to an
+ * organization's Solus API.
  */
 
 /** The part of a host connection this store uses. */
 export interface ThreadListConnection {
   readonly api: Pick<
     HostApi,
-    | "sessionPullRequestsList"
+    | "sessionPullRequests"
     | "sessionPullRequestWatch"
-    | "sessionSetSettled"
-    | "sessionSnooze"
-    | "sessionSetArchived"
+    | "sessionUpdate"
     | "setSessionTitle"
     | "setSessionReadState"
   >;
@@ -56,18 +58,19 @@ function readShelfExpansion(raw: string | null): ThreadListShelfExpansion {
 }
 
 const EMPTY_FACTS: ThreadListV2Facts = {
-  shelf: new Map(),
+  states: new Map(),
+  views: new Map(),
   liveStatus: new Map(),
   pullRequests: new Map(),
 };
 
 export class ThreadListState {
   readonly changes = new Listeners();
-  private readonly shelf = new Map<string, SessionState>();
+  private readonly states = new Map<string, SessionState>();
+  private readonly views = new Map<string, SessionView>();
   private readonly liveStatus = new Map<string, SessionStatus>();
   private readonly unread = new Map<string, boolean>();
   private readonly pullRequests = new Map<string, ReadonlyArray<SessionPullRequestLink>>();
-  private readonly readers = new WeakMap<ThreadListConnection, SessionPullRequestReader>();
   private readonly watched = new WeakSet<ThreadListConnection>();
   /** A stable snapshot, replaced only when something changes. */
   private snapshot: ThreadListV2Facts = EMPTY_FACTS;
@@ -90,42 +93,33 @@ export class ThreadListState {
     this.changes.notify();
   }
 
-  /** Reads one host's pull request links, and follows the host's
-   *  announcements from then on. A host that fails the read keeps what it
-   *  answered last time. */
-  async load(hostId: string): Promise<void> {
+  /** Follows one host's announcements: the records read before them stay
+   *  current. */
+  follow(hostId: string): void {
     const connection = this.connectionFor(hostId);
-    if (!connection) return;
-    this.watch(hostId, connection);
-    const pullRequests = await connection.api.sessionPullRequestsList().catch(() => null);
-    if (!pullRequests) return;
-    this.dropHostEntries(this.pullRequests, hostId);
-    for (const [sessionId, links] of Object.entries(pullRequests)) {
-      this.pullRequests.set(threadKey(hostId, sessionId), links);
-    }
-    this.publish();
+    if (connection) this.watch(hostId, connection);
   }
 
-  /** Settle a session, or make a settled one active again. */
+  /** Settle a session for everyone, or make a settled one active again. */
   async setSettled(hostId: string, sessionId: string, settled: boolean): Promise<void> {
     const connection = this.requireConnection(hostId);
     this.watch(hostId, connection);
-    this.writeState(hostId, connection, sessionId, await connection.api.sessionSetSettled(sessionId, settled));
+    this.write(this.states, hostId, connection, sessionId, (await connection.api.sessionUpdate(sessionId, { settled })).state);
   }
 
-  /** Snooze a session until a wake time; null wakes it now. */
+  /** Snooze a session in this person's list until a wake time; null wakes it now. */
   async snooze(hostId: string, sessionId: string, until: number | null): Promise<void> {
     const connection = this.requireConnection(hostId);
     this.watch(hostId, connection);
-    this.writeState(hostId, connection, sessionId, await connection.api.sessionSnooze(sessionId, until));
+    this.write(this.views, hostId, connection, sessionId, (await connection.api.sessionUpdate(sessionId, { snoozedUntil: until })).view);
   }
 
-  /** Archive a session, or return an archived one to the list. Archive keeps
-   *  its settle and snooze, so it returns to the shelf it left. */
+  /** Take a session out of this person's list, or return it. Archive keeps
+   *  the settle and the snooze, so it returns to the shelf it left. */
   async setArchived(hostId: string, sessionId: string, archived: boolean): Promise<void> {
     const connection = this.requireConnection(hostId);
     this.watch(hostId, connection);
-    this.writeState(hostId, connection, sessionId, await connection.api.sessionSetArchived(sessionId, archived));
+    this.write(this.views, hostId, connection, sessionId, (await connection.api.sessionUpdate(sessionId, { archived })).view);
   }
 
   /** A read boundary belongs to one session on one host. Watch before writing
@@ -159,7 +153,8 @@ export class ThreadListState {
   }
 
   forgetHost(hostId: string): void {
-    this.dropHostEntries(this.shelf, hostId);
+    this.dropHostEntries(this.states, hostId);
+    this.dropHostEntries(this.views, hostId);
     this.dropHostEntries(this.pullRequests, hostId);
     this.dropHostEntries(this.liveStatus, hostId);
     this.dropHostEntries(this.unread, hostId);
@@ -174,7 +169,11 @@ export class ThreadListState {
       this.publish();
     });
     connection.events.subscribe("session.stateChanged", ({ sessionId, state }) => {
-      this.writeState(hostId, connection, sessionId, state);
+      this.write(this.states, hostId, connection, sessionId, state);
+    });
+    // Only this person's connections hear their own view change.
+    connection.events.subscribe("session.viewChanged", ({ sessionId, view }) => {
+      this.write(this.views, hostId, connection, sessionId, view);
     });
     connection.events.subscribe("session.pullRequestsChanged", ({ sessionId }) => {
       void this.refreshPullRequests(hostId, sessionId);
@@ -185,42 +184,40 @@ export class ThreadListState {
       if (agentSessionId) this.liveStatus.set(threadKey(hostId, agentSessionId), status);
       this.publish();
     });
-    // A fresh server session forgets what was live, and a state change may
-    // have been missed; the records answer again.
+    // A fresh server session forgets what was live, and a change may have
+    // been missed; the records read again answer it.
     connection.onReset(() => {
       this.dropHostEntries(this.liveStatus, hostId);
-      this.dropHostEntries(this.shelf, hostId);
+      this.dropHostEntries(this.states, hostId);
+      this.dropHostEntries(this.views, hostId);
+      this.dropHostEntries(this.pullRequests, hostId);
       this.publish();
-      void this.load(hostId);
     });
   }
 
-  /** A state the host announced or answered overrides the record read
-   *  before it. An active state is kept too, so it overrides a stale record.
-   *  A host older than the session list answers and announces no state. */
-  private writeState(
+  /** A state or view the host announced or answered overrides the record
+   *  read before it. An empty one is kept too, so it overrides a stale
+   *  record. A host that does not keep the session answers null. */
+  private write<Value>(
+    into: Map<string, Value>,
     hostId: string,
     connection: ThreadListConnection,
     sessionId: string,
-    state: SessionState | void,
+    value: Value | null,
   ): void {
-    if (!state || this.connectionFor(hostId) !== connection) return;
-    this.shelf.set(threadKey(hostId, sessionId), state);
+    if (!value || this.connectionFor(hostId) !== connection) return;
+    into.set(threadKey(hostId, sessionId), value);
     this.publish();
   }
 
+  /** One session's links changed: they are read again for that session. A
+   *  host that fails the read keeps the links shown. */
   private async refreshPullRequests(hostId: string, sessionId: string): Promise<void> {
     const connection = this.connectionFor(hostId);
     if (!connection) return;
-    let reader = this.readers.get(connection);
-    if (!reader) {
-      reader = new SessionPullRequestReader(connection.api);
-      this.readers.set(connection, reader);
-    }
-    const answer = await reader.read(sessionId).catch(() => null);
-    if (!answer || this.connectionFor(hostId) !== connection) return;
-    this.pullRequests.delete(threadKey(hostId, sessionId));
-    for (const [id, links] of Object.entries(answer)) this.pullRequests.set(threadKey(hostId, id), links);
+    const links = await connection.api.sessionPullRequests(sessionId).catch(() => null);
+    if (!links || this.connectionFor(hostId) !== connection) return;
+    this.pullRequests.set(threadKey(hostId, sessionId), links);
     this.publish();
   }
 
@@ -237,7 +234,8 @@ export class ThreadListState {
 
   private publish(): void {
     this.snapshot = {
-      shelf: new Map(this.shelf),
+      states: new Map(this.states),
+      views: new Map(this.views),
       liveStatus: new Map(this.liveStatus),
       unread: new Map(this.unread),
       pullRequests: new Map(this.pullRequests),

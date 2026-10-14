@@ -17,6 +17,7 @@ import { composeHandoffSeed } from '../agents/session-handoff'
 import { buildSystemPrompt } from '../agents/system-hint'
 import { tasksForSession } from '../../data/tasks/task-sessions'
 import { SessionShelf } from '../../data/sessions/session-states'
+import { workspaceToolContext } from '../../data/workspace/tool-context'
 import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { setForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
@@ -27,7 +28,7 @@ import type { BackendSession, SessionStatus, NormalizedEvent, GitCheckout, Promp
 import { gitCheckoutFromState, projectScopeOf } from '@solus/contracts/types'
 import { annotateDispatch, dispatchStep, dispatchStepSync } from '../observability/session-emitter'
 import { SeatRequiredError } from '../seats/seat-manager'
-import { HOST_ACTOR, insightsAccountOf, type Actor } from '../../admission/actor'
+import { HOST_ACTOR, insightsAccountOf, ownerKeyOf, type Actor } from '../../admission/actor'
 import { withActorScope } from '../seats/acting-identity'
 import { userKey } from '@solus/contracts/user'
 import { SPAN_SERVICES } from '../../data/insights/registries'
@@ -680,8 +681,10 @@ export class RunLauncher {
     })
     this.rt.statuses.setStatus(sessionId, newStatus)
     this.rt.statuses.notifyActiveWork()
-    // A prompt is work: a settled, snoozed, or archived session is active again.
-    await new SessionShelf(sessionId).recordPrompt()
+    // A prompt is work: a settled session is active again, and back in the
+    // list of the person the turn is for.
+    await new SessionShelf(sessionId).recordPrompt(request.actor ? ownerKeyOf(request.actor) : null)
+    void admitTurnAtHome(sessionId)
 
     // A session never makes a task of its own: a prompt that names no task
     // runs with none (docs/plans/task-conversation.md, decision 8). A provider
@@ -868,4 +871,19 @@ export class RunLauncher {
 
     return { handle, run: activeRun }
   }
+}
+
+/**
+ * An organization session's home is its Solus API (docs/plans/session-archive.md):
+ * the turn reaches it too, as the person the run acts for, so the session is
+ * active and back in their list on every device. A personal session's home is
+ * this machine, which recorded the prompt already. A home that cannot be
+ * reached hears of the next turn; nothing waits on it.
+ */
+async function admitTurnAtHome(sessionId: string): Promise<void> {
+  const home = await workspaceToolContext(sessionId).catch(() => null)
+  if (!home?.remote) return
+  await home.operations.admitSessionTurn(home.context, sessionId).catch((error) => {
+    log.warn('session_turn_admission_failed', { sessionId, error: error instanceof Error ? error.message : String(error) })
+  })
 }

@@ -10,7 +10,8 @@ import type { DeviceRunProfile } from './device-types'
 import type { WorkExternalLink } from './docs'
 import type { Attribution, User } from './user'
 import type { Activity } from './activity'
-import type { SessionState } from './session-state'
+import type { SessionState, SessionView } from './session-state'
+import type { SessionPullRequestLink } from './session-pull-requests'
 import type { MediaType } from './media-types'
 import type { WorktreeBranchNaming } from './worktree-branch-naming'
 import type { ExecutionPreferenceSnapshot, ExecutionPreferences } from './settings'
@@ -2499,10 +2500,17 @@ export interface SessionRecord {
   projectRoot: string | null
   /** How the parent session started this one; null for a session nobody delegated. */
   delegation: SessionRecordDelegation | null
-  /** Where the session is in the person's list (docs/plans/session-archive.md).
-   *  Null when nothing settled, snoozed, or archived it. Absent from a host
-   *  older than the session list: read it as active. */
+  /** Whether the session's work is finished (docs/plans/session-archive.md).
+   *  Null when nothing settled it. */
   state?: SessionState | null
+  /** The reader's own view of the session: their archive and snooze. Null
+   *  when they did nothing to it, and on a runner's read. */
+  view?: SessionView | null
+  /** Whether the session is in the reader's list: not archived by them, and
+   *  active recently, snoozed by them, or waiting on an open pull request. */
+  listed?: boolean
+  /** The pull requests the session works on, with what PR sync last saw. */
+  pullRequests?: SessionPullRequestLink[]
 }
 
 /** `SessionDelegation` less the two ids the record already carries. */
@@ -2510,7 +2518,7 @@ export type SessionRecordDelegation = Omit<SessionDelegation, 'parentSessionId' 
 
 /** `sessionRecordUpsert`: a field left out keeps the stored value; `lastActivityAt`
  *  is always the caller's. The organization is the caller's, never an argument. */
-export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'lastActivityAt' | 'organizationId' | 'publication' | 'state'>> {
+export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'lastActivityAt' | 'organizationId' | 'publication' | 'state' | 'view' | 'listed' | 'pullRequests'>> {
   sessionId: string
   provider: AgentId
   projectPath: string
@@ -2539,10 +2547,10 @@ export interface SessionRecordListFilter {
   repositoryKey?: string
   /** Only chats, the sessions with no project, in every chat folder. */
   chats?: boolean
-  /** Only archived sessions (true), or only sessions in the list (false). */
-  archived?: boolean
-  /** Only sessions no other session started. */
-  roots?: boolean
+  /** `list` (the default): the reader's session list. `all`: every session they may read. */
+  scope?: 'list' | 'all'
+  /** The sessions this session started. Without it, only top-level sessions. */
+  parentSessionId?: string
   limit?: number
 }
 

@@ -50,6 +50,21 @@ function clearHostCredential(provider: ProviderCredentialName): void {
   }
 }
 
+/**
+ * A person's connection read where the account plane runs in this process: the
+ * Solus API inside solus-cloud reads it there, with no request and no
+ * delegation. It parses what `/v1/integrations/:provider/credential` would
+ * answer with `schema`, or answers null when the person has no such connection.
+ */
+export type AccountCredentialSource = <T>(userKey: string, provider: ProviderCredentialName, schema: z.ZodType<T>) => Promise<T | null>
+
+let accountCredentialSource: AccountCredentialSource | null = null
+
+/** Install the in-process read of a person's connections; null removes it. */
+export function useAccountCredentialSource(source: AccountCredentialSource | null): void {
+  accountCredentialSource = source
+}
+
 /** Account credentials are fetched directly. Refresh tokens never leave the account backend. */
 export function usesAccountIntegration(): boolean {
   return isApiMode() || !!currentCredentialUserId()
@@ -58,6 +73,7 @@ export function usesAccountIntegration(): boolean {
 export async function readProviderCredential<T>(provider: ProviderCredentialName, schema: z.ZodType<T>): Promise<T | null> {
   const userId = currentCredentialUserId()
   if (!userId) return isApiMode() ? null : readHostCredential(provider, schema)
+  if (accountCredentialSource) return accountCredentialSource(userId, provider, schema)
   // The person's connection, read with their delegated token (ADR 0001 §2.2 rule 7).
   const response = await accountReads().fetch(userId, null, `/v1/integrations/${provider}/credential`, { method: 'POST' })
   if (!(response instanceof Response)) throw new Error(response.message)

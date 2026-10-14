@@ -130,11 +130,6 @@ export const sessionStates = defineTable('session_states', {
   /** When a person made a settled session active again. Its pull requests
    *  settle it again only if they end after this time. */
   unsettled_at: bigint(),
-  snoozed_until: bigint(),
-  snooze_note: text(),
-  /** When the session left the person's list (docs/plans/session-archive.md).
-   *  Null while it is in the list. */
-  archived_at: bigint(),
   /** The last prompt the session received. */
   last_prompt_at: bigint(),
   /** When the session was last read, so every client agrees on what is unread. */
@@ -150,4 +145,22 @@ export const sessionStates = defineTable('session_states', {
   indexes: [{ name: 'session_states_settled', columns: ['settled_at'] }],
 })
 
-export const SESSION_TABLES = [sessionRecords, sessionAdmissions, sessionPullRequests, sessionPullRequestWatches, sessionStates]
+/**
+ * One person's own view of a session (docs/plans/session-archive.md): their
+ * archive and snooze. It changes that person's list, and nobody else's. A
+ * person with no row did nothing to the session.
+ */
+export const sessionViews = defineTable('session_views', {
+  session_id: text({ notNull: true }),
+  person_key: text({ notNull: true }),
+  /** When this person took the session out of their list. */
+  archived_at: bigint(),
+  snoozed_until: bigint(),
+  snooze_note: text(),
+  organization_id: text({ notNull: true, default: 'local' }),
+}, {
+  primaryKey: ['session_id', 'person_key'],
+  indexes: [{ name: 'session_views_by_person', columns: ['person_key', 'session_id'] }],
+})
+
+export const SESSION_TABLES = [sessionRecords, sessionAdmissions, sessionPullRequests, sessionPullRequestWatches, sessionStates, sessionViews]

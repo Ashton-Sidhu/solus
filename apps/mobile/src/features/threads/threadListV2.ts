@@ -1,7 +1,12 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/threadListV2.ts (MIT, see UPSTREAM.md).
 import { isChat } from "@solus/contracts/chat";
 import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from "@solus/contracts/session-pull-requests";
-import type { SessionState } from "@solus/contracts/session-state";
+import {
+  EMPTY_SESSION_VIEW,
+  UNSETTLED_SESSION_STATE,
+  type SessionState,
+  type SessionView,
+} from "@solus/contracts/session-state";
 import { worktreeProjectRoot, type SessionRecord, type SessionStatus } from "@solus/contracts/types";
 
 import { relativeTime } from "../../lib/time";
@@ -9,12 +14,14 @@ import type { SolusThreadShell } from "./thread-directory";
 import { effectiveSnoozed, snoozeWakeLabel } from "./thread-snooze";
 
 /**
- * Thread List v2 model on Solus data. A T3 thread is a Solus session; its
- * list state (settled, snoozed, archived) is the host's `SessionState`; its
+ * Thread List v2 model on Solus data. A T3 thread is a Solus session.
+ * Settled is its shared `SessionState`; archived and snoozed are this
+ * person's own `SessionView`, so they change only this person's list. Its
  * live status is the last `session.statusChanged` the host sent; its pull
- * requests are the session's links. An archived thread is not in the list;
- * a search also finds it (docs/plans/session-archive.md). T3 concepts Solus
- * does not have (pins, a saved arrangement, unsent tasks) are not modelled.
+ * requests are the session's links. A session out of the person's list (they
+ * archived it, or it is idle) does not show; a search also finds it
+ * (docs/plans/session-archive.md). T3 concepts Solus does not have (pins, a
+ * saved arrangement, unsent tasks) are not modelled.
  *
  * Six visual states. Color distinguishes approval, input, active work, and
  * failures. Ready is the unlabeled resting state; waiting is the agent parked
@@ -415,21 +422,45 @@ export function threadListV2ListItemsAreEqual(
 
 /** What the list knows about every session beyond its record. */
 export interface ThreadListV2Facts {
-  /** `SessionState` by thread key, as the host announced or answered it
-      after the record was read. It overrides the record's state. */
-  readonly shelf: ReadonlyMap<string, SessionState>;
+  /** Shared `SessionState` by thread key, as the host announced or answered
+      it after the record was read. It overrides the record's state. */
+  readonly states: ReadonlyMap<string, SessionState>;
+  /** This person's `SessionView` by thread key, as the host announced or
+      answered it after the record was read. It overrides the record's view. */
+  readonly views: ReadonlyMap<string, SessionView>;
   /** Last live status by thread key. */
   readonly liveStatus: ReadonlyMap<string, SessionStatus>;
   /** Read state announced by each host, by thread key. */
   readonly unread?: ReadonlyMap<string, boolean>;
-  /** Pull request links by thread key. */
+  /** Pull request links by thread key, read again after the record. */
   readonly pullRequests: ReadonlyMap<string, ReadonlyArray<SessionPullRequestLink>>;
 }
 
-/** Where a thread is in the list: the latest state the host announced, else
-    the one its record carries. Null is active. */
-export function threadState(thread: SolusThreadShell, facts: ThreadListV2Facts): SessionState | null {
-  return facts.shelf.get(thread.key) ?? thread.record.state ?? null;
+/** Whether a thread's work is finished, for everyone: the latest state the
+    host announced, else the one its record carries. */
+export function threadState(thread: SolusThreadShell, facts: ThreadListV2Facts): SessionState {
+  return facts.states.get(thread.key) ?? thread.record.state ?? UNSETTLED_SESSION_STATE;
+}
+
+/** This person's archive and snooze of a thread: the latest view the host
+    announced, else the one its record carries. */
+export function threadView(thread: SolusThreadShell, facts: ThreadListV2Facts): SessionView {
+  return facts.views.get(thread.key) ?? thread.record.view ?? EMPTY_SESSION_VIEW;
+}
+
+/** A thread's pull request links: the latest read, else its record's. */
+export function threadPullRequests(
+  thread: SolusThreadShell,
+  facts: ThreadListV2Facts,
+): ReadonlyArray<SessionPullRequestLink> | undefined {
+  return facts.pullRequests.get(thread.key) ?? thread.record.pullRequests;
+}
+
+/** Whether a thread is in this person's list. The host decides for the
+    record it read; a later change of view that leaves it unarchived (a
+    return or a snooze) brings it back until the next read. */
+function isListed(thread: SolusThreadShell, view: SessionView, facts: ThreadListV2Facts): boolean {
+  return view.archivedAt === null && (thread.record.listed !== false || facts.views.has(thread.key));
 }
 
 /**
@@ -457,10 +488,11 @@ export function buildThreadListV2ListItems(input: {
   const threadItems = input.items.map((item): ThreadListV2ListItem => {
     const key = item.thread.key;
     const state = threadState(item.thread, input.facts);
+    const view = threadView(item.thread, input.facts);
     const status = resolveThreadListV2Status(item.thread.record, input.facts.liveStatus.get(key));
     const snoozeWakeLabelText =
-      item.snoozed && state?.snoozedUntil != null
-        ? snoozeWakeLabel(state.snoozedUntil, input.now)
+      item.snoozed && view.snoozedUntil !== null
+        ? snoozeWakeLabel(view.snoozedUntil, input.now)
         : undefined;
     const snoozePresetMinute =
       !item.snoozed && !item.archived && canSnoozeThread(status) ? String(input.now) : undefined;
@@ -470,7 +502,7 @@ export function buildThreadListV2ListItems(input: {
       item,
       status,
       unread: input.facts.unread?.get(key) ?? false,
-      pr: presentThreadPullRequests(input.facts.pullRequests.get(key)),
+      pr: presentThreadPullRequests(threadPullRequests(item.thread, input.facts)),
       snoozeWakeLabelText,
       timeLabel: resolveThreadListV2ItemTimeLabel(item, status, state, snoozeWakeLabelText !== undefined),
       snoozePresetMinute,
@@ -528,12 +560,12 @@ export function buildThreadListV2ListItems(input: {
 function resolveThreadListV2ItemTimeLabel(
   item: ThreadListV2Item,
   status: ThreadListV2Status,
-  state: SessionState | null,
+  state: SessionState,
   showSnoozeWakeLabel: boolean,
 ): string {
   if (showSnoozeWakeLabel) return "";
   if (item.variant === "card" && status !== "ready") return "";
-  const settledAt = item.variant === "slim" && !item.snoozed && !item.archived ? (state?.settledAt ?? null) : null;
+  const settledAt = item.variant === "slim" && !item.snoozed && !item.archived ? state.settledAt : null;
   return relativeTime(new Date(settledAt ?? item.thread.record.lastActivityAt).toISOString());
 }
 
@@ -554,14 +586,15 @@ function matchesSearch(
 /**
  * Partitions visible threads into the active card block and the snoozed and
  * settled shelves. Active threads keep creation order, newest first, so a
- * working thread never jumps; settled threads read newest settle first. An
- * archived thread is not in the list; while the person searches, the archived
- * threads that match follow the shelves, newest activity first.
+ * working thread never jumps; settled threads read newest settle first. A
+ * thread out of this person's list does not show. While the person searches,
+ * the ones they archived that match follow the shelves, newest activity
+ * first; an idle one that matches shows on its shelf like a listed one.
  */
 export function buildThreadListV2Items(input: {
   readonly threads: ReadonlyArray<SolusThreadShell>;
-  /** Recent archived threads, which only a search shows. */
-  readonly archivedThreads?: ReadonlyArray<SolusThreadShell>;
+  /** Recent threads out of this person's list, which only a search shows. */
+  readonly unlistedThreads?: ReadonlyArray<SolusThreadShell>;
   readonly facts: ThreadListV2Facts;
   readonly hostId: string | null;
   /** Project keys of the selected project scope, or null for every project. */
@@ -591,9 +624,9 @@ export function buildThreadListV2Items(input: {
   const archived: SolusThreadShell[] = [];
   let nextSnoozeWakeAt: number | null = null;
   // A thread archived or returned since the last read is still in the array
-  // it was read into; its state decides where it shows.
+  // it was read into; its view decides where it shows.
   const seen = new Set<string>();
-  for (const thread of [...input.threads, ...(input.archivedThreads ?? [])]) {
+  for (const thread of [...input.threads, ...(input.unlistedThreads ?? [])]) {
     if (seen.has(thread.key)) continue;
     seen.add(thread.key);
     if (input.hostId !== null && thread.hostId !== input.hostId) continue;
@@ -603,21 +636,23 @@ export function buildThreadListV2Items(input: {
     ) {
       continue;
     }
-    if (!matchesSearch(thread, query, input.facts.pullRequests.get(thread.key))) continue;
-    const state = threadState(thread, input.facts);
-    if (state?.archivedAt != null) {
-      // The open thread keeps its row, as a desktop tab keeps an archived session.
-      if (query.length > 0 || thread.key === input.selectedThreadKey) archived.push(thread);
+    if (!matchesSearch(thread, query, threadPullRequests(thread, input.facts))) continue;
+    const view = threadView(thread, input.facts);
+    // The open thread keeps its row, as a desktop tab keeps an archived session.
+    const isFound = query.length > 0 || thread.key === input.selectedThreadKey;
+    if (view.archivedAt !== null) {
+      if (isFound) archived.push(thread);
       continue;
     }
+    if (!isListed(thread, view, input.facts) && !isFound) continue;
     // Snooze outranks settlement until the thread wakes.
-    if (effectiveSnoozed(state, now)) {
+    if (effectiveSnoozed(view, now)) {
       snoozed.push(thread);
-      const wakeAt = state!.snoozedUntil!;
+      const wakeAt = view.snoozedUntil!;
       if (nextSnoozeWakeAt === null || wakeAt < nextSnoozeWakeAt) nextSnoozeWakeAt = wakeAt;
       continue;
     }
-    if (state?.settledAt != null) {
+    if (threadState(thread, input.facts).settledAt !== null) {
       settled.push(thread);
     } else {
       active.push(thread);
@@ -627,18 +662,16 @@ export function buildThreadListV2Items(input: {
   const orderedActive = [...active].sort(
     (left, right) => right.record.createdAt - left.record.createdAt,
   );
-  const shelfTime = (thread: SolusThreadShell, field: "settledAt" | "snoozedUntil") =>
-    threadState(thread, input.facts)?.[field] ?? 0;
-  const orderedSnoozed = [...snoozed].sort(
-    (left, right) => shelfTime(left, "snoozedUntil") - shelfTime(right, "snoozedUntil"),
-  );
+  const wakeTime = (thread: SolusThreadShell) => threadView(thread, input.facts).snoozedUntil ?? 0;
+  const settleTime = (thread: SolusThreadShell) => threadState(thread, input.facts).settledAt ?? 0;
+  const orderedSnoozed = [...snoozed].sort((left, right) => wakeTime(left) - wakeTime(right));
   const selectedThreadKey = input.selectedThreadKey ?? null;
   const visibleSnoozed =
     input.snoozedShelfExpanded === true
       ? orderedSnoozed
       : orderedSnoozed.filter((thread) => thread.key === selectedThreadKey);
   const orderedSettled = [...settled].sort(
-    (left, right) => shelfTime(right, "settledAt") - shelfTime(left, "settledAt"),
+    (left, right) => settleTime(right) - settleTime(left),
   );
   const settledLimit = input.settledLimit ?? Number.POSITIVE_INFINITY;
   const pagedSettled =

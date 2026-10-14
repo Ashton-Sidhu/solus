@@ -7,6 +7,7 @@ import { bodyLimit } from 'hono/body-limit'
 import { z } from 'zod'
 import { solusApiOperations as routes, workspaceIdSchema, workspaceVersionSchema, type WorkspaceCapabilities } from '@solus/contracts/solus-api'
 import { SolusApiError } from '../../admission/workspace-error'
+import { parseSessionPullRequestId } from '@solus/contracts/session-pull-requests'
 import type { WorkspaceCredentials, WorkspaceRequestContext } from '../../admission/workspace-credentials'
 import type { WorkspaceOperations } from '../../data/workspace/operations'
 import { createTokenBucketRateLimiter } from '../rate-limit'
@@ -42,6 +43,12 @@ function version(c: ApiContext): string {
 function idempotencyKey(c: ApiContext): string { return z.string().min(16).max(128).parse(c.req.header('Idempotency-Key')) }
 function id(c: ApiContext, name: string): string { return workspaceIdSchema.parse(c.req.param(name)) }
 function etag(c: ApiContext, value: string): void { c.header('ETag', JSON.stringify(value)) }
+/** A session's link id, `host/owner/repo#number`, which the path carries URL-encoded. */
+function pullRequestId(c: ApiContext): { repository: string; number: number } {
+  const parsed = parseSessionPullRequestId(c.req.param('pullRequestId') ?? '')
+  if (!parsed) throw new SolusApiError(400, 'INVALID_REQUEST', 'A pull request id is `host/owner/repo#number`, URL-encoded.')
+  return parsed
+}
 const limitBody = (maxSize: number) => bodyLimit({ maxSize, onError: () => { throw new SolusApiError(413, 'PAYLOAD_TOO_LARGE', 'Request body is too large.') } })
 
 async function body<T extends z.ZodType>(c: ApiContext, schema: T): Promise<z.output<T>> {
@@ -171,6 +178,27 @@ export function createSolusApiRouter(options: SolusApiRouterOptions): Hono<ApiEn
     return c.json(await operations.admitSession(authority(c), await body(c, routes.admitSession.body)), 201)
   })
   app.get(routes.getSession.path, async c => { query(c, routes.getSession.query); return c.json(await operations.getSession(authority(c), id(c, 'sessionId'))) })
+  app.patch(routes.updateSession.path, limitBody(4 * 1024), async c => {
+    query(c, routes.updateSession.query)
+    return c.json(await operations.updateSession(authority(c), id(c, 'sessionId'), await body(c, routes.updateSession.body)))
+  })
+  app.post(routes.admitSessionTurn.path, limitBody(1024), async c => {
+    query(c, routes.admitSessionTurn.query)
+    await body(c, routes.admitSessionTurn.body)
+    await operations.admitSessionTurn(authority(c), id(c, 'sessionId')); return c.body(null, 204)
+  })
+  app.get(routes.listSessionPullRequests.path, async c => {
+    query(c, routes.listSessionPullRequests.query)
+    return c.json(await operations.listSessionPullRequests(authority(c), id(c, 'sessionId')))
+  })
+  app.put(routes.putSessionPullRequest.path, limitBody(4 * 1024), async c => {
+    query(c, routes.putSessionPullRequest.query)
+    return c.json(await operations.putSessionPullRequest(authority(c), id(c, 'sessionId'), pullRequestId(c), await body(c, routes.putSessionPullRequest.body)))
+  })
+  app.delete(routes.deleteSessionPullRequest.path, async c => {
+    query(c, routes.deleteSessionPullRequest.query)
+    await operations.deleteSessionPullRequest(authority(c), id(c, 'sessionId'), pullRequestId(c)); return c.body(null, 204)
+  })
   app.get(routes.listSessionMessages.path, async c => c.json(await operations.listSessionMessages(authority(c), id(c, 'sessionId'), query(c, routes.listSessionMessages.query))))
   app.get(routes.listSessionActivity.path, async c => c.json(await operations.listSessionActivity(authority(c), id(c, 'sessionId'), query(c, routes.listSessionActivity.query))))
   app.get(routes.listMyActivity.path, async c => c.json(await operations.listMyActivity(authority(c), query(c, routes.listMyActivity.query))))

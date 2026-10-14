@@ -1,8 +1,30 @@
 // The pull requests a session works on (docs/plans/session-pull-requests.md).
 // A session owns its links; a task reads the links of its sessions.
 
+import { parseGitHubPullRequestUrl } from './providers'
 import type { TaskPrSnapshot } from './task-types'
 import type { Attribution } from './user'
+
+/** The pull request a URL names, as a link stores it. Null for a URL that is
+ *  not a pull request. */
+export function pullRequestIdentityOf(url: string): { repository: string; number: number; url: string } | null {
+  const parsed = parseGitHubPullRequestUrl(url)
+  if (!parsed) return null
+  const { host, owner, repo } = parsed.baseRepo
+  return { repository: `${host}/${owner}/${repo}`.toLowerCase(), number: parsed.number, url: parsed.url }
+}
+
+/** The id of a session's link in `/v1/sessions/:sessionId/pull-requests/:pullRequestId`:
+ *  `host/owner/repo#number`, which the path carries URL-encoded. */
+export function sessionPullRequestId(link: { repository: string; number: number }): string {
+  return `${link.repository}#${link.number}`
+}
+
+/** The repository and number a link id names. Null for an id that names none. */
+export function parseSessionPullRequestId(pullRequestId: string): { repository: string; number: number } | null {
+  const match = /^([a-z0-9.-]+\/[^/#\s]+\/[^/#\s]+)#([1-9][0-9]{0,9})$/.exec(pullRequestId)
+  return match ? { repository: match[1]!, number: Number(match[2]) } : null
+}
 
 /**
  * Who made a session ↔ pull request link.

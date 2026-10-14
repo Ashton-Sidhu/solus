@@ -138,6 +138,7 @@ import { registerWorkReviewHandlers } from './transport/handlers/work-review-han
 import { registerNotificationHubHandlers } from './transport/handlers/notification-hub-handlers'
 import { publishNotificationChanges } from './notifications/hub-events'
 import { publishTaskSnoozeChanges } from './transport/events/task-snooze-events'
+import { publishSessionViewChanges } from './transport/events/session-view-events'
 import { hostPrObserver } from './notifications/pr-observer'
 import { registerWorkLiveHandlers } from './transport/handlers/work-live-handlers'
 import { WorkLiveManager } from './work-live/work-live-manager'
@@ -586,6 +587,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // A client with no socket principal is the desktop's own IPC connection: the local owner.
     publishNotificationChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? principalFor({ kind: 'credential-free' })),
     publishTaskSnoozeChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? principalFor({ kind: 'credential-free' })),
+    publishSessionViewChanges(events, () => clientEvents.routableClientIds(), (clientId) => ws?.principalOf(clientId) ?? principalFor({ kind: 'credential-free' })),
     installWorkLiveBridge(workLive.bridge()),
     // A deleted work's room ends; its clients hear the delete as `works.changed`.
     onWorkDeleted(async (change) => async () => { workLive.forget(change.workId); return 0 }),

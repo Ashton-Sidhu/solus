@@ -111,6 +111,8 @@ export interface SessionPullRequestOpPayload {
   title?: string
   /** The agent that made the change. */
   actor: Attribution
+  /** `created` when Solus opened the pull request from the session; else the agent linked it. */
+  source?: 'agent' | 'created'
 }
 
 // ─── Works-domain op payloads ───

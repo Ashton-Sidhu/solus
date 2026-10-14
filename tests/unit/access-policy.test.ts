@@ -35,8 +35,7 @@ describe('the action tables', () => {
     // A method that names a session or a work in its name must carry a resource verb
     // unless it is a catalog read (listSessions, listWorks) or a creation.
     // `tasksPrepareForSession` binds a task before any session exists; the others list or create.
-    // `sessionPullRequestsList` lists across sessions, and its handler keeps only the sessions the caller may open.
-    const catalog = new Set(['sessionPullRequestsList', 'sessionRecordList', 'sessionRecordUpsert', 'listWorks', 'createWork', 'createHeadlessSession', 'connectionsListSessions', 'pinnedSessionsList', 'tasksPrepareForSession', 'generateSessionMetadata', 'importDocFromUrl', 'docDestinations', 'docProviderStatuses', 'connectionsSetTrustLocalNetwork', 'sessionGuideStatuses', 'workReviewInbox', 'workReviewStates', 'workUpload'])
+    const catalog = new Set(['sessionRecordList', 'sessionRecordUpsert', 'listWorks', 'createWork', 'createHeadlessSession', 'connectionsListSessions', 'pinnedSessionsList', 'tasksPrepareForSession', 'generateSessionMetadata', 'importDocFromUrl', 'docDestinations', 'docProviderStatuses', 'connectionsSetTrustLocalNetwork', 'sessionGuideStatuses', 'workReviewInbox', 'workReviewStates', 'workUpload'])
     const unclassified = RPC_INVOKE_METHODS.filter((method) => /session|work(?!tree|space)/i.test(method) && !catalog.has(method) && !isResourceMethod(method))
     expect(unclassified).toEqual([])
   })

@@ -1154,7 +1154,7 @@ export class SessionSidebarStore {
     $effect(() => {
       const now = this.lifecycleNow
       let nextWake = 0
-      for (const { snoozedUntil } of [...sessionListStore.states, ...this.session.tasksStore.tasks]) {
+      for (const { snoozedUntil } of [...sessionListStore.views, ...this.session.tasksStore.tasks]) {
         if (snoozedUntil && snoozedUntil > now && (nextWake === 0 || snoozedUntil < nextWake)) {
           nextWake = snoozedUntil
         }

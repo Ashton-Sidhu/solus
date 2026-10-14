@@ -1,10 +1,11 @@
 // Adapted from T3 Code packages/client-runtime/src/state/threadSettled.ts (MIT, see UPSTREAM.md).
 
 /**
- * Snooze presets and labels for the thread list. Solus keeps the snooze on the
- * host (`sessionSnooze`, docs/plans/session-pull-requests.md); these helpers
- * only choose wake times and describe them. Times are epoch milliseconds, the
- * unit `SessionState.snoozedUntil` uses.
+ * Snooze presets and labels for the thread list. Solus keeps the snooze in
+ * this person's view of the session on its home (`sessionUpdate`,
+ * docs/plans/session-archive.md); these helpers only choose wake times and
+ * describe them. Times are epoch milliseconds, the unit
+ * `SessionView.snoozedUntil` uses.
  */
 
 const HOUR_MS = 60 * 60 * 1_000;
@@ -113,7 +114,7 @@ export function snoozeWakeLabel(snoozedUntil: number, now: number): string {
 }
 
 /** Hidden from the list while the wake time is in the future. A snooze whose
-    time has passed is a snooze that ended (`SessionState.snoozedUntil`). */
+    time has passed is a snooze that ended (`SessionView.snoozedUntil`). */
 export function effectiveSnoozed(
   state: { readonly snoozedUntil: number | null } | null | undefined,
   now: number,

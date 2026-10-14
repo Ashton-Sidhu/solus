@@ -36,6 +36,7 @@ export const session_admissions = sessionsSchema.sessionAdmissions.sqlite
 export const session_pull_requests = sessionsSchema.sessionPullRequests.sqlite
 export const session_pull_request_watches = sessionsSchema.sessionPullRequestWatches.sqlite
 export const session_states = sessionsSchema.sessionStates.sqlite
+export const session_views = sessionsSchema.sessionViews.sqlite
 export const runner_cursors = outboxSchema.runnerCursors.sqlite
 export const session_transcripts = transcriptSchema.sessionTranscripts.sqlite
 export const insight_spans = insightSchema.insightSpans.sqlite

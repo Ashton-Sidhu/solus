@@ -318,7 +318,7 @@ export class RecentSessions {
         if (scope === null) return { sessions: [], indexing: false, passedOver: true }
         try {
           const found = await this.hosts.apiFor(serverId).sessionRecordList(
-            !scope ? {} : 'repositoryKey' in scope ? { repositoryKey: scope.repositoryKey } : { projectPath: scope.projectRoot, includeWorktrees: true },
+            !scope ? { scope: 'all' } : 'repositoryKey' in scope ? { repositoryKey: scope.repositoryKey, scope: 'all' } : { projectPath: scope.projectRoot, includeWorktrees: true, scope: 'all' },
           )
           const sessions = found.records.map(sessionMetaFromRecord)
           if (isSolusApiId(serverId)) for (const session of sessions) openOnRunner(session, serverId, this.hosts)

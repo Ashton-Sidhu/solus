@@ -109,7 +109,6 @@ const HOST_ACTION_OF_METHOD = {
   // The card shows the statuses of sessions the caller can list.
   liveActivityRegister: 'host.sessions.read',
   liveActivityUnregister: 'host.sessions.read',
-  sessionPullRequestsList: 'host.sessions.read',
   pinnedSessionsList: 'host.sessions.read',
   tasksSidebarSnapshot: 'host.sessions.read',
   tasksSnoozes: 'host.sessions.read',
@@ -200,9 +199,8 @@ export const RESOURCE_VERB_OF_METHOD = {
   takeScreenshot: 'drive', pasteImage: 'drive',
   deviceOpen: 'drive', deviceClose: 'drive',
   // Sessions — editing the record
-  setSessionTitle: 'edit', ensureBackgroundSessionTitle: 'edit', setSessionBranch: 'edit', sessionPullRequestLink: 'edit',
-  sessionPullRequestUnlink: 'edit', sessionPullRequestWatch: 'edit', sessionSetSettled: 'edit', sessionSnooze: 'edit',
-  sessionSetArchived: 'edit',
+  setSessionTitle: 'edit', ensureBackgroundSessionTitle: 'edit', setSessionBranch: 'edit',
+  sessionPullRequestWatch: 'edit',
   setThreadGoal: 'edit', clearThreadGoal: 'edit', savePlanAnnotations: 'edit', toggleBookmarkPlan: 'edit', publishPlan: 'edit',
   pullPlanUpstream: 'edit', refreshPlanUpstream: 'edit', unlinkPlanUpstream: 'edit', tasksLinkSession: 'edit', tasksUnlinkSession: 'edit',
   // Works — reading

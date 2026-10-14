@@ -65,19 +65,23 @@ planted targets land in the list.
 ## The session list and the archive
 
 The sidebar on desktop and web, and the thread list on mobile, show each
-host's session list: every root session that is not archived
-(`GET /v1/sessions?archived=false&roots=true`, every page). Each record carries
-its state: settled, snoozed, or archived (`state`). The list has no count
-limit; the archive bounds it (`docs/plans/session-archive.md`).
+person's session list (`docs/plans/session-archive.md`): every root session of
+theirs (they own it, prompted it, or archived or snoozed it) that they did not
+archive and that was active in the last 30 days, that they snoozed, or that
+waits on an open pull request (`GET /v1/sessions`, every page; `scope=all`
+answers every session the person may read, for the picker and search). Each record carries its shared settle (`state`), the reader's own
+archive and snooze (`view`), and its pull requests.
 
-- The X on a session's row archives the session on its host, for every device.
-  Undo returns it. Archive is also in the row's menu. "Close Tab" only closes
-  the tab; the session stays in the list.
+- Settle is shared. Archive and snooze are each person's own: they change only
+  that person's list.
+- An organization session's list state and pull requests live on the
+  organization's Solus API, not on the machine that ran it.
+- The X on a session's row archives it in your list, on every device. Undo
+  returns it. "Close Tab" only closes the tab.
 - The picker lists archived sessions too, with an "Archived" mark. The
   **Archive** filter shows only archived sessions. Their menu has "Return to
   List".
-- A session with no activity for 30 days and no open pull request is archived.
-  A new prompt returns a session to the list.
+- A new prompt returns a session to the list of the person it is for.
 - The `organize_session` tool can archive and unarchive a session.
 
 ## Organization sessions

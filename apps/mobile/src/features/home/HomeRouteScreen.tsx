@@ -41,7 +41,7 @@ export function HomeRouteScreen() {
   const { layout, panes } = useAdaptiveWorkspaceLayout();
   const projects = useListened(app.threads.changes, app.threads.projects);
   const threads = useListened(app.threads.changes, app.threads.threads);
-  const archivedThreads = useListened(app.threads.changes, app.threads.archivedThreads);
+  const unlistedThreads = useListened(app.threads.changes, app.threads.unlistedThreads);
   const list = useThreadListState();
   const facts = useListened(list.changes, list.facts);
   const shelfExpansion = useListened(list.changes, list.shelfExpansion);
@@ -306,7 +306,7 @@ export function HomeRouteScreen() {
               selectedEnvironmentId={selectedEnvironmentId}
               selectedProjectKey={selectedProjectKey}
               threads={threads}
-              archivedThreads={archivedThreads}
+              unlistedThreads={unlistedThreads}
             />
           </>
         </AndroidHomeFabLayout>

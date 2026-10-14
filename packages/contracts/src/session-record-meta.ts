@@ -31,6 +31,6 @@ export function sessionMetaFromRecord(record: SessionRecord): SessionMeta {
       : undefined,
     organizationId: record.organizationId,
   }
-  if (record.state?.archivedAt != null) meta.archived = true
+  if (record.view?.archivedAt != null) meta.archived = true
   return meta
 }

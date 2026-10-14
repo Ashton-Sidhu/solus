@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { parseGitHubPullRequestUrl, type PullRequest } from '@solus/contracts/providers'
+import { pullRequestIdentityOf } from '@solus/contracts/session-pull-requests'
 import type {
   SessionPullRequestLink,
   SessionPullRequestSource,
@@ -58,15 +59,6 @@ export function onSessionPullRequestsChanged(listener: ChangeListener): () => vo
 
 function emitChanged(sessionId: string): void {
   for (const listener of listeners) listener(sessionId)
-}
-
-/** The pull request a URL names, as a link stores it. Null for a URL that is
- *  not a pull request. */
-export function pullRequestIdentityOf(url: string): { repository: string; number: number; url: string } | null {
-  const parsed = parseGitHubPullRequestUrl(url)
-  if (!parsed) return null
-  const { host, owner, repo } = parsed.baseRepo
-  return { repository: `${host}/${owner}/${repo}`.toLowerCase(), number: parsed.number, url: parsed.url }
 }
 
 /**

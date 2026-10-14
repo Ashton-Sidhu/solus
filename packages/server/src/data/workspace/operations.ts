@@ -1,7 +1,7 @@
 import type {
   WorkspaceCreateTask, WorkspaceUpdateTask, WorkspaceTask, WorkspaceTaskPage, WorkspaceTaskQuery,
   WorkspaceCreateWork, WorkspaceImportWork, WorkspacePublishWork, WorkspaceRequestWorkReview, WorkspaceWorkReview, WorkspaceWorkUpstream, WorkspaceUpdateWork, WorkspaceWork, WorkspaceWorkPage, WorkspaceWorkQuery, WorkspaceWorkSearchQuery, WorkspaceWorkSearchResult,
-  WorkspaceSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage,
+  WorkspaceSession, WorkspaceSessionPullRequest, WorkspaceSessionPullRequestList, WorkspaceSessionPullRequestPut, WorkspaceUpdateSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage,
   WorkspaceInsight, WorkspaceInsightPage, WorkspaceInsightQuery, WorkspaceInsightTree,
   WorkspaceActivityList, WorkspaceActivityQuery, WorkspaceMyActivityQuery,
   WorkspaceNotificationArchived, WorkspaceNotificationPage, WorkspaceNotificationQuery, WorkspaceNotificationRead,
@@ -31,6 +31,13 @@ export interface WorkspaceOperations {
   searchSessions(context: WorkspaceRequestContext, query: WorkspaceSessionSearchQuery): Promise<WorkspaceSessionSearchResult>
   admitSession(context: WorkspaceRequestContext, input: WorkspaceSessionAdmissionRequest): Promise<WorkspaceSessionAdmission>
   getSession(context: WorkspaceRequestContext, sessionId: string): Promise<WorkspaceSession>
+  /** A prompt reached the session on its machine. */
+  admitSessionTurn(context: WorkspaceRequestContext, sessionId: string): Promise<void>
+  /** Settle a session for every person, or archive and snooze it in the caller's own list. */
+  updateSession(context: WorkspaceRequestContext, sessionId: string, input: WorkspaceUpdateSession): Promise<WorkspaceSession>
+  listSessionPullRequests(context: WorkspaceRequestContext, sessionId: string): Promise<WorkspaceSessionPullRequestList>
+  putSessionPullRequest(context: WorkspaceRequestContext, sessionId: string, pullRequest: { repository: string; number: number }, input: WorkspaceSessionPullRequestPut): Promise<WorkspaceSessionPullRequest>
+  deleteSessionPullRequest(context: WorkspaceRequestContext, sessionId: string, pullRequest: { repository: string; number: number }): Promise<void>
   listSessionMessages(context: WorkspaceRequestContext, sessionId: string, query: WorkspacePageQuery): Promise<WorkspaceTranscriptPage>
   listInsights(context: WorkspaceRequestContext, query: WorkspaceInsightQuery): Promise<WorkspaceInsightPage>
   getInsight(context: WorkspaceRequestContext, insightId: string): Promise<WorkspaceInsight>

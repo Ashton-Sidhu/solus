@@ -2,6 +2,7 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { isChat } from "@solus/contracts/chat";
+import type { SessionPullRequestLink } from "@solus/contracts/session-pull-requests";
 import type { SessionRecord } from "@solus/contracts/types";
 import { useEffect, useMemo } from "react";
 import { ScrollView, useWindowDimensions, View } from "react-native";
@@ -157,6 +158,7 @@ export function ThreadRouteScreen({ route }: ScreenProps<"Thread">) {
       sessionId={sessionId}
       hostLabel={host.label}
       shellTitle={shell ? shell.record.customTitle || shell.record.title || shell.record.slug : null}
+      recordPullRequests={shell?.record.pullRequests}
       projectPath={projectPath}
       faviconRoot={threadFaviconRoot(
         "record" in target
@@ -174,6 +176,8 @@ function ThreadRouteContent(props: {
   readonly sessionId: string;
   readonly hostLabel: string;
   readonly shellTitle: string | null;
+  /** The links the session's record carried when the list was read. */
+  readonly recordPullRequests: ReadonlyArray<SessionPullRequestLink> | undefined;
   readonly projectPath: string;
   readonly faviconRoot: string | null;
 }) {
@@ -190,7 +194,8 @@ function ThreadRouteContent(props: {
   const layout = deriveLayout(window);
   const hasLinkedPullRequests = useListened(
     app.threadList.changes,
-    () => (app.threadList.facts().pullRequests.get(threadKey(hostId, props.sessionId))?.length ?? 0) > 0,
+    () =>
+      ((app.threadList.facts().pullRequests.get(threadKey(hostId, props.sessionId)) ?? props.recordPullRequests)?.length ?? 0) > 0,
   );
   const chat = isChat(props.projectPath);
   const title = props.shellTitle || runTitle || "New session";

@@ -126,7 +126,7 @@ async function runnerStep(proof: Proof, bob: LabClient): Promise<{ runner: LabHo
 async function recordStep(proof: Proof, bob: LabClient, runner: LabHost, sessionId: string): Promise<void> {
   const { ctx, tag } = proof
   ctx.step(`${tag} the runner reports the session; the service lists it, and keeps everything after the runner stops`)
-  const recorded = await until(() => bob.records.sessionRecordList({}).then((list) => list.records), (list) => list.some((record) => record.sessionId === sessionId), 15_000)
+  const recorded = await until(() => bob.records.sessionRecordList({ scope: 'all' }).then((list) => list.records), (list) => list.some((record) => record.sessionId === sessionId), 15_000)
   const record = recorded.find((row) => row.sessionId === sessionId)
   ctx.check(`${tag} the service lists the runner's session, naming the runner`, record?.runnerHostId === RUNNER_HOST_ID, JSON.stringify(record))
   await runner.stop()
@@ -134,7 +134,7 @@ async function recordStep(proof: Proof, bob: LabClient, runner: LabHost, session
   ctx.check(`${tag} the task is still there`, tasksAfter?.tasks.some((row) => row.title === RUNNER_TASK_TITLE) === true)
   const worksAfter = await expectOk(ctx, `${tag} bob lists works after the runner stopped`, bob.records.listWorks())
   ctx.check(`${tag} the work is still there`, worksAfter?.some((row) => row.title === RUNNER_WORK_TITLE) === true)
-  const sessionsAfter = await expectOk(ctx, `${tag} bob lists session records after the runner stopped`, bob.records.sessionRecordList({}).then((list) => list.records))
+  const sessionsAfter = await expectOk(ctx, `${tag} bob lists session records after the runner stopped`, bob.records.sessionRecordList({ scope: 'all' }).then((list) => list.records))
   ctx.check(`${tag} the session is still there`, sessionsAfter?.some((row) => row.sessionId === sessionId) === true)
 }
 
@@ -147,7 +147,7 @@ async function otherOrganizationStep(proof: Proof, taskId: string): Promise<void
   ctx.check(`${tag} carol's task list is empty`, carolTasks?.tasks.length === 0, JSON.stringify(carolTasks?.tasks.map((row) => row.title)))
   const carolWorks = await expectOk(ctx, `${tag} carol lists works`, carol.records.listWorks())
   ctx.check(`${tag} carol's work list is empty`, carolWorks?.length === 0)
-  const carolSessions = await expectOk(ctx, `${tag} carol lists session records`, carol.records.sessionRecordList({}).then((list) => list.records))
+  const carolSessions = await expectOk(ctx, `${tag} carol lists session records`, carol.records.sessionRecordList({ scope: 'all' }).then((list) => list.records))
   ctx.check(`${tag} carol's session list is empty`, carolSessions?.length === 0)
   await expectRefused(ctx, `${tag} carol cannot open alice's task`, carol.api.request('getTask', { id: taskId }), 'NOT_FOUND')
   const carolPresence = await expectOk(ctx, `${tag} carol reads presence`, carol.rpc('presenceSnapshot'))

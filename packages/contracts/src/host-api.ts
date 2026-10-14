@@ -9,8 +9,8 @@ import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, S
 import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrFilter, PrInterest, PrLabel, PrListPage, PrProjectListing, PrPendingWorkflowRuns, PrRevertResult, PrStackMergeRequest, PrStackMergeResult, PrStateAction, PrViewedFileChange, PrViewedFiles, PrWorkflowApprovalResult, PrSyncChange, PrReviewer, PrReviewerCandidate, PrReviewerKind, PrReviewTarget, PrStack, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderRepository, ProviderViewer } from './providers'
 import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCommentHit, TaskCommentSearchQuery, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarFilter, TaskSidebarSnapshot, TaskSnapshot, TaskSnooze, TaskTransfer, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
-import type { SessionPullRequestsBySession, SessionPullRequestWatchOutcome } from './session-pull-requests'
-import type { SessionState } from './session-state'
+import type { SessionPullRequestLink, SessionPullRequestWatchOutcome } from './session-pull-requests'
+import type { SessionChange, SessionPlace } from './session-state'
 import type { WorkspaceProject, WorkspaceProjectAddRequest, WorkspaceProjectPatch } from './workspace-projects'
 import type { SessionHistoryPageRequest, SessionHistoryPage, SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult, WireSessionLoadMessage, SessionToolInputsRequest, SessionToolInput } from './session-history'
 import type { AttentionEntry } from './attention-types'
@@ -208,6 +208,16 @@ export interface SolusAPI {
   sessionRecordList(filter?: SessionRecordListFilter): Promise<SessionRecordList>
   /** Collaboration plane: what was said in the sessions this home keeps. */
   sessionRecordSearch(query: SessionRecordSearchQuery): Promise<SessionRecordSearch>
+  /** Collaboration plane, at the session's home (`/v1/sessions/:sessionId`;
+   *  docs/plans/session-archive.md): settle a session for everyone, or archive
+   *  and snooze it in the caller's own list. Answers where it is now. */
+  sessionUpdate(sessionId: string, change: SessionChange): Promise<SessionPlace>
+  /** The pull requests a session works on (`/v1/sessions/:sessionId/pull-requests`). */
+  sessionPullRequests(sessionId: string): Promise<SessionPullRequestLink[]>
+  /** Link a pull request to a session by its URL. The same link again changes nothing. */
+  sessionPullRequestPut(sessionId: string, url: string): Promise<SessionPullRequestLink>
+  /** Remove a pull request from a session. PR sync does not link it again. */
+  sessionPullRequestDelete(sessionId: string, pullRequest: { repository: string; number: number }): Promise<void>
   /** Collaboration plane: a runner's report of one session. The host itself and, later, a runner of the organization. */
   sessionRecordUpsert(record: SessionRecordUpsert): Promise<SessionRecord>
   /** Collaboration plane: the organization's projects, one per repository (docs/plans/project-model.md §2). */
@@ -244,24 +254,9 @@ export interface SolusAPI {
   ): Promise<void>
   /** Persist the checkout owned by one session attempt. */
   setSessionBranch(sessionId: string, branch: string): Promise<void>
-  /** The pull requests of the named sessions, or of every session when none is
-   *  named (docs/plans/session-pull-requests.md). */
-  sessionPullRequestsList(sessionIds?: string[]): Promise<SessionPullRequestsBySession>
-  /** Link a pull request to a session by its URL. A person's link. */
-  sessionPullRequestLink(sessionId: string, url: string): Promise<void>
-  /** Remove a pull request from a session. PR sync does not link it again. */
-  sessionPullRequestUnlink(sessionId: string, repository: string, number: number): Promise<void>
   /** Watch a pull request the session links, or stop watching it. The agent
    *  wakes on news (docs/plans/pr-watch.md). Answers what starting did. */
   sessionPullRequestWatch(sessionId: string, repository: string, number: number, watching: boolean): Promise<SessionPullRequestWatchOutcome>
-  /** Settle a session, or make a settled one active again. Answers its state now;
-   *  a host older than the session list answers nothing. */
-  sessionSetSettled(sessionId: string, settled: boolean): Promise<SessionState | void>
-  /** Snooze a session until a wake time; null wakes it now. Answers its state now. */
-  sessionSnooze(sessionId: string, until: number | null, note?: string): Promise<SessionState | void>
-  /** Archive a session, or return an archived one to the list
-   *  (docs/plans/session-archive.md). Answers its state now. */
-  sessionSetArchived(sessionId: string, archived: boolean): Promise<SessionState>
   listRecentProjects(): Promise<RecentProject[]>
   trackRecentProject(path: string): Promise<void>
   listPlans(projectPath?: string, allProjects?: boolean, ctx?: IpcContext): Promise<PlanDescriptor[]>

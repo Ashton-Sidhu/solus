@@ -29,6 +29,15 @@ export const solusApiOperations = {
   searchSessions: { method: 'get', path: '/sessions/search', scope: 'sessions:read', query: queries.workspaceSessionSearchQuerySchema, response: schemas.workspaceSessionSearchResultSchema, status: 200 },
   getSession: { method: 'get', path: '/sessions/:sessionId', scope: 'sessions:read', query: empty, response: schemas.workspaceSessionSchema, status: 200 },
   admitSession: { method: 'post', path: '/session-admissions', scope: 'sessions:admit', query: empty, body: schemas.workspaceSessionAdmissionRequestSchema, response: schemas.workspaceSessionAdmissionSchema, status: 201 },
+  /** A prompt reached the session on its machine: the session's home makes it active (docs/plans/session-archive.md). */
+  admitSessionTurn: { method: 'post', path: '/sessions/:sessionId/turns', scope: 'sessions:admit', query: empty, body: empty, status: 204 },
+  /** Settle a session for every person, or archive and snooze it in the caller's own list. */
+  updateSession: { method: 'patch', path: '/sessions/:sessionId', scope: 'sessions:write', query: empty, body: schemas.workspaceUpdateSessionSchema, response: schemas.workspaceSessionSchema, status: 200 },
+  listSessionPullRequests: { method: 'get', path: '/sessions/:sessionId/pull-requests', scope: 'sessions:read', query: empty, response: schemas.workspaceSessionPullRequestListSchema, status: 200 },
+  /** Link a pull request to the session. The same link again changes nothing. */
+  putSessionPullRequest: { method: 'put', path: '/sessions/:sessionId/pull-requests/:pullRequestId', scope: 'sessions:write', query: empty, body: schemas.workspaceSessionPullRequestPutSchema, response: schemas.workspaceSessionPullRequestSchema, status: 200 },
+  /** Remove a pull request from the session. PR sync does not link it again. */
+  deleteSessionPullRequest: { method: 'delete', path: '/sessions/:sessionId/pull-requests/:pullRequestId', scope: 'sessions:write', query: empty, status: 204 },
   listSessionMessages: { method: 'get', path: '/sessions/:sessionId/messages', scope: 'sessions:read', query: queries.workspacePageQuerySchema, response: schemas.workspaceTranscriptPageSchema, status: 200 },
   listSessionActivity: { method: 'get', path: '/sessions/:sessionId/activity', scope: 'sessions:read', query: queries.workspaceActivityQuerySchema, response: schemas.workspaceActivityListSchema, status: 200 },
   /** Activity that names the caller, from every record kind the credential may read; each row's record is checked. */

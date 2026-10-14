@@ -63,7 +63,7 @@ describe('native directory: request budget', () => {
             refusals--
             throw new WorkspaceRequestError(429, 'RATE_LIMITED', 'The request budget is exhausted. Try again shortly.', 0.01)
           }
-          return { records: filter.archived ? [] : [record('a'), record('b')], indexing: false }
+          return { records: filter.scope === 'all' ? [] : [record('a'), record('b')], indexing: false }
         },
         listProjects: async () => [],
       },
@@ -81,9 +81,9 @@ describe('native directory: request budget', () => {
     expect(directory.stateOf('h').kind).toBe('loaded')
   })
 
-  test('the list is read whole; recent archived sessions are read apart and open by id', async () => {
-    // WHY: the archive bounds the list (docs/plans/session-archive.md). A count
-    // limit would drop sessions and, with them, their shelves.
+  test('the list is read whole; recent sessions out of it are read apart and open by id', async () => {
+    // WHY: the host bounds a person's list (docs/plans/session-archive.md). A
+    // count limit would drop sessions and, with them, their shelves.
     const record = (sessionId: string, lastActivityAt: number) => ({ sessionId, parentSessionId: null, lastActivityAt, projectPath: '/p' }) as SessionRecord
     const filters: SessionRecordListFilter[] = []
     const connection = {
@@ -91,7 +91,7 @@ describe('native directory: request budget', () => {
       api: {
         sessionRecordList: async (filter: SessionRecordListFilter) => {
           filters.push(filter)
-          return { records: filter.archived ? [record('old', 1)] : [record('a', 2)], indexing: false }
+          return { records: filter.scope === 'all' ? [{ ...record('old', 1), listed: false }, { ...record('a', 2), listed: true }] : [record('a', 2)], indexing: false }
         },
         listProjects: async () => [],
       },
@@ -99,9 +99,9 @@ describe('native directory: request budget', () => {
     const registry = { host: () => ({ id: 'h', label: 'Mac' }), hosts: () => [{ id: 'h', label: 'Mac' }] }
     const directory = new ThreadDirectory(registry as never, () => connection as never)
     await directory.load('h')
-    expect(filters).toEqual([{ includeWorktrees: true, archived: false }, { includeWorktrees: true, archived: true, limit: 200 }])
+    expect(filters).toEqual([{ includeWorktrees: true }, { includeWorktrees: true, scope: 'all', limit: 200 }])
     expect(directory.threads().map((thread) => thread.record.sessionId)).toEqual(['a'])
-    expect(directory.archivedThreads().map((thread) => thread.record.sessionId)).toEqual(['old'])
+    expect(directory.unlistedThreads().map((thread) => thread.record.sessionId)).toEqual(['old'])
     expect(directory.thread('h', 'old')?.record.sessionId).toBe('old')
   })
 

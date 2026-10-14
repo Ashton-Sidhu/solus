@@ -417,7 +417,7 @@ export class ReferenceIndex {
     try {
       const { records, indexing } = await this.deps.session
         .apiFor(tabId)
-        .sessionRecordList({ projectPath: workingDirectory, includeWorktrees: true })
+        .sessionRecordList({ projectPath: workingDirectory, includeWorktrees: true, scope: 'all' })
       if (requestId !== this.#sessionLoadId) return
       this.sessionsIndexing = indexing
       const sourceServerId = runHost(this.deps.session.runFor(tabId))

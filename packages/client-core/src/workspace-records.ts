@@ -5,8 +5,10 @@ import type { Work, WorkMeta, SessionRecord, SessionRecordListFilter } from '@so
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { WorkspaceSessionSearchResult, WorkspaceTask, WorkspaceWork } from '@solus/contracts/solus-api'
 import { SolusApiClient, WorkspaceRequestError } from '@solus/contracts/solus-api/client'
+import { pullRequestIdentityOf, sessionPullRequestId } from '@solus/contracts/session-pull-requests'
+import { EMPTY_SESSION_VIEW, UNSETTLED_SESSION_STATE } from '@solus/contracts/session-state'
 
-type RecordMethods = Pick<SolusAPI, 'tasksGet' | 'tasksCreate' | 'tasksUpdate' | 'tasksDelete' | 'createWork' | 'saveWork' | 'loadWork' | 'listWorks' | 'deleteWork' | 'sessionRecordList' | 'sessionRecordSearch'>
+type RecordMethods = Pick<SolusAPI, 'tasksGet' | 'tasksCreate' | 'tasksUpdate' | 'tasksDelete' | 'createWork' | 'saveWork' | 'loadWork' | 'listWorks' | 'deleteWork' | 'sessionRecordList' | 'sessionRecordSearch' | 'sessionUpdate' | 'sessionPullRequests' | 'sessionPullRequestPut' | 'sessionPullRequestDelete'>
 type SessionSearchHitPart = Pick<WorkspaceSessionSearchResult['items'][number], 'snippet' | 'timestamp' | 'messageId' | 'rank'>
 
 /** A record this host does not have. `MOVED` is not absence: the record is on
@@ -21,7 +23,7 @@ function sessionListFilters(filter: SessionRecordListFilter | undefined) {
   const flag = (value: boolean | undefined) => value === undefined ? undefined : value ? 'true' as const : 'false' as const
   return {
     provider: filter?.provider, projectPath: filter?.projectPath, repositoryKey: filter?.repositoryKey, includeWorktrees: flag(filter?.includeWorktrees), chats: flag(filter?.chats),
-    archived: flag(filter?.archived), roots: flag(filter?.roots),
+    scope: filter?.scope, parentSessionId: filter?.parentSessionId,
   }
 }
 
@@ -82,23 +84,14 @@ export function workspaceRecordMethods(client: SolusApiClient, extras: (id: stri
       let cursor: string | undefined
       let indexing = false
       let order: 'activity' | undefined = 'activity'
-      let filters = sessionListFilters(filter)
+      const filters = sessionListFilters(filter)
       for (;;) {
         let page
         try {
           page = await client.request('listSessions', { query: { ...filters, limit: 200, cursor, order } })
         } catch (error) {
-          const refused = cursor === undefined && error instanceof WorkspaceRequestError && error.status === 400
-          // A host older than the session list refuses `archived` and `roots`, and archives
-          // nothing (docs/plans/session-archive.md): it has no archived sessions, and every
-          // session it has is in the list.
-          if (refused && (filters.archived || filters.roots)) {
-            if (filters.archived === 'true') return { records: [], indexing: false }
-            filters = { ...filters, archived: undefined, roots: undefined }
-            continue
-          }
           // A host older than `order` refuses it. It pages by creation, so every page is read.
-          if (refused && order) { order = undefined; continue }
+          if (order && cursor === undefined && error instanceof WorkspaceRequestError && error.status === 400) { order = undefined; continue }
           throw error
         }
         for (const session of page.items) records.set(session.id, sessionRecord(session))
@@ -106,9 +99,24 @@ export function workspaceRecordMethods(client: SolusApiClient, extras: (id: stri
         cursor = page.nextCursor ?? undefined
         if (!cursor || (order && filter?.limit !== undefined && records.size >= filter.limit)) break
       }
-      // A host that refused `roots` answered every session.
-      const sorted = [...records.values()].filter((record) => !filter?.roots || record.parentSessionId === null).sort((a, b) => b.lastActivityAt - a.lastActivityAt || a.sessionId.localeCompare(b.sessionId))
+      const sorted = [...records.values()].sort((a, b) => b.lastActivityAt - a.lastActivityAt || a.sessionId.localeCompare(b.sessionId))
       return { records: filter?.limit === undefined ? sorted : sorted.slice(0, filter.limit), indexing }
+    },
+    // A session's home keeps its list state and its pull requests (docs/plans/session-archive.md).
+    async sessionUpdate(sessionId, change) {
+      const record = sessionRecord(await client.request('updateSession', { id: sessionId, body: change }))
+      return { state: record.state ?? UNSETTLED_SESSION_STATE, view: record.view ?? EMPTY_SESSION_VIEW }
+    },
+    async sessionPullRequests(sessionId) {
+      return (await client.request('listSessionPullRequests', { id: sessionId })).items
+    },
+    async sessionPullRequestPut(sessionId, url) {
+      const identity = pullRequestIdentityOf(url)
+      if (!identity) throw new Error('That URL does not name a pull request.')
+      return client.request('putSessionPullRequest', { id: sessionId, pullRequestId: sessionPullRequestId(identity), body: { url } })
+    },
+    async sessionPullRequestDelete(sessionId, pullRequest) {
+      await client.request('deleteSessionPullRequest', { id: sessionId, pullRequestId: sessionPullRequestId(pullRequest) })
     },
     async sessionRecordSearch(query) {
       const result = await client.request('searchSessions', { query: {

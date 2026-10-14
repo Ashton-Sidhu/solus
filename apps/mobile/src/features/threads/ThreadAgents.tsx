@@ -4,7 +4,7 @@
 import { StackActions, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
-import { useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { Platform, Pressable, ScrollView, View, type ColorValue } from "react-native";
 import { Screen, ScreenStack, ScreenStackHeaderConfig } from "react-native-screens";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -60,15 +60,24 @@ export function useAgentPresentations(store: ConversationStore, ids: readonly st
   const items = useTranscriptItems(store, ids);
   // A new array only when the host's list is read again.
   const listed = useListened(app.threads.changes, app.threads.threads);
+  const children = useListened(app.threads.changes, app.threads.childThreads);
+  const parentSessionId = store.controller.run.sessionId;
+  const agentCount = items.filter((item) => item.kind === "agent").length;
+  // The list answers top-level sessions only: the agents' own records are read
+  // for their cards, again when a new agent starts.
+  useEffect(() => {
+    if (agentCount > 0 && parentSessionId) void app.threads.loadChildren(hostId, parentSessionId);
+  }, [agentCount, app, hostId, parentSessionId]);
   return useMemo(() => {
     void listed;
+    void children;
     const parent = app.threads.thread(hostId, store.controller.run.sessionId)?.record ?? null;
     return items.flatMap((item) => {
       const child = item.kind === "agent" ? (app.threads.thread(hostId, item.sessionId)?.record ?? null) : null;
       const presentation = agentPresentation(item, child, parent);
       return presentation ? [presentation] : [];
     });
-  }, [app, hostId, items, listed, store]);
+  }, [app, children, hostId, items, listed, store]);
 }
 
 /** Its own component so the clock repaints this text only. */

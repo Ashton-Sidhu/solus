@@ -56,8 +56,8 @@ import type { WorkspaceState } from "./workspace-connection-status";
 interface HomeScreenProps {
   readonly projects: ReadonlyArray<SolusProjectShell>;
   readonly threads: ReadonlyArray<SolusThreadShell>;
-  /** Recent archived threads; a search shows the ones that match. */
-  readonly archivedThreads: ReadonlyArray<SolusThreadShell>;
+  /** Recent threads out of the list; a search shows the ones that match. */
+  readonly unlistedThreads: ReadonlyArray<SolusThreadShell>;
   readonly facts: ThreadListV2Facts;
   readonly shelfExpansion: ThreadListShelfExpansion;
   readonly catalogState: WorkspaceState;
@@ -294,7 +294,7 @@ export function HomeScreen(props: HomeScreenProps) {
     () =>
       buildThreadListV2Items({
         threads: props.threads,
-        archivedThreads: props.archivedThreads,
+        unlistedThreads: props.unlistedThreads,
         facts: props.facts,
         hostId: props.selectedEnvironmentId,
         projectKeys: v2ScopedProjectGroup === null ? null : v2ScopedProjectGroup.projectKeys,
@@ -318,7 +318,7 @@ export function HomeScreen(props: HomeScreenProps) {
       props.searchQuery,
       props.selectedEnvironmentId,
       props.threads,
-      props.archivedThreads,
+      props.unlistedThreads,
       v2ScopedProjectGroup,
     ],
   );
@@ -470,10 +470,10 @@ export function HomeScreen(props: HomeScreenProps) {
   /* Empty states */
   // The signal must ignore the search/environment filters: an active query
   // that matches nothing needs the in-list "No results" state, not the
-  // full-page "No threads yet". A search also reaches archived threads.
+  // full-page "No threads yet". A search also reaches threads out of the list.
   const hasAnyThreads =
     props.threads.length > 0 ||
-    (props.searchQuery.trim().length > 0 && props.archivedThreads.length > 0);
+    (props.searchQuery.trim().length > 0 && props.unlistedThreads.length > 0);
   const selectedEnvironmentLabel =
     props.selectedEnvironmentId === null
       ? null

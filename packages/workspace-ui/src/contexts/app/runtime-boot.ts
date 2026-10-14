@@ -1,5 +1,4 @@
 import { afterPaint } from '../../lib/after-paint'
-import { sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
 import { sessionListStore } from '../workspace/session-list.store.svelte'
 import { TransportDisconnectedError, type ConnectionStatus } from '@solus/client-core/ws-transport'
 import { bootstrapRuntimeTabs, prioritizeTabHydration } from '../workspace/session-bootstrap'
@@ -38,7 +37,6 @@ export function refreshRuntime(
   void bootstrapRuntimeTabs(session)
     .then(() => {
       void sidebarStore.loadPinnedSessions()
-      void sessionPullRequestsStore.load()
       void sessionListStore.load()
     })
     .catch((error) => logConnectionReadError('session runtime initialization', error))
@@ -84,7 +82,6 @@ export function initializeRuntime(
   // contribute its own rows too — not only the hosts present at bootstrap.
   const stopConnections = serverConnections.onConnectionCreated(() => {
     void sidebarStore.loadPinnedSessions()
-    void sessionPullRequestsStore.load()
     void sessionListStore.load()
   })
 

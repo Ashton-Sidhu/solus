@@ -103,10 +103,10 @@ process.once('exit', () => {
   for (const child of runningHosts) child.kill('SIGKILL')
 })
 
-/** The server's own `auth-session-create` on the host's data directory: a paired token its keys verify. */
+/** The server's own `auth session create` on the host's data directory: a paired token its keys verify. */
 function mintLocalOwnerToken(entry: string, dataDir: string, env: NodeJS.ProcessEnv): Promise<string> {
   return new Promise((resolveToken, reject) => {
-    execFile(process.execPath.endsWith('bun') ? 'node' : process.execPath, [entry, 'auth-session-create', '--data-dir', dataDir, '--json'], { cwd: dataDir, env }, (error, stdout) => {
+    execFile(process.execPath.endsWith('bun') ? 'node' : process.execPath, [entry, 'auth', 'session', 'create', '--data-dir', dataDir, '--json'], { cwd: dataDir, env }, (error, stdout) => {
       if (error) return reject(error)
       resolveToken(z.object({ sessionToken: z.string().min(1) }).parse(JSON.parse(stdout)).sessionToken)
     })

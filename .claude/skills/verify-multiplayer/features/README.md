@@ -43,3 +43,4 @@ Status is the result of the last full run (2026-10-13). A failing scenario is th
 | [Seats](./seats.md) | `seats`, `host-auth` | Lab issuer | PASS |
 | [Organization work](./organization-work.md) | `organization-work`; `cloud-workspace`, `cloud-sessions` | cloud; Lab issuer | PASS; PASS; PASS |
 | [Settings and profile sync](./settings-sync.md) | `settings-sync`, `account-reads` | cloud | PASS |
+| [Session home](./session-home.md) | `session-home`, `session-settle` | Lab issuer | PASS; PASS |

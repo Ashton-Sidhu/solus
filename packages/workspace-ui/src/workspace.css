@@ -483,6 +483,24 @@
   --solus-art-6: #9333ea; /* purple */
   --solus-art-positive: #26894c;
   --solus-art-negative: #c9302d;
+  /* ─── HTML render palette ───
+     What a rendered HTML artifact sees as --card, --muted, --border, and
+     --chart-1 … --chart-6 (contracts/src/artifact-sandbox.ts). Neutrals are a
+     warm grey with almost no chroma, so a code block or a lane reads as paper
+     next to the page rather than as sand. The series is one family: the
+     brand terracotta first, then five hues at the same OKLCH lightness and
+     chroma (L 0.60, C 0.12), evenly spaced around the wheel. The --solus-art-*
+     ramp above keeps its hue roles for the app's own charts and marks. */
+  --solus-render-surface: #fcfbf9;
+  --solus-render-raised: #f3f2ee;
+  --solus-render-border: #e4e2dc;
+  --solus-render-border-strong: #cfccc4;
+  --solus-render-1: #d97757; /* terracotta, the brand accent */
+  --solus-render-2: #00959c; /* teal */
+  --solus-render-3: #647bc8; /* indigo */
+  --solus-render-4: #ab639c; /* plum */
+  --solus-render-5: #a57710; /* ochre */
+  --solus-render-6: #57914a; /* moss */
 }
 
 
@@ -699,6 +717,18 @@
   --solus-art-6: #c084fc; /* purple */
   --solus-art-positive: #2ee07e;
   --solus-art-negative: #f75d59;
+  /* ─── HTML render palette (dark twin) ───
+     The same six hues lifted to L 0.78, C 0.11 for charcoal. */
+  --solus-render-surface: #2c2b28;
+  --solus-render-raised: #353431;
+  --solus-render-border: rgba(255, 245, 230, 0.1);
+  --solus-render-border-strong: rgba(255, 245, 230, 0.2);
+  --solus-render-1: #e68e6b; /* terracotta, the brand accent */
+  --solus-render-2: #4eccd3; /* teal */
+  --solus-render-3: #9cb4fe; /* indigo */
+  --solus-render-4: #e39cd3; /* plum */
+  --solus-render-5: #dcaf61; /* ochre */
+  --solus-render-6: #91c985; /* moss */
 }
 
 /* shadcn-svelte theme bridge — maps the semantic vars that shadcn components
