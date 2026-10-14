@@ -3,8 +3,8 @@
    * Settings → Agent profile → Skills: registry skills (a reference the host
    * installs with the skills CLI) and hand-written skills (their files, by
    * name). Adding searches skills.sh through a host this client talks to.
-   * A skill can be removed, or turned off on every host and kept in the
-   * profile; a hand-written skill's files turn off and on together.
+   * Removing a skill takes it off every host; a hand-written skill's files
+   * go together. A long list shows a page, then "Show more".
    */
   import { onDestroy, tick } from "svelte";
   import { ExternalLink, LoaderCircle, Plus } from "@lucide/svelte";
@@ -19,7 +19,8 @@
   import SettingsSection from "../SettingsSection.svelte";
   import SettingsRow from "../SettingsRow.svelte";
   import { SkillSearch } from "../skills.store.svelte";
-  import { entriesWithDisabled, providerLabel, skillEntryOf, type AgentProfileSections } from "./lib/agent-profile-entries";
+  import ShowMoreRow from "./ShowMoreRow.svelte";
+  import { pageOf, providerLabel, skillEntryOf, type AgentProfileSections } from "./lib/agent-profile-entries";
 
   interface Props {
     registrySkills: AgentProfileSections["registrySkills"];
@@ -38,6 +39,9 @@
   // A hand-written skill counts too: a host refuses a registry skill and a hand-written one of the same name.
   const inProfile = $derived(new Set([...registrySkills, ...writtenSkills].map((skill) => skill.name)));
   const skillCount = $derived(registrySkills.length + writtenSkills.length);
+  let expanded = $state(false);
+  // One list: registry skills first, then hand-written, paged together.
+  const page = $derived(pageOf([...registrySkills.map((skill) => ({ kind: "registry" as const, skill })), ...writtenSkills.map((skill) => ({ kind: "written" as const, skill }))], expanded));
 
   onDestroy(() => {
     if (debounce) clearTimeout(debounce);
@@ -76,8 +80,8 @@
     requestInputFocus();
   }
 
-  function setDisabled(keys: AgentProfileKey[], disabled: boolean) {
-    agentProfileLocalStore.setEntry(...entriesWithDisabled(agentProfileLocalStore.storedEntries, keys, disabled));
+  function toggleExpanded() {
+    expanded = !expanded;
     requestInputFocus();
   }
 </script>
@@ -133,35 +137,27 @@
     {#if skillCount === 0}
       <p class="p-8 text-center text-workspace-chrome text-muted-foreground">No skills in your profile yet.</p>
     {/if}
-    {#each registrySkills as skill (skill.name)}
-      <SettingsRow label={skill.name} description="From skills.sh · {skill.source}" testId="agent-profile-registry-skill">
-        {#snippet labelExtra()}
-          {#if skill.disabled}<span class="ml-2 text-chrome-dense text-muted-foreground">Off on every host</span>{/if}
-        {/snippet}
-        {#snippet control()}
-          <span class="flex gap-1.5">
-            <Button variant="ghost" size="sm" onclick={() => setDisabled([agentProfileKeyOf(skill)], !skill.disabled)} aria-label="{skill.disabled ? 'Enable' : 'Disable'} {skill.name}">{skill.disabled ? "Enable" : "Disable"}</Button>
+    {#each page.rows as row (row.skill.name)}
+      {#if row.kind === "registry"}
+        {@const skill = row.skill}
+        <SettingsRow label={skill.name} description="From skills.sh · {skill.source}" testId="agent-profile-registry-skill">
+          {#snippet control()}
             <Button variant="ghost" size="sm" class="text-muted-foreground hover:text-destructive" onclick={() => remove(agentProfileKeyOf(skill))} aria-label="Remove {skill.name}">Remove</Button>
-          </span>
-        {/snippet}
-      </SettingsRow>
-    {/each}
-    {#each writtenSkills as skill (skill.name)}
-      <SettingsRow
-        label={skill.name}
-        description="Hand-written · {skill.fileCount} {skill.fileCount === 1 ? 'file' : 'files'} · {skill.providers.map(providerLabel).join(', ')}"
-        testId="agent-profile-written-skill"
-      >
-        {#snippet labelExtra()}
-          {#if skill.disabled}<span class="ml-2 text-chrome-dense text-muted-foreground">Off on every host</span>{/if}
-        {/snippet}
-        {#snippet control()}
-          <span class="flex gap-1.5">
-            <Button variant="ghost" size="sm" onclick={() => setDisabled(skill.keys, !skill.disabled)} aria-label="{skill.disabled ? 'Enable' : 'Disable'} {skill.name}">{skill.disabled ? "Enable" : "Disable"}</Button>
+          {/snippet}
+        </SettingsRow>
+      {:else}
+        {@const skill = row.skill}
+        <SettingsRow
+          label={skill.name}
+          description="Hand-written · {skill.fileCount} {skill.fileCount === 1 ? 'file' : 'files'} · {skill.providers.map(providerLabel).join(', ')}"
+          testId="agent-profile-written-skill"
+        >
+          {#snippet control()}
             <Button variant="ghost" size="sm" class="text-muted-foreground hover:text-destructive" onclick={() => remove(...skill.keys)} aria-label="Remove {skill.name}">Remove</Button>
-          </span>
-        {/snippet}
-      </SettingsRow>
+          {/snippet}
+        </SettingsRow>
+      {/if}
     {/each}
+    <ShowMoreRow hiddenCount={page.hiddenCount} {expanded} noun="skills" onToggle={toggleExpanded} />
   </SettingsSection>
 {/if}

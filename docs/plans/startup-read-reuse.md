@@ -110,9 +110,9 @@ to keep the mark visible during continued typing.
 
 ## Session shelf and queue reads
 
-Settle and snooze commands subscribe before sending the mutation. The host change
-event owns the shelf read on desktop, web, and mobile; the command does not issue
-a second read. If that event read is still pending, the command waits for it.
+Settle, snooze and archive commands answer the state they leave, and the host's
+change event carries the same state (`docs/plans/session-archive.md`). A client
+writes either one; neither one causes a read.
 
 Mounted queue views share one initial read per session and host API. Cache writes
 and remounts do not read again. A reconnect or an explicit recovery command reads

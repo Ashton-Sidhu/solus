@@ -8,7 +8,7 @@ import { Database } from 'bun:sqlite'
 import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/execution/agents/agent-backend'
 import type { AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 import { FIVE_HOUR_WINDOW_MINS } from '@solus/contracts/types'
-import type { AgentMetadata, IpcContext, NormalizedEvent, SessionRunInput } from '@solus/contracts/types'
+import type { AgentId, AgentMetadata, IpcContext, NormalizedEvent, SessionRunInput } from '@solus/contracts/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -52,8 +52,12 @@ class Permissions implements PermissionResponder {
 }
 
 class Backend extends EventEmitter implements AgentBackend {
-  readonly id = 'codex' as const
-  readonly metadata: AgentMetadata = { id: 'codex', label: 'Codex', models: [], defaultModel: 'gpt-test' }
+  readonly metadata: AgentMetadata
+  readonly requests: AgentRunRequest[] = []
+  constructor(readonly id: 'codex' | 'claude-code' = 'codex') {
+    super()
+    this.metadata = { id, label: id, models: [], defaultModel: 'gpt-test' }
+  }
   readonly permissions = new Permissions()
   readonly handles = new Map<string, RunHandle>()
   readonly pending = new Set<RunHandle>()
@@ -67,6 +71,7 @@ class Backend extends EventEmitter implements AgentBackend {
   }
 
   startRun(request: AgentRunRequest): RunHandle {
+    this.requests.push(request)
     const threadId = (request.conversation?.kind === 'resume' ? request.conversation.threadId : null) ?? `thread-${this.starts + 1}`
     let resolve!: () => void
     let reject!: (error: Error) => void
@@ -160,9 +165,14 @@ async function park(
   resetsInMs: number | null,
   rateLimitBehavior: 'ask' | 'queue' = 'ask',
   promptSource: 'typed' | 'agent' | 'automation' = 'typed',
+  otherProvider?: Backend,
 ): Promise<Parked> {
   const backend = new Backend()
-  const plane = new sessionRuntimeModule.SessionRuntime(new Map([['codex', backend]]))
+  const backends = new Map<AgentId, AgentBackend>([['codex', backend]])
+  if (otherProvider) backends.set(otherProvider.id, otherProvider)
+  const plane = new sessionRuntimeModule.SessionRuntime(backends, {
+    buildHandoff: async (oldSessionId) => ({ transcriptFilePath: `/tmp/${oldSessionId}.md`, reasoningFilePath: null }),
+  })
   plane.on('error', () => {})
   const events: NormalizedEvent[] = []
   plane.on('event', (_sessionId: string, event: NormalizedEvent) => { events.push(event) })
@@ -470,6 +480,44 @@ describe.serial('SessionRuntime rate-limit park teardown', () => {
     await dispatched
     expect(backend.starts).toBe(2)
     plane.shutdown()
+  })
+
+  test('a prompt on another provider abandons the parked prompt and runs after a handoff (plans/021)', async () => {
+    const settings = await import('@solus/server/host/settings')
+    const snapshot = settings.getHostConfig()
+    spyOn(settings, 'getHostConfig').mockReturnValue({
+      ...snapshot, config: { ...snapshot.config, rateLimitBehavior: 'queue' },
+    })
+    const claude = new Backend('claude-code')
+    const { plane, events } = await park(60_000, 'queue', 'typed', claude)
+    try {
+      const parked = events.find((event) => event.type === 'prompt_queued') as { queueId: string } | undefined
+      expect(parked).toBeDefined()
+
+      // WHY: a pick alone keeps the parked prompt and its card (client-side);
+      // the send on another provider is the user leaving the spent provider,
+      // so the prompt that provider was holding goes, and the new one runs now.
+      const lifecycle = await plane.runTurn({
+        target: { kind: 'session', sessionId: SESSION_ID }, sessionId: SESSION_ID, tools: [],
+        input: { ...input('queue'), provider: 'claude-code', agentSessionId: 'thread-1', model: 'claude-test', preferredModel: 'claude-test' },
+        options: { prompt: 'try claude', promptSource: 'typed' },
+      })
+      lifecycle.done.catch(() => {})
+      expect(lifecycle.disposition).toBe('started')
+      await lifecycle.agentSessionId
+
+      expect(events).toContainEqual({ type: 'prompt_dequeued', queueId: parked!.queueId })
+      expect(events.filter((event) => event.type === 'rate_limit_resolved')).toHaveLength(1)
+      expect(plane.scheduler.queuedPromptsForSession(SESSION_ID)).toEqual([])
+      expect(events.flatMap((event) => event.type === 'activity' ? [event.activity] : []))
+        .toContainEqual(expect.objectContaining({ kind: 'agent_switched', provider: 'claude-code', fromProvider: 'codex', model: 'claude-test' }))
+      expect(claude.requests).toHaveLength(1)
+      expect(claude.requests[0].systemPrompt).toContain('previously run by codex')
+    } finally {
+      plane.shutdown()
+      // The suite shares one session id and database; later tests expect its codex-only lineage.
+      db.getDb().prepare('DELETE FROM session_lineage_members WHERE session_id = ?').run(SESSION_ID)
+    }
   })
 
   test('cancelling the last prompt a limit holds settles the session', async () => {

@@ -7,7 +7,6 @@
     ChevronRight as CaretRightIcon,
     Check as CheckIcon,
     Code as CodeIcon,
-    LoaderCircle as SpinnerGapIcon,
     Sparkles as SparklesIcon,
     Zap as LightningIcon,
   } from "@lucide/svelte";
@@ -113,10 +112,8 @@
   const isBusy = $derived(
     !detached && (sess?.status === "running" || sess?.status === "connecting"),
   );
-  const handoffInProgress = $derived(!detached && session.config.handoffInProgress);
-  let pendingHandoffAgent = $state<AgentId | null>(null);
 
-  const activeAgent = $derived(selection?.provider ?? pendingHandoffAgent ?? ctx.activeAgent);
+  const activeAgent = $derived(selection?.provider ?? ctx.activeAgent);
 
   const metadata = $derived.by(() => {
     if (!agents) return agentContext.metadata;
@@ -154,9 +151,7 @@
   const currentModelId = $derived(
     selection
       ? (selection.modelId ?? defaultModel)
-      : pendingHandoffAgent
-        ? defaultModel
-        : (ctx.model || defaultModel),
+      : (ctx.model || defaultModel),
   );
   const isAuto = $derived(currentModelId === AUTO_MODEL_ID);
   const modelLabel = $derived(
@@ -165,16 +160,13 @@
 
   // Reasoning — the primary knob, surfaced inline in the chip + menu root.
   const reasoningEffort = $derived(
-    selection?.reasoningEffort ??
-      (pendingHandoffAgent && currentModelId
-        ? defaultReasoningFor(pendingHandoffAgent, currentModelId)
-        : ctx.reasoningEffort),
+    selection?.reasoningEffort ?? ctx.reasoningEffort,
   );
   const reasoningLevels = $derived(
     isAuto ? reasoningLevelsFor(activeAgent, defaultModel) : detached ? reasoningLevelsFor(activeAgent, currentModelId) : ctx.reasoningLevels,
   );
   const reasoningLabel = $derived(REASONING_EFFORT_LABELS[reasoningEffort] ?? "High");
-  const fastMode = $derived(selection?.fastMode ?? (pendingHandoffAgent ? false : ctx.fastMode));
+  const fastMode = $derived(selection?.fastMode ?? ctx.fastMode);
 
   // Agent. Unavailable agents stay on the list, disabled: dropping them left the
   // flyout blank whenever a binary probe came back empty, with nothing on screen
@@ -233,7 +225,6 @@
     // An unaddressed shortcut targets the primary composer. This includes a
     // detached new-session draft, whose model choice is local until dispatch.
     if (!isSessionSettingsShortcutTarget({ isPrimary, tabId, targetTabId })) return;
-    if (handoffInProgress) return;
     // Multiple mounted conversation surfaces can each render a SessionChip and
     // receive this shortcut. Only the one in the visible layout should open
     // (a display:none ancestor reports offsetParent === null).
@@ -296,10 +287,7 @@
       onSelectionChange?.(selection);
       return;
     }
-    pendingHandoffAgent = id;
-    void session.config.switchActiveAgent(id, tabId ?? draftId).finally(() => {
-      if (pendingHandoffAgent === id) pendingHandoffAgent = null;
-    });
+    session.config.switchActiveAgent(id, tabId ?? draftId);
   }
 
   function applyFastMode(modelId: string, enabled: boolean) {
@@ -357,7 +345,6 @@
   }
 
   function handlePickerKeyDown(event: KeyboardEvent) {
-    if (handoffInProgress) return;
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     const focusedItem =
       event.target instanceof HTMLElement
@@ -433,7 +420,7 @@
     if (nextOpen) legacyExpanded = isLegacyModel(activeAgent, currentModelId);
   }}
 >
-  <DropdownMenu.Trigger disabled={disabled || handoffInProgress} bind:ref={triggerEl}>
+  <DropdownMenu.Trigger {disabled} bind:ref={triggerEl}>
     {#snippet child({ props })}
       <TooltipUI.Root>
         <TooltipUI.Trigger>
@@ -446,7 +433,7 @@
                  lets this box shrink past its content, but the glyph, the
                  reasoning label and the caret are all rigid, so without a clip
                  they paint outside the border box and over the neighbour. -->
-            <button {...tooltipProps} {...props} data-slot="session-chip" type="button" aria-label={ariaLabel} class={cn("flex h-[1.875rem] min-w-0 items-center gap-1.5 overflow-hidden rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-workspace-chrome text-(--solus-text-tertiary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)", open && "bg-(--solus-surface-hover)", className)} style="cursor:{disabled || handoffInProgress ? 'not-allowed' : 'pointer'}">
+            <button {...tooltipProps} {...props} data-slot="session-chip" type="button" aria-label={ariaLabel} class={cn("flex h-[1.875rem] min-w-0 items-center gap-1.5 overflow-hidden rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-workspace-chrome text-(--solus-text-tertiary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)", open && "bg-(--solus-surface-hover)", className)} style="cursor:{disabled ? 'not-allowed' : 'pointer'}">
         <!-- Codex's mark is solid black, so it keeps a white plate to stay
              legible in dark mode; the others take the accent directly. Auto
              belongs to no one provider, so it carries a sparkles glyph in the
@@ -478,19 +465,13 @@
           <!-- Rung 2: the reasoning label is the first thing the chip can spend. -->
           <span class="flex-shrink-0 text-(--solus-text-tertiary) @max-[31rem]/composer:hidden">{reasoningLabel}</span>
         {/if}
-        {#if handoffInProgress}
-          <!-- Keep the selected model visible while the provider switch settles;
-               the spinner reports transport state without replacing the choice. -->
-          <SpinnerGapIcon size={11} class="ml-auto flex-shrink-0 animate-spin text-(--solus-text-tertiary) motion-reduce:animate-none" />
-        {:else}
-          <!-- ml-auto is inert while the chip shrink-wraps; it only bites when a
-               call site sets a width floor, keeping the caret on the edge. -->
-          <CaretDownIcon size={12} strokeWidth={2.25} class="ml-auto text-(--solus-text-tertiary) transition-transform duration-150 {open ? 'rotate-180' : ''}" />
-        {/if}
+        <!-- ml-auto is inert while the chip shrink-wraps; it only bites when a
+             call site sets a width floor, keeping the caret on the edge. -->
+        <CaretDownIcon size={12} strokeWidth={2.25} class="ml-auto text-(--solus-text-tertiary) transition-transform duration-150 {open ? 'rotate-180' : ''}" />
       </button>
           {/snippet}
         </TooltipUI.Trigger>
-        <TooltipUI.Content value={open ? null : handoffInProgress ? "Session handoff in progress" : isBusy ? "Changes apply to later work; provider changes are queued" : isAuto && autoNeedsKey ? "Auto needs a TypeSafe key. Until you add one in Settings → Tools, sessions use the General use model." : ariaLabel} />
+        <TooltipUI.Content value={open ? null : isBusy ? "Changes apply to later work; a provider change applies when you send" : isAuto && autoNeedsKey ? "Auto needs a TypeSafe key. Until you add one in Settings → Tools, sessions use the General use model." : ariaLabel} />
       </TooltipUI.Root>
     {/snippet}
   </DropdownMenu.Trigger>
@@ -542,7 +523,6 @@
           {#each modelSections.current as model (model.id)}
             <DropdownMenu.RadioItem
               value={model.id}
-              disabled={handoffInProgress}
               data-picker-column="model"
               data-picker-value={model.id}
               onSelect={() => selectModel(model.id)}
@@ -571,7 +551,6 @@
                  the way down the list, and Enter opens it in place rather than
                  sending the cursor sideways into a second surface. -->
             <DropdownMenu.Item
-              disabled={handoffInProgress}
               closeOnSelect={false}
               aria-expanded={legacyExpanded}
               data-picker-column="model"
@@ -588,7 +567,6 @@
               {#each modelSections.legacy as model (model.id)}
                 <DropdownMenu.RadioItem
                   value={model.id}
-                  disabled={handoffInProgress}
                   data-picker-column="model"
                   data-picker-value={model.id}
                   onSelect={() => selectModel(model.id)}
@@ -614,7 +592,7 @@
             <DropdownMenu.Separator />
             <DropdownMenu.RadioItem
               value={AUTO_MODEL_ID}
-              disabled={handoffInProgress || autoNeedsKey}
+              disabled={autoNeedsKey}
               data-picker-column="model"
               data-picker-value={AUTO_MODEL_ID}
               onSelect={() => selectModel(AUTO_MODEL_ID)}
@@ -646,7 +624,7 @@
                      land a quarter-second late — reads as flicker. -->
                 <DropdownMenu.RadioItem
                   value={level}
-                  disabled={handoffInProgress || (isAuto && !hoveredModelId)}
+                  disabled={isAuto && !hoveredModelId}
                   data-picker-column="reasoning"
                   data-picker-value={level}
                   onSelect={() => selectReasoning(level)}
@@ -671,7 +649,7 @@
               <Switch
                 size="sm"
                 checked={fastMode}
-                disabled={handoffInProgress || isAuto}
+                disabled={isAuto}
                 onCheckedChange={setFastMode}
                 aria-label="Fast mode for {modelLabel}"
               />
@@ -681,7 +659,7 @@
             <DropdownMenu.RadioGroup value={currentModelId ?? ""}>
               <DropdownMenu.RadioItem
                 value={AUTO_MODEL_ID}
-                disabled={handoffInProgress || autoNeedsKey}
+                disabled={autoNeedsKey}
                 data-picker-column="reasoning"
                 data-picker-value={AUTO_MODEL_ID}
                 onSelect={() => selectModel(AUTO_MODEL_ID)}
@@ -707,7 +685,7 @@
                      the menu stays up so its models and levels can follow. The
                      flyout closes on its own once the pointer reaches them. -->
                 {#each agentRows as agent (agent.id)}
-                  <DropdownMenu.RadioItem value={agent.id} disabled={!agent.enabled || handoffInProgress} closeOnSelect={false} onSelect={() => selectAgent(agent.id)}>
+                  <DropdownMenu.RadioItem value={agent.id} disabled={!agent.enabled} closeOnSelect={false} onSelect={() => selectAgent(agent.id)}>
                     <span class="min-w-0 flex-1 truncate">{agent.label}</span>
                     {#if !agent.enabled}
                       <span class="shrink-0 text-xs text-(--solus-text-tertiary)">Not installed</span>
@@ -724,7 +702,7 @@
           <DropdownMenu.RadioGroup value={activeAgent}>
             <DropdownMenu.GroupHeading>Agent</DropdownMenu.GroupHeading>
             {#each agentRows as agent (agent.id)}
-              <DropdownMenu.RadioItem value={agent.id} disabled={!agent.enabled || handoffInProgress} closeOnSelect={false} onSelect={() => selectAgent(agent.id)}>
+              <DropdownMenu.RadioItem value={agent.id} disabled={!agent.enabled} closeOnSelect={false} onSelect={() => selectAgent(agent.id)}>
                 <span class="min-w-0 flex-1 truncate">{agent.label}</span>
               </DropdownMenu.RadioItem>
             {/each}

@@ -31,6 +31,7 @@ import { attachWebSocketTransport } from './transport/websocket'
 import { ClientEventRegistry } from './transport/events/client-event-registry'
 import { HostEventPublisher } from './transport/events/host-event-publisher'
 import { registerSolusApiHandlers } from './transport/solus-api/service-handlers'
+import { onSessionStateChanged } from './data/sessions/session-states'
 
 /**
  * The record service without a listener: the request handler, the live transport,
@@ -133,6 +134,9 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
     },
   })
   const unsubscribeProjects = onWorkspaceProjectsChanged(() => { void events.broadcast('workspaceProjects.changed', {}) })
+  // An organization session's place in the list lives here, not on the machine
+  // that ran it: machines rotate and go offline (docs/plans/session-archive.md).
+  const unsubscribeSessionStates = onSessionStateChanged((sessionId, state) => { void events.broadcast('session.stateChanged', { sessionId, state }) })
   const unsubscribeTasks = onTasksChanged(taskId => {
     // A task's links reach sessions and works: room members are checked again.
     events.forgetRoomAdmissions()
@@ -178,7 +182,7 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
     closeLiveTransport,
     close() {
       return closing ??= (async () => {
-        unsubscribeProjects(); unsubscribeTasks(); unsubscribeWorks(); unsubscribeWorkDeletes(); unsubscribeWorkReviews(); unsubscribeNotifications(); unsubscribeLiveDeletes(); uninstallWorkLive(); unsubscribeShares()
+        unsubscribeProjects(); unsubscribeSessionStates(); unsubscribeTasks(); unsubscribeWorks(); unsubscribeWorkDeletes(); unsubscribeWorkReviews(); unsubscribeNotifications(); unsubscribeLiveDeletes(); uninstallWorkLive(); unsubscribeShares()
         closeLiveTransport()
         // Disconnected rooms write their bodies in the background; finish before the database closes.
         await workLive.flushAll()

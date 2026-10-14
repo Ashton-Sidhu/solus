@@ -125,7 +125,7 @@ export const SOLUS_THEME_SNAPSHOT = {
     '--solus-text-primary': '#2a2618',
     '--solus-art-raised': '#f7f4ec',
     '--solus-text-secondary': '#484538',
-    '--solus-art-surface': '#fcfbf7',
+    '--solus-art-surface': '#fdfcf9',
     '--solus-popover-bg': '#ffffff',
     '--solus-art-border': '#ebe5d8',
     '--solus-art-border-strong': '#d9d0bd',
@@ -277,6 +277,60 @@ const RESIZE_REPORTER = `<script>(function(){
   window.addEventListener("load", report);
 })();</script>`;
 
+// A link the reader clicks goes to the app, which opens it as a chat link
+// opens: a pull request in the workspace, anything else in the system browser.
+// Left alone, a plain link navigated the frame away from the render. Runs
+// after the page's own click handlers, so a page that handles a click keeps
+// it. A web view on a phone has no parent; it intercepts navigation itself.
+const LINK_FORWARDER = `<script>(function(){
+  if (parent === window) return;
+  window.addEventListener("click", function(e){
+    if (!e.isTrusted || e.defaultPrevented || e.button !== 0) return;
+    var path = e.composedPath(), link = null, url;
+    for (var i = 0; i < path.length && !link; i++) {
+      if (path[i] && path[i].matches && path[i].matches("a[href]")) link = path[i];
+    }
+    if (!link) return;
+    try { url = new URL(link.getAttribute("href"), document.baseURI); } catch (x) { return; }
+    if (!/^(https?|mailto):$/.test(url.protocol)) return;
+    e.preventDefault();
+    parent.postMessage({ type: "solus-artifact-link", url: url.href }, "*");
+  });
+})();</script>`;
+
+// A focused frame takes every key, so app shortcuts stopped until the reader
+// clicked out. The app posts the chords it lets a render pass on; the page
+// claims one only when no text field has focus and the page did not handle
+// it. The deciding listener is added while the key dispatches, so it runs
+// after every listener the page has.
+const SHORTCUT_FORWARDER = `<script>(function(){
+  if (parent === window) return;
+  var chords = [];
+  window.addEventListener("message", function(e){
+    var d = e.data;
+    if (e.source === parent && d && d.type === "solus-artifact-shortcuts" && Array.isArray(d.chords)) chords = d.chords;
+  });
+  window.addEventListener("keydown", function(e){
+    var target = e.composedPath()[0];
+    if (!e.isTrusted || e.isComposing) return;
+    if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+    var hit = chords.some(function(c){
+      return c && c.code === e.code && c.metaKey === e.metaKey && c.ctrlKey === e.ctrlKey
+        && c.altKey === e.altKey && c.shiftKey === e.shiftKey;
+    });
+    if (!hit) return;
+    var decide = function(v){
+      window.removeEventListener("keydown", decide);
+      if (v !== e || e.defaultPrevented) return;
+      e.preventDefault();
+      parent.postMessage({ type: "solus-artifact-key", code: e.code, key: e.key, metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey, altKey: e.altKey, shiftKey: e.shiftKey, repeat: e.repeat }, "*");
+    };
+    window.addEventListener("keydown", decide);
+    setTimeout(function(){ window.removeEventListener("keydown", decide); });
+  }, true);
+})();</script>`;
+
 /** The theme stylesheet: tokens read through `read`, which answers the value
  *  of one Solus variable ("" when the theme does not declare it). */
 export function sandboxThemeCss(isDark: boolean, read: (variable: SolusThemeVariable) => string): string {
@@ -326,10 +380,12 @@ export function sandboxThemeCss(isDark: boolean, read: (variable: SolusThemeVari
 
 /** Wrap inner HTML into a full sandbox document: charset, CSP, the theme
  *  stylesheet, and the height reporter, which posts
- *  `{ type: "solus-artifact-height", h }`. `isolated` swaps in the no-network
- *  CSP and adds the lens anchor responder. */
+ *  `{ type: "solus-artifact-height", h }`, and the forwarders that pass app
+ *  shortcuts and link clicks up to a parent frame. `isolated` swaps in the
+ *  no-network CSP and adds the lens anchor responder; it forwards no links,
+ *  because a link out of a lens could carry the change it describes. */
 export function wrapSandboxDocument(inner: string, themeCss: string, isolated = false): string {
   const csp = isolated ? ISOLATED_CSP_META : CSP_META;
-  const responder = isolated ? ANCHOR_RESPONDER : "";
-  return `<meta charset="utf-8">${csp}<style id="solus-artifact-theme">${themeCss}</style>${RESIZE_REPORTER}${responder}${inner}`;
+  const responder = isolated ? ANCHOR_RESPONDER : LINK_FORWARDER;
+  return `<meta charset="utf-8">${csp}<style id="solus-artifact-theme">${themeCss}</style>${RESIZE_REPORTER}${SHORTCUT_FORWARDER}${responder}${inner}`;
 }

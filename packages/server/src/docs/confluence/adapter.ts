@@ -337,7 +337,7 @@ export class ConfluenceDocAdapter implements DocProviderAdapter {
   private async credential(): Promise<AtlassianStoredCredential> {
     const credential = await currentCredential()
     if (!credential) {
-      throw new DocProviderUnavailableError(this.id, 'No Atlassian site is connected, or the connection expired. Reconnect in Settings → Providers.')
+      throw new DocProviderUnavailableError(this.id, 'No Atlassian site is connected, or the connection expired. Reconnect in Settings → Integrations.')
     }
     if (!credential.products.includes('confluence')) {
       throw new DocProviderUnavailableError(this.id, `The connected Atlassian site (${credential.siteUrl}) does not grant Confluence access.`)
@@ -393,11 +393,11 @@ function docFailure(provider: DocProviderId, failure: AtlassianFailure): Error {
   if (/scope does not match/i.test(failure.detail)) {
     return new DocProviderUnavailableError(
       provider,
-      'This Atlassian connection was granted before Solus asked for Confluence page permissions. Disconnect and sign in again in Settings → Providers.',
+      'This Atlassian connection was granted before Solus asked for Confluence page permissions. Disconnect and sign in again in Settings → Integrations.',
     )
   }
   if (failure.status === 401 || failure.status === 403) {
-    return new DocProviderUnavailableError(provider, `${failure.detail} Reconnect the Atlassian site in Settings → Providers.`)
+    return new DocProviderUnavailableError(provider, `${failure.detail} Reconnect the Atlassian site in Settings → Integrations.`)
   }
   return new Error(`Confluence request failed (HTTP ${failure.status}): ${failure.detail}`)
 }

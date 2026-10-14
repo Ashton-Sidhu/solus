@@ -886,8 +886,8 @@ export function ThreadSettingsPickerSheet(
 
 /**
  * An open conversation's settings for its next prompt. A model from the other
- * agent switches the session's agent; on a started session that switch waits
- * in the queue and runs the agent's default model.
+ * agent picks that agent for the next prompt only; the host hands the session
+ * off when that prompt is sent (plans/021).
  */
 export function ThreadSettingsSheet(props: {
   readonly visible: boolean;
@@ -908,18 +908,13 @@ export function ThreadSettingsSheet(props: {
   );
   const onSelectModel = useCallback(
     (option: ModelOption, effort: ReasoningEffort | null, fastMode: boolean | null) => {
-      void (async () => {
-        if (option.provider !== store.controller.run.provider && option.provider !== "opencode") {
-          await store.controller.switchProvider(option.provider);
-        }
-        // Only a session the host has not started switches agent at once.
-        if (store.controller.run.provider !== option.provider) return;
-        store.controller.updateRun({
-          model: option.model,
-          reasoningEffort: effort ?? undefined,
-          fastMode: fastMode ?? undefined,
-        });
-      })();
+      if (option.provider !== "opencode") store.controller.pickProvider(option.provider);
+      if (store.controller.run.provider !== option.provider) return;
+      store.controller.updateRun({
+        model: option.model,
+        reasoningEffort: effort ?? undefined,
+        fastMode: fastMode ?? undefined,
+      });
     },
     [store],
   );

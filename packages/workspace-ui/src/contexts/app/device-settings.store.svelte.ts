@@ -112,6 +112,8 @@ const DEVICE_LAYOUT_FIELDS = {
   lastProject: layoutField<ProjectLocation | null>(projectLocationSchema.nullable().catch(null), null),
   // First-run onboarding has already been through, or skipped.
   onboardingCompleted: layoutField(z.boolean().catch(false), false),
+  // The browser's "Stay signed in" prompt was answered with Import or Don't show again.
+  browserCookiePromptDismissed: layoutField(z.boolean().catch(false), false),
 }
 
 export type DeviceLayoutKey = keyof typeof DEVICE_LAYOUT_FIELDS

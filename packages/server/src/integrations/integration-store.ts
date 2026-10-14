@@ -29,6 +29,7 @@ const integrationRowSchema = z.object({
   name: z.string(),
   url: z.string(),
   auth: z.string(),
+  disabled_tools: z.string(),
   created_by: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
@@ -36,7 +37,7 @@ const integrationRowSchema = z.object({
 
 type IntegrationRow = z.infer<typeof integrationRowSchema>
 
-const INTEGRATION_COLUMNS = sql.raw('id, organization_id, owner_user_id, kind, slug, name, url, auth, created_by, created_at, updated_at')
+const INTEGRATION_COLUMNS = sql.raw('id, organization_id, owner_user_id, kind, slug, name, url, auth, disabled_tools, created_by, created_at, updated_at')
 
 const dialect = new SQLiteSyncDialect()
 
@@ -52,6 +53,7 @@ export interface IntegrationPatch {
   name?: string
   url?: string
   auth?: IntegrationAuth
+  disabledTools?: string[]
 }
 
 /** Whose personal records a read includes: null includes the shared records alone. */
@@ -67,6 +69,7 @@ function integrationFromRow(row: IntegrationRow): Integration {
     name: row.name,
     url: row.url,
     auth: integrationAuthSchema.parse(JSON.parse(row.auth)),
+    disabledTools: z.array(z.string()).parse(JSON.parse(row.disabled_tools)),
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -178,8 +181,9 @@ export class IntegrationStore {
     const name = patch.name ?? existing.name
     const url = patch.url ?? existing.url
     const auth = JSON.stringify(integrationAuthSchema.parse(patch.auth ?? existing.auth))
+    const disabledTools = JSON.stringify([...new Set(patch.disabledTools ?? existing.disabledTools)].sort())
     run(sql`
-      UPDATE integration SET name = ${name}, url = ${url}, auth = ${auth}, updated_at = ${new Date().toISOString()}
+      UPDATE integration SET name = ${name}, url = ${url}, auth = ${auth}, disabled_tools = ${disabledTools}, updated_at = ${new Date().toISOString()}
       WHERE ${scopeClause(scope)} AND id = ${id}
     `)
     return this.get(id, scope)

@@ -34,11 +34,20 @@
     projectRoot: string | undefined;
     profileId: string;
     profileName: string;
+    /** Where the back arrow goes, read aloud: the profile list, or out of the
+     *  "Stay signed in" prompt. */
+    backLabel?: string;
     onBack: () => void;
   }
 
-  let { serverId, projectRoot, profileId, profileName, onBack }: Props =
-    $props();
+  let {
+    serverId,
+    projectRoot,
+    profileId,
+    profileName,
+    backLabel = "Back to browser profiles",
+    onBack,
+  }: Props = $props();
 
   let scan = $state<BrowserCookieSourceScan | null>(null);
   const sources = $derived(partitionSources(scan?.sources ?? []));
@@ -129,7 +138,7 @@
       variant="ghost"
       size="icon-xs"
       class="rounded-full text-(--solus-text-tertiary)"
-      aria-label="Back to browser profiles"
+      aria-label={backLabel}
       onclick={onBack}
     >
       <ChevronLeft />

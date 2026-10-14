@@ -15,7 +15,8 @@ import { getDatabase, type Db } from '../../db/database'
 import { ANY_ORGANIZATION, isAnyOrganization, LOCAL_ORGANIZATION_ID, type RecordScope } from '../../admission/principal'
 import { provisionedOrganizationId } from '../../host/host-category'
 import { scopeClause } from '../scope'
-import { sessionRecords } from './schema'
+import { sessionRecords, sessionStates } from './schema'
+import { stateFromColumns } from './session-state-columns'
 
 /**
  * The collaboration plane's session records
@@ -63,11 +64,25 @@ const recordRowSchema = z.object({
 
 type RecordRow = z.infer<typeof recordRowSchema>
 
-const RECORD_COLUMNS = sql`
-  session_id, organization_id, publication, owner_user_id, provider, project_path, project_remote, runner_host_id, title, custom_title,
-  status, model, reasoning_effort, parent_session_id, root_session_id, created_at, last_activity_at, size,
-  cwd, slug, is_worktree, branch, project_root, delegation_message_id, delegation_depth, delegation_intent, delegation_created_at
-`
+const RECORD_COLUMN_NAMES = [
+  'session_id', 'organization_id', 'publication', 'owner_user_id', 'provider', 'project_path', 'project_remote', 'runner_host_id', 'title', 'custom_title',
+  'status', 'model', 'reasoning_effort', 'parent_session_id', 'root_session_id', 'created_at', 'last_activity_at', 'size',
+  'cwd', 'slug', 'is_worktree', 'branch', 'project_root', 'delegation_message_id', 'delegation_depth', 'delegation_intent', 'delegation_created_at',
+]
+const RECORD_COLUMNS = sql.raw(RECORD_COLUMN_NAMES.join(', '))
+/** The record's columns and its list state, for a read that joins `session_states`. */
+const RECORD_WITH_STATE_COLUMNS = sql.raw([
+  ...RECORD_COLUMN_NAMES.map((name) => `session_records.${name}`),
+  ...['settled_at', 'settled_by', 'snoozed_until', 'snooze_note', 'archived_at'].map((name) => `session_states.${name}`),
+].join(', '))
+
+const recordWithStateRowSchema = recordRowSchema.extend({
+  settled_at: z.number().nullable(),
+  settled_by: z.enum(['person', 'pull-request', 'task', 'idle']).nullable(),
+  snoozed_until: z.number().nullable(),
+  snooze_note: z.string().nullable(),
+  archived_at: z.number().nullable(),
+})
 
 function delegationFromRow(row: RecordRow): SessionRecordDelegation | null {
   if (row.delegation_message_id === null || row.delegation_depth === null || row.delegation_intent === null || row.delegation_created_at === null) return null
@@ -134,13 +149,18 @@ export async function getSessionRecords(scope: RecordScope, sessionIds: readonly
   return records
 }
 
-/** Scoped, authorized seek predicate is applied before LIMIT. The seek must use the same time column. */
+/**
+ * Scoped, authorized seek predicate is applied before LIMIT. The seek must use the same time column.
+ * Each record carries its list state (docs/plans/session-archive.md), read in the same query;
+ * `where` names `session_states` columns for the state filters.
+ */
 export async function readSessionMetadataPage(where: SQL, limit: number, time: 'created_at' | 'last_activity_at' = 'created_at'): Promise<SessionRecord[]> {
-  const rows = recordRowSchema.array().parse(await getDatabase().all(sql`
-    SELECT ${RECORD_COLUMNS} FROM ${sessionRecords}
-    WHERE ${where} ORDER BY ${sql.identifier(time)} DESC, session_id DESC LIMIT ${limit}
+  const rows = recordWithStateRowSchema.array().parse(await getDatabase().all(sql`
+    SELECT ${RECORD_WITH_STATE_COLUMNS} FROM ${sessionRecords}
+    LEFT JOIN ${sessionStates} ON session_states.session_id = session_records.session_id
+    WHERE ${where} ORDER BY session_records.${sql.identifier(time)} DESC, session_records.session_id DESC LIMIT ${limit}
   `))
-  return rows.map(recordFromRow)
+  return rows.map((row) => ({ ...recordFromRow(row), state: stateFromColumns(row) }))
 }
 
 /**

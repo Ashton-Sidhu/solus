@@ -1,6 +1,6 @@
 import { afterPaint } from '../../lib/after-paint'
 import { sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
-import { sessionStatesStore } from '../workspace/session-states.store.svelte'
+import { sessionListStore } from '../workspace/session-list.store.svelte'
 import { TransportDisconnectedError, type ConnectionStatus } from '@solus/client-core/ws-transport'
 import { bootstrapRuntimeTabs, prioritizeTabHydration } from '../workspace/session-bootstrap'
 import type { SessionSidebarStore } from '../workspace/session-sidebar.store.svelte'
@@ -39,7 +39,7 @@ export function refreshRuntime(
     .then(() => {
       void sidebarStore.loadPinnedSessions()
       void sessionPullRequestsStore.load()
-      void sessionStatesStore.load()
+      void sessionListStore.load()
     })
     .catch((error) => logConnectionReadError('session runtime initialization', error))
 
@@ -85,7 +85,7 @@ export function initializeRuntime(
   const stopConnections = serverConnections.onConnectionCreated(() => {
     void sidebarStore.loadPinnedSessions()
     void sessionPullRequestsStore.load()
-    void sessionStatesStore.load()
+    void sessionListStore.load()
   })
 
   // The durable send outbox drains when a host's supervisor reports live:

@@ -109,9 +109,9 @@ function backend(id: AgentId, history: SessionLoadMessage[] = []) {
   return { value: value as unknown as AgentBackend, requests, releaseAll: () => { for (const release of releases.splice(0)) release() } }
 }
 
-function ctx(sessionId: string, agentSessionId: string | null = null, extra: { forked?: boolean; provider?: AgentId } = {}): IpcContext {
+function ctx(sessionId: string, agentSessionId: string | null = null, extra: { forked?: boolean; provider?: AgentId; cwd?: string } = {}): IpcContext {
   return {
-    session: { sessionId, provider: extra.provider ?? 'claude-code', agentSessionId, workingDirectory: '/tmp/project', origin: 'user', forked: extra.forked ?? false },
+    session: { sessionId, provider: extra.provider ?? 'claude-code', agentSessionId, workingDirectory: extra.cwd ?? '/tmp/project', origin: 'user', forked: extra.forked ?? false },
     window: {},
     settings: { activeAgent: 'claude-code' },
     statusBar: { model: null, reasoningEffort: 'medium', permissionMode: 'full-access' },
@@ -119,10 +119,12 @@ function ctx(sessionId: string, agentSessionId: string | null = null, extra: { f
 }
 
 /** A runtime on fake Claude and Codex backends, and every activity it sends, by session. */
-function host(history: SessionLoadMessage[] = []) {
+function host(history: SessionLoadMessage[] = [], handoffs: string[] = []) {
   const claude = backend('claude-code', history)
   const codex = backend('codex')
-  const runtime = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', claude.value], ['codex', codex.value]]))
+  const runtime = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', claude.value], ['codex', codex.value]]), {
+    buildHandoff: async (oldSessionId) => { handoffs.push(oldSessionId); return { transcriptFilePath: `/tmp/${oldSessionId}.md`, reasoningFilePath: null } },
+  })
   runtime.on('error', () => {})
   cleanups.push(() => { claude.releaseAll(); codex.releaseAll(); runtime.shutdown() })
   const sent: Array<{ sessionId: string; activity: Activity }> = []
@@ -243,6 +245,107 @@ describe('an agent switch', () => {
     const switches = loaded.filter((message) => message.activity?.kind === 'agent_switched')
     expect(switches).toHaveLength(1)
     expect(switches[0].activity).toMatchObject({ provider: 'codex', fromProvider: 'claude-code', fromModel: 'claude-opus-5', by: { kind: 'system' } })
+  })
+})
+
+describe('a prompt on another provider (plans/021)', () => {
+  // The launcher refuses a working directory that does not exist.
+  const at = (sessionId: string, agentSessionId: string | null = null, provider?: AgentId) => ctx(sessionId, agentSessionId, { provider, cwd: dataDir })
+  const switches = (sent: Array<{ activity: Activity }>) => sent.filter(({ activity }) => activity.kind === 'agent_switched').map(({ activity }) => activity)
+
+  async function idleClaudeSession(sessionId: string) {
+    const handoffs: string[] = []
+    const harness = host([], handoffs)
+    await harness.runtime.dispatch.submitPrompt(at(sessionId), { prompt: 'start' })
+    await until(() => harness.runtime.agentSessionIdFor(sessionId) === 'claude-code-thread-1')
+    harness.claude.releaseAll()
+    await until(() => !harness.runtime.statuses.isSessionBusy(sessionId))
+    // The settled turn's own writes finish first: a lineage write from the test
+    // body would otherwise land inside their open transaction.
+    await db.withAsyncTx(async () => {})
+    return { ...harness, handoffs }
+  }
+
+  test('while idle hands the session off once, then runs the prompt on the new provider with the handoff seed', async () => {
+    const { runtime, codex, sent, handoffs } = await idleClaudeSession('p1')
+
+    await runtime.dispatch.submitPrompt(at('p1', 'claude-code-thread-1', 'codex'), { prompt: 'go on in codex' })
+    await until(() => codex.requests.length === 1)
+
+    // WHY: the pick was only composer state; the send is the switch. One
+    // divider, from the old thread provider to the new one, and the new
+    // provider starts a thread seeded from the old one rather than resuming it.
+    expect(switches(sent)).toEqual([expect.objectContaining({ provider: 'codex', fromProvider: 'claude-code' })])
+    expect(codex.requests[0].prompt).toContain('go on in codex')
+    expect(codex.requests[0].conversation?.kind).not.toBe('resume')
+    expect(codex.requests[0].systemPrompt).toContain('previously run by claude-code')
+    expect(handoffs).toContain('claude-code-thread-1')
+    await until(() => lineage.resolveSessionLineageById('p1')?.active.providerSessionId === 'codex-thread-1')
+    expect(lineage.resolveSessionLineageById('p1')?.active.provider).toBe('codex')
+    codex.releaseAll()
+  })
+
+  test('while busy queues; an earlier queued prompt runs on the old provider and the handoff happens when the new one starts', async () => {
+    const { runtime, claude, codex, sent } = host()
+    await runtime.dispatch.submitPrompt(at('p2'), { prompt: 'start' })
+    await until(() => runtime.agentSessionIdFor('p2') === 'claude-code-thread-1' && runtime.statuses.isSessionBusy('p2'))
+
+    await runtime.dispatch.submitPrompt(at('p2', 'claude-code-thread-1'), { prompt: 'more claude', delivery: 'queue' })
+    // Not a steer: the fake backends cannot steer, so a steer attempt would throw.
+    const queued = await runtime.dispatch.submitPrompt(at('p2', 'claude-code-thread-1', 'codex'), { prompt: 'then codex' })
+    expect(queued.disposition).toBe('queued')
+    expect(switches(sent)).toEqual([])
+
+    claude.releaseAll()
+    await until(() => claude.requests.length === 2)
+    expect(claude.requests[1].prompt).toContain('more claude')
+    expect(codex.requests).toHaveLength(0)
+    expect(switches(sent)).toEqual([])
+
+    claude.releaseAll()
+    await until(() => codex.requests.length === 1)
+    expect(codex.requests[0].prompt).toContain('then codex')
+    expect(codex.requests[0].systemPrompt).toContain('previously run by claude-code')
+    expect(switches(sent)).toEqual([expect.objectContaining({ provider: 'codex', fromProvider: 'claude-code' })])
+    codex.releaseAll()
+  })
+
+  test('a model change inside one provider is no handoff', async () => {
+    const { runtime, claude, sent, handoffs } = await idleClaudeSession('p3')
+    const next = at('p3', 'claude-code-thread-1')
+    next.statusBar.model = 'claude-sonnet-5'
+    await runtime.dispatch.submitPrompt(next, { prompt: 'smaller model' })
+    await until(() => claude.requests.length === 2)
+    expect(claude.requests[1].conversation).toEqual({ kind: 'resume', threadId: 'claude-code-thread-1' })
+    expect(switches(sent)).toEqual([])
+    expect(handoffs).toEqual([])
+    claude.releaseAll()
+  })
+
+  test('a provisional member from an older client still starts on its provider, and a prompt on the provider it left takes the session back', async () => {
+    const { runtime, claude, codex, sent } = await idleClaudeSession('p4')
+    // An older client switched by RPC at pick time and left a provisional member.
+    await runtime.handoffs.switchSessionProvider('p4', 'codex', 'claude-code-thread-1', actors.memberActor('bob', 'Bob'))
+    expect(switches(sent)).toHaveLength(1)
+
+    await runtime.dispatch.submitPrompt(at('p4', null, 'claude-code'), { prompt: 'back to claude' })
+    await until(() => claude.requests.length === 2)
+    // WHY: the pick back is a send now, so the same thread continues; no new
+    // provider started and the session reads its old thread again.
+    expect(claude.requests[1].conversation).toEqual({ kind: 'resume', threadId: 'claude-code-thread-1' })
+    expect(codex.requests).toHaveLength(0)
+    claude.releaseAll()
+    await until(() => !runtime.statuses.isSessionBusy('p4'))
+    await db.withAsyncTx(async () => {})
+    // The fake provider answers a resume with a fresh id; the lineage follows it.
+    const thread = lineage.resolveSessionLineageById('p4')?.active
+    expect(thread?.provider).toBe('claude-code')
+
+    await runtime.handoffs.switchSessionProvider('p4', 'codex', thread!.providerSessionId, actors.memberActor('bob', 'Bob'))
+    await runtime.dispatch.submitPrompt(at('p4', null, 'codex'), { prompt: 'codex after all' })
+    await until(() => codex.requests.length === 1)
+    expect(codex.requests[0].systemPrompt).toContain('previously run by claude-code')
+    codex.releaseAll()
   })
 })
 

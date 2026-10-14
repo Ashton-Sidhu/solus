@@ -10,10 +10,11 @@ import { effectiveSnoozed, snoozeWakeLabel } from "./thread-snooze";
 
 /**
  * Thread List v2 model on Solus data. A T3 thread is a Solus session; its
- * list state (settled, snoozed) is the host's `SessionState`; its live status
- * is the last `session.statusChanged` the host sent; its pull requests are the
- * session's links. T3 concepts Solus does not have (pins, a saved arrangement,
- * unsent tasks, archive) are not modelled.
+ * list state (settled, snoozed, archived) is the host's `SessionState`; its
+ * live status is the last `session.statusChanged` the host sent; its pull
+ * requests are the session's links. An archived thread is not in the list;
+ * a search also finds it (docs/plans/session-archive.md). T3 concepts Solus
+ * does not have (pins, a saved arrangement, unsent tasks) are not modelled.
  *
  * Six visual states. Color distinguishes approval, input, active work, and
  * failures. Ready is the unlabeled resting state; waiting is the agent parked
@@ -28,7 +29,7 @@ export type ThreadListV2Status =
   | "failed"
   | "limited"
   | "ready";
-export type ThreadListV2SwipeAction = "settle" | "unsettle" | "snooze" | "unsnooze";
+export type ThreadListV2SwipeAction = "settle" | "unsettle" | "snooze" | "unsnooze" | "unarchive";
 
 /** The name a session is listed under. */
 export function threadTitle(record: Pick<SessionRecord, "customTitle" | "title" | "slug">): string {
@@ -79,10 +80,15 @@ export function resolveThreadListV2SwipeActions(input: {
   readonly snoozable: boolean;
   /** Row is on the snoozed shelf. */
   readonly snoozed?: boolean;
+  /** Row is an archived thread a search found. */
+  readonly archived?: boolean;
 }): {
   readonly primary: Exclude<ThreadListV2SwipeAction, "snooze">;
   readonly secondary: "snooze" | null;
 } {
+  if (input.archived === true) {
+    return { primary: "unarchive", secondary: null };
+  }
   if (input.snoozed === true) {
     return { primary: "unsnooze", secondary: null };
   }
@@ -242,6 +248,8 @@ export interface ThreadListV2Item {
   readonly variant: "card" | "slim";
   /** Snoozed-shelf row: shows the wake countdown and offers Wake. */
   readonly snoozed: boolean;
+  /** Archived row a search found: offers Return to List. */
+  readonly archived?: boolean;
   readonly isLast: boolean;
 }
 
@@ -258,6 +266,10 @@ export interface ThreadListV2Layout {
   readonly settledCount: number;
   /** Index in `items` where the Settled shelf header belongs. */
   readonly settledShelfHeaderIndex: number | null;
+  /** Archived threads the search found; zero while nothing is searched. */
+  readonly archivedCount: number;
+  /** Index in `items` where the Archived section header belongs. */
+  readonly archivedHeaderIndex: number | null;
   /** Soonest wake time among snoozed threads, or null. Callers arm a timeout
       at this boundary so the list re-partitions the moment a snooze expires
       instead of on the next minute tick. */
@@ -301,10 +313,17 @@ export interface ThreadListV2SettledShelfListItem {
   readonly disabled: boolean;
 }
 
+export interface ThreadListV2ArchivedSectionListItem {
+  readonly type: "v2-archived-section";
+  readonly key: "v2-archived-section";
+  readonly count: number;
+}
+
 export type ThreadListV2ListItem =
   | ThreadListV2ThreadListItem
   | ThreadListV2SnoozedShelfListItem
-  | ThreadListV2SettledShelfListItem;
+  | ThreadListV2SettledShelfListItem
+  | ThreadListV2ArchivedSectionListItem;
 
 /** Narrows a wider list-item union (e.g. the sidebar's show-more row) to the
     v2 item kinds the shared equality understands. */
@@ -314,7 +333,8 @@ export function isThreadListV2ListItem(value: {
   return (
     value.type === "v2-thread" ||
     value.type === "v2-snoozed-shelf" ||
-    value.type === "v2-settled-shelf"
+    value.type === "v2-settled-shelf" ||
+    value.type === "v2-archived-section"
   );
 }
 
@@ -366,6 +386,7 @@ export function threadListV2ListItemsAreEqual(
         sameThreadRow(previous, item) &&
         previous.item.variant === item.item.variant &&
         previous.item.snoozed === item.item.snoozed &&
+        previous.item.archived === item.item.archived &&
         previous.status === item.status &&
         samePr(previous.pr, item.pr) &&
         previous.snoozeWakeLabelText === item.snoozeWakeLabelText &&
@@ -387,12 +408,15 @@ export function threadListV2ListItemsAreEqual(
         previous.expanded === item.expanded &&
         previous.disabled === item.disabled
       );
+    case "v2-archived-section":
+      return previous.type === "v2-archived-section" && previous.count === item.count;
   }
 }
 
 /** What the list knows about every session beyond its record. */
 export interface ThreadListV2Facts {
-  /** `SessionState` by thread key; a session with none is active. */
+  /** `SessionState` by thread key, as the host announced or answered it
+      after the record was read. It overrides the record's state. */
   readonly shelf: ReadonlyMap<string, SessionState>;
   /** Last live status by thread key. */
   readonly liveStatus: ReadonlyMap<string, SessionStatus>;
@@ -402,8 +426,15 @@ export interface ThreadListV2Facts {
   readonly pullRequests: ReadonlyMap<string, ReadonlyArray<SessionPullRequestLink>>;
 }
 
+/** Where a thread is in the list: the latest state the host announced, else
+    the one its record carries. Null is active. */
+export function threadState(thread: SolusThreadShell, facts: ThreadListV2Facts): SessionState | null {
+  return facts.shelf.get(thread.key) ?? thread.record.state ?? null;
+}
+
 /**
- * Builds the shared mobile order: active → snoozed shelf → settled. Parked
+ * Builds the shared mobile order: active → snoozed shelf → settled →
+ * archived search results. Parked
  * work remains reachable without competing with either the inbox or settled
  * history.
  */
@@ -416,6 +447,8 @@ export function buildThreadListV2ListItems(input: {
   readonly settledCount?: number;
   readonly settledShelfExpanded?: boolean;
   readonly settledShelfHeaderIndex?: number | null;
+  readonly archivedCount?: number;
+  readonly archivedHeaderIndex?: number | null;
   /** The minute clock, epoch milliseconds. */
   readonly now: number;
   /** True while the shelf expansion preferences are still loading. */
@@ -423,14 +456,14 @@ export function buildThreadListV2ListItems(input: {
 }): ThreadListV2ListItem[] {
   const threadItems = input.items.map((item): ThreadListV2ListItem => {
     const key = item.thread.key;
-    const state = input.facts.shelf.get(key);
+    const state = threadState(item.thread, input.facts);
     const status = resolveThreadListV2Status(item.thread.record, input.facts.liveStatus.get(key));
     const snoozeWakeLabelText =
       item.snoozed && state?.snoozedUntil != null
         ? snoozeWakeLabel(state.snoozedUntil, input.now)
         : undefined;
     const snoozePresetMinute =
-      !item.snoozed && canSnoozeThread(status) ? String(input.now) : undefined;
+      !item.snoozed && !item.archived && canSnoozeThread(status) ? String(input.now) : undefined;
     return {
       type: "v2-thread",
       key: `v2-thread:${key}`,
@@ -448,8 +481,11 @@ export function buildThreadListV2ListItems(input: {
   const snoozedShelfHeaderIndex = input.snoozedShelfHeaderIndex ?? null;
   const settledCount = input.settledCount ?? 0;
   const settledShelfHeaderIndex = input.settledShelfHeaderIndex ?? null;
-  const activeEnd = snoozedShelfHeaderIndex ?? settledShelfHeaderIndex ?? threadItems.length;
-  const snoozedEnd = settledShelfHeaderIndex ?? threadItems.length;
+  const archivedCount = input.archivedCount ?? 0;
+  const archivedHeaderIndex = input.archivedHeaderIndex ?? null;
+  const settledEnd = archivedHeaderIndex ?? threadItems.length;
+  const activeEnd = snoozedShelfHeaderIndex ?? settledShelfHeaderIndex ?? settledEnd;
+  const snoozedEnd = settledShelfHeaderIndex ?? settledEnd;
   const result: ThreadListV2ListItem[] = threadItems.slice(0, activeEnd);
   const shelfDisabled = input.shelfPreferencesLoading === true;
   if (snoozedShelfHeaderIndex !== null && snoozedCount > 0) {
@@ -470,7 +506,11 @@ export function buildThreadListV2ListItems(input: {
       expanded: input.settledShelfExpanded !== false,
       disabled: shelfDisabled,
     });
-    result.push(...threadItems.slice(settledShelfHeaderIndex));
+    result.push(...threadItems.slice(settledShelfHeaderIndex, settledEnd));
+  }
+  if (archivedHeaderIndex !== null && archivedCount > 0) {
+    result.push({ type: "v2-archived-section", key: "v2-archived-section", count: archivedCount });
+    result.push(...threadItems.slice(archivedHeaderIndex));
   }
   // Hairlines depend on the final neighbour, so they are stamped after the
   // splice: a recycled cell only re-renders when its divider actually flips.
@@ -488,12 +528,12 @@ export function buildThreadListV2ListItems(input: {
 function resolveThreadListV2ItemTimeLabel(
   item: ThreadListV2Item,
   status: ThreadListV2Status,
-  state: SessionState | undefined,
+  state: SessionState | null,
   showSnoozeWakeLabel: boolean,
 ): string {
   if (showSnoozeWakeLabel) return "";
   if (item.variant === "card" && status !== "ready") return "";
-  const settledAt = item.variant === "slim" && !item.snoozed ? (state?.settledAt ?? null) : null;
+  const settledAt = item.variant === "slim" && !item.snoozed && !item.archived ? (state?.settledAt ?? null) : null;
   return relativeTime(new Date(settledAt ?? item.thread.record.lastActivityAt).toISOString());
 }
 
@@ -514,10 +554,14 @@ function matchesSearch(
 /**
  * Partitions visible threads into the active card block and the snoozed and
  * settled shelves. Active threads keep creation order, newest first, so a
- * working thread never jumps; settled threads read newest settle first.
+ * working thread never jumps; settled threads read newest settle first. An
+ * archived thread is not in the list; while the person searches, the archived
+ * threads that match follow the shelves, newest activity first.
  */
 export function buildThreadListV2Items(input: {
   readonly threads: ReadonlyArray<SolusThreadShell>;
+  /** Recent archived threads, which only a search shows. */
+  readonly archivedThreads?: ReadonlyArray<SolusThreadShell>;
   readonly facts: ThreadListV2Facts;
   readonly hostId: string | null;
   /** Project keys of the selected project scope, or null for every project. */
@@ -544,8 +588,14 @@ export function buildThreadListV2Items(input: {
   const active: SolusThreadShell[] = [];
   const settled: SolusThreadShell[] = [];
   const snoozed: SolusThreadShell[] = [];
+  const archived: SolusThreadShell[] = [];
   let nextSnoozeWakeAt: number | null = null;
-  for (const thread of input.threads) {
+  // A thread archived or returned since the last read is still in the array
+  // it was read into; its state decides where it shows.
+  const seen = new Set<string>();
+  for (const thread of [...input.threads, ...(input.archivedThreads ?? [])]) {
+    if (seen.has(thread.key)) continue;
+    seen.add(thread.key);
     if (input.hostId !== null && thread.hostId !== input.hostId) continue;
     if (
       input.projectKeys != null &&
@@ -554,7 +604,12 @@ export function buildThreadListV2Items(input: {
       continue;
     }
     if (!matchesSearch(thread, query, input.facts.pullRequests.get(thread.key))) continue;
-    const state = input.facts.shelf.get(thread.key);
+    const state = threadState(thread, input.facts);
+    if (state?.archivedAt != null) {
+      // The open thread keeps its row, as a desktop tab keeps an archived session.
+      if (query.length > 0 || thread.key === input.selectedThreadKey) archived.push(thread);
+      continue;
+    }
     // Snooze outranks settlement until the thread wakes.
     if (effectiveSnoozed(state, now)) {
       snoozed.push(thread);
@@ -573,7 +628,7 @@ export function buildThreadListV2Items(input: {
     (left, right) => right.record.createdAt - left.record.createdAt,
   );
   const shelfTime = (thread: SolusThreadShell, field: "settledAt" | "snoozedUntil") =>
-    input.facts.shelf.get(thread.key)?.[field] ?? 0;
+    threadState(thread, input.facts)?.[field] ?? 0;
   const orderedSnoozed = [...snoozed].sort(
     (left, right) => shelfTime(left, "snoozedUntil") - shelfTime(right, "snoozedUntil"),
   );
@@ -609,6 +664,11 @@ export function buildThreadListV2Items(input: {
   for (const thread of visibleSettled) {
     items.push({ thread, variant: "slim", snoozed: false, isLast: false });
   }
+  const archivedHeaderIndex = archived.length > 0 ? items.length : null;
+  archived.sort((left, right) => right.record.lastActivityAt - left.record.lastActivityAt);
+  for (const thread of archived) {
+    items.push({ thread, variant: "slim", snoozed: false, archived: true, isLast: false });
+  }
   const last = items.at(-1);
   if (last) {
     items[items.length - 1] = { ...last, isLast: true };
@@ -620,6 +680,8 @@ export function buildThreadListV2Items(input: {
     snoozedShelfHeaderIndex,
     settledCount: orderedSettled.length,
     settledShelfHeaderIndex,
+    archivedCount: archived.length,
+    archivedHeaderIndex,
     nextSnoozeWakeAt,
   };
 }

@@ -42,7 +42,13 @@ describe('toRootRelativePath', () => {
     expect(toRootRelativePath('/repo', './a.txt')).toBe('a.txt')
     expect(toRootRelativePath('/repo', 'sub/../a.txt')).toBe('a.txt')
     expect(toRootRelativePath('/repo', 'nested//deep/a.txt')).toBe('nested/deep/a.txt')
-    expect(toRootRelativePath('/repo', '  a.txt  ')).toBe('a.txt')
+  })
+
+  test('keeps whitespace that is part of a file name', () => {
+    // WHY: git paths may start or end with spaces; a trimmed path commits or
+    // stages a different file, or none (t3code #12464).
+    expect(toRootRelativePath('/repo', ' leading.txt')).toBe(' leading.txt')
+    expect(toRootRelativePath('/repo', 'trailing.txt ')).toBe('trailing.txt ')
   })
 
   test('rebases an absolute path that is genuinely inside the root', () => {

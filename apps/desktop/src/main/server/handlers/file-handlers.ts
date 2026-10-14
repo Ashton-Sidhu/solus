@@ -113,23 +113,6 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     }
   })
 
-  // Reveals a folder in the desktop's own file manager — Finder on macOS,
-  // Explorer on Windows, the xdg default on Linux.
-  server.register('openInFileManager', async (args) => {
-    const [target] = args
-    try {
-      if (!target || !statSync(target).isDirectory()) return false
-    } catch {
-      return false
-    }
-    const failure = await shell.openPath(target)
-    if (failure) {
-      log.warn('open_in_file_manager_failed', { target, error: failure })
-      return false
-    }
-    return true
-  })
-
   server.register('attachFiles', async () => {
     const win = deps.getWorkspaceWindow()
     if (!win) return null

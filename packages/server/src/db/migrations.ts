@@ -497,6 +497,11 @@ CREATE UNIQUE INDEX integration_slug ON integration (organization_id, COALESCE(o
   // Where a connection's token is kept: on this host, or in the person's account
   // (plans/020-agent-profile.md §5).
   connectionSourceMigration,
+  // The upstream tools an integration's owner turned off, as a JSON array of
+  // tool names (docs/plans/mcp-integrations.md §6.1).
+  `
+ALTER TABLE integration ADD COLUMN disabled_tools TEXT NOT NULL DEFAULT '[]';
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

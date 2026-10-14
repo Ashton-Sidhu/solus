@@ -30,9 +30,10 @@ export function providerUpdateRows(rows: ProviderRow[], updates: ProviderUpdateS
     }
     // Update checks do not establish authentication. Keep the host's sign-in
     // status visible when adding version information, including after an update.
-    if (status.installedVersion) row.detail += ` · ${status.installedVersion} · ${checkStatusLine(status.check)}`
+    // An available release is named by its Update button, not repeated here.
+    if (status.installedVersion) row.detail += status.check.kind === 'available' ? ` · ${status.installedVersion}` : ` · ${status.installedVersion} · ${checkStatusLine(status.check)}`
     else if (status.check.kind === 'error') row.detail += ` · version unknown · ${status.check.message}`
-    if (status.check.kind === 'available') row.secondary = { label: 'Update', run: () => update(status.agent) }
+    if (status.check.kind === 'available') row.update = { label: `Update to ${status.check.latestVersion}`, run: () => update(status.agent) }
   }
   return rows
 }

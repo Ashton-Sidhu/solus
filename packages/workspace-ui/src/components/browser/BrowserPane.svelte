@@ -11,6 +11,7 @@
   } from "@solus/contracts/browser-types";
   import {
     BROWSER_DEFAULT_PROFILE_ID,
+    browserProfileName,
     browserProfilePartition,
   } from "@solus/contracts/browser-types";
   import { localApi } from "@solus/client-core/local-api";
@@ -25,6 +26,7 @@
   import BrowserAnnotationBar from "./BrowserAnnotationBar.svelte";
   import BrowserCloseConfirm from "./BrowserCloseConfirm.svelte";
   import BrowserCommentPopup from "./BrowserCommentPopup.svelte";
+  import BrowserCookiePrompt from "./BrowserCookiePrompt.svelte";
   import BrowserCaptureButton from "./BrowserCaptureButton.svelte";
   import BrowserRecordControl from "./BrowserRecordControl.svelte";
   import BrowserProfileChip from "./BrowserProfileChip.svelte";
@@ -101,6 +103,26 @@
   /** The identity the next page from the picker opens as; `null` is the
    *  project's default. Ephemeral and only this pane's business. */
   let nextProfileId = $state<string | null>(null);
+  const nextPageProfileId = $derived(
+    nextProfileId ?? profileSet?.defaultProfileId ?? BROWSER_DEFAULT_PROFILE_ID,
+  );
+
+  let paneElement = $state<HTMLDivElement | null>(null);
+  /** The "Stay signed in" prompt is offered once per client run, and never
+   *  again after "Don't show again" or an import on this device. */
+  const offersCookiePrompt = $derived(
+    !session.settings.browserCookiePromptDismissed &&
+      !browserStore.cookiePromptDeferred,
+  );
+
+  function closeCookiePrompt(remember: boolean) {
+    browserStore.cookiePromptDeferred = true;
+    if (remember) session.settings.setLayout("browserCookiePromptDismissed", true);
+    // The address field is where the user goes next.
+    paneElement
+      ?.querySelector<HTMLInputElement>('input[aria-label="Browser address"]')
+      ?.focus();
+  }
 
   $effect(() => {
     void browserStore
@@ -695,6 +717,7 @@
 </script>
 
 <div
+  bind:this={paneElement}
   class="relative flex h-full min-h-0 min-w-0 flex-col bg-(--solus-container-bg) {actions.isLeading ||
   isUnderStrip()
     ? ''
@@ -972,9 +995,7 @@
       {#snippet profile()}
         <BrowserProfileChip
           set={profileSet}
-          selectedId={nextProfileId ??
-            profileSet?.defaultProfileId ??
-            BROWSER_DEFAULT_PROFILE_ID}
+          selectedId={nextPageProfileId}
           selection="next"
           onSelect={(profileId) => (nextProfileId = profileId)}
           serverId={profileHostId}
@@ -982,6 +1003,16 @@
         />
       {/snippet}
     </BrowserTargetPicker>
+    <!-- Only before a page exists: no native guest is on screen to cover it. -->
+    {#if !entry && offersCookiePrompt}
+      <BrowserCookiePrompt
+        serverId={profileHostId}
+        {projectRoot}
+        profileId={nextPageProfileId}
+        profileName={browserProfileName(profileSet, nextPageProfileId)}
+        onClose={closeCookiePrompt}
+      />
+    {/if}
   {/if}
 
   <!-- Over the whole pane rather than anchored to the chip that raised it: the

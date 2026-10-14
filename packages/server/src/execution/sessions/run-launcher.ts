@@ -16,7 +16,7 @@ import { unattendedModelInputFor, providerConversationFor } from '../agents/run-
 import { composeHandoffSeed } from '../agents/session-handoff'
 import { buildSystemPrompt } from '../agents/system-hint'
 import { tasksForSession } from '../../data/tasks/task-sessions'
-import { recordSessionPrompt } from '../../data/sessions/session-states'
+import { SessionShelf } from '../../data/sessions/session-states'
 import { DEFAULT_EXECUTION_PREFERENCES } from '@solus/contracts/settings'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { setForeignTaskSnapshot } from '../../data/tasks/foreign-tasks'
@@ -363,6 +363,7 @@ export class RunLauncher {
 
   private async launchRun(request: SessionRunRequest, turnTraceId: string): Promise<StartedRun> {
     request = this.rt.sessionCheckouts.continueInMovedCheckout(request)
+    await this.rt.handoffs.handOffForPrompt(request, request.actor ?? HOST_ACTOR)
     const { input, target, options, sessionId, sourceClientId } = request
     this.failedSetupPrompts.delete(sessionId)
     if (input.preferredModel === AUTO_MODEL_ID) {
@@ -602,10 +603,9 @@ export class RunLauncher {
       ? [...new Set([...(input.additionalDirs || []), resolvedProjectPath])]
       : input.additionalDirs
 
-    // The provider switch itself is instant (see switchSessionProvider); the
-    // handoff transcript is only assembled now, on the first prompt sent to the
-    // new provider. It's a local read (on-disk transcript, no LLM call), so
-    // this stays fast.
+    // The provider switch (`handOffForPrompt`) only moves the lineage; the
+    // handoff transcript is assembled now, for the prompt that asked for it. It's
+    // a local read (on-disk transcript, no LLM call), so this stays fast.
     let handoffPayload: SessionRunInput['handoff']
     if (pendingHandoff) {
       handoffPayload = await dispatchStep(
@@ -680,8 +680,8 @@ export class RunLauncher {
     })
     this.rt.statuses.setStatus(sessionId, newStatus)
     this.rt.statuses.notifyActiveWork()
-    // A prompt is work: a settled or snoozed session is active again.
-    await recordSessionPrompt(sessionId)
+    // A prompt is work: a settled, snoozed, or archived session is active again.
+    await new SessionShelf(sessionId).recordPrompt()
 
     // A session never makes a task of its own: a prompt that names no task
     // runs with none (docs/plans/task-conversation.md, decision 8). A provider

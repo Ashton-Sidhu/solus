@@ -40,6 +40,7 @@
   import { PickerSearches } from "./lib/conversation-search.svelte";
   import { mergeSessionHomes, type SessionHomeHosts } from "../lib/session-home";
   import { serversStore } from "../../../contexts";
+  import { sessionListStore } from "../../../contexts/workspace/session-list.store.svelte";
   import type { PickerSearchMode, PickerSort } from "./lib/picker-search";
   import type { PickerFilters } from "./lib/picker-filters";
   import {
@@ -86,8 +87,12 @@
   let resultMenuOpen = $state(false);
 
   let taskContextMenu = $state<{ task: Task; x: number; y: number } | null>(null);
+  /** A session row's menu: a session of a task, or a conversation the
+   *  hosts listed, which can be archived or returned to the list. */
   let sessionContextMenu = $state<{
-    session: SidebarSessionChild;
+    session: Pick<SidebarSessionChild, "tabId" | "sessionId" | "serverId" | "attention">;
+    /** The conversation's record, which the menu archives or returns. */
+    conversation: SessionMeta | null;
     x: number;
     y: number;
   } | null>(null);
@@ -521,8 +526,33 @@
       taskContextMenu = { task: entry.task, x: event.clientX, y: event.clientY };
     } else if (entry.kind === "session") {
       taskContextMenu = null;
-      sessionContextMenu = { session: entry.session, x: event.clientX, y: event.clientY };
+      sessionContextMenu = { session: entry.session, conversation: null, x: event.clientX, y: event.clientY };
+    } else if (entry.kind === "conversation" && entry.meta.serverId) {
+      taskContextMenu = null;
+      sessionContextMenu = {
+        session: { sessionId: entry.meta.sessionId, serverId: entry.meta.serverId, attention: null },
+        conversation: entry.meta,
+        x: event.clientX,
+        y: event.clientY,
+      };
     }
+  }
+
+  /** Archive a conversation the hosts listed, or return it to the list
+   *  (docs/plans/session-archive.md). Its row keeps its place, with its mark. */
+  function archiveActions(conversation: SessionMeta | null) {
+    const serverId = conversation?.serverId;
+    if (!conversation || !serverId) return {};
+    const setArchived = (isArchived: boolean) => {
+      void sessionListStore.setArchived({ serverId, sessionId: conversation.sessionId, organizationId: conversation.organizationId }, isArchived)
+        .then(() => { conversation.archived = isArchived || undefined; })
+        .catch((error) => toasts.error(isArchived ? "Couldn't archive it" : "Couldn't return it to the list", {
+          description: error instanceof Error ? error.message : String(error),
+        }));
+    };
+    return conversation.archived
+      ? { onUnarchive: () => setArchived(false) }
+      : { onArchive: () => setArchived(true) };
   }
 
   // Selection follows a pointer that *moves*, not one a row scrolls under:
@@ -875,6 +905,7 @@
       onStop: menuSession.attention === "running" && menuSession.tabId
         ? () => session.controls.interruptTabSession(menuSession.tabId!)
         : undefined,
+      ...archiveActions(sessionContextMenu.conversation),
     }}
     portalTarget={layer.el}
     onClose={() => (sessionContextMenu = null)}

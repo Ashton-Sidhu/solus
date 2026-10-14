@@ -37,7 +37,8 @@ async function runProjectFileMutation(
   root: string,
   mutation: ProjectFileMutation,
 ): Promise<ProjectFileMutationResult> {
-  const relativePath = toRootRelativePath(root, mutation.path)
+  // A name the user types in the file tree loses stray outer whitespace.
+  const relativePath = toRootRelativePath(root, mutation.path.trim())
   const target = join(root, relativePath)
 
   switch (mutation.op) {
@@ -55,7 +56,7 @@ async function runProjectFileMutation(
       return { ok: true, path: `${relativePath}/` }
     }
     case 'rename': {
-      const destinationRelative = toRootRelativePath(root, mutation.toPath)
+      const destinationRelative = toRootRelativePath(root, mutation.toPath.trim())
       const destination = join(root, destinationRelative)
       await mkdir(dirname(destination), { recursive: true })
       // `rename` would replace an occupied destination without a word. A

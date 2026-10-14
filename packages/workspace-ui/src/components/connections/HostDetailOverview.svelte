@@ -172,9 +172,8 @@
     >
       {#snippet control()}
         <Button
-          variant="outline"
+          variant="destructive"
           size="sm"
-          class="text-(--solus-status-error) hover:text-(--solus-status-error)"
           onclick={() => void serversStore.remove(host.id)}
         >
           Forget

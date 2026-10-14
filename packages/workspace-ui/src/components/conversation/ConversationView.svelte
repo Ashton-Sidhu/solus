@@ -6,6 +6,7 @@
   import ConversationTurn from "./ConversationTurn.svelte";
   import VirtualTranscript from "./VirtualTranscript.svelte";
   import SessionOriginDivider from "./SessionOriginDivider.svelte";
+  import PendingHandoffDivider from "./PendingHandoffDivider.svelte";
   import { revealTranscriptMatch } from "./lib/transcript-navigation";
   import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { tick, untrack } from "svelte";
@@ -128,10 +129,14 @@
     indexArtifactRevisions(transcript.segments.flatMap((segment) => segment.artifacts)),
   );
   provideArtifactRevisions(() => artifactRevisions);
+  // Only a handoff the host made before its new provider has a thread (plan
+  // acceptance) is still open; a send-time handoff names its model itself.
   const activeHandoffDivider = $derived(
-    sess?.messages.findLast(
-      (message) => message.activity?.kind === "agent_switched" && message.activity.provider === sess.run.provider,
-    ),
+    sess?.handoffPending
+      ? sess.messages.findLast(
+          (message) => message.activity?.kind === "agent_switched" && message.activity.provider === sess.run.provider,
+        )
+      : undefined,
   );
   const activeHandoffTargetModel = $derived.by(() => {
     const provider = sess?.run.provider;
@@ -801,6 +806,8 @@
                 serverId={runHost(sess.run)} sessionId={sess.id} {transcriptItem} />
             {/snippet}
           </VirtualTranscript>
+
+          <PendingHandoffDivider session={sess} />
 
           {#snippet transcriptItem(item: GroupedItem, skipMotion: boolean)}
             <TranscriptItem {item} {skipMotion} {tabId} {linkContext}

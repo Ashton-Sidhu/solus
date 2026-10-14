@@ -73,7 +73,7 @@ export function prepareSupervisorState(runtimeDir: string, dataDir?: string) {
     checkInstallationAccess(runtimeDir)
   } catch (error) {
     supported = false
-    reason = 'Remote updates require a writable server installation with update support. Update this host manually first.'
+    reason = 'Run solus update on this host.'
     void error
   }
 

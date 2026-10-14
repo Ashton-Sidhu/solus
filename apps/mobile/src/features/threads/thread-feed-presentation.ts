@@ -41,6 +41,10 @@ export type ThreadFeedRow =
   | { readonly type: 'compaction'; readonly id: string }
   | { readonly type: 'plan'; readonly id: string }
   | { readonly type: 'worktree-offer'; readonly id: string }
+  /** The host handed the thread to another provider. */
+  | { readonly type: 'handoff'; readonly id: string }
+  /** The composer picked another provider; the next prompt hands off (plans/021). */
+  | { readonly type: 'handoff-pending'; readonly id: string }
   /** The device_screenshot calls of a turn, as one card at the first call's
    *  place: their pictures, or a call's own line while it has none. */
   | { readonly type: 'device-snapshot'; readonly id: string; readonly itemIds: readonly string[] }
@@ -57,10 +61,14 @@ export interface ThreadFeedPresentationInput {
   readonly working: boolean
   readonly expandedTurnIds: ReadonlySet<string>
   readonly expandedWorkGroupIds: ReadonlySet<string>
+  /** The picked provider differs from the thread's: a pending row ends the feed. */
+  readonly handoffPending?: boolean
 }
 
 /** Shared by the trailing live tool row and its Thinking fallback, so the slot keeps its key. */
 export const LIVE_ACTIVITY_ROW_ID = 'live-activity-row'
+
+export const HANDOFF_PENDING_ROW_ID = 'handoff-pending-row'
 
 const START_TURN_ID = 'turn:start'
 
@@ -84,6 +92,7 @@ export function deriveThreadFeedPresentation(input: ThreadFeedPresentationInput)
   if (input.working && !(trailing?.type === 'work-toggle' && trailing.live)) {
     rows.push({ type: 'thinking', id: LIVE_ACTIVITY_ROW_ID, continuesWorkLog: false })
   }
+  if (input.handoffPending) rows.push({ type: 'handoff-pending', id: HANDOFF_PENDING_ROW_ID })
   return markContinuedWorkLogs(rows)
 }
 
@@ -126,13 +135,13 @@ function appendTurnRows(
   const terminalAssistantId = assistants.at(-1)?.id ?? null
   const failed = turn.entries.some((entry) => entry.kind === 'notice' && entry.tone === 'error')
   // A finished turn folds its work behind one row, keeping the first and last
-  // prose, anything that asks for attention (plans, notices, compaction
-  // dividers, worktree offers), device screenshots, and artifacts: the picture
+  // prose, anything that asks for attention (plans, notices, compaction and
+  // handoff dividers, worktree offers), device screenshots, and artifacts: the picture
   // is what the agent saw or showed, not a step it took.
   const hidden = active || failed
     ? new Set<string>()
     : new Set(turn.entries
-        .filter((entry) => entry.id !== firstAssistantId && entry.id !== terminalAssistantId && entry.kind !== 'plan' && entry.kind !== 'notice' && entry.kind !== 'compaction' && entry.kind !== 'worktree_offer' && entry.kind !== 'device_snapshot' && entry.kind !== 'artifact')
+        .filter((entry) => entry.id !== firstAssistantId && entry.id !== terminalAssistantId && entry.kind !== 'plan' && entry.kind !== 'notice' && entry.kind !== 'compaction' && entry.kind !== 'handoff' && entry.kind !== 'worktree_offer' && entry.kind !== 'device_snapshot' && entry.kind !== 'artifact')
         .map((entry) => entry.id))
   const expandedFold = input.expandedTurnIds.has(turn.id)
   let foldPlaced = false
@@ -195,6 +204,8 @@ function appendTurnRows(
       rows.push({ type: 'compaction', id: entry.id })
     } else if (entry.kind === 'worktree_offer') {
       rows.push({ type: 'worktree-offer', id: entry.id })
+    } else if (entry.kind === 'handoff') {
+      rows.push({ type: 'handoff', id: entry.id })
     } else if (entry.kind === 'device_snapshot') {
       if (snapshotIds) snapshotIds.push(entry.id)
       else {

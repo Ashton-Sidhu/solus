@@ -173,11 +173,22 @@ export function savedServerFromDirectory(host: DirectoryHost, directoryUrl: stri
 }
 
 /**
+ * A registered host that is not linked is listed with no route, and a client reaches
+ * it only on its local network (`withNearbyRoutes`). An `https:` page cannot dial a
+ * local address (mixed content), so there it shows only linked hosts. A managed host
+ * is always shown: it has no route while it is stopped, and the page can start it.
+ */
+function isListingReachable(host: DirectoryHost, clientOrigin: string): boolean {
+  return host.kind === 'managed' || host.routes.length > 0 || !clientOrigin.startsWith('https:')
+}
+
+/**
  * Folds the account's directory into the saved hosts (C1). Rows merge by
  * installation id: a host both paired and listed keeps its pairing and gains the
  * tunnel route; a host only listed is saved with the tunnel route alone; a saved
  * host the directory stopped listing loses its tunnel route and, if it was never
- * paired, disappears. Hosts from another directory origin are left untouched.
+ * paired, disappears. A host only listed that this page cannot reach is not saved
+ * (`isListingReachable`). Hosts from another directory origin are left untouched.
  * The directory's workspace services are not hosts and never pass through here
  * (`saveDirectoryWorkspaces`).
  */
@@ -186,6 +197,7 @@ export function mergeDirectoryIntoSaved(
   directory: DirectoryHost[],
   directoryUrl: string,
   now: number,
+  clientOrigin: string = globalThis.location?.origin ?? '',
 ): SavedServer[] {
   const byInstallation = new Map(directory.map((host) => [host.installationId, host]))
   const merged: SavedServer[] = []
@@ -198,6 +210,7 @@ export function mergeDirectoryIntoSaved(
       // A registered host the directory lists with no route keeps the address LAN
       // discovery found for it (`withNearbyRoutes`): it is its only way in.
       const isDirectoryOnly = !server.sessionToken
+      if (isDirectoryOnly && !isListingReachable(listed, clientOrigin)) continue
       const direct = isDirectoryOnly
         ? listed.routes.length === 0 ? (server.routes ?? []).filter((route) => route.kind === 'direct') : []
         : savedServerRoutes(server).filter((route) => route.kind !== 'tunnel')
@@ -223,7 +236,7 @@ export function mergeDirectoryIntoSaved(
     merged.push({ ...rest, routes: savedServerRoutes(server).filter((route) => route.kind !== 'tunnel') })
   }
   for (const host of byInstallation.values()) {
-    merged.push(savedServerFromDirectory(host, directoryUrl, now))
+    if (isListingReachable(host, clientOrigin)) merged.push(savedServerFromDirectory(host, directoryUrl, now))
   }
   return merged
 }

@@ -624,7 +624,7 @@
    *  workspace's provider settings, or the console's connections page. */
   function openProviderSettings() {
     newMenuOpen = false;
-    if (workspace) workspace.showSettings("providers");
+    if (workspace) workspace.showSettings("integrations");
     else shell.openResource({ kind: "connections" });
   }
 

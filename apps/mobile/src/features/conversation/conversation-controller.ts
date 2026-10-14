@@ -23,6 +23,7 @@ import { attachmentLimitProblem, composePrompt, uploadAttachment, type Attachmen
 import { hasHostCapability } from '@solus/client-core/host-capabilities'
 import type { AgentPlanAwaiting } from './lib/agent-plans'
 import { TranscriptModel, type TranscriptItem } from './lib/transcript-model'
+import { isHandoffPending } from './lib/provider-handoff'
 import type { QueueAttachment, SessionQueueMutation, SessionQueueSnapshot } from '@solus/contracts/session-queue'
 import { parseAgentAuthCommand } from '@solus/contracts/agent-auth'
 import { seatProviderSchema } from '@solus/contracts/seats'
@@ -95,6 +96,10 @@ export class ConversationController {
   attachments: readonly UploadedAttachment[] = []
   uploading = 0
   queue: SessionQueueSnapshot = { held: false, entries: [] }
+  /** The provider that owns the session's provider thread now; null before a
+   *  prompt starts one. `run.provider` is the picked provider: the next prompt
+   *  carries it, and the host hands off when the two differ (plans/021). */
+  threadProvider: AgentId | null
   /** `/login`, `/design-login`, and `/mcp login|logout`, run here instead of by the agent. */
   readonly auth: AgentAuthFlow
   /** An integration tool of this session's turn needs the person's connection (`integration.connectNeeded`). */
@@ -124,6 +129,7 @@ export class ConversationController {
     this.projectPath = target.record?.projectPath ?? ''
     this.run = initialRun(target, deps.organizationId(), deps.uuid)
     this.started = !!target.record
+    this.threadProvider = target.record?.provider ?? null
     this.model = new TranscriptModel(this.run.sessionId)
     const { connection } = deps
     this.auth = new AgentAuthFlow({ connection, notice: (text, tone) => {
@@ -282,12 +288,12 @@ export class ConversationController {
     const lineage = description?.lineage
     if (lineage) {
       this.run.agentSessionId = lineage.active.providerSessionId ?? null
-      this.run.provider = lineage.active.provider
+      this.followThread(lineage.active.provider)
     }
     const page = await api.loadSessionPage({
       sessionId: this.run.sessionId,
       projectPath: this.projectPath || this.run.workingDirectory || undefined,
-      provider: this.run.provider,
+      provider: this.threadProvider ?? this.run.provider,
       turnLimit: INITIAL_HISTORY_TURNS,
     })
     if (generation !== this.loadGeneration) return null
@@ -297,7 +303,7 @@ export class ConversationController {
 
   /** The provider refused the last turn's login, live or in loaded history: the sheet offers sign-in again. */
   private offerSignInAgain(): void {
-    const provider = seatProviderSchema.safeParse(this.run.provider)
+    const provider = seatProviderSchema.safeParse(this.threadProvider ?? this.run.provider)
     if (provider.success) this.auth.noteLoginRefused(provider.data)
   }
 
@@ -312,7 +318,7 @@ export class ConversationController {
       const page = await this.deps.connection.api.loadSessionPage({
         sessionId: this.run.sessionId,
         projectPath: this.projectPath || this.run.workingDirectory || undefined,
-        provider: this.run.provider,
+        provider: this.threadProvider ?? this.run.provider,
         turnLimit: OLDER_HISTORY_TURNS,
         before: cursor,
       })
@@ -461,19 +467,30 @@ export class ConversationController {
     this.flush(true)
   }
 
-  async switchProvider(provider: 'claude-code' | 'codex'): Promise<void> {
-    if (provider === this.run.provider && !this.queue.entries.some((entry) => entry.kind === 'provider_switch')) return
-    const choice = newSessionModel(provider, this.defaultsWithoutAuto(provider))
-    if (!this.started) {
-      this.run.provider = provider
-      Object.assign(this.run, choice)
-      this.settleRun()
-      this.flush(true)
-      return
-    }
-    await this.changeQueue({ kind: 'switch', provider, modelConfig: {
-      modelId: choice.preferredModel, reasoningEffort: choice.reasoningEffort, contextWindow: choice.contextWindow, fastMode: false,
-    } })
+  /**
+   * Picks the agent the next prompt runs on, with its default model. Only this
+   * composer changes: the host hands the session off when that prompt arrives
+   * (plans/021), so a pick back undoes nothing and a parked rate-limited
+   * prompt and its card stay.
+   */
+  pickProvider(provider: 'claude-code' | 'codex'): void {
+    if (provider === this.run.provider) return
+    this.run.provider = provider
+    Object.assign(this.run, newSessionModel(provider, this.defaultsWithoutAuto(provider)))
+    this.settleRun()
+    this.flush(true)
+  }
+
+  /** The host names the thread's provider (its lineage, a handoff from any
+   *  client). A composer that had not picked another provider follows it, with
+   *  the model the handoff named or that agent's default. */
+  private followThread(provider: AgentId, model?: string): void {
+    const follows = this.threadProvider === null || this.run.provider === this.threadProvider
+    this.threadProvider = provider
+    if (!follows || this.run.provider === provider) return
+    this.run.provider = provider
+    Object.assign(this.run, model ? selectModel(provider, model, this.settings) : newSessionModel(provider, this.defaultsWithoutAuto(provider)))
+    this.settleRun()
   }
 
   async uploadQueueFiles(files: readonly PickedFile[]): Promise<QueueAttachment[]> {
@@ -641,7 +658,11 @@ export class ConversationController {
       this.queue = { held: event.held, entries: event.entries }
       this.model.setQueued(event.entries.filter((entry) => entry.kind !== 'provider_switch'))
     }
+    // The host handed the thread to another provider when a prompt asked for it.
+    if (event.type === 'activity' && event.activity.kind === 'agent_switched') this.followThread(event.activity.provider, event.activity.model)
+    // An older host's queued switch ran (a client that still queues one).
     if (event.type === 'provider_switch_applied') {
+      this.threadProvider = event.provider
       this.run.provider = event.provider
       this.run.preferredModel = event.modelConfig.modelId
       this.run.reasoningEffort = event.modelConfig.reasoningEffort
@@ -650,7 +671,7 @@ export class ConversationController {
     }
     this.model.apply(event)
     this.run.status = this.model.status
-    this.flush(event.type === 'session_queue' || event.type === 'provider_switch_applied')
+    this.flush(event.type === 'session_queue' || event.type === 'provider_switch_applied' || event.type === 'activity')
   }
 
   private async watch(): Promise<WatchSessionResult> {
@@ -672,7 +693,8 @@ export class ConversationController {
       this.model.setRateLimit(runtime.rateLimitInfo)
       this.queue = { held: runtime.queuedPrompts.some((entry) => entry.held), entries: runtime.queuedPrompts }
       this.model.setQueued(runtime.queuedPrompts.map((queued) => ({ queueId: queued.queueId, text: queued.text, clientPromptId: queued.clientPromptId })))
-      if (runtime.modelConfig) {
+      // A pick waiting for a send keeps its own model.
+      if (runtime.modelConfig && !isHandoffPending(this.threadProvider, this.run.provider)) {
         this.run.preferredModel = runtime.modelConfig.modelId
         this.run.reasoningEffort = runtime.modelConfig.reasoningEffort
         this.run.contextWindow = runtime.modelConfig.contextWindow ?? this.run.contextWindow
@@ -708,7 +730,8 @@ export class ConversationController {
         this.model.markDelivery(record.clientPromptId, 'sending')
         this.flush()
         if (!this.watching) this.applyWatch(await this.watch())
-        const result = await this.deps.connection.api.prompt(this.context(), {
+        const ctx = this.context()
+        const result = await this.deps.connection.api.prompt(ctx, {
           prompt: record.payload?.prompt ?? record.text,
           displayPrompt: record.payload?.displayPrompt ?? record.text,
           clientPromptId: record.clientPromptId,
@@ -719,6 +742,8 @@ export class ConversationController {
           queueAttachmentContext: record.payload?.queueAttachmentContext,
         })
         this.started = true
+        // The first prompt starts the thread on the provider it carried.
+        this.threadProvider ??= ctx.session.provider
         this.model.markDelivery(record.clientPromptId, result.disposition === 'queued' ? 'queued' : 'sent')
       })
       this.syncDeliveryFromOutbox()

@@ -748,8 +748,8 @@
 
   <div class="min-h-0 flex-1 overflow-auto" data-sb bind:this={listElement}>
     <Table.Root
-      containerClass="overflow-visible"
-      class="min-w-full border-separate border-spacing-0"
+      containerClass="overflow-visible rounded-none border-0 bg-transparent"
+      class="min-w-full border-separate border-spacing-0 [&_td]:bg-none"
     >
       <Table.Header
         class="sticky top-0 z-10 bg-background shadow-[0_1px_0_var(--hairline-strong),0_3px_8px_-6px_rgba(0,0,0,0.28)]"
@@ -876,7 +876,7 @@
                   class="p-0"
                 >
                   <Table.Root
-                    containerClass="scrollbar-on-hover max-h-30 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable] [@media(min-height:1000px)]:max-h-50"
+                    containerClass="rounded-none border-0 bg-transparent scrollbar-on-hover max-h-30 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-gutter:stable] [@media(min-height:1000px)]:max-h-50"
                     class="w-[calc(100%+0.5rem)] border-separate border-spacing-0"
                   >
                     <Table.Body class="select-text">

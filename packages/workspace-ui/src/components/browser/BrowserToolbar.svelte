@@ -170,10 +170,9 @@
     <TooltipUI.Content side="bottom" value="Reload browser" />
   </TooltipUI.Root>
 
-  <!-- Recessed rather than raised: this is the one place in the pane you type. -->
   {#if editing}
     <form
-      class="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-[0.625rem] bg-[var(--wash-1)] px-2.5 shadow-[shadow:0_0_0_0.5px_var(--hairline-strongest)]"
+      class="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-[0.625rem] px-2.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
       onsubmit={commit}
     >
       <!-- svelte-ignore a11y_autofocus -->
@@ -201,7 +200,7 @@
           <button
             {...props}
             type="button"
-            class="flex h-7 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-[0.625rem] bg-[var(--wash-1)] px-2.5 text-left shadow-[shadow:0_0_0_0.5px_var(--hairline-strong)] transition-shadow hover:shadow-[shadow:0_0_0_0.5px_var(--hairline-strongest)]"
+            class="flex h-7 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-[0.625rem] px-2.5 text-left shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] transition-shadow hover:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_20%,transparent)]"
             aria-label="Browser address: {page.url}. Click to edit."
             onclick={beginEditing}
           >

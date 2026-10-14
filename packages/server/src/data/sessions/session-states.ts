@@ -1,27 +1,21 @@
-import { sql } from 'drizzle-orm'
+import { sql, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
-import type { SessionSettledBy, SessionShelfEntry, SessionState } from '@solus/contracts/session-state'
+import { ACTIVE_SESSION_STATE, type SessionSettledBy, type SessionState } from '@solus/contracts/session-state'
 import { executionPreferencesSchema, type ExecutionPreferences } from '@solus/contracts/settings'
 import { getDatabase } from '../../db/database'
-import type { RecordScope } from '../../admission/principal'
-import { scopeClause } from '../scope'
-import { sessionPullRequests, sessionStates } from './schema'
-import { getSessionRecords, organizationOfSession } from './session-records'
+import { sessionPullRequests, sessionRecords, sessionStates } from './schema'
+import { organizationOfSession } from './session-records'
 import { stopSessionPullRequestWatches } from './pull-request-watches'
+import { stateFromColumns } from './session-state-columns'
 
 /**
- * Where a session is in a person's list: active, settled, or snoozed
- * (docs/plans/session-pull-requests.md).
+ * Where a session is in a person's list: active, settled, snoozed, or
+ * archived (docs/plans/session-pull-requests.md, docs/plans/session-archive.md).
  *
  * The host holds this because a client cannot: a session a person finished on
  * one device must leave the list on every device, and PR sync must know which
  * sessions are still live work. A session with no row is active.
  */
-
-/** A settled session stays on a client's Completed shelf for this long. */
-export const SETTLED_SHELF_MS = 90 * 24 * 60 * 60_000
-/** The most sessions one shelf read answers with. */
-const SHELF_LIMIT = 500
 
 const rowSchema = z.object({
   session_id: z.string(),
@@ -30,21 +24,18 @@ const rowSchema = z.object({
   unsettled_at: z.number().nullable(),
   snoozed_until: z.number().nullable(),
   snooze_note: z.string().nullable(),
+  archived_at: z.number().nullable(),
   last_prompt_at: z.number().nullable(),
 })
 type Row = z.infer<typeof rowSchema>
 
-type ChangeListener = (sessionId: string) => void
+type ChangeListener = (sessionId: string, state: SessionState) => void
 const listeners = new Set<ChangeListener>()
 
-/** Hear each session whose state changed. */
+/** Hear each session whose state changed, with its state now. */
 export function onSessionStateChanged(listener: ChangeListener): () => void {
   listeners.add(listener)
   return () => listeners.delete(listener)
-}
-
-function emitChanged(sessionId: string): void {
-  for (const listener of listeners) listener(sessionId)
 }
 
 type ReadStateListener = (sessionId: string, viewedAt: number | null) => void
@@ -60,25 +51,7 @@ function emitReadStateChanged(sessionId: string, viewedAt: number | null): void 
   for (const listener of readStateListeners) listener(sessionId, viewedAt)
 }
 
-function stateFromRow(row: Row): SessionState {
-  return {
-    sessionId: row.session_id,
-    settledAt: row.settled_at,
-    settledBy: row.settled_by,
-    snoozedUntil: row.snoozed_until,
-    snoozeNote: row.snooze_note,
-  }
-}
-
-const COLUMNS = sql`session_id, settled_at, settled_by, unsettled_at, snoozed_until, snooze_note, last_prompt_at`
-
-async function readRow(sessionId: string): Promise<Row | null> {
-  return rowSchema.nullish().parse(await getDatabase().get(sql`
-    SELECT ${COLUMNS} FROM ${sessionStates} WHERE session_id = ${sessionId}
-  `)) ?? null
-}
-
-/** Make sure the session has a row, so each write below is one UPDATE. */
+/** Make sure the session has a row, so each write is one UPDATE. */
 async function ensureRow(sessionId: string): Promise<void> {
   await getDatabase().run(sql`
     INSERT INTO ${sessionStates}(session_id, organization_id)
@@ -87,59 +60,105 @@ async function ensureRow(sessionId: string): Promise<void> {
   `)
 }
 
-/**
- * Settle a session: its work is finished. Returns false when it was settled
- * already. A settled session is not snoozed.
- */
-export async function settleSession(sessionId: string, by: SessionSettledBy, at = Date.now()): Promise<boolean> {
-  await ensureRow(sessionId)
-  const changed = (await getDatabase().run(sql`
-    UPDATE ${sessionStates} SET settled_at = ${at}, settled_by = ${by}, snoozed_until = NULL, snooze_note = NULL
-    WHERE session_id = ${sessionId} AND settled_at IS NULL
-  `)).changes > 0
-  if (!changed) return false
-  // A settled session's work is finished: nothing is left to wake it for.
-  await stopSessionPullRequestWatches(sessionId)
-  emitChanged(sessionId)
-  return true
-}
+const COLUMNS = sql`session_id, settled_at, settled_by, unsettled_at, snoozed_until, snooze_note, archived_at, last_prompt_at`
 
 /**
- * Make a settled session active again, as a person asks. Its pull requests
- * settle it again only if one of them ends after this.
+ * One session's place in a person's list: settle and its reverse, snooze,
+ * archive and its reverse, and the prompt that makes it active again. Each
+ * change is announced with the state it leaves.
  */
-export async function unsettleSession(sessionId: string, at = Date.now()): Promise<boolean> {
-  const changed = (await getDatabase().run(sql`
-    UPDATE ${sessionStates} SET settled_at = NULL, settled_by = NULL, unsettled_at = ${at}
-    WHERE session_id = ${sessionId} AND settled_at IS NOT NULL
-  `)).changes > 0
-  if (changed) emitChanged(sessionId)
-  return changed
-}
+export class SessionShelf {
+  constructor(readonly sessionId: string) {}
 
-/** Snooze a session until a wake time, or wake it now with `until` null. */
-export async function snoozeSession(sessionId: string, until: number | null, note = ''): Promise<void> {
-  await ensureRow(sessionId)
-  await getDatabase().run(sql`
-    UPDATE ${sessionStates} SET snoozed_until = ${until}, snooze_note = ${until === null ? null : note.trim() || null}
-    WHERE session_id = ${sessionId}
-  `)
-  emitChanged(sessionId)
-}
+  /** The session's state now; the active state when it has no row. */
+  async state(): Promise<SessionState> {
+    const row = await this.row()
+    return (row && stateFromColumns(row)) ?? ACTIVE_SESSION_STATE
+  }
 
-/**
- * A prompt reached the session: work goes on, so the session is active and
- * awake. The time is what its pull requests must end after to settle it.
- */
-export async function recordSessionPrompt(sessionId: string, at = Date.now()): Promise<void> {
-  const before = await readRow(sessionId)
-  await ensureRow(sessionId)
-  await getDatabase().run(sql`
-    UPDATE ${sessionStates} SET
-      last_prompt_at = ${at}, settled_at = NULL, settled_by = NULL, snoozed_until = NULL, snooze_note = NULL
-    WHERE session_id = ${sessionId}
-  `)
-  if (before && (before.settled_at !== null || before.snoozed_until !== null)) emitChanged(sessionId)
+  /**
+   * Settle the session: its work is finished. Returns false when it was
+   * settled already. A settled session is not snoozed.
+   */
+  async settle(by: SessionSettledBy, at = Date.now()): Promise<boolean> {
+    await ensureRow(this.sessionId)
+    const changed = await this.update(sql`settled_at = ${at}, settled_by = ${by}, snoozed_until = NULL, snooze_note = NULL`, sql`settled_at IS NULL`)
+    if (!changed) return false
+    // A settled session's work is finished: nothing is left to wake it for.
+    await stopSessionPullRequestWatches(this.sessionId)
+    await this.announce()
+    return true
+  }
+
+  /**
+   * Make a settled session active again, as a person asks. Its pull requests
+   * settle it again only if one of them ends after this.
+   */
+  async unsettle(at = Date.now()): Promise<boolean> {
+    const changed = await this.update(sql`settled_at = NULL, settled_by = NULL, unsettled_at = ${at}`, sql`settled_at IS NOT NULL`)
+    if (changed) await this.announce()
+    return changed
+  }
+
+  /** Snooze the session until a wake time, or wake it now with `until` null. */
+  async snooze(until: number | null, note = ''): Promise<void> {
+    await ensureRow(this.sessionId)
+    await this.update(sql`snoozed_until = ${until}, snooze_note = ${until === null ? null : note.trim() || null}`)
+    await this.announce()
+  }
+
+  /** Take the session out of the person's list. Returns false when it was out already. */
+  async archive(at = Date.now()): Promise<boolean> {
+    await ensureRow(this.sessionId)
+    const changed = await this.update(sql`archived_at = ${at}`, sql`archived_at IS NULL`)
+    if (changed) await this.announce()
+    return changed
+  }
+
+  /** Return an archived session to the list, on the shelf it left. */
+  async unarchive(): Promise<boolean> {
+    const changed = await this.update(sql`archived_at = NULL`, sql`archived_at IS NOT NULL`)
+    if (changed) await this.announce()
+    return changed
+  }
+
+  /** A task was reopened: make the session active again if the task's finish
+   *  settled it. A settle by a person or a pull request stays. */
+  async reopenFromTask(at = Date.now()): Promise<boolean> {
+    const changed = await this.update(sql`settled_at = NULL, settled_by = NULL, unsettled_at = ${at}`, sql`settled_by = 'task'`)
+    if (changed) await this.announce()
+    return changed
+  }
+
+  /**
+   * A prompt reached the session: work goes on, so the session is active,
+   * awake, and in the list. The time is what its pull requests must end after
+   * to settle it.
+   */
+  async recordPrompt(at = Date.now()): Promise<void> {
+    const before = await this.row()
+    await ensureRow(this.sessionId)
+    await this.update(sql`last_prompt_at = ${at}, settled_at = NULL, settled_by = NULL, snoozed_until = NULL, snooze_note = NULL, archived_at = NULL`)
+    if (before && stateFromColumns(before)) await this.announce()
+  }
+
+  private async row(): Promise<Row | null> {
+    return rowSchema.nullish().parse(await getDatabase().get(sql`
+      SELECT ${COLUMNS} FROM ${sessionStates} WHERE session_id = ${this.sessionId}
+    `)) ?? null
+  }
+
+  private async update(set: SQL, when?: SQL): Promise<boolean> {
+    return (await getDatabase().run(sql`
+      UPDATE ${sessionStates} SET ${set}
+      WHERE session_id = ${this.sessionId}${when ? sql` AND ${when}` : sql``}
+    `)).changes > 0
+  }
+
+  private async announce(): Promise<void> {
+    const state = await this.state()
+    for (const listener of listeners) listener(this.sessionId, state)
+  }
 }
 
 /**
@@ -214,36 +233,6 @@ export async function settledSessionIds(sessionIds: readonly string[]): Promise<
   return new Set(rows.map((row) => row.session_id))
 }
 
-/**
- * The settled and snoozed sessions a client lists: the named ones, or every
- * session settled recently and every session with a snooze. A snooze that
- * ended stays until a person opens the session or writes to it, so a client
- * can show that the session woke. Each entry carries what its record says, so
- * a client can name and reopen a session it has no conversation of.
- */
-export async function readSessionShelf(scope: RecordScope, sessionIds?: readonly string[], now = Date.now()): Promise<SessionShelfEntry[]> {
-  if (sessionIds && !sessionIds.length) return []
-  const which = sessionIds
-    ? sql`session_id IN (${sql.join(sessionIds.map((sessionId) => sql`${sessionId}`), sql`, `)})
-        AND (settled_at IS NOT NULL OR snoozed_until IS NOT NULL)`
-    : sql`(settled_at >= ${now - SETTLED_SHELF_MS} OR snoozed_until IS NOT NULL)`
-  const rows = rowSchema.array().parse(await getDatabase().all(sql`
-    SELECT ${COLUMNS} FROM ${sessionStates}
-    WHERE ${scopeClause(scope)} AND ${which}
-    ORDER BY settled_at DESC, session_id
-    LIMIT ${SHELF_LIMIT}
-  `))
-  const records = await getSessionRecords(scope, rows.map((row) => row.session_id))
-  return rows.map((row) => {
-    const record = records.get(row.session_id)
-    return {
-      ...stateFromRow(row),
-      title: record?.customTitle ?? record?.title ?? record?.slug ?? null,
-      projectPath: record?.projectRoot ?? record?.projectPath ?? null,
-    }
-  })
-}
-
 const linkedSessionRowSchema = z.object({
   session_id: z.string(),
   open_links: z.coerce.number(),
@@ -276,52 +265,42 @@ export async function settleSessionsWithEndedPullRequests(isSessionBusy: (sessio
     const endedAt = Date.parse(row.ended_at)
     const activeSince = Math.max(row.unsettled_at ?? 0, row.last_prompt_at ?? 0)
     if (!Number.isFinite(endedAt) || endedAt < activeSince) continue
-    if (await settleSession(row.session_id, 'pull-request')) settled.push(row.session_id)
+    if (await new SessionShelf(row.session_id).settle('pull-request')) settled.push(row.session_id)
   }
   return settled
 }
 
-/** A session is idle work after this long with no prompt. */
+/** A session is idle after this long with no activity. */
 export const SESSION_IDLE_MS = 30 * 24 * 60 * 60_000
 
 /**
- * Settle each active session that had no prompt for a long time and waits on
- * no pull request. A session with an open pull request stays active until the
- * pull request ends.
+ * Archive each session in the list that had no activity for a long time and
+ * waits on no pull request (docs/plans/session-archive.md). The rule reads
+ * the session's record, so a session nothing ever put away is archived too.
+ * A session with an open pull request, a snooze still running, or a turn in
+ * progress stays. Returns the sessions it archived.
  */
-export async function settleIdleSessions(isSessionBusy: (sessionId: string) => boolean, now = Date.now()): Promise<string[]> {
+export async function archiveIdleSessions(isSessionBusy: (sessionId: string) => boolean, now = Date.now()): Promise<string[]> {
   const idleBefore = now - SESSION_IDLE_MS
   const rows = z.object({ session_id: z.string() }).array().parse(await getDatabase().all(sql`
-    SELECT session_id FROM ${sessionStates}
-    WHERE settled_at IS NULL
-      AND COALESCE(last_prompt_at, 0) < ${idleBefore} AND COALESCE(unsettled_at, 0) < ${idleBefore}
-      AND (last_prompt_at IS NOT NULL OR unsettled_at IS NOT NULL)
-      AND (snoozed_until IS NULL OR snoozed_until <= ${now})
+    SELECT session_records.session_id FROM ${sessionRecords}
+    LEFT JOIN ${sessionStates} ON session_states.session_id = session_records.session_id
+    WHERE session_states.archived_at IS NULL
+      AND session_records.last_activity_at < ${idleBefore}
+      AND COALESCE(session_states.last_prompt_at, 0) < ${idleBefore}
+      AND COALESCE(session_states.unsettled_at, 0) < ${idleBefore}
+      AND (session_states.snoozed_until IS NULL OR session_states.snoozed_until <= ${now})
       AND NOT EXISTS (
         SELECT 1 FROM ${sessionPullRequests}
-        WHERE session_pull_requests.session_id = session_states.session_id
+        WHERE session_pull_requests.session_id = session_records.session_id
           AND session_pull_requests.source <> 'dismissed'
           AND (session_pull_requests.pr_state IS NULL OR session_pull_requests.pr_state NOT IN ('merged', 'closed', 'missing'))
       )
   `))
-  const settled: string[] = []
+  const archived: string[] = []
   for (const { session_id: sessionId } of rows) {
     if (isSessionBusy(sessionId)) continue
-    if (await settleSession(sessionId, 'idle', now)) settled.push(sessionId)
+    if (await new SessionShelf(sessionId).archive(now)) archived.push(sessionId)
   }
-  return settled
-}
-
-/**
- * A task was reopened: the sessions that its finish settled are active again.
- * A session a person or a pull request settled stays settled.
- */
-export async function reopenSessionsSettledByTask(sessionIds: readonly string[], at = Date.now()): Promise<void> {
-  for (const sessionId of sessionIds) {
-    const changed = (await getDatabase().run(sql`
-      UPDATE ${sessionStates} SET settled_at = NULL, settled_by = NULL, unsettled_at = ${at}
-      WHERE session_id = ${sessionId} AND settled_by = 'task'
-    `)).changes > 0
-    if (changed) emitChanged(sessionId)
-  }
+  return archived
 }

@@ -23,6 +23,8 @@ export type SessionQueueMutation =
   | { kind: 'remove' | 'steer'; queueId: string; revision: number }
   | { kind: 'move'; queueId: string; revision: number; beforeQueueId: string | null }
   | { kind: 'resume' }
+  /** Deprecated (plans/021): a prompt on another provider hands the session off
+   *  when it starts. Hosts accept this for one release, for older clients. */
   | { kind: 'switch'; provider: 'claude-code' | 'codex'; modelConfig: ModelConfig }
 
 export interface SessionQueueSnapshot { held: boolean; entries: QueuedPromptSnapshot[] }
@@ -43,6 +45,7 @@ export const sessionQueueMutationSchema: z.ZodType<SessionQueueMutation> = z.dis
   z.object({ kind: z.enum(['remove', 'steer']), ...revision }),
   z.object({ kind: z.literal('move'), ...revision, beforeQueueId: z.string().nullable() }),
   z.object({ kind: z.literal('resume') }),
+  // Deprecated (plans/021): accepted for one release, for older clients.
   z.object({ kind: z.literal('switch'), provider: z.enum(['claude-code', 'codex']), modelConfig: z.object({
     modelId: z.string().nullable(), reasoningEffort: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode']),
     contextWindow: z.number().int().positive().nullable(), fastMode: z.boolean(),

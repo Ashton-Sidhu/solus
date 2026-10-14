@@ -22,7 +22,7 @@ import {
 } from './task-store'
 import { deleteSessionLink, taskSessions, writeSessionLink, type SessionLinkDetails } from './task-sessions'
 import { linkSessionPullRequest, unlinkSessionPullRequest } from '../sessions/session-pull-requests'
-import { reopenSessionsSettledByTask, settleSession } from '../sessions/session-states'
+import { SessionShelf } from '../sessions/session-states'
 import { scopeClause } from '../scope'
 import type { RecordScope } from '../../admission/principal'
 import { createLogger } from '../../logger'
@@ -383,7 +383,7 @@ export class Task implements TaskRecord {
       .filter((link) => link.role !== 'referenced')
       .map((link) => link.sessionId)
     if (!isFinished) {
-      await reopenSessionsSettledByTask(working)
+      for (const sessionId of working) await new SessionShelf(sessionId).reopenFromTask()
       return
     }
     for (const sessionId of working) {
@@ -394,7 +394,7 @@ export class Task implements TaskRecord {
           AND tasks.id <> ${this.id} AND ${TASK_HERE} AND tasks.status NOT IN ('done', 'dropped')
         LIMIT 1
       `))
-      if (!heldByLiveTask) await settleSession(sessionId, 'task')
+      if (!heldByLiveTask) await new SessionShelf(sessionId).settle('task')
     }
   }
 

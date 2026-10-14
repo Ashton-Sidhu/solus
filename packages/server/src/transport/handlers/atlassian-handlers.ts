@@ -87,7 +87,7 @@ export function registerAtlassianHandlers(
     // Answering `[]` for an unusable connection is how a dead grant came to
     // read as an empty project list.
     if (!site) {
-      throw new Error('The Atlassian connection is not usable. Sign in again in Settings → Providers.')
+      throw new Error('The Atlassian connection is not usable. Sign in again in Settings → Integrations.')
     }
     const page = await atlassianRequest(
       {

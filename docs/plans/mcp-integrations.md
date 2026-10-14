@@ -238,7 +238,7 @@ This is the property the plan exists for.
 4. **The token goes only to its server.** The gateway sends it in
    `Authorization` to the integration's URL and to nothing else. This is
    Executor's `CredentialHost` rule.
-5. **Sign-in state is visible.** The connection card and the Integrations page
+5. **Sign-in state is visible.** The connection card and the MCP page
    show `connected`, `needs-sign-in` (refresh failed or the server returned 401),
    and `error`, with Reconnect. A refreshed token is saved again under the same
    scope, as `google/oauth.ts` does.
@@ -385,7 +385,17 @@ working, then govern them.
 
 ### 6.1 The first release
 
-The only gate is the one every Solus tool has today, the `requiresApproval`
+Decision of 2026-10-14: one per-tool rule ships now, on or off. An
+integration record carries `disabledTools`, the upstream tool names its owner
+turned off (an off list, so a tool the server adds later is on).
+`integrationAgentTools` leaves them out of every catalog, and the gateway
+refuses a call to one, so a run built before the change cannot use it.
+`integrationUpdate` takes the whole list; `mayChange` decides who edits it,
+as for a rename. A change keeps the upstream session. This is the `block`
+rule of §6.2 alone, without `ask` and without derived defaults. The list is
+not in the agent profile entry.
+
+Beside it, the only gate is the one every Solus tool has today, the `requiresApproval`
 flag, and the provider's own permission system decides what to do with it
 (`docs/plans/permission-modes.md`): the provider asks in `supervised`,
 `accept-edits`, and `auto`, refuses in `plan`, and runs in `full-access`.
@@ -416,13 +426,18 @@ Every entry applies to desktop, web, and mobile. Desktop and web share the
 Svelte UI; mobile is a React Native implementation of the same capability.
 
 - **Settings → MCP.** One search over the installed servers and the
-  catalog; the catalog as a list that grows as the person scrolls
-  (`integrationCatalogList` takes `offset` and answers `{ entries, total }`); a one-step Add that probes, creates, and
-  starts the person's sign-in at once (an `undetermined` probe creates
-  nothing); tools listed only for an open server or a connected one; one
-  integration row (its tools, the OAuth client when
+  catalog; a rail of views (All, Installed, and the Solus categories of
+  `CATALOG_CATEGORIES`, which `integrationCatalogList` filters by `category`)
+  that is a chip row in a narrow page; the catalog as a two-column list that
+  grows as the person scrolls (`integrationCatalogList` takes `offset` and
+  answers `{ entries, total }`); a connect dialog that probes and creates a
+  new server (an `undetermined` probe creates nothing), takes the OAuth
+  client when `client-required`, runs the sign-in, and then takes the tools
+  to keep on, and takes back a server it added when closed before the end;
+  tools listed only for an open server or a connected one; one integration
+  row (its tools with their on/off switches, the OAuth client when
   `client-required`, the person's own connection with Connect, Reconnect,
-  Disconnect; the policy editor is §6.2). Store: `integrations.store.svelte.ts`,
+  Disconnect). The page uses a wider measure than the 48rem settings column. Store: `integrations.store.svelte.ts`,
   listening to `integration.changed` and `integration.connectionChanged`.
   Mobile: a screen under Host settings, beside Connections.
 - **Conversation cards.** Connect needed (reuses the connection card chassis

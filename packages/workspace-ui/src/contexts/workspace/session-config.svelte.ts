@@ -98,7 +98,9 @@ export class SessionConfigController {
     modelConfig: ModelConfig
   }
   tabGroupMode = $state<TabGroupMode>('flat')
-  handoffInProgress = $state(false)
+  /** The model each session ran on its thread's provider when the composer
+   *  picked another one; a pick back restores it. Composer state only. */
+  private threadModelConfigs = new WeakMap<Session, { provider: AgentId; modelConfig: ModelConfig }>()
   private switchingBranch = false
   private sessionStartTargetResolutions = new Map<string, Promise<void>>()
 
@@ -210,7 +212,7 @@ export class SessionConfigController {
 
   /** The agent new sessions start on. It is a preference, so it never rewrites
    *  the provider of a conversation already on screen — handing a session over
-   *  is `switchActiveAgent`, and only an action aimed at that session may do it. */
+   *  is `switchActiveAgent` (a pick the next send applies), aimed at that session. */
   setDefaultAgent(agentId: AgentId, via: Via = 'click'): void {
     if (this.deps.settings.activeAgent === agentId) return
     track('agent_switched', { from: this.deps.settings.activeAgent, to: agentId, via })
@@ -255,57 +257,50 @@ export class SessionConfigController {
     return true
   }
 
-  async switchActiveAgent(agentId: AgentId, tabId?: string, via: Via = 'click'): Promise<void> {
-    const targetTabId = tabId ?? this.deps.registry.activeTabId
+  /**
+   * Pick the agent the composer `tabId` names sends to next (plans/021).
+   *
+   * A pick is composer state only: it writes the run's provider and model, and
+   * the host learns of it when the next prompt carries them. A session holding a
+   * provider thread hands that thread over at the send, not here, so a pick and
+   * a pick back change nothing on the host. While the picked provider differs
+   * from `threadProvider`, the transcript shows a pending handoff.
+   */
+  switchActiveAgent(agentId: AgentId, tabId?: string, via: Via = 'click'): void {
     const session = tabId ? this.deps.registry.sessionFor(tabId) : this.deps.registry.activeSession
-    if (this.handoffInProgress) return
-    if (session) {
-      if (session.run.provider === agentId && !session.outboundPrompts?.some((prompt) => prompt.kind === 'provider_switch')) return
-      if (agentId !== 'opencode' && (session.agentSessionId || session.handoffPending || session.status === 'connecting' || session.status === 'running')) {
-        try {
-          await this.deps.apiFor(targetTabId).sessionQueueChange(this.deps.ctx(targetTabId), { kind: 'switch', provider: agentId, modelConfig: this.pinnedModelConfigFor(agentId) })
-        } catch (error) { this.handoffFailed(error instanceof Error ? error.message : String(error)) }
-        return
-      }
-      if (session.status === 'connecting' || session.status === 'running') return
-    }
-
     if (!session && this.switchDraftAgent(tabId, agentId, via)) return
+    if (session && session.run.provider === agentId) return
 
-    // A session already holding a provider thread is handed over, not started, so
-    // an Auto default never applies to it (`adoptHandoff`) — Auto only routes a
-    // first prompt.
-    if (!session?.agentSessionId && !session?.handoffPending) {
-      const newModelConfig = this.defaultModelConfigFor(agentId)
-      track('agent_switched', { from: this.deps.settings.activeAgent, to: agentId, via })
-      this.deps.settings.setPersonal('activeAgent', agentId)
-      this.globalDefaults.modelConfig = newModelConfig
-      this.deps.setPluginCommands({ global: [], project: [] })
-      if (!session) {
-        this.deps.refreshPluginCommands(checkoutPlace(this.deps.defaultRunConfig()).path)
-        return
-      }
-      session.run.provider = agentId
-      session.agentSessionId = null
-      session.run.modelConfig = { ...newModelConfig }
-      session.sessionModel = null
-      session.run.sessionSkills = []
-      session.pluginCommands = { global: [], project: [] }
-      this.deps.refreshPluginCommands(checkoutPlace(session.run).path, this.deps.registry.activeTabId)
+    track('agent_switched', { from: session?.run.provider ?? this.deps.settings.activeAgent, to: agentId, via })
+    this.deps.settings.setPersonal('activeAgent', agentId)
+    this.globalDefaults.modelConfig = this.defaultModelConfigFor(agentId)
+    this.deps.setPluginCommands({ global: [], project: [] })
+    if (!session) {
+      this.deps.refreshPluginCommands(checkoutPlace(this.deps.defaultRunConfig()).path)
       return
     }
 
-    this.handoffInProgress = true
-    try {
-      // The server keeps a session record only while a runtime is attached, so an
-      // idle conversation must carry its own provider thread into the handoff.
-      const result = await this.deps.apiFor(targetTabId).switchSessionAgent(session.id, agentId, session.agentSessionId)
-      this.adoptHandoff(session, agentId, result, targetTabId, via)
-    } catch (error) {
-      this.handoffFailed(error instanceof Error ? error.message : String(error))
-    } finally {
-      this.handoffInProgress = false
+    const hasThread = !!session.agentSessionId || !!session.handoffPending
+    if (hasThread) {
+      // Leaving the thread's provider keeps its model, so a pick back restores
+      // exactly what the thread ran with.
+      if (session.threadProvider && session.run.provider === session.threadProvider) {
+        this.threadModelConfigs.set(session, { provider: session.threadProvider, modelConfig: $state.snapshot(session.run.modelConfig) })
+      }
+      const kept = this.threadModelConfigs.get(session)
+      // A provider thread is handed over, never started, so Auto (which only
+      // routes a first prompt) is not offered to it.
+      session.run.modelConfig = agentId === session.threadProvider && kept?.provider === agentId
+        ? { ...kept.modelConfig }
+        : this.pinnedModelConfigFor(agentId)
+    } else {
+      session.run.modelConfig = { ...this.globalDefaults.modelConfig }
+      session.sessionModel = null
     }
+    session.run.provider = agentId
+    session.run.sessionSkills = []
+    session.pluginCommands = { global: [], project: [] }
+    this.deps.refreshPluginCommands(checkoutPlace(session.run).path, tabId ?? this.deps.registry.activeTabId)
   }
 
   /** A handoff the host refused leaves the original provider in place; say why. */
@@ -314,9 +309,9 @@ export class SessionConfigController {
   }
 
   /**
-   * Take on a provider switch the host made for `tabId`'s session — from the
-   * agent picker, or as part of accepting a plan. The host records the switch
-   * as activity, which draws its divider (plans/012 §5).
+   * Take on a provider switch the host made for `tabId`'s session while
+   * accepting a plan: the thread is now `agentId`'s. The host records the
+   * switch as activity, which draws its divider (plans/012 §5).
    */
   adoptHandoff(session: Session, agentId: AgentId, result: SessionProviderSwitchResult, targetTabId: string, via: Via = 'click'): void {
     const newModelConfig = this.pinnedModelConfigFor(agentId)
@@ -324,6 +319,7 @@ export class SessionConfigController {
     this.deps.settings.setPersonal('activeAgent', agentId)
     this.globalDefaults.modelConfig = newModelConfig
     this.deps.setPluginCommands({ global: [], project: [] })
+    session.threadProvider = agentId
     session.run.provider = agentId
     session.agentSessionId = result.restoredSessionId ?? null
     session.run.modelConfig = { ...newModelConfig }
@@ -462,6 +458,7 @@ export class SessionConfigController {
         if (owner.session) {
           owner.session.agentSessionId = null
           owner.session.run.provider = null
+          owner.session.threadProvider = null
           owner.session.sessionChangedFiles.splice(0, owner.session.sessionChangedFiles.length)
           owner.session.pluginCommands = { global: [], project: [] }
           this.deps.refreshPluginCommands(projectRoot, owner.id)
@@ -508,6 +505,7 @@ export class SessionConfigController {
     if (owner.session) {
       owner.session.agentSessionId = null
       owner.session.run.provider = null
+      owner.session.threadProvider = null
       owner.session.additionalDirs = []
       owner.session.readOnlyReason = null
       owner.session.pluginCommands = { global: [], project: [] }

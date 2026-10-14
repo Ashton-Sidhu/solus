@@ -65,6 +65,14 @@ describe('integration catalog', () => {
     expect((await catalog.list({ limit: 2 })).entries.map((entry) => entry.id)).toEqual(['linear', 'deepwiki'])
   })
 
+  test('a category lists the entries whose feed categories it gathers, and combines with a query', async () => {
+    // WHY: the feed names categories inconsistently; one Solus category must find all of its names.
+    const catalog = new IntegrationCatalog({ fetch: fakeFetch([ok]).fetch })
+    expect((await catalog.list({ category: 'data' })).entries.map((entry) => entry.id)).toEqual(['posthog'])
+    expect((await catalog.list({ category: 'knowledge' })).total).toBe(0)
+    expect((await catalog.list({ category: 'data', query: 'linear' })).total).toBe(0)
+  })
+
   test('offset and limit cut one page, and total counts every match', async () => {
     // WHY: the MCP page pages through more than a thousand entries; it shows "page of total".
     const catalog = new IntegrationCatalog({ fetch: fakeFetch([ok]).fetch })

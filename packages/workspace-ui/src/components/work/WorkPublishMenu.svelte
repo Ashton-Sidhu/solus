@@ -229,7 +229,7 @@
    */
   function openProviderSettings() {
     open = false;
-    session.workspace?.showSettings("providers");
+    session.workspace?.showSettings("integrations");
   }
 
   async function unlink() {

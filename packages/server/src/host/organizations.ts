@@ -44,6 +44,8 @@ export interface HostOrganizationsDeps {
   registration: () => HostRegistration | null
   /** The host credential of the current registration; its control token authenticates the read. */
   credential: () => Pick<HostCredential, 'hostAccessToken'> | null
+  /** The account plane answered that this is not the host's current registration: the registrar checks it, and forgets one Solus cloud refused. */
+  onRegistrationRefused?: () => void
   fetchImpl?: FetchLike
   setTimeoutFn?: typeof setTimeout
   clearTimeoutFn?: typeof clearTimeout
@@ -143,6 +145,7 @@ export class HostOrganizations {
         // The account plane no longer knows this host's key: the registration is gone or superseded.
         log.info('host_organizations_unregistered', { status: 'key_refused' })
         this.setStanding(null)
+        this.deps.onRegistrationRefused?.()
         return
       }
       const response = await fetchImpl(`${registration.directoryUrl}/v1/hosts/${registration.hostId}/organizations`, {
@@ -157,6 +160,7 @@ export class HostOrganizations {
         // The control token is not of this host's current registration: it is gone or superseded. Nothing to deliver to.
         log.info('host_organizations_unregistered', { status: response.status })
         this.setStanding(null)
+        this.deps.onRegistrationRefused?.()
         return
       } else {
         log.warn('host_organizations_refused', { status: response.status })

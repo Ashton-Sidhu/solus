@@ -29,7 +29,10 @@ test('finishing a provider update preserves visible sign-in status and optional 
       })
       let updated: SetupAgent | undefined
       const before = providerUpdateRows(rows(), [{ agent, installedVersion: '1.0.0', check: { kind: 'available', latestVersion: '2.0.0', checkedAt: 0 } }], (agent) => { updated = agent })
-      before.find((row) => row.id === agent)!.secondary!.run()
+      const pending = before.find((row) => row.id === agent)!
+      // An available update must not take the place of the account action.
+      expect(pending.secondary?.label).toBe(signedIn ? 'Switch account' : undefined)
+      pending.update!.run()
       expect(updated).toBe(agent)
       expect(signIns).toEqual([])
 
@@ -54,10 +57,11 @@ test('a provider update uses the selected host action and leaves busy rows disab
   let updated = false
   const status = { agent: 'claude' as const, installedVersion: '1.0.0', check: { kind: 'available' as const, latestVersion: '2.0.0', checkedAt: 0 } }
   const rows = providerUpdateRows([{ id: 'claude', label: 'Claude Code', state: 'done', detail: 'Installed' }], [status], () => { updated = true })
-  expect(rows[0]?.detail).toBe('Installed · 1.0.0 · 2.0.0 available')
-  rows[0]?.secondary?.run()
+  expect(rows[0]?.detail).toBe('Installed · 1.0.0')
+  expect(rows[0]?.update?.label).toBe('Update to 2.0.0')
+  rows[0]?.update?.run()
   expect(updated).toBe(true)
   const busy = providerUpdateRows([{ id: 'claude', label: 'Claude Code', state: 'busy', detail: 'Installing…' }], [status], () => {})
   expect(busy[0]?.detail).toBe('Updating…')
-  expect(busy[0]?.secondary).toBeUndefined()
+  expect(busy[0]?.update).toBeUndefined()
 })

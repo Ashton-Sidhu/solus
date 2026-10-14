@@ -140,7 +140,7 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
   })
 
   server.register('integrationUpdate', async (args, ctx) => {
-    const { id, name, url, oauthClient } = integrationUpdateRequestSchema.parse(args[0])
+    const { id, name, url, oauthClient, disabledTools } = integrationUpdateRequestSchema.parse(args[0])
     const scope = recordScopeOf(ctx.principal)
     const existing = requireOwn(id, ctx.principal)
     let auth = url !== undefined && url !== existing.url ? (await probeForWrite(url)).auth : undefined
@@ -154,10 +154,13 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
           : { clientId, tokenEndpointAuthMethod: 'none', redirectUris: [] })
       }
     }
-    const integration = store.update(id, { name, url, auth }, scope)
+    const integration = store.update(id, { name, url, auth, disabledTools }, scope)
     if (!integration) throw new Error('That integration is no longer on this host.')
-    gateway.invalidate(id)
-    void gateway.warm(id)
+    // Turning tools on or off keeps the upstream session: the filter is on the record.
+    if (name !== undefined || url !== undefined || oauthClient !== undefined) {
+      gateway.invalidate(id)
+      void gateway.warm(id)
+    }
     void events.broadcast('integration.changed', { integrationId: id, change: 'updated' })
     void deps.profile?.saved(ctx.principal, integration)
     return integration

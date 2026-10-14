@@ -502,10 +502,10 @@
     const ids = taskIds.filter((_, i) => owned[i]);
     const refused = taskIds.length - ids.length;
     if (refused) toasts.error(`Couldn't delete ${refused} task${refused === 1 ? "" : "s"}`, { description: "Only the owner can delete a task." });
-    // A session with no task has no record to delete: it leaves the sidebar
-    // and stays in History.
+    // A session with no task has no record to delete: it is archived, and
+    // the session picker still finds it.
     for (const row of rows) {
-      if (!row.taskId) sidebarStore.closeTask(row);
+      if (!row.taskId) sidebarStore.removeRow(row);
     }
     const pending = sidebarStore.deleteTasks(ids);
     if (!pending.length) return;
@@ -549,8 +549,7 @@
     requestInputFocus();
   }
 
-  /** Closing removes the mounted tab. The durable session remains resumable
-   *  from the session picker. */
+  /** Closing removes the mounted tab. The session stays in the list. */
   function closeSession(tabId: string) {
     sidebarStore.closeSidebarTab(tabId);
     requestInputFocus();
@@ -590,10 +589,11 @@
     requestInputFocus();
   }
 
-  /** Removing a task is local sidebar view state. Its workflow status and any
-   *  provider run stay unchanged; only the row and mounted tabs leave. */
+  /** Removing a task's row is local sidebar view state: its workflow status
+   *  and any provider run stay unchanged. Removing a session's row archives
+   *  the session on every device (docs/plans/session-archive.md). */
   function removeTask(task: SidebarTask) {
-    sidebarStore.closeTask(task);
+    sidebarStore.removeRow(task);
     requestInputFocus();
   }
 
@@ -721,9 +721,8 @@
         requestInputFocus();
         break;
       case "close":
-        // Keyboard dismissal only takes the row off the column: it never stops
-        // the run and never changes task status. Ending the task itself is the
-        // row's own close control.
+        // Keyboard dismissal is the row's X: it never stops the run and never
+        // changes task status. A session's row archives the session.
         if (task) removeTask(task);
         else if (focused!.dataset.tabId) closeSession(focused!.dataset.tabId);
         break;
@@ -1512,9 +1511,13 @@
                   menuPoint,
                 )
             : undefined,
+        onArchive:
+          sessionRow && sidebarStore.canShelve(sessionRow)
+            ? () => removeTask(sessionRow)
+            : undefined,
       }}
       onCloseTab={closeSession}
-      closeTabLabel="Remove from Sidebar"
+      closeTabLabel="Close Tab"
       closeTabIsDestructive={false}
       onClose={closeSessionContextMenu}
     />

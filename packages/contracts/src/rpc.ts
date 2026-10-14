@@ -89,6 +89,8 @@ export const RPC_INVOKE_METHODS = [
   'stopBackgroundTasks',
   'resetSession',
   'acceptPlan',
+  // Deprecated (plans/021): a prompt on another provider hands the session off
+  // when it starts. Hosts keep this for one release, for older clients.
   'switchSessionAgent',
 
   // Agent conversations (cards drive sessions no client is looking at)
@@ -169,9 +171,9 @@ export const RPC_INVOKE_METHODS = [
   'sessionPullRequestLink',
   'sessionPullRequestUnlink',
   'sessionPullRequestWatch',
-  'sessionShelfList',
   'sessionSetSettled',
   'sessionSnooze',
+  'sessionSetArchived',
   'listRecentProjects',
   'trackRecentProject',
   'listPlans',

@@ -132,10 +132,9 @@ test('this computer fills an empty copy by itself, and an import keeps what the 
   await settle()
   expect(calls).toEqual(['read:laptop'])
 
-  local.setEntry({ ...read.profile['integration:deepwiki'], disabled: true })
   local.setEntry({ kind: 'skill', name: 'deploy', source: 'acme/skills', skillId: 'deploy' })
   await store.importComputer()
-  expect(local.entries['integration:deepwiki']?.disabled).toBe(true)
+  expect(local.entries['integration:deepwiki']?.kind).toBe('integration')
   expect(local.entries['skill:deploy']?.kind).toBe('skill')
   expect(store.importError).toBeNull()
 })
@@ -157,16 +156,16 @@ test('a push sends this client\'s copy, so an entry removed on the page stays of
   expect(Object.keys(local.entries)).toEqual(['file:claude-code/agents/rules.md'])
 })
 
-test('merging this computer into the copy keeps the copy\'s disabled flag and its own entries, and takes the computer\'s content', () => {
+test('merging this computer into the copy keeps the copy\'s own entries and takes the computer\'s content', () => {
   const computerFile = read.profile['file:claude-code/agents/rules.md']
   const merged = mergeComputerProfile(
     {
-      'file:claude-code/agents/rules.md': { ...computerFile, contentBase64: Buffer.from('Old.').toString('base64'), hash: 'b'.repeat(64), disabled: true },
+      'file:claude-code/agents/rules.md': { ...computerFile, contentBase64: Buffer.from('Old.').toString('base64'), hash: 'b'.repeat(64) },
       'skill:deploy': { kind: 'skill', name: 'deploy', source: 'acme/skills', skillId: 'deploy' },
     },
     read.profile,
   )
-  expect(merged['file:claude-code/agents/rules.md']).toEqual({ ...computerFile, disabled: true })
+  expect(merged['file:claude-code/agents/rules.md']).toEqual(computerFile)
   expect(merged['skill:deploy']?.kind).toBe('skill')
   expect(merged['integration:deepwiki']?.kind).toBe('integration')
 })

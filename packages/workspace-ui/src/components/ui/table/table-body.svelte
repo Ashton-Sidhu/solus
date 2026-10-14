@@ -24,9 +24,8 @@
   data-slot="table-body"
   data-zebra={zebra ? '' : undefined}
   class={cn(
-    '[&_tr:last-child]:border-0',
     zebra &&
-      '[&>tr]:border-0 [&>tr:nth-child(even)>td]:bg-(--zebra) [&>tr:hover>td]:shadow-(--hover-wash) [&>tr[data-state=selected]>td]:bg-muted',
+      '[&>tr]:border-0 [&>tr>td]:bg-none [&>tr:nth-child(even)>td]:bg-(--zebra) [&>tr:hover>td]:shadow-(--hover-wash) [&>tr[data-state=selected]>td]:bg-muted',
     className,
   )}
   {...restProps}

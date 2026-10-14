@@ -112,8 +112,11 @@ export class PromptDispatch {
     const currentLineage = resolveSessionLineageById(proposedSessionId)?.active
     if (!input.forked && !input.agentSessionId && currentLineage?.providerSessionId) {
       input.agentSessionId = currentLineage.providerSessionId
-      input.provider = currentLineage.provider
     }
+    // The provider a client sends is its picked provider: one that differs from
+    // the thread provider hands the session off when this prompt starts
+    // (plans/021). A client that names none continues the thread provider.
+    if (!input.forked && !ctx.session.provider && currentLineage) input.provider = currentLineage.provider
     const agentSessionId = this.rt.activeSessions.get(proposedSessionId)?.agentSessionId ?? input.agentSessionId
     // Route by the registered id, never the caller's. A client that resumed this
     // thread from disk without adopting our answer still proposes its own name;

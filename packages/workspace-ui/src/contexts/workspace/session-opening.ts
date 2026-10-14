@@ -392,6 +392,7 @@ export class SessionOpening {
       const tab = this.workspace.tabs[tabId]
       if (!session || !tab) throw new Error('The resumed session tab was not created')
       session.run.provider = provider
+      session.threadProvider = provider
       session.agentSessionId = activeProviderSessionId
       session.handoffPending = !!handoff && !activeProviderSessionId
       session.readOnlyReason = null
@@ -408,6 +409,7 @@ export class SessionOpening {
     } else {
       const session = targetSession!
       session.run.provider = provider
+      session.threadProvider = provider
       session.agentSessionId = activeProviderSessionId
       session.handoffPending = !!handoff && !activeProviderSessionId
       // Taking over an empty tab moves it to the session's host. Safe only

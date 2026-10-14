@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import type { SessionPullRequestLink } from '@solus/contracts/session-pull-requests'
-import type { SessionState } from '@solus/contracts/session-state'
+import { ACTIVE_SESSION_STATE, type SessionState } from '@solus/contracts/session-state'
 import type { ProjectEntry, SessionRecord, SessionStatus } from '@solus/contracts/types'
 import { buildHomeProjectScopes, sortHomeProjectScopes } from '../../apps/mobile/src/features/home/homeThreadList'
 import { deriveWorkspaceState, workspaceConnectionStatusPresentation } from '../../apps/mobile/src/features/home/workspace-connection-status'
@@ -13,6 +13,7 @@ import {
   buildThreadListV2ListItems,
   presentThreadPullRequests,
   resolveThreadListV2Status,
+  resolveThreadListV2SwipeActions,
   threadListV2ListItemsAreEqual,
   type ThreadListV2Facts,
 } from '../../apps/mobile/src/features/threads/threadListV2'
@@ -46,7 +47,7 @@ function project(hostId: string, path: string, repositoryKey: string | null): So
 
 function facts(input: { shelf?: Record<string, Partial<SessionState>>; live?: Record<string, SessionStatus>; prs?: Record<string, SessionPullRequestLink[]> } = {}): ThreadListV2Facts {
   return {
-    shelf: new Map(Object.entries(input.shelf ?? {}).map(([key, state]) => [key, { sessionId: key, settledAt: null, settledBy: null, snoozedUntil: null, snoozeNote: null, ...state }])),
+    shelf: new Map(Object.entries(input.shelf ?? {}).map(([key, state]) => [key, { ...ACTIVE_SESSION_STATE, ...state }])),
     liveStatus: new Map(Object.entries(input.live ?? {})),
     pullRequests: new Map(Object.entries(input.prs ?? {})),
   }
@@ -113,6 +114,49 @@ describe('thread list partition', () => {
     expect(layout.items.map((item) => item.thread.record.sessionId)).toEqual(['s0', 's1'])
     expect(layout.hiddenSettledCount).toBe(3)
   })
+
+  test('the state a record carries places it on a shelf; a later announced state overrides it', () => {
+    // WHY: the list read carries each session's state. A thread snoozed on any
+    // device must stay snoozed after a reload, with no separate shelf read.
+    const snoozedOnHost = shell('h', 'z', { state: { ...ACTIVE_SESSION_STATE, snoozedUntil: NOW + HOUR } })
+    const settledOnHost = shell('h', 's', { state: { ...ACTIVE_SESSION_STATE, settledAt: NOW } })
+    const plain = shell('h', 'a')
+    const reloaded = buildThreadListV2Items({ threads: [snoozedOnHost, settledOnHost, plain], facts: facts(), hostId: null, searchQuery: '', now: NOW, snoozedShelfExpanded: true })
+    expect(reloaded.items.map((item) => [item.thread.record.sessionId, item.snoozed, item.variant])).toEqual([['a', false, 'card'], ['z', true, 'slim'], ['s', false, 'slim']])
+    // A woken thread is stored as an active state, so the stale record no longer counts.
+    const woken = facts({ shelf: { [snoozedOnHost.key]: {} } })
+    expect(buildThreadListV2Items({ threads: [snoozedOnHost], facts: woken, hostId: null, searchQuery: '', now: NOW }).items[0]).toMatchObject({ variant: 'card', snoozed: false })
+  })
+
+  test('an archived thread leaves the list; a search finds it in its own section', () => {
+    const archivedOnHost = shell('h', 'old', { title: 'Login fix', state: { ...ACTIVE_SESSION_STATE, archivedAt: NOW - HOUR } })
+    const listed = shell('h', 'kept', { title: 'Login page' })
+    const justArchived = shell('h', 'gone', { title: 'Login copy' })
+    const state = facts({ shelf: { [justArchived.key]: { archivedAt: NOW } } })
+    const build = (searchQuery: string, selectedThreadKey: string | null = null) => buildThreadListV2Items({
+      threads: [listed, justArchived], archivedThreads: [archivedOnHost], facts: state, hostId: null, searchQuery, now: NOW, selectedThreadKey,
+    })
+    const unsearched = build('')
+    expect(unsearched.items.map((item) => item.thread.record.sessionId)).toEqual(['kept'])
+    expect(unsearched.archivedCount).toBe(0)
+    // The open thread keeps its row, so a split view never loses it.
+    expect(build('', archivedOnHost.key).items.map((item) => [item.thread.record.sessionId, item.archived === true])).toEqual([['kept', false], ['old', true]])
+
+    const searched = build('login')
+    expect(searched.items.map((item) => [item.thread.record.sessionId, item.archived === true])).toEqual([['kept', false], ['gone', true], ['old', true]])
+    expect(searched).toMatchObject({ archivedCount: 2, archivedHeaderIndex: 1 })
+    const rows = buildThreadListV2ListItems({ ...searched, facts: state, now: NOW })
+    expect(rows.map((item) => item.type)).toEqual(['v2-thread', 'v2-archived-section', 'v2-thread', 'v2-thread'])
+  })
+
+  test('a thread returned to the list leaves the archived results at once', () => {
+    const archivedOnHost = shell('h', 'old', { state: { ...ACTIVE_SESSION_STATE, archivedAt: NOW - HOUR, settledAt: NOW - 2 * HOUR } })
+    // Unarchive keeps the settle, so the thread returns to the Settled shelf.
+    const returned = facts({ shelf: { [archivedOnHost.key]: { settledAt: NOW - 2 * HOUR } } })
+    const layout = buildThreadListV2Items({ threads: [], archivedThreads: [archivedOnHost], facts: returned, hostId: null, searchQuery: '', now: NOW })
+    expect(layout.items.map((item) => [item.thread.record.sessionId, item.variant, item.archived === true])).toEqual([['old', 'slim', false]])
+    expect(layout.settledCount).toBe(1)
+  })
 })
 
 describe('thread list rows', () => {
@@ -124,6 +168,11 @@ describe('thread list rows', () => {
     expect(resolveThreadListV2Status({ status: 'running' }, 'completed')).toBe('ready')
     expect(resolveThreadListV2Status({ status: 'running' }, undefined)).toBe('working')
     expect(resolveThreadListV2Status({ status: 'interrupted' }, undefined)).toBe('ready')
+  })
+
+  test('an archived row swipes to Return to List and offers no snooze', () => {
+    expect(resolveThreadListV2SwipeActions({ variant: 'slim', snoozable: true, archived: true })).toEqual({ primary: 'unarchive', secondary: null })
+    expect(resolveThreadListV2SwipeActions({ variant: 'card', snoozable: true })).toEqual({ primary: 'settle', secondary: 'snooze' })
   })
 
   test('shelf headers splice between sections and hairlines stop at a header', () => {
@@ -252,24 +301,32 @@ describe('thread list state', () => {
   function fakeConnection() {
     const events = new HostEventSubscriber()
     const calls: string[] = []
-    let shelf: SessionState[] = [{ sessionId: 's1', settledAt: NOW, settledBy: 'person', snoozedUntil: null, snoozeNote: null }]
+    const resets: Array<() => void> = []
+    const announce = (sessionId: string, state: SessionState) => {
+      events.receive({ type: 'session.stateChanged', payload: { sessionId, state }, occurredAt: NOW })
+      return state
+    }
     const connection: ThreadListConnection = {
       events,
-      onReset: () => () => {},
+      onReset: (listener) => {
+        resets.push(listener)
+        return () => {}
+      },
       api: {
-        sessionShelfList: async (ids?: string[]) => {
-          calls.push(`shelf:${ids?.join(',') ?? '*'}`)
-          return shelf.filter((entry) => !ids || ids.includes(entry.sessionId)).map((entry) => ({ ...entry, title: null, projectPath: null }))
-        },
         sessionPullRequestsList: async () => ({ s2: [link(9)] }),
         sessionPullRequestWatch: async () => 'started' as const,
         sessionSetSettled: async (sessionId: string, settled: boolean) => {
           calls.push(`settle:${sessionId}:${settled}`)
-          shelf = shelf.filter((entry) => entry.sessionId !== sessionId)
-          if (settled) shelf.push({ sessionId, settledAt: NOW, settledBy: 'person', snoozedUntil: null, snoozeNote: null })
-          events.receive({ type: 'session.stateChanged', payload: { sessionId }, occurredAt: NOW })
+          return announce(sessionId, { ...ACTIVE_SESSION_STATE, settledAt: settled ? NOW : null, settledBy: settled ? 'person' : null })
         },
-        sessionSnooze: async () => {},
+        sessionSnooze: async (sessionId: string, until: number | null) => {
+          calls.push(`snooze:${sessionId}:${until}`)
+          return announce(sessionId, { ...ACTIVE_SESSION_STATE, snoozedUntil: until })
+        },
+        sessionSetArchived: async (sessionId: string, archived: boolean) => {
+          calls.push(`archive:${sessionId}:${archived}`)
+          return announce(sessionId, { ...ACTIVE_SESSION_STATE, archivedAt: archived ? NOW : null })
+        },
         setSessionTitle: async () => {},
         setSessionReadState: async (sessionId, viewedAt) => {
           calls.push(`read:${sessionId}:${viewedAt}`)
@@ -278,23 +335,64 @@ describe('thread list state', () => {
         },
       },
     }
-    return { events, calls, connection }
+    return { events, calls, resets, connection }
   }
 
-  test('reads the shelf and links, follows live status, and re-reads one session after a change', async () => {
+  test('reads the links and follows live status', async () => {
     const host = fakeConnection()
     const list = new ThreadListState(() => host.connection, memoryKeyValueStore())
     await list.load('h')
-    expect(list.facts().shelf.get(threadKey('h', 's1'))?.settledAt).toBe(NOW)
     expect(list.facts().pullRequests.get(threadKey('h', 's2'))?.[0]?.number).toBe(9)
+    expect(list.facts().shelf.size).toBe(0)
 
     host.events.receive({ type: 'session.statusChanged', payload: { sessionId: 's2', agentSessionId: 'p2', status: 'awaiting_input', at: NOW }, occurredAt: NOW })
     expect(list.facts().liveStatus.get(threadKey('h', 's2'))).toBe('awaiting_input')
     expect(list.facts().liveStatus.get(threadKey('h', 'p2'))).toBe('awaiting_input')
+  })
 
-    await list.setSettled('h', 's1', false)
-    expect(host.calls).toEqual(['shelf:*', 'settle:s1:false', 'shelf:s1'])
-    expect(list.facts().shelf.has(threadKey('h', 's1'))).toBe(false)
+  test('a state event moves one row and reads nothing back', async () => {
+    // WHY: the event carries the new state (docs/plans/session-archive.md); a
+    // read per change would spend the host's request budget.
+    const host = fakeConnection()
+    const list = new ThreadListState(() => host.connection, memoryKeyValueStore())
+    await list.load('h')
+    const a = shell('h', 'a')
+    const b = shell('h', 'b')
+    const before = buildThreadListV2Items({ threads: [a, b], facts: list.facts(), hostId: null, searchQuery: '', now: NOW })
+    host.events.receive({ type: 'session.stateChanged', payload: { sessionId: 'b', state: { ...ACTIVE_SESSION_STATE, settledAt: NOW } }, occurredAt: NOW })
+    const after = buildThreadListV2Items({ threads: [a, b], facts: list.facts(), hostId: null, searchQuery: '', now: NOW })
+    expect(before.items.map((item) => item.variant)).toEqual(['card', 'card'])
+    expect(after.items.map((item) => [item.thread.record.sessionId, item.variant])).toEqual([['a', 'card'], ['b', 'slim']])
+    expect(list.facts().shelf.has(threadKey('h', 'a'))).toBe(false)
+    expect(host.calls).toEqual([])
+  })
+
+  test('settle, snooze, archive, and their reverses call the host and keep its answer', async () => {
+    const host = fakeConnection()
+    const list = new ThreadListState(() => host.connection, memoryKeyValueStore())
+    await list.setArchived('h', 's1', true)
+    expect(list.facts().shelf.get(threadKey('h', 's1'))?.archivedAt).toBe(NOW)
+    await list.setArchived('h', 's1', false)
+    // An active answer is kept, so it overrides an archived record read earlier.
+    expect(list.facts().shelf.get(threadKey('h', 's1'))).toEqual(ACTIVE_SESSION_STATE)
+    await list.snooze('h', 's1', NOW + HOUR)
+    expect(list.facts().shelf.get(threadKey('h', 's1'))?.snoozedUntil).toBe(NOW + HOUR)
+    await list.setSettled('h', 's1', true)
+    expect(list.facts().shelf.get(threadKey('h', 's1'))?.settledAt).toBe(NOW)
+    expect(host.calls).toEqual(['archive:s1:true', 'archive:s1:false', `snooze:s1:${NOW + HOUR}`, 'settle:s1:true'])
+  })
+
+  test('a host older than the session list answers no state, and a reset drops what may be stale', async () => {
+    const host = fakeConnection()
+    host.connection.api.sessionSetSettled = async () => {}
+    const list = new ThreadListState(() => host.connection, memoryKeyValueStore())
+    await list.setSettled('h', 's1', true)
+    expect(list.facts().shelf.size).toBe(0)
+    await list.snooze('h', 's2', NOW + HOUR)
+    expect(list.facts().shelf.size).toBe(1)
+    // A reconnect may have missed a change; the records read again answer it.
+    for (const reset of host.resets) reset()
+    expect(list.facts().shelf.size).toBe(0)
   })
 
   test('marking a session unread targets its host and opening it clears the indicator', async () => {
@@ -319,9 +417,9 @@ describe('thread list state', () => {
   test('unread changes invalidate only the session row that changed', () => {
     const thread = shell('h', 's1')
     const state = facts()
-    const build = () => buildThreadListV2ListItems({ items: [{ thread, variant: 'card', snoozed: false }], facts: state, now: NOW })
+    const build = () => buildThreadListV2ListItems({ items: [{ thread, variant: 'card', snoozed: false, isLast: true }], facts: state, now: NOW })
     const read = build()
-    const unread = buildThreadListV2ListItems({ items: [{ thread, variant: 'card', snoozed: false }], facts: { ...state, unread: new Map([[thread.key, true]]) }, now: NOW })
+    const unread = buildThreadListV2ListItems({ items: [{ thread, variant: 'card', snoozed: false, isLast: true }], facts: { ...state, unread: new Map([[thread.key, true]]) }, now: NOW })
     expect(threadListV2ListItemsAreEqual(read[0]!, unread[0]!)).toBe(false)
     expect(threadListV2ListItemsAreEqual(read[0]!, build()[0]!)).toBe(true)
   })

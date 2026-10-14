@@ -66,8 +66,10 @@ The Completed shelf is the name of the place in the list.
      after the last prompt and after a person last made the session active, and
      the session is not mid-turn (`settleSessionsWithEndedPullRequests`);
    - its task finishes, unless another task that is not finished holds it;
-   - it had no prompt for 30 days and waits on no open pull request
-     (`settleIdleSessions`).
+   - it had no prompt for 30 days and waits on no open pull request. Since
+     `docs/plans/session-archive.md` such a session is archived
+     (`archiveIdleSessions`), not settled; `settledBy: 'idle'` stays on older
+     rows.
    A prompt makes a settled or snoozed session active. A person can also make
    a settled session active; its pull requests then settle it again only if one
    ends later. Reopening a task makes the sessions that its finish settled
@@ -154,9 +156,10 @@ Migrations `0026` (SQLite) and `0015` (Postgres).
 
 `session_states` (`session_id`, `settled_at`, `settled_by`, `unsettled_at`,
 `snoozed_until`, `snooze_note`, `last_prompt_at`, `organization_id`).
-Migrations `0027` and `0016`.
+Migrations `0027` and `0016`. `archived_at` came with migration `0017` on
+both engines (`docs/plans/session-archive.md`).
 
-`packages/contracts/src/session-state.ts`: `SessionState`, `SessionShelfEntry`.
+`packages/contracts/src/session-state.ts`: `SessionState`, `ACTIVE_SESSION_STATE`.
 
 `packages/contracts/src/session-pull-requests.ts`: `SessionPullRequestLink`.
 `TaskLink` and `TaskSidebarPrLink` gain `ownerSessionId` for a link the task
@@ -178,17 +181,20 @@ reads from a session.
   (`docs/plans/pr-watch.md`). Topic: `session.pullRequestsChanged`. Unlinking
   a pull request, or settling the session, stops its watch. A change of
   a session's links also invalidates each task the session belongs to.
-- `data/sessions/session-states.ts` — settle, make active, snooze, the prompt
-  record, the shelf read and the two settle rules. `prs/pr-sync.ts` runs the
-  settle rules at the end of each tick. `SessionRuntime` records each prompt.
-  `Task.update` settles and reopens the sessions of a task.
-- RPC: `sessionShelfList`, `sessionSetSettled`, `sessionSnooze`. Topic:
-  `session.stateChanged`.
+- `data/sessions/session-states.ts` — `SessionShelf`, one per session:
+  settle, make active, snooze, archive, and the prompt record. The pull
+  request settle rule and the idle archive are functions over many sessions.
+  `prs/pr-sync.ts` runs them at the end of each tick. `SessionRuntime` records
+  each prompt. `Task.update` settles and reopens the sessions of a task.
+- RPC: `sessionSetSettled`, `sessionSnooze`, `sessionSetArchived`; each answers
+  the state it leaves. The list is `sessionRecordList` with each record's
+  state (`docs/plans/session-archive.md`). Topic: `session.stateChanged`, with
+  the state.
 - The agent tool `link` (`execution/agents/tools/task-tools.ts`), in the Tasks
   group.
 - The agent tool `organize_session`
   (`execution/agents/tools/session-organize-tool.ts`), in the Sessions group.
-  It settles, unsettles, snoozes, wakes, or marks unread any session on this
+  It settles, unsettles, snoozes, wakes, archives, unarchives, or marks unread any session on this
   host; the caller's session when it names none. An agent's settle is a
   `person` settle: the agent acts for the person. It refuses a wake time in
   the past and a snooze of a settled session. A read-state change is
@@ -208,12 +214,12 @@ reads from a session.
   at once, and unlinks it.
 - `WorkspaceUiStore.linkPrompt` opens `SessionLinkPrompts` (mounted once by
   desktop and by web): `LinkSessionTaskDialog` and `LinkPullRequestDialog`.
-- `contexts/workspace/session-states.store.svelte.ts` holds the settled and
-  snoozed sessions of each host. `SessionSidebarStore` reads it: a session row
-  takes its shelf from it (`sessionRowLifecycle`), and a settled or snoozed
-  session with no conversation here gets a row that opens the session. A task
-  row takes its shelf from the task's status. The client keeps no done mark
-  and no snooze of its own.
+- `contexts/workspace/session-list.store.svelte.ts` holds each host's session
+  list with each session's state (`docs/plans/session-archive.md`).
+  `SessionSidebarStore` reads it: a session row takes its shelf from it
+  (`sessionRowLifecycle`), and a listed session with no conversation here gets
+  a row that opens the session. A task row takes its shelf from the task's
+  status. The client keeps no done mark and no snooze of its own.
 - `SessionContextMenu`: Link to task… or Open task and Unlink from task; Link
   pull request…; Snooze and Mark done on a session's own row.
 - `TaskContextMenu`: task actions and Link pull request…; the single-session

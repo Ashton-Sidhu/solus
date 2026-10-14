@@ -1,13 +1,16 @@
 <script lang="ts">
+  /**
+   * Settings → Providers: the agent harnesses a session on this host runs
+   * through, Claude Code and Codex. The owner manages the host login; an
+   * organization member manages their own seat instead
+   * (docs/plans/provider-seats.md §3.6).
+   */
   import { untrack } from "svelte";
-  import { serversStore, sharesStore, accountStore } from "../../contexts";
+  import { seatsStore } from "../../contexts";
+  import { usesCloudAgentSeats } from "../../contexts/seats/cloud-agent-seats.store.svelte";
   import SeatsSettings from "../seats/SeatsSettings.svelte";
-  import CloudConnectionsPointer from "../seats/CloudConnectionsPointer.svelte";
-  import { cloudConnectionsPointerUrl } from "../seats/lib/cloud-connections";
-  import CloudflareProviderSettings from "../cloudflare/CloudflareProviderSettings.svelte";
-  import AtlassianProviderSettings from "../atlassian/AtlassianProviderSettings.svelte";
-  import GoogleProviderSettings from "../google/GoogleProviderSettings.svelte";
-  import SettingsSection from "./SettingsSection.svelte";
+  import ProviderPanel from "../servers/ProviderPanel.svelte";
+  import { hostSetupStore } from "../servers/host-setup.store.svelte";
 
   interface Props {
     serverId: string;
@@ -15,37 +18,23 @@
 
   let { serverId }: Props = $props();
 
-  // A member admitted through an organization keeps their Google and Atlassian
-  // connections in Solus cloud, not on the runner; the row points there.
-  // GitHub is on the Source Control page.
+  const setup = $derived(hostSetupStore.sessionFor(serverId));
+  const hasSeats = $derived(usesCloudAgentSeats(serverId) || seatsStore.hasSeats.get(serverId) === true);
+
+  // Setup events belong to the host, so the page holds its subscription open
+  // while it shows that host, and hands it back on the way out.
   $effect(() => {
-    void accountStore.state;
     const targetServerId = serverId;
-    untrack(() => void sharesStore.identityFor(targetServerId, true).catch(() => {}));
+    return untrack(() => {
+      const session = hostSetupStore.sessionFor(targetServerId);
+      session.retain();
+      void session.refreshReadiness();
+      return () => session.release();
+    });
   });
-  const cloudConnectionsUrl = $derived(
-    cloudConnectionsPointerUrl({
-      identity: sharesStore.identities.get(serverId),
-      directoryUrl: serversStore.servers.find((server) => server.id === serverId)?.uplink?.directoryUrl,
-    }),
-  );
 </script>
 
-<!-- Ordered by what the account is for: the member's own agent logins on a shared
-     host first, then the issue and document providers, then the deployment
-     target. -->
 <SeatsSettings {serverId} />
-{#if cloudConnectionsUrl}
-  <SettingsSection label="Connections">
-    <CloudConnectionsPointer
-      url={cloudConnectionsUrl}
-      label="Your Google and Atlassian connections live in Solus cloud"
-      description="Solus uses your own accounts for integration actions."
-      testId="connections-row-cloud"
-    />
-  </SettingsSection>
-{:else}
-  <AtlassianProviderSettings {serverId} />
-  <GoogleProviderSettings {serverId} />
+{#if !hasSeats}
+  <ProviderPanel {setup} />
 {/if}
-<CloudflareProviderSettings {serverId} />

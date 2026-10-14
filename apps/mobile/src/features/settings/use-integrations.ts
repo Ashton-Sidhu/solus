@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useFocusEffect } from '@react-navigation/native'
 import type { HostApi } from '@solus/client-core/host-api'
-import type { Integration, IntegrationConnection, IntegrationOAuthClientInput } from '@solus/contracts/integration-types'
+import type { CatalogCategoryId, Integration, IntegrationCatalogListRequest, IntegrationConnection, IntegrationOAuthClientInput } from '@solus/contracts/integration-types'
 import { useApp, useListened } from '../../app/app-context'
 import {
   appendCatalogEntries,
@@ -59,6 +59,9 @@ export function useIntegrations(hostId: string) {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const [tools, setTools] = useState<ReadonlyMap<string, IntegrationToolsState>>(new Map())
   const [catalog, setCatalog] = useState<CatalogState>({ kind: 'idle' })
+  const [category, setCategoryState] = useState<CatalogCategoryId | null>(null)
+  /** The same category, read by the catalog requests. */
+  const categoryRef = useRef<CatalogCategoryId | null>(null)
   const [adding, setAdding] = useState<AddState | null>(null)
   const [busy, setBusy] = useState<IntegrationAction | null>(null)
   /** The same change as `busy`, read at once, so a second tap waits for the first. */
@@ -207,6 +210,13 @@ export function useIntegrations(hostId: string) {
     if (catalogTimer.current) clearTimeout(catalogTimer.current)
   }, [])
 
+  /** One page of the catalog in the chosen category; a host from before categories refuses the field, so it is sent only when set. */
+  const catalogPage = useCallback((api: HostApi, query: string, offset: number) => {
+    const request: IntegrationCatalogListRequest = { query: query || undefined, offset, limit: CATALOG_PAGE_SIZE }
+    if (categoryRef.current) request.category = categoryRef.current
+    return api.integrationCatalogList(request)
+  }, [])
+
   /** Reads the first page of a search; an empty query lists the most popular entries. */
   const readCatalog = useCallback((query: string, delay: number) => {
     if (catalogTimer.current) clearTimeout(catalogTimer.current)
@@ -220,18 +230,25 @@ export function useIntegrations(hostId: string) {
         setCatalog({ kind: 'error', query: trimmed, message: 'This host cannot be reached now.' })
         return
       }
-      current.api.integrationCatalogList({ query: trimmed || undefined, offset: 0, limit: CATALOG_PAGE_SIZE }).then(
+      catalogPage(current.api, trimmed, 0).then(
         (page) => { if (request === catalogRequest.current) setCatalog({ kind: 'loaded', query: trimmed, entries: page.entries, total: page.total, loadingMore: false, searching: false }) },
         (cause: unknown) => { if (request === catalogRequest.current) setCatalog({ kind: 'error', query: trimmed, message: errorMessage(cause) }) },
       )
     }, delay)
-  }, [connection])
+  }, [connection, catalogPage])
 
   /** Searches the catalog after a short pause in typing. */
   const searchCatalog = useCallback((query: string) => readCatalog(query, CATALOG_DELAY_MS), [readCatalog])
 
   /** Reads the same search again at once, after an error. */
   const retryCatalog = useCallback((query: string) => readCatalog(query, 0), [readCatalog])
+
+  /** Lists one category of the catalog, or every entry with null, for the current search. */
+  const setCategory = useCallback((next: CatalogCategoryId | null, query: string) => {
+    categoryRef.current = next
+    setCategoryState(next)
+    readCatalog(query, 0)
+  }, [readCatalog])
 
   /** Adds the next page below the entries shown, so nothing above them moves. */
   const loadMoreCatalog = useCallback(() => {
@@ -240,7 +257,7 @@ export function useIntegrations(hostId: string) {
     if (!current || state.kind !== 'loaded' || state.loadingMore || state.searching || state.entries.length >= state.total) return
     const request = catalogRequest.current
     setCatalog({ ...state, loadingMore: true })
-    current.api.integrationCatalogList({ query: state.query || undefined, offset: state.entries.length, limit: CATALOG_PAGE_SIZE }).then(
+    catalogPage(current.api, state.query, state.entries.length).then(
       (page) => {
         if (request !== catalogRequest.current) return
         setCatalog((latest) => latest.kind === 'loaded'
@@ -250,7 +267,7 @@ export function useIntegrations(hostId: string) {
       // The entries stay; Show more asks again.
       () => { if (request === catalogRequest.current) setCatalog((latest) => latest.kind === 'loaded' ? { ...latest, loadingMore: false } : latest) },
     )
-  }, [catalog, connection])
+  }, [catalog, connection, catalogPage])
 
   const clearCatalog = useCallback(() => {
     if (catalogTimer.current) clearTimeout(catalogTimer.current)
@@ -344,6 +361,15 @@ export function useIntegrations(hostId: string) {
     applyToList((integrations) => upsertIntegration(integrations, integration))
   }
 
+  /** Turns one tool on or off for agents; the host keeps the list on the server's record. */
+  const setToolEnabled = async (integration: Integration, toolName: string, isOn: boolean): Promise<void> => {
+    const disabled = new Set(integration.disabledTools)
+    if (isOn) disabled.delete(toolName)
+    else disabled.add(toolName)
+    const updated = await change(`tools:${integration.id}`, (api) => api.integrationUpdate({ id: integration.id, disabledTools: [...disabled] }))
+    applyToList((integrations) => upsertIntegration(integrations, updated))
+  }
+
   return {
     connected,
     list,
@@ -352,6 +378,7 @@ export function useIntegrations(hostId: string) {
     expanded,
     tools,
     catalog,
+    category,
     adding,
     busy,
     reload,
@@ -359,6 +386,7 @@ export function useIntegrations(hostId: string) {
     toggle,
     searchCatalog,
     retryCatalog,
+    setCategory,
     loadMoreCatalog,
     clearCatalog,
     add,
@@ -367,6 +395,7 @@ export function useIntegrations(hostId: string) {
     remove,
     disconnect,
     setOAuthClient,
+    setToolEnabled,
   }
 }
 

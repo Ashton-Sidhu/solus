@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { Integration, IntegrationConnection } from '@solus/contracts/integration-types'
 import type { ProfileCredential } from '@solus/contracts/integrations/profile-credentials'
 import type { OAuthClient, OAuthToken } from '@solus/contracts/integrations/oauth-protocol'
-import { CloudIntegrationCredentials, type CloudCredentialUpload } from '@solus/server/integrations/cloud-credentials'
+import { CloudIntegrationCredentials, type CloudCredentialRead, type CloudCredentialUpload } from '@solus/server/integrations/cloud-credentials'
 import { AccountReads } from '@solus/server/vault/account-reads'
 import type { IntegrationConnectionStore, IntegrationSecrets } from '@solus/server/integrations/connection-store'
 import { IntegrationConnections } from '@solus/server/integrations/connections'
@@ -223,5 +223,52 @@ describe('cloud credentials', () => {
     expect(requests[0].method).toBe('PUT')
     expect(requests[0].headers.get('authorization')).toBe('Bearer alice-delegated')
     expect(await requests[0].json()).toEqual({ serverUrl: 'https://a.example/mcp', expectedVersion: null, credential, label: 'Alice' })
+  })
+})
+
+describe('a cloud connection’s status says why it cannot be used', () => {
+  // WHY: a host that has no Solus sign-in to read the account with did not ask the cloud,
+  // so "Solus Cloud unreachable" was false and sent a signed-in person looking for an
+  // outage. Each cause has its own status, and a row that waited reads again once the
+  // person's delegation is made.
+  function cloudHost(read: () => CloudCredentialRead) {
+    const linear = integration('linear', OAUTH)
+    const rows = new Map([[linear.id, row(linear.id, { source: 'cloud' })]])
+    let answer = read
+    const cloud = {
+      read: async () => answer(),
+      cached: () => null,
+      forget: () => undefined,
+    } as unknown as CloudIntegrationCredentials
+    const connections = new IntegrationConnections({
+      store: {
+        get: (id: string) => rows.get(id) ?? null,
+        upsert: (id: string, _user: string | null, write: Partial<IntegrationConnection>) => { const next = row(id, { ...rows.get(id), ...write }); rows.set(id, next); return next },
+        list: () => [...rows.values()],
+      } as unknown as IntegrationConnectionStore,
+      integrations: { get: (id) => (id === linear.id ? linear : null), list: () => [linear] },
+      secrets: {} as IntegrationSecrets,
+      oauth: {} as IntegrationOAuth,
+      events: { connectionChanged: () => undefined, authFinished: () => undefined },
+      cloud,
+    })
+    return { connections, linear, rows, answer: (next: () => CloudCredentialRead) => { answer = next } }
+  }
+
+  test('no sign-in to read the account with says so; an outage says unreachable', async () => {
+    const signedOut = cloudHost(() => ({ kind: 'no-executor' }))
+    expect(await signedOut.connections.authorizationFor(signedOut.linear.id, 'alice')).toBeNull()
+    expect(signedOut.rows.get(signedOut.linear.id)?.status).toBe('needs-solus-sign-in')
+    const outage = cloudHost(() => ({ kind: 'unreachable' }))
+    expect(await outage.connections.authorizationFor(outage.linear.id, 'alice')).toBeNull()
+    expect(outage.rows.get(outage.linear.id)?.status).toBe('cloud-unreachable')
+  })
+
+  test('once the delegation is made, a row that waited is read again and says connected', async () => {
+    const w = cloudHost(() => ({ kind: 'no-executor' }))
+    await w.connections.authorizationFor(w.linear.id, 'alice')
+    w.answer(() => ({ kind: 'ok', delivery: { authorization: 'Bearer cloud', expiresAt: null, label: null } }))
+    await w.connections.recheckCloud('alice')
+    expect(w.rows.get(w.linear.id)?.status).toBe('connected')
   })
 })

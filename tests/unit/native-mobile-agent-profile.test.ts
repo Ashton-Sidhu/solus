@@ -24,7 +24,6 @@ import {
   hostProfileText,
   integrationEntryFromProbe,
   skillEntryFromRemote,
-  withDisabled,
 } from '../../apps/mobile/src/features/settings/lib/agent-profile-entries'
 import { memoryKeyValueStore, memorySecretStore } from '../../apps/mobile/src/platform/ports'
 import { FakeApi, FakeTransport, flushPromises, seedAccountGrant } from './helpers/native-mobile-fakes'
@@ -33,9 +32,8 @@ import { fakeAccountPlane, ISSUER } from './helpers/fake-account-plane'
 // plans/020-agent-profile.md §3 on the phone. The rules pinned here are the ones
 // a person would notice going wrong: signed in means synced, so signing in starts sync without a
 // choice; the cloud cannot push, so after this device's write is confirmed, and
-// when sync starts, every connected host is asked to pull; an entry turned off
-// stays in the profile with `disabled: true`, and a hand-written skill turns
-// off as one change.
+// when sync starts, every connected host is asked to pull; a hand-written
+// skill is removed as one change of all its files.
 
 const ACCOUNT = { origin: 'https://app.solus.sh', userId: 'user-1' }
 
@@ -269,28 +267,7 @@ describe('signed in means synced, and hosts pull after this device writes', () =
     expect(pulls()).toEqual([3, 3])
   })
 
-  test('disabling an entry sends it with `disabled: true`; enabling sends it without the flag', async () => {
-    const server = { kind: 'integration' as const, slug: 'linear', name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: { kind: 'none' as const } }
-    const { cloud, clock, local, sync, started } = device(fakeCloud(), (copy) => copy.setEntry(server))
-    await started()
-    const reported: unknown[] = []
-    local.onLocalChange((change) => reported.push(change))
-
-    expect(local.setEntry(withDisabled(server, true))).toBe('saved')
-    expect(reported).toEqual([{ set: { 'integration:linear': { ...server, disabled: true } }, reset: [] }])
-    clock.runAll()
-    await sync.profileEngine.idle()
-    expect(cloud.document().entries['integration:linear']).toEqual({ ...server, disabled: true })
-
-    local.setEntry(withDisabled(local.entries()['integration:linear']!, false))
-    expect(reported.at(-1)).toEqual({ set: { 'integration:linear': server }, reset: [] })
-    expect(Object.hasOwn(local.entries()['integration:linear']!, 'disabled')).toBe(false)
-    clock.runAll()
-    await sync.profileEngine.idle()
-    expect(cloud.document().entries['integration:linear']).toEqual(server)
-  })
-
-  test('a hand-written skill turns off as one change of all its files, and reads off only when they all are', () => {
+  test('a hand-written skill is removed as one change of all its files; a refused entry refuses the whole change', () => {
     const files = [
       fileEntryFromText('claude-code', 'skills/deploy/SKILL.md', '# Deploy'),
       fileEntryFromText('claude-code', 'skills/deploy/scripts/run.sh', 'echo'),
@@ -300,22 +277,15 @@ describe('signed in means synced, and hosts pull after this device writes', () =
     const reported: unknown[] = []
     local.onLocalChange((change) => reported.push(change))
     const [skill] = agentProfileParts(local.entries()).handWrittenSkills
-    expect(skill!.disabled).toBe(false)
+    expect(skill!.keys).toEqual(['file:claude-code/skills/deploy/SKILL.md', 'file:claude-code/skills/deploy/scripts/run.sh'])
 
-    local.setEntry(skill!.keys.map((key) => withDisabled(local.entries()[key]!, true)))
-    expect(reported).toEqual([{
-      set: {
-        'file:claude-code/skills/deploy/SKILL.md': { ...files[0], disabled: true },
-        'file:claude-code/skills/deploy/scripts/run.sh': { ...files[1], disabled: true },
-      },
-      reset: [],
-    }])
-    expect(agentProfileParts(local.entries()).handWrittenSkills[0]!.disabled).toBe(true)
+    // A refused entry refuses the whole change: nothing is half saved.
+    expect(local.setEntry([files[0]!, { kind: 'skill', name: 'bad name!', source: 'acme/skills', skillId: 'x' }])).toBe('invalid')
+    expect(reported).toHaveLength(0)
 
-    // A refused file refuses the whole change: a skill is never half off.
-    expect(local.setEntry([withDisabled(files[0]!, false), { kind: 'skill', name: 'bad name!', source: 'acme/skills', skillId: 'x' }])).toBe('invalid')
-    expect(reported).toHaveLength(1)
-    expect(agentProfileParts(local.entries()).handWrittenSkills[0]!.disabled).toBe(true)
+    local.removeKeys(skill!.keys)
+    expect(reported).toEqual([{ set: {}, reset: skill!.keys }])
+    expect(agentProfileParts(local.entries()).handWrittenSkills).toEqual([])
   })
 
   test('through the app, only a host that is connected is asked', async () => {
@@ -395,7 +365,7 @@ describe('the parts the screen shows', () => {
       'integration:linear': { kind: 'integration', slug: 'linear', name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: { kind: 'oauth', discover: 'https://mcp.linear.app/.well-known/oauth-protected-resource', registration: 'dynamic' } },
     })
     expect(parts.files.map((entry) => entry.path)).toEqual(['agents/reviewer.md', 'agents/rules.md', 'prompts/plan.md'])
-    expect(parts.handWrittenSkills).toEqual([{ name: 'deploy', provider: 'claude-code', keys: ['file:claude-code/skills/deploy/SKILL.md', 'file:claude-code/skills/deploy/scripts/run.sh'], disabled: false }])
+    expect(parts.handWrittenSkills).toEqual([{ name: 'deploy', provider: 'claude-code', keys: ['file:claude-code/skills/deploy/SKILL.md', 'file:claude-code/skills/deploy/scripts/run.sh'] }])
     expect(parts.registrySkills.map((skill) => `${skill.source}@${skill.skillId}`)).toEqual(['acme/skills@review'])
     expect(parts.integrations.map((integration) => integration.slug)).toEqual(['linear'])
 

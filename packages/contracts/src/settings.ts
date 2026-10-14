@@ -74,7 +74,7 @@ export const DEFAULT_REVIEW_REASONING: ReasoningEffort = 'max'
 
 export const DEFAULT_TEXT_GENERATION_MODELS = {
   codex: 'gpt-6-luna',
-  'claude-code': 'claude-haiku-4-5-20251001',
+  'claude-code': 'claude-haiku-5-5',
 } as const
 
 export interface ModelOptions {
@@ -362,6 +362,7 @@ export const CLIENT_DEVICE_LAYOUT_KEYS = [
   'sidebarProjectFilter',
   'lastProject',
   'onboardingCompleted',
+  'browserCookiePromptDismissed',
 ] as const
 
 /**

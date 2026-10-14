@@ -42,11 +42,11 @@
 
 <div class="flex flex-col gap-6">
   <div class="min-w-0">
-    <h2
+    <h1
       class="text-[2em] font-medium text-foreground"
     >
       {host.label}
-    </h2>
+    </h1>
     <p
       class="mt-1 truncate text-[0.875em] text-muted-foreground"
       style="font-family: 'Geist Mono', ui-monospace, monospace"

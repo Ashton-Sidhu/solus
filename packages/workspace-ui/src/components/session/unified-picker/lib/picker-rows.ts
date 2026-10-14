@@ -17,7 +17,7 @@ import {
   type PickerSort,
 } from './picker-search'
 import { activityScore, compareRelevance, nameScore, topHits, type Relevance } from './picker-relevance'
-import { activeSince, keepsHost, keepsSession, keepsTask, NO_PICKER_FILTERS, type PickerFilters } from './picker-filters'
+import { activeSince, keepsArchive, keepsHost, keepsSession, keepsTask, NO_PICKER_FILTERS, type PickerFilters } from './picker-filters'
 import {
   compareListings,
   matchedSessions,
@@ -525,7 +525,7 @@ function queryList(
     nameHits,
     // A host's record can open on another machine, so the Host filter is
     // checked against the machine each hit opens on.
-    words.length ? (input.conversations ?? []).filter((result) => keepsHost(result.session.serverId, filters)) : [],
+    words.length ? (input.conversations ?? []).filter((result) => keepsHost(result.session.serverId, filters) && keepsArchive(result.session.archived, filters)) : [],
     ownerBySessionId,
     sort,
     words,

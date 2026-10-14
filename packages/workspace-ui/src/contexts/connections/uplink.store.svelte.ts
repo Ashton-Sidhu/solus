@@ -52,6 +52,8 @@ class UplinkStore {
     if (this.stopListening) return this.stopListening
     this.stopListening = subscribeAllHosts('host.uplinkStatusChanged', (serverId, status) => {
       this.statusByServer.set(serverId, status)
+      // A host that forgot a registration Solus cloud refused is registered again at once (rule 8), not when a settings view next opens.
+      if (!status.registration.registered) void this.refresh(serverId)
     })
     return () => {
       this.stopListening?.()

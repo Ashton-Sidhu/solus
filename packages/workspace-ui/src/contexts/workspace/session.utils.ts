@@ -1,9 +1,10 @@
-import type { Attachment, Message, NormalizedEvent, PromptImageRef, PermissionRequest, PermissionOption, QuestionRequest, RequestExpiry, RuntimeSessionInfo, TodoItem, SessionProgress, Session, DiffComment, PlanComment } from '@solus/contracts/types'
+import type { AgentId, Attachment, Message, NormalizedEvent, PromptImageRef, PermissionRequest, PermissionOption, QuestionRequest, RequestExpiry, RuntimeSessionInfo, TodoItem, SessionProgress, Session, DiffComment, PlanComment } from '@solus/contracts/types'
 import { solusAgentToolName } from '@solus/contracts/agent-tools'
 import { attributionLabel } from '@solus/contracts/user'
 import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { videoMimeType } from '@solus/contracts/media-types'
 import { z } from 'zod'
+import { pendingHandoffProvider } from '../../components/conversation/lib/pending-handoff'
 
 let msgCounter = 0
 export const nextMsgId = () => `msg-${++msgCounter}`
@@ -299,13 +300,27 @@ export function formatDiffInlineComments(comments: DiffComment[]): string {
  *  as null — the tab then keeps the values it restored from its own snapshot
  *  rather than being reset to whatever a bare default would be. */
 export function applyRuntimeConfig(session: Session, info: RuntimeSessionInfo): void {
-  if (info.modelConfig) {
+  // The runtime's model is the thread's; an open pick keeps the composer's.
+  if (info.modelConfig && !pendingHandoffProvider(session)) {
     session.run.modelConfig.modelId = info.modelConfig.modelId
     session.run.modelConfig.reasoningEffort = info.modelConfig.reasoningEffort
     session.run.modelConfig.contextWindow = info.modelConfig.contextWindow
     session.run.modelConfig.fastMode = info.modelConfig.fastMode
   }
   if (info.permissionMode) session.run.permissionMode = info.permissionMode
+}
+
+/**
+ * The host names the provider that owns the session's thread now (plans/021).
+ * An open pick stays — the next send applies it. A composer with none follows
+ * the thread, and the answer is true so the caller moves its model too.
+ */
+export function followThreadProvider(session: Pick<Session, 'run' | 'threadProvider'>, provider: AgentId): boolean {
+  const hasOpenPick = !!pendingHandoffProvider(session)
+  session.threadProvider = provider
+  if (hasOpenPick || session.run.provider === provider) return false
+  session.run.provider = provider
+  return true
 }
 
 /** Apply Auto's routed model without losing that Auto was the user's choice.

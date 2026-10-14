@@ -23,6 +23,7 @@ import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { NativePrimaryColumnContext } from "../../native/v5-workspace-context";
 import type { SolusProjectShell, SolusThreadShell } from "../threads/thread-directory";
 import {
+  ThreadListV2ArchivedSectionHeader,
   ThreadListV2Row,
   ThreadListV2SettledShelfHeader,
   ThreadListV2ShowMoreRow,
@@ -55,6 +56,8 @@ import type { WorkspaceState } from "./workspace-connection-status";
 interface HomeScreenProps {
   readonly projects: ReadonlyArray<SolusProjectShell>;
   readonly threads: ReadonlyArray<SolusThreadShell>;
+  /** Recent archived threads; a search shows the ones that match. */
+  readonly archivedThreads: ReadonlyArray<SolusThreadShell>;
   readonly facts: ThreadListV2Facts;
   readonly shelfExpansion: ThreadListShelfExpansion;
   readonly catalogState: WorkspaceState;
@@ -74,6 +77,8 @@ interface HomeScreenProps {
   readonly onSnoozeThread: (thread: SolusThreadShell, snoozedUntil: number) => Promise<boolean>;
   readonly onUnsnoozeThread: (thread: SolusThreadShell) => Promise<boolean>;
   readonly onUnsettleThread: (thread: SolusThreadShell) => void;
+  readonly onArchiveThread: (thread: SolusThreadShell) => void;
+  readonly onUnarchiveThread: (thread: SolusThreadShell) => void;
   readonly onSetPullRequestWatch: (thread: SolusThreadShell, target: ThreadPrWatchTarget, watching: boolean) => void;
   readonly onRenameThread: (thread: SolusThreadShell) => void;
   readonly onToggleShelf: (shelf: keyof ThreadListShelfExpansion) => void;
@@ -289,6 +294,7 @@ export function HomeScreen(props: HomeScreenProps) {
     () =>
       buildThreadListV2Items({
         threads: props.threads,
+        archivedThreads: props.archivedThreads,
         facts: props.facts,
         hostId: props.selectedEnvironmentId,
         projectKeys: v2ScopedProjectGroup === null ? null : v2ScopedProjectGroup.projectKeys,
@@ -312,6 +318,7 @@ export function HomeScreen(props: HomeScreenProps) {
       props.searchQuery,
       props.selectedEnvironmentId,
       props.threads,
+      props.archivedThreads,
       v2ScopedProjectGroup,
     ],
   );
@@ -338,6 +345,8 @@ export function HomeScreen(props: HomeScreenProps) {
         settledCount: threadListV2Layout.settledCount,
         settledShelfExpanded,
         settledShelfHeaderIndex: threadListV2Layout.settledShelfHeaderIndex,
+        archivedCount: threadListV2Layout.archivedCount,
+        archivedHeaderIndex: threadListV2Layout.archivedHeaderIndex,
         now: nowMinute,
       }),
     [
@@ -380,6 +389,9 @@ export function HomeScreen(props: HomeScreenProps) {
           />
         );
       }
+      if (item.type === "v2-archived-section") {
+        return <ThreadListV2ArchivedSectionHeader />;
+      }
       const thread = item.item.thread;
       const projectKey = threadProjectKey(thread, knownProjectKeys);
       const project = projectByKey.get(projectKey) ?? null;
@@ -388,6 +400,7 @@ export function HomeScreen(props: HomeScreenProps) {
           thread={thread}
           variant={item.item.variant}
           snoozed={item.item.snoozed}
+          archived={item.item.archived}
           status={item.status}
           unread={item.unread}
           pr={item.pr}
@@ -408,6 +421,8 @@ export function HomeScreen(props: HomeScreenProps) {
           onSnoozeThread={handleSnoozeThread}
           onUnsnoozeThread={handleUnsnoozeThread}
           onUnsettleThread={handleUnsettleThread}
+          onArchiveThread={props.onArchiveThread}
+          onUnarchiveThread={props.onUnarchiveThread}
           onSetPullRequestWatch={props.onSetPullRequestWatch}
           onSwipeableClose={handleSwipeableClose}
           onSwipeableWillOpen={handleSwipeableWillOpen}
@@ -427,7 +442,9 @@ export function HomeScreen(props: HomeScreenProps) {
       knownProjectKeys,
       primaryColumn,
       projectByKey,
+      props.onArchiveThread,
       props.onSelectThread,
+      props.onUnarchiveThread,
       selectedThreadKey,
       toggleSettledShelf,
       toggleSnoozedShelf,
@@ -453,8 +470,10 @@ export function HomeScreen(props: HomeScreenProps) {
   /* Empty states */
   // The signal must ignore the search/environment filters: an active query
   // that matches nothing needs the in-list "No results" state, not the
-  // full-page "No threads yet".
-  const hasAnyThreads = props.threads.length > 0;
+  // full-page "No threads yet". A search also reaches archived threads.
+  const hasAnyThreads =
+    props.threads.length > 0 ||
+    (props.searchQuery.trim().length > 0 && props.archivedThreads.length > 0);
   const selectedEnvironmentLabel =
     props.selectedEnvironmentId === null
       ? null

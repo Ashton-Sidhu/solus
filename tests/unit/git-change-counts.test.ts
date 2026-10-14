@@ -69,3 +69,15 @@ test('on the target branch, the change totals are the uncommitted work', async (
 
   expect(status?.branchChanges).toEqual({ fileCount: 2, insertions: 2, deletions: 0 })
 })
+
+test('the status scan reports whitespace in file names exactly', async () => {
+  // WHY: trimming git's output dropped the trailing space of the last path, so
+  // the list named a file that does not exist (t3code #12464).
+  const directory = repository()
+  writeFileSync(join(directory, ' leading.txt'), 'a\n')
+  writeFileSync(join(directory, 'trailing.txt '), 'b\n')
+
+  const status = await computeGitState(directory)
+
+  expect(status?.uncommittedChanges.files.map((file) => file.path).sort()).toEqual([' leading.txt', 'trailing.txt '])
+})

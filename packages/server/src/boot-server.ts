@@ -490,8 +490,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // place a policy is held against — by the Insights producer, the turn
   // admission, and the clients.
   useSessionIndexState(sessionIndexComplete)
-  const hostOrganizationsDeps: { registration: () => HostRegistration | null; credential: () => HostCredential | null } = { registration: () => null, credential: () => null }
-  const hostOrganizations = new HostOrganizations({ registration: () => hostOrganizationsDeps.registration(), credential: () => hostOrganizationsDeps.credential() })
+  const hostOrganizationsDeps: { registration: () => HostRegistration | null; credential: () => HostCredential | null; registrationRefused: () => void } = { registration: () => null, credential: () => null, registrationRefused: () => {} }
+  const hostOrganizations = new HostOrganizations({
+    registration: () => hostOrganizationsDeps.registration(),
+    credential: () => hostOrganizationsDeps.credential(),
+    onRegistrationRefused: () => hostOrganizationsDeps.registrationRefused(),
+  })
   useInsightsPolicy({
     syncAllInsights: (organizationId) => hostOrganizations.organization(organizationId)?.policy.syncAllInsights ?? null,
     optedIn: (organizationId) => getInsightsOptIn().includes(organizationId),
@@ -597,7 +601,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     }),
     // A task reads the pull requests of its sessions, so a session's change is
     // also a change of each task the session belongs to.
-    onSessionStateChanged((sessionId) => events.broadcast('session.stateChanged', { sessionId })),
+    onSessionStateChanged((sessionId, state) => events.broadcast('session.stateChanged', { sessionId, state })),
     onSessionReadStateChanged((sessionId, viewedAt) => events.broadcast('session.readStateChanged', { sessionId, viewedAt })),
     // A link carries whether it is watched (docs/plans/pr-watch.md).
     onPullRequestWatchesChanged((sessionId) => events.broadcast('session.pullRequestsChanged', { sessionId })),
@@ -803,6 +807,13 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   withActorScope(HOST_ACTOR, () => {
     for (const integration of integrations.all(ANY_ORGANIZATION)) void integrationGateway.warm(integration.id)
+  })
+  // A cloud connection is read as the host's owner with their delegation, and at boot
+  // neither may be known yet: an integration with no tools listed is listed again when they are.
+  const warmUnlistedIntegrations = () => withActorScope(HOST_ACTOR, () => {
+    for (const integration of integrations.all(ANY_ORGANIZATION)) {
+      if (!integrationGateway.cachedTools(integration.id)) void integrationGateway.warm(integration.id)
+    }
   })
   registerPresenceHandlers(server, { presence, onHostChanged: (clientId) => publishHostPresence(presence.organizationOf(clientId)), onSessionChanged: publishSessionPresence })
   const guides = new ReviewGuideJobs((event) => publishGuideStatus(events, event), { pr: prGuideSource, local: localGuideSource })
@@ -1156,6 +1167,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // its session records to the organization's workspace service (§16).
   hostOrganizationsDeps.registration = () => registrar.current()
   hostOrganizationsDeps.credential = () => registrar.credential()
+  hostOrganizationsDeps.registrationRefused = () => { void registrar.check() }
   // A managed machine holds itself awake while it has work, and tells the control plane when to wake it (plan 004 item 3).
   const managedHostActivity = new ManagedHostActivity({
     isBusy: () => opts.sessionRuntime.statuses.hasWorkToKeepAwake(),
@@ -1205,6 +1217,15 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
           log.info('delegation_revoked', { userId, organizationId, refusal, stoppedSessions: sessions.length, droppedRows: dropped, pausedAutomations: paused.length })
         })
       },
+      onEstablished: (userId, scope) => {
+        if (scope !== 'personal') return
+        warmUnlistedIntegrations()
+        // The owner's own rows are kept without a person (the host's), and read as the owner.
+        void integrationConnections.recheckCloud(userId)
+        if (userId === hostOrganizations.owner()?.userId) void integrationConnections.recheckCloud(null)
+      },
+      // The owner's delegations derive from their sign-in in this process: a missing or refused one is made again from it.
+      renew: (userId) => userId === hostOrganizations.owner()?.userId ? localClient.renew() : Promise.resolve(),
     })
     delegations = hostDelegations
     // Insights across hosts (docs/plans/insights-across-hosts.md): the owner's turns other hosts ran.
@@ -1233,7 +1254,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // organization work is admitted (organization-vms §4).
     domainEventUnsubscribes.push(hostOrganizations.onChanged((standing) => {
       // Registered: the host's user becomes the owner's account, and its rows follow (U5).
-      if (standing?.owner) void followHostAccount(getDatabase(), standing.owner)
+      if (standing?.owner) {
+        void followHostAccount(getDatabase(), standing.owner)
+        warmUnlistedIntegrations()
+      }
       if (standing?.organizations.some((entry) => entry.shared)) registrar.markAttached()
       // The registration status names the account it belongs to.
       broadcastUplinkStatus()

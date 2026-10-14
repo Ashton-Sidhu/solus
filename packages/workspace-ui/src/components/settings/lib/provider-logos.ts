@@ -1,5 +1,5 @@
 /**
- * Brand marks for the accounts on the Providers page.
+ * Brand marks for the accounts on the Integrations page.
  *
  * GitHub publishes a monochrome mark, so the `simple-icons:` glyph is used and
  * inherits the current text colour — it holds in both themes and on a filled

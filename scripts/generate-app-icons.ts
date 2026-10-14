@@ -24,6 +24,10 @@ const ICON_PIXELS = 128
 /** The system terminal is a role in the catalog; this is the app behind it. */
 const SYSTEM_TERMINAL_BUNDLE = 'Terminal.app'
 
+/** Finder is no catalog app, but "Open in Finder" shows its icon. It lives
+ *  outside the application folders `findAppBundle` searches. */
+const FINDER_BUNDLE_PATH = '/System/Library/CoreServices/Finder.app'
+
 /**
  * Where to fetch an icon for an app that is not installed on this machine.
  *
@@ -58,6 +62,8 @@ interface IconTarget {
   id: string
   name: string
   bundle: string
+  /** An installed bundle at a fixed path, for an app outside the application folders. */
+  path?: string
 }
 
 const targets: IconTarget[] = [
@@ -69,6 +75,7 @@ const targets: IconTarget[] = [
     name: app.name,
     bundle: app.macAppBundle ?? SYSTEM_TERMINAL_BUNDLE,
   })),
+  { id: 'finder', name: 'Finder', bundle: '', path: FINDER_BUNDLE_PATH },
 ]
 
 /** The bundle's own declaration of which resource is its icon. */
@@ -149,7 +156,7 @@ const skipped: string[] = []
 for (const target of targets) {
   // An installed bundle is the most trustworthy source: it is the exact build
   // the user launches. A recorded URL covers the apps this machine lacks.
-  const appPath = target.bundle ? findAppBundle(target.bundle) : null
+  const appPath = target.path ?? (target.bundle ? findAppBundle(target.bundle) : null)
   const localIcns = appPath ? bundleIconFile(appPath) : null
   if (localIcns) {
     try {

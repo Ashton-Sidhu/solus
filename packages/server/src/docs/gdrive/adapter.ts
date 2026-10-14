@@ -47,7 +47,7 @@ import { validatedDiagramAssets } from '../diagram-assets'
  * never be the only evidence of it.
  */
 const DRIVE_READ_LIMITATION =
-  'This Google connection can only see documents Solus created. Reconnect Google Drive in Settings → Providers to search and read the rest of the Drive.'
+  'This Google connection can only see documents Solus created. Reconnect Google Drive in Settings → Integrations to search and read the rest of the Drive.'
 
 // A checkpoint belongs to one document, including updates from separate work
 // links or direct tools. Serialize local writers so a rejected revision cannot
@@ -243,7 +243,7 @@ export class GoogleDriveDocAdapter implements DocProviderAdapter {
     }
     const token = await getAccessToken()
     if (!token) {
-      throw new DocProviderUnavailableError(this.id, 'Google Drive is not connected. Connect it in Settings → Providers.')
+      throw new DocProviderUnavailableError(this.id, 'Google Drive is not connected. Connect it in Settings → Integrations.')
     }
     return token
   }

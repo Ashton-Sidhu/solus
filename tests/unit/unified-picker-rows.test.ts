@@ -712,7 +712,7 @@ describe('search across tasks and sessions', () => {
     const build = (filters: { updated?: 'any' | 'day'; status?: 'any' | 'open' | 'done'; agent?: 'any' | 'codex' }) => buildPickerRows({
       tasks: [fresh, stale, done], query: '', now, sessionsFor: () => [], expandedTaskIds: new Set(),
       recentSessions: [session('claude-new', 'claude-code', now - day / 4), session('codex-old', 'codex', now - 40 * day)],
-      filters: { updated: 'any', status: 'any', agent: 'any', host: 'any', ...filters },
+      filters: { updated: 'any', status: 'any', agent: 'any', host: 'any', archive: 'any', ...filters },
     }).entries.map((entry) => entry.kind === 'task' ? entry.task.id : entry.kind === 'conversation' ? entry.meta.sessionId : null)
     expect(build({ updated: 'day' })).toEqual(['claude-new', 'fresh', 'done'])
     expect(build({ status: 'open' })).toEqual(['claude-new', 'fresh', 'stale', 'codex-old'])

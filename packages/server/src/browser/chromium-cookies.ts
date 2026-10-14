@@ -220,7 +220,7 @@ const metadataRowSchema = z.object({
   name: z.string(),
   host_key: z.string(),
   path: z.string(),
-  expires_utc: z.number(),
+  expires_seconds: z.number(),
   is_secure: z.number(),
   is_httponly: z.number(),
   samesite: z.number(),
@@ -233,8 +233,11 @@ const cookieRowSchema = metadataRowSchema.extend({
   encrypted_value: z.union([z.instanceof(Uint8Array), z.null()]).default(null),
 })
 
+// `expires_utc` is microseconds since 1601: every real value is past 2^53, and
+// `node:sqlite` throws on the row rather than lose precision. SQLite divides it
+// to whole seconds before it reaches JavaScript.
 const METADATA_COLUMNS =
-  'name, host_key, path, expires_utc, is_secure, is_httponly, samesite, is_persistent, top_frame_site_key'
+  'name, host_key, path, expires_utc / 1000000 AS expires_seconds, is_secure, is_httponly, samesite, is_persistent, top_frame_site_key'
 
 /**
  * Every importable cookie in one Chrome profile.
@@ -291,8 +294,8 @@ function rejection(
   // it. The key means nothing in another browser's jar.
   if (row.top_frame_site_key) return 'partitioned'
   if (!row.name || !row.host_key) return 'unsupported'
-  if (row.is_persistent !== 0 && row.expires_utc > 0) {
-    const expiresAt = Math.floor(row.expires_utc / 1_000_000) - WEBKIT_EPOCH_OFFSET_SECONDS
+  if (row.is_persistent !== 0 && row.expires_seconds > 0) {
+    const expiresAt = row.expires_seconds - WEBKIT_EPOCH_OFFSET_SECONDS
     if (expiresAt <= nowSeconds) return 'expired'
   }
   return null
@@ -329,8 +332,8 @@ function importableCookie(
     httpOnly: row.is_httponly !== 0,
     sameSite: SAME_SITE_BY_CODE.get(row.samesite) ?? 'lax',
   }
-  if (row.is_persistent !== 0 && row.expires_utc > 0) {
-    cookie.expiresAt = Math.floor(row.expires_utc / 1_000_000) - WEBKIT_EPOCH_OFFSET_SECONDS
+  if (row.is_persistent !== 0 && row.expires_seconds > 0) {
+    cookie.expiresAt = row.expires_seconds - WEBKIT_EPOCH_OFFSET_SECONDS
   }
   return cookie
 }

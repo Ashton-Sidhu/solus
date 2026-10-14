@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { IntegrationAuth, IntegrationConnection, IntegrationProbeResult } from '@solus/contracts/integration-types'
-import { afterAddStep, canListTools, catalogCountText, connectionStatusText, customUrlProblem, firstLine, integrationStatusText, oauthClientText, oauthRedirectUrl, probeRefusal, urlHost } from '../../packages/workspace-ui/src/components/settings/lib/integration-labels'
+import { toolAccess, type IntegrationAuth, type IntegrationConnection, type IntegrationProbeResult } from '@solus/contracts/integration-types'
+import { afterAddStep, canListTools, catalogCountText, connectStep, connectionStatusText, readyToolsText, customUrlProblem, firstLine, integrationStatusText, oauthClientText, oauthRedirectUrl, probeRefusal, urlHost } from '../../packages/workspace-ui/src/components/settings/lib/integration-labels'
 
 const tool = { name: 'ask_question', description: 'Ask about a repository', readOnly: true, destructive: false }
 
@@ -122,5 +122,34 @@ describe('OAuth client wording', () => {
 
   test('the redirect URL is the host callback at the origin this client reaches it on', () => {
     expect(oauthRedirectUrl('https://solus.example:8443')).toBe('https://solus.example:8443/oauth/integration/callback')
+  })
+})
+
+// The connect dialog (docs/integrations.md): add, then the OAuth client when the
+// server needs one, then sign-in, then the tools to keep on.
+describe('connect dialog', () => {
+  test('a server goes to its tools only when the host can list them', () => {
+    // WHY: the tools step reads tools/list, which fails for a server the person has not signed in to.
+    expect(connectStep(null, null)).toBe('adding')
+    expect(connectStep({ kind: 'none' }, null)).toBe('tools')
+    expect(connectStep(oauth, null)).toBe('sign-in')
+    expect(connectStep(oauth, { ...connected, status: 'needs-sign-in' })).toBe('sign-in')
+    expect(connectStep(oauth, connected)).toBe('tools')
+    expect(connectStep(clientRequired, null)).toBe('oauth-client')
+    expect(connectStep({ ...clientRequired, clientId: 'abc' }, null)).toBe('sign-in')
+    expect(connectStep({ kind: 'bearer', scheme: 'bearer' }, null)).toBe('sign-in')
+  })
+
+  test('a tool reads as Read only when the server says it is read-only; destructive wins', () => {
+    // WHY: a tool with no hint may write, so calling it Read would hide a write from the person.
+    expect(toolAccess({ readOnly: true, destructive: false })).toBe('Read')
+    expect(toolAccess({ readOnly: false, destructive: false })).toBe('Write')
+    expect(toolAccess({ readOnly: true, destructive: true })).toBe('Destructive')
+  })
+
+  test('the last step counts the tools that stay on', () => {
+    expect(readyToolsText(2)).toBe('2 tools are ready for the next run')
+    expect(readyToolsText(1)).toBe('1 tool is ready for the next run')
+    expect(readyToolsText(0)).toBe('No tools are on. Agents get none from this server.')
   })
 })

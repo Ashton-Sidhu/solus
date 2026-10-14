@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, Platform, Pressable, View } from "react-nativ
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { Integration, IntegrationToolSummary } from "@solus/contracts/integration-types";
+import { CATALOG_CATEGORIES, toolAccess, type Integration, type IntegrationToolSummary } from "@solus/contracts/integration-types";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { showTextInputDialog } from "../../components/ConfirmDialogHost";
@@ -15,6 +15,8 @@ import { HostStatusBanner } from "../hosts/HostStatusBanner";
 import { AddProjectTextInput } from "../projects/components/add-project-ui";
 import { IntegrationConnectPanel } from "./components/IntegrationConnectPanel";
 import { IntegrationOAuthClientPanel } from "./components/IntegrationOAuthClientPanel";
+import { ThemedSwitch } from "../../components/ThemedSwitch";
+import { ListFilterMenu } from "../workspace/ListFilterMenu";
 import { SettingsActionRow } from "./components/SettingsActionRow";
 import { SettingsNote } from "./components/SettingsNote";
 import { SettingsScreen } from "./components/SettingsScreen";
@@ -283,7 +285,14 @@ function InstalledRow(props: {
             </View>
           ) : null}
           {mayLoadTools(integration, connections) ? (
-            <IntegrationTools tools={integrations.tools.get(integration.id)} />
+            <IntegrationTools
+              integration={integration}
+              tools={integrations.tools.get(integration.id)}
+              enabled={integrations.connected && busy === null}
+              onToggle={(toolName, isOn) => {
+                integrations.setToolEnabled(integration, toolName, isOn).catch((cause: unknown) => Alert.alert("Not saved", errorMessage(cause)));
+              }}
+            />
           ) : (
             <View className="px-4 pb-3 pl-[58px]">
               <SettingsNote>Connect to see its tools.</SettingsNote>
@@ -307,7 +316,13 @@ function InstalledRow(props: {
   );
 }
 
-function IntegrationTools(props: { readonly tools: IntegrationToolsState | undefined }) {
+/** The server's tools, each with a switch that keeps it on or turns it off for agents on this host. */
+function IntegrationTools(props: {
+  readonly integration: Integration;
+  readonly tools: IntegrationToolsState | undefined;
+  readonly enabled: boolean;
+  readonly onToggle: (toolName: string, isOn: boolean) => void;
+}) {
   const { tools } = props;
   if (!tools || tools.kind === "loading") {
     return (
@@ -320,22 +335,43 @@ function IntegrationTools(props: { readonly tools: IntegrationToolsState | undef
   if (tools.tools.length === 0) return <View className="px-4 pb-2"><SettingsNote>This server lists no tools.</SettingsNote></View>;
   return (
     <View className="gap-3 px-4 pb-3 pl-[58px]">
-      {tools.tools.map((tool) => <ToolLine key={tool.name} tool={tool} />)}
+      {tools.tools.map((tool) => (
+        <ToolLine
+          key={tool.name}
+          tool={tool}
+          isOn={!props.integration.disabledTools.includes(tool.name)}
+          enabled={props.enabled}
+          onToggle={(isOn) => props.onToggle(tool.name, isOn)}
+        />
+      ))}
     </View>
   );
 }
 
-function ToolLine(props: { readonly tool: IntegrationToolSummary }) {
+function ToolLine(props: {
+  readonly tool: IntegrationToolSummary;
+  readonly isOn: boolean;
+  readonly enabled: boolean;
+  readonly onToggle: (isOn: boolean) => void;
+}) {
   const { tool } = props;
   const description = firstLine(tool.description);
+  const access = toolAccess(tool);
   return (
-    <View className="gap-0.5">
-      <View className="flex-row flex-wrap items-center gap-1.5">
-        <Text className="font-mono text-sm text-foreground" selectable>{tool.name}</Text>
-        {tool.destructive ? <Badge label="destructive" tone="danger" /> : null}
-        {tool.readOnly ? <Badge label="read-only" tone="muted" /> : null}
+    <View className="flex-row items-center gap-3">
+      <View className="min-w-0 flex-1 gap-0.5">
+        <View className="flex-row flex-wrap items-center gap-1.5">
+          <Text className="font-mono text-sm text-foreground" selectable>{tool.title || tool.name}</Text>
+          <Badge label={access} tone={access === "Destructive" ? "danger" : "muted"} />
+        </View>
+        {description ? <Text className="text-sm text-foreground-muted" numberOfLines={2}>{description}</Text> : null}
       </View>
-      {description ? <Text className="text-sm text-foreground-muted" numberOfLines={2}>{description}</Text> : null}
+      <ThemedSwitch
+        value={props.isOn}
+        disabled={!props.enabled}
+        onValueChange={props.onToggle}
+        accessibilityLabel={`Let agents use ${tool.title || tool.name}`}
+      />
     </View>
   );
 }
@@ -384,11 +420,24 @@ function CatalogSection(props: {
   const { integrations } = props;
   const { catalog } = integrations;
   const count = catalog.kind === "loaded" ? catalogCountText(catalog.total) : "";
+  const category = CATALOG_CATEGORIES.find((entry) => entry.id === integrations.category) ?? null;
   const hasMore = catalog.kind === "loaded" && !catalog.searching && catalog.entries.length < catalog.total;
   return (
     <View className="gap-3">
+      <View className="flex-row">
+        <ListFilterMenu
+          label={category?.label ?? "All categories"}
+          accessibilityLabel="Filter the catalog by category"
+          active={category !== null}
+          actions={[
+            { id: "all", title: "All categories", state: category === null ? "on" : "off" },
+            ...CATALOG_CATEGORIES.map((entry) => ({ id: entry.id, title: entry.label, state: entry.id === category?.id ? ("on" as const) : ("off" as const) })),
+          ]}
+          onSelect={(id) => integrations.setCategory(CATALOG_CATEGORIES.find((entry) => entry.id === id)?.id ?? null, props.query)}
+        />
+      </View>
       <SettingsSection
-        title="Catalog"
+        title={category?.label ?? "Catalog"}
         trailing={count ? <Text className="text-sm tabular-nums text-foreground-muted">{count}</Text> : undefined}
       >
         {catalog.kind === "loading" || catalog.kind === "idle" ? (

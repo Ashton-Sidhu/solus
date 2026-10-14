@@ -42,8 +42,10 @@ function registry(answers: Answer[], linked = true, key: { refused: boolean } = 
   const requests: Array<{ url: string; authorization: string | null }> = []
   const timers: number[] = []
   const changes: Array<HostStanding | null> = []
+  const refusals: number[] = []
   const instance = new organizations.HostOrganizations({
     registration: () => (linked ? LINK : null),
+    onRegistrationRefused: () => refusals.push(Date.now()),
     credential: () => ({
       hostAccessToken: async () => {
         if (key.refused) throw new HostCredentialError('refused', 'invalid_client')
@@ -62,7 +64,7 @@ function registry(answers: Answer[], linked = true, key: { refused: boolean } = 
     clearTimeoutFn: (() => {}) as typeof clearTimeout,
   })
   instance.onChanged((standing) => changes.push(standing))
-  return { instance, requests, timers, changes }
+  return { instance, requests, timers, changes, refusals }
 }
 
 describe('the host\'s standing', () => {
@@ -118,6 +120,30 @@ describe('the host\'s standing', () => {
     expect(instance.owner()).toBeNull()
     expect(changes.map((standing) => standing?.hostId ?? null)).toEqual(['H', null])
     expect(timers).toEqual([5 * 60_000])
+  })
+
+  test('a refused registration is reported, so the registrar forgets it and the owner\'s client registers the host again', async () => {
+    // WHY: with no retry here, a host that only cleared its standing stayed "registered"
+    // with a dead key: no client registered it again, and it could not read the account.
+    const key = { refused: false }
+    const { instance, refusals } = registry([{ status: 200, body: STANDING }, { status: 401, body: {} }, { status: 404, body: {} }], true, key)
+    await instance.refresh()
+    expect(refusals).toHaveLength(0)
+    await instance.refresh()
+    expect(refusals).toHaveLength(1)
+    await instance.refresh()
+    expect(refusals).toHaveLength(2)
+    key.refused = true
+    await instance.refresh()
+    expect(refusals).toHaveLength(3)
+  })
+
+  test('an outage or another refusal is not a refused registration', async () => {
+    const { instance, refusals } = registry(['unreachable', { status: 500, body: {} }, { status: 403, body: {} }])
+    await instance.refresh()
+    await instance.refresh()
+    await instance.refresh()
+    expect(refusals).toHaveLength(0)
   })
 
   test('a key the account plane refuses means the link is gone: the standing is cleared and nothing is asked', async () => {

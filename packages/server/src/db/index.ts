@@ -54,6 +54,11 @@ export function getDb(): DatabaseSync {
     runMigrations(openedDb)
     // The generated tables live in this file only when it is the engine.
     if (resolveEngine().kind === 'sqlite') runSqliteSchemaMigrations(openedDb)
+    // Without planner statistics SQLite guesses index selectivity. This is the
+    // open-time form SQLite recommends for a long-lived connection: check
+    // every table (0x10000), analyze one only when its statistics are absent
+    // or far out of date (0x2), and bound the work (0x10).
+    openedDb.exec('PRAGMA optimize = 0x10012')
     cacheStatements(openedDb)
   } catch (error) {
     openedDb.close()

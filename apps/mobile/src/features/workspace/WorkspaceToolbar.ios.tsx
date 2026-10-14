@@ -5,13 +5,15 @@ import { Platform } from "react-native";
 import type { SearchBarCommands } from "react-native-screens";
 
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
+import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 import { NativeWorkspaceTabActivityContext } from "../../native/v5-workspace-context";
 import { useWorkspaceTabs } from "./WorkspaceTabsContext";
 
 /**
  * The header of both workspace tabs on iOS: Settings and Search at the top
- * right, and a search field under the title while the person searches. On a
+ * right, and a search field under the title while the person searches (on
+ * iOS 26+, UIKit's search button morphs into the field instead). On a
  * phone, compose is the tab bar's own button (WorkspaceNativeTabs); an iPad
  * keeps it at the right of the bottom toolbar.
  */
@@ -51,8 +53,10 @@ export function WorkspaceToolbar(props: {
         options={{
           headerTintColor: iconColor,
           unstable_headerToolbarItems: () => [],
+          // Liquid Glass keeps search mounted as UIKit's own header button, which
+          // morphs into the field; swapping a stacked bar in and out cannot animate.
           headerSearchBarOptions:
-            searchMode !== "resting"
+            NATIVE_LIQUID_GLASS_SUPPORTED || searchMode !== "resting"
               ? {
                   ref: searchRef,
                   autoFocus: searchMode === "active",
@@ -60,8 +64,8 @@ export function WorkspaceToolbar(props: {
                   hideNavigationBar: false,
                   hideWhenScrolling: false,
                   obscureBackground: false,
-                  placement: "stacked",
-                  allowToolbarIntegration: false,
+                  placement: NATIVE_LIQUID_GLASS_SUPPORTED ? "integratedButton" : "stacked",
+                  allowToolbarIntegration: NATIVE_LIQUID_GLASS_SUPPORTED,
                   placeholder: selectedTab === "pullRequests" ? "Search pull requests" : "Search chats",
                   cancelButtonText: "✕",
                   onFocus: () => dispatch({ type: "search" }),
@@ -80,11 +84,13 @@ export function WorkspaceToolbar(props: {
           icon="gearshape"
           onPress={props.onOpenSettings}
         />
-        <NativeHeaderToolbar.Button
-          accessibilityLabel={selectedTab === "pullRequests" ? "Search pull requests" : "Search chats"}
-          icon="magnifyingglass"
-          onPress={focusSearch}
-        />
+        {NATIVE_LIQUID_GLASS_SUPPORTED ? null : (
+          <NativeHeaderToolbar.Button
+            accessibilityLabel={selectedTab === "pullRequests" ? "Search pull requests" : "Search chats"}
+            icon="magnifyingglass"
+            onPress={focusSearch}
+          />
+        )}
       </NativeHeaderToolbar>
       {Platform.OS === "ios" && Platform.isPad ? (
         <NativeHeaderToolbar placement="bottom">

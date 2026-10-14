@@ -21,6 +21,7 @@ function approvalContext() {
   } as unknown as Plan
   const session = {
     agentSessionId: 'agent-session-1',
+    threadProvider: 'claude-code',
     status: 'completed',
     run: {
       provider: 'claude-code',
@@ -66,10 +67,11 @@ function approvalContext() {
     controls: { interruptTabSession: (_tabId: string, opts: { notice?: boolean } = {}) => { notices.push(opts.notice) } },
     settings: { update: () => {}, defaultPermissionMode: 'accept-edits' as PermissionMode },
     config: {
-      switchActiveAgent: async () => { throw new Error('a session with a provider thread is handed over by the host') },
+      switchActiveAgent: () => { throw new Error('a session with a provider thread is handed over by the host') },
       adoptHandoff: (target: Session, provider: string, _result: AcceptPlanResult['handoff'], tabId: string) => {
         handoffs.push({ provider, tabId })
         target.run.provider = provider as RunConfig['provider']
+        target.threadProvider = provider as RunConfig['provider']
         target.agentSessionId = null
       },
       followActiveSessionAgent: () => {},
@@ -254,6 +256,7 @@ describe('plan approval session choice', () => {
   test('hands a Codex-authored plan to Claude through the same path', async () => {
     const { ctx, session, handoffs, accepts } = approvalContext()
     session.run.provider = 'codex'
+    session.threadProvider = 'codex'
     session.run.modelConfig.modelId = 'gpt-5.5'
 
     await approvePlanWithModel(ctx as any, 'plan-1', 'default', {
@@ -264,6 +267,37 @@ describe('plan approval session choice', () => {
     expect(accepts).toEqual([{ planId: 'plan-1', provider: 'claude-code', startNewSession: false }])
     expect(handoffs).toEqual([{ provider: 'claude-code', tabId: 'tab-1' }])
     expect(session.run.modelConfig.modelId).toBe('claude-opus-4-6')
+  })
+
+  test('compares with the thread provider, not an open pick in the composer', async () => {
+    // WHY: a pick is composer state (plans/021). Accepting on the thread's own
+    // provider while Codex is picked must not hand over, and must close the pick
+    // so the implementation prompt does not hand over at send either.
+    const { ctx, session, handoffs, accepts } = approvalContext()
+    session.run.provider = 'codex'
+
+    await approvePlanWithModel(ctx as any, 'plan-1', 'default', {
+      provider: 'claude-code',
+      modelId: 'claude-opus-4-6',
+    })
+
+    expect(accepts).toEqual([{ planId: 'plan-1', provider: undefined, startNewSession: true }])
+    expect(handoffs).toEqual([])
+    expect(session.run.provider).toBe('claude-code')
+  })
+
+  test('hands over to the picked provider when the plan is accepted on it', async () => {
+    const { ctx, session, handoffs, accepts } = approvalContext()
+    session.run.provider = 'codex'
+
+    await approvePlanWithModel(ctx as any, 'plan-1', 'default', {
+      provider: 'codex',
+      modelId: 'gpt-5.5',
+    })
+
+    expect(accepts).toEqual([{ planId: 'plan-1', provider: 'codex', startNewSession: false }])
+    expect(handoffs).toEqual([{ provider: 'codex', tabId: 'tab-1' }])
+    expect(session.threadProvider).toBe('codex')
   })
 
   test('a failed handoff leaves the plan pending and sends nothing', async () => {

@@ -132,6 +132,9 @@ export const sessionStates = defineTable('session_states', {
   unsettled_at: bigint(),
   snoozed_until: bigint(),
   snooze_note: text(),
+  /** When the session left the person's list (docs/plans/session-archive.md).
+   *  Null while it is in the list. */
+  archived_at: bigint(),
   /** The last prompt the session received. */
   last_prompt_at: bigint(),
   /** When the session was last read, so every client agrees on what is unread. */

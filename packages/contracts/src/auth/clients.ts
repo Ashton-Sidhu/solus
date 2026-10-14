@@ -19,7 +19,7 @@ export type SolusClientId = (typeof SOLUS_CLIENT_IDS)[keyof typeof SOLUS_CLIENT_
 /** The scopes of one sign-in. A client asks for no `resource` at sign-in, and names one at each refresh. */
 export const SIGN_IN_SCOPES = ['openid', 'profile', 'email', 'offline_access'] as const
 
-/** An access token lives five minutes. The same value as the Uplink contract. */
+/** An access token lives one hour. The same value as the Uplink contract. */
 export { ACCESS_TOKEN_TTL_SECONDS }
 
 /** What one access token is for (RFC 8707 `resource`). */

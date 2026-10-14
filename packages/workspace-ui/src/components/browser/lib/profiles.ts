@@ -2,6 +2,7 @@ import type {
   BrowserCookieBrowser,
   BrowserCookieImportResult,
   BrowserCookieSource,
+  BrowserCookieSourceScan,
   BrowserOpenRequest,
   BrowserPage,
   BrowserTarget,
@@ -109,6 +110,15 @@ export function partitionSources(sources: BrowserCookieSource[]): CookieSourceGr
     available: sources.filter((source) => !source.unavailable),
     blocked: sources.filter((source) => !!source.unavailable),
   }
+}
+
+/**
+ * Whether the "Stay signed in" prompt may appear: some browser on the host has
+ * cookies a person could import now. Without one the prompt stays away, so it
+ * never offers a button that leads to "Nothing to import".
+ */
+export function offersCookieImport(scan: BrowserCookieSourceScan): boolean {
+  return scan.supported && scan.sources.some((source) => !source.unavailable && source.importable > 0)
 }
 
 /** What an import actually did: the number that matters first, every rejection

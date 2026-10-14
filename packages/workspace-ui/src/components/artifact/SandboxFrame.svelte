@@ -5,7 +5,7 @@
     Maximize as ArrowsOutIcon,
     Minimize as ArrowsInIcon,
   } from "@lucide/svelte";
-  import { getSettingsContext, runtime } from "../../contexts";
+  import { getSettingsContext, getSurfaceContext, hasSurfaceContext, runtime } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { buildSandboxThemeCss, wrapSandboxSrcdoc } from "../../lib/artifactSandbox";
@@ -16,6 +16,14 @@
     rememberReportedHeight,
   } from "./lib/artifact-view";
   import { scrollContainerOf } from "../../lib/scroll-container";
+  import { isMac } from "../../lib/keybindings/match";
+  import {
+    artifactKeyMessageSchema,
+    artifactLinkMessageSchema,
+    openRenderLink,
+    renderShortcutChords,
+    isRenderShortcut,
+  } from "./lib/render-input";
 
   /**
    * The one place agent HTML runs: a sandboxed iframe carrying a
@@ -97,6 +105,15 @@
   let frameResult = $state<{ srcdoc: string; reloadKey: number; failed: boolean } | null>(null);
   const frameSettled = $derived(frameResult?.srcdoc === srcdoc && frameResult?.reloadKey === reloadKey);
   let iframeEl = $state<HTMLIFrameElement | null>(null);
+  // A frame mounted outside the component tree (a Tiptap node view) has no
+  // workspace and no keybindings: its links leave for the browser, and it
+  // passes on no shortcuts.
+  const workspace = hasSurfaceContext() ? getSurfaceContext().workspace : null;
+  const shortcutChords = $derived(settings ? renderShortcutChords(settings.keybindings, isMac) : []);
+  function syncShortcuts() {
+    iframeEl?.contentWindow?.postMessage({ type: "solus-artifact-shortcuts", chords: shortcutChords }, "*");
+  }
+  $effect(syncShortcuts);
   function syncTheme() {
     iframeEl?.contentWindow?.postMessage({
       type: "solus-artifact-theme",
@@ -176,6 +193,29 @@
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
+  });
+
+  // A link click or a shortcut the render passes on. The page can post either
+  // at any time, so each must come from this frame while it has focus and the
+  // reader has just acted in it.
+  $effect(() => {
+    function onInput(e: MessageEvent) {
+      const frame = iframeEl;
+      if (!frame || e.source !== frame.contentWindow) return;
+      if (document.activeElement !== frame || navigator.userActivation?.isActive === false) return;
+      const link = isolated ? null : artifactLinkMessageSchema.safeParse(e.data);
+      if (link?.success) return openRenderLink(link.data.url, workspace);
+      const key = artifactKeyMessageSchema.safeParse(e.data);
+      if (!key.success || !isRenderShortcut(shortcutChords, key.data)) return;
+      // Replayed on the frame element, so it bubbles to the app's keybinding
+      // dispatcher as the reader's own key would.
+      const { code, key: keyName, metaKey, ctrlKey, altKey, shiftKey, repeat } = key.data;
+      frame.dispatchEvent(new KeyboardEvent("keydown", {
+        code, key: keyName, metaKey, ctrlKey, altKey, shiftKey, repeat, bubbles: true, cancelable: true,
+      }));
+    }
+    window.addEventListener("message", onInput);
+    return () => window.removeEventListener("message", onInput);
   });
 
   const handsOffOnTouch = $derived(!!onExpandOnTouch && runtime.isTouchDevice);
@@ -275,6 +315,7 @@
         onload={() => {
           frameResult = { srcdoc: srcdoc ?? "", reloadKey, failed: false };
           syncTheme();
+          syncShortcuts();
         }}
         onerror={() => {
           frameResult = { srcdoc: srcdoc ?? "", reloadKey, failed: true };

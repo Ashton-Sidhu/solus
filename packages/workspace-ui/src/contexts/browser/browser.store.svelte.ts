@@ -416,6 +416,11 @@ export class BrowserStore {
     return set
   }
 
+  /** "Not now" on the browser's "Stay signed in" prompt: it stays away until
+   *  this client restarts, in every browser pane. "Don't show again" is a device
+   *  setting instead. */
+  cookiePromptDeferred = $state(false)
+
   /** Which browsers on the *host* could be imported from. Not cached: a scan
    *  reads the disk, and the answer changes as the user's browsers write. */
   cookieSources(serverId: string): Promise<BrowserCookieSourceScan> {

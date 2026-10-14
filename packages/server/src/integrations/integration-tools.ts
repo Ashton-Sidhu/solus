@@ -26,7 +26,8 @@ const reportedCollisions = new Set<string>()
 
 /**
  * The agent tools of every integration the principal may read (§5.2.1): the
- * shared ones of its scope and its own personal ones, from the gateway's cache.
+ * shared ones of its scope and its own personal ones, from the gateway's cache,
+ * less the tools the integration's owner turned off (§6.1).
  * An integration whose tools are not listed yet adds none: the cache is warmed
  * at boot and on create.
  */
@@ -35,7 +36,9 @@ export function integrationAgentTools(principal: Principal): AgentTool[] {
   const tools: AgentTool[] = []
   const names = new Set<string>()
   for (const integration of gateway.store.list(recordScopeOf(principal), personalRecordOwnerOf(principal))) {
+    const disabled = new Set(integration.disabledTools)
     for (const upstream of gateway.cachedUpstreamTools(integration.id) ?? []) {
+      if (disabled.has(upstream.name)) continue
       const agentTool = upstreamToolToAgentTool(integration, upstream, gateway)
       if (names.has(agentTool.name)) {
         if (!reportedCollisions.has(agentTool.name)) {

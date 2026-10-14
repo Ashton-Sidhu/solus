@@ -31,6 +31,20 @@ Your computer is never overwritten. The account document is the place the
 profile is sent from, not a copy that replaces `~/.claude`. When your computer
 and the account differ on one entry, Settings shows both and you pick.
 
+## Your computer fills the profile
+
+On the desktop, Settings → Agent profile starts from this computer: the first
+time the page opens with an empty profile, the skills installed with the
+skills CLI, the subagents, commands, and prompts in the provider homes, and the
+MCP servers of Settings → MCP join the profile by themselves. "Import from
+this computer" adds what you installed since. An import never removes an entry:
+the profile is your list, and the computer only fills it. The same join happens at sign-in, when your account
+has no profile yet, and after "Clear synced profile".
+
+What the desktop pushes to a host, signed out, is this list, so an entry you
+removed on the page stays off every host. Web and mobile have no
+computer to read; they add from skills.sh and by address.
+
 ## Sync
 
 Signed in to Solus Cloud, your agent profile always syncs through your
@@ -44,8 +58,8 @@ once and are sent after a short pause.
 Two clients that change different entries merge; one entry both changed is a
 conflict with "Keep mine" and "Take theirs". "Clear synced profile" resets the
 profile: the account copy and its MCP connections go, and the device you clear
-on starts the profile again from its own copy (this computer's profile on the
-desktop). Your other devices then take that new copy.
+on starts the profile again from its own copy (with this computer's profile
+joined to it, on the desktop). Your other devices then take that new copy.
 
 Your account is the one list. A server you add, rename, or remove in Settings →
 MCP, on a host you own or as your own server on a shared host, changes your
@@ -55,10 +69,9 @@ to confirm it, so no host brings the server back; when the cloud does not
 answer, the removal is refused with that reason.
 
 Each entry can be removed, which takes it out of your profile and off every
-host, or disabled, which keeps it in your profile and takes it off every host
-until you enable it again. Every host reconciles on its next pull: when your
-seat connects, when a client of yours changes the profile, and every few
-minutes. You can do both in Settings → Agent profile on every client and on
+host. Every host reconciles on its next pull: when your seat connects, when a
+client of yours changes the profile, and every few minutes. You can remove an
+entry in Settings → Agent profile on every client and on
 your account page at app.solus.sh.
 
 ## MCP connections
@@ -77,7 +90,10 @@ token. Nothing on the host is deleted before the cloud confirmed the write.
 
 When Solus Cloud does not answer, a host uses the token it cached until that
 token expires, and then shows "Solus Cloud unreachable". That is not a sign-in
-problem, and signing in again does not fix it.
+problem, and signing in again does not fix it. While you are signed in, the host
+can always read your account: if its permission to act for you was refused, it
+gets a new one from your sign-in during the same call. Only when no Solus sign-in
+can give it one does the row show "Sign in to Solus".
 
 Not signed in, a connection stays on the host that made it. The push carries
 the server's record, and you sign in once on each host, as with a provider

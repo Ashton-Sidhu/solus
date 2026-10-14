@@ -120,6 +120,13 @@
       "when": 1791912787316,
       "tag": "0016_sessions_activity_page",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1791957518152,
+      "tag": "0017_session_archive",
+      "breakpoints": true
     }
   ]
 }

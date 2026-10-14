@@ -40,6 +40,9 @@ export interface HostThreads {
   /** Sessions another session started. They open from their parent's agent
    *  cards, not from the list. */
   readonly children?: readonly SolusThreadShell[]
+  /** The most recently active archived sessions: search finds them and a
+   *  thread screen opens one, but the list does not show them. */
+  readonly archived?: readonly SolusThreadShell[]
   readonly projects: readonly SolusProjectShell[]
   /** The host's first index sweep is still running: the list is not final. */
   readonly indexing: boolean
@@ -48,6 +51,7 @@ export interface HostThreads {
 /** Every readable host's threads and projects, as one sorted snapshot. */
 interface MergedThreads {
   readonly threads: readonly SolusThreadShell[]
+  readonly archived: readonly SolusThreadShell[]
   readonly projects: readonly SolusProjectShell[]
 }
 
@@ -55,8 +59,9 @@ export function threadKey(hostId: string, sessionId: string): string {
   return `${hostId}\u0000${sessionId}`
 }
 
-/** How many sessions a host is asked for; the home list pages locally. */
-const SESSION_LIMIT = 500
+/** How many archived sessions a host is asked for. The list itself has no
+ *  limit: the archive bounds it (docs/plans/session-archive.md). */
+const ARCHIVED_LIMIT = 200
 
 /** A host that is over its request budget keeps the list it showed; it is read again
  *  after the wait the host asks for, this many times before the error shows. */
@@ -71,7 +76,7 @@ export class ThreadDirectory {
   private readonly retries = new Map<string, ReturnType<typeof setTimeout>>()
   private nextRequest = 0
   /** A stable snapshot, replaced only when a host's state changes. */
-  private merged: MergedThreads = { threads: [], projects: [] }
+  private merged: MergedThreads = { threads: [], archived: [], projects: [] }
   private children = new Map<string, SolusThreadShell>()
 
   constructor(
@@ -85,11 +90,15 @@ export class ThreadDirectory {
    *  sessions open from their parent's transcript, not the list. */
   threads = (): readonly SolusThreadShell[] => this.merged.threads
 
+  /** Every readable host's recent archived sessions, newest activity first. */
+  archivedThreads = (): readonly SolusThreadShell[] => this.merged.archived
+
   projects = (): readonly SolusProjectShell[] => this.merged.projects
 
-  /** A listed session, or a child session its parent's agent card opens. */
+  /** A listed or archived session, or a child session its parent's agent card opens. */
   thread = (hostId: string, sessionId: string): SolusThreadShell | null =>
     this.merged.threads.find((thread) => thread.key === threadKey(hostId, sessionId))
+      ?? this.merged.archived.find((thread) => thread.key === threadKey(hostId, sessionId))
       ?? this.children.get(threadKey(hostId, sessionId))
       ?? null
 
@@ -122,16 +131,19 @@ export class ThreadDirectory {
     let next: HostThreadsState
     let retryAfterMs: number | null = null
     try {
-      const [list, projects] = await Promise.all([
-        connection.api.sessionRecordList({ includeWorktrees: true, limit: SESSION_LIMIT }),
+      const [list, archived, projects] = await Promise.all([
+        connection.api.sessionRecordList({ includeWorktrees: true, archived: false }),
+        connection.api.sessionRecordList({ includeWorktrees: true, archived: true, limit: ARCHIVED_LIMIT }),
         connection.api.listProjects(),
       ])
-      const shells = list.records.map((record) => ({ key: threadKey(hostId, record.sessionId), hostId, hostLabel: host.label, record }))
+      const shell = (record: SessionRecord): SolusThreadShell => ({ key: threadKey(hostId, record.sessionId), hostId, hostLabel: host.label, record })
+      const shells = list.records.map(shell)
       next = {
         kind: 'loaded',
         value: {
           threads: shells.filter((shell) => shell.record.parentSessionId === null),
           children: shells.filter((shell) => shell.record.parentSessionId !== null),
+          archived: archived.records.filter((record) => record.parentSessionId === null).map(shell),
           projects: projects.map((project) => ({ key: `${hostId}\u0000${project.path}`, hostId, hostLabel: host.label, project })),
           indexing: list.indexing,
         },
@@ -166,19 +178,22 @@ export class ThreadDirectory {
 
   private remerge(): void {
     const threads: SolusThreadShell[] = []
+    const archived: SolusThreadShell[] = []
     const projects: SolusProjectShell[] = []
     const children = new Map<string, SolusThreadShell>()
     for (const state of this.hosts.values()) {
       const value = state.kind === 'loaded' ? state.value : state.kind === 'idle' ? null : state.previous
       if (!value) continue
       threads.push(...value.threads)
+      archived.push(...(value.archived ?? []))
       projects.push(...value.projects)
       for (const child of value.children ?? []) children.set(child.key, child)
     }
     this.children = children
     threads.sort((a, b) => b.record.lastActivityAt - a.record.lastActivityAt)
+    archived.sort((a, b) => b.record.lastActivityAt - a.record.lastActivityAt)
     projects.sort((a, b) => a.project.folderName.localeCompare(b.project.folderName))
-    this.merged = { threads, projects }
+    this.merged = { threads, archived, projects }
     this.changes.notify()
   }
 }
