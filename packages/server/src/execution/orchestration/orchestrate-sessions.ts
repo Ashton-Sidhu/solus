@@ -30,6 +30,7 @@ export function orchestrateSessions(sessionRuntime: SessionRuntime): SessionOrch
       const messages = await sessionRuntime.history.loadSession(provider, sessionId, projectScope)
       return turnEnding(messages)
     },
+    turnOrganization: (sessionId) => sessionRuntime.turnOrganization(sessionId),
     taskIdFor: async (sessionId) => (await taskIdForSession(ANY_ORGANIZATION, sessionId)) ?? undefined,
     isLead: (sessionId) => sessionIsLead(ANY_ORGANIZATION, sessionId),
     emit: (sessionId, event) => sessionRuntime.publish(sessionId, event),

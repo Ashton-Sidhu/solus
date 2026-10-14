@@ -19,10 +19,6 @@ import {
   type DocumentSyncRequests,
   type DocumentSyncResult,
   type DocumentSyncStatus,
-  type EnableChoice as DocumentEnableChoice,
-  type EnableOffer as DocumentEnableOffer,
-  type EnableOutcome as DocumentEnableOutcome,
-  type PrepareEnableOutcome as DocumentPrepareEnableOutcome,
   type SyncedDocument,
   type SyncedDocumentContract,
 } from './document-sync'
@@ -38,10 +34,6 @@ import {
 export type AgentProfileConflict = DocumentConflict<AgentProfile, AgentProfileKey>
 export type AgentProfileSyncStatus = DocumentSyncStatus<AgentProfile, AgentProfileKey>
 export type AgentProfileChange = DocumentChange<AgentProfile, AgentProfileKey>
-export type AgentProfileEnableOffer = DocumentEnableOffer<AgentProfile>
-export type AgentProfileEnableChoice = DocumentEnableChoice<AgentProfile>
-export type AgentProfilePrepareEnableOutcome = DocumentPrepareEnableOutcome<AgentProfile>
-export type AgentProfileEnableOutcome = DocumentEnableOutcome<AgentProfile>
 export type AgentProfileClearOutcome = DocumentClearOutcome<AgentProfileKey>
 
 export interface AgentProfileSyncPorts extends Omit<DocumentSyncPorts<AgentProfile, AgentProfileKey>, 'requests'> {

@@ -73,6 +73,17 @@ describe('native run settings in a conversation', () => {
     expect(ctx.session).toMatchObject({ preferredModel: 'claude-opus-5-5', reasoningEffort: 'high', contextWindow: 1_000_000 })
   })
 
+  test('a saved session that recorded no model sends the person\'s default, never no model and never Auto', async () => {
+    for (const model of [null, '']) {
+      const settings = { ...DEFAULT_RUN_SETTINGS, defaultModels: { ...DEFAULT_RUN_SETTINGS.defaultModels, 'claude-code': 'auto' } }
+      const { api, controller } = await controllerFor({ hostId: 'inst-a', record: { sessionId: 't', provider: 'claude-code', projectPath: '/w', cwd: '/w', model, reasoningEffort: null, title: null, customTitle: null } }, settings)
+      expect(controller.run.preferredModel).toBe('claude-opus-5-5')
+      await controller.send('go')
+      const [ctx] = api.callsOf('prompt')[0] as [IpcContext, PromptOptions]
+      expect(ctx.statusBar.model).toBe('claude-opus-5-5')
+    }
+  })
+
   test('model and permission changes apply to the next prompt while current work continues', async () => {
     const idle = await controllerFor({ hostId: 'inst-a', newSession: { sessionId: 'n', provider: 'codex', workingDirectory: '/w' } }, { ...DEFAULT_RUN_SETTINGS, defaultPermissionMode: 'supervised' })
     expect(idle.controller.run).toMatchObject({ preferredModel: 'gpt-6-astra', permissionMode: 'supervised' })

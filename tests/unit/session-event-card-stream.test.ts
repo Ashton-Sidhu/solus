@@ -50,7 +50,7 @@ async function createReducer(
         linkSession: (...args: unknown[]) => linkSession(taskId, ...args),
       }),
     },
-    workStreamTracker: { sweep: () => {}, beginToolArtifacts: () => {} },
+    workStreamTracker: { sweep: () => {}, beginWorkStream: () => {} },
     onTurnSettled: () => {},
     refreshTurnSnapshots: () => {},
     isSessionVisible: () => isSessionVisible,

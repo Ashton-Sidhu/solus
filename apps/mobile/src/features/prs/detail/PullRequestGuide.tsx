@@ -176,6 +176,10 @@ function GuideStop(props: {
   const navigation = useNavigation<Navigation>()
   const excerpts = useMemo(() => guideExcerpts(stop), [stop])
   const otherFiles = stop.files.filter((file) => !excerpts.some((excerpt) => excerpt.path === file.path))
+  // The file list stays short; the reader asks for the rest.
+  const [filesExpanded, setFilesExpanded] = useState(false)
+  const canExpandFiles = otherFiles.length > 4
+  const listedFiles = filesExpanded || !canExpandFiles ? otherFiles : otherFiles.slice(0, 4)
   const canReview = props.view.permissions.verdicts.length > 0 && !props.stale
   const last = position >= count - 1
   return (
@@ -208,9 +212,18 @@ function GuideStop(props: {
       )}
       {otherFiles.length > 0 ? (
         <PullRequestCardGroup>
-          {otherFiles.map((file, index) => (
-            <PullRequestCardRow key={file.path} title={file.path} icon="doc" detail={`+${file.additions} −${file.deletions}`} last={index === otherFiles.length - 1} onPress={() => props.onOpenFile(file.path, null)} />
+          {listedFiles.map((file, index) => (
+            <PullRequestCardRow key={file.path} title={file.path} icon="doc" detail={`+${file.additions} −${file.deletions}`} last={!canExpandFiles && index === listedFiles.length - 1} onPress={() => props.onOpenFile(file.path, null)} />
           ))}
+          {canExpandFiles ? (
+            <PullRequestCardRow
+              title={filesExpanded ? 'Show fewer files' : `Show ${otherFiles.length - 4} more files`}
+              icon="ellipsis"
+              expanded={filesExpanded}
+              last
+              onPress={() => setFilesExpanded((expanded) => !expanded)}
+            />
+          ) : null}
         </PullRequestCardGroup>
       ) : null}
       <Pressable

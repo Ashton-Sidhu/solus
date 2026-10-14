@@ -21,7 +21,9 @@ export interface ParsedPairLink {
 
 export interface PairServerInput {
   url: string
-  pairToken: string
+  /** The host's pairing code or link token. Absent when the host trusts this
+   *  device by network position (its `/health` answers `requireAuth: false`). */
+  pairToken?: string
   /** What this device calls itself. Each client names itself: a browser with
    *  `defaultDeviceLabel()` (`device-label.ts`), the native app by its device. */
   deviceLabel: string

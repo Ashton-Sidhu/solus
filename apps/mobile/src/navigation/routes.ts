@@ -9,8 +9,12 @@ export type RootStackParamList = {
   Thread: { hostId: string; sessionId: string }
   /** The newest turn's agents, as a sheet over its thread. `conversationId` names the open conversation. */
   ThreadAgents: { hostId: string; conversationId: string }
+  /** The prompts queued behind the running turn, as a sheet over its thread. `conversationId` names the open conversation. */
+  ThreadQueue: { hostId: string; conversationId: string }
   /** T3 Code's new-task sheet; the pickers preselect a host and project. */
   NewTask: { hostId?: string; projectPath?: string } | undefined
+  /** The host a new-task draft runs on, pushed in the new-task sheet. `hostId` and `projectPath` name the draft. */
+  NewTaskEnvironment: { hostId: string; projectPath: string }
   Welcome: undefined
   /** `link` is a pairing link, or a nearby host's address, to check before pairing. */
   PairHost: { link?: string } | undefined
@@ -25,9 +29,6 @@ export type RootStackParamList = {
   ProjectFromGithub: { hostId: string }
   CloneProject: { hostId: string }
   Notifications: undefined
-  RunApp: { hostId: string; projectPath?: string; sessionId?: string; conversationCheckoutPath?: string }
-  BuildProfiles: { hostId: string; projectPath: string }
-  BuildLog: { hostId: string; runId: string }
   Settings: undefined
   /** The person's own settings and their sync (plans/018); no host needed. */
   AccountSync: undefined

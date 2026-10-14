@@ -98,7 +98,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
 
   $effect(() => {
     const installationId = connectionState.target?.installationId;
-    const appVersion = hosts.find(connectionState.target?.id)?.capabilityRecord?.version;
+    const appVersion = hosts.get(connectionState.target?.id)?.capabilityRecord?.version;
     if (!installationId || !appVersion) return;
     identifyInstallation(installationId);
     registerSuperProps({ app_version: appVersion });

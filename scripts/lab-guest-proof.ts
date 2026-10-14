@@ -8,7 +8,7 @@
  * (docs/adr/0001-standard-authentication.md §2.3): there is no guest token to mint.
  * Nothing here touches `~/.solus`.
  *
- *   bun run build:test && bun scripts/lab-guest-proof.ts
+ *   bun lab build && bun scripts/lab-guest-proof.ts
  *
  * Screenshots land in `.solus-local/artifacts/guest-*.png`.
  */

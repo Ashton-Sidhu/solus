@@ -11,4 +11,6 @@ export interface SegmentedControlProps<Value extends number | string> {
   /** "tab" for the view switcher; filters stay plain buttons. */
   readonly role?: "tab" | "button";
   readonly className?: string;
+  /** The selected option's fill, for a track whose color matches the default (`bg-secondary`). */
+  readonly indicatorClassName?: string;
 }

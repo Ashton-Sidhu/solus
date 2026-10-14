@@ -75,16 +75,27 @@ standard exists.
    client's access token for that host (RFC 8693). The delegation carries the
    client grant's `grant_id`, and the cloud refuses it when that grant is revoked. It is
    the same path for the owner and for a member. The scope is one organization or
-   `personal`.
+   `personal`. A delegation can also get a host-reach token for another host the
+   person reaches (amended 2026-10-13, see the cross-host entry below).
 7. **Every call to the account plane for a person uses a delegated access token as
    `Authorization: Bearer`.** This is true for a host, a managed host, and the Solus
    API. No token goes in a body. No host token or service key goes beside it.
-8. **A host has one credential.** It is a key pair registered at link time
-   (`private_key_jwt`, RFC 7523). The host gets its own access tokens with the
-   client credentials grant to manage its link. The tunnel token stays, because it
-   is infrastructure and not identity.
-9. **Unlink removes the host credential, and only that.** The host's client and
-   its delegations go. No account and no client grant changes.
+8. **A host has one credential, from registration.** A host registers with its
+   owner's account the first time a signed-in owner presents a token to it (the
+   desktop on sign-in; any signed-in owner client for a standalone host). Registration
+   makes the host's identity at the cloud: the host record, its key pair
+   (`private_key_jwt`, RFC 7523), its OAuth client, and its token audience. The host
+   gets its own access tokens with the client credentials grant. Identity,
+   delegations, account reads, organizations, and the host directory need
+   registration only.
+9. **Link exposes the host to the internet through cloudflared, and does nothing
+   else.** Link turns the tunnel on; unlink turns it off. Nothing depends on the
+   link: not the host's identity, its key, its delegations, account reads, its
+   organizations, or its place in the directory. The tunnel token is the only
+   credential that link adds, and unlink removes only it. A registered host that is
+   not linked is reached on the local network through LAN discovery, or by pairing.
+   Deleting a host (the Devices page) removes its registration: its client, key,
+   and delegations.
 10. **The account adds reach; it never gates local access.** The desktop window
     opens its own host, and a paired client or paired host opens a host, with local
     access, signed in or not, online or offline. Signing in adds what only the account
@@ -292,8 +303,9 @@ directory read. The socket gains `authRenew` (`transport/websocket.ts`).
   loopback redirect change (RFC 8252 §7.3), so the app can listen on any free port.
   Mobile: `solus://auth/callback`. Web: `<appOrigin>/auth/callback`. CLI: no
   redirect. All skip consent and require PKCE.
-- Each host is an `oauthResource` row, written when the host is linked
-  (`registerHostResource`, called from `activateLink`).
+- Each host is an `oauthResource` row, written when the host registers
+  (`registerHostResource`, called from `registerHost`; see "Registration apart from
+  link" in §5).
 - Token exchange (`auth/token-exchange.ts`): copy `grant_id` from the subject token;
   allow `personal` scope for the host's owner; refuse issue and refresh when the
   grant is revoked; `private_key_jwt` for host clients.
@@ -640,6 +652,132 @@ decisions where the text above was not exact:
   gave an unattended host reach to all of the owner's hosts for the life of a grant.
   So a standalone or managed host has no account reach to other hosts; pairing stays.
   No cloud change was needed.
+- **Amended 2026-10-13: cross-host sessions use host-reach tokens
+  (docs/plans/host-reach.md).** The option refused above is now the decision. A host's
+  delegation for a person may exchange one of its own tokens for a token for another
+  host (`hostReachAudience(B)`). The account plane checks at that exchange that the
+  person reaches host B now, and limits the reach by scope: a personal delegation
+  reaches every host the person reaches; an organization delegation reaches only that
+  organization's hosts. The token lives eight hours, because the reach is checked
+  only when it is issued; every other token keeps five minutes. Host B admits it with
+  the standing the token states, under the acting host's device id, which the owner
+  can revoke. This replaces `lendHostAccess` and paired hosts: a standalone or managed
+  host reaches other hosts with no signed-in desktop. With no account, a person's
+  devices introduce their hosts to each other (local reach, plan §4).
+
+### Registration apart from link (2026-10-11)
+
+This change made rules 8 and 9 true in the code. Before it, the link carried the
+host's identity: enrollment made the tunnel, the key, the OAuth client, and the
+token resource at once, and unlink removed the client and its delegations. A desktop that was not linked again after the stage 5 deploy had no key at
+the cloud, so the cloud refused every token for its audience (`invalid_target`), main
+could not present its sign-in (`LocalClient` had no host id), no personal delegation was
+made, and every account read failed. The inventory of what depended on the link, and
+what each one needs:
+
+| What | Needs | Now |
+|---|---|---|
+| Cloud `host_link.connection_generation`, `credential_ticket_hash` | identity | `host.generation`, `host.credential_ticket_hash`, `host.registered_at` (migration 0009) |
+| Cloud `enrollHost` / `activateLink` | identity, and the tunnel | `registerHost` (key, client, resource, generation) and `provisionLink` (tunnel only); enrollment makes no tunnel |
+| `requireHostClient` → `linkByHostClient` (generation check) | identity | `registrationByHostClient`: client exists, `host.generation`, registered; the link plays no part |
+| `hostReach`, `delegationStanding` / `linkedHost` | identity | `registeredHost`; refusal `host_not_registered` |
+| Token resources and client links (`registerHostResource`) | identity | written at registration |
+| Directory (`/v1/hosts`), website host pages, link watcher | identity; the route needs the tunnel | registered hosts are listed; the `tunnel` route only while linked |
+| Host organizations, attach, detach, shares, managed-host activity | identity | control token of the registration |
+| Unlink (`DELETE /v1/hosts/:id/link`) | tunnel | ends only the tunnel and its route |
+| Owner delete (website "Remove host", bulk remove) | identity | `endRegistration`: client, key, delegations, shares, and the tunnel |
+| Managed hosts (`SOLUS_HOST_LINK`, credential ticket) | identity, and the system's direct link | `{ registration, tunnel, credentialTicket }`; reconcile calls `registerHost` and `provisionLink` |
+| Host `UplinkLinkManager`: key, `currentLink()`, `credential()`, attach, `attachedAt` | identity | `HostRegistrar` (`host/host-registration.ts`, `host-registration.json`) |
+| Host link record, connector token, cloudflared | tunnel | `UplinkLinkManager` (`host-link.json`), tunnel only |
+| Token verifier, `LocalClient.hostId`, `Delegations`, `AccountReads`, `HostOrganizations`, `RunnerDelivery`, insights pull, `ManagedHostActivity`, `membersReachable`, organization status | identity | the registration |
+| `followHostAccount` (owner identity, U5) | identity | the standing's owner, read with the registration's control token; the desktop also presents its sign-in identity. Unlink moves no rows |
+| `RemoteHosts` and client routes to a directory host | reach | LAN discovery match by installation id, then a direct route, then the tunnel; paired hosts first |
+| CLI `solus connect` / `setup --link` | both | registers, then links: a server set up from a shell is usually on another network |
+| Desktop, web, and mobile Access screens | both | "Registered to your account" apart from "Reachable from the internet" |
+
+It made these decisions where the text above was not exact:
+
+- **Who registers, and when.** The client gets a one-time enrollment ticket with its own
+  account token and hands it to the host (`uplinkRegister`, or `LocalClient.register`
+  for desktop main). No token goes to another audience. Desktop main registers its host
+  on sign-in and whenever the host asks again; a signed-in desktop, web (on the account
+  origin), or mobile client registers a host that it manages (paired, `local-owner`) by
+  itself. The web client off the account origin has no account, so it does not.
+- **Registering again.** The same installation and owner keep the host id; a new key
+  replaces the old one and the generation advances. A host whose key is gone keeps its
+  record (it still verifies tokens) and asks to be registered again.
+- **A refused registration.** When Solus cloud refuses the host's registration (its key
+  is unknown, the host was removed from the account, or a newer generation exists), at
+  boot or while the host runs, the host forgets the record and its key: it is not
+  registered, and a deleted host is personal again. There is no separate re-registration
+  rule: an unregistered host is registered by a signed-in owner client, as any other
+  (rule 8). Two copies of one installation can take the registration from each other;
+  that case is accepted (2026-10-12).
+- **Link.** `POST /v1/hosts/:id/link` with the control token provisions the tunnel and
+  answers it with its connector token; `DELETE` removes it. Neither touches the client,
+  key, resources, delegations, organizations, or attachment. The website's former
+  "Unlink" is "Remove host": it ends the registration. Turning only the tunnel off is
+  done on the host.
+- **Forget in a client.** The account lists a host it owns on every device, so a
+  client that only forgot it locally saw it come back on the next directory read.
+  Forget on any host the directory lists calls `DELETE /v1/hosts/:id` first,
+  then forgets it on the device; a refusal keeps the host. A 404 means the
+  account does not list the host for this person, which is the state asked
+  for, so Forget is idempotent. Adding is idempotent too: pairing and the
+  directory both name a host by its installation id, so adding it again
+  replaces its row.
+- **Reach without a link.** A registered host that is not linked is listed with no
+  route. A client or another host dials it at the address a LAN discovery response
+  with the same installation id gives (`withNearbyRoutes`, `HostRegistry.applyNearby`,
+  `RemoteHosts`), with an account token for the host's audience. The address is a
+  `direct` route, so it is also dialed before a linked host's tunnel. A web page on
+  `https:` cannot dial it (mixed content); pairing stays the way in there.
+- **Migration 0009.** A host whose link was `linked` and that has a `private_key_jwt`
+  client (or a managed host's unused ticket) is registered, with its generation, so
+  its control tokens stay valid. Any other host is not registered, and its link is set
+  `unlinked`, so the directory lists no dead route. A host keeps a record of an earlier
+  version: at boot `splitLegacyLinkRecord` moves `uplink-link.json` into
+  `host-registration.json` and `host-link.json`.
+- **Superseded text.** Stage 4's "Unlink deletes the host's client" and stage 5's
+  "each link makes a new key" now read "registration": unlink deletes nothing but the
+  tunnel.
+
+### Delegations kept alive (2026-10-12)
+
+The rule: while a signed-in client of a person is connected to the host, by any route
+(account token, pairing, trusted network, tailnet, loopback), the host holds a live
+delegation for that person and can read their account. When no such client is
+connected and signed in, a lost delegation is not made again.
+
+A delegation stays bound to the grant that made it (`Delegations.establish` makes
+nothing when one is held). When that grant ends, the host forgets the delegation
+(rule 5). Before this change, another client that was still signed in did not present
+again until it dialed again, and a client on a pairing or trusted route never
+presented. These parts make the rule true:
+
+- **One helper.** `delegateFromPresentedToken` (`sync/delegations.ts`) takes the
+  verifier's verdict for a presented token. It accepts only a person's token for this
+  host (no `act`), and it makes each delegation that `delegationScopesFor` names and
+  the host does not hold. The ticket door, `authRenew`, `accountPresent`, and the
+  desktop's `LocalClientDoor` all use it. The token is never logged.
+- **Renewal.** `authRenew` also makes again a delegation the host lost, for the
+  socket's organization (none for the owner).
+- **`accountPresent({ accessToken, organizationId? }) → { delegated }`.** Any admitted
+  socket may call it (`host.connect`). It verifies the token and makes the missing
+  delegations. It does not change the socket's principal: local access stays as it
+  was admitted (rule 10).
+- **Clients.** In `packages/client-core` (`WsTransport.accountToken`), a signed-in client
+  on a route that did not dial with its account token presents
+  `accessToken({ kind: 'host', hostId })` on connect, and again a minute before each
+  presented token ends, as `authRenew` does. Web and the desktop window do this for a
+  saved host that the directory also lists; mobile does it for a paired host that the
+  account also lists. With no token (signed out, the host not registered, or the cloud
+  refused a token for it) the client presents nothing and does not ask again until it
+  connects again.
+- **Desktop.** When a delegation ends, the host asks its own client again
+  (`LocalClientDoor.standingChanged`), and a signed-in desktop presents its token.
+
+### Limits
 
 Two limits to accept or work around:
 
@@ -672,6 +810,15 @@ Two limits to accept or work around:
    request, or the API request), and the server admits it only when the token
    lists it. The cloud refuses a host token to a person who cannot reach that
    host, at issue time, in the claims hook.
+
+5. **Account reads for a local owner (2026-10-12).** Every connection the host admits
+   as its local owner may use the owner's delegation: the desktop's own window, a
+   paired device or paired host, and a requester trusted by network position
+   (loopback, the host's tailnet, and a private LAN address when "Trust my local
+   network" is on). No connection needs to prove an account identity for account
+   reads. A paired device counts as the owner because the owner made the pairing.
+   The owner's delegation itself still comes only from a sign-in of theirs that is
+   alive (rule 6): with none, account reads fail on every route.
 
 ## 7. Stages
 
@@ -749,6 +896,15 @@ remains in code.
   `account-session.ts` and `uplink-client.ts`. Mobile: the same in
   `features/account`.
 - `transport/uplink/link.ts` host token and client secret storage.
+
+Registration apart from link (2026-10-11) deleted `UplinkLinkConfig` and
+`uplinkLinkConfigSchema` (replaced by `HostRegistration` and `HostTunnel`), `activateLink`,
+`linkConfig`, `linkByHostClient`, `HostNotLinked`, the `host_not_linked` refusal and error
+code, `linkedHost`, `host_link.connection_generation` and `host_link.credential_ticket_hash`,
+`proxiedPort` and `connectorToken` in enrollment, `readStoredLink`, `adoptProvisionedLink`,
+the link manager's `credential()`, `currentLink()`, `attach`, `detach`, and `attachedAt`
+(moved to `HostRegistrar`), `uplinkStatusDescription`, and the unlink path that moved the
+owner's rows back to the local user.
 
 **Stays, as local access (rule 10):** pairing, host session tokens, `/auth/refresh`,
 `revoked-devices.json` for paired devices, share-secret tickets, and the CLI's

@@ -14,7 +14,7 @@ const INFO = { principal: 'local-owner', hostKind: 'personal', host: '127.0.0.1'
 const LOOPBACK: HostEndpoint = { kind: 'loopback', label: 'This computer', host: '127.0.0.1', port: 4810 }
 const LAN: HostEndpoint = { kind: 'lan', label: 'Wi-Fi', host: '192.168.1.20', port: 4810 }
 const ORGANIZATIONS: HostOrganizationsStatus = {
-  linked: true, hostId: 'host-a', category: 'personal', owner: null, attachedAt: null, apiUrl: null, delivery: [], deliveryError: null,
+  registered: true, hostId: 'host-a', category: 'personal', owner: null, attachedAt: null, apiUrl: null, delivery: [], deliveryError: null,
   organizations: [{ organizationId: 'org-1', name: 'Acme', shared: true, policy: { syncAllInsights: false, allowsPersonalHosts: true, allowsCloudHosts: true } }],
   insightsOptIn: [],
 }

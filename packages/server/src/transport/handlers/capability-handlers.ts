@@ -40,6 +40,7 @@ export function registerCapabilityHandlers(
       // omits the field, and its clients keep sending the bytes inline.
       promptImageRefs: server.hasHandler('attachUpload'),
       assetUrls: server.hasHandler('assetCreateUrl'),
+      githubMediaUrls: server.hasHandler('prMediaUrl'),
       skillsInstall: server.hasHandler('skillsInstall'),
       skillsSearch: server.hasHandler('skillsSearch'),
       skillsManage: server.hasHandler('skillsList') && server.hasHandler('skillsRemove'),

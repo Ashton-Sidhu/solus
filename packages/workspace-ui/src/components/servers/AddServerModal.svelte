@@ -71,14 +71,17 @@
 
   async function submitManual() {
     const normalizedUrl = normalizeServerUrl(serverUrl);
-    if (!normalizedUrl || !/^\d{6}$/.test(pairCode.trim())) {
+    const code = pairCode.trim();
+    // An empty code is a request to join as a device the host already trusts
+    // (its local network, when the host allows it); the host answers if not.
+    if (!normalizedUrl || (code && !/^\d{6}$/.test(code))) {
       toasts.error("Enter a server address and 6-digit pairing code.");
       return;
     }
-    await pair(normalizedUrl, pairCode.trim());
+    await pair(normalizedUrl, code || undefined);
   }
 
-  async function pair(url: string, pairToken: string) {
+  async function pair(url: string, pairToken: string | undefined) {
     busy = true;
     try {
       const result = await pairServer({
@@ -94,12 +97,6 @@
     } finally {
       busy = false;
     }
-  }
-
-  function switchNow() {
-    if (!paired) return;
-    serversStore.addServerOpen = false;
-    serversStore.switchTo(paired.id);
   }
 
   function handleBackdrop(event: MouseEvent) {
@@ -146,8 +143,7 @@
             </div>
           </div>
           <div class="flex justify-end gap-2">
-            <button type="button" class="rounded-lg px-3 py-2  font-secondary text-(--solus-text-secondary) transition-[background-color,color,transform] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96]" onclick={close}>Done</button>
-            <button type="button" class="rounded-lg bg-(--solus-accent) px-3 py-2  font-medium text-(--solus-text-on-accent) transition-transform active:scale-[0.96]" onclick={switchNow}>Switch now</button>
+            <button type="button" class="rounded-lg bg-(--solus-accent) px-3 py-2  font-medium text-(--solus-text-on-accent) transition-transform active:scale-[0.96]" onclick={close}>Done</button>
           </div>
         </div>
       {:else}

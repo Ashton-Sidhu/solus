@@ -18,9 +18,13 @@ describe('native icon styling', () => {
       expect({ rule, present: native.includes(rule) }).toEqual({ rule, present: true })
     }
     // The mode rows use it, not the desktop menu's tinted tile.
-    for (const path of ['apps/mobile/src/features/threads/ThreadSettingsRows.tsx', 'apps/mobile/src/features/settings/components/SettingsChoiceRow.tsx']) {
-      const source = read(path)
-      expect(source).toContain('<RowLeadingSymbol name={props.icon} />')
+    // Settings rows draw it through T3's shared `ListRowLayout`.
+    for (const [path, use] of [
+      ['apps/mobile/src/features/threads/ThreadSettingsRows.tsx', '<RowLeadingSymbol name={props.icon} />'],
+      ['apps/mobile/src/components/ListRowLayout.tsx', '<RowLeadingSymbol name={icon} />'],
+    ]) {
+      const source = read(path!)
+      expect(source).toContain(use)
       expect(source).not.toContain('size-8 shrink-0 items-center justify-center rounded-lg bg-subtle')
     }
   })

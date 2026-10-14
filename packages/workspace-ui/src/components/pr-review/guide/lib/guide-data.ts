@@ -1,4 +1,5 @@
 import type { GuideAttentionKind } from '@solus/contracts/review'
+import { patchFileChunks } from '../../../../lib/pierre-diff'
 
 // Private logic for the native Guide renderer: turning the whole-episode patch
 // into the per-file segments each section embeds, and naming the decision a
@@ -24,33 +25,13 @@ export type GuideDiffCommentSave = {
 
 /**
  * Split a multi-file unified diff into per-file patch segments keyed by the
- * post-image path (`b/…`), which matches `GuideFileRef.path`. Each segment is
- * itself a valid single-file unified diff that `GuideFileDiff.svelte` can render. A file
- * begins at its `diff --git` header and runs until the next one. (quotepath is
- * off upstream, so paths are unquoted.)
+ * post-image path, which matches `GuideFileRef.path`. Each segment is itself a
+ * valid single-file unified diff that `GuideFileDiff.svelte` can render. The
+ * parser names each file, so a quoted path, a rename, and a path that contains
+ * ` b/` get their real names.
  */
 export function splitPatchByFile(patch: string): Map<string, string> {
-  const map = new Map<string, string>()
-  if (!patch) return map
-
-  let current: string[] | null = null
-  let currentPath: string | null = null
-  const flush = () => {
-    if (currentPath && current) map.set(currentPath, current.join('\n'))
-  }
-
-  for (const line of patch.split('\n')) {
-    const m = line.match(/^diff --git a\/(.+) b\/(.+)$/)
-    if (m) {
-      flush()
-      currentPath = m[2]
-      current = [line]
-    } else if (current) {
-      current.push(line)
-    }
-  }
-  flush()
-  return map
+  return new Map(patchFileChunks(patch).map((file) => [file.path, file.text]))
 }
 
 const ATTENTION_LABELS = {

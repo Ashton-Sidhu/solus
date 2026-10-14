@@ -5,7 +5,7 @@ import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import { LabClient, LabRpcError, type TimelineEntry } from './client'
 import type { LabHost } from './host'
 import type { LabIssuer } from './issuer'
-import { PERSONAS, personaForHost } from './personas'
+import { ORGANIZATION_ID, PERSONAS, personaForHost } from './personas'
 
 /**
  * The scenario DSL (plan §8.6): a named script over personas, with expectations that
@@ -46,6 +46,23 @@ export async function expectRefused(ctx: ScenarioContext, name: string, call: Pr
   } catch (error) {
     const actual = error instanceof LabRpcError || error instanceof WorkspaceRequestError ? error.code : error instanceof Error ? error.message : String(error)
     ctx.check(name, actual === code, actual === code ? undefined : `refused with ${actual}: ${error instanceof Error ? error.message : ''}`)
+  }
+}
+
+/**
+ * Awaits a call the Solus API must refuse because it serves no execution: it registers
+ * no execution handler (plans/013-unified-cloud-application.md §4;
+ * tests/unit/solus-api-service.test.ts), so the socket answers that the method does not
+ * exist. `PLANE_DISABLED` is the guard of a host whose handler exists but whose roles
+ * exclude its plane; either refusal passes.
+ */
+export async function expectNotServed(ctx: ScenarioContext, name: string, call: Promise<unknown>): Promise<void> {
+  try {
+    await call
+    ctx.check(name, false, 'the call succeeded')
+  } catch (error) {
+    const notServed = error instanceof LabRpcError && (error.code === 'PLANE_DISABLED' || error.message.startsWith('Unknown method'))
+    ctx.check(name, notServed, notServed ? undefined : `refused with ${error instanceof LabRpcError ? error.code : ''}: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 
@@ -92,6 +109,10 @@ export async function runScenario(definition: ScenarioDefinition, deps: { host: 
       hostKind: deps.hostKind,
       hostOwnerUserId: deps.hostKind === 'personal' ? ownerUserId : undefined,
       shareSecret: options.shareSecret,
+      // The Lab's personal host is shared with the organization: the owner's client names
+      // it, as a real client names the window's organization, so the ticket door makes
+      // her delegation for it (ADR 0001 stage 4; plans/009-organization-vms.md §1).
+      organizationId: persona.kind === 'host-owner' && route === 'tunnel' ? ORGANIZATION_ID : undefined,
       credentialFree: route === 'local',
       localOwnerToken: () => deps.host.localOwnerToken(),
       grantTtlSeconds: options.grantTtlSeconds,

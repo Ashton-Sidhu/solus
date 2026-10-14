@@ -282,6 +282,12 @@ function isDivider(item: GroupedItem): boolean {
   return item.kind === 'system' && messageDividesThread(item.message)
 }
 
+/** A row that reports what someone did to the session. A divider opens its own
+ *  turn, so inside a turn this is every other activity. */
+function isActivity(item: GroupedItem): boolean {
+  return item.kind === 'system' && !!item.message.activity
+}
+
 function messageDividesThread(message: Message): boolean {
   return !!message.activity && dividesThread(message.activity)
 }
@@ -400,14 +406,20 @@ export function buildTurns(items: GroupedItem[], opts: { running: boolean }): Tu
     // transient row the transcript keeps. The row states what stopped the run,
     // so the notice it came from is not also rendered — that would be the same
     // fact told twice.
-    const last = body[body.length - 1]
-    const endIndex = last?.kind === 'system' && turnEndFor(last.message) ? body.length - 1 : -1
+    //
+    // An activity that arrives after the answer (a seat request on the next
+    // prompt) is news about the session, not a step of the work. It stays in the
+    // tail with the answer, so it can neither hide the answer nor the ending.
+    let activityStart = body.length
+    while (activityStart > 0 && isActivity(body[activityStart - 1])) activityStart--
+    const last = body[activityStart - 1]
+    const endIndex = last?.kind === 'system' && turnEndFor(last.message) ? activityStart - 1 : -1
     if (endIndex >= 0 && last.kind === 'system') turn.end = turnEndFor(last.message)
     if (stop) turn.end = endNamingStopper(turn.end, stop)
 
     // Walk back over the answer to find where it starts. The absorbed notice is
     // not rendered at all, so it cannot end the answer.
-    let tailStart = endIndex >= 0 ? endIndex : body.length
+    let tailStart = endIndex >= 0 ? endIndex : activityStart
     while (tailStart > 0 && OUTPUT_KINDS.has(body[tailStart - 1].kind)) tailStart--
 
     // One cut, so both slices keep the order they happened in.
@@ -587,7 +599,7 @@ export function visibleTurnBody(turn: Turn, toolCallsShown: boolean): GroupedIte
  */
 export function needsLiveRow(turn: Turn, toolCallsShown = true): boolean {
   // A tool still in flight owns the spinner wherever its group sits. create_work
-  // and render_artifact push their card the moment the call starts, so the group
+  // and a streaming render_artifact push their card while the call runs, so the group
   // stops being the last item while it is still running — checking only the tail
   // would report the same call twice.
   if (toolCallsShown && turn.tools.some((tool) => tool.toolStatus === 'running' && !tool.subMessages)) return false

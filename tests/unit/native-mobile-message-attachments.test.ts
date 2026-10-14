@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { resolveMarkdownFileIcon } from '../../apps/mobile/modules/t3-markdown-text/src/markdownLinks'
+import { resolveMarkdownFileIcon } from '../../apps/mobile/src/lib/markdownLinks'
 import { splitAttachedFiles as desktopSplit } from '@solus/workspace-ui/contexts/workspace/session.utils'
 import {
   attachmentTypeLabel,
@@ -114,7 +114,7 @@ describe('native attachment presentation', () => {
     expect(resolveMarkdownFileIcon('archive.zip')).toBe('zip')
     // T3 has no PDF glyph; a PDF takes the default icon there too.
     expect(resolveMarkdownFileIcon('report.pdf')).toBe('default')
-    const sources = mobile('modules/t3-markdown-text/src/markdownFileIcons.generated.ts')
+    const sources = mobile('src/lib/markdownFileIcons.generated.ts')
     for (const icon of ['markdown', 'image', 'video', 'zip', 'default']) expect(sources).toContain(`pierre_${icon}.png`)
   })
 })

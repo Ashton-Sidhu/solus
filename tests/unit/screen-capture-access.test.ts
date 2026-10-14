@@ -30,14 +30,8 @@ describe('screen capture without Screen Recording access', () => {
       getWorkspaceWindow: () => ({ hide: touchWindow }) as never,
       hideAppWindow: () => {},
       showAndFocusWorkspaceWindow: () => {},
-      setWorkspaceWindowOpacity: touchWindow,
-      expandDesignModeWindow: touchWindow,
-      restoreDesignModeWindow: () => {},
-      exitDesignModeWindow: () => {},
       bumpScreenshotCounter: () => 1,
-      bumpDesignModeCounter: () => 1,
       bumpPasteCounter: () => 1,
-      designModeCaptureRegion: () => ({ x: 0, y: 0, width: 10, height: 10 }),
       ensureScreenCaptureAccess: async () => {
         accessChecks++
         return false
@@ -45,10 +39,10 @@ describe('screen capture without Screen Recording access', () => {
     },
   )
 
-  test.each(['takeScreenshot', 'enterDesignMode'])('%s returns nothing', async (method) => {
+  test('takeScreenshot returns nothing', async () => {
     const checksBefore = accessChecks
 
-    expect(await handlers.get(method)!()).toBeNull()
+    expect(await handlers.get('takeScreenshot')!()).toBeNull()
     expect(accessChecks).toBe(checksBefore + 1)
   })
 })

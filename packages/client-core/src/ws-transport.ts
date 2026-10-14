@@ -6,7 +6,7 @@ import type { RpcInvokeMethod } from '@solus/contracts/rpc'
 import type { IpcContext } from '@solus/contracts/types'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import { HostEventSubscriber } from './host-event-subscriber'
-import { HostRpcError, TransportDisconnectedError } from './rpc-error'
+import { HostGoneError, HostRpcError, TransportDisconnectedError } from './rpc-error'
 import { BrowserFrameSubscriber } from './browser-frame-subscriber'
 import { isHostEvent, type HostEvent } from '@solus/contracts/host-events'
 import {
@@ -26,7 +26,7 @@ export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 're
 
 // The error lives beside HostRpcError so modules that classify a failure do
 // not load socket.io; existing importers keep this path.
-export { TransportDisconnectedError }
+export { HostGoneError, TransportDisconnectedError }
 
 export interface WsTransportOptions {
   /** Server URL like `http://host:port`. */
@@ -41,6 +41,9 @@ export interface WsTransportOptions {
    *  asks for a new one after the host refused a kept one. Null means no grant
    *  could be had right now (signed out, or the website did not answer). */
   acquireGrant?: (options?: { fresh?: boolean }) => Promise<string | null>
+  /** Why `acquireGrant` last gave nothing, when the account plane refused it. A
+   *  `lasting` refusal stands until something changes on the account side. */
+  grantRefusal?: () => GrantRefusal | null
   /** A guest's link secret, presented with every grant: the host admits the pair
    *  to one resource (docs/plans/multiplayer-sharing.md §3.4). */
   shareSecret?: string
@@ -66,6 +69,11 @@ export interface WsTransportOptions {
    *  record API's credential exchange: a token that lists several organizations is
    *  admitted only in the one named (ADR 0001 §6.4). */
   dialOrganizationId?: () => string | null
+  /** The signed-in person's access token for this host, for a socket that did not dial
+   *  with it (a pairing, a trusted network, loopback): presented with `accountPresent`
+   *  so the host keeps their delegation (ADR 0001 §6 item 5). Null when signed out, the
+   *  host is not registered, or the account refused a token for it. */
+  accountToken?: () => Promise<string | null>
 }
 
 /** A server request as Socket.IO delivers it: the payload, then the acknowledgement the server waits on. */
@@ -118,7 +126,19 @@ interface TicketExchange {
   refused: boolean
   /** The access token the ticket was exchanged for, when the credential was a grant. */
   grant?: string
+  /** The account plane gave no grant for this host, and said why. */
+  accountRefusal?: GrantRefusal
 }
+
+/** The account plane's refusal of a grant, as the transport acts on it. */
+export interface GrantRefusal {
+  lasting: boolean
+  /** For the log: the refusal's code, rule, and description. */
+  reason: string
+}
+
+/** Straight lasting refusals after which the transport stops dialing and reports the host blocked. */
+export const LASTING_REFUSALS_BEFORE_BLOCK = 3
 
 /** The work a dial needs besides the socket. It starts with the dial, so it runs
  *  while the WebSocket opens: socket.io asks for `auth` only after the open. */
@@ -156,11 +176,15 @@ export class WsTransport {
   private lastNotifiedAttempt = 0
   private attempt = 0
   private destroyed = false
+  /** Why calls fail once this transport is destroyed. */
+  private closedReason: TransportDisconnectedError = new TransportDisconnectedError()
   private blocked = false
   private hasOpened = false
   private authRefreshAttempted = false
   /** The last ticket exchange presented a fresh grant and the host answered 401. */
   private grantRefusedByHost = false
+  /** Dials in a row the account plane refused a grant for, lastingly. */
+  private lastingRefusals = 0
   private authRefreshResetTimer: ReturnType<typeof setTimeout> | null = null
   private wakeProbeInFlight = false
   private connectedGeneration = 0
@@ -171,6 +195,8 @@ export class WsTransport {
   private readonly serverRequests = new Map<string, ServerRequestListener>()
   /** Sends the socket's next access token before the current one ends (docs/adr/0001-standard-authentication.md rule 4). */
   private grantRenewalTimer: ReturnType<typeof setTimeout> | null = null
+  /** Presents the person's account token again before the presented one ends (`accountPresent`). */
+  private accountPresentationTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(private opts: WsTransportOptions) {
     this.socket = this.createSocket()
@@ -212,6 +238,7 @@ export class WsTransport {
     this.socket.removeAllListeners()
     this.socket.disconnect()
     this.cancelGrantRenewal()
+    this.cancelAccountPresentation()
     this.connectedGeneration += 1
     this.isAcceptedConnection = false
     this.dialPreparation = null
@@ -244,6 +271,7 @@ export class WsTransport {
     if (this.blocked) {
       this.blocked = false
       this.authRefreshAttempted = false
+      this.lastingRefusals = 0
       this.attempt = 0
     }
     if (!this.socket.connected) {
@@ -260,7 +288,11 @@ export class WsTransport {
       identity: this.opts.verifyConnectedHost?.().catch(() => false) ?? Promise.resolve(true),
     }
     this.dialPreparation = preparation
-    void preparation.exchange.then(({ unreachable }) => {
+    void preparation.exchange.then(({ unreachable, accountRefusal }) => {
+      if (accountRefusal) {
+        this.refuseDial(preparation, accountRefusal)
+        return
+      }
       if (!unreachable || this.dialPreparation !== preparation) return
       if (this.destroyed || this.blocked || this.socket.connected) return
       // The route did not answer: the socket on it will not open either, and
@@ -274,10 +306,37 @@ export class WsTransport {
     this.socket.connect()
   }
 
-  destroy(finalStatus: ConnectionStatus = 'disconnected'): void {
+  /**
+   * The account plane gave no grant for this host: the socket could only be refused
+   * as `unauthorized`, so it is not opened. The refusal is logged with its reason; one
+   * that keeps coming back the same way blocks the host until the person retries.
+   */
+  private refuseDial(preparation: DialPreparation, refusal: GrantRefusal): void {
+    if (this.dialPreparation !== preparation) return
+    if (this.destroyed || this.blocked || this.socket.connected) return
+    this.dialPreparation = null
+    this.socket.disconnect()
+    this.lastingRefusals = refusal.lasting ? this.lastingRefusals + 1 : 0
+    const blocks = this.lastingRefusals >= LASTING_REFUSALS_BEFORE_BLOCK
+    console.warn('[solus:ws] account refused a grant for this host', {
+      clientInstanceId: this.clientInstanceId,
+      serverId: this.opts.serverId ?? null,
+      reason: refusal.reason,
+      lasting: refusal.lasting,
+      refusals: this.lastingRefusals,
+      blocks,
+    })
+    if (blocks) this.blockAuthFailure()
+    else this.opts.onDialOutcome?.({ kind: 'dial-failed' })
+  }
+
+  /** Close for good. Every queued and later call rejects with `reason`. */
+  destroy(finalStatus: ConnectionStatus = 'disconnected', reason = new TransportDisconnectedError()): void {
     if (this.destroyed) return
     this.destroyed = true
+    this.closedReason = reason
     this.cancelGrantRenewal()
+    this.cancelAccountPresentation()
     if (this.authRefreshResetTimer) clearTimeout(this.authRefreshResetTimer)
     this.authRefreshResetTimer = null
     this.socket.disconnect()
@@ -316,10 +375,13 @@ export class WsTransport {
       organizationId: () => this.opts.acquireGrant ? this.opts.dialOrganizationId?.() ?? null : null,
       acquireSource: async () => {
         if (this.opts.acquireGrant) return this.opts.acquireGrant()
+        // A link guest presents the secret alone, as at the ticket door.
+        if (this.opts.guestIdentity) return null
         await this.refreshToken()
         return this.opts.sessionToken
       },
       shareSecret: this.opts.shareSecret,
+      guestIdentity: this.opts.guestIdentity,
     }), id => this.invoke('tasksReadExtras', [id]))
     return Object.assign(api, records)
   }
@@ -342,6 +404,8 @@ export class WsTransport {
     const { acquireGrant } = this.opts
     if (!acquireGrant) return this.exchangeForTicket(this.opts.guestIdentity ? null : this.opts.sessionToken)
     const grant = await acquireGrant().catch(() => null)
+    const accountRefusal = grant ? null : this.opts.grantRefusal?.() ?? null
+    if (accountRefusal) return { ticket: null, unreachable: false, refused: false, accountRefusal }
     const exchange = await this.exchangeForTicket(grant)
     if (!exchange.refused) return { ...exchange, grant: grant ?? undefined }
     // A kept grant can outlive the host's trust in it, as when the host was linked
@@ -372,6 +436,37 @@ export class WsTransport {
   private cancelGrantRenewal(): void {
     if (this.grantRenewalTimer) clearTimeout(this.grantRenewalTimer)
     this.grantRenewalTimer = null
+  }
+
+  private cancelAccountPresentation(): void {
+    if (this.accountPresentationTimer) clearTimeout(this.accountPresentationTimer)
+    this.accountPresentationTimer = null
+  }
+
+  /**
+   * A socket that did not dial with the person's account token presents it
+   * (`accountPresent`), on connect and again a little before each presented token
+   * ends, so the host holds their delegation while this client is connected (ADR 0001
+   * §6 item 5). No token (signed out, the host not registered, the account refused)
+   * or a host that refuses the call stops it until the next connection.
+   */
+  private async presentAccount(generation: number): Promise<void> {
+    const accountToken = this.opts.accountToken
+    if (!accountToken) return
+    const token = await accountToken().catch(() => null)
+    if (!token || generation !== this.connectedGeneration) return
+    try {
+      await this.invoke('accountPresent', [{ accessToken: token }])
+    } catch (error) {
+      this.logConnection('account presentation refused', { message: error instanceof Error ? error.message : String(error) })
+      return
+    }
+    const endsAt = accessTokenEndsAt(token)
+    if (endsAt === null || generation !== this.connectedGeneration) return
+    this.accountPresentationTimer = setTimeout(() => {
+      this.accountPresentationTimer = null
+      void this.presentAccount(generation)
+    }, Math.max(0, endsAt - GRANT_RENEWAL_LEAD_MS - Date.now()))
   }
 
   private async renewGrant(current: string, generation: number): Promise<void> {
@@ -431,6 +526,7 @@ export class WsTransport {
     })
     this.socket.on('disconnect', (reason) => {
       this.cancelGrantRenewal()
+      this.cancelAccountPresentation()
       this.connectedGeneration += 1
       this.isAcceptedConnection = false
       this.pendingHostEvents = []
@@ -501,9 +597,11 @@ export class WsTransport {
       pendingRequests: this.pendingRequestSummary(),
     })
     if (shouldReset) this.onResetCallback?.()
+    this.lastingRefusals = 0
     this.opts.onDialOutcome?.({ kind: 'accepted', recovered: this.socket.recovered })
     this.flushQueuedRequests()
     if (exchange) void exchange.then(({ grant }) => this.scheduleGrantRenewal(grant, generation))
+    if (!this.opts.acquireGrant) void this.presentAccount(generation)
     if (this.authRefreshAttempted) {
       if (this.authRefreshResetTimer) clearTimeout(this.authRefreshResetTimer)
       this.authRefreshResetTimer = setTimeout(() => { this.authRefreshAttempted = false }, 30_000)
@@ -578,7 +676,8 @@ export class WsTransport {
 
   /** One typed RPC call, queued until the socket is accepted. */
   invoke<M extends RpcInvokeMethod>(method: M, args: Parameters<SolusAPI[M]>): Promise<Awaited<ReturnType<SolusAPI[M]>>> {
-    if (this.destroyed || this.blocked) return Promise.reject(new TransportDisconnectedError())
+    if (this.destroyed) return Promise.reject(this.closedReason)
+    if (this.blocked) return Promise.reject(new TransportDisconnectedError())
     const id = String(this.nextId++)
     return new Promise<Awaited<ReturnType<SolusAPI[M]>>>((resolve, reject) => {
       const entry: RequestEntry = {
@@ -644,7 +743,7 @@ export class WsTransport {
   }
 
   private rejectAllRequests(): void {
-    const error = new TransportDisconnectedError()
+    const error = this.destroyed ? this.closedReason : new TransportDisconnectedError()
     for (const request of this.requests.values()) request.reject?.(error)
     this.requests.clear()
   }

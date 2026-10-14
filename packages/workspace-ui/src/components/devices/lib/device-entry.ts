@@ -1,4 +1,5 @@
-import { Settings, Smartphone } from '@lucide/svelte'
+import { Play, Settings, Smartphone } from '@lucide/svelte'
+import { openRunApp } from './device-view-state.svelte'
 import type { Via } from '@solus/contracts/analytics-events'
 import { devicesStore } from '../../../contexts/devices/devices.store.svelte'
 import { requestInputFocus } from '../../../lib/inputFocus'
@@ -15,11 +16,24 @@ interface DeviceShell {
   openDevices(sessionId?: string, serverId?: string, opts?: { automatic?: boolean }): void
   showSettings(tab: SettingsTab, via: Via): void
   focusedChatTabId: string | null
+  fallbackServerId: string
+  serverIdForSession(sessionId: string): string
   sessionFor(tabId: string): { id: string } | undefined
 }
 
 export function deviceCommands(shell: DeviceShell): Command[] {
   return [{
+    id: 'run-app',
+    label: 'Run app',
+    group: 'View',
+    icon: Play,
+    keywords: ['test main', 'build install', 'native', 'ios', 'android'],
+    run: () => {
+      const sessionId = shell.focusedChatTabId ? shell.sessionFor(shell.focusedChatTabId)?.id : undefined
+      const serverId = sessionId ? shell.serverIdForSession(sessionId) : shell.fallbackServerId
+      openRunApp(shell, serverId, sessionId)
+    },
+  }, {
     id: 'open-devices',
     label: 'Open Devices',
     group: 'View',

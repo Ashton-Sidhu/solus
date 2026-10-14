@@ -119,7 +119,31 @@ export const oauthTokenResponseSchema = z.object({
 })
 export type OAuthTokenResponse = z.infer<typeof oauthTokenResponseSchema>
 
-const tokenErrorSchema = z.object({ error: z.string() })
+const tokenErrorSchema = z.object({
+  error: z.string(),
+  error_description: z.string().optional(),
+  solus_refusal: z.string().optional(),
+})
+
+/** Why the account plane gave no token for one resource (RFC 6749 §5.2). */
+export interface ResourceRefusal {
+  status: number
+  code: string
+  description: string | null
+  /** The Solus rule that refused, when one did (`solus_refusal`): `not_a_member`, `host_not_linked`, … */
+  rule: string | null
+}
+
+/**
+ * Whether asking again soon gets the same answer: the refusal stands until something
+ * changes on the account side (the person joins, the host is shared again). A host that
+ * is not linked yet may be starting, and a failure of the account plane itself may pass.
+ */
+export function isLastingRefusal(refusal: ResourceRefusal): boolean {
+  if (refusal.status >= 500 || refusal.status === 429) return false
+  if (refusal.rule) return refusal.rule !== 'host_not_linked'
+  return refusal.code === 'invalid_target' || refusal.code === 'access_denied' || refusal.code === 'unauthorized_client'
+}
 
 const idTokenSchema = z.object({
   iss: z.string(),
@@ -138,6 +162,8 @@ export class OAuthSession {
   private grant: StoredGrant | null
   private readonly cache = new Map<string, CachedToken>()
   private readonly inFlight = new Map<string, Promise<string | null>>()
+  /** The last refusal for each resource, until a token for it is issued or the grant changes. */
+  private readonly refusals = new Map<string, ResourceRefusal>()
   /** Every refresh runs after the one before it: the rotated refresh token is the next one's input. */
   private refreshChain: Promise<void> = Promise.resolve()
   private discoveryRead: Promise<Discovery> | null = null
@@ -265,7 +291,7 @@ export class OAuthSession {
       this.setState({ kind: 'invalid', reason: 'unreachable' })
       return 'error'
     }
-    if (!response.ok) return this.failSignIn('error', await errorCodeOf(response))
+    if (!response.ok) return this.failSignIn('error', (await tokenErrorOf(response)).code)
     const tokens = oauthTokenResponseSchema.safeParse(await response.json().catch(() => null))
     if (!tokens.success) return this.failSignIn('error', 'malformed_token_response')
     return this.adopt(tokens.data, discovery, pending.nonce)
@@ -295,6 +321,7 @@ export class OAuthSession {
       const grant = this.grant
       this.grant = null
       this.cache.clear()
+      this.refusals.clear()
       if (grant) {
         try {
           const discovery = await this.discovery()
@@ -341,6 +368,11 @@ export class OAuthSession {
     })
     this.inFlight.set(uri, answer)
     return answer
+  }
+
+  /** Why the last request for this resource got no token; null when it got one, or none was refused. */
+  refusal(resource: TokenResource): ResourceRefusal | null {
+    return this.refusals.get(tokenResourceUri(resource)) ?? null
   }
 
   /** Reads `/userinfo` again with an account-plane token; the ID token was the first source. */
@@ -390,7 +422,7 @@ export class OAuthSession {
       return null
     }
     if (!response.ok) {
-      const code = await errorCodeOf(response)
+      const { code, description, rule } = await tokenErrorOf(response)
       if (code === 'invalid_grant') {
         // The grant was revoked (sign-out elsewhere, the Devices page) or replayed.
         this.log('info', 'oauth_grant_ended', { resource: uri })
@@ -398,7 +430,8 @@ export class OAuthSession {
         return null
       }
       // A refusal for this resource rotates nothing (ADR §5): the grant stays.
-      this.log('info', 'oauth_resource_refused', { resource: uri, status: response.status, code })
+      this.refusals.set(uri, { status: response.status, code, description, rule })
+      this.log('info', 'oauth_resource_refused', { resource: uri, status: response.status, code, description, rule })
       if (response.status >= 500) this.markStale(true)
       return null
     }
@@ -414,6 +447,7 @@ export class OAuthSession {
     }
     const expiresAt = this.deps.now() + (tokens.data.expires_in ?? 300) * 1000
     this.cache.set(uri, { token: tokens.data.access_token, expiresAt })
+    this.refusals.delete(uri)
     this.markStale(false)
     return this.isEnding ? null : tokens.data.access_token
   }
@@ -436,6 +470,7 @@ export class OAuthSession {
     }
     this.grant = grant
     this.cache.clear()
+    this.refusals.clear()
     this.setState(this.signedIn(grant, false))
     this.log('info', 'oauth_sign_in_ended', { end: 'approved' })
     return 'approved'
@@ -461,6 +496,7 @@ export class OAuthSession {
     if (this.grant?.refreshToken !== grant.refreshToken) return
     this.grant = null
     this.cache.clear()
+    this.refusals.clear()
     this.clearStore()
     this.setState({ kind: 'invalid', reason: 'revoked' })
   }
@@ -574,7 +610,10 @@ export function decodeJwtClaims<T>(token: string, schema: z.ZodType<T>): T | nul
   }
 }
 
-async function errorCodeOf(response: Response): Promise<string> {
+/** The token endpoint's refusal (RFC 6749 §5.2): its code, and its reason and Solus rule when it gave them. */
+async function tokenErrorOf(response: Response): Promise<Omit<ResourceRefusal, 'status'>> {
   const parsed = tokenErrorSchema.safeParse(await response.json().catch(() => null))
-  return parsed.success ? parsed.data.error : `http_${response.status}`
+  return parsed.success
+    ? { code: parsed.data.error, description: parsed.data.error_description ?? null, rule: parsed.data.solus_refusal ?? null }
+    : { code: `http_${response.status}`, description: null, rule: null }
 }

@@ -12,7 +12,7 @@ import {
   hostAudience,
   tokenEndpoint,
   type AccessTokenClaims,
-  type UplinkLinkConfig,
+  type HostRegistration,
 } from '@solus/contracts/uplink'
 import { clientCredential, generateHostKey } from '@solus/server/host/host-credential'
 import { resetTestDatabase } from './helpers/test-db'
@@ -33,7 +33,9 @@ const environment = ['SOLUS_DATA_DIR', 'SOLUS_API', 'SOLUS_DB', 'SOLUS_CLOUD_ISS
 const previous = environment.map((key) => [key, process.env[key]] as const)
 
 let directory: string
-let service: Awaited<ReturnType<typeof import('@solus/server/boot-solus-api').bootSolusApi>> | undefined
+let service: Awaited<ReturnType<typeof import('@solus/server/boot-solus-api').createSolusApiService>> | undefined
+/** The API's listener, owned here so teardown can end a socket the API ended but the client never closed. */
+let apiListener: Server
 let accountPlane: Server
 let accountOrigin: string
 let apiOrigin: string
@@ -97,20 +99,29 @@ beforeAll(async () => {
     SOLUS_CLOUD_ISSUER: accountOrigin, SOLUS_CLOUD_JWKS_URL: `${accountOrigin}/jwks`,
     SOLUS_API_SIGNING_KEY: Buffer.alloc(32, 21).toString('base64'),
   })
-  const { bootSolusApi } = await import('@solus/server/boot-solus-api')
-  service = await bootSolusApi({ host: '127.0.0.1', port: 0 })
-  apiOrigin = `http://127.0.0.1:${service.port}`
+  const { createSolusApiService } = await import('@solus/server/boot-solus-api')
+  let port = 0
+  service = await createSolusApiService({ host: '127.0.0.1', port: () => port })
+  apiListener = createServer(service.requestListener)
+  service.attachLiveTransport(apiListener)
+  await new Promise<void>((resolve) => apiListener.listen(0, '127.0.0.1', resolve))
+  const apiAddress = apiListener.address()
+  port = apiAddress && typeof apiAddress === 'object' ? apiAddress.port : 0
+  apiOrigin = `http://127.0.0.1:${port}`
 })
 
 afterAll(async () => {
-  await service?.shutdown()
+  service?.closeLiveTransport()
+  apiListener.closeAllConnections()
+  await new Promise<void>((resolve) => apiListener.close(() => resolve()))
+  await service?.close()
   await new Promise<void>((resolve) => accountPlane.close(() => resolve()))
   await resetTestDatabase()
   for (const [key, value] of previous) { if (value === undefined) delete process.env[key]; else process.env[key] = value }
   rmSync(directory, { recursive: true, force: true })
 })
 
-const vmLink = (): UplinkLinkConfig => ({ hostId: VM, issuer: accountOrigin, jwksUrl: `${accountOrigin}/jwks`, directoryUrl: accountOrigin, hostname: 'h-vm.lab.invalid', proxiedPort: 1, connectionGeneration: 1, apiUrl: apiOrigin })
+const vmLink = (): HostRegistration => ({ hostId: VM, issuer: accountOrigin, jwksUrl: `${accountOrigin}/jwks`, directoryUrl: accountOrigin, generation: 1, apiUrl: apiOrigin })
 
 describe('an organization run on a VM, through the real Solus API', () => {
   test('one token exchange covers the admission, the agent\'s writes as the person, and the delivery that takes its owner from the admission', async () => {
@@ -126,7 +137,7 @@ describe('an organization run on a VM, through the real Solus API', () => {
 
     // 1. Admission: the VM trades the token Bob's client presented once; the API accepts the session.
     const credential = clientCredential({ clientId: CLIENT.clientId, privateJwk: vmKey.privateJwk, tokenEndpoint: tokenEndpoint(accountOrigin) })
-    const delegations = new Delegations({ link: () => link, credential: () => credential, onRevoked: () => {} })
+    const delegations = new Delegations({ registration: () => link, credential: () => credential, onRevoked: () => {} })
     await delegations.establish(bobsTokenForVm(), { organizationId: 'org_a' })
     await delegations.actFor({ sessionId: 'solus-flow', userId: 'bob', organizationId: 'org_a', admit: true })
     expect(await admissions.readSessionAdmission('org_a', 'solus-flow')).toMatchObject({ hostId: VM, ownerUserId: 'bob' })
@@ -134,7 +145,7 @@ describe('an organization run on a VM, through the real Solus API', () => {
     await delegations.actFor({ sessionId: 'solus-flow', userId: 'bob', organizationId: 'org_a', admit: true })
 
     // 2. The provider started; its record is reported with Bob's delegated token, naming the admission.
-    const delivery = new RunnerDelivery({ link: () => link, delegations, linker: () => 'alice' })
+    const delivery = new RunnerDelivery({ registration: () => link, delegations, owner: () => 'alice' })
     delivery.start()
     try {
       // The record is keyed by the session id the admission accepted, not by the provider thread.
@@ -171,6 +182,42 @@ describe('an organization run on a VM, through the real Solus API', () => {
       expect(tokenRequests).toEqual([{ grantType: TOKEN_EXCHANGE_GRANT_TYPE, organizationId: 'org_a' }])
     } finally {
       await delivery.stop()
+    }
+  })
+
+  // docs/plans/host-sharing.md §4.2 step 6: the mirror's guests end only when the host's link
+  // is removed or regenerated. The VM sends the share rows again with each transcript, and a
+  // role change applies live, so neither may end the guest reading the mirror.
+  test('a mirror guest stays connected through rows sent again and a role change, and ends when the link is regenerated', async () => {
+    const { io } = await import('socket.io-client')
+    const { hashLinkSecret } = await import('@solus/server/sharing/share-manager')
+    const secret = 'mirror-link-secret-'.padEnd(43, 'x')
+    let seq = 0
+    const mirrorRows = async (rows: Array<{ role: 'viewer' | 'editor'; linkSecretHash: string }>) => {
+      const response = await fetch(`${apiOrigin}/runner/mirror`, {
+        method: 'POST', headers: { authorization: `Bearer ${delegatedFor('bob', 'org_a')}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ hostId: VM, items: [{ seq: ++seq + 1_000, domain: 'shares', key: 'session:s-mirror', payload: { resource: { kind: 'session', id: 's-mirror' }, rows: rows.map((row) => ({ subjectKind: 'everyone', subjectId: '', grantedByUserId: 'bob', createdAt: 1, ...row })) } }] }),
+      })
+      expect(response.status).toBe(200)
+    }
+    await mirrorRows([{ role: 'viewer', linkSecretHash: hashLinkSecret(secret) }])
+    const ticket = await fetch(`${apiOrigin}/auth/ws-ticket`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ shareSecret: secret, guestId: 'maya-guest-0000001', displayName: 'Maya' }) })
+    expect(ticket.status).toBe(200)
+    const guest = io(apiOrigin, { path: '/ws', transports: ['websocket'], reconnection: false, auth: { ticket: (await ticket.json()).ticket, clientInstanceId: 'mirror-guest-instance-1' } })
+    const ended = new Promise<void>((resolve) => guest.once('disconnect', () => resolve()))
+    try {
+      await new Promise<void>((resolve, reject) => { guest.once('connect', () => resolve()); guest.once('connect_error', reject) })
+      // A round trip after each change: the server ends a guest before it answers the change, so an answer proves she stayed.
+      const answers = () => new Promise<boolean>((resolve) => guest.timeout(5_000).emit('rpc', randomUUID(), 'connectionsGetServerInfo', [], (error: Error | null) => resolve(!error && guest.connected)))
+      await mirrorRows([{ role: 'viewer', linkSecretHash: hashLinkSecret(secret) }])
+      expect(await answers()).toBe(true)
+      await mirrorRows([{ role: 'editor', linkSecretHash: hashLinkSecret(secret) }])
+      expect(await answers()).toBe(true)
+      await mirrorRows([{ role: 'editor', linkSecretHash: hashLinkSecret('regenerated-secret-'.padEnd(43, 'y')) }])
+      await ended
+      expect(guest.connected).toBe(false)
+    } finally {
+      guest.close()
     }
   })
 

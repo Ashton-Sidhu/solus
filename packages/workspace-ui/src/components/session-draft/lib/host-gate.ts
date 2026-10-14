@@ -60,7 +60,7 @@ export function connectHostRow(host: GatedHost, now: number): ConnectHostRow {
       action: managedHostNeedsStart(host.uplink?.managedState) ? 'start' : null,
     }
   }
-  if (host.status === 'connecting') return { ...row, detail: 'Connecting', action: null }
+  if (host.status === 'connecting') return { ...row, detail: 'Connecting…', action: null }
   if (host.status === 'different-server') {
     return { ...row, detail: 'Different server than expected', action: 'pair-again' }
   }

@@ -4,11 +4,12 @@ import { ActivityIndicator, Image, Pressable, View } from "react-native";
 
 import { EmptyState } from "../../components/EmptyState";
 import { FilePreview, type ResolvedFilePreviewSource } from "../../components/FilePreview";
+import type { MediaActionsSource } from "../../components/FilePreview.types";
 
 function ResolvedWorkspaceFileImagePreview(props: {
   readonly accessibilityLabel: string;
   readonly uri: string;
-  readonly caption: string;
+  readonly actionsSource: MediaActionsSource;
 }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [preview, setPreview] = useState<ResolvedFilePreviewSource | null>(null);
@@ -29,7 +30,7 @@ function ResolvedWorkspaceFileImagePreview(props: {
             kind: "image",
             uri: props.uri,
             name: props.accessibilityLabel,
-            caption: props.caption,
+            actionsSource: props.actionsSource,
           })
         }
       >
@@ -60,8 +61,8 @@ function ResolvedWorkspaceFileImagePreview(props: {
 export function WorkspaceFileImagePreview(props: {
   readonly accessibilityLabel: string;
   readonly uri: string | null;
-  /** The host path, shown under the name in the full-screen viewer. */
-  readonly caption: string;
+  /** The host path (shown under the name in the full-screen viewer) and its media actions. */
+  readonly actionsSource: MediaActionsSource;
 }) {
   if (props.uri === null) {
     return (
@@ -75,7 +76,7 @@ export function WorkspaceFileImagePreview(props: {
     <ResolvedWorkspaceFileImagePreview
       accessibilityLabel={props.accessibilityLabel}
       uri={props.uri}
-      caption={props.caption}
+      actionsSource={props.actionsSource}
     />
   );
 }

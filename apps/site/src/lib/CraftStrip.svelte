@@ -30,14 +30,6 @@
 			<div class="reveal reveal-d2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-12">
 				<div class="flex flex-col gap-1.5 py-5 border-t border-black/[0.06]">
 					<div class="font-[family-name:var(--font-display)] text-[15px] font-semibold text-[#1A1714]">
-						Design mode
-					</div>
-					<div class="text-[13px] leading-relaxed text-[#6B6158]">
-						Screenshot, annotate with arrows and pins, send the markup straight to your agent.
-					</div>
-				</div>
-				<div class="flex flex-col gap-1.5 py-5 border-t border-black/[0.06]">
-					<div class="font-[family-name:var(--font-display)] text-[15px] font-semibold text-[#1A1714]">
 						Continuous voice
 					</div>
 					<div class="text-[13px] leading-relaxed text-[#6B6158]">

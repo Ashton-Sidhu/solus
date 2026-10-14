@@ -518,7 +518,7 @@ describe('host restart continuation', () => {
   test('managed cloud hosts discard recovery intent without launching a provider', async () => {
     const queueDirectory = await recoveryDirectory()
     const { RunLedger } = await import('@solus/server/data/sessions/run-ledger')
-    const { adoptProvisionedLink, resetHostCategoryForTests } = await import('@solus/server/host/host-category')
+    const { adoptProvisionedRegistration, resetHostCategoryForTests } = await import('@solus/server/host/host-category')
     const backend = holdingBackend('claude-code', 'restart-cloud')
     const runtime = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]), { queueDirectory })
     runtime.on('error', () => {})
@@ -527,7 +527,7 @@ describe('host restart continuation', () => {
     await Promise.resolve()
     runtime.shutdown()
     await Promise.resolve()
-    adoptProvisionedLink({ organizationId: 'organization' })
+    adoptProvisionedRegistration({ organizationId: 'organization' })
     const next = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]), { queueDirectory })
     next.on('error', () => {})
     cleanups.push(() => next.shutdown())

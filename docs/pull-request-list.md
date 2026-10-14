@@ -85,8 +85,15 @@ Each pull request is based on the head branch of the pull request below it, and
 the bottom pull request is based on the stack's base branch. GitHub merges the
 layers in order.
 
-- A row in a stack shows its layer beside its number, for example `2/3`. Layer 1
-  is the bottom layer. The tooltip gives the base branch of the stack.
+- A row in a stack shows its layer at its right end, for example `2/3`. Layer 1
+  is the bottom layer. The tooltip gives the base branch of the stack. Click
+  `2/3` to open a menu with all the layers, without opening the row. Select a
+  layer to open it in the panel. The menu reads the stack only when it opens.
+  While it reads, the menu says *Loading stack…*. If the read fails, the menu
+  has **Try again**. If the pull request left its stack, the menu says so.
+- The row's quick **Merge** (Shift, the context menu, and Shift+M) is off for a
+  layer of a stack, because it would merge one layer alone. Open the pull
+  request and use **Merge stack** in its `2/3` menu.
 - In an open pull request, the top row shows the same `2/3` control. It opens a
   menu with all the layers, the top layer first, and the base branch under them.
   Select a layer to open it. In the panel beside the list, the layer opens in
@@ -104,7 +111,24 @@ does not read it.
 
 GitHub stacks are a preview. When a repository has no stacks, or when the stack
 read fails, Solus shows no stack. The pull request itself is not affected.
-Solus does not merge or rebase a stack yet. Use GitHub for these actions.
+Solus does not rebase a stack. Use GitHub for this action.
+
+### Merge a stack
+
+On desktop and web, the `2/3` menu has **Merge stack (N)** when GitHub lets
+you merge the stack and you can write to the repository. It merges every open
+layer from the bottom up to the open pull request, in one host operation, with
+the merge method that the merge button starts on. Solus asks for confirmation
+first and lists the layers. A progress message shows while the host works.
+Then the message says that the layers merged, or that GitHub added them to its
+merge queue. If the host refuses, the message gives its reason as the host
+sends it (for example, the stack changed, a layer is a draft, or checks are
+still running). After each attempt, Solus reads the stack and the pull request
+again.
+
+Solus sends the head of each layer as the stack read showed it. If one layer
+moved, the host refuses the merge. When the stack read does not give a head for
+a layer, the item is off: refresh the pull request.
 
 ## The pull request's action
 
@@ -132,6 +156,42 @@ A branch that requires linear history, or a ruleset that names the allowed
 methods, removes the methods it does not allow. The host names the default
 method: your GitHub default when the base branch allows it, otherwise the first
 allowed method.
+
+## Workflows from a fork
+
+GitHub does not run the Actions workflows of a pull request from a fork until a
+maintainer approves them. On desktop and web, Activity shows these workflows
+above **Checks**, each with a link to its run on GitHub. When you can approve
+them, **Approve and run** starts them for the current head. If the
+head moved, the host refuses and Solus reads the waiting runs again.
+
+## Viewed files
+
+When the host keeps GitHub's "Viewed" marks, each file header in the pull
+request diff (inline and in the diff pane) has a **Viewed** box, and the diff
+toolbar shows "3 of 12 viewed". GitHub's marks are the only record, so GitHub
+shows the same marks. A file that changed after you viewed it shows **Changed
+since viewed**. A mark shows at once, collapses the file, and goes to GitHub
+after a short pause together with other marks. If GitHub refuses, the marks go
+back and the toolbar shows "Couldn't save viewed files" (hover for the reason)
+until a later mark saves. Solus reads the marks each time the
+pull request opens. An older host has no marks, and the diff has no box.
+
+## Images in descriptions and comments
+
+A private repository serves the images and videos in a pull request only to a
+GitHub account. When the host can do this, Solus asks the host for a short-term
+link to each GitHub image or video in the description and the comments, and the
+host gets the file with its own GitHub access. The link is kept until shortly
+before it expires. When the host cannot get the file, Solus shows the original
+link.
+
+## Revert
+
+A merged pull request has **Revert changes** in its ⋯ menu when GitHub allows
+it and you can write to the repository. Solus asks for confirmation, then opens
+a new pull request that reverses the merge. The message that follows has
+**Open** to show the new pull request.
 
 ## Row actions
 
@@ -176,3 +236,25 @@ width, not the pane's: between 32rem and 40rem the Sort and Filters menus show
 only their icons; under 32rem the search takes a line of its own and the menus
 sit under it. Beside the panel, the project picker leaves the Filters menu,
 because changing project would replace the list you are working from.
+
+## In the mobile app
+
+The iOS and Android app shows pull requests in the **Pull Requests** tab beside
+**Chats**. The tab lists the pull requests of every connected host in one list.
+Filter pills above the list choose the host, the project, the involvement, the
+labels, the author, drafts, the review state, the checks, and the sort. The app
+keeps these filters on the device. A saved host or project stays selected while
+that host is offline.
+
+A pull request opens with the tabs **Overview**, **Activity**, **Commits**,
+**Files**, and **Guide**. From Overview you can comment, review, merge (or turn
+on auto-merge), update the branch, close or reopen, mark ready or draft, change
+reviewers and labels, and start agent work on the pull request. In Files, tap a
+line, or long-press and then tap a second line, to write an inline comment. The
+comments stay on the device as a review draft until you submit the review.
+
+The app keeps a copy of each pull request that you read: the list, the detail,
+the diff, and the guide. Offline, it shows that copy with a "Not refreshed"
+notice, and the controls that change the pull request are off until the host is
+connected again. The copy is kept for 30 days, and for at most 256 records and
+32 MiB for each host.

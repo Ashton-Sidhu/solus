@@ -456,7 +456,7 @@ async function openGuestPlace(link: GuestLink, identity: GuestIdentity, place: G
     if (generation !== connectionGeneration) return
     onShellMounted()
     guestBoot.phase = 'ready'
-    solusApp = mount(GuestApp, { target: root, props: { serverId, share, displayName: guestBoot.displayName } })
+    solusApp = mount(GuestApp, { target: root, props: { serverId, share } })
   } catch (error) {
     if (generation !== connectionGeneration || guestBoot.revoked) return
     if (error instanceof Error && isStaleBuildError(error)) reportStaleBuild()

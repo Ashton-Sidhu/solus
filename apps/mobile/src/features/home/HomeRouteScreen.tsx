@@ -186,7 +186,7 @@ export function HomeRouteScreen() {
                 />
                 <NativeHeaderToolbar placement="left">
                   <NativeHeaderToolbar.Button
-                    accessibilityLabel="New task"
+                    accessibilityLabel="New session"
                     icon="square.and.pencil"
                     onPress={startNewTask}
                   />

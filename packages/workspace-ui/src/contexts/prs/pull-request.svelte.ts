@@ -23,7 +23,10 @@ import type {
   PrCommit,
   PrConversationItem,
   PrLabel,
+  PrPendingWorkflowRuns,
   PrRevertResult,
+  PrStackMergeRequest,
+  PrStackMergeResult,
   PrStateAction,
   PrReviewer,
   PrReviewerCandidate,
@@ -41,6 +44,7 @@ import type {
   PrReviewContext,
 } from '@solus/contracts/types'
 import { detached, type ProjectPrs } from './project-prs.svelte'
+import { PrViewedFiles } from './pr-viewed-files.svelte'
 
 /** What the Activity tab can paint immediately, without awaiting anything. */
 export interface CachedPrActivity {
@@ -136,6 +140,8 @@ export class PullRequest implements Contracts.PullRequest {
   comments = $state<PrConversationItem[]>()
   threads = $state<ReviewThread[]>()
   changedFileStats = $state<ChangedFileStat[]>()
+  /** The fork workflow runs that wait for a maintainer, as last read. */
+  pendingWorkflowRuns = $state<PrPendingWorkflowRuns>()
 
   /**
    * False between a number entering the index and the first response about it.
@@ -155,6 +161,19 @@ export class PullRequest implements Contracts.PullRequest {
     private readonly store: ProjectPrs,
     readonly number: number,
   ) {}
+
+  #viewedFiles: PrViewedFiles | null = null
+
+  /** The files the viewer marked viewed, as the code host keeps them. Read
+   *  only when `capabilities.viewedFiles`. Made on first use: a list row
+   *  never needs one. */
+  get viewedFiles(): PrViewedFiles {
+    this.#viewedFiles ??= new PrViewedFiles({
+      read: () => this.api.prViewedFiles(detached(this.ctx), this.number),
+      write: (changes) => this.api.prSetFilesViewed(detached(this.ctx), this.number, changes),
+    })
+    return this.#viewedFiles
+  }
 
   /** True once a host response has described this pull request. */
   get isDescribed(): boolean {
@@ -383,6 +402,12 @@ export class PullRequest implements Contracts.PullRequest {
     void this.store.loadViewer().catch(() => {})
   }
 
+  async loadPendingWorkflowRuns(): Promise<PrPendingWorkflowRuns> {
+    const runs = await this.api.prPendingWorkflowRuns(detached(this.ctx), this.number)
+    this.pendingWorkflowRuns = runs
+    return runs
+  }
+
   // --- Writes --------------------------------------------------------------
 
   /** Rewrite the title or body. */
@@ -553,6 +578,33 @@ export class PullRequest implements Contracts.PullRequest {
   /** Open a pull request that reverses this merged one. */
   revert(): Promise<PrRevertResult> {
     return this.api.prRevert(detached(this.ctx), this.number)
+  }
+
+  /**
+   * Merge this pull request and every open layer below it in its stack. The
+   * host answers with each layer it touched; the stack and this detail are
+   * read again whatever the answer, so a refusal because the stack moved
+   * shows the stack as it is now.
+   */
+  async mergeStack(request: Omit<PrStackMergeRequest, 'number'>): Promise<PrStackMergeResult> {
+    try {
+      const result = await this.api.prMergeStack(detached(this.ctx), { ...request, number: this.number })
+      for (const pullRequest of result.pullRequests) this.store.applyPullRequest(pullRequest)
+      return result
+    } finally {
+      void this.loadStack({ force: true }).catch(() => {})
+      void this.refreshDetail().catch(() => {})
+    }
+  }
+
+  /** Let the waiting workflow runs start, for the head the viewer saw them on. */
+  async approveWorkflowRuns(expectedHeadSha: string): Promise<number> {
+    try {
+      const result = await this.api.prApproveWorkflowRuns(detached(this.ctx), this.number, expectedHeadSha)
+      return result.approved
+    } finally {
+      void this.loadPendingWorkflowRuns().catch(() => {})
+    }
   }
 
   /**

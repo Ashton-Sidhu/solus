@@ -36,6 +36,24 @@ drafts as comments in the Diff tab.
 
 A file the change does not contain is removed from the guide.
 
+## When the change moves
+
+A guide is written for one revision of the change. When the change moves on —
+a push, a new base, or an edit in the working tree — the guide stays readable
+and shows as **Outdated**. **Regenerate guide** writes a new guide for the
+whole change.
+
+If the change moves while a guide is being written, Solus keeps that guide
+and shows it as outdated. It does not discard a finished guide. A request for
+a guide that is already being written for the same revision joins that run and
+does not start a second one. A request for a newer revision stops the old run
+and starts again.
+
+One job manager on the host (`ReviewGuideJobs` in
+`packages/server/src/review/guide-jobs.ts`) owns every running guide, for pull
+requests and for local changes. Pull request guides run one at a time; local
+guides run in parallel.
+
 ## Ask about a section
 
 On a pull request guide, each section has **Ask about this section**. It opens
@@ -44,3 +62,13 @@ section, its decision, and its files. You write the question and send it. The
 guide stays open at the same place.
 
 Guides for a working tree, a session, or a branch do not have this action yet.
+
+## In the mobile app
+
+On iOS and Android, the pull request screen has a **Guide** tab when the host
+has review guides. The guide is a tour: one stop for each section, in section
+order, with the section's explanation, its attention note, and its hunks. Tap a
+hunk to open that file in the **Files** tab. **Write guide** asks the host to
+write a guide for the pull request; the tab shows the progress and keeps the
+last guide readable. A guide for an older head stays readable, but it does not
+show its hunks until it is written again.

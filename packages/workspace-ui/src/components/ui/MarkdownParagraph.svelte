@@ -7,10 +7,13 @@
 
   interface Props {
     raw?: string;
+    /** The URL the player loads when it is not the link itself: a host's
+     *  signed copy of private GitHub media. */
+    playbackSrc?: string;
     children?: Snippet;
   }
 
-  let { raw = "", children }: Props = $props();
+  let { raw = "", playbackSrc, children }: Props = $props();
   const media = $derived(standaloneMarkdownMediaLink(raw));
   function openMedia(event: MouseEvent) {
     if (!media) return;
@@ -21,8 +24,8 @@
 
 {#if media}
   <div class="markdown-media-player my-3 flex flex-col gap-1.5">
-    {#key media.href}
-      <VideoPlayer src={media.href} label={`Video from ${media.provider}`} />
+    {#key playbackSrc ?? media.href}
+      <VideoPlayer src={playbackSrc ?? media.href} label={`Video from ${media.provider}`} />
     {/key}
     <a
       href={media.href}

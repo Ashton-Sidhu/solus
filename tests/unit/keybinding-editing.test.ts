@@ -83,8 +83,8 @@ describe('conflict reporting', () => {
 
 describe('row search', () => {
   test('"unassigned" finds the actions that ship without a key', () => {
-    const def = KEYBINDINGS['global.design-mode']
-    expect(effectiveCombo('global.design-mode', {})).toBeNull()
+    const def = KEYBINDINGS['global.switch-branch']
+    expect(effectiveCombo('global.switch-branch', {})).toBeNull()
     expect(matchesQuery(def, null, 'unassigned')).toBe(true)
     expect(matchesQuery(KEYBINDINGS['global.settings'], defaultCombo(KEYBINDINGS['global.settings']), 'unassigned'))
       .toBe(false)

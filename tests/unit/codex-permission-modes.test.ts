@@ -1,12 +1,20 @@
-import { describe, expect, test } from 'bun:test'
+import { beforeAll, describe, expect, mock, test } from 'bun:test'
+import { Database } from 'bun:sqlite'
 import { PERMISSION_MODES } from '@solus/contracts/types'
-import { approvalPolicyFor, approvalsReviewerFor, sandboxPolicyFor } from '@solus/server/execution/agents/codex/codex-utils'
+
+mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+
+let codex: typeof import('@solus/server/execution/agents/codex/codex-utils')
+
+beforeAll(async () => {
+  codex = await import('@solus/server/execution/agents/codex/codex-utils')
+})
 
 describe('Codex permission modes', () => {
   test('each mode maps to the Codex approval policy, reviewer, and sandbox', () => {
     const table = Object.fromEntries(PERMISSION_MODES.map((mode) => [
       mode,
-      [approvalPolicyFor(mode), approvalsReviewerFor(mode), sandboxPolicyFor(mode).type],
+      [codex.approvalPolicyFor(mode), codex.approvalsReviewerFor(mode), codex.sandboxPolicyFor(mode).type],
     ]))
 
     // WHY: Codex, not Solus, enforces these. Full access must stay the

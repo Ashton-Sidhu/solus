@@ -2,7 +2,6 @@
   import {
     Columns2 as ColumnsIcon,
     Ellipsis as DotsThreeIcon,
-    GitCompareArrows as CompareIcon,
     Highlighter as HighlighterIcon,
     PenLine as RewriteIcon,
     RotateCw as ArrowClockwiseIcon,
@@ -141,35 +140,20 @@
       {/if}
     {/if}
 
-    {#if showsGuideRow && guide && guide.stale && !guide.regenerating}
-      <DropdownMenu.Sub>
-        <DropdownMenu.SubTrigger>
-          <CompareIcon size={14} />
-          <span class="whitespace-nowrap">New commits since guide</span>
-          <span class="ml-auto size-[0.3125rem] shrink-0 rounded-full bg-primary" aria-hidden="true"></span>
-        </DropdownMenu.SubTrigger>
-        <DropdownMenu.SubContent class="w-auto min-w-52">
-          <DropdownMenu.Item onSelect={() => guide.onRegenerate("new-commits")}>
-            <CompareIcon size={14} />
-            <span class="whitespace-nowrap">Review new commits only</span>
-          </DropdownMenu.Item>
-          <DropdownMenu.Item onSelect={() => guide.onRegenerate("full")}>
-            <RewriteIcon size={14} />
-            <span class="whitespace-nowrap">Regenerate full guide</span>
-          </DropdownMenu.Item>
-        </DropdownMenu.SubContent>
-      </DropdownMenu.Sub>
-    {:else if showsGuideRow && guide}
-      <!-- The guide's own state and the one action it implies. Stale is the
-           news, so the row says what happened rather than naming the command. -->
+    {#if showsGuideRow && guide}
+      <!-- The guide's own state and the one action it implies. A stale guide
+           carries the trigger's dot here too. -->
       <DropdownMenu.Item
         disabled={guide.regenerating}
-        onSelect={() => guide.onRegenerate("full")}
+        onSelect={() => guide.onRegenerate()}
       >
         <RewriteIcon size={14} />
         <span class="whitespace-nowrap">
           {guide.regenerating ? "Regenerating…" : "Regenerate guide"}
         </span>
+        {#if guide.stale && !guide.regenerating}
+          <span class="ml-auto size-[0.3125rem] shrink-0 rounded-full bg-primary" aria-hidden="true"></span>
+        {/if}
       </DropdownMenu.Item>
     {/if}
 

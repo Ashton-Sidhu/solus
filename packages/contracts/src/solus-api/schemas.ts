@@ -64,17 +64,20 @@ const record = {
 // Auth and discovery
 
 export const workspaceAuthSessionRequestSchema = z.strictObject({
-  scopes: z.array(solusApiScopeSchema).min(1).max(7).refine(uniqueItems, 'Duplicate values are not allowed.').meta({ uniqueItems: true }),
+  scopes: z.array(solusApiScopeSchema).min(1).max(solusApiScopeSchema.options.length).refine(uniqueItems, 'Duplicate values are not allowed.').meta({ uniqueItems: true }),
   shareSecret: z.string().min(32).max(256).meta({ writeOnly: true }).optional(),
   organizationId: workspaceIdSchema.optional(),
-}).meta({ description: 'Source authority determines the actor, service and Local or organization context. A source token that lists several organizations admits only the organizationId named here, and only when it lists it; a source that names one organization ignores it. The guest of a share link holds no token and is admitted by the host that made the link, so shareSecret admits nothing here. Requested scopes only narrow authority.', examples: [{ scopes: ['tasks:read', 'tasks:write'] }] })
+  /** A link guest states who it is, as at the host's ticket door: the id its page keeps and the name it typed. */
+  guestId: z.string().regex(/^[a-zA-Z0-9_-]{16,64}$/).optional(),
+  displayName: z.string().max(80).optional(),
+}).meta({ description: 'Source authority determines the actor, service and Local or organization context. A source token that lists several organizations admits only the organizationId named here, and only when it lists it; a source that names one organization ignores it. The guest of a share link holds no token: with no bearer, shareSecret and guestId are the whole credential, and the session reaches only the one shared resource, with the link\'s current role, until the link is removed or regenerated. Requested scopes only narrow authority.', examples: [{ scopes: ['tasks:read', 'tasks:write'] }] })
 export type WorkspaceAuthSessionRequest = z.infer<typeof workspaceAuthSessionRequestSchema>
 
 export const workspaceAuthSessionSchema = z.strictObject({
   accessToken: z.string().min(1).max(4096).meta({ 'x-solus-sensitive': true }),
   tokenType: z.literal('Bearer'),
   expiresAt: datetime,
-  scopes: z.array(solusApiScopeSchema).max(7).refine(uniqueItems, 'Duplicate values are not allowed.').meta({ uniqueItems: true }),
+  scopes: z.array(solusApiScopeSchema).max(solusApiScopeSchema.options.length).refine(uniqueItems, 'Duplicate values are not allowed.').meta({ uniqueItems: true }),
   home: workspaceRecordHomeSchema,
   subject: workspaceActorSchema,
 }).meta({ description: 'Verified source authority fixes the actor and home in this credential. At most five minutes and never beyond source expiry. Renewal requires source authority; this bearer cannot renew itself. Keep credentials out of URLs, logs and artifacts.' })

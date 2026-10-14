@@ -4,6 +4,7 @@ import { loadServers, type SavedServer } from '@solus/client-core/server-registr
 import { stampSessionMetas } from '@solus/client-core/session-meta'
 import { sessionMetaFromRecord } from '@solus/contracts/session-record-meta'
 import { isSolusApiId } from '@solus/contracts/uplink'
+import { isRepositoryKey } from '@solus/contracts/repository-key'
 import type { AgentId, SessionMeta, SessionSearchResult } from '@solus/contracts/types'
 import { localProjectParts } from '@solus/client-core/project-identity'
 import { projectsStore } from '../../../../contexts/projects/projects.store.svelte'
@@ -51,12 +52,15 @@ const registryHosts: ConversationSearchHosts<Pick<HostApi, 'sessionRecordSearch'
 }
 
 /**
- * The folder one host searches for a project scope: that host's checkout of
- * the project (docs/plans/project-model.md §1). `undefined` when the scope is
- * a path no host has named — the path is sent as it is; `null` when the host
- * holds no checkout of the project, so the host is not asked.
+ * What one host is asked for a project scope (docs/plans/project-model.md §1).
+ * A machine is asked for its own checkout of the project. The workspace service
+ * holds no checkout: it is asked for the repository, so it answers with the
+ * sessions of every machine that ran it, a removed one included.
  */
-export type ScopePathOnHost = (serverId: string, projectKey: string) => string | null | undefined
+export type HostScope = { projectRoot: string } | { repositoryKey: string }
+
+/** A host's scope for a project, or null when the host holds none of it and is not asked. */
+export type ScopeOnHost = (serverId: string, projectKey: string) => HostScope | null
 
 /** The organizations' machines: their sessions are read from the workspace service. */
 function organizationMachineIds(saved: readonly Pick<SavedServer, 'id' | 'uplink'>[]): Set<string> {
@@ -64,28 +68,26 @@ function organizationMachineIds(saved: readonly Pick<SavedServer, 'id' | 'uplink
 }
 
 /**
- * The folder one host searches, from the project's checkouts. The workspace
- * service holds no checkout of its own: it keeps the sessions an organization's
- * machine ran, at that machine's path. Passed over, it would leave a project
- * scope on the web with no home to ask.
+ * One host's scope for a project, from the project's checkouts. The workspace
+ * service is asked for the repository; a local-only project has none there.
  */
-export function scopePathFromCheckouts(
+export function scopeFromCheckouts(
   serverId: string,
+  projectKey: string,
   checkouts: readonly { serverId: string; projectRoot: string }[],
-  organizationMachines: ReadonlySet<string>,
-): string | null {
-  if (isSolusApiId(serverId)) {
-    return (checkouts.find((entry) => organizationMachines.has(entry.serverId)) ?? checkouts[0])?.projectRoot ?? null
-  }
-  return checkouts.find((entry) => entry.serverId === serverId)?.projectRoot ?? null
+): HostScope | null {
+  if (isSolusApiId(serverId)) return isRepositoryKey(projectKey) ? { repositoryKey: projectKey } : null
+  const checkout = checkouts.find((entry) => entry.serverId === serverId)
+  return checkout ? { projectRoot: checkout.projectRoot } : null
 }
 
-function checkoutPathOnHost(serverId: string, projectKey: string): string | null | undefined {
-  if (projectKey.startsWith('/') || projectKey.startsWith('~')) return undefined
+function checkoutScopeOnHost(serverId: string, projectKey: string): HostScope | null {
+  // A scope that is a path no host has named is sent as it is.
+  if (projectKey.startsWith('/') || projectKey.startsWith('~')) return { projectRoot: projectKey }
   const local = localProjectParts(projectKey)
   const catalogued = projectsStore.checkoutsOf(projectKey)
   const checkouts = catalogued.length || !local ? catalogued : [{ serverId: local.serverId, projectRoot: local.path }]
-  return scopePathFromCheckouts(serverId, checkouts, organizationMachineIds(loadServers()))
+  return scopeFromCheckouts(serverId, projectKey, checkouts)
 }
 
 /**
@@ -123,7 +125,7 @@ export interface ConversationSearchOptions {
 /** One host's part of an answer: where its next page starts and how many it has. */
 interface HostPage {
   serverId: string
-  projectRoot: string | undefined
+  scope: HostScope | undefined
   next: number
   total: number
 }
@@ -165,7 +167,7 @@ export class ConversationSearch {
   constructor(
     private readonly hosts: ConversationSearchHosts = registryHosts,
     private readonly debounceMs = DEBOUNCE_MS,
-    private readonly scopePathOnHost: ScopePathOnHost = checkoutPathOnHost,
+    private readonly scopeOnHost: ScopeOnHost = checkoutScopeOnHost,
   ) {}
 
   /** Search for `query`, scoped to one project or to every project. */
@@ -201,7 +203,7 @@ export class ConversationSearch {
     const requestId = this.requestId
     this.loadingMore = true
     const pending = this.pages.filter((page) => page.next < page.total)
-    const perHost = await Promise.all(pending.map((page) => this.readPage(page.serverId, this.query, page.projectRoot, page.next)))
+    const perHost = await Promise.all(pending.map((page) => this.readPage(page.serverId, this.query, page.scope, page.next)))
     if (requestId !== this.requestId) return
     pending.forEach((page, index) => {
       const hits = perHost[index]!
@@ -219,13 +221,14 @@ export class ConversationSearch {
     this.options = options
     const homes = this.hosts.searchServerIds().flatMap((serverId): HostPage[] => {
       if (options.serverId && serverId !== options.serverId && !isSolusApiId(serverId)) return []
-      // A project scope reaches each host as that host's own checkout of the
-      // repository: one path sent everywhere missed clones at other paths and
-      // combined unrelated folders that happened to share one.
-      const scopedPath = projectRoot ? this.scopePathOnHost(serverId, projectRoot) : undefined
-      return scopedPath === null ? [] : [{ serverId, projectRoot: scopedPath ?? projectRoot ?? undefined, next: 0, total: 0 }]
+      // A project scope reaches each machine as its own checkout of the
+      // repository, and the workspace service as the repository: one path sent
+      // everywhere missed clones at other paths and combined unrelated folders
+      // that happened to share one.
+      const scope = projectRoot ? this.scopeOnHost(serverId, projectRoot) : undefined
+      return scope === null ? [] : [{ serverId, scope, next: 0, total: 0 }]
     })
-    const perHost = await Promise.all(homes.map((home) => this.readPage(home.serverId, query, home.projectRoot, 0)))
+    const perHost = await Promise.all(homes.map((home) => this.readPage(home.serverId, query, home.scope, 0)))
     if (requestId !== this.requestId) return
     homes.forEach((home, index) => {
       home.total = perHost[index]!.total
@@ -245,10 +248,10 @@ export class ConversationSearch {
     this.remaining = this.pages.reduce((sum, page) => sum + Math.max(0, page.total - page.next), 0)
   }
 
-  private async readPage(serverId: string, query: string, projectRoot: string | undefined, offset: number): Promise<HostHits> {
+  private async readPage(serverId: string, query: string, scope: HostScope | undefined, offset: number): Promise<HostHits> {
     try {
       const found = await this.hosts.apiFor(serverId).sessionRecordSearch({
-        query, projectRoot, offset, limit: PAGE_SIZE,
+        query, ...scope, offset, limit: PAGE_SIZE,
         namesOnly: this.options.namesOnly, activeSince: this.options.activeSince, provider: this.options.provider,
       })
       const results = found.results.map(({ record, ...hit }) => ({ ...hit, session: sessionMetaFromRecord(record) }))
@@ -298,7 +301,7 @@ export class RecentSessions {
 
   constructor(
     private readonly hosts: ConversationSearchHosts<Pick<HostApi, 'sessionRecordList'>> = registryHosts,
-    private readonly scopePathOnHost: ScopePathOnHost = checkoutPathOnHost,
+    private readonly scopeOnHost: ScopeOnHost = checkoutScopeOnHost,
   ) {}
 
   /** Read one project's checkouts and their worktrees, or every project. */
@@ -311,14 +314,12 @@ export class RecentSessions {
     const serverIds = this.hosts.searchServerIds()
     const perHost = await Promise.all(
       serverIds.map(async (serverId): Promise<{ sessions: SessionMeta[]; indexing: boolean; error?: string; passedOver?: boolean }> => {
-        const scopedPath = projectRoot ? this.scopePathOnHost(serverId, projectRoot) : undefined
-        if (scopedPath === null) return { sessions: [], indexing: false, passedOver: true }
-        const projectPath = scopedPath ?? projectRoot ?? undefined
+        const scope = projectRoot ? this.scopeOnHost(serverId, projectRoot) : undefined
+        if (scope === null) return { sessions: [], indexing: false, passedOver: true }
         try {
-          const found = await this.hosts.apiFor(serverId).sessionRecordList({
-            projectPath,
-            includeWorktrees: projectPath ? true : undefined,
-          })
+          const found = await this.hosts.apiFor(serverId).sessionRecordList(
+            !scope ? {} : 'repositoryKey' in scope ? { repositoryKey: scope.repositoryKey } : { projectPath: scope.projectRoot, includeWorktrees: true },
+          )
           const sessions = found.records.map(sessionMetaFromRecord)
           if (isSolusApiId(serverId)) for (const session of sessions) openOnRunner(session, serverId, this.hosts)
           else stampSessionMetas(sessions, serverId)
@@ -367,7 +368,7 @@ export class TaskCommentSearch {
   constructor(
     private readonly hosts: TaskCommentHosts = taskHosts,
     private readonly debounceMs = DEBOUNCE_MS,
-    private readonly scopePathOnHost: ScopePathOnHost = checkoutPathOnHost,
+    private readonly scopeOnHost: ScopeOnHost = checkoutScopeOnHost,
   ) {}
 
   search(query: string, projectKey: string | null): void {
@@ -388,12 +389,13 @@ export class TaskCommentSearch {
   }
 
   private async run(requestId: number, query: string, projectKey: string | null): Promise<void> {
-    // A project scope reaches each host as that host's own checkout of the
-    // project, the way the session search asks it.
+    // A project scope reaches each host the way the session search asks it: a
+    // machine by its checkout, the workspace service by the repository its tasks name.
     const perHost = await Promise.all(this.hosts.serverIds().map((serverId) => {
-      const scopedPath = projectKey ? this.scopePathOnHost(serverId, projectKey) : undefined
-      if (scopedPath === null) return []
-      return this.hosts.apiFor(serverId).tasksSearchComments({ query, projectKey: scopedPath ?? projectKey ?? undefined }).catch(() => [])
+      const scope = projectKey ? this.scopeOnHost(serverId, projectKey) : undefined
+      if (scope === null) return []
+      const scopedKey = !scope ? undefined : 'repositoryKey' in scope ? scope.repositoryKey : scope.projectRoot
+      return this.hosts.apiFor(serverId).tasksSearchComments({ query, projectKey: scopedKey }).catch(() => [])
     }))
     if (requestId !== this.requestId) return
     this.passages = new Map(perHost.flat().map((hit) => [hit.taskId, hit.snippet]))

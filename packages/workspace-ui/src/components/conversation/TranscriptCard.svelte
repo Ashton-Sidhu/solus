@@ -45,8 +45,9 @@
     secondaryActionLabel?: string;
     /** Tint for the glyph slot: `is-done`, `is-failed`, or `is-artifact`. */
     glyphClass?: string;
-    /** Body layout: indented prose, full-bleed media, or grouped rows. */
-    bodyLayout?: "prose" | "media" | "rows";
+    /** Body layout: indented prose, full-bleed media, a full-bleed player, or
+     *  grouped rows. */
+    bodyLayout?: "prose" | "media" | "player" | "rows";
     skipMotion?: boolean;
     class?: string;
     "data-testid"?: string;
@@ -96,7 +97,9 @@
   const showBody = $derived(!!body && expanded !== false);
   /** A picture is not something to act "after": under media the actions stay on
    *  the card line, so they never float alone below the image. */
-  const actionsInHeader = $derived(!showBody || bodyLayout === "media");
+  const actionsInHeader = $derived(
+    !showBody || bodyLayout === "media" || bodyLayout === "player",
+  );
   /** Beside the split icon, a quiet Open is an icon too, so the line reads as
    *  one row of icons. A filled action waits on the user and keeps its word. */
   const openAsIcon = $derived(!!onOpenSecondary && !actionFilled);
@@ -177,6 +180,7 @@
         class="tx-card__body"
         class:is-prose={bodyLayout === "prose"}
         class:is-media={bodyLayout === "media"}
+        class:is-player={bodyLayout === "player"}
         class:is-rows={bodyLayout === "rows"}
       >
         {@render body()}
@@ -412,6 +416,12 @@
   .tx-card__body.is-media {
     max-height: 9.375rem;
     overflow: hidden;
+    border-top: 0.03125rem solid var(--solus-tx-divider);
+  }
+
+  /* A player bleeds edge to edge too, but is never clipped: its controls sit
+     at the bottom of the video. */
+  .tx-card__body.is-player {
     border-top: 0.03125rem solid var(--solus-tx-divider);
   }
 

@@ -1,12 +1,14 @@
 import { SOLUS_API_AUDIENCE } from '@solus/contracts/uplink'
+import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import { LabClient } from '../src/client'
 import { bootLabHost, type LabHost } from '../src/host'
 import { ORGANIZATION_ID, PERSONAS, personaForHost } from '../src/personas'
-import { expectRefused, scenario, type ScenarioContext } from '../src/scenario'
+import { expectOk, expectRefused, scenario, type ScenarioContext } from '../src/scenario'
 import { bootLabSolusApi, createLabDatabase, type SolusApiEngine } from '../src/solus-api'
 
 async function prove(ctx: ScenarioContext, engine: SolusApiEngine, databaseUrl?: string): Promise<void> {
   const service = await bootLabSolusApi({ issuer: ctx.issuer, engine, databaseUrl })
+  const previousRoute = ctx.issuer.workspaceRoute
   ctx.issuer.setWorkspaceRoute(service.url)
   let runner: LabHost | null = null
   const clients: LabClient[] = []
@@ -36,7 +38,12 @@ async function prove(ctx: ScenarioContext, engine: SolusApiEngine, databaseUrl?:
     const history = await alice.rpc('loadWorkRevisions', localWork.id)
     const firstBody = history[0] ? (await alice.rpc('loadWorkRevision', localWork.id, history[0].revisionId)).content : null
     ctx.check(`${engine}: cloud push retains history`, firstBody === 'before' && history.length >= 2)
-    ctx.check(`${engine}: pushed work has one cloud home`, (await alice.records.loadWork(localWork.id))?.content === 'after' && await source.records.loadWork(localWork.id) === null)
+    // The source keeps the row with a location and answers MOVED, naming the organization
+    // that has the work now; its lists skip it (docs/plans/cloud-sharing.md §3a, decision 2026-10-06).
+    const cloudCopy = await alice.records.loadWork(localWork.id)
+    const movedTo = await source.records.loadWork(localWork.id).then(() => null, (error: unknown) => error instanceof WorkspaceRequestError && error.code === 'MOVED' ? error.message : null)
+    const sourceLists = (await source.records.listWorks()).some((row) => row.id === localWork.id)
+    ctx.check(`${engine}: pushed work has one cloud home`, cloudCopy?.content === 'after' && !!movedTo?.includes(ORGANIZATION_ID) && !sourceLists, JSON.stringify({ movedTo, sourceLists }))
     const work = await alice.records.createWork('Shared cloud work', 'doc', '# Offline safe', '', undefined, 'claude-code', ctx.cwd)
     const task = await alice.records.tasksCreate({ title: 'Shared cloud task', body: 'Cloud body' })
     // A task is not shared: its organization sees it, and it has no guest link.
@@ -48,12 +55,13 @@ async function prove(ctx: ScenarioContext, engine: SolusApiEngine, databaseUrl?:
       const info = await guest.rpc('connectionsGetServerInfo')
       ctx.check(`${engine}: guest bound to requested resource`, info.share?.resource.id === resource.id)
       if (resource.kind === 'work') {
-        ctx.check(`${engine}: guest reads work`, (await guest.records.loadWork(work.id))?.content === '# Offline safe')
+        const guestRead = await expectOk(ctx, `${engine}: guest loads the work`, guest.records.loadWork(work.id))
+        ctx.check(`${engine}: guest reads work`, guestRead?.content === '# Offline safe')
         await expectRefused(ctx, 'viewer cannot edit work', guest.records.saveWork(work.id, { content: 'wrong' }, work), 'NOT_FOUND')
         await expectRefused(ctx, 'other organization cannot read work', carol.api.request('getWork', { id: work.id }), 'NOT_FOUND')
         await alice.rpc('shareSetLink', { resource, role: 'editor' })
         const viewedVersion = (await alice.records.loadWork(work.id))?.updatedAt
-        await guest.records.saveWork(work.id, { content: 'Guest edit' }, work)
+        await expectOk(ctx, `${engine}: guest saves as an editor`, guest.records.saveWork(work.id, { content: 'Guest edit' }, work))
         const savedVersion = (await alice.records.loadWork(work.id))?.updatedAt
         ctx.check(`${engine}: reader detects another editor's save`, savedVersion !== viewedVersion)
         let refused = false
@@ -74,7 +82,7 @@ async function prove(ctx: ScenarioContext, engine: SolusApiEngine, databaseUrl?:
   } finally {
     for (const item of clients) item.close()
     if (runner) await runner.stop()
-    ctx.issuer.setWorkspaceRoute(null)
+    ctx.issuer.setWorkspaceRoute(previousRoute)
     await service.stop()
   }
 }

@@ -25,7 +25,6 @@
 		{ label: 'Documents & Input', sections: [
 			{ id: 'works',           label: 'Works' },
 			{ id: 'document-editor', label: 'Document Editor' },
-			{ id: 'design-mode',     label: 'Design Mode' },
 			{ id: 'voice',           label: 'Voice Input' },
 		]},
 		{ label: 'Automation', sections: [
@@ -275,7 +274,7 @@
 					{/each}
 				</ul>
 				<p class="mt-5 text-[14px] text-[#A09488]">
-					Everything else (Works, Design Mode, voice input, remote hosts) hangs off that
+					Everything else (Works, voice input, remote hosts) hangs off that
 					loop. Use the sidebar to jump straight to a feature.
 				</p>
 			</section>
@@ -725,48 +724,6 @@
 				])}
 			</section>
 
-			<section id="design-mode" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
-				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Design Mode</h2>
-				<p>
-					"The button is misaligned" is a paragraph in text and two seconds with an arrow.
-					Screenshot any window, draw on it, and send the image to your agent:
-				</p>
-
-				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">How to use it</h3>
-				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
-					{#each [
-						['Take a screenshot', `Press ${kbdHtml('⌥⇧S')} or click the camera icon in the input bar. Solus captures the active window and opens the annotation overlay.`],
-						['Annotate', 'Draw with the left-side toolbar, then confirm. The image lands as an attachment in the input bar.'],
-						['Send', 'Add any extra context and press Enter. The agent receives the annotated screenshot and your message.'],
-					] as [title, desc]}
-						<li class="flex gap-3">
-							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
-							<span><strong class="text-[#1A1714] font-medium">{title}.</strong> {@html desc}</span>
-						</li>
-					{/each}
-				</ul>
-
-				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Annotation tools</h3>
-				{@render kbTable([
-					['1 · Rectangle', 'Draw a box to highlight a region. Drag from corner to corner.'],
-					['2 · Arrow', 'Draw a directed arrow pointing at a specific element.'],
-					['3 · Marker', 'Drop a numbered pin. Each pin auto-increments so you can refer to them by number in your message.'],
-					['4 · Text', 'Click anywhere to place a text label directly on the screenshot.'],
-					['5 · Eraser', 'Click the annotation nearest your cursor to remove it.'],
-				])}
-
-				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Keyboard shortcuts (annotation overlay)</h3>
-				{@render kbTable([
-					['1 – 5', 'Switch tool'],
-					['⌘Z', 'Undo'],
-					['⌘⇧Z', 'Redo'],
-					['⌘↩', 'Confirm and attach annotated image'],
-					['Escape', 'Cancel and discard'],
-				])}
-
-				<p class="mt-5 text-[14px] text-[#A09488]">The annotated image is composited at full screenshot resolution before being sent, so annotations are baked into the image your agent receives.</p>
-			</section>
-
 			<section id="voice" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
 				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Voice Input: Mic vs Voice Mode</h2>
 				<p>
@@ -1207,7 +1164,6 @@ solus pair</div>
 				{@render kbTable([
 					['⌥⇧A', 'Attach file'],
 					['⌥⇧S', 'Take screenshot'],
-					['⌥⇧I', 'Design annotation mode'],
 				])}
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Agent</h3>

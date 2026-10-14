@@ -38,11 +38,63 @@ const PATCH = [
   '+y',
 ].join('\n')
 
+// Paths and markers the old line regex read wrong: git quotes a path with a
+// special character and escapes its bytes, and a path can contain ` b/`.
+const HARD_PATCH = [
+  'diff --git "a/docs/caf\\303\\251 menu.md" "b/docs/caf\\303\\251 menu.md"',
+  'index 1111111..2222222 100644',
+  '--- "a/docs/caf\\303\\251 menu.md"',
+  '+++ "b/docs/caf\\303\\251 menu.md"',
+  '@@ -3,2 +3,2 @@',
+  ' keep',
+  '-old',
+  '+new',
+  'diff --git a/src/a b/c.ts b/src/a b/c.ts',
+  'index 1111111..2222222 100644',
+  '--- a/src/a b/c.ts',
+  '+++ b/src/a b/c.ts',
+  '@@ -7 +7 @@',
+  '-x',
+  '+y',
+  'diff --git a/src/old.ts b/src/new.ts',
+  'similarity index 90%',
+  'rename from src/old.ts',
+  'rename to src/new.ts',
+  'index 1111111..2222222 100644',
+  '--- a/src/old.ts',
+  '+++ b/src/new.ts',
+  '@@ -20,2 +20,2 @@',
+  ' same',
+  '-before',
+  '+after',
+  '\\ No newline at end of file',
+  'diff --git a/src/gone.ts b/src/gone.ts',
+  'deleted file mode 100644',
+  'index 1111111..0000000',
+  '--- a/src/gone.ts',
+  '+++ /dev/null',
+  '@@ -1,2 +0,0 @@',
+  '-a',
+  '-b',
+].join('\n')
+
 describe('lens code anchors', () => {
   test('commentable lines are the new-side added and context lines inside hunks', () => {
     expect([...commentableNewLines(PATCH, 'src/auth.ts')]).toEqual([10, 11, 12, 13])
     expect([...commentableNewLines(PATCH, 'src/other.ts')]).toEqual([1])
     expect(commentableNewLines(PATCH, 'src/missing.ts').size).toBe(0)
+  })
+
+  test('commentable lines read the real path of a quoted, renamed, or ` b/` file, and a deleted file has none', () => {
+    // WHY: the code host names the file by its real path. A lens anchor on a
+    // real line must not be refused because the diff header is quoted.
+    expect([...commentableNewLines(HARD_PATCH, 'docs/café menu.md')]).toEqual([3, 4])
+    expect([...commentableNewLines(HARD_PATCH, 'src/a b/c.ts')]).toEqual([7])
+    expect(commentableNewLines(HARD_PATCH, 'c.ts b/src/a b/c.ts').size).toBe(0)
+    // The no-newline marker is not a line, and a rename is commented on its new path.
+    expect([...commentableNewLines(HARD_PATCH, 'src/new.ts')]).toEqual([20, 21])
+    expect(commentableNewLines(HARD_PATCH, 'src/old.ts').size).toBe(0)
+    expect(commentableNewLines(HARD_PATCH, 'src/gone.ts').size).toBe(0)
   })
 
   test('a draft line comment is refused outside the diff, before the diff loads, or on a line that has a draft', () => {

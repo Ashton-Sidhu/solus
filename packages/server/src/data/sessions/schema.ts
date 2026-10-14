@@ -41,6 +41,7 @@ export const sessionRecords = defineTable('session_records', {
   indexes: [
     { name: 'sessions_api_page', columns: ['organization_id', 'created_at', 'session_id'], descending: ['created_at', 'session_id'] },
     { name: 'sessions_api_provider_page', columns: ['organization_id', 'provider', 'created_at', 'session_id'], descending: ['created_at', 'session_id'] },
+    { name: 'sessions_api_activity_page', columns: ['organization_id', 'last_activity_at', 'session_id'], descending: ['last_activity_at', 'session_id'] },
   ],
 })
 

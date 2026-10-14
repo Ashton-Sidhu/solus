@@ -94,7 +94,7 @@ describe('the host key in the secret store', () => {
     else process.env.SOLUS_DATA_DIR = originalDataDir
   })
 
-  test('the key is kept with its client and link generation, survives a restart, and goes with the link', async () => {
+  test('the key is kept with its client and registration generation, survives a restart, and goes with the registration', async () => {
     const key = await generateHostKey()
     expect(loadHostKey()).toBeNull()
     saveHostKey({ clientId: 'host_h1', generation: 3, privateJwk: key.privateJwk })

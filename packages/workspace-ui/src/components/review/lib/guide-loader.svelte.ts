@@ -44,23 +44,21 @@ export interface GuideLoaderOptions {
   getHostPatch?: (scope: Extract<DiffScope, { kind: "pr" }>) => string | null;
 }
 
-function guideRequestOptions(
-  opts: GuideLoaderOptions,
-  regenerationBaseSha?: string,
-): ReviewGuideRequestOptions {
+function guideRequestOptions(opts: GuideLoaderOptions): ReviewGuideRequestOptions {
   const target = opts.getTarget?.();
   return {
     ...opts.getAgent(),
-    ...(target
-      ? {
-          target:
-            regenerationBaseSha && target.kind === "pr"
-              ? { ...target, baseSha: regenerationBaseSha }
-              : target,
-        }
-      : { scope: opts.getScope() }),
-    regenerationBaseSha,
+    ...(target ? { target } : { scope: opts.getScope() }),
   };
+}
+
+/** Why a generation leaves nothing to show. A guide kept after the change
+ *  moved during its run is shown; its status marks it outdated. */
+function generationFailure(generated: Awaited<ReturnType<HostApi["generateGuide"]>>): string | null {
+  if (!generated) return "The guide could not be generated.";
+  return generated.outdated && !generated.persisted
+    ? "The change moved while the guide was being generated. Generate it again."
+    : null;
 }
 
 /**
@@ -77,6 +75,9 @@ export class GuideLoader {
   diffScope = $state<Extract<DiffScope, { kind: "pr" }> | null>(null);
   // Background generation has its own status. Only an active load owns this flag.
   loading = $state(false);
+  /** This load is generating, not only reading the saved guide. Only a
+   *  generation shows the stepped progress screen. */
+  generating = $state(false);
   progressStep = $state<ReviewProgressStep>("preparing");
   /** A cached guide whose `headSha` no longer matches the checkout's HEAD —
    *  the walkthrough describes an older state of the change. Commit-level
@@ -131,11 +132,7 @@ export class GuideLoader {
     this.#opts = opts;
   }
 
-  async load(
-    regenerate: boolean,
-    generateIfMissing = true,
-    regenerationBaseSha?: string,
-  ): Promise<void> {
+  async load(regenerate: boolean, generateIfMissing = true): Promise<void> {
     const ctx = this.#opts.getCtx();
     const key = this.#opts.getKey();
     const api = this.#opts.getApi();
@@ -166,15 +163,16 @@ export class GuideLoader {
         const unsubscribe = serverConnections.eventsFor(serverId).subscribe('review.progressChanged', (event) => {
           if (current() && event.key === key) this.progressStep = event.step;
         });
+        this.generating = true;
         try {
-          const generated = await api.generateGuide(ctx, guideRequestOptions(this.#opts, regenerationBaseSha));
+          const generated = await api.generateGuide(ctx, guideRequestOptions(this.#opts));
           if (!current()) return;
-          if (!generated || generated.outdated) throw new Error(generated?.outdated
-            ? "The change moved while the guide was being generated. Generate it again."
-            : "The guide could not be generated.");
+          const failure = generationFailure(generated);
+          if (failure || !generated) throw new Error(failure ?? "The guide could not be generated.");
           guide = generated.guide;
         } finally {
           unsubscribe();
+          if (version === this.#loadVersion) this.generating = false;
         }
       }
       if (!current()) return;
@@ -248,11 +246,8 @@ export class GuideLoader {
     return pages.join("\n");
   }
 
-  refresh(mode: 'full' | 'new-commits' = 'full'): Promise<void> {
-    const regenerationBaseSha = mode === 'new-commits'
-      ? this.guide?.headSha
-      : undefined;
-    const loading = this.load(true, true, regenerationBaseSha);
+  refresh(): Promise<void> {
+    const loading = this.load(true, true);
     requestInputFocus();
     return loading;
   }

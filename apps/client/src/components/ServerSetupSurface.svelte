@@ -2,7 +2,6 @@
   import { hostUpdatesStore } from "@solus/workspace-ui/contexts/updates/host-updates.store.svelte";
   import { untrack } from "svelte";
   import {
-    ArrowRight as ArrowRightIcon,
     Check as CheckIcon,
     Link2 as LinkSimpleIcon,
     Wifi as WifiHighIcon,
@@ -58,13 +57,6 @@
     requestInputFocus();
   }
 
-  function chooseHost(host: ServerItem) {
-    // In place: the chosen host becomes the new-work default; every host's
-    // sessions stay mounted and connected throughout.
-    close();
-    serversStore.switchTo(host.id);
-  }
-
   function pairNearby(host: NearbyHost) {
     close();
     hostOnboardingStore.openForDiscovered(host.server);
@@ -80,12 +72,14 @@
         code: codeInput,
         deviceLabel: labelInput,
       });
-      // In place (dispatch-client step 5): the new host joins the catalog,
-      // gets its eager supervisor, and becomes the new-work default — the
-      // workspace never reloads for a pairing.
+      // In place (dispatch-client step 5): the new host joins the catalog and
+      // gets its eager supervisor — the workspace never reloads for a pairing.
+      // It becomes the default for new work only when there is none yet; after
+      // that, another host is chosen per run with the Run on picker.
+      const hasRunOnHost = serverConnections.runOnHostId() !== null;
       serversStore.savePairedServer(server);
       serverConnections.startCatalogSupervisors();
-      serversStore.switchTo(server.id);
+      if (!hasRunOnHost) serversStore.switchTo(server.id);
       close();
     } catch (err) {
       toasts.error(err instanceof Error ? err.message : String(err));
@@ -112,11 +106,7 @@
 {/snippet}
 
 {#snippet hostRow(host: ServerItem)}
-  <button
-    type="button"
-    class="group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors duration-[var(--duration-quick)] hover:bg-(--solus-surface-hover) focus-visible:bg-(--solus-surface-hover) focus-visible:outline-none"
-    onclick={() => chooseHost(host)}
-  >
+  <div class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5">
     <span
       class="size-2 shrink-0 rounded-full {hostStatusDotClass(host.status)}"
       aria-hidden="true"
@@ -134,13 +124,8 @@
     </span>
     {#if host.local}
       <CheckIcon size={14} class="shrink-0 text-(--solus-accent)" />
-    {:else}
-      <ArrowRightIcon
-        size={14}
-        class="shrink-0 text-(--solus-text-quaternary) opacity-0 transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 group-focus-visible:opacity-100"
-      />
     {/if}
-  </button>
+  </div>
 {/snippet}
 
 {#snippet nearbyRow(host: NearbyHost)}

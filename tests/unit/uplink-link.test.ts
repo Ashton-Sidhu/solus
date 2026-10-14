@@ -1,52 +1,42 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { createPublicKey, verify } from 'crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { UplinkLinkError, UplinkLinkManager, SUPERSEDED_MESSAGE, type UplinkConnectorHandle, type UplinkLinkDeps } from '@solus/server/transport/uplink/link'
-import { CLIENT_ASSERTION_TYPE, type EnrollHostResponse, type HostLinkEnv, type HostPublicJwk, type UplinkStatus } from '@solus/contracts/uplink'
-import { uplinkStatusDescription } from '../../packages/workspace-ui/src/contexts/connections/host-routes'
+import { UplinkLinkManager, splitLegacyLinkRecord, type UplinkConnectorHandle } from '@solus/server/transport/uplink/link'
+import { HostRegistrar } from '@solus/server/host/host-registration'
+import { CLIENT_ASSERTION_TYPE, type EnrollHostResponse, type HostLinkEnv, type HostLinkResponse, type HostPublicJwk, type UplinkStatus } from '@solus/contracts/uplink'
+import { linkDescription, registrationDescription } from '../../packages/workspace-ui/src/contexts/connections/host-routes'
 
-// docs/plans/personal-uplink.md H2/H4: desired state is written before anything
-// acts on it, so a crash between the control plane, the connector, and the secret
-// store resumes correctly at boot; and a copy of the host that lost the generation
-// race stops itself. The host proves itself with its own key (docs/adr/0001-standard-authentication.md
-// §2.2 rule 8): every link route takes its control token, got with a client assertion.
+// docs/adr/0001-standard-authentication.md §2.2 rules 8 and 9. A host's identity is its
+// registration: a key it made, registered with a ticket its owner's client got. The link
+// only exposes a registered host to the internet through cloudflared: turning it on or
+// off touches the tunnel and nothing else. Desired state is written before anything acts
+// on it, so a crash between the control plane, the connector, and the secret store
+// resumes correctly at boot.
 
 const DIRECTORY = 'https://app.example.test'
+const HOST_ID = 'abcdefghijklmnop'
 
 interface Call { method: string; url: string; body: unknown; authorization: string | null }
 
-/** What the account plane registered for the host's client: the public half of its key. Planes of one test may share it. */
-interface Registration { key: HostPublicJwk | null }
+/** What the account plane registered for the host's client: the public half of its key. */
+interface Registered { key: HostPublicJwk | null; generation: number; linked: boolean }
 
-/** Whether a client assertion is signed by the registered key, for this client, at the token endpoint. */
 function assertionValid(assertion: string, key: HostPublicJwk | null): boolean {
   const [header, body, signature] = assertion.split('.')
   if (!key || !header || !body || !signature) return false
   const signed = verify('sha256', Buffer.from(`${header}.${body}`), { key: createPublicKey({ key: { ...key }, format: 'jwk' }), dsaEncoding: 'ieee-p1363' }, Buffer.from(signature, 'base64url'))
   const claims = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'))
-  return signed && claims.iss === 'host_abcdefghijklmnop' && claims.sub === claims.iss && claims.aud === `${DIRECTORY}/api/auth/oauth2/token`
+  return signed && claims.iss === `host_${HOST_ID}` && claims.sub === claims.iss && claims.aud === `${DIRECTORY}/api/auth/oauth2/token`
 }
 
-function fakeControlPlane(options: {
-  enroll?: () => Response
-  link?: () => Response
-  unlink?: () => Response
-  credential?: () => Response
-  registration?: Registration
-} = {}) {
+function fakeControlPlane(options: { enroll?: () => Response; link?: () => Response; unlink?: () => Response; credential?: () => Response; state?: Registered } = {}) {
   const calls: Call[] = []
-  const registration = options.registration ?? { key: null }
+  const state = options.state ?? { key: null, generation: 0, linked: false }
   let issued = 0
-  const enrolled: EnrollHostResponse = {
-    link: {
-      hostId: 'abcdefghijklmnop', issuer: DIRECTORY, jwksUrl: `${DIRECTORY}/api/auth/jwks`, directoryUrl: DIRECTORY,
-      hostname: 'h-abcdefghijklmnop.example.test', proxiedPort: 34118, connectionGeneration: 1,
-    },
-    connectorToken: 'connector-token-1',
-    oauthClient: { clientId: 'host_abcdefghijklmnop' },
-  }
+  const registrationOf = (generation: number) => ({ hostId: HOST_ID, issuer: DIRECTORY, jwksUrl: `${DIRECTORY}/api/auth/jwks`, directoryUrl: DIRECTORY, generation })
+  const tunnel = { hostname: `h-${HOST_ID}.example.test`, proxiedPort: 34118 }
   const fetchImpl: typeof fetch = async (input, init) => {
     const url = String(input)
     const method = init?.method ?? 'GET'
@@ -55,28 +45,40 @@ function fakeControlPlane(options: {
     const body = raw === null ? null : raw.startsWith('{') ? JSON.parse(raw) : Object.fromEntries(new URLSearchParams(raw))
     calls.push({ method, url, body, authorization: headers.get('authorization') })
     if (url === `${DIRECTORY}/api/auth/oauth2/token`) {
-      // The client credentials grant: a control token only for an assertion the registered key signed.
-      const valid = body?.grant_type === 'client_credentials' && body.client_assertion_type === CLIENT_ASSERTION_TYPE && assertionValid(body.client_assertion, registration.key)
+      const valid = body?.grant_type === 'client_credentials' && body.client_assertion_type === CLIENT_ASSERTION_TYPE && assertionValid(body.client_assertion, state.key)
       return valid ? Response.json({ access_token: `control-${++issued}`, expires_in: 300 }) : Response.json({ error: 'invalid_client' }, { status: 401 })
     }
     if (url.endsWith('/v1/hosts/enroll')) {
       if (options.enroll) return options.enroll()
-      registration.key = body.publicJwk
+      state.key = body.publicJwk
+      state.generation += 1
+      const enrolled: EnrollHostResponse = { registration: registrationOf(state.generation), oauthClient: { clientId: `host_${HOST_ID}` } }
       return Response.json(enrolled)
     }
     if (url.endsWith('/credential') && method === 'POST') {
       if (options.credential) return options.credential()
-      registration.key = body.publicJwk
-      return Response.json({ oauthClient: { clientId: 'host_abcdefghijklmnop' } })
+      state.key = body.publicJwk
+      return Response.json({ oauthClient: { clientId: `host_${HOST_ID}` } })
     }
-    if (url.endsWith('/link') && method === 'GET') return options.link?.() ?? Response.json({ hostId: enrolled.link.hostId, desired: 'linked', connectionGeneration: 1, hostname: enrolled.link.hostname, proxiedPort: 34118 })
-    if (url.endsWith('/link') && method === 'DELETE') return options.unlink?.() ?? new Response(null, { status: 204 })
+    if (url.endsWith('/link') && method === 'GET') {
+      if (options.link) return options.link()
+      const answer: HostLinkResponse = { hostId: HOST_ID, generation: state.generation, desired: state.linked ? 'linked' : 'unlinked', tunnel: state.linked ? tunnel : null }
+      return Response.json(answer)
+    }
+    if (url.endsWith('/link') && method === 'POST') {
+      state.linked = true
+      return Response.json({ tunnel, connectorToken: 'connector-token-1' })
+    }
+    if (url.endsWith('/link') && method === 'DELETE') {
+      if (options.unlink) return options.unlink()
+      state.linked = false
+      return new Response(null, { status: 204 })
+    }
     return new Response('not found', { status: 404 })
   }
-  return { calls, fetchImpl, enrolled, registration }
+  return { calls, fetchImpl, state, registrationOf, tunnel }
 }
 
-/** The calls a host made to the account plane's routes, without its token requests. */
 const routeCalls = (calls: Call[]) => calls.filter((call) => !call.url.endsWith('/oauth2/token'))
 const CONTROL_TOKEN = expect.stringMatching(/^Bearer control-\d+$/)
 
@@ -91,404 +93,359 @@ function fakeConnector() {
   return handle
 }
 
-describe('the host side of the link', () => {
-  const originalDataDir = process.env.SOLUS_DATA_DIR
-  let dataDir: string
+/** A host as the boot composes it: the registration, and the link that follows it. */
+function hostOf(plane: ReturnType<typeof fakeControlPlane>, options: { proxiedPort?: number; env?: HostLinkEnv | null } = {}) {
+  const connector = fakeConnector()
+  const registrations: Array<string | null> = []
+  let link: UplinkLinkManager | null = null
+  const registrar = new HostRegistrar({
+    installationId: () => 'install-1',
+    hostLabel: () => 'Ashton’s MacBook',
+    os: () => 'macos',
+    owner: () => ({ userId: 'user_ashton', email: 'ashton@example.test' }),
+    fetchImpl: plane.fetchImpl,
+    provisionedLink: () => options.env ?? null,
+    onRegistrationChanged: (registration) => {
+      registrations.push(registration ? `${registration.hostId}:${registration.generation}` : null)
+      link?.registrationChanged(registration)
+    },
+  })
+  link = new UplinkLinkManager({
+    registration: () => registrar.current(),
+    controlToken: () => registrar.controlToken(),
+    proxiedPort: () => options.proxiedPort ?? 34118,
+    connector,
+    fetchImpl: plane.fetchImpl,
+    provisionedLink: () => options.env ?? null,
+  })
+  const status = (): UplinkStatus => ({ registration: registrar.status(), link: link!.status() })
+  const boot = async () => { await link!.resume(await registrar.resume()) }
+  return { registrar, link, connector, registrations, status, boot }
+}
 
+function useDataDir(prefix: string): () => string {
+  const originalDataDir = process.env.SOLUS_DATA_DIR
+  let dataDir = ''
   beforeEach(() => {
-    dataDir = mkdtempSync(join(tmpdir(), 'solus-uplink-link-test-'))
+    dataDir = mkdtempSync(join(tmpdir(), prefix))
     process.env.SOLUS_DATA_DIR = dataDir
   })
-
   afterEach(() => {
     rmSync(dataDir, { recursive: true, force: true })
     if (originalDataDir === undefined) delete process.env.SOLUS_DATA_DIR
     else process.env.SOLUS_DATA_DIR = originalDataDir
   })
+  return () => dataDir
+}
 
-  function manager(plane: ReturnType<typeof fakeControlPlane>, connector = fakeConnector(), proxiedPort = 34118, extra: Partial<UplinkLinkDeps> = {}) {
-    const linkChanges: Array<string | null> = []
-    const instance = new UplinkLinkManager({
-      installationId: () => 'install-1',
-      hostLabel: () => 'Ashton’s MacBook',
-      os: () => 'macos',
-      proxiedPort: () => proxiedPort,
-      connector,
-      fetchImpl: plane.fetchImpl,
-      onLinkChanged: (link) => linkChanges.push(link?.hostId ?? null),
-      ...extra,
-    })
-    return { instance, connector, linkChanges }
-  }
+describe('registration: the host’s identity (rule 8)', () => {
+  const dataDir = useDataDir('solus-host-registration-test-')
 
-  test('linking enrols with the ticket and the public half of a new key, keeps the secrets out of the link file, and starts the connector', async () => {
+  test('a ticket registers the host with the public half of a new key, and makes no tunnel', async () => {
     const plane = fakeControlPlane()
-    const { instance, connector, linkChanges } = manager(plane)
+    const host = hostOf(plane)
+    expect(host.registrar.needsRegistration()).toBe(true)
 
-    const status = await instance.link({ ticket: 'set_ticket', directoryUrl: `${DIRECTORY}/` })
-    expect(status.linked).toBe(true)
-    if (status.linked) {
-      expect(status.link.hostname).toBe('h-abcdefghijklmnop.example.test')
-      expect(status.state).toEqual({ observed: 'offline' })
-    }
+    await host.registrar.register({ ticket: 'set_ticket', directoryUrl: `${DIRECTORY}/` })
     expect(plane.calls[0]).toMatchObject({
       method: 'POST', url: `${DIRECTORY}/v1/hosts/enroll`,
-      body: { ticket: 'set_ticket', installationId: 'install-1', label: 'Ashton’s MacBook', os: 'macos', proxiedPort: 34118, publicJwk: { kty: 'EC', crv: 'P-256' } },
+      body: { ticket: 'set_ticket', installationId: 'install-1', label: 'Ashton’s MacBook', os: 'macos', publicJwk: { kty: 'EC', crv: 'P-256' } },
     })
-    // Only the public half is sent; the private half stays in the secret store.
     const sent = plane.calls[0]!.body as { publicJwk: Record<string, string> }
+    expect(sent).not.toHaveProperty('proxiedPort')
     expect(sent.publicJwk).not.toHaveProperty('d')
-    const kept = readFileSync(join(dataDir, 'secrets', 'host-credential.json'), 'utf8')
-    expect(JSON.parse(kept)).toMatchObject({ version: 1, clientId: 'host_abcdefghijklmnop', generation: 1, privateJwk: { x: sent.publicJwk.x, d: expect.any(String) } })
-    expect(instance.credential()?.clientId).toBe('host_abcdefghijklmnop')
-    expect(connector.events).toEqual(['start'])
-    expect(connector.token).toBe('connector-token-1')
-    const linkFile = readFileSync(join(dataDir, 'uplink-link.json'), 'utf8')
-    expect(linkFile).toContain('"desired": "linked"')
-    expect(linkFile).not.toContain('connector-token-1')
-    expect(linkFile).not.toContain('"d"')
-    expect(existsSync(join(dataDir, 'secrets', 'uplink-tokens.json'))).toBe(true)
-    expect(linkChanges).toEqual(['abcdefghijklmnop'])
+    const kept = JSON.parse(readFileSync(join(dataDir(), 'secrets', 'host-credential.json'), 'utf8'))
+    expect(kept).toMatchObject({ version: 1, clientId: `host_${HOST_ID}`, generation: 1, privateJwk: { x: sent.publicJwk.x, d: expect.any(String) } })
+    expect(readFileSync(join(dataDir(), 'host-registration.json'), 'utf8')).not.toContain('"d"')
+    expect(host.registrations).toEqual([`${HOST_ID}:1`])
+    expect(host.registrar.needsRegistration()).toBe(false)
+    // Registered, and not linked: no tunnel was asked for, and no connector runs.
+    expect(host.status()).toEqual({
+      registration: { registered: true, registration: plane.registrationOf(1), owner: { userId: 'user_ashton', email: 'ashton@example.test' } },
+      link: { linked: false },
+    })
+    expect(routeCalls(plane.calls).map((call) => call.url)).toEqual([`${DIRECTORY}/v1/hosts/enroll`])
+    expect(host.connector.events).toEqual([])
+    expect(existsSync(join(dataDir(), 'host-link.json'))).toBe(false)
+    // Its key proves it: its control token comes with an assertion that key signed.
+    expect(await host.registrar.controlToken()).toBe('control-1')
   })
 
-  test('a linked host does not enrol again: another code is only an organization attachment, which this control plane refuses', async () => {
+  test('two clients that both saw the host unregistered register it once', async () => {
     const plane = fakeControlPlane()
-    const { instance } = manager(plane)
-    await instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
-    await expect(instance.link({ ticket: 'set_other', directoryUrl: DIRECTORY })).rejects.toBeInstanceOf(UplinkLinkError)
+    const host = hostOf(plane)
+    await Promise.all([
+      host.registrar.register({ ticket: 'set_desktop', directoryUrl: DIRECTORY }),
+      host.registrar.register({ ticket: 'set_phone', directoryUrl: DIRECTORY }),
+    ])
     expect(plane.calls.filter((call) => call.url.endsWith('/v1/hosts/enroll'))).toHaveLength(1)
-    expect(routeCalls(plane.calls).at(-1)).toMatchObject({ url: `${DIRECTORY}/v1/hosts/abcdefghijklmnop/organizations/attach`, authorization: CONTROL_TOKEN })
   })
 
-  test('a refused enrolment says why and leaves nothing behind', async () => {
-    const refusing = fakeControlPlane({ enroll: () => Response.json({ error: 'invalid_ticket' }, { status: 401 }) })
-    const { instance, connector } = manager(refusing)
-    await expect(instance.link({ ticket: 'set_bad', directoryUrl: DIRECTORY })).rejects.toThrow(/ticket is invalid/)
-    expect(instance.status()).toEqual({ linked: false })
-    expect(connector.events).toEqual([])
-    expect(existsSync(join(dataDir, 'uplink-link.json'))).toBe(false)
-  })
-
-  test('without a tunnel listener nothing is enrolled', async () => {
+  test('a ticket that names organizations attaches a registered host, with its control token', async () => {
     const plane = fakeControlPlane()
-    const { instance } = manager(plane, fakeConnector(), 0)
-    await expect(instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })).rejects.toThrow(/tunnel listener/)
+    const host = hostOf(plane)
+    await host.registrar.register({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
+    await expect(host.registrar.register({ ticket: 'set_org', directoryUrl: DIRECTORY, organizationIds: ['org_a'] })).rejects.toThrow(/refused to attach/)
+    expect(routeCalls(plane.calls).at(-1)).toMatchObject({ url: `${DIRECTORY}/v1/hosts/${HOST_ID}/organizations/attach`, authorization: CONTROL_TOKEN })
+  })
+
+  test('a refused registration says why and leaves nothing behind', async () => {
+    const plane = fakeControlPlane({ enroll: () => Response.json({ error: 'invalid_ticket' }, { status: 401 }) })
+    const host = hostOf(plane)
+    await expect(host.registrar.register({ ticket: 'set_bad', directoryUrl: DIRECTORY })).rejects.toThrow(/ticket is invalid/)
+    expect(host.status().registration).toEqual({ registered: false })
+    expect(existsSync(join(dataDir(), 'host-registration.json'))).toBe(false)
+  })
+
+  test('an insecure control-plane address is refused at registration', async () => {
+    const plane = fakeControlPlane({
+      enroll: () => Response.json({ registration: { hostId: HOST_ID, issuer: 'http://evil.example.test', jwksUrl: 'http://evil.example.test/jwks', directoryUrl: DIRECTORY, generation: 1 }, oauthClient: { clientId: `host_${HOST_ID}` } }),
+    })
+    const host = hostOf(plane)
+    await expect(host.registrar.register({ ticket: 'set_ticket', directoryUrl: DIRECTORY })).rejects.toThrow(/insecure address/)
+    expect(host.registrar.current()).toBeNull()
+  })
+
+  test('registering the same machine again keeps its host id and rotates its key: the old key proves nothing', async () => {
+    const state: Registered = { key: null, generation: 0, linked: false }
+    const first = hostOf(fakeControlPlane({ state }))
+    await first.registrar.register({ ticket: 'set_one', directoryUrl: DIRECTORY })
+    const firstKey = state.key
+    // Its key went missing here: the host still knows who it is, and asks to register again.
+    rmSync(join(dataDir(), 'secrets', 'host-credential.json'))
+    const again = hostOf(fakeControlPlane({ state }))
+    expect(again.registrar.current()?.hostId).toBe(HOST_ID)
+    expect(again.registrar.needsRegistration()).toBe(true)
+    await again.registrar.register({ ticket: 'set_two', directoryUrl: DIRECTORY })
+    expect(again.registrar.current()).toMatchObject({ hostId: HOST_ID, generation: 2 })
+    expect(state.key?.x).not.toBe(firstKey?.x)
+    expect(again.registrar.needsRegistration()).toBe(false)
+  })
+
+  test('a registration Solus cloud no longer accepts is forgotten at boot: the host is not registered', async () => {
+    // WHY: a deleted host is personal again, and an unregistered host follows the one rule (`needsRegistration`).
+    const state: Registered = { key: null, generation: 0, linked: false }
+    await hostOf(fakeControlPlane({ state })).registrar.register({ ticket: 'set_one', directoryUrl: DIRECTORY })
+    state.key = null
+    const rebooted = hostOf(fakeControlPlane({ state }))
+    await rebooted.boot()
+    expect(rebooted.registrar.current()).toBeNull()
+    expect(rebooted.registrations).toEqual([null])
+    expect(rebooted.status().registration).toEqual({ registered: false })
+    expect(rebooted.registrar.needsRegistration()).toBe(true)
+  })
+
+  test('a refusal while the host runs forgets the registration the same way, and a new registration works', async () => {
+    const plane = fakeControlPlane()
+    const host = hostOf(plane)
+    await host.registrar.register({ ticket: 'set_one', directoryUrl: DIRECTORY })
+    plane.state.key = null
+    await expect(host.registrar.controlToken()).rejects.toThrow()
+    expect(host.registrar.current()).toBeNull()
+    expect(host.status().registration).toEqual({ registered: false })
+    expect(host.registrar.needsRegistration()).toBe(true)
+    await host.registrar.register({ ticket: 'set_again', directoryUrl: DIRECTORY })
+    expect(host.registrar.current()).toMatchObject({ generation: 2 })
+  })
+
+  test('a host that stored one record for its registration and its link keeps both', async () => {
+    writeFileSync(join(dataDir(), 'uplink-link.json'), JSON.stringify({
+      version: 1,
+      desired: 'linked',
+      link: { hostId: HOST_ID, issuer: DIRECTORY, jwksUrl: `${DIRECTORY}/api/auth/jwks`, directoryUrl: DIRECTORY, hostname: `h-${HOST_ID}.example.test`, proxiedPort: 34118, connectionGeneration: 3 },
+      attachedAt: 1,
+    }))
+    splitLegacyLinkRecord()
+    const host = hostOf(fakeControlPlane())
+    expect(host.registrar.current()).toEqual({ hostId: HOST_ID, issuer: DIRECTORY, jwksUrl: `${DIRECTORY}/api/auth/jwks`, directoryUrl: DIRECTORY, generation: 3 })
+    expect(host.registrar.attachedAt()).toBe(1)
+    expect(host.link.currentTunnel()).toEqual({ hostname: `h-${HOST_ID}.example.test`, proxiedPort: 34118 })
+    expect(existsSync(join(dataDir(), 'uplink-link.json'))).toBe(false)
+  })
+})
+
+describe('the link: a tunnel, and nothing else (rule 9)', () => {
+  const dataDir = useDataDir('solus-uplink-link-test-')
+
+  async function registered(plane = fakeControlPlane(), options: Parameters<typeof hostOf>[1] = {}) {
+    const host = hostOf(plane, options)
+    await host.registrar.register({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
+    return host
+  }
+
+  /** Everything the registration owns, to compare before and after a link change. */
+  const identityOf = (host: ReturnType<typeof hostOf>) => ({
+    registration: host.registrar.current(),
+    key: readFileSync(join(dataDir(), 'secrets', 'host-credential.json'), 'utf8'),
+    record: readFileSync(join(dataDir(), 'host-registration.json'), 'utf8'),
+  })
+
+  test('a host that is not registered cannot link', async () => {
+    const plane = fakeControlPlane()
+    const host = hostOf(plane)
+    await expect(host.link.link()).rejects.toThrow(/Sign in/)
     expect(plane.calls).toHaveLength(0)
   })
 
-  test('unlinking stops the connector, tells the control plane with the host’s control token, then forgets the key and the secrets', async () => {
+  test('linking asks Solus cloud for the tunnel with the control token, keeps its secret out of the record, and starts the connector; the registration does not change', async () => {
     const plane = fakeControlPlane()
-    const { instance, connector, linkChanges } = manager(plane)
-    await instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
+    const host = await registered(plane)
+    const before = identityOf(host)
 
-    const status = await instance.unlink()
-    expect(status).toEqual({ linked: false })
-    expect(connector.events).toEqual(['start', 'stop'])
-    const unlinkCall = plane.calls.find((call) => call.method === 'DELETE')
-    expect(unlinkCall).toMatchObject({ url: `${DIRECTORY}/v1/hosts/abcdefghijklmnop/link`, authorization: CONTROL_TOKEN })
-    expect(existsSync(join(dataDir, 'uplink-link.json'))).toBe(false)
-    expect(existsSync(join(dataDir, 'secrets', 'uplink-tokens.json'))).toBe(false)
-    expect(existsSync(join(dataDir, 'secrets', 'host-credential.json'))).toBe(false)
-    expect(linkChanges.at(-1)).toBeNull()
+    const status = await host.link.link()
+    expect(status).toEqual({ linked: true, tunnel: plane.tunnel, state: { observed: 'offline' } })
+    expect(routeCalls(plane.calls).at(-1)).toMatchObject({ method: 'POST', url: `${DIRECTORY}/v1/hosts/${HOST_ID}/link`, authorization: CONTROL_TOKEN, body: { proxiedPort: 34118 } })
+    expect(host.connector.events).toEqual(['start'])
+    expect(host.connector.token).toBe('connector-token-1')
+    const record = readFileSync(join(dataDir(), 'host-link.json'), 'utf8')
+    expect(record).toContain('"desired": "linked"')
+    expect(record).not.toContain('connector-token-1')
+    expect(identityOf(host)).toEqual(before)
+    expect(host.registrations).toEqual([`${HOST_ID}:1`])
+  })
+
+  test('unlinking stops the connector and removes only the tunnel: the key, the registration, and the control token stay', async () => {
+    const plane = fakeControlPlane()
+    const host = await registered(plane)
+    await host.link.link()
+    const before = identityOf(host)
+
+    expect(await host.link.unlink()).toEqual({ linked: false })
+    expect(host.connector.events).toEqual(['start', 'stop'])
+    expect(plane.calls.find((call) => call.method === 'DELETE')).toMatchObject({ url: `${DIRECTORY}/v1/hosts/${HOST_ID}/link`, authorization: CONTROL_TOKEN })
+    expect(existsSync(join(dataDir(), 'host-link.json'))).toBe(false)
+    expect(existsSync(join(dataDir(), 'secrets', 'uplink-tokens.json'))).toBe(false)
+    expect(identityOf(host)).toEqual(before)
+    expect(host.registrations).toEqual([`${HOST_ID}:1`])
+    expect(host.status().registration).toMatchObject({ registered: true })
+    // The host still proves itself, so it can link again with no new registration.
+    expect(await host.registrar.controlToken()).toMatch(/^control-/)
+    await host.link.link()
+    expect(plane.calls.filter((call) => call.url.endsWith('/v1/hosts/enroll'))).toHaveLength(1)
+  })
+
+  test('without a tunnel listener nothing is linked', async () => {
+    const plane = fakeControlPlane()
+    const host = await registered(plane, { proxiedPort: 0 })
+    await expect(host.link.link()).rejects.toThrow(/tunnel listener/)
+    expect(plane.calls.some((call) => call.method === 'POST' && call.url.endsWith('/link'))).toBe(false)
   })
 
   test('an unlink the control plane never saw is finished at the next boot', async () => {
     let planeDown = true
-    const plane = fakeControlPlane({ unlink: () => { if (planeDown) throw new Error('ECONNREFUSED'); return new Response(null, { status: 204 }) } })
-    const { instance, connector } = manager(plane)
-    await instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
+    const state: Registered = { key: null, generation: 0, linked: false }
+    const plane = fakeControlPlane({ state, unlink: () => { if (planeDown) throw new Error('ECONNREFUSED'); state.linked = false; return new Response(null, { status: 204 }) } })
+    const host = await registered(plane)
+    await host.link.link()
+    await host.link.unlink()
+    expect(JSON.parse(readFileSync(join(dataDir(), 'host-link.json'), 'utf8')).desired).toBe('unlinked')
 
-    // Desired state flips first; the connector is down; the control plane is not told.
-    const status = await instance.unlink()
-    expect(status).toEqual({ linked: false })
-    expect(connector.events).toEqual(['start', 'stop'])
-    expect(readFileSync(join(dataDir, 'uplink-link.json'), 'utf8')).toContain('"desired": "unlinked"')
-    expect(existsSync(join(dataDir, 'secrets', 'uplink-tokens.json'))).toBe(true)
-
-    // Reboot: a new manager reads the desired state and retries.
     planeDown = false
-    const rebooted = manager(plane, fakeConnector())
-    expect(rebooted.instance.status()).toEqual({ linked: false })
-    await rebooted.instance.resume()
-    expect(plane.calls.filter((call) => call.method === 'DELETE')).toHaveLength(2)
-    expect(existsSync(join(dataDir, 'uplink-link.json'))).toBe(false)
-    expect(existsSync(join(dataDir, 'secrets', 'uplink-tokens.json'))).toBe(false)
+    const rebooted = hostOf(plane)
+    await rebooted.boot()
+    expect(existsSync(join(dataDir(), 'host-link.json'))).toBe(false)
     expect(rebooted.connector.events).toEqual([])
+    expect(rebooted.registrar.current()).toMatchObject({ hostId: HOST_ID })
   })
 
-  test('at boot a linked host checks its generation, then runs the connector', async () => {
-    const plane = fakeControlPlane()
-    const first = manager(plane)
-    await first.instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
-
-    const rebooted = manager(plane, fakeConnector())
-    await rebooted.instance.resume()
-    const check = plane.calls.find((call) => call.method === 'GET')
-    expect(check).toMatchObject({ url: `${DIRECTORY}/v1/hosts/abcdefghijklmnop/link`, authorization: CONTROL_TOKEN })
+  test('at boot a registered, linked host checks its registration, then runs the connector', async () => {
+    const state: Registered = { key: null, generation: 0, linked: false }
+    const host = await registered(fakeControlPlane({ state }))
+    await host.link.link()
+    const rebooted = hostOf(fakeControlPlane({ state }))
+    await rebooted.boot()
     expect(rebooted.connector.events).toEqual(['start'])
+    expect(rebooted.status().link).toMatchObject({ linked: true })
+  })
+
+  test('a link Solus cloud ended elsewhere stops here at boot, and the registration stays', async () => {
+    const state: Registered = { key: null, generation: 0, linked: false }
+    const host = await registered(fakeControlPlane({ state }))
+    await host.link.link()
+    state.linked = false
+    const rebooted = hostOf(fakeControlPlane({ state }))
+    await rebooted.boot()
+    expect(rebooted.connector.events).toEqual([])
+    expect(rebooted.status()).toMatchObject({ registration: { registered: true }, link: { linked: false } })
+  })
+
+  test('a host whose registration ends drops its tunnel with it', async () => {
+    const state: Registered = { key: null, generation: 0, linked: false }
+    const host = await registered(fakeControlPlane({ state }))
+    await host.link.link()
+    // The owner deleted the host: its key proves nothing, and its tunnel serves nobody.
+    state.key = null
+    const rebooted = hostOf(fakeControlPlane({ state }))
+    await rebooted.boot()
+    expect(rebooted.registrar.current()).toBeNull()
+    expect(rebooted.connector.events).toEqual(['stop'])
+    expect(rebooted.status().link).toEqual({ linked: false })
+    expect(existsSync(join(dataDir(), 'host-link.json'))).toBe(false)
   })
 
   test('a linked host whose port another process took says so instead of running a dead tunnel', async () => {
-    // WHY: the tunnel's ingress points at the enrolled port; a connector on a host
-    // that could not bind it would show "online" while every request 502s.
-    const plane = fakeControlPlane()
-    const first = manager(plane)
-    await first.instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
-
-    const rebooted = manager(plane, fakeConnector(), 0)
-    await rebooted.instance.resume()
+    const state: Registered = { key: null, generation: 0, linked: false }
+    const host = await registered(fakeControlPlane({ state }))
+    await host.link.link()
+    const rebooted = hostOf(fakeControlPlane({ state }), { proxiedPort: 40000 })
+    await rebooted.boot()
     expect(rebooted.connector.events).toEqual([])
-    const status = rebooted.instance.status()
-    if (status.linked) expect(status.state).toMatchObject({ observed: 'error', error: expect.stringContaining('34118') })
+    expect(rebooted.status().link).toMatchObject({ linked: true, state: { observed: 'error', error: expect.stringContaining('Port 34118 is in use') } })
   })
 
-  test.each(['network', 'server', 'invalid response'])('a %s failure at boot keeps the link and reports the offline tunnel in Settings', async (failure) => {
-    const plane = fakeControlPlane({ link: () => {
-      if (failure === 'network') throw new Error('ECONNREFUSED')
-      if (failure === 'server') return new Response(null, { status: 503 })
-      return Response.json({})
-    } })
-    await manager(plane).instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
-    const rebooted = manager(plane)
-
-    await expect(rebooted.instance.resume()).resolves.toBeUndefined()
-
-    expect(rebooted.connector.events).toEqual([])
-    const status = rebooted.instance.status()
-    expect(status).toMatchObject({ linked: true, state: { observed: 'error', error: expect.stringContaining('could not verify') } })
-    expect(uplinkStatusDescription(status)).toContain('tunnel offline')
-    expect(uplinkStatusDescription(status)).toContain('use Solus locally')
-    expect(existsSync(join(dataDir, 'uplink-link.json'))).toBe(true)
-  })
-
-  test('connector startup failure does not reject recovery and a later restart can recover', async () => {
-    const plane = fakeControlPlane()
-    await manager(plane).instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
-    const connector = fakeConnector()
-    connector.start = () => { throw new Error('binary lookup failed') }
-    const rebooted = manager(plane, connector)
-
-    await expect(rebooted.instance.resume()).resolves.toBeUndefined()
-    expect(rebooted.instance.status()).toMatchObject({ linked: true, state: { observed: 'error', error: expect.stringContaining('could not start') } })
-
-    const recovered = manager(plane)
-    await recovered.instance.resume()
-    expect(recovered.connector.events).toEqual(['start'])
-    expect(uplinkStatusDescription(recovered.instance.status())).not.toContain('Reachable')
-    recovered.instance.handleConnectorObservation({ observed: 'online' })
-    expect(uplinkStatusDescription(recovered.instance.status())).toContain('tunnel online')
-    expect(uplinkStatusDescription(recovered.instance.status())).not.toContain('tunnel offline')
-  })
-
-  test('an insecure control-plane address is refused at enrolment', async () => {
-    // WHY: the host will fetch signing keys from the JWKS URL; an http: one would let
-    // anyone on the path hand it a key.
-    const plane = fakeControlPlane()
-    const insecure = fakeControlPlane({
-      enroll: () => Response.json({ ...plane.enrolled, link: { ...plane.enrolled.link, jwksUrl: 'http://app.example.test/api/auth/jwks' } }),
-    })
-    const { instance, connector } = manager(insecure)
-    await expect(instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })).rejects.toThrow(/insecure/)
-    expect(connector.events).toEqual([])
-    expect(instance.status()).toEqual({ linked: false })
-  })
-
-  test('a restored copy with an old generation stays offline and says it was superseded', async () => {
-    const plane = fakeControlPlane()
-    const first = manager(plane)
-    await first.instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
-
-    // The control plane no longer accepts this copy's control token: a newer copy took over.
-    const superseding = fakeControlPlane({ registration: plane.registration, link: () => Response.json({ error: 'invalid_host_credential' }, { status: 401 }) })
-    const rebooted = manager(superseding, fakeConnector())
-    await rebooted.instance.resume()
-    expect(rebooted.connector.events).toEqual([])
-    // A link the cloud rejected is no link: a client must not offer what needs one (a live
-    // session Share), and Settings must offer Link again. The reason stays visible.
-    expect(rebooted.instance.status()).toEqual({ linked: false, error: SUPERSEDED_MESSAGE })
-
-    // A newer generation in the record means the same.
-    const newer = fakeControlPlane({ registration: plane.registration, link: () => Response.json({ hostId: 'abcdefghijklmnop', desired: 'linked', connectionGeneration: 2, hostname: 'h', proxiedPort: 34118 }) })
-    const other = manager(newer, fakeConnector())
-    await other.instance.resume()
-    expect(other.connector.events).toEqual([])
-  })
-
-  test('a copy whose key the control plane no longer knows (linked again elsewhere) is superseded and asks nothing more', async () => {
-    // WHY: relinking registers a new key; the old key gets no control token, so the old copy stops (ADR 0001 §2.2 rule 8).
-    const plane = fakeControlPlane()
-    await manager(plane).instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
-    const relinkedElsewhere = fakeControlPlane({ registration: { key: null } })
-    const rebooted = manager(relinkedElsewhere, fakeConnector())
-    await rebooted.instance.resume()
-    expect(rebooted.connector.events).toEqual([])
-    expect(rebooted.instance.status()).toEqual({ linked: false, error: SUPERSEDED_MESSAGE })
-    expect(routeCalls(relinkedElsewhere.calls)).toEqual([])
-  })
-
-  test('the control token is kept until a minute before its end, then a new one is got with a new assertion', async () => {
-    const plane = fakeControlPlane()
-    const { instance } = manager(plane)
-    await instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
-    const credential = instance.credential()!
-    expect(await credential.hostAccessToken()).toBe('control-1')
-    expect(await credential.hostAccessToken()).toBe('control-1')
-    expect(plane.calls.filter((call) => call.url.endsWith('/oauth2/token'))).toHaveLength(1)
-  })
-
-  test('a link Solus cloud rejected is linked anew, not attached with its dead token', async () => {
-    const plane = fakeControlPlane()
-    await manager(plane).instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
-    const rejecting = fakeControlPlane({ registration: plane.registration, link: () => Response.json({ error: 'invalid_host_credential' }, { status: 401 }) })
-    const rebooted = manager(rejecting, fakeConnector())
-    await rebooted.instance.resume()
-
-    const status = await rebooted.instance.link({ ticket: 'set_again', directoryUrl: DIRECTORY })
-    expect(status.linked && status.state).toEqual({ observed: 'offline' })
-    expect(rejecting.calls.some((call) => call.url.endsWith('/organizations/attach'))).toBe(false)
-    expect(rejecting.calls.at(-1)).toMatchObject({ method: 'POST', url: `${DIRECTORY}/v1/hosts/enroll`, body: { ticket: 'set_again' } })
-    // Linking again makes a new key.
-    expect((rejecting.calls.at(-1)!.body as { publicJwk: { x: string } }).publicJwk.x).not.toBe((plane.calls[0]!.body as { publicJwk: { x: string } }).publicJwk.x)
-  })
-
-  test('what the connector observes is the status line, and stays on this host', async () => {
-    const plane = fakeControlPlane()
-    const { instance } = manager(plane)
-    await instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
-    instance.handleConnectorObservation({ observed: 'online' })
-    const status = instance.status()
-    if (status.linked) expect(status.state.observed).toBe('online')
-    expect(plane.calls.map((call) => call.method)).toEqual(['POST'])
-  })
-
-  test('the tunnel coming up after the link was answered is announced, so no client waits for a reload', async () => {
-    const plane = fakeControlPlane()
-    const announced: UplinkStatus[] = []
-    const { instance } = manager(plane, fakeConnector(), 34118, { onStatusChanged: (status) => announced.push(status) })
-
-    const answered = await instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
-    if (answered.linked) expect(answered.state.observed).toBe('offline')
-    instance.handleConnectorObservation({ observed: 'online' })
-    const last = announced.at(-1)
-    expect(last?.linked).toBe(true)
-    if (last?.linked) expect(last.state).toEqual({ observed: 'online' })
-
-    await instance.unlink()
-    expect(announced.at(-1)).toEqual({ linked: false })
+  test('what the connector observes is the link’s status line, and the registration line says whose host it is', async () => {
+    const host = await registered()
+    expect(registrationDescription(host.status())).toBe('Registered to ashton@example.test. Your devices reach it on your local network or by pairing.')
+    expect(linkDescription(host.status())).toMatch(/Cloudflare tunnel\. Nothing else changes\./)
+    await host.link.link()
+    host.link.handleConnectorObservation({ observed: 'online' })
+    expect(linkDescription(host.status())).toBe(`Reachable at h-${HOST_ID}.example.test through a Cloudflare tunnel.`)
   })
 })
 
-// docs/plans/managed-hosts.md §2, ADR 0001 §3.4: a managed host stores the link the
-// control plane put in its environment, at first boot and again whenever a newer
-// generation arrives; a record at the same generation wins over the (stale)
-// environment. At its first boot of a link it makes its own key and registers the
-// public half with the one-time ticket the link carries. No person, no enrollment.
-describe('the managed link from the environment', () => {
-  const originalDataDir = process.env.SOLUS_DATA_DIR
-  let dataDir: string
-
-  beforeEach(() => {
-    dataDir = mkdtempSync(join(tmpdir(), 'solus-managed-link-test-'))
-    process.env.SOLUS_DATA_DIR = dataDir
-  })
-
-  afterEach(() => {
-    rmSync(dataDir, { recursive: true, force: true })
-    if (originalDataDir === undefined) delete process.env.SOLUS_DATA_DIR
-    else process.env.SOLUS_DATA_DIR = originalDataDir
-  })
-
-  function managedManager(plane: ReturnType<typeof fakeControlPlane>, envLink: HostLinkEnv | null) {
-    const connector = fakeConnector()
-    const instance = new UplinkLinkManager({
-      installationId: () => 'managed:host-1',
-      hostLabel: () => 'Acme host',
-      os: () => 'linux',
-      proxiedPort: () => 34118,
-      connector,
-      fetchImpl: plane.fetchImpl,
-      provisionedLink: () => envLink,
-    })
-    return { instance, connector }
-  }
+describe('a managed host’s registration and link from the environment', () => {
+  useDataDir('solus-managed-link-test-')
 
   const envOf = (plane: ReturnType<typeof fakeControlPlane>, generation = 1): HostLinkEnv => ({
-    link: { ...plane.enrolled.link, connectionGeneration: generation },
+    registration: { ...plane.registrationOf(generation), organizationId: 'org_acme' },
+    tunnel: { hostname: 'acme.sprites.test', proxiedPort: 34118 },
     credentialTicket: `hct_ticket-${generation}`,
   })
 
   test('the first boot makes a key, registers its public half with the ticket, and is reached directly: no connector', async () => {
-    const plane = fakeControlPlane()
-    const { instance, connector } = managedManager(plane, envOf(plane))
-    await instance.resume()
-    expect(plane.calls).toHaveLength(1)
-    expect(plane.calls[0]).toMatchObject({ method: 'POST', url: `${DIRECTORY}/v1/hosts/abcdefghijklmnop/credential`, authorization: null, body: { credentialTicket: 'hct_ticket-1', publicJwk: { kty: 'EC', crv: 'P-256' } } })
-    expect((plane.calls[0]!.body as { publicJwk: object }).publicJwk).not.toHaveProperty('d')
-    expect(connector.events).toEqual([])
-    expect(readFileSync(join(dataDir, 'uplink-link.json'), 'utf8')).toContain('"desired": "linked"')
-    expect(instance.status()).toMatchObject({ linked: true, link: { connectionGeneration: 1 }, state: { observed: 'online' } })
-    // The key it registered proves it: its control token comes with an assertion that key signed.
-    expect(await instance.credential()!.hostAccessToken()).toBe('control-1')
+    const plane = fakeControlPlane({ state: { key: null, generation: 1, linked: true } })
+    const host = hostOf(plane, { env: envOf(plane) })
+    await host.boot()
+    expect(routeCalls(plane.calls)[0]).toMatchObject({ method: 'POST', url: `${DIRECTORY}/v1/hosts/${HOST_ID}/credential`, authorization: null, body: { credentialTicket: 'hct_ticket-1', publicJwk: { kty: 'EC', crv: 'P-256' } } })
+    expect(host.connector.events).toEqual([])
+    expect(host.registrar.current()).toMatchObject({ organizationId: 'org_acme', generation: 1 })
+    expect(host.status().link).toEqual({ linked: true, tunnel: { hostname: 'acme.sprites.test', proxiedPort: 34118 }, state: { observed: 'online' } })
   })
 
-  test('a boot whose registration was not answered sends the same key again, and links once it is', async () => {
-    // WHY: the ticket works once; a key made anew at each boot could never be registered after a lost answer.
-    let down = true
-    const plane = fakeControlPlane({ credential: () => { if (down) throw new Error('ECONNREFUSED'); return Response.json({ oauthClient: { clientId: 'host_abcdefghijklmnop' } }) } })
-    const env = envOf(plane)
-    const first = managedManager(plane, env)
-    await first.instance.resume()
-    expect(first.instance.status()).toEqual({ linked: false })
-    down = false
-    const second = managedManager(plane, env)
-    await second.instance.resume()
-    const keys = plane.calls.map((call) => (call.body as { publicJwk: { x: string } }).publicJwk.x)
-    expect(keys).toHaveLength(2)
-    expect(keys[0]).toBe(keys[1]!)
-    expect(second.instance.status()).toMatchObject({ linked: true })
+  test('an environment with a newer generation replaces the registration with a new key: a recreated machine adopts it', async () => {
+    const plane = fakeControlPlane({ state: { key: null, generation: 1, linked: true } })
+    await hostOf(plane, { env: envOf(plane, 1) }).boot()
+    const firstKey = plane.state.key
+    plane.state.generation = 2
+    const recreated = hostOf(plane, { env: envOf(plane, 2) })
+    await recreated.boot()
+    expect(recreated.registrar.current()).toMatchObject({ generation: 2 })
+    expect(plane.state.key?.x).not.toBe(firstKey?.x)
   })
 
-  test('a later boot with a record at the same generation ignores the environment and takes the ordinary path', async () => {
-    // WHY: the machine keeps its env across restarts; the record on the volume is the
-    // truth, and the generation check is what tells a superseded copy to stop.
-    const plane = fakeControlPlane()
-    await managedManager(plane, envOf(plane)).instance.resume()
-    const rebooted = managedManager(plane, envOf(plane))
-    await rebooted.instance.resume()
-    expect(routeCalls(plane.calls).map((call) => `${call.method} ${call.url}`)).toEqual([
-      `POST ${DIRECTORY}/v1/hosts/abcdefghijklmnop/credential`,
-      `GET ${DIRECTORY}/v1/hosts/abcdefghijklmnop/link`,
-    ])
-    expect(routeCalls(plane.calls)[1]).toMatchObject({ authorization: CONTROL_TOKEN })
-    expect(rebooted.instance.status()).toMatchObject({ linked: true, state: { observed: 'online' } })
-  })
-
-  test('an environment link with a newer generation replaces the record with a new key: a recreated machine adopts it', async () => {
-    const plane = fakeControlPlane()
-    await managedManager(plane, envOf(plane)).instance.resume()
-    const recreated = managedManager(plane, envOf(plane, 2))
-    await recreated.instance.resume()
-    const registrations = plane.calls.filter((call) => call.url.endsWith('/credential'))
-    expect(registrations).toHaveLength(2)
-    expect(registrations[1]).toMatchObject({ body: { credentialTicket: 'hct_ticket-2' } })
-    const keys = registrations.map((call) => (call.body as { publicJwk: { x: string } }).publicJwk.x)
-    expect(keys[1]).not.toBe(keys[0]!)
-    expect(recreated.instance.status()).toMatchObject({ linked: true, link: { connectionGeneration: 2 } })
-  })
-
-  test('a refused ticket links nothing', async () => {
+  test('a refused ticket registers nothing', async () => {
     const plane = fakeControlPlane({ credential: () => Response.json({ error: 'invalid_ticket' }, { status: 401 }) })
-    const { instance } = managedManager(plane, envOf(plane))
-    await instance.resume()
-    expect(instance.status()).toEqual({ linked: false })
-    expect(existsSync(join(dataDir, 'uplink-link.json'))).toBe(false)
+    const host = hostOf(plane, { env: envOf(plane) })
+    await host.boot()
+    expect(host.registrar.current()).toBeNull()
+    expect(host.status().link).toEqual({ linked: false })
   })
 
-  test('a personal host with nothing in its environment does nothing at boot', async () => {
+  test('a personal host with nothing in its environment and nothing stored does nothing at boot', async () => {
     const plane = fakeControlPlane()
-    const { instance } = managedManager(plane, null)
-    await instance.resume()
-    expect(plane.calls).toEqual([])
-    expect(instance.status()).toEqual({ linked: false })
+    const host = hostOf(plane)
+    await host.boot()
+    expect(plane.calls).toHaveLength(0)
+    expect(host.status()).toEqual({ registration: { registered: false }, link: { linked: false } })
   })
 })

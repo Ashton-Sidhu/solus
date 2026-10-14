@@ -1,6 +1,4 @@
-import type { DirectoryEntry } from '@solus/contracts/types'
-import { deviceBuildFits, isDeviceRunActive, parseDeviceError, type DeviceRunStartRequest, type DeviceRun, type DeviceRunProfile, type DeviceBuild, type DeviceControlState, type DeviceState, type DeviceSummary, type DeviceTarget } from '@solus/contracts/device-types'
-import { notificationAge } from './notifications/presentation'
+import { parseDeviceError, type DeviceRunStartRequest, type DeviceRun, type DeviceRunProfile, type DeviceBuild, type DeviceControlState, type DeviceSummary, type DeviceTarget } from '@solus/contracts/device-types'
 import type { HostApi } from './host-api'
 
 /**
@@ -8,44 +6,6 @@ import type { HostApi } from './host-api'
  * workspace and the native mobile app so both follow the same control rule:
  * an install never takes a device from an agent that is using it.
  */
-
-/**
- * Devices this build can run on, best first: a connected phone, then a running
- * simulator or emulator, then a stopped one. A stopped one counts only when
- * the client can boot it (`canBoot`): booting opens it beside a conversation.
- */
-export function deviceBuildTargets(state: DeviceState | undefined, build: DeviceBuild, options: { canBoot?: boolean } = {}): DeviceSummary[] {
-  if (!state) return []
-  const rank = (device: DeviceSummary) => (device.physical ? 0 : device.booted ? 1 : 2)
-  return state.devices
-    .filter((device) => deviceBuildFits(build, device).fits
-      || (options.canBoot === true && !device.physical && !device.booted && deviceBuildFits(build, { ...device, booted: true }).fits))
-    .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
-}
-
-/**
- * Why a build has nowhere to run, in words a person can act on, or null when
- * `deviceBuildTargets` offers a device. A connected phone that cannot take a
- * simulator build is named, so the person knows to make a device build.
- */
-export function buildRunBlocker(state: DeviceState | undefined, build: DeviceBuild, options: { canBoot?: boolean } = {}): string | null {
-  if (deviceBuildTargets(state, build, options).length > 0) return null
-  const devices = (state?.devices ?? []).filter((device) => device.platform === build.platform)
-  const phone = devices.find((device) => device.physical)
-  if (phone && build.runsOn === 'simulator') return `This is a simulator build. Make an iPhone or iPad build with New build to put it on ${phone.name}.`
-  if (phone?.unavailableReason) return phone.unavailableReason
-  const stopped = devices.find((device) => !device.physical && !device.booted && deviceBuildFits(build, { ...device, booted: true }).fits)
-  if (stopped) return `Start ${stopped.name} first, or open a conversation so Solus can start it.`
-  const kind = build.platform === 'ios' ? 'simulator' : 'emulator'
-  return build.runsOn === 'device'
-    ? 'This is an iPhone or iPad build. Connect an iPhone or iPad to this host.'
-    : `No ${kind} or phone on this host can take this build.`
-}
-
-/** A build output a folder browser offers: an iOS `.app` bundle (a folder) or an Android `.apk` file. */
-export function isBuildOutput(entry: Pick<DirectoryEntry, 'name' | 'isDir'>): boolean {
-  return entry.isDir ? entry.name.endsWith('.app') : entry.name.endsWith('.apk')
-}
 
 /** The file name to save a downloaded build as. */
 export function buildDownloadName(build: DeviceBuild): string {
@@ -64,7 +24,7 @@ export async function installDeviceBuild(
   isHeld: boolean,
 ): Promise<DeviceBuild> {
   if (isHeld) return api.deviceInstall({ ...target, buildId: build.buildId })
-  if (control.lease?.holder.kind === 'agent' && !control.agentPaused) {
+  if (control.lease) {
     throw new Error(`${control.lease.holder.label} is using this device. Try again when it is free.`)
   }
   await api.deviceControlAcquire(target)
@@ -76,33 +36,7 @@ export async function installDeviceBuild(
 }
 
 /**
- * What a build's menu says about it, as label and value rows. The name, kind
- * and age are on the build's row already, so they are left out. A project
- * and a conversation are listed only when the client knows them.
- */
-export function buildDetails(
-  build: DeviceBuild,
-  now: number,
-  origin: { projectPath?: string | null; conversationTitle?: string | null } = {},
-): { label: string; value: string }[] {
-  const megabytes = build.sizeBytes / (1024 * 1024)
-  const size = megabytes >= 10 ? `${Math.round(megabytes)} MB` : `${megabytes.toFixed(1)} MB`
-  const rows = [{ label: 'App ID', value: build.appId ?? 'Unknown' }, { label: 'Size', value: size }]
-  const project = origin.projectPath?.split(/[\\/]/).filter(Boolean).at(-1)
-  if (project) rows.push({ label: 'Project', value: project })
-  if (origin.conversationTitle) rows.push({ label: 'Conversation', value: origin.conversationTitle })
-  if (build.lastInstall) rows.push({ label: 'Installed', value: `${build.lastInstall.deviceName} · ${notificationAge(build.lastInstall.installedAt, now)}` })
-  return rows
-}
-
-/** The short line under a build's name: what it runs on and how old it is. */
-export function buildCardSummary(build: DeviceBuild, now: number): string {
-  const kind = build.platform === 'android' ? 'Android' : build.runsOn === 'device' ? 'iPhone or iPad' : build.runsOn === 'simulator' ? 'iOS Simulator' : 'iOS'
-  return `${kind} · ${notificationAge(build.createdAt, now)}`
-}
-
-/**
- * Start a build profile, on a device or (without one) only into Builds. The
+ * Start an app operation on the selected device. The
  * host asks once per command, because profiles come from the repository:
  * `confirm` shows that question, and null means the person declined.
  */
@@ -127,25 +61,35 @@ export function profileTargetLabel(profile: Pick<DeviceRunProfile, 'platform' | 
   return profile.target === 'device' ? 'iPhone or iPad' : profile.target === 'simulator' ? 'iOS Simulator' : 'iOS'
 }
 
-/**
- * The newest New build (a run that installs nowhere) of this exact checkout,
- * while it runs or after it failed. Matched on the path the run was started
- * for, so two checkouts with the same folder name never share it.
- */
-export function shownNewBuild(runs: readonly DeviceRun[], checkoutPath: string | null): DeviceRun | null {
-  if (!checkoutPath) return null
-  const latest = runs.find((run) => run.deviceId === null && run.checkoutPath === checkoutPath)
-  if (!latest) return null
-  return isDeviceRunActive(latest) || latest.stage === 'failed' ? latest : null
+
+/** A saved target configuration must match the device selected before the build. */
+export function profilesForDevice(profiles: readonly DeviceRunProfile[] | null | undefined, device: DeviceSummary): DeviceRunProfile[] {
+  return (profiles ?? []).filter((profile) => profile.platform === device.platform
+    && (profile.target === 'any' || (profile.target === 'device') === device.physical))
 }
 
-/** Profiles of this checkout with a New build running now: starting one again only watches it. */
-export function newBuildsRunning(runs: readonly DeviceRun[], checkoutPath: string | null): Set<string> {
-  return new Set(runs.filter((run) => run.deviceId === null && run.checkoutPath === checkoutPath && isDeviceRunActive(run)).map((run) => run.profileName))
+export function runStageLabel(run: DeviceRun): string {
+  return {
+    stopping: 'Stopping…', preparing: 'Preparing the build…', starting: 'Connecting to the dev server…', running: 'Dev server running',
+    building: `Building ${run.profileName}…`, installing: 'Installing…',
+    done: run.mode === 'dev' ? 'Opened with the running dev server' : 'Build ready to install',
+    failed: run.mode === 'dev' ? 'Dev run failed' : 'Production build failed', cancelled: 'Stopped',
+  }[run.stage]
 }
 
-/** Builds the device on screen can run, newest first: what its Run button offers. */
-export function buildsForDevice(state: DeviceState | undefined, device: DeviceSummary): DeviceBuild[] {
-  // A device on screen is running; a stopped one boots when its build runs.
-  return (state?.builds ?? []).filter((build) => deviceBuildFits(build, { ...device, booted: true }).fits)
+/** Whether a build can go on a device: an iOS simulator build cannot go on a phone, nor a phone build on a simulator. */
+export function buildRunsOn(build: Pick<DeviceBuild, 'platform' | 'runsOn'>, device: Pick<DeviceSummary, 'platform' | 'physical'>): boolean {
+  return build.platform === device.platform && (build.runsOn === 'any' || (build.runsOn === 'device') === device.physical)
+}
+
+export interface DeviceRunBranches {
+  branches: string[]
+  defaultBranch: string
+}
+
+/** Read the host's branch names. Prefer main when it exists, else the current branch. */
+export async function loadDeviceRunBranches(api: Pick<HostApi, 'gitRefreshState'>, projectPath: string): Promise<DeviceRunBranches> {
+  const state = await api.gitRefreshState(projectPath, { includeRefs: true, includeDetails: false })
+  const branches = state?.refs?.branches ?? []
+  return { branches, defaultBranch: branches.includes('main') ? 'main' : state?.branch ?? branches[0] ?? '' }
 }

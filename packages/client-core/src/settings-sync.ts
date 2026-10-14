@@ -20,10 +20,6 @@ import {
   type DocumentSyncRequests,
   type DocumentSyncResult,
   type DocumentSyncStatus,
-  type EnableChoice as DocumentEnableChoice,
-  type EnableOffer as DocumentEnableOffer,
-  type EnableOutcome as DocumentEnableOutcome,
-  type PrepareEnableOutcome as DocumentPrepareEnableOutcome,
   type SyncedDocument,
   type SyncedDocumentContract,
 } from './document-sync'
@@ -32,17 +28,13 @@ import {
  * Personal settings sync (plans/018 §5): the document sync engine
  * (`document-sync.ts`) bound to the personal settings document. The local
  * personal profile is the source of truth on each client; the account document
- * is its optional replica. The key set is fixed: every personal setting key.
+ * is its replica while signed in. The key set is fixed: every personal setting key.
  */
 
 export type SettingConflict = DocumentConflict<PersonalSettingsDocument, PersonalSettingKey>
 export type SettingsSyncStatus = DocumentSyncStatus<PersonalSettingsDocument, PersonalSettingKey>
 /** A change for the personal profile: keys to set, and keys to return to their default. */
 export type PersonalSettingsChange = DocumentChange<PersonalSettingsDocument, PersonalSettingKey>
-export type EnableOffer = DocumentEnableOffer<PersonalSettingsDocument>
-export type EnableChoice = DocumentEnableChoice<PersonalSettingsDocument>
-export type PrepareEnableOutcome = DocumentPrepareEnableOutcome<PersonalSettingsDocument>
-export type EnableOutcome = DocumentEnableOutcome<PersonalSettingsDocument>
 export type ClearOutcome = DocumentClearOutcome<PersonalSettingKey>
 
 export interface SettingsSyncPorts extends Omit<DocumentSyncPorts<PersonalSettingsDocument, PersonalSettingKey>, 'requests'> {

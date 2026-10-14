@@ -237,11 +237,9 @@ export const RPC_INVOKE_METHODS = [
   // Client activity lease: foreground heartbeat gating host freshness work
   'activityLease',
 
-  // Design mode
-  'enterDesignMode',
-  'designModeReady',
-  'exitDesignMode',
-  'submitDesignAnnotations',
+  // The phone's iOS Live Activity: the host reports its rows to the control plane (docs/plans/live-activity-push.md)
+  'liveActivityRegister',
+  'liveActivityUnregister',
 
   // Connections (server-side multi-client + pairing)
   'connectionsListEndpoints',
@@ -254,11 +252,16 @@ export const RPC_INVOKE_METHODS = [
   'connectionsSetTrustLocalNetwork',
   // The next access token on an open socket (docs/adr/0001-standard-authentication.md rule 4)
   'authRenew',
-  // Paired hosts: other hosts this host's agents start sessions on (docs/plans/cross-host-sessions.md §10)
-  'pairedHostsList',
-  'pairedHostsPair',
-  'pairedHostsForget',
-  // Personal Uplink: the host's link to the owner's Solus cloud account (local-only)
+  // A signed-in client's account token on a route that did not dial with it: the host keeps the person's delegation (ADR 0001 §6 item 5)
+  'accountPresent',
+  // Introductions: hosts this host's agents reach with no account (docs/plans/host-reach.md §4)
+  'hostIntroductionsList',
+  'hostIntroductionIssue',
+  'hostIntroductionAccept',
+  'hostIntroductionForget',
+  'hostIntroductionAllow',
+  // Personal Uplink: the host's registration to the owner's Solus account, and its tunnel (local-only)
+  'uplinkRegister',
   'uplinkLink',
   'uplinkUnlink',
   'uplinkDetachOrganization',
@@ -468,6 +471,12 @@ export const RPC_INVOKE_METHODS = [
   'prDisableAutoMerge',
   'prUpdateBranch',
   'prRevert',
+  'prMergeStack',
+  'prMediaUrl',
+  'prPendingWorkflowRuns',
+  'prApproveWorkflowRuns',
+  'prViewedFiles',
+  'prSetFilesViewed',
   'prPrepareConflictResolution',
   'prRefresh',
 
@@ -611,8 +620,6 @@ export const RPC_INVOKE_METHODS = [
   'deviceControlRelease',
   'deviceControlResume',
   'deviceInstall',
-  'deviceBuildImport',
-  'deviceBuildDelete',
   'deviceProjectDetect',
   'deviceSigningTeams',
   'deviceRunStart',

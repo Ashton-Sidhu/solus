@@ -54,6 +54,7 @@
   import { prLensAdapter, prLensSubject, prLensSubjectKey } from "./lib/pr-lens";
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
   import { setCodeHostMentions } from "../mentions/lib/code-host-mentions";
+  import { setGithubMediaHost } from "../github-markdown/lib/github-media.svelte";
   import { prMentionAccounts, warmPrMentions } from "./lib/pr-mentions";
   import {
     buildPrChecksFixPrompt,
@@ -88,8 +89,7 @@
     onOpenPullRequest,
     onAttachFile,
     onScreenshot,
-    onDesignMode,
-  }: Pick<PaneSurfaceProps, "onAttachFile" | "onScreenshot" | "onDesignMode"> & {
+  }: Pick<PaneSurfaceProps, "onAttachFile" | "onScreenshot"> & {
     pr: PrReviewTarget | null;
     /** Present when the review is mounted in the workspace pane router. */
     paneId?: PaneId;
@@ -163,6 +163,10 @@
       .get(api, serverId, context)
       .get(number)
       .loadDetail()
+      // GitHub's viewed marks have no change event, so each opening reads them.
+      .then((detail) => {
+        if (detail.capabilities.viewedFiles) void detail.viewedFiles.load();
+      })
       .catch((error) => {
         if (target.number === number) surfaceError = prSurfaceError(error);
       });
@@ -283,6 +287,7 @@
         })
       : [],
   );
+  setGithubMediaHost(() => serverId);
   setCodeHostMentions({
     accounts: () => mentionAccounts,
     warm: () => {
@@ -949,6 +954,7 @@
           onClose={() => select("guide")}
           {clearCommitScope}
           bind:diffPanelRef
+          viewedFiles={reviewDetail?.capabilities.viewedFiles ? reviewDetail.viewedFiles : null}
         />
       </div>
     {/if}
@@ -996,7 +1002,6 @@
         destinationFixed
         {onAttachFile}
         {onScreenshot}
-        {onDesignMode}
         label="Work with this pull request"
         class="bottom-[max(27px,env(safe-area-inset-bottom,0px))] pointer-coarse:bottom-[max(23px,env(safe-area-inset-bottom,0px))]"
       />

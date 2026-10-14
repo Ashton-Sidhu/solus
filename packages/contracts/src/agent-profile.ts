@@ -43,6 +43,7 @@ export const agentProfileEntrySchema = z.discriminatedUnion('kind', [
     executable: z.boolean().optional(),
     /** SHA-256 of the content, hex, so two copies compare without decoding. */
     hash: z.string().regex(/^[0-9a-f]{64}$/),
+    disabled: z.boolean().optional(),
   }).strict(),
   /** A skill installed from skills.sh: a reference the host installs with the skills CLI, never its files. */
   z.object({
@@ -51,6 +52,7 @@ export const agentProfileEntrySchema = z.discriminatedUnion('kind', [
     /** The registry source, `owner/repo`, as `skills list` reports it. */
     source: z.string().min(1).max(200),
     skillId: z.string().regex(SKILL_NAME),
+    disabled: z.boolean().optional(),
   }).strict(),
   /** An MCP server the person added: its record, never a key, a token, or an OAuth client. */
   z.object({
@@ -59,8 +61,14 @@ export const agentProfileEntrySchema = z.discriminatedUnion('kind', [
     name: z.string().trim().min(1).max(200),
     url: z.string().min(1).max(4096),
     auth: integrationAuthSchema,
+    disabled: z.boolean().optional(),
   }).strict(),
 ])
+/**
+ * An entry is in the profile, and on every host the person has a seat on,
+ * unless it is `disabled`: then it stays in the profile, so the person can turn
+ * it on again, and every host removes it on its next pull.
+ */
 export type AgentProfileEntry = z.infer<typeof agentProfileEntrySchema>
 export type AgentProfileFileEntry = Extract<AgentProfileEntry, { kind: 'file' }>
 export type AgentProfileSkillEntry = Extract<AgentProfileEntry, { kind: 'skill' }>
@@ -161,6 +169,20 @@ export const accountAgentProfilePatchRequestSchema = z.object({
   reset: z.array(agentProfileKeySchema).max(AGENT_PROFILE_MAX_ENTRIES).default([]),
 }).strict()
 export type AccountAgentProfilePatchRequest = z.input<typeof accountAgentProfilePatchRequestSchema>
+
+/**
+ * `POST /v1/agent-profile/entries`, from a host acting for the person with their
+ * delegated token: the host's own change to the person's MCP servers (one added,
+ * renamed, or removed in Settings → MCP, or one the host held before the profile
+ * named it), merged into the current revision. A host never sees a conflict: the
+ * keys it names are the ones it changed. Answers the document after the merge.
+ */
+export const AGENT_PROFILE_ENTRIES_PATH = '/v1/agent-profile/entries'
+export const agentProfileEntriesWriteSchema = z.object({
+  set: agentProfileSchema,
+  reset: z.array(agentProfileKeySchema).max(AGENT_PROFILE_MAX_ENTRIES).default([]),
+}).strict()
+export type AgentProfileEntriesWrite = z.input<typeof agentProfileEntriesWriteSchema>
 
 /** A 409 on an account write: a stale revision or a cleared generation. */
 export const accountAgentProfileConflictBodySchema = z.object({

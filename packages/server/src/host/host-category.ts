@@ -1,14 +1,14 @@
-import type { EnrollHostCategory, HostCategory, UplinkLinkConfig } from '@solus/contracts/uplink'
+import type { EnrollHostCategory, HostCategory, HostRegistration } from '@solus/contracts/uplink'
 
 /**
  * What kind of machine this process is (organization-scope §3.1). The desktop
  * app's own execution host is `personal`; the standalone server is
  * `self-hosted`; a machine the control plane provisioned is `managed`. The boot
- * declares the first two. The third is a fact of the machine's link: a link that
- * names an owning organization is one Solus provisioned for that organization
- * (managed-hosts.md §2), whether it arrived in the environment at first boot or
- * was stored since. The category is what the host tells the control plane when
- * it enrolls, and what decides provisioning facts: no pairing and no trusted
+ * declares the first two. The third is a fact of the machine's registration: a
+ * registration that names an owning organization is one Solus provisioned for that
+ * organization (managed-hosts.md §2), whether it arrived in the environment at first
+ * boot or was stored since. The category is what the host tells the control plane when
+ * it registers, and what decides provisioning facts: no pairing and no trusted
  * network position on a machine nobody owns.
  */
 
@@ -22,9 +22,9 @@ export function applyHostCategory(category: EnrollHostCategory): void {
   declared = category
 }
 
-/** The boot, and every later link change, name the machine's link; one that names an owning organization makes the host managed. */
-export function adoptProvisionedLink(link: Pick<UplinkLinkConfig, 'organizationId'> | null): void {
-  provisionedOrganization = link?.organizationId ?? null
+/** The boot, and every later registration change, name the machine's registration; one that names an owning organization makes the host managed. */
+export function adoptProvisionedRegistration(registration: Pick<HostRegistration, 'organizationId'> | null): void {
+  provisionedOrganization = registration?.organizationId ?? null
 }
 
 export function hostCategory(): HostCategory {

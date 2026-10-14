@@ -111,7 +111,7 @@ export function singleHostServerConnections() {
     defaultServerId: () => primaryServerId,
     // Every host in a single-host test is a machine this client knows.
     runOnHostId: () => primaryServerId,
-    isKnownServer: () => true,
+    presenceOf: () => 'present' as const,
     localServerId: () => 'local',
     localHostApi: () => api('local'),
     factsFor: (serverId: string) => facts(serverId),

@@ -8,6 +8,7 @@ import type { WorkspaceContext } from '../workspace/workspace.context.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { onDirectoryAnswered } from '@solus/client-core/server-registry'
 import { reconcileMachineReferences, savedHostsAreAuthoritative } from '../workspace/machine-references'
+import { projectsStore } from '../projects/projects.store.svelte'
 import { hasSessionStarted } from '../../lib/sessionUtils'
 import type { Session } from '@solus/contracts/types'
 import { sendOutbox } from '@solus/client-core/send-outbox'
@@ -59,8 +60,9 @@ function reconcileGoneMachines(session: WorkspaceContext): void {
         .map((tabId) => session.sessionFor(tabId))
         .filter((tabSession): tabSession is Session => !!tabSession && hasSessionStarted(tabSession)),
       get defaultRunConfig() { return session.defaultRunConfig },
+      projects: projectsStore,
     },
-    (serverId) => serverConnections.isKnownServer(serverId),
+    (serverId) => serverConnections.presenceOf(serverId),
     () => serverConnections.runOnHostId() !== null,
   )
 }

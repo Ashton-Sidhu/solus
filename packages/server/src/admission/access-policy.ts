@@ -125,8 +125,6 @@ export const RESOURCE_LOCATORS = {
   attachUploadToken: ctxAt(0),
   takeScreenshot: optionalCtxAt(0),
   pasteImage: optionalCtxAt(1),
-  enterDesignMode: optionalCtxAt(0),
-  submitDesignAnnotations: optionalCtxAt(1),
   setSessionTitle: sessionIdAt(0),
   ensureBackgroundSessionTitle: sessionIdAt(0),
   setSessionBranch: sessionIdAt(0),

@@ -130,31 +130,27 @@ export function NotificationsScreen({ navigation }: ScreenProps<'Notifications'>
                   {isUnread ? <View className="absolute right-0 top-0 h-2.5 w-2.5 rounded-full bg-primary" /> : null}
                 </View>
                 <View className="min-w-0 flex-1 gap-1">
-                  <View className="flex-row items-center gap-2">
-                    <Text
-                      className={cn('min-w-0 flex-1 text-base leading-snug text-foreground', isUnread ? 'font-t3-bold' : 'font-t3-medium')}
-                      numberOfLines={1}
-                    >
-                      {row.notification.summary.title}
-                    </Text>
-                    <Text className="min-w-[30px] text-right text-xs tabular-nums text-foreground-tertiary">
-                      {notificationAge(row.notification.createdAt, now)}
-                    </Text>
-                  </View>
+                  <Text
+                    className={cn('min-w-0 text-base leading-snug text-foreground', isUnread ? 'font-t3-bold' : 'font-t3-medium')}
+                    numberOfLines={1}
+                  >
+                    {row.notification.summary.title}
+                  </Text>
                   {subtitle ? <Text className="min-w-0 text-2xs text-foreground-tertiary" numberOfLines={1}>{subtitle}</Text> : null}
                   {error ? <Text className="text-2xs text-adaptive-rose-600-400" numberOfLines={2}>{error}</Text> : null}
                 </View>
               </Pressable>
+              <Text className="min-w-[30px] text-right text-xs tabular-nums text-foreground-tertiary">
+                {notificationAge(row.notification.createdAt, now)}
+              </Text>
               <RowAction
                 icon={isUnread ? 'checkmark.circle' : 'circle'}
-                label={isUnread ? 'Read' : 'Unread'}
                 accessibilityLabel={isUnread ? `Mark ${row.notification.summary.title} read` : `Mark ${row.notification.summary.title} unread`}
                 disabled={!canChange}
                 onPress={() => void choose(row, (rowKey) => app.notifications.setRead(rowKey, isUnread))}
               />
               <RowAction
                 icon={isArchived ? 'arrow.uturn.backward' : 'archivebox'}
-                label={isArchived ? 'Restore' : 'Archive'}
                 accessibilityLabel={`${isArchived ? 'Restore' : 'Archive'} ${row.notification.summary.title}`}
                 disabled={!canChange}
                 onPress={() => void choose(row, (rowKey) => app.notifications.setArchived(rowKey, !isArchived))}
@@ -183,10 +179,9 @@ export function NotificationsScreen({ navigation }: ScreenProps<'Notifications'>
   )
 }
 
-/** T3 Code's swipe action, shown in the row: a small circle with its word below. */
+/** T3 Code's swipe action, shown in the row as a small circle. */
 function RowAction(props: {
   readonly icon: ComponentProps<typeof SymbolView>['name']
-  readonly label: string
   readonly accessibilityLabel: string
   readonly disabled: boolean
   readonly onPress: () => void
@@ -197,13 +192,10 @@ function RowAction(props: {
       accessibilityLabel={props.accessibilityLabel}
       disabled={props.disabled}
       onPress={props.onPress}
-      hitSlop={4}
-      className="w-11 items-center active:opacity-70 disabled:opacity-[0.45]"
+      hitSlop={8}
+      className="h-7 w-7 items-center justify-center rounded-full bg-secondary active:opacity-70 disabled:opacity-[0.45]"
     >
-      <View className="h-7 w-7 items-center justify-center rounded-full bg-secondary">
-        <SymbolView name={props.icon} size={13} tintColorClassName="accent-secondary-foreground" type="monochrome" />
-      </View>
-      <Text className="pt-0.5 text-3xs font-t3-medium text-foreground-muted" numberOfLines={1}>{props.label}</Text>
+      <SymbolView name={props.icon} size={13} tintColorClassName="accent-secondary-foreground" type="monochrome" />
     </Pressable>
   )
 }

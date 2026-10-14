@@ -13,8 +13,12 @@ import { z } from 'zod'
  *
  * One engine per client and shape (one per browser tab, which share one
  * storage record and a broadcast port), constructed with injected ports so
- * desktop, web, and native share the same conflict rules. A sync is opt-in per
- * client and per account: signing in alone never uploads.
+ * desktop, web, and native share the same conflict rules. Signed in is synced
+ * (plans/018 decision 9): the engine starts by itself when an account is set.
+ * It reads the account first; a document with content there replaces this
+ * device's copy, and an absent or empty one is created from this device's copy
+ * (`ports.localCopy`). A generation another device advanced, by clearing, is
+ * the same start again, never a stop.
  *
  * The conflict unit is one top-level key. Local edits wait in a bounded, durable
  * pending patch beside the last confirmed document (the base) and its revision,
@@ -127,11 +131,18 @@ export interface DocumentSyncPorts<D, K extends string> {
   clock: DocumentSyncClock
   /** Absent where one process is the whole client (native). */
   broadcast?: DocumentSyncBroadcast
+  /**
+   * This device's copy. For `seed`, the account's first copy when the account
+   * has none: on the desktop, this computer's profile. For `replace`, what the
+   * account's copy replaces key by key: this client's own copy.
+   */
+  localCopy(purpose: 'seed' | 'replace'): Promise<D> | D
 }
 
 // ─── Public shapes ───
 
-export type DocumentSyncState = 'signed-out' | 'off' | 'loading' | 'synced' | 'pending' | 'offline' | 'conflict' | 'error'
+/** `loading` until the account has been read for this device and account; the rest while it has. */
+export type DocumentSyncState = 'signed-out' | 'loading' | 'synced' | 'pending' | 'offline' | 'conflict' | 'error'
 
 /**
  * A key both sides changed. Each side is a document holding that one key, or
@@ -146,6 +157,8 @@ export interface DocumentConflict<D, K extends string> {
 export interface DocumentSyncStatus<D, K extends string> {
   state: DocumentSyncState
   account: SyncAccount | null
+  /** The account document's generation this device is on; null until the account was read. A clear moves it. */
+  generation: number | null
   /** The last time the cloud confirmed this client's view. Never an optimistic edit. */
   lastSyncedAt: number | null
   /** Local edits the cloud has not confirmed. */
@@ -153,8 +166,6 @@ export interface DocumentSyncStatus<D, K extends string> {
   conflicts: DocumentConflict<D, K>[]
   /** The last refusal, while `state` is `error`. */
   error: { code: string; message: string | null } | null
-  /** Set when another client cleared the synced document and this client turned sync off. */
-  stoppedReason: 'generation-changed' | null
 }
 
 /** A change for the local copy: keys to set, and keys to return to their default. */
@@ -163,30 +174,7 @@ export interface DocumentChange<D, K extends string> {
   reset: K[]
 }
 
-/** What turning sync on would do, read from the cloud before anything is written. */
-export type EnableOffer<D> =
-  /** No synced document: offer this device's copy as the seed. */
-  | { kind: 'absent'; generation: number }
-  /** A synced document exists: "Use synced" by default, or "Replace with this device". */
-  | { kind: 'present'; generation: number; revision: number; document: D; updatedAt: number | null }
-
-export type EnableChoice<D> =
-  | { kind: 'seed'; document: D }
-  | { kind: 'use-synced' }
-  | { kind: 'replace'; document: D }
-
 export type DocumentSyncUnavailable = { kind: 'signed-out' } | { kind: 'offline' } | { kind: 'error'; code: string; message: string | null }
-
-export type PrepareEnableOutcome<D> = { kind: 'offer'; offer: EnableOffer<D> } | DocumentSyncUnavailable | { kind: 'cancelled' }
-
-export type EnableOutcome<D> =
-  | { kind: 'enabled' }
-  /** The cloud changed after the offer; nothing was overwritten. Ask again with this offer. */
-  | { kind: 'changed'; offer: EnableOffer<D> }
-  /** The choice does not match the current offer, or the document fails the schema or size bound. */
-  | { kind: 'invalid' }
-  | { kind: 'cancelled' }
-  | DocumentSyncUnavailable
 
 export type LocalChangeOutcome = 'queued' | 'ignored' | 'invalid' | 'too-large'
 
@@ -205,11 +193,13 @@ export const DOCUMENT_SYNC_DEBOUNCE_MS = 1_500
 export const DOCUMENT_SYNC_POLL_MS = 60_000
 /** Patches tried against a moving revision before the engine stops and waits for the next trigger. */
 export const DOCUMENT_SYNC_MAX_ATTEMPTS = 4
+/** Starts tried while another device keeps writing the first copy. */
+const START_MAX_ATTEMPTS = 3
 
 // ─── Durable record ───
 
 interface SyncRecord<D, K extends string> {
-  enabled: boolean
+  /** Null until the account was read for this device: nothing is sent before that. */
   generation: number | null
   revision: number | null
   /** The last document the cloud confirmed. */
@@ -218,12 +208,10 @@ interface SyncRecord<D, K extends string> {
   pendingReset: K[]
   conflicts: DocumentConflict<D, K>[]
   lastSyncedAt: number | null
-  stoppedReason: 'generation-changed' | null
 }
 
 function recordSchema<D extends object, K extends DocumentKey<D>>(contract: SyncedDocumentContract<D, K>): z.ZodType<SyncRecord<D, K>> {
   const record = z.object({
-    enabled: z.boolean(),
     generation: z.number().int().nonnegative().nullable(),
     revision: z.number().int().positive().nullable(),
     base: contract.documentSchema,
@@ -231,7 +219,6 @@ function recordSchema<D extends object, K extends DocumentKey<D>>(contract: Sync
     pendingReset: z.array(contract.keySchema),
     conflicts: z.array(z.object({ key: contract.keySchema, mine: contract.documentSchema, theirs: contract.documentSchema })),
     lastSyncedAt: z.number().nullable(),
-    stoppedReason: z.literal('generation-changed').nullable(),
   })
   // SAFETY: each field is parsed by the contract's own schemas, so a parsed record is a `SyncRecord` of that contract's document and keys.
   return record as z.ZodType<SyncRecord<D, K>>
@@ -281,12 +268,11 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
   private record: SyncRecord<D, K>
   /** Grows on account switch, sign-out, and dispose: every older answer is dropped. */
   private accountEpoch = 0
-  /** Grows when sync is turned off or cleared here: an older answer is reported, never resumed. */
-  private enableEpoch = 0
+  /** Grows when the document starts again (a clear, a generation another device advanced): an older answer is reported, never resumed. */
+  private startEpoch = 0
   private isAuthLost = false
   private failure: Failure = null
   private busyCount = 0
-  private offer: { offer: EnableOffer<D>; accountEpoch: number } | null = null
   private queued: { read: boolean } | null = null
   private chain: Promise<void> = Promise.resolve()
   private cancelDebounce: (() => void) | null = null
@@ -298,7 +284,7 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
   private readonly unsubscribes: Array<() => void> = []
 
   constructor(private readonly ports: DocumentSyncPorts<D, K>, private readonly contract: SyncedDocumentContract<D, K>) {
-    this.record = this.offRecord()
+    this.record = this.freshRecord()
     this.recordJsonSchema = z.string().transform((text, context) => {
       try {
         return JSON.parse(text)
@@ -339,7 +325,8 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
    * The account owner names who is signed in (null when nobody is). A different
    * account cancels all work first: no answer for the previous account reaches the
    * next one, and its queue is never sent for the next one. The same account again
-   * (after a 401 and a fresh sign-in) resumes.
+   * (after a 401 and a fresh sign-in) resumes. Signed in, sync starts now: the
+   * account is read, and adopted or seeded from this device.
    */
   setAccount(account: SyncAccount | null): void {
     const accountKey = account ? syncAccountKey(account) : null
@@ -347,7 +334,7 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
       if (this.isAuthLost) {
         this.isAuthLost = false
         this.afterChange()
-        if (this.record.enabled) void this.schedule(true)
+        void this.schedule(true)
       }
       return
     }
@@ -356,14 +343,16 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
     this.accountKey = accountKey
     this.isAuthLost = false
     this.failure = null
-    this.record = accountKey ? this.load(accountKey) : this.offRecord()
+    this.record = this.freshRecord()
+    // The record this device kept for the account: its confirmed copy goes to the local copy, pending edits stay pending.
+    if (accountKey) this.adoptStored(this.load(accountKey))
     this.afterChange()
-    if (this.record.enabled) void this.schedule(true)
+    if (accountKey) void this.schedule(true)
   }
 
   /**
-   * Sign-out: sync stops, and this account's consent, pending edits, and confirmed
-   * copy leave this client. Ask about `current.pendingKeys` before calling.
+   * Sign-out: sync stops, and this account's pending edits and confirmed copy
+   * leave this client. Ask about `current.pendingKeys` before calling.
    */
   signOut(): void {
     const accountKey = this.accountKey
@@ -381,140 +370,37 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
     this.changeListeners.clear()
   }
 
-  // ── Turning sync on and off ──
-
-  /** Reads the cloud before anything is written. Shows `loading` meanwhile. */
-  async prepareEnable(): Promise<PrepareEnableOutcome<D>> {
-    if (!this.accountKey) return { kind: 'signed-out' }
-    const accountEpoch = this.accountEpoch
-    const result = await this.busy(() => this.ports.requests.get())
-    if (accountEpoch !== this.accountEpoch) return { kind: 'cancelled' }
-    if (result.kind !== 'ok') return this.unavailable(result)
-    const offer = offerFrom(result.document)
-    this.offer = { offer, accountEpoch }
-    return { kind: 'offer', offer }
-  }
-
-  /**
-   * Turns sync on with the person's choice for the last offer. Seeding creates the
-   * document only if none exists; replacing writes only over the revision offered.
-   * Either answers `changed` instead of overwriting a newer document.
-   */
-  async enable(choice: EnableChoice<D>): Promise<EnableOutcome<D>> {
-    const held = this.offer
-    if (!this.accountKey || !held || held.accountEpoch !== this.accountEpoch) return { kind: 'invalid' }
-    const { offer } = held
-    if (choice.kind === 'use-synced') {
-      if (offer.kind !== 'present') return { kind: 'invalid' }
-      this.offer = null
-      this.enableEpoch += 1
-      const change = this.emptyChange()
-      for (const key of this.contract.keysOf(offer.document)) this.addToChange(change, offer.document, key)
-      this.failure = null
-      this.mutate((record) => {
-        Object.assign(record, this.offRecord(), {
-          enabled: true,
-          generation: offer.generation,
-          revision: offer.revision,
-          base: structuredClone(offer.document),
-          lastSyncedAt: this.ports.clock.now(),
-        })
-        return change
-      })
-      void this.schedule(true)
-      return { kind: 'enabled' }
-    }
-    if ((choice.kind === 'seed') !== (offer.kind === 'absent')) return { kind: 'invalid' }
-    const parsed = this.contract.documentSchema.safeParse(choice.document)
-    if (!parsed.success || this.contract.byteLength(parsed.data) > this.contract.maxBytes) return { kind: 'invalid' }
-    const document = parsed.data
-    const accountEpoch = this.accountEpoch
-    const result = await this.busy(() => this.ports.requests.patch({
-      generation: offer.generation,
-      expectedRevision: offer.kind === 'present' ? offer.revision : null,
-      set: document,
-      reset: offer.kind === 'present' ? this.contract.keysOf(offer.document).filter((key) => hasKey(offer.document, key) && !hasKey(document, key)) : [],
-    }))
-    if (accountEpoch !== this.accountEpoch) return { kind: 'cancelled' }
-    if (result.kind === 'conflict') {
-      const next = offerFrom(result.current)
-      this.offer = { offer: next, accountEpoch }
-      return { kind: 'changed', offer: next }
-    }
-    if (result.kind !== 'ok') return this.unavailable(result)
-    this.offer = null
-    this.enableEpoch += 1
-    this.failure = null
-    const confirmed = result.document
-    this.mutate((record) => {
-      Object.assign(record, this.offRecord(), {
-        enabled: true,
-        generation: confirmed.generation,
-        revision: confirmed.revision,
-        // The local copy holds what was sent; the confirmed document is applied over it below.
-        base: structuredClone(document),
-        lastSyncedAt: this.ports.clock.now(),
-      })
-      return this.adoptRemote(record, confirmed)
-    })
-    return { kind: 'enabled' }
-  }
-
-  /**
-   * "Turn off on this device": no further transfers. Confirmed values stay in the
-   * local copy; the cloud document and other clients are left alone. A write
-   * already in flight may still commit; its confirmation is recorded, nothing more.
-   */
-  turnOff(): void {
-    if (!this.accountKey) return
-    this.enableEpoch += 1
-    this.cancelTimers()
-    this.queued = null
-    this.failure = null
-    this.mutate((record) => {
-      record.enabled = false
-      record.pendingSet = this.contract.empty()
-      record.pendingReset = []
-      record.conflicts = []
-      record.stoppedReason = null
-    })
-  }
+  // ── Clearing ──
 
   /**
    * "Clear synced": deletes the cloud document and advances its generation, so
-   * every client still holding the old one stops and cannot restore it. Online
-   * only. Turns sync off here too; local values stay.
+   * every client still holding the old one starts again and cannot restore it.
+   * Online only. This device starts the document again from its own copy.
    */
   async clearCloud(options: { discardUnsent?: boolean } = {}): Promise<ClearOutcome<K>> {
     if (!this.accountKey) return { kind: 'signed-out' }
     if (!this.ports.environment.isOnline()) return { kind: 'offline' }
     const unsent = this.pendingKeys(this.record)
-    if (this.record.enabled && unsent.length > 0 && !options.discardUnsent) return { kind: 'has-unsent', keys: unsent }
+    if (unsent.length > 0 && !options.discardUnsent) return { kind: 'has-unsent', keys: unsent }
     const accountEpoch = this.accountEpoch
     const result = await this.busy(() => this.ports.requests.delete())
     if (accountEpoch !== this.accountEpoch) return { kind: 'cancelled' }
     // A clear answers 409 only if another client cleared first; its generation is the new one either way.
     if (result.kind !== 'ok' && result.kind !== 'conflict') return this.unavailable(result)
     const cleared = result.kind === 'ok' ? result.document : result.current
-    this.enableEpoch += 1
-    this.cancelTimers()
-    this.queued = null
-    this.offer = null
-    this.failure = null
-    this.mutate((record) => {
-      Object.assign(record, this.offRecord(), { generation: cleared.generation, lastSyncedAt: record.lastSyncedAt })
-    })
+    await this.startFrom(cleared)
     return { kind: 'cleared', generation: cleared.generation }
   }
 
   // ── Changes ──
 
   /**
-   * A change the person made to the local copy. Queued only while sync is on;
-   * otherwise it stays local. Sent after the person stops editing.
+   * A change the person made to the local copy. Queued once the account has been
+   * read for this device; before that it stays local, and the seed reads it from
+   * the local copy. Sent after the person stops editing.
    */
   recordLocalChange(change: Partial<DocumentChange<D, K>>): LocalChangeOutcome {
-    if (!this.accountKey || !this.record.enabled) return 'ignored'
+    if (!this.accountKey || this.record.generation === null) return 'ignored'
     const parsed = this.contract.documentSchema.safeParse(change.set ?? this.contract.empty())
     const reset = z.array(this.contract.keySchema).safeParse(change.reset ?? [])
     if (!parsed.success || !reset.success) return 'invalid'
@@ -557,7 +443,7 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
     if (choice === 'keep-mine') void this.schedule(false)
   }
 
-  /** Reads the cloud now (Settings opened, a manual refresh), then sends what is pending. */
+  /** Reads the cloud now (Settings opened, a manual refresh), then sends what is pending. A start that failed is tried again. */
   refresh(): Promise<void> {
     return this.schedule(true)
   }
@@ -585,22 +471,45 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
   }
 
   private async run(read: boolean): Promise<void> {
-    if (!this.isActive()) return
+    if (!this.isSignedIn()) return
     if (!this.ports.environment.isOnline()) {
       this.setFailure({ kind: 'offline' })
       return
     }
     const accountEpoch = this.accountEpoch
-    const enableEpoch = this.enableEpoch
-    const isCurrent = () => accountEpoch === this.accountEpoch && enableEpoch === this.enableEpoch
+    const startEpoch = this.startEpoch
+    const isCurrent = () => accountEpoch === this.accountEpoch && startEpoch === this.startEpoch
+    if (this.record.generation === null) {
+      // The first sync for this device and account: read, then adopt or seed.
+      const result = await this.busy(() => this.ports.requests.get())
+      if (!isCurrent()) return
+      if (result.kind !== 'ok') return this.noteFailure(result)
+      if (!(await this.startFrom(result.document))) return
+      return this.send()
+    }
     if (read) {
       const result = await this.ports.requests.get()
       if (!isCurrent()) return
-      if (result.kind !== 'ok') return this.handleFailure(result)
-      if (!this.adopt(result.document)) return
-      this.mutate((record) => { record.lastSyncedAt = this.ports.clock.now() })
+      if (result.kind !== 'ok') return this.noteFailure(result)
+      if (result.document.generation !== this.record.generation) {
+        // Another device cleared the synced document: this one starts again on the new copy.
+        await this.startFrom(result.document)
+        return
+      }
+      this.mutate((record) => {
+        const change = this.adoptRemote(record, result.document)
+        record.lastSyncedAt = this.ports.clock.now()
+        return change
+      })
       this.setFailure(null)
     }
+    return this.send()
+  }
+
+  /** Sends what is pending, merging three ways against a moving revision. */
+  private async send(): Promise<void> {
+    const accountEpoch = this.accountEpoch
+    const startEpoch = this.startEpoch
     for (let attempt = 0; attempt < DOCUMENT_SYNC_MAX_ATTEMPTS; attempt += 1) {
       const sent = this.record
       if (this.pendingKeys(sent).length === 0 || sent.generation === null) return
@@ -608,8 +517,8 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
       const reset = [...sent.pendingReset]
       const result = await this.ports.requests.patch({ generation: sent.generation, expectedRevision: sent.revision, set, reset })
       if (accountEpoch !== this.accountEpoch) return
-      if (enableEpoch !== this.enableEpoch) {
-        // Turned off while this write was in flight: record a commit, resume nothing.
+      if (startEpoch !== this.startEpoch) {
+        // Started again while this write was in flight: record a commit, resume nothing.
         if (result.kind === 'ok') this.mutate((record) => { record.lastSyncedAt = this.ports.clock.now() })
         return
       }
@@ -626,31 +535,92 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
         this.setFailure(null)
         continue
       }
-      if (result.kind === 'conflict' && result.reason === 'revision') {
-        if (!this.adopt(result.current)) return
+      if (result.kind === 'conflict') {
+        if (result.reason === 'generation') {
+          await this.startFrom(result.current)
+          return
+        }
+        this.mutate((record) => this.adoptRemote(record, result.current))
         continue
       }
-      return this.handleFailure(result)
+      return this.noteFailure(result)
     }
     if (this.pendingKeys(this.record).length > 0) {
       this.setFailure({ kind: 'error', code: 'conflict_retries_exhausted', message: this.contract.retriesExhaustedMessage })
     }
   }
 
-  /** Applies a cloud document; false when its generation ended this client's sync. */
-  private adopt(remote: SyncedDocument<D>): boolean {
-    if (remote.generation !== this.record.generation) {
-      this.stopForGeneration(remote.generation)
+  /**
+   * The start, on the account's copy as last read: every old-generation edit and
+   * conflict is dropped. A copy with content replaces this device's copy; an
+   * absent or empty one is created from it. False when it did not finish: the
+   * account changed, the cloud refused, or the seed could not be written.
+   */
+  private async startFrom(remote: SyncedDocument<D>, attempt = 0): Promise<boolean> {
+    this.startEpoch += 1
+    const accountEpoch = this.accountEpoch
+    const startEpoch = this.startEpoch
+    const isCurrent = () => accountEpoch === this.accountEpoch && startEpoch === this.startEpoch
+    this.cancelDebounce?.()
+    this.cancelDebounce = null
+    this.failure = null
+    this.mutate((record) => {
+      Object.assign(record, this.freshRecord(), { generation: remote.generation, lastSyncedAt: record.lastSyncedAt })
+    })
+    const hasRemote = remote.revision !== null && this.hasContent(remote.document)
+    const local = await this.busy(() => Promise.resolve(this.ports.localCopy(hasRemote ? 'replace' : 'seed')))
+    if (!isCurrent()) return false
+    if (hasRemote) {
+      // The account wins: its copy replaces this device's, key by key.
+      this.mutate((record) => {
+        const change = this.adoptRemote(record, remote)
+        for (const key of this.contract.keysOf(local)) {
+          if (hasKey(local, key) && !hasKey(remote.document, key) && !change.reset.includes(key)) change.reset.push(key)
+        }
+        record.lastSyncedAt = this.ports.clock.now()
+        return change
+      })
+      this.setFailure(null)
+      return true
+    }
+    const parsed = this.contract.documentSchema.safeParse(local)
+    if (!parsed.success || this.contract.byteLength(parsed.data) > this.contract.maxBytes) {
+      this.setFailure({ kind: 'error', code: 'local_copy_invalid', message: 'This device’s copy could not be sent.' })
       return false
     }
-    this.mutate((record) => this.adoptRemote(record, remote))
+    const seed = parsed.data
+    if (!this.hasContent(seed)) {
+      // Nothing on either side: synced, with nothing to write until an edit.
+      this.mutate((record) => { record.revision = remote.revision; record.lastSyncedAt = this.ports.clock.now() })
+      this.setFailure(null)
+      return true
+    }
+    const result = await this.busy(() => this.ports.requests.patch({ generation: remote.generation, expectedRevision: remote.revision, set: seed, reset: [] }))
+    if (!isCurrent()) return false
+    if (result.kind === 'conflict') {
+      // Another device wrote the first copy between the read and this write: take that copy instead.
+      if (attempt + 1 >= START_MAX_ATTEMPTS) {
+        this.setFailure({ kind: 'error', code: 'conflict_retries_exhausted', message: this.contract.retriesExhaustedMessage })
+        return false
+      }
+      return this.startFrom(result.current, attempt + 1)
+    }
+    if (result.kind !== 'ok') {
+      this.noteFailure(result)
+      return false
+    }
+    this.mutate((record) => {
+      // The confirmed copy is applied whole: the local copy may not hold what `localCopy` read (a computer's profile).
+      record.lastSyncedAt = this.ports.clock.now()
+      return this.adoptRemote(record, result.document)
+    })
+    this.setFailure(null)
     return true
   }
 
-  private handleFailure(result: Exclude<DocumentSyncResult<D>, { kind: 'ok' }>): void {
+  private noteFailure(result: Exclude<DocumentSyncResult<D>, { kind: 'ok' }>): void {
     if (result.kind === 'conflict') {
-      // The generation changed: someone cleared the synced document.
-      this.stopForGeneration(result.current.generation)
+      this.setFailure({ kind: 'error', code: result.code, message: null })
       return
     }
     if (result.kind === 'signed-out') {
@@ -662,21 +632,14 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
     this.setFailure(result.kind === 'offline' ? { kind: 'offline' } : { kind: 'error', code: result.code, message: result.message })
   }
 
-  /** Another client cleared the synced document: turn off and drop every old-generation edit. */
-  private stopForGeneration(generation: number): void {
-    this.enableEpoch += 1
-    this.cancelTimers()
-    this.queued = null
-    this.failure = null
-    this.mutate((record) => {
-      Object.assign(record, this.offRecord(), { generation, lastSyncedAt: record.lastSyncedAt, base: record.base, stoppedReason: 'generation-changed' })
-    })
-  }
-
   // ── Record helpers ──
 
-  private offRecord(): SyncRecord<D, K> {
-    return { enabled: false, generation: null, revision: null, base: this.contract.empty(), pendingSet: this.contract.empty(), pendingReset: [], conflicts: [], lastSyncedAt: null, stoppedReason: null }
+  private freshRecord(): SyncRecord<D, K> {
+    return { generation: null, revision: null, base: this.contract.empty(), pendingSet: this.contract.empty(), pendingReset: [], conflicts: [], lastSyncedAt: null }
+  }
+
+  private hasContent(document: D): boolean {
+    return this.contract.keysOf(document).some((key) => hasKey(document, key))
   }
 
   private onlyKey(source: D, key: K): D {
@@ -756,7 +719,7 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
     return change
   }
 
-  /** The edits of an enabled record that would leave the size bound. */
+  /** The edits of a record that would leave the size bound. */
   private exceedsBound(record: SyncRecord<D, K>): boolean {
     const merged: D = { ...record.base, ...record.pendingSet }
     for (const key of record.pendingReset) delete merged[key]
@@ -768,8 +731,8 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
   private onSignal(signal: DocumentSyncSignal): void {
     this.updateTimers()
     this.afterChange()
-    // Back online or in front: catch up now.
-    if ((signal === 'online' || signal === 'foreground') && this.isActive()) void this.schedule(true)
+    // Back online or in front: catch up now, or start again after a failed start.
+    if ((signal === 'online' || signal === 'foreground') && this.isSignedIn()) void this.schedule(true)
   }
 
   private debounceSend(): void {
@@ -781,7 +744,7 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
   }
 
   private updateTimers(): void {
-    const shouldPoll = this.isActive() && this.ports.environment.isOnline() && this.ports.environment.isForeground()
+    const shouldPoll = this.isSignedIn() && this.ports.environment.isOnline() && this.ports.environment.isForeground()
     if (!shouldPoll) {
       this.cancelPoll?.()
       this.cancelPoll = null
@@ -804,10 +767,9 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
 
   private cancelWork(): void {
     this.accountEpoch += 1
-    this.enableEpoch += 1
+    this.startEpoch += 1
     this.cancelTimers()
     this.queued = null
-    this.offer = null
     this.busyCount = 0
     // An unanswered request of the previous account must not hold up the next one.
     this.chain = Promise.resolve()
@@ -815,8 +777,8 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
 
   // ── State ──
 
-  private isActive(): boolean {
-    return this.accountKey !== null && !this.isAuthLost && this.record.enabled
+  private isSignedIn(): boolean {
+    return this.accountKey !== null && !this.isAuthLost
   }
 
   private async busy<T>(work: () => Promise<T>): Promise<T> {
@@ -849,9 +811,9 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
 
   private load(accountKey: string): SyncRecord<D, K> {
     const raw = this.ports.storage.getItem(this.contract.storageKey(accountKey))
-    if (!raw) return this.offRecord()
+    if (!raw) return this.freshRecord()
     const parsed = this.recordJsonSchema.safeParse(raw)
-    return parsed.success ? parsed.data : this.offRecord()
+    return parsed.success ? parsed.data : this.freshRecord()
   }
 
   /**
@@ -866,18 +828,17 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
 
   private adoptStored(next: SyncRecord<D, K>): void {
     const previous = this.record
-    if (next.enabled && previous.enabled) {
-      const change = this.emptyChange()
-      for (const key of this.contract.keysOf(previous.base, next.base)) {
-        if (this.isPending(next, key) || next.conflicts.some((conflict) => conflict.key === key)) continue
-        if (!sameValue(valueOf(previous.base, key), valueOf(next.base, key))) this.addToChange(change, next.base, key)
-      }
-      this.emit(change)
+    const change = this.emptyChange()
+    for (const key of this.contract.keysOf(previous.base, next.base)) {
+      if (this.isPending(next, key) || next.conflicts.some((conflict) => conflict.key === key)) continue
+      if (!sameValue(valueOf(previous.base, key), valueOf(next.base, key))) this.addToChange(change, next.base, key)
     }
-    if (previous.enabled && !next.enabled) {
-      this.enableEpoch += 1
+    // Another tab started the document again (a clear, or it signed out): this tab's in-flight answers are dropped.
+    if (next.generation !== previous.generation) {
+      this.startEpoch += 1
       this.queued = null
     }
+    this.emit(change)
     this.record = next
     this.updateTimers()
   }
@@ -916,31 +877,26 @@ export class DocumentSync<D extends object, K extends DocumentKey<D>> {
   private computeStatus(): DocumentSyncStatus<D, K> {
     const record = this.record
     const failure = this.failure
-    const state: DocumentSyncState = !this.accountKey || this.isAuthLost
+    const isStarted = record.generation !== null
+    const state: DocumentSyncState = !this.isSignedIn()
       ? 'signed-out'
-      : !record.enabled
-        ? this.busyCount > 0 ? 'loading' : 'off'
-        : record.conflicts.length > 0
-          ? 'conflict'
-          : failure?.kind === 'offline' || !this.ports.environment.isOnline()
-            ? 'offline'
-            : failure?.kind === 'error'
-              ? 'error'
+      : isStarted && record.conflicts.length > 0
+        ? 'conflict'
+        : failure?.kind === 'offline' || !this.ports.environment.isOnline()
+          ? 'offline'
+          : failure?.kind === 'error'
+            ? 'error'
+            : !isStarted
+              ? 'loading'
               : this.pendingKeys(record).length > 0 ? 'pending' : 'synced'
     return {
       state,
       account: this.account,
+      generation: this.accountKey ? record.generation : null,
       lastSyncedAt: this.accountKey ? record.lastSyncedAt : null,
-      pendingKeys: record.enabled ? this.pendingKeys(record) : [],
+      pendingKeys: isStarted ? this.pendingKeys(record) : [],
       conflicts: structuredClone(record.conflicts),
       error: state === 'error' && failure?.kind === 'error' ? { code: failure.code, message: failure.message } : null,
-      stoppedReason: record.stoppedReason,
     }
   }
-}
-
-function offerFrom<D>(remote: SyncedDocument<D>): EnableOffer<D> {
-  return remote.revision === null
-    ? { kind: 'absent', generation: remote.generation }
-    : { kind: 'present', generation: remote.generation, revision: remote.revision, document: remote.document, updatedAt: remote.updatedAt }
 }

@@ -3,11 +3,12 @@
    * Settings → Agent profile → MCP servers: each server's record (name,
    * address, how it signs in), never a credential. Adding probes the address
    * through a host this client talks to, so the record carries the auth the
-   * server asks for.
+   * server asks for. A server can be removed, or turned off on every host and
+   * kept in the profile.
    */
   import { tick } from "svelte";
   import { LoaderCircle, Plus } from "@lucide/svelte";
-  import { agentProfileKeyOf } from "@solus/contracts/agent-profile";
+  import { agentProfileKeyOf, type AgentProfileKey } from "@solus/contracts/agent-profile";
   import { agentProfileLocalStore } from "../../../contexts";
   import { requestInputFocus } from "../../../lib/inputFocus";
   import { Button } from "../../ui/button";
@@ -16,7 +17,7 @@
   import SettingsRow from "../SettingsRow.svelte";
   import { integrationsStore } from "../integrations.store.svelte";
   import { customUrlProblem, probeRefusal, urlHost } from "../lib/integration-labels";
-  import { authKindLabel, integrationEntryOf, type AgentProfileSections } from "./lib/agent-profile-entries";
+  import { authKindLabel, entriesWithDisabled, integrationEntryOf, type AgentProfileSections } from "./lib/agent-profile-entries";
 
   interface Props {
     integrations: AgentProfileSections["integrations"];
@@ -77,8 +78,13 @@
     }
   }
 
-  function remove(key: Parameters<typeof agentProfileLocalStore.removeKey>[0]) {
+  function remove(key: AgentProfileKey) {
     agentProfileLocalStore.removeKey(key);
+    requestInputFocus();
+  }
+
+  function setDisabled(key: AgentProfileKey, disabled: boolean) {
+    agentProfileLocalStore.setEntry(...entriesWithDisabled(agentProfileLocalStore.storedEntries, [key], disabled));
     requestInputFocus();
   }
 </script>
@@ -127,8 +133,14 @@
   {/if}
   {#each integrations as integration (integration.slug)}
     <SettingsRow label={integration.name} description="{urlHost(integration.url)} · {authKindLabel(integration.auth)}" testId="agent-profile-server">
+      {#snippet labelExtra()}
+        {#if integration.disabled}<span class="ml-2 text-chrome-dense text-muted-foreground">Off on every host</span>{/if}
+      {/snippet}
       {#snippet control()}
-        <Button variant="ghost" size="sm" class="text-muted-foreground hover:text-destructive" onclick={() => remove(agentProfileKeyOf(integration))} aria-label="Remove {integration.name}">Remove</Button>
+        <span class="flex gap-1.5">
+          <Button variant="ghost" size="sm" onclick={() => setDisabled(agentProfileKeyOf(integration), !integration.disabled)} aria-label="{integration.disabled ? 'Enable' : 'Disable'} {integration.name}">{integration.disabled ? "Enable" : "Disable"}</Button>
+          <Button variant="ghost" size="sm" class="text-muted-foreground hover:text-destructive" onclick={() => remove(agentProfileKeyOf(integration))} aria-label="Remove {integration.name}">Remove</Button>
+        </span>
       {/snippet}
     </SettingsRow>
   {/each}

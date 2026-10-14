@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { fileMediaView, isMarkdownFile, resolveMarkdownRelativePath } from '../../apps/mobile/src/features/files/lib/file-preview-kind'
 
 describe('native file preview kind', () => {
-  test('shows raster images and video inline, and opens SVG and PDF in the browser', () => {
+  test('shows raster images and video inline, and opens SVG and PDF in the platform viewer', () => {
     // WHY: React Native draws raster images only; an SVG or a PDF in an image
     // view would render nothing.
     expect(fileMediaView('/repo/shot.PNG')).toBe('image')

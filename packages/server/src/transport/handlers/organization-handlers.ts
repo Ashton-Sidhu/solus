@@ -23,19 +23,19 @@ export interface OrganizationHandlerDeps {
   /** Drop the share rows of a resource that left this host. */
   forgetResource: (resource: ShareResource) => Promise<void>
   events: HostEventPublisher
-  linkHostId: () => string | null
-  /** The Solus API the link names; null while unlinked. */
+  registeredHostId: () => string | null
+  /** The Solus API the registration names; null while unregistered. */
   apiUrl: () => string | null
   /** What waits to reach each organization, and the last delivery error. */
   delivery: () => { backlog: HostOrganizationsStatus['delivery']; error: string | null }
 }
 
-export function hostOrganizationsStatus(deps: Pick<OrganizationHandlerDeps, 'hostOrganizations' | 'linkHostId' | 'apiUrl' | 'delivery'>): HostOrganizationsStatus {
+export function hostOrganizationsStatus(deps: Pick<OrganizationHandlerDeps, 'hostOrganizations' | 'registeredHostId' | 'apiUrl' | 'delivery'>): HostOrganizationsStatus {
   const standing = deps.hostOrganizations.current()
   const delivery = deps.delivery()
   return {
-    linked: deps.linkHostId() !== null,
-    hostId: deps.linkHostId(),
+    registered: deps.registeredHostId() !== null,
+    hostId: deps.registeredHostId(),
     category: standing?.category ?? hostCategory(),
     owner: standing?.owner ?? null,
     organizations: standing?.organizations ?? [],

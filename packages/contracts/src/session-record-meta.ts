@@ -29,5 +29,6 @@ export function sessionMetaFromRecord(record: SessionRecord): SessionMeta {
     delegation: delegation && parentSessionId && rootSessionId
       ? { ...delegation, parentSessionId, rootSessionId }
       : undefined,
+    organizationId: record.organizationId,
   }
 }

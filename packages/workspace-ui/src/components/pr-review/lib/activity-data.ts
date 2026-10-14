@@ -9,7 +9,10 @@ import type {
   PrLabelActivityItem,
   ReviewThread,
 } from '@solus/contracts/providers'
+import type { FileDiffMetadata, Hunk } from '@pierre/diffs'
+import { quoteGitPath } from '@solus/client-core/git-path-name'
 import { labelChangeText } from '../../../lib/label-activity'
+import { parsePatchMetadata, patchFileChunks } from '../../../lib/pierre-diff'
 import type { PrArtifact } from './pr-artifacts'
 
 /**
@@ -232,7 +235,9 @@ export interface PrActivityTarget {
  * renders the snippet with the same engine the Diff tab uses.
  */
 export function hunkToPatch(filePath: string, hunk: string): string {
-  return `diff --git a/${filePath} b/${filePath}\n--- a/${filePath}\n+++ b/${filePath}\n${hunk}\n`
+  const oldPath = quoteGitPath(`a/${filePath}`)
+  const newPath = quoteGitPath(`b/${filePath}`)
+  return `diff --git ${oldPath} ${newPath}\n--- ${oldPath}\n+++ ${newPath}\n${hunk}\n`
 }
 
 /** Rendered rows in a bare hunk: every line after the `@@` header. */
@@ -251,31 +256,47 @@ export interface ActivityDiffPreview {
   hiddenAfterLineCount: number
 }
 
-function consumesOldLine(line: string): boolean {
-  return !line.startsWith('+') && !line.startsWith('\\')
+/** One row of a parsed hunk, as Pierre renders it. `text` keeps the line end
+ *  the parser read; a line with no line end is the last line of its file. */
+interface HunkRow {
+  prefix: ' ' | '-' | '+'
+  text: string
+  oldLine: number | null
+  newLine: number | null
 }
 
-function consumesNewLine(line: string): boolean {
-  return !line.startsWith('-') && !line.startsWith('\\')
-}
-
-function lineNumberAt(
-  contentLines: readonly string[],
-  start: number,
-  side: 'LEFT' | 'RIGHT',
-  target: number,
-): number {
-  let lineNumber = start
-  for (let index = 0; index < contentLines.length; index++) {
-    const consumesLine = side === 'LEFT'
-      ? consumesOldLine(contentLines[index])
-      : consumesNewLine(contentLines[index])
-    if (consumesLine) {
-      if (lineNumber === target) return index
-      lineNumber++
+/** The rows of a parsed hunk in the order Pierre renders them: each context
+ *  run, and each change with its deletions before its additions. */
+function hunkRows(file: FileDiffMetadata, hunk: Hunk): HunkRow[] {
+  const rows: HunkRow[] = []
+  const oldLine = (index: number) => hunk.deletionStart + index - hunk.deletionLineIndex
+  const newLine = (index: number) => hunk.additionStart + index - hunk.additionLineIndex
+  for (const content of hunk.hunkContent) {
+    if (content.type === 'context') {
+      for (let offset = 0; offset < content.lines; offset++) {
+        const deletionIndex = content.deletionLineIndex + offset
+        const additionIndex = content.additionLineIndex + offset
+        rows.push({ prefix: ' ', text: file.additionLines[additionIndex] ?? '', oldLine: oldLine(deletionIndex), newLine: newLine(additionIndex) })
+      }
+      continue
+    }
+    for (let offset = 0; offset < content.deletions; offset++) {
+      const index = content.deletionLineIndex + offset
+      rows.push({ prefix: '-', text: file.deletionLines[index] ?? '', oldLine: oldLine(index), newLine: null })
+    }
+    for (let offset = 0; offset < content.additions; offset++) {
+      const index = content.additionLineIndex + offset
+      rows.push({ prefix: '+', text: file.additionLines[index] ?? '', oldLine: null, newLine: newLine(index) })
     }
   }
-  return contentLines.length - 1
+  return rows
+}
+
+/** A row as unified diff text, with the marker git writes after a last line
+ *  that has no line end. */
+function rowLines(row: HunkRow): string[] {
+  if (row.text.endsWith('\n')) return [row.prefix + row.text.slice(0, -1)]
+  return [row.prefix + row.text, '\\ No newline at end of file']
 }
 
 /** Center a valid unified hunk on its review anchor. Each omitted side can be
@@ -287,83 +308,61 @@ export function activityDiffPreview(
   showBefore = false,
   showAfter = false,
 ): ActivityDiffPreview {
-  const lines = hunk.split('\n')
-  if (lines.at(-1) === '') lines.pop()
-  const header = lines[0] ?? ''
-  const headerMatch = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/.exec(header)
-  const contentLines = lines.slice(1)
-  if (!headerMatch || contentLines.length === 0) {
+  const file = parsePatchMetadata(hunkToPatch('preview', hunk))
+  const parsedHunk = file?.hunks[0]
+  const rows = file && parsedHunk ? hunkRows(file, parsedHunk) : []
+  if (!parsedHunk || rows.length === 0) {
     return { hunk, hiddenBeforeLineCount: 0, hiddenAfterLineCount: 0 }
   }
 
-  const anchorIndex = anchorLine === null
-    ? contentLines.length - 1
-    : lineNumberAt(
-        contentLines,
-        Number(headerMatch[side === 'LEFT' ? 1 : 2]),
-        side,
-        anchorLine,
-      )
+  const anchorRow = anchorLine === null
+    ? -1
+    : rows.findIndex((row) => (side === 'LEFT' ? row.oldLine : row.newLine) === anchorLine)
+  const anchorIndex = anchorRow === -1 ? rows.length - 1 : anchorRow
   const previewStart = Math.max(0, anchorIndex - ACTIVITY_DIFF_CONTEXT_LINES)
-  const previewEnd = Math.min(contentLines.length, anchorIndex + ACTIVITY_DIFF_CONTEXT_LINES + 1)
+  const previewEnd = Math.min(rows.length, anchorIndex + ACTIVITY_DIFF_CONTEXT_LINES + 1)
   const start = showBefore ? 0 : previewStart
-  const end = showAfter ? contentLines.length : previewEnd
+  const end = showAfter ? rows.length : previewEnd
   const hiddenBeforeLineCount = previewStart
-  const hiddenAfterLineCount = contentLines.length - previewEnd
-  if (start === 0 && end === contentLines.length) {
+  const hiddenAfterLineCount = rows.length - previewEnd
+  if (start === 0 && end === rows.length) {
     return { hunk, hiddenBeforeLineCount, hiddenAfterLineCount }
   }
 
-  const omittedLines = contentLines.slice(0, start)
-  const visibleLines = contentLines.slice(start, end)
-  const oldStart = Number(headerMatch[1]) + omittedLines.filter(consumesOldLine).length
-  const newStart = Number(headerMatch[2]) + omittedLines.filter(consumesNewLine).length
-  const oldCount = visibleLines.filter(consumesOldLine).length
-  const newCount = visibleLines.filter(consumesNewLine).length
-  const previewHeader = `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@${headerMatch[3] ?? ''}`
+  const omittedRows = rows.slice(0, start)
+  const visibleRows = rows.slice(start, end)
+  const oldStart = parsedHunk.deletionStart + omittedRows.filter((row) => row.oldLine !== null).length
+  const newStart = parsedHunk.additionStart + omittedRows.filter((row) => row.newLine !== null).length
+  const oldCount = visibleRows.filter((row) => row.oldLine !== null).length
+  const newCount = visibleRows.filter((row) => row.newLine !== null).length
+  const context = parsedHunk.hunkContext ? ` ${parsedHunk.hunkContext}` : ''
+  const previewHeader = `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@${context}`
 
   return {
-    hunk: [previewHeader, ...visibleLines].join('\n'),
+    hunk: [previewHeader, ...visibleRows.flatMap(rowLines)].join('\n'),
     hiddenBeforeLineCount,
     hiddenAfterLineCount,
   }
 }
 
-function headerPath(line: string): string | null {
-  const encoded = line.slice(4)
-  if (encoded === '/dev/null') return null
-  let path = encoded
-  if (encoded.startsWith('"')) {
-    try {
-      // SAFETY: This branch accepts a JSON-style quoted git path; malformed
-      // values throw into the fallback below instead of entering the path map.
-      path = JSON.parse(encoded) as string
-    } catch {
-      return null
-    }
-  }
-  return path.startsWith('a/') || path.startsWith('b/') ? path.slice(2) : path
+/** The hunk of a parsed file that holds `line` on `side`, as unified diff text. */
+function hunkAtLine(file: FileDiffMetadata, line: number, side: 'LEFT' | 'RIGHT'): string | null {
+  const hunk = file.hunks.find((candidate) => {
+    const start = side === 'LEFT' ? candidate.deletionStart : candidate.additionStart
+    const count = side === 'LEFT' ? candidate.deletionCount : candidate.additionCount
+    return line >= start && line < start + count
+  })
+  if (!hunk) return null
+  const header = hunk.hunkSpecs?.replace(/\r?\n$/, '')
+    ?? `@@ -${hunk.deletionStart},${hunk.deletionCount} +${hunk.additionStart},${hunk.additionCount} @@`
+  return [header, ...hunkRows(file, hunk).flatMap(rowLines)].join('\n')
 }
 
-function hunkAtLine(chunk: string, line: number, side: 'LEFT' | 'RIGHT'): string | null {
-  const lines = chunk.split('\n')
-  for (let index = 0; index < lines.length; index++) {
-    const match = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(lines[index])
-    if (!match) continue
-    const start = Number(match[side === 'LEFT' ? 1 : 3])
-    const count = Number(match[side === 'LEFT' ? 2 : 4] ?? 1)
-    if (line < start || line >= start + count) continue
-    let end = index + 1
-    while (end < lines.length && !lines[end].startsWith('@@ ')) end++
-    while (lines[end - 1] === '') end--
-    return lines.slice(index, end).join('\n')
-  }
-  return null
-}
-
-/** Find each review thread's complete containing hunk in one cheap pass over
- * the PR patch. This supplies context after GitHub's shorter comment hunk
- * without parsing and retaining the entire diff for every mounted feed. */
+/** Find each review thread's complete containing hunk. This supplies context
+ * after GitHub's shorter comment hunk. A mounted feed must not parse and keep
+ * the whole PR patch: only the file headers are parsed, then only the files
+ * that have a thread. Those parses are cached by file text in
+ * `parsePatchMetadata`, so a feed that renders again does not parse again. */
 export function reviewThreadDiffHunks(
   patch: string | null,
   events: readonly ActivityEvent[],
@@ -377,20 +376,20 @@ export function reviewThreadDiffHunks(
     if (threads) threads.push(event.thread)
     else threadsByPath.set(event.thread.filePath, [event.thread])
   }
+  if (threadsByPath.size === 0) return hunks
 
-  for (const chunk of patch.split(/(?=^diff --git )/m)) {
-    if (!chunk.startsWith('diff --git ')) continue
-    const paths = chunk
-      .split('\n')
-      .filter((line) => line.startsWith('--- ') || line.startsWith('+++ '))
-      .map(headerPath)
-      .filter((path): path is string => path !== null)
-    for (const path of paths) {
-      for (const thread of threadsByPath.get(path) ?? []) {
-        if (thread.line === null) continue
-        const hunk = hunkAtLine(chunk, thread.line, thread.side)
-        if (hunk) hunks.set(thread.id, hunk)
-      }
+  for (const chunk of patchFileChunks(patch)) {
+    const threads = [
+      ...(threadsByPath.get(chunk.path) ?? []),
+      ...(chunk.previousPath ? threadsByPath.get(chunk.previousPath) ?? [] : []),
+    ]
+    if (threads.length === 0) continue
+    const file = parsePatchMetadata(chunk.text)
+    if (!file) continue
+    for (const thread of threads) {
+      if (thread.line === null) continue
+      const hunk = hunkAtLine(file, thread.line, thread.side)
+      if (hunk) hunks.set(thread.id, hunk)
     }
   }
   return hunks

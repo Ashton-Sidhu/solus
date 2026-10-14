@@ -185,6 +185,51 @@ test('real paired credentials work offline, are revocable, and cannot open the c
   expect(await local.verify(session!.accessToken)).toBeNull()
 })
 
+// docs/plans/host-sharing.md §9.8: the link secret is the whole credential, at the host and the
+// Solus API alike. A guest with no token opens the one shared resource with the link's role as
+// it stands now, and loses it when the link is regenerated or removed.
+test('a link guest opens only its shared work with the secret alone, with the link\'s current role', async () => {
+  const { Hono } = await import('hono')
+  const { workspaceCredentialsForHttp } = await import('@solus/server/transport/solus-api/admission')
+  const { createSolusApiRouter } = await import('@solus/server/transport/solus-api/router')
+  const { SolusApiClient, WorkspaceRequestError } = await import('@solus/contracts/solus-api/client')
+  const credentials = workspaceCredentialsForHttp({ isApiMode: true, solusApi: { operations, serviceId: 'api' }, resolveShareSecret: secret => shares.resolveLinkSecret(secret) })
+  const router = createSolusApiRouter({ credentials, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['works'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => '{}' })
+  const app = new Hono().route('/v1', router)
+  const fetchImpl = (input: string | URL, init?: RequestInit) => app.fetch(new Request(String(input), init))
+  const guestOf = (shareSecret: string) => new SolusApiClient({ baseUrl: () => 'https://api.example', contextKey: () => 'maya', acquireSource: async () => null, fetchImpl, shareSecret, guestIdentity: { guestId: 'maya-guest-0000001', displayName: 'Maya' } })
+
+  const work = await operations.createWork(context, { title: 'Linked', type: 'doc', content: 'One' }, 'linked-work-key-0001')
+  const other = await operations.createWork(context, { title: 'Not linked', type: 'doc', content: 'Secret' }, 'linked-work-key-0002')
+  const resource = { kind: 'work', id: work.id } as const
+  const link = (await shares.setLink({ resource, role: 'viewer' }, context.principal))!
+  const maya = guestOf(link.secret)
+
+  expect((await maya.request('getWork', { id: work.id })).content).toBe('One')
+  expect((await maya.request('listWorks')).items.map(item => item.id)).toEqual([work.id])
+  await expect(maya.request('getWork', { id: other.id })).rejects.toMatchObject({ status: 404 })
+  await expect(maya.request('updateWork', { id: work.id, body: { content: 'Viewer edit', expectedContentVersion: work.contentVersion }, version: work.version })).rejects.toMatchObject({ status: 404 })
+  await expect(maya.request('createWork', { body: { title: 'Guest root', type: 'doc', content: '' }, key: 'guest-root-work-key-01' })).rejects.toMatchObject({ status: 403 })
+
+  // A role change keeps the secret and applies at once, to the credential she already holds.
+  expect((await shares.setLink({ resource, role: 'editor' }, context.principal))?.secret).toBe(link.secret)
+  const saved = await maya.request('updateWork', { id: work.id, body: { content: 'Maya was here', expectedContentVersion: work.contentVersion }, version: work.version })
+  expect(saved.content).toBe('Maya was here')
+
+  // A regenerated link ends what the old secret opened, and the old secret opens nothing new.
+  const rotated = (await shares.setLink({ resource, role: 'editor', regenerate: true }, context.principal))!
+  await expect(maya.request('getWork', { id: work.id })).rejects.toMatchObject({ status: 404 })
+  await expect(guestOf(link.secret).request('getWork', { id: work.id })).rejects.toMatchObject({ status: 401, code: 'UNAUTHENTICATED' })
+  const again = guestOf(rotated.secret)
+  expect((await again.request('getWork', { id: work.id })).content).toBe('Maya was here')
+  await shares.setLink({ resource, role: null }, context.principal)
+  await expect(again.request('getWork', { id: work.id })).rejects.toMatchObject({ status: 404 })
+
+  // No secret, no token: nothing is asked of the API.
+  const nobody = new SolusApiClient({ baseUrl: () => 'https://api.example', contextKey: () => 'nobody', acquireSource: async () => null, fetchImpl })
+  await expect(nobody.request('getWork', { id: work.id })).rejects.toBeInstanceOf(WorkspaceRequestError)
+})
+
 test.skipIf(process.env.SOLUS_DB !== 'postgres')('a database timeout cancels the request and returns a retryable API error', async () => {
   const { withWorkspaceBudget } = await import('@solus/server/data/workspace/request-budget')
   const query = withWorkspaceBudget(async () => database.getDatabase().all(sql`SELECT pg_sleep(6)`))

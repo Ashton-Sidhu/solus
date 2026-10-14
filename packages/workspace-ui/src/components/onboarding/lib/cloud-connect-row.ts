@@ -4,9 +4,10 @@ import type { UplinkStatus } from '@solus/contracts/uplink'
 /**
  * The "Connect to Solus Cloud" row on the optional last stage of desktop
  * onboarding. One action does both halves: sign this app in to a Solus account
- * (the browser approves it), then link this Mac so it is reachable from any
- * browser signed in to that account. Optional, because the desktop app is
- * local by default; the row never blocks the landing.
+ * (the browser approves it, and the sign-in registers this Mac to the account),
+ * then link this Mac so it is reachable from any browser signed in to that account
+ * through a Cloudflare tunnel. Optional, because the desktop app is local by
+ * default; the row never blocks the landing.
  */
 
 export interface CloudConnectRow {
@@ -29,7 +30,7 @@ export function cloudConnectRow(input: {
     return { state: 'busy', detail: 'Finish signing in in your browser' }
   }
   if (account.kind === 'signed-in') {
-    if (uplink?.linked) return { state: 'done', detail: `${account.identity.email} · This Mac is linked` }
+    if (uplink?.link.linked) return { state: 'done', detail: `${account.identity.email} · Reachable from the internet` }
     if (isLinking) return { state: 'busy', detail: 'Linking this Mac…' }
     return { state: 'available', detail: account.identity.email, actionLabel: 'Link this Mac' }
   }

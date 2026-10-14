@@ -1,4 +1,4 @@
-import { uplinkErrorBodySchema, type UplinkLinkConfig } from '@solus/contracts/uplink'
+import { uplinkErrorBodySchema, type HostRegistration } from '@solus/contracts/uplink'
 import type { SessionRecord, SessionRecordUpsert } from '@solus/contracts/types'
 import type { z } from 'zod'
 import { createLogger } from '../logger'
@@ -17,9 +17,9 @@ import {
   type DeliveryDestination,
 } from './outbox/outbox-store'
 import { ackMirrorThrough, listMirror, mirrorDestinations, onMirrorChanged } from './mirror/mirror-log'
-import { admissionIdFor, onSessionRecordChanged } from '../data/sessions/session-records'
+import { admissionIdFor, getSessionRecord, onSessionRecordChanged } from '../data/sessions/session-records'
 import { isChat } from '@solus/contracts/chat'
-import { LOCAL_ORGANIZATION_ID } from '../admission/principal'
+import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../admission/principal'
 import type { FetchLike } from '../admission/access-tokens'
 import { DelegationError } from './delegations'
 import {
@@ -44,7 +44,7 @@ const log = createLogger('main', 'runner-delivery')
  * session-record report, a mirror log row — names its organization and the person
  * whose work produced it, decided by the producer and persisted with the row. A
  * delivery pass visits every destination with something queued and sends it with that
- * person's delegated access token, to the Solus API the link names, stream by
+ * person's delegated access token, to the Solus API the registration names, stream by
  * stream in sequence order, and acknowledges by sequence for that destination alone.
  *
  * A person this host does not act for yet is taken on with the access token their
@@ -63,11 +63,11 @@ export interface DeliveryDelegations {
 }
 
 export interface RunnerDeliveryDeps {
-  /** The current link, or null when the host is not linked. */
-  link: () => UplinkLinkConfig | null
+  /** The current registration, or null when the host is not registered. */
+  registration: () => HostRegistration | null
   delegations: DeliveryDelegations
-  /** Who delivers rows no person was named for: the person who linked the host; null while that is unknown. */
-  linker: () => string | null
+  /** Who delivers rows no person was named for: the host's owner; null while that is unknown. */
+  owner: () => string | null
   fetchImpl?: FetchLike
   setTimeoutFn?: typeof setTimeout
   clearTimeoutFn?: typeof clearTimeout
@@ -143,8 +143,8 @@ export class RunnerDelivery {
     this.clearTimer()
   }
 
-  /** The link changed (made, removed, superseded): every destination is tried again. */
-  linkChanged(): void {
+  /** The registration changed (made, removed, superseded): every destination is tried again. */
+  registrationChanged(): void {
     this.waiting.clear()
     this.attempts = 0
     this.followRecords()
@@ -166,12 +166,12 @@ export class RunnerDelivery {
   }
 
   /**
-   * Hear record changes only while there is a link to report them to. A listener
-   * makes every record write read the row back, several times a turn, and an
-   * unlinked host would drop the report anyway.
+   * Hear record changes only while there is a registration to report them under. A
+   * listener makes every record write read the row back, several times a turn, and an
+   * unregistered host would drop the report anyway.
    */
   private followRecords(): void {
-    const wanted = !this.stopped && this.deps.link() !== null
+    const wanted = !this.stopped && this.deps.registration() !== null
     if (wanted && !this.unfollowRecords) {
       this.unfollowRecords = onSessionRecordChanged((record) => this.reportSession(record))
     } else if (!wanted && this.unfollowRecords) {
@@ -199,20 +199,20 @@ export class RunnerDelivery {
    * Nothing here retries on its own; the caller tries again later.
    */
   async call<T>(destination: DeliveryDestination, path: string, body: RunnerRequestBody, schema: z.ZodType<T>): Promise<RunnerCallResult<T>> {
-    const link = this.deps.link()
-    if (!link?.apiUrl) return { kind: 'no-grant' }
+    const apiUrl = this.deps.registration()?.apiUrl
+    if (!apiUrl) return { kind: 'no-grant' }
     const token = await this.tokenFor(destination)
     if (token.kind !== 'ok') return { kind: 'no-grant' }
-    const answered = await this.post(link.apiUrl, token.token, destination.organizationId, path, body)
+    const answered = await this.post(apiUrl, token.token, destination.organizationId, path, body)
     if (answered.kind !== 'ok') return answered
     const parsed = schema.safeParse(answered.body)
     if (!parsed.success) return { kind: 'refused', status: 200, error: `unreadable answer from ${path}` }
     return { kind: 'ok', body: parsed.data }
   }
 
-  /** The Solus API the link names, or null while the host is not linked to one. */
+  /** The Solus API the registration names, or null while the host is not registered. */
   apiUrl(): string | null {
-    return this.deps.link()?.apiUrl ?? null
+    return this.deps.registration()?.apiUrl ?? null
   }
 
   /** The delegated token a destination's person lends this host now, or null while there is none to be had. */
@@ -223,16 +223,30 @@ export class RunnerDelivery {
 
 
   /**
+   * Report records that changed with no change event: the boot sweep marks the
+   * turns its previous process left `running` as `interrupted` in one update
+   * (`markOwnRunningSessionRecordsInterrupted`), before this delivery follows
+   * records. Each is reported as any other change is, and waits in the queue
+   * until the delivery starts.
+   */
+  async reportStoredSessions(sessionIds: readonly string[]): Promise<void> {
+    for (const sessionId of sessionIds) {
+      const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
+      if (record && record.runnerHostId === null) this.reportSession(record)
+    }
+  }
+
+  /**
    * A change to one of this host's own records: a published record of an
    * organization is queued for that organization, delivered by its owner, and sent
-   * when the host is linked. A Local or unpublished record stays this machine's own.
+   * when the host is registered. A Local or unpublished record stays this machine's own.
    */
   private reportSession(record: SessionRecord): void {
-    const link = this.deps.link()
-    if (!link) return
+    const registration = this.deps.registration()
+    if (!registration) return
     if (record.organizationId === LOCAL_ORGANIZATION_ID || record.publication !== 'published') return
     // A session the API admitted before its provider started names that admission, which is where its owner comes from (organization-vms §3).
-    const report: SessionRecordUpsert = { ...record, runnerHostId: link.hostId }
+    const report: SessionRecordUpsert = { ...record, runnerHostId: registration.hostId }
     const admissionId = admissionIdFor(record.sessionId)
     if (admissionId) report.admissionId = admissionId
     // A chat is organization work, but not the organization's to open until its owner shares it (plan 004 D14).
@@ -248,7 +262,10 @@ export class RunnerDelivery {
    */
   async deliverSessionReport(recordId: string, timeoutMs = 10_000): Promise<boolean> {
     const deadline = (this.deps.now?.() ?? Date.now()) + timeoutMs
-    while (sessionReportQueued(recordId)) {
+    // A session the Solus API admitted has its first report queued only when its record
+    // is written here, which an agent's first tool call can come before.
+    const unwritten = async () => admissionIdFor(recordId) !== undefined && !await getSessionRecord(ANY_ORGANIZATION, recordId)
+    while (sessionReportQueued(recordId) || await unwritten()) {
       if ((this.deps.now?.() ?? Date.now()) >= deadline || this.stopped) return false
       await new Promise<void>((resolve) => {
         const timer = setTimeout(done, 1_000)
@@ -290,7 +307,7 @@ export class RunnerDelivery {
         await this.runCycleListeners()
         if (this.wanted) this.schedule(0)
         else if (this.waiting.size > 0) this.schedule(WAITING_POLL_MS)
-      } else if (outcome === 'unlinked') {
+      } else if (outcome === 'unregistered') {
         this.attempts = 0
       } else {
         this.attempts += 1
@@ -326,12 +343,12 @@ export class RunnerDelivery {
    * every stream. A destination waiting for its person is skipped until its retry
    * time; a destination that fails stops the pass so the backoff applies.
    */
-  private async deliverAll(): Promise<'idle' | 'unlinked' | 'failed'> {
-    const link = this.deps.link()
-    if (!link) return 'unlinked'
-    const apiUrl = link.apiUrl
+  private async deliverAll(): Promise<'idle' | 'unregistered' | 'failed'> {
+    const registration = this.deps.registration()
+    if (!registration) return 'unregistered'
+    const apiUrl = registration.apiUrl
     if (!apiUrl) {
-      this.fail('runner_no_api', new Error('This host was linked before it knew its Solus API. Link it again.'))
+      this.fail('runner_no_api', new Error('This host was registered before it knew its Solus API. Register it again.'))
       return 'failed'
     }
     const now = this.deps.now?.() ?? Date.now()
@@ -342,18 +359,18 @@ export class RunnerDelivery {
       const token = await this.tokenFor(destination)
       if (token.kind === 'waiting' || token.kind === 'dropped') continue
       if (token.kind === 'failed') { failed = true; continue }
-      const delivered = await this.deliverDestination(apiUrl, link.hostId, destination, token.token)
+      const delivered = await this.deliverDestination(apiUrl, registration.hostId, destination, token.token)
       if (delivered !== 'ok') failed = true
     }
     return failed ? 'failed' : 'idle'
   }
 
   /**
-   * The token a destination's rows travel with. An empty person is the host's linker.
+   * The token a destination's rows travel with. An empty person is the host's owner.
    * A refusal drops what the person's work left queued here: removal ends everything.
    */
   private async tokenFor(destination: DeliveryDestination): Promise<TokenOutcome> {
-    const actor = destination.actorUserId || this.deps.linker()
+    const actor = destination.actorUserId || this.deps.owner()
     if (!actor) return this.wait(destination, 'nobody to deliver as yet')
     try {
       const token = await this.deps.delegations.accessToken(actor, { organizationId: destination.organizationId }, { kind: 'api' })

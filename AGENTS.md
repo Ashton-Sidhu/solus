@@ -564,9 +564,14 @@ dispatches to them; `tests/unit/server-module-boundaries.test.ts` names every ex
     performance-sensitive.
   - `session-*` — session lifecycle, transcript, and events.
   - `hosts/` — one reactive `Host` per host. A reader names the owner of the host
-    it means: `hosts.find(run.serverId)` for a tab, `hosts.device` for this
+    it means: `hosts.get(run.serverId)` for a tab, `hosts.device` for this
     device, `hosts.runOn` for the Run on picker. Never keep one copy of a host
-    fact that follows "the" host (`solus/explicit-host-choice`).
+    fact that follows "the" host (`solus/explicit-host-choice`). An id this
+    client does not know gives a `Host` whose `presence` is `gone`; its calls
+    fail and nothing throws, so a reader needs no guard
+    (`docs/plans/workspace-and-machines.md` §6).
+  - `account/account-sync.store` — the account's sync on this client: one owner
+    for the settings and the agent profile engines (plans/018 decision 9).
   - `tasks.store`, `works.store`, `automations.store`, `prs.store`, `browser.store`,
     `git-status.store`, `plan.store`, `settings.context`, `toast.store` — feature state.
 - **`lib/`:** cross-feature utilities for diffs, git actions, keybindings, highlighting,

@@ -10,6 +10,7 @@
   import AgentLinkRow from "../AgentLinkRow.svelte";
   import TranscriptCardAction from "../TranscriptCardAction.svelte";
   import type { AgentConversationRef } from "@solus/contracts/types";
+  import { serverConnections } from "@solus/client-core/server-connections";
   import { getWorkspaceContext } from "../../../contexts";
   import { agentLabel } from "../../../lib/agentAvailability";
   import {
@@ -52,10 +53,11 @@
 
   const session = getWorkspaceContext();
 
-  // The other agent lives on the same host as the caller's tab — every RPC must
-  // route through that tab's server, not the local default.
+  // The caller's tab routes RPCs to the caller's host. A session started on
+  // another host is read and opened there; any other on the caller's host.
   const api = $derived(session.apiFor(tabId));
-  const serverId = $derived(session.sessionFor(tabId)?.run.serverId);
+  const serverId = $derived(ref.serverId ?? session.sessionFor(tabId)?.run.serverId);
+  const sessionApi = $derived(ref.serverId ? serverConnections.apiFor(ref.serverId) : api);
 
   /** The session's provider has not started yet (or never did) —
    *  nothing to open, prompt, or track. */
@@ -63,7 +65,7 @@
 
   $effect(() => {
     if (neverStarted) return;
-    return agentConversationMeta.retain(ref.sessionId, api, serverId);
+    return agentConversationMeta.retain(ref.sessionId, sessionApi, serverId);
   });
 
   const meta = $derived(agentConversationMeta.metaFor(ref.sessionId));

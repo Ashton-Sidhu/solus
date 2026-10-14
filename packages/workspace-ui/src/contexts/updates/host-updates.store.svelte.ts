@@ -7,7 +7,8 @@ import type { HostUpdateStatus } from '@solus/contracts/host-update-types'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { SetupAgent } from '@solus/contracts/types'
 
-export interface HostUpdateNotice { target: 'solus' | SetupAgent; version: string }
+/** One release the client can install on one host: Solus itself, or a provider's CLI. */
+export interface HostUpdateItem { serverId: string; target: 'solus' | SetupAgent; version: string }
 type ManualOutcome = 'up-to-date' | 'error'
 
 type UpdateConnections = Pick<typeof serverConnections, 'resolveId' | 'statusFor' | 'capabilitiesFor' | 'connectedServerIds' | 'onConnectionCreated' | 'onStatusChange'> & {
@@ -36,7 +37,6 @@ export class HostUpdatesStore {
   constructor(private readonly connections: UpdateConnections = serverConnections) {}
   readonly statuses = new SvelteMap<string, HostUpdateStatus>()
   readonly operations = new SvelteMap<string, ServerUpdateOperation>()
-  readonly updateErrors = new SvelteMap<string, string>()
   readonly updateRequests = new SvelteSet<string>()
   readonly errors = new SvelteMap<string, string>()
   private readonly epochs = new Map<string, number>()
@@ -79,14 +79,16 @@ export class HostUpdatesStore {
     else this.operations.delete(serverId)
   }
 
-  async install(serverId: string): Promise<void> { await this.update(serverId, 'hostInstallUpdate') }
-  async cancelUpdate(serverId: string): Promise<void> { await this.update(serverId, 'hostCancelUpdate') }
+  /** Asks the host to start its Solus update; `hostUpdater` is the one caller. Answers why it did not start, or null. */
+  install(serverId: string): Promise<string | null> { return this.update(serverId, 'hostInstallUpdate') }
+  /** Answers why the update was not cancelled, or null. */
+  cancelUpdate(serverId: string): Promise<string | null> { return this.update(serverId, 'hostCancelUpdate') }
 
-  private async update(serverId: string, method: 'hostInstallUpdate' | 'hostCancelUpdate'): Promise<void> {
+  private async update(serverId: string, method: 'hostInstallUpdate' | 'hostCancelUpdate'): Promise<string | null> {
     serverId = this.connections.resolveId(serverId)
-    if (this.updateRequests.has(serverId) || this.connections.statusFor(serverId) !== 'connected') return
-    if (!this.hostUpdateFor(serverId)?.serverUpdate?.supported) return
-    this.updateErrors.delete(serverId)
+    if (this.updateRequests.has(serverId)) return 'An update request is already in progress.'
+    if (this.connections.statusFor(serverId) !== 'connected') return 'The host is not connected.'
+    if (!this.hostUpdateFor(serverId)?.serverUpdate?.supported) return 'Solus cannot be updated on this host from here.'
     this.updateRequests.add(serverId)
     this.errors.delete(serverId)
     const epoch = this.epochs.get(serverId) ?? 0
@@ -95,12 +97,11 @@ export class HostUpdatesStore {
       const status = await this.connections.apiFor(serverId)[method]()
       if ((this.epochs.get(serverId) ?? 0) === epoch && this.connections.statusFor(serverId) === 'connected'
         && this.generations.get(serverId) === generation) this.saveStatus(serverId, status)
+      return null
     } catch (error) {
-      if ((this.epochs.get(serverId) ?? 0) === epoch) {
-        const message = error instanceof Error ? error.message : String(error)
-        this.errors.set(serverId, message)
-        this.updateErrors.set(serverId, message)
-      }
+      const message = error instanceof Error ? error.message : String(error)
+      if ((this.epochs.get(serverId) ?? 0) === epoch) this.errors.set(serverId, message)
+      return message
     } finally { this.updateRequests.delete(serverId) }
   }
 
@@ -156,17 +157,28 @@ export class HostUpdatesStore {
     return count
   }
 
-  pendingNoticeFor(serverId: string): HostUpdateNotice | null {
-    const status = this.hostUpdateFor(serverId)
-    if (!status || isServerUpdateActive(this.operations.get(serverId))) return null
-    const targets = [{ target: 'solus' as const, check: status.check }, ...status.providers.map((p) => ({ target: p.agent, check: p.check }))]
-    for (const { target, check } of targets) {
-      if (check.kind === 'available' && this.notices.get(`${serverId}:${target}`) !== check.latestVersion) return { target, version: check.latestVersion }
+  /**
+   * Every release this client can install on the host now, Solus first. A Solus
+   * release the host cannot install from here is a fact for the host page, not
+   * an item: nothing would happen when the user pressed Update.
+   */
+  installableUpdatesFor(serverId: string): HostUpdateItem[] {
+    serverId = this.connections.resolveId(serverId)
+    const status = this.statuses.get(serverId)
+    if (!status || isServerUpdateActive(this.operations.get(serverId))) return []
+    const items: HostUpdateItem[] = []
+    if (status.check.kind === 'available' && status.serverUpdate?.supported) items.push({ serverId, target: 'solus', version: status.check.latestVersion })
+    for (const provider of status.providers) {
+      if (provider.check.kind === 'available') items.push({ serverId, target: provider.agent, version: provider.check.latestVersion })
     }
-    return null
+    return items
   }
 
-  markNoticeShown(serverId: string, notice: HostUpdateNotice): void { this.notices.set(`${serverId}:${notice.target}`, notice.version) }
+  /** Every installable release on every connected host. */
+  get installableUpdates(): HostUpdateItem[] { return [...this.statuses.keys()].flatMap((serverId) => this.installableUpdatesFor(serverId)) }
+
+  isNoticeShown(item: HostUpdateItem): boolean { return this.notices.get(`${item.serverId}:${item.target}`) === item.version }
+  markNoticeShown(item: HostUpdateItem): void { this.notices.set(`${item.serverId}:${item.target}`, item.version) }
   manualCheckOutcomeFor(serverId: string): ManualOutcome | null { return this.outcomes.get(serverId) ?? null }
   markManualCheckReported(serverId: string): void { this.outcomes.delete(serverId) }
 

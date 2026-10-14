@@ -8,9 +8,10 @@
   import DiffPanel from "../diff/DiffPanel.svelte";
   import DiffLoadingSkeleton from "../diff/DiffLoadingSkeleton.svelte";
   import SinceReviewBar from "./SinceReviewBar.svelte";
+  import type { DiffViewedFiles } from "../diff/lib/viewed-toggle";
 
   let { review, pr, reviewTabId, paneId, getCtx, getApi, projectPath, headless,
-    onClose, clearCommitScope, diffPanelRef = $bindable(null),
+    onClose, clearCommitScope, diffPanelRef = $bindable(null), viewedFiles = null,
   }: {
     review: PrReviewState;
     pr: PrReviewTarget;
@@ -23,6 +24,8 @@
     onClose: () => void;
     clearCommitScope: () => void;
     diffPanelRef?: DiffPanel | null;
+    /** The code host's "Viewed" marks, when it keeps them. */
+    viewedFiles?: DiffViewedFiles | null;
   } = $props();
   const diffViewLoading = $derived(review.commitScope
     ? review.commitDiffLoading && review.commitDiffPatch === null
@@ -99,6 +102,7 @@
         : review.threads}
     onThreadReply={(threadId, body) => review.replyToThread(threadId, body)}
     onThreadResolve={(threadId, resolved) => review.resolveThread(threadId, resolved)}
+    viewedFiles={review.commitScope ? null : viewedFiles}
   />
   {/if}
 </div>

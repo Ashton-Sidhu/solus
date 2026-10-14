@@ -25,6 +25,7 @@ function detectSource(): UplinkAccountSource | null {
     issueEnrollmentTicket: () => native.uplinkIssueEnrollmentTicket(),
     loadOrganizationDirectory: (organizationId) => native.uplinkOrganizationDirectory(organizationId),
     startManagedHost: (hostId) => native.uplinkStartManagedHost(hostId),
+    removeHost: (hostId) => native.uplinkRemoveHost(hostId),
   }
 }
 

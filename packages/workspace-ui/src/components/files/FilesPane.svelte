@@ -93,7 +93,7 @@
 
   let { serverId, api, ctx, cwd, isDark, requestedFile, bordered = true, onClose }: Props = $props();
   /** Creating, renaming, deleting, and editing files is the host's to give (permissions.md): a guest reads them. */
-  const canWriteFiles = $derived(hosts.find(serverId)?.me.may("host.files.write") ?? true);
+  const canWriteFiles = $derived(hosts.get(serverId)?.me.may("host.files.write") ?? true);
 
   const session = getWorkspaceContext();
 

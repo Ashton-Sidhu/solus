@@ -37,17 +37,16 @@ class Hosts {
     })
   }
 
-  /** The host with this id (or installation id). Opens its connection on first use. */
-  get(serverId: string): Host {
-    return this.#hostFor(serverConnections.factsFor(serverId))
-  }
-
-  /** The host for an id this client may not know (deleted, or never listed
-   *  here); null rather than a connection to nowhere. */
-  find(serverId: string | null | undefined): Host | null {
-    if (!serverId) return null
-    const resolvedId = serverConnections.resolveId(serverId)
-    return serverConnections.isKnownServer(resolvedId) ? this.get(resolvedId) : null
+  /**
+   * The host with this id (or installation id); null only when there is no id.
+   * Opens its connection on first use. An id this client does not know gives a
+   * host whose `presence` is `gone`: it has no roles and every call to it fails
+   * (docs/plans/workspace-and-machines.md §6).
+   */
+  get(serverId: string): Host
+  get(serverId: string | null | undefined): Host | null
+  get(serverId: string | null | undefined): Host | null {
+    return serverId ? this.#hostFor(serverConnections.factsFor(serverId)) : null
   }
 
   /** The host on the machine the user holds: the desktop's local server. Null on
@@ -71,8 +70,8 @@ class Hosts {
     return this.device ?? this.runOn
   }
 
-  /** Which planes a host serves, for an id that may not be known. An unknown
-   *  host serves nothing, so no gate offers work or records on it. */
+  /** Which planes a host serves. A gone host serves nothing, so no gate offers
+   *  work or records on it. */
   rolesFor(serverId: string | null | undefined): readonly HostRole[] {
     if (!serverId) return ALL_HOST_ROLES
     // Asking which planes a host serves never opens a connection to it: a host
@@ -107,7 +106,7 @@ class Hosts {
 
   #assumedRoles(serverId: string): readonly HostRole[] {
     if (isSolusApiId(serverId)) return COLLABORATION_ONLY_ROLES
-    return serverConnections.isKnownServer(serverId) ? ALL_HOST_ROLES : NO_HOST_ROLES
+    return serverConnections.presenceOf(serverId) === 'present' ? ALL_HOST_ROLES : NO_HOST_ROLES
   }
 }
 

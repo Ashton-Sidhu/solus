@@ -5,7 +5,7 @@
  * a rename, which POSIX guarantees is atomic, so a reader never observes a
  * half-updated link.
  */
-import { existsSync, mkdirSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync } from 'node:fs'
+import { existsSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 
 export function versionsDir(runtimeDir: string): string {
@@ -53,10 +53,6 @@ export function activateVersion(runtimeDir: string, version: string): void {
 
 export function removeVersion(runtimeDir: string, version: string): void {
   rmSync(versionDir(runtimeDir, version), { recursive: true, force: true })
-}
-
-export function ensureRuntimeDirs(runtimeDir: string): void {
-  mkdirSync(versionsDir(runtimeDir), { recursive: true })
 }
 
 /** Moves a verified, extracted release from its download staging directory

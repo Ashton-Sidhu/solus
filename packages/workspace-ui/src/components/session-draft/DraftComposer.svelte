@@ -20,7 +20,7 @@
    * the destination strip, the toolbar and the slash commands are
    * the same wherever a new session starts.
    */
-  interface Props extends Pick<PaneSurfaceProps, "onAttachFile" | "onScreenshot" | "onDesignMode"> {
+  interface Props extends Pick<PaneSurfaceProps, "onAttachFile" | "onScreenshot"> {
     draft: SessionDraft;
     paneId: string;
     active: boolean;
@@ -59,7 +59,6 @@
     projectPickerAnchor = null,
     onAttachFile,
     onScreenshot,
-    onDesignMode,
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -157,7 +156,6 @@
         selection={modelSelection}
         onAttachFile={attachFile}
         {onScreenshot}
-        {onDesignMode}
         chatSourceId={!destinationFixed && isChat(draft.run.workingDirectory) ? draft.id : null}
       />
     {/snippet}

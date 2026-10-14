@@ -156,6 +156,11 @@ describe('exchange tag on a tool result', () => {
     expect(parseExchangeTag(`Prompt dispatched to [s1](session://open?sessionId=zzz).\n${formatExchangeTag(tag)}`)).toEqual(tag)
   })
 
+  test('names the host of a session that runs on another host, so its card opens it there', () => {
+    const tag = { messageId: 'm1', sessionId: 's1', provider: 'claude-code' as const, serverId: 'install-omarchy' }
+    expect(parseExchangeTag(formatExchangeTag(tag))).toEqual(tag)
+  })
+
   test('a result without the tag names nothing', () => {
     expect(parseExchangeTag('Created session [x](session://open?provider=codex&sessionId=abc).')).toBeNull()
   })

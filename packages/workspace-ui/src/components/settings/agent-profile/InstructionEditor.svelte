@@ -10,7 +10,7 @@
   import { requestInputFocus } from "../../../lib/inputFocus";
   import { Button } from "../../ui/button";
   import { Textarea } from "../../ui/textarea";
-  import { decodeFileText, encodeFileEntry } from "./lib/agent-profile-entries";
+  import { decodeFileText, encodeFileEntry, withDisabled } from "./lib/agent-profile-entries";
 
   interface Props {
     provider: SeatProvider;
@@ -28,7 +28,8 @@
   async function save() {
     saving = true;
     try {
-      agentProfileLocalStore.setEntry(await encodeFileEntry(provider, path, draft));
+      // An edit keeps the file off when it was off.
+      agentProfileLocalStore.setEntry(withDisabled(await encodeFileEntry(provider, path, draft), entry?.disabled === true));
     } finally {
       saving = false;
     }

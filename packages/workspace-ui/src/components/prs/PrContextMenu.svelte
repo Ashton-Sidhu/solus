@@ -94,7 +94,11 @@
       <ContextMenu.Separator />
       {#each actions as action (action.kind)}
         {@const Icon = ACTION_ICON[action.kind]}
-        <ContextMenu.Item onSelect={() => select(() => onAction(action.kind))}>
+        <ContextMenu.Item
+          disabled={!!action.disabledReason}
+          title={action.disabledReason}
+          onSelect={() => select(() => onAction(action.kind))}
+        >
           <Icon />
           {action.menuLabel}
           <ContextMenu.Shortcut>⇧{action.key}</ContextMenu.Shortcut>

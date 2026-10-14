@@ -51,7 +51,7 @@ export function focusLeadingComposer(router: { leadingPane: { id: string }; focu
 
 export function togglePageRecording(entry: BrowserPageEntry, focusComposer?: () => void): void {
   if (entry.page.recording) stopPageRecording(entry, undefined, focusComposer)
-  else if (hosts.find(entry.serverId)?.supports('browserRecording') && !entry.page.devToolsOpen) {
+  else if (hosts.get(entry.serverId)?.supports('browserRecording') && !entry.page.devToolsOpen) {
     startPageRecording(entry)
   }
 }
@@ -98,7 +98,7 @@ export function browserRecordingCommands(focusComposer?: () => void): Command[] 
       run: () => stopPageRecording(entry, undefined, focusComposer),
     }]
   }
-  if (!hosts.find(entry.serverId)?.supports('browserRecording') || entry.page.devToolsOpen) return []
+  if (!hosts.get(entry.serverId)?.supports('browserRecording') || entry.page.devToolsOpen) return []
   return [{
     id: 'browser-start-recording',
     label: 'Start recording',

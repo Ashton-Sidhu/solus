@@ -16,10 +16,13 @@ const ORGANIZATIONS: AccountOrganization[] = [
   { organizationId: 'org_a', name: 'Acme', role: 'member', mayCreateManagedHost: false, policy: { allowsCloudHosts: true, allowsPersonalHosts: false, syncAllInsights: true } },
   { organizationId: 'org_b', name: 'Beta', role: 'owner', mayCreateManagedHost: false, policy: { allowsCloudHosts: true, allowsPersonalHosts: true, syncAllInsights: true } },
 ]
-const UNLINKED: UplinkStatus = { linked: false }
-const LINKED: UplinkStatus = { linked: true, link: { hostId: 'h1', issuer: 'https://app.solus.sh', jwksUrl: 'https://app.solus.sh/api/auth/jwks', directoryUrl: 'https://app.solus.sh', hostname: 'h-h1.solus.sh', proxiedPort: 34118, connectionGeneration: 1, apiUrl: 'https://solus-sh-api.fly.dev' }, state: { observed: 'online' } }
+const UNREGISTERED: UplinkStatus = { registration: { registered: false }, link: { linked: false } }
+const LINKED: UplinkStatus = {
+  registration: { registered: true, registration: { hostId: 'h1', issuer: 'https://app.solus.sh', jwksUrl: 'https://app.solus.sh/api/auth/jwks', directoryUrl: 'https://app.solus.sh', generation: 1, apiUrl: 'https://solus-sh-api.fly.dev' }, owner: { userId: 'u1', email: 'owner@example.test' } },
+  link: { linked: true, tunnel: { hostname: 'h-h1.solus.sh', proxiedPort: 34118 }, state: { observed: 'online' } },
+}
 const standing = (overrides: Partial<HostOrganizationsStatus> = {}): HostOrganizationsStatus => ({
-  linked: false, hostId: null, category: 'self-hosted', owner: null, organizations: [], insightsOptIn: [],
+  registered: false, hostId: null, category: 'self-hosted', owner: null, organizations: [], insightsOptIn: [],
   attachedAt: null, apiUrl: null, delivery: [], deliveryError: null, ...overrides,
 })
 
@@ -37,7 +40,7 @@ function scriptedPrompter(answers: string[]): Prompter & { asked: string[] } {
   }
 }
 
-function fakeDeps(prompter: Prompter | null, current = { link: UNLINKED, standing: standing() }) {
+function fakeDeps(prompter: Prompter | null, current = { uplink: UNREGISTERED, standing: standing() }) {
   const lines: string[] = []
   const connects: Array<{ options: ConnectOptions; choice: unknown }> = []
   const providers: Provider[] = []
@@ -47,10 +50,10 @@ function fakeDeps(prompter: Prompter | null, current = { link: UNLINKED, standin
     log: (line) => lines.push(line),
     connect: async (options: ConnectOptions, reporter: ConnectReporter) => {
       // Without a code the real connect signs in and asks the reporter; with one it asks nothing.
-      const choice = options.code ? null : await reporter.choose(ORGANIZATIONS, state.link)
+      const choice = options.code ? null : await reporter.choose(ORGANIZATIONS, state.uplink)
       connects.push({ options, choice })
-      state = { link: LINKED, standing: standing({ linked: true, hostId: 'h1', attachedAt: choice && typeof choice === 'object' && 'organizationId' in choice ? 1 : options.code ? 1 : null, organizations: [{ organizationId: 'org_a', name: 'Acme', shared: true, policy: ORGANIZATIONS[0]!.policy }], apiUrl: 'https://solus-sh-api.fly.dev' }) }
-      return state.link
+      state = { uplink: LINKED, standing: standing({ registered: true, hostId: 'h1', attachedAt: choice && typeof choice === 'object' && 'organizationId' in choice ? 1 : options.code ? 1 : null, organizations: [{ organizationId: 'org_a', name: 'Acme', shared: true, policy: ORGANIZATIONS[0]!.policy }], apiUrl: 'https://solus-sh-api.fly.dev' }) }
+      return state.uplink
     },
     status: async () => state,
     pairLines: async () => ['PAIRING DETAILS'],
@@ -103,21 +106,25 @@ describe('solus setup and solus connect', () => {
 
   test('a linked server is offered another organization, not a second link; running setup again changes nothing by default', async () => {
     const prompter = scriptedPrompter([''])
-    const { deps, connects } = fakeDeps(prompter, { link: LINKED, standing: standing({ linked: true, attachedAt: 5 }) })
+    const { deps, connects } = fakeDeps(prompter, { uplink: LINKED, standing: standing({ registered: true, attachedAt: 5 }) })
     await onboard({ dataDir: '/tmp/solus-test', mode: 'setup' }, deps)
     expect(prompter.asked[0]).toBe('How will you use this server? [pair, organization, later]')
     expect(connects).toEqual([])
   })
 
   test('status names the kind, the attachment, the API, and what waits, never a credential', () => {
-    expect(describeConnection({ link: UNLINKED, standing: standing() })).toEqual(['Solus: not linked. Clients connect to this server directly; its work stays here.'])
-    const text = describeConnection({ link: LINKED, standing: standing({ linked: true, attachedAt: 1, apiUrl: 'https://solus-sh-api.fly.dev', organizations: [{ organizationId: 'org_a', name: 'Acme', shared: true, policy: ORGANIZATIONS[0]!.policy }], delivery: [{ organizationId: 'org_a', pending: 3, failed: 1 }], deliveryError: 'The Solus API answered 503' }) }).join('\n')
+    expect(describeConnection({ uplink: UNREGISTERED, standing: standing() })).toEqual(['Solus: not registered. Clients connect to this server directly; its work stays here.'])
+    const text = describeConnection({ uplink: LINKED, standing: standing({ registered: true, attachedAt: 1, apiUrl: 'https://solus-sh-api.fly.dev', organizations: [{ organizationId: 'org_a', name: 'Acme', shared: true, policy: ORGANIZATIONS[0]!.policy }], delivery: [{ organizationId: 'org_a', pending: 3, failed: 1 }], deliveryError: 'The Solus API answered 503' }) }).join('\n')
     expect(text).toContain('self-hosted server')
     expect(text).toContain('Organization work: Acme')
     expect(text).toContain('Solus API: https://solus-sh-api.fly.dev')
     expect(text).toContain('Waiting for Acme: 3 queued, 1 refused')
     expect(text).not.toMatch(/sht_|token/i)
-    expect(describeConnection({ link: LINKED, standing: standing({ linked: true }) }).join('\n')).toContain('not attached. New work here stays on this server')
+    expect(text).toContain('Solus: registered to owner@example.test')
+    expect(text).toContain('Reachable from the internet: h-h1.solus.sh — online')
+    expect(describeConnection({ uplink: LINKED, standing: standing({ registered: true }) }).join('\n')).toContain('not attached. New work here stays on this server')
+    // Registered and not linked: the server is reached on its network, and says so.
+    expect(describeConnection({ uplink: { ...LINKED, link: { linked: false } }, standing: standing({ registered: true }) }).join('\n')).toContain('Reachable from the internet: local network only (not linked)')
   })
 
   test('a link code names its own account plane; a bare ticket uses the one setup was given', () => {

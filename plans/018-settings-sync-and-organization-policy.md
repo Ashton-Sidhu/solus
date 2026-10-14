@@ -67,8 +67,31 @@ Decision 1 is approved by the user. Decisions 2–6 are proposed implementation 
    migrations into one migration per database. The migration steps in §3.5 and Stage 4
    are history.
 
-Keep decisions 1, 7, and 8 fixed during implementation. The other proposals make the plan
-concrete and can be changed during review.
+9. **Signed in is synced — approved 2026-10-12:** replaces decision 2. Signed in to
+   Solus Cloud, personal settings sync through the account, with no switch per
+   device. Sign-in is the consent: the same rule plan 020 §10 made for the agent
+   profile, which carries the more sensitive material. The device fields of §3.2 are
+   the answer to "this computer is different", not a switch. At sign-in the client
+   reads the account: a document with content is adopted; an absent or empty one is
+   created from this device's portable preferences, with no prompt. "Replace with this
+   device" is the one explicit action, "Clear synced settings": it increases the
+   generation and reseeds from the clearing device, and other devices adopt that copy
+   when they next read. The two documents stay apart (settings, a few KB, read by
+   clients; the profile, up to 16 MB, read by every host), each with its own clear
+   action, under one engine and one policy. `DocumentSync` loses the opt-in: no `off`
+   state, `enabled` flag, offer, choice, `turnOff`, or `stoppedReason`; its ports
+   gain `localCopy(purpose)`, this device's copy as the seed or as what the account's
+   copy replaces. One account sync owner per client (`contexts/account/
+   account-sync.store.svelte.ts`; `features/account/account-sync.ts` on mobile)
+   holds both engines and gives Settings → Account & sync one status. That tab
+   (`SettingsTabAccount`, route `account`) holds: who is signed
+   in, one sync status with both documents' conflicts and the two clear actions, and
+   one row per host with its account link and what it holds of the profile. The Agent
+   profile tab keeps only content. Mobile mirrors this as an Account screen. Grilled
+   and decided with the maintainer on 2026-10-12.
+
+Keep decisions 1, 7, 8, and 9 fixed during implementation. The other proposals make the
+plan concrete and can be changed during review.
 
 ## 2. Current state and evidence
 
@@ -458,8 +481,9 @@ Implement a transport-neutral `SettingsSync` in client-core. Inject authenticate
 request, storage, online/focus notifications, and a clock. Svelte and React Native use
 adapters over this same state machine; they must not each implement conflict rules.
 
-States: signed out, off, loading, synced, pending, offline, conflict, and error. Expose
-last confirmed sync time. Never label an optimistic local edit as synced.
+States: signed out, loading, synced, pending, offline, conflict, and error (decision 9
+removed `off`). Expose last confirmed sync time. Never label an optimistic local edit as
+synced.
 
 - Local profile and consent keys include cloud origin and account user ID. Anonymous
   preferences have a separate key. On account switch, cancel work and invalidate late
@@ -541,8 +565,10 @@ organization-governed work.
 Desktop and web share `SettingsPage.svelte`; native adds equivalent settings screens.
 Keep the web client's one wide workspace layout.
 
-- **Personal:** portable preferences, sign-in status, “Sync settings on this device”,
-  last sync/error state, pending changes, and clear-cloud action. Works without a host.
+- **Account & sync** (decision 9; the tab's existing label, component renamed from Personal): sign-in status, one sync status for settings
+  and the agent profile with both documents' conflicts, the two clear actions, and one
+  row per host with its account link and what it holds of the profile. Works without a
+  host. Portable preferences stay on their own tabs.
 - **Device:** device-only controls and local overrides such as an installed font.
 - **Host:** selected-host operator settings; retain host admission and connection state.
 - **Organization:** explicit organization picker; current rules and their source.

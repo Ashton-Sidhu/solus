@@ -1,4 +1,17 @@
 import { parsePatchFiles, type FileDiffMetadata } from '@pierre/diffs'
+import { decodeGitPath } from '@solus/client-core/git-path-name'
+
+/**
+ * Give a file that the parser read its real paths. The parser keeps git's
+ * quotes and escapes in `name` and `prevName` (`caf\303\251.ts`), and the
+ * host sends real paths. This changes the file in place: use it once, on the
+ * parser's own result, before the result goes into a cache.
+ */
+export function withRealPaths(file: FileDiffMetadata): FileDiffMetadata {
+  file.name = decodeGitPath(file.name)
+  if (file.prevName) file.prevName = decodeGitPath(file.prevName)
+  return file
+}
 
 /**
  * Rebase a partial diff's hunk row offsets into the renderer's compact space.
@@ -205,7 +218,7 @@ export function parsePatchMetadata(patchStr: string): FileDiffMetadata | null {
   if (parsed === undefined) {
     try {
       const file = parsePatchFiles(patchStr, patchCacheKey(patchStr))[0]?.files[0]
-      parsed = file ? compactPartialHunkOffsets(file) : null
+      parsed = file ? compactPartialHunkOffsets(withRealPaths(file)) : null
     } catch {
       parsed = null
     }
@@ -226,7 +239,7 @@ export function parsePatchFileList(patchStr: string): FileDiffMetadata[] {
   try {
     return parsePatchFiles(patchStr, patchCacheKey(patchStr))
       .flatMap((part) => part.files)
-      .map(compactPartialHunkOffsets)
+      .map((file) => compactPartialHunkOffsets(withRealPaths(file)))
   } catch {
     return []
   }

@@ -26,23 +26,13 @@ import { allowClientAttachmentReads } from '@solus/desktop-main/client-attachmen
 const log = createLogger('main', 'file-handlers')
 
 export interface FileDeps {
-  /** The desktop workspace window used by dialogs, screenshots, and design mode. */
+  /** The desktop workspace window used by dialogs and screenshots. */
   getWorkspaceWindow(): BrowserWindow | null
   hideAppWindow(): void
   /** Used by takeScreenshot to restore + focus the window after capturing. */
   showAndFocusWorkspaceWindow(): void
-  /** Used by enterDesignMode to make the window invisible to screen capture. */
-  setWorkspaceWindowOpacity(opacity: number): void
-  expandDesignModeWindow(bounds: { x: number; y: number; width: number; height: number }): void
-  /** Restores the window after design mode. */
-  restoreDesignModeWindow(): void
-  /** Leaves design mode and restores the window's original bounds. */
-  exitDesignModeWindow(): void
   bumpScreenshotCounter(): number
-  bumpDesignModeCounter(): number
   bumpPasteCounter(): number
-  /** Returns the work-area rect of the cursor's display, used as design-mode capture region. */
-  designModeCaptureRegion(): { x: number; y: number; width: number; height: number }
   /** Whether a capture can run now. Asks macOS for Screen Recording on first use. */
   ensureScreenCaptureAccess(): Promise<boolean>
 }
@@ -192,69 +182,6 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
       return null
     } finally {
       deps.showAndFocusWorkspaceWindow()
-    }
-  })
-
-  server.register('enterDesignMode', async () => {
-    const win = deps.getWorkspaceWindow()
-    if (!win) return null
-    if (!(await deps.ensureScreenCaptureAccess())) return null
-
-    const { x: wx, y: wy, width: ww, height: wh } = deps.designModeCaptureRegion()
-
-    deps.setWorkspaceWindowOpacity(0)
-    // One compositor frame is enough for the transparent window to disappear.
-    // Keeping this short makes the captured desktop and the overlay read as one
-    // continuous surface instead of exposing the desktop for 300ms.
-    await new Promise((r) => setTimeout(r, 50))
-
-    try {
-      const screenshotPath = join(tmpdir(), `solus-design-${Date.now()}.png`)
-      await runScreencapture(['-x', '-R', `${wx},${wy},${ww},${wh}`, screenshotPath], 10000)
-
-      if (!existsSync(screenshotPath)) return null
-
-      // Resize only after capture so the invisible window cannot affect the
-      // pixels being sampled. It stays hidden until the renderer has painted.
-      deps.expandDesignModeWindow({ x: wx, y: wy, width: ww, height: wh })
-      const buf = readFileSync(screenshotPath)
-      const designIdx = deps.bumpDesignModeCounter()
-      return {
-        id: crypto.randomUUID(),
-        name: `design ${designIdx}.png`,
-        path: screenshotPath,
-        dataUrl: `data:image/png;base64,${buf.toString('base64')}`,
-        size: buf.length,
-      }
-    } catch {
-      return null
-    }
-  })
-
-  server.register('designModeReady', () => {
-    deps.restoreDesignModeWindow()
-  })
-
-  server.register('exitDesignMode', () => {
-    deps.exitDesignModeWindow()
-  })
-
-  server.register('submitDesignAnnotations', async (args) => {
-    const [data] = args
-    try {
-      const saved = writeDataUrlToTmp(data.dataUrl, 'solus-design-annotated')
-      if (!saved) return null
-      return {
-        id: crypto.randomUUID(),
-        type: 'image',
-        name: `design annotated.png`,
-        path: saved.filePath,
-        mimeType: 'image/png',
-        dataUrl: data.dataUrl,
-        size: saved.buf.length,
-      }
-    } catch {
-      return null
     }
   })
 

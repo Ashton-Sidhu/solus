@@ -1,4 +1,4 @@
-import { INITIAL_HISTORY_TURNS, requestSessionHistoryPage } from '@solus/client-core/session-history-page'
+import { requestSessionHistoryPage } from '@solus/client-core/session-history-page'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { Message, SessionMeta } from '@solus/contracts/types'
 import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
@@ -49,9 +49,4 @@ export async function readSessionRecordPage(workspace: SurfaceContext, serverId:
     serverId,
   }, page, await loadArtifactFileBodies((workId, version) => workspace.worksStore.history.bodyAtVersion(workId, version, serverId), history))
   return { messages: result.messages, before: result.before ?? null, pendingMessages: result.pendingMessages }
-}
-
-/** The newest page alone, for a reader that shows no older history. */
-export async function loadSessionRecordTranscript(workspace: SurfaceContext, serverId: string, meta: SessionMeta): Promise<Message[]> {
-  return (await readSessionRecordPage(workspace, serverId, meta, { turnLimit: INITIAL_HISTORY_TURNS })).messages
 }

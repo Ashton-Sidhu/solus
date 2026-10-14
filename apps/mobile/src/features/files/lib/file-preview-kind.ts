@@ -21,7 +21,7 @@ export function fileMediaView(path: string): FileMediaView | null {
   if (AUDIO_FILE_PATTERN.test(path)) return 'audio'
   const media = mediaTypeFor(path)
   if (!media) return null
-  // React Native draws raster images only; SVG and PDF open in the browser.
+  // React Native `Image` draws raster images only; SVG and PDF open in the platform viewer.
   if (media.kind === 'image') return media.mime === 'image/svg+xml' ? 'document' : 'image'
   return media.kind === 'video' ? 'video' : 'document'
 }

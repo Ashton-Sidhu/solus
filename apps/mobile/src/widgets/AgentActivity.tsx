@@ -17,47 +17,15 @@ import {
   type LiveActivityComponent,
   type LiveActivityLayout,
 } from "expo-widgets";
+import { AGENT_ACTIVITY_NAME, type AgentActivityCard, type AgentActivityPhase, type AgentActivityRow } from "@solus/contracts/uplink";
 
-type LiveActivityEnvironment = Parameters<LiveActivityComponent<AgentActivityProps>>[1];
-
-export type AgentActivityPhase =
-  | "starting"
-  | "running"
-  | "waiting_for_approval"
-  | "waiting_for_input"
-  /** A provider limit parks the turn; it resumes by itself (Solus `rate_limited`). */
-  | "limited"
-  | "completed"
-  | "failed"
-  | "stale";
-
-export interface AgentActivityRowProps {
-  /** The Solus host; T3 calls it an environment. */
-  readonly hostId: string;
-  /** The Solus session; T3 calls it a thread. */
-  readonly sessionId: string;
-  readonly projectTitle: string;
-  readonly threadTitle: string;
-  readonly modelTitle: string;
-  readonly phase: AgentActivityPhase;
-  readonly status: string;
-  readonly updatedAt: string;
-  readonly deepLink: string;
-}
-
-export interface AgentActivityProps {
-  readonly title: string;
-  readonly subtitle: string;
-  readonly activeCount: number;
-  readonly updatedAt: string;
-  readonly activities: ReadonlyArray<AgentActivityRowProps>;
-}
+type LiveActivityEnvironment = Parameters<LiveActivityComponent<AgentActivityCard>>[1];
 
 // This function is serialized into the widget extension's JS bundle, so it
 // must stay self-contained: no references to module-scope helpers, only the
 // imported view/modifier factories.
 export function AgentActivity(
-  props: AgentActivityProps,
+  props: AgentActivityCard,
   environment: LiveActivityEnvironment,
 ): LiveActivityLayout {
   "widget";
@@ -71,22 +39,21 @@ export function AgentActivity(
   // (T3 patches it in); hierarchical styles already follow tinted hosts.
   const monochrome = false;
 
-  // The Lock Screen card wears the app's own surface and text
-  // (src/theme/theme-colors.ts: canvas, text, textMuted, accent) in the
-  // system appearance, as the app does, instead of the default black material.
-  // The Dynamic Island is always black, so it keeps the hierarchical styles.
-  const isLightScheme = environment.colorScheme === "light";
-  const cardBackground = isLightScheme ? "#fffffd" : "#262522";
-  const cardForeground: Foreground = isLightScheme ? "#2a2618" : "#f0ede5";
-  const cardMutedForeground: Foreground = isLightScheme ? "#7d7a6e" : "#9a978f";
-  const cardAccent: Foreground = isLightScheme ? "#d97757" : "#e68e6b";
+  // The Lock Screen card always wears the app's dark theme
+  // (src/theme/theme-colors.ts SOLUS_DARK_THEME_COLORS: canvas, text,
+  // textMuted), in light and dark system appearance alike, instead of
+  // the default black material. The Dynamic Island is always black, so it
+  // keeps the hierarchical styles.
+  const cardBackground = "#262522";
+  const cardForeground: Foreground = "#f0ede5";
+  const cardMutedForeground: Foreground = "#9a978f";
 
-  // Status tints are the app thread list's (thread-list-v2-items.tsx): the
+  // Status tints are the app thread list's dark ones (thread-list-v2-items.tsx): the
   // warning and danger foregrounds for approval, limits and failures, indigo
   // for input, sky for working, and the workspace's complete green for done.
   const phaseTint = (phase: AgentActivityPhase | undefined): Foreground => {
     if (environment.isLuminanceReduced) {
-      return secondaryForeground;
+      return cardMutedForeground;
     }
     if (monochrome) {
       return primaryForeground;
@@ -94,19 +61,19 @@ export function AgentActivity(
     switch (phase) {
       case "waiting_for_approval":
       case "limited":
-        return isLightScheme ? "#965f10" : "#f0c070"; // warningForeground
+        return "#f0c070"; // dark warningForeground
       case "waiting_for_input":
-        return isLightScheme ? "#4f46e5" : "#a5b4fc"; // indigo-600 / indigo-300
+        return "#a5b4fc"; // indigo-300
       case "failed":
-        return isLightScheme ? "#a8503f" : "#f08a84"; // errorForeground
+        return "#f08a84"; // dark errorForeground
       case "completed":
-        return isLightScheme ? "#5a9e6f" : "#6fc884"; // --solus-status-complete
+        return "#6fc884"; // dark --solus-status-complete
       case "stale":
-        return secondaryForeground;
+        return cardMutedForeground;
       case "starting":
       case "running":
       default:
-        return isLightScheme ? "#0284c7" : "#38bdf8"; // sky-600 / sky-400
+        return "#38bdf8"; // sky-400
     }
   };
 
@@ -121,7 +88,7 @@ export function AgentActivity(
   // Past the stale date the system stops vouching for the content, so every
   // in-flight row degrades to "stale" rather than claiming an agent is still
   // working. Terminal phases keep their own state.
-  const activities: ReadonlyArray<AgentActivityRowProps> = environment.isStale
+  const activities: ReadonlyArray<AgentActivityRow> = environment.isStale
     ? props.activities.map((row) =>
         row.phase === "completed" || row.phase === "failed"
           ? row
@@ -227,7 +194,7 @@ export function AgentActivity(
   // status label. Single-line keeps rows inside the expanded island's hard
   // height budget (~160pt) and lets the banner fit more agents.
   const renderCompactRow = (
-    row: AgentActivityRowProps,
+    row: AgentActivityRow,
     textColor: Foreground,
     mutedColor: Foreground,
   ) => (
@@ -263,13 +230,13 @@ export function AgentActivity(
     </HStack>
   );
 
-  // The Solus mark. `assetName` resolves the template image set bundled in
-  // the widget extension's asset catalog (plugins/withWidgetLogoAsset.cjs).
-  // Image views only honor `resizable` directly, so it is sized through a
-  // container frame and tinted through the container's foreground style. The
-  // mark is square.
-  const renderLogo = (height: number, color: Foreground) => (
-    <HStack modifiers={[frame({ width: height, height }), foregroundStyle(color)]}>
+  // The Solus mark in its brand colours. `assetName` resolves the full-colour
+  // image set bundled in the widget extension's asset catalog
+  // (plugins/withWidgetLogoAsset.cjs); it renders as the original image, so
+  // it takes no tint. Image views only honor `resizable` directly, so it is
+  // sized through a container frame. The mark is square.
+  const renderLogo = (height: number) => (
+    <HStack modifiers={[frame({ width: height, height })]}>
       <Image assetName="SolusMark" modifiers={[resizable()]} />
     </HStack>
   );
@@ -290,7 +257,7 @@ export function AgentActivity(
             overflow beyond the visible rows is inferable from the count. */}
         <ZStack>
           <HStack spacing={0} alignment="center">
-            {renderLogo(13, cardAccent)}
+            {renderLogo(13)}
             <Spacer minLength={0} />
           </HStack>
           <HStack spacing={6} alignment="center">
@@ -335,7 +302,7 @@ export function AgentActivity(
     bannerSmall: (
       <VStack alignment="leading" spacing={5} modifiers={[padding({ all: 10 })]}>
         <HStack spacing={7} alignment="center">
-          {renderLogo(14, primaryForeground)}
+          {renderLogo(14)}
           <Text
             modifiers={[
               font({ weight: "bold", size: 13 }),
@@ -366,7 +333,7 @@ export function AgentActivity(
         ) : null}
       </VStack>
     ),
-    compactLeading: renderLogo(14, tint),
+    compactLeading: renderLogo(14),
     compactTrailing: (
       <Text modifiers={[font({ weight: "semibold", size: 11 }), foregroundStyle(tint)]}>
         {attentionRow
@@ -382,10 +349,10 @@ export function AgentActivity(
     minimal:
       (attentionRow || failedRow || allDone) && heroRow
         ? renderGlyph(phaseSymbol(heroRow.phase), 13, phaseTint(heroRow.phase))
-        : renderLogo(11, tint),
+        : renderLogo(11),
     expandedLeading: (
       <HStack spacing={5} alignment="center" modifiers={[padding({ leading: 4, vertical: 4 })]}>
-        {renderLogo(15, tint)}
+        {renderLogo(15)}
         <Text modifiers={[font({ weight: "bold", size: 13 }), foregroundStyle(tint)]}>
           {allDone ? doneLabel : `${props.activeCount}`}
         </Text>
@@ -421,4 +388,4 @@ export function AgentActivity(
   };
 }
 
-export default createLiveActivity<AgentActivityProps>("AgentActivity", AgentActivity);
+export default createLiveActivity<AgentActivityCard>(AGENT_ACTIVITY_NAME, AgentActivity);

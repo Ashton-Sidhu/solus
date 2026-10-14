@@ -181,6 +181,9 @@ export interface PrStackLayer {
   /** Empty where the host left it out; a reader falls back to `headRef`. */
   title: string
   headRef: string
+  /** The layer's head commit. Absent where the host left it out; a stack
+   *  merge needs it for every open layer it lands. */
+  headSha?: string
   state: PullRequest['state']
   draft: boolean
 }
@@ -206,15 +209,91 @@ export type PrLifecycleAction =
   | 'enable-auto-merge'
   | 'disable-auto-merge'
   | 'revert'
+  /** Merge a stacked pull request and every open layer below it, in one host
+   *  operation. Only offered for a pull request in a stack (`stack`). */
+  | 'merge-stack'
+  /** Let the Actions workflow runs of a fork pull request start. The host
+   *  holds them until a maintainer approves them. */
+  | 'approve-workflows'
 /** The lifecycle actions that only move the state or draft flag, which the
- *  one `prUpdateLifecycle` write carries. Merge, auto-merge and revert take
- *  their own inputs and have their own writes. */
+ *  one `prUpdateLifecycle` write carries. Merge, auto-merge, revert, stack
+ *  merge and workflow approval take their own inputs and have their own writes. */
 export type PrStateAction = Extract<PrLifecycleAction, 'close' | 'reopen' | 'ready' | 'draft'>
 
 /** The pull request a revert opened on the host. */
 export interface PrRevertResult {
   number: number
   url: string
+}
+
+/** One open layer's head, as the viewer saw it before a stack merge. */
+export interface PrStackHead {
+  number: number
+  headSha: string
+}
+
+/** Merge `number` and every open layer below it in stack `stackNumber`. */
+export interface PrStackMergeRequest {
+  number: number
+  /** The stack the viewer saw `number` in. A different stack is a refusal. */
+  stackNumber: number
+  method: PrMergeMethod
+  /** The head of each open layer from the bottom up to `number`, as the viewer
+   *  saw them in `prGetStack`. The host refuses the merge if one moved. */
+  expectedHeads: PrStackHead[]
+}
+
+export interface PrStackMergeResult {
+  /** `merged`: the layers landed. `queued`: the host put them in its merge
+   *  queue, and they land when the queue passes them. */
+  status: 'merged' | 'queued'
+  /** Every layer the merge touched, bottom to top, as the host reports them
+   *  after the merge. */
+  pullRequests: PullRequest[]
+}
+
+/** A workflow run the host holds until a maintainer approves it. */
+export interface PrPendingWorkflowRun {
+  /** The host's run id. */
+  id: number
+  name: string
+  /** The run's page on the host; null where the host gave none. */
+  url: string | null
+}
+
+/** The workflow runs waiting for approval on a pull request's current head.
+ *  Empty for a pull request that is not open or does not come from a fork. */
+export interface PrPendingWorkflowRuns {
+  /** The head the runs belong to. Send it back to `prApproveWorkflowRuns`. */
+  headSha: string
+  runs: PrPendingWorkflowRun[]
+}
+
+export interface PrWorkflowApprovalResult {
+  /** How many runs the host approved. Zero when none were waiting. */
+  approved: number
+}
+
+/** The viewer's own review progress on one file, as the host keeps it.
+ *  `dismissed`: the viewer marked it viewed, and it changed after that. */
+export type PrViewedFileState = 'viewed' | 'unviewed' | 'dismissed'
+
+export interface PrViewedFile {
+  path: string
+  state: PrViewedFileState
+}
+
+export interface PrViewedFiles {
+  files: PrViewedFile[]
+  /** False when the pull request has more files than one read returns. A file
+   *  that is not in `files` then has an unknown state, not `unviewed`. */
+  complete: boolean
+}
+
+/** Mark one file viewed, or take the mark back. */
+export interface PrViewedFileChange {
+  path: string
+  viewed: boolean
 }
 
 /** Canonical lifecycle fields returned by a provider mutation. The mutation
@@ -241,6 +320,9 @@ export interface PrReviewCapabilities {
   reviewerRequests: boolean
   reviewerCandidates: boolean
   labelManagement: boolean
+  /** The host keeps which files the viewer marked viewed (`prViewedFiles`,
+   *  `prSetFilesViewed`). Absent from an older host, which reads as false. */
+  viewedFiles?: boolean
 }
 
 /** Operations the connected viewer may perform on this pull request. */

@@ -6,7 +6,7 @@
   import { copyText, toasts } from "../../lib/toasts";
   import { Button } from "../ui/button";
   import { formatRunElapsed, readRunLog } from "@solus/client-core/device-run-log";
-  import { runStageLabel } from "./lib/run-profiles";
+  import { runStageLabel } from "@solus/client-core/device-builds";
 
   /**
    * One build-and-run's output under the device toolbar (plan 016, S02). The
@@ -19,7 +19,8 @@
     serverId: string;
     runId: string;
     visible: boolean;
-    onClose: () => void;
+    /** Without it the build has no close control. */
+    onClose?: () => void;
     /** Its frame: a band under the device toolbar by default, a card on the Builds page. */
     class?: string;
   }
@@ -122,7 +123,7 @@
       <Button size="xs" variant="ghost" class="text-(--solus-text-secondary)" aria-expanded={isOpen} onclick={() => (isOpen ? (chosenOpen = false) : openLog())}>
         Log<ChevronDown class="transition-transform motion-reduce:transition-none {isOpen ? 'rotate-180' : ''}" />
       </Button>
-      <Button size="icon-xs" variant="ghost" aria-label="Close the build" onclick={onClose}><X /></Button>
+      {#if onClose}<Button size="icon-xs" variant="ghost" aria-label="Close the build" onclick={onClose}><X /></Button>{/if}
     </header>
     {#if run.error}
       <p class="text-chrome-dense mx-3 mb-2 rounded-md bg-[color-mix(in_oklab,var(--failure)_10%,transparent)] px-2.5 py-1.5 text-[var(--failure)]">{run.error}</p>

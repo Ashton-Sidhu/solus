@@ -38,14 +38,18 @@ const HOST_ACTION_OF_METHOD = {
   connectionsSetTrustLocalNetwork: 'host.local.reach',
   connectionsGeneratePairToken: 'host.local.reach',
   connectionsBootstrapDiscoveredServer: 'host.local.reach',
+  uplinkRegister: 'host.local.reach',
   uplinkLink: 'host.local.reach',
   uplinkUnlink: 'host.local.reach',
   uplinkDetachOrganization: 'host.local.reach',
   // Administers the machine: credentials, updates, host config.
   connectionsRevokeDevice: 'host.admin',
-  pairedHostsList: 'host.admin',
-  pairedHostsPair: 'host.admin',
-  pairedHostsForget: 'host.admin',
+  // Introductions give one host a token for another: a local owner's, never on a managed host (host-reach.md §4).
+  hostIntroductionsList: 'host.local.reach',
+  hostIntroductionIssue: 'host.local.reach',
+  hostIntroductionAccept: 'host.local.reach',
+  hostIntroductionForget: 'host.local.reach',
+  hostIntroductionAllow: 'host.local.reach',
   typeSafeKeySet: 'host.admin',
   configUpdate: 'host.admin',
   setProjectsBaseDirectory: 'host.admin',
@@ -74,8 +78,6 @@ const HOST_ACTION_OF_METHOD = {
   deviceHostTest: 'host.admin',
   deviceToolUpdate: 'host.admin',
   deviceHostRetry: 'host.admin',
-  deviceBuildImport: 'host.admin',
-  deviceBuildDelete: 'host.admin',
   // The machine's one GitHub, Google, Atlassian, or Cloudflare credential on a host; each
   // person's own row on the workspace service, where every member holds this leaf.
   googleConnect: 'host.admin.connections',
@@ -93,6 +95,7 @@ const HOST_ACTION_OF_METHOD = {
   // What a client needs to boot and keep its socket; nothing about the host leaks through them.
   connectionsGetServerInfo: 'host.connect',
   authRenew: 'host.connect',
+  accountPresent: 'host.connect',
   serverGetCapabilities: 'host.connect',
   activityLease: 'host.connect',
   listAttention: 'host.connect',
@@ -103,6 +106,9 @@ const HOST_ACTION_OF_METHOD = {
   modelProfilesStatus: 'host.models.read',
   // The session catalog. Each listing keeps only the sessions the caller may open (`filterVisible`).
   sessionShelfList: 'host.sessions.read',
+  // The card shows the statuses of sessions the caller can list.
+  liveActivityRegister: 'host.sessions.read',
+  liveActivityUnregister: 'host.sessions.read',
   sessionPullRequestsList: 'host.sessions.read',
   pinnedSessionsList: 'host.sessions.read',
   tasksSidebarSnapshot: 'host.sessions.read',
@@ -191,7 +197,7 @@ export const RESOURCE_VERB_OF_METHOD = {
   respondPermission: 'drive', respondQuestion: 'drive', rateLimitDecision: 'drive', cancelQueuedPrompt: 'drive',
   editQueuedPrompt: 'drive', sessionQueue: 'drive', sessionQueueChange: 'drive', presenceSetComposing: 'drive',
   writePlanFile: 'drive', attachFiles: 'drive', attachFilePaths: 'drive', attachUpload: 'drive', attachUploadToken: 'drive',
-  takeScreenshot: 'drive', pasteImage: 'drive', enterDesignMode: 'drive', submitDesignAnnotations: 'drive',
+  takeScreenshot: 'drive', pasteImage: 'drive',
   deviceOpen: 'drive', deviceClose: 'drive',
   // Sessions — editing the record
   setSessionTitle: 'edit', ensureBackgroundSessionTitle: 'edit', setSessionBranch: 'edit', sessionPullRequestLink: 'edit',

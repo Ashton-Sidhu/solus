@@ -41,6 +41,7 @@
     appendDiffErgonomicsLabel,
   } from "./lib/diff-ergonomics";
   import type { DiffReviewThread } from "./lib/interdiff-annotations";
+  import { buildViewedToggle, type DiffViewedFiles } from "./lib/viewed-toggle";
 
   // @pierre/diffs asks us to mount annotations as separate Svelte roots. Carry
   // this component's contexts into those roots so nested renderers such as
@@ -125,6 +126,8 @@
     onSymbolHit?: (filePath: string, hit: CodeSymbolHit) => void;
     /** What SCIP can say about the identifier: it decides the hover affordance and whether a gesture opens the card. */
     symbolAvailability?: (filePath: string, hit: CodeSymbolHit) => Promise<CodeSymbolAvailability>;
+    /** The code host's "Viewed" marks, for a pull request whose host keeps them. */
+    viewedFiles?: DiffViewedFiles | null;
   }
 
   let {
@@ -154,6 +157,7 @@
     onDeleteComment,
     onSymbolHit,
     symbolAvailability,
+    viewedFiles = null,
   }: Props = $props();
 
   // The in-progress draft, provided by the owning DiffPanel.
@@ -274,6 +278,14 @@
       codeView.scrollTo({ type: "item", id: filePath, align: "start" });
     }
   }
+  // As on GitHub, a file folds once it is viewed and unfolds when the mark
+  // is taken back.
+  function toggleViewed(filePath: string, viewed: boolean) {
+    viewedFiles?.toggle(filePath);
+    const item = codeView?.getItem(filePath);
+    if (item?.type === "diff" && (item.collapsed === true) !== viewed) toggleCollapse(filePath);
+  }
+
   function expandFormatHunks(filePath: string) {
     if (!codeView) return;
     const file = fileDiffs.find((candidate) => candidate.name === filePath);
@@ -473,6 +485,7 @@
       label.textContent = PLACEHOLDER_LABELS[kind];
       wrap.appendChild(label);
     }
+    if (viewedFiles) wrap.appendChild(buildViewedToggle(filePath, viewedFiles, toggleViewed));
     wrap.appendChild(buildCopyPathButton(filePath));
     const saveAsWorkBtn = buildSaveAsWorkButton(filePath);
     if (saveAsWorkBtn) wrap.appendChild(saveAsWorkBtn);
@@ -711,6 +724,27 @@
       void annotations.sync(codeView!, fileDiffs.map((file) => file.name), comments, reviewThreads, draft);
     });
     untrack(() => syncStickyContainerBackground());
+  });
+
+  // The host's viewed marks change on a toggle and when a read lands. Only the
+  // headers whose mark changed are drawn again.
+  const viewedShown = new Map<string, string>();
+  $effect(() => {
+    const marks = viewedFiles;
+    const states = fileDiffs.map((file) => [file.name, marks?.stateFor(file.name) ?? ""] as const);
+    const cv = codeView;
+    if (!cv) return;
+    untrack(() => {
+      for (const [path, state] of states) {
+        const shown = viewedShown.get(path);
+        viewedShown.set(path, state);
+        if (shown === undefined || shown === state) continue;
+        const item = cv.getItem(path);
+        if (!item || item.type !== "diff") continue;
+        item.version = nextVersion(item);
+        cv.updateItem(item);
+      }
+    });
   });
 
   // When the lazy brand-icon collection finishes registering, rebuild the
@@ -1062,6 +1096,30 @@
 
   :global(.labelled-action-btn:hover) {
     color: var(--solus-text-primary);
+  }
+
+  :global(.viewed-toggle-box) {
+    display: inline-grid;
+    place-items: center;
+    width: 0.75rem;
+    height: 0.75rem;
+    flex-shrink: 0;
+    border-radius: 0.1875rem;
+    box-shadow: inset 0 0 0 0.0625rem currentColor;
+  }
+
+  :global(.viewed-toggle.is-viewed) {
+    color: var(--solus-text-primary);
+  }
+
+  :global(.viewed-toggle.is-viewed .viewed-toggle-box) {
+    background: var(--solus-accent);
+    box-shadow: none;
+    color: var(--primary-foreground);
+  }
+
+  :global(.viewed-toggle.is-dismissed) {
+    color: var(--warning);
   }
 
   :global(.header-action-btn:focus-visible) {

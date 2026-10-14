@@ -1,11 +1,18 @@
 // Adapted from T3 Code apps/mobile/src/features/files/FileMarkdownPreview.tsx (MIT, see UPSTREAM.md).
-// Images and file links resolve on the host, next to the Markdown file.
+// Images and file links resolve on the host, next to the Markdown file. A media
+// link (image, PDF, video) opens its viewer before the file screen.
 import { useCallback, useMemo, useState } from "react";
 import { Linking, RefreshControl, ScrollView, View } from "react-native";
 
 import { useApp } from "../../app/app-context";
-import { FilePreview, type ResolvedFilePreviewSource } from "../../components/FilePreview";
+import type { FilePreviewSource } from "../../components/FilePreview.types";
+import { FilePreviewModal } from "../../components/FilePreviewModal";
+import { VideoPreviewModal, type VideoPreviewSource } from "../../components/VideoPreviewModal";
 import { resolveMarkdownLinkPresentation } from "../../lib/markdownLinks";
+import {
+  resolveMarkdownMediaPreview,
+  type MarkdownMediaContext,
+} from "../../lib/markdownMedia";
 import { useNativeMarkdownTextStyle } from "../../lib/nativeMarkdownTextStyle";
 import {
   SelectableMarkdownText,
@@ -14,7 +21,12 @@ import {
 } from "../../native/SelectableMarkdownText";
 import { projectContext } from "../conversation/lib/ipc-context";
 import { resolveHostMediaUrl } from "./host-media-url";
-import { ThreadMarkdownImage, ThreadMarkdownImageView } from "../threads/ThreadMarkdownImage";
+import {
+  isSvgImage,
+  ThreadMarkdownImage,
+  ThreadMarkdownImageView,
+} from "../threads/ThreadMarkdownImage";
+import { ThreadMarkdownVideo } from "../threads/ThreadMarkdownVideo";
 import { resolveMarkdownRelativePath } from "./lib/file-preview-kind";
 
 export function FileMarkdownPreview(props: {
@@ -28,7 +40,8 @@ export function FileMarkdownPreview(props: {
 }) {
   const app = useApp();
   const textStyle = useNativeMarkdownTextStyle("assistant");
-  const [preview, setPreview] = useState<ResolvedFilePreviewSource | null>(null);
+  const [filePreview, setFilePreview] = useState<FilePreviewSource | null>(null);
+  const [videoPreview, setVideoPreview] = useState<VideoPreviewSource | null>(null);
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
   const handlePullToRefresh = useCallback(async () => {
     if (!props.onRefresh) {
@@ -45,76 +58,83 @@ export function FileMarkdownPreview(props: {
     () => projectContext(props.projectPath, app.account.organizationId),
     [app, props.projectPath],
   );
+  const media = useMemo<MarkdownMediaContext>(
+    () => ({
+      hostFile: (target) => {
+        const path = resolveMarkdownRelativePath(props.path, target);
+        return {
+          path,
+          relativePath: path.startsWith("/") || path.startsWith("~") ? undefined : path,
+          resolveUri: async () => {
+            const connection = app.connections.connection(props.hostId);
+            return connection ? resolveHostMediaUrl(connection, { path, ctx }) : null;
+          },
+          route: { hostId: props.hostId, projectPath: props.projectPath, path },
+        };
+      },
+    }),
+    [app, ctx, props.hostId, props.path, props.projectPath],
+  );
   const renderImage = useCallback<MarkdownImageRenderer>(
     (image) => {
+      const preview = resolveMarkdownMediaPreview(image.href, media, true);
       const presentation = resolveMarkdownLinkPresentation(image.href);
+      if (preview?.kind === "video") {
+        return (
+          <ThreadMarkdownVideo
+            key={image.href}
+            source={{ ...preview.source, name: image.alt ?? preview.source.name }}
+          />
+        );
+      }
       if (presentation.kind === "external") {
         return (
           <ThreadMarkdownImageView
             uri={presentation.href}
             sourceKey={presentation.href}
             unavailable={false}
+            format={isSvgImage(presentation.href) ? "svg" : undefined}
             alt={image.alt}
-            caption={presentation.href}
-            onPressPreview={setPreview}
+            {...(preview ? { preview: preview.source } : {})}
+            onPressPreview={setFilePreview}
           />
         );
       }
-      if (presentation.kind !== "file") return null;
+      if (presentation.kind !== "file" || !preview) return null;
       const path = resolveMarkdownRelativePath(props.path, presentation.path);
       return (
         <ThreadMarkdownImage
           connection={app.connections.connection(props.hostId)}
           request={{ path, ctx }}
           alt={image.alt}
-          name={image.alt ?? presentation.label}
-          onPressPreview={setPreview}
+          preview={preview.source}
+          onPressPreview={setFilePreview}
         />
       );
     },
-    [app, ctx, props.hostId, props.path],
+    [app, ctx, media, props.hostId, props.path],
   );
-  /** The address of an image: its own URL, or a URL the host signs for the file next to this one. */
-  const imageUri = useCallback(
-    async (href: string): Promise<string | null> => {
-      const presentation = resolveMarkdownLinkPresentation(href);
-      if (presentation.kind === "external") return presentation.href;
-      if (presentation.kind !== "file") return null;
-      const connection = app.connections.connection(props.hostId);
-      if (!connection) return null;
-      const path = resolveMarkdownRelativePath(props.path, presentation.path);
-      return resolveHostMediaUrl(connection, { path, ctx });
-    },
-    [app, ctx, props.hostId, props.path],
-  );
+  /** An image Enriched draws itself: its own URL, or a URL the host signs for the file next to this one. */
   const resolveImageSource = useCallback<MarkdownImageSourceResolver>(
     async (image) => {
-      const uri = await imageUri(image.href);
+      const preview = resolveMarkdownMediaPreview(image.href, media, true);
+      const uri = preview?.kind === "image" ? await preview.source.resolveUri() : null;
       if (uri === null) throw new Error("Markdown image is unavailable");
       return { uri };
     },
-    [imageUri],
+    [media],
   );
-  const onImagePress = useCallback(
-    (href: string) => {
-      void imageUri(href).then(
-        (uri) => {
-          if (uri === null) return;
-          const presentation = resolveMarkdownLinkPresentation(href);
-          setPreview({
-            kind: "image",
-            uri,
-            name: presentation.kind === "file" ? presentation.label : "Image",
-            caption: presentation.kind === "file" ? presentation.path : uri,
-          });
-        },
-        () => undefined,
-      );
-    },
-    [imageUri],
-  );
-  const onLinkPress = useCallback(
-    (href: string) => {
+  const openMarkdownLink = useCallback(
+    (href: string, imageEmbed: boolean) => {
+      const preview = resolveMarkdownMediaPreview(href, media, imageEmbed);
+      if (preview?.kind === "video") {
+        setVideoPreview((current) => current ?? preview.source);
+        return;
+      }
+      if (preview) {
+        setFilePreview((current) => current ?? preview.source);
+        return;
+      }
       const presentation = resolveMarkdownLinkPresentation(href);
       if (presentation.kind === "file") {
         props.onOpenFile(resolveMarkdownRelativePath(props.path, presentation.path));
@@ -124,8 +144,10 @@ export function FileMarkdownPreview(props: {
         void Linking.openURL(presentation.href);
       }
     },
-    [app, props],
+    [app, media, props],
   );
+  const onLinkPress = useCallback((href: string) => openMarkdownLink(href, false), [openMarkdownLink]);
+  const onImagePress = useCallback((href: string) => openMarkdownLink(href, true), [openMarkdownLink]);
 
   return (
     <ScrollView
@@ -151,7 +173,8 @@ export function FileMarkdownPreview(props: {
           textStyle={textStyle}
         />
       </View>
-      {preview ? <FilePreview source={preview} onRequestClose={() => setPreview(null)} /> : null}
+      <FilePreviewModal source={filePreview} onRequestClose={() => setFilePreview(null)} />
+      <VideoPreviewModal source={videoPreview} onRequestClose={() => setVideoPreview(null)} />
     </ScrollView>
   );
 }

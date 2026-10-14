@@ -271,11 +271,12 @@ export class ConversationController {
   }
 
   /** The first history page as a fresh model, or null when a newer load began.
-   *  A new session has no history. */
+   *  A session that no prompt started has no history. A new session that a
+   *  prompt started has history, so a reset reads it again. */
   private async readHistory(generation: number): Promise<TranscriptModel | null> {
-    if (!this.target.record) return new TranscriptModel(this.run.sessionId)
+    if (!this.started) return new TranscriptModel(this.run.sessionId)
     const api = this.deps.connection.api
-    const description = await api.describeSession(this.target.record.sessionId).catch(() => null)
+    const description = await api.describeSession(this.run.sessionId).catch(() => null)
     if (generation !== this.loadGeneration) return null
     this.startedBy = description?.meta?.startedBy ?? null
     const lineage = description?.lineage

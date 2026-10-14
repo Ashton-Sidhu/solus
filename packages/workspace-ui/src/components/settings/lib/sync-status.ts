@@ -1,24 +1,27 @@
-import type { SettingConflict, SettingsSyncStatus } from '@solus/client-core/settings-sync'
+import type { SettingConflict } from '@solus/client-core/settings-sync'
+import type { DocumentSyncState } from '@solus/client-core/document-sync'
 import type { PersonalSettingKey, PersonalSettingsDocument } from '@solus/contracts/settings'
 import { z } from 'zod'
 
-/** The words for the person's sync state (plans/018 §5). An optimistic edit never reads as synced. */
-export function syncStateLabel(status: SettingsSyncStatus): string {
-  switch (status.state) {
-    case 'signed-out': return 'Signed out'
-    case 'off': return 'Off on this device'
-    case 'loading': return 'Checking your account…'
-    case 'synced': return 'Synced'
-    case 'pending': return status.pendingKeys.length === 1 ? '1 change waiting to sync' : `${status.pendingKeys.length} changes waiting to sync`
-    case 'offline': return 'Offline. Changes sync when you reconnect.'
-    case 'conflict': return status.conflicts.length === 1 ? '1 setting changed on two devices' : `${status.conflicts.length} settings changed on two devices`
-    case 'error': return status.error?.message ?? 'Sync stopped. Solus tries again later.'
-  }
+/** What the account's one status line needs: the worse state of the two documents and their counts. */
+export interface AccountSyncSummary {
+  state: DocumentSyncState
+  pendingCount: number
+  conflictCount: number
+  error: { code: string; message: string | null } | null
 }
 
-/** Sync is on for this device and account: a state the engine only reaches while enabled. */
-export function isSyncOn(status: SettingsSyncStatus): boolean {
-  return status.state === 'synced' || status.state === 'pending' || status.state === 'offline' || status.state === 'conflict' || status.state === 'error'
+/** The words for the account's sync state (plans/018 §5, decision 9). An optimistic edit never reads as synced. */
+export function accountSyncStateLabel(summary: AccountSyncSummary): string {
+  switch (summary.state) {
+    case 'signed-out': return 'Signed out'
+    case 'loading': return 'Checking your account…'
+    case 'synced': return 'Synced'
+    case 'pending': return summary.pendingCount === 1 ? '1 change waiting to sync' : `${summary.pendingCount} changes waiting to sync`
+    case 'offline': return 'Offline. Changes sync when you reconnect.'
+    case 'conflict': return summary.conflictCount === 1 ? '1 change on two devices' : `${summary.conflictCount} changes on two devices`
+    case 'error': return summary.error?.message ?? 'Sync stopped. Solus tries again later.'
+  }
 }
 
 /** Readable names for the keys a conflict or a warning lists. */

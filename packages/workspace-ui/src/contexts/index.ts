@@ -84,11 +84,9 @@ export {
 /** Personal Uplink: a host's link to the owner's Solus cloud account, and how hosts are reached. */
 export { uplinkStore } from './connections/uplink.store.svelte'
 export { sharesStore } from './sharing/shares.store.svelte'
-/** The transcript the cloud mirrors for a session whose runner is away. */
-export { loadSessionRecordTranscript } from './sessions/session-record-transcript'
 export { activeSessionShareTarget } from './sharing/share-target'
 export type { ShareDialogTarget } from './sharing/shares.store.svelte'
-export { uplinkStatusDescription } from './connections/host-routes'
+export { linkDescription, registrationDescription } from './connections/host-routes'
 
 /** Cloudflare deployment profile: status, connect/disconnect, connect requests. */
 export {
@@ -113,9 +111,10 @@ export { seatsStore, seatProviderOf, SeatConnectCancelled } from './seats/seats.
 export { agentAuthStore } from './seats/agent-auth.store.svelte'
 /** A member's agent profile: their instructions and skills, copied into their seats on a shared host. */
 export { agentProfileStore } from './seats/agent-profile.store.svelte'
-/** This client's copy of the agent profile, and the sync that moves it to and from the account. */
+/** The account's sync on this client: the settings and the agent profile, one owner. */
+export { accountSyncStore } from './account/account-sync.store.svelte'
+/** This client's copy of the agent profile. */
 export { agentProfileLocalStore } from './seats/agent-profile-local.store.svelte'
-export { agentProfileSyncStore } from './seats/agent-profile-sync.store.svelte'
 export { presenceStore } from './presence/presence.store.svelte'
 export type { SeatRequest } from './seats/seats.store.svelte'
 

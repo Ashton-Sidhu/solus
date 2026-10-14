@@ -223,6 +223,21 @@ export class AccountSession {
     }
   }
 
+  /** Removes a host this account owns from the account, on every device. False when signed out or refused. */
+  async removeHost(host: NativeHost): Promise<boolean> {
+    if (!this.identity || !host.uplink) return false
+    const token = await this.oauth.accessToken({ kind: 'account' })
+    if (!token) return false
+    try {
+      await this.client.removeHost(token, host.uplink.hostId)
+      await this.refreshDirectory()
+      return true
+    } catch (error) {
+      if (error instanceof AccountUnauthorizedError) this.recheckGrant()
+      return false
+    }
+  }
+
   /** A ticket to link a host to this account; null when signed out. */
   async issueEnrollmentTicket(): Promise<UplinkEnrollmentTicket | null> {
     if (!this.identity) return null

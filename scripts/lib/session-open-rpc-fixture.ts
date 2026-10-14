@@ -50,7 +50,7 @@ export function sessionOpenRpcFixture(tabCount = 1, options: { lineage?: Session
     },
     watchSession: () => rpc('watchSession', [], { sessionId: sessions[0].id, runtime: null }),
   }]))
-  const hosts = { isKnownServer: () => true, resolveId: (id: string) => id, apiFor: (id: string) => apis.get(id)! }
+  const hosts = { presenceOf: () => 'present' as const, resolveId: (id: string) => id, apiFor: (id: string) => apis.get(id)! }
   const workspace = {
     tabs: Object.fromEntries(tabs.map((tab, index) => [tab.tabId, { sessionId: sessions[index].id }])),
     sessions: { byId: Object.fromEntries(sessions.map((session) => [session.id, session])) },

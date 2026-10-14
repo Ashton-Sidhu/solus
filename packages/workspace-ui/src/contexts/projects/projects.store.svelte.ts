@@ -292,8 +292,24 @@ export class ProjectsStore {
     this.setProjects(serverId, this.projectsFor(serverId).filter((project) => project.path !== path))
   }
 
+  /** The hosts whose list this store keeps. */
+  hostIds(): string[] {
+    return [...this.projectsByHost.keys()]
+  }
+
+  /** Drop the list kept for a host that is gone: it is not away, and will not answer again. */
+  forgetHost(serverId: string): void {
+    if (!this.projectsByHost.delete(serverId)) return
+    this.projectsLoadedByHost.delete(serverId)
+    this.scheduleSave()
+  }
+
   private setProjects(serverId: string, projects: ProjectEntry[]): void {
     this.projectsByHost.set(serverId, projects)
+    this.scheduleSave()
+  }
+
+  private scheduleSave(): void {
     if (!this.saveTimer) this.saveTimer = setTimeout(() => this.flush(), 400)
   }
 

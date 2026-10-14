@@ -22,7 +22,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
  */
 
 export type SettingsTab =
-  | 'personal'
+  | 'account'
   | 'agent-profile'
   | 'organization'
   | 'host'
@@ -46,7 +46,7 @@ export type SettingsTab =
   | 'keybindings'
 
 const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
-  'personal',
+  'account',
   'agent-profile',
   'organization',
   'host',

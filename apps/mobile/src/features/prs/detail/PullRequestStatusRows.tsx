@@ -100,9 +100,12 @@ export function PullRequestChecksRow({ view }: { readonly view: PullRequestView 
   const summary = view.detail.checks
   const current = summary && summary.headSha === view.pr.headSha ? [...summary.required, ...summary.optional] : []
   const unavailable = view.detail.missing.includes('checks')
-  const totals = unavailable && current.length === 0
-    ? { title: 'Checks unavailable', count: undefined, ...CHECK_TONE.neutral }
-    : checkSummary(current)
+  const reading = view.detail.reading?.includes('checks') ?? false
+  const totals = reading && current.length === 0
+    ? { title: 'Reading checks…', count: undefined, ...CHECK_TONE.neutral }
+    : unavailable && current.length === 0
+      ? { title: 'Checks unavailable', count: undefined, ...CHECK_TONE.neutral }
+      : checkSummary(current)
   const sorted = [...current].sort((a, b) => CHECK_ORDER[checkItemLabel(a).tone] - CHECK_ORDER[checkItemLabel(b).tone])
   const fixable = view.pr.state === 'open' && current.some((check) => checkItemLabel(check).tone === 'failing')
   const feedback = agent.actions.find((entry) => entry.task === 'feedback')
@@ -138,7 +141,7 @@ export function PullRequestChecksRow({ view }: { readonly view: PullRequestView 
               />
             )
           })}
-          {current.length === 0 ? <Text className="px-4 py-3 text-xs text-foreground-muted">{unavailable ? 'The host could not read the checks.' : 'No checks reported.'}</Text> : null}
+          {current.length === 0 ? <Text className="px-4 py-3 text-xs text-foreground-muted">{reading ? 'Reading the checks…' : unavailable ? 'The host could not read the checks.' : 'No checks reported.'}</Text> : null}
           <PullRequestCardRow title="Open checks on GitHub" icon="arrow.up.right" onPress={() => void app.platform.openBrowser(`${view.pr.url}/checks`)} />
         </View>
       ) : null}
@@ -200,14 +203,16 @@ export function PullRequestReviewersRow({ view }: { readonly view: PullRequestVi
   const reviewers = view.detail.overview.reviewers
   const requested = reviewers.filter((reviewer) => reviewer.state === 'CHANGES_REQUESTED')
   const approved = reviewers.filter((reviewer) => reviewer.state === 'APPROVED')
-  const summary = requested.length
-    ? { title: 'Changes requested', count: `${requested.length} ${requested.length === 1 ? 'reviewer' : 'reviewers'}`, icon: 'xmark.circle.fill', tint: 'accent-danger-foreground' } as const
-    : approved.length
-      ? { title: approved.length === 1 ? `Approved by ${approved[0]!.login}` : 'Reviews approved', count: `${approved.length} approved`, icon: 'checkmark.circle', tint: 'accent-adaptive-emerald-600-400' } as const
-      : { title: reviewers.length ? 'Awaiting review' : 'Request a review', count: reviewers.length ? `${reviewers.length} requested` : 'None assigned', icon: 'person.2', tint: 'accent-icon-muted' } as const
+  const summary = view.detail.reading?.includes('overview')
+    ? { title: 'Reading reviewers…', count: undefined, icon: 'person.2', tint: 'accent-icon-muted' } as const
+    : requested.length
+      ? { title: 'Changes requested', count: `${requested.length} ${requested.length === 1 ? 'reviewer' : 'reviewers'}`, icon: 'xmark.circle.fill', tint: 'accent-danger-foreground' } as const
+      : approved.length
+        ? { title: approved.length === 1 ? `Approved by ${approved[0]!.login}` : 'Reviews approved', count: `${approved.length} approved`, icon: 'checkmark.circle', tint: 'accent-adaptive-emerald-600-400' } as const
+        : { title: reviewers.length ? 'Awaiting review' : 'Request a review', count: reviewers.length ? `${reviewers.length} requested` : 'None assigned', icon: 'person.2', tint: 'accent-icon-muted' } as const
   return (
     <View>
-      <PullRequestCardRow title={summary.title} icon={summary.icon} tint={summary.tint} value={summary.count} compact expanded={expanded} onPress={() => setExpanded(!expanded)} />
+      <PullRequestCardRow title={summary.title} icon={summary.icon} tint={summary.tint} {...(summary.count ? { value: summary.count } : {})} compact expanded={expanded} onPress={() => setExpanded(!expanded)} />
       {expanded ? (
         <View className="pl-8">
           {reviewers.map((reviewer) => (

@@ -1,5 +1,6 @@
-import { Modal, ScrollView, Text } from 'react-native'
+import { Platform, ScrollView, Text } from 'react-native'
 import { useListened } from '../../../app/app-context'
+import { AppSheet } from '../../../components/AppSheet'
 import { usePalette } from '../../../theme/theme'
 import { space, type } from '../../../theme/tokens'
 import { Banner, Button } from '../../../ui/primitives'
@@ -12,7 +13,9 @@ import type { ConversationStore } from '../conversation-store'
  * (`integration.connectNeeded`, docs/plans/mcp-integrations.md §4.1 rule 2).
  * Connect runs the same flow as the Integrations row, here in the sheet;
  * Dismiss closes it and stops a sign-in still waiting. Typing is the natural
- * next step after it closes, so focus returns to the composer.
+ * next step after it closes, so focus returns to the composer. T3 has no
+ * connect sheet in a thread; this is T3's `AppSheet`, its sheet for local
+ * thread context that the owner dismisses. Its Done (or a swipe) dismisses.
  */
 export function IntegrationConnectSheet({ store, onClose }: { store: ConversationStore; onClose(): void }) {
   const palette = usePalette()
@@ -28,9 +31,13 @@ export function IntegrationConnectSheet({ store, onClose }: { store: Conversatio
     onClose()
   }
   return (
-    <Modal visible presentationStyle="pageSheet" animationType="slide" onRequestClose={dismiss}>
-      <ScrollView style={{ backgroundColor: palette.canvas }} contentContainerStyle={{ padding: space.lg, gap: space.md }} keyboardShouldPersistTaps="handled">
-        <Text accessibilityRole="header" style={{ color: palette.text, fontSize: type.title, fontWeight: '600' }}>{`Connect ${integrationName}`}</Text>
+    <AppSheet title={`Connect ${integrationName}`} onClose={dismiss}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentInsetAdjustmentBehavior={Platform.OS === 'ios' ? 'automatic' : 'never'}
+        contentContainerStyle={{ padding: space.lg, gap: space.md }}
+        keyboardShouldPersistTaps="handled"
+      >
         {!flows.connected ? <Banner tone="info" message="The host is not connected. Connect when it reconnects." /> : null}
         {flow ? (
           <IntegrationConnectPanel
@@ -50,6 +57,6 @@ export function IntegrationConnectSheet({ store, onClose }: { store: Conversatio
         </>}
         {!flow || flow.step === 'starting' ? <Button label="Dismiss" onPress={dismiss} /> : null}
       </ScrollView>
-    </Modal>
+    </AppSheet>
   )
 }

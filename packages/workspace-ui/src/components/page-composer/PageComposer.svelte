@@ -18,7 +18,7 @@
    * the page, which opens into the same composer a new session gets. Send turns
    * the draft into a session and pops its conversation out beside the page.
    */
-  interface Props extends Pick<PaneSurfaceProps, "onAttachFile" | "onScreenshot" | "onDesignMode"> {
+  interface Props extends Pick<PaneSurfaceProps, "onAttachFile" | "onScreenshot"> {
     /** The pane the page fills. Its composer is this one. */
     paneId: string;
     /** What the draft is aimed at: the work it binds, the host it runs on. */
@@ -47,7 +47,6 @@
     class: glyphClass,
     onAttachFile,
     onScreenshot,
-    onDesignMode,
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -160,7 +159,6 @@
       onSent={() => (expanded = false)}
       {onAttachFile}
       {onScreenshot}
-      {onDesignMode}
     />
   </div>
 {:else}

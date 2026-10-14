@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { DEFAULT_HOST_CONFIG } from '@solus/contracts/host-config'
-import { adoptProvisionedLink, applyHostCategory, resetHostCategoryForTests } from '@solus/server/host/host-category'
+import { adoptProvisionedRegistration, applyHostCategory, resetHostCategoryForTests } from '@solus/server/host/host-category'
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let directory: string
@@ -31,7 +31,7 @@ test('personal and self-hosted hosts default to continuation and can opt out', (
 
 test('a provisioned cloud host disables continuation even with a saved opt-in', () => {
   settings.setHostConfig({ continueSessionsAfterHostRestart: true })
-  adoptProvisionedLink({ organizationId: 'organization' })
+  adoptProvisionedRegistration({ organizationId: 'organization' })
   expect(settings.getHostConfig().config.continueSessionsAfterHostRestart).toBe(false)
   expect(settings.setHostConfig({ continueSessionsAfterHostRestart: true }).config.continueSessionsAfterHostRestart).toBe(false)
 })

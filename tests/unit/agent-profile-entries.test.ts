@@ -7,6 +7,7 @@ import {
   conflictRows,
   decodeFileText,
   encodeFileEntry,
+  entriesWithDisabled,
   integrationEntryOf,
   sectionsOf,
   skillEntryOf,
@@ -50,6 +51,7 @@ describe('sections', () => {
       providers: ['claude-code', 'codex'],
       keys: ['file:claude-code/skills/review/SKILL.md', 'file:claude-code/skills/review/scripts/run.sh', 'file:codex/skills/review/SKILL.md'],
       fileCount: 3,
+      disabled: false,
     }])
     expect(sections.integrations.map((integration) => integration.slug)).toEqual(['deepwiki'])
   })
@@ -65,6 +67,28 @@ describe('instruction files', () => {
       hash: createHash('sha256').update(text, 'utf8').digest('hex'),
     })
     expect(decodeFileText(entry)).toBe(text)
+  })
+})
+
+describe('off and on', () => {
+  test('disabling keeps the same entry with the flag; enabling takes the flag away', () => {
+    const [off] = entriesWithDisabled(entries, ['integration:deepwiki'], true)
+    // WHY: the entry stays whole, so turning it on again needs nothing but the flag.
+    expect(off).toEqual({ ...entries['integration:deepwiki'], disabled: true })
+    const [on] = entriesWithDisabled({ 'integration:deepwiki': off }, ['integration:deepwiki'], false)
+    expect(on).toEqual(entries['integration:deepwiki'])
+    expect('disabled' in on).toBe(false)
+  })
+
+  test('a hand-written skill is off only when every file is off, and toggles every file it is made of', () => {
+    const [skill] = sectionsOf(entries).writtenSkills
+    const off = entriesWithDisabled(entries, skill.keys, true)
+    expect(off.map((entry) => entry.kind === 'file' && entry.path)).toEqual(['skills/review/SKILL.md', 'skills/review/scripts/run.sh', 'skills/review/SKILL.md'])
+    expect(off.every((entry) => entry.disabled === true)).toBe(true)
+    const partly = { ...entries, [skill.keys[0]]: off[0] }
+    expect(sectionsOf(partly).writtenSkills[0].disabled).toBe(false)
+    const whole = { ...entries, ...Object.fromEntries(skill.keys.map((key, index) => [key, off[index]])) }
+    expect(sectionsOf(whole).writtenSkills[0].disabled).toBe(true)
   })
 })
 

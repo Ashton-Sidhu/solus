@@ -1,4 +1,5 @@
 import type { AgentProfileStatus } from '@solus/contracts/agent-profile'
+import type { UplinkStatus } from '@solus/contracts/uplink'
 import { relativeTime } from '../../../lib/relative-time'
 
 /** `3 files, 2 skills, 1 MCP server` for what a host holds; the parts that are zero are left out. */
@@ -30,4 +31,11 @@ export function agentProfileDescription(
   const installs = failed > 0 ? ` ${failed} ${failed === 1 ? 'skill' : 'skills'} could not be installed.` : ''
   const skipped = notSent > 0 ? ` ${notSent} left out: over the size limit or unreadable.` : ''
   return `${source} Copied ${from} ${relativeTime(status.syncedAt)}: ${agentProfileCounts(status.counts)}.${kept}${installs}${skipped}`
+}
+
+/** The host's account link, in a few words, ahead of what it holds: changed on the host's Access page. */
+export function hostLinkLabel(uplink: UplinkStatus | undefined): string {
+  if (!uplink) return 'Checking the account link…'
+  if (!uplink.registration.registered) return 'Not registered to your account.'
+  return uplink.link.linked ? 'Registered to your account, reachable from the internet.' : 'Registered to your account.'
 }

@@ -151,6 +151,8 @@ export interface OrchestratedRuntime {
   cancelQueuedPrompt(sessionId: string, queueId: string): boolean
   /** How the session's last turn ended, read from its transcript. */
   turnEnding(provider: AgentId, sessionId: string, projectScope: string | undefined): Promise<TurnEnding>
+  /** The organization a session works in; undefined for Local work. */
+  turnOrganization(sessionId: string): Promise<string | undefined>
   /** The task a session works on. */
   taskIdFor(sessionId: string): Promise<string | undefined>
   /** Whether the session is a task's lead. */
@@ -288,10 +290,10 @@ export class SessionOrchestrator {
     const dispatchedAt = Date.now()
     // The new session's id is chosen now, so the sender's card names it from the start.
     const targetSessionId = order.sessionId ?? randomUUID()
-    const exchange = this.openSpawn(senderSessionId, targetSessionId, order, report, identity, dispatchedAt, target?.host.hostId)
+    const exchange = this.openSpawn(senderSessionId, targetSessionId, order, report, identity, dispatchedAt, target?.host)
     const waited = exchange && waitMs > 0 ? this.waitOn(exchange, waitMs) : undefined
 
-    const starting = target ? this.startRemote(target, order, exchangeId, targetSessionId, exchange) : (async (): Promise<SpawnedSession> => {
+    const starting = target ? this.startRemote(target, order, exchangeId, targetSessionId, exchange, senderSessionId) : (async (): Promise<SpawnedSession> => {
       try {
         const { attachments, ...rest } = order
         // Without files the start is not deferred: the session starts in this tick.
@@ -334,6 +336,7 @@ export class SessionOrchestrator {
     exchangeId: string,
     targetSessionId: string,
     exchange: Exchange | null,
+    senderSessionId: string | undefined,
   ): Promise<SpawnedSession> {
     const { host } = target
     const follow = exchange
@@ -352,6 +355,9 @@ export class SessionOrchestrator {
     }
     if (order.worktreeBaseBranch) request.worktreeBaseBranch = order.worktreeBaseBranch
     try {
+      // A child works for its parent's organization; host B admits it as a prompt in that organization.
+      const organizationId = senderSessionId ? await this.runtime.turnOrganization(senderSessionId) : undefined
+      if (organizationId) request.organizationId = organizationId
       await follow?.watching
       Object.assign(request, await attachToPrompt(order.prompt, order.attachments, uploadTo(host), exchangeId))
       await host.call('the session start', () => host.api.createHeadlessSession(request))
@@ -367,7 +373,7 @@ export class SessionOrchestrator {
   private openSpawn(
     senderSessionId: string | undefined, targetSessionId: string,
     order: SpawnOrder, report: boolean,
-    identity: ExchangeIdentity, dispatchedAt: number, targetHostId?: string,
+    identity: ExchangeIdentity, dispatchedAt: number, targetHost?: RemoteHost,
   ): Exchange | null {
     const { exchangeId, fingerprint } = identity
     const exchange = senderSessionId
@@ -376,7 +382,7 @@ export class SessionOrchestrator {
           kind: 'create',
           senderSessionId,
           targetSessionId,
-          targetHostId,
+          targetHostId: targetHost?.hostId,
           provider: order.provider,
           notify: report,
           dispatchedAt, fingerprint,
@@ -384,7 +390,7 @@ export class SessionOrchestrator {
         })
       : null
     if (exchange) {
-      this.publish(exchange, {
+      const dispatched: AgentConversationUpdate = {
         phase: 'dispatched',
         sessionId: exchange.targetSessionId,
         messageId: exchangeId,
@@ -397,7 +403,10 @@ export class SessionOrchestrator {
         reasoningEffort: order.reasoningEffort,
         fireAndForget: !report,
         dispatchedAt,
-      })
+      }
+      // A client opens the session on the host it runs on.
+      if (targetHost) dispatched.serverId = targetHost.installationId
+      this.publish(exchange, dispatched)
     }
     return exchange
   }
@@ -436,7 +445,7 @@ export class SessionOrchestrator {
       dispatchedAt, fingerprint, parentExchangeIds,
     })
     const waited = message.waitMs && message.waitMs > 0 ? this.waitOn(exchange, message.waitMs) : undefined
-    this.publish(exchange, promptedUpdate(exchange, meta, message))
+    this.publish(exchange, promptedUpdate(exchange, meta, message, target?.host.installationId))
     try {
       const result = target ? await this.promptThere(exchange, message, target.host) : await this.promptHere(exchange, message)
       this.ledger.update(exchange, (draft) => { draft.disposition = result.disposition })

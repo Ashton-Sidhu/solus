@@ -1,11 +1,9 @@
 <script lang="ts">
   import {
-    ArrowRight as ArrowRightIcon,
     Check as CheckIcon,
     LoaderCircle as CircleNotchIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import { serversStore } from "../../contexts";
   import { Button } from "../ui/button";
   import GitHostPanel from "./GitHostPanel.svelte";
   import HostPairingPanel from "./HostPairingPanel.svelte";
@@ -46,9 +44,6 @@
     rail.automaticSteps.find((step) => setup?.stepError?.step === step.id) ?? null,
   );
 
-  const isActiveHost = $derived(
-    !!store.host && serversStore.activeServer?.id === store.host.id,
-  );
   // One primary button carries the whole handshake, so each pairing view names
   // what pressing it does rather than the modal sprouting a button per state.
   // While the first attempt is connecting there is nothing to press.
@@ -72,10 +67,6 @@
     requestInputFocus();
   }
 
-  function startWorking() {
-    serversStore.switchTo(store.host!.id);
-    close();
-  }
 </script>
 
 {#if store.isOpen && (store.host || store.pairingTarget)}
@@ -201,18 +192,8 @@
           <Button variant="ghost" class="h-[2.125rem] px-3 text-muted-foreground" onclick={close}>
             Later
           </Button>
-          {#if !isActiveHost}
-            <Button variant="outline" class="h-[2.125rem] rounded-[0.625rem] px-3.5" onclick={startWorking}>
-              Open {hostName}
-            </Button>
-          {/if}
-        {:else if isActiveHost}
-          <Button class="h-[2.125rem] rounded-[0.625rem] px-3.5" onclick={close}>Done</Button>
         {:else}
-          <Button class="h-[2.125rem] rounded-[0.625rem] px-3.5" onclick={startWorking}>
-            Open {hostName}
-            <ArrowRightIcon size={13} />
-          </Button>
+          <Button class="h-[2.125rem] rounded-[0.625rem] px-3.5" onclick={close}>Done</Button>
         {/if}
       </footer>
     </div>

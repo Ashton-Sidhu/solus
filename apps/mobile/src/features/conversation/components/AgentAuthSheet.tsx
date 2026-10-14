@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react'
-import { ActivityIndicator, Modal, ScrollView, Text, View } from 'react-native'
+import { ActivityIndicator, Platform, ScrollView, Text, View } from 'react-native'
 import { signInLead, signInSteps, type SignInCodeFlow, type SignInPhase, type SignInStep } from '@solus/client-core/sign-in-steps'
 import { useApp, useListened } from '../../../app/app-context'
+import { AppSheet } from '../../../components/AppSheet'
 import { usePalette } from '../../../theme/theme'
 import { CODE_FONT, radius, space, type } from '../../../theme/tokens'
 import { Banner, Button, Field } from '../../../ui/primitives'
@@ -16,6 +17,9 @@ import type { ConversationStore } from '../conversation-store'
  * A sign-in that moves a code across reads as the same two plain steps as the
  * desktop and web card, with the current step outlined in the accent.
  * Typing is the natural next step after it closes, so focus returns to the composer.
+ * T3 has no sign-in sheet in a thread; this is T3's `AppSheet`, its sheet for
+ * local thread context that the owner dismisses. Its Done (or a swipe) cancels a
+ * sign-in still waiting, else closes.
  */
 export function AgentAuthSheet({ store, onClose }: { store: ConversationStore; onClose(): void }) {
   const app = useApp()
@@ -50,9 +54,13 @@ export function AgentAuthSheet({ store, onClose }: { store: ConversationStore; o
   })
   if (view.step === 'closed') return null
   return (
-    <Modal visible presentationStyle="pageSheet" animationType="slide" onRequestClose={view.step === 'waiting' ? cancel : done}>
-      <ScrollView style={{ backgroundColor: palette.canvas }} contentContainerStyle={{ padding: space.lg, gap: space.md }} keyboardShouldPersistTaps="handled">
-        <Text accessibilityRole="header" style={{ color: palette.text, fontSize: type.title, fontWeight: '600' }}>{view.title}</Text>
+    <AppSheet title={view.title} onClose={view.step === 'waiting' ? cancel : done}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentInsetAdjustmentBehavior={Platform.OS === 'ios' ? 'automatic' : 'never'}
+        contentContainerStyle={{ padding: space.lg, gap: space.md }}
+        keyboardShouldPersistTaps="handled"
+      >
         {!connected ? <Banner tone="info" message="The host is not connected. The sign-in continues when it reconnects." /> : null}
         {view.step === 'starting' ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
@@ -96,7 +104,7 @@ export function AgentAuthSheet({ store, onClose }: { store: ConversationStore; o
         {openError ? <Text accessibilityRole="alert" style={{ color: palette.danger, fontSize: type.chrome }}>{openError}</Text> : null}
         {view.step !== 'waiting' ? <Button tone={view.step === 'finished' ? 'primary' : 'secondary'} label={view.step === 'finished' ? 'Done' : view.step === 'refused' ? 'Not now' : 'Close'} onPress={done} /> : null}
       </ScrollView>
-    </Modal>
+    </AppSheet>
   )
 }
 

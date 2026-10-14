@@ -8,14 +8,14 @@
    * panel"). Once the seat is connected, it collapses to the quiet resolved
    * line, and the message is sent again from the failed bubble.
    */
-  import { X as XIcon } from "@lucide/svelte";
-  import { usesCloudAgentSeats } from "../../contexts/seats/cloud-agent-seats.store.svelte";
+  import { ExternalLink as ExternalLinkIcon, X as XIcon } from "@lucide/svelte";
+  import { cloudAgentSeatsStore as cloudSeats, usesCloudAgentSeats } from "../../contexts/seats/cloud-agent-seats.store.svelte";
   import { seatsStore } from "../../contexts/seats/seats.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import AttentionCard from "../conversation/AttentionCard.svelte";
   import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
   import ProviderMark from "../ui/ProviderMark.svelte";
-  import SeatConnectPanel from "./SeatConnectPanel.svelte";
+  import { Button } from "../ui/button";
   import SignInSteps from "./SignInSteps.svelte";
   import { seatAction, seatLabel } from "./lib/seat-copy";
   import { signInCodeFlow, signInLead } from "@solus/client-core/sign-in-steps";
@@ -84,7 +84,17 @@
           </header>
           <div class="flex flex-col gap-2.5 px-3.5 pb-3">
             {#if usesCloudAgentSeats(request.serverId)}
-              <SeatConnectPanel serverId={request.serverId} provider={request.provider} />
+              <p class="m-0 text-pretty text-activity-label text-(--solus-text-primary)">
+                This host uses the {label} login from your Solus account. Sign in there, then send your message again.
+              </p>
+              <div class="flex items-center gap-2">
+                <Button class="h-8.5 px-3.5 pointer-coarse:min-h-11" onclick={() => cloudSeats.connect()}>
+                  Open cloud connections
+                  <ExternalLinkIcon data-icon="inline-end" />
+                </Button>
+                <span class="flex-1"></span>
+                <Button size="sm" variant="ghost" class="-mr-2.5 text-muted-foreground" onclick={dismiss}>Not now</Button>
+              </div>
             {:else}
               {#if !verification}
                 <p class="m-0 text-pretty text-activity-label text-(--solus-text-primary)">{signInLead(label, codeFlow)}</p>

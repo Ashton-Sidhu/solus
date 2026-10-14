@@ -12,11 +12,11 @@ let PAGE_SIZE: ConversationSearchModule['PAGE_SIZE']
 let searchServerIds: ConversationSearchModule['searchServerIds']
 let RecentSessions: ConversationSearchModule['RecentSessions']
 let TaskCommentSearch: ConversationSearchModule['TaskCommentSearch']
-let scopePathFromCheckouts: ConversationSearchModule['scopePathFromCheckouts']
+let scopeFromCheckouts: ConversationSearchModule['scopeFromCheckouts']
 
 beforeAll(async () => {
   ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
-  ;({ ConversationSearch, PAGE_SIZE, searchServerIds, RecentSessions, TaskCommentSearch, scopePathFromCheckouts } = await import(
+  ;({ ConversationSearch, PAGE_SIZE, searchServerIds, RecentSessions, TaskCommentSearch, scopeFromCheckouts } = await import(
     '@solus/workspace-ui/components/session/unified-picker/lib/conversation-search.svelte'
   ))
 })
@@ -76,24 +76,27 @@ describe('which homes a search reads', () => {
   })
 })
 
-describe('the folder a project scope sends to each home', () => {
+describe('what a project scope asks each home for', () => {
   const checkouts = [
     { serverId: 'laptop', projectRoot: '/Users/me/web' },
     { serverId: 'org-vm', projectRoot: '/workspace/web' },
   ]
-  const organizationMachines = new Set(['org-vm'])
 
   test('a machine is asked for its own checkout, and passed over without one', () => {
-    expect(scopePathFromCheckouts('laptop', checkouts, organizationMachines)).toBe('/Users/me/web')
-    expect(scopePathFromCheckouts('scratch-box', checkouts, organizationMachines)).toBeNull()
+    expect(scopeFromCheckouts('laptop', 'github.com/me/web', checkouts)).toEqual({ projectRoot: '/Users/me/web' })
+    expect(scopeFromCheckouts('scratch-box', 'github.com/me/web', checkouts)).toBeNull()
   })
 
-  test('the workspace service is asked at the organization machine\'s checkout, never passed over', () => {
-    // WHY: the service holds no checkout, and the organization's machine is not
-    // asked. Passing the service over left History empty on the web for every
-    // project scope, though the service held the sessions.
-    expect(scopePathFromCheckouts(SERVICE, checkouts, organizationMachines)).toBe('/workspace/web')
-    expect(scopePathFromCheckouts(SERVICE, checkouts.slice(0, 1), organizationMachines)).toBe('/Users/me/web')
+  test('the workspace service is asked for the repository, whatever machines still hold a checkout', () => {
+    // WHY: the service keeps the sessions of every machine that ran the
+    // repository, a removed one included. Asked at one machine's path, it hid
+    // every session from the others, and all of a removed machine's sessions.
+    expect(scopeFromCheckouts(SERVICE, 'github.com/me/web', checkouts)).toEqual({ repositoryKey: 'github.com/me/web' })
+    expect(scopeFromCheckouts(SERVICE, 'github.com/me/web', [])).toEqual({ repositoryKey: 'github.com/me/web' })
+  })
+
+  test('a local-only project passes the service over: it has no repository there', () => {
+    expect(scopeFromCheckouts(SERVICE, 'local:org-vm:/workspace/web', checkouts)).toBeNull()
   })
 })
 
@@ -109,7 +112,7 @@ describe('ConversationSearch', () => {
     }
     const hosts = homes({ laptop: answer('laptop'), linux: answer('linux'), 'scratch-box': answer('scratch-box') })
     const checkouts: Record<string, string> = { laptop: '/Users/me/web', linux: '/home/me/web' }
-    const search = new ConversationSearch(hosts, 0, (serverId) => checkouts[serverId] ?? null)
+    const search = new ConversationSearch(hosts, 0, (serverId) => checkouts[serverId] ? { projectRoot: checkouts[serverId] } : null)
     search.search('deploy', '/Users/me/web')
     await settle()
 
@@ -324,7 +327,10 @@ describe('RecentSessions', () => {
         broken: async () => { throw new Error('offline') },
         'scratch-box': answer('scratch-box', ['never']),
       }),
-      (serverId) => ({ laptop: '/Users/me/web', linux: '/home/me/web', broken: '/x' } as Record<string, string>)[serverId] ?? null,
+      (serverId) => {
+        const projectRoot = ({ laptop: '/Users/me/web', linux: '/home/me/web', broken: '/x' } as Record<string, string>)[serverId]
+        return projectRoot ? { projectRoot } : null
+      },
     )
     await recent.load('/Users/me/web')
 
@@ -334,6 +340,19 @@ describe('RecentSessions', () => {
     ])
     expect(recent.sessions.map((meta) => [meta.sessionId, meta.serverId])).toEqual([['a', 'laptop'], ['b', 'linux']])
     expect(recent.loading).toBe(false)
+  })
+
+  test('the workspace service lists a repository by its key, not by a machine\'s path', async () => {
+    // WHY: a session a removed machine ran is still the repository's. Only its
+    // repository finds it once that machine's checkout is gone.
+    const filters: SessionRecordListFilter[] = []
+    const recent = new RecentSessions(
+      listing({ [SERVICE]: async (filter) => { filters.push(filter); return { records: [record('vm-session')], indexing: false } } }),
+      () => ({ repositoryKey: 'github.com/me/web' }),
+    )
+    await recent.load('github.com/me/web')
+    expect(filters).toEqual([{ repositoryKey: 'github.com/me/web' }])
+    expect(recent.sessions.map((meta) => meta.sessionId)).toEqual(['vm-session'])
   })
 
   test('an organization session opens on its runner while the runner is connected', async () => {
@@ -348,7 +367,7 @@ describe('RecentSessions', () => {
   test('a home that fails, or that the scope passes over, is reported rather than read as no sessions', async () => {
     // WHY: "No sessions yet" over a host that did not answer is a lie. The
     // picker says why the list is empty.
-    const failing = new RecentSessions(listing({ local: async () => { throw new Error('HTTP 401') } }), () => undefined)
+    const failing = new RecentSessions(listing({ local: async () => { throw new Error('HTTP 401') } }), () => ({ projectRoot: '/repo' }))
     await failing.load('/repo')
     expect([failing.error, failing.asked]).toEqual(['HTTP 401', 1])
     const passed = new RecentSessions(listing({ local: async () => ({ records: [record('never')], indexing: false }) }), () => null)
@@ -408,7 +427,10 @@ describe('TaskCommentSearch', () => {
           return Promise.resolve([])
         },
       }),
-    }, 0, (serverId) => ({ desktop: '/Users/me/solus', laptop: '/home/me/solus' })[serverId] ?? null)
+    }, 0, (serverId) => {
+      const projectRoot = ({ desktop: '/Users/me/solus', laptop: '/home/me/solus' } as Record<string, string>)[serverId]
+      return projectRoot ? { projectRoot } : null
+    })
     search.search('auth', 'github.com/me/solus')
     await settle()
     expect(asked).toEqual([['desktop', '/Users/me/solus'], ['laptop', '/home/me/solus']])

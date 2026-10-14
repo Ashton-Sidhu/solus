@@ -474,7 +474,8 @@ export function HomeScreen(props: HomeScreenProps) {
       <View className="flex-1 bg-screen android:bg-header">
         <View
           className={cn(
-            "flex-1 items-center justify-center bg-screen px-8",
+            "flex-1 items-center justify-center px-8",
+            primaryColumn ? "bg-drawer" : "bg-screen",
             Platform.OS === "android" && "overflow-hidden rounded-t-[28px]",
           )}
           style={{
@@ -535,25 +536,25 @@ export function HomeScreen(props: HomeScreenProps) {
   const v2ListEmpty = hasSearchQuery ? (
     <EmptyState
       title="No results"
-      detail={`No threads matching "${props.searchQuery}".`}
+      detail={`No sessions matching "${props.searchQuery}".`}
       variant={Platform.OS === "android" ? "plain" : undefined}
     />
   ) : v2ScopedProjectGroup !== null ? (
     <EmptyState
-      title={`No threads in ${v2ScopedProjectGroup.title}`}
-      detail="Choose another project or create a new task."
+      title={`No sessions in ${v2ScopedProjectGroup.title}`}
+      detail="Choose another project or start a new session."
       variant={Platform.OS === "android" ? "plain" : undefined}
     />
   ) : selectedEnvironmentLabel ? (
     <EmptyState
-      title={`No threads in ${selectedEnvironmentLabel}`}
-      detail="Choose another host or create a new task."
+      title={`No sessions in ${selectedEnvironmentLabel}`}
+      detail="Choose another host or start a new session."
       variant={Platform.OS === "android" ? "plain" : undefined}
     />
   ) : (
     <EmptyState
-      title="No threads yet"
-      detail="Create a task to start a new coding session."
+      title="No sessions yet"
+      detail="Start a new session to give an agent work."
       variant={Platform.OS === "android" ? "plain" : undefined}
     />
   );
@@ -577,7 +578,9 @@ export function HomeScreen(props: HomeScreenProps) {
         className={
           Platform.OS === "android"
             ? "flex-1 overflow-hidden rounded-t-[28px] bg-screen"
-            : "flex-1 bg-screen"
+            : primaryColumn
+              ? "flex-1 bg-drawer"
+              : "flex-1 bg-screen"
         }
       >
         {/* Shared with the iPad sidebar: cells are reused across data

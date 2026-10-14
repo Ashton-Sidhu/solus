@@ -35,7 +35,9 @@ its retry ladder stops.
 - **Headline.** "Connect a host to start" when no host is saved. "<Host> is
   offline" when one host is saved. "Your hosts are offline" when more than one
   host is saved. "Connecting to <Host>" after the user selects a host.
-- **Host cards.** One card for each saved host, with its status and one action:
+- **Host cards.** One card for each saved host. A card has no status dot: the
+  line under the name gives the status in words. Solus Cloud, and each host that
+  Solus Cloud runs, shows the Solus mark. A card has one action:
   Retry (offline), Start (stopped cloud host), or Pair again (refused, or a
   different server answered). A host that is dialing has no action.
 - **Nearby hosts** (desktop, web, and mobile). One card for each host that
@@ -45,7 +47,9 @@ its retry ladder stops.
   no host is saved, Pair another machine and Cloud host.
 - **Draft kept.** If the draft has text, the page shows it. The text stays on
   the draft and shows again in the composer.
-- **Connecting.** After Retry or Start, the page waits on that host. "Choose
+- **Connecting.** After Retry or Start, the page waits on that host. It shows
+  the host's card with "Connecting…" and a spinner. A host that is dialing for
+  other reasons shows the same spinner on its card. "Choose
   another host" goes back to the list. If the host does not answer, its card
   says "Did not answer · try again". There is no Cancel, because the store has
   no way to stop a dial.

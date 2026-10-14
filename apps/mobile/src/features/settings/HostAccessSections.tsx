@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { View } from "react-native";
+import { ActivityIndicator, Pressable, View } from "react-native";
 
 import {
   attachmentSummary,
@@ -9,9 +8,10 @@ import {
   organizationDetail,
   organizationRows,
 } from "@solus/client-core/organization-rows";
+import { AppText as Text } from "../../components/AppText";
+import { ListRowLayout } from "../../components/ListRowLayout";
 import { bestPairEndpoint, pairLink } from "@solus/client-core/pairing";
 import { copyTextWithHaptic } from "../../lib/copyTextWithHaptic";
-import { ConnectionFormField } from "../connection/ConnectionFormField";
 import { relativeTime } from "../../lib/time";
 import { PairQrCode } from "./components/PairQrCode";
 import { SettingsActionRow } from "./components/SettingsActionRow";
@@ -48,21 +48,23 @@ export function HostOrganizationsSection(props: {
   return (
     <View className="gap-3">
       <SettingsSection title="Organizations">
-        {attachment ? (
-          <SettingsValueRow icon="server.rack" label={attachment.label} value="" detail={attachment.description} />
-        ) : null}
-        {delivery ? <SettingsValueRow icon="tray.and.arrow.up" label="Delivery" value="" detail={delivery} /> : null}
+        <ListRowLayout
+          icon="desktopcomputer"
+          label={hostCategoryLabel(status.category)}
+          description={status.registered ? undefined : "Not registered to a Solus account, so it stands in no organization."}
+        />
+        {attachment ? <ListRowLayout icon="server.rack" label={attachment.label} description={attachment.description} /> : null}
+        {delivery ? <ListRowLayout icon="tray.and.arrow.up" label="Delivery" description={delivery} /> : null}
         {rows.length === 0 ? (
-          <SettingsValueRow icon="person.2" label="No organizations" value="" />
+          <ListRowLayout icon="person.2" label="No organizations" />
         ) : (
           rows.map((row) =>
             row.insightsManaged ? (
-              <SettingsValueRow
+              <ListRowLayout
                 key={row.organizationId}
                 icon="person.2"
                 label={row.name}
-                value=""
-                detail={`${organizationDetail(row)} · ${insightsDetail(row)}`}
+                description={`${organizationDetail(row)} · ${insightsDetail(row)}`}
               />
             ) : (
               <SettingsSwitchRow
@@ -78,11 +80,6 @@ export function HostOrganizationsSection(props: {
           )
         )}
       </SettingsSection>
-      <SettingsNote>
-        {status.registered
-          ? hostCategoryLabel(status.category)
-          : `${hostCategoryLabel(status.category)} · not registered to a Solus account, so it stands in no organization.`}
-      </SettingsNote>
     </View>
   );
 }
@@ -186,119 +183,38 @@ export function HostDevicesSection(props: {
       {devices.length === 0 ? (
         <SettingsValueRow icon="desktopcomputer" label="No devices" value="" detail="No devices are connected to this host." />
       ) : (
-        devices.map((device) => (
-          <View key={device.id}>
-            <SettingsValueRow
+        devices.map((device) => {
+          const deviceId = device.deviceId;
+          const connected = `Connected ${relativeTime(new Date(device.connectedAt).toISOString())} ago`;
+          return (
+            <ListRowLayout
+              key={device.id}
               icon="desktopcomputer"
               label={device.deviceLabel}
-              value={relativeTime(new Date(device.connectedAt).toISOString())}
-              detail={device.connectionCount > 1 ? `${device.connectionCount} connections` : undefined}
+              description={
+                device.connectionCount > 1 ? `${connected} · ${device.connectionCount} connections` : connected
+              }
+              accessory={
+                deviceId ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Revoke ${device.deviceLabel}`}
+                    disabled={busy !== null}
+                    onPress={() => props.onRevoke(deviceId)}
+                    className="min-w-20 items-center rounded-full bg-subtle px-3 py-2 active:opacity-70 disabled:opacity-40"
+                  >
+                    {busy === `revoke:${deviceId}` ? (
+                      <ActivityIndicator colorClassName="accent-danger-foreground" />
+                    ) : (
+                      <Text className="text-sm font-t3-medium text-danger-foreground">Revoke</Text>
+                    )}
+                  </Pressable>
+                ) : null
+              }
             />
-            {device.deviceId ? (
-              <SettingsActionRow
-                icon="trash"
-                label={`Revoke ${device.deviceLabel}`}
-                tone="danger"
-                loading={busy === `revoke:${device.deviceId}`}
-                disabled={busy !== null}
-                onPress={() => props.onRevoke(device.deviceId!)}
-              />
-            ) : null}
-          </View>
-        ))
+          );
+        })
       )}
     </SettingsSection>
-  );
-}
-
-/** The hosts this host paired with, so its agents can start sessions there (docs/plans/cross-host-sessions.md §10). */
-export function HostPairedHostsSection(props: {
-  readonly access: HostAccessSnapshot;
-  readonly onPair: (url: string, code: string) => Promise<boolean>;
-  readonly onForget: (installationId: string) => void;
-}) {
-  const { pairedHosts, pairedHostsError, busy } = props.access;
-  const [address, setAddress] = useState("");
-  const [code, setCode] = useState("");
-  if (!pairedHosts) {
-    return pairedHostsError ? (
-      <View className="gap-3">
-        <SettingsSection title="Paired hosts">
-          <SettingsValueRow icon="server.rack" label="Paired hosts" value="Unavailable" />
-        </SettingsSection>
-        <SettingsNote>{pairedHostsError}</SettingsNote>
-      </View>
-    ) : null;
-  }
-  const canPair = address.trim() !== "" && code.trim() !== "" && busy === null;
-  const pair = async () => {
-    if (!canPair) return;
-    if (await props.onPair(address.trim(), code.trim())) {
-      setAddress("");
-      setCode("");
-    }
-  };
-
-  return (
-    <View className="gap-3">
-      <SettingsSection title="Paired hosts">
-        {pairedHosts.length === 0 ? (
-          <SettingsValueRow icon="server.rack" label="No paired hosts" value="" />
-        ) : (
-          pairedHosts.map((host) => (
-            <View key={host.installationId}>
-              <SettingsValueRow
-                icon="server.rack"
-                label={host.label}
-                value={relativeTime(new Date(host.pairedAt).toISOString())}
-                detail={host.url}
-              />
-              <SettingsActionRow
-                icon="trash"
-                label={`Forget ${host.label}`}
-                tone="danger"
-                loading={busy === `forget-host:${host.installationId}`}
-                disabled={busy !== null}
-                onPress={() => props.onForget(host.installationId)}
-              />
-            </View>
-          ))
-        )}
-      </SettingsSection>
-      <View className="gap-3">
-        <ConnectionFormField
-          label="Address"
-          value={address}
-          onChangeText={setAddress}
-          placeholder="http://100.64.0.2:7777"
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="url"
-        />
-        <ConnectionFormField
-          label="Code"
-          value={code}
-          onChangeText={setCode}
-          placeholder="123456"
-          keyboardType="number-pad"
-          textContentType="oneTimeCode"
-          returnKeyType="go"
-          onSubmitEditing={() => void pair()}
-        />
-      </View>
-      <SettingsSection>
-        <SettingsActionRow
-          icon="plus"
-          label="Pair this host"
-          loading={busy === "pair-host"}
-          disabled={!canPair}
-          onPress={() => void pair()}
-        />
-      </SettingsSection>
-      <SettingsNote>
-        Agents on this host and on these hosts can start sessions on each other. On the other host, open Pair a
-        device and enter its address and code here.
-      </SettingsNote>
-    </View>
   );
 }

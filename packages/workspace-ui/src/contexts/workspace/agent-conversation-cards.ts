@@ -45,6 +45,8 @@ interface ExchangeOpening {
   model?: string
   reasoningEffort?: string
   cwd: string
+  /** The session's host, when it runs on another host than this conversation. */
+  serverId?: string
   timestamp: number
 }
 
@@ -105,6 +107,7 @@ class CardIndex {
       if (opening.model) ref.model = opening.model
       if (opening.reasoningEffort) ref.reasoningEffort = opening.reasoningEffort
       if (opening.provider) ref.provider = opening.provider
+      if (opening.serverId) ref.serverId = opening.serverId
       this.cardByExchange.set(exchange.messageId, current)
       // A live transcript is `$state`: keep the proxy it stored, not the plain
       // object, or later updates change a value the screen never reads again.
@@ -121,6 +124,7 @@ class CardIndex {
         provider: opening.provider ?? 'claude-code',
         title: opening.title || (opening.prompt ? promptTitle(opening.prompt) : sessionId.slice(0, 8)),
         cwd: opening.cwd,
+        serverId: opening.serverId,
         model: opening.model,
         reasoningEffort: opening.reasoningEffort,
         origin: opening.origin,
@@ -247,6 +251,7 @@ export class AgentConversationCards {
           model: update.model,
           reasoningEffort: update.reasoningEffort,
           cwd: update.cwd,
+          serverId: update.serverId,
           timestamp: update.dispatchedAt,
         })
         return { newCard, needsAttention: false }
@@ -375,6 +380,7 @@ export class TranscriptAgentConversations {
         model: input.model_id,
         reasoningEffort: input.reasoning_effort,
         cwd: input.cwd ?? '',
+        serverId: result.serverId,
         timestamp,
       })
       applyProgress(exchange, result.progress)
@@ -389,6 +395,7 @@ export class TranscriptAgentConversations {
         provider: result?.provider,
         delivery: input.delivery === 'steer' ? 'steer' : undefined,
         cwd: '',
+        serverId: result?.serverId,
         timestamp,
       })
       applyProgress(exchange, result?.progress)

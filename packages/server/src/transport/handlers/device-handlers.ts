@@ -5,7 +5,6 @@ import {
   deviceConfigureRequestSchema,
   deviceControlRequestSchema,
   deviceInstallRequestSchema,
-  deviceBuildImportRequestSchema,
   deviceRunStartRequestSchema,
   deviceOpenRequestSchema,
   deviceScreenshotRequestSchema,
@@ -77,7 +76,11 @@ export function registerDeviceHandlers(
     return manager.detail(parse(deviceTargetSchema, args[0]))
   })
 
-  server.register('deviceConfigure', (args) => manager.configure(parse(deviceConfigureRequestSchema, args[0])))
+  server.register('deviceConfigure', (args) => {
+    const request = parse(deviceConfigureRequestSchema, args[0])
+    if (request.enabled === false) deps.domain.runs.dispose()
+    return manager.configure(request)
+  })
   server.register('deviceHostSave', async (args) => {
     const config = parse(sshDeviceHostConfigSchema, args[0])
     const hosts = manager.settings().sshHosts.filter((host) => host.id !== config.id)
@@ -123,16 +126,6 @@ export function registerDeviceHandlers(
     const { build } = await manager.installBuild(request, request.buildId, userHolder(ctx), request.launch ?? true)
     return build
   })
-
-  server.register('deviceBuildImport', async (args) => {
-    const request = parse(deviceBuildImportRequestSchema, args[0])
-    // A client path is not a real path until it is resolved on this host.
-    const path = request.path === '~' ? null : resolveHomePath(request.path)
-    if (!path || !isAbsolute(path)) throw new DeviceDomainError('invalid_request', 'Enter the full path of the build on the host.')
-    const { path: _path, ...build } = await manager.addBuild(path, request.sessionId ?? '')
-    return build
-  })
-  server.register('deviceBuildDelete', (args) => manager.deleteBuild(parse(z.string().trim().min(1).max(128), args[0])))
 
   server.register('deviceRunStart', (args, ctx) => {
     const request = parse(deviceRunStartRequestSchema, args[0])

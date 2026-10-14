@@ -2,7 +2,7 @@ import { prefetchStartupTranscript } from '@solus/workspace-ui/contexts/workspac
 import '@solus/workspace-ui/index.css'
 import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
 import { setConnectionState } from '@solus/client-core/connection-state'
-import { installWsBackedSolusApi, localServerTarget, resolveActiveServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
+import { installWsBackedSolusApi, localServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { renderFatal } from './boot-scene'
 import { startScrollReveal } from '@solus/workspace-ui/lib/scroll-reveal'
@@ -51,11 +51,9 @@ async function boot(): Promise<void> {
   if (!nativeApi) throw new Error('Native Solus bootstrap bridge is unavailable')
   const local = await getLocalConnection(nativeApi)
   performance.mark('solus.boot.connection')
-  // The window always boots on its own machine. A saved remote is only the
-  // default for new work (dispatch-client step 5), so it must not gate first
-  // paint behind its network handshake; it dials beside the others below.
+  // The window always boots on its own machine, and that machine is the default
+  // for new work. Another host is chosen per run with the Run on picker.
   const target = localServerTarget(local)
-  const defaultTarget = resolveActiveServerTarget(local)
   bootTarget = target
   serverConnections.registerTarget(target, () => nativeApi.refreshLocalSessionToken())
 
@@ -77,7 +75,6 @@ async function boot(): Promise<void> {
     },
   })
   serverConnections.registerPrimary(target.id, api, transport, target)
-  if (!defaultTarget.local) serverConnections.setPrimary(defaultTarget.id)
 
   transport.start()
   void prefetchStartupTranscript()

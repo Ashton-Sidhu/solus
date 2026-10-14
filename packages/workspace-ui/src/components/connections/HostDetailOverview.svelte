@@ -119,13 +119,15 @@
     <SettingsRow
       label="Solus Cloud"
       description={!uplink
-        ? "Checking the link…"
-        : uplink.linked
-          ? `Linked · ${uplink.link.hostname}`
-          : "Not linked to your account"}
+        ? "Checking the registration…"
+        : !uplink.registration.registered
+          ? "Not registered to your account"
+          : uplink.link.linked
+            ? `Registered · reachable at ${uplink.link.tunnel.hostname}`
+            : "Registered · on your local network"}
     >
       {#snippet control()}
-        {@render openTab("access", uplink?.linked === true)}
+        {@render openTab("access", uplink?.registration.registered === true)}
       {/snippet}
     </SettingsRow>
   {/if}
@@ -166,14 +168,14 @@
   <SettingsSection label="Danger zone">
     <SettingsRow
       label="Remove host"
-      description="Forget this host. You'll need to pair with it again."
+      description="Forget this host, here and in your Solus account. You'll need to pair with it again."
     >
       {#snippet control()}
         <Button
           variant="outline"
           size="sm"
           class="text-(--solus-status-error) hover:text-(--solus-status-error)"
-          onclick={() => serversStore.remove(host.id)}
+          onclick={() => void serversStore.remove(host.id)}
         >
           Forget
         </Button>

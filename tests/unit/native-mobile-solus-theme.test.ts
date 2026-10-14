@@ -85,9 +85,13 @@ describe('native mobile Solus theme', () => {
     }
   })
 
-  test('grouped cards stand apart from the background by the shared tonal fill, not a page colour', () => {
+  test('grouped cards stand apart from the background: a light fill and a hairline in light, the raised card in dark', () => {
     const light = getMobileThemeVariables('light')
-    expect(contrast(light['--color-grouped-card'], light['--color-screen'])).toBeGreaterThanOrEqual(1.1)
+    // Light cards are a near-white fill, lighter than desktop's flattened `--muted` (#f2f2ef),
+    // which reads as grey on a phone. The hairline border, not the fill, separates them.
+    expect(light['--color-grouped-card']).not.toBe(light['--color-screen'])
+    expect(contrast(light['--color-grouped-card'], light['--color-screen'])).toBeLessThan(contrast('#f2f2ef', light['--color-screen']))
+    expect(light['--color-pr-card-border']).toBe('rgba(0, 0, 0, 0.06)')
     const dark = getMobileThemeVariables('dark')
     // Dark cards are the workspace's raised `--card` (its second `.dark` block).
     expect(dark['--color-grouped-card']).toBe(/\.dark \{\s*--card: (#[\da-f]{6});/i.exec(workspaceCss)![1])
@@ -126,6 +130,17 @@ describe('native mobile Solus theme', () => {
     expect(red > green && green > blue).toBe(true)
     // The palette's own pressed shade is deeper still, never lighter than the fill.
     expect(contrast('#ffffff', SOLUS_LIGHT_THEME_COLORS.messageActionHover)).toBeGreaterThan(contrast('#ffffff', SOLUS_LIGHT_THEME_COLORS.messageAction))
+  })
+
+  test('a prominent action (merge) is the ink fill with a canvas label, as T3\'s default theme', () => {
+    // WHY: T3 #18506 gives the strongest PR action its own token. On the
+    // default theme it is the foreground ink, and its label must read as text.
+    for (const appearance of ['light', 'dark'] as const) {
+      const variables = getMobileThemeVariables(appearance)
+      expect(variables['--color-prominent-action']).toBe(variables['--color-foreground'])
+      expect(variables['--color-prominent-action-foreground']).toBe(variables['--color-screen'])
+      expect(contrast(variables['--color-prominent-action-foreground'], variables['--color-prominent-action'])).toBeGreaterThanOrEqual(4.5)
+    }
   })
 
   test('the composer is the Solus input pill with the container ring', () => {

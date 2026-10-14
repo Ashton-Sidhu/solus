@@ -3,8 +3,8 @@ import { devicesStore } from '../../../contexts/devices/devices.store.svelte'
 import { deviceViewState } from './device-view-state.svelte'
 
 /**
- * One click from a build to the app running where the person can see it
- * (plan 016, S02). A simulator or emulator opens beside the conversation,
+ * One click from a production build to the app running where the person can
+ * see it (plan 016, S02). The same build installs on as many devices as asked. A simulator or emulator opens beside the conversation,
  * booting first if it is stopped; the build installs and opens; the pane
  * shows that device. A connected phone gets the install and the launch, and
  * the person looks at the phone.
@@ -30,7 +30,6 @@ export async function runDeviceBuild(
   const target = { deviceHostId: preview.deviceHostId, deviceId: preview.deviceId }
   await devicesStore.installBuild(serverId, target, build)
   deviceViewState.select(serverId, sessionId, preview.devicePreviewId)
-  deviceViewState.showBuilds(serverId, false)
   shell.openDevices(sessionId, serverId)
   return devicesStore.device(serverId, target) ?? device
 }

@@ -1,7 +1,7 @@
 import { randomId } from './random-id'
 import { taskRecord, workRecord, workSummary, sessionRecord } from '@solus/contracts/solus-api/records'
 import type { Task, TaskDetails } from '@solus/contracts/task-types'
-import type { Work, WorkMeta, SessionRecord } from '@solus/contracts/types'
+import type { Work, WorkMeta, SessionRecord, SessionRecordListFilter } from '@solus/contracts/types'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { WorkspaceSessionSearchResult, WorkspaceTask, WorkspaceWork } from '@solus/contracts/solus-api'
 import { SolusApiClient, WorkspaceRequestError } from '@solus/contracts/solus-api/client'
@@ -14,6 +14,12 @@ type SessionSearchHitPart = Pick<WorkspaceSessionSearchResult['items'][number], 
 async function notFoundAsNull<T>(read: Promise<T>): Promise<T | null> {
   try { return await read }
   catch (error) { if (error instanceof WorkspaceRequestError && error.status === 404 && error.code !== 'MOVED') return null; throw error }
+}
+
+/** A session list filter as the Solus API's query strings. */
+function sessionListFilters(filter: SessionRecordListFilter | undefined) {
+  const flag = (value: boolean | undefined) => value === undefined ? undefined : value ? 'true' as const : 'false' as const
+  return { provider: filter?.provider, projectPath: filter?.projectPath, repositoryKey: filter?.repositoryKey, includeWorktrees: flag(filter?.includeWorktrees), chats: flag(filter?.chats) }
 }
 
 /** Adapts the established UI records while their storage requests use the versioned HTTP contract. */
@@ -67,21 +73,33 @@ export function workspaceRecordMethods(client: SolusApiClient, extras: (id: stri
       workVersions.delete(id)
     },
     async sessionRecordList(filter) {
-      const records: SessionRecord[] = []
+      // Paged by last activity, so the newest `limit` sessions are the first pages. A record
+      // whose activity changes during the read can move between pages; the map keeps it once.
+      const records = new Map<string, SessionRecord>()
       let cursor: string | undefined
       let indexing = false
-      do {
-        const page = await client.request('listSessions', { query: { limit: 200, cursor, provider: filter?.provider, projectPath: filter?.projectPath, includeWorktrees: filter?.includeWorktrees === undefined ? undefined : filter.includeWorktrees ? 'true' : 'false', chats: filter?.chats === undefined ? undefined : filter.chats ? 'true' : 'false' } })
-        for (const session of page.items) records.push(sessionRecord(session))
+      let order: 'activity' | undefined = 'activity'
+      const filters = sessionListFilters(filter)
+      for (;;) {
+        let page
+        try {
+          page = await client.request('listSessions', { query: { ...filters, limit: 200, cursor, order } })
+        } catch (error) {
+          // A host older than `order` refuses it. It pages by creation, so every page is read.
+          if (order && cursor === undefined && error instanceof WorkspaceRequestError && error.status === 400) { order = undefined; continue }
+          throw error
+        }
+        for (const session of page.items) records.set(session.id, sessionRecord(session))
         indexing ||= page.indexing
         cursor = page.nextCursor ?? undefined
-      } while (cursor)
-      records.sort((a, b) => b.lastActivityAt - a.lastActivityAt || a.sessionId.localeCompare(b.sessionId))
-      return { records: filter?.limit === undefined ? records : records.slice(0, filter.limit), indexing }
+        if (!cursor || (order && filter?.limit !== undefined && records.size >= filter.limit)) break
+      }
+      const sorted = [...records.values()].sort((a, b) => b.lastActivityAt - a.lastActivityAt || a.sessionId.localeCompare(b.sessionId))
+      return { records: filter?.limit === undefined ? sorted : sorted.slice(0, filter.limit), indexing }
     },
     async sessionRecordSearch(query) {
       const result = await client.request('searchSessions', { query: {
-        q: query.query, projectRoot: query.projectRoot, provider: query.provider, limit: query.limit, offset: query.offset,
+        q: query.query, projectRoot: query.projectRoot, repositoryKey: query.repositoryKey, provider: query.provider, limit: query.limit, offset: query.offset,
         namesOnly: query.namesOnly === undefined ? undefined : query.namesOnly ? 'true' : 'false',
         activeSince: query.activeSince,
       } })

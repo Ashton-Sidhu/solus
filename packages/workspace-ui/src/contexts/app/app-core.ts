@@ -4,11 +4,10 @@ import { installHostUpdateNotices } from '../updates/host-update-notices.svelte'
 import { modelProfilesStore } from '../updates/model-profiles.store.svelte'
 import { onDestroy } from 'svelte'
 import { SettingsContext, setSettingsContext } from './settings.context.svelte'
-import { settingsSyncStore } from './settings-sync.store.svelte'
 import { agentProfileLocalStore } from '../seats/agent-profile-local.store.svelte'
-import { accountAgentProfileRequests, agentProfileSyncStore } from '../seats/agent-profile-sync.store.svelte'
+import { accountAgentProfileRequests, accountSyncStore } from '../account/account-sync.store.svelte'
+import { browserSyncClock } from '../account/lib/browser-sync-ports'
 import { agentProfileStore } from '../seats/agent-profile.store.svelte'
-import { browserSyncClock } from './settings-sync.store.svelte'
 import { integrationsStore } from '../../components/settings/integrations.store.svelte'
 import { hostSettingsStore } from './host-settings.store.svelte'
 import { accountStore } from '../account/account.store.svelte'
@@ -66,16 +65,14 @@ export interface AppCore {
  * Electron renderer (`src/renderer/App.svelte`) and the web client
  * (`client/src/App.svelte`) so a new store added here lands in both clients.
  *
- * Platform-specific setup (analytics, root scaling, and design mode) stays in
+ * Platform-specific setup (analytics and root scaling) stays in
  * each App.svelte — only what is identical lives here.
  */
 export function createAppCore(shell: ClientShellContext): AppCore {
   const settings = new SettingsContext()
-  // One sync coordinator and one host-settings follower per client, not per tab.
-  onDestroy(settingsSyncStore.start(settings.personal))
-  onDestroy(settingsSyncStore.followAccount(accountStore))
-  onDestroy(agentProfileSyncStore.start(agentProfileLocalStore))
-  onDestroy(agentProfileSyncStore.followAccount(accountStore))
+  // One account sync owner and one host-settings follower per client, not per tab.
+  onDestroy(accountSyncStore.start(settings.personal, agentProfileLocalStore))
+  onDestroy(accountSyncStore.followAccount(accountStore))
   // A signed-in person's MCP sign-ins run at the cloud (plans/020 §5.3); the store itself holds no account state.
   integrationsStore.useCloudSignIn({
     requests: accountAgentProfileRequests,

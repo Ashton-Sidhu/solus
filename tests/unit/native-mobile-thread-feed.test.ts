@@ -47,6 +47,17 @@ describe('native thread feed', () => {
     expect(shape(rows)).toEqual(['user:u1', 'assistant:a1', 'run-fold', 'device-snapshot', 'assistant:a2'])
   })
 
+  test("a turn's device screenshots are one group at the first one's place, as on desktop", () => {
+    // WHY: several screenshots of one turn are one act of looking at the device.
+    // One row per picture stacks them down the phone; one group lays them out together.
+    const rows = present([user('u1'), assistant('a1'), { id: 's1', kind: 'device_snapshot' }, tool('t1'), { id: 's2', kind: 'device_snapshot' }, { id: 's3', kind: 'device_snapshot' }, assistant('a2')], { turnActive: true })
+    expect(shape(rows)).toEqual(['user:u1', 'assistant:a1', 'device-snapshot', 'work:t1', 'assistant:a2'])
+    expect(rows[2]?.type === 'device-snapshot' && rows[2].itemIds).toEqual(['s1', 's2', 's3'])
+    // A new turn starts a new group.
+    const next = present([user('u1'), { id: 's1', kind: 'device_snapshot' }, user('u2'), { id: 's2', kind: 'device_snapshot' }])
+    expect(next.filter((row) => row.type === 'device-snapshot').map((row) => row.type === 'device-snapshot' && row.itemIds)).toEqual([['s1'], ['s2']])
+  })
+
   test('a turn that failed stays open so its error is read in place', () => {
     const rows = present([user('u1'), tool('t1'), { id: 'n1', kind: 'notice', tone: 'error' }])
     expect(shape(rows)).toEqual(['user:u1', 'work:t1', 'notice'])

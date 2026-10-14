@@ -146,7 +146,7 @@
       {#if showsGuideRow && guide}
         <DropdownMenu.Item
           disabled={guide.regenerating}
-          onSelect={() => void runAction(() => guide.onRegenerate("full"))}
+          onSelect={() => void runAction(() => guide.onRegenerate())}
         >
           <RewriteIcon size={14} class={guide.regenerating ? "animate-spin motion-reduce:animate-none" : ""} />
           Regenerate guide

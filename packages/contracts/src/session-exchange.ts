@@ -540,12 +540,14 @@ export interface ExchangeTag {
   messageId: string
   sessionId: string
   provider?: AgentId
+  /** The id clients know the session's host by, when it runs on another host. */
+  serverId?: string
 }
 
 const TAG_RE = /\[exchange v1 ([^\]\n]*)\]/
 
 export function formatExchangeTag(tag: ExchangeTag): string {
-  return `[exchange v1 message=${tag.messageId} session=${tag.sessionId}${tag.provider ? ` provider=${tag.provider}` : ''}]`
+  return `[exchange v1 message=${tag.messageId} session=${tag.sessionId}${tag.provider ? ` provider=${tag.provider}` : ''}${tag.serverId ? ` host=${tag.serverId}` : ''}]`
 }
 
 /** The exchange a start_session or send_session result opened. */
@@ -557,8 +559,10 @@ export function parseExchangeTag(text: string): Partial<ExchangeTag> | null {
   const messageId = values.get('message')
   const sessionId = values.get('session')
   const provider = agentIdOf(values.get('provider'))
+  const serverId = values.get('host')
   if (messageId) result.messageId = messageId
   if (sessionId) result.sessionId = sessionId
   if (provider) result.provider = provider
+  if (serverId) result.serverId = serverId
   return result
 }

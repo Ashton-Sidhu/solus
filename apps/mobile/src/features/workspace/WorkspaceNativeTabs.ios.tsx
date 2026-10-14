@@ -111,8 +111,8 @@ export function WorkspaceNativeTabs(props: {
           <Tabs.Screen
             key={COMPOSE_TAB}
             screenKey={COMPOSE_TAB}
-            title="New task"
-            tabBarItemAccessibilityLabel="New task"
+            title="New session"
+            tabBarItemAccessibilityLabel="New session"
             preventNativeSelection
             ios={{
               role: "search",

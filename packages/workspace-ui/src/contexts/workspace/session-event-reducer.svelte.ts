@@ -400,11 +400,10 @@ export class SessionEventReducer {
           timestamp: Date.now(),
         }
         session.messages.push(toolMessage)
-        this.deps.workStreamTracker.beginToolArtifacts(
+        this.deps.workStreamTracker.beginWorkStream(
           session,
           event.toolName,
           session.run.provider ?? this.deps.settings.activeAgent,
-          event.toolId,
         )
         if (event.toolInput) this.deps.workStreamTracker.updateStreamingArtifact(session, event.toolName, event.toolInput, event.toolId)
         break

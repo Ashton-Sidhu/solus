@@ -181,12 +181,12 @@ export function createNativeReviewDiffTheme(
     appTheme["--color-screen"],
     scheme === "dark" ? "#000000" : "#ffffff",
   );
-  const background = opaqueNativeHexColor(appTheme["--color-md-code-bg"], screen);
+  // Desktop paints diffs on `--solus-diff-surface`, the page colour, not the code block tint.
+  const background = screen;
   const nativeColor = (color: string) => opaqueNativeHexColor(color, background);
 
   if (scheme === "dark") {
     return {
-      // Code surfaces share the desktop palette rather than the sheet behind them.
       background,
       text: nativeColor(appTheme["--color-md-code-text"]),
       mutedText: nativeColor(appTheme["--color-foreground-muted"]),

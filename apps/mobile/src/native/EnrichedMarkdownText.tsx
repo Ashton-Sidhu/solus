@@ -1,7 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/native/EnrichedMarkdownText.tsx (MIT, see UPSTREAM.md).
 // No context chips, context clipboard, skills, or file chip menu: Solus has none on the
-// phone, so a link's long press shows the iOS link menu (Open, Copy, Share). The text is
-// the system font, so bold text and headings ask for a bold weight.
+// phone, so a link's long press shows the iOS link menu (Open, Copy, Share). The text
+// recognition slot T3 uses for skills finds `@path` mentions.
 import { useCallback, useMemo, useState } from "react";
 import { Platform, Share, StyleSheet, View } from "react-native";
 import {
@@ -17,25 +17,22 @@ import {
   ENRICHED_INLINE_FILE_LINK_REGEX,
   enrichedLinkVariantPattern,
 } from "../lib/enrichedLinkPresentation";
+import { FILE_MENTION_REGEX } from "../lib/fileMentions";
 import { markdownWithHtml } from "../lib/markdownDocument";
 import type { SelectableMarkdownTextProps } from "./SelectableMarkdownText.types";
 import { useEnrichedLinkVariants } from "./useEnrichedLinkVariants";
 
 const LINK_RECOGNITION = { inlineCode: ENRICHED_INLINE_FILE_LINK_REGEX };
+const LINK_AND_MENTION_RECOGNITION = { ...LINK_RECOGNITION, text: FILE_MENTION_REGEX };
 
 function enrichedStyle(
   style: SelectableMarkdownTextProps["textStyle"],
   dark: boolean,
 ): MarkdownStyle {
   const monospace = Platform.OS === "ios" ? "Menlo" : "monospace";
-  // Keep the radius modest: iOS clips square table-cell borders without stroking the corner arcs.
-  const block = {
-    marginTop: 4,
-    marginBottom: 12,
-    borderRadius: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: style.dividerColor,
-  };
+  const block = { marginTop: 4, marginBottom: 12 };
+  // Desktop's `.prose-cloud pre` is 0.75rem against a 0.875rem body, at 1.55 leading.
+  const codeBlockFontSize = style.fontSize * (0.75 / 0.875);
   const body = {
     color: style.color,
     fontFamily: style.fontFamily,
@@ -50,7 +47,6 @@ function enrichedStyle(
       ...body,
       color: style.strongColor,
       fontFamily: style.headingFontFamily,
-      fontWeight: "700",
       fontSize,
       lineHeight: fontSize * 1.35,
       marginTop: 8,
@@ -64,7 +60,7 @@ function enrichedStyle(
     h4: heading(4),
     h5: heading(5),
     h6: heading(6),
-    strong: { color: style.strongColor, fontFamily: style.boldFontFamily, fontWeight: "bold" },
+    strong: { color: style.strongColor, fontFamily: style.boldFontFamily, fontWeight: "normal" },
     link: { color: style.linkColor, underline: false },
     code: {
       fontFamily: monospace,
@@ -73,13 +69,19 @@ function enrichedStyle(
       borderColor: "transparent",
       fontSize: style.fontSize * 0.9,
     },
+    // Desktop's chat code block (`.solus-code-block`): the code tint panel, a soft
+    // border, and a 10px radius.
     codeBlock: {
       ...body,
       color: style.codeColor,
       backgroundColor: style.codeBlockBackgroundColor,
       fontFamily: monospace,
-      fontSize: style.fontSize * 0.9,
+      fontSize: codeBlockFontSize,
+      lineHeight: codeBlockFontSize * 1.55,
       ...block,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: style.codeBlockBorderColor,
       padding: 12,
       syntaxColors: dark
         ? {
@@ -117,12 +119,17 @@ function enrichedStyle(
     },
     list: { ...body, bulletColor: style.mutedColor, markerColor: style.mutedColor, gapWidth: 6 },
     thematicBreak: { color: style.dividerColor, height: 1, marginTop: 8, marginBottom: 8 },
+    // Desktop's `.prose-cloud table`: square, hairline rules, and a plain header fill.
+    // A square table also avoids iOS clipping cell borders at rounded corners.
     table: {
       ...body,
       ...block,
-      headerFontFamily: style.boldFontFamily,
+      borderRadius: 0,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: style.dividerColor,
+      headerFontFamily: style.tableHeaderFontFamily,
       headerTextColor: style.strongColor,
-      headerBackgroundColor: style.codeBlockBackgroundColor,
+      headerBackgroundColor: style.tableHeaderBackgroundColor,
       rowEvenBackgroundColor: "transparent",
       rowOddBackgroundColor: "transparent",
       cellPaddingHorizontal: 10,
@@ -218,7 +225,7 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
         renderMedia={renderImage ? renderMedia : undefined}
         resolveImageSource={resolveImageSource ? resolveNativeImageSource : undefined}
         onImagePress={pressImage ? ({ url }) => pressImage(url) : undefined}
-        linkRecognition={LINK_RECOGNITION}
+        linkRecognition={props.recognizeFileMentions ? LINK_AND_MENTION_RECOGNITION : LINK_RECOGNITION}
         containerStyle={{ flexShrink: 1, minWidth: 0 }}
         flavor="github"
         selectable

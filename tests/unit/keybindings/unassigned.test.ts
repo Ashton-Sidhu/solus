@@ -8,7 +8,6 @@ import type { BindingId } from '@solus/workspace-ui/lib/keybindings/manifest'
 // they claim no key from anyone, but they must still be registrable — the whole
 // point is that a user can give one a key in Settings → Keybindings.
 const UNASSIGNED: BindingId[] = [
-  'global.design-mode',
   'global.switch-branch',
   'global.new-session-worktree',
   'global.new-session-in',
@@ -22,7 +21,6 @@ const UNASSIGNED: BindingId[] = [
   'global.create-task-in',
   'global.permission-menu',
   'global.add-server',
-  'global.switch-server',
   'global.find-hosts',
 ]
 

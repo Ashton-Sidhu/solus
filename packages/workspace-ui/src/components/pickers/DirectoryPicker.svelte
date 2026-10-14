@@ -266,7 +266,7 @@
     if (shouldAutofocus) requestAnimationFrame(() => pathInputEl?.focus());
 
     const recents = projectsStore.loadRecentProjects(serverId);
-    const browsedHost = hosts.find(serverId);
+    const browsedHost = hosts.get(serverId);
     void Promise.all([
       // The projects folder may have moved since the host's record was read.
       browsedHost?.refresh("capabilities").then(() => browsedHost.capabilityRecord ?? null).catch(() => null) ?? null,

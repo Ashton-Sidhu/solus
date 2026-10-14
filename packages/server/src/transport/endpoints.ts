@@ -64,6 +64,15 @@ interface DiscoveryProbeTarget {
   name: string
 }
 
+const ENDPOINT_REACH = { tailnet: 0, lan: 1, loopback: 2 } satisfies Record<ReachableEndpoint['kind'], number>
+
+/** The URLs another host can reach this one at, the widest reach first. */
+export async function reachableUrls(bindHost: string, port: number): Promise<string[]> {
+  return (await listReachableEndpoints(bindHost, port))
+    .sort((a, b) => ENDPOINT_REACH[a.kind] - ENDPOINT_REACH[b.kind])
+    .map((endpoint) => `http://${endpoint.host}:${endpoint.port}`)
+}
+
 /**
  * Enumerates network interfaces the server is reachable on, given the bind
  * address and port. Loopback always shown first; LAN interfaces follow if the

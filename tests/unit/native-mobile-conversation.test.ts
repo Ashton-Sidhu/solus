@@ -36,7 +36,7 @@ async function open(setup: Setup) {
     executionPreferences: () => ({ extraInstructions: 'Be brief.' }),
     connection,
     outbox,
-    runSettings: async () => ({ defaultPermissionMode: 'auto' }),
+    runSettings: async () => ({ defaultPermissionMode: 'auto', defaultModels: {}, modelOptionsByProvider: {} }),
     organizationId: () => null,
     uuid: () => `client-${++nextId}`,
     onChange: (change) => changes.push(change),
@@ -50,13 +50,14 @@ function baseApi(): FakeApi {
     .on('loadSessionPage', () => page([userRow('hello', 'm1'), assistantRow('hi there', 'm2')]))
     .on('watchSession', () => ({ runtime: null }))
     .on('unwatchSession', () => undefined)
+    .on('setSessionReadState', () => Date.now())
     .on('prompt', () => ({ disposition: 'started' }))
 }
 
 /** The conversation's own calls, without the per-connection capability and agent reads
  *  and the run-option read beside history. */
 const conversationCalls = (api: FakeApi) => api.calls.map((call) => call.method)
-  .filter((method) => method !== 'serverGetCapabilities' && method !== 'start' && method !== 'configGet')
+  .filter((method) => method !== 'serverGetCapabilities' && method !== 'start' && method !== 'configGet' && method !== 'setSessionReadState')
 
 const texts = (controller: ConversationController) => controller.model.order.map((id) => {
   const item = controller.model.items.get(id)
@@ -82,6 +83,8 @@ describe('native conversation: history and live events', () => {
     expect(api.callsOf('watchSession')[0]?.[0]).toEqual({ sessionId: 'thread-1', attachRuntime: true })
     expect(texts(controller)).toEqual(['user:hello', 'assistant:later'])
     expect(controller.phase).toEqual({ kind: 'ready' })
+    expect(api.callsOf('setSessionReadState')[0]?.[0]).toBe('thread-1')
+    expect(api.callsOf('setSessionReadState')[0]?.[1]).toBeNumber()
   })
 
   test('keeps the session id it opened and streams into one assistant row', async () => {
@@ -237,6 +240,21 @@ describe('native conversation: sending', () => {
     expect(controller.model.items.get('client-1')).toMatchObject({ delivery: 'sent' })
   })
 
+  test('a new session that a prompt started reloads its history after a reconnect that lost the server session', async () => {
+    const api = baseApi()
+    const { controller, transport } = await open({ api, target: { hostId: 'inst-a', newSession: { sessionId: 'new-1', provider: 'claude-code', workingDirectory: '/work/app' } } })
+    await controller.load()
+    await controller.send('build it')
+    expect(api.callsOf('loadSessionPage')).toHaveLength(0)
+
+    api.on('loadSessionPage', () => page([userRow('build it', 'm1'), assistantRow('built', 'm2')]))
+    await transport.accept(false)
+    await flushPromises()
+    expect(api.callsOf('describeSession')[0]).toEqual(['new-1'])
+    expect(api.callsOf('loadSessionPage')[0]?.[0]).toMatchObject({ sessionId: 'new-1', projectPath: '/work/app' })
+    expect(texts(controller)).toEqual(['user:build it', 'assistant:built'])
+  })
+
   test('a send lost with the transport goes again with the same id, once, when the host is back', async () => {
     let fail = true
     const api = baseApi().on('prompt', () => {
@@ -287,7 +305,7 @@ describe('native conversation: sending', () => {
       executionPreferences: () => ({}),
       connection: first.connection,
       outbox: first.outbox,
-      runSettings: async () => ({ defaultPermissionMode: 'auto' }),
+      runSettings: async () => ({ defaultPermissionMode: 'auto', defaultModels: {}, modelOptionsByProvider: {} }),
       organizationId: () => null,
       uuid: () => 'unused',
       onChange: () => {},

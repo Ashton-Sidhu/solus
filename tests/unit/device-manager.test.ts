@@ -179,6 +179,21 @@ describe('device manager', () => {
     expect(surfaces).toEqual(['s1:agent'])
   })
 
+  test('Run app boots its selected target without a conversation and requires device control', async () => {
+    const { manager, ready, surfaces } = setup({ enabled: true })
+    await ready
+    const target = { deviceHostId: 'local', deviceId: 'Pixel_9' }
+    const holder = { kind: 'user' as const, clientId: 'run-app-client', label: 'Run app' }
+    expect(await errorCode(manager.bootForRun(target, holder))).toBe('control_required')
+    manager.acquireControl(target, holder)
+    const device = await manager.bootForRun(target, holder)
+    expect(device.deviceId).toBe('emulator-5554')
+    expect(device.booted).toBe(true)
+    expect(manager.state().previews).toEqual([])
+    expect(surfaces).toEqual([])
+    manager.releaseControl(target, holder)
+  })
+
   test('an AVD name becomes its serial without a duplicate preview', async () => {
     // WHY: an unbooted AVD is named by AVD; once running it is an emulator serial.
     const { manager, ready } = setup({ enabled: true })

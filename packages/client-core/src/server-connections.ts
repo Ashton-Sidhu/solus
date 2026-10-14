@@ -22,7 +22,9 @@ import { onWakeSignal } from './wake-signals'
 import { asHostApi, type HostApi } from './host-api'
 import type { HostCapabilities, HostOperatingSystem } from '@solus/contracts/types'
 import { z } from 'zod'
-import { HostFacts } from './host-facts'
+import { HostFacts, type HostPresence } from './host-facts'
+import { HostGoneError } from './rpc-error'
+import { HostIntroducer, type IntroducerHost } from './host-introducer'
 
 const CACHE_TTL_MS = 60_000
 const HEALTH_TIMEOUT_MS = 3_000
@@ -46,6 +48,9 @@ const serverHealthSchema = z.object({
 
 export interface ManagedConnection {
   serverId: string
+  /** `gone`: this client does not know the host. The connection opens no socket,
+   *  and every call rejects with `HostGoneError`. */
+  presence: HostPresence
   target: SolusServerTarget
   transport: WsTransport
   api: SolusAPI
@@ -85,6 +90,8 @@ export class ServerConnections {
   private readonly statusListeners = new Set<StatusListener>()
   private readonly connectionListeners = new Set<ConnectionListener>()
   private readonly phaseListeners = new Set<PhaseListener>()
+  /** Introduces the hosts this client owns to each other (docs/plans/host-reach.md §4). */
+  private readonly introducer = new HostIntroducer(() => this.ownedHosts())
   private readonly primaryListeners = new Set<() => void>()
   private readonly healthCache = new Map<string, CacheEntry<ServerHealth | null>>()
   private readonly identityCache = new Map<string, CacheEntry<Awaited<ReturnType<SolusAPI['listProjectIdentities']>>>>()
@@ -99,7 +106,7 @@ export class ServerConnections {
     // not mean N window listeners each re-deciding what a wake meant.
     onWakeSignal((signal) => {
       for (const connection of this.connections.values()) {
-        if (this.undialedServerIds.has(connection.serverId)) continue
+        if (connection.presence === 'gone' || this.undialedServerIds.has(connection.serverId)) continue
         connection.supervisor.handleWakeSignal(signal)
       }
     })
@@ -114,10 +121,9 @@ export class ServerConnections {
     serverId: string,
     api: SolusAPI,
     transport: WsTransport,
-    target?: SolusServerTarget,
+    target: SolusServerTarget,
   ): ManagedConnection {
-    const resolvedTarget = target ?? this.resolveTarget(serverId)
-    this.targets.set(serverId, resolvedTarget)
+    this.targets.set(serverId, target)
     const existing = this.connections.get(serverId)
     const previousPrimaryId = this.primaryServerId
     if (previousPrimaryId && previousPrimaryId !== serverId) {
@@ -136,7 +142,8 @@ export class ServerConnections {
     const facts = new HostFacts(serverId, { api: asHostApi(api), events: transport.events })
     const connection: ManagedConnection = {
       serverId,
-      target: resolvedTarget,
+      presence: 'present',
+      target,
       transport,
       api,
       events: transport.events,
@@ -236,6 +243,7 @@ export class ServerConnections {
       onSessionChange: (change) => facts.sessionChanged(change),
       onPhaseChange: (phase, attempt) => {
         for (const listener of this.phaseListeners) listener(serverId, phase, attempt)
+        if (phase === 'connected') this.introducer.run()
       },
       // Decorate the legacy status stream with the supervisor's attempt count,
       // which the transport no longer knows.
@@ -309,20 +317,35 @@ export class ServerConnections {
     return loadServers().find((server) => server.installationId === serverId)?.id ?? serverId
   }
 
+  /**
+   * The connection for any host id. It never throws: an id this client does not
+   * know (a deleted host, or one never listed here) gets a `gone` connection that
+   * opens no socket and rejects every call with `HostGoneError`. When the id is
+   * known again, the next `ensure` replaces that connection with a real one.
+   */
   ensure(serverId: string): ManagedConnection {
     serverId = this.resolveId(serverId)
     const existing = this.connections.get(serverId)
-    if (existing) return existing
-
+    if (existing?.presence === 'present') return existing
     const target = this.resolveTarget(serverId)
+    if (existing && !target) return existing
+    if (existing) {
+      this.connections.delete(serverId)
+      this.destroyConnection(existing)
+    }
+    return this.addConnection(target ? this.connect(serverId, target) : this.goneConnection(serverId))
+  }
+
+  private connect(serverId: string, target: SolusServerTarget): ManagedConnection {
     const { api, transport, events } = createSolusConnection(target, {
       onStatusChange: (status, attempt) => this.updateStatus(serverId, status, attempt),
       verifyConnectedHost: () => this.verifySavedServerIdentity(target),
       refreshLocalSessionToken: this.localTokenRefreshers.get(serverId),
     })
     const facts = new HostFacts(serverId, { api: asHostApi(api), events })
-    const connection: ManagedConnection = {
+    return {
       serverId,
+      presence: 'present',
       target,
       transport,
       api,
@@ -332,6 +355,29 @@ export class ServerConnections {
       supervisor: this.superviseTransport(serverId, transport, facts),
       facts,
     }
+  }
+
+  private goneConnection(serverId: string): ManagedConnection {
+    const target: SolusServerTarget = { id: serverId, label: serverId, url: '', sessionToken: '', local: false }
+    const { api, transport, events } = createSolusConnection(target)
+    transport.destroy('disconnected', new HostGoneError(serverId))
+    const facts = new HostFacts(serverId, { api: asHostApi(api), events, presence: 'gone' })
+    return {
+      serverId,
+      presence: 'gone',
+      target,
+      transport,
+      api,
+      events,
+      status: 'disconnected',
+      attempt: 0,
+      supervisor: this.superviseTransport(serverId, transport, facts),
+      facts,
+    }
+  }
+
+  private addConnection(connection: ManagedConnection): ManagedConnection {
+    const { serverId } = connection
     this.connections.set(serverId, connection)
     // `ensure()` is reached from derived renderer state — a component asking
     // which API surface its tab talks to — so its side effects must not run
@@ -343,6 +389,7 @@ export class ServerConnections {
     queueMicrotask(() => {
       if (this.connections.get(serverId) !== connection) return
       this.emitConnectionCreated(connection)
+      if (connection.presence === 'gone') return
       if (awaitsManagedHost(serverId)) this.undialedServerIds.add(serverId)
       else connection.supervisor.start()
     })
@@ -439,15 +486,28 @@ export class ServerConnections {
     }
   }
 
+  /** The connected hosts where this client is the local owner: only they take part in introductions. */
+  private async ownedHosts(): Promise<IntroducerHost[]> {
+    const connected = [...this.connections.values()].filter((connection) => connection.presence === 'present' && connection.supervisor.phase === 'connected')
+    const hosts = await Promise.all(connected.map(async (connection): Promise<IntroducerHost | null> => {
+      const info = await connection.facts.when('serverInfo').catch(() => null)
+      if (info?.principal !== 'local-owner') return null
+      const health = await this.probeHealth(connection.serverId)
+      return health ? { installationId: health.installationId, label: health.name, api: asHostApi(connection.api) } : null
+    }))
+    return hosts.filter((host): host is IntroducerHost => host !== null)
+  }
+
   /**
    * Every host there is a live connection to, primary first.
    *
    * "Connected" here means a connection object exists — not that its socket is
    * up. A caller that fans a read out across hosts wants the same set the app is
    * already talking to, and must not conjure sockets to saved-but-unused hosts.
+   * A gone host is not one: its connection has no socket.
    */
   connectedServerIds(): string[] {
-    const ids = [...this.connections.keys()]
+    const ids = [...this.connections.values()].filter((connection) => connection.presence === 'present').map((connection) => connection.serverId)
     if (!this.primaryServerId) return ids
     return [
       this.primaryServerId,
@@ -463,7 +523,8 @@ export class ServerConnections {
    *  are relative capabilities and must be opened against this same host. */
   httpOriginFor(serverId: string): string {
     const target = this.ensure(this.resolveId(serverId)).target
-    return new URL(target.url).origin
+    // A gone host, or one the directory lists with no route yet, has no origin.
+    return target.url ? new URL(target.url).origin : ''
   }
 
   updateStatus(serverId: string, status: ConnectionStatus, attempt = 0): void {
@@ -507,11 +568,14 @@ export class ServerConnections {
     // targets still close behind themselves.
     if (this.catalogServerIds().includes(serverId)) return
     const connection = this.connections.get(serverId)
-    if (!connection) return
+    // A gone connection holds no socket; it stays so its readers keep one answer.
+    if (!connection || connection.presence === 'gone') return
     this.connections.delete(serverId)
     this.clearConnectionReads(serverId)
     this.undialedServerIds.delete(serverId)
     this.destroyConnection(connection)
+    // A host released because it is gone: its readers rebind to a gone connection.
+    if (!this.resolveTarget(serverId)) this.addConnection(this.goneConnection(serverId))
   }
 
   private destroyConnection(connection: ManagedConnection): void {
@@ -561,7 +625,7 @@ export class ServerConnections {
     const target = this.connections.get(serverId)?.target ?? this.resolveTarget(serverId)
     let value: ServerHealth | null = null
     // A host the directory lists with no route yet has nothing to ask; `/health` alone is this page's origin.
-    if (!target.url) return null
+    if (!target?.url) return null
     try {
       const response = await fetch(`${target.url}/health`, { signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) })
       if (response.ok) {
@@ -611,32 +675,27 @@ export class ServerConnections {
   }
 
   /**
-   * Whether `serverId` names a host this client can reach: the ids
-   * `resolveTarget` answers for, without the throw. A stored id that fails is a
-   * host that was deleted or never listed here (docs/plans/workspace-and-machines.md §6);
-   * a caller reads nothing from it rather than asking `apiFor`.
+   * Whether this client knows the host an id names
+   * (docs/plans/workspace-and-machines.md §6): a registered target, a saved host
+   * or workspace service, or a live connection. A host the directory dropped stays
+   * present while its connection lives. Anything else is `gone`.
    */
-  isKnownServer(serverId: string): boolean {
-    if (this.connections.has(serverId) || this.targets.has(serverId)) return true
-    if (loadServers().some((server) => server.id === serverId)) return true
-    if (this.savedWorkspaceTarget(serverId)) return true
-    return serverId === LOCAL_SERVER_ID && !!this.primaryServerId && this.targets.has(this.primaryServerId)
+  presenceOf(serverId: string): HostPresence {
+    const resolvedId = this.resolveId(serverId)
+    if (this.connections.get(resolvedId)?.presence === 'present') return 'present'
+    return this.resolveTarget(resolvedId) ? 'present' : 'gone'
   }
 
-  private resolveTarget(serverId: string): SolusServerTarget {
+  private resolveTarget(serverId: string): SolusServerTarget | null {
     const registered = this.targets.get(serverId)
     if (registered) return registered
     const saved = loadServers().find((server) => server.id === serverId)
     if (saved) return savedServerTarget(saved)
     const workspace = this.savedWorkspaceTarget(serverId)
     if (workspace) return workspace
-    if (serverId === LOCAL_SERVER_ID) {
-      // On web the primary target answers for the local id (see `ensure`).
-      const primary = this.primaryServerId ? this.targets.get(this.primaryServerId) : undefined
-      if (primary) return primary
-      throw new Error('The local Solus target must be registered before it can be used')
-    }
-    throw new Error(`Unknown Solus server: ${serverId}`)
+    // On web the primary target answers for the local id (see `ensure`).
+    if (serverId === LOCAL_SERVER_ID && this.primaryServerId) return this.targets.get(this.primaryServerId) ?? null
+    return null
   }
 
   private savedWorkspaceTarget(serverId: string): SolusServerTarget | null {

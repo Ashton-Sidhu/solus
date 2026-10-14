@@ -185,9 +185,13 @@ export interface PrMenuHostActions {
   method: MergeMethod
 }
 
+/** True when the host offers `action` on this pull request and the viewer may take it. */
+export function prActionAllowed(detail: PullRequest, action: PrLifecycleAction): boolean {
+  return detail.capabilities.actions.includes(action) && detail.viewerPermissions.actions.includes(action)
+}
+
 export function prMenuHostActions(detail: PullRequest, primary: MergeAction | null): PrMenuHostActions {
-  const may = (action: PrLifecycleAction) =>
-    detail.capabilities.actions.includes(action) && detail.viewerPermissions.actions.includes(action)
+  const may = (action: PrLifecycleAction) => prActionAllowed(detail, action)
   const open = detail.state === 'open'
   const armed = armedAutoMergeLabel(detail) !== null
   const landable = open && !detail.draft && !hasMergeConflicts(detail)

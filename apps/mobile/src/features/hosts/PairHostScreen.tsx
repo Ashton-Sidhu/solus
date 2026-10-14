@@ -24,6 +24,8 @@ import {
 import { NearbyHostsSection, OS_LABELS } from "./NearbyHostsSection";
 import { nearbyHostUrl, useNearbyHosts } from "./use-nearby-hosts";
 
+type PairTarget = { preview: HostPreview; pairToken: string | null };
+
 /**
  * Pair with a host by its QR code, its pairing link, or its address and code
  * (plan 017 stage 2). The camera is asked for only when scanning is chosen,
@@ -31,6 +33,8 @@ import { nearbyHostUrl, useNearbyHosts } from "./use-nearby-hosts";
  * Solus asks the person to trust the host first. Decoding and pairing are
  * Solus's own `/pair` flow. Hosts found on the local network are listed
  * above the form; a nearby host or a `link` param skips straight to the host.
+ * A host that trusts this device by network position (`/health` says no auth)
+ * pairs at once, with no confirm step.
  */
 export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
   const app = useApp();
@@ -41,15 +45,30 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
   const [showScanner, setShowScanner] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [target, setTarget] = useState<{
-    preview: HostPreview;
-    pairToken: string | null;
-  } | null>(null);
+  const [target, setTarget] = useState<PairTarget | null>(null);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const scannerLocked = useRef(false);
 
   const headerIconColor = useUniwindTheme()["--color-icon"];
   const nearby = useNearbyHosts();
+
+  // A failure stays on the host's page with the reason, so the person can add a code or try again.
+  const pairWith = useCallback(
+    async (next: PairTarget, name: string | undefined) => {
+      setIsSubmitting(true);
+      setError(null);
+      try {
+        await app.pair(next.preview, next.pairToken ?? undefined, name);
+        navigation.reset({ index: 0, routes: [{ name: "Home" }] });
+      } catch (failure) {
+        setTarget(next);
+        setError(pairFailureMessage(failure instanceof Error ? failure : new Error(String(failure))));
+      } finally {
+        setIsSubmitting(false);
+      }
+    },
+    [app, navigation],
+  );
 
   const inspect = useCallback(
     async (input: PairInput) => {
@@ -71,9 +90,14 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
         setError("A server answered at this address, but it is not a Solus host.");
         return;
       }
+      // A host that trusts this device's network pairs without a code: connect at once.
+      if (result.preview.trusted && !input.pairToken) {
+        await pairWith({ preview: result.preview, pairToken: null }, undefined);
+        return;
+      }
       setTarget({ preview: result.preview, pairToken: input.pairToken });
     },
-    [app],
+    [app, pairWith],
   );
 
   const link = route.params?.link;
@@ -133,17 +157,8 @@ export function PairHostScreen({ navigation, route }: ScreenProps<"PairHost">) {
       setError("Enter the pairing code the host shows.");
       return;
     }
-    setIsSubmitting(true);
-    setError(null);
-    try {
-      await app.pair(target.preview, target.pairToken ?? undefined, label.trim() || undefined);
-      navigation.reset({ index: 0, routes: [{ name: "Home" }] });
-    } catch (failure) {
-      setError(pairFailureMessage(failure instanceof Error ? failure : new Error(String(failure))));
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [app, label, navigation, target]);
+    await pairWith(target, label.trim() || undefined);
+  }, [label, pairWith, target]);
 
   const connectDisabled = isSubmitting || hostInput.trim().length === 0;
 

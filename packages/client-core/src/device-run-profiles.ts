@@ -82,6 +82,7 @@ export function withConfiguration(draft: Pick<RunProfileDraft, 'commandText' | '
   if (words[0] === 'xcodebuild') {
     const at = words.indexOf('-configuration')
     if (at >= 0) words[at + 1] = configuration
+    else words.splice(words.at(-1) === 'build' ? words.length - 1 : words.length, 0, '-configuration', configuration)
     return { commandText: joinCommand(words), artifact: draft.artifact.replace(/(^|\/)(Debug|Release)-(iphoneos|iphonesimulator)\//, `$1${configuration}-$3/`) }
   }
   return {
@@ -136,7 +137,7 @@ export function projectPreset(profile: DeviceRunProfile, info: DeviceProjectInfo
   if (!container) return { ...profile, cwd }
   const scheme = container.replace(/\.(xcworkspace|xcodeproj)$/, '')
   const flag = container.endsWith('.xcworkspace') ? '-workspace' : '-project'
-  const rest = profile.command.slice(1).filter((word, index, words) => word !== '-scheme' && words[index - 1] !== '-scheme')
+  const rest = profile.command.slice(1).filter((word, index, words) => !['-scheme', '-project', '-workspace'].includes(word) && !['-scheme', '-project', '-workspace'].includes(words[index - 1] ?? ''))
   return { ...profile, cwd, command: ['xcodebuild', flag, container, '-scheme', scheme, ...rest] }
 }
 

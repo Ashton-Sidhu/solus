@@ -110,7 +110,8 @@ export async function applyRunnerSessionRecords(runner: RunnerPrincipal, request
       const owner = admission && admission.hostId === runner.hostId ? admission.ownerUserId : runner.ownerUserId
       const report: SessionRecordUpsert = { ...facts, runnerHostId: runner.hostId }
       if (!existing) report.ownerUserId = owner ?? null
-      await upsertSessionRecord(runner.organizationId, report)
+      // A runner reports only published sessions, so the record it creates is published.
+      await upsertSessionRecord(runner.organizationId, report, { organizationId: runner.organizationId, published: true })
       // A session the runner reports is the organization's to open, like anything else it
       // writes here; a chat is its owner's alone until they share it (plan 004 D14).
       if (shares) await shares.claimForRunner({ kind: 'session', id: record.sessionId }, owner ? { ...runner, ownerUserId: owner } : runner, { shareWithOrganization: !privateToOwner })

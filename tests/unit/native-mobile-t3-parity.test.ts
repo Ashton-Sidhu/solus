@@ -30,7 +30,10 @@ describe('native thread header (T3 parity)', () => {
 describe('native typography (T3 parity)', () => {
   test('bold is T3 bold (DM Sans Bold is 700) in classes and in markdown', () => {
     expect(read('global.css')).toMatch(/@utility font-t3-bold \{\s*font-family: var\(--font-bold\);\s*font-weight: 700;/)
-    expect(read('src/lib/nativeMarkdownTextStyle.ts')).toContain('boldFontWeight: "700"')
+    // T3's bold is a font file; Solus's text is the system font, so Enriched must ask for the weight.
+    const enriched = read('src/native/EnrichedMarkdownText.tsx')
+    expect(enriched).toContain('strong: { color: style.strongColor, fontFamily: style.boldFontFamily, fontWeight: "bold" }')
+    expect(enriched).toMatch(/fontFamily: style\.headingFontFamily,\s*fontWeight: "700",/)
   })
 
   test('user bubble and composer geometry follow T3', () => {

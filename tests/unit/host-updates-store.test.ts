@@ -44,7 +44,7 @@ test('a cloud host on an older image never yields a notice, a count, or a provid
   f.set(reported)
   await f.store.load('host')
   f.store.applyStatus('host', reported)
-  expect(f.store.pendingNoticeFor('host')).toBeNull()
+  expect(f.store.installableUpdatesFor('host')).toEqual([])
   expect(f.store.pendingCountFor('host')).toBe(0)
   expect(f.store.pendingCount).toBe(0)
   expect(f.store.hostUpdateFor('host')).toMatchObject({ install: 'cloud', check: { kind: 'idle', reason: 'Kept up to date by Solus cloud.' } })
@@ -65,18 +65,39 @@ test('the settings badge counts every pending update on every host', async () =>
   expect(store.pendingCount).toBe(2)
 })
 
+function installable(version: string | null): HostUpdateStatus {
+  return { ...status(version), serverUpdate: { supported: true, reason: null, operation: null } }
+}
+
 test('repeated broadcasts never re-arm a notice, but a newer release does', async () => {
   const { store } = await fixture()
-  store.applyStatus('host', status('2.0.0'))
-  const notice = store.pendingNoticeFor('host')!
-  store.markNoticeShown('host', notice)
-  store.applyStatus('host', status('2.0.0'))
-  expect(store.pendingNoticeFor('host')).toBeNull()
-  store.applyStatus('host', status('3.0.0'))
-  expect(store.pendingNoticeFor('host')?.version).toBe('3.0.0')
-  store.applyStatus('host', status(null))
+  store.applyStatus('host', installable('2.0.0'))
+  const [update] = store.installableUpdatesFor('host')
+  store.markNoticeShown(update)
+  store.applyStatus('host', installable('2.0.0'))
+  expect(store.isNoticeShown(store.installableUpdatesFor('host')[0])).toBe(true)
+  store.applyStatus('host', installable('3.0.0'))
+  expect(store.isNoticeShown(store.installableUpdatesFor('host')[0])).toBe(false)
+  store.applyStatus('host', installable(null))
   expect(store.pendingCountFor('host')).toBe(0)
-  expect(store.pendingNoticeFor('host')).toBeNull()
+  expect(store.installableUpdatesFor('host')).toEqual([])
+})
+
+test('one host lists every release it can install, and leaves out the Solus release it cannot', async () => {
+  // WHY: the single notice offers "Update all" over this list. A Solus release with
+  // no installer here would be an item that fails on every press.
+  const { store } = await fixture()
+  const reported = installable('2.0.0')
+  reported.providers = [
+    { agent: 'claude', installedVersion: '1.0.0', check: { kind: 'available', latestVersion: '1.2.0', checkedAt: 0 } },
+    { agent: 'codex', installedVersion: '1.0.0', check: { kind: 'up-to-date', checkedAt: 0 } },
+  ]
+  store.applyStatus('host', reported)
+  store.applyStatus('other', status('3.0.0'))
+  expect(store.installableUpdates).toEqual([
+    { serverId: 'host', target: 'solus', version: '2.0.0' },
+    { serverId: 'host', target: 'claude', version: '1.2.0' },
+  ])
 })
 
 test('only a user check earns a result notice', async () => {
@@ -180,5 +201,5 @@ test('a late install acknowledgement cannot overwrite restart progress', async (
   resolve(available)
   await installing
   expect(f.store.operations.get('host')?.phase).toBe('restarting')
-  expect(f.store.pendingNoticeFor('host')).toBeNull()
+  expect(f.store.installableUpdatesFor('host')).toEqual([])
 })

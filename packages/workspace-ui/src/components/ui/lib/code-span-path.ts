@@ -25,9 +25,9 @@ export function leadingDirs(path: string): string {
 /*
  * Which code spans name a file. Adapted from T3 Code's
  * `inlineCodeFilePathCandidate` (packages/client-runtime/src/markdownLinks.ts,
- * MIT); the mobile app runs the same rule from its own copy in
- * apps/mobile/modules/t3-markdown-text/src/markdownLinkTargets.ts, so keep the
- * two in step.
+ * MIT). The mobile app does not run this rule: like T3's phone app, it
+ * recognizes code spans with Enriched Markdown's inline-code pattern
+ * (apps/mobile/src/lib/enrichedLinkPresentation.ts).
  *
  * A code span mostly holds identifiers, commands, and refs (`node.meta`,
  * `origin/main`, `port:3000`, `/api/sessions`), so it becomes a chip only on

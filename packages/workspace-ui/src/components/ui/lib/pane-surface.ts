@@ -11,7 +11,6 @@ export interface PaneSurfaceProps {
   surfaceVisible?: boolean
   onAttachFile?: (tabId?: string) => void | Promise<void>
   onScreenshot?: ((tabId?: string) => void | Promise<void>) | null
-  onDesignMode?: ((tabId?: string) => void | Promise<void>) | null
 }
 
 export type RouteSurfaceProps<K extends keyof RouteParams> = PaneSurfaceProps & {

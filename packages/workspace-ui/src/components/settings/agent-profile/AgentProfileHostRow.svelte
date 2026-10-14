@@ -1,13 +1,14 @@
 <script lang="ts">
   /**
-   * One host the profile applies to: what it holds and where that came from,
-   * with Copy (the desktop pushes, while sync is off), Pull (the host reads the
-   * account, while sync is on), and Remove.
+   * One host the profile applies to: whether it is registered to the account
+   * (changed on the host's Access page), what it holds and where that came
+   * from, with Copy (the desktop pushes, signed out), Pull (the host reads the
+   * account, signed in), and Remove.
    */
   import { RefreshCw as CopyIcon, Trash2 as RemoveIcon } from "@lucide/svelte";
-  import { agentProfileStore } from "../../../contexts";
+  import { agentProfileStore, uplinkStore } from "../../../contexts";
   import { requestInputFocus } from "../../../lib/inputFocus";
-  import { agentProfileDescription } from "../../seats/lib/agent-profile-copy";
+  import { agentProfileDescription, hostLinkLabel } from "../../seats/lib/agent-profile-copy";
   import SettingsRow from "../SettingsRow.svelte";
   import { Button } from "../../ui/button";
 
@@ -21,10 +22,12 @@
 
   const status = $derived(agentProfileStore.statuses.get(serverId));
   const busy = $derived(agentProfileStore.busy.has(serverId));
+  const link = $derived(hostLinkLabel(uplinkStore.statusFor(serverId)));
 
-  // The row is the one reader of a host's status; it asks when it appears.
+  // The row is the one reader of a host's status and its link; it asks when it appears.
   $effect(() => {
     void agentProfileStore.load(serverId);
+    void uplinkStore.refresh(serverId);
   });
 
   async function copy() {
@@ -45,7 +48,7 @@
 
 <SettingsRow
   {label}
-  description={agentProfileDescription(status, agentProfileStore.errors.get(serverId), agentProfileStore.canCopy)}
+  description={`${link} ${agentProfileDescription(status, agentProfileStore.errors.get(serverId), agentProfileStore.canCopy)}`}
   testId="agent-profile-row"
 >
   {#snippet control()}

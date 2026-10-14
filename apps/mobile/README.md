@@ -45,14 +45,19 @@ desktop and web clients. It adds no server code and no mobile protocol.
   Android; `expo-system-ui` for Android light and dark; `expo-symbols` for
   icons: SF Symbols on iOS, T3's Tabler mapping on Android (`src/components/AppSymbol.tsx`).
 - Local native modules, autolinked from `modules/`, among them
-  `modules/solus-keyboard-commands` (iOS) for hardware keyboard commands.
+  `modules/solus-keyboard-commands` (iOS) for hardware keyboard commands and
+  `modules/solus-file-preview` (Quick Look on iOS, another app's viewer on
+  Android) for images, PDFs, and documents. `expo-paste-input` (as in T3)
+  puts images pasted into the composer on the draft, with no clipboard prompt.
 - Markdown through `react-native-enriched-markdown`, T3 Code's fork vendored in
   `deps/` (`deps/README.md`): native selectable text, file link pills, tables,
   and tree-sitter code colors. Code colors elsewhere (source files, diffs)
   through Shiki 4.2.0 with `react-native-shiki-engine` (Metro resolves every
   `@shikijs/*` package from this app's Shiki copy); media through `expo-video`,
-  `expo-audio`, and `react-native-image-viewing`. Host files load through a URL
-  the host signs (`src/features/files/host-media-url.ts`).
+  `expo-audio`, and `react-native-image-viewing`; SVG images in Markdown
+  through `react-native-svg`; save or share through `expo-sharing`. Host files
+  load through a URL the host signs (`src/features/files/host-media-url.ts`).
+  `@path` mentions in message text are file links.
 - TypeScript stays at the repository's 5.9.3. TypeScript
   is not part of the app at runtime, so `expo.install.exclude` lists it.
 - Bun workspace dependencies. `@solus/contracts` and `@solus/client-core`
@@ -183,7 +188,7 @@ feature area that implements it.
 | PRs, diffs, reviews | prs, review | source: Pull Requests tab across hosts with saved filters; detail with checks, activity, commits, native diff, inline review drafts, threads, reviewers, labels, merge, auto-merge, lifecycle, agent work, guides; offline copy; diff surface unbuilt | yes | `native-mobile-prs*`, `native-mobile-review*`; device proof of the diff surface needs a new native build |
 | Plans gallery, works, documents, artifacts, diagrams | plan, work | missing | yes | Later parity |
 | Automations | automations | missing | yes | Later parity |
-| Files, browser panes, terminal | files, browser | source: browse and read files with Shiki colors, Markdown preview, images, and video; audio plays only from a host that signs audio URLs (current hosts do not); PDF and SVG open in the browser; edit, browser, terminal missing | yes | `native-mobile-files-settings`, `native-mobile-file-preview-kind`, `native-mobile-host-media-url`; device previews are plan 016 |
+| Files, browser panes, terminal | files, browser | source: browse and read files with Shiki colors, Markdown preview, images, and video; audio plays only from a host that signs audio URLs (current hosts do not); PDF and SVG open in the platform viewer (Quick Look on iOS); media links in Markdown open the image, PDF, or video viewer; edit, browser, terminal missing | yes | `native-mobile-files-settings`, `native-mobile-file-preview-kind`, `native-mobile-host-media-url`, `native-mobile-media-viewers`; device previews are plan 016 |
 | Settings | settings | source: account and hosts, appearance (this device), agent defaults, notification preferences, GitHub connection, About; instructions, tasks, review, tools, providers missing | yes | `native-mobile-files-settings` |
 | Share links, collaboration, presence | sharing | missing | yes | Guest links stay a browser feature |
 | Notifications and navigation from them | notifications | source: inbox; pull request notifications open the pull request | yes | `native-mobile-notifications`, `native-mobile-prs`; native push needs its own registration (plan 015) |

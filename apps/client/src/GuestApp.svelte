@@ -13,7 +13,6 @@
   import WorkPane from '@solus/workspace-ui/components/work/WorkPane.svelte';
   import WebDesktopLayout from './shell/desktop/WebDesktopLayout.svelte';
   import { GuestShell } from './shell/guest-shell.svelte';
-  import { guestAccessLine, guestRoleLabel } from './shell/lib/guest-access';
   import { guestBoot, type GuestShare } from './lib/guest-boot.svelte';
 
   /**
@@ -23,15 +22,13 @@
    * control reads what the host lets this guest do (`host.me.may`). A work opens
    * in its pane. A task has no link of its own, because its organization sees it.
    */
-  let { serverId, share, displayName }: { serverId: string; share: GuestShare; displayName: string } = $props();
-  const { settings, session, sessionSidebarStore } = createAppCore(new GuestShell());
+  let { serverId, share }: { serverId: string; share: GuestShare } = $props();
+  const { settings, session, sessionSidebarStore } = createAppCore(new GuestShell(share.resource.kind));
   serversStore.trackConnections();
   setupAgentEvents(session);
   let overlayEl: HTMLElement | null = $state(null);
   setPopoverLayer({ get el() { return overlayEl; } });
   const sharedSessionId = $derived(share.resource.kind === 'session' ? share.resource.id : null);
-  const list = $derived(sharesStore.listFor(serverId, share.resource));
-  const role = $derived(list?.callerRole === 'editor' || list?.callerRole === 'commenter' || list?.callerRole === 'viewer' ? list.callerRole : share.role);
   const activeWork = $derived.by(() => {
     for (const pane of session.router.panes) {
       const ref = activeSurface(pane);
@@ -74,23 +71,6 @@
         <WorkPane params={activeWork.params} paneId={activeWork.paneId} />
       {:else}<p class="p-6 text-muted-foreground" role="status">Opening the document…</p>{/if}
     </main>
-
-    {#if !sharedSessionId}
-      <!-- A work's page has no band to say who the guest is; the pane controls' corner does. -->
-      <div class="no-drag absolute top-[env(safe-area-inset-top)] right-2.5 z-30 flex h-(--solus-chrome-row-h,2.5rem) items-center gap-1.5 pointer-coarse:h-14" data-testid="guest-cluster">
-        <Tooltip.Root>
-          <Tooltip.Trigger>
-            {#snippet child({ props })}
-              <span {...props} class="flex h-6 max-w-48 items-center gap-1 overflow-hidden rounded-full px-2 text-muted-foreground shadow-[inset_0_0_0_0.5px_var(--hairline)]" data-testid="guest-role">
-                <span class="shrink-0 text-foreground">{guestRoleLabel(role)}</span>
-                <span class="truncate @max-[30rem]/pane:hidden" data-testid="guest-name-label">· {displayName}</span>
-              </span>
-            {/snippet}
-          </Tooltip.Trigger>
-          <Tooltip.Content value="{displayName}: {guestAccessLine(share.resource.kind, role)}" />
-        </Tooltip.Root>
-      </div>
-    {/if}
 
     {#if guestBoot.revoked}
       <div class="fixed inset-0 z-[10008] grid place-items-center bg-(--background)/95 px-6" role="alertdialog" aria-label="This link no longer works" data-testid="guest-revoked">

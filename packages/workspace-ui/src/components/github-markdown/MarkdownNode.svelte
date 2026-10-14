@@ -9,6 +9,9 @@
   import MarkdownLink from '../conversation/MarkdownLink.svelte'
   import MermaidBlock from '../conversation/MermaidBlock.svelte'
   import PersonMention from '../mentions/PersonMention.svelte'
+  import SignedGithubMedia from './SignedGithubMedia.svelte'
+  import { githubMediaFetchUrl } from '@solus/contracts/github-media'
+  import { getGithubMediaHost, githubMediaSources } from './lib/github-media.svelte'
   import { alertKind, elementAttributes, mermaidFenceSource, nodeText, paragraphLocalVideoSource, paragraphMediaSource, personMentionOf, taskCheckbox, voidElements, type MarkdownPolicy } from './lib/github-markdown'
 
   let { node, policy, parentTag = '', hideTaskCheckbox = false }: {
@@ -27,6 +30,17 @@
   const mermaid = $derived(element ? mermaidFenceSource(element) : null)
   // Only a local document stores mentions of organization members.
   const mention = $derived(element && policy === 'local' ? personMentionOf(element) : null)
+  // A pull request surface signs GitHub media on its host, so a private
+  // repository's images and videos show.
+  const mediaHost = getGithubMediaHost()
+  const mediaServerId = $derived(policy === 'remote' ? (mediaHost?.() ?? null) : null)
+  const imageSource = $derived(element?.tagName === 'img' ? String(element.properties.src ?? '') : '')
+  const signsImage = $derived(!!mediaServerId && !!imageSource && githubMediaFetchUrl(imageSource) !== null)
+  const signsMedia = $derived(!!mediaServerId && !!media && githubMediaFetchUrl(media) !== null)
+  // The signed copy did not load: show the author's URL instead.
+  function signedImageFailed(serverId: string, src: string | null) {
+    if (src && src !== imageSource) githubMediaSources.refuse(serverId, imageSource)
+  }
 </script>
 
 {#snippet children()}
@@ -44,6 +58,12 @@
     <MarkdownAlert alertType={alert} content={children} />
   {:else if mermaid !== null}
     <MermaidBlock text={mermaid} />
+  {:else if media && signsMedia && mediaServerId}
+    <SignedGithubMedia serverId={mediaServerId} source={media}>
+      {#snippet withSource(src)}
+        {#if src}<MarkdownParagraph raw={media} playbackSrc={src} />{/if}
+      {/snippet}
+    </SignedGithubMedia>
   {:else if media}
     <MarkdownParagraph raw={media} />
   {:else if localVideo}
@@ -56,6 +76,17 @@
     <CodeSpan text={nodeText(element)} />
   {:else if element.tagName === 'img' && policy === 'local'}
     <MarkdownImage href={String(element.properties.src ?? '')} text={String(element.properties.alt ?? '')} title={typeof element.properties.title === 'string' ? element.properties.title : undefined} />
+  {:else if signsImage && mediaServerId}
+    {@const serverId = mediaServerId}
+    <SignedGithubMedia {serverId} source={imageSource}>
+      {#snippet withSource(src)}
+        <img
+          {...attributes}
+          src={src ?? undefined}
+          onerror={() => signedImageFailed(serverId, src)}
+        />
+      {/snippet}
+    </SignedGithubMedia>
   {:else if mention}
     <PersonMention {mention} />
   {:else if element.tagName === 'a' && policy === 'local'}

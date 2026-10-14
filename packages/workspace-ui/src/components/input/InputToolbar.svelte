@@ -38,7 +38,6 @@
     selection?: PickerSelection;
     onAttachFile: () => void;
     onScreenshot?: (() => void) | null;
-    onDesignMode?: (() => void) | null;
     /** Extra controls appended to the right cluster (web: push bell, logout). */
     trailingActions?: Snippet;
     /** The tab or draft id when this composes a chat that has not started. A
@@ -62,7 +61,6 @@
     selection = $bindable(),
     onAttachFile,
     onScreenshot,
-    onDesignMode,
     trailingActions,
     chatSourceId = null,
     readOnly = false,
@@ -79,7 +77,7 @@
       serverConnections.connectionFor(serverId)?.target.label ??
       "this host",
   );
-  const hostCapabilities = $derived(hosts.find(serverId)?.capabilityRecord);
+  const hostCapabilities = $derived(hosts.get(serverId)?.capabilityRecord);
   const canAttachFiles = $derived(hostCapabilities?.attachUpload === true);
   const attachNote = $derived(
     hostCapabilities === undefined
@@ -173,8 +171,7 @@
   <ComposerAddMenu
     {onAttachFile}
     {onScreenshot}
-    {onDesignMode}
-    onAddProject={chatSourceId && (hosts.find(chatHostId)?.me.may("host.projects.read") ?? true) ? addProject : null}
+    onAddProject={chatSourceId && (hosts.get(chatHostId)?.me.may("host.projects.read") ?? true) ? addProject : null}
     onRunOn={chatOffersHosts ? openRunOn : null}
     runOnLabel={chatHostLabel}
     {isPrimary}
@@ -199,8 +196,8 @@
   {/if}
 
   <!-- Rungs 1 and 4 live inside StatusBarControls, which hides its own readouts and
-       keeps `trailingActions` — connection retry, push bell, Switch server on
-       web — reachable at every width. `ml-auto` is inert once a row overflows,
+       keeps `trailingActions` — connection retry and push bell — reachable at
+       every width. `ml-auto` is inert once a row overflows,
        which is why the ladder acts before the row can overflow, not after. -->
   <div class="ml-auto flex min-w-0 items-center">
     <StatusBarControls

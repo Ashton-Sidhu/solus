@@ -54,6 +54,8 @@
   import { Skeleton } from "../ui/skeleton";
   import ReviewerRequestMenu from "./ReviewerRequestMenu.svelte";
   import ReviewerVerdictIcon from "./ReviewerVerdictIcon.svelte";
+  import PrWorkflowApproval from "./PrWorkflowApproval.svelte";
+  import type { PullRequest as IndexedPullRequest } from "../../contexts/prs/pull-request.svelte";
 
   // The changed-file rows carry brand glyphs, the same ones Files, Diff and the
   // pickers use. Registering the curated offline subset is idempotent and
@@ -72,6 +74,7 @@
   // stays in the first screen without pushing the description out of it.
   let {
     detail,
+    pullRequest = null,
     reviewers,
     reviewersLoading,
     reviewersLoadFailed = false,
@@ -99,6 +102,8 @@
     part = "all",
   }: {
     detail: PullRequest | null;
+    /** The indexed pull request, which reads and approves fork workflow runs. */
+    pullRequest?: IndexedPullRequest | null;
     reviewers: PrReviewer[];
     reviewersLoading: boolean;
     reviewersLoadFailed?: boolean;
@@ -569,6 +574,7 @@
     {/if}
 
     {#if showsSections}
+    <PrWorkflowApproval {pullRequest} class={showsStatus ? "mt-6" : ""} />
     {#if allChecks.length > 0}
       <section class={checksGap}>
         {#snippet checksCount()}

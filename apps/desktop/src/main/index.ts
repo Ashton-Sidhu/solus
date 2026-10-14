@@ -79,7 +79,6 @@ protocol.registerSchemesAsPrivileged([
 let forceQuit = false
 
 let mainWindow: BrowserWindow | null = null
-let designModeWindowBounds: Electron.Rectangle | null = null
 let powerSaveBlockerId: number | null = null
 
 // Hold the app-suspension blocker only while an agent turn is active. Holding
@@ -104,7 +103,6 @@ let tray: Tray | null = null
 /** The version of a downloaded update, while one waits for a restart. */
 let readyUpdateVersion: string | null = null
 let screenshotCounter = 0
-let designModeCounter = 0
 let pasteCounter = 0
 let core: BootCore | null = null
 // Resolves with the booted core once bootCore finishes; rejects if boot fails.
@@ -530,24 +528,6 @@ function showAndFocusWorkspaceWindow(): void {
   focusMainWindow()
 }
 
-function setWorkspaceWindowOpacity(opacity: number): void {
-  if (!isLive(mainWindow)) return
-  mainWindow.setOpacity(opacity)
-}
-
-function expandDesignModeWindow(bounds: Electron.Rectangle): void {
-  if (!isLive(mainWindow)) return
-  if (!designModeWindowBounds) designModeWindowBounds = mainWindow.getBounds()
-  mainWindow.setBounds(bounds, false)
-}
-
-function designModeCaptureRegion(): Electron.Rectangle {
-  if (!isLive(mainWindow)) return { x: 0, y: 0, width: 0, height: 0 }
-  const windowBounds = mainWindow.getBounds()
-  const display = screen.getDisplayNearestPoint({ x: windowBounds.x, y: windowBounds.y })
-  return display.workArea
-}
-
 /** Only http(s) links get link items — never file:, javascript:, or our own solus-img: scheme. */
 function isSafeExternalUrl(url: string): boolean {
   if (!url) return false
@@ -823,20 +803,6 @@ ipcMain.on('solus:set-zoom-factor', (event, rawFactor) => {
   event.sender.setZoomFactor(clampZoomFactor(factor.data))
 })
 
-function restoreDesignModeWindow(): void {
-  if (!isLive(mainWindow)) return
-  mainWindow.setOpacity(1)
-  focusMainWindow()
-}
-
-function exitDesignModeWindow(): void {
-  const bounds = designModeWindowBounds
-  designModeWindowBounds = null
-  if (!isLive(mainWindow)) return
-  if (bounds) mainWindow.setBounds(bounds, false)
-  focusMainWindow()
-}
-
 // ─── App Lifecycle ───
 
 if (isPairUrl) {
@@ -899,14 +865,8 @@ if (isPairUrl) {
       getWorkspaceWindow: workspaceWindow,
       hideAppWindow,
       showAndFocusWorkspaceWindow,
-      setWorkspaceWindowOpacity,
-      expandDesignModeWindow,
-      restoreDesignModeWindow,
-      exitDesignModeWindow,
       bumpScreenshotCounter: () => ++screenshotCounter,
-      bumpDesignModeCounter: () => ++designModeCounter,
       bumpPasteCounter: () => ++pasteCounter,
-      designModeCaptureRegion,
       ensureScreenCaptureAccess: isTestMode ? async () => true : ensureScreenCaptureAccess,
     }
 

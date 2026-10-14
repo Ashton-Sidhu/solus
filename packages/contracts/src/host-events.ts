@@ -258,7 +258,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'session.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people watching a session, or its active turn, changed.' },
   'work.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people who have one work open, or what they do there, changed.' },
   'host.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people connected to this host, or what they have focused, changed.' },
-  'host.uplinkStatusChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: "This host's cloud link or its tunnel changed state." },
+  'host.uplinkStatusChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: "This host's registration, its link, or its tunnel changed state." },
   'host.organizationsChanged': { owner: 'uplink', category: 'snapshot', recovery: 'reload', description: "This host's organizations, their policies, or its Insights opt-ins changed." },
 } as const satisfies Record<HostEventName, HostEventDefinition>
 

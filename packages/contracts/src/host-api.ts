@@ -5,8 +5,8 @@ import type { WorktreeOfferResolution } from './activity'
 import type { BrowserRuntimeStatus } from './browser-runtime'
 import type { ExternalCommentCommand, WorkExternalComments } from './work-comments'
 import type { WorkCommentCommand } from './comment-commands'
-import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, SessionCtx, PromptOptions, PromptDispatchResult, Attachment, SessionMeta, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, HostPathMutation, HostPathMutationResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionProviderSwitchResult, AcceptPlanRequest, AcceptPlanResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkType, WorkAnnotations, WorkRevision, WorkRevisionSummary, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, SessionRecordList, SessionRecordSearchQuery, SessionRecordSearch, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationRun, AutomationRunPoint, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, HostCapabilities, DiscoveredServer, SshBootstrapResult, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, HeadlessPromptRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot, ProviderId, ModelProfilesStatus } from './types'
-import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrFilter, PrInterest, PrLabel, PrListPage, PrProjectListing, PrRevertResult, PrStateAction, PrSyncChange, PrReviewer, PrReviewerCandidate, PrReviewerKind, PrReviewTarget, PrStack, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderRepository, ProviderViewer } from './providers'
+import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, SessionCtx, PromptOptions, PromptDispatchResult, Attachment, SessionMeta, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, HostPathMutation, HostPathMutationResult, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionProviderSwitchResult, AcceptPlanRequest, AcceptPlanResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkType, WorkAnnotations, WorkRevision, WorkRevisionSummary, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, SessionRecordList, SessionRecordSearchQuery, SessionRecordSearch, PinnedSession, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationRun, AutomationRunPoint, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, HostCapabilities, DiscoveredServer, SshBootstrapResult, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, HeadlessPromptRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot, ProviderId, ModelProfilesStatus } from './types'
+import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrFilter, PrInterest, PrLabel, PrListPage, PrProjectListing, PrPendingWorkflowRuns, PrRevertResult, PrStackMergeRequest, PrStackMergeResult, PrStateAction, PrViewedFileChange, PrViewedFiles, PrWorkflowApprovalResult, PrSyncChange, PrReviewer, PrReviewerCandidate, PrReviewerKind, PrReviewTarget, PrStack, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderRepository, ProviderViewer } from './providers'
 import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCommentHit, TaskCommentSearchQuery, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarFilter, TaskSidebarSnapshot, TaskSnapshot, TaskSnooze, TaskTransfer, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
 import type { SessionPullRequestsBySession, SessionPullRequestWatchOutcome } from './session-pull-requests'
@@ -21,7 +21,7 @@ import type { MetricsNlCompileResult, MetricsQueryResult, MetricsQuerySpec, Metr
 import type { ClientNotificationRequest, NotificationSoundLog } from './notification-types'
 import type { NotificationCount, NotificationHubCapability, NotificationListRequest, NotificationPage, NotificationSetArchived, NotificationSetRead, NotificationStateResult } from './notification-hub'
 import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, BrowserAppearance, BrowserCaptureRequest, BrowserCloseResult, BrowserCookieImportRequest, BrowserCookieImportResult, BrowserCookieSourceScan, BrowserDetachReason, BrowserDiscoveredTarget, BrowserEvidence, BrowserEvidenceOptions, BrowserFrameCaps, BrowserInteractOp, BrowserInteractResult, BrowserNavigateOp, BrowserOpenRequest, BrowserPage, BrowserProfileSet, BrowserRecordingResult, BrowserRecordingState, BrowserRecordingStopRequest, BrowserSnapshot, BrowserSnapshotOptions, BrowserSurfaceReport, BrowserViewportRequest } from './browser-types'
-import type { DeviceActionRequest, DeviceBuild, DeviceBuildImportRequest, DeviceInstallRequest, DeviceProjectInfo, DeviceRun, DeviceSigningTeam, DeviceRunLog, DeviceRunStartRequest, DeviceCloseRequest, DeviceConfigureRequest, DeviceControlRequest, DeviceControlResult, DeviceDetail, DeviceHostTestResult, DeviceOpenRequest, DevicePreview, DeviceScreenshotRequest, DeviceScreenshotResult, DeviceShutdownRequest, DeviceState, DeviceStreamUrl, DeviceTarget, DeviceToolUpdateRequest, SshDeviceHostConfig } from './device-types'
+import type { DeviceActionRequest, DeviceBuild, DeviceInstallRequest, DeviceProjectInfo, DeviceRun, DeviceSigningTeam, DeviceRunLog, DeviceRunStartRequest, DeviceCloseRequest, DeviceConfigureRequest, DeviceControlRequest, DeviceControlResult, DeviceDetail, DeviceHostTestResult, DeviceOpenRequest, DevicePreview, DeviceScreenshotRequest, DeviceScreenshotResult, DeviceShutdownRequest, DeviceState, DeviceStreamUrl, DeviceTarget, DeviceToolUpdateRequest, SshDeviceHostConfig } from './device-types'
 import type { AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus } from './atlassian'
 import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest, CodeIntelInstallResult, CodeIntelReferencesRequest, CodeIntelReferencesResult, CodeIntelReindexRequest, CodeIntelReindexResult, CodeIntelStatus, CodeIntelStatusRequest, CodeIntelSymbolRequest, CodeIntelSymbolResult } from './code-intel'
 import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishRequest, WorkExternalLink, WorkPublishRequest, WorkPublishResult, WorkPullResult } from './docs'
@@ -35,7 +35,8 @@ import type { ConnectionTokenResource } from './auth/clients'
 import type { DesktopUpdateStatus } from './desktop-update-types'
 import type { HostUpdateStatus } from './host-update-types'
 import type { HostAction } from './permissions'
-import type { HostKind, ManagedHostLifecycle, OrganizationDirectory, UplinkDirectory, UplinkEnrollmentTicket, UplinkLinkRequest, UplinkStatus } from './uplink'
+import type { LiveActivityRegistration } from './live-activity'
+import type { HostKind, ManagedHostLifecycle, OrganizationDirectory, UplinkDirectory, UplinkEnrollmentTicket, HostRegistrationRequest, UplinkStatus } from './uplink'
 import type { WorkLiveAwarenessRequest, WorkLiveCloseRequest, WorkLiveOpenRequest, WorkLiveOpenResult, WorkLivePushRequest, WorkLivePushResult } from './work-live'
 import type { WorkReview, WorkReviewDecide, WorkReviewInboxItem, WorkReviewRequest, WorkReviewStateEntry } from './work-review'
 import type { ShareLink, ShareList, ShareResource, ShareRole, ShareSetLinkRequest, ShareSetRequest, ShareTransferRequest } from './sharing'
@@ -51,11 +52,29 @@ import type { User } from './user'
 import type { RpcPlane } from './rpc-planes'
 
 /** A host this host paired with, so its agents can start sessions there (docs/plans/cross-host-sessions.md §10). The token never leaves the host. */
-export interface PairedHostSummary {
+/** A host this host was introduced to, so its agents start sessions there with no account (docs/plans/host-reach.md §4). */
+export interface IntroducedHost {
   installationId: string
   label: string
   url: string
-  pairedAt: number
+  introducedAt: number
+}
+
+export interface IntroducedHostsSummary {
+  hosts: IntroducedHost[]
+  /** Hosts the person forgot here; no client introduces them again until they are allowed. */
+  refused: Array<{ installationId: string; label: string }>
+}
+
+/** A token one host issued for another, as a client hands it over (host-reach.md §4.1). */
+export interface HostIntroduction {
+  installationId: string
+  label: string
+  /** Where the issuing host may be reached, the widest reach first. */
+  urls: string[]
+  sessionToken: string
+  /** The device the token is, on the issuing host. */
+  deviceId: string
 }
 
 /** How this host is reached and who this client is to it. */
@@ -290,16 +309,33 @@ export interface SolusAPI {
    * member still list the socket's organization; the socket then lives to its expiry (ms).
    */
   authRenew(request: { accessToken: string }): Promise<{ expiresAt: number }>
+  /**
+   * A signed-in client's access token for this host, on any admitted socket (ADR 0001 §6
+   * item 5). The host makes each delegation the token names that it does not hold; the
+   * socket's access does not change. `delegated` is true when every one is held now.
+   */
+  accountPresent(request: { accessToken: string; organizationId?: string }): Promise<{ delegated: boolean }>
   /** The hosts this host paired with (host administrator only). */
-  pairedHostsList(): Promise<PairedHostSummary[]>
-  /** Pairs this host with the host at `url`, using the code that host shows. */
-  pairedHostsPair(args: { url: string; code: string }): Promise<PairedHostSummary>
-  /** Forgets one pairing here; the other host still lists this one as a device until it is revoked there. */
-  pairedHostsForget(args: { installationId: string }): Promise<{ forgotten: boolean }>
-  /** Personal Uplink (local-owner only): link this host to the owner's Solus cloud account. */
-  uplinkLink(args: UplinkLinkRequest): Promise<UplinkStatus>
+  /** The hosts this host was introduced to, and the ones the person forgot (host-reach.md §4). */
+  hostIntroductionsList(): Promise<IntroducedHostsSummary>
+  /** A token for the named host, which a client hands to it with `hostIntroductionAccept`. */
+  hostIntroductionIssue(args: { installationId: string; label: string }): Promise<HostIntroduction>
+  /** Keeps the token another host issued; `grantedDeviceId` is the device this host issued for it. */
+  hostIntroductionAccept(args: { introduction: HostIntroduction; grantedDeviceId: string }): Promise<{ ok: true }>
+  /** Forgets an introduced host here and refuses it until it is allowed again. */
+  hostIntroductionForget(args: { installationId: string }): Promise<{ forgotten: boolean }>
+  hostIntroductionAllow(args: { installationId: string }): Promise<{ allowed: boolean }>
+  /**
+   * Register this host to the owner's Solus account with a ticket the owner's client got
+   * (docs/adr/0001-standard-authentication.md §2.2 rule 8). A registered host redeems a
+   * ticket that names organizations as an attachment. Local owner only.
+   */
+  uplinkRegister(args: HostRegistrationRequest): Promise<UplinkStatus>
+  /** Turn the tunnel on: the internet reaches this registered host through cloudflared (rule 9). Nothing else changes. */
+  uplinkLink(): Promise<UplinkStatus>
+  /** Turn the tunnel off. The registration, its delegations, and its organizations stay. */
   uplinkUnlink(): Promise<UplinkStatus>
-  /** Take this host's organization attachment back for one organization; the host stays linked and keeps its records. */
+  /** Take this host's organization attachment back for one organization; the host stays registered and keeps its records. */
   uplinkDetachOrganization(organizationId: string): Promise<UplinkStatus>
   uplinkStatus(): Promise<UplinkStatus>
   /** Organization scope (docs/plans/organization-scope.md §3.1, §6.1, §7). */
@@ -321,7 +357,7 @@ export interface SolusAPI {
   /** Sharing (docs/plans/multiplayer-sharing.md §3–§4). Reading needs viewer access; the list is replaced whole. */
   shareGet(request: { resource: ShareResource }): Promise<ShareList>
   shareSet(request: ShareSetRequest): Promise<ShareList>
-  /** The secret comes back only from this call, and only when it was minted or regenerated. */
+  /** The link as it now stands, with its secret, to the owner and editors: a new secret when it was minted or regenerated, the same secret on a role change; null when the link is off. */
   shareSetLink(request: ShareSetLinkRequest): Promise<ShareLink | null>
   shareTransfer(request: ShareTransferRequest): Promise<ShareList>
   /** The origin a resource's guest link names (docs/plans/host-sharing.md §2): the account origin for a mirrored session, else this host's tunnel when online, else its first direct address; null when nobody off this machine can reach it. */
@@ -532,6 +568,27 @@ export interface SolusAPI {
   prUpdateBranch(ctx: IpcContext, number: number, expectedHeadSha: string): Promise<PullRequest>
   /** Open a new pull request that reverses a merged one. */
   prRevert(ctx: IpcContext, number: number): Promise<PrRevertResult>
+  /** Merge a stacked pull request and every open layer below it in one host
+   *  operation. Needs `merge-stack` in both `capabilities.actions` and
+   *  `viewerPermissions.actions`. */
+  prMergeStack(ctx: IpcContext, request: PrStackMergeRequest): Promise<PrStackMergeResult>
+  /** A host URL for media that a pull request points at on GitHub, such as
+   *  `https://github.com/user-attachments/assets/<id>`. A private repository
+   *  serves it only with a GitHub credential, so the host fetches it with its
+   *  own and the client never gets the token. Only a URL that
+   *  `githubMediaFetchUrl` accepts is signed. */
+  prMediaUrl(ctx: IpcContext | undefined, githubMediaUrl: string): Promise<AssetCreateUrlResult>
+  /** The workflow runs of a fork pull request that wait for a maintainer. */
+  prPendingWorkflowRuns(ctx: IpcContext, number: number): Promise<PrPendingWorkflowRuns>
+  /** Approve the waiting workflow runs of a fork pull request, checked against
+   *  the head the viewer saw. Needs `approve-workflows` in both action lists. */
+  prApproveWorkflowRuns(ctx: IpcContext, number: number, expectedHeadSha: string): Promise<PrWorkflowApprovalResult>
+  /** Which files the viewer marked viewed, as the code host keeps it. Needs
+   *  `capabilities.viewedFiles`. */
+  prViewedFiles(ctx: IpcContext, number: number): Promise<PrViewedFiles>
+  /** Mark files viewed or not viewed on the code host. The last change to a
+   *  path in `changes` wins. */
+  prSetFilesViewed(ctx: IpcContext, number: number, changes: PrViewedFileChange[]): Promise<void>
   prPrepareConflictResolution(ctx: IpcContext, number: number): Promise<PrConflictResolutionResult>
   /** Cached checks for the repository's open PRs; failures are represented in the snapshot. */
   prChecks(ctx: IpcContext, numbers?: number[]): Promise<PrChecksSnapshot>
@@ -781,6 +838,12 @@ export interface SolusAPI {
   /** Foreground heartbeat: hosts skip watch-fired freshness work while no
    *  client holds a live lease (dispatch-client step 7). */
   activityLease(foreground: boolean): Promise<{ ok: boolean }>
+  /** The phone's Live Activity card and its push token: while the phone is
+   *  suspended, this host reports its rows of the card to the control plane,
+   *  which sends the card through APNs (docs/plans/live-activity-push.md). */
+  liveActivityRegister(registration: LiveActivityRegistration): Promise<void>
+  /** The card ended, or the token no longer belongs to it. */
+  liveActivityUnregister(pushToken: string): Promise<void>
 
   worktreeListProject(ctx: IpcContext): Promise<WorktreeEntry[]>
   diff(ctx: IpcContext, request: DiffRequest): Promise<DiffResult | null>
@@ -829,10 +892,6 @@ export interface SolusAPI {
 
   updateAgentFiles(ctx: IpcContext, text: string): Promise<{ success: boolean; files?: string[]; err?: string }>
 
-  enterDesignMode(ctx?: IpcContext): Promise<{ id: string; name: string; path: string; dataUrl: string; size: number } | null>
-  designModeReady(): Promise<void>
-  exitDesignMode(): Promise<void>
-  submitDesignAnnotations(data: { dataUrl: string; annotations: DesignAnnotation[] }, ctx?: IpcContext): Promise<Attachment | null>
 
   /** Native-only: resolves the OS path for a File. Web stub returns ''. */
   getPathForFile(file: File): string
@@ -954,10 +1013,6 @@ export interface SolusAPI {
   deviceControlResume(target: DeviceTarget): Promise<void>
   /** Install a recorded build on a device under the caller's control lease, then open it. */
   deviceInstall(request: DeviceInstallRequest): Promise<DeviceBuild>
-  /** Add a build output that is already on the host. */
-  deviceBuildImport(request: DeviceBuildImportRequest): Promise<DeviceBuild>
-  /** Delete a build's output from the host, and its entry. */
-  deviceBuildDelete(buildId: string): Promise<DeviceState>
   /** Whether the project at this host path builds a mobile app. Reads names only, to a fixed depth. */
   deviceProjectDetect(projectPath: string): Promise<DeviceProjectInfo>
   /** The Apple teams this host can sign iPhone and iPad builds for. Empty when it has no Apple certificate. */
@@ -1094,6 +1149,9 @@ export interface NativeSolusAPI {
   uplinkOrganizationDirectory(organizationId: string): Promise<OrganizationDirectory | null>
   /** Start the organization's managed host; the lifecycle it is in afterwards. */
   uplinkStartManagedHost(hostId: string): Promise<ManagedHostLifecycle | null>
+  /** End the registration of a host the account owns; true when the account no longer
+   *  lists it, so it is idempotent. False when refused or unanswered. */
+  uplinkRemoveHost(hostId: string): Promise<boolean>
   /** Account settings sync and organization settings (plans/018 §4), on behalf of
    *  the signed-in account. Main adds the token; each answer is decoded there. */
   accountSettingsGet(): Promise<AccountSettingsResult>

@@ -1,6 +1,7 @@
-import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { actorFor } from '@solus/server/admission/actor'
 import { memberActor } from './helpers/actors'
+import { installTestIdentities } from './helpers/acting-identities'
 import { Database } from 'bun:sqlite'
 import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -19,7 +20,12 @@ let SeatManager: typeof import('@solus/server/execution/seats/seat-manager')['Se
 beforeAll(async () => {
   ;({ SessionRuntime } = await import('@solus/server/execution/session-runtime'))
   ;({ SeatManager } = await import('@solus/server/execution/seats/seat-manager'))
+  installTestIdentities()
 })
+
+// The launcher refuses a working directory that does not exist.
+const projectDir = mkdtempSync(join(tmpdir(), 'plane-seats-project-'))
+afterAll(() => rmSync(projectDir, { recursive: true, force: true }))
 
 // Step 2 plan §3.3 and exit criterion 2: a member with no seat is refused with
 // SEAT_REQUIRED and no process is spawned; with one, the run request carries it.
@@ -81,7 +87,7 @@ function harness(beforeExit?: Parameters<typeof backend>[0]) {
 
 function ctx(sessionId: string): IpcContext {
   return {
-    session: { sessionId, provider: 'claude-code', agentSessionId: null, workingDirectory: '/tmp/project', origin: 'user' },
+    session: { sessionId, provider: 'claude-code', agentSessionId: null, workingDirectory: projectDir, origin: 'user' },
     window: {},
     settings: { activeAgent: 'claude-code' },
     statusBar: { model: null, reasoningEffort: 'medium', permissionMode: 'full-access' },

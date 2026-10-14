@@ -27,7 +27,7 @@ describe('mobile project detection', () => {
       'apps/mobile/package.json': JSON.stringify({ dependencies: { expo: '~57.0.0', 'react-native': '0.86' } }),
     })
     const info = await scanDeviceProject(root)
-    expect(info).toEqual({ isMobileApp: true, platforms: ['android', 'ios'], markers: ['apps/mobile/package.json'], usesExpo: true })
+    expect(info).toEqual({ isMobileApp: true, platforms: ['android', 'ios'], markers: ['apps/mobile/package.json'], usesExpo: true, usesReactNative: true })
   })
 
   test('native iOS and Android projects count by their own files', async () => {

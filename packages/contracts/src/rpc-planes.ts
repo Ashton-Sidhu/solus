@@ -177,12 +177,8 @@ export const RPC_PLANES = {
   togglePinnedSession: 'collaboration',
   setSessionReadState: 'collaboration',
   activityLease: 'collaboration',
-
-  // Design mode
-  enterDesignMode: 'execution',
-  designModeReady: 'execution',
-  exitDesignMode: 'execution',
-  submitDesignAnnotations: 'execution',
+  liveActivityRegister: 'collaboration',
+  liveActivityUnregister: 'collaboration',
 
   // Connections
   connectionsListEndpoints: 'collaboration',
@@ -194,13 +190,17 @@ export const RPC_PLANES = {
   connectionsSetRemoteAccess: 'collaboration',
   connectionsSetTrustLocalNetwork: 'collaboration',
   authRenew: 'collaboration',
+  accountPresent: 'collaboration',
 
   // Paired hosts
-  pairedHostsList: 'execution',
-  pairedHostsPair: 'execution',
-  pairedHostsForget: 'execution',
+  hostIntroductionsList: 'execution',
+  hostIntroductionIssue: 'execution',
+  hostIntroductionAccept: 'execution',
+  hostIntroductionForget: 'execution',
+  hostIntroductionAllow: 'execution',
 
   // Personal Uplink
+  uplinkRegister: 'collaboration',
   uplinkLink: 'collaboration',
   uplinkUnlink: 'collaboration',
   uplinkDetachOrganization: 'collaboration',
@@ -414,6 +414,12 @@ export const RPC_PLANES = {
   prDisableAutoMerge: 'collaboration',
   prUpdateBranch: 'collaboration',
   prRevert: 'collaboration',
+  prMergeStack: 'collaboration',
+  prMediaUrl: 'collaboration',
+  prPendingWorkflowRuns: 'collaboration',
+  prApproveWorkflowRuns: 'collaboration',
+  prViewedFiles: 'collaboration',
+  prSetFilesViewed: 'collaboration',
   prPrepareConflictResolution: 'execution',
   prRefresh: 'collaboration',
 
@@ -556,8 +562,6 @@ export const RPC_PLANES = {
   deviceControlRelease: 'execution',
   deviceControlResume: 'execution',
   deviceInstall: 'execution',
-  deviceBuildImport: 'execution',
-  deviceBuildDelete: 'execution',
   deviceProjectDetect: 'execution',
   deviceSigningTeams: 'execution',
   deviceRunStart: 'execution',

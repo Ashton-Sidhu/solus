@@ -94,11 +94,11 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     error: null,
   }))
   backend.register('usageLimits', () => [])
-  // Organization scope (organization-scope.md): the demo host is linked to no
+  // Organization scope (organization-scope.md): the demo host is registered to no
   // account, so it stands in no organization, publishes nothing, and has no
   // organization Insights to answer.
   const hostOrganizations = (): HostOrganizationsStatus => ({
-    linked: false,
+    registered: false,
     hostId: null,
     category: 'personal',
     owner: null,

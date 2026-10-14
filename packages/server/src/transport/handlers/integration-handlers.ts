@@ -90,6 +90,15 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
   /** Where an administrator's OAuth client secret is kept; `oauth` reads it from the same store. */
   secrets: Pick<IntegrationSecrets, 'saveClient' | 'removeClient'>
   getServerInfo(): { host: string; port: number }
+  /**
+   * The caller's agent profile (plans/020-agent-profile.md): signed in, the
+   * caller's own servers are part of it, so a change here goes to their account
+   * and every host follows. Absent where no profile applies.
+   */
+  profile?: {
+    saved(principal: Principal, integration: Integration): Promise<void>
+    removing(principal: Principal, integration: Integration): Promise<void>
+  }
 }): void {
   const { store, catalog, gateway, events, connectionStore, connections, oauth, secrets } = deps
   const requireIntegration = (id: string, scope: RecordScope, viewer: string | null) => {
@@ -126,6 +135,7 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     )
     void events.broadcast('integration.changed', { integrationId: integration.id, change: 'created' })
     void gateway.warm(integration.id)
+    void deps.profile?.saved(ctx.principal, integration)
     return integration
   })
 
@@ -149,14 +159,17 @@ export function registerIntegrationHandlers(server: SolusServer, deps: {
     gateway.invalidate(id)
     void gateway.warm(id)
     void events.broadcast('integration.changed', { integrationId: id, change: 'updated' })
+    void deps.profile?.saved(ctx.principal, integration)
     return integration
   })
 
-  server.register('integrationRemove', (args, ctx) => {
+  server.register('integrationRemove', async (args, ctx) => {
     const { id } = integrationIdRequestSchema.parse(args[0])
     const scope = recordScopeOf(ctx.principal)
     if (!store.getVisible(id, scope, personalRecordOwnerOf(ctx.principal))) return { removed: false }
-    requireOwn(id, ctx.principal)
+    const integration = requireOwn(id, ctx.principal)
+    // It leaves the caller's profile first, so no host's next pull brings it back.
+    await deps.profile?.removing(ctx.principal, integration)
     gateway.invalidate(id)
     const removed = store.remove(id, scope)
     if (removed) connections.removeAllFor(id)

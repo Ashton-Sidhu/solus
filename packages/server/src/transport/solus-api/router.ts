@@ -82,7 +82,8 @@ export function createSolusApiRouter(options: SolusApiRouterOptions): Hono<ApiEn
     query(c, routes.exchangeCredential.query)
     const input = await body(c, routes.exchangeCredential.body)
     const source = bearer(c)
-    if (!exchanges.allow(createHash('sha256').update(source).digest('hex'))) throw new SolusApiError(429, 'RATE_LIMITED', 'Too many credential exchanges. Try again shortly.', 1)
+    // A link guest has no bearer: its secret is what it presents.
+    if (!exchanges.allow(createHash('sha256').update(source || 'share:' + (input.shareSecret ?? '')).digest('hex'))) throw new SolusApiError(429, 'RATE_LIMITED', 'Too many credential exchanges. Try again shortly.', 1)
     const session = await options.credentials.exchange(source, input)
     if (!session) throw new SolusApiError(401, 'UNAUTHENTICATED', 'The source credential was refused.')
     return c.json(session)

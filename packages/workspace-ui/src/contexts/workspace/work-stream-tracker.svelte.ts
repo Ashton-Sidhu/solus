@@ -48,61 +48,43 @@ export class WorkStreamTracker {
     private router: RouterStore,
   ) {}
 
-  beginToolArtifacts(session: Session, toolName: string | undefined, agentProvider: AgentId, toolId?: string): void {
-    if (isCreateWorkTool(toolName)) {
-      const tempId = this.worksStore.addProvisional(agentProvider, session.run.workingDirectory, session.run.serverId)
-      const msgId = nextMsgId()
-      session.messages.push({
-        id: msgId,
-        role: 'assistant',
-        content: '',
-        workRef: { workId: tempId, title: 'Untitled', workType: 'doc' },
-        timestamp: Date.now(),
-      })
-      const entries = this.workStreamsBySession.get(session.id) ?? []
-      entries.push({ tempId, msgId, finalized: false })
-      this.workStreamsBySession.set(session.id, entries)
-      return
-    }
-
-    if (isRenderArtifactTool(toolName)) {
-      session.messages.push({
-        id: nextMsgId(),
-        role: 'assistant',
-        content: '',
-        artifact: { kind: 'html', pending: true, toolId },
-        timestamp: Date.now(),
-      })
-    }
+  beginWorkStream(session: Session, toolName: string | undefined, agentProvider: AgentId): void {
+    if (!isCreateWorkTool(toolName)) return
+    const tempId = this.worksStore.addProvisional(agentProvider, session.run.workingDirectory, session.run.serverId)
+    const msgId = nextMsgId()
+    session.messages.push({
+      id: msgId,
+      role: 'assistant',
+      content: '',
+      workRef: { workId: tempId, title: 'Untitled', workType: 'doc' },
+      timestamp: Date.now(),
+    })
+    const entries = this.workStreamsBySession.get(session.id) ?? []
+    entries.push({ tempId, msgId, finalized: false })
+    this.workStreamsBySession.set(session.id, entries)
   }
 
-  private beginArtifactUpdate(session: Session, toolInput: string, toolId: string): void {
-    if (session.messages.some((message) => message.artifact?.toolId === toolId)) return
-    const workId = /"work_id"\s*:\s*"([^"\\]+)"/.exec(toolInput)?.[1]
-    if (!workId) return
+  /** The artifact card a work update renders in, or undefined when the work is not an artifact. */
+  private artifactWorkRef(session: Session, workId: string): Message['workRef'] {
     const previous = session.messages.findLast((message) => message.workRef?.workId === workId && message.artifact)
     const work = this.worksStore.get(workId)
-    if (!previous && work?.type !== 'artifact') return
-    session.messages.push({
-      id: nextMsgId(), role: 'assistant', content: '', timestamp: Date.now(),
-      artifact: { kind: 'html', pending: true, toolId },
-      workRef: { workId, title: previous?.workRef?.title ?? work?.title ?? '', workType: 'artifact' },
-    })
+    if (!previous && work?.type !== 'artifact') return undefined
+    return { workId, title: previous?.workRef?.title ?? work?.title ?? '', workType: 'artifact' }
   }
 
   /**
-   * Show a `render_artifact` call as it is written, instead of a skeleton until
-   * it finishes. Off on a touch client, where re-creating an iframe every few
-   * hundred milliseconds costs more than the wait it saves.
+   * Show a `render_artifact` or artifact `update_work` call as it is written.
+   * No card exists before the input has a body to render: a call shows only its
+   * tool row until then. Off on a touch client, where re-creating an iframe
+   * every few hundred milliseconds costs more than the wait it saves.
    */
   updateStreamingArtifact(session: Session, toolName: string | undefined, toolInput: string, toolId?: string): void {
     if (!toolId) return
     const isUpdate = !!toolName?.endsWith('update_work')
     if (!isRenderArtifactTool(toolName) && !isUpdate) return
-    // The card opened before the input said whether it is a preview. A preview
-    // renders nothing in the conversation, so its card goes as soon as it does.
+    // The html can stream before the preview flag. A preview renders nothing in
+    // the conversation, so its card goes as soon as the input says so.
     if (!isUpdate && isPreviewArtifactCall(toolInput)) return this.failArtifact(session, toolId)
-    if (isUpdate) this.beginArtifactUpdate(session, toolInput, toolId)
     if (runtime.isTouchDevice) return
     const now = Date.now()
     const last = this.lastProgressiveTickByTool.get(`${session.id}:${toolId}`) ?? 0
@@ -110,15 +92,25 @@ export class WorkStreamTracker {
 
     const html = partialArtifactHtml(toolInput, isUpdate ? 'content' : 'html')
     if (!html || !artifactHasBody(html)) return
-    const pending = session.messages.find((m) => m.artifact?.toolId === toolId && (m.artifact.pending || m.artifact.streaming))
-    if (!pending?.artifact) return
+    const card = session.messages.find((m) => m.artifact?.toolId === toolId)
+    // A completed card is the last word; a late input tick cannot reopen it.
+    if (card && !card.artifact?.streaming) return
 
     this.lastProgressiveTickByTool.set(`${session.id}:${toolId}`, now)
-    // Mutated in place, never replaced: a new message object would invalidate
-    // every derived read of the transcript on each tick.
-    pending.artifact.html = html
-    pending.artifact.pending = false
-    pending.artifact.streaming = true
+    if (card?.artifact) {
+      // Mutated in place, never replaced: a new message object would invalidate
+      // every derived read of the transcript on each tick.
+      card.artifact.html = html
+      return
+    }
+    const workId = isUpdate ? /"work_id"\s*:\s*"([^"\\]+)"/.exec(toolInput)?.[1] : undefined
+    const workRef = workId ? this.artifactWorkRef(session, workId) : undefined
+    if (isUpdate && !workRef) return
+    session.messages.push({
+      id: nextMsgId(), role: 'assistant', content: '', timestamp: Date.now(),
+      artifact: { kind: 'html', html, streaming: true, toolId },
+      ...(workRef ? { workRef } : {}),
+    })
   }
 
   finalizeWork(session: Session, event: WorkCreatedEvent): void {
@@ -170,21 +162,20 @@ export class WorkStreamTracker {
 
   private completeArtifactPreview(session: Session, event: ArtifactCreatedEvent, workRef: Message['workRef']): Message {
     // Match only the originating call. Older hosts without a tool id append a
-    // completed card; their unmatched provisional cards are removed at turn end.
+    // completed card; their unmatched streaming cards are removed at turn end.
     // The persisted document is the last word: a progressive render stops the
     // moment this lands, so what stays on screen is the work, not a tick of it.
     this.lastProgressiveTickByTool.delete(`${session.id}:${event.toolId}`)
-    const pending = event.toolId ? session.messages.find((m) =>
-      m.artifact && m.artifact.toolId === event.toolId && (m.artifact.pending || m.artifact.streaming),
+    const streaming = event.toolId ? session.messages.find((m) =>
+      m.artifact && m.artifact.toolId === event.toolId && m.artifact.streaming,
     ) : undefined
-    if (pending?.artifact) {
-      pending.artifact.kind = event.kind
-      pending.artifact.html = event.html
-      pending.artifact.path = event.path
-      pending.artifact.pending = false
-      pending.artifact.streaming = false
-      if (workRef) pending.workRef = workRef
-      return pending
+    if (streaming?.artifact) {
+      streaming.artifact.kind = event.kind
+      streaming.artifact.html = event.html
+      streaming.artifact.path = event.path
+      streaming.artifact.streaming = false
+      if (workRef) streaming.workRef = workRef
+      return streaming
     }
 
     const completed: Message = {
@@ -202,7 +193,7 @@ export class WorkStreamTracker {
   failArtifact(session: Session, toolId: string): void {
     this.lastProgressiveTickByTool.delete(`${session.id}:${toolId}`)
     const index = session.messages.findIndex((message) =>
-      message.artifact?.toolId === toolId && (message.artifact.pending || message.artifact.streaming),
+      message.artifact?.toolId === toolId && message.artifact.streaming,
     )
     if (index !== -1) session.messages.splice(index, 1)
   }
@@ -210,19 +201,17 @@ export class WorkStreamTracker {
   updateWork(session: Session, event: Extract<NormalizedEvent, { type: 'work_updated' }>): void {
     // An update never changes a work's type, and a cloud-owned save cannot read
     // the row it updates: it reports `doc` and no title. The saved record or
-    // this call's own update card is the authority on what the work is.
+    // an artifact card of the work in this conversation is the authority.
     const saved = this.worksStore.get(event.workId)
-    const updateCard = event.toolId
-      ? session.messages.find((message) => message.artifact?.toolId === event.toolId && message.workRef?.workId === event.workId)
-      : undefined
-    const title = event.title || saved?.title || updateCard?.workRef?.title || ''
+    const artifactRef = this.artifactWorkRef(session, event.workId)
+    const title = event.title || saved?.title || artifactRef?.title || ''
     const isStale = session.messages.some((message) => message.workRef?.workId === event.workId
       && message.artifact?.updatedAt && message.artifact.updatedAt >= event.updatedAt)
     if (isStale) {
       if (event.toolId) this.failArtifact(session, event.toolId)
       return
     }
-    if (event.docType !== 'artifact' && saved?.type !== 'artifact' && !updateCard) {
+    if (event.docType !== 'artifact' && !artifactRef) {
       session.messages.push({
         id: nextMsgId(), role: 'assistant', content: '',
         workRef: { workId: event.workId, title, workType: saved?.type ?? event.docType, contentVersion: event.contentVersion },
@@ -240,15 +229,15 @@ export class WorkStreamTracker {
   }
 
   /** Drop provisional cards whose create_work never persisted (tool errored, or
-   *  the turn ended), plus any render_artifact skeletons left pending by a failed
-   *  call. Finalized streams keep their card; only the tracking is cleared. */
+   *  the turn ended), plus any artifact cards still streaming when the call
+   *  failed or the turn ended. Finalized streams keep their card; only the tracking is cleared. */
   sweep(session: Session): void {
     for (const key of this.lastProgressiveTickByTool.keys()) {
       if (key.startsWith(`${session.id}:`)) this.lastProgressiveTickByTool.delete(key)
     }
     for (let i = session.messages.length - 1; i >= 0; i--) {
       const artifact = session.messages[i].artifact
-      if (artifact?.pending || artifact?.streaming) session.messages.splice(i, 1)
+      if (artifact?.streaming) session.messages.splice(i, 1)
     }
     const entries = this.workStreamsBySession.get(session.id)
     if (!entries) return

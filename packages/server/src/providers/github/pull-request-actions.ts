@@ -250,10 +250,12 @@ export function githubPullRequestAccess(access: RepositoryAccess): PullRequestAc
   // GitHub asks for write access to arm auto-merge or open a revert, the same
   // bar as the merge itself.
   if (access.canWrite && access.allowAutoMerge) lifecycle.push('enable-auto-merge', 'disable-auto-merge')
-  if (access.canWrite) lifecycle.push('revert')
+  // A stack merge is a merge of each layer, and approving the workflow runs
+  // of a fork asks for write access on GitHub too.
+  if (access.canWrite) lifecycle.push('revert', 'merge-stack', 'approve-workflows')
   const supported: PrLifecycleAction[] = ['merge', 'close', 'reopen', 'ready', 'draft']
   if (access.allowAutoMerge) supported.push('enable-auto-merge', 'disable-auto-merge')
-  supported.push('revert')
+  supported.push('revert', 'merge-stack', 'approve-workflows')
 
   const repositoryMethods: PrReviewCapabilities['mergeMethods'] = []
   if (access.allowMergeCommit) repositoryMethods.push('merge')
@@ -280,6 +282,7 @@ export function githubPullRequestAccess(access: RepositoryAccess): PullRequestAc
     reviewerRequests: true,
     reviewerCandidates: true,
     labelManagement: true,
+    viewedFiles: true,
   }
   if (defaultMergeMethod) capabilities.defaultMergeMethod = defaultMergeMethod
 

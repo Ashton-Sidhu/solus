@@ -24,7 +24,7 @@ function presented(sub: string, grantId: string): string {
   return `${part({ alg: 'ES256', kid: 'k1' })}.${part({ sub, grant_id: grantId, aud: 'urn:solus:host:host' })}.c2ln`
 }
 
-const LINK = { hostId: 'host', issuer: 'https://account.test', jwksUrl: 'https://account.test/jwks', directoryUrl: 'https://account.test', hostname: 'host.test', proxiedPort: 1, connectionGeneration: 1, apiUrl: 'https://api.test' }
+const LINK = { hostId: 'host', issuer: 'https://account.test', jwksUrl: 'https://account.test/jwks', directoryUrl: 'https://account.test', generation: 1, apiUrl: 'https://api.test' }
 /** The host's key: every exchange and refresh is authenticated with an assertion it signs (ADR 0001 §3.4). */
 const hostKey = await generateHostKey()
 const credential = clientCredential({ clientId: 'host_host', privateJwk: hostKey.privateJwk, tokenEndpoint: tokenEndpoint(LINK.directoryUrl) })
@@ -49,7 +49,7 @@ function delegations(fetchImpl: (form: URLSearchParams) => Promise<Response> | R
   const forms: URLSearchParams[] = []
   const headers: Headers[] = []
   const held: Delegations = new Delegations({
-    link: () => LINK,
+    registration: () => LINK,
     credential: () => credential,
     // What the host does on a refusal: it reads the sessions acting for the person to stop them.
     onRevoked: (userId, scope, refusal) => { options.revoked?.push([userId, scope, refusal, held.sessionsActingFor(userId, scope)]) },
@@ -102,7 +102,7 @@ describe('making a delegation', () => {
 
   test('an unlinked host, with no key, sends nothing', async () => {
     const forms: URLSearchParams[] = []
-    const unlinked = new Delegations({ link: () => null, credential: () => null, onRevoked: () => {}, fetchImpl: async (_url, init) => { forms.push(init?.body as URLSearchParams); return answer() } })
+    const unlinked = new Delegations({ registration: () => null, credential: () => null, onRevoked: () => {}, fetchImpl: async (_url, init) => { forms.push(init?.body as URLSearchParams); return answer() } })
     instances.push(unlinked)
     expect(await outcome(unlinked.establish(presented('bob', 'g'), ORG_A))).toMatchObject({ code: 'ORGANIZATION_API_UNAVAILABLE' })
     expect(forms).toHaveLength(0)
@@ -167,9 +167,10 @@ describe('making a delegation', () => {
 
   test('clearing rejects a late exchange without storing it; forgetting one person leaves the other', async () => {
     const late = deferred<Response>()
-    let calls = 0
-    const { held } = delegations(() => (++calls === 1 ? late.promise : answer()))
-    const discarded = outcome(held.establish(presented('bob', 'g'), ORG_A))
+    // Bob's exchange is the late one, whichever reaches the endpoint first.
+    const bobs = presented('bob', 'g')
+    const { held } = delegations((form) => (form.get('subject_token') === bobs ? late.promise : answer()))
+    const discarded = outcome(held.establish(bobs, ORG_A))
     await held.establish(presented('carol', 'g2'), ORG_A)
     held.forget('bob', ORG_A)
     late.resolve(answer('late'))
@@ -307,5 +308,42 @@ describe('signing out', () => {
     now += 400_000
     await expect(held.accessToken('bob', ORG_A, { kind: 'api' })).rejects.toMatchObject({ code: 'ORGANIZATION_ACCESS_REFUSED' })
     expect(revoked).toEqual([['bob', ORG_A, 'ORGANIZATION_ACCESS_REFUSED', []]])
+  })
+})
+
+describe('a token to reach another host (docs/plans/host-reach.md §3)', () => {
+  test('is exchanged for the delegation\'s own token, kept for its eight hours, and its refusal leaves the delegation', async () => {
+    // WHY: the account plane checks the reach when it issues the token and issues it
+    // only by exchange; a host asking every five minutes would ask for nothing new, and
+    // a host the person cannot reach must not end their work here.
+    let now = 0
+    let refuse = false
+    const revoked: Array<[string, DelegationScope, DelegationRefusal, string[]]> = []
+    const { held, forms } = delegations((form) => {
+      if (form.get('resource') === 'urn:solus:host-reach:far') {
+        return refuse
+          ? Response.json({ error: 'invalid_grant', solus_refusal: 'host_not_reachable', error_description: 'You do not reach that host.' }, { status: 400 })
+          : Response.json({ access_token: 'reach-far', expires_in: 8 * 3600 })
+      }
+      return answer('delegated')
+    }, { now: () => now, revoked })
+    await held.establish(presented('alice', 'g'), 'personal')
+    expect(await held.accessToken('alice', 'personal', { kind: 'host-reach', hostId: 'far' })).toBe('reach-far')
+    const exchange = forms.at(-1)!
+    expect(Object.fromEntries([...exchange.entries()].filter(([name]) => !name.startsWith('client_')))).toEqual({
+      grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
+      subject_token: 'delegated',
+      subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
+      resource: 'urn:solus:host-reach:far',
+    })
+    now = 7 * 3600_000
+    expect(await held.accessToken('alice', 'personal', { kind: 'host-reach', hostId: 'far' })).toBe('reach-far')
+    expect(forms.filter((form) => form.get('resource') === 'urn:solus:host-reach:far')).toHaveLength(1)
+    refuse = true
+    now = 9 * 3600_000
+    const refused = await outcome(held.accessToken('alice', 'personal', { kind: 'host-reach', hostId: 'far' }))
+    expect(refused).toMatchObject({ code: 'HOST_NOT_REACHABLE' })
+    expect(revoked).toEqual([])
+    expect(held.has('alice', 'personal')).toBe(true)
   })
 })

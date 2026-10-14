@@ -19,8 +19,18 @@ export function rpcErrorCode(error: Error): string | undefined {
 export class TransportDisconnectedError extends Error {
   code = 'TRANSPORT_DISCONNECTED'
 
-  constructor() {
-    super('disconnected')
+  constructor(message = 'disconnected') {
+    super(message)
     this.name = 'TransportDisconnectedError'
+  }
+}
+
+/** A call to a host this client does not know: it was deleted, or it was never
+ *  listed here (docs/plans/workspace-and-machines.md §6). Readers that already
+ *  handle a host that is away handle it the same way; a retry will not help. */
+export class HostGoneError extends TransportDisconnectedError {
+  constructor(readonly serverId: string) {
+    super(`The host ${serverId} was removed`)
+    this.name = 'HostGoneError'
   }
 }

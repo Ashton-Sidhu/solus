@@ -6,7 +6,7 @@ import {
   type HostOrganizationsResponse,
   type HostOwnerIdentity,
   type OrganizationPolicy,
-  type UplinkLinkConfig,
+  type HostRegistration,
 } from '@solus/contracts/uplink'
 import { createLogger } from '../logger'
 import type { FetchLike } from '../admission/access-tokens'
@@ -18,11 +18,12 @@ const log = createLogger('main', 'host-organizations')
 
 /**
  * What the control plane knows about this host's standing (organization-scope
- * §3, §3.1, §6.1): the account that linked it, and every organization it may
+ * §3, §3.1, §6.1): the account it is registered to, and every organization it may
  * deliver records to, each with the policy its owners set. Read from
- * `GET /v1/hosts/:id/organizations` under the host token when the host links,
- * on demand, and every few minutes, so a policy change reaches the host
- * without a restart. An unlinked host stands in no organization.
+ * `GET /v1/hosts/:id/organizations` under the host's control token when the host
+ * registers, on demand, and every few minutes, so a policy change reaches the host
+ * without a restart. An unregistered host stands in no organization. The link plays
+ * no part (docs/adr/0001-standard-authentication.md §2.2 rule 9).
  *
  * The registry is the one place the host holds a policy against: the runner
  * delivery asks it which organizations sync Insights, the admission asks it
@@ -40,15 +41,15 @@ export interface HostStanding {
 }
 
 export interface HostOrganizationsDeps {
-  link: () => UplinkLinkConfig | null
-  /** The host credential of the current link; its control token authenticates the read. */
+  registration: () => HostRegistration | null
+  /** The host credential of the current registration; its control token authenticates the read. */
   credential: () => Pick<HostCredential, 'hostAccessToken'> | null
   fetchImpl?: FetchLike
   setTimeoutFn?: typeof setTimeout
   clearTimeoutFn?: typeof clearTimeout
 }
 
-/** A key the account plane refused reads as no token: the link is gone. Anything else is an outage. */
+/** A key the account plane refused reads as no token: the registration is gone. Anything else is an outage. */
 function refusedAsNull(error: Error): null {
   if (error instanceof HostCredentialError && error.code === 'refused') return null
   throw error
@@ -71,7 +72,7 @@ export class HostOrganizations {
     return this.standing
   }
 
-  /** The organizations this host may deliver to; none while unlinked or before the first answer. */
+  /** The organizations this host may deliver to; none while unregistered or before the first answer. */
   organizations(): HostOrganization[] {
     return this.standing?.organizations ?? []
   }
@@ -93,7 +94,7 @@ export class HostOrganizations {
     return this.policyFor(organizationId)?.allowsPersonalHosts !== false
   }
 
-  /** The account that linked this host, as the control plane knows it. */
+  /** The account this host is registered to, as the control plane knows it. */
   owner(): HostOwnerIdentity | null {
     return this.standing?.owner ?? null
   }
@@ -113,8 +114,8 @@ export class HostOrganizations {
     this.clearTimer()
   }
 
-  /** The link was made, removed, or superseded: forget the standing and ask again. */
-  linkChanged(): void {
+  /** The registration was made, removed, or superseded: forget the standing and ask again. */
+  registrationChanged(): void {
     this.setStanding(null)
     if (!this.stopped) void this.refresh()
   }
@@ -128,9 +129,9 @@ export class HostOrganizations {
 
   private async refreshNow(): Promise<void> {
     this.clearTimer()
-    const link = this.deps.link()
-    const credential = link ? this.deps.credential() : null
-    if (!link || !credential) {
+    const registration = this.deps.registration()
+    const credential = registration ? this.deps.credential() : null
+    if (!registration || !credential) {
       this.setStanding(null)
       return
     }
@@ -139,12 +140,12 @@ export class HostOrganizations {
     try {
       const token = await credential.hostAccessToken().catch(refusedAsNull)
       if (!token) {
-        // The account plane no longer knows this host's key: the link is gone or superseded.
-        log.info('host_organizations_unlinked', { status: 'key_refused' })
+        // The account plane no longer knows this host's key: the registration is gone or superseded.
+        log.info('host_organizations_unregistered', { status: 'key_refused' })
         this.setStanding(null)
         return
       }
-      const response = await fetchImpl(`${link.directoryUrl}/v1/hosts/${link.hostId}/organizations`, {
+      const response = await fetchImpl(`${registration.directoryUrl}/v1/hosts/${registration.hostId}/organizations`, {
         headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       })
@@ -153,8 +154,8 @@ export class HostOrganizations {
         if (parsed.success) answer = parsed.data
         else log.warn('host_organizations_unreadable', { issues: parsed.error.issues.map((issue) => issue.path.join('.')) })
       } else if (response.status === 401 || response.status === 404) {
-        // The control token is not of this host's current link: the link is gone or superseded. Nothing to deliver to.
-        log.info('host_organizations_unlinked', { status: response.status })
+        // The control token is not of this host's current registration: it is gone or superseded. Nothing to deliver to.
+        log.info('host_organizations_unregistered', { status: response.status })
         this.setStanding(null)
         return
       } else {

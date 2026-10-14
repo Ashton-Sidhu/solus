@@ -55,6 +55,11 @@ function PullRequestTabScrollView(props: ScrollViewProps) {
   )
 }
 
+/** FlatList calls this as a plain function, so the hooks live in the component it returns. */
+function renderPullRequestTabScrollView(props: ScrollViewProps) {
+  return <PullRequestTabScrollView {...props} />
+}
+
 /**
  * One pull request, as T3 Code's pull request screen: the pull request at the
  * top, then the tabs Overview, Guide, and Activity, and a toolbar with the
@@ -158,12 +163,14 @@ export function PullRequestScreen({ navigation, route }: ScreenProps<'PullReques
     if (!view || !activity) return { overview: [], activity: [], guide: [] }
     const timeline = pullRequestActivityRows(activity.activity, activityFilter.newestFirst, { openThread, openCommit })
     const unread = (['comments', 'threads'] as const).filter((part) => view.detail.missing.includes(part))
+    const reading = (['overview', 'comments', 'threads'] as const).some((part) => view.detail.reading?.includes(part))
     return {
       overview: [{ key: 'overview', date: '', content: <PullRequestOverview view={view} onOpenFile={openFile} /> }],
       activity: [
         { key: 'filters', date: '', content: <PullRequestActivityFilters value={activityFilter} onChange={setActivityFilter} hiddenCount={activity.hiddenCount} /> },
         ...(unread.length ? [{ key: 'unread', date: '', content: <Text className="pb-4 text-xs text-foreground-muted">Some of the conversation could not be read.</Text> }] : []),
-        ...(timeline.length ? timeline : [{ key: 'empty', date: '', content: <Text className="py-6 text-sm text-foreground-muted">No activity matches these filters.</Text> }]),
+        ...(reading ? [{ key: 'reading', date: '', content: <Text className="pb-4 text-xs text-foreground-muted">Reading the conversation…</Text> }] : []),
+        ...(timeline.length || reading ? timeline : [{ key: 'empty', date: '', content: <Text className="py-6 text-sm text-foreground-muted">No activity matches these filters.</Text> }]),
       ],
       guide: [{ key: 'guide', date: '', content: <PullRequestGuideTab view={view} onOpenFile={openFile} /> }],
     }
@@ -242,7 +249,7 @@ export function PullRequestScreen({ navigation, route }: ScreenProps<'PullReques
               data={rowsByTab[entry]}
               keyExtractor={(row) => row.key}
               renderItem={({ item }) => <View>{item.content}</View>}
-              renderScrollComponent={Platform.OS === 'ios' ? PullRequestTabScrollView : undefined}
+              renderScrollComponent={Platform.OS === 'ios' ? renderPullRequestTabScrollView : undefined}
               contentInsetAdjustmentBehavior="never"
               contentInset={Platform.OS === 'ios' ? { top: insets.top, bottom: insets.bottom } : undefined}
               scrollIndicatorInsets={Platform.OS === 'ios' ? { top: insets.top, bottom: insets.bottom } : undefined}
@@ -263,7 +270,7 @@ export function PullRequestScreen({ navigation, route }: ScreenProps<'PullReques
                   {state.kind === 'error' ? <ErrorBanner message={`Not refreshed: ${state.message}`} /> : null}
                   {!connected ? <Text className="text-xs text-foreground-muted">This is the copy on this device. Reviews, merges, and agent work need the host to be connected.</Text> : null}
                   <PullRequestIdentity view={view} />
-                  <SegmentedControl options={tabs} selected={shownTab} onSelect={selectTab} role="tab" size="compact" className={Platform.OS === 'android' ? undefined : 'bg-grouped-card'} />
+                  <SegmentedControl options={tabs} selected={shownTab} onSelect={selectTab} role="tab" size="compact" className={Platform.OS === 'android' ? undefined : 'bg-pr-tab-track'} indicatorClassName="border border-pr-card-border bg-pr-tab-selected" />
                 </View>
               }
             />

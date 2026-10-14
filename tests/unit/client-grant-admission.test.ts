@@ -88,8 +88,19 @@ describe('a Solus client token at the ticket door', () => {
     expect(ticketForDelegatedMember(delegated())).toEqual({ ok: false, reason: 'device-revoked' })
   })
 
-  test('a delegated token opens no socket of a person at a host', async () => {
+  test('a delegated token opens no socket of a person at a host, unless it is a host-reach token for it', async () => {
+    // WHY: docs/plans/host-reach.md §3 — only another host that reaches this one for a
+    // person gets that person's socket here, and only while the acting host is not revoked.
     expect(await ticketForGrant(delegated())).toEqual({ ok: false, reason: 'delegated-token' })
+    const reach: DelegatedAccessTokenClaims = {
+      iss: 'https://app.example.test', aud: 'urn:solus:host-reach:h2', sub: 'alice', client_id: 'host_h9',
+      jti: crypto.randomUUID(), iat: now(), exp: now() + 8 * 3600, act: { sub: 'host_h9', host_id: 'h9' }, grant_id: 'grant_1', access: 'owner',
+    }
+    const outcome = await ticketForGrant(reach)
+    if (!outcome.ok) throw new Error(outcome.reason)
+    expect(principalFor({ kind: 'ticket', ticket: consumeWsTicket(outcome.ticket)! })).toMatchObject({ userId: 'alice', deviceId: 'h9' })
+    revokeDevice('h9')
+    expect(await ticketForGrant(reach)).toEqual({ ok: false, reason: 'device-revoked' })
   })
 
   test('a personal delegation names no organization, so the Solus API admits nothing with it', async () => {

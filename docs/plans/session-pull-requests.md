@@ -186,6 +186,15 @@ reads from a session.
   `session.stateChanged`.
 - The agent tool `link` (`execution/agents/tools/task-tools.ts`), in the Tasks
   group.
+- The agent tool `organize_session`
+  (`execution/agents/tools/session-organize-tool.ts`), in the Sessions group.
+  It settles, unsettles, snoozes, wakes, or marks unread any session on this
+  host; the caller's session when it names none. An agent's settle is a
+  `person` settle: the agent acts for the person. It refuses a wake time in
+  the past and a snooze of a settled session. A read-state change is
+  broadcast as `session.readStateChanged` from the data layer, so the RPC and
+  the tool reach every client the same way. Pins are not in the tool: a pin
+  has no live event yet, and the mobile app has no pins.
 - All these rows use the session id (`docs/plans/session-identity.md`). PR
   sync finds pull requests through the thread index, so it maps each thread to
   its session before it writes. A session id does not change, so nothing moves.

@@ -4,7 +4,7 @@
   import { HostlessHostsStore } from "./lib/hostless-hosts.store.svelte";
   import {
     ChevronRight as ChevronIcon,
-    Cloud as CloudIcon,
+    LoaderCircle as SpinnerIcon,
     Database as HardDrivesIcon,
     Link2 as LinkSimpleIcon,
     Wifi as NearbyIcon,
@@ -12,6 +12,7 @@
   } from "@lucide/svelte";
   import { cn } from "@solus/workspace-ui/lib/utils";
   import { cardClass, fieldClass } from "./lib/hostless-styles";
+  import WorkspaceMark from "@solus/workspace-ui/components/ui/WorkspaceMark.svelte";
   import { urlHost } from "@solus/client-core/pairing";
   import { defaultDeviceLabel } from "@solus/client-core/device-label";
   import { preferredRouteUrl } from "@solus/client-core/server-connection";
@@ -35,6 +36,8 @@
   let codeInput = $state("");
   let labelInput = $state("");
   let busy = $state(false);
+  /** The saved host being opened; the page reloads onto it. */
+  let openingServerId = $state<string | null>(null);
   let smartInputEl: HTMLInputElement | null = $state(null);
   let codeInputEl: HTMLInputElement | null = $state(null);
   let mainEl: HTMLElement | null = $state(null);
@@ -123,14 +126,24 @@
           <button
             type="button"
             class="flex min-w-0 flex-1 items-center gap-3.5 overflow-hidden py-3.5 pl-4 text-left focus-visible:outline-none"
-            onclick={() => activateServer(server)}
+            disabled={!!openingServerId}
+            onclick={() => {
+              openingServerId = server.id;
+              activateServer(server);
+            }}
           >
-            {@render tile(HardDrivesIcon, reachable === true ? "online" : reachable === false ? "offline" : "unknown")}
+            {@render tile(HardDrivesIcon)}
             {@render text(
               server.label,
-              `${reachable === false ? "Offline · " : ""}${urlHost(preferredRouteUrl(server))}`,
+              openingServerId === server.id
+                ? "Connecting…"
+                : `${reachable === false ? "Offline · " : ""}${urlHost(preferredRouteUrl(server))}`,
             )}
-            {@render pill("Open")}
+            {#if openingServerId === server.id}
+              {@render spinner()}
+            {:else}
+              {@render pill("Open")}
+            {/if}
           </button>
           <button
             type="button"
@@ -145,7 +158,7 @@
 
       {#if servingHost && !selectedHost}
         <button type="button" class={cn(cardClass, "px-4 py-3.5 text-left")} onclick={() => selectHost(servingHost!)}>
-          {@render tile(NearbyIcon, null)}
+          {@render tile(NearbyIcon)}
           {@render text(servingHost.name, `On this address · ${urlHost(servingHost.url)}`)}
           {@render pill("Connect")}
         </button>
@@ -154,14 +167,14 @@
       {#if cloudOrigin.kind === "signed-out"}
         <!-- Served by the account origin: the directory is one sign-in away. -->
         <a href={cloudOrigin.signInUrl} class={cn(cardClass, "px-4 py-3.5")}>
-          {@render tile(CloudIcon, null)}
+          {@render tile(null)}
           {@render text("Solus Cloud", "Sign in to see the hosts linked to your account.")}
           {@render pill("Sign in")}
         </a>
       {:else if cloudOrigin.kind === "signed-in" && savedServers.length === 0}
         <!-- Signed in with nothing listed: say where linking happens. -->
         <a href={cloudOrigin.linkMachineUrl} class={cn(cardClass, "px-4 py-3.5")}>
-          {@render tile(CloudIcon, null)}
+          {@render tile(null)}
           {@render text(
             "Link a computer to your account",
             "In Solus on your computer, open Settings → Account & sync → Link to Solus Cloud, or get a link code to paste there.",
@@ -175,7 +188,7 @@
         <form class={cn(cardClass, "flex-col items-stretch gap-3 p-4")} onsubmit={submit}>
           {#if selectedHost}
             <div class="flex items-center gap-3.5">
-              {@render tile(NearbyIcon, null)}
+              {@render tile(NearbyIcon)}
               {@render text(selectedHost.name, urlHost(selectedHost.url))}
               <button
                 type="button"
@@ -193,7 +206,7 @@
             </p>
           {:else}
             <div class="flex items-center gap-3.5">
-              {@render tile(LinkSimpleIcon, null)}
+              {@render tile(LinkSimpleIcon)}
               {@render text(
                 "Pair another machine",
                 "Paste the pairing link or address from Settings → Hosts → Access on that computer, or run solus pair on a server.",
@@ -241,12 +254,12 @@
             disabled={busy}
             class="inline-flex items-center justify-center gap-2 self-end rounded-full bg-(--solus-accent) px-4 py-1.5 text-workspace-chrome font-medium text-(--solus-text-on-accent) transition-[opacity,scale] active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
           >
-            {busy ? "Connecting…" : "Connect"}
+            {#if busy}<SpinnerIcon size={14} class="animate-spin motion-reduce:animate-none" aria-hidden="true" />Connecting…{:else}Connect{/if}
           </button>
         </form>
       {:else}
         <button type="button" class={cn(cardClass, "px-4 py-3.5 text-left")} onclick={openPairing}>
-          {@render tile(LinkSimpleIcon, null)}
+          {@render tile(LinkSimpleIcon)}
           {@render text("Pair another machine", "Enter its pairing link or address.")}
           <ChevronIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
         </button>
@@ -255,23 +268,21 @@
   </div>
 </div>
 
-{#snippet tile(Icon: typeof CloudIcon, status: "online" | "offline" | "unknown" | null)}
-  <span class="relative grid size-8 shrink-0 place-items-center rounded-[0.5625rem] bg-(--solus-surface-hover) text-(--solus-text-tertiary)">
-    <Icon size={15} />
-    {#if status}
-      <span
-        class={cn(
-          "absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-(--solus-input-pill-bg)",
-          status === "online"
-            ? "bg-(--solus-status-complete)"
-            : status === "offline"
-              ? "bg-(--solus-status-error)"
-              : "bg-(--solus-text-quaternary)",
-        )}
-        aria-hidden="true"
-      ></span>
+{#snippet tile(Icon: typeof HardDrivesIcon | null)}
+  <!-- No status dot: the line under the name says the state in words. Solus
+       Cloud wears the Solus mark. -->
+  <span class="grid size-8 shrink-0 place-items-center rounded-[0.5625rem] bg-(--solus-surface-hover) text-(--solus-text-tertiary)">
+    {#if Icon}
+      <Icon size={15} />
+    {:else}
+      <WorkspaceMark class="size-[1.125rem]" />
     {/if}
   </span>
+{/snippet}
+
+{#snippet spinner()}
+  <!-- Turns only until the page reloads onto the host. -->
+  <SpinnerIcon size={14} class="shrink-0 animate-spin text-(--solus-text-tertiary) motion-reduce:animate-none" aria-hidden="true" />
 {/snippet}
 
 {#snippet text(label: string, detail: string, wraps = false)}

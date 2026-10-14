@@ -51,8 +51,9 @@ import {
   ThreadComposer,
 } from "./ThreadComposer";
 import { ThreadFeed, type ThreadContentPresentation, type ThreadFeedHistoryControls } from "./ThreadFeed";
-import { ThreadQueueSheet } from "./ThreadQueueSheet";
 import { latestTurnAgentIds, useAgentPresentations } from "./ThreadAgents";
+import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
+import { endQueuedMessageEdit, useQueuedMessageEdit } from "./queued-message-edit";
 import { agentsPillLabel } from "./agent-card-presentation";
 import { useListened } from "../../app/app-context";
 import { AgentAuthSheet } from "../conversation/components/AgentAuthSheet";
@@ -100,6 +101,12 @@ function workStartedAt(store: ConversationStore, working: boolean): number | nul
   return startedAt;
 }
 
+/** The id a thread sheet route (Queue, Agents) reopens this conversation by. */
+function conversationIdOf(store: ConversationStore): string {
+  const { record, newSession } = store.controller.target;
+  return record?.sessionId ?? newSession?.sessionId ?? store.controller.run.sessionId;
+}
+
 export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: ThreadDetailScreenProps) {
   const { store, meta } = props;
   const insets = useSafeAreaInsets();
@@ -138,8 +145,8 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
   const feedTouchStartRef = useRef<{ pageX: number; pageY: number } | null>(null);
   const [composerExpanded, setComposerExpanded] = useState(false);
   const [composerFocused, setComposerFocused] = useState(false);
-  const [queueOpen, setQueueOpen] = useState(false);
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const queuedEdit = useQueuedMessageEdit(store);
   const handleComposerFocusChange = useCallback(
     (focused: boolean) => {
       setComposerFocused(focused);
@@ -497,19 +504,20 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               queuedCount={queuedCount}
               onOpenQueue={() => {
                 Keyboard.dismiss();
-                setQueueOpen(true);
+                navigation.navigate("ThreadQueue", { hostId: store.controller.hostId, conversationId: conversationIdOf(store) });
               }}
               agents={agentsPill}
               onOpenAgents={() => {
                 Keyboard.dismiss();
-                const { record, newSession } = store.controller.target;
-                navigation.navigate("ThreadAgents", {
-                  hostId: store.controller.hostId,
-                  conversationId: record?.sessionId ?? newSession?.sessionId ?? store.controller.run.sessionId,
-                });
+                navigation.navigate("ThreadAgents", { hostId: store.controller.hostId, conversationId: conversationIdOf(store) });
               }}
             />
             <View className="w-full self-center">
+              {queuedEdit !== null ? (
+                <Animated.View className="shrink-0" entering={FadeInDown.duration(180)} exiting={FadeOut.duration(120)}>
+                  <ComposerQueuedEditBanner saving={queuedEdit.saving} onCancel={() => endQueuedMessageEdit(store)} />
+                </Animated.View>
+              ) : null}
               {meta.rateLimit ? <UsageLimitRecoveryCard store={store} rateLimit={meta.rateLimit} /> : null}
               {meta.agentPlans.length > 0 && activeUserInputRequestId === null ? (
                 <Animated.View
@@ -587,15 +595,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
           </View>
         </Animated.View>
       </KeyboardStickyView>
-      <ThreadQueueSheet
-        visible={queueOpen}
-        store={store}
-        meta={meta}
-        onClose={() => {
-          setQueueOpen(false);
-          composerEditorRef.current?.focus();
-        }}
-      />
       <AgentAuthSheet store={store} onClose={() => composerEditorRef.current?.focus()} />
       <IntegrationConnectSheet store={store} onClose={() => composerEditorRef.current?.focus()} />
     </View>

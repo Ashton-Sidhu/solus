@@ -5,12 +5,13 @@ import { Platform, Pressable, ScrollView, View } from 'react-native'
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg'
 import { SymbolView } from '../../../components/AppSymbol'
 import { AppText as Text } from '../../../components/AppText'
-import { FilePreview, type ResolvedFilePreviewSource } from '../../../components/FilePreview'
+import type { FilePreviewItem, FilePreviewSource } from '../../../components/FilePreview.types'
+import { FilePreviewModal } from '../../../components/FilePreviewModal'
 import { MediaVideoPlayer } from '../../../components/MediaVideoPlayer'
 import { useAppearancePreferences } from '../../settings/appearance/AppearancePreferencesProvider'
-import { pullRequestAttachments, type PullRequestAttachment } from '../lib/pull-request-markdown'
+import { pullRequestAttachments, pullRequestImageGallery, type PullRequestAttachment } from '../lib/pull-request-markdown'
 import { PullRequestMarkdown } from './PullRequestMarkdown'
-import { usePullRequestMediaUrl } from './use-pull-request-media-url'
+import { usePullRequestMarkdownMedia, usePullRequestMediaUrl } from './use-pull-request-media-url'
 import { PullRequestSectionHeading } from './pull-request-ui'
 
 const COLLAPSED_HEIGHT = 240
@@ -26,6 +27,8 @@ export function PullRequestDescription(props: { readonly markdown: string; reado
   const { themeVariables: colors } = useAppearancePreferences()
   const fadeColor = colors[Platform.OS === 'android' ? '--color-sheet-solid' : '--color-screen']
   const attachments = useMemo(() => pullRequestAttachments(props.markdown), [props.markdown])
+  const media = usePullRequestMarkdownMedia()
+  const gallery = useMemo(() => pullRequestImageGallery(props.markdown, media), [props.markdown, media])
   const canCollapse = bodyHeight > COLLAPSED_HEIGHT
   const collapsed = canCollapse && !expanded
   return (
@@ -72,26 +75,27 @@ export function PullRequestDescription(props: { readonly markdown: string; reado
           <Text className="text-sm text-foreground-muted">No description provided.</Text>
         )}
       </View>
-      {attachments.length > 0 ? <Attachments attachments={attachments} /> : null}
+      {attachments.length > 0 ? <Attachments attachments={attachments} gallery={gallery} /> : null}
     </View>
   )
 }
 
-function Attachments({ attachments }: { readonly attachments: readonly PullRequestAttachment[] }) {
-  const [preview, setPreview] = useState<ResolvedFilePreviewSource | null>(null)
+/** The strip; an image opens the gallery of every image in the description. */
+function Attachments({ attachments, gallery }: { readonly attachments: readonly PullRequestAttachment[]; readonly gallery: readonly FilePreviewItem[] }) {
+  const [preview, setPreview] = useState<FilePreviewSource | null>(null)
   return (
     <View className="gap-3">
       <PullRequestSectionHeading>Attachments</PullRequestSectionHeading>
       <ScrollView horizontal keyboardShouldPersistTaps="always" scrollsToTop={false} showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
-        {attachments.map((attachment) => <AttachmentTile key={attachment.uri} attachment={attachment} onPreview={setPreview} />)}
+        {attachments.map((attachment) => <AttachmentTile key={attachment.uri} attachment={attachment} gallery={gallery} onPreview={setPreview} />)}
       </ScrollView>
-      {preview ? <FilePreview source={preview} onRequestClose={() => setPreview(null)} /> : null}
+      <FilePreviewModal source={preview} onRequestClose={() => setPreview(null)} />
     </View>
   )
 }
 
 /** One image or video of the strip; GitHub media loads through the host. */
-function AttachmentTile({ attachment, onPreview }: { readonly attachment: PullRequestAttachment; readonly onPreview: (source: ResolvedFilePreviewSource) => void }) {
+function AttachmentTile({ attachment, gallery, onPreview }: { readonly attachment: PullRequestAttachment; readonly gallery: readonly FilePreviewItem[]; readonly onPreview: (source: FilePreviewSource) => void }) {
   const media = usePullRequestMediaUrl(attachment.uri)
   const uri = media.uri
   if (attachment.kind !== 'image') {
@@ -106,7 +110,10 @@ function AttachmentTile({ attachment, onPreview }: { readonly attachment: PullRe
       accessibilityRole="imagebutton"
       accessibilityLabel={`View attachment: ${attachment.caption}`}
       disabled={uri === null}
-      onPress={() => { if (uri) onPreview({ kind: 'image', uri, name: attachment.caption, caption: attachment.uri }) }}
+      onPress={() => {
+        const item = gallery.find((candidate) => candidate.key === new URL(attachment.uri).toString())
+        if (item) onPreview({ ...item, gallery })
+      }}
       className="gap-2 active:opacity-70"
       style={{ width: 176 }}
     >

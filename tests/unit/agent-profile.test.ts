@@ -374,7 +374,7 @@ test('on a host the person owns, a copy never replaces or removes the host\'s ow
  * It reads as the person with its delegation for them (ADR 0001 §3.4); `delegated:
  * false` is a person this host does not act for.
  */
-function linked(options: { answer?: (request: Request) => Promise<Response>; delegated?: boolean; linked?: boolean } = {}) {
+function linked(options: { answer?: (request: Request) => Promise<Response>; delegated?: boolean; linked?: boolean; hostHas?: { url: string; slug: string }[] } = {}) {
   const requests: Request[] = []
   const reconciled: Array<{ owner: ProfileIntegrationOwner; connections: string[] }> = []
   const reads = new AccountReads({
@@ -389,7 +389,7 @@ function linked(options: { answer?: (request: Request) => Promise<Response>; del
       return options.answer ? options.answer(request) : Response.json({ profile: null, connections: [] })
     },
   })
-  const target = seat(() => [], [], {
+  const target = seat(() => [], options.hostHas ?? [], {
     reads,
     userFor: (profileTarget) => profileTarget.kind === 'member' ? profileTarget.userId : 'owner-1',
     reconcile: async (owner, connections) => { reconciled.push({ owner, connections: connections.map((connection) => connection.serverUrl) }) },
@@ -451,4 +451,102 @@ test('the periodic sweep pulls for every target now and again on the interval', 
   await new Promise((done) => setTimeout(done, 0))
   expect(host.requests).toHaveLength(2)
   stop()
+})
+
+// ─── Signed in, the account is the one list (plans/020 §10, 2026-10-12) ───
+
+/** An account plane that keeps one person's profile and answers the read and the host's merge. */
+function cloudOf(initial: AgentProfile | null) {
+  let entries: AgentProfile | null = initial
+  let revision = initial ? 1 : 0
+  const writes: Array<{ set: string[]; reset: string[] }> = []
+  let isDown = false
+  const answer = async (request: Request): Promise<Response> => {
+    if (isDown) throw new Error('ECONNREFUSED')
+    if (request.url.endsWith('/v1/agent-profile/entries')) {
+      const body = await request.json() as { set: AgentProfile; reset: string[] }
+      writes.push({ set: Object.keys(body.set), reset: body.reset })
+      entries = { ...(entries ?? {}), ...body.set }
+      for (const key of body.reset) delete entries[key as keyof AgentProfile]
+      revision += 1
+      return Response.json({ schemaVersion: 1, generation: 0, revision, entries, updatedAt: 1 })
+    }
+    return Response.json({ profile: entries ? { schemaVersion: 1, generation: 0, revision, entries, updatedAt: 1 } : null, connections: [] })
+  }
+  return { answer, writes, entries: () => entries, down: (value: boolean) => { isDown = value } }
+}
+
+const PLANETSCALE_URL = 'https://mcp.pscale.dev/mcp/planetscale'
+const serverEntry = (slug: string, url: string, patch: { disabled?: boolean } = {}): AgentProfileIntegrationEntry => ({ kind: 'integration', slug, name: slug, url, auth: { kind: 'none' }, ...patch })
+
+test('a pull adopts the owner\'s own MCP servers the profile does not name, and creates the profile when there is none', async () => {
+  // WHY: signed in, a server added on a host before sync, such as PlanetScale, must become part of the person's profile.
+  const cloud = cloudOf(null)
+  const host = linked({ answer: cloud.answer, hostHas: [{ slug: 'planetscale', url: PLANETSCALE_URL }] })
+  const status = await host.profiles.pull(OWNER)
+  expect(cloud.writes).toEqual([{ set: ['integration:planetscale'], reset: [] }])
+  expect(cloud.entries()).toMatchObject({ 'integration:planetscale': { url: PLANETSCALE_URL } })
+  // The record is the profile's now: a later removal in the profile removes it here too.
+  expect(status).toMatchObject({ source: 'account', counts: { integrations: 1 } })
+  expect(host.integrations.rows.map((row) => row.slug)).toEqual(['planetscale'])
+  await host.profiles.pull(OWNER)
+  expect(cloud.writes).toHaveLength(1)
+})
+
+test('removing or disabling a server in the profile takes it off the host on the next pull, and a disabled one is not adopted back', async () => {
+  const cloud = cloudOf(null)
+  const host = linked({ answer: cloud.answer, hostHas: [{ slug: 'planetscale', url: PLANETSCALE_URL }, { slug: 'linear', url: 'https://mcp.linear.app/mcp' }] })
+  await host.profiles.pull(OWNER)
+  expect(host.integrations.rows.map((row) => row.slug).sort()).toEqual(['linear', 'planetscale'])
+
+  // Elsewhere, the person disables PlanetScale and removes Linear.
+  const entries = cloud.entries()!
+  entries['integration:planetscale'] = serverEntry('planetscale', PLANETSCALE_URL, { disabled: true })
+  delete entries['integration:linear']
+  await cloud.answer(new Request('https://cloud.test/v1/agent-profile/entries', { method: 'POST', body: JSON.stringify({ set: {}, reset: [] }) }))
+  cloud.writes.length = 0
+
+  await host.profiles.pull(OWNER)
+  expect(host.integrations.rows).toEqual([])
+  expect(cloud.writes).toEqual([])
+  expect(cloud.entries()?.['integration:planetscale']).toMatchObject({ disabled: true })
+
+  // Enabled again, it comes back.
+  cloud.entries()!['integration:planetscale'] = serverEntry('planetscale', PLANETSCALE_URL)
+  await cloud.answer(new Request('https://cloud.test/v1/agent-profile/entries', { method: 'POST', body: JSON.stringify({ set: {}, reset: [] }) }))
+  await host.profiles.pull(OWNER)
+  expect(host.integrations.rows.map((row) => row.slug)).toEqual(['planetscale'])
+})
+
+test('a disabled file or skill stays in the profile and is on no host', async () => {
+  const target = seat()
+  const status = await target.profiles.apply(MEMBER, profile({ ...text('CLAUDE.md', 'rules'), disabled: true }, { kind: 'skill', name: 'review', source: 'acme/skills', skillId: 'review', disabled: true }), { kind: 'account', revision: 2 })
+  expect(existsSync(join(target.homeFor('claude-code'), 'CLAUDE.md'))).toBe(false)
+  expect(target.skills.log).toEqual([])
+  expect(status.counts).toEqual({ files: 0, skills: 0, integrations: 0 })
+})
+
+test('a server saved or removed in Settings → MCP writes through to the profile; a shared server of the host does not', async () => {
+  const cloud = cloudOf({})
+  const host = linked({ answer: cloud.answer })
+  const own: Integration = { id: 'int-own', organizationId: 'local', ownerUserId: null, kind: 'mcp', slug: 'planetscale', name: 'PlanetScale', url: PLANETSCALE_URL, auth: { kind: 'none' }, createdBy: null, createdAt: '', updatedAt: '' }
+  await host.profiles.integrationSaved(OWNER, own)
+  expect(cloud.writes[0]).toEqual({ set: ['integration:planetscale'], reset: [] })
+
+  await host.profiles.integrationRemoving(OWNER, own)
+  expect(cloud.writes.at(-1)).toEqual({ set: [], reset: ['integration:planetscale'] })
+
+  // A member's view of a shared record of the host is not their profile's.
+  const writes = cloud.writes.length
+  await host.profiles.integrationSaved(MEMBER, { ...own, organizationId: 'org-a', ownerUserId: null })
+  expect(cloud.writes).toHaveLength(writes)
+})
+
+test('a removal is refused while the cloud is unreachable, so the next pull cannot bring the server back; not signed in, it is the host\'s alone', async () => {
+  const cloud = cloudOf({})
+  const host = linked({ answer: cloud.answer })
+  const own: Integration = { id: 'int-own', organizationId: 'local', ownerUserId: null, kind: 'mcp', slug: 'planetscale', name: 'PlanetScale', url: PLANETSCALE_URL, auth: { kind: 'none' }, createdBy: null, createdAt: '', updatedAt: '' }
+  cloud.down(true)
+  await expect(host.profiles.integrationRemoving(OWNER, own)).rejects.toMatchObject({ code: 'UNREACHABLE' })
+  await linked({ linked: false }).profiles.integrationRemoving(OWNER, own)
 })

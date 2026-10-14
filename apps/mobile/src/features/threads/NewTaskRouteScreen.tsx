@@ -42,20 +42,15 @@ import { modelLabel, offersPlanToggle, PERMISSION_MODE_ICON, PERMISSION_MODE_TEX
 import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
 import { useProjectsFolder } from "../projects/use-open-project";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
-import { pickComposerClipboardImage, pickComposerFiles, pickComposerMedia } from "./composer-attachment-pickers";
+import { pastedComposerImages, pickComposerClipboardImage, pickComposerFiles, pickComposerMedia } from "./composer-attachment-pickers";
 import { rememberNewThreadTarget } from "./new-thread-targets";
 import {
   filterProjectScopes,
   getProjectScopeSelectionTarget,
   groupProjectScopes,
-  scopeOfProject,
   type ProjectScope,
 } from "./new-task-project-selection";
-import {
-  hostMachineKind,
-  NewTaskEnvironmentPicker,
-  type NewTaskEnvironmentChoice,
-} from "./NewTaskContextPickerScreens";
+import { hostMachineKind, useNewTaskEnvironments } from "./NewTaskContextPickerScreens";
 import { COMPOSER_LAYOUT_TRANSITION, ComposerSurface } from "./ThreadComposer";
 import { ThreadSettingsSheet } from "./ThreadSettingsSheet";
 import { NewTaskConnectHost, useNewTaskHostGate } from "./NewTaskConnectHost";
@@ -82,7 +77,8 @@ export function NewTaskRouteScreen({ route }: ScreenProps<"NewTask">) {
     );
   }
   if (hostId && projectPath) {
-    return <NewTaskDraftScreen hostId={hostId} projectPath={projectPath} />;
+    // The host picker opens another draft by changing these params.
+    return <NewTaskDraftScreen key={`${hostId}\n${projectPath}`} hostId={hostId} projectPath={projectPath} />;
   }
   return <NewTaskProjectScreen preferredHostId={hostId ?? null} />;
 }
@@ -522,7 +518,6 @@ function NewTaskDraftContent(props: {
   const insets = useSafeAreaInsets();
   const meta = useListened(store.meta, store.metaSnapshotOf);
   const hosts = useListened(app.registry.changes, app.registry.hosts);
-  const projects = useListened(app.threads.changes, app.threads.projects);
   const connected = useListened(
     app.connections.changes,
     () => app.connections.state(props.hostId)?.phase === "connected",
@@ -536,8 +531,8 @@ function NewTaskDraftContent(props: {
   const [prompt, setPrompt] = useState(() => app.draft(props.hostId, draftKey));
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [isPromptFocused, setIsPromptFocused] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [environmentPickerOpen, setEnvironmentPickerOpen] = useState(false);
 
   useEffect(
     () => () => {
@@ -559,26 +554,7 @@ function NewTaskDraftContent(props: {
 
   const host = hosts.find((candidate) => candidate.id === props.hostId);
   const selectedEnvironmentLabel = host?.label ?? "Host";
-  const scope = useMemo(
-    () =>
-      props.chat
-        ? null
-        : scopeOfProject(groupProjectScopes(projects), props.hostId, props.projectPath),
-    [projects, props.chat, props.hostId, props.projectPath],
-  );
-  // The hosts this task could run on: the same repository's checkouts, or any host for a chat.
-  const environments = useMemo<NewTaskEnvironmentChoice[]>(
-    () =>
-      props.chat
-        ? hosts.map((candidate) => ({ hostId: candidate.id, label: candidate.label, os: candidate.os }))
-        : (scope?.projects ?? []).map((project) => ({
-            hostId: project.hostId,
-            label: project.hostLabel,
-            os: hosts.find((candidate) => candidate.id === project.hostId)?.os,
-            subtitle: project.project.path,
-          })),
-    [hosts, props.chat, scope],
-  );
+  const { scope, environments } = useNewTaskEnvironments(props.hostId, props.projectPath);
   const projectTitle = scope?.title ?? props.projectPath.split("/").filter(Boolean).at(-1) ?? "project";
   const attachmentsFull = meta.attachments.length + meta.uploading >= MAX_ATTACHMENT_UPLOAD_COUNT;
   const isComposerInteractionLocked = submitting;
@@ -605,14 +581,12 @@ function NewTaskDraftContent(props: {
     if (previous?.name === "NewTask" && !previousParams?.projectPath) navigation.goBack();
     else navigation.dispatch(StackActions.push("NewTask", { hostId: props.hostId }));
   };
-  const selectEnvironment = (hostId: string) => {
-    if (hostId === props.hostId) return;
-    const target = props.chat
-      ? NEW_CHAT_DIRECTORY
-      : scope?.projects.find((project) => project.hostId === hostId)?.project.path;
-    if (!target) return;
-    app.saveDraft(hostId, `new-task:${target}`, prompt);
-    navigation.dispatch(StackActions.replace("NewTask", { hostId, projectPath: target }));
+  const openEnvironmentPicker = () => {
+    // The picker moves the saved draft text, so save it now.
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    app.saveDraft(props.hostId, draftKey, prompt);
+    void KeyboardController.dismiss({ animated: true });
+    navigation.navigate("NewTaskEnvironment", { hostId: props.hostId, projectPath: props.projectPath });
   };
 
   const attach = async (pick: (existingCount: number) => Promise<PickedFile[]>) => {
@@ -658,13 +632,18 @@ function NewTaskDraftContent(props: {
     }
   };
 
-  useKeyboardCommand("send", () => {
+  const startFromKeyboard = () => {
     if (canStart) void handleStart();
-  });
+  };
+  useKeyboardCommand("send", startFromKeyboard);
+  useKeyboardCommand("sendOnReturn", startFromKeyboard, isPromptFocused);
 
   const promptEditor = (
     <ComposerEditor
       ref={promptInputRef}
+      onFocus={() => setIsPromptFocused(true)}
+      onBlur={() => setIsPromptFocused(false)}
+      onPasteImages={(uris) => void attach(pastedComposerImages(uris))}
       // The context-first screen opens with the keyboard closed.
       autoFocus={false}
       editable={!submitting}
@@ -698,7 +677,7 @@ function NewTaskDraftContent(props: {
       )}
       label={`on ${selectedEnvironmentLabel}`}
       maxWidth={props.chat ? 170 : 260}
-      onPress={environments.length > 1 ? () => setEnvironmentPickerOpen(true) : undefined}
+      onPress={environments.length > 1 ? openEnvironmentPicker : undefined}
       showChevron={environments.length > 1}
       static={environments.length <= 1}
     />
@@ -880,13 +859,6 @@ function NewTaskDraftContent(props: {
         store={store}
         meta={meta}
       />
-      <NewTaskEnvironmentPicker
-        visible={environmentPickerOpen}
-        environments={environments}
-        selectedHostId={props.hostId}
-        onSelect={selectEnvironment}
-        onClose={() => setEnvironmentPickerOpen(false)}
-      />
     </View>
   );
 
@@ -894,7 +866,7 @@ function NewTaskDraftContent(props: {
     return (
       <View className="flex-1 bg-sheet" collapsable={false}>
         <NativeStackScreenOptions options={{ headerShown: false }} />
-        <AndroidScreenHeader title="New thread" hideBottomBorder onBack={closeNewTask} />
+        <AndroidScreenHeader title="New session" hideBottomBorder onBack={closeNewTask} />
         <MaterialScreenContent>
           {heroViewport}
 

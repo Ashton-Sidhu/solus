@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["SolusFilePreviewModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.solusfilepreview.SolusFilePreviewModule"]
+  }
+}

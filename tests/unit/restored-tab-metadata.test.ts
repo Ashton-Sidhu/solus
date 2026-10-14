@@ -97,6 +97,25 @@ describe('restored tab metadata', () => {
     expect(getAttentionState(session, makeTab(session.id))).toBe('running')
   })
 
+  test('keeps the record\'s organization with the tab, so it outlives the machine', () => {
+    // WHY: once the machine is removed nothing can be asked where the session
+    // lives; the organization saved with the tab names the workspace service
+    // that mirrored its transcript.
+    const session = restoredSession()
+    applyRestoredSessionMeta(session, meta({ organizationId: 'org' }))
+    applyRestoredSessionMeta(session, meta())
+    const tab = makeTab(session.id, { id: 'tab-1' })
+    // SAFETY: This fixture supplies every WorkspaceContext member read by snapshotPersistedTabs.
+    const snapshot = snapshotPersistedTabs({
+      tabOrder: [tab.id],
+      tabs: { [tab.id]: tab },
+      sessionFor: () => session,
+    } as never)
+
+    expect(session.organizationId).toBe('org')
+    expect(snapshot[0]?.organizationId).toBe('org')
+  })
+
   test('does not replace a persisted Auto preference with the resolved model', () => {
     const session = restoredSession()
     session.run.modelConfig.modelId = AUTO_MODEL_ID

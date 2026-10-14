@@ -1,5 +1,5 @@
 import { cloudScenario } from '../src/cloud-scenario'
-import { expectOk, expectRefused, type ScenarioContext } from '../src/scenario'
+import { expectNotServed, expectOk, expectRefused, type ScenarioContext } from '../src/scenario'
 import type { LabClient } from '../src/client'
 import { checkNoLocalOwnerOnManaged, checkOwnership, checkWorkListing } from '../src/oracle'
 import { ORGANIZATION_ID, PERSONAS, TEAM_A } from '../src/personas'
@@ -96,8 +96,10 @@ async function guestStep(ctx: ScenarioContext, resource: { kind: 'work'; id: str
   ctx.check('the host tells maya what she was let in to see', mayaInfo.share?.resource.id === resource.id && mayaInfo.share.role === 'viewer' && mayaInfo.displayName === 'Maya', JSON.stringify(mayaInfo.share))
   const read = await expectOk(ctx, 'maya loads the work', maya.api.request('getWork', { id: resource.id }))
   if (read) await expectRefused(ctx, 'maya cannot save', maya.records.saveWork(resource.id, { content: 'x' }, read), 'NOT_FOUND')
-  ctx.check('maya lists nothing beyond her resource', (await maya.records.listWorks()).every((work) => work.id === resource.id))
-  await expectRefused(ctx, 'maya cannot list projects', maya.rpc('listProjects'), 'PLANE_DISABLED')
+  const mayaWorks = await expectOk(ctx, 'maya lists works', maya.records.listWorks())
+  ctx.check('maya lists nothing beyond her resource', !!mayaWorks && mayaWorks.every((work) => work.id === resource.id))
+  // The Solus API serves no execution method at all (plans/013-unified-cloud-application.md §4).
+  await expectNotServed(ctx, 'maya cannot list projects', maya.rpc('listProjects'))
   await expectRefused(ctx, 'maya cannot read the share list beyond her own resource', maya.rpc('shareGet', { resource: { kind: 'work', id: 'other' } }))
   const mayaList = await expectOk(ctx, 'maya reads her resource\'s share list', maya.rpc('shareGet', { resource }))
   ctx.check('maya is a viewer', mayaList?.callerRole === 'viewer', mayaList?.callerRole)

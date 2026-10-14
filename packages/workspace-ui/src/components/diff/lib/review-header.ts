@@ -58,7 +58,7 @@ export interface GuideHeaderActions {
   stale: boolean
   /** A regeneration is already in flight. */
   regenerating: boolean
-  onRegenerate: (mode: 'full' | 'new-commits') => void
+  onRegenerate: () => void
 }
 
 /** One row of the review panel's change-summary popover. */

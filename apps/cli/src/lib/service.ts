@@ -54,10 +54,6 @@ export function macosPlistPath(home: string): string {
   return join(home, 'Library', 'LaunchAgents', `${MACOS_LABEL}.plist`)
 }
 
-export function macosPlistLabel(): string {
-  return MACOS_LABEL
-}
-
 export function macosPlistContent(binDir: string, logFile: string, env?: ServiceEnv): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

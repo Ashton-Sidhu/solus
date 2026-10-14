@@ -28,7 +28,6 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as ContextMenu from "../ui/context-menu";
   import TaskStatusGlyph from "../tasks/TaskStatusGlyph.svelte";
-  import UnreadDot from "./UnreadDot.svelte";
   import { STATUS_META, TASK_STATUSES } from "../tasks/lib/tasks-api";
   import { TASK_SNOOZE_CHOICES, taskSnoozeToastLabel, taskSnoozeUntil } from "./lib/task-snooze";
 
@@ -49,7 +48,6 @@
     onUnlinkPr?: (choice: TaskPrChoice) => void;
     onStartRename?: () => void;
     onSetStatus?: (status: TaskStatus) => void;
-    onMarkUnread?: () => void;
     /** Opens the full snooze menu, with its note and custom time, at the
      *  point the menu opened. Without it the submenu offers presets only. */
     onSnoozeCustom?: () => void;
@@ -85,7 +83,6 @@
     onUnlinkPr,
     onStartRename,
     onSetStatus,
-    onMarkUnread,
     onSnoozeCustom,
     onRemove,
     onDelete,
@@ -394,12 +391,6 @@
           {/if}
         </ContextMenu.SubContent>
       </ContextMenu.Sub>
-    {/if}
-    {#if onMarkUnread}
-      <ContextMenu.Item onSelect={() => select(onMarkUnread)}>
-        <UnreadDot size={14} />
-        Mark unread
-      </ContextMenu.Item>
     {/if}
 
     <ContextMenu.Separator />

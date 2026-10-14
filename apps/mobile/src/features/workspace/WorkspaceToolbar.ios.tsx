@@ -90,7 +90,7 @@ export function WorkspaceToolbar(props: {
         <NativeHeaderToolbar placement="bottom">
           <NativeHeaderToolbar.Spacer flexible />
           <NativeHeaderToolbar.Button
-            accessibilityLabel="New task"
+            accessibilityLabel="New session"
             icon="square.and.pencil"
             onPress={props.onNewTask}
             separateBackground

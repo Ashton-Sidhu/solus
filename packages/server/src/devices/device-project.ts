@@ -1,3 +1,4 @@
+import type { Dirent } from 'node:fs'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type { DevicePlatform, DeviceProjectInfo } from '@solus/contracts/device-types'
@@ -28,6 +29,7 @@ async function readSmall(path: string): Promise<string | null> {
 /** The mobile packages a manifest declares: `expo`, `react-native`, or neither. */
 function declaredMobilePackages(raw: string): string[] {
   try {
+    // SAFETY: Only presence of the named dependency keys is used; malformed JSON is caught below.
     const manifest = JSON.parse(raw) as { dependencies?: { [name: string]: string }; devDependencies?: { [name: string]: string } }
     return MOBILE_PACKAGES.filter((name) => !!manifest.dependencies?.[name] || !!manifest.devDependencies?.[name])
   } catch {
@@ -35,11 +37,33 @@ function declaredMobilePackages(raw: string): string[] {
   }
 }
 
+interface FolderPackages { usesExpo: boolean; usesReactNative: boolean }
+
+async function inspectFolder(folderPath: string, relative: string, entries: Dirent[], mark: (platforms: DevicePlatform[], marker: string) => void): Promise<FolderPackages> {
+  const names = new Set(entries.map((entry) => entry.name))
+  const at = (name: string) => relative ? `${relative}/${name}` : name
+  let usesExpo = false
+  let usesReactNative = false
+  if (basename(folderPath) === 'android' && (names.has('settings.gradle') || names.has('settings.gradle.kts') || names.has('gradlew'))) mark(['android'], relative)
+  if (names.has('AndroidManifest.xml')) mark(['android'], at('AndroidManifest.xml'))
+  if ([...names].some((name) => /^capacitor\.config\.(ts|js|json)$/.test(name))) mark(['ios', 'android'], at('capacitor.config'))
+  if (names.has('pubspec.yaml') && (await readSmall(join(folderPath, 'pubspec.yaml')))?.includes('flutter:')) mark(['ios', 'android'], at('pubspec.yaml'))
+  if (names.has('package.json')) {
+    const raw = await readSmall(join(folderPath, 'package.json'))
+    const packages = raw ? declaredMobilePackages(raw) : []
+    if (packages.length > 0) mark(['ios', 'android'], at('package.json'))
+    if (packages.includes('expo')) usesExpo = true
+    if (packages.includes('react-native')) usesReactNative = true
+  }
+  return { usesExpo, usesReactNative }
+}
+
 /** Scan one project. Stops as soon as both platforms are found. */
 export async function scanDeviceProject(root: string): Promise<DeviceProjectInfo> {
   const found = new Set<DevicePlatform>()
   const markers: string[] = []
   let usesExpo = false
+  let usesReactNative = false
   const mark = (platforms: DevicePlatform[], marker: string) => {
     for (const platform of platforms) found.add(platform)
     if (markers.length < 5) markers.push(marker)
@@ -51,19 +75,11 @@ export async function scanDeviceProject(root: string): Promise<DeviceProjectInfo
     for (const folder of queue) {
       if (visited++ >= MAX_FOLDERS || found.size === 2) break
       const entries = await readdir(folder.path, { withFileTypes: true }).catch(() => [])
-      const names = new Set(entries.map((entry) => entry.name))
       const relative = folder.path === root ? '' : folder.path.slice(root.length + 1)
       const at = (name: string) => (relative ? `${relative}/${name}` : name)
-      if (basename(folder.path) === 'android' && (names.has('settings.gradle') || names.has('settings.gradle.kts') || names.has('gradlew'))) mark(['android'], relative)
-      if (names.has('AndroidManifest.xml')) mark(['android'], at('AndroidManifest.xml'))
-      if ([...names].some((name) => /^capacitor\.config\.(ts|js|json)$/.test(name))) mark(['ios', 'android'], at('capacitor.config'))
-      if (names.has('pubspec.yaml') && (await readSmall(join(folder.path, 'pubspec.yaml')))?.includes('flutter:')) mark(['ios', 'android'], at('pubspec.yaml'))
-      if (names.has('package.json')) {
-        const raw = await readSmall(join(folder.path, 'package.json'))
-        const packages = raw ? declaredMobilePackages(raw) : []
-        if (packages.length > 0) mark(['ios', 'android'], at('package.json'))
-        if (packages.includes('expo')) usesExpo = true
-      }
+      const packages = await inspectFolder(folder.path, relative, entries, mark)
+      if (packages.usesExpo) usesExpo = true
+      if (packages.usesReactNative) usesReactNative = true
       for (const entry of entries) {
         if (!entry.isDirectory()) continue
         if (entry.name.endsWith('.xcodeproj') || entry.name.endsWith('.xcworkspace')) {
@@ -76,7 +92,9 @@ export async function scanDeviceProject(root: string): Promise<DeviceProjectInfo
     }
     queue = next
   }
-  return { isMobileApp: found.size > 0, platforms: [...found].sort(), markers, usesExpo }
+  const info: DeviceProjectInfo = { isMobileApp: found.size > 0, platforms: [...found].sort(), markers, usesExpo }
+  if (usesReactNative) info.usesReactNative = true
+  return info
 }
 
 /** Answers per project root, reused for a few minutes: the panel asks on every view. */

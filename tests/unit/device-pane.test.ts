@@ -1,7 +1,14 @@
-import { describe, expect, test } from 'bun:test'
+import { afterAll, describe, expect, test } from 'bun:test'
 import type { DeviceControlState, DevicePreview, DeviceState } from '@solus/contracts/device-types'
 import { addableDevices, controlLabel, deviceLiveState, previewGroups, selectedPreview, unavailablePlatformReasons } from '@solus/workspace-ui/components/devices/lib/device-pane'
-import { DeviceViewState } from '@solus/workspace-ui/components/devices/lib/device-view-state.svelte'
+// These tests verify stored choices, without a mounted Svelte renderer.
+const stateDescriptor = Object.getOwnPropertyDescriptor(globalThis, '$state')
+Object.defineProperty(globalThis, '$state', { configurable: true, value: <T>(value: T) => value })
+const { DeviceViewState } = await import('@solus/workspace-ui/components/devices/lib/device-view-state.svelte')
+afterAll(() => {
+  if (stateDescriptor) Object.defineProperty(globalThis, '$state', stateDescriptor)
+  else Reflect.deleteProperty(globalThis, '$state')
+})
 
 /**
  * The Devices pane's derivations (P04): tabs come from the host's previews,

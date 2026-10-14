@@ -93,6 +93,11 @@ export class CloudIntegrationCredentials {
     this.cache.delete(cacheKey(credentialUserId, serverUrl))
   }
 
+  /** A delegation ended (sign-out, removal): no credential it brought may be used again; the next call reads the cloud. */
+  clear(): void {
+    this.cache.clear()
+  }
+
   /** The reconcile upload (§5.4): once, with `expectedVersion: null`. */
   async upload(credentialUserId: string | null, serverUrl: string, credential: ProfileCredential, label: string | null): Promise<CloudCredentialUpload> {
     const call = await this.call(credentialUserId, 'PUT', { serverUrl, expectedVersion: null, credential, label })

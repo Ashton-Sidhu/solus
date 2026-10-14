@@ -144,7 +144,7 @@ describe('what leaves this machine', () => {
     // A personal computer shared with B still follows B's policy (organization-vms §1).
     expect(insightMirror.insightsEligible('B')).toBe(false)
     // A managed machine runs its organization's work: B's Insights always leave it, D's do not.
-    hostCategory.adoptProvisionedLink({ organizationId: 'B' })
+    hostCategory.adoptProvisionedRegistration({ organizationId: 'B' })
     try {
       expect(insightMirror.insightsEligible('B')).toBe(true)
       expect(insightMirror.insightsEligible('D')).toBe(false)

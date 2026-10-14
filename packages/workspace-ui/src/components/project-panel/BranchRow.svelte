@@ -32,7 +32,7 @@
   const environmentStore = getSessionEnvironmentStore();
   const session = getWorkspaceContext();
   const sectionRun = $derived(session.runFor(sourceId));
-  const canSwitch = $derived(hosts.find(sectionRun?.serverId)?.me.may("host.git.write") ?? true);
+  const canSwitch = $derived(hosts.get(sectionRun?.serverId)?.me.may("host.git.write") ?? true);
   const env = $derived(environmentStore.environmentFor(sectionRun));
   const status = $derived(env.status);
   const currentBranch = $derived(

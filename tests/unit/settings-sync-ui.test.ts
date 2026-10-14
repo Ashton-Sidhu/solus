@@ -13,10 +13,11 @@ import type { SettingsCloudRequests } from '@solus/client-core/settings-requests
 import type { OrganizationSettingsClient } from '@solus/client-core/settings-sync'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
-// plans/018 Stage 5, the shared desktop and web stores: sync is off until the
-// person turns it on here; signing in alone sends nothing; client analytics
-// consent is this device's own; choosing another host changes no personal value; and an owner's Sync all Insights draft saves against the
-// revision read, keeping the draft on a conflict.
+// plans/018 Stage 5 and decision 9, the shared desktop and web stores: signed
+// in is synced, with no switch; signed out, nothing is sent; client analytics
+// consent is this device's own; choosing another host changes no personal
+// value; and an owner's Sync all Insights draft saves against the revision
+// read, keeping the draft on a conflict.
 
 const hostConfigs = new Map<string, HostConfigSnapshot>()
 const hostWrites: Array<{ serverId: string; patch: unknown }> = []
@@ -129,22 +130,41 @@ const quietPorts = {
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 5))
 
-describe('consent and sign-in', () => {
-  test('sync is off by default and signing in sends nothing, even after an edit', async () => {
+/** The account sync owner over the settings alone: the profile has no requests here. */
+async function accountSyncOn(settings: Awaited<ReturnType<typeof settingsOn>>, storage: MemoryStorage, requests: ReturnType<typeof fakeAccount>['requests']) {
+  const { AgentProfileLocalStore } = await import('@solus/workspace-ui/contexts/seats/agent-profile-local.store.svelte')
+  const { AgentProfileStore } = await import('@solus/workspace-ui/contexts/seats/agent-profile.store.svelte')
+  const { AccountSyncStore } = await import('@solus/workspace-ui/contexts/account/account-sync.store.svelte')
+  const sync = new AccountSyncStore(new AgentProfileStore())
+  sync.start(settings.personal, new AgentProfileLocalStore(storage), { ...quietPorts, settingsRequests: requests, profileRequests: null, storage })
+  return sync
+}
+
+describe('signed in is synced', () => {
+  test('signed out, nothing is sent; signing in reads the account and sends this device\'s settings, then edits follow', async () => {
     const storage = memoryStorage()
     const settings = await settingsOn(storage)
-    const { SettingsSyncStore } = await import('@solus/workspace-ui/contexts/app/settings-sync.store.svelte')
-    const sync = new SettingsSyncStore()
     const cloud = fakeAccount()
-    sync.start(settings.personal, { ...quietPorts, requests: cloud.requests, storage })
-    expect(sync.status.state).toBe('signed-out')
-
-    sync.setAccount({ origin: 'https://solus.test', userId: 'user-a' })
-    expect(sync.status.state).toBe('off')
+    const sync = await accountSyncOn(settings, storage, cloud.requests)
+    expect(sync.state).toBe('signed-out')
     settings.setPersonal('themeMode', 'dark')
     await flush()
     expect(cloud.sent).toEqual([])
-    expect(sync.status.pendingKeys).toEqual([])
+
+    sync.setAccount({ origin: 'https://solus.test', userId: 'user-a' })
+    expect(sync.state).toBe('loading')
+    await flush()
+    // WHY: the first account profile starts from the anonymous one, and that copy is the account's first.
+    expect(cloud.sent).toHaveLength(1)
+    expect(cloud.sent[0].expectedRevision).toBeNull()
+    expect(cloud.document.settings).toEqual({ themeMode: 'dark' })
+    expect(sync.state).toBe('synced')
+
+    settings.setPersonal('extraInstructions', 'Keep answers short.')
+    expect(sync.settings.pendingKeys).toEqual(['extraInstructions'])
+    await flush()
+    expect(cloud.document.settings.extraInstructions).toBe('Keep answers short.')
+    expect(sync.state).toBe('synced')
   })
 
   test('client analytics stays undecided, and so off, on a fresh install', async () => {
@@ -152,25 +172,22 @@ describe('consent and sign-in', () => {
     expect(settings.clientAnalyticsEnabled).toBeNull()
   })
 
-  test('turning sync on reads first, then seeds only what the person chose', async () => {
+  test('with settings in the account, this device takes them and sends nothing; there is no switch', async () => {
     const storage = memoryStorage()
     const settings = await settingsOn(storage)
-    const { SettingsSyncStore } = await import('@solus/workspace-ui/contexts/app/settings-sync.store.svelte')
-    const sync = new SettingsSyncStore()
     const cloud = fakeAccount()
-    sync.start(settings.personal, { ...quietPorts, requests: cloud.requests, storage })
+    Object.assign(cloud.document, { revision: 4, settings: { themeMode: 'light', fontSize: 15 } })
+    const sync = await accountSyncOn(settings, storage, cloud.requests)
+    settings.setPersonal('themeMode', 'dark')
     sync.setAccount({ origin: 'https://solus.test', userId: 'user-a' })
-    settings.setPersonal('extraInstructions', 'Keep answers short.')
-
-    await sync.beginEnable()
-    expect(sync.offer?.kind).toBe('absent')
+    await flush()
     expect(cloud.sent).toEqual([])
-    await sync.choose('seed')
-    expect(sync.offer).toBeNull()
-    expect(cloud.sent).toHaveLength(1)
-    expect(cloud.sent[0].expectedRevision).toBeNull()
-    expect(cloud.document.settings.extraInstructions).toBe('Keep answers short.')
-    expect(sync.status.state).toBe('synced')
+    expect(settings.themeMode).toBe('light')
+    expect(settings.fontSize).toBe(15)
+    expect(sync.state).toBe('synced')
+    const methods = Object.getOwnPropertyNames(Object.getPrototypeOf(sync))
+    expect(methods).not.toContain('turnOff')
+    expect(methods).not.toContain('beginEnable')
   })
 })
 
@@ -178,9 +195,7 @@ describe('account isolation', () => {
   test('a first sign-in starts from the anonymous profile; sign-out restores it and removes the account profile', async () => {
     const storage = memoryStorage()
     const settings = await settingsOn(storage)
-    const { SettingsSyncStore } = await import('@solus/workspace-ui/contexts/app/settings-sync.store.svelte')
-    const sync = new SettingsSyncStore()
-    sync.start(settings.personal, { ...quietPorts, requests: fakeAccount().requests, storage })
+    const sync = await accountSyncOn(settings, storage, fakeAccount().requests)
     settings.setPersonal('themeMode', 'dark')
 
     sync.setAccount({ origin: 'https://solus.test', userId: 'user-a' })

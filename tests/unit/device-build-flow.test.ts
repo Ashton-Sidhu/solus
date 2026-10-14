@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { DeviceBuild, DeviceProjectInfo, DeviceState, DeviceSummary } from '@solus/contracts/device-types'
-import { buildRunBlocker, deviceBuildTargets } from '@solus/client-core/device-builds'
+import type { DeviceProjectInfo } from '@solus/contracts/device-types'
 import { RUN_PROFILE_PRESETS, fitPresetToProject, presetFolder, projectPreset } from '@solus/client-core/device-run-profiles'
 import { conversationCheckout, devicesPaneView } from '@solus/workspace-ui/components/devices/lib/device-pane'
 
@@ -16,15 +15,15 @@ const ready = { isReady: true, adding: false, hasPreview: false }
 describe('opening Builds', () => {
   test('Builds opens from the header, palette or project panel without a conversation', () => {
     // WHY: the pane showed "Open a conversation" over Builds, so a host's builds could not be made or run.
-    expect(devicesPaneView({ ...ready, hasSession: false, showBuilds: true })).toBe('builds')
-    expect(devicesPaneView({ ...ready, hasSession: true, showBuilds: true })).toBe('builds')
+    expect(devicesPaneView({ ...ready, hasSession: false, showRunApp: true })).toBe('runApp')
+    expect(devicesPaneView({ ...ready, hasSession: true, showRunApp: true })).toBe('runApp')
   })
 
   test('device tabs still need a conversation, and an unready host shows its status', () => {
-    expect(devicesPaneView({ ...ready, hasSession: false, showBuilds: false })).toBe('status')
-    expect(devicesPaneView({ ...ready, hasSession: true, showBuilds: false })).toBe('picker')
-    expect(devicesPaneView({ ...ready, hasSession: true, showBuilds: false, hasPreview: true })).toBe('device')
-    expect(devicesPaneView({ ...ready, isReady: false, hasSession: true, showBuilds: true })).toBe('status')
+    expect(devicesPaneView({ ...ready, hasSession: false, showRunApp: false })).toBe('status')
+    expect(devicesPaneView({ ...ready, hasSession: true, showRunApp: false })).toBe('picker')
+    expect(devicesPaneView({ ...ready, hasSession: true, showRunApp: false, hasPreview: true })).toBe('device')
+    expect(devicesPaneView({ ...ready, isReady: false, hasSession: true, showRunApp: true })).toBe('status')
   })
 
   test('a conversation builds in its worktree; a chat or an unchosen folder leaves the project to be chosen', () => {
@@ -87,30 +86,3 @@ describe('setting up a build', () => {
   })
 })
 
-describe('running a build', () => {
-  const phone: DeviceSummary = { deviceHostId: 'local', deviceId: 'PHONE-1', platform: 'ios', name: 'Ash iPhone', version: 'iOS 26', booted: true, physical: true }
-  const simulator: DeviceSummary = { deviceHostId: 'local', deviceId: 'SIM-1', platform: 'ios', name: 'iPhone 17', version: 'iOS 26', booted: false, physical: false }
-  const build = (fields: Partial<DeviceBuild>): DeviceBuild => ({ buildId: 'b1', platform: 'ios', runsOn: 'simulator', appId: 'sh.solus.mobile', name: 'Solus.app', sessionId: '', sizeBytes: 1, createdAt: 0, assetId: null, lastInstall: null, ...fields })
-  const state = (devices: DeviceSummary[], builds: DeviceBuild[] = []): DeviceState => ({ revision: 1, settings: { enabled: true, agentAccessEnabled: true, onboardingCompleted: true, autoShowAgentDevices: true }, hosts: [], hostStatuses: [], devices, previews: [], booting: [], controls: [], builds, runs: [] })
-
-  test('a simulator build with only a phone plugged in says to make a device build', () => {
-    // WHY: Run was disabled with its reason in a tooltip a disabled button never shows.
-    const reason = buildRunBlocker(state([phone]), build({}))
-    expect(reason).toContain('simulator build')
-    expect(reason).toContain('Ash iPhone')
-    expect(reason).toContain('New build')
-  })
-
-  test('a device build runs on the plugged-in phone', () => {
-    const deviceBuild = build({ runsOn: 'device' })
-    expect(deviceBuildTargets(state([phone, simulator]), deviceBuild).map((device) => device.deviceId)).toEqual(['PHONE-1'])
-    expect(buildRunBlocker(state([phone, simulator]), deviceBuild)).toBeNull()
-  })
-
-  test('a stopped simulator is offered only where it can be started, and the reason says how', () => {
-    expect(buildRunBlocker(state([simulator]), build({}), { canBoot: true })).toBeNull()
-    expect(buildRunBlocker(state([simulator]), build({}))).toContain('Start iPhone 17 first')
-    const notTrusted = { ...phone, unavailableReason: 'Ash iPhone does not trust this Mac. Unlock it and tap Trust.' }
-    expect(buildRunBlocker(state([notTrusted]), build({ runsOn: 'device' }))).toBe(notTrusted.unavailableReason)
-  })
-})

@@ -3,16 +3,20 @@ import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { uplinkAccountSource } from '@solus/client-core/uplink-account'
 import { uplinkControl, type UplinkControl } from '@solus/client-core/uplink-control'
+import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import { SvelteMap } from 'svelte/reactivity'
 import { toasts } from '../../lib/toasts'
 import { accountStore } from '../account/account.store.svelte'
 import { serversStore } from './servers.store.svelte'
 
 /**
- * A host's link to the owner's Solus cloud account (docs/plans/personal-uplink.md,
- * C4). Read per host from `uplinkStatus`; changed through `uplinkLink` and
- * `uplinkUnlink`, which only a local connection may call — `controlFor` says
- * whether this client is one for that host.
+ * A host's registration to the owner's Solus account and, apart from it, its link
+ * (docs/adr/0001-standard-authentication.md §2.2 rules 8 and 9). Read per host from
+ * `uplinkStatus`; changed through `uplinkRegister`, `uplinkLink`, and `uplinkUnlink`,
+ * which only a local connection may call — `controlFor` says whether this client is
+ * one for that host. A signed-in client registers a host it manages by itself; the
+ * desktop's own host is registered by the desktop's main process, which holds the
+ * sign-in. Linking only exposes the host to the internet.
  */
 class UplinkStore {
   readonly statusByServer = new SvelteMap<string, UplinkStatus>()
@@ -43,8 +47,7 @@ class UplinkStore {
     return this.controlByServer.get(serverId) ?? 'none'
   }
 
-  /** Called once at boot: `uplinkLink` answers before the tunnel registers, so the
-   *  "online" that follows — and every later change — arrives from the host as a snapshot. */
+  /** Called once at boot: the host sends a snapshot on every change of its registration or its tunnel. */
   listen(): () => void {
     if (this.stopListening) return this.stopListening
     this.stopListening = subscribeAllHosts('host.uplinkStatusChanged', (serverId, status) => {
@@ -61,29 +64,51 @@ class UplinkStore {
       const control = uplinkControl(await serverConnections.serverInfoFor(serverId))
       this.controlByServer.set(serverId, control)
       if (control === 'none') return
-      this.statusByServer.set(serverId, await serverConnections.apiFor(serverId).uplinkStatus())
+      const status = await serverConnections.apiFor(serverId).uplinkStatus()
+      this.statusByServer.set(serverId, status)
+      // Rule 8: a signed-in owner's client registers a host that is not registered.
+      if (control === 'manage' && serverId !== LOCAL_SERVER_ID && this.canLink && !status.registration.registered) {
+        await this.register(serverId, { quiet: true })
+      }
     } catch {
       // An older host without the method; the section shows "checking" until it answers.
     }
   }
 
-  async link(serverId: string): Promise<void> {
-    if (this.busyServerId) return
+  /** Registers the host with a ticket this client's account issues. `quiet` for the automatic registration: no toast. */
+  async register(serverId: string, options: { quiet?: boolean } = {}): Promise<boolean> {
+    if (this.busyServerId) return false
     const source = uplinkAccountSource()
-    if (!source) return
+    if (!source) return false
     this.busyServerId = serverId
     try {
       const ticket = await source.issueEnrollmentTicket()
       if (!ticket) {
-        toasts.error('Sign in to Solus cloud to link this host')
-        return
+        if (!options.quiet) toasts.error('Sign in to Solus cloud to register this host')
+        return false
       }
-      const status = await serverConnections.apiFor(serverId).uplinkLink({
-        ticket: ticket.ticket,
-        directoryUrl: ticket.directoryUrl,
-      })
+      const status = await serverConnections.apiFor(serverId).uplinkRegister({ ticket: ticket.ticket, directoryUrl: ticket.directoryUrl })
       this.statusByServer.set(serverId, status)
-      if (status.linked) toasts.success(`Linked · reachable at ${status.link.hostname}`)
+      if (!options.quiet && status.registration.registered) toasts.success('Registered to your account')
+      void serversStore.refreshDirectory()
+      return status.registration.registered
+    } catch (err) {
+      toasts.error(err instanceof Error ? err.message : String(err))
+      return false
+    } finally {
+      this.busyServerId = null
+    }
+  }
+
+  /** Turns the tunnel on (rule 9). A host that is not registered is registered first. */
+  async link(serverId: string): Promise<void> {
+    if (this.busyServerId) return
+    if (this.statusFor(serverId)?.registration.registered !== true && !(await this.register(serverId, { quiet: true }))) return
+    this.busyServerId = serverId
+    try {
+      const status = await serverConnections.apiFor(serverId).uplinkLink()
+      this.statusByServer.set(serverId, status)
+      if (status.link.linked) toasts.success(`Reachable from the internet at ${status.link.tunnel.hostname}`)
       void serversStore.refreshDirectory()
     } catch (err) {
       toasts.error(err instanceof Error ? err.message : String(err))
@@ -92,13 +117,14 @@ class UplinkStore {
     }
   }
 
+  /** Turns the tunnel off. The registration stays. */
   async unlink(serverId: string): Promise<void> {
     if (this.busyServerId) return
     this.busyServerId = serverId
     try {
       const status = await serverConnections.apiFor(serverId).uplinkUnlink()
       this.statusByServer.set(serverId, status)
-      toasts.info('Unlinked from Solus cloud')
+      toasts.info('No longer reachable from the internet')
       void serversStore.refreshDirectory()
     } catch (err) {
       toasts.error(err instanceof Error ? err.message : String(err))

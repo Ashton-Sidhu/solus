@@ -48,7 +48,7 @@ export function artifactRevisions(messages: Message[]): ArtifactRevision[] {
   const revisions: ArtifactRevision[] = []
   for (const message of messages) {
     const artifact = message.artifact
-    if (artifact?.kind === 'html' && artifact.html && !artifact.pending && !artifact.streaming && message.workRef) {
+    if (artifact?.kind === 'html' && artifact.html && !artifact.streaming && message.workRef) {
       revisions.push({
         identity: `work:${message.workRef.workId}`, messageId: message.id, html: artifact.html,
         title: message.workRef.title, workRef: message.workRef,

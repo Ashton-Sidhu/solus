@@ -3,10 +3,8 @@ import type {
   DeviceAction,
   DeviceBuild,
   DeviceProjectInfo,
-  DeviceSigningTeam,
   DeviceRun,
   DeviceRunLog,
-  DeviceRunProfile,
   DeviceConfigureRequest,
   DeviceControlResult,
   DeviceControlState,
@@ -21,8 +19,8 @@ import type {
 } from '@solus/contracts/device-types'
 import { parseDeviceError } from '@solus/contracts/device-types'
 import { DeviceStreamEnded } from '@solus/client-core/device-hub-stream'
-import { buildDownloadName, installDeviceBuild, startDeviceRun } from '@solus/client-core/device-builds'
-import { saveRunProfiles } from '@solus/client-core/device-run-profiles'
+import { buildDownloadName, installDeviceBuild, startDeviceRun, loadDeviceRunBranches, type DeviceRunBranches } from '@solus/client-core/device-builds'
+import type { DeviceRunStartRequest } from '@solus/contracts/device-types'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { serverConnections } from '@solus/client-core/server-connections'
 
@@ -62,12 +60,10 @@ export class DevicesStore {
   details = new SvelteMap<string, DeviceDetail>()
   /** Which projects build a mobile app, per host and project root. */
   private projects = new SvelteMap<string, DeviceProjectInfo>()
-  /** Each checkout's build profiles from its `.solus/config.json`; null when it has none. */
-  private profiles = new SvelteMap<string, DeviceRunProfile[] | null>()
-  private profileReads = new Set<string>()
+  branches = new SvelteMap<string, DeviceRunBranches>()
+  branchErrors = new SvelteMap<string, string>()
+  private branchVersions = new Map<string, number>()
   private projectReads = new Set<string>()
-  /** The Apple teams each host can sign phone builds for; read when the profile editor opens. */
-  private teams = new SvelteMap<string, DeviceSigningTeam[]>()
   private loadVersions = new Map<string, number>()
 
   /** Set by the shell: a session's device asked to be shown. */
@@ -279,35 +275,20 @@ export class DevicesStore {
     return known
   }
 
-  signingTeams(serverId: string): DeviceSigningTeam[] | undefined {
-    return this.teams.get(serverId)
-  }
-
-  /** Read the host's signing teams again: an Apple account may have been added in Xcode since. */
-  async refreshSigningTeams(serverId: string): Promise<void> {
-    // An older host without the method has no teams to offer; the person types one.
-    const teams = await serverConnections.apiFor(serverId).deviceSigningTeams().catch(() => [])
-    this.teams.set(serverId, teams)
-  }
-
   // ─── Build and run ───
 
-  /** The checkout's build profiles; undefined until the host answers. Asks once until saved. */
-  runProfiles(serverId: string, checkoutPath: string): DeviceRunProfile[] | null | undefined {
-    const key = `${serverId}\u0000${checkoutPath}`
-    if (!this.profileReads.has(key)) {
-      this.profileReads.add(key)
-      void serverConnections.apiFor(serverId).projectConfigLoad(checkoutPath).then(
-        (config) => this.profiles.set(key, config?.deviceRuns ?? null),
-        () => this.profiles.set(key, null),
-      )
+  async loadBranches(serverId: string, projectPath: string): Promise<void> {
+    const key = `${serverId}\u0000${projectPath}`
+    const version = (this.branchVersions.get(key) ?? 0) + 1
+    this.branchVersions.set(key, version)
+    this.branches.delete(key)
+    this.branchErrors.delete(key)
+    try {
+      const branches = await loadDeviceRunBranches(serverConnections.apiFor(serverId), projectPath)
+      if (this.branchVersions.get(key) === version) this.branches.set(key, branches)
+    } catch (cause) {
+      if (this.branchVersions.get(key) === version) this.branchErrors.set(key, deviceErrorMessage(cause))
     }
-    return this.profiles.get(key)
-  }
-
-  /** Replace the checkout's build profiles. The rest of the project config is kept. */
-  async saveRunProfiles(serverId: string, checkoutPath: string, profiles: DeviceRunProfile[]): Promise<void> {
-    this.profiles.set(`${serverId}\u0000${checkoutPath}`, await saveRunProfiles(serverConnections.apiFor(serverId), checkoutPath, profiles))
   }
 
   runs(serverId: string): DeviceRun[] {
@@ -315,11 +296,10 @@ export class DevicesStore {
   }
 
   /**
-   * Start a build, then install it on the device named, if any; without one
-   * it is only added under Builds. The host asks once per command, because
-   * profiles come from the repository; `confirm` shows that question.
+   * Start a dev run or a production build on the device named. The host asks
+   * once per command it runs in the project; `confirm` shows that question.
    */
-  startRun(serverId: string, request: { checkoutPath: string; profileName: string; deviceHostId?: string; deviceId?: string; sessionId?: string }, confirm: (question: string) => boolean): Promise<DeviceRun | null> {
+  startRun(serverId: string, request: DeviceRunStartRequest, confirm: (question: string) => boolean): Promise<DeviceRun | null> {
     return startDeviceRun(serverConnections.apiFor(serverId), request, confirm)
   }
 
@@ -336,19 +316,6 @@ export class DevicesStore {
   /** Install a build and open it. Uses this client's lease, or borrows a free device. */
   async installBuild(serverId: string, target: DeviceTargetRef, build: DeviceBuild): Promise<void> {
     await installDeviceBuild(serverConnections.apiFor(serverId), target, build, this.control(serverId, target), this.holdsControl(serverId, target))
-  }
-
-  /** Add a build output that is already on the host. The next snapshot lists it. */
-  async importBuild(serverId: string, path: string, sessionId: string | null): Promise<DeviceBuild> {
-    const api = serverConnections.apiFor(serverId)
-    const build = await api.deviceBuildImport(sessionId ? { path, sessionId } : { path })
-    this.adopt(serverId, await api.deviceState(), true)
-    return build
-  }
-
-  /** Delete a build's output from the host. */
-  async deleteBuild(serverId: string, build: DeviceBuild): Promise<void> {
-    this.adopt(serverId, await serverConnections.apiFor(serverId).deviceBuildDelete(build.buildId), true)
   }
 
   /** A short-lived link that downloads an APK build, for a phone's browser. */

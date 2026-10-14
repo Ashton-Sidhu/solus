@@ -1,8 +1,8 @@
 <script lang="ts">
   import {
     ChevronRight as ChevronIcon,
-    Cloud as CloudIcon,
     Link as PairIcon,
+    LoaderCircle as SpinnerIcon,
     PencilLine as DraftIcon,
     Plus as PlusIcon,
     RefreshCw as ScanIcon,
@@ -10,11 +10,12 @@
     Wifi as NearbyIcon,
   } from "@lucide/svelte";
   import { onMount } from "svelte";
-  import { runtime, serversStore, hostStatusDotClass } from "../../contexts";
+  import { runtime, serversStore } from "../../contexts";
   import { cn } from "../../lib/utils";
   import { isStackedPane } from "../../lib/pane-width";
   import { Button } from "../ui/button";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
+  import WorkspaceMark from "../ui/WorkspaceMark.svelte";
   import { isManagedHost } from "../servers/lib/managed-host";
   import { hostOnboardingStore } from "../servers/host-onboarding.store.svelte";
   import { cloudOnboardingStore as cloud } from "../onboarding/cloud-onboarding.store.svelte";
@@ -103,30 +104,28 @@
   }
 </script>
 
-{#snippet tile(Icon: typeof CloudIcon, host: GatedHost | null)}
-  <span class="relative grid size-8 shrink-0 place-items-center rounded-[0.5625rem] bg-(--solus-surface-hover) text-(--solus-text-tertiary)">
-    {#if host}
-      <HostOperatingSystemIcon os={host.os} managed={isManagedHost(host.uplink)} size={15} />
-      <!-- A host that never answers would pulse for ever; the dot holds still. -->
-      <span
-        class={cn(
-          "absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-(--solus-input-pill-bg)",
-          host.status === "connecting" ? "bg-(--solus-accent)" : hostStatusDotClass(host.status),
-        )}
-      ></span>
-    {:else}
+{#snippet tile(Icon: typeof PairIcon | null, host: GatedHost | null)}
+  <!-- No status dot: the line under the name says the state in words. Solus
+       Cloud, and a host it runs, wear the Solus mark. -->
+  <span class="grid size-8 shrink-0 place-items-center rounded-[0.5625rem] bg-(--solus-surface-hover) text-(--solus-text-tertiary)">
+    {#if host ? isManagedHost(host.uplink) : !Icon}
+      <WorkspaceMark class="size-[1.125rem]" />
+    {:else if host}
+      <HostOperatingSystemIcon os={host.os} size={15} />
+    {:else if Icon}
       <Icon size={15} />
     {/if}
   </span>
 {/snippet}
 
 {#snippet option(
-  Icon: typeof CloudIcon,
+  Icon: typeof PairIcon | null,
   host: GatedHost | null,
   label: string,
   detail: string,
   actionLabel: string | null,
   onSelect: (() => void) | null,
+  isConnecting = false,
 )}
   {@const body = `${label}. ${detail}`}
   <!-- A card with nothing to do (a host still dialing) stays a disabled
@@ -149,7 +148,10 @@
       <span class="block truncate text-workspace-chrome font-medium text-(--solus-text-primary)">{label}</span>
       <span class="mt-0.5 block truncate text-chrome-dense text-(--solus-text-tertiary)">{detail}</span>
     </span>
-    {#if actionLabel}
+    {#if isConnecting}
+      <!-- Turns only while a dial is under way; the dial has a time limit. -->
+      <SpinnerIcon size={14} class="shrink-0 animate-spin text-(--solus-text-tertiary) motion-reduce:animate-none" aria-hidden="true" />
+    {:else if actionLabel}
       <span class="flex shrink-0 items-center gap-1 rounded-full bg-(--solus-accent-soft) px-2.5 py-0.5 text-xs text-(--solus-accent)">
         {#if actionLabel === CONNECT_HOST_ACTION_LABELS.retry}<RetryIcon size={11} />{/if}{actionLabel}
       </span>
@@ -186,6 +188,9 @@
     </p>
 
     {#if connectingHost}
+      <div class="mb-4">
+        {@render option(null, connectingHost, connectingHost.label, "Connecting…", null, null, true)}
+      </div>
       <div class="flex justify-center">
         <Button
           variant="ghost"
@@ -202,12 +207,13 @@
         {#each rows as row, index (row.hostId)}
           {@const host = hosts[index]}
           {@render option(
-            CloudIcon,
+            null,
             host,
             row.label,
             failedHostId === row.hostId && row.action === "retry" ? "Did not answer · try again" : row.detail,
             row.action && CONNECT_HOST_ACTION_LABELS[row.action],
             row.action ? () => runRow(row) : null,
+            host.status === "connecting",
           )}
         {/each}
         {#each nearby as nearbyHost (nearbyHost.server.installationId)}
@@ -231,9 +237,9 @@
           )}
           {#if cloud.isCloud}
             {@render option(
-              CloudIcon,
               null,
-              "Cloud host",
+              null,
+              "Solus Cloud host",
               "A machine Solus runs for your organization.",
               null,
               () => cloud.reopenAt("compute"),

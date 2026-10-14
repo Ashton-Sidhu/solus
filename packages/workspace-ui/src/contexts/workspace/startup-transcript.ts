@@ -33,6 +33,8 @@ export function prefetchStartupTranscript(): Promise<void> | undefined {
     const serverId = tab.serverInstallationId
       ? loadServers().find((server) => server.installationId === tab.serverInstallationId)?.id ?? tab.serverId
       : tab.serverId
+    // A tab on a gone host restores read-only from the mirror (`hydrateTab`).
+    if (serverConnections.presenceOf(serverId) === 'gone') return
     const api = serverConnections.apiFor(serverId)
     startupTabId = tab.tabId
     performance.mark('solus.boot.transcript.requested')
@@ -44,8 +46,8 @@ export function prefetchStartupTranscript(): Promise<void> | undefined {
     })
     return result.then(() => { performance.mark('solus.boot.transcript.received') }).catch(() => {})
   } catch {
-    // A missing host or stale snapshot must never stop boot. Normal restoration
-    // owns errors and reconnect retries.
+    // A stale snapshot must never stop boot. Normal restoration owns errors and
+    // reconnect retries.
   }
 }
 

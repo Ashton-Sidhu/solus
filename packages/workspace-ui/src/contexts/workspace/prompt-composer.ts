@@ -157,23 +157,11 @@ export function attachmentPromptPath(attachment: Attachment, serverId: string): 
 export function composeAttachmentContext(attachments: Attachment[], serverId: string): string {
   return attachments.map((attachment) => {
     const path = attachmentPromptPath(attachment, serverId)
-    if (attachment.type === 'design-selection' && attachment.designData) {
-      const data = attachment.designData
-      if (data.annotationContext) {
-        const parts = [`[Browser annotation: ${attachment.name}]`]
-        if (attachment.hostPath) parts.push(`Annotated capture: ${attachment.hostPath}`)
-        parts.push(data.annotationContext)
-        return parts.join('\n')
-      }
-      const parts = [`[Design Mode Selection: ${path}]`]
-      if (data.outerHTML) parts.push(`Element: ${data.outerHTML.slice(0, 2000)}`)
-      if (data.cssSelector) parts.push(`Selector: ${data.cssSelector}`)
-      if (data.computedStyles) parts.push(`Styles: ${JSON.stringify(data.computedStyles)}`)
-      if (data.componentName) parts.push(`Component: ${data.componentName}${data.componentFile ? ` (${data.componentFile})` : ''}`)
-      if (data.pageURL) parts.push(`Page: ${data.pageURL}`)
-      if (data.annotations?.length) {
-        parts.push(`Annotations: ${data.annotations.map((annotation, index) => `[${annotation.label ?? index + 1}] ${annotation.type}`).join(', ')}`)
-      }
+    const annotationContext = attachment.type === 'design-selection' ? attachment.designData?.annotationContext : undefined
+    if (annotationContext) {
+      const parts = [`[Browser annotation: ${attachment.name}]`]
+      if (attachment.hostPath) parts.push(`Annotated capture: ${attachment.hostPath}`)
+      parts.push(annotationContext)
       return parts.join('\n')
     }
     return `[Attached ${attachment.type}: ${path}]`

@@ -3,6 +3,7 @@
     Eraser as EraserIcon,
     Folder as FolderIcon,
     Globe as GlobeIcon,
+    Laptop as LaptopIcon,
     Smartphone as SmartphoneIcon,
     X as XIcon,
   } from "@lucide/svelte";
@@ -17,7 +18,7 @@
   } from "../../contexts";
   import { browserStore } from "../../contexts/browser/browser.store.svelte";
   import { devicesStore } from "../../contexts/devices/devices.store.svelte";
-  import { openDeviceBuilds } from "../devices/lib/device-view-state.svelte";
+  import { openRunApp } from "../devices/lib/device-view-state.svelte";
   import { gitActionsFor } from "../../lib/git-actions.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -34,7 +35,7 @@
     isClearBrowserArmed,
     browserProfileProject,
   } from "./lib/browser-row";
-  import { isChat } from "@solus/contracts/chat";
+  import { NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
   import { worktreeProjectRoot } from "@solus/contracts/types";
   import { browserPartition } from "@solus/contracts/browser-types";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -69,20 +70,19 @@
   const host = $derived(serversStore.hostFor(sectionRun?.serverId));
   const hostAffinity = $derived(serversStore.affinityFor(sectionRun?.serverId));
   /** What this client may do on the host: a guest opens no terminal, browser, or device here (permissions.md). */
-  const me = $derived(hosts.find(detailServerId)?.me);
-  // The project row names the machine the work runs on, local included: a run
-  // with no recorded host runs on the host this tab talks to.
-  const runHostLabel = $derived(
-    (host ?? serversStore.hostFor(detailServerId))?.label,
-  );
+  const me = $derived(hosts.get(detailServerId)?.me);
+  // The project row marks the machine the work runs on: a laptop glyph for
+  // this machine, the name for a remote one. A run with no recorded host runs
+  // on the host this tab talks to.
+  const runHost = $derived(host ?? serversStore.hostFor(detailServerId));
+  const runHostLabel = $derived(runHost?.label);
 
   // The Devices row is for projects that build a mobile app (at the root or
   // in a subfolder), or a conversation already showing a device. It counts
-  // the host's app builds, so a build is one click away.
+  // Run app, before a simulator or phone is opened.
   const deviceProject = $derived(active && projectRoot ? devicesStore.project(detailServerId, projectRoot) : undefined);
   const sessionShowsDevice = $derived(devicesStore.previewsFor(detailServerId, session.sessionFor(sourceId)?.id).length > 0);
   const showsDevices = $derived(!!deviceProject?.isMobileApp || sessionShowsDevice);
-  const buildCount = $derived(devicesStore.state(detailServerId)?.builds.length ?? 0);
   $effect(() => {
     if (active && showsDevices && !devicesStore.state(detailServerId) && !devicesStore.unavailable.get(detailServerId)) void devicesStore.load(detailServerId);
   });
@@ -137,18 +137,15 @@
           }
         },
       },
-      // Simulators, connected phones, and the app builds agents made. With a
-      // build to install, the row opens straight on Builds.
+      // App execution starts with the project and chosen device.
       ...(showsDevices ? [{
         key: "devices",
-        label: "Devices",
+        label: "Run app",
         icon: SmartphoneIcon,
-        badge: buildCount > 0 ? `${buildCount} build${buildCount === 1 ? "" : "s"}` : undefined,
         phase: "idle" as const,
         disabled: !(me?.may("host.use") ?? true),
         run: () => {
-          if (buildCount > 0) openDeviceBuilds(session, detailServerId);
-          else session.openDevices(undefined, detailServerId);
+          openRunApp(session, detailServerId, session.sessionFor(sourceId)?.id);
           requestInputFocus();
         },
       }] : []),
@@ -175,17 +172,20 @@
 
 <div class="env">
   <!-- The project anchors the card and opens its files; the branch and its
-       changes live in the Git card below. -->
-  {#if projectRoot && !isChat(projectRoot)}
+       changes live in the Git card below. A chat has no project, but the row
+       stays: it is the one place the panel names the host the chat runs on. -->
+  {#if projectRoot}
     <MenuRow
       item={{
         key: "project",
         label: projectDirLabel(projectRoot),
         icon: FolderIcon,
-        badge: runHostLabel,
+        badge: runHost?.local ? undefined : runHostLabel,
+        badgeIcon: runHost?.local ? LaptopIcon : undefined,
         hint: comboHint("global.toggle-files"),
         phase: "idle",
-        disabled: !onOpenFiles || !(me?.may("host.files.read") ?? true),
+        // A new chat has no folder until its first prompt, so no files yet.
+        disabled: !onOpenFiles || projectRoot === NEW_CHAT_DIRECTORY || !(me?.may("host.files.read") ?? true),
         tooltip: runHostLabel ? `Runs on ${runHostLabel}` : undefined,
       }}
       onActivate={() => onOpenFiles?.()}

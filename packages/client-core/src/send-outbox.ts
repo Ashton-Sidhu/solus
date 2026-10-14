@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { PromptImageRef } from '@solus/contracts/types'
 import { queueAttachmentSchema, type QueueAttachment } from '@solus/contracts/session-queue'
 import { forwardCompatibleArray } from './forward-compat'
-import { TransportDisconnectedError } from './rpc-error'
+import { HostGoneError, TransportDisconnectedError } from './rpc-error'
 
 /**
  * The durable send outbox (dispatch-client step 6): queued work survives a
@@ -84,6 +84,8 @@ const outboxSchema = forwardCompatibleArray(outboxRecordSchema)
 // no schema for a thrown value beyond the transport's own error class.
 // oxlint-disable-next-line anti-slop/no-unknown-parameters
 export function classifySendFailure(error: unknown): 'transient' | 'domain' {
+  // A gone host never comes back, so its send fails like a refusal.
+  if (error instanceof HostGoneError) return 'domain'
   if (error instanceof TransportDisconnectedError) return 'transient'
   return 'domain'
 }

@@ -13,6 +13,7 @@ test('replacement states keep the saved guide mounted and show one notice at a t
     const code = compile(source, { filename: `${name}.svelte`, generate: 'client' }).js.code
       .replaceAll(/(['"])svelte\/internal\/client\1/g, JSON.stringify(internal))
       .replaceAll(/import ['"]svelte\/internal\/disclose-version['"];?/g, '')
+      .replaceAll(/(['"])svelte\/internal\/flags\/legacy\1/g, JSON.stringify(new URL('node_modules/svelte/src/internal/flags/legacy.js', root).href))
     const path = join(directory, `${name}.mjs`)
     writeFileSync(path, code)
     return path
@@ -20,6 +21,8 @@ test('replacement states keep the saved guide mounted and show one notice at a t
   try {
     const stub = component('<span></span>', 'stub')
     const guide = component('<script>let { guide } = $props();</script><article>{guide.title}</article>', 'guide')
+    const progress = component('<p data-progress></p>', 'progress')
+    const skeleton = component('<p data-skeleton></p>', 'skeleton')
     const button = component('<script>let { children, ...props } = $props();</script><button {...props}>{@render children?.()}</button>', 'button')
     const source = readFileSync(new URL('packages/workspace-ui/src/components/review/GuideSurface.svelte', root), 'utf8')
       .replace(/^  import .*?;\n/gm, '')
@@ -27,18 +30,22 @@ test('replacement states keep the saved guide mounted and show one notice at a t
         import GuideView from ${JSON.stringify(guide)};
         import Button from ${JSON.stringify(button)};
         import Stub from ${JSON.stringify(stub)};
-        const ClockIcon = Stub, InfoIcon = Stub, SpinnerIcon = Stub, CircleAlertIcon = Stub, ReviewGuideGlyph = Stub, ReviewProgress = Stub;
+        import ReviewProgress from ${JSON.stringify(progress)};
+        import ContentSkeleton from ${JSON.stringify(skeleton)};
+        import { describeGuideFailure } from ${JSON.stringify(new URL('packages/client-core/src/review-guide-failure.ts', root).href)};
+        const ClockIcon = Stub, InfoIcon = Stub, SpinnerIcon = Stub, CircleAlertIcon = Stub, ReviewGuideGlyph = Stub;
       `)
     const surface = component(source, 'surface')
     const harness = component(`<script>
       import Surface from ${JSON.stringify(surface)};
       let status = $state('ready');
       let unavailable = $state(false);
-      let loader = $state({ guide: { title: 'Saved guide', sections: [] }, stale: false, loading: false, progressStep: 'preparing', error: null, freshnessUnknown: false });
+      let loader = $state({ guide: { title: 'Saved guide', sections: [] }, stale: false, loading: false, generating: false, progressStep: 'preparing', error: null, freshnessUnknown: false });
       let retries = 0;
       export function update(next, stale = false, disconnected = false) { status = next; loader.stale = stale; unavailable = disconnected; }
       export function unknown() { loader.freshnessUnknown = true; }
       export function clearGuide() { loader.guide = null; }
+      export function read(loading, generating) { loader.loading = loading; loader.generating = generating; }
       export function retryCount() { return retries; }
     </script><Surface {loader} generationStatus={status} {unavailable} onGenerate={() => retries++} />`, 'harness')
     const runner = join(directory, 'test.mjs')
@@ -80,6 +87,16 @@ test('replacement states keep the saved guide mounted and show one notice at a t
       flushSync();
       assert.ok(document.body.textContent.includes('Cannot check whether this guide is current'));
       app.clearGuide();
+      // Reading a saved guide shows a skeleton, never the generation steps.
+      app.read(true, false);
+      flushSync();
+      assert.ok(document.querySelector('[data-skeleton]'));
+      assert.ok(!document.querySelector('[data-progress]'));
+      app.read(true, true);
+      flushSync();
+      assert.ok(document.querySelector('[data-progress]'));
+      assert.ok(!document.querySelector('[data-skeleton]'));
+      app.read(false, false);
       app.update('outdated');
       flushSync();
       assert.ok(document.body.textContent.includes('The PR changed during generation'));

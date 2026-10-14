@@ -54,8 +54,8 @@
 
   const people = $derived(list ? personRows(list, directory, identity?.user ?? null) : []);
   const candidates = $derived(list && canShare ? personCandidates(list, directory, query) : []);
-  /** A member reaches a host through the cloud app, which needs the host linked; the Solus API is reached as itself. Assumed until the host answers. */
-  const membersReachable = $derived(!target || isSolusApiId(target.serverId) || uplinkStore.statusFor(target.serverId)?.linked !== false);
+  /** A member reaches a host with an account token, which needs the host registered (not linked); the Solus API is reached as itself. Assumed until the host answers. */
+  const membersReachable = $derived(!target || isSolusApiId(target.serverId) || uplinkStore.statusFor(target.serverId)?.registration.registered !== false);
   const canInvite = $derived(!!directory && directory.members.length > 1 && membersReachable);
 
   const options = $derived(list ? scopeOptions(list, directory, serversStore.activeOrganizationId, ownerLabel(list, directory), { membersReachable }) : []);

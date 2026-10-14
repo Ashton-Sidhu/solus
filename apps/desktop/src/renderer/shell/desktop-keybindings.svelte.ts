@@ -29,7 +29,6 @@ interface DesktopKeyboardActions {
   startOpenProject(options?: { sourceId?: string }): void;
   handleScreenshot(tabId?: string): Promise<void>;
   handleAttachFile(tabId?: string): Promise<void>;
-  handleDesignMode(tabId?: string): Promise<void>;
 }
 
 export function installDesktopKeybindings(
@@ -43,7 +42,6 @@ export function installDesktopKeybindings(
     startOpenProject,
     handleScreenshot,
     handleAttachFile,
-    handleDesignMode,
   } = actions;
   const activeTabId = $derived(session.activeTabId);
   const keyboardTabId = $derived(session.focusedChatTabId ?? activeTabId);
@@ -234,21 +232,6 @@ export function installDesktopKeybindings(
     session.config.toggleTabGroupMode();
   });
   useKeybinding("global.attach-file", () => handleAttachFile(keyboardTabId));
-  useKeybinding(
-    "global.design-mode",
-    () => {
-      const targetStatus = session.sessionFor(keyboardTabId)?.status;
-      if (
-        targetStatus !== "running" &&
-        targetStatus !== "connecting" &&
-        desktopHandlersAvailable
-      )
-        handleDesignMode(keyboardTabId);
-    },
-    {
-      enabled: () => desktopHandlersAvailable,
-    },
-  );
   useKeybinding("global.toggle-reasoning", () => {
     const isComposingDraft = session.router.destination.name === "draft";
     const targetTabId = isComposingDraft ? undefined : keyboardTabId;
@@ -493,13 +476,6 @@ export function installDesktopKeybindings(
     );
   });
   useKeybinding("global.add-server", () => serversStore.openAddServer());
-  useKeybinding(
-    "global.switch-server",
-    () => openPalettePage("switch-server", "Switch server"),
-    {
-      enabled: () => paletteAvailable,
-    },
-  );
   useKeybinding(
     "global.switch-organization",
     () => openPalettePage("switch-organization", "Switch organization"),

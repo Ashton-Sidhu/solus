@@ -20,7 +20,7 @@
   const workspace = getWorkspaceContext();
   const search = new SkillSearch();
   const inventory = $derived(skillsForHost(serverId));
-  const capabilities = $derived(hosts.find(serverId)?.capabilityRecord);
+  const capabilities = $derived(hosts.get(serverId)?.capabilityRecord);
   const isSupported = $derived(supportsSettingsSurface(capabilities, "skills"));
   const canInstall = $derived(capabilities?.skillsInstall === true);
   const canManage = $derived(capabilities?.skillsManage === true);

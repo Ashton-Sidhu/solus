@@ -2,7 +2,7 @@ import { SvelteMap } from 'svelte/reactivity'
 import { OrganizationSettingsClient, type OrganizationSettingsWriteResult } from '@solus/client-core/settings-sync'
 import type { OrganizationSettingsResult } from '@solus/client-core/settings-requests'
 import type { OrganizationSettingsResponse } from '@solus/contracts/settings'
-import { accountSettingsRequests } from '../../contexts/app/settings-sync.store.svelte'
+import { accountSettingsRequests } from '../../contexts/account/account-sync.store.svelte'
 import { changedSettings, draftFrom, isDraftDirty, type OrganizationDraft } from './lib/organization-draft'
 
 /**

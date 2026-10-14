@@ -13,10 +13,16 @@ import { resourceMay } from '../sharing/resource-roles'
  * flicker on.
  */
 export class HostStanding {
-  constructor(private readonly serverId: string, private readonly serverInfo: () => HostFact<ConnectionsServerInfo>) {}
+  constructor(
+    private readonly serverId: string,
+    private readonly serverInfo: () => HostFact<ConnectionsServerInfo>,
+    private readonly isGone: () => boolean,
+  ) {}
 
-  /** The host actions this connection holds, as prefixes; the owner's until the host answers. */
+  /** The host actions this connection holds, as prefixes; the owner's until the
+   *  host answers, and none on a host that is gone. */
   get grants(): readonly HostAction[] {
+    if (this.isGone()) return []
     const fact = this.serverInfo()
     if (fact.state !== 'ready') return EVERY_HOST_ACTION
     if (Array.isArray(fact.value.grants)) return fact.value.grants

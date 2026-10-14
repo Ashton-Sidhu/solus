@@ -44,6 +44,25 @@ describe('a refused provider login', () => {
     expect(result('API Error: 500 Internal server error')[0]).not.toHaveProperty('kind')
   })
 
+  // A seat restored with a refresh token that was already used: Claude names a
+  // refresh race first, then an expired session. Both need a new sign-in.
+  test('Claude: a refused token refresh is an auth error', () => {
+    const errorResult = (message: string) => new ClaudeTurnNormalizer().push({
+      type: 'result',
+      subtype: 'error_during_execution',
+      is_error: true,
+      duration_ms: 1,
+      num_turns: 1,
+      errors: [message],
+      total_cost_usd: 0,
+      session_id: 'claude-session-1',
+      usage: {},
+    })
+
+    expect(errorResult('Failed to refresh OAuth token: another Claude Code process is refreshing it or exited mid-refresh. This is usually transient; retry in a minute, and if it persists close other Claude Code processes or sign in again')).toMatchObject([{ type: 'error', kind: 'auth' }])
+    expect(errorResult('Failed to authenticate: OAuth session expired and could not be refreshed')).toMatchObject([{ type: 'error', kind: 'auth' }])
+  })
+
   // A reload must offer the same sign-in, so history marks the row too.
   test('history marks the failed row of a refused login, and only that row', () => {
     const codexFailed = (message: string) => codexTurnToMessages({

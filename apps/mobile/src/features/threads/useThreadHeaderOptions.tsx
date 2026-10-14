@@ -20,7 +20,8 @@ const HEADER_ACTION_WIDTH = 53;
  * The thread header: title and subtitle, the native back button (a cold
  * start with no history gets a way to the thread list instead), and the
  * header actions that have Solus counterparts — the project's files, the
- * host's pull requests, and a new thread in the same project. T3's terminal,
+ * host's pull requests (only when the session has a linked pull request), your
+ * notifications, and a new thread in the same project. T3's terminal,
  * git, and merge-back controls have no Solus equivalent on the phone.
  */
 export function useThreadHeaderOptions(props: {
@@ -28,43 +29,45 @@ export function useThreadHeaderOptions(props: {
   readonly subtitle: string;
   readonly usesNativeHeaderGlass: boolean;
   readonly hostId: string;
-  readonly sessionId: string;
-  readonly conversationCheckoutPath: string;
   /** The project folder, or null for a chat, which has no files to browse. */
   readonly projectPath: string | null;
   /** The project root whose favicon the header shows; null for a chat. */
   readonly faviconRoot: string | null;
+  /** Whether a pull request is linked to the session; without one the pull requests action is hidden. */
+  readonly hasLinkedPullRequests: boolean;
 }) {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { hostId, projectPath, sessionId, conversationCheckoutPath } = props;
+  const { hostId, projectPath, hasLinkedPullRequests } = props;
   const actions = useMemo<ReadonlyArray<ScreenHeaderAction>>(() => {
     const items: ScreenHeaderAction[] = [];
     if (projectPath) {
-      items.push({
-        accessibilityLabel: "Run app",
-        icon: "play",
-        onPress: () => navigation.navigate("RunApp", { hostId, projectPath, sessionId, conversationCheckoutPath }),
-      });
       items.push({
         accessibilityLabel: "Open files",
         icon: "folder",
         onPress: () => navigation.navigate("Files", { hostId, projectPath, folderPath: "" }),
       });
     }
+    if (hasLinkedPullRequests) {
+      items.push({
+        accessibilityLabel: "Open pull requests",
+        icon: "arrow.triangle.pull",
+        // The host's pull requests are the Pull Requests tab narrowed to it.
+        onPress: () => navigation.popTo("Home", { tab: "pullRequests", hostId }),
+      });
+    }
     items.push({
-      accessibilityLabel: "Open pull requests",
-      icon: "arrow.triangle.pull",
-      // The host's pull requests are the Pull Requests tab narrowed to it.
-      onPress: () => navigation.popTo("Home", { tab: "pullRequests", hostId }),
+      accessibilityLabel: "Open notifications",
+      icon: "bell.badge",
+      onPress: () => navigation.navigate("Notifications"),
     });
     // A chat has no project to keep, so its new thread starts at the project choice.
     items.push({
-      accessibilityLabel: "New thread",
+      accessibilityLabel: "New session",
       icon: "square.and.pencil",
       onPress: () => navigation.navigate("NewTask", projectPath ? { hostId, projectPath } : { hostId }),
     });
     return items;
-  }, [hostId, navigation, projectPath, sessionId, conversationCheckoutPath]);
+  }, [hasLinkedPullRequests, hostId, navigation, projectPath]);
 
   // Deep links and cold starts land with Thread as the only route, where the
   // native back button does not render; Home is the way out.

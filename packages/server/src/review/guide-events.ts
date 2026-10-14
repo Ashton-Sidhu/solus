@@ -1,8 +1,9 @@
 import type { PrGuideStatusEvent, ReviewGuideStatusEvent } from '@solus/contracts/review'
 import type { HostEventPublisher } from '../transport/events/host-event-publisher'
 
-/** Both the PR list and guide panes observe the same host job transitions. */
-export function publishPrGuideStatus(events: HostEventPublisher, event: ReviewGuideStatusEvent): void {
+/** Every guide surface observes the same host job transitions; the PR list
+ * also hears the ones for pull requests. */
+export function publishGuideStatus(events: HostEventPublisher, event: ReviewGuideStatusEvent): void {
   events.broadcast('review.guideStatusChanged', event)
   if (event.step) events.broadcast('review.progressChanged', { key: event.key, step: event.step })
   if (event.target?.kind !== 'pr') return

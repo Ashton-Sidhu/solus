@@ -56,6 +56,7 @@
   import type { DiffComment, DiffScope, GitCheckout, IpcContext } from "@solus/contracts/types";
   import type { ReviewComment } from "@solus/contracts/providers";
   import type { DiffReviewThread } from "./lib/interdiff-annotations";
+  import { viewedFilesStatus, type DiffViewedFiles } from "./lib/viewed-toggle";
   import {
     mountDiffFileTree,
     uniqueDiffTreePaths,
@@ -128,6 +129,7 @@
     guide,
     feedbackToNewSession = false,
     feedbackSessionTarget,
+    viewedFiles = null,
   }: {
     tabId: string;
     /** The pane drawing this diff. Symbol targets open across from it. */
@@ -216,6 +218,9 @@
       gitContext: GitCheckout | null;
       serverId?: string;
     };
+    /** The code host's "Viewed" marks for a pull request, when its host keeps
+     *  them. Each file header gets the toggle and the toolbar the count. */
+    viewedFiles?: DiffViewedFiles | null;
   } = $props();
 
   /** The review panel's own chrome: one band that owns the views, the change
@@ -233,7 +238,7 @@
   const canOpenInEditor = $derived(
     !!theme.defaultEditor &&
       hostPolicy.isClientMachine(editorServerId) &&
-      supportsEditor(hosts.find(editorServerId)?.capabilityRecord, theme.defaultEditor),
+      supportsEditor(hosts.get(editorServerId)?.capabilityRecord, theme.defaultEditor),
   );
 
   // The in-progress inline-comment draft. Owned here and shared down to
@@ -1196,6 +1201,7 @@
     {onClearCommitScope}
     {view}
     {viewTabs}
+    viewedStatus={viewedFiles ? viewedFilesStatus(viewedFiles, treePaths) : null}
   />
   {/if}
 
@@ -1320,6 +1326,7 @@
           onDeleteComment={handleDeleteComment}
           onSymbolHit={handleSymbolHit}
           symbolAvailability={availabilityOfSymbol}
+          {viewedFiles}
         />
         </div>
     </DiffResizableContent>

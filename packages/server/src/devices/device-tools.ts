@@ -85,6 +85,7 @@ export function agentDeviceQuickStart(device: DeviceSummary, command: string, ar
     `  ${exe} fill @e5 "text" ${target}`,
     `  ${exe} install <app> <path-to-.app-or-.apk> ${target}`,
     'Use device_screenshot to see the screen. Prefer snapshot refs over coordinates; refs from an old snapshot may be stale.',
+    'The user may be on a phone, which has no Devices pane. When the user asks to see something on the device, call device_screenshot once it is on screen: the screenshot appears in the conversation on every client.',
     `Run ${exe} help for guides. simctl, adb and xcrun remain available for anything it does not cover.`,
     device.platform === 'ios'
       ? 'First use builds an XCTest runner and can take a couple of minutes.'
@@ -179,7 +180,7 @@ export const deviceOpenAgentTool = deviceTool({
 
 export const deviceScreenshotAgentTool = deviceTool({
   name: 'device_screenshot',
-  description: 'Capture the current screen of a device open in this session as an image you can see. For taps and typing use the agent-device CLI from device_open.',
+  description: 'Capture the current screen of a device open in this session as an image you and the user can see. The image appears in the conversation on every client, including phones that have no Devices pane, so use it to show the user a result. For taps and typing use the agent-device CLI from device_open.',
   inputFields: {
     deviceId: z.string().max(256).optional().describe('Omit to use the device most recently opened in this session.'),
     deviceHostId: z.string().max(128).optional(),

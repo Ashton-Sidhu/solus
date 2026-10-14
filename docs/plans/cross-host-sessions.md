@@ -1,6 +1,9 @@
 # Cross-host sessions — `start_session` on another host
 
-Status: first version implemented (2026-10-06): §4 decisions 1–7, §5.1–§5.5. §6 lists what it does not do yet. Paired hosts (§10) implemented 2026-10-08; host trust (§9) deferred.
+Status: first version implemented (2026-10-06): §4 decisions 1–7, §5.2–§5.5. §6 lists what it does not do yet.
+**How a host reaches another host is now docs/plans/host-reach.md (2026-10-13).** It
+replaces §5.1 (host access lent by the desktop), §9 (host trust), and §10 (paired
+hosts). Those sections stay below as history only.
 
 ## 1. Goal
 
@@ -50,7 +53,17 @@ concepts.
   sign-out the client takes the reach back.
 - **Session start on a host.** `createHeadlessSession`
   (`transport/handlers/session-handlers.ts`) creates a session with no tab and
-  claims it for the caller. The caller may choose the session id.
+  claims it for the caller. The caller may choose the session id. The new
+  session passes the same turn admission as a first prompt and a local child
+  (`PromptDispatch.admitTurn`, called in `PromptDispatch.createSession`), with
+  the request's `organizationId` as the window organization. On a host
+  attached for organization work, a start with no organization is refused with
+  `ORGANIZATION_REQUIRED`, and a start in an organization is admitted on the
+  Solus API before its provider starts (organization-vms §1).
+- **Prompt to a session on a host.** `promptHeadlessSession` passes the same
+  admission as `prompt`. On an organization session, the host acts for the
+  caller's person again, so a person whose authority was removed cannot
+  continue the session from another host (organization-vms §4).
 - **Exchanges.** `SessionOrchestrator` is driven by run hooks (`runStarted`,
   `inputRequested`, `inputResolved`, `runEvent`, `runSettled`) that the local
   runtime calls.
@@ -123,7 +136,9 @@ For a remote target, `SessionOrchestrator.spawn`:
 1. chooses the session id and opens the exchange with `targetHostId`,
 2. watches the session on host B (`watchSession`) and subscribes to
    `session.eventReceived` and `session.statusChanged` for it,
-3. calls `createHeadlessSession` on host B with the session id and the origin,
+3. calls `createHeadlessSession` on host B with the session id, the origin,
+   and the parent session's organization when it has one (a Local parent
+   sends none),
 4. maps host B's events to the run hooks:
    - status `running` → `runStarted`,
    - `permission_request`, `question_request`, `plan` → `inputRequested`,
@@ -197,8 +212,9 @@ host can start sessions on the other, as the owner, with no account session.
 
 - **host trust** — the owner's record that two hosts may start sessions on
   each other. It is symmetric: one record, both directions. "Link" and "pair"
-  are not used for it: `host_link` is a host's enrollment with the cloud, and
-  pairing is a client's credential for a host.
+  are not used for it: `host_link` is a host's tunnel (its registration is the
+  `host` row, ADR 0001 §2.2 rules 8 and 9), and pairing is a client's credential
+  for a host.
 - **trusted host** — a host in a host trust with this host.
 
 ### 9.3 Decisions
@@ -212,8 +228,9 @@ host can start sessions on the other, as the owner, with no account session.
    policy). On the requesting host, only that person's turns, or the host's own
    work, may use it. A member's turn on a shared Cloud host does not borrow the
    owner's trust.
-3. **Both hosts must be enrolled with the cloud** (`host_link` linked). A host
-   without a tunnel route cannot be a target.
+3. **Both hosts must be registered with the cloud.** A target that is not linked
+   has no tunnel route; it is reached on the local network when LAN discovery finds
+   its installation id (ADR 0001 §2.2 rule 9), else it cannot be a target.
 4. **A desktop with an account session keeps using it.** It already reaches
    every host its owner can. Host trust is the path for a host with no account
    session. Both are behind the same `HostAccess` port (§5.1).
@@ -239,7 +256,7 @@ host can start sessions on the other, as the owner, with no account session.
 ### 9.5 Solus
 
 - `HostAccess` gets a second implementation on the host's control token
-  (`uplinkManager.credential().hostAccessToken()`, ADR 0001 §3.4), wired in `boot-server.ts` when there is no
+  (`registrar.credential().hostAccessToken()`, ADR 0001 §3.4), wired in `boot-server.ts` when there is no
   client that lends its access (`LocalClient.lendHostAccess`). `RemoteHosts` uses the
   lent access first.
 - `actsForHostOwner` becomes "acts for the person this host access is for":
@@ -319,3 +336,33 @@ the same way, and then uses the cross-host path of §5 unchanged.
 - The Access part of a host on the Hosts page (desktop and web) and the host's
   Access screen on mobile show "Paired hosts" with Pair and Forget.
 
+### 10.5 One pairing, both ways (2026-10-11)
+
+A person pairs two machines once. Before this, the desktop app's own pairing
+with a host did not help its agents, and a host that paired with another host
+could not be reached back.
+
+1. **A pairing goes both ways.** After host A pairs with host B, host A issues
+   a pairing token for itself (device label "<B> (Solus host)") and sends it to
+   `POST /pair/return` on host B, with host A's addresses (tailnet, LAN,
+   loopback). The bearer is host A's new token for host B, so host B knows the
+   caller and records host A's device there as `grantedDeviceId`. Host B keeps
+   the token only at an address whose `/health` answers as host A, and only
+   after host A accepts it at `/auth/refresh`. Host B does not offer back.
+2. **Both ways or not at all.** If host B does not take the token (it cannot
+   reach host A at any address), host A revokes it, keeps nothing, and the
+   pairing fails with that reason.
+3. **Forget closes both directions.** Forget on host A revokes host B's device
+   on host A and calls `POST /pair/forget` on host B. Host B removes host A and
+   revokes host A's device there. Only the device that owns the pairing can
+   say it forgot it. `/pair/return` and `/pair/forget` take only a pairing
+   token, do not exist on the tunnel, and do not exist where pairing is disabled.
+4. **The desktop host holds every pairing the app made.** When the app
+   starts, and after each new pairing, its own host calls
+   `pairedHostsAdopt {url, sessionToken}` for each direct pairing it does not
+   hold. The host exchanges the app's token at `/auth/refresh` for its own copy
+   of the same device, then offers back as in step 1. The app and the host
+   share one device on the other host, so Forget on either side revokes it for
+   both; at the next start, the revoked pairing fails at `/auth/refresh` and is
+   skipped. Only a new pairing shows a failure in the host's Access. A web or
+   mobile client has no host of its own and keeps its pairings to itself.

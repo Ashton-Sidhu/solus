@@ -62,7 +62,7 @@
   const control = $derived(
     recordControl({
       page: entry.page,
-      canRecord: hosts.find(entry.serverId)?.capabilityRecord?.browserRecording,
+      canRecord: hosts.get(entry.serverId)?.capabilityRecord?.browserRecording,
       request: browserStore.recordingRequest(pageKey),
     }),
   );

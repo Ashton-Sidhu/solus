@@ -20,7 +20,6 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { isSessionBusyStatus, isSteerableStatus } from "@solus/contracts/types";
-import { MAX_ATTACHMENT_UPLOAD_COUNT } from "@solus/contracts/rpc";
 
 import { useApp } from "../../app/app-context";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
@@ -52,8 +51,10 @@ import {
   type ActiveTurnComposerAction,
   type ComposerSendPresentation,
 } from "./composerSendPresentation";
-import { pickComposerClipboardImage, pickComposerFiles, pickComposerMedia } from "./composer-attachment-pickers";
+import { pastedComposerImages, pickComposerClipboardImage, pickComposerFiles, pickComposerMedia } from "./composer-attachment-pickers";
 import { ThreadSettingsSheet } from "./ThreadSettingsSheet";
+import { ComposerQueuedEditAttachments } from "./ComposerQueuedEdit";
+import { composerDraftView, useComposerQueuedEdit } from "./use-composer-queued-edit";
 
 /**
  * Height of the collapsed composer (pill + vertical padding, excluding safe-area inset).
@@ -262,7 +263,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlightRef = useRef(false);
   const { onExpandedChange } = props;
-
   useEffect(
     () => () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -282,14 +282,37 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     [app, hostId, props.draftKey],
   );
 
-  const hasContent = draftMessage.trim().length > 0 || meta.attachments.length > 0;
-  const stripAttachments = meta.attachments;
-  const showStopAction = !hasContent && props.canStopThread;
-  const attachmentsUploading = meta.uploading > 0;
+  const conversationHasContent = draftMessage.trim().length > 0 || meta.attachments.length > 0;
+  const restoreToConversationDraft = useCallback(
+    (text: string) => {
+      setDraftMessage(text);
+      app.saveDraft(hostId, props.draftKey, text);
+    },
+    [app, hostId, props.draftKey],
+  );
+  // T3 edits a queued message here, in its own draft; the conversation's draft waits unchanged.
+  const queuedEdit = useComposerQueuedEdit({
+    store,
+    meta,
+    inputRef,
+    conversationDraftEmpty: !conversationHasContent,
+    restoreToConversationDraft,
+  });
+  const editing = queuedEdit !== null;
+  const { text, onChangeText, hasContent, stripAttachments, stripUploading, attachmentsFull, queuedAttachments } =
+    composerDraftView(queuedEdit, {
+      text: draftMessage,
+      onChangeText: onChangeDraftMessage,
+      attachments: meta.attachments,
+      uploading: meta.uploading,
+    });
+  // Stopping the agent is not what the send button means in edit mode.
+  const showStopAction = !hasContent && props.canStopThread && !editing;
   const running = isSessionBusyStatus(meta.status);
   // Every send goes through the outbox; the label says whether it leaves now
   // or waits (for the connection or an earlier queued message).
   const sendPresentation = resolveComposerSendPresentation({
+    editingQueuedMessage: editing,
     running,
     canSteer: isSteerableStatus(meta.status),
     followUpBehavior: "steer",
@@ -298,8 +321,15 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const sendLabel = sendPresentation.label;
   const isExpanded = isFocused || settingsOpen;
   const isToolbarVisible = isExpanded;
-  const sendBlockedReason =
-    props.sendBlockedReason ?? (attachmentsUploading ? "Uploading attachments" : null);
+  // A collapsed iOS line uses the font's natural line height (about 1.2em),
+  // centered in the 36pt field.
+  const collapsedIosInset =
+    isExpanded || Platform.OS === "android"
+      ? null
+      : Math.max(0, (36 - Math.ceil(bodyText.fontSize * 1.2)) / 2);
+  const sendBlockedReason = queuedEdit?.saving
+    ? "Saving…"
+    : (props.sendBlockedReason ?? (stripUploading > 0 ? "Uploading attachments" : null));
   const canSend = hasContent && sendBlockedReason === null;
   const currentModelLabel = modelLabel(meta.run.provider, meta.run.model);
 
@@ -326,6 +356,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
   const handleSend = useCallback(
     async (followUp?: ActiveTurnComposerAction) => {
       if (!canSend || inFlightRef.current) return;
+      if (queuedEdit) {
+        void queuedEdit.save();
+        return;
+      }
       inFlightRef.current = true;
       const prompt = draftMessage.trim();
       setDraftMessage("");
@@ -341,24 +375,29 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
         inFlightRef.current = false;
       }
     },
-    [app, canSend, draftMessage, hostId, props.draftKey, props.onSent, sendPresentation.action, store],
+    [app, canSend, draftMessage, hostId, props.draftKey, props.onSent, queuedEdit, sendPresentation.action, store],
   );
 
   const attach = useCallback(
     async (pick: (existingCount: number) => Promise<PickedFile[]>) => {
       try {
+        if (queuedEdit) {
+          const files = await pick(queuedEdit.attachments.length);
+          if (files.length > 0) await queuedEdit.attach(files);
+          return;
+        }
         const files = await pick(meta.attachments.length + meta.uploading);
         if (files.length > 0) void store.controller.attach(files);
       } catch (error) {
         Alert.alert("Could not attach", error instanceof Error ? error.message : String(error));
       }
     },
-    [meta.attachments.length, meta.uploading, store],
+    [meta.attachments.length, meta.uploading, queuedEdit, store],
   );
   const onPickDraftMedia = useCallback(() => attach(pickComposerMedia), [attach]);
   const onPickDraftFiles = useCallback(() => attach(pickComposerFiles), [attach]);
   const onPasteDraftImage = useCallback(() => attach(pickComposerClipboardImage), [attach]);
-  const attachmentsFull = meta.attachments.length + meta.uploading >= MAX_ATTACHMENT_UPLOAD_COUNT;
+  const onPasteDraftImages = useCallback((uris: string[]) => void attach(pastedComposerImages(uris)), [attach]);
 
   const openSettings = useCallback(() => {
     inputRef.current?.blur();
@@ -370,10 +409,13 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     setTimeout(() => inputRef.current?.focus(), 100);
   }, [inputRef]);
 
-  // A hardware Return sends; Command-L focuses the composer.
-  useKeyboardCommand("send", () => {
+  // A hardware Return sends while the composer has focus; Command-Return
+  // sends from anywhere; Command-L focuses the composer.
+  const sendFromKeyboard = () => {
     if (canSend) void handleSend();
-  });
+  };
+  useKeyboardCommand("send", sendFromKeyboard);
+  useKeyboardCommand("sendOnReturn", sendFromKeyboard, isFocused);
   useKeyboardCommand("focusInput", () => inputRef.current?.focus());
 
   return (
@@ -433,7 +475,20 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 onPasteImage={onPasteDraftImage}
               />
             ) : null}
-            {isExpanded && (stripAttachments.length > 0 || meta.uploading > 0) ? (
+            {isExpanded && queuedAttachments !== null ? (
+              <Animated.View
+                className="px-[14px] pb-2.5"
+                entering={COMPOSER_ATTACHMENT_ENTERING}
+                exiting={FadeOut.duration(120)}
+              >
+                <ComposerQueuedEditAttachments
+                  attachments={queuedAttachments.attachments}
+                  disabled={queuedAttachments.saving}
+                  onRemove={queuedAttachments.remove}
+                />
+              </Animated.View>
+            ) : null}
+            {isExpanded && (stripAttachments.length > 0 || stripUploading > 0) ? (
               <Animated.View
                 className="px-[14px] pb-2.5"
                 entering={COMPOSER_ATTACHMENT_ENTERING}
@@ -441,7 +496,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               >
                 <ComposerAttachmentStrip
                   attachments={stripAttachments}
-                  uploading={meta.uploading}
+                  uploading={stripUploading}
                   onRemove={(id) => store.controller.removeAttachment(id)}
                   onPressDocument={(attachment) => openHostFile(attachment.hostPath)}
                 />
@@ -454,16 +509,18 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               <ComposerEditor
                 ref={inputRef}
                 multiline
-                value={draftMessage}
-                onChangeText={onChangeDraftMessage}
+                value={text}
+                onChangeText={onChangeText}
                 placeholder={props.placeholder}
                 onFocus={handleFocus}
                 onBlur={handleBlur}
+                onPasteImages={onPasteDraftImages}
                 scrollEnabled={isExpanded}
                 // Android: a collapsed single line centers natively in a
-                // pill-height box matching the send button; iOS keeps insets.
+                // pill-height box matching the send button; iOS centers it
+                // with insets.
                 singleLineCentered={!isExpanded}
-                contentInsetVertical={isExpanded || Platform.OS === "android" ? 0 : 6}
+                contentInsetVertical={collapsedIosInset ?? 0}
                 style={
                   isExpanded
                     ? {
@@ -477,11 +534,14 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                 }
                 textStyle={{
                   ...bodyText,
+                  // iOS draws the placeholder at the bottom of a tall line
+                  // box, below the typed text and the pill's buttons.
+                  lineHeight: collapsedIosInset === null ? bodyText.lineHeight : undefined,
                   color: foregroundColor,
                 }}
               />
             </Animated.View>
-            {!isExpanded && (stripAttachments.length > 0 || meta.uploading > 0) ? (
+            {!isExpanded && (stripAttachments.length > 0 || stripUploading > 0) ? (
               <View className="flex-row gap-1 pl-1">
                 {stripAttachments.slice(0, 3).map((attachment) => (
                   <ComposerAttachmentThumbnail

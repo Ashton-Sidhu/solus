@@ -856,7 +856,6 @@
     onOpenTask={() => openTaskPage(menuTask)}
     onOpenSource={menuTask.url ? () => openSourceTicket(menuTask) : undefined}
     onSetStatus={(status) => void setStatus(menuTask, status)}
-    onMarkUnread={() => void sidebarStore.markTaskUnread(menuTask.id)}
     onDelete={menuTask.providerId === "local" ? () => void deleteTask(menuTask) : undefined}
     portalTarget={layer.el}
     onClose={() => (taskContextMenu = null)}
@@ -870,6 +869,7 @@
     y={sessionContextMenu.y}
     tabId={menuSession.tabId ?? null}
     sessionId={menuSession.sessionId ?? null}
+    serverId={menuSession.serverId ?? null}
     showSplit
     rowActions={{
       onStop: menuSession.attention === "running" && menuSession.tabId

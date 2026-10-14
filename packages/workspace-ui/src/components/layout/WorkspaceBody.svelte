@@ -59,7 +59,6 @@
     /** Tab-aware composer actions forwarded to a split conversation pane. */
     onAttachFile?: (tabId?: string) => void | Promise<void>;
     onScreenshot?: ((tabId?: string) => void | Promise<void>) | null;
-    onDesignMode?: ((tabId?: string) => void | Promise<void>) | null;
   }
   let {
     active,
@@ -67,7 +66,6 @@
     inputRow,
     onAttachFile,
     onScreenshot,
-    onDesignMode,
   }: Props = $props();
 
   const sidebarComponent = afterPaint().then(() => import("../session/SessionSidebar.svelte"));
@@ -788,7 +786,6 @@
                             surfaceVisible={active}
                             {onAttachFile}
                             {onScreenshot}
-                            {onDesignMode}
                           />
                         {/if}
 
@@ -892,7 +889,6 @@
                             surfaceVisible={active && secondaryVisible && isActiveSurface}
                             {onAttachFile}
                             {onScreenshot}
-                            {onDesignMode}
                           />
                         </div>
                       {/if}

@@ -102,17 +102,6 @@ describe('session task shortcuts', () => {
     })
   })
 
-  test('reserves option shift I for Insights', () => {
-    // WHY: global bindings dispatch in manifest order. If Design mode also
-    // claims this combo, it consumes the key before Insights can open.
-    expect(KEYBINDINGS['global.toggle-insights']).toMatchObject({
-      combo: { alt: true, shift: true, code: 'KeyI' },
-      scope: 'global',
-      label: 'Open insights',
-    })
-    expect(KEYBINDINGS['global.design-mode'].combo).toBeNull()
-  })
-
   test('opens Files with a non-numbered global shortcut', () => {
     // WHY: Files needs one default that works on desktop and web without
     // colliding with the fully occupied Option+Shift letter layer.

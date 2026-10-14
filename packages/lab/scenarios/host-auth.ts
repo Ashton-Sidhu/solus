@@ -4,7 +4,7 @@ import { LabClient } from '../src/client'
 import { bootLabHost, type LabHost } from '../src/host'
 import { recordedRuns, type RecordedRun } from '../src/oracle'
 import { ORGANIZATION_ID, PERSONAS, personaForHost } from '../src/personas'
-import { expectOk, expectRefused, scenario, type ScenarioContext } from '../src/scenario'
+import { expectNotServed, expectOk, expectRefused, scenario, type ScenarioContext } from '../src/scenario'
 import { bootLabSolusApi, createLabDatabase, type SolusApiEngine, type LabSolusApi } from '../src/solus-api'
 
 /** Host auth exit: cloud refuses seats; two hosts keep independent logins and disconnects. */
@@ -72,14 +72,15 @@ async function bootRunnersStep(proof: Proof, runners: LabHost[]): Promise<{ runn
 
 async function proveHostAuth(ctx: ScenarioContext, engine: SolusApiEngine, databaseUrl?: string): Promise<void> {
   const service = await bootLabSolusApi({ issuer: ctx.issuer, engine, databaseUrl })
+  const previousRoute = ctx.issuer.workspaceRoute
   ctx.issuer.setWorkspaceRoute(service.url)
   const proof: Proof = { ctx, tag: `[${engine}]`, service, clients: [] }
   const runners: LabHost[] = []
   try {
     const cloud = cloudClient(proof, 'bob')
     ctx.check(`${engine}: member connects to service`, (await cloud.connect()).ok)
-    await expectRefused(ctx, 'service cannot store Claude credentials', cloud.rpc('seatConnectToken', { provider: 'claude-code', token: 'mock-only' }), 'PLANE_DISABLED')
-    await expectRefused(ctx, 'service cannot start Codex login', cloud.rpc('seatConnectStart', { provider: 'codex' }), 'PLANE_DISABLED')
+    await expectNotServed(ctx, 'service cannot store Claude credentials', cloud.rpc('seatConnectToken', { provider: 'claude-code', token: 'mock-only' }))
+    await expectNotServed(ctx, 'service cannot start Codex login', cloud.rpc('seatConnectStart', { provider: 'codex' }))
     const { runnerA, runnerB } = await bootRunnersStep(proof, runners)
     const a = memberOn(proof, runnerA, 'bob')
     const b = memberOn(proof, runnerB, 'bob')
@@ -108,7 +109,7 @@ async function proveHostAuth(ctx: ScenarioContext, engine: SolusApiEngine, datab
   } finally {
     for (const client of proof.clients) client.close()
     for (const runner of runners) await runner.stop()
-    ctx.issuer.setWorkspaceRoute(null)
+    ctx.issuer.setWorkspaceRoute(previousRoute)
     await service.stop()
   }
 }

@@ -1,5 +1,3 @@
-import type { Message, TodoItem } from '@solus/contracts/types'
-import { progressFromMessages, progressTodosFromTool } from '../../../contexts/workspace/session.utils'
 import { z } from 'zod'
 
 export type SubagentInput = {
@@ -68,32 +66,4 @@ export function subagentInputText(input: SubagentInput): string {
     if (value?.trim()) return value.trim()
   }
   return ''
-}
-
-/**
- * The sub-agent's todo list. Live runs get it from the parented `progress` event
- * the reducer lands on `subTodos`. A reloaded transcript has no events, so fall
- * back to the last todo-writing tool in the replayed sub-transcript — the same
- * list, read from the call that wrote it.
- */
-export function subagentTodos(message: Message): TodoItem[] {
-  if (message.subTodos?.length) return message.subTodos
-  return progressFromMessages(message.subMessages ?? [])?.todos ?? []
-}
-
-/**
- * Calls the agent has made since it last rewrote its plan — how much work the
- * step in flight has taken. A step has no denominator of its own, so this is the
- * only honest measure of one, and it is counted from the plan write rather than
- * from dispatch so a long run doesn't make every step look finished.
- */
-export function callsOnCurrentStep(message: Message): number {
-  const subs = message.subMessages ?? []
-  let calls = 0
-  for (let i = subs.length - 1; i >= 0; i--) {
-    const m = subs[i]
-    if (progressTodosFromTool(m.toolName, m.toolInput)) break
-    if (m.role === 'tool') calls++
-  }
-  return calls
 }

@@ -2,6 +2,7 @@ import {
   agentProfileEntrySchema,
   agentProfileKeyOf,
   type AgentProfile,
+  type AgentProfileEntry,
   type AgentProfileFileEntry,
   type AgentProfileIntegrationEntry,
   type AgentProfileKey,
@@ -10,7 +11,7 @@ import {
 import { integrationSlug, type IntegrationAuth } from '@solus/contracts/integration-types'
 import type { SeatProvider } from '@solus/contracts/seats'
 import type { RemoteSkill } from '@solus/contracts/types'
-import type { AgentProfileConflict, AgentProfileSyncStatus } from '@solus/client-core/agent-profile-sync'
+import type { AgentProfileConflict } from '@solus/client-core/agent-profile-sync'
 
 /**
  * The agent profile document as the Settings page reads it (plans/020 §3):
@@ -51,6 +52,8 @@ export interface WrittenSkill {
   providers: SeatProvider[]
   keys: AgentProfileKey[]
   fileCount: number
+  /** Every file is off, so the skill is off on every host. */
+  disabled: boolean
 }
 
 export interface AgentProfileSections {
@@ -75,8 +78,9 @@ export function sectionsOf(entries: AgentProfile): AgentProfileSections {
     else {
       const skillName = writtenSkillName(entry)
       if (skillName !== null) {
-        const skill = writtenSkills.get(skillName) ?? { name: skillName, providers: [], keys: [], fileCount: 0 }
+        const skill = writtenSkills.get(skillName) ?? { name: skillName, providers: [], keys: [], fileCount: 0, disabled: true }
         if (!skill.providers.includes(entry.provider)) skill.providers.push(entry.provider)
+        skill.disabled &&= entry.disabled === true
         // The schema refuses a document whose key disagrees with its entry, so the entry's own key is the stored one.
         skill.keys.push(agentProfileKeyOf(entry))
         skill.fileCount += 1
@@ -133,6 +137,24 @@ async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
 export async function encodeFileEntry(provider: SeatProvider, path: string, text: string): Promise<AgentProfileFileEntry> {
   const bytes = new TextEncoder().encode(text)
   return { kind: 'file', provider, path, contentBase64: bytesToBase64(bytes), hash: await sha256Hex(bytes) }
+}
+
+// ─── Off and on ───
+
+/** The same entry, off on every host (`disabled`) or on again. Nothing else changes: the content is not encoded again. */
+export function withDisabled(entry: AgentProfileEntry, disabled: boolean): AgentProfileEntry {
+  const next: AgentProfileEntry = { ...entry }
+  if (disabled) next.disabled = true
+  else delete next.disabled
+  return next
+}
+
+/** The entries of these keys, each off or on: one change for a hand-written skill's every file. */
+export function entriesWithDisabled(entries: AgentProfile, keys: readonly AgentProfileKey[], disabled: boolean): AgentProfileEntry[] {
+  return keys.flatMap((key) => {
+    const entry = entries[key]
+    return entry ? [withDisabled(entry, disabled)] : []
+  })
 }
 
 // ─── New entries ───
@@ -195,20 +217,6 @@ export function conflictRows(conflicts: readonly AgentProfileConflict[]): Confli
     mine: conflictSideText(conflict.mine, conflict.key),
     theirs: conflictSideText(conflict.theirs, conflict.key),
   }))
-}
-
-/** The words for the sync state. An optimistic edit never reads as synced. */
-export function profileSyncStateLabel(status: AgentProfileSyncStatus): string {
-  switch (status.state) {
-    case 'signed-out': return 'Signed out'
-    case 'off': return 'Off on this device'
-    case 'loading': return 'Checking your account…'
-    case 'synced': return 'Synced'
-    case 'pending': return status.pendingKeys.length === 1 ? '1 change waiting to sync' : `${status.pendingKeys.length} changes waiting to sync`
-    case 'offline': return 'Offline. Changes sync when you reconnect.'
-    case 'conflict': return status.conflicts.length === 1 ? '1 entry changed on two devices' : `${status.conflicts.length} entries changed on two devices`
-    case 'error': return status.error?.message ?? 'Sync stopped. Solus tries again later.'
-  }
 }
 
 /** The names Settings search finds this page by: each skill, server, and file. */

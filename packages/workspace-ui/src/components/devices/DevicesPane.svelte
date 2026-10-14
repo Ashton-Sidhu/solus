@@ -14,12 +14,10 @@
   import { settingsHost } from "../settings/lib/settings-host.svelte";
   import { Button } from "../ui/button";
   import * as TooltipUI from "../ui/tooltip";
-  import DeviceBuilds from "./DeviceBuilds.svelte";
+  import DeviceRunApp from "./DeviceRunApp.svelte";
     import DevicePicker from "./DevicePicker.svelte";
   import DeviceStream from "./DeviceStream.svelte";
-  import DeviceRunBuild from "./DeviceRunBuild.svelte";
-  import DeviceRunLog from "./DeviceRunLog.svelte";
-  import DeviceRunProfiles from "./DeviceRunProfiles.svelte";
+  import DeviceRunButton from "./DeviceRunButton.svelte";
   import DeviceToolbar from "./DeviceToolbar.svelte";
   import DeviceTools from "./DeviceTools.svelte";
   import { deviceLiveState, devicesPaneView, liveStateLabel, previewGroups, screenshotFileName, selectedPreview, type DeviceLiveState } from "./lib/device-pane";
@@ -50,7 +48,7 @@
   const serverId = $derived(params.serverId ?? (sessionId ? session.serverIdForSession(sessionId) : session.fallbackServerId));
 
   const deviceState = $derived(devicesStore.state(serverId));
-  const showBuilds = $derived(deviceViewState.isShowingBuilds(serverId));
+  const showRunApp = $derived(deviceViewState.isShowingRunApp(serverId));
   const unavailable = $derived(devicesStore.unavailable.get(serverId));
   const previews = $derived(devicesStore.previewsFor(serverId, sessionId));
   // An extra Devices tab shows only the device chosen in it; until then, the picker.
@@ -71,16 +69,8 @@
   const canInteract = $derived(liveState === "live" && !!control && !(control.lease?.holder.kind === "agent" && !control.agentPaused));
 
   let adding = $state(false);
-  const view = $derived(devicesPaneView({ isReady: !unavailable && !!deviceState?.settings.enabled, hasSession: !!sessionId, showBuilds, adding, hasPreview: !!preview }));
+  const view = $derived(devicesPaneView({ isReady: !unavailable && !!deviceState?.settings.enabled, hasSession: !!sessionId, showRunApp, adding, hasPreview: !!preview }));
   let toolsOpen = $state(false);
-  /** The build log shown under the toolbar, and whether the profile editor replaces the stage. */
-  let runLogId = $state<string | null>(null);
-  let editingProfiles = $state(false);
-  // Build & run builds in the conversation's own checkout (its worktree, if it has one).
-  const checkoutPath = $derived.by(() => {
-    const run = sessionId ? session.sessions.byId[sessionId]?.run : undefined;
-    return run ? (run.gitContext?.worktreePath ?? run.workingDirectory) || null : null;
-  });
   let busy = $state(false);
   let opening = $state<string | null>(null);
   let pendingAction = $state<string | null>(null);
@@ -212,7 +202,7 @@
 
   function selectPreview(target: DevicePreview) {
     rememberSelection(target.devicePreviewId);
-    deviceViewState.showBuilds(serverId, false);
+    deviceViewState.showRunApp(serverId, false);
     adding = false;
   }
 
@@ -247,7 +237,7 @@
           <span class="text-workspace-chrome mr-1 ml-1.5 max-w-32 shrink-0 truncate text-(--solus-text-tertiary)" title={group.label}>{group.label}</span>
           {#each group.previews as target (target.devicePreviewId)}
             {@const chosen = target.devicePreviewId === preview?.devicePreviewId}
-            {@const selected = chosen && !showBuilds && !adding}
+            {@const selected = chosen && !showRunApp && !adding}
             {@const status = tabStatus(target)}
             <div class="group/page flex min-w-0 shrink-0 items-center gap-1.5 overflow-hidden rounded-full py-1 pr-1 pl-2.5 transition-colors {chosen ? 'bg-[var(--card)] shadow-[shadow:0_0_0_0.5px_var(--hairline-strong)]' : 'hover:bg-[var(--wash-2)]'}">
               {#if status !== "live"}
@@ -288,7 +278,7 @@
           <button {...tooltipProps} type="button"
             class="{PAGE_SOFT_ICON_BTN} disabled:cursor-not-allowed disabled:opacity-50 {adding ? 'bg-[var(--wash-3)]! text-foreground!' : ''}"
             aria-label="Add a device" aria-expanded={adding} disabled={!sessionId || !deviceState?.settings.enabled}
-            onclick={() => { adding = !adding; if (adding) deviceViewState.showBuilds(serverId, false); }}>
+            onclick={() => { adding = !adding; if (adding) deviceViewState.showRunApp(serverId, false); }}>
             <Plus size={15} strokeWidth={1.5} />
           </button>
         {/snippet}
@@ -296,10 +286,10 @@
       <TooltipUI.Content value="Add a device" />
     </TooltipUI.Root>
     <button type="button"
-      class="{PAGE_SOFT_ICON_BTN} text-workspace-chrome w-auto! gap-1.5 px-2.5 pointer-coarse:w-auto! disabled:cursor-not-allowed disabled:opacity-50 {showBuilds ? 'bg-[var(--wash-3)]! text-foreground!' : ''}"
-      aria-pressed={showBuilds} disabled={!deviceState?.settings.enabled}
-      onclick={() => deviceViewState.showBuilds(serverId, !showBuilds)}>
-      <Package size={15} strokeWidth={1.5} />Builds{#if deviceState?.builds.length}<span class="text-(--solus-text-tertiary) tabular-nums">{deviceState.builds.length}</span>{/if}
+      class="{PAGE_SOFT_ICON_BTN} text-workspace-chrome w-auto! gap-1.5 px-2.5 pointer-coarse:w-auto! disabled:cursor-not-allowed disabled:opacity-50 {showRunApp ? 'bg-[var(--wash-3)]! text-foreground!' : ''}"
+      aria-pressed={showRunApp} disabled={!deviceState?.settings.enabled}
+      onclick={() => deviceViewState.showRunApp(serverId, !showRunApp)}>
+      <Package size={15} strokeWidth={1.5} />Run app
     </button>
     <TooltipUI.Root>
       <TooltipUI.Trigger>
@@ -322,26 +312,16 @@
         <Button size="sm" variant="outline" onclick={openDeviceSettings}>Open device settings</Button>
       {/if}
     </div>
-  {:else if view === "builds" && deviceState}
+  {:else if view === "runApp" && deviceState}
     <div class="text-workspace-chrome flex min-h-0 flex-1 justify-center overflow-y-auto px-6 py-8">
       <div class="w-full max-w-md">
-        <DeviceBuilds {serverId} {sessionId} {deviceState} onInstalled={refocusComposer} />
+        <DeviceRunApp {serverId} {sessionId} {deviceState} onInstalled={refocusComposer} />
       </div>
     </div>
   {:else if view === "picker" && deviceState && sessionId}
     <DevicePicker {serverId} {deviceState} {sessionId} {opening} onOpen={openDevice}
       onCancel={preview ? () => { adding = false; refocusComposer(); } : undefined} />
   {:else if preview}
-    {#if runLogId}
-      <DeviceRunLog {serverId} runId={runLogId} visible={surfaceVisible} onClose={() => { runLogId = null; refocusComposer(); }} />
-    {/if}
-    {#if editingProfiles && checkoutPath}
-      <div class="text-workspace-chrome flex min-h-0 flex-1 justify-center overflow-y-auto px-6 py-6">
-        <div class="w-full max-w-lg">
-          <DeviceRunProfiles {serverId} {checkoutPath} onDone={() => (editingProfiles = false)} />
-        </div>
-      </div>
-    {:else}
     <!-- The stage: the device sits on the app background, with its
          controls in a pill beside it. -->
     <div class="text-workspace-chrome relative flex min-h-0 flex-1 overflow-hidden">
@@ -392,15 +372,12 @@
         >
           {#snippet runBuild()}
             {#if device}
-              <DeviceRunBuild {serverId} {sessionId} {device} {checkoutPath}
-                onShowLog={(runId) => { runLogId = runId; editingProfiles = false; }}
-                onEditProfiles={() => (editingProfiles = true)} />
+              <DeviceRunButton {serverId} />
             {/if}
           {/snippet}
         </DeviceToolbar>
       </div>
     </div>
-    {/if}
     {#if toolsOpen && device && liveState === "live"}
       <DeviceTools platform={device.platform} detail={devicesStore.detail(serverId, preview)} pending={pendingAction} run={(action) => void runAction(action)} />
     {/if}

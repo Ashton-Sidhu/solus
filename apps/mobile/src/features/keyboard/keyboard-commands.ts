@@ -3,12 +3,15 @@ import { Listeners } from '../../lib/listeners'
 /**
  * Hardware keyboard commands (plan 017 stage 4), with the desktop meanings:
  * ⌘N new session, ⌘B the session sidebar, ⌘L the input, Ctrl+C stop the
- * agent, ⌘[ back. Send is ⌘↩: a plain Return must still break a line in a
- * multiline input. The native view (`modules/solus-keyboard-commands`) offers
+ * agent, ⌘[ back. Return sends from a focused composer (`sendOnReturn`) and
+ * Shift-Return breaks the line, as on desktop; ⌘↩ sends from anywhere. Other
+ * multiline inputs keep Return as a line break, so a composer enables
+ * `sendOnReturn` only while it has focus. The native view
+ * (`modules/solus-keyboard-commands`) offers
  * only the commands some screen handles now. The newest-handler rule is
  * adapted from T3 Code `hardwareKeyboardCommands.ts` (MIT, see UPSTREAM.md).
  */
-export const KEYBOARD_COMMANDS = ['send', 'newSession', 'toggleSidebar', 'focusInput', 'stop', 'back'] as const
+export const KEYBOARD_COMMANDS = ['send', 'sendOnReturn', 'newSession', 'toggleSidebar', 'focusInput', 'stop', 'back'] as const
 export type KeyboardCommand = (typeof KEYBOARD_COMMANDS)[number]
 
 /** Answers false to pass the command to the handler mounted before it. */

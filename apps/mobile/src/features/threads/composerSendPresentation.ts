@@ -8,12 +8,12 @@ export type ActiveTurnComposerAction = 'queue' | 'steer'
 
 export interface ComposerSendPresentation {
   readonly label: string
-  readonly icon: 'arrow.up' | 'list.number' | 'arrow.turn.left.up'
+  readonly icon: 'arrow.up' | 'checkmark' | 'list.number' | 'arrow.turn.left.up'
   /** What a plain tap does while a turn runs, or null when the turn is idle. */
   readonly action: ActiveTurnComposerAction | null
   /** What the long-press menu does instead. */
   readonly alternate: ActiveTurnComposerAction | null
-  /** The follow-up menu is meaningless outside a running turn. */
+  /** The follow-up menu is meaningless outside a running turn or during an edit. */
   readonly offersFollowUpChoice: boolean
 }
 
@@ -32,6 +32,8 @@ function alternateComposerDispatchAction(action: ActiveTurnComposerAction): Acti
  * never promises something the host would have to downgrade.
  */
 export function resolveComposerSendPresentation(input: {
+  /** The composer holds a queued message (`queued-message-edit.ts`); the button saves it. */
+  readonly editingQueuedMessage: boolean
   readonly running: boolean
   readonly canSteer: boolean
   /** What a follow-up does by default; Solus steers. */
@@ -39,6 +41,15 @@ export function resolveComposerSendPresentation(input: {
   /** Reasons the send waits rather than leaving immediately (a held queue, no connection). */
   readonly deliveryDeferred: boolean
 }): ComposerSendPresentation {
+  if (input.editingQueuedMessage) {
+    return {
+      label: 'Update queued message',
+      icon: 'checkmark',
+      action: null,
+      alternate: null,
+      offersFollowUpChoice: false,
+    }
+  }
   if (!input.running) {
     return {
       label: input.deliveryDeferred ? 'Queue' : 'Send',

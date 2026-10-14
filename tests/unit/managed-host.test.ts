@@ -36,7 +36,7 @@ describe('managed host', () => {
     dataDir = mkdtempSync(join(tmpdir(), 'solus-managed-mode-test-'))
     process.env.SOLUS_DATA_DIR = dataDir
     hostCategory.resetHostCategoryForTests()
-    hostCategory.adoptProvisionedLink({ organizationId: 'org_1' })
+    hostCategory.adoptProvisionedRegistration({ organizationId: 'org_1' })
     hostLinkEnv.resetHostLinkEnvForTests()
     auth.resetAuthStateForTests()
   })
@@ -55,7 +55,8 @@ describe('managed host', () => {
   })
 
   const envLink = {
-    link: { hostId: 'abcdefghijklmnop', issuer: 'https://app.example.test', jwksUrl: 'https://app.example.test/api/auth/jwks', directoryUrl: 'https://app.example.test', hostname: 'h-abcdefghijklmnop.example.test', proxiedPort: 34118, connectionGeneration: 1 },
+    registration: { hostId: 'abcdefghijklmnop', issuer: 'https://app.example.test', jwksUrl: 'https://app.example.test/api/auth/jwks', directoryUrl: 'https://app.example.test', generation: 1 },
+    tunnel: { hostname: 'h-abcdefghijklmnop.example.test', proxiedPort: 34118 },
     credentialTicket: 'hct_secret',
   }
 
@@ -69,7 +70,7 @@ describe('managed host', () => {
   })
 
   test('an environment link that is not one is dropped, not stored', () => {
-    process.env.SOLUS_HOST_LINK = '{"link":{"hostId":"x"}}'
+    process.env.SOLUS_HOST_LINK = '{"registration":{"hostId":"x"}}'
     expect(hostLinkEnv.readHostLinkEnv()).toBeNull()
     expect(process.env.SOLUS_HOST_LINK).toBeUndefined()
   })
@@ -80,9 +81,9 @@ describe('managed host', () => {
     expect(hostCategory.hostCategory()).toBe('managed')
     expect(hostCategory.provisionedOrganizationId()).toBe('org_1')
     hostCategory.applyHostCategory('self-hosted')
-    hostCategory.adoptProvisionedLink({})
+    hostCategory.adoptProvisionedRegistration({})
     expect(hostCategory.hostCategory()).toBe('self-hosted')
-    hostCategory.adoptProvisionedLink(null)
+    hostCategory.adoptProvisionedRegistration(null)
     expect(hostCategory.provisionedOrganizationId()).toBeNull()
   })
 

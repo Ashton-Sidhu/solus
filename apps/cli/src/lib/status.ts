@@ -27,8 +27,8 @@ export async function reportStatus(paths: RuntimePaths, log: (line: string) => v
     log(`Running version: ${status.currentVersion}${status.check.kind === 'available' ? ` (${status.check.latestVersion} available)` : ''}`)
     const operation = status.serverUpdate?.operation
     if (operation) log(`Update: ${operation.phase} (${operation.version})${operation.message ? ` — ${operation.message}` : ''}`)
-    const link = await withLocalRpc<UplinkStatus>(serverUrl, (call) => call('uplinkStatus'))
-    log(`Solus Cloud: ${link.linked ? link.state.observed : 'not linked'}`)
+    const uplink = await withLocalRpc<UplinkStatus>(serverUrl, (call) => call('uplinkStatus'))
+    log(`Solus Cloud: ${uplink.registration.registered ? 'registered' : 'not registered'} · ${uplink.link.linked ? `tunnel ${uplink.link.state.observed}` : 'not linked'}`)
     for (const provider of status.providers) {
       log(`  ${provider.agent}: ${provider.installedVersion ?? 'not installed'}${provider.check.kind === 'available' ? ` (${provider.check.latestVersion} available)` : ''}`)
     }

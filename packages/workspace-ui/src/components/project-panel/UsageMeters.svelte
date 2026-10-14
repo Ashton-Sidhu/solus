@@ -20,7 +20,7 @@
   const agent = getAgentContext();
   let now = $state(Date.now());
   // A tab may name a host that was deleted; it has no quota to show.
-  const host = $derived(hosts.find(serverId));
+  const host = $derived(hosts.get(serverId));
   const usage = $derived(host?.usage.state === "ready" ? usageByProvider(host.usage.value) : {});
   const rows = $derived(providerUsage(agent.agents, usage, now));
 

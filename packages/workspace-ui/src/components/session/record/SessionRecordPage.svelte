@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { SessionRecordStore } from "../../../contexts/sessions/session-record.store.svelte";
-  import { CloudOff as CloudOffIcon, MessageSquare as MessageSquareIcon, Send as SendIcon } from "@lucide/svelte";
-  import { getClientShellContext, getSurfaceContext, serversStore } from "../../../contexts";
+  import { Clock as ClockIcon, Cloud as CloudIcon, CloudOff as CloudOffIcon, Folder as FolderIcon, Lock as LockIcon, MessageSquare as MessageSquareIcon, Send as SendIcon } from "@lucide/svelte";
+  import { getClientShellContext, getSurfaceContext, hosts, serversStore } from "../../../contexts";
   import type { RouteSurfaceProps } from "../../ui/lib/pane-surface";
   import { paneActions } from "../../ui/lib/pane-actions.svelte";
   import PaneChrome from "../../ui/PaneChrome.svelte";
+  import ProviderMark from "../../ui/ProviderMark.svelte";
   import * as Empty from "../../ui/empty";
   import { Skeleton } from "../../ui/skeleton";
   import { Button } from "../../ui/button";
@@ -42,6 +43,16 @@
   const loadError = $derived(record?.error ?? null);
   const transcriptError = $derived(record?.transcriptError ?? null);
   const showsRecordState = $derived(live !== true && live !== null);
+
+  // A member link opens the record by address. When this client reaches the
+  // runner that holds the session, open the live conversation in its place.
+  const runnerReachable = $derived(live === undefined && !!workspace.workspace && hosts.hasExecution(params.serverId));
+  $effect(() => {
+    if (!runnerReachable) return;
+    void workspace.workspace?.revealSession(params.sessionId, params.serverId).then((tabId) => {
+      if (tabId) close();
+    });
+  });
   const openWork = $derived(workspace.workspace ? (workId: string) => workspace.openWork(workId) : undefined);
 
   const header = $derived(meta ? sessionRecordHeader(meta) : null);
@@ -57,7 +68,8 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col bg-(--background) text-workspace-chrome" data-testid="session-record-page">
-  <header class="flex h-[2.875rem] shrink-0 items-center gap-2 border-b border-(--hairline) px-4 pointer-coarse:h-14">
+  <!-- The right padding keeps the chip clear of the pane's close and maximize controls. -->
+  <header class="flex h-[2.875rem] shrink-0 items-center gap-2 border-b border-(--hairline) pr-[max(1rem,var(--solus-pane-chrome-inset,0px))] pl-4 pointer-coarse:h-14">
     <MessageSquareIcon size={14} class="shrink-0 text-muted-foreground" />
     {#if header}
       <span class="min-w-0 flex-1 truncate font-medium text-(--solus-text-primary)" data-testid="session-record-title">{header.title}</span>
@@ -66,9 +78,9 @@
       <span class="flex-1"></span>
     {/if}
     {#if showsRecordState}
-    <span class="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border border-(--solus-container-border) px-2 text-[0.875em] text-(--solus-text-tertiary)" title={composer ? "Saved transcript from Solus cloud" : RUNNER_OFFLINE_REASON} data-testid="session-record-state">
-      <CloudOffIcon size={12} />
-      {composer ? "Cloud transcript" : "Runner offline"}
+    <span class="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border border-(--solus-container-border) px-2.5 text-[0.875em] text-(--solus-text-tertiary)" title={composer ? "Saved transcript from Solus cloud" : RUNNER_OFFLINE_REASON} data-testid="session-record-state">
+      {#if composer}<CloudIcon size={12} />{:else}<LockIcon size={12} />{/if}
+      {composer ? "Cloud transcript" : "Read only"}
     </span>
     {/if}
   </header>
@@ -90,7 +102,26 @@
           </Empty.Header>
         </Empty.Root>
       {:else if header}
-        <p class="font-mono text-[0.875em] text-(--solus-text-tertiary)" data-testid="session-record-meta">{header.meta} · {homeLabel}</p>
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[0.875em] text-(--solus-text-tertiary)" data-testid="session-record-meta">
+          <span class="inline-flex min-w-0 items-center gap-1.5">
+            {#if header.agentMark}<ProviderMark mark={header.agentMark} size={13} transparent />{/if}
+            <span class="truncate">{header.agent}</span>
+          </span>
+          <span class="inline-flex min-w-0 items-center gap-1.5" title="Project">
+            <FolderIcon size={13} class="shrink-0" />
+            <span class="truncate">{header.project}</span>
+          </span>
+          {#if header.activeAgo}
+            <span class="inline-flex items-center gap-1.5" title="Last active">
+              <ClockIcon size={13} class="shrink-0" />
+              {header.activeAgo}
+            </span>
+          {/if}
+          <span class="inline-flex min-w-0 items-center gap-1.5" title="Where this record is kept">
+            <CloudIcon size={13} class="shrink-0" />
+            <span class="truncate">{homeLabel}</span>
+          </span>
+        </div>
 
         {#if transcriptError}
           <Empty.Root class="max-w-[26rem] flex-none border" data-testid="session-record-transcript-error">
@@ -137,10 +168,10 @@
   <!-- The composer, present and inert: the reverse state of a prompt is a bar
        that says why it takes none, and when it will again. -->
   <div class="px-4 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom,0px))]" data-testid="session-record-composer">
-    <p class="mx-auto max-w-(--solus-reading-max) pb-1.5 text-[0.875em] text-(--solus-text-tertiary)" data-testid="session-record-composer-note">A prompt can be sent once the runner is back.</p>
     <div class="mx-auto flex max-w-(--solus-reading-max) items-center gap-3 rounded-2xl border border-(--solus-container-border) bg-(--solus-container-bg) px-4 py-3 text-(--solus-text-tertiary)" aria-disabled="true">
-      <span class="min-w-0 flex-1 truncate">{RUNNER_OFFLINE_REASON}</span>
-      <Button size="icon-sm" variant="ghost" disabled aria-label="Send" title={composer ? "Saved transcript from Solus cloud" : RUNNER_OFFLINE_REASON}>
+      <CloudOffIcon size={14} class="shrink-0" />
+      <span class="min-w-0 flex-1 truncate" data-testid="session-record-composer-note">{RUNNER_OFFLINE_REASON}</span>
+      <Button size="icon-sm" variant="ghost" disabled aria-label="Send" title={RUNNER_OFFLINE_REASON}>
         <SendIcon size={14} />
       </Button>
     </div>

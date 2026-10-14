@@ -87,8 +87,14 @@ export function registerSeatHandlers(server: SolusServer, deps: { seats: SeatSto
   server.register('agentProfileStatus', (_args, ctx) => deps.profiles.status(profileTargetOf(ctx.principal)))
 }
 
-export function profileTargetOf(principal: Principal): AgentProfileTarget {
+/** Whose agent profile a principal edits here; null for a guest, a runner, or the host itself. */
+export function profileTargetFor(principal: Principal): AgentProfileTarget | null {
   if (principal.kind === 'org-member') return { kind: 'member', userId: principal.userId, organizationId: principal.organizationId, name: principal.displayName }
-  if (isHostOwner(principal)) return { kind: 'owner' }
-  throw new Error('Only the owner or an organization member has an agent profile on this host.')
+  return isHostOwner(principal) ? { kind: 'owner' } : null
+}
+
+export function profileTargetOf(principal: Principal): AgentProfileTarget {
+  const target = profileTargetFor(principal)
+  if (!target) throw new Error('Only the owner or an organization member has an agent profile on this host.')
+  return target
 }

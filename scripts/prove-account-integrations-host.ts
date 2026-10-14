@@ -60,7 +60,8 @@ export async function accountIntegrationHostProof(options: ProofOptions) {
     issuer: {
       issuer: options.origin, jwksUrl: `${options.origin}/api/auth/jwks`,
       issueManagedLink: (hostId, proxiedPort) => ({
-        link: { hostId, issuer: options.origin, jwksUrl: `${options.origin}/api/auth/jwks`, directoryUrl: options.origin, hostname: 'proof.invalid', proxiedPort, connectionGeneration: 1 },
+        registration: { hostId, issuer: options.origin, jwksUrl: `${options.origin}/api/auth/jwks`, directoryUrl: options.origin, generation: 1 },
+        tunnel: { hostname: 'proof.invalid', proxiedPort },
         credentialTicket: options.credentialTicket,
       }),
     },

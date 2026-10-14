@@ -1,5 +1,6 @@
 import type { Message } from "@solus/contracts/types";
 import { z } from "zod";
+import { patchFileChunks } from "./pierre-diff";
 
 const SHELL_WRAPPED = /^(?:\/\S+\/)?(?:sh|bash|zsh)\s+(?:-[A-Za-z]*\s+)*-[A-Za-z]*c[A-Za-z]*\s+(?:'([^']*)'|"([^"]*)"|(.+))$/;
 
@@ -68,8 +69,10 @@ function addPathsFromText(paths: Set<string>, input: string, projectPath?: strin
   for (const match of input.matchAll(/"filename"\s*:\s*"([^"]+)"/g)) {
     addStringPath(paths, match[1], projectPath);
   }
-  for (const match of input.matchAll(/^diff --git a\/(.+?) b\/(.+)$/gm)) {
-    addStringPath(paths, match[2] || match[1], projectPath);
+  // Command output can be large and is seldom a patch: split and parse it only
+  // when it has a `diff --git` line.
+  if (input.includes("diff --git")) {
+    for (const file of patchFileChunks(input)) addStringPath(paths, file.path, projectPath);
   }
 }
 

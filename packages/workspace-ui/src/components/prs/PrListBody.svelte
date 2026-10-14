@@ -11,7 +11,9 @@
   import { PR_LIST_ROW_HEIGHT, PR_LIST_SPLIT_ROW_HEIGHT, type PrRowSpec } from "./lib/prs-list-view";
   import { prRowActions, type PrRowActionKind } from "./lib/pr-row-actions";
   import { Button } from "../ui/button";
+  import type { PullRequest as StoredPullRequest } from "../../contexts/prs/pull-request.svelte";
   import PrListRow from "./PrListRow.svelte";
+  import PrStackChip from "./PrStackChip.svelte";
   import PrPagination from "./PrPagination.svelte";
 
   /** The rows themselves: section headers and pull requests in one virtual
@@ -41,6 +43,10 @@
     onContextMenu: (event: MouseEvent, pr: PullRequest) => void;
     onToggleReview: (pr: PullRequest) => void;
     onRowAction: (pr: PullRequest, kind: PrRowActionKind) => void;
+    /** The row's pull request in the store, for its stack menu. */
+    storedPullRequest: (pr: PullRequest) => StoredPullRequest | null;
+    /** Open another layer of the row's stack. */
+    onOpenStackLayer: (pr: PullRequest, number: number) => void;
     onLoadMore: () => void;
   }
   let {
@@ -63,6 +69,8 @@
     onContextMenu,
     onToggleReview,
     onRowAction,
+    storedPullRequest,
+    onOpenStackLayer,
     onLoadMore,
   }: Props = $props();
 </script>
@@ -122,7 +130,8 @@
                   size="xs"
                   class="cursor-pointer gap-1.5"
                   tabindex={-1}
-                  title="{action.menuLabel} (⇧{action.key})"
+                  disabled={!!action.disabledReason}
+                  title={action.disabledReason ?? `${action.menuLabel} (⇧${action.key})`}
                   onclick={() => onRowAction(pr, action.kind)}
                 >
                   {action.label}
@@ -132,11 +141,21 @@
             </span>
           {/if}
         {/snippet}
+        {#snippet stackChip()}
+          {#if pr && item.row.stack}
+            <PrStackChip
+              membership={item.row.stack}
+              pullRequest={storedPullRequest(pr)}
+              onOpen={(number) => onOpenStackLayer(pr, number)}
+            />
+          {/if}
+        {/snippet}
         <PrListRow
           row={item.row}
           {split}
           selected={rowSelected}
           leading={canReview ? reviewCheckbox : undefined}
+          stack={item.row.stack ? stackChip : undefined}
           actions={showRowActions ? quickActions : undefined}
           onSelect={() => {
             if (pr) onSelect(pr);

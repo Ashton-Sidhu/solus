@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import { z } from 'zod'
-import type { UplinkLinkConfig } from '@solus/contracts/uplink'
+import type { HostRegistration } from '@solus/contracts/uplink'
 import { resetTestDatabase } from './helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
@@ -69,7 +69,7 @@ afterAll(async () => {
 /** A managed host's link names the one organization it was provisioned for; a personal machine's names none. */
 function onManagedHost(organizationId: string | null): void {
   hostCategory.resetHostCategoryForTests()
-  hostCategory.adoptProvisionedLink(organizationId ? { organizationId } : null)
+  hostCategory.adoptProvisionedRegistration(organizationId ? { organizationId } : null)
 }
 
 /**
@@ -196,16 +196,16 @@ class FakeDelegations {
   }
 }
 
-function link(api: FakeApi): UplinkLinkConfig {
-  return { hostId: HOST_ID, issuer: api.url, jwksUrl: `${api.url}/jwks`, directoryUrl: api.url, hostname: 'h.lab.invalid', proxiedPort: 1, connectionGeneration: 1, apiUrl: api.url }
+function link(api: FakeApi): HostRegistration {
+  return { hostId: HOST_ID, issuer: api.url, jwksUrl: `${api.url}/jwks`, directoryUrl: api.url, hostname: 'h.lab.invalid', proxiedPort: 1, generation: 1, apiUrl: api.url }
 }
 
 function startDelivery(api: FakeApi, delegations = new FakeDelegations(), linked: () => boolean = () => true) {
   const instance = new delivery.RunnerDelivery({
-    link: () => (linked() ? link(api) : null),
+    registration: () => (linked() ? link(api) : null),
     delegations,
     // Rows no person was named for go as the person who linked the host.
-    linker: () => 'owner',
+    owner: () => 'owner',
     // Backoff and waiting delays are real; the test shortens every one to keep the proof under a second.
     setTimeoutFn: ((fn: () => void, ms: number) => setTimeout(fn, Math.min(ms, 20))) as typeof setTimeout,
   })
@@ -329,6 +329,31 @@ describe('runner delivery', () => {
     }
   })
 
+  test('an agent\'s first write for an admitted session waits for the session\'s first report, also when its record is written after the write began', async () => {
+    // WHY: the Solus API refuses a task or work that names a session it does not know.
+    // A fast agent calls its first tool before the indexer writes the new session's
+    // record, so nothing is queued yet; the write must wait for that report, not fail.
+    const api = new FakeApi()
+    await api.start()
+    const runner = startDelivery(api)
+    try {
+      records.rememberSessionBirth('s-early', { organizationId: 'org1', published: true, ownerUserId: 'user-alice', admissionId: 's-early' })
+      let settled = false
+      const delivered = runner.deliverSessionReport('s-early', 5_000).then((value) => { settled = true; return value })
+      await tick()
+      await tick()
+      expect(settled).toBe(false)
+      const reported = api.next('reports')
+      await records.upsertOwnSessionRecord({ sessionId: 's-early', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
+      await reported
+      expect(await delivered).toBe(true)
+      expect(api.reportBatches.flatMap((batch) => batch.body.reports.map((entry) => entry.record.sessionId))).toContain('s-early')
+    } finally {
+      await runner.stop()
+      await api.stop()
+    }
+  })
+
   test('session records are followed only while a link exists, so an unlinked host pays nothing per record write', async () => {
     // WHY: following records makes every record write read the row back, several
     // times per turn. An unlinked host would drop the report anyway.
@@ -337,9 +362,9 @@ describe('runner delivery', () => {
     api.online = false
     let linked = false
     const runner = new delivery.RunnerDelivery({
-      link: () => (linked ? link(api) : null),
+      registration: () => (linked ? link(api) : null),
       delegations: new FakeDelegations(),
-      linker: () => 'owner',
+      owner: () => 'owner',
       setTimeoutFn: ((fn: () => void, ms: number) => setTimeout(fn, Math.min(ms, 20))) as typeof setTimeout,
     })
     // Count the record read-backs a status write triggers.
@@ -359,13 +384,13 @@ describe('runner delivery', () => {
       expect(readBacks).toBe(0)
 
       linked = true
-      runner.linkChanged()
+      runner.registrationChanged()
       await records.setSessionRecordStatus(principal.ANY_ORGANIZATION, 's-follow', 'idle')
       expect(readBacks).toBe(1)
       expect(outbox.listSessionReports(linkerIn('org1'), 10).filter((report) => report.record.sessionId === 's-follow')).toHaveLength(1)
 
       linked = false
-      runner.linkChanged()
+      runner.registrationChanged()
       readBacks = 0
       await records.setSessionRecordStatus(principal.ANY_ORGANIZATION, 's-follow', 'running')
       expect(readBacks).toBe(0)
@@ -465,7 +490,7 @@ describe('runner delivery', () => {
     await api.start()
     let exchanges = 0
     const delegations = new delegationsModule.Delegations({
-      link: () => link(api),
+      registration: () => link(api),
       credential: () => ({ clientId: 'host-client', tokenEndpoint: 'https://cloud.invalid/api/auth/oauth2/token', assertion: async () => 'signed-assertion' }),
       onRevoked: () => {},
       fetchImpl: async (_url, init) => {
@@ -480,9 +505,9 @@ describe('runner delivery', () => {
     await delegations.establish(erinsToken, { organizationId: 'org1' })
     const erin = { organizationId: 'org1', actorUserId: 'erin' }
     const runner = new delivery.RunnerDelivery({
-      link: () => link(api),
+      registration: () => link(api),
       delegations,
-      linker: () => 'owner',
+      owner: () => 'owner',
       // Delays run as written, so a pass that ignores the waiting time shows up as extra exchanges.
       setTimeoutFn: ((fn: () => void, ms: number) => setTimeout(fn, Math.min(ms, 60_000))) as typeof setTimeout,
     })
@@ -515,9 +540,9 @@ describe('runner delivery', () => {
     const accessToken = counting.accessToken.bind(counting)
     counting.accessToken = async (userId, scope, resource) => { passes++; return accessToken(userId, scope, resource) }
     const runner = new delivery.RunnerDelivery({
-      link: () => link(api),
+      registration: () => link(api),
       delegations: counting,
-      linker: () => 'owner',
+      owner: () => 'owner',
       setTimeoutFn: ((fn: () => void, ms: number) => setTimeout(fn, Math.min(ms, 60_000))) as typeof setTimeout,
     })
     runner.start()

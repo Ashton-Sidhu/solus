@@ -1506,7 +1506,6 @@
         onOpenTask={() => onOpen(menuTask)}
         onOpenSource={menuTask.url ? () => onOpenLink(menuTask) : undefined}
         onSetStatus={(status) => void onSetStatus(menuTask, status)}
-        onMarkUnread={sessionSidebar ? () => void sessionSidebar.markTaskUnread(menuTask.id) : undefined}
         onDelete={taskContextMenu.canDelete
           ? () => onDelete(menuTask)
           : undefined}

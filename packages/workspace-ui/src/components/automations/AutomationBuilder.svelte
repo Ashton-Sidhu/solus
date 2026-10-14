@@ -115,7 +115,7 @@
   );
   const hostOptions = $derived(
     automationMachineOptions(serversStore.executionServers, (serverId) =>
-      hosts.find(serverId)?.supports("automations") === true,
+      hosts.get(serverId)?.supports("automations") === true,
     ),
   );
   // Only a new automation needs a machine to save to; a saved one keeps its own.
@@ -128,7 +128,7 @@
         : NO_MACHINE_LABEL),
   );
   const selectedHostSupportsAutomations = $derived(
-    hosts.find(selectedServerId)?.supports("automations") === true,
+    hosts.get(selectedServerId)?.supports("automations") === true,
   );
   const selectedHostApi = $derived(
     selectedServerId && selectedHostSupportsAutomations
@@ -536,7 +536,7 @@
       firstMessage: name || "Automation run",
       lastTimestamp: new Date().toISOString(),
       size: 0,
-      cwd: automationRunCwd(run, automationCwd, hosts.find(selectedServerId)?.machineInfo?.homePath),
+      cwd: automationRunCwd(run, automationCwd, hosts.get(selectedServerId)?.machineInfo?.homePath),
       projectPath: "",
     });
     // Leave the detail: close the pane or return to the mobile full-page list.

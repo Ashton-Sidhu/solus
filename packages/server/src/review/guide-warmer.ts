@@ -4,14 +4,13 @@ import type { PullRequest, RepoRef } from '@solus/contracts/providers'
 import {
   type PrGuideMetadata,
   type PrGuideMetadataRequest,
-  type ReviewGuideStatusEvent,
 } from '@solus/contracts/review'
 import { SOLUS_WORKTREE_DIR, type IpcContext } from '@solus/contracts/types'
 import { listProjectWorktrees } from '../git/worktree-manager'
 import { createLogger } from '../logger'
 import type { Provider } from '../providers/types'
 import { prIndex } from '../prs/pr-index'
-import { prGuideJobs } from './pr-guide-jobs'
+import type { ReviewGuideJobs } from './guide-jobs'
 import { readPrGuide } from './pr-guide-store'
 import { currentPrGuideTarget } from './pr-guide-context'
 import type { AgentDispatcher } from '../execution/agents/agent-runner'
@@ -33,7 +32,7 @@ interface GuideWarmerInput {
   provider: Provider
   openPullRequests: PullRequest[]
   isWorktreeInUse: (path: string) => boolean
-  onStatus: (event: ReviewGuideStatusEvent) => void
+  guides: ReviewGuideJobs
 }
 
 interface HeadObservation {
@@ -62,7 +61,7 @@ export interface PrGuideRequest {
   repo: RepoRef
   provider: Provider
   isWorktreeInUse: (path: string) => boolean
-  onStatus: (event: ReviewGuideStatusEvent) => void
+  guides: ReviewGuideJobs
 }
 
 /**
@@ -72,7 +71,7 @@ export interface PrGuideRequest {
  */
 export function requestPrGuides(request: PrGuideRequest, numbers: number[]): void {
   for (const number of new Set(numbers)) {
-    prGuideJobs.request({
+    void request.guides.request({
       dispatcher: request.dispatcher,
       seatFor: request.seatFor,
       ctx: request.ctx,
@@ -82,7 +81,6 @@ export function requestPrGuides(request: PrGuideRequest, numbers: number[]): voi
         model: request.ctx.settings.reviewModel,
         reasoningEffort: request.ctx.settings.reviewReasoning ?? 'medium',
       },
-      onStatus: request.onStatus,
     })
   }
 }
@@ -90,13 +88,12 @@ export function requestPrGuides(request: PrGuideRequest, numbers: number[]): voi
 /** Metadata reads use the same PR identity and both provider revisions as the
  * pane. No checkout is required to read an existing guide. */
 export async function readPrGuideMetadata(
-  ctx: IpcContext,
   repo: RepoRef,
   request: PrGuideMetadataRequest,
 ): Promise<PrGuideMetadata | null> {
   const target = { kind: 'pr' as const, ...repo, number: request.number }
   const current = await currentPrGuideTarget(target)
-  const guide = await readPrGuide(ctx, current)
+  const guide = await readPrGuide(current)
   if (!guide) return null
   return {
     number: request.number,
@@ -186,9 +183,9 @@ async function warmGuide(repoRoot: string, number: number, headSha: string): Pro
 
 async function warmGuideAs(input: GuideWarmerInput, number: number, headSha: string, repoRoot: string): Promise<void> {
   const target = { kind: 'pr' as const, ...input.repo, number }
-  const status = await prGuideJobs.status(input.ctx, target)
+  const status = await input.guides.status(input.ctx, { target })
   if (status && ['queued', 'generating', 'ready'].includes(status.status)) return
-  const result = await prGuideJobs.request({
+  const job = await input.guides.request({
     dispatcher: input.dispatcher,
     seatFor: input.seatFor,
     ctx: input.ctx,
@@ -198,8 +195,8 @@ async function warmGuideAs(input: GuideWarmerInput, number: number, headSha: str
       model: input.ctx.settings.reviewModel,
       reasoningEffort: input.ctx.settings.reviewReasoning ?? 'medium',
     },
-    onStatus: input.onStatus,
-  }).completion
+  })
+  const result = await job?.completion
   if (!result?.persisted) scheduleRetry(repoRoot, number, headSha)
 }
 

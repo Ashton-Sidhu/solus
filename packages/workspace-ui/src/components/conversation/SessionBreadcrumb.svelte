@@ -422,7 +422,7 @@
   }
 
   /** Starting a session is the host's to give (permissions.md): a guest has only the one it was let into. */
-  const canStartSessions = $derived(hosts.find(session.serverIdFor(tabId))?.me.may("host.sessions.start") ?? true);
+  const canStartSessions = $derived(hosts.get(session.serverIdFor(tabId))?.me.may("host.sessions.start") ?? true);
 
   async function newSession() {
     menu = null;

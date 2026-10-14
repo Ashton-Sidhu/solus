@@ -100,7 +100,28 @@ export class HostOnboardingStore {
     this.hostName = server.name
     this.phase = 'pairing'
     this.isOpen = true
-    void this.startSshBootstrap()
+    void this.pairTrustedOrBootstrap()
+  }
+
+  /** A host that trusts this device by network position pairs without a code;
+   *  any other answer falls through to the SSH handshake. */
+  private async pairTrustedOrBootstrap(): Promise<void> {
+    const target = this.pairingTarget
+    if (!target) return
+    const generation = ++this.pairingGeneration
+    this.pairingView = 'connecting'
+    try {
+      const { server } = await pairServer({
+        url: discoveredServerUrl(target),
+        deviceLabel: defaultDeviceLabel(),
+        reportedName: target.name,
+      })
+      if (generation !== this.pairingGeneration || !this.isOpen) return
+      this.adoptPairedHost(server, target)
+    } catch {
+      if (generation !== this.pairingGeneration || !this.isOpen) return
+      void this.startSshBootstrap()
+    }
   }
 
   close(): void {

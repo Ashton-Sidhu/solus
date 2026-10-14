@@ -25,8 +25,6 @@ async function fixture() {
 
 test('interleaved artifact calls retain their own preview and completion', async () => {
   const { tracker, session, messages } = await fixture()
-  tracker.beginToolArtifacts(session, 'render_artifact', 'codex', 'first')
-  tracker.beginToolArtifacts(session, 'render_artifact', 'codex', 'second')
   tracker.updateStreamingArtifact(session, 'render_artifact', '{"html":"<body>First', 'first')
   tracker.updateStreamingArtifact(session, 'render_artifact', '{"html":"<body>Second', 'second')
   expect(messages.map((m) => m.artifact?.html)).toEqual(['<body>First', '<body>Second'])
@@ -41,27 +39,38 @@ test('a preview call leaves no card, wherever its preview flag comes in the inpu
   // WHY: a preview is the agent's own check. The server renders nothing in the
   // conversation for it, so a card would show a draft the user never gets.
   const { tracker, session, messages } = await fixture()
-  tracker.beginToolArtifacts(session, 'mcp__solus__render_artifact', 'claude-code', 'first')
   tracker.updateStreamingArtifact(session, 'mcp__solus__render_artifact', '{"preview":true,"html":"<body>Draft', 'first')
   expect(messages).toHaveLength(0)
-  tracker.beginToolArtifacts(session, 'render_artifact', 'codex', 'last')
   tracker.updateStreamingArtifact(session, 'render_artifact', '{"html":"<body>Draft</body>"', 'last')
   expect(messages[0].artifact?.streaming).toBe(true)
   tracker.updateStreamingArtifact(session, 'render_artifact', '{"html":"<body>Draft</body>","preview": true}', 'last')
   expect(messages).toHaveLength(0)
-  tracker.beginToolArtifacts(session, 'render_artifact', 'codex', 'real')
   tracker.updateStreamingArtifact(session, 'render_artifact', '{"html":"<body><script>x = {\\"preview\\":true}</script>', 'real')
   expect(messages[0].artifact?.streaming).toBe(true)
 })
 
+test('a call shows no card until its input has markup to render', async () => {
+  // WHY: a card opened before the input said what the call is was a guess. A
+  // Claude call sends its input only when it completes, so a guessed card for a
+  // preview stayed on screen as a skeleton for the rest of the turn.
+  const { tracker, session, messages } = await fixture()
+  tracker.updateStreamingArtifact(session, 'render_artifact', '{"html":"<!doctype html><head>', 'call')
+  tracker.updateStreamingArtifact(session, 'update_work', '{"work_id":"unknown","content":"<body>Doc', 'doc-update')
+  expect(messages).toHaveLength(0)
+  tracker.finalizeArtifact(session, { type: 'artifact_created', kind: 'html', toolId: 'call', html: '<p>Done</p>' })
+  expect(messages.map((m) => m.artifact?.html)).toEqual(['<p>Done</p>'])
+  tracker.updateStreamingArtifact(session, 'render_artifact', '{"html":"<body>Late tick', 'call')
+  expect(messages[0].artifact?.html).toBe('<p>Done</p>')
+})
+
 test('a failed call cannot take a later call or an unrelated image', async () => {
   const { tracker, session, messages } = await fixture()
-  tracker.beginToolArtifacts(session, 'render_artifact', 'claude-code', 'failed')
+  tracker.updateStreamingArtifact(session, 'render_artifact', '{"html":"<body>Failed', 'failed')
   tracker.failArtifact(session, 'failed')
   expect(messages).toHaveLength(0)
-  tracker.beginToolArtifacts(session, 'render_artifact', 'claude-code', 'retry')
+  tracker.updateStreamingArtifact(session, 'render_artifact', '{"html":"<body>Retry', 'retry')
   tracker.finalizeArtifact(session, { type: 'artifact_created', kind: 'image', path: '/fixture/image.png' })
-  expect(messages[0].artifact?.pending).toBe(true)
+  expect(messages[0].artifact?.streaming).toBe(true)
   tracker.finalizeArtifact(session, { type: 'artifact_created', kind: 'html', toolId: 'retry', html: '<p>Done</p>' })
   expect(messages[0].artifact?.html).toBe('<p>Done</p>')
   expect(messages[1].artifact?.kind).toBe('image')
@@ -91,7 +100,7 @@ for (const provider of ['claude-code', 'codex'] as const) {
     tracker.finalizeArtifact(session, { type: 'artifact_created', kind: 'html', workId: 'work', html: '<body>Original</body>' })
     const tool = provider === 'codex' ? 'update_work' : 'mcp__solus__update_work'
     tracker.updateStreamingArtifact(session, tool, '{"work_id":"work",', 'first')
-    expect(messages[1].artifact?.pending).toBe(true)
+    expect(messages).toHaveLength(1)
     tracker.updateStreamingArtifact(session, tool, '{"work_id":"work","content":"<body>First', 'first')
     tracker.updateStreamingArtifact(session, tool, '{"work_id":"work","content":"<body>Second', 'second')
     expect(messages[1].artifact?.streaming).toBe(true)
@@ -105,7 +114,7 @@ for (const provider of ['claude-code', 'codex'] as const) {
   })
 }
 
-test('touch clients keep an update skeleton until its own save completes', async () => {
+test('touch clients show an update only once its save completes', async () => {
   const { tracker, session, messages } = await fixture()
   const { runtime } = await import('../../packages/workspace-ui/src/contexts/app/runtime.svelte')
   const wasTouch = runtime.isTouchDevice
@@ -113,11 +122,10 @@ test('touch clients keep an update skeleton until its own save completes', async
   try {
     tracker.finalizeArtifact(session, { type: 'artifact_created', kind: 'html', workId: 'work', html: '<p>Original</p>' })
     tracker.updateStreamingArtifact(session, 'update_work', '{"work_id":"work","content":"<body>New', 'update')
-    expect(messages[1].artifact?.pending).toBe(true)
-    expect(messages[1].artifact?.html).toBeUndefined()
+    expect(messages).toHaveLength(1)
     tracker.updateWork(session, { type: 'work_updated', toolId: 'update', workId: 'work', title: 'New', docType: 'artifact', content: '<p>New</p>', updatedAt: '2026-09-22T00:00:00Z' })
     expect(messages).toHaveLength(2)
-    expect(messages[1].artifact?.pending).toBe(false)
+    expect(messages[1].artifact?.streaming).toBeUndefined()
     expect(messages[1].artifact?.html).toBe('<p>New</p>')
   } finally {
     runtime.isTouchDevice = wasTouch
@@ -149,13 +157,13 @@ test('update lifecycle preserves the revision index and leaves saved work metada
 test('a cloud-owned save completes its artifact update card although it reports doc and no title', async () => {
   // WHY: a cloud-owned host cannot read the row it updates, so its event says
   // `doc` with an empty title. Dropping it left the skeleton spinning until
-  // turn end and the revision never joined the chain.
+  // turn end and the revision never joined the chain. The work's earlier
+  // artifact card in the conversation says what the work is.
   const { tracker, session, messages } = await fixture()
   tracker.finalizeArtifact(session, { type: 'artifact_created', kind: 'html', workId: 'work', title: 'Chart', html: '<p>One</p>' })
   tracker.updateStreamingArtifact(session, 'update_work', '{"work_id":"work"', 'cloud')
   tracker.updateWork(session, { type: 'work_updated', toolId: 'cloud', workId: 'work', title: '', docType: 'doc', content: '<p>Two</p>', updatedAt: '2026-09-22T00:00:00Z' })
   expect(messages).toHaveLength(2)
-  expect(messages[1].artifact?.pending).toBe(false)
   expect(messages[1].artifact?.html).toBe('<p>Two</p>')
   expect(messages[1].workRef).toEqual({ workId: 'work', title: 'Chart', workType: 'artifact', contentVersion: undefined })
   // Without an update card or a saved artifact, a `doc` update is a document's.
@@ -194,3 +202,4 @@ test('each work card keeps the version saved by its call', async () => {
   tracker.updateWork(session, { type: 'work_updated', workId: 'work', title: 'Notes', docType: 'doc', content: 'Second', contentVersion: 2, updatedAt: '2026-10-02T00:00:00Z' })
   expect(messages.map((message) => message.workRef?.contentVersion)).toEqual([1, 2])
 })
+

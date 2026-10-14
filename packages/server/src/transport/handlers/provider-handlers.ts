@@ -12,9 +12,9 @@ import { writeReviewCheckpoint } from '../../review/checkpoints'
 import { readPrGuidePatch, readPrGuideFileContents } from '../../review/pr-guide-diff'
 import { PlaneDisabledError } from '../../host/roles'
 import { readPrGuideMetadata, requestPrGuides, scheduleGuideWarming } from '../../review/guide-warmer'
-import { publishPrGuideStatus } from '../../review/pr-guide-events'
+import type { ReviewGuideJobs } from '../../review/guide-jobs'
 import type { Provider } from '../../providers/types'
-import type { PrFilter, PrListPage, PrProjectListing, PrReviewTarget, DraftReview, PullRequest as PullRequestDetail, PullRequestUpdate, RepoRef } from '@solus/contracts/providers'
+import type { PrFilter, PrListPage, PrProjectListing, PrReviewTarget, PrStackMergeResult, DraftReview, PullRequest as PullRequestDetail, PullRequestUpdate, RepoRef } from '@solus/contracts/providers'
 import { projectScopeOf, type GithubDelegatedCredential, type IpcContext, type PrCheckoutContext, type PrConflictResolutionResult, type PrMergeResult } from '@solus/contracts/types'
 import { LOCAL_DEVICE_LABEL, type HandlerCtx, type SolusServer } from '../server'
 import { recordScopeOf } from '../../admission/principal'
@@ -28,6 +28,7 @@ import { buildPrReviewTarget } from '../../providers/pr-review-target'
 import { emitPullRequestTasksChanged } from '../../data/tasks/task-links'
 import { prIndex, repoKeyOf } from '../../prs/pr-index'
 import { noRemoteError, PrUnavailableError, repoForScope } from '../../prs/code-host'
+import { createGithubMediaUrl } from '../../providers/github/media'
 import type { PullRequest } from '../../prs/pull-request'
 import type { PrSync } from '../../prs/pr-sync'
 
@@ -37,6 +38,8 @@ const checkoutRequests = new Map<string, Promise<PrCheckoutContext>>()
  *  Each read mostly waits on the network; the bound keeps a large workspace
  *  from opening a burst of code-host requests. */
 const PROJECT_LIST_CONCURRENCY = 6
+/** The most viewed-state changes one request may carry: a whole large diff. */
+const MAX_VIEWED_FILE_CHANGES = 3000
 
 /**
  * Resolve the provider for the current repo. Auth (token) is per-host and
@@ -232,6 +235,8 @@ export interface ProviderHandlerDeps {
   dispatcher: AgentDispatcher & Pick<SessionRuntime, 'seatForTurn'>
   events: HostEventPublisher
   prSync: PrSync
+  /** The one owner of running review guides. */
+  guides: ReviewGuideJobs
 }
 
 export function registerProviderHandlers(server: SolusServer, deps: ProviderHandlerDeps): void {
@@ -368,7 +373,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
         provider,
         openPullRequests: result.items,
         isWorktreeInUse: deps.isWorktreeInUse,
-        onStatus: (event) => publishPrGuideStatus(deps.events, event),
+        guides: deps.guides,
       })
     }).catch((err) => log.warn('guide_warming_trigger_failed', { error: err instanceof Error ? err.message : String(err) }))
     return result
@@ -424,7 +429,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   server.register('prGuideMetadata', async (args) => {
     const [ctx, request] = args
     const { repo } = await reviewTargetFor(ctx)
-    return readPrGuideMetadata(ctx, repo, request)
+    return readPrGuideMetadata(repo, request)
   })
 
   server.register('prOpenReview', async (args) => {
@@ -757,6 +762,13 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     })
   })
 
+  // Signing reads no checkout, so a host that serves only pull request records
+  // signs too. The signed URL is served by `/api/assets/:token`.
+  server.register('prMediaUrl', async (args) => {
+    const [ctx, githubMediaUrl] = args
+    return createGithubMediaUrl(ctx, githubMediaUrl)
+  })
+
   server.register('prRevert', async (args, handlerCtx) => {
     const [ctx, number] = args
     const { repo, opened } = await writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
@@ -771,6 +783,83 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     // that link the reverted one draw its revert state.
     await emitPullRequestTasksChanged(recordScopeOf(handlerCtx.principal), repoKeyOf(repo), number)
     return opened
+  })
+
+  // One host operation lands the target and every open layer below it. Each
+  // layer is then read again and handed to PR sync, like a single merge.
+  server.register('prMergeStack', async (args, handlerCtx): Promise<PrStackMergeResult> => {
+    const [ctx, request] = args
+    return writePullRequest(ctx, request.number, async ({ repo, provider, pullRequest }) => {
+      const current = await pullRequest.readFresh()
+      if (!current.capabilities.actions.includes('merge-stack')) throw new Error('This code host cannot merge a stack.')
+      if (!current.viewerPermissions.actions.includes('merge-stack')) {
+        throw new Error('You do not have permission to merge this stack.')
+      }
+      if (!current.capabilities.mergeMethods.includes(request.method)) throw new Error(`The repository does not allow ${request.method} merges.`)
+      const merged = await provider.review.mergePullRequestStack(repo, request)
+      log.info('pr_stack_merged', { host: repo.host, owner: repo.owner, repo: repo.repo, prNumber: request.number, stackNumber: request.stackNumber, status: merged.status, layers: merged.layers.length })
+      const pullRequests = await Promise.all(merged.layers.map((number) => prIndex.pullRequest(repo, provider, number).readFresh()))
+      for (const layer of pullRequests) {
+        if (layer.state === 'merged') {
+          await completeTasksForMergedPullRequest(recordScopeOf(handlerCtx.principal), repoKeyOf(repo).toLowerCase(), layer.number, {
+            mergedAt: layer.updatedAt,
+            isSessionBusy: deps.isSessionBusy,
+          })
+        }
+        await deps.prSync.apply({ repo, provider }, layer)
+      }
+      return { status: merged.status, pullRequests }
+    })
+  })
+
+  // Read fresh: the approval is checked against this head, so a remembered
+  // head would list the runs of a commit that is gone.
+  server.register('prPendingWorkflowRuns', async (args) => {
+    const [ctx, number] = args
+    const { repo, provider } = await reviewTargetFor(ctx)
+    const detail = await prIndex.pullRequest(repo, provider, number).readFresh()
+    // Only a fork's runs wait for a maintainer.
+    if (!detail.capabilities.actions.includes('approve-workflows') || detail.state !== 'open' || !detail.headRepo.isFork) {
+      return { headSha: detail.headSha, runs: [] }
+    }
+    return { headSha: detail.headSha, runs: await provider.review.listPendingWorkflowRuns(repo, detail) }
+  })
+
+  server.register('prApproveWorkflowRuns', async (args) => {
+    const [ctx, number, expectedHeadSha] = args
+    return writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
+      const current = await pullRequest.readFresh()
+      if (current.headSha !== expectedHeadSha) {
+        throw new Error('This pull request changed. Refresh it before you approve its workflow runs.')
+      }
+      if (!current.capabilities.actions.includes('approve-workflows')) throw new Error('This code host cannot approve workflow runs.')
+      if (!current.viewerPermissions.actions.includes('approve-workflows')) {
+        throw new Error('You do not have permission to approve workflow runs in this repository.')
+      }
+      if (current.state !== 'open') throw new Error('Only an open pull request has workflow runs to approve.')
+      if (!current.headRepo.isFork) return { approved: 0 }
+      const approved = await provider.review.approvePendingWorkflowRuns(repo, current)
+      log.info('pr_workflow_runs_approved', { host: repo.host, owner: repo.owner, repo: repo.repo, prNumber: number, approved })
+      return { approved }
+    })
+  })
+
+  // Viewed state is the viewer's own progress, not a change to the pull
+  // request, so it does not go through `writePullRequest`: nothing a listing
+  // remembers is wrong after it.
+  server.register('prViewedFiles', async (args) => {
+    const [ctx, number] = args
+    const { repo, provider } = await reviewTargetFor(ctx)
+    return provider.review.listViewedFiles(repo, number)
+  })
+
+  server.register('prSetFilesViewed', async (args) => {
+    const [ctx, number, changes] = args
+    if (changes.length > MAX_VIEWED_FILE_CHANGES) throw new Error(`Mark at most ${MAX_VIEWED_FILE_CHANGES} files at a time.`)
+    if (changes.some((change) => !change.path)) throw new Error('A file path is required.')
+    if (changes.length === 0) return
+    const { repo, provider } = await reviewTargetFor(ctx)
+    await provider.review.setFilesViewed(repo, number, changes)
   })
 
   server.register('prChangedFiles', async (args) => {
@@ -890,7 +979,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       repo,
       provider,
       isWorktreeInUse: deps.isWorktreeInUse,
-      onStatus: (event) => publishPrGuideStatus(deps.events, event),
+      guides: deps.guides,
     }, numbers)
   })
 }

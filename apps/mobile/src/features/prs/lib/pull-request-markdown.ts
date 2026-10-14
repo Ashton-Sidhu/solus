@@ -1,4 +1,6 @@
 // Adapted from T3 Code packages/client-runtime/src/pullRequestMarkdown.ts and apps/mobile/src/features/pull-requests/pullRequestDescriptionContent.ts (MIT, see UPSTREAM.md).
+import type { FilePreviewItem } from '../../../components/FilePreview.types'
+import { resolveMarkdownMediaPreview, type MarkdownMediaContext } from '../../../lib/markdownMedia'
 import { isBotBadgeImage } from './bot-badge-images'
 
 /**
@@ -163,4 +165,16 @@ export function pullRequestAttachments(body: string): PullRequestAttachment[] {
     add(segment.url, segment.media === 'video' ? 'Video' : fileName(segment.url) || 'Image', segment.media)
   }
   return Array.from(attachments.values()).filter((attachment) => !isBotBadgeImage(attachment.uri))
+}
+
+/**
+ * The images of a body in document order, as one gallery: a tapped image
+ * swipes through the others. Bot badges are not in it.
+ */
+export function pullRequestImageGallery(body: string, media: MarkdownMediaContext): FilePreviewItem[] {
+  return pullRequestAttachments(body).flatMap((attachment) => {
+    if (attachment.kind !== 'image') return []
+    const preview = resolveMarkdownMediaPreview(attachment.uri, media, true)
+    return preview?.kind === 'image' ? [{ ...preview.source, name: attachment.caption }] : []
+  })
 }

@@ -85,6 +85,7 @@ function orchestrator() {
     pendingInputEvents: () => [], replaceQueuedPrompt: () => false,
     hasQueuedPrompt: () => false, cancelQueuedPrompt: () => false,
     turnEnding: async () => ({}), taskIdFor: async () => undefined, isLead: async () => false,
+    turnOrganization: async (sessionId) => sessionId === 'org-parent' ? 'org-a' : undefined,
     emit: (_id, event) => { updates.push(event) }, invalidatePlanCaches: () => {},
     recordActivity: async () => { throw new Error('No person acted in this test') },
     trackWork: (promise) => { work.push(promise); return promise },
@@ -143,6 +144,17 @@ describe('messages to a session on another host', () => {
     expect(await resolvePromptImages({ imageAttachmentRefs: request.imageAttachmentRefs }, b.store)).toEqual([
       { mimeType: 'image/png', dataUrl: `data:image/png;base64,${ONE_PIXEL_PNG.toString('base64')}` },
     ])
+  })
+
+  test('start_session names the parent\'s organization, so host B admits the child as a prompt in it', async () => {
+    // WHY: on a host attached for organization work a new root without an
+    // organization is refused, and a Local parent's child must not become organization work.
+    const b = hostB()
+    const orchestration = orchestrator()
+    await orchestration.spawn('org-parent', { ...ORDER, prompt: 'Org work.' }, true, 0, undefined, { host: b.host, origin: { hostLabel: 'Host A', sessionId: 'org-parent' } })
+    await orchestration.spawn('parent', { ...ORDER, prompt: 'Local work.' }, true, 0, undefined, { host: b.host, origin: { hostLabel: 'Host A', sessionId: 'parent' } })
+    await orchestration.settled()
+    expect(b.started.map((request) => [request.prompt, request.organizationId])).toEqual([['Org work.', 'org-a'], ['Local work.', undefined]])
   })
 
   test('send_session hears the turn that answers its message, not the turn in progress', async () => {

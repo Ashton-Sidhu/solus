@@ -155,7 +155,7 @@ export interface DeviceState {
   previews: DevicePreview[]
   booting: DeviceBooting[]
   controls: DeviceControlState[]
-  /** Recent app builds an agent handed to Solus, newest first. */
+  /** Retained app outputs for installation and download, newest first. */
   builds: DeviceBuild[]
   /** Build-and-run operations on this host, newest first. */
   runs: DeviceRun[]
@@ -420,15 +420,6 @@ export const deviceInstallRequestSchema = deviceTargetSchema.extend({
 })
 export type DeviceInstallRequest = z.input<typeof deviceInstallRequestSchema>
 
-/** Add a build output that is already on the host: an iOS `.app` bundle or an Android `.apk`. */
-export const deviceBuildImportRequestSchema = z.object({
-  /** A path on the host. The host resolves `~`. */
-  path: z.string().trim().min(1).max(4096),
-  /** The conversation the build belongs to, if any. */
-  sessionId: z.string().trim().max(128).optional(),
-})
-export type DeviceBuildImportRequest = z.input<typeof deviceBuildImportRequestSchema>
-
 // ─── Build and run ───
 
 /** One way to build the app, saved in the project's `.solus/config.json`. */
@@ -449,18 +440,34 @@ export const deviceRunProfileSchema = z.object({
 export type DeviceRunProfile = z.infer<typeof deviceRunProfileSchema>
 export const MAX_DEVICE_RUN_PROFILES = 10
 
-export type DeviceRunStage = 'building' | 'installing' | 'done' | 'failed' | 'cancelled'
+/** `dev`: simulators join the project's dev server, nothing is built. `device`: a production (Release) build, installed afterwards on any number of devices. */
+export const DEVICE_RUN_MODES = ['dev', 'device'] as const
+export type DeviceRunMode = (typeof DEVICE_RUN_MODES)[number]
 
-/** One build-and-run. The full log is read on demand (`deviceRunLog`). */
+/** What a production build runs on. An iOS simulator build and an iPhone build are different binaries. */
+export const DEVICE_RUN_TARGETS = ['ios-simulator', 'ios-device', 'android'] as const
+export type DeviceRunTarget = (typeof DEVICE_RUN_TARGETS)[number]
+
+export type DeviceRunStage = 'preparing' | 'starting' | 'running' | 'stopping' | 'building' | 'installing' | 'done' | 'failed' | 'cancelled'
+
+/** One production build or dev server. The full log is read on demand (`deviceRunLog`). */
 export interface DeviceRun {
   runId: string
   profileName: string
-  /** The checkout folder name and branch the build ran in. */
+  mode: DeviceRunMode
+  /** What a production build runs on; null for a dev server. */
+  target: DeviceRunTarget | null
+  source: 'main' | 'conversation'
+  commit: string
+  /** Commit of the retained output, which can precede a failed retry. */
+  outputCommit?: string
+  /** The project folder name and selected branch. */
   checkout: string
-  /** The checkout as the run was started for it, `~` resolved: what a client matches its own checkout against. */
+  /** The requested project or conversation path, resolved on the host. */
   checkoutPath: string
+  projectPath: string
   branch: string | null
-  /** The device it installs on; all null for a build that is only added under Builds. */
+  /** A dev run's first simulator; null for a production build, which installs separately. */
   deviceHostId: string | null
   deviceId: string | null
   deviceName: string | null
@@ -474,16 +481,22 @@ export interface DeviceRun {
 }
 
 export function isDeviceRunActive(run: Pick<DeviceRun, 'stage'>): boolean {
-  return run.stage === 'building' || run.stage === 'installing'
+  return ['preparing', 'starting', 'running', 'stopping', 'building', 'installing'].includes(run.stage)
 }
 
 export const deviceRunStartRequestSchema = z.object({
-  /** The device to install on and open. Without one, the build is only added under Builds. */
+  /** Dev runs: the simulator to open the app on. Each request opens one more. */
   deviceHostId: deviceHostIdSchema.optional(),
   deviceId: deviceIdSchema.optional(),
-  /** The conversation's checkout. Resolved on the host. */
+  mode: z.enum(DEVICE_RUN_MODES),
+  /** Production builds: what to build for. */
+  target: z.enum(DEVICE_RUN_TARGETS).optional(),
+  source: z.enum(['main', 'conversation']),
+  /** Named branch to build. Omitted by older clients. */
+  branch: z.string().min(1).max(255).optional(),
+  /** The project or conversation checkout. Resolved on the host. */
   checkoutPath: z.string().trim().min(1).max(4096),
-  profileName: z.string().trim().min(1).max(60),
+  profileName: z.string().trim().min(1).max(60).optional(),
   /** Opens a simulator or emulator in this session so the app shows. */
   sessionId: z.string().min(1).max(200).optional(),
   /** The person confirmed this command; the host remembers it. */
@@ -515,6 +528,7 @@ export interface DeviceProjectInfo {
   markers: string[]
   /** The app is an Expo project, so its builds have Expo's dev and production presets. Older hosts leave it out. */
   usesExpo?: boolean
+  usesReactNative?: boolean
 }
 
 // ─── Screenshot ───

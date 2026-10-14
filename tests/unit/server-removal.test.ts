@@ -1,4 +1,9 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, mock, test } from 'bun:test'
+
+mock.module('svelte-sonner', () => ({ toast: Object.assign(() => '', { success: () => '', error: () => '', dismiss: () => {} }) }))
+mock.module('@solus/workspace-ui/contexts/notifications/notifications.store.svelte', () => ({
+  notificationsStore: { wants: () => false },
+}))
 
 const previousLocalStorage = globalThis.localStorage
 const previousWindow = globalThis.window
@@ -98,6 +103,7 @@ describe('server removal', () => {
 
     const { serversStore } = await import('@solus/workspace-ui/contexts/connections/servers.store.svelte')
     const { toasts } = await import('@solus/workspace-ui/lib/toasts')
+    const { serverConnections } = await import('@solus/client-core/server-connections')
     // The store is a module singleton shared with other test files; align its
     // in-memory state with this file's fixtures regardless of import order.
     serversStore.refreshServers()
@@ -106,7 +112,7 @@ describe('server removal', () => {
     const originalError = toasts.error
     toasts.error = (message: string) => { messages.push(message) }
     try {
-      serversStore.remove('remote')
+      await serversStore.remove('remote')
 
       expect(reloads).toBe(0)
       expect(JSON.parse(storage.getItem('solus.servers') ?? '[]')).toHaveLength(1)
@@ -114,10 +120,15 @@ describe('server removal', () => {
       expect(messages).toEqual(['Pair another host before forgetting Build Mac'])
 
       serversStore.activeServerId = 'local'
-      serversStore.remove('remote')
+      // A tab on the host retains its connection. Forget must still take the
+      // host off the list, or its page stays open and the click does nothing.
+      serverConnections.ensure('remote')
+      serverConnections.retain('remote')
+      await serversStore.remove('remote')
 
       expect(reloads).toBe(0)
       expect(JSON.parse(storage.getItem('solus.servers') ?? '[]')).toHaveLength(0)
+      expect(serversStore.servers.map((server) => server.id)).not.toContain('remote')
     } finally {
       toasts.error = originalError
     }

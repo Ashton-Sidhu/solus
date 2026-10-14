@@ -344,12 +344,11 @@
     position: relative;
     min-width: 0;
     max-width: 100%;
-    border-radius: 1rem;
     overflow: hidden;
-    /* No border, no fill: the frame itself is invisible. The injected Solus
-       palette lets the render's own markup match the app, so it reads as
-       embedded content rather than a card dropped into the conversation. The
-       radius only bites when the render paints its own background. */
+    /* No border, no fill, no radius: the frame itself is invisible. The
+       injected Solus palette lets the render's own markup match the app, so it
+       reads as embedded content rather than a card dropped into the
+       conversation. A radius here would clip content drawn at the corners. */
     border: 0;
     background: transparent;
   }
@@ -376,6 +375,7 @@
     overflow: auto;
     background: var(--solus-container-bg);
     border: 0.0625rem solid var(--solus-tool-border);
+    border-radius: 1rem;
     box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.45);
   }
 
@@ -440,11 +440,8 @@
   }
 
   @media (max-width: 40rem) {
-    .artifact-frame {
-      border-radius: min(2vw, 0.75rem);
-    }
-
     .artifact-frame.expanded {
+      border-radius: min(2vw, 0.75rem);
       inset:
         max(0.5rem, env(safe-area-inset-top, 0))
         max(0.5rem, env(safe-area-inset-right, 0))

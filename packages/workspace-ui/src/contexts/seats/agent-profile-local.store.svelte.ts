@@ -1,4 +1,4 @@
-import { agentProfileKeyOf, type AgentProfile, type AgentProfileEntry, type AgentProfileKey } from '@solus/contracts/agent-profile'
+import { agentProfileFrom, type AgentProfile, type AgentProfileEntry, type AgentProfileKey } from '@solus/contracts/agent-profile'
 import { agentProfileChangeBetween, type AgentProfileChange } from '@solus/client-core/agent-profile-sync'
 import {
   ANONYMOUS_AGENT_PROFILE,
@@ -53,8 +53,9 @@ export class AgentProfileLocalStore {
     this.emit(applyChange(this.entries, agentProfileChangeBetween(this.storedEntries, entries)))
   }
 
-  setEntry(entry: AgentProfileEntry): void {
-    this.emit(applyChange(this.entries, { set: { [agentProfileKeyOf(entry)]: entry }, reset: [] }))
+  /** Sets these entries as one change, so a hand-written skill's files turn off or on together. */
+  setEntry(...entries: AgentProfileEntry[]): void {
+    this.emit(applyChange(this.entries, { set: agentProfileFrom(entries), reset: [] }))
   }
 
   /** Removes these keys as one change, so a hand-written skill's files leave together. */

@@ -25,7 +25,9 @@ import { AppearancePreference, type AppearanceMode } from '../../apps/mobile/src
 import { HostSettings } from '../../apps/mobile/src/features/settings/host-settings'
 import { OrganizationSettingsStore } from '../../apps/mobile/src/features/settings/organization-settings'
 import { PersonalSettingsStore } from '../../apps/mobile/src/features/settings/personal-settings'
-import { alwaysOnlineEnvironment, PersonalSync } from '../../apps/mobile/src/features/settings/personal-sync'
+import { AccountSync, alwaysOnlineEnvironment } from '../../apps/mobile/src/features/account/account-sync'
+import { AgentProfileLocalStore } from '../../apps/mobile/src/features/settings/agent-profile-local'
+import type { AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
 import { memoryKeyValueStore, memorySecretStore } from '../../apps/mobile/src/platform/ports'
 import { createHostWorld, FakeApi, FakeTransport, flushPromises, healthFetch, seedAccountGrant } from './helpers/native-mobile-fakes'
 
@@ -56,6 +58,18 @@ function fakeCloud(initial: PersonalSettingsDocument | null = null) {
     organizationSettingsPatch: async () => ({ kind: 'offline' }),
   }
   return { requests, calls, document: () => document }
+}
+
+/** An account with no agent profile, for tests about the settings alone. */
+const emptyProfileRequests: Pick<AgentProfileCloudRequests, 'accountAgentProfileGet' | 'accountAgentProfilePatch' | 'accountAgentProfileDelete'> = {
+  accountAgentProfileGet: async () => ({ kind: 'ok', profile: { schemaVersion: 1, generation: 0, revision: null, entries: {}, updatedAt: null } }),
+  accountAgentProfilePatch: async () => ({ kind: 'offline' }),
+  accountAgentProfileDelete: async () => ({ kind: 'offline' }),
+}
+
+/** The account's sync over one settings cloud, with an empty profile beside it. */
+function accountSync(personal: PersonalSettingsStore, requests: SettingsCloudRequests, clock: DocumentSyncClock, storage = memoryKeyValueStore()) {
+  return new AccountSync(personal, new AgentProfileLocalStore(storage), { settingsRequests: requests, profileRequests: emptyProfileRequests, storage, environment: alwaysOnlineEnvironment, clock }, () => [])
 }
 
 /** Timers that run only when the test says so. */
@@ -140,8 +154,8 @@ describe('appearance becomes the personal theme', () => {
   })
 })
 
-describe('personal sync is opt-in', () => {
-  test('signing in does not turn sync on or send anything', async () => {
+describe('signed in is synced', () => {
+  test('signing in reads the account at once; nothing waits for a switch', async () => {
     const fetched: string[] = []
     const secrets = memorySecretStore()
     await seedAccountGrant(secrets, { userId: ACCOUNT.userId })
@@ -159,61 +173,81 @@ describe('personal sync is opt-in', () => {
     })
     await app.load()
     app.personal.set({ defaultPermissionMode: 'plan' })
-    await app.personalSync.engine.idle()
+    await app.accountSync.settingsEngine.idle()
     expect(app.account.isSignedIn).toBe(true)
-    expect(app.personalSync.current().state).toBe('off')
-    expect(fetched.filter((url) => url.includes('/v1/account/settings'))).toEqual([])
+    // Sync asked the account at once: the first call is for a token, which this account plane refuses (404),
+    // so sync reads as signed out until the next sign-in. Nothing waited for a switch.
+    expect(fetched.length).toBeGreaterThan(0)
+    expect(app.accountSync.current().state).toBe('signed-out')
   })
 
-  test('turning it on with this device as the seed sends the profile, then edits follow after a pause', async () => {
+  test('signing in with an empty account sends this device’s settings, then edits follow after a pause', async () => {
     const cloud = fakeCloud()
     const clock = manualClock()
     const personal = new PersonalSettingsStore(memoryKeyValueStore())
     personal.set({ themeMode: 'light' })
-    const sync = new PersonalSync(personal, { requests: cloud.requests, storage: memoryKeyValueStore(), environment: alwaysOnlineEnvironment, clock })
-    sync.followAccount(ACCOUNT)
+    const sync = accountSync(personal, cloud.requests, clock)
     personal.set({ extraInstructions: 'Before sync.' })
     expect(cloud.calls).toEqual([])
 
-    const prepared = await sync.engine.prepareEnable()
-    expect(prepared).toEqual({ kind: 'offer', offer: { kind: 'absent', generation: 0 } })
-    expect(await sync.enable('seed')).toEqual({ kind: 'enabled' })
+    sync.followAccount(ACCOUNT)
+    expect(sync.current().state).toBe('loading')
+    await sync.settingsEngine.idle()
+    expect(cloud.calls).toEqual(['get', 'patch:{"themeMode":"light","extraInstructions":"Before sync."}'])
     expect(cloud.document().settings).toEqual({ themeMode: 'light', extraInstructions: 'Before sync.' })
+    expect(sync.currentSettings().state).toBe('synced')
 
     personal.set({ rateLimitBehavior: 'queue' })
-    expect(sync.current().state).toBe('pending')
+    expect(sync.currentSettings().state).toBe('pending')
+    expect(sync.current().pendingCount).toBe(1)
     clock.runAll()
-    await sync.engine.idle()
+    await sync.settingsEngine.idle()
     expect(cloud.calls.at(-1)).toBe('patch:{"rateLimitBehavior":"queue"}')
-    expect(sync.current().state).toBe('synced')
+    expect(sync.currentSettings().state).toBe('synced')
   })
 
-  test('using synced settings brings the account\'s theme to this device', async () => {
+  test('with settings in the account, this device takes them: the account’s theme is applied, and nothing is sent', async () => {
     const cloud = fakeCloud({ themeMode: 'dark' })
     const personal = new PersonalSettingsStore(memoryKeyValueStore())
     const applied: AppearanceMode[] = []
     const appearance = new AppearancePreference(personal, (mode) => applied.push(mode))
     appearance.applySaved()
-    const sync = new PersonalSync(personal, { requests: cloud.requests, storage: memoryKeyValueStore(), environment: alwaysOnlineEnvironment, clock: manualClock() })
+    personal.set({ themeMode: 'light' })
+    const sync = accountSync(personal, cloud.requests, manualClock())
     sync.followAccount(ACCOUNT)
-    await sync.engine.prepareEnable()
-    expect(await sync.enable('use-synced')).toEqual({ kind: 'enabled' })
+    await sync.settingsEngine.idle()
+    expect(cloud.calls).toEqual(['get'])
     expect(personal.current().themeMode).toBe('dark')
     expect(applied.at(-1)).toBe('dark')
+    expect(sync.currentSettings().state).toBe('synced')
   })
 
-  test('sign-out ends sync for that account on this device', async () => {
+  test('sign-out ends sync for that account on this device; signing in again reads the account anew', async () => {
     const cloud = fakeCloud()
     const storage = memoryKeyValueStore()
     const personal = new PersonalSettingsStore(storage)
-    const sync = new PersonalSync(personal, { requests: cloud.requests, storage, environment: alwaysOnlineEnvironment, clock: manualClock() })
+    const sync = accountSync(personal, cloud.requests, manualClock(), storage)
     sync.followAccount(ACCOUNT)
-    await sync.engine.prepareEnable()
-    await sync.enable('seed')
+    await sync.settingsEngine.idle()
     sync.followAccount(null)
     expect(sync.current().state).toBe('signed-out')
     sync.followAccount(ACCOUNT)
-    expect(sync.current().state).toBe('off')
+    expect(sync.current().state).toBe('loading')
+    await sync.settingsEngine.idle()
+    expect(sync.current().state).toBe('synced')
+    expect(cloud.calls.filter((call) => call === 'get')).toHaveLength(2)
+  })
+
+  test('the status is the same object until it changes, so the Settings screen does not render in a loop', async () => {
+    const cloud = fakeCloud()
+    const sync = accountSync(new PersonalSettingsStore(memoryKeyValueStore()), cloud.requests, manualClock())
+    // useSyncExternalStore renders again whenever two reads differ; a new object each read never settles.
+    expect(sync.current()).toBe(sync.current())
+    sync.followAccount(ACCOUNT)
+    const loading = sync.current()
+    await sync.settingsEngine.idle()
+    expect(sync.current()).not.toBe(loading)
+    expect(sync.current()).toBe(sync.current())
   })
 })
 
@@ -386,13 +420,13 @@ describe('settings navigation', () => {
     for (const file of readdirSync(settingsDir).filter((name) => name.endsWith('.tsx'))) {
       for (const match of readFileSync(join(settingsDir, file), 'utf8').matchAll(/navigate\(\s*["']([A-Za-z]+)["']/g)) targets.add(match[1]!)
     }
-    expect([...targets]).toContain('PersonalSettings')
+    expect([...targets]).toContain('AccountSync')
     expect([...targets]).toContain('OrganizationSettings')
     for (const target of targets) expect(navigator).toContain(`name="${target}"`)
   })
 
   test('personal screens open without a host', () => {
-    for (const route of ['PersonalSettings', 'AgentDefaults', 'NotificationSettings', 'AppearanceSettings']) {
+    for (const route of ['AccountSync', 'AgentDefaults', 'NotificationSettings', 'AppearanceSettings']) {
       expect(routes).toMatch(new RegExp(`\\n\\s*${route}: undefined\\n`))
     }
   })

@@ -38,7 +38,12 @@ export const workspaceSessionQuerySchema = z.strictObject({
   chats: z.enum(['true', 'false']).optional(),
   ...page,
   projectId: workspaceIdSchema.optional(),
+  /** One repository's sessions on every machine that ran them, by repository key (`github.com/acme/web`; project-model §1). */
+  repositoryKey: z.string().min(1).max(512).optional(),
   provider: z.enum(['claude-code', 'codex', 'opencode']).optional(),
+  /** `created` (the default) pages by when a session started; `activity` by its last activity, so a
+   *  client that lists the most recent sessions stops after its first pages. */
+  order: z.enum(['created', 'activity']).optional(),
 })
 /** The sessions a caller may open that match a query (docs/plans/unified-search.md):
  *  every word in the session's name, its metadata or any of its messages. Paged by `offset`. */
@@ -46,6 +51,9 @@ export const workspaceSessionSearchQuerySchema = z.strictObject({
   q: z.string().trim().min(1).max(500),
   /** One project root and its worktrees; omit to search every project. */
   projectRoot: z.string().max(4096).optional(),
+  /** One repository's sessions on every machine that ran them, by repository key
+   *  (project-model §1). Answered by the workspace service; a machine searches by `projectRoot`. */
+  repositoryKey: z.string().min(1).max(512).optional(),
   provider: z.enum(['claude-code', 'codex', 'opencode']).optional(),
   /** Ignored: every word matches as a prefix. Accepted from clients that still send it. */
   prefixLastToken: z.enum(['true', 'false']).optional(),

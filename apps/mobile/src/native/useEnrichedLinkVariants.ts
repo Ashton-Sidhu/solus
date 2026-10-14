@@ -1,5 +1,6 @@
 // Adapted from T3 Code apps/mobile/src/native/useEnrichedLinkVariants.ts (MIT, see UPSTREAM.md).
-// File links and GitHub links only: no link customization, context chips, or skills.
+// File links, `@path` mentions, and GitHub links only: no link customization,
+// context chips, or skills. A mention wears T3's mention context chip.
 import { useMemo } from "react";
 import { Image, type ImageSourcePropType } from "react-native";
 import type {
@@ -9,9 +10,11 @@ import type {
 } from "react-native-enriched-markdown";
 
 import { enrichedLinkVariantPattern } from "../lib/enrichedLinkPresentation";
+import { fileMentionPath } from "../lib/fileMentions";
 import { markdownFileIconSource } from "../lib/markdownFileIcons";
 import { markdownLinkIconSource } from "../lib/markdownLinkIcons";
 import { resolveMarkdownLinkIcon, resolveMarkdownLinkPresentation } from "../lib/markdownLinks";
+import { fileBasename } from "../lib/markdownLinkTargets";
 import type { NativeMarkdownTextStyle } from "./SelectableMarkdownText.types";
 
 interface EnrichedLinkPresentation {
@@ -21,11 +24,25 @@ interface EnrichedLinkPresentation {
   readonly iconTintColor?: string;
 }
 
-/** A file link is a pill with its type icon and file name; a GitHub link gets the GitHub mark. */
+/** T3's `mention` chip accent (`composerChipPresentation.ts`), the same in light and dark. */
+const MENTION_CHIP_COLOR = "#0096af";
+
+/**
+ * A mention is T3's mention chip: its accent, the document icon, and the file
+ * name. A file link is a pill with its type icon and file name; a GitHub link
+ * gets the GitHub mark.
+ */
 export function enrichedLinkPresentation(
   url: string,
   textStyle: NativeMarkdownTextStyle,
 ): EnrichedLinkPresentation | undefined {
+  const mentionPath = fileMentionPath(url);
+  if (mentionPath !== null)
+    return {
+      color: MENTION_CHIP_COLOR,
+      label: fileBasename(mentionPath),
+      icon: markdownFileIconSource("default"),
+    };
   const link = resolveMarkdownLinkPresentation(url);
   if (link.kind === "file")
     return {

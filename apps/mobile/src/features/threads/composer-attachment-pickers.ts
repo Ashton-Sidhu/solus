@@ -2,6 +2,7 @@ import * as Clipboard from 'expo-clipboard'
 import * as DocumentPicker from 'expo-document-picker'
 import { Directory, File, Paths } from 'expo-file-system'
 import * as ImagePicker from 'expo-image-picker'
+import { mimeTypeFor } from '@solus/contracts/media-types'
 import { MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
 import type { PickedFile } from '../conversation/lib/attachments'
 
@@ -30,9 +31,18 @@ export async function pickComposerFiles(existingCount: number): Promise<PickedFi
   return result.assets.map((asset) => ({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType ?? null, size: asset.size ?? null }))
 }
 
+/** Images pasted into the composer (local files), cut to the room left on the draft. */
+export function pastedComposerImages(uris: string[]): (existingCount: number) => Promise<PickedFile[]> {
+  return async (existingCount) =>
+    uris.slice(0, Math.max(0, MAX_ATTACHMENT_UPLOAD_COUNT - existingCount)).map((uri) => {
+      const name = decodeURIComponent(uri.split('/').pop() ?? 'pasted-image')
+      return { uri, name, mimeType: mimeTypeFor(name) ?? null, size: new File(uri).size }
+    })
+}
+
 /**
- * The composer's text field takes only text from the clipboard, so a copied
- * image arrives through the attachment menu instead. The image is written to
+ * The attachment menu's "Paste Image": the clipboard image without the text
+ * menu, for example with the keyboard closed. The image is written to
  * the cache because the upload reads files, not data URLs.
  */
 export async function pickComposerClipboardImage(existingCount: number): Promise<PickedFile[]> {

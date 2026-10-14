@@ -5,7 +5,7 @@ import type {
   StartInfo,
   VoiceModelStatus,
 } from '@solus/contracts/types'
-import type { DetectedTools, HostFact, HostFactKey, HostFactValues, HostFacts } from '@solus/client-core/host-facts'
+import type { DetectedTools, HostFact, HostFactKey, HostFactValues, HostFacts, HostPresence } from '@solus/client-core/host-facts'
 import type { HostBooleanCapability } from '@solus/client-core/host-capabilities'
 import { hostRolesOf, type HostRole } from '@solus/client-core/host-roles'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -26,6 +26,11 @@ export class Host {
   readonly #listeners = new Set<(key: HostFactKey) => void>()
   readonly #requested = new Set<HostFactKey>()
   readonly #subscribers = new Map<HostFactKey, () => void>()
+  readonly #presenceListeners = new Set<() => void>()
+  readonly #subscribePresence = createSubscriber((update) => {
+    this.#presenceListeners.add(update)
+    return () => { this.#presenceListeners.delete(update) }
+  })
 
   constructor(
     readonly id: string,
@@ -34,7 +39,7 @@ export class Host {
     private readonly assumedRoles: () => readonly HostRole[],
   ) {
     this.#facts = facts
-    this.me = new HostStanding(id, () => this.serverInfo)
+    this.me = new HostStanding(id, () => this.serverInfo, () => this.presence === 'gone')
     this.#stopFacts = facts.subscribe((key) => this.#emit(key))
     for (const key of FACT_KEYS) {
       this.#subscribers.set(key, createSubscriber((update) => {
@@ -47,6 +52,14 @@ export class Host {
 
   /** This client's standing here: what it may do (docs/plans/permissions.md). */
   readonly me: HostStanding
+
+  /** Whether this client knows the host. A `gone` host was deleted or never
+   *  listed here: it has no roles, and every call to it fails
+   *  (docs/plans/workspace-and-machines.md §6). */
+  get presence(): HostPresence {
+    this.#subscribePresence()
+    return this.#facts.presence
+  }
 
   get capabilities(): HostFact<HostCapabilities> { return this.#read('capabilities') }
   get serverInfo(): HostFact<ConnectionsServerInfo> { return this.#read('serverInfo') }
@@ -80,6 +93,7 @@ export class Host {
 
   /** Which planes this host serves: its own answer, else what the client assumes. */
   get roles(): readonly HostRole[] {
+    if (this.presence === 'gone') return []
     const fact = this.serverInfo
     return hostRolesOf(fact.state === 'ready' ? fact.value : null, this.assumedRoles())
   }
@@ -146,6 +160,7 @@ export class Host {
     this.#stopFacts = facts.subscribe((key) => this.#emit(key))
     for (const key of this.#requested) facts.ensure(key)
     for (const key of FACT_KEYS) this.#emit(key)
+    for (const listener of Array.from(this.#presenceListeners)) listener()
   }
 
   #read<K extends HostFactKey>(key: K): HostFact<HostFactValues[K]> {

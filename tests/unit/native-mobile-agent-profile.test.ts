@@ -14,7 +14,9 @@ import {
 } from '@solus/contracts/agent-profile'
 import { SolusApp } from '../../apps/mobile/src/app/solus-app'
 import { AgentProfileLocalStore } from '../../apps/mobile/src/features/settings/agent-profile-local'
-import { DeviceAgentProfileSync, type ReachableHost } from '../../apps/mobile/src/features/settings/agent-profile-sync'
+import { AccountSync, alwaysOnlineEnvironment, type ReachableHost } from '../../apps/mobile/src/features/account/account-sync'
+import { PersonalSettingsStore } from '../../apps/mobile/src/features/settings/personal-settings'
+import type { SettingsCloudRequests } from '@solus/client-core/settings-requests'
 import {
   agentProfileParts,
   decodeBase64,
@@ -27,9 +29,8 @@ import {
   integrationEntryFromProbe,
   sha256Hex,
   skillEntryFromRemote,
+  withDisabled,
 } from '../../apps/mobile/src/features/settings/lib/agent-profile-entries'
-import { AGENT_PROFILE_SUBJECT, SETTINGS_SUBJECT, syncStatusDetail } from '../../apps/mobile/src/features/settings/lib/sync-text'
-import { alwaysOnlineEnvironment } from '../../apps/mobile/src/features/settings/personal-sync'
 import { memoryKeyValueStore, memorySecretStore } from '../../apps/mobile/src/platform/ports'
 import { FakeApi, FakeTransport, flushPromises, seedAccountGrant } from './helpers/native-mobile-fakes'
 import { fakeAccountPlane, ISSUER } from './helpers/fake-account-plane'
@@ -37,9 +38,11 @@ import { fakeAccountPlane, ISSUER } from './helpers/fake-account-plane'
 // plans/020-agent-profile.md §3 on the phone. The rules pinned here are the ones
 // a person would notice going wrong: an instruction typed here becomes the same
 // file entry a host would make, with the key and hash every other client
-// compares; the cloud cannot push, so after this device's write is confirmed,
-// and when sync turns on, every connected host is asked to pull, and no host
-// after sync is turned off.
+// compares; signed in means synced, so signing in starts sync without a
+// choice; the cloud cannot push, so after this device's write is confirmed, and
+// when sync starts, every connected host is asked to pull; an entry turned off
+// stays in the profile with `disabled: true`, and a hand-written skill turns
+// off as one change.
 
 const ACCOUNT = { origin: 'https://app.solus.sh', userId: 'user-1' }
 
@@ -47,10 +50,18 @@ const PULLED: AgentProfileStatus = { syncedAt: 5, source: 'account', revision: 1
 
 /** One account's synced profile in memory, with every request recorded. */
 function fakeCloud(initial: AgentProfile | null = null) {
+  let failGets = 0
   let document: AccountAgentProfileResponse = { schemaVersion: 1, generation: 0, revision: initial ? 1 : null, entries: initial ?? {}, updatedAt: initial ? 1 : null }
   const calls: string[] = []
   const requests: AgentProfileCloudRequests = {
-    accountAgentProfileGet: async () => { calls.push('get'); return { kind: 'ok', profile: structuredClone(document) } },
+    accountAgentProfileGet: async () => {
+      calls.push('get')
+      if (failGets > 0) {
+        failGets -= 1
+        return { kind: 'offline' }
+      }
+      return { kind: 'ok', profile: structuredClone(document) }
+    },
     accountAgentProfilePatch: async (request) => {
       calls.push(`patch:${Object.keys(request.set).join(',')}${request.reset?.length ? `;reset:${request.reset.join(',')}` : ''}`)
       if (request.expectedRevision !== document.revision) return { kind: 'conflict', reason: 'profile_conflict', current: structuredClone(document) }
@@ -59,9 +70,18 @@ function fakeCloud(initial: AgentProfile | null = null) {
       document = { ...document, revision: (document.revision ?? 0) + 1, entries, updatedAt: 2 }
       return { kind: 'ok', profile: structuredClone(document) }
     },
-    accountAgentProfileDelete: async () => { calls.push('delete'); return { kind: 'ok', profile: document } },
+    accountAgentProfileDelete: async () => { calls.push('delete'); clear(); return { kind: 'ok', profile: structuredClone(document) } },
   }
-  return { requests, calls, document: () => document }
+  /** A clear starts a new generation with no document. */
+  function clear() {
+    document = { schemaVersion: 1, generation: document.generation + 1, revision: null, entries: {}, updatedAt: null }
+  }
+  /** Another device clears, and may already have written its copy as the new one. */
+  const clearElsewhere = (written: AgentProfile | null = null) => {
+    clear()
+    if (written) document = { ...document, revision: 1, entries: structuredClone(written), updatedAt: 3 }
+  }
+  return { requests, calls, document: () => document, failNextGets: (count: number) => { failGets = count }, clearElsewhere }
 }
 
 /** Timers that run only when the test says so. */
@@ -79,6 +99,13 @@ function manualClock(): DocumentSyncClock & { runAll(): void } {
       for (const callback of due) callback()
     },
   }
+}
+
+/** An account with no settings, for tests about the profile alone. */
+const emptySettingsRequests: Pick<SettingsCloudRequests, 'accountSettingsGet' | 'accountSettingsPatch' | 'accountSettingsDelete'> = {
+  accountSettingsGet: async () => ({ kind: 'ok', settings: { schemaVersion: 1, generation: 0, revision: null, settings: {}, updatedAt: null } }),
+  accountSettingsPatch: async () => ({ kind: 'offline' }),
+  accountSettingsDelete: async () => ({ kind: 'offline' }),
 }
 
 function pullingHost(hostId: string): ReachableHost & { api: ReturnType<typeof asHostApi>; fake: FakeApi } {
@@ -131,67 +158,184 @@ describe('an instruction edit becomes a file entry', () => {
   })
 })
 
-describe('the nudge: hosts pull after this device writes', () => {
-  function device(cloud = fakeCloud()) {
+describe('signed in means synced, and hosts pull after this device writes', () => {
+  /** A device whose local copy for the account holds `before`, then signs in. */
+  function device(cloud = fakeCloud(), before: (local: AgentProfileLocalStore) => void = () => {}) {
     const clock = manualClock()
-    const local = new AgentProfileLocalStore(memoryKeyValueStore())
+    const storage = memoryKeyValueStore()
+    const local = new AgentProfileLocalStore(storage)
     const hosts = [pullingHost('inst-a'), pullingHost('inst-b')]
-    const sync = new DeviceAgentProfileSync(local, { requests: cloud.requests, storage: memoryKeyValueStore(), environment: alwaysOnlineEnvironment, clock }, () => hosts)
+    let foreground: (signal: 'foreground') => void = () => {}
+    const environment = { ...alwaysOnlineEnvironment, subscribe: (listener: (signal: 'foreground') => void) => { foreground = listener; return () => {} } }
+    const sync = new AccountSync(new PersonalSettingsStore(storage), local, { settingsRequests: emptySettingsRequests, profileRequests: cloud.requests, storage: memoryKeyValueStore(), environment, clock }, () => hosts)
+    local.setAccount(ACCOUNT)
+    before(local)
     sync.followAccount(ACCOUNT)
     const pulls = () => hosts.map((host) => host.fake.callsOf('agentProfilePull').length)
-    return { cloud, clock, local, hosts, sync, pulls }
+    /** The start that sign-in queued, and what it set off, have settled. */
+    const started = async () => { await sync.profileEngine.idle(); await flushPromises() }
+    return { cloud, clock, local, hosts, sync, pulls, started, foreground: () => foreground('foreground') }
   }
 
-  test('enabling with this device as the seed sends the copy, then every connected host pulls once', async () => {
-    const { cloud, local, sync, pulls } = device()
-    local.setEntry(fileEntryFromText('claude-code', 'CLAUDE.md', 'Before sync.'))
-    expect(cloud.calls).toEqual([])
-    expect(await sync.prepareEnable()).toEqual({ kind: 'offer', offer: { kind: 'absent', generation: 0 } })
-    expect(await sync.enable('seed')).toEqual({ kind: 'enabled' })
-    await flushPromises()
+  test('signing in with no synced profile seeds it with this device’s copy, then every connected host pulls once', async () => {
+    const { cloud, sync, pulls, started } = device(fakeCloud(), (local) => local.setEntry(fileEntryFromText('claude-code', 'CLAUDE.md', 'Before sign-in.')))
+    // Signing in alone starts it; nothing asks the person.
+    expect(sync.currentProfile().state).toBe('loading')
+    await started()
+    expect(cloud.calls).toEqual(['get', 'patch:file:claude-code/CLAUDE.md'])
     expect(Object.keys(cloud.document().entries)).toEqual(['file:claude-code/CLAUDE.md'])
+    expect(sync.currentProfile().state).toBe('synced')
+    expect(sync.current().state).toBe('synced')
     expect(pulls()).toEqual([1, 1])
     expect(sync.hostState('inst-a')).toEqual({ status: PULLED, error: null, busy: false })
+
+    // The account notifying again, the same account, starts nothing more.
+    sync.followAccount(ACCOUNT)
+    await started()
+    expect(cloud.calls).toHaveLength(2)
   })
 
-  test('a confirmed write pulls each host; a change while turned off pulls none', async () => {
-    const { cloud, clock, local, sync, pulls } = device()
-    await sync.prepareEnable()
-    await sync.enable('seed')
-    await flushPromises()
+  test('signing in with a synced profile takes it, never this device’s copy, then every connected host pulls once', async () => {
+    const synced = { 'file:codex/AGENTS.md': fileEntryFromText('codex', 'AGENTS.md', 'From the account.') }
+    const { cloud, local, sync, pulls, started } = device(fakeCloud(synced), (copy) => copy.setEntry(fileEntryFromText('claude-code', 'CLAUDE.md', 'Only here.')))
+    await started()
+    expect(cloud.calls.filter((call) => call.startsWith('patch'))).toEqual([])
+    expect(cloud.document().entries).toEqual(synced)
+    // The account wins: its copy replaces this device's, and the entry only this device had goes.
+    expect(local.entries()).toEqual(synced)
+    expect(sync.currentProfile().state).toBe('synced')
+    expect(pulls()).toEqual([1, 1])
+  })
+
+  test('a failed start shows in the status and is tried again when the app comes to the front', async () => {
+    const cloud = fakeCloud()
+    cloud.failNextGets(1)
+    const { sync, pulls, started, foreground } = device(cloud)
+    await started()
+    expect(sync.currentProfile().state).toBe('offline')
+    expect(sync.current().state).toBe('offline')
+    expect(pulls()).toEqual([0, 0])
+
+    foreground()
+    await started()
+    expect(sync.currentProfile().state).toBe('synced')
+    expect(pulls()).toEqual([1, 1])
+  })
+
+  test('a confirmed write pulls each host; signed out, a change pulls none', async () => {
+    const { cloud, clock, local, sync, pulls, started } = device(fakeCloud(), (copy) => copy.setEntry(fileEntryFromText('codex', 'AGENTS.md', 'Start.')))
+    await started()
     expect(pulls()).toEqual([1, 1])
 
     local.setEntry(fileEntryFromText('claude-code', 'CLAUDE.md', 'Be brief.'))
-    expect(sync.current().state).toBe('pending')
+    expect(sync.currentProfile().state).toBe('pending')
     expect(pulls()).toEqual([1, 1])
     clock.runAll()
-    await sync.engine.idle()
-    await flushPromises()
+    await started()
     expect(cloud.calls.at(-1)).toBe('patch:file:claude-code/CLAUDE.md')
-    expect(sync.current().state).toBe('synced')
+    expect(sync.currentProfile().state).toBe('synced')
     expect(pulls()).toEqual([2, 2])
 
-    sync.turnOff()
+    // Signed out: local edits stay local, and no host is asked.
+    sync.followAccount(null)
+    local.setAccount(null)
     local.setEntry(fileEntryFromText('codex', 'AGENTS.md', 'Local only.'))
     clock.runAll()
-    await sync.engine.idle()
-    await flushPromises()
-    expect(sync.current().state).toBe('off')
-    expect(Object.keys(cloud.document().entries)).toEqual(['file:claude-code/CLAUDE.md'])
+    await started()
+    expect(sync.currentProfile().state).toBe('signed-out')
+    expect(Object.keys(cloud.document().entries).sort()).toEqual(['file:claude-code/CLAUDE.md', 'file:codex/AGENTS.md'])
     expect(pulls()).toEqual([2, 2])
   })
 
-  test('a host that refuses keeps its error, and Remove sends the empty profile', async () => {
-    const { sync, hosts } = device()
-    hosts[0]!.fake.on('agentProfilePull', () => { throw new Error('You have no seat on this host.') })
-    hosts[1]!.fake.on('agentProfileApply', () => ({ ...PULLED, syncedAt: null, source: null, counts: { files: 0, skills: 0, integrations: 0 } }))
-    await sync.pull('inst-a')
-    expect(sync.hostState('inst-a')).toEqual({ status: null, error: 'You have no seat on this host.', busy: false })
-    await sync.remove('inst-b')
-    expect(hosts[1]!.fake.callsOf('agentProfileApply')).toEqual([[{ profile: {}, skipped: [] }]])
-    expect(sync.hostState('inst-b').status?.syncedAt).toBeNull()
-    await sync.pull('inst-c')
-    expect(sync.hostState('inst-c').error).toBe('This host is not connected.')
+  test('a clear made here starts the synced profile again from this device’s copy at once', async () => {
+    const mine = fileEntryFromText('claude-code', 'CLAUDE.md', 'This device.')
+    const { cloud, sync, pulls, started } = device(fakeCloud(), (local) => local.setEntry(mine))
+    await started()
+    const generation = cloud.document().generation
+    expect(pulls()).toEqual([1, 1])
+
+    expect((await sync.clearProfile()).kind).toBe('cleared')
+    await started()
+    expect(cloud.document().generation).toBe(generation + 1)
+    expect(cloud.calls.slice(-2)).toEqual(['delete', 'patch:file:claude-code/CLAUDE.md'])
+    expect(cloud.document().entries).toEqual({ 'file:claude-code/CLAUDE.md': mine })
+    expect(sync.currentProfile().state).toBe('synced')
+    expect(pulls()).toEqual([2, 2])
+  })
+
+  test('a clear made elsewhere starts sync again at once: seeding when the account is empty, taking the new copy when one is there', async () => {
+    const mine = fileEntryFromText('claude-code', 'CLAUDE.md', 'This device.')
+    const { cloud, local, sync, pulls, started } = device(fakeCloud(), (copy) => copy.setEntry(mine))
+    await started()
+
+    // Empty after the clear: this device's copy seeds the new generation.
+    cloud.clearElsewhere()
+    await sync.profileEngine.refresh()
+    await started()
+    expect(sync.currentProfile().state).toBe('synced')
+    expect(cloud.document().entries).toEqual({ 'file:claude-code/CLAUDE.md': mine })
+    expect(pulls()).toEqual([2, 2])
+
+    // The clearing device already wrote its copy: this device takes it and sends nothing.
+    const theirs = { 'file:codex/AGENTS.md': fileEntryFromText('codex', 'AGENTS.md', 'Theirs.') }
+    cloud.clearElsewhere(theirs)
+    const patches = cloud.calls.filter((call) => call.startsWith('patch')).length
+    await sync.profileEngine.refresh()
+    await started()
+    expect(sync.currentProfile().state).toBe('synced')
+    expect(cloud.calls.filter((call) => call.startsWith('patch'))).toHaveLength(patches)
+    expect(cloud.document().entries).toEqual(theirs)
+    expect(local.entries()).toEqual(theirs)
+    expect(pulls()).toEqual([3, 3])
+  })
+
+  test('disabling an entry sends it with `disabled: true`; enabling sends it without the flag', async () => {
+    const server = { kind: 'integration' as const, slug: 'linear', name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: { kind: 'none' as const } }
+    const { cloud, clock, local, sync, started } = device(fakeCloud(), (copy) => copy.setEntry(server))
+    await started()
+    const reported: unknown[] = []
+    local.onLocalChange((change) => reported.push(change))
+
+    expect(local.setEntry(withDisabled(server, true))).toBe('saved')
+    expect(reported).toEqual([{ set: { 'integration:linear': { ...server, disabled: true } }, reset: [] }])
+    clock.runAll()
+    await sync.profileEngine.idle()
+    expect(cloud.document().entries['integration:linear']).toEqual({ ...server, disabled: true })
+
+    local.setEntry(withDisabled(local.entries()['integration:linear']!, false))
+    expect(reported.at(-1)).toEqual({ set: { 'integration:linear': server }, reset: [] })
+    expect(Object.hasOwn(local.entries()['integration:linear']!, 'disabled')).toBe(false)
+    clock.runAll()
+    await sync.profileEngine.idle()
+    expect(cloud.document().entries['integration:linear']).toEqual(server)
+  })
+
+  test('a hand-written skill turns off as one change of all its files, and reads off only when they all are', () => {
+    const files = [
+      fileEntryFromText('claude-code', 'skills/deploy/SKILL.md', '# Deploy'),
+      fileEntryFromText('claude-code', 'skills/deploy/scripts/run.sh', 'echo'),
+    ]
+    const local = new AgentProfileLocalStore(memoryKeyValueStore())
+    local.setEntry(files)
+    const reported: unknown[] = []
+    local.onLocalChange((change) => reported.push(change))
+    const [skill] = agentProfileParts(local.entries()).handWrittenSkills
+    expect(skill!.disabled).toBe(false)
+
+    local.setEntry(skill!.keys.map((key) => withDisabled(local.entries()[key]!, true)))
+    expect(reported).toEqual([{
+      set: {
+        'file:claude-code/skills/deploy/SKILL.md': { ...files[0], disabled: true },
+        'file:claude-code/skills/deploy/scripts/run.sh': { ...files[1], disabled: true },
+      },
+      reset: [],
+    }])
+    expect(agentProfileParts(local.entries()).handWrittenSkills[0]!.disabled).toBe(true)
+
+    // A refused file refuses the whole change: a skill is never half off.
+    expect(local.setEntry([withDisabled(files[0]!, false), { kind: 'skill', name: 'bad name!', source: 'acme/skills', skillId: 'x' }])).toBe('invalid')
+    expect(reported).toHaveLength(1)
+    expect(agentProfileParts(local.entries()).handWrittenSkills[0]!.disabled).toBe(true)
   })
 
   test('through the app, only a host that is connected is asked', async () => {
@@ -201,6 +345,10 @@ describe('the nudge: hosts pull after this device writes', () => {
     await seedAccountGrant(secrets, { userId: ACCOUNT.userId, refreshToken: plane.deviceTokens().refresh_token })
     const apis = new Map<string, FakeApi>()
     const transports: FakeTransport[] = []
+    // The account answers only once the hosts are up, so the turn-on that sign-in starts meets them connected.
+    let answerCloud: () => void = () => {}
+    let profileReads = 0
+    const cloudGate = new Promise<void>((resolve) => { answerCloud = resolve })
     const app = new SolusApp({
       storage: memoryKeyValueStore(),
       secrets,
@@ -211,6 +359,8 @@ describe('the nudge: hosts pull after this device writes', () => {
         const health = /^(http:\/\/[ab]:1)\/health$/.exec(url)
         if (health) return new Response(JSON.stringify({ ok: true, installationId: `inst-${health[1]!.slice(7, 8)}`, name: 'Mac', os: 'macos' }), { status: 200 })
         if (url.endsWith('/v1/account/agent-profile')) {
+          profileReads += 1
+          await cloudGate
           const result = init?.method === 'PATCH'
             ? await cloud.requests.accountAgentProfilePatch(JSON.parse(String(init.body)))
             : await cloud.requests.accountAgentProfileGet()
@@ -238,13 +388,18 @@ describe('the nudge: hosts pull after this device writes', () => {
     expect(app.connections.state('inst-a')?.phase).toBe('connected')
     expect(app.connections.state('inst-b')?.phase).not.toBe('connected')
 
-    expect(app.agentProfileSync.current().state).toBe('off')
-    await app.agentProfileSync.prepareEnable()
-    expect(await app.agentProfileSync.enable('seed')).toEqual({ kind: 'enabled' })
+    // Signed in from an earlier run: no choice is asked; the start is already waiting on the account.
+    expect(app.account.isSignedIn).toBe(true)
     await flushPromises()
+    expect(profileReads).toBe(1)
+    answerCloud()
+    await app.accountSync.profileEngine.idle()
+    await flushPromises()
+    expect(app.accountSync.currentProfile().state).toBe('synced')
     expect(apis.get('inst-a')!.callsOf('agentProfilePull')).toHaveLength(1)
     expect(apis.get('inst-b')!.callsOf('agentProfilePull')).toHaveLength(0)
-    expect(cloud.document().revision).toBe(1)
+    // Nothing on either side: synced, with nothing written until an edit.
+    expect(cloud.document().revision).toBeNull()
   })
 })
 
@@ -260,7 +415,7 @@ describe('the parts the screen shows', () => {
       'integration:linear': { kind: 'integration', slug: 'linear', name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: { kind: 'oauth', discover: 'https://mcp.linear.app/.well-known/oauth-protected-resource', registration: 'dynamic' } },
     })
     expect(parts.files.map((entry) => entry.path)).toEqual(['CLAUDE.md', 'agents/reviewer.md', 'AGENTS.md'])
-    expect(parts.handWrittenSkills).toEqual([{ name: 'deploy', provider: 'claude-code', keys: ['file:claude-code/skills/deploy/SKILL.md', 'file:claude-code/skills/deploy/scripts/run.sh'] }])
+    expect(parts.handWrittenSkills).toEqual([{ name: 'deploy', provider: 'claude-code', keys: ['file:claude-code/skills/deploy/SKILL.md', 'file:claude-code/skills/deploy/scripts/run.sh'], disabled: false }])
     expect(parts.registrySkills.map((skill) => `${skill.source}@${skill.skillId}`)).toEqual(['acme/skills@review'])
     expect(parts.integrations.map((integration) => integration.slug)).toEqual(['linear'])
 
@@ -279,9 +434,6 @@ describe('the parts the screen shows', () => {
     expect(hostProfileText(PULLED, null, (ms) => `at ${ms}`)).toBe('Copied from your account at 5: 1 file.')
     expect(hostProfileText({ ...PULLED, syncedAt: null }, null, String)).toBe('Not on this host yet.')
     expect(hostProfileText(null, 'Refused.', String)).toBe('Refused.')
-    const off = { state: 'off' as const, lastSyncedAt: null, pendingKeys: [], error: null, stoppedReason: null }
-    expect(syncStatusDetail(off, String, AGENT_PROFILE_SUBJECT)).toBe('Your agent profile stays on this device. Turn sync on to share it with your other devices.')
-    expect(syncStatusDetail(off, String, SETTINGS_SUBJECT)).toBe('Your settings stay on this device. Turn sync on to share them with your other devices.')
   })
 })
 

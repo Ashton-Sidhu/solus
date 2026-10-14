@@ -163,16 +163,16 @@ a single copy that follows another host.
 ### 3.3 The registry and the three ways to get a host
 
 ```ts
-hosts.get(serverId): Host            // throws for an unknown id
-hosts.find(serverId): Host | null    // null for an id this client does not know
+hosts.get(serverId): Host            // never throws; null only for no id
 hosts.device: Host | null            // the device host
 hosts.runOn: Host | null             // the Run on host
 hosts.transcription: Host | null     // hosts.device ?? hosts.runOn
 hosts.rolesFor(serverId)             // never opens a connection
 ```
 
-A tab's host is `hosts.find(run.serverId)`: a restored tab may name a host that
-was deleted.
+A tab's host is `hosts.get(run.serverId)`. A restored tab may name a host that
+was deleted: its `Host` has `presence: 'gone'`, no roles, no grants, and every
+call to it fails with `HostGoneError` (`workspace-and-machines.md` §6).
 
 `hosts` (workspace-ui, `contexts/hosts/hosts.svelte.ts`) holds one `Host` per
 host id, created on first use. Each `Host` wraps the `HostFacts` that
@@ -192,8 +192,8 @@ A reader gets a `Host` from the owner it means:
 
 | Owner | Use | Examples |
 |---|---|---|
-| The tab | `hosts.find(run.serverId)` | usage in the project panel, a restored tab's project path, a resumed session's home folder, a new chat's folder |
-| The device | `hosts.device` | mic and transcription (`hosts.transcription`), screenshots, design mode, open in editor, the resolved terminal |
+| The tab | `hosts.get(run.serverId)` | usage in the project panel, a restored tab's project path, a resumed session's home folder, a new chat's folder |
+| The device | `hosts.device` | mic and transcription (`hosts.transcription`), screenshots, open in editor, the resolved terminal |
 | The Run on picker | `hosts.runOn` | the agent list, a new session, automation drafting and seeding, onboarding, the first host in Settings, GitHub on the home page |
 | An explicit choice | `hosts.get(selectedServerId)` | Settings → General, Voice, Tools, and Skills for the selected host; an automation's own host |
 

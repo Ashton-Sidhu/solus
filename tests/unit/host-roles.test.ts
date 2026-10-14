@@ -23,14 +23,14 @@ describe('host roles', () => {
   test('asking which planes a host serves never opens a connection to it', () => {
     const factsFor = spyOn(serverConnections, 'factsFor')
     spyOn(serverConnections, 'connectionFor').mockImplementation(() => undefined)
-    spyOn(serverConnections, 'isKnownServer').mockImplementation(() => true)
+    spyOn(serverConnections, 'presenceOf').mockImplementation(() => 'present')
     expect(hosts.rolesFor('saved-laptop')).toEqual(['collaboration', 'execution'])
     expect(factsFor).not.toHaveBeenCalled()
   })
 
   test('a host this client does not know serves nothing', () => {
     spyOn(serverConnections, 'connectionFor').mockImplementation(() => undefined)
-    spyOn(serverConnections, 'isKnownServer').mockImplementation(() => false)
+    spyOn(serverConnections, 'presenceOf').mockImplementation(() => 'gone')
     expect(hosts.hasExecution('deleted-machine')).toBe(false)
     expect(hosts.hasCollaboration('deleted-machine')).toBe(false)
   })
@@ -38,7 +38,7 @@ describe('host roles', () => {
   test('a connected host is assumed to serve both until it answers, then serves what it says', async () => {
     const connection = connectedWith(['collaboration'])
     spyOn(serverConnections, 'connectionFor').mockImplementation(() => connection)
-    spyOn(serverConnections, 'isKnownServer').mockImplementation(() => true)
+    spyOn(serverConnections, 'presenceOf').mockImplementation(() => 'present')
     expect(hosts.rolesFor('remote')).toEqual(['collaboration', 'execution'])
     await connection.facts.when('serverInfo')
     expect(hosts.rolesFor('remote')).toEqual(['collaboration'])

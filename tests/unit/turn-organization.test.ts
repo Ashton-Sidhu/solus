@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import type { IpcContext } from '@solus/contracts/types'
-import type { HostOrganizationsResponse, UplinkLinkConfig } from '@solus/contracts/uplink'
+import type { HostOrganizationsResponse, HostRegistration } from '@solus/contracts/uplink'
 import { resetTestDatabase } from './helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
@@ -29,7 +29,7 @@ const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
 let hostOrganizations: InstanceType<typeof organizations.HostOrganizations>
 
-const LINK: UplinkLinkConfig = { hostId: 'H', issuer: 'https://cloud.invalid', jwksUrl: 'https://cloud.invalid/jwks', directoryUrl: 'https://cloud.invalid', hostname: 'h-H.lab.invalid', proxiedPort: 1, connectionGeneration: 1 }
+const LINK: HostRegistration = { hostId: 'H', issuer: 'https://cloud.invalid', jwksUrl: 'https://cloud.invalid/jwks', directoryUrl: 'https://cloud.invalid', generation: 1 }
 
 const STANDING: HostOrganizationsResponse = {
   hostId: 'H',
@@ -54,7 +54,7 @@ beforeAll(async () => {
   ;(await import('@solus/server/host/host-category')).resetHostCategoryForTests()
   hostCategory.resetHostCategoryForTests()
   hostOrganizations = new organizations.HostOrganizations({
-    link: () => LINK,
+    registration: () => LINK,
     credential: () => ({ hostAccessToken: async () => 'control-token' }),
     fetchImpl: async (url) => {
       if (String(url) !== 'https://cloud.invalid/v1/hosts/H/organizations') return new Response('{}', { status: 404 })

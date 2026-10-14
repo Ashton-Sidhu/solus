@@ -63,7 +63,7 @@ check for a finished turn. System alerts keep the platform's own icon.
 |---|---|
 | Review guide ready | `reviewGuideStore.onReady` in `app-core.ts` (PR and session guides); the PR row in the project panel when the guide finishes after the row is gone |
 | Review lens ready | `reviewLensStore.onReady` in `app-core.ts`, for a lens run this client saw start or run. A PR lens toast has **Open lens** |
-| Software updates | Desktop: the download and restart prompts (`desktop-updates.svelte.ts`). Any client: "Solus / Claude Code / Codex X is available on host" (`host-update-notices.svelte.ts`) |
+| Software updates | Desktop: the download and restart prompts for the app itself (`desktop-updates.svelte.ts`). Any client: one notice for every Solus, Claude Code, and Codex release on every connected host, with **Update all** (`host-update-notices.svelte.ts`). See "Host updates" below |
 | Host found nearby | LAN discovery in `servers.store` |
 | Teammates | "X joined" and "X left" in `presence.store` |
 | Sharing | "Access removed by X" in `shares.store` |
@@ -97,3 +97,51 @@ are not affected by these switches. Errors are never suppressed.
 - Page: `SettingsTabNotifications.svelte`, with the row catalog in
   `components/settings/lib/notification-settings.ts`. A test asserts the catalog
   covers every channel and event in the contract.
+
+## Host updates
+
+Host updates use one toast, however many hosts and releases are pending. One
+release reads "Claude Code 1.2.0 on Mac is available" with **Update**; more read
+"3 updates available", list each one, and offer **Update all**. The toast shows
+again only when a release the user has not seen appears.
+
+The notice leaves out:
+
+- a host with a busy session, until it is idle;
+- a host whose Solus update is already running;
+- a Solus release this client cannot install on the host;
+- a cloud host, which Solus cloud keeps up to date.
+
+`hostUpdater` (`host-updater.svelte.ts`) is the one way this client updates a
+host. The notice's **Update all**, a Settings row's **Update**, the header
+button, and the palette all call it, and they all report in the same toast.
+
+- Each host has a lock. Its updates run one at a time, in the order they were
+  asked for, and an update that is already queued or running is not started
+  again.
+- Provider CLIs update before Solus, because the Solus update restarts the
+  host. While Solus updates a host, nothing more starts there.
+- Different hosts update at the same time.
+- A Solus update counts as done only when the host reports that the update
+  finished after its restart.
+
+Every update started before the last result was reported belongs to one batch.
+The toast shows the batch's progress, then one result that counts the updates
+and names each failure. While a Solus update waits for active work, the toast
+offers **Cancel Solus update**.
+
+The lock covers this client. The host also runs one install at a time for each
+provider, and one Solus update at a time, so two clients cannot install the same
+thing at once either. A Solus update started from another client shows only in
+Settings on this client.
+
+The desktop app's own update stays separate, and so does mobile, which shows
+host updates in Settings only. The Settings header button and the command
+palette ("Install N host updates") start the same run.
+
+## Mark a session unread
+
+Choose **Mark Unread** from a session context menu on desktop or web, or from
+the session row menu on mobile. The action marks only that session unread.
+Task context menus do not offer this action. The host stores the read state
+and sends changes to connected clients. Open the session to mark it read again.

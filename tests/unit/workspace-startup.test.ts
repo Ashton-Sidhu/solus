@@ -27,7 +27,6 @@ for (const client of ['desktop', 'web'] as const) {
       performance: { mark() {} },
       window: { solusNative: nativeApi },
       getLocalConnection: async () => ({}),
-      resolveActiveServerTarget: () => target,
       localServerTarget: () => target,
       savedServerTarget: () => target,
       serverConnections: { registerTarget() {}, registerPrimary() {}, setPrimary() {}, startCatalogSupervisors() {} },

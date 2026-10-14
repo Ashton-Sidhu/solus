@@ -445,6 +445,19 @@ export class DeviceManager {
     return { ready, device }
   }
 
+  /** Boot a selected app target without creating a conversation or preview. */
+  async bootForRun(target: DeviceControlTarget, holder: DeviceControlHolder): Promise<DeviceSummary> {
+    this.control.authorize(target, holder)
+    const { ready, device } = await this.resolveDevice(target.deviceHostId, target.deviceId)
+    if (device.physical || device.booted) return device
+    const result = await this.hub.boot(ready.hubOrigin, device)
+    if (!result.ok) throw new DeviceDomainError('boot_failed', `${device.name} did not start (${result.reason}).`)
+    await this.refreshHost(ready)
+    return this.findDevice(target.deviceHostId, result.deviceId)
+      ?? this.devices.find((candidate) => candidate.deviceHostId === target.deviceHostId && candidate.platform === device.platform && candidate.name === device.name && candidate.booted)
+      ?? device
+  }
+
   async open(request: DeviceOpenRequest & { deviceHostId: string }, openedBy: 'user' | 'agent'): Promise<DevicePreview> {
     const entry = this.entry(request.deviceHostId)
     const availability = await entry.host.platformAvailability(request.platform)
@@ -585,13 +598,6 @@ export class DeviceManager {
     const build = await this.requireBuilds().add(path, sessionId, appId)
     this.publish()
     return build
-  }
-
-  /** Delete a build's output from this host, and its entry. */
-  async deleteBuild(buildId: string): Promise<DeviceState> {
-    await this.requireBuilds().remove(buildId)
-    this.publish()
-    return this.state()
   }
 
   /** Ask a connected iPhone or iPad to pair with its device host, then discover it again. */

@@ -5,7 +5,7 @@
  * drift from the code. The control plane keeps a verbatim copy of this file
  * (`bun run contracts:sync` there); this file must therefore import nothing but zod.
  * Nothing here is a secret and nothing is a constant of one deployment: issuer, JWKS,
- * and directory URLs reach the host in `UplinkLinkConfig` when it links.
+ * and directory URLs reach the host in `HostRegistration` when it registers.
  */
 
 import { z } from 'zod'
@@ -28,6 +28,19 @@ export function hostAudience(hostId: string): string {
 
 const HOST_AUDIENCE_PREFIX = 'urn:solus:host:'
 
+/**
+ * The resource of one host as another host reaches it for a person
+ * (docs/plans/host-reach.md §3): the `aud` of a delegated token that host A holds
+ * to start sessions on host B. Its own audience, so it can live longer than a
+ * client's token for the same host.
+ */
+export function hostReachAudience(hostId: string): string {
+  return `urn:solus:host-reach:${hostId}`
+}
+
+/** A host-reach token lives eight hours: the account plane checks the reach when it issues one. */
+export const HOST_REACH_TOKEN_TTL_SECONDS = 8 * 60 * 60
+
 /** The host an audience names, or null when it names no host. */
 export function hostIdOfAudience(audience: string): string | null {
   if (!audience.startsWith(HOST_AUDIENCE_PREFIX)) return null
@@ -46,13 +59,13 @@ export const ACCOUNT_AUDIENCE = 'urn:solus:account'
  */
 export const CONTROL_AUDIENCE = 'urn:solus:control'
 
-/** The one scope a host's own access token has: it manages the host's own link. */
+/** The one scope a host's own access token has: the host's own routes (its registration, organizations, and link). */
 export const HOST_CONTROL_SCOPE = 'host:link'
 
 /** The Solus API's OAuth client: a confidential client with `private_key_jwt`, as a host is (ADR 0001 §6.2). */
 export const SOLUS_API_CLIENT_ID = 'solus-api'
 
-/** A host's OAuth client id. One client per host: linking again replaces it. */
+/** A host's OAuth client id. One client per host: registering again replaces it. */
 export function hostClientId(hostId: string): string {
   return `host_${hostId}`
 }
@@ -201,13 +214,13 @@ export type OrganizationMembershipClaim = z.infer<typeof organizationMembershipC
 /** The claims of every access token (RFC 9068) the account plane issues. ES256; `kid` in the header. */
 const accessTokenBaseShape = {
   iss: z.string().min(1),
-  /** `hostAudience(hostId)`, `SOLUS_API_AUDIENCE`, or `ACCOUNT_AUDIENCE`; a delegated token names the last two. */
+  /** `hostAudience(hostId)`, `SOLUS_API_AUDIENCE`, or `ACCOUNT_AUDIENCE`; a delegated token names the last two, or `hostReachAudience(hostId)`. */
   aud: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]),
   /** The account's user id. */
   sub: z.string().min(1),
   jti: z.string().min(1),
   iat: z.number(),
-  /** ≤ iat + ACCESS_TOKEN_TTL_SECONDS. */
+  /** ≤ iat + ACCESS_TOKEN_TTL_SECONDS; ≤ iat + HOST_REACH_TOKEN_TTL_SECONDS for a host-reach token. */
   exp: z.number(),
   /** The OAuth client the token was issued to. */
   client_id: z.string().min(1).optional(),
@@ -297,32 +310,45 @@ export function normalizeDisplayName(value: string | undefined): string | null {
 
 const hostOperatingSystemSchema = z.enum(['macos', 'windows', 'linux'])
 
-/** Non-secret link record kept on the host. Never constants. */
-export const uplinkLinkConfigSchema = z.object({
+/**
+ * The host's identity at the account plane (docs/adr/0001-standard-authentication.md
+ * §2.2 rule 8): the non-secret record a host keeps from its registration until its
+ * owner deletes it. Its key is kept apart, in the secret store. Identity, delegations,
+ * account reads, organizations, and the directory need this record only, never the link.
+ */
+export const hostRegistrationSchema = z.object({
   hostId: z.string().min(1),
   issuer: z.string().min(1),
   jwksUrl: z.string().min(1),
-  /** Origin of the `/v1` API the host calls for its own link record. */
+  /** Origin of the `/v1` API the host calls with its own control token. */
   directoryUrl: z.string().min(1),
-  /** `h-<hostId>.<tunnelDomain>`; the tunnel route is `https://` + this. */
-  hostname: z.string().min(1),
-  /** Loopback port the connector forwards to; never a trusted requester. */
-  proxiedPort: z.number().int().positive(),
-  /** Advances on every enroll and delete. A host with an older value is superseded. */
-  connectionGeneration: z.number().int().nonnegative(),
+  /** Advances on every registration and delete. A host with an older value is superseded. */
+  generation: z.number().int().nonnegative(),
   /**
-   * Managed hosts only: the organization Solus provisioned the machine for. A link
-   * that names one is a managed host's; no other link carries it.
+   * Managed hosts only: the organization Solus provisioned the machine for. A
+   * registration that names one is a managed host's; no other one carries it.
    */
   organizationId: z.string().min(1).optional(),
   /**
    * The Solus API the account plane names for organization records, fixed when the
-   * host linked. Delivery and organization records go only here, so a changed
+   * host registered. Delivery and organization records go only here, so a changed
    * setting cannot move records or queued delivery (organization-vms §5).
    */
   apiUrl: z.string().min(1).optional(),
 })
-export type UplinkLinkConfig = z.infer<typeof uplinkLinkConfigSchema>
+export type HostRegistration = z.infer<typeof hostRegistrationSchema>
+
+/**
+ * The host's tunnel (ADR 0001 §2.2 rule 9): how the internet reaches a linked host
+ * through cloudflared. Infrastructure only: nothing proves an identity with it.
+ */
+export const hostTunnelSchema = z.object({
+  /** `h-<hostId>.<tunnelDomain>`, or a managed machine's own address; the route is `https://` + this. */
+  hostname: z.string().min(1),
+  /** Loopback port the connector forwards to; never a trusted requester. */
+  proxiedPort: z.number().int().positive(),
+})
+export type HostTunnel = z.infer<typeof hostTunnelSchema>
 
 export const uplinkDesiredStateSchema = z.enum(['linked', 'unlinked'])
 export type UplinkDesiredState = z.infer<typeof uplinkDesiredStateSchema>
@@ -453,7 +479,7 @@ export function formatLinkCode(ticket: string, accountOrigin: string): string {
 }
 
 /** A link code split into its ticket and account origin; a bare ticket keeps `fallbackOrigin`. Throws on anything else. */
-export function parseLinkCode(code: string, fallbackOrigin: string): UplinkLinkRequest {
+export function parseLinkCode(code: string, fallbackOrigin: string): HostRegistrationRequest {
   const trimmed = code.trim()
   const at = trimmed.lastIndexOf('@')
   if (at < 0) {
@@ -473,23 +499,20 @@ export const enrollHostRequestSchema = z.object({
   installationId: z.string().min(1),
   label: z.string().min(1).max(120),
   os: hostOperatingSystemSchema.optional(),
-  proxiedPort: z.number().int().min(1).max(65535),
   /** What the enrolling process is; `personal` when absent. Recorded once, at enrollment. */
   category: enrollHostCategorySchema.optional(),
-  /** The public half of the host credential the host made for this link (ADR 0001 §3.4). Each link has a new one. */
+  /** The public half of the host credential the host made for this registration (ADR 0001 §3.4). Each registration has a new one. */
   publicJwk: hostPublicJwkSchema,
 })
 export type EnrollHostRequest = z.infer<typeof enrollHostRequestSchema>
 
-/** Returned once. The host keeps the connector token in its secret store, beside the private half of its key. */
+/**
+ * `POST /v1/hosts/enroll` answers the registration (ADR 0001 §2.2 rule 8). It makes no
+ * tunnel: the host is reached on its local network, by pairing, or after its owner
+ * links it (`POST /v1/hosts/:hostId/link`).
+ */
 export const enrollHostResponseSchema = z.object({
-  link: uplinkLinkConfigSchema,
-  /**
-   * `cloudflared` credential; tunnel only, never an API credential. Absent when the
-   * host is reached directly: a managed host's platform proxy forwards its URL to the
-   * proxied listener, so there is no tunnel to run.
-   */
-  connectorToken: z.string().min(1).optional(),
+  registration: hostRegistrationSchema,
   /**
    * The host's OAuth client: a confidential client of the account plane with
    * `private_key_jwt` and the key the request sent. With it the host gets its own
@@ -497,7 +520,7 @@ export const enrollHostResponseSchema = z.object({
    * exchange). There is no secret: the host proves itself with its key.
    */
   oauthClient: z.object({ clientId: z.string().min(1) }),
-  /** The organizations this enrollment attached the host to for organization work; absent for a personal link. */
+  /** The organizations this registration attached the host to for organization work; absent for a personal one. */
   organizationIds: z.array(z.string().min(1)).optional(),
 })
 export type EnrollHostResponse = z.infer<typeof enrollHostResponseSchema>
@@ -670,6 +693,95 @@ export type HostActivityReport = z.infer<typeof hostActivityReportSchema>
 /** How long a host activity report stands; the host renews it before then. */
 export const HOST_ACTIVITY_REPORT_TTL_MS = 90 * 60_000
 
+// ── Live Activity relay ──────────────────────────────────────────────────────
+
+/**
+ * The iOS Live Activity card (docs/plans/live-activity-push.md). The phone builds it
+ * from every host it knows and updates it while the app runs. A suspended app cannot,
+ * so each host reports its own rows to the control plane, which merges them into the
+ * card and sends the card to APNs. The card shows titles and statuses only, never a
+ * prompt or a reply: it is on the Lock Screen.
+ */
+export const agentActivityPhaseSchema = z.enum([
+  'starting',
+  'running',
+  'waiting_for_approval',
+  'waiting_for_input',
+  /** A provider limit parks the turn; it resumes by itself. */
+  'limited',
+  'completed',
+  'failed',
+  'stale',
+])
+export type AgentActivityPhase = z.infer<typeof agentActivityPhaseSchema>
+
+const LIVE_AGENT_ACTIVITY_PHASES: ReadonlySet<AgentActivityPhase> = new Set(['starting', 'running', 'waiting_for_approval', 'waiting_for_input', 'limited'])
+
+/** A phase in which the agent work is not finished: the card stays while one row has it. */
+export function isLiveAgentActivityPhase(phase: AgentActivityPhase): boolean {
+  return LIVE_AGENT_ACTIVITY_PHASES.has(phase)
+}
+
+export function agentActivitySubtitle(activeCount: number): string {
+  return activeCount > 0 ? 'Agent work in progress' : 'Agent work completed'
+}
+
+/** ActivityKit drops a payload over 4 KB; the card shows at most five rows. */
+export const AGENT_ACTIVITY_MAX_ROWS = 5
+
+/** The Live Activity's name in the app (`createLiveActivity`); an APNs content state must carry it. */
+export const AGENT_ACTIVITY_NAME = 'AgentActivity'
+
+/** The card's stale date, on the phone and in a push: past it the card says "Out of date". */
+export const AGENT_ACTIVITY_STALE_AFTER_MS = 10 * 60_000
+
+export const agentActivityRowSchema = z.object({
+  /** The host as the phone knows it; the phone's id, not the control plane's. */
+  hostId: z.string().min(1).max(200),
+  sessionId: z.string().min(1).max(200),
+  projectTitle: z.string().max(120),
+  threadTitle: z.string().max(120),
+  modelTitle: z.string().max(120),
+  phase: agentActivityPhaseSchema,
+  status: z.string().max(40),
+  updatedAt: z.string().max(40),
+  deepLink: z.string().max(600),
+})
+export type AgentActivityRow = z.infer<typeof agentActivityRowSchema>
+
+export const agentActivityCardSchema = z.object({
+  title: z.string().max(40),
+  subtitle: z.string().max(80),
+  activeCount: z.number().int().nonnegative(),
+  updatedAt: z.string().max(40),
+  activities: z.array(agentActivityRowSchema).max(AGENT_ACTIVITY_MAX_ROWS),
+})
+export type AgentActivityCard = z.infer<typeof agentActivityCardSchema>
+
+/** The APNs gateway the phone's push token belongs to: a development build's token is a sandbox token. */
+export const apnsEnvironmentSchema = z.enum(['production', 'sandbox'])
+export type ApnsEnvironment = z.infer<typeof apnsEnvironmentSchema>
+
+/**
+ * `PUT /v1/hosts/:hostId/live-activities` with the host's control token. `card` is the
+ * card the phone showed when it gave this host the token, at `generation` (the phone's
+ * clock, so a later card has a higher one); `rows` are this host's rows of that card as
+ * they are now. The control plane keeps the newest generation, replaces the rows each
+ * host reports, and sends the card when it changed: an update while a row is live, and
+ * the end of the card when none is.
+ */
+/** A Live Activity's APNs push token, hex. */
+export const liveActivityPushTokenSchema = z.string().regex(/^[0-9a-f]{16,400}$/)
+
+export const liveActivityReportSchema = z.object({
+  pushToken: liveActivityPushTokenSchema,
+  environment: apnsEnvironmentSchema,
+  generation: z.number().int().nonnegative(),
+  card: agentActivityCardSchema,
+  rows: z.array(agentActivityRowSchema).max(AGENT_ACTIVITY_MAX_ROWS),
+})
+export type LiveActivityReport = z.infer<typeof liveActivityReportSchema>
+
 // ── Organizations and guests ─────────────────────────────────────────────────
 
 /**
@@ -712,34 +824,59 @@ export type OrganizationDirectory = z.infer<typeof organizationDirectorySchema>
 /**
  * Every host route takes the host's own access token as `Authorization: Bearer`:
  * a client credentials token for `CONTROL_AUDIENCE`, issued to this host's client
- * for the current link. A token of an earlier link, or of another host, is refused
- * with `invalid_host_credential`.
+ * for the current registration. A token of an earlier registration, or of another
+ * host, is refused with `invalid_host_credential`.
  */
 
-/** `GET /v1/hosts/:id/link` with the host's control token: the generation check at boot. */
+/**
+ * `GET /v1/hosts/:id/link` with the host's control token: the check at boot. The
+ * generation is the registration's; `tunnel` is null while the host is not linked.
+ */
 export const hostLinkResponseSchema = z.object({
   hostId: z.string().min(1),
+  generation: z.number().int().nonnegative(),
   desired: uplinkDesiredStateSchema,
-  connectionGeneration: z.number().int().nonnegative(),
-  hostname: z.string().min(1),
-  proxiedPort: z.number().int().positive(),
+  tunnel: hostTunnelSchema.nullable(),
 })
 export type HostLinkResponse = z.infer<typeof hostLinkResponseSchema>
+
+/**
+ * `POST /v1/hosts/:id/link` with the host's control token: turn the tunnel on (ADR 0001
+ * §2.2 rule 9). The answer is the tunnel and its connector token; nothing else changes.
+ * `DELETE` on the same path turns it off and removes only the tunnel.
+ */
+export const linkHostRequestSchema = z.object({
+  proxiedPort: z.number().int().min(1).max(65535),
+})
+export type LinkHostRequest = z.infer<typeof linkHostRequestSchema>
+
+export const linkHostResponseSchema = z.object({
+  tunnel: hostTunnelSchema,
+  /**
+   * `cloudflared` credential; tunnel only, never an API credential. Absent when the
+   * host is reached directly: a managed host's platform proxy forwards its URL to the
+   * proxied listener, so there is no tunnel to run.
+   */
+  connectorToken: z.string().min(1).optional(),
+})
+export type LinkHostResponse = z.infer<typeof linkHostResponseSchema>
 
 // ── Provisioned host link ────────────────────────────────────────────────────
 
 /**
- * How a host the control plane provisioned gets its link (docs/plans/managed-hosts.md
- * §2): the control plane hands the link record and a one-time credential ticket to the
- * host's boot, which puts them in the server's environment as JSON (`SOLUS_HOST_LINK`).
- * At its first boot of that link the host makes its own key pair and registers the
- * public half with the ticket (`POST /v1/hosts/:hostId/credential`). The private key
- * never leaves the machine, and the ticket works once, so nothing that passes through
- * the provisioner proves the host after its first boot (ADR 0001 §3.4). Such a link
- * has no connector token: the machine is reached through its platform URL, not a tunnel.
+ * How a host the control plane provisioned gets its registration and link
+ * (docs/plans/managed-hosts.md §2): the control plane hands the registration record,
+ * the machine's address, and a one-time credential ticket to the host's boot, which
+ * puts them in the server's environment as JSON (`SOLUS_HOST_LINK`). At its first boot
+ * of that registration the host makes its own key pair and registers the public half
+ * with the ticket (`POST /v1/hosts/:hostId/credential`). The private key never leaves
+ * the machine, and the ticket works once, so nothing that passes through the
+ * provisioner proves the host after its first boot (ADR 0001 §3.4). Such a link has no
+ * connector token: the machine is reached through its platform URL, not a tunnel.
  */
 export const hostLinkEnvSchema = z.object({
-  link: uplinkLinkConfigSchema,
+  registration: hostRegistrationSchema,
+  tunnel: hostTunnelSchema,
   credentialTicket: z.string().min(1),
 })
 export type HostLinkEnv = z.infer<typeof hostLinkEnvSchema>
@@ -765,11 +902,10 @@ export const uplinkErrorCodeSchema = z.enum([
   'invalid_request',
   'unauthorized',
   'invalid_ticket',
-  /** The host's control token is not of this host's current link: another copy took the link, or it was removed. */
+  /** The host's control token is not of this host's current registration: another copy registered, or the owner deleted the host. */
   'invalid_host_credential',
   'cross_origin',
   'host_not_found',
-  'host_not_linked',
   'not_a_member',
   'organization_not_found',
   'rate_limited',
@@ -792,6 +928,8 @@ export const uplinkErrorCodeSchema = z.enum([
   'settings_generation_changed',
   /** Only an organization owner may change its settings. */
   'not_settings_manager',
+  /** The control plane has no APNs credentials: a Live Activity changes only while the app runs. */
+  'push_not_configured',
 ])
 export type UplinkErrorCode = z.infer<typeof uplinkErrorCodeSchema>
 
@@ -803,22 +941,48 @@ export const uplinkErrorBodySchema = z.object({
 
 // ── Host RPC (local-owner only) ──────────────────────────────────────────────
 
-/** The owner's client hands the host a ticket and tells it where the directory is. */
-export interface UplinkLinkRequest {
+/**
+ * The owner's client hands the host a ticket and tells it where the directory is
+ * (`uplinkRegister`). A host registered already redeems a ticket that names
+ * organizations as an attachment, and ignores one that names none.
+ */
+export interface HostRegistrationRequest {
   ticket: string
   /** The account origin that issued the ticket, e.g. `https://app.solus.sh`. */
   directoryUrl: string
+  /** The organizations the ticket attaches the host to, as the ticket answer named them. */
+  organizationIds?: string[]
 }
 
-export const uplinkStatusSchema = z.discriminatedUnion('linked', [
+/** Whether the host is registered to an account (rule 8), and whose. */
+export const hostRegistrationStatusSchema = z.discriminatedUnion('registered', [
+  z.object({ registered: z.literal(false) }),
+  z.object({
+    registered: z.literal(true),
+    registration: hostRegistrationSchema,
+    /** The account the host is registered to; null until the control plane answered, and on a managed host. */
+    owner: hostOwnerIdentitySchema.nullable(),
+  }),
+])
+export type HostRegistrationStatus = z.infer<typeof hostRegistrationStatusSchema>
+
+/** Whether the internet reaches the host through its tunnel (rule 9). */
+export const hostLinkStatusSchema = z.discriminatedUnion('linked', [
   /** `error`: the stored link Solus cloud no longer accepts, and why. Linking again replaces it. */
   z.object({ linked: z.literal(false), error: z.string().optional() }),
   z.object({
     linked: z.literal(true),
-    link: uplinkLinkConfigSchema,
+    tunnel: hostTunnelSchema,
     state: uplinkLinkStateSchema,
   }),
 ])
+export type HostLinkStatus = z.infer<typeof hostLinkStatusSchema>
+
+/** What a host says about itself and the cloud: its registration, and apart from it, its link. */
+export const uplinkStatusSchema = z.object({
+  registration: hostRegistrationStatusSchema,
+  link: hostLinkStatusSchema,
+})
 export type UplinkStatus = z.infer<typeof uplinkStatusSchema>
 
 // ── Client shell (desktop main / cloud-served web) ───────────────────────────

@@ -20,7 +20,9 @@ import { CloudSignInScreen } from '../features/account/CloudSignInScreen'
 import { HomeRouteScreen } from '../features/home/HomeRouteScreen'
 import { ThreadRouteScreen } from '../features/threads/ThreadRouteScreen'
 import { ThreadAgentsSheet } from '../features/threads/ThreadAgents'
+import { ThreadQueueSheet } from '../features/threads/ThreadQueueSheet'
 import { NewTaskRouteScreen } from '../features/threads/NewTaskRouteScreen'
+import { NewTaskEnvironmentPickerRouteScreen } from '../features/threads/NewTaskContextPickerScreens'
 import { HostsScreen } from '../features/hosts/HostsScreen'
 import { PairHostScreen } from '../features/hosts/PairHostScreen'
 import { AdaptiveWorkspaceLayout, type WorkspaceLocation } from '../features/layout/AdaptiveWorkspaceLayout'
@@ -33,9 +35,6 @@ import { OpenFolderScreen } from '../features/projects/OpenFolderScreen'
 import { ProjectFromGithubScreen } from '../features/projects/ProjectFromGithubScreen'
 import { CloneProjectScreen } from '../features/projects/CloneProjectScreen'
 import { NotificationsScreen } from '../features/notifications/NotificationsScreen'
-import { RunAppScreen } from '../features/devices/RunAppScreen'
-import { BuildProfilesScreen } from '../features/devices/BuildProfilesScreen'
-import { BuildLogScreen } from '../features/devices/BuildLogScreen'
 import { SettingsScreen } from '../features/settings/SettingsScreen'
 import { AppearanceScreen } from '../features/settings/AppearanceScreen'
 import { AccountSyncScreen } from '../features/settings/AccountSyncScreen'
@@ -118,12 +117,21 @@ export const SHEET_GLASS_HEADER_OPTIONS: AppScreenOptions = {
 /** Settings and the new-task flow, which T3 presents as sheets. */
 const SHEET_ROUTES = new Set<keyof RootStackParamList>(['Settings', 'NewTask'])
 
+/** Pairing and the Solus Cloud sign-in: a centered form sheet on a wide iPad, not a full-width page. */
+const CONNECT_SHEET_ROUTES = new Set<keyof RootStackParamList>(['PairHost', 'CloudSignIn', 'CloudHosts'])
+
 // Routes presented as sheets/overlays ON TOP of the workspace. They must not
 // influence the adaptive workspace layout: opening Settings over Home should
 // not flip the sidebar in or change the active thread. Settings pages pushed
 // from the Settings sheet stay in it.
 const WORKSPACE_OVERLAY_ROUTES = new Set<keyof RootStackParamList>([
   'NewTask',
+  'PairHost',
+  'CloudSignIn',
+  'CloudHosts',
+  'NewTaskEnvironment',
+  'ThreadAgents',
+  'ThreadQueue',
   'Settings',
   'AccountSync',
   'AgentProfile',
@@ -207,6 +215,9 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
             const base: NativeStackNavigationOptions = {
               contentStyle: { backgroundColor: themeVariables['--color-screen'] },
             }
+            if (CONNECT_SHEET_ROUTES.has(route.name)) {
+              return Platform.OS === 'ios' && usesWorkspaceFlowScreens ? { ...base, ...FORM_SHEET_PRESENTATION_OPTIONS } : base
+            }
             if (!SHEET_ROUTES.has(route.name)) return base
             return usesWorkspaceFlowScreens
               ? { ...base, presentation: 'card' }
@@ -231,9 +242,21 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
             options={{ ...FORM_SHEET_PRESENTATION_OPTIONS, headerShown: false, sheetAllowedDetents: [0.5, 0.9], sheetGrabberVisible: true }}
           />
           <Stack.Screen
+            name="ThreadQueue"
+            component={ThreadQueueSheet}
+            // T3 Code's Queue sheet (Stack.tsx): 0.65 of the height, drawn up to 0.95.
+            options={{ ...FORM_SHEET_PRESENTATION_OPTIONS, headerShown: false, sheetAllowedDetents: [0.65, 0.95], sheetGrabberVisible: true }}
+          />
+          <Stack.Screen
             name="NewTask"
             component={NewTaskRouteScreen}
             options={{ ...SHEET_GLASS_HEADER_OPTIONS, title: 'Choose project', gestureEnabled: true }}
+          />
+          {/* T3 Code's Environment screen (Stack.tsx), pushed in the new-task sheet. */}
+          <Stack.Screen
+            name="NewTaskEnvironment"
+            component={NewTaskEnvironmentPickerRouteScreen}
+            options={{ ...SHEET_GLASS_HEADER_OPTIONS, title: 'Host' }}
           />
           <Stack.Screen name="Welcome" component={WelcomeScreen} options={{ headerShown: false }} />
           <Stack.Screen name="PairHost" component={PairHostScreen} options={{ title: 'Connect to a host' }} />
@@ -245,9 +268,6 @@ export function RootNavigator({ initialState }: { initialState: InitialState }) 
           <Stack.Screen name="OpenFolder" component={OpenFolderScreen} options={{ title: 'Open an existing folder' }} />
           <Stack.Screen name="ProjectFromGithub" component={ProjectFromGithubScreen} options={{ title: 'Get a project from GitHub' }} />
           <Stack.Screen name="CloneProject" component={CloneProjectScreen} options={{ title: 'Clone from a URL' }} />
-          <Stack.Screen name="RunApp" component={RunAppScreen} options={{ title: 'Run app' }} />
-          <Stack.Screen name="BuildProfiles" component={BuildProfilesScreen} options={{ title: 'Advanced configuration' }} />
-          <Stack.Screen name="BuildLog" component={BuildLogScreen} options={{ title: 'Build log' }} />
           <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ title: 'Notifications', headerLargeTitle: true }} />
           <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings', gestureEnabled: true }} />
           <Stack.Screen name="AccountSync" component={AccountSyncScreen} options={{ title: 'Account & sync' }} />

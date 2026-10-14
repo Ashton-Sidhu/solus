@@ -32,7 +32,7 @@ export interface OnboardingDeps {
   prompter: Prompter | null
   log(line: string): void
   connect(options: ConnectOptions, reporter: ConnectReporter): Promise<UplinkStatus>
-  status(dataDir: string): Promise<{ link: UplinkStatus; standing: HostOrganizationsStatus }>
+  status(dataDir: string): Promise<{ uplink: UplinkStatus; standing: HostOrganizationsStatus }>
   pairLines(): Promise<string[]>
   /** Runs the provider's own sign-in in this terminal; answers whether it finished. */
   setUpProvider(provider: Provider): Promise<boolean>
@@ -58,7 +58,7 @@ export async function onboard(options: OnboardingOptions, deps: OnboardingDeps):
   }
   const current = await deps.status(options.dataDir)
   const choices = pathChoices(current).filter((choice) => options.mode === 'setup' || choice.value !== 'pair')
-  const path = await prompter.choose<Path>('How will you use this server?', choices, current.link.linked || options.mode === 'connect' ? choices[0]!.value : 'pair')
+  const path = await prompter.choose<Path>('How will you use this server?', choices, current.uplink.registration.registered || options.mode === 'connect' ? choices[0]!.value : 'pair')
   if (path === 'pair') {
     for (const line of await deps.pairLines()) log(line)
   } else if (path === 'account' || path === 'organization') {
@@ -69,17 +69,17 @@ export async function onboard(options: OnboardingOptions, deps: OnboardingDeps):
   if (options.mode === 'setup') await offerProviders(deps)
 }
 
-function pathChoices(current: { link: UplinkStatus; standing: HostOrganizationsStatus }) {
+function pathChoices(current: { uplink: UplinkStatus; standing: HostOrganizationsStatus }) {
   const attached = current.standing.attachedAt !== null
   return [
     { value: 'pair' as const, label: 'Connect a client directly', hint: 'Pair a Solus app with this server. No Solus account needed.' },
-    ...(current.link.linked ? [] : [{ value: 'account' as const, label: 'Link to your Solus account', hint: 'Your Solus apps find this server. Work here stays on this server.' }]),
+    ...(current.uplink.registration.registered && current.uplink.link.linked ? [] : [{ value: 'account' as const, label: 'Connect to your Solus account', hint: 'Registers this server and makes it reachable from the internet, so your Solus apps find it. Work here stays on this server.' }]),
     {
       value: 'organization' as const,
       label: attached ? 'Attach to another organization' : 'Attach to an organization',
       hint: 'New work on this server belongs to the organization and is saved in its Solus API. Personal work already here stays on this server.',
     },
-    { value: 'later' as const, label: current.link.linked ? 'Keep the current connection' : 'Skip for now', hint: 'Run `solus connect` later.' },
+    { value: 'later' as const, label: current.uplink.registration.registered ? 'Keep the current connection' : 'Skip for now', hint: 'Run `solus connect` later.' },
   ]
 }
 
@@ -135,16 +135,20 @@ async function offerProviders(deps: OnboardingDeps): Promise<void> {
  * it is attached for organization work and to which organizations, how it is
  * reached, and what waits for delivery. Never a credential.
  */
-export function describeConnection({ link, standing }: { link: UplinkStatus; standing: HostOrganizationsStatus }): string[] {
-  if (!link.linked) {
-    return ['Solus: not linked. Clients connect to this server directly; its work stays here.']
+export function describeConnection({ uplink, standing }: { uplink: UplinkStatus; standing: HostOrganizationsStatus }): string[] {
+  const { registration, link } = uplink
+  if (!registration.registered) {
+    return ['Solus: not registered. Clients connect to this server directly; its work stays here.']
   }
-  const tunnel = link.state.observed === 'error' && link.state.error ? `error — ${link.state.error}` : link.state.observed
+  const tunnel = !link.linked
+    ? 'local network only (not linked)'
+    : `${link.tunnel.hostname} — ${link.state.observed === 'error' && link.state.error ? `error — ${link.state.error}` : link.state.observed}`
   const attached = standing.organizations.filter((organization) => organization.shared)
+  const owner = registration.owner?.email ?? registration.owner?.name
   const lines = [
-    'Solus: linked',
-    `  Server: ${link.link.hostname} (${categoryLabel(standing.category)})`,
-    `  Reachable: ${tunnel}`,
+    `Solus: registered${owner ? ` to ${owner}` : ''}`,
+    `  Server: ${registration.registration.hostId} (${categoryLabel(standing.category)})`,
+    `  Reachable from the internet: ${tunnel}`,
   ]
   if (standing.attachedAt !== null) {
     lines.push(`  Organization work: ${attached.length ? attached.map((organization) => organization.name).join(', ') : 'no organization attached — new work cannot start until one is'}`)

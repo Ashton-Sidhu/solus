@@ -5,6 +5,7 @@ import { planKey } from '@solus/contracts/types'
 import { AgentCards, isAgentConversationTool, type AgentItem } from './agent-cards'
 import { promptImageAttachments, splitAttachedFiles, type MessageAttachment } from './message-attachments'
 import { AgentPlans } from './agent-plans'
+import { artifactFromCreated, artifactFromHistory, type ArtifactRender } from './artifacts'
 
 /**
  * One conversation's transcript as the native client shows it (plan 017
@@ -40,6 +41,8 @@ export type TranscriptItem =
   /** Another Solus session this conversation sent work to (`agent-cards.ts`). */
   | AgentItem
   | { kind: 'notice'; id: string; text: string; tone: 'error' | 'info' }
+  /** An HTML render the agent showed (`artifacts.ts`). */
+  | ({ kind: 'artifact'; id: string } & ArtifactRender)
   /** A context compaction: running from its start event, settled by its stop. */
   | { kind: 'compaction'; id: string; compaction: ContextCompaction }
   | {
@@ -134,6 +137,8 @@ export class TranscriptModel {
   private runningCompactionId: string | null = null
   private proseSinceUser = false
   private readonly settledTurns = new Set<string>()
+  /** The newest saved revision applied per artifact work, so a repeated update adds no card. */
+  private readonly artifactUpdates = new Map<string, string>()
 
   constructor(readonly sessionId: string) {}
 
@@ -240,6 +245,12 @@ export class TranscriptModel {
 
   private applyHistoryResult(row: WireSessionLoadMessage): void {
     if (!row.toolResultForId) return
+    const toolId = this.findTool(row.toolResultForId)
+    const tool = toolId ? this.items.get(toolId) : undefined
+    if (tool?.kind === 'tool') {
+      const render = artifactFromHistory(tool.toolName, tool.input, row)
+      if (render) this.place({ kind: 'artifact', id: this.mintId('r'), ...render })
+    }
     this.patchToolById(row.toolResultForId, false, (tool) => ({
       ...tool,
       status: row.status === 'error' ? 'error' : 'completed',
@@ -257,7 +268,7 @@ export class TranscriptModel {
       return
     }
     // Each group answers whether it owned the event; anything else is not shown yet.
-    if (this.applyStream(event) || this.applyTurn(event) || this.applyRequest(event)) return
+    if (this.applyStream(event) || this.applyArtifact(event) || this.applyTurn(event) || this.applyRequest(event)) return
     this.applyQueue(event)
   }
 
@@ -321,6 +332,17 @@ export class TranscriptModel {
       default:
         return false
     }
+  }
+
+  private applyArtifact(event: WireNormalizedEvent): boolean {
+    if (event.type === 'artifact_created') {
+      const render = artifactFromCreated(event)
+      if (render) this.append({ kind: 'artifact', id: this.mintId('r'), ...render })
+      return true
+    }
+    if (event.type !== 'work_updated') return false
+    this.applyWorkUpdate(event)
+    return true
   }
 
   private applyTurn(event: WireNormalizedEvent): boolean {
@@ -449,6 +471,20 @@ export class TranscriptModel {
       this.proseSinceUser = true
     }
     this.streamTarget = null
+  }
+
+  /** A saved revision of an artifact work is a new render. The host can report
+   *  a cloud-owned save as `doc`, so an earlier render of the work also counts. */
+  private applyWorkUpdate(event: Extract<WireNormalizedEvent, { type: 'work_updated' }>): void {
+    let earlier: Extract<TranscriptItem, { kind: 'artifact' }> | undefined
+    for (const item of this.items.values()) {
+      if (item.kind === 'artifact' && item.workId === event.workId) earlier = item
+    }
+    if (event.docType !== 'artifact' && !earlier) return
+    const applied = this.artifactUpdates.get(event.workId)
+    if (applied !== undefined && applied >= event.updatedAt) return
+    this.artifactUpdates.set(event.workId, event.updatedAt)
+    this.append({ kind: 'artifact', id: this.mintId('r'), html: event.content, title: event.title || earlier?.title || 'Artifact', workId: event.workId })
   }
 
   private updateToolInput(toolId: string, input: string | undefined): void {

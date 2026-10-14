@@ -18,7 +18,6 @@ import {
   type ProviderSetupAction,
 } from './lib/host-onboarding'
 import { hostProviderContext, messageFor } from './lib/setup-rpc'
-import { toasts } from '../../lib/toasts'
 
 const LOG_LIMIT = 300
 
@@ -193,12 +192,11 @@ export class HostSetupSession {
     }
   }
 
-  async updateProvider(provider: SetupAgent): Promise<void> {
-    if (this.providerStages[provider]) return
+  /** Updates the provider's CLI; `hostUpdater` is the one caller, and it reports. Answers the failure, or null. */
+  async installProviderUpdate(provider: SetupAgent): Promise<string | null> {
+    if (this.providerStages[provider]) return 'An update is already running.'
     this.retain()
     this.providerStages[provider] = 'install'
-    const label = provider === 'claude' ? 'Claude Code' : 'Codex'
-    const progress = toasts.progress(`Updating ${label}…`)
     try {
       // Keep this provider's own failure: `stepError` is one slot, and a second
       // provider updating at the same time overwrites it.
@@ -207,8 +205,7 @@ export class HostSetupSession {
         failure = messageFor(err)
         throw err
       }), provider)
-      if (succeeded) progress.success(`${label} updated`)
-      else progress.error(`Could not update ${label}`, { description: failure })
+      return succeeded ? null : failure ?? 'The update did not finish.'
     } finally {
       this.providerStages[provider] = null
       this.release()

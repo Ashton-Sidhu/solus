@@ -1,8 +1,9 @@
 // Adapted from T3 Code apps/mobile/src/features/pull-requests/PullRequestMedia.tsx (MIT, see UPSTREAM.md).
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { githubMediaFetchUrl } from '@solus/contracts/github-media'
 import { useApp } from '../../../app/app-context'
 import type { PullRequestRef } from '../pull-request-directory'
+import type { MarkdownMediaContext } from '../../../lib/markdownMedia'
 import { pullRequestMediaUrl } from '../pull-request-media'
 
 /** The pull request whose host signs the GitHub media of the text below it. */
@@ -43,4 +44,20 @@ export function usePullRequestMediaUrl(url: string): PullRequestMediaUrl {
     uri: !signed ? url : resolved?.url === url ? resolved.uri : null,
     resolvePlaybackUri: () => resolve(true),
   }
+}
+
+/**
+ * How pull request Markdown opens media: web addresses only (a relative path
+ * names a repository file the phone cannot read), GitHub media through the
+ * host's signed URL.
+ */
+export function usePullRequestMarkdownMedia(): MarkdownMediaContext {
+  const app = useApp()
+  const location = useContext(PullRequestMediaContext)
+  return useMemo(() => ({
+    hostFile: () => null,
+    webUrl: (url: string) => location
+      ? pullRequestMediaUrl(app.connections.connection(location.hostId), url, app.pullRequests.context(location.projectPath))
+      : Promise.resolve(url),
+  }), [app, location])
 }

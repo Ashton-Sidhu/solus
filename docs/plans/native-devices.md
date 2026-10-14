@@ -145,3 +145,43 @@ assets are included: T3's `.glb` files are converted from Apple's AR assets and
 are not under T3's licence, so Solus draws only the body built in code.
 `expo-device-hub` (MIT) vendors serve-sim and serve-emu (Apache-2.0); they are
 installed on the host at runtime, not bundled with Solus.
+
+## D4 — Run app owns app execution
+
+Changed 2026-10-13. Run app replaces the Builds archive and New build flow.
+Changed again 2026-10-13: Run app has two paths. **Dev server** (`mode: dev`)
+opens the debug app already on a simulator or emulator against the project's
+Metro; it builds nothing. **Production build** (`mode: device`) builds Release
+and installs it on any device. The run `mode` is `dev` or `device`; every
+run records its mode, source, delivery, branch, and commit. The Branch picker lists
+local and remote branches for the selected project. It starts on main when available,
+otherwise the current branch. Each named branch has its own owned build checkout.
+Builds use committed code and do not change the conversation checkout.
+Profiles in `.solus/config.json` still apply to production builds, but the
+client has no editor for them. Each run checks out the newest commit of its source in an owned checkout.
+Changed 2026-10-13: the main commit pin and Update main were removed; users
+expect a build to contain the latest selected branch commit. Older clients can
+still request main or the conversation checkout through the source field.
+The selected device determines which target profiles match. Run app uses the first
+matching saved profile, or detects a default when none match. Profiles supply the
+build command, output path, app id, and signing settings; production builds
+always use Release. Profiles are read from the selected project checkout.
+
+`DeviceRuns` owns command approval, dependency setup, build execution,
+dev server readiness, cancellation, and bounded run state.
+`DeviceRunSources` owns separate checkouts and commit selection.
+`DeviceRunState` writes the latest bounded state and log atomically.
+`DeviceManager` retains device discovery, preview, install, and control lease
+ownership. App execution uses the device RPC surface over IPC or WebSockets.
+A client path is resolved on the host before any process starts.
+
+A dev run uses the project as it is on disk, not an owned checkout. It joins
+Metro on port 8081 when `/status` reports a project root inside the selected
+project, starts Metro there when the port is free, and refuses any other
+server. It reads the app id from Expo's manifest or the native projects, and
+fails when the app is not on the simulator. It owns and stops only a Metro
+it started.
+Solus prepares Expo native folders when needed; other native projects must
+already exist. Custom project commands and signing
+settings are edited in `.solus/config.json`. APK download is distinct from
+confirmed installation. The feature adds no distribution service.

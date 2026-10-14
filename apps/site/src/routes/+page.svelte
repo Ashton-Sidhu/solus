@@ -67,11 +67,6 @@
 			desc: "Push-to-talk or a continuous hands-free loop, transcribed locally. Audio never leaves your machine.",
 		},
 		{
-			anchor: "design-mode",
-			title: "Design mode",
-			desc: "Screenshot any window, annotate it with arrows, pins, and text, and send the image to the agent.",
-		},
-		{
 			anchor: "connections",
 			title: "Hosts & remote",
 			desc: "Pair your phone or any browser, add other machines as hosts, and choose where each session runs.",

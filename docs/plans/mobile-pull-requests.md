@@ -1,0 +1,128 @@
+# Mobile pull requests
+
+Status: implemented (2026-10-12). The diff surface needs a new native build before device proof.
+
+The native mobile app (`apps/mobile/`) gets the pull request workspace that the
+desktop and web clients already have. The design follows T3 Code's mobile port of
+the same feature, so it stays in line with the rest of the ported interface
+(`apps/mobile/UPSTREAM.md`):
+
+- [t3code#18126](https://github.com/pingdotgg/t3code/pull/18126): browse and review pull requests natively.
+- [t3code#18267](https://github.com/pingdotgg/t3code/pull/18267): guided reviews for pull requests.
+- [t3code#18351](https://github.com/pingdotgg/t3code/pull/18351): keep pull requests available offline.
+
+Source commit for the port: T3 Code `e2e95a39d` (2026-10-12).
+
+## Scope
+
+Mobile only. The server already has every RPC that this needs (`prListProjects`,
+`prGetOverview`, `prListComments`, `prListCommits`, `prChangedFiles`, `prGetDiff`,
+`prGetDiffFileContents`, `prListThreads`, `prReplyThread`, `prResolveThread`,
+`prSubmitReview`, `prMerge`, `prEnableAutoMerge`, `prUpdateBranch`,
+`prUpdateLifecycle`, `prListReviewers`, `prRequestReviewers`, `prSetLabels`,
+`prGuideStatuses`, `requestReviewGuide`, `readGuide`). No contract, server, or
+desktop/web change is part of this plan; the later GitHub actions below use
+host calls from a separate server change.
+
+## Vocabulary
+
+- **Pull Requests tab** — the second root tab beside **Chats** in the mobile
+  workspace. It lists pull requests of every connected host.
+- **pull request detail** — the screen for one pull request. It has the tabs
+  **Overview**, **Activity**, **Commits**, **Files**, and **Guide**.
+- **diff surface** — the native view that draws a unified diff
+  (`modules/t3-review-diff`, ported from T3).
+- **review draft** — inline comments that the person writes on the diff before
+  they submit one review. It stays on the device until it is submitted or
+  discarded.
+- **guide** — the Solus review guide for a pull request
+  (`ReviewGuide` in `packages/contracts/src/review.ts`). On mobile it is shown as
+  a tour: one stop for each guide section, in section order.
+- **pull request cache** — the device copy of read pull request data, so that a
+  pull request that was read once is still readable offline.
+
+## Architecture
+
+### Data (`apps/mobile/src/features/prs/`)
+
+Stores follow the Solus mobile pattern: a class with `changes: Listeners`, reads
+as `LoadState<T>`, components read with `useListened`. A read that a newer read
+or a new server session made stale is dropped (`PullRequestDirectory.read`).
+
+- `pull-request-directory.ts` — lists across hosts and the detail parts.
+- `pull-request-diffs.ts` — diff pages for one pull request (optionally one
+  commit), with the provider cursor; file contents for context expansion.
+- `pull-request-actions.ts` — commands: merge, auto-merge, update branch,
+  lifecycle, reviewers, labels, review submit, thread reply/resolve, stack
+  merge, revert, workflow approval, and viewed marks.
+- `pull-request-guides.ts` — guide status, read, and request for a pull request.
+- `pull-request-review-drafts.ts` — the review draft of each pull request.
+- `pull-request-cache.ts` — the pull request cache in `expo-sqlite`.
+
+Server mutations need a connection. Reads show the cached value when the host is
+not reachable, with the state marked as not refreshed.
+
+Cache bounds (from T3): 30 days, 256 records, and 32 MiB for each host; a
+response larger than 4 MiB is not cached.
+
+### GitHub actions added later (2026-10-12)
+
+These use host calls that were added after the first port
+(`packages/contracts/src/host-api.ts`). Each one shows only when the code host
+(`pr.capabilities.actions`) and the person's account
+(`pr.viewerPermissions.actions`) both allow it (`lib/pull-request-permissions.ts`).
+
+- **Stack merge** (`merge-stack`): a "Merge stack" button under the merge
+  button, when the pull request is in a stack and more than one open layer
+  lands. The confirmation lists the layers. It sends the layer heads that the
+  device read with the stack (`expectedHeads`); a `queued` answer says so.
+- **Workflow approval** (`approve-workflows`): the detail reads
+  `prPendingWorkflowRuns` for an open fork pull request, as an optional part
+  that is also in the device copy. The waiting runs show in a row under the
+  checks, with "Approve and run".
+- **Revert** (`revert`): in the status menu of a merged pull request. After
+  the host opens the revert pull request, the screen opens it.
+- **Viewed files**: when `pr.capabilities.viewedFiles` is true, GitHub's
+  viewed state is the record. It is read when the pull request opens; marks
+  go in one write after a short pause, show at once, and go back with a short
+  reason when the write fails. "Changed since viewed" lists the files that
+  GitHub marked `dismissed`. Offline, the device copy shows and a tap does
+  nothing. Without the flag, the marks stay on the device as before.
+- **GitHub media**: an image or video whose URL `githubMediaFetchUrl`
+  accepts loads through a URL the host signs (`prMediaUrl`, on the
+  collaboration plane, so a host that serves only pull request records signs
+  it too), when the host has the `githubMediaUrls` capability.
+  Other media, an older host, or a refusal loads the direct URL.
+
+### Diff surface
+
+`modules/t3-review-diff` (Swift and Kotlin) and its JS adapters
+(`src/features/review/`, `src/features/diffs/`) are ported from T3 with the T3
+attribution line. Patches parse with `@pierre/diffs`, as in T3 and in the Solus
+workspace UI. This module needs a new native build of the app.
+
+### Navigation
+
+- `Home` becomes the workspace root with two tabs, Chats and Pull Requests
+  (`src/features/workspace/`). The per-host `PullRequests` route is removed;
+  a host's pull requests open as the Pull Requests tab filtered to that host.
+- New stack routes for the pull request detail flows: `PullRequestReview`,
+  `PullRequestInlineComment`, `PullRequestReviewers`, `PullRequestLabels`
+  (sheets) and `PullRequestDiscussion` (pushed).
+
+### Guide
+
+The Guide tab shows only when the host returns a guide status for the pull
+request. Writing a guide uses `requestReviewGuide` with a `pr` target. A guide
+whose `headSha` is not the pull request head is shown as outdated. Stops come
+from `GuideSection`; each stop shows the section's `hunks` on the diff surface.
+
+## Platform decisions
+
+- iOS and Android get the same capability. iOS uses the UIKit system tab bar
+  from T3's react-native-screens v5 fork (`apps/mobile/deps/`). On a phone,
+  compose is the tab bar's detached search-role tab and opens New Task; a
+  wide iPad window picks the tab in a segmented control at the top of the
+  sidebar and keeps compose in the bottom toolbar. Android keeps its Material
+  navigation bar.
+- Desktop and web are not changed: they already have this capability.

@@ -51,6 +51,9 @@ export interface HostCapabilities {
    *  store. Without it a client sends image bytes inline on every turn. */
   promptImageRefs?: boolean
   assetUrls?: boolean
+  /** `prMediaUrl` signs GitHub media: the host fetches it with its own
+   *  credential, so images in a private pull request show. */
+  githubMediaUrls?: boolean
   skillsInstall?: boolean
   skillsSearch?: boolean
   skillsManage?: boolean
@@ -75,7 +78,7 @@ export interface HostCapabilities {
   modelProfiles?: boolean
   /** The host runs without a window: no Electron main process. */
   headless?: boolean
-  /** The desktop main process registered its handlers (screenshots, design mode, native dialogs). */
+  /** The desktop main process registered its handlers (screenshots, native dialogs). */
   desktopHandlers?: boolean
   /** Which agent CLIs the host found on its PATH. */
   agents?: { claude: boolean; codex: boolean }
@@ -405,6 +408,12 @@ export interface HeadlessSessionRequest {
   startedBy?: SessionOrigin
   /** Images already uploaded to this host's attachment store, sent with the prompt. */
   imageAttachmentRefs?: PromptImageRef[]
+  /**
+   * The organization the requester works in, as a prompt's `SessionCtx.organizationId`:
+   * the window's, or the parent session's for a child started from another host. The
+   * new session passes the same turn admission as a prompt with it (organization-vms §1).
+   */
+  organizationId?: string
 }
 
 /** A prompt to an existing session from an agent on another host. The session
@@ -735,22 +744,7 @@ export interface Attachment {
   dataUrl?: string
   /** File size in bytes */
   size?: number
-  designData?: DesignModeSelection
-}
-
-export interface DesignAnnotation {
-  id: string
-  type: 'rectangle' | 'arrow' | 'pin' | 'text'
-  /** Coordinates relative to the screenshot (0-1 normalized) */
-  x: number
-  y: number
-  width?: number
-  height?: number
-  /** End point for arrows (normalized) */
-  endX?: number
-  endY?: number
-  /** Marker number for pins, or text content for text annotations */
-  label?: string
+  designData?: DesignSelectionData
 }
 
 export interface VoiceModelStatus {
@@ -760,22 +754,17 @@ export interface VoiceModelStatus {
   error?: string
 }
 
-export interface DesignModeSelection {
+export interface DesignSelectionData {
   /** Cropped element screenshot as data URL */
   screenshot: string
-  /** Element's outer HTML (truncated if large) */
-  outerHTML?: string
   /** Unique CSS selector path */
   cssSelector?: string
-  /** Key computed CSS properties */
-  computedStyles?: Record<string, string>
   /** Framework component name (React/Svelte/Vue) */
   componentName?: string
   /** Source file path from source maps */
   componentFile?: string
   pageURL?: string
   viewport?: { width: number; height: number }
-  annotations?: DesignAnnotation[]
   /** Complete agent-facing context for a browser annotation attachment.
    *
    * Browser annotations use the existing design-selection attachment lane so
@@ -1074,6 +1063,11 @@ export interface Session {
   sessionChangedFiles: string[]
   additionalDirs: string[]
   readOnlyReason: string | null
+  /** The organization of the session's record, as its host last reported it
+   *  (organization-scope §3). An organization session's record and mirrored
+   *  transcript live on that organization's workspace service, where the tab
+   *  reads them once its machine is gone (docs/plans/workspace-and-machines.md §6). */
+  organizationId: string | null
   loadingHistory: boolean
   /** True when only a recent window of the transcript was hydrated and older
    *  messages still live on disk (fetched on demand via expandHistory). */
@@ -1354,19 +1348,17 @@ export interface Message {
   planToolUseId?: string
   workRef?: { workId: string; title: string; workType?: WorkType; contentVersion?: number }
   /** A rendered visual artifact (render_artifact tool) shown flush in the
-   *  conversation. `pending` is true while the tool call is still in flight.
-   *  An HTML artifact also carries `workRef` once it is persisted as an
-   *  `artifact` work, so the frame can open it in a pane and link it. */
-  /** `pending` is the skeleton, before any markup has arrived. `streaming` is
-   *  the render that has one but is still being written: it renders live and
-   *  reloads as more lands, and is what `artifact_created` fills in. */
+   *  conversation. An HTML artifact also carries `workRef` once it is persisted
+   *  as an `artifact` work, so the frame can open it in a pane and link it.
+   *  `streaming` is a render whose call is still being written: it renders live
+   *  and reloads as more lands, and is what `artifact_created` fills in. No card
+   *  exists before the call's input has markup to render. */
   artifact?: {
     /** Originating render_artifact call, used to correlate concurrent streams. */
     toolId?: string
     kind: 'html' | 'image'
     html?: string
     path?: string
-    pending?: boolean
     streaming?: boolean
     /** Successful saved revision, used to ignore repeated update delivery. */
     updatedAt?: string
@@ -1768,6 +1760,9 @@ export interface AgentConversationRef {
   title: string
   /** Working directory; already the worktree path for worktree-backed agents. */
   cwd: string
+  /** The id clients know the session's host by, when it runs on another host
+   *  than the caller. Absent: it runs on the caller's host. */
+  serverId?: string
   model?: string
   reasoningEffort?: string
   origin: AgentConversationOrigin
@@ -1800,7 +1795,7 @@ export interface ExchangeProgress {
  *  tabs by the host's session orchestrator — the only thing that emits them.
  *  The model-facing [session report] text is separate and never rendered. */
 export type AgentConversationUpdate =
-  | { phase: 'dispatched'; sessionId: string; messageId: string; origin: AgentConversationOrigin; prompt: string; delivery?: PromptDelivery; provider: AgentId; title: string; cwd: string; model?: string; reasoningEffort?: string; fireAndForget?: boolean; dispatchedAt: number }
+  | { phase: 'dispatched'; sessionId: string; messageId: string; origin: AgentConversationOrigin; prompt: string; delivery?: PromptDelivery; provider: AgentId; title: string; cwd: string; serverId?: string; model?: string; reasoningEffort?: string; fireAndForget?: boolean; dispatchedAt: number }
   /** A started session's checkout is known: the card shows where it runs. */
   | { phase: 'attached'; messageId: string; sessionId: string; cwd?: string }
   /** The target accepted the message: its turn started, it waits behind the
@@ -2415,6 +2410,9 @@ export interface SessionMeta {
   delegation?: SessionDelegation
   /** The agent session on another host that started this one (docs/plans/cross-host-sessions.md). */
   startedBy?: SessionOrigin
+  /** The organization of the session's record: `local` or an organization id
+   *  (organization-scope §3). Absent when the host keeps no record of it. */
+  organizationId?: string
 }
 
 export interface SessionDelegation {
@@ -2517,6 +2515,8 @@ export interface SessionRecordListFilter {
   provider?: AgentId
   projectPath?: string
   includeWorktrees?: boolean
+  /** One repository's sessions on every machine that ran them (project-model §1). */
+  repositoryKey?: string
   /** Only chats, the sessions with no project, in every chat folder. */
   chats?: boolean
   limit?: number
@@ -2535,6 +2535,8 @@ export interface SessionRecordSearchQuery {
   query: string
   /** One project root and its worktrees; omit to search every project. */
   projectRoot?: string
+  /** One repository's sessions on every machine that ran them; the workspace service answers it. */
+  repositoryKey?: string
   provider?: AgentId
   /** Match names and metadata only; read no message. */
   namesOnly?: boolean

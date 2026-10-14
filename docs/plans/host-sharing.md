@@ -169,7 +169,10 @@ sign in on the account origin, with the member link as `next`.
    signed: the secret is the whole credential (decision §9.8).
 5. **Dial the host first.** The page dials the host's route with the secret,
    as in 4.1. The guest is live: reads and prompts go to the host, a guest's
-   prompt in supervised mode on the sharer's seat.
+   prompt in supervised mode on the sharer's seat. On an organization session
+   the prompt passes the one turn admission for the sharer, so it needs the
+   sharer's authority; a guest never starts organization work
+   (plans/009-organization-vms.md §9, "One admission for every turn").
 6. **Fall to the mirror.** When the host does not answer within a few seconds,
    or its socket drops and three dials fail, the page dials the account origin
    itself with the same secret. The Solus API admits the guest from its copy
@@ -311,7 +314,14 @@ member is "Add people" by the owner.
    tailnet. The dialog adds no label for it.
 8. **No signed guest grant.** The secret is the whole credential, at the host
    and at the Solus API alike. Nothing is signed for a guest and nothing is
-   verified against JWKS for one.
+   verified against JWKS for one. The record API (`/v1`) admits a guest the
+   same way: `POST /v1/auth/session` with no bearer, with `shareSecret`,
+   `guestId`, and `displayName`, makes the same guest principal as the ticket
+   door (§4.1 step 4). Its short credential reaches only the one shared
+   resource, with the link's role as it stands at each request, and opens
+   nothing after the link is removed or regenerated. A role change keeps the
+   guest connected; only a removed or regenerated link ends guest sockets, on
+   the host and on the Solus API alike.
 9. **Offline read stays, through the mirror.** A session the host mirrors
    keeps a copy of its share rows on the Solus API, sent with its transcript.
    The link names the account origin; the guest page dials the host first and

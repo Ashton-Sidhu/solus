@@ -188,6 +188,21 @@ describe('cloud credentials', () => {
     expect(await credentials.read('alice', 'https://a.example/mcp')).toEqual({ kind: 'reconnect-required' })
   })
 
+  // WHY: after sign-out the host must not go on with a credential the ended delegation brought (ADR 0001 rule 5).
+  test('a cleared cache answers nothing, not even while the cloud is down', async () => {
+    let down = false
+    const { credentials, requests, now } = cloud(async () => {
+      if (down) throw new Error('ECONNREFUSED')
+      return Response.json({ authorization: 'Bearer t1', expiresAt: now.at + 3_600_000, label: null })
+    })
+    await credentials.read('alice', 'https://a.example/mcp')
+    credentials.clear()
+    expect(credentials.cached('alice', 'https://a.example/mcp')).toBeNull()
+    down = true
+    expect(await credentials.read('alice', 'https://a.example/mcp')).toEqual({ kind: 'unreachable' })
+    expect(requests).toHaveLength(2)
+  })
+
   test('a person this host does not act for is read for nobody: nothing is sent', async () => {
     const { credentials, requests } = cloud(async () => Response.json({}))
     expect(await credentials.read('bob', 'https://a.example/mcp')).toEqual({ kind: 'no-executor' })

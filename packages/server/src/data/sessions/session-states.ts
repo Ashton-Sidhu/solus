@@ -47,6 +47,19 @@ function emitChanged(sessionId: string): void {
   for (const listener of listeners) listener(sessionId)
 }
 
+type ReadStateListener = (sessionId: string, viewedAt: number | null) => void
+const readStateListeners = new Set<ReadStateListener>()
+
+/** Hear each session whose read boundary moved: a read, or a return to unread. */
+export function onSessionReadStateChanged(listener: ReadStateListener): () => void {
+  readStateListeners.add(listener)
+  return () => readStateListeners.delete(listener)
+}
+
+function emitReadStateChanged(sessionId: string, viewedAt: number | null): void {
+  for (const listener of readStateListeners) listener(sessionId, viewedAt)
+}
+
 function stateFromRow(row: Row): SessionState {
   return {
     sessionId: row.session_id,
@@ -179,6 +192,7 @@ export async function markSessionViewed(sessionId: string, at: number): Promise<
   if (current !== null && current >= bounded) return current
   await ensureRow(sessionId)
   await getDatabase().run(sql`UPDATE ${sessionStates} SET viewed_at = ${bounded} WHERE session_id = ${sessionId}`)
+  emitReadStateChanged(sessionId, bounded)
   return bounded
 }
 
@@ -186,6 +200,7 @@ export async function markSessionViewed(sessionId: string, at: number): Promise<
  *  because the person says so. */
 export async function markSessionUnread(sessionId: string): Promise<void> {
   await getDatabase().run(sql`UPDATE ${sessionStates} SET viewed_at = NULL WHERE session_id = ${sessionId}`)
+  emitReadStateChanged(sessionId, null)
 }
 
 /** The sessions that are settled now, of the ones named. */

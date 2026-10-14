@@ -24,7 +24,7 @@ export class PrGuidesStore {
     const repoRoot = projectScopeOf(ctx.session)
     const pr = this.prs.at(serverId, repoRoot)?.prFor(number)
     return pr
-      ? { repoRoot, target: prGuideTarget({ ...pr.baseRepo, number, headSha: pr.headSha, baseSha: pr.baseSha }), headRef: pr.headRef }
+      ? { repoRoot, target: prGuideTarget({ ...pr.baseRepo, number, headSha: pr.headSha, baseSha: pr.baseSha }) }
       : null
   }
 

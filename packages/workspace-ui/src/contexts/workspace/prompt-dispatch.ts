@@ -700,6 +700,6 @@ export class PromptDispatch {
 function chatFolderOnSend(session: Session): string | null {
   if (session.run.workingDirectory !== NEW_CHAT_DIRECTORY) return null
   // Reading the host's capabilities asks for them when they are not read yet.
-  const projectsRoot = hosts.find(session.run.serverId)?.capabilityRecord?.projectsBaseDirectory
+  const projectsRoot = hosts.get(session.run.serverId)?.capabilityRecord?.projectsBaseDirectory
   return projectsRoot ? chatFolderIn(projectsRoot, session.id) : null
 }

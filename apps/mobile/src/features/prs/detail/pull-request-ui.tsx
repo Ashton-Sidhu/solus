@@ -27,7 +27,7 @@ export function pullRequestStatus(pr: Pick<PullRequest, 'state' | 'draft'>) {
 }
 
 export function PullRequestCardGroup(props: { readonly children: ReactNode }) {
-  return <View className="overflow-hidden rounded-[22px] border border-composer-border border-continuous bg-grouped-card">{props.children}</View>
+  return <View className="overflow-hidden rounded-[22px] border border-pr-card-border border-continuous bg-pr-card">{props.children}</View>
 }
 
 export function PullRequestCardRow(props: {

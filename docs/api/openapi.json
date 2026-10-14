@@ -38,7 +38,7 @@
                       "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
                     },
                     "scopes": {
-                      "maxItems": 7,
+                      "maxItems": 10,
                       "type": "array",
                       "items": {
                         "type": "string",
@@ -285,7 +285,7 @@
                 "properties": {
                   "scopes": {
                     "minItems": 1,
-                    "maxItems": 7,
+                    "maxItems": 10,
                     "type": "array",
                     "items": {
                       "type": "string",
@@ -315,13 +315,21 @@
                     "minLength": 1,
                     "maxLength": 256,
                     "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                  },
+                  "guestId": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{16,64}$"
+                  },
+                  "displayName": {
+                    "type": "string",
+                    "maxLength": 80
                   }
                 },
                 "required": [
                   "scopes"
                 ],
                 "additionalProperties": false,
-                "description": "Source authority determines the actor, service and Local or organization context. A source token that lists several organizations admits only the organizationId named here, and only when it lists it; a source that names one organization ignores it. The guest of a share link holds no token and is admitted by the host that made the link, so shareSecret admits nothing here. Requested scopes only narrow authority.",
+                "description": "Source authority determines the actor, service and Local or organization context. A source token that lists several organizations admits only the organizationId named here, and only when it lists it; a source that names one organization ignores it. The guest of a share link holds no token: with no bearer, shareSecret and guestId are the whole credential, and the session reaches only the one shared resource, with the link's current role, until the link is removed or regenerated. Requested scopes only narrow authority.",
                 "examples": [
                   {
                     "scopes": [
@@ -8523,6 +8531,16 @@
             }
           },
           {
+            "name": "repositoryKey",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          },
+          {
             "name": "provider",
             "in": "query",
             "required": false,
@@ -8532,6 +8550,18 @@
                 "claude-code",
                 "codex",
                 "opencode"
+              ]
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "created",
+                "activity"
               ]
             }
           }
@@ -9103,6 +9133,16 @@
             "schema": {
               "type": "string",
               "maxLength": 4096
+            }
+          },
+          {
+            "name": "repositoryKey",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
             }
           },
           {

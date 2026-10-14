@@ -19,7 +19,8 @@ export default cloudScenario('guest revoke: regenerate and remove the link; remo
   const link = (await alice.rpc('shareSetLink', { resource, role: 'editor' }))!
   const maya = ctx.client('maya', { shareSecret: link.secret })
   ctx.check('maya joins as an editor', (await maya.connect()).ok)
-  await expectOk(ctx, 'maya edits', maya.records.saveWork(work.id, { content: 'maya was here' }, (await maya.records.loadWork(work.id))!))
+  const mayaCopy = await expectOk(ctx, 'maya loads the work', maya.records.loadWork(work.id))
+  if (mayaCopy) await expectOk(ctx, 'maya edits', maya.records.saveWork(work.id, { content: 'maya was here' }, mayaCopy))
 
   ctx.step('regenerating the link ends maya within a second and refuses the old secret')
   const rotated = (await alice.rpc('shareSetLink', { resource, role: 'editor', regenerate: true }))!
@@ -39,7 +40,8 @@ export default cloudScenario('guest revoke: regenerate and remove the link; remo
 
   ctx.step('changing only the link role keeps guests connected with the new role')
   const roleOnly = await alice.rpc('shareSetLink', { resource, role: 'viewer' })
-  ctx.check('a role change mints no new secret', roleOnly === null)
+  // The link comes back as it stands: the same secret, with the new role (contracts/host-api.ts `shareSetLink`).
+  ctx.check('a role change keeps the same secret', roleOnly?.secret === rotated.secret && roleOnly.role === 'viewer', JSON.stringify(roleOnly && { role: roleOnly.role, same: roleOnly.secret === rotated.secret }))
   await new Promise((r) => setTimeout(r, 300))
   ctx.check('maya stays connected', maya2.connected)
   await expectRefused(ctx, 'maya is now a viewer and cannot edit', maya2.records.saveWork(work.id, { content: 'x' }, work), 'NOT_FOUND')

@@ -11,10 +11,14 @@ import type {
   PrLabel,
   PrListPage,
   PrReviewer,
+  PrPendingWorkflowRun,
   PrReviewerCandidate,
   PrRevertResult,
   PrStack,
+  PrStackMergeRequest,
   PrStateAction,
+  PrViewedFileChange,
+  PrViewedFiles,
   ProviderRepository,
   ProviderViewer,
   PullRequest,
@@ -150,6 +154,17 @@ export interface ReviewProvider {
   updatePullRequestBranch(repo: RepoRef, number: number, method: 'merge' | 'rebase', expectedHeadSha: string): Promise<void>
   /** Open a pull request that reverses a merged one. */
   revertPullRequest(repo: RepoRef, number: number): Promise<PrRevertResult>
+  /** Merge `request.number` and every open layer below it in its stack, after
+   *  a check that each open layer still has the head the viewer saw. Answers
+   *  the merged layers, bottom to top. A host without stacks refuses it. */
+  mergePullRequestStack(repo: RepoRef, request: PrStackMergeRequest): Promise<{ status: 'merged' | 'queued'; layers: number[] }>
+  /** The workflow runs that wait for a maintainer on the head of a fork pull request. */
+  listPendingWorkflowRuns(repo: RepoRef, pullRequest: PullRequest): Promise<PrPendingWorkflowRun[]>
+  /** Approve those runs. Answers how many the host approved. */
+  approvePendingWorkflowRuns(repo: RepoRef, pullRequest: PullRequest): Promise<number>
+  /** Which files the viewer marked viewed, as the host keeps it. */
+  listViewedFiles(repo: RepoRef, number: number): Promise<PrViewedFiles>
+  setFilesViewed(repo: RepoRef, number: number, changes: PrViewedFileChange[]): Promise<void>
   /** Changed files with host-reported per-file add/delete counts. */
   listPullRequestFileStats(repo: RepoRef, number: number): Promise<ChangedFileStat[]>
   /** Login for the token's viewer. A repository selects the credential that

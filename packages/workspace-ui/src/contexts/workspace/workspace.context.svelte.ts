@@ -1,6 +1,7 @@
 import { SessionQueueController } from './session-queue.store.svelte'
 import { createAppContext } from '../app/create-app-context'
 import { ToolHistoryStore } from './tool-history.store'
+import { recordHomeOf } from './machine-references'
 import { splitHostKey } from '@solus/client-core/host-key'
 import { browserStore } from '../browser/browser.store.svelte'
 import type { AgentId, PermissionMode, Tab, Prompt, Session, SessionSpec, RunConfig, Attachment, PlanDescriptor, SessionCtx, IpcContext, ModelConfig, RuntimeSessionInfo, GitCheckout, ThreadGoal, ThreadGoalSetRequest, QuestionRequest } from '@solus/contracts/types'
@@ -786,10 +787,13 @@ export class WorkspaceContext implements SurfaceContext {
     return this.apiForRun(this.runFor(sourceId))
   }
 
-  /** The same surface, for callers holding only the session's own id. */
+  /** The same surface, for callers holding only the session's own id. A
+   *  session whose machine is gone is read from its record home. */
   apiForSession(sessionId: string): HostApi {
-    const run = this.sessions.byId[sessionId]?.run
-    return run ? this.apiForRun(run) : this.defaultHostApi()
+    const session = this.sessions.byId[sessionId]
+    if (!session) return this.defaultHostApi()
+    const recordHome = serverConnections.presenceOf(session.run.serverId) === 'gone' ? recordHomeOf(session) : null
+    return recordHome ? serverConnections.apiFor(recordHome) : this.apiForRun(session.run)
   }
 
   /** Resolve a host from a stateful IPC context, or choose the new-work
@@ -1159,9 +1163,8 @@ export class WorkspaceContext implements SurfaceContext {
     const defaults = this.config.globalDefaults
     const project = defaultStartProject(
       this.settings.lastProject,
-      // A remembered host this client no longer knows is down too: it was deleted,
-      // or it was never listed at this origin.
-      (serverId) => !serverConnections.isKnownServer(serverId)
+      // A remembered host that is gone is down too.
+      (serverId) => serverConnections.presenceOf(serverId) === 'gone'
         || ['offline', 'different-server'].includes(serversStore.statusFor(serverId)),
       { serverId: this.fallbackServerId, directory: NEW_CHAT_DIRECTORY },
     )

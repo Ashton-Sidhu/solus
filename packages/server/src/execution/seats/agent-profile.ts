@@ -3,16 +3,21 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
 import {
+  AGENT_PROFILE_ENTRIES_PATH,
   accountAgentProfileResponseSchema,
   agentProfileFrom,
+  agentProfileKeyOf,
   agentProfileSkipSchema,
   agentProfileSourceSchema,
   EMPTY_AGENT_PROFILE_STATUS,
+  type AccountAgentProfileResponse,
   type AgentProfile,
   type AgentProfileCopy,
+  type AgentProfileEntriesWrite,
   type AgentProfileEntry,
   type AgentProfileFileEntry,
   type AgentProfileIntegrationEntry,
+  type AgentProfileKey,
   type AgentProfileSkillEntry,
   type AgentProfileSkip,
   type AgentProfileStatus,
@@ -60,6 +65,12 @@ const manifestSchema = z.object({
   skipped: z.array(agentProfileSkipSchema),
 })
 type Manifest = z.infer<typeof manifestSchema>
+
+/** A person's account as a pull reads it: the profile, null when never synced, and the servers the vault holds a connection for. */
+interface AccountRead {
+  profile: AccountAgentProfileResponse | null
+  connections: ProfileConnection[]
+}
 
 /** What the account plane answers a host's read: the document, or that the person has none, and the servers it holds a connection for. */
 const accountReadSchema = z.union([
@@ -152,6 +163,11 @@ interface IntegrationApplyOutcome {
   skipped: AgentProfileSkip[]
 }
 
+/** A host record as the profile names it: the record, never its connection. */
+function integrationEntryOf(integration: Integration): AgentProfileIntegrationEntry {
+  return { kind: 'integration', slug: integration.slug, name: integration.name, url: integration.url, auth: integration.auth }
+}
+
 function registrySkillId(entry: AgentProfileSkillEntry): string {
   return `${entry.source}@${entry.skillId}`
 }
@@ -161,6 +177,8 @@ function byKind(profile: AgentProfile) {
   const skills: AgentProfileSkillEntry[] = []
   const integrations: AgentProfileIntegrationEntry[] = []
   for (const entry of Object.values(profile)) {
+    // A disabled entry stays in the profile and is on no host.
+    if (entry.disabled) continue
     if (entry.kind === 'file') files.push(entry)
     else if (entry.kind === 'skill') skills.push(entry)
     else integrations.push(entry)
@@ -193,7 +211,7 @@ export class AgentProfileManager {
     const { files, skipped } = readProfileFiles(this.deps.sourceHomes, registrySkills)
     entries.push(...files)
     for (const integration of this.deps.integrations.list(this.deps.integrationOwnerFor({ kind: 'owner' }))) {
-      entries.push({ kind: 'integration', slug: integration.slug, name: integration.name, url: integration.url, auth: integration.auth })
+      entries.push(integrationEntryOf(integration))
     }
     return { profile: agentProfileFrom(entries), skipped }
   }
@@ -222,7 +240,7 @@ export class AgentProfileManager {
       kept.push(...write.kept)
     }
     const skillOutcome = await this.applySkills(target, skills, previous?.skills ?? [])
-    const integrationOutcome = this.applyIntegrations(target, integrations, previous?.integrations ?? [])
+    const integrationOutcome = this.applyIntegrations(target, integrations, previous?.integrations ?? [], origin)
     const held = [...copy.skipped, ...kept, ...skillOutcome.skipped, ...integrationOutcome.skipped]
     const empty = Object.keys(copy.profile).length === 0 && copy.skipped.length === 0
     for (const provider of SEAT_PROVIDERS) {
@@ -284,6 +302,30 @@ export class AgentProfileManager {
   async pull(target: AgentProfileTarget): Promise<AgentProfileStatus> {
     const account = this.deps.account
     if (!account) throw new AgentProfileRefused('NOT_LINKED', 'This host is not linked to Solus Cloud.')
+    const read = await this.readAccount(account, target)
+    const { connections } = read
+    const held = this.manifestFor(target)
+    // The target's own MCP servers the profile does not name yet join it: signed in, the
+    // account is the one list. A record a pull put here and the profile dropped is going, not new.
+    const adopted = this.unnamedRecords(target, read.profile?.entries ?? {}, held?.integrations ?? [])
+    const profile = adopted.length > 0 ? await this.writeEntries(target, agentProfileFrom(adopted), []) ?? read.profile : read.profile
+    if (adopted.length > 0) log.info('agent_profile_adopted_integrations', { target: target.kind, count: adopted.length })
+    let status: AgentProfileStatus
+    // No synced profile: a copy pushed from the computer stays as it is. The connections still apply.
+    if (!profile || profile.revision === null) status = this.status(target)
+    else if (held?.source === 'account' && held.revision === profile.revision) status = this.status(target)
+    else {
+      log.info('agent_profile_pulled', { target: target.kind, revision: profile.revision })
+      status = await this.apply(target, { profile: profile.entries, skipped: [] }, { kind: 'account', revision: profile.revision })
+    }
+    await account.reconcile?.(this.deps.integrationOwnerFor(target), connections).catch((error) => {
+      log.warn('agent_profile_reconcile_failed', { target: target.kind, error: error instanceof Error ? error.message : String(error) })
+    })
+    return status
+  }
+
+  /** The target's profile and connection statuses from their account; refusals name their reason. */
+  private async readAccount(account: ProfileAccount, target: AgentProfileTarget): Promise<AccountRead> {
     const userId = account.userFor(target)
     if (!userId) throw new AgentProfileRefused('NO_TOKEN', 'This host cannot read your account right now. Sign in again.')
     const response = await account.reads.fetch(userId, null, AGENT_PROFILE_READ_PATH, { method: 'POST' })
@@ -299,20 +341,74 @@ export class AgentProfileManager {
     }
     const parsed = accountReadSchema.safeParse(await response.json().catch(() => null))
     if (!parsed.success || 'error' in parsed.data) throw new AgentProfileRefused('REFUSED', 'Solus Cloud answered with something that is not a profile.')
-    const { profile, connections } = parsed.data
-    const held = this.manifestFor(target)
-    let status: AgentProfileStatus
-    // No synced profile: a copy pushed from the computer stays as it is. The connections still apply.
-    if (!profile || profile.revision === null) status = this.status(target)
-    else if (held?.source === 'account' && held.revision === profile.revision) status = this.status(target)
-    else {
-      log.info('agent_profile_pulled', { target: target.kind, revision: profile.revision })
-      status = await this.apply(target, { profile: profile.entries, skipped: [] }, { kind: 'account', revision: profile.revision })
+    return parsed.data
+  }
+
+  /**
+   * One of the target's own MCP servers was added or changed on this host
+   * (Settings → MCP, or an agent): signed in, it is part of their profile, so the
+   * change goes to the account and every host follows. A server that is not the
+   * target's own, or a host that is not linked, changes nothing here.
+   */
+  async integrationSaved(target: AgentProfileTarget, integration: Integration): Promise<void> {
+    if (!this.isOwnRecord(target, integration)) return
+    await this.writeEntries(target, agentProfileFrom([integrationEntryOf(integration)]), [])
+    await this.pullQuietly(target)
+  }
+
+  /**
+   * One of the target's own MCP servers is about to be removed on this host: it
+   * leaves the profile first, so no host, this one included, brings it back. A
+   * cloud that does not answer refuses the removal rather than let the next pull
+   * restore the server. Not signed in, the removal is this host's alone.
+   */
+  async integrationRemoving(target: AgentProfileTarget, integration: Integration): Promise<void> {
+    if (!this.isOwnRecord(target, integration)) return
+    try {
+      await this.writeEntries(target, {}, [agentProfileKeyOf(integrationEntryOf(integration))])
+    } catch (error) {
+      if (error instanceof AgentProfileRefused && (error.code === 'NOT_LINKED' || error.code === 'NO_TOKEN')) return
+      throw error
     }
-    await account.reconcile?.(this.deps.integrationOwnerFor(target), connections).catch((error) => {
-      log.warn('agent_profile_reconcile_failed', { target: target.kind, error: error instanceof Error ? error.message : String(error) })
+  }
+
+  /** The target's own records whose URL no profile entry names, disabled ones included, and that no pull put here. */
+  private unnamedRecords(target: AgentProfileTarget, profile: AgentProfile, owned: string[]): AgentProfileIntegrationEntry[] {
+    const named = new Set(Object.values(profile).flatMap((entry) => entry.kind === 'integration' ? [entry.url] : []))
+    const pulled = new Set(owned)
+    return this.deps.integrations.list(this.deps.integrationOwnerFor(target))
+      .filter((integration) => !named.has(integration.url) && !pulled.has(integration.id))
+      .map(integrationEntryOf)
+  }
+
+  private isOwnRecord(target: AgentProfileTarget, integration: Integration): boolean {
+    const owner = this.deps.integrationOwnerFor(target)
+    return integration.organizationId === owner.organizationId && integration.ownerUserId === owner.ownerUserId
+  }
+
+  /**
+   * The host's own change to the person's profile, merged into the current
+   * revision by the account. Null when this host is not linked or holds no token
+   * for the person: then there is no account to write to.
+   */
+  private async writeEntries(target: AgentProfileTarget, set: AgentProfile, reset: AgentProfileKey[]): Promise<AccountAgentProfileResponse | null> {
+    const account = this.deps.account
+    const userId = account?.userFor(target)
+    if (!account || !userId) return null
+    const body: AgentProfileEntriesWrite = { set, reset }
+    const response = await account.reads.fetch(userId, null, AGENT_PROFILE_ENTRIES_PATH, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
     })
-    return status
+    if (!(response instanceof Response)) {
+      if (response.refused === 'NOT_LINKED' || response.refused === 'NO_DELEGATION') return null
+      throw new AgentProfileRefused('UNREACHABLE', 'Solus Cloud is unreachable, so your agent profile cannot change right now. Try again.')
+    }
+    if (!response.ok) throw new AgentProfileRefused('REFUSED', `Solus Cloud refused the change to your agent profile (${response.status}).`)
+    const parsed = accountAgentProfileResponseSchema.safeParse(await response.json().catch(() => null))
+    if (!parsed.success) throw new AgentProfileRefused('REFUSED', 'Solus Cloud answered with something that is not a profile.')
+    return parsed.data
   }
 
   /** A pull whose refusal is a log line: the triggers that are not a person's own request. */
@@ -371,10 +467,12 @@ export class AgentProfileManager {
 
   /**
    * MCP servers as the target's own records: matched by URL, never by id, so a
-   * record another host made is adopted, not duplicated. On a host the person
-   * owns, a server the host already has is kept as it is.
+   * record another host made is adopted, not duplicated. From the account, the
+   * person's own records are the profile's to manage, so it adopts them too;
+   * from a computer's push, a server a host the person owns already had is kept
+   * as it is. A shared record of the host is never the profile's.
    */
-  private applyIntegrations(target: AgentProfileTarget, entries: AgentProfileIntegrationEntry[], previous: string[]): IntegrationApplyOutcome {
+  private applyIntegrations(target: AgentProfileTarget, entries: AgentProfileIntegrationEntry[], previous: string[], origin: AgentProfileOrigin): IntegrationApplyOutcome {
     const owner = this.deps.integrationOwnerFor(target)
     const owned = new Set(previous)
     const ids: string[] = []
@@ -387,7 +485,7 @@ export class AgentProfileManager {
       }
       // A record this copy made is its own to update. A member's own record made
       // another way is adopted. Anything else the host already had stays as it is.
-      if (owned.has(found.integration.id) || (found.own && target.kind === 'member')) {
+      if (owned.has(found.integration.id) || (found.own && (target.kind === 'member' || origin.kind === 'account'))) {
         this.deps.integrations.update(found.integration.id, entry)
         ids.push(found.integration.id)
       } else skipped.push({ path: entry.slug, reason: 'kept-on-host' })

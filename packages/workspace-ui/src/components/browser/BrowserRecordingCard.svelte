@@ -44,7 +44,7 @@
   title="Recording"
   target={caption}
   ariaLabel={`Recording of ${title}`}
-  bodyLayout="media"
+  bodyLayout="player"
   data-testid="browser-recording-card"
   {skipMotion}
 >
@@ -53,7 +53,12 @@
     <span>{relativeTime(recording.capturedAt)}</span>
   {/snippet}
   {#snippet body()}
-    <HostVideoPlayer {request} label={title} class="max-h-[20rem] w-full" />
+    <!-- The width cap keeps a 16:9 video at most 20rem tall. -->
+    <HostVideoPlayer
+      {request}
+      label={title}
+      class="mx-auto w-full max-w-[35.5rem]"
+    />
     <!-- A limit or a closed page ended it early: the video is shorter than
          the flow may have been, and the reader has to know why. -->
     {#if stopNote}

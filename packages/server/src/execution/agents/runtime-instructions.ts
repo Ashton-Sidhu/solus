@@ -41,13 +41,17 @@ To wait for CI checks or review on a pull request, call watch_pull_request and e
 
 const ORCHESTRATION_INSTRUCTIONS = `## Solus orchestration
 
-Use a native subagent for brief same-provider work when it supports the chosen model. Use start_session for another provider or model, a durable Solus conversation, or nested async work. File related work as task=attempt on the current task. Start an unrelated conversation only when the user asks for it.
+Use the provider's built-in subagent tool for work on the current provider when that tool supports the requested model. A different model alone does not require start_session. The native tool's schema defines its model support, context inheritance, and completion behavior. Native subagents need no Solus task fields.
 
-Give each worker the full brief, constraints, and expected result; it does not see this conversation. Choose its workspace before starting: worktree_base_branch creates an isolated worktree, otherwise cwd selects the checkout. A shell command in the prompt does not change the session's workspace binding.
+For temporary work on the other provider, use an available Solus wrapper subagent. These tools return one final answer and need no task fields. If the native tool or a wrapper cannot support the requested work, use start_session.
+
+Use start_session when the work needs a separate durable conversation, its own worktree, another host, or independent continuation with Solus reports. Task leads use start_session for their task's workers. Use task='none' outside task mode. In task mode, follow the Working On Task packet for task membership. Do not create or attach a task outside task mode unless the user requests it. Start an unrelated conversation only when the user asks for it.
+
+Give each worker the brief, constraints, and expected result. Solus wrapper subagents and separate sessions do not see this conversation; give them a self-contained prompt. For start_session, choose the workspace before starting: worktree_base_branch creates an isolated worktree, otherwise cwd selects the checkout. A shell command in the prompt does not change the session's workspace binding.
 
 Solus tool definitions can load through the harness's tool search. If a named tool is absent from the initial catalog, use tool search to load it before concluding that it is unavailable. Do not start duplicate work to work around a tool discovery failure.
 
-Prefer report=true and wait_seconds=0. End your turn while the worker runs; its report wakes you. A wait timeout does not cancel work. Keep the returned session and exchange IDs. An ended provider turn with open child work is not a final result. Read the results and complete any required follow-up before reporting completion.
+For start_session and send_session, prefer report=true and wait_seconds=0. End your turn while the separate session runs; its report wakes you. A wait timeout does not cancel work. Keep the returned session and exchange IDs. An ended provider turn with open child work is not a final result. Read the results and complete any required follow-up before reporting completion.
 
 Use a new request_id for each request or review round, and reuse it only when retrying that same work. Include the original brief, prior findings, responses, and unresolved issues in each review round. Only the user answers another session's questions, plans, and permissions; tell the user when a notice needs their answer.`
 
@@ -88,7 +92,9 @@ You can embed images and videos in your response with Markdown and absolute file
     isChat(runtime.workingDirectory) && CHAT_INSTRUCTIONS,
     has('start_session') && [
       ORCHESTRATION_INSTRUCTIONS,
-      has('list_agent_targets') && 'Before choosing a worker provider or model, call list_agent_targets for the current catalog. A native subagent tool may support fewer models than the host.',
+      has('claude_subagent') && 'claude_subagent is available for temporary work on Claude. It returns its answer in the tool result; no Solus report or task fields are needed.',
+      has('codex_subagent') && 'codex_subagent is available for temporary work on Codex. It returns its answer in the tool result; no Solus report or task fields are needed.',
+      has('list_agent_targets') && 'Before a Solus session or wrapper subagent launch, call list_agent_targets for the host model catalog. This catalog does not establish native subagent support; use the native tool schema for that.',
       has('send_session') && 'Use send_session to continue an existing session; each new request has its own exchange. Use delivery=steer to change active work, or delivery=queue for a later turn.',
       has('read_session_exchange') && 'Use read_session_exchange when a result is needed mid-turn or after a timeout or restart. Do not poll in a loop or start a watcher to wait for a worker report.',
     ].filter(Boolean).join('\n\n'),

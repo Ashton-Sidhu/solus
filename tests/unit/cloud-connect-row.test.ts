@@ -13,7 +13,9 @@ const SIGNED_IN: AccountState = {
   signedInAt: 1,
   isStale: false,
 }
-const LINKED = { linked: true } as UplinkStatus
+const REGISTRATION = { hostId: 'h', issuer: 'https://app.solus.test', jwksUrl: 'https://app.solus.test/jwks', directoryUrl: 'https://app.solus.test', generation: 1 }
+const REGISTERED: UplinkStatus = { registration: { registered: true, registration: REGISTRATION, owner: null }, link: { linked: false } }
+const LINKED: UplinkStatus = { ...REGISTERED, link: { linked: true, tunnel: { hostname: 'h.example.test', proxiedPort: 1 }, state: { observed: 'online' } } }
 
 describe('the Connect to Solus Cloud row', () => {
   test('signed out, it offers one action that does both halves', () => {
@@ -32,12 +34,12 @@ describe('the Connect to Solus Cloud row', () => {
     expect(row).toEqual({ state: 'busy', detail: 'Finish signing in in your browser' })
   })
 
-  test('signed in but not linked, the remaining half is offered; linked, it is done', () => {
-    expect(cloudConnectRow({ account: SIGNED_IN, uplink: { linked: false }, isLinking: false }))
+  test('signed in (and so registered) but not linked, the remaining half is offered; linked, it is done', () => {
+    expect(cloudConnectRow({ account: SIGNED_IN, uplink: REGISTERED, isLinking: false }))
       .toMatchObject({ state: 'available', actionLabel: 'Link this Mac' })
-    expect(cloudConnectRow({ account: SIGNED_IN, uplink: { linked: false }, isLinking: true }).state).toBe('busy')
+    expect(cloudConnectRow({ account: SIGNED_IN, uplink: REGISTERED, isLinking: true }).state).toBe('busy')
     expect(cloudConnectRow({ account: SIGNED_IN, uplink: LINKED, isLinking: false }))
-      .toEqual({ state: 'done', detail: 'ada@example.test · This Mac is linked' })
+      .toEqual({ state: 'done', detail: 'ada@example.test · Reachable from the internet' })
   })
 
   test('a Mac that cannot store the sign-in says so and offers no action it cannot keep', () => {

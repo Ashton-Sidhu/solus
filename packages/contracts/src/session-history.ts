@@ -77,6 +77,8 @@ export interface AgentConversationResultProjection {
   /** The exchange the tool opened; live updates and reports name the same id. */
   messageId?: string
   provider?: AgentId
+  /** The id clients know the session's host by, when it runs on another host. */
+  serverId?: string
   /** The report a waiting tool call returned: the exchange settled inside the
    *  call, so no report turn follows in the transcript. */
   report?: SessionReport

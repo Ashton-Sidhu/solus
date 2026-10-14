@@ -73,7 +73,7 @@ export async function ensureScreenCaptureAccess(): Promise<boolean> {
 
   await offerSettings({
     message: 'Turn on Screen Recording for Solus.',
-    detail: 'Screenshots and design mode need Screen Recording. In System Settings, turn on Solus under Privacy & Security > Screen & System Audio Recording, then quit and reopen Solus.',
+    detail: 'Screenshots need Screen Recording. In System Settings, turn on Solus under Privacy & Security > Screen & System Audio Recording, then quit and reopen Solus.',
     url: SCREEN_RECORDING_SETTINGS_URL,
   })
   return false

@@ -1,18 +1,15 @@
 import type { HandlerCtx, SolusServer } from '../server'
-import { readGuideByKey, readLegacyGuide, resolveReviewContext, reviewCheckout, reviewRepoRoot } from '../../review/review-context'
-import { cancelGenerateGuide, generateGuide, getReviewGuideStatus, getSessionGuideStatuses, requestReviewGuide } from '../../review/guide-producer'
-import { guideKeyFor } from '../../review/review-target'
+import { readGuideByKey, resolveReviewContext, reviewCheckout, reviewRepoRoot } from '../../review/review-context'
 import { readReviewState, writeReviewState } from '../../review/review-state'
 import type { AgentDispatcher } from '../../execution/agents/agent-runner'
 import type { SessionRuntime } from '../../execution/session-runtime'
 import type { SeatResolver } from '../../execution/seats/seat-manager'
 import type { HostEventPublisher } from '../events/host-event-publisher'
 import type { IpcContext } from '@solus/contracts/types'
-import type { ReviewGuideRequestOptions, ReviewTarget } from '@solus/contracts/review'
+import type { ReviewGuideRequestOptions, ReviewGuideStatusEvent, ReviewTarget } from '@solus/contracts/review'
 import { reviewSessionStatus } from '../../review/session-lifecycle'
-import { prGuideJobs } from '../../review/pr-guide-jobs'
+import type { ReviewGuideJobs } from '../../review/guide-jobs'
 import { readPrGuide } from '../../review/pr-guide-store'
-import { publishPrGuideStatus } from '../../review/pr-guide-events'
 import { ReviewLensJobs } from '../../review/lens-jobs'
 import { notifyOnReviewJobResult, type ReviewJobRequester, type ReviewJobRun } from '../../notifications/review-job-results'
 import { ownerKeyOf } from '../../admission/actor'
@@ -22,6 +19,7 @@ export function registerReviewHandlers(
   server: SolusServer,
   dispatcher: AgentDispatcher & Pick<SessionRuntime, 'seatForTurn'>,
   events: HostEventPublisher,
+  guides: ReviewGuideJobs,
 ): void {
   /** Guides and lenses run on the requester's own provider login, as their turns do. */
   const seatsOf = (handlerCtx: HandlerCtx): SeatResolver => (provider) => dispatcher.seatForTurn(handlerCtx.actor, provider)
@@ -44,104 +42,70 @@ export function registerReviewHandlers(
     return resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
   })
 
+  /** A PR review session asks about its own pull request when it names no target. */
+  const withPrTarget = (ctx: IpcContext, opts: ReviewGuideRequestOptions = {}): ReviewGuideRequestOptions => {
+    const target = prTargetFor(ctx, opts)
+    return target ? { ...opts, target } : opts
+  }
+  /** The requester hears when their pull request guide finishes; `forward` hears every status of the job. */
+  const requestListener = (handlerCtx: HandlerCtx, opts: ReviewGuideRequestOptions, forward?: (event: ReviewGuideStatusEvent) => void) => {
+    const target = opts.target?.kind === 'pr' ? opts.target : null
+    if (!target) return forward
+    return notifyOnReviewJobResult(requesterOf(handlerCtx), { job: 'guide', target, title: guideTitle(target) }, forward ?? (() => {}))
+  }
+
   server.register('generateGuide', async (args, handlerCtx) => {
     const [ctx, opts] = args
-    const target = prTargetFor(ctx, opts)
-    if (target) return prGuideJobs.request({
-      dispatcher, seatFor: seatsOf(handlerCtx), ctx, opts: { ...opts, target },
-      onStatus: notifyOnReviewJobResult(requesterOf(handlerCtx), { job: 'guide', target, title: guideTitle(target) }, (event) => publishPrGuideStatus(events, event)),
-    }).completion
-    return generateGuide(
-      dispatcher,
-      ctx,
-      opts,
-      (event) => events.broadcast('review.progressChanged', event),
-      (event) => events.broadcast('review.guideStatusChanged', event),
-      seatsOf(handlerCtx),
-    )
+    const request = withPrTarget(ctx, opts)
+    const job = await guides.request({
+      ctx, opts: request, dispatcher, seatFor: seatsOf(handlerCtx), onStatus: requestListener(handlerCtx, request),
+    })
+    return job ? job.completion : null
   })
 
   server.register('requestReviewGuide', async (args, handlerCtx) => {
     const [ctx, opts] = args
-    const target = prTargetFor(ctx, opts)
-    const reportStatus = (event: import('@solus/contracts/review').ReviewGuideStatusEvent) => {
-      if (target) publishPrGuideStatus(events, event)
-      else events.broadcast('review.guideStatusChanged', event)
-      if (!opts?.reportSessionLifecycle) return
-      events.broadcast('session.statusChanged', {
-        sessionId: ctx.session.sessionId,
-        agentSessionId: ctx.session.agentSessionId,
-        status: reviewSessionStatus(event.status),
-        at: Date.now(),
-      })
-    }
-    if (target) {
-      const onStatus = notifyOnReviewJobResult(requesterOf(handlerCtx), { job: 'guide', target, title: guideTitle(target) }, reportStatus)
-      return prGuideJobs.request({ dispatcher, seatFor: seatsOf(handlerCtx), ctx, opts: { ...opts, target }, onStatus }).status
-    }
-    const result = await requestReviewGuide(
-      dispatcher,
-      ctx,
-      opts,
-      (event) => events.broadcast('review.progressChanged', event),
-      reportStatus,
-      seatsOf(handlerCtx),
-    )
-    if (!result && opts?.reportSessionLifecycle) {
-      events.broadcast('session.statusChanged', {
-        sessionId: ctx.session.sessionId,
-        agentSessionId: ctx.session.agentSessionId,
-        status: 'completed',
-        at: Date.now(),
-      })
-    }
-    return result
+    const request = withPrTarget(ctx, opts)
+    const reportLifecycle = (status: 'running' | 'completed') => events.broadcast('session.statusChanged', {
+      sessionId: ctx.session.sessionId,
+      agentSessionId: ctx.session.agentSessionId,
+      status,
+      at: Date.now(),
+    })
+    const lifecycle = opts?.reportSessionLifecycle
+      ? (event: ReviewGuideStatusEvent) => reportLifecycle(reviewSessionStatus(event.status))
+      : undefined
+    const job = await guides.request({
+      ctx, opts: request, dispatcher, seatFor: seatsOf(handlerCtx), onStatus: requestListener(handlerCtx, request, lifecycle),
+    })
+    if (!job && opts?.reportSessionLifecycle) reportLifecycle('completed')
+    return job?.status ?? null
   })
 
   server.register('reviewGuideStatus', async (args) => {
     const [ctx, opts] = args
-    const target = prTargetFor(ctx, opts)
-    return target ? prGuideJobs.status(ctx, target) : getReviewGuideStatus(ctx, opts)
+    return guides.status(ctx, withPrTarget(ctx, opts))
   })
 
-  server.register('sessionGuideStatuses', async ([sessions]) => getSessionGuideStatuses(sessions))
+  server.register('sessionGuideStatuses', async ([sessions]) => guides.sessionStatuses(sessions))
 
   server.register('prGuideStatuses', async ([ctx, requests]) =>
-    Promise.all(requests.map(({ target, headRef }) => prGuideJobs.savedStatus(ctx, target, headRef))))
+    Promise.all(requests.map(({ target }) => guides.savedStatus(ctx, { target }))))
 
   server.register('cancelGenerateGuide', async (args) => {
     const [ctx, opts] = args
-    const target = prTargetFor(ctx, opts)
-    if (target) return prGuideJobs.cancel(target)
-    return cancelGenerateGuide(
-      ctx,
-      opts,
-      (event) => events.broadcast('review.guideStatusChanged', event),
-    )
+    return guides.cancel(ctx, withPrTarget(ctx, opts))
   })
 
   server.register('readGuide', async (args) => {
     const [ctx, key, target] = args
-    const legacy = !target ? prTargetFor(ctx) : null
+    // A PR review session without a target names its PR guide by the checkout
+    // branch, as generation through `prTargetFor` does.
     const branchKey = ctx.session.prReview?.branch.replace(/\//g, '__')
-    const isLegacyPrKey = !!branchKey && (key === branchKey || key.startsWith(`${branchKey}--base-`))
-    const pr = target?.kind === 'pr' ? target : isLegacyPrKey ? legacy : null
-    if (pr) return readPrGuide(ctx, pr)
+    const pr = target?.kind === 'pr' ? target : !target && key === branchKey ? prTargetFor(ctx) : null
+    if (pr) return readPrGuide(pr)
     const repoRoot = await reviewRepoRoot(ctx)
-    if (!repoRoot) return null
-    const current = await readGuideByKey(repoRoot, key)
-    if (current) return current
-
-    // One-time compatibility read for SHA-derived guide names. A successful
-    // regeneration writes the stable key and naturally completes the migration.
-    const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
-    if (!review) return null
-    const sessionId = ctx.session.agentSessionId
-    const isStableKey = key === guideKeyFor(review, 'session', sessionId)
-      || key === guideKeyFor(review, 'branch', sessionId)
-    return isStableKey
-      ? readLegacyGuide(repoRoot, key, review.branch === review.targetBranch)
-      : null
+    return repoRoot ? readGuideByKey(repoRoot, key) : null
   })
 
   server.register('readReviewState', async (args) => {

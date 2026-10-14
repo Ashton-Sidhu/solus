@@ -57,6 +57,20 @@ checkout on its host resolves that path to a project key
 (`tasksStore.projectKeyOf`). Thus one project lists the tasks of all its
 checkouts.
 
+## §4a Sessions
+
+A machine names the repository of each session it records
+(`session_records.project_remote`, set by the session indexer). A project scope
+in History and search reaches each host as follows
+(`scopeFromCheckouts`, `conversation-search.svelte.ts`):
+
+- A machine is asked for its own checkout (`projectRoot`), and is passed over
+  when it holds none.
+- The workspace service is asked for the repository (`repositoryKey`). It holds
+  the sessions of every machine that ran the repository, so a machine that was
+  removed does not take its sessions out of the project.
+- A local-only project has no repository key, so the service is passed over.
+
 ## §5 Project lists
 
 A list that lets the user pick or filter by project shows **one row for each

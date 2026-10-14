@@ -30,9 +30,6 @@ export const KEYBINDINGS = {
   // a project, so the web default takes the one free letter beside it.
   'global.switch-organization': { combo: { alt: true, shift: true, code: 'KeyO' }, web: { alt: true, shift: true, code: 'KeyE' }, scope: 'global', label: 'Switch organization…', group: 'General' },
   'global.attach-file':       { combo: { alt: true, shift: true, code: 'KeyA' },          scope: 'global',             label: 'Attach file',              group: 'Compose' },
-  // Insights owns ⌥⇧I. Design mode remains available from the action menu and
-  // Settings → Keybindings, but ships unassigned rather than shadowing Insights.
-  'global.design-mode':       { combo: null,                                                scope: 'global',             label: 'Design mode',              group: 'Compose' },
   'global.toggle-diff-panel':    { combo: { alt: true, shift: true, code: 'KeyD' },        scope: 'global',             label: 'Toggle diff panel',        group: 'View' },
   // The letter layer is already occupied by other global actions. Semicolon
   // gives Files one collision-free default on desktop and web without making
@@ -205,17 +202,6 @@ export const KEYBINDINGS = {
   'pr-review.approve':            { combo: { alt: true, code: 'KeyA' },                    scope: 'pr-review',          label: 'Approve pull request',     group: 'Pull Requests' },
   'pr-review.copy-link':          { combo: { mod: true, ctrl: true, code: 'KeyC' },         scope: 'pr-review',          label: 'Copy GitHub link',         group: 'Pull Requests' },
 
-  // ── Design annotation ──────────────────────────────────────────────────────
-  'annotation.cancel':            { combo: { code: 'Escape' },                             scope: 'design-annotation',  label: 'Cancel / dismiss',         group: 'Annotation' },
-  'annotation.confirm':           { combo: { mod: true, code: 'Enter' },                   scope: 'design-annotation',  label: 'Confirm',                  group: 'Annotation' },
-  'annotation.undo':              { combo: { mod: true, code: 'KeyZ' },                    scope: 'design-annotation',  label: 'Undo',                     group: 'Annotation' },
-  'annotation.redo':              { combo: { mod: true, shift: true, code: 'KeyZ' },       scope: 'design-annotation',  label: 'Redo',                     group: 'Annotation' },
-  'annotation.tool-rect':         { combo: { code: 'Digit1' },                             scope: 'design-annotation',  label: 'Rectangle tool',           group: 'Tools' },
-  'annotation.tool-arrow':        { combo: { code: 'Digit2' },                             scope: 'design-annotation',  label: 'Arrow tool',               group: 'Tools' },
-  'annotation.tool-pin':          { combo: { code: 'Digit3' },                             scope: 'design-annotation',  label: 'Pin tool',                 group: 'Tools' },
-  'annotation.tool-text':         { combo: { code: 'Digit4' },                             scope: 'design-annotation',  label: 'Text tool',                group: 'Tools' },
-  'annotation.tool-eraser':       { combo: { code: 'Digit5' },                             scope: 'design-annotation',  label: 'Eraser tool',              group: 'Tools' },
-
   // ── Diagram ────────────────────────────────────────────────────────────────
   // Bare keys (Delete/Arrows) and ⌘ combos are intentional canvas
   // conventions (Figma/Miro), gated to fire only when the canvas is focused.
@@ -301,7 +287,6 @@ export const KEYBINDINGS = {
   'global.session-task-picker':   { combo: null,                                           scope: 'global',             label: 'Choose task for this session', group: 'Tasks' },
   'global.permission-menu':       { combo: null,                                           scope: 'global',             label: 'Open permission mode menu', group: 'Agent' },
   'global.add-server':            { combo: null,                                           scope: 'global',             label: 'Add server',               group: 'General' },
-  'global.switch-server':         { combo: null,                                           scope: 'global',             label: 'Switch server…',           group: 'General' },
   'global.find-hosts':            { combo: null,                                           scope: 'global',             label: 'Find hosts nearby',        group: 'General' },
   'global.check-for-updates':     { combo: null,                                           scope: 'global',             label: 'Check for updates',        group: 'General' },
   // Desktop only: the shell that can replace its own binary.

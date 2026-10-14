@@ -3,16 +3,17 @@ import { Database } from 'bun:sqlite'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { ACCESS_TOKEN_TYPE, CLIENT_ASSERTION_TYPE, TOKEN_EXCHANGE_GRANT_TYPE, tokenEndpoint, type EnrollHostResponse, type UplinkLinkConfig } from '@solus/contracts/uplink'
+import { ACCESS_TOKEN_TYPE, CLIENT_ASSERTION_TYPE, TOKEN_EXCHANGE_GRANT_TYPE, tokenEndpoint, type EnrollHostResponse, type HostRegistration } from '@solus/contracts/uplink'
 import { clientCredential, generateHostKey } from '@solus/server/host/host-credential'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 // plans/009-organization-vms.md §4, §5: a self-hosted server's organization
-// attachment is persisted with its link before organization work is admitted, a
-// person's own computer is never attached, and an unlink resets the server to
-// personal. A linked server redeems an organization code as an attachment, from
-// the account plane it is linked to only.
+// attachment is persisted with its registration before organization work is
+// admitted, a person's own computer is never attached, and only the end of the
+// registration resets the server to personal — the link plays no part
+// (docs/adr/0001-standard-authentication.md §2.2 rule 9). A registered server
+// redeems an organization code as an attachment, from its own account plane only.
 //
 // plans/010-standard-oauth.md: the host acts for a person with its own OAuth client
 // and its key (docs/adr/0001-standard-authentication.md §3.4) — one token exchange
@@ -43,22 +44,23 @@ function recordingFetch(answer: (call: Call) => Response | Promise<Response>) {
 }
 
 const enrolled = (organizationIds?: string[]): EnrollHostResponse => ({
-  link: { hostId: HOST_ID, issuer: DIRECTORY, jwksUrl: `${DIRECTORY}/api/auth/jwks`, directoryUrl: DIRECTORY, hostname: `h-${HOST_ID}.example.test`, proxiedPort: 34118, connectionGeneration: 1, apiUrl: API },
-  connectorToken: 'connector-token-1',
+  registration: { hostId: HOST_ID, issuer: DIRECTORY, jwksUrl: `${DIRECTORY}/api/auth/jwks`, directoryUrl: DIRECTORY, generation: 1, apiUrl: API },
   oauthClient: { clientId: `host_${HOST_ID}` },
   ...(organizationIds ? { organizationIds } : {}),
 })
 
-describe('the organization attachment of a linked server', () => {
+describe('the organization attachment of a registered server', () => {
   const originalDataDir = process.env.SOLUS_DATA_DIR
   let dataDir: string
-  let link: typeof import('@solus/server/transport/uplink/link')
+  let registrationModule: typeof import('@solus/server/host/host-registration')
+  let linkModule: typeof import('@solus/server/transport/uplink/link')
   let hostCategory: typeof import('@solus/server/host/host-category')
 
   beforeEach(async () => {
     dataDir = mkdtempSync(join(tmpdir(), 'solus-host-authentication-'))
     process.env.SOLUS_DATA_DIR = dataDir
-    link = await import('@solus/server/transport/uplink/link')
+    registrationModule = await import('@solus/server/host/host-registration')
+    linkModule = await import('@solus/server/transport/uplink/link')
     hostCategory = await import('@solus/server/host/host-category')
     hostCategory.resetHostCategoryForTests()
     hostCategory.applyHostCategory('self-hosted')
@@ -71,63 +73,65 @@ describe('the organization attachment of a linked server', () => {
     else process.env.SOLUS_DATA_DIR = originalDataDir
   })
 
-  function manager(fetchImpl: ReturnType<typeof recordingFetch>['fetchImpl']) {
-    return new link.UplinkLinkManager({
-      installationId: () => 'install-1', hostLabel: () => 'Lab VM', os: () => 'linux', proxiedPort: () => 34118,
-      connector: { start() {}, async stop() {} }, fetchImpl,
+  function registrar(fetchImpl: ReturnType<typeof recordingFetch>['fetchImpl']) {
+    return new registrationModule.HostRegistrar({
+      installationId: () => 'install-1', hostLabel: () => 'Lab VM', os: () => 'linux', owner: () => null, fetchImpl,
     })
   }
 
-  const controlPlane = (options: { enroll?: () => EnrollHostResponse; attach?: () => Response } = {}) => recordingFetch((call) => {
-    // The host's own control token (client credentials with its key) for its link routes.
+  const controlPlane = (options: { enroll?: () => EnrollHostResponse; attach?: () => Response; check?: () => Response } = {}) => recordingFetch((call) => {
+    // The host's own control token (client credentials with its key) for its host routes.
     if (call.url === tokenEndpoint(DIRECTORY)) return Response.json({ access_token: 'control-token', expires_in: 300 })
     if (call.url.endsWith('/v1/hosts/enroll')) return Response.json(options.enroll?.() ?? enrolled())
     if (call.url.endsWith('/organizations/attach')) return options.attach?.() ?? Response.json({ organizationIds: ['org_a'] })
     if (call.method === 'DELETE' && call.url.includes('/organizations/')) return new Response(null, { status: 204 })
-    if (call.url.endsWith('/link') && call.method === 'GET') return Response.json({ hostId: HOST_ID, desired: 'linked', connectionGeneration: 1, hostname: `h-${HOST_ID}.example.test`, proxiedPort: 34118 })
+    if (call.url.endsWith('/link') && call.method === 'GET') return options.check?.() ?? Response.json({ hostId: HOST_ID, generation: 1, desired: 'linked', tunnel: { hostname: `h-${HOST_ID}.example.test`, proxiedPort: 34118 } })
+    if (call.url.endsWith('/link') && call.method === 'POST') return Response.json({ tunnel: { hostname: `h-${HOST_ID}.example.test`, proxiedPort: 34118 }, connectorToken: 'connector-token-1' })
     if (call.url.endsWith('/link') && call.method === 'DELETE') return new Response(null, { status: 204 })
     return new Response('not found', { status: 404 })
   })
 
-  test('an enrollment that attached organizations is persisted as attached with the link; a restart keeps it; an unlink resets the server to personal', async () => {
-    let answer = enrolled(['org_a'])
-    const plane = controlPlane({ enroll: () => answer })
-    const first = manager(plane.fetchImpl)
-    await first.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
+  test('a registration that attached organizations is persisted as attached; a restart keeps it; unlinking leaves it; only the end of the registration resets the server to personal', async () => {
+    const plane = controlPlane({ enroll: () => enrolled(['org_a']) })
+    const first = registrar(plane.fetchImpl)
+    await first.register({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
     const attachedAt = first.attachedAt()
     expect(attachedAt).toBeNumber()
-    expect(JSON.parse(readFileSync(join(dataDir, 'uplink-link.json'), 'utf8'))).toMatchObject({ desired: 'linked', attachedAt, link: { apiUrl: API } })
+    expect(JSON.parse(readFileSync(join(dataDir, 'host-registration.json'), 'utf8'))).toMatchObject({ attachedAt, registration: { apiUrl: API } })
     // A restarted process reads the same boundary, before it admits anything.
-    expect(manager(plane.fetchImpl).attachedAt()).toBe(attachedAt)
-    expect(link.readStoredLink()?.apiUrl).toBe(API)
-    await first.unlink()
-    expect(first.attachedAt()).toBeNull()
-    expect(existsSync(join(dataDir, 'uplink-link.json'))).toBe(false)
-    // Linking again with a personal code leaves it personal.
-    answer = enrolled()
-    await first.link({ ticket: 'set_again', directoryUrl: DIRECTORY })
-    expect(first.attachedAt()).toBeNull()
+    expect(registrar(plane.fetchImpl).attachedAt()).toBe(attachedAt)
+    expect(registrationModule.readStoredRegistration()?.apiUrl).toBe(API)
+    // The link turns the tunnel on and off, and nothing else.
+    const tunnel = new linkModule.UplinkLinkManager({ registration: () => first.current(), controlToken: () => first.controlToken(), proxiedPort: () => 34118, connector: { start() {}, async stop() {} }, fetchImpl: plane.fetchImpl })
+    await tunnel.link()
+    await tunnel.unlink()
+    expect(first.attachedAt()).toBe(attachedAt)
+    // The owner deleted the host: the registration ends at the next check, and the attachment with it.
+    const deleted = registrar(controlPlane({ check: () => Response.json({ error: 'invalid_host_credential' }, { status: 401 }) }).fetchImpl)
+    await deleted.resume()
+    expect(deleted.attachedAt()).toBeNull()
+    expect(existsSync(join(dataDir, 'host-registration.json'))).toBe(false)
   })
 
-  test('a person\'s own computer is never attached, whatever its link says', async () => {
+  test('a person\'s own computer is never attached, whatever its registration says', async () => {
     hostCategory.applyHostCategory('personal')
-    const instance = manager(controlPlane({ enroll: () => enrolled(['org_a']) }).fetchImpl)
-    await instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
+    const instance = registrar(controlPlane({ enroll: () => enrolled(['org_a']) }).fetchImpl)
+    await instance.register({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
     expect(instance.attachedAt()).toBeNull()
     expect(instance.markAttached()).toBeNull()
   })
 
-  test('a linked server redeems an organization code as an attachment, only from its own account plane; a removed organization leaves the attachment in place', async () => {
+  test('a registered server redeems an organization code as an attachment, only from its own account plane; a removed organization leaves the attachment in place', async () => {
     const plane = controlPlane()
-    const instance = manager(plane.fetchImpl)
-    await instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
+    const instance = registrar(plane.fetchImpl)
+    await instance.register({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
     expect(instance.attachedAt()).toBeNull()
 
     // A code from another account plane is refused before anything is sent there.
-    await expect(instance.link({ ticket: 'set_elsewhere', directoryUrl: 'https://other.example.test' })).rejects.toThrow(/linked to https:\/\/app.example.test/)
+    await expect(instance.register({ ticket: 'set_elsewhere', directoryUrl: 'https://other.example.test', organizationIds: ['org_a'] })).rejects.toThrow(/registered to https:\/\/app.example.test/)
     expect(plane.calls.some((call) => call.url.startsWith('https://other.example.test'))).toBe(false)
 
-    await instance.link({ ticket: 'set_org', directoryUrl: DIRECTORY })
+    await instance.register({ ticket: 'set_org', directoryUrl: DIRECTORY, organizationIds: ['org_a'] })
     const attach = plane.calls.find((call) => call.url.endsWith('/organizations/attach'))
     expect(attach).toMatchObject({ method: 'POST', url: `${DIRECTORY}/v1/hosts/${HOST_ID}/organizations/attach`, body: { ticket: 'set_org' }, authorization: 'Bearer control-token' })
     expect(instance.attachedAt()).toBeNumber()
@@ -140,23 +144,23 @@ describe('the organization attachment of a linked server', () => {
 
   test('a refused attachment says why and changes nothing', async () => {
     const plane = controlPlane({ attach: () => Response.json({ error: 'not_a_member' }, { status: 403 }) })
-    const instance = manager(plane.fetchImpl)
-    await instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
-    await expect(instance.link({ ticket: 'set_org', directoryUrl: DIRECTORY })).rejects.toThrow(/no longer a member/)
+    const instance = registrar(plane.fetchImpl)
+    await instance.register({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
+    await expect(instance.register({ ticket: 'set_org', directoryUrl: DIRECTORY, organizationIds: ['org_a'] })).rejects.toThrow(/no longer a member/)
     expect(instance.attachedAt()).toBeNull()
   })
 
-  test('an enrollment that names an insecure Solus API is not stored', async () => {
+  test('a registration that names an insecure Solus API is not stored', async () => {
     const insecure = enrolled()
-    insecure.link.apiUrl = 'http://api.example.test'
-    const instance = manager(controlPlane({ enroll: () => insecure }).fetchImpl)
-    await expect(instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })).rejects.toThrow(/insecure address/)
-    expect(existsSync(join(dataDir, 'uplink-link.json'))).toBe(false)
+    insecure.registration.apiUrl = 'http://api.example.test'
+    const instance = registrar(controlPlane({ enroll: () => insecure }).fetchImpl)
+    await expect(instance.register({ ticket: 'set_ticket', directoryUrl: DIRECTORY })).rejects.toThrow(/insecure address/)
+    expect(existsSync(join(dataDir, 'host-registration.json'))).toBe(false)
   })
 })
 
 describe('the host acting for a person', () => {
-  const LINK: UplinkLinkConfig = enrolled().link
+  const LINK: HostRegistration = enrolled().registration
   const TOKEN_URL = `${DIRECTORY}/api/auth/oauth2/token`
   const originalDataDir = process.env.SOLUS_DATA_DIR
   let dataDir: string
@@ -198,7 +202,7 @@ describe('the host acting for a person', () => {
 
   function delegations(fetchImpl: ReturnType<typeof cloud>['fetchImpl'], options: { now?: () => number; revoked?: Array<[string, string]> } = {}) {
     return new delegationsModule.Delegations({
-      link: () => LINK,
+      registration: () => LINK,
       credential: () => credential,
       onRevoked: (userId, scope) => { options.revoked?.push([userId, scope === 'personal' ? scope : scope.organizationId]) },
       fetchImpl,
@@ -292,8 +296,8 @@ describe('the host acting for a person', () => {
   })
 })
 
-describe('the Solus API a host delivers to is the one its link named', () => {
-  test('rows travel with their person\'s delegated token to the link\'s API and nowhere else', async () => {
+describe('the Solus API a host delivers to is the one its registration named', () => {
+  test('rows travel with their person\'s delegated token to the registration\'s API and nowhere else', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'solus-host-authentication-delivery-'))
     const previousDataDir = process.env.SOLUS_DATA_DIR
     process.env.SOLUS_DATA_DIR = dataDir
@@ -304,9 +308,9 @@ describe('the Solus API a host delivers to is the one its link named', () => {
       const plane = recordingFetch(() => Response.json({ lastSeq: 1, failed: [] }))
       outbox.recordOutboxOp({ domain: 'tasks', resourceId: 'task-1', name: 'comment', payload: { body: 'x' }, destination: 'cloud', organizationId: 'org_a', actorUserId: 'bob' })
       const runner = new delivery.RunnerDelivery({
-        link: () => enrolled().link,
+        registration: () => enrolled().registration,
         delegations: { accessToken: async (userId, scope) => `delegated-${userId}-${scope.organizationId}` },
-        linker: () => 'alice',
+        owner: () => 'alice',
         fetchImpl: plane.fetchImpl,
         setTimeoutFn: ((fn: () => void, ms: number) => setTimeout(fn, Math.min(ms, 10))) as typeof setTimeout,
       })

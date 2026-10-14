@@ -1,7 +1,7 @@
 import type { IpcContext, SessionCtx, SettingsCtx, StatusBarCtx } from '@solus/contracts/types'
 import { expectOk, expectRefused, scenario, type ScenarioContext } from '../src/scenario'
 import { checkSeatOfRun, recordedRuns, seatOfRun } from '../src/oracle'
-import { PERSONAS } from '../src/personas'
+import { ORGANIZATION_ID, PERSONAS } from '../src/personas'
 import type { LabClient } from '../src/client'
 
 /**
@@ -15,9 +15,13 @@ import type { LabClient } from '../src/client'
 const danUserId = PERSONAS.dan.kind === 'org-member' ? PERSONAS.dan.userId : ''
 const caraUserId = PERSONAS.cara.kind === 'org-member' ? PERSONAS.cara.userId : ''
 
-/** The renderer's prompt context for a conversation in the Lab's working directory; a provider thread id resumes it. */
+/**
+ * The renderer's prompt context for a conversation in the Lab's working directory; a
+ * provider thread id resumes it. The window has the Lab organization selected: on a
+ * machine attached for organization work, a new root needs one (plans/009-organization-vms.md §1).
+ */
 function promptContext(ctx: ScenarioContext, sessionId: string, agentSessionId: string | null = null): IpcContext {
-  const session: Partial<SessionCtx> = { sessionId, provider: 'claude-code', agentSessionId, status: 'idle', workingDirectory: ctx.cwd, projectPath: ctx.cwd, additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null, permissionMode: 'full-access', preferredModel: null, reasoningEffort: 'medium', fastMode: false, readOnlyReason: null }
+  const session: Partial<SessionCtx> = { sessionId, provider: 'claude-code', agentSessionId, status: 'idle', workingDirectory: ctx.cwd, projectPath: ctx.cwd, additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null, permissionMode: 'full-access', preferredModel: null, reasoningEffort: 'medium', fastMode: false, readOnlyReason: null, organizationId: ORGANIZATION_ID }
   const settings: Partial<SettingsCtx> = { activeAgent: 'claude-code', executionPreferences: { rateLimitBehavior: 'queue' } }
   const statusBar: Partial<StatusBarCtx> = { model: 'mock-model', reasoningEffort: 'medium', fastMode: false }
   const context = { session, settings, statusBar }
@@ -62,7 +66,8 @@ async function connectStep(ctx: ScenarioContext, dan: LabClient, bob: LabClient)
   await settle(300)
   const danRun = checkSeatOfRun(ctx, 'dan with a seat', danUserId)
   ctx.check('the run carries dan\'s token in the env', danRun?.seat?.envToken === 'lab-token-dan')
-  ctx.check('the seat lives beside the data directory, under dan\'s own directory', !!danRun?.seat?.home.startsWith(`${ctx.host.dataDir}-seats/claude/${danUserId}`), danRun?.seat?.home)
+  // A member's seats live in their member folder: their name and the start of their account id (commit 010992d89).
+  ctx.check('the seat lives beside the data directory, under dan\'s own directory', !!danRun?.seat?.home.startsWith(`${ctx.host.dataDir}-seats/claude/dan-`), danRun?.seat?.home)
 }
 
 async function hostLoginStep(ctx: ScenarioContext, alice: LabClient): Promise<void> {

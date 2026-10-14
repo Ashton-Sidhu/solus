@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { PrProjectListing, PullRequest } from '@solus/contracts/providers'
 import type { ProjectEntry } from '@solus/contracts/types'
 import { PullRequestDirectory, notificationRepositoryKey } from '../../apps/mobile/src/features/prs/pull-request-directory'
-import { canGiveVerdict, checksLabel, hostPrSections, prSections, prStateTone, stackLabel } from '../../apps/mobile/src/features/prs/lib/pr-presentation'
+import { canGiveVerdict, prStateTone } from '../../apps/mobile/src/features/prs/lib/pr-presentation'
 import { nativeDestination } from '../../apps/mobile/src/features/notifications/lib/native-destinations'
 import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
 
@@ -69,6 +69,7 @@ describe('native pull request directory', () => {
     const api = new FakeApi()
       .on('prGetOverview', () => ({ pullRequest: pullRequest(7), commits: [], reviewers: [] }))
       .on('prListComments', () => [])
+      .on('prListThreads', () => [])
       .on('prChangedFiles', () => [{ path: 'a.ts', additions: 1, deletions: 0, status: 'M' }])
       .on('prChecks', () => { throw new Error('rate limited') })
     const { directory } = await setup(api)
@@ -92,6 +93,7 @@ describe('native pull request directory', () => {
     const api = new FakeApi()
       .on('prGetOverview', () => ({ pullRequest: pullRequest(7), commits: [], reviewers: [] }))
       .on('prListComments', () => [])
+      .on('prListThreads', () => [])
       .on('prChangedFiles', () => [])
       .on('prChecks', () => ({ checks: [] }))
       .on('prGetStack', () => stackRead())
@@ -107,20 +109,6 @@ describe('native pull request directory', () => {
     expect(failed.kind).toBe('loaded')
     expect(failed.kind === 'loaded' && failed.value.stack).toBeNull()
     expect(failed.kind === 'loaded' && failed.value.missing).toEqual([])
-  })
-
-  test('a review is anchored to the head the person was shown', async () => {
-    const api = new FakeApi()
-      .on('prSubmitReview', () => undefined)
-      .on('prGetOverview', () => ({ pullRequest: pullRequest(7), commits: [], reviewers: [] }))
-      .on('prListComments', () => [])
-      .on('prChangedFiles', () => [])
-      .on('prChecks', () => ({ repo: { host: 'github.com', owner: 'o', repo: 'r' }, checks: [], loadFailed: false }))
-    const { directory } = await setup(api)
-    await directory.review({ hostId: 'inst-a', projectPath: '/work/app', number: 7 }, 'request-changes', '  Please add a test. ', 'shown-head')
-    const [, number, review] = api.callsOf('prSubmitReview')[0]!
-    expect(number).toBe(7)
-    expect(review).toEqual({ body: 'Please add a test.', event: 'REQUEST_CHANGES', commitId: 'shown-head', comments: [] })
   })
 
   test('a notification finds its pull request on a connected host by repository, not by path', async () => {
@@ -143,42 +131,9 @@ describe('native pull request directory', () => {
 })
 
 describe('pull request presentation', () => {
-  test('sections follow the web: authored, then review requested, then the rest', () => {
-    const mine = pullRequest(1, { author: 'Me' })
-    const waiting = pullRequest(2, { needsMyReview: true })
-    const other = pullRequest(3)
-    expect(prSections([other, waiting, mine], 'me').map((section) => [section.key, section.prs.map((pr) => pr.number)])).toEqual([
-      ['authored', [1]], ['review-requested', [2]], ['others', [3]],
-    ])
-  })
-
-  test('the host list merges projects newest first', () => {
-    const sections = hostPrSections({
-      viewerLogin: null,
-      projects: [
-        { kind: 'page', projectPath: '/a', folderName: 'a', prs: [pullRequest(1, { updatedAt: '2026-01-01T00:00:00Z' })], hasMore: false },
-        { kind: 'page', projectPath: '/b', folderName: 'b', prs: [pullRequest(2, { updatedAt: '2026-02-01T00:00:00Z' })], hasMore: false },
-        { kind: 'unavailable', projectPath: '/c', folderName: 'c', reason: 'no-remote' },
-      ],
-    })
-    expect(sections[0]!.data.map((row) => [row.pr.number, row.folderName])).toEqual([[2, 'b'], [1, 'a']])
-  })
-
-  test('a row in a stack says its layer counted from the base', () => {
-    expect(stackLabel({ number: 4, position: 2, size: 3, base: 'main' })).toBe('Stack 2/3')
-    expect(stackLabel(null)).toBeNull()
-    expect(stackLabel(undefined)).toBeNull()
-  })
-
   test('a draft reads as a draft, not as open', () => {
     expect(prStateTone({ state: 'open', draft: true })).toBe('draft')
     expect(prStateTone({ state: 'merged', draft: false })).toBe('merged')
-  })
-
-  test('checks from an older head say nothing about this one', () => {
-    const summary = { state: 'failing' as const, required: [], optional: [], headSha: 'old', inFlight: false }
-    expect(checksLabel(summary, 'new')).toBeNull()
-    expect(checksLabel({ ...summary, headSha: 'new' }, 'new')?.label).toBe('Checks failing')
   })
 
   test('the author may comment on their own pull request but not approve it', () => {

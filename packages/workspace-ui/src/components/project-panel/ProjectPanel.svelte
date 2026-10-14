@@ -31,9 +31,9 @@
   import GitSection from "./GitSection.svelte";
   import GitSetupSection from "./GitSetupSection.svelte";
   import LinkedSection from "./LinkedSection.svelte";
-  import SubagentsSection from "./SubagentsSection.svelte";
+  import AgentsSection from "./AgentsSection.svelte";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
-  import { sessionSubagents } from "./lib/rail-subagents";
+  import { sessionAgentMessages } from "./lib/rail-agents";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import { comboHint } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
@@ -176,11 +176,12 @@
     panelSession ? sessionSidebar.pullRequestLinksForTab(sourceId) : [],
   );
 
-  // The Subagents card exists only once the conversation has dispatched one,
-  // so the read that decides it belongs here rather than in the card it would
-  // hide. A draft has no transcript and therefore no card.
-  const panelSubagents = $derived(
-    panelSession ? sessionSubagents(panelSession.messages) : [],
+  // The Agents card exists only once the conversation has dispatched a
+  // sub-agent or started a session, so the read that decides it belongs here
+  // rather than in the card it would hide. A draft has no transcript and
+  // therefore no card.
+  const panelAgents = $derived(
+    panelSession ? sessionAgentMessages(panelSession.messages) : [],
   );
 
   // A split chat mounts a second rail, so both instances register these ids and
@@ -404,15 +405,15 @@
         <LinkedSection {sourceId} links={panelLinks} active={active && open} />
       </PanelSection>
     {/if}
-    {#if panelSession && panelSubagents.length > 0}
-      <!-- Only ever reached with a session behind it — a sub-agent is something
-           a conversation dispatched, so the section opens the pane off that
+    {#if panelSession && panelAgents.length > 0}
+      <!-- Only ever reached with a session behind it — an agent is something
+           a conversation dispatched, so the section opens it off that
            conversation's tab. -->
-      <SubagentsSection
+      <AgentsSection
         tabId={sourceId}
-        messages={panelSubagents}
-        collapsed={collapsedSections.subagents}
-        onToggle={() => toggleSection("subagents")}
+        messages={panelAgents}
+        collapsed={collapsedSections.agents}
+        onToggle={() => toggleSection("agents")}
         onResizePointerDown={startResize}
       />
     {/if}

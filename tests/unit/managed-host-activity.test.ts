@@ -4,8 +4,8 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SessionStatus } from '@solus/contracts/types'
-import type { UplinkLinkConfig } from '@solus/contracts/uplink'
-import { adoptProvisionedLink, resetHostCategoryForTests } from '@solus/server/host/host-category'
+import type { HostRegistration } from '@solus/contracts/uplink'
+import { adoptProvisionedRegistration, resetHostCategoryForTests } from '@solus/server/host/host-category'
 import { DUE_HOLD_LEAD_MS, FOREGROUND_HOLD_GRACE_MS, ManagedHostActivity } from '@solus/server/host/managed-host-activity'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
@@ -36,7 +36,7 @@ afterAll(() => {
 })
 afterEach(() => resetHostCategoryForTests())
 
-const link = { hostId: 'h1', directoryUrl: 'https://cloud.test', organizationId: 'org1' } as UplinkLinkConfig
+const link = { hostId: 'h1', directoryUrl: 'https://cloud.test', organizationId: 'org1' } as HostRegistration
 
 describe('what the host reports', () => {
   test('busy while a turn runs or a person owes an answer; not while idle or rate limited', () => {
@@ -83,7 +83,7 @@ function harness(facts: { busy: boolean; nextDueAt: number | null; lastForegroun
     isBusy: () => facts.busy,
     nextDueAt: () => facts.nextDueAt,
     lastForegroundAt: () => facts.lastForegroundAt ?? null,
-    link: () => link,
+    registration: () => link,
     credential: () => ({ hostAccessToken: async () => 'control-token' }),
     now: () => now,
     spriteTask: async (method, path, body) => { tasks.push(`${method} ${path}${body ? ` ${body}` : ''}`); return method === 'PUT' ? 200 : 204 },
@@ -99,7 +99,7 @@ function harness(facts: { busy: boolean; nextDueAt: number | null; lastForegroun
 
 describe('the hold and the report on a managed host', () => {
   test('Cloudflare receives an atomic heartbeat without using the Sprite socket', async () => {
-    adoptProvisionedLink({ organizationId: 'org1' })
+    adoptProvisionedRegistration({ organizationId: 'org1' })
     const activityFile = join(directory, 'activity.json')
     const facts = { busy: true, nextDueAt: null as number | null }
     const { activity, tasks, reports, now, advance } = harness(facts, activityFile)
@@ -115,7 +115,7 @@ describe('the hold and the report on a managed host', () => {
     expect(reports).toEqual([{ busy: true, nextWakeAt: null }, { busy: false, nextWakeAt: facts.nextDueAt }])
   })
   test('holds while busy, renews the hold, releases when done, and reports each change once', async () => {
-    adoptProvisionedLink({ organizationId: 'org1' })
+    adoptProvisionedRegistration({ organizationId: 'org1' })
     const facts = { busy: true, nextDueAt: null as number | null }
     const { activity, tasks, reports, advance } = harness(facts)
 
@@ -146,7 +146,7 @@ describe('the hold and the report on a managed host', () => {
   })
 
   test('holds ahead of a due automation, so the run the control plane woke it for starts', async () => {
-    adoptProvisionedLink({ organizationId: 'org1' })
+    adoptProvisionedRegistration({ organizationId: 'org1' })
     const facts = { busy: false, nextDueAt: null as number | null }
     const { activity, tasks, reports, now } = harness(facts)
     facts.nextDueAt = now() + DUE_HOLD_LEAD_MS + 60_000
@@ -163,7 +163,7 @@ describe('the hold and the report on a managed host', () => {
   test('holds while someone looks at the app, and lets the machine pause once they have looked away for the grace', async () => {
     // A person with the app in front of them must never find it paused; a tab
     // left in the background must not keep the machine billing all night.
-    adoptProvisionedLink({ organizationId: 'org1' })
+    adoptProvisionedRegistration({ organizationId: 'org1' })
     const facts = { busy: false, nextDueAt: null as number | null, lastForegroundAt: null as number | null }
     const { activity, tasks, reports, advance, now } = harness(facts)
 

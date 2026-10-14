@@ -12,8 +12,10 @@ import { type CreateSessionOrder } from '../orchestration/session-orchestrator'
 import type { AgentId, GitCheckout, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, SessionOrigin, SessionRunInput, ReasoningEffort } from '@solus/contracts/types'
 import { defaultContextWindowFor } from '@solus/contracts/types'
 import { SeatRequiredError } from '../seats/seat-manager'
-import { type Actor } from '../../admission/actor'
+import { HOST_ACTOR, insightsAccountOf, type Actor } from '../../admission/actor'
 import { INTERNAL_PRINCIPAL } from '../../admission/principal'
+import { userKey } from '@solus/contracts/user'
+import { admitTurnOrganization, type TurnAdmissionContext, type TurnOrganizationDeps } from './turn-organization'
 import { integrationAgentTools } from '../../integrations/integration-tools'
 import type { SessionRuntime, SessionRunRequest, SessionRunLifecycle, DispatchTarget } from '../session-runtime'
 
@@ -31,6 +33,8 @@ export interface CreateSessionRequest extends Omit<CreateSessionOrder, 'modelId'
   executionPreferences?: ExecutionPreferences
   /** The agent session on another host that starts this one. */
   startedBy?: SessionOrigin
+  /** The organization the requester works in (`HeadlessSessionRequest.organizationId`); a child takes its parent's. */
+  organizationId?: string
 }
 
 function buildCreatedSessionPromptOptions(request: CreateSessionRequest): PromptOptions {
@@ -53,7 +57,28 @@ export class PromptDispatch {
    *  so the oldest fall off first (outbox replay dedupe, dispatch-client step 6). */
   acceptedClientPromptIds = new Set<string>()
 
+  /**
+   * What turn admission needs on this host (turn-organization.ts): its standing in
+   * its organizations, and how it acts for people there. The host sets it at boot
+   * and adds the delegations once the link exists. Null where no turn is admitted
+   * for an organization: the Solus API, and tests that do not ask for it.
+   */
+  admission: TurnOrganizationDeps | null = null
+
   constructor(private readonly rt: SessionRuntime) {}
+
+  /**
+   * The one turn admission (organization-scope §3; organization-vms §1, §4): a
+   * prompt, a retry, a prompt from another host, and every new session pass it
+   * before their provider starts. It names the turn's organization, and on an
+   * attached machine the Solus API accepts the session for the actor's person.
+   */
+  async admitTurn(ctx: TurnAdmissionContext, actor: Actor): Promise<void> {
+    if (!this.admission) return
+    const organizationId = await admitTurnOrganization(ctx, actor, this.admission)
+    const account = insightsAccountOf(actor)
+    log.info('turn_admitted', { sessionId: ctx.session.sessionId, organizationId, accountUserId: account ? userKey(account.id) : null, principal: actor.principal.kind })
+  }
 
   /** Submit a prompt to a session and resolve once it has started, steered, or queued. */
   async submitPrompt(
@@ -250,6 +275,19 @@ export class PromptDispatch {
   }
 
   /**
+   * A new session is admitted as a prompt is; a child in its parent's organization,
+   * for its parent's person, so a person whose authority was removed starts no new
+   * child run (organization-vms §4). A session no person starts is the host's.
+   */
+  private async admitNewSession(req: CreateSessionRequest, sessionId: string, actor: Actor | undefined): Promise<void> {
+    const parentId = req.delegation?.parentSessionId
+    const organizationId = req.organizationId ?? (parentId ? await this.rt.turnOrganization(parentId) : undefined)
+    const ctx: TurnAdmissionContext = { session: { sessionId, agentSessionId: null, workingDirectory: req.cwd, organizationId } }
+    if (parentId) ctx.parentSessionId = parentId
+    await this.admitTurn(ctx, actor ?? HOST_ACTOR)
+  }
+
+  /**
    * Start a fresh background session running `prompt` on the given agent/model —
    * the entry for the `start_session` MCP tool. Builds a plain run input with no
    * client watching it and routes through `runTurn`, resolving once the new
@@ -260,6 +298,8 @@ export class PromptDispatch {
     const parentId = req.delegation?.parentSessionId
     // A child works for the person its parent works for, on their seat (plans/019 decision 5).
     const runActor = actor ?? (parentId ? this.rt.actorOfSession(parentId) : undefined)
+    const sessionId = req.sessionId ?? crypto.randomUUID()
+    await this.admitNewSession(req, sessionId, runActor)
     // No seat, no session: refused before anything is spawned (Step 2 plan §3.3).
     await this.rt.seatForTurn(runActor, req.provider)
     const parentMode = parentId ? this.rt.activeSessions.get(parentId)?.runInput?.permissionMode ?? this.rt.sessionPermissionModes.get(parentId) : undefined
@@ -290,7 +330,6 @@ export class PromptDispatch {
       ...instructionsFor(preferences, model),
       executionPreferences: preferences,
     }
-    const sessionId = req.sessionId ?? crypto.randomUUID()
     const delegation = req.delegation
       ? {
           parentSessionId: req.delegation.parentSessionId,

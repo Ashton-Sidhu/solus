@@ -10,9 +10,8 @@
   interface Props {
     onAttachFile: (tabId?: string) => void | Promise<void>;
     onScreenshot?: ((tabId?: string) => void | Promise<void>) | null;
-    onDesignMode?: ((tabId?: string) => void | Promise<void>) | null;
   }
-  let { onAttachFile, onScreenshot, onDesignMode }: Props = $props();
+  let { onAttachFile, onScreenshot }: Props = $props();
 
   const session = getWorkspaceContext();
 
@@ -60,7 +59,6 @@
       enableProjectPanel
       {onAttachFile}
       {onScreenshot}
-      {onDesignMode}
     >
       {#snippet inputRow()}
         <EditorInputCard
@@ -68,7 +66,6 @@
           class="mx-auto max-w-(--solus-reading-max)"
           onAttachFile={() => onAttachFile()}
           onScreenshot={onScreenshot ? () => onScreenshot() : null}
-          onDesignMode={onDesignMode ? () => onDesignMode() : null}
         />
       {/snippet}
     </WorkspaceBody>

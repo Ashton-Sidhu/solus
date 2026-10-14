@@ -11,7 +11,6 @@ import type { SessionOrchestrator } from '../../execution/orchestration/session-
 import { activityLeases } from '../../execution/activity-leases'
 import type { AgentId, AgentMetadata, IpcContext } from '@solus/contracts/types'
 import { AGENT_BIN } from '@solus/contracts/types'
-import { userKey } from '@solus/contracts/user'
 import { findOnPath, getCliEnv, warmCliPath } from '../../cli-env'
 import { createLogger } from '../../logger'
 import { appVersion, resolveHomePath, solusDir } from '../../platform/paths'
@@ -19,9 +18,7 @@ import { warmFinder } from '../../files/file-finder'
 import type { SolusServer } from '../server'
 import type { HandlerCtx } from '../server'
 import type { ShareManager } from '../../sharing/share-manager'
-import { insightsAccountOf, type Actor } from '../../admission/actor'
-import { admitTurnOrganization, mayAnswerFor, type DelegationPort } from '../../execution/sessions/turn-organization'
-import type { HostOrganizations } from '../../host/organizations'
+import { mayAnswerFor } from '../../execution/sessions/turn-organization'
 import { isOrganizationSpace, type Principal } from '../../admission/principal'
 import { RequestNotAnswerableError } from '../../execution/sessions/pending-input'
 import { chatFolderFor, projectsRootFor } from './setup-handlers'
@@ -60,12 +57,6 @@ export interface SessionDeps {
   agentIdFromContext(ctx?: IpcContext): AgentId
   /** Records who started a session; the first caller to name a new session owns it. */
   shares?: ShareManager
-  /** This host's standing in its organizations (organization-scope §3.1, §6.1); absent on the Solus API. */
-  hostOrganizations?: HostOrganizations
-  /** How this host acts for people in organizations (plans/010-standard-oauth.md); set once the link exists. */
-  delegations?: DelegationPort
-  /** Persists the organization attachment before organization work is admitted. */
-  markAttached?: () => void
 }
 
 const _agentBinaryCache = new Map<AgentId, string | null>()
@@ -179,33 +170,13 @@ export async function enrichAgentMetadata(metadata: AgentMetadata): Promise<Agen
 export function registerSessionHandlers(server: SolusServer, deps: SessionDeps): void {
   const { sessionRuntime, agentIdFromContext } = deps
 
-  /**
-   * The organization model's part of admitting a turn (organization-scope §3,
-   * §3.1, §6.1): assign an unassigned session once, refuse a personal machine an
-   * organization does not allow, and name the verified account behind the turn.
-   */
-  const turnOrganizationDeps = (hostOrganizations: HostOrganizations) => ({
-    hostOrganizations,
-    delegations: deps.delegations,
-    markAttached: deps.markAttached,
-    adoptSession: (sessionId: string, organizationId: string, ownerUserId: string, options: { shareWithOrganization: boolean }) =>
-      deps.shares?.adoptForOrganization({ kind: 'session', id: sessionId }, organizationId, ownerUserId, options) ?? Promise.resolve(),
-  })
-
   /** A new approval or answer needs the person's organization authority again (organization-vms §4). */
   const mayAnswer = async (askingSessionId: string, principal: Principal): Promise<boolean> => {
-    if (!deps.hostOrganizations) return true
-    const allowed = await mayAnswerFor(principal, askingSessionId, turnOrganizationDeps(deps.hostOrganizations))
+    const admission = sessionRuntime.dispatch.admission
+    if (!admission) return true
+    const allowed = await mayAnswerFor(principal, askingSessionId, admission)
     if (!allowed) log.info('answer_refused_authority_removed', { sessionId: askingSessionId, principal: principal.kind })
     return allowed
-  }
-
-  /** A prompt and a retry pass the same admission: the turn's organization, for the actor behind it. */
-  const admitTurn = async (ctx: IpcContext, actor: Actor): Promise<void> => {
-    if (!deps.hostOrganizations) return
-    const organizationId = await admitTurnOrganization(ctx, actor, turnOrganizationDeps(deps.hostOrganizations))
-    const account = insightsAccountOf(actor)
-    log.info('turn_admitted', { sessionId: ctx.session.sessionId, organizationId, accountUserId: account ? userKey(account.id) : null, principal: actor.principal.kind })
   }
 
   server.register('start', async (_args, handlerCtx) => {
@@ -321,6 +292,9 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     request.cwd = request.cwd === NEW_CHAT_DIRECTORY ? chatFolderFor(randomUUID(), handlerCtx.principal) : resolveHomePath(request.cwd)
     request.executionPreferences = parseExecutionPreferences(request.executionPreferences)
     request.imageAttachmentRefs = imageRefsSchema.parse(request.imageAttachmentRefs)
+    // A new root, admitted as a prompt is, inside `createSession`: the admission names the session before its provider starts.
+    request.sessionId ??= randomUUID()
+    request.organizationId = z.string().min(1).max(256).optional().parse(request.organizationId)
     const created = await sessionRuntime.dispatch.createSession(request, handlerCtx.actor)
     await claimSession(created.sessionId, handlerCtx, request.cwd)
     return created
@@ -332,6 +306,9 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     if (!getIndexedSession(request.sessionId) && !sessionRuntime.activeSessions.has(request.sessionId)) {
       throw new Error(`Session ${request.sessionId} not found on this host.`)
     }
+    // A prompt from another host continues its session under the same admission as a prompt.
+    const workingDirectory = sessionRuntime.activeSessions.get(request.sessionId)?.runInput?.workingDirectory ?? getIndexedSession(request.sessionId)?.cwd ?? ''
+    await sessionRuntime.dispatch.admitTurn({ session: { sessionId: request.sessionId, agentSessionId: null, workingDirectory } }, handlerCtx.actor)
     const origin: Parameters<SessionRuntime['dispatch']['promptSession']>[3] = { actor: handlerCtx.actor, clientPromptId: request.promptId }
     if (request.imageAttachmentRefs?.length) origin.imageAttachmentRefs = request.imageAttachmentRefs
     // A link visitor's turn keeps tool approvals with the people on the session (host-sharing.md §4.1).
@@ -384,7 +361,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     // A link visitor's turn keeps tool approvals with the people on the session (host-sharing.md §4.1).
     if (handlerCtx.principal.kind === 'guest') ctx.session.permissionMode = 'supervised'
     await claimSession(sessionId, handlerCtx, ctx.session.workingDirectory)
-    await admitTurn(ctx, handlerCtx.actor)
+    await sessionRuntime.dispatch.admitTurn(ctx, handlerCtx.actor)
     // A recording sent to an agent is part of the transcript now, so the
     // retention sweep must not delete it. A failure here must not fail the turn.
     void recordingRetention().keepRecordingsSentIn(options.prompt).catch((error) => {
@@ -418,7 +395,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     const [ctx, options] = args
     log.info('rpc_retry', { sessionId: ctx.session.sessionId })
     resolveChat(ctx, handlerCtx.principal)
-    await admitTurn(ctx, handlerCtx.actor)
+    await sessionRuntime.dispatch.admitTurn(ctx, handlerCtx.actor)
     return sessionRuntime.dispatch.retry(ctx, options, handlerCtx.clientId, handlerCtx.actor)
   })
 
@@ -452,7 +429,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
 
   server.register('sessionQueue', ([ctx]) => sessionRuntime.scheduler.sessionQueue(ctx))
   server.register('sessionQueueChange', async ([ctx, mutation], handlerCtx) => {
-    await admitTurn(ctx, handlerCtx.actor)
+    await sessionRuntime.dispatch.admitTurn(ctx, handlerCtx.actor)
     return sessionRuntime.scheduler.sessionQueueChange(ctx, mutation, handlerCtx.actor)
   })
 
@@ -474,7 +451,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   })
 
   server.register('compactSession', async ([ctx], handlerCtx) => {
-    await admitTurn(ctx, handlerCtx.actor)
+    await sessionRuntime.dispatch.admitTurn(ctx, handlerCtx.actor)
     return compactSession(sessionRuntime, ctx, handlerCtx.actor)
   })
 

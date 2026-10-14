@@ -47,42 +47,60 @@ export class HostReads {
    * Reads `key` into `map`. A read that a newer read of the same key, or a
    * new server session, makes stale is dropped rather than shown. While the
    * state has nothing to show, the device copy under `cacheKey` is shown as
-   * `previous`; a successful read replaces that copy.
+   * `previous`; a successful read replaces that copy. The device copy is read
+   * at the same time as the host, never before it.
+   *
+   * `run` may `show` a part of its answer while it still reads: the state
+   * stays `loading` with that part as `previous`, so a screen paints what has
+   * arrived and does not wait for the slowest call. Only the final answer is
+   * kept on the device.
    */
   async read<T>(
     map: Map<string, LoadState<T>>,
     key: string,
     hostId: string,
     cacheKey: string,
-    run: (connection: HostConnection, previous: T | null) => Promise<T>,
+    run: (connection: HostConnection, previous: T | null, show: (partial: T) => void) => Promise<T>,
   ): Promise<void> {
     const request = ++this.nextRequest
     this.requests.set(key, request)
     let previous = shownValue(map.get(key) ?? IDLE)
-    if (previous === null) {
-      previous = await this.cache.read<T>(hostId, cacheKey)
-      if (this.requests.get(key) !== request) return
-    }
     const connection = this.connectionFor(hostId)
     if (!connection) {
+      previous ??= await this.cache.read<T>(hostId, cacheKey)
+      if (this.requests.get(key) !== request) return
       map.set(key, { kind: 'error', message: UNREACHABLE, githubAuth: false, offline: true, previous })
       this.changes.notify()
       return
     }
     const generation = connection.state.sessionGeneration
+    const isCurrent = () => this.requests.get(key) === request
+      && this.connectionFor(hostId) === connection
+      && connection.state.sessionGeneration === generation
+    let running = true
+    const show = (partial: T) => {
+      if (!running || !isCurrent()) return
+      previous = partial
+      map.set(key, { kind: 'loading', previous: partial })
+      this.changes.notify()
+    }
     map.set(key, { kind: 'loading', previous })
     this.changes.notify()
+    if (previous === null) {
+      // The device copy shows while the host reads, unless the host answered first.
+      void this.cache.read<T>(hostId, cacheKey).then((copy) => {
+        if (copy !== null && previous === null) show(copy)
+      })
+    }
     let next: LoadState<T>
     try {
-      next = { kind: 'loaded', value: await run(connection, previous) }
+      next = { kind: 'loaded', value: await run(connection, previous, show) }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       next = { kind: 'error', message, githubAuth: isGithubAuthError(message), offline: connection.state.phase !== 'connected', previous }
     }
-    const isCurrent = this.requests.get(key) === request
-      && this.connectionFor(hostId) === connection
-      && connection.state.sessionGeneration === generation
-    if (!isCurrent) return
+    running = false
+    if (!isCurrent()) return
     map.set(key, next)
     this.changes.notify()
     if (next.kind === 'loaded') void this.cache.write(hostId, cacheKey, next.value)
@@ -98,7 +116,9 @@ export class HostReads {
   }
 }
 
-export async function settle<T>(promise: Promise<T>): Promise<{ ok: true; value: T } | { ok: false }> {
+export type Settled<T> = { ok: true; value: T } | { ok: false }
+
+export async function settle<T>(promise: Promise<T>): Promise<Settled<T>> {
   try {
     return { ok: true, value: await promise }
   } catch {

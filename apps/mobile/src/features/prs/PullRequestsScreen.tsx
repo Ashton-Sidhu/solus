@@ -37,8 +37,9 @@ function useDebouncedValue(value: string, delay: number): string {
  */
 function PullRequestScrollView(props: ScrollViewProps) {
   const insets = useSafeAreaInsets()
+  // The marker is the list's outer view: without flex it has no height, and the list shows nothing.
   return (
-    <ScrollViewMarker>
+    <ScrollViewMarker style={{ flex: 1 }}>
       <ScrollView
         {...props}
         automaticallyAdjustContentInsets={false}
@@ -47,6 +48,11 @@ function PullRequestScrollView(props: ScrollViewProps) {
       />
     </ScrollViewMarker>
   )
+}
+
+/** FlatList calls this as a plain function, so the hooks live in the component it returns. */
+function renderPullRequestScrollView(props: ScrollViewProps) {
+  return <PullRequestScrollView {...props} />
 }
 
 /** Why one host's rows are missing or old, and what the person can do. */
@@ -143,7 +149,7 @@ export function PullRequestsScreen(props: {
   return (
     <FlatList
       className="flex-1 bg-screen"
-      renderScrollComponent={Platform.OS === 'ios' ? PullRequestScrollView : undefined}
+      renderScrollComponent={Platform.OS === 'ios' ? renderPullRequestScrollView : undefined}
       contentInsetAdjustmentBehavior="never"
       contentInset={Platform.OS === 'ios' ? { top: insets.top } : undefined}
       scrollIndicatorInsets={Platform.OS === 'ios' ? { top: insets.top } : undefined}

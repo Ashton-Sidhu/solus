@@ -150,6 +150,9 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
     // Who shared it is the host's to record; the principal behind it never goes on the wire.
     const { organizationSharedBy: _sharedBy, ...payload } = change
     void events.broadcast('share.changed', payload)
+    // Only a removed or regenerated link ends its guests, as on the host: a role change applies to them live,
+    // and the same rows sent again by a runner change nothing (host-sharing.md §4.2 step 6).
+    if (!change.guestsRevoked) return
     socket?.disconnectWhere(principal => principal.kind === 'guest' && principal.share.resource.kind === change.resource.kind && principal.share.resource.id === change.resource.id, 'Share access changed')
   })
   let liveClosed = false

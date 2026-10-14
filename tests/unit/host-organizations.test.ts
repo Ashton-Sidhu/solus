@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test'
-import type { HostOrganizationsResponse, UplinkLinkConfig } from '@solus/contracts/uplink'
+import type { HostOrganizationsResponse, HostRegistration } from '@solus/contracts/uplink'
 import { DEFAULT_ORGANIZATION_POLICY } from '@solus/contracts/uplink'
 import { HostCredentialError } from '@solus/server/host/host-credential'
 
@@ -23,7 +23,7 @@ afterEach(() => {
   hostCategory.resetHostCategoryForTests()
 })
 
-const LINK: UplinkLinkConfig = { hostId: 'H', issuer: 'https://cloud.invalid', jwksUrl: 'https://cloud.invalid/jwks', directoryUrl: 'https://cloud.invalid', hostname: 'h-H.lab.invalid', proxiedPort: 1, connectionGeneration: 1 }
+const LINK: HostRegistration = { hostId: 'H', issuer: 'https://cloud.invalid', jwksUrl: 'https://cloud.invalid/jwks', directoryUrl: 'https://cloud.invalid', generation: 1 }
 
 const STANDING: HostOrganizationsResponse = {
   hostId: 'H',
@@ -43,7 +43,7 @@ function registry(answers: Answer[], linked = true, key: { refused: boolean } = 
   const timers: number[] = []
   const changes: Array<HostStanding | null> = []
   const instance = new organizations.HostOrganizations({
-    link: () => (linked ? LINK : null),
+    registration: () => (linked ? LINK : null),
     credential: () => ({
       hostAccessToken: async () => {
         if (key.refused) throw new HostCredentialError('refused', 'invalid_client')
@@ -154,7 +154,7 @@ describe('the host\'s standing', () => {
     const linked = registry([{ status: 200, body: STANDING }, { status: 200, body: STANDING }])
     await linked.instance.refresh()
     expect(linked.instance.organizations()).toHaveLength(2)
-    linked.instance.linkChanged()
+    linked.instance.registrationChanged()
     expect(linked.changes.map((standing) => standing?.hostId ?? null)).toEqual(['H', null])
     // The refresh the change started lands afterwards.
     await new Promise((resolve) => setTimeout(resolve, 0))

@@ -27,7 +27,7 @@ import Icon from "@iconify/svelte";
   const ctx = $derived(session.ctxForEnvironment(env.cwd, env.checkout, sourceId));
 
   const status = $derived(repositorySetupStore.statusFor(serverId, cwd));
-  const canWriteGit = $derived(hosts.find(serverId)?.me.may("host.git.write") ?? true);
+  const canWriteGit = $derived(hosts.get(serverId)?.me.may("host.git.write") ?? true);
   const showInit = $derived(!!status && !status.isRepository);
   // Publishing normally belongs to the Git rows' pull-request row. This card is
   // only for the stage before those rows exist: a repository whose HEAD is

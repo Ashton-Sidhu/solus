@@ -50,6 +50,7 @@ export function snapshotPersistedTabs(session: WorkspaceContext): PersistedTab[]
           ? { ...restoredSession.terminalFailure }
           : null,
         contextUsage: restoredSession?.contextUsage ? { ...restoredSession.contextUsage } : null,
+        organizationId: restoredSession?.organizationId ?? null,
         // A rate limit belongs to the live server's RateLimitState. Do not
         // restore it after that server has restarted and lost the state.
         status: restoredSession?.status === 'rate_limited'

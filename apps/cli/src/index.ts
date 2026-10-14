@@ -221,10 +221,10 @@ async function connect(args: string[]): Promise<void> {
   }
   if (subcommand === 'unlink') {
     const dataDir = parseCommonOptions(args.slice(1)).dataDir
-    const link = await disconnectHost(dataDir)
-    console.log(link.linked
+    const uplink = await disconnectHost(dataDir)
+    console.log(uplink.link.linked
       ? describeConnection(await connectStatus(dataDir)).join('\n')
-      : 'Solus: not linked. New work on this server stays here again; organization records stay in their Solus API.')
+      : 'Solus: not linked. The internet no longer reaches this server; it stays registered to your account and its organizations. Remove it on the Devices page to end that.')
     return
   }
   if (subcommand === 'remove') {
@@ -232,7 +232,7 @@ async function connect(args: string[]): Promise<void> {
     if (!organizationId || organizationId.startsWith('-')) throw new Error('Usage: solus connect remove ORGANIZATION_ID')
     const dataDir = parseCommonOptions(args.slice(2)).dataDir
     const standing = await removeOrganization(dataDir, organizationId)
-    console.log(describeConnection({ link: (await connectStatus(dataDir)).link, standing }).join('\n'))
+    console.log(describeConnection({ uplink: (await connectStatus(dataDir)).uplink, standing }).join('\n'))
     return
   }
   if (subcommand && !subcommand.startsWith('-')) {

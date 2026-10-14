@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ACCESS_TOKEN_TTL_SECONDS, ACCOUNT_AUDIENCE, SOLUS_API_AUDIENCE, hostAudience } from '../uplink'
+import { ACCESS_TOKEN_TTL_SECONDS, ACCOUNT_AUDIENCE, SOLUS_API_AUDIENCE, hostAudience, hostReachAudience } from '../uplink'
 
 /**
  * The Solus clients of the account plane (docs/adr/0001-standard-authentication.md
@@ -25,17 +25,21 @@ export { ACCESS_TOKEN_TTL_SECONDS }
 /** What one access token is for (RFC 8707 `resource`). */
 export type TokenResource =
   | { kind: 'host'; hostId: string }
+  /** Another host, as a host reaches it for a person (docs/plans/host-reach.md §3). Only a host's delegation asks for it. */
+  | { kind: 'host-reach'; hostId: string }
   | { kind: 'api' }
   | { kind: 'account' }
 
 /** A resource that a client renderer may get a token for: a host or the Solus API, never the account plane. */
-export type ConnectionTokenResource = Exclude<TokenResource, { kind: 'account' }>
+export type ConnectionTokenResource = Exclude<TokenResource, { kind: 'account' } | { kind: 'host-reach' }>
 
 /** The `resource` value that asks for a token for `resource`. */
 export function tokenResourceUri(resource: TokenResource): string {
   switch (resource.kind) {
     case 'host':
       return hostAudience(resource.hostId)
+    case 'host-reach':
+      return hostReachAudience(resource.hostId)
     case 'api':
       return SOLUS_API_AUDIENCE
     case 'account':

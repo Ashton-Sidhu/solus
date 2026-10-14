@@ -1,6 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/features/files/ThreadFilesRouteScreen.tsx (MIT, see UPSTREAM.md).
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'react'
 import { ActivityIndicator, Pressable, View } from 'react-native'
+import { mediaTypeFor } from '@solus/contracts/media-types'
 import type { FilePreviewResult } from '@solus/contracts/types'
 import { useApp, useListened } from '../../app/app-context'
 import { AudioFilePreview } from '../../components/AudioFilePreview'
@@ -8,6 +9,8 @@ import { SymbolView } from '../../components/AppSymbol'
 import { AppText as Text } from '../../components/AppText'
 import { ControlPillMenu } from '../../components/ControlPill'
 import { EmptyState } from '../../components/EmptyState'
+import { FilePreview, type ResolvedFilePreviewSource } from '../../components/FilePreview'
+import type { MediaActionsSource } from '../../components/FilePreview.types'
 import { MediaVideoPlayer } from '../../components/MediaVideoPlayer'
 import { copyTextWithHaptic } from '../../lib/copyTextWithHaptic'
 import type { ScreenProps } from '../../navigation/routes'
@@ -46,8 +49,9 @@ function FilePreviewNotice(props: { readonly title?: string; readonly children: 
 
 /**
  * An image, video, audio file, or document from the host, through a URL the
- * host signs. A document (PDF, SVG) opens in the browser. When the host does
- * not serve the file, `fallback` shows instead.
+ * host signs. A document (PDF, SVG) opens in the platform viewer (Quick Look
+ * on iOS, another app on Android). When the host does not serve the file,
+ * `fallback` shows instead.
  */
 function HostFileMedia(props: {
   readonly hostId: string
@@ -61,17 +65,29 @@ function HostFileMedia(props: {
   const ctx = useMemo(() => projectContext(props.projectPath, app.account.organizationId), [app, props.projectPath])
   const { state, refresh } = useHostMediaUrl(connection, { path: props.path, ctx })
   const [audioAttempt, setAudioAttempt] = useState(0)
+  const [document, setDocument] = useState<ResolvedFilePreviewSource | null>(null)
   const name = props.path.slice(props.path.lastIndexOf('/') + 1)
+  const mimeType = mediaTypeFor(props.path)?.mime ?? 'application/octet-stream'
+  const actionsSource = useMemo<MediaActionsSource>(() => ({
+    reference: {
+      kind: 'file',
+      path: props.path,
+      relativePath: props.path.startsWith('/') || props.path.startsWith('~') ? undefined : props.path,
+    },
+    name,
+    mimeType,
+    resolveUri: refresh,
+  }), [mimeType, name, props.path, refresh])
 
   if (state.kind === 'failed') return props.fallback
   const uri = state.kind === 'ready' ? state.url : null
   switch (props.view) {
     case 'image':
-      return <WorkspaceFileImagePreview accessibilityLabel={name} uri={uri} caption={props.path} />
+      return <WorkspaceFileImagePreview accessibilityLabel={name} uri={uri} actionsSource={actionsSource} />
     case 'video':
       return (
         <View className="flex-1 items-center justify-center bg-sheet p-4">
-          <MediaVideoPlayer uri={uri} resolvePlaybackUri={refresh} name={name} thumbnailKey={`host-file:${props.hostId}:${props.path}`} />
+          <MediaVideoPlayer uri={uri} resolvePlaybackUri={refresh} name={name} thumbnailKey={`host-file:${props.hostId}:${props.path}`} actionsSource={actionsSource} />
         </View>
       )
     case 'audio':
@@ -89,9 +105,10 @@ function HostFileMedia(props: {
         <View className="flex-1 items-center justify-center bg-sheet px-6">
           <EmptyState
             title={name}
-            detail="This file opens in the browser."
-            {...(uri ? { actionLabel: 'Open', onAction: () => void app.platform.openBrowser(uri) } : {})}
+            detail="This file opens in the viewer."
+            {...(uri ? { actionLabel: 'Open', onAction: () => setDocument({ kind: mimeType === 'application/pdf' ? 'pdf' : 'document', uri, name, mimeType, actionsSource }) } : {})}
           />
+          {document ? <FilePreview source={document} onRequestClose={() => setDocument(null)} /> : null}
         </View>
       )
   }

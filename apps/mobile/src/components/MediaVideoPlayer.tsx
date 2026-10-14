@@ -1,13 +1,15 @@
 // Adapted from T3 Code apps/mobile/src/components/MediaVideoPlayer.tsx (MIT, see UPSTREAM.md).
-// No media actions menu: T3's share and file-viewer actions are not ported.
 import { useIsFocused } from "@react-navigation/native";
 import { useEvent } from "expo";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { ActivityIndicator, AppState, Pressable, View } from "react-native";
 
+import { useMediaActions } from "../lib/mediaActions";
 import { AppText } from "./AppText";
 import { SymbolView } from "./AppSymbol";
+import type { MediaActionsSource } from "./FilePreview.types";
+import { MediaActionsMenu } from "./MediaActionsMenu";
 import { VideoThumbnailImage } from "./VideoThumbnailImage";
 
 /** Loads only after Play or opening the viewer. Source replacement never starts playback itself. */
@@ -112,9 +114,11 @@ interface MediaVideoPlayerProps {
   readonly expanded?: boolean;
   readonly autoPlay?: boolean;
   readonly paused?: boolean;
+  readonly actionsSource?: MediaActionsSource;
 }
 
 function MediaVideoPlayerContent(props: MediaVideoPlayerProps) {
+  const mediaActions = useMediaActions(props.actionsSource);
   const [playbackUri, setPlaybackUri] = useState<string | null>(props.expanded ? props.uri : null);
   // Keep an opened player mounted while signing or reconnecting temporarily has no usable URL.
   if (playbackUri === null && props.expanded && props.uri !== null) setPlaybackUri(props.uri);
@@ -130,43 +134,49 @@ function MediaVideoPlayerContent(props: MediaVideoPlayerProps) {
           uri={props.uri ?? playbackUri}
           resolvePlaybackUri={props.resolvePlaybackUri}
           playRequested={!props.expanded || props.autoPlay === true}
-          paused={props.paused ?? false}
+          paused={(props.paused ?? false) || mediaActions.sharing}
         />
       ) : (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Play ${props.name}`}
-          accessibilityState={{ disabled: props.uri === null || props.unavailable === true }}
-          onPress={() => {
-            if (props.uri !== null && !props.unavailable) setPlaybackUri(props.uri);
-          }}
-          className="flex-1 items-center justify-center px-4"
-        >
-          {!props.unavailable ? (
-            <VideoThumbnailImage
-              cacheKey={props.thumbnailKey}
-              source={props.thumbnailVisible === false ? null : props.uri}
-              contentFit="contain"
-            />
-          ) : null}
-          {props.unavailable ? (
-            <AppText className="text-sm text-white/80">Video unavailable</AppText>
-          ) : props.uri === null ? (
-            <ActivityIndicator color="#ffffff" accessibilityLabel="Loading video" />
-          ) : (
-            <View className="size-12 items-center justify-center rounded-full bg-black/60">
-              <SymbolView name="play" size={28} tintColor="#ffffff" type="monochrome" />
-            </View>
-          )}
-          {props.uri !== null && !props.unavailable ? (
-            <AppText
-              className="absolute right-2 bottom-2 max-w-[75%] rounded bg-black/60 px-2 py-1 text-right text-xs text-white"
-              numberOfLines={1}
-            >
-              {props.name}
-            </AppText>
-          ) : null}
-        </Pressable>
+        <MediaActionsMenu media={mediaActions} inModal={props.expanded} style={{ flex: 1 }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Play ${props.name}`}
+            accessibilityHint={
+              mediaActions.actions.length > 0 ? "Touch and hold for media actions" : undefined
+            }
+            accessibilityState={{ disabled: props.uri === null || props.unavailable === true }}
+            // Stays pressable so the long-press menu still opens on a failed or unsigned tile.
+            onPress={() => {
+              if (props.uri !== null && !props.unavailable) setPlaybackUri(props.uri);
+            }}
+            className="flex-1 items-center justify-center px-4"
+          >
+            {!props.unavailable ? (
+              <VideoThumbnailImage
+                cacheKey={props.thumbnailKey}
+                source={props.thumbnailVisible === false ? null : props.uri}
+                contentFit="contain"
+              />
+            ) : null}
+            {props.unavailable ? (
+              <AppText className="text-sm text-white/80">Video unavailable</AppText>
+            ) : props.uri === null ? (
+              <ActivityIndicator color="#ffffff" accessibilityLabel="Loading video" />
+            ) : (
+              <View className="size-12 items-center justify-center rounded-full bg-black/60">
+                <SymbolView name="play" size={28} tintColor="#ffffff" type="monochrome" />
+              </View>
+            )}
+            {props.uri !== null && !props.unavailable ? (
+              <AppText
+                className="absolute right-2 bottom-2 max-w-[75%] rounded bg-black/60 px-2 py-1 text-right text-xs text-white"
+                numberOfLines={1}
+              >
+                {props.name}
+              </AppText>
+            ) : null}
+          </Pressable>
+        </MediaActionsMenu>
       )}
     </View>
   );

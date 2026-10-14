@@ -149,3 +149,74 @@ index 1e1246f709feb04c01cf3221472cc1219a8fffac..f526d4fe2d2738becbe8d29c59d1105a
  }>;
  
  export interface SwipeableMethods {
+diff --git a/apple/RNGestureHandlerDetector.mm b/apple/RNGestureHandlerDetector.mm
+index af3d46f..e5c3925 100644
+--- a/apple/RNGestureHandlerDetector.mm
++++ b/apple/RNGestureHandlerDetector.mm
+@@ -42,24 +42,10 @@ - (instancetype)initWithFrame:(CGRect)frame
+   return self;
+ }
+ 
+-// TODO: I'm not sure whether this is the correct place for cleanup
+-// Possibly allowing recycling and doing this in prepareForRecycle would be better
+ - (void)willMoveToWindow:(RNGHWindow *)newWindow
+ {
+   if (newWindow == nil) {
+-    RNGestureHandlerManager *handlerManager = [RNGestureHandlerModule handlerManagerForModuleId:_moduleId];
+-    react_native_assert(handlerManager != nullptr && "Tried to access a non-existent handler manager");
+-
+-    [handlerManager.registry cancelAllObservationsForOwner:self];
+-
+-    for (NSNumber *handlerTag in _attachedHandlers) {
+-      [handlerManager.registry detachHandlerWithTag:handlerTag fromHostDetector:self];
+-    }
+-
+-    [_attachedHandlers removeAllObjects];
+-    _subscribedVirtualHandlers.clear();
+-    [_subscribedHandlers removeAllObjects];
+-    [_nativeHandlers removeAllObjects];
++    [self detachAllHandlers];
+   } else {
+     const auto &props = *std::static_pointer_cast<const RNGestureHandlerDetectorProps>(_props);
+     [self attachHandlers:props.handlerTags
+@@ -70,6 +56,32 @@ - (void)willMoveToWindow:(RNGHWindow *)newWindow
+   }
+ }
+ 
++// Backport of react-native-gesture-handler 3.3.0: detaching in `willMoveToWindow:` alone is
++// not enough. A detector unmounted while its ancestor is already off-window (e.g. an inactive
++// screen) never gets that call, and would enter the recycle pool still observing live handlers.
++- (void)detachAllHandlers
++{
++  if (_moduleId == -1) {
++    return;
++  }
++
++  RNGestureHandlerManager *handlerManager = [RNGestureHandlerModule handlerManagerForModuleId:_moduleId];
++  if (handlerManager == nil) {
++    return;
++  }
++
++  [handlerManager.registry cancelAllObservationsForOwner:self];
++
++  for (NSNumber *handlerTag in _attachedHandlers) {
++    [handlerManager.registry detachHandlerWithTag:handlerTag fromHostDetector:self];
++  }
++
++  [_attachedHandlers removeAllObjects];
++  _subscribedVirtualHandlers.clear();
++  [_subscribedHandlers removeAllObjects];
++  [_nativeHandlers removeAllObjects];
++}
++
+ - (void)setDefaultProps
+ {
+   static const auto defaultProps = std::make_shared<const RNGestureHandlerDetectorProps>();
+@@ -144,6 +156,7 @@ - (void)prepareForRecycle
+ {
+   [super prepareForRecycle];
+ 
++  [self detachAllHandlers];
+   [self setDefaultProps];
+ }
+ 

@@ -36,6 +36,5 @@ describe('remote prompt attachment paths', () => {
     expect(prompt).toContain('[Browser annotation: Browser annotation]')
     expect(prompt).toContain('/srv/solus/assets/capture.png')
     expect(prompt).toContain('src/Save.svelte:42')
-    expect(prompt).not.toContain('[Design Mode Selection:')
   })
 })

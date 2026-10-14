@@ -34,6 +34,7 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { PAGE_SOFT_ICON_BTN } from "../../lib/page-chrome";
   import { worktreeDisplayName } from "../../lib/git-context";
+  import type { ViewedFilesStatus } from "./lib/viewed-toggle";
 
   interface Props {
     isWorktree: boolean;
@@ -79,6 +80,9 @@
     commitSha?: string | null;
     /** Return to the full pull-request diff. */
     onClearCommitScope?: () => void;
+    /** "3 of 12 viewed" when the code host keeps the viewer's viewed marks,
+     *  or why the last change to them failed. */
+    viewedStatus?: ViewedFilesStatus | null;
   }
 
   let {
@@ -114,6 +118,7 @@
     hasHostHeaderRow = false,
     commitSha = null,
     onClearCommitScope,
+    viewedStatus = null,
   }: Props = $props();
 
   const showTurns = $derived(mode === "session" && turns.length > 0);
@@ -219,6 +224,15 @@
           >−{headerStats.deletions}</span
         >
       </div>
+    {/if}
+    {#if viewedStatus}
+      <span
+        class="min-w-0 truncate text-xs tabular-nums {viewedStatus.error ? 'text-destructive' : 'text-(--solus-text-tertiary)'}"
+        title={viewedStatus.error ?? undefined}
+        role={viewedStatus.error ? "alert" : undefined}
+      >
+        {viewedStatus.text}
+      </span>
     {/if}
   </div>
 

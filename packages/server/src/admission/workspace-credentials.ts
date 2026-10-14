@@ -20,7 +20,7 @@ const apiClaimsSchema = z.strictObject({
   expiresAt: z.number().int(),
   principal: principalSchema,
   home: workspaceRecordHomeSchema,
-  scopes: z.array(solusApiScopeSchema).min(1).max(7),
+  scopes: z.array(solusApiScopeSchema).min(1).max(solusApiScopeSchema.options.length),
   delegation: delegationSchema.optional(),
 })
 export type WorkspaceRequestContext = Pick<z.infer<typeof apiClaimsSchema>, 'principal' | 'home' | 'scopes' | 'delegation'> & {
@@ -35,9 +35,10 @@ export interface WorkspaceCredentialOptions {
   now?: () => number
   /**
    * A host's delegated token also names the host acting for the person; its credential then speaks for that host's agent work.
-   * `organizationId` is the organization the request names: a token that lists organizations admits only one it lists.
+   * `request.organizationId` is the organization the request names: a token that lists organizations admits only one it lists.
+   * An empty bearer is a link guest: `request.shareSecret` is then the whole credential (docs/plans/host-sharing.md §9.8).
    */
-  authenticateSource(bearer: string, shareSecret?: string, organizationId?: string): Promise<{ principal: Principal; expiresAt: number; delegation?: WorkspaceDelegation } | null>
+  authenticateSource(bearer: string, request: WorkspaceAuthSessionRequest): Promise<{ principal: Principal; expiresAt: number; delegation?: WorkspaceDelegation } | null>
   isRevoked(principal: Principal): Promise<boolean>
   homeFor(principal: Principal): WorkspaceRecordHome | null
 }
@@ -52,8 +53,9 @@ export class WorkspaceCredentials {
   }
 
   async exchange(bearer: string, request: WorkspaceAuthSessionRequest): Promise<WorkspaceAuthSession | null> {
-    if (!bearer || bearer.length > 16_384) return null
-    const source = await this.options.authenticateSource(bearer, request.shareSecret, request.organizationId)
+    // No bearer: a link guest, whose share secret is the whole credential.
+    if ((!bearer && !request.shareSecret) || bearer.length > 16_384) return null
+    const source = await this.options.authenticateSource(bearer, request)
     if (!source || source.principal.kind === 'system' || source.principal.kind === 'runner') return null
     if (await this.options.isRevoked(source.principal)) return null
     const home = this.options.homeFor(source.principal)

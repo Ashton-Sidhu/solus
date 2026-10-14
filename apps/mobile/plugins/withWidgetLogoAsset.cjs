@@ -4,7 +4,7 @@
 // Ships the Solus mark to the Live Activity extension.
 //
 // expo-widgets generates ExpoWidgetsTarget without a Resources build phase and
-// has no asset support, so this plugin (a) writes an SVG template image set into
+// has no asset support, so this plugin (a) writes the full-colour SVG image set into
 // the generated widget asset catalog and (b) wires that catalog into the widget
 // target with an actool build phase.
 //
@@ -34,7 +34,7 @@ const IMAGE_SET_CONTENTS =
       info: { author: "expo", version: 1 },
       properties: {
         "preserves-vector-representation": true,
-        "template-rendering-intent": "template",
+        "template-rendering-intent": "original",
       },
     },
     null,

@@ -200,7 +200,28 @@ describe('the acting session tools', () => {
 
   test('start_session without a task choice is refused', async () => {
     calls.length = 0
-    expect((await sessionTools.executeSessionTool('start_session', start, deps())).ok).toBe(false)
+    const result = await sessionTools.executeSessionTool('start_session', start, deps())
+    expect(result.ok).toBe(false)
+    expect(result.text).toContain('task')
+    expect(result.text).toContain('attempt')
+    expect(result.text).toContain('none')
+    expect(calls).toEqual([])
+  })
+
+  test('a contradictory task choice is refused before a session starts', async () => {
+    calls.length = 0
+    const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'none', task_id: 'task-7' }, deps())
+    expect(result.ok).toBe(false)
+    expect(result.text).toContain("Omit task_id with task='none'")
+    expect(calls).toEqual([])
+  })
+
+  test('invalid start fields identify the value to correct without starting work', async () => {
+    calls.length = 0
+    const result = await sessionTools.executeSessionTool('start_session', { ...start, task: 'none', wait_seconds: 601 }, deps())
+    expect(result.ok).toBe(false)
+    expect(result.text).toContain('wait_seconds')
+    expect(result.text).toContain('600')
     expect(calls).toEqual([])
   })
 
@@ -295,7 +316,8 @@ test('saved exchange reads expose a result without consuming its queued report',
 test('coordination guidance is loaded with the start tool', () => {
   expect(sessionTools.startSessionAgentTool.alwaysLoad).toBe(true)
   expect(sessionTools.startSessionAgentTool.description).toContain('wait_seconds=0')
-  expect(sessionTools.startSessionAgentTool.description).toContain('native subagent')
+  expect(sessionTools.startSessionAgentTool.description).toContain('built-in subagent')
+  expect(sessionTools.startSessionAgentTool.description).toContain("Use task='none' outside task mode")
 })
 
 // WHY: a session's id is chosen before its provider starts, so a receipt

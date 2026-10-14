@@ -266,7 +266,7 @@
   {@const revision = revisions?.find((entry) => entry.messageId === item.message.id)}
   {#if revisions && revision}
     <ConversationArtifact {revisions} {revision} />
-  {:else if revisions && (artifact.pending || artifact.streaming)}
+  {:else if revisions && artifact.streaming}
     <ConversationArtifact {revisions} update={artifact} />
   {:else}
   <ArtifactView

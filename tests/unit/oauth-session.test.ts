@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { OAuthSession, type BrowserAuthorizer, type StoredGrant, type TokenStore } from '@solus/client-core/oauth-session'
+import { isLastingRefusal, OAuthSession, type BrowserAuthorizer, type StoredGrant, type TokenStore } from '@solus/client-core/oauth-session'
 import { ACCOUNT_AUDIENCE, hostAudience } from '@solus/contracts/uplink'
 import { fakeAccountPlane, ISSUER } from './helpers/fake-account-plane'
 
@@ -158,6 +158,29 @@ describe('OAuthSession access tokens', () => {
     expect(await w.session.accessToken(HOST)).toBeNull()
     expect(w.session.state().kind).toBe('signed-in')
     expect(await w.session.accessToken({ kind: 'account' })).toBeTruthy()
+  })
+
+  test('a refusal is kept with its reason and Solus rule until that resource gets a token', async () => {
+    // WHY: a transport that only saw "no token" dialed anyway and logged `unauthorized`, so the reason was lost.
+    const w = world()
+    await w.session.signIn()
+    w.plane.refuse(hostAudience('host-1'), { error: 'access_denied', error_description: 'The person is not a member of an organization.', solus_refusal: 'not_a_member' })
+    expect(await w.session.accessToken(HOST)).toBeNull()
+    expect(w.session.refusal(HOST)).toEqual({ status: 400, code: 'access_denied', description: 'The person is not a member of an organization.', rule: 'not_a_member' })
+    expect(w.session.refusal({ kind: 'account' })).toBeNull()
+    w.plane.allow(hostAudience('host-1'))
+    expect(await w.session.accessToken(HOST)).toBeTruthy()
+    expect(w.session.refusal(HOST)).toBeNull()
+  })
+
+  test('a refusal lasts unless the host may be starting or the account plane itself failed', () => {
+    const refusal = (status: number, code: string, rule: string | null = null) => ({ status, code, description: null, rule })
+    expect(isLastingRefusal(refusal(400, 'invalid_target'))).toBe(true)
+    expect(isLastingRefusal(refusal(400, 'access_denied', 'personal_hosts_not_allowed'))).toBe(true)
+    expect(isLastingRefusal(refusal(400, 'invalid_target', 'host_not_linked'))).toBe(false)
+    expect(isLastingRefusal(refusal(429, 'rate_limited'))).toBe(false)
+    expect(isLastingRefusal(refusal(503, 'http_503'))).toBe(false)
+    expect(isLastingRefusal(refusal(400, 'invalid_request'))).toBe(false)
   })
 
   test('invalid_grant ends the sign-in: the store is cleared and the state says revoked', async () => {

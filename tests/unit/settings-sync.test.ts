@@ -31,9 +31,11 @@ import {
   type DocumentSyncStorage,
 } from '@solus/client-core/document-sync'
 
-// Personal settings sync (plans/018 §5): opt-in per client and account, a durable
-// pending patch merged three ways against a compare-and-swap revision, and a
-// generation that a clear advances so an old client cannot restore what was cleared.
+// Personal settings sync (plans/018 §5, decision 9): signed in is synced. A sign-in
+// reads the account and adopts its copy, or seeds it from this device; a durable
+// pending patch is merged three ways against a compare-and-swap revision; and a
+// generation that a clear advances makes every old client start again, so none
+// can restore what was cleared.
 
 // ─── Fakes ───
 
@@ -218,14 +220,15 @@ function client(cloud: FakeCloud, userId: string, shared: { clock: FakeClock; st
   const storage = shared.storage ?? memoryStorage()
   const environment = shared.environment ?? new FakeEnvironment()
   const transport = switchableRequests(webSettingsRequests(cloud.origin, ACCOUNT_SIGN_IN, cloud.fetchFor(userId)))
+  const profile: PersonalSettingsDocument = {}
   const engine = new SettingsSync({
     requests: transport.requests,
     storage,
     environment,
     clock: { now: shared.clock.now, setTimer: shared.clock.setTimer },
     broadcast: shared.hub?.port(),
+    localCopy: () => structuredClone(profile),
   })
-  const profile: PersonalSettingsDocument = {}
   const applied: PersonalSettingsChange[] = []
   const statuses: SettingsSyncStatus[] = []
   engine.subscribe((status) => statuses.push(status))
@@ -249,16 +252,11 @@ function client(cloud: FakeCloud, userId: string, shared: { clock: FakeClock; st
       Object.assign(profile, set)
       return engine.recordLocalChange({ set })
     },
-    /** Turns sync on, seeding from `seed` (the local profile) when the cloud has no document. */
-    async turnOn(seed: PersonalSettingsDocument = {}) {
-      const prepared = await engine.prepareEnable()
-      if (prepared.kind !== 'offer') throw new Error(`no offer: ${prepared.kind}`)
-      if (prepared.offer.kind === 'absent') Object.assign(profile, seed)
-      const outcome = prepared.offer.kind === 'absent'
-        ? await engine.enable({ kind: 'seed', document: seed })
-        : await engine.enable({ kind: 'use-synced' })
-      await engine.idle()
-      return outcome
+    /** Signs in with `local` as this device's copy, and waits for the start: the account's copy taken, or this one sent. */
+    async start(local: PersonalSettingsDocument = {}) {
+      Object.assign(profile, local)
+      engine.setAccount(account)
+      await settle(engine)
     },
   }
 }
@@ -273,10 +271,10 @@ async function settle(...engines: SettingsSync[]): Promise<void> {
 const ORIGIN_A = 'https://app.solus.sh'
 const ORIGIN_B = 'https://staging.solus.sh'
 
-// ─── Consent ───
+// ─── Signed in is synced ───
 
-describe('settings sync consent', () => {
-  test('a signed-out client and a signed-in client with sync off send nothing', async () => {
+describe('signed in is synced', () => {
+  test('signed out, nothing is sent; signing in reads the account and writes this device’s copy once', async () => {
     const cloud = new FakeCloud(ORIGIN_A)
     const clock = new FakeClock()
     const device = client(cloud, 'ada', { clock })
@@ -284,21 +282,81 @@ describe('settings sync consent', () => {
     expect(device.engine.current.state).toBe('signed-out')
     expect(device.edit({ themeMode: 'dark' })).toBe('ignored')
     await device.engine.refresh()
-
-    // Signing in alone is not consent.
-    device.signIn()
-    expect(device.engine.current.state).toBe('off')
-    expect(device.edit({ showToolCalls: false })).toBe('ignored')
-    device.environment.signal('background')
-    device.environment.signal('foreground')
-    device.environment.signal('offline')
-    device.environment.signal('online')
-    await device.engine.refresh()
-    clock.advance(DOCUMENT_SYNC_POLL_MS * 3)
-    await settle(device.engine)
-
     expect(cloud.log).toEqual([])
-    expect(clock.pending).toBe(0)
+
+    await device.start()
+    expect(cloud.log.map((entry) => entry.method)).toEqual(['GET', 'PATCH'])
+    expect(cloud.document('ada').settings).toEqual({ themeMode: 'dark' })
+    expect(device.engine.current.state).toBe('synced')
+    // The confirmed seed is applied whole: on the desktop the profile's seed is this computer's, not the local copy's.
+    expect(device.applied).toEqual([{ set: { themeMode: 'dark' }, reset: [] }])
+  })
+
+  test('with a copy in the account, this device takes it, key by key, and sends nothing', async () => {
+    const cloud = new FakeCloud(ORIGIN_A)
+    const clock = new FakeClock()
+    Object.assign(cloud.document('ada'), { revision: 3, settings: { themeMode: 'dark', showToolCalls: false } })
+    const device = client(cloud, 'ada', { clock })
+    // An edit made before sign-in: the account wins, so it goes.
+    await device.start({ themeMode: 'light', fontSize: 12 })
+
+    expect(cloud.writes()).toBe(0)
+    expect(device.profile).toEqual({ themeMode: 'dark', showToolCalls: false })
+    expect(device.applied).toEqual([{ set: { themeMode: 'dark', showToolCalls: false }, reset: ['fontSize'] }])
+    expect(device.engine.current.state).toBe('synced')
+  })
+
+  test('an empty account and an empty device write nothing; the first edit creates the document', async () => {
+    const cloud = new FakeCloud(ORIGIN_A)
+    const clock = new FakeClock()
+    const device = client(cloud, 'ada', { clock })
+    await device.start()
+    expect(cloud.writes()).toBe(0)
+    expect(device.engine.current.state).toBe('synced')
+
+    device.edit({ fontSize: 13 })
+    clock.advance(DOCUMENT_SYNC_DEBOUNCE_MS)
+    await settle(device.engine)
+    expect(cloud.document('ada')).toMatchObject({ revision: 1, settings: { fontSize: 13 } })
+  })
+
+  test('two devices signing in at once: one writes the first copy, the other takes it instead of overwriting', async () => {
+    const cloud = new FakeCloud(ORIGIN_A)
+    const clock = new FakeClock()
+    const first = client(cloud, 'ada', { clock })
+    const second = client(cloud, 'ada', { clock })
+    Object.assign(first.profile, { themeMode: 'dark' })
+    Object.assign(second.profile, { themeMode: 'light' })
+    cloud.hold()
+    first.signIn()
+    second.signIn()
+    await Promise.resolve()
+    expect(first.engine.current.state).toBe('loading')
+    cloud.release()
+    await settle(first.engine, second.engine)
+
+    // One seed went through; the other was refused and took it.
+    expect(cloud.document('ada').revision).toBe(1)
+    expect(first.profile).toEqual(cloud.document('ada').settings)
+    expect(second.profile).toEqual(cloud.document('ada').settings)
+    expect(first.engine.current.state).toBe('synced')
+    expect(second.engine.current.state).toBe('synced')
+  })
+
+  test('a start that fails offline shows offline, sends nothing, and starts when back online', async () => {
+    const cloud = new FakeCloud(ORIGIN_A)
+    const clock = new FakeClock()
+    const device = client(cloud, 'ada', { clock })
+    device.environment.online = false
+    await device.start({ themeMode: 'dark' })
+    expect(device.engine.current.state).toBe('offline')
+    expect(cloud.log).toEqual([])
+    expect(device.edit({ fontSize: 11 })).toBe('ignored')
+
+    device.environment.signal('online')
+    await settle(device.engine)
+    expect(cloud.document('ada').settings).toEqual({ themeMode: 'dark', fontSize: 11 })
+    expect(device.engine.current.state).toBe('synced')
   })
 })
 
@@ -319,11 +377,11 @@ describe('settings sync isolation', () => {
       device.transport.use(webSettingsRequests(ORIGIN_B, ACCOUNT_SIGN_IN, cloudB.fetchFor('bob')))
       device.engine.setAccount({ origin: ORIGIN_B, userId: 'bob' })
     }
-    // Both accounts have sync on, at the same generation and revision.
-    device.signIn()
-    await device.turnOn({ themeMode: 'system' })
+    // Both accounts are synced, at the same generation and revision.
+    await device.start({ themeMode: 'system' })
     asAda()
-    await device.turnOn({ themeMode: 'system' })
+    await settle(device.engine)
+    expect(cloudA.document('ada').settings).toEqual({ themeMode: 'system' })
 
     // Another device of A changes the theme; this device has an unsent edit for A.
     Object.assign(cloudA.document('ada'), { revision: 2, settings: { themeMode: 'dark' } })
@@ -331,25 +389,21 @@ describe('settings sync isolation', () => {
     device.edit({ extraInstructions: 'A only' })
     device.environment.online = true
 
-    // A's refresh and an enable offer are in flight when the person switches to B.
+    // A's refresh is in flight when the person switches to B.
     cloudA.hold()
     const lateRefresh = device.engine.refresh()
-    const lateOffer = device.engine.prepareEnable()
     await Promise.resolve()
     device.applied.length = 0
     asBob()
     expect(device.engine.current.account).toEqual({ origin: ORIGIN_B, userId: 'bob' })
     cloudA.release()
     await lateRefresh
-    expect(await lateOffer).toEqual({ kind: 'cancelled' })
     clock.advance(DOCUMENT_SYNC_DEBOUNCE_MS * 2)
     await settle(device.engine)
 
-    // Nothing of A's reached B: no applied change, no conflict, no stop.
-    expect(device.applied).toEqual([])
-    expect(device.engine.current).toMatchObject({ state: 'synced', pendingKeys: [], conflicts: [], stoppedReason: null })
-    // The late offer cannot be used for B.
-    expect(await device.engine.enable({ kind: 'use-synced' })).toEqual({ kind: 'invalid' })
+    // Nothing of A's reached B: B's own kept copy is applied, A's theme and A's edit never are; no conflict.
+    expect(device.applied).toEqual([{ set: { themeMode: 'system' }, reset: [] }])
+    expect(device.engine.current).toMatchObject({ state: 'synced', pendingKeys: [], conflicts: [] })
     // A's queue never travelled to B's account.
     expect(cloudB.document('bob').settings).toEqual({ themeMode: 'system' })
     expect(cloudB.writes('bob')).toBe(1)
@@ -365,62 +419,13 @@ describe('settings sync isolation', () => {
 // ─── Sync ───
 
 describe('settings sync', () => {
-  test('first enable reads the cloud first and never silently overwrites a document someone else created', async () => {
-    const cloud = new FakeCloud(ORIGIN_A)
-    const clock = new FakeClock()
-    const first = client(cloud, 'ada', { clock })
-    const second = client(cloud, 'ada', { clock })
-    first.signIn()
-    second.signIn()
-
-    const firstOffer = await first.engine.prepareEnable()
-    const secondOffer = await second.engine.prepareEnable()
-    expect(firstOffer).toEqual({ kind: 'offer', offer: { kind: 'absent', generation: 0 } })
-    expect(secondOffer).toEqual(firstOffer)
-    expect(cloud.writes()).toBe(0)
-
-    expect(await first.engine.enable({ kind: 'seed', document: { themeMode: 'dark' } })).toEqual({ kind: 'enabled' })
-    // The second seed races the first and loses: it is shown the document instead.
-    const raced = await second.engine.enable({ kind: 'seed', document: { themeMode: 'light' } })
-    expect(raced).toEqual({ kind: 'changed', offer: { kind: 'present', generation: 0, revision: 1, document: { themeMode: 'dark' }, updatedAt: expect.any(Number) } })
-    expect(cloud.document('ada').settings).toEqual({ themeMode: 'dark' })
-    expect(second.engine.current.state).toBe('off')
-
-    // "Use synced settings" applies the cloud document to the local profile.
-    expect(await second.engine.enable({ kind: 'use-synced' })).toEqual({ kind: 'enabled' })
-    await settle(second.engine)
-    expect(second.profile.themeMode).toBe('dark')
-    expect(second.engine.current.state).toBe('synced')
-  })
-
-  test('"Replace with this device" writes only over the revision it was offered', async () => {
-    const cloud = new FakeCloud(ORIGIN_A)
-    const clock = new FakeClock()
-    const device = client(cloud, 'ada', { clock })
-    Object.assign(cloud.document('ada'), { revision: 3, settings: { themeMode: 'dark', showToolCalls: false } })
-    device.signIn()
-    const prepared = await device.engine.prepareEnable()
-    expect(prepared.kind === 'offer' && prepared.offer.kind).toBe('present')
-
-    cloud.document('ada').revision = 4
-    const stale = await device.engine.enable({ kind: 'replace', document: { themeMode: 'light' } })
-    expect(stale.kind).toBe('changed')
-    expect(cloud.document('ada').settings).toEqual({ themeMode: 'dark', showToolCalls: false })
-
-    expect(await device.engine.enable({ kind: 'replace', document: { themeMode: 'light' } })).toEqual({ kind: 'enabled' })
-    // Replace means the cloud becomes this device: keys it does not hold return to default.
-    expect(cloud.document('ada').settings).toEqual({ themeMode: 'light' })
-  })
-
   test('two clients converge, and edits to different keys merge across a stale revision', async () => {
     const cloud = new FakeCloud(ORIGIN_A)
     const clock = new FakeClock()
     const laptop = client(cloud, 'ada', { clock })
     const phone = client(cloud, 'ada', { clock })
-    laptop.signIn()
-    phone.signIn()
-    await laptop.turnOn({ themeMode: 'dark', fontSize: 14 })
-    await phone.turnOn()
+    await laptop.start({ themeMode: 'dark', fontSize: 14 })
+    await phone.start()
     expect(phone.profile).toEqual({ themeMode: 'dark', fontSize: 14 })
 
     // Both edit from revision 1, different keys.
@@ -448,10 +453,8 @@ describe('settings sync', () => {
     const clock = new FakeClock()
     const laptop = client(cloud, 'ada', { clock })
     const phone = client(cloud, 'ada', { clock })
-    laptop.signIn()
-    phone.signIn()
-    await laptop.turnOn({ themeMode: 'system' })
-    await phone.turnOn()
+    await laptop.start({ themeMode: 'system' })
+    await phone.start()
 
     laptop.edit({ themeMode: 'dark' })
     clock.advance(DOCUMENT_SYNC_DEBOUNCE_MS)
@@ -483,8 +486,7 @@ describe('settings sync', () => {
     const cloud = new FakeCloud(ORIGIN_A)
     const clock = new FakeClock()
     const device = client(cloud, 'ada', { clock })
-    device.signIn()
-    await device.turnOn({ themeMode: 'system' })
+    await device.start({ themeMode: 'system' })
     Object.assign(cloud.document('ada'), { revision: 2, settings: { themeMode: 'dark' } })
     device.edit({ themeMode: 'light' })
     clock.advance(DOCUMENT_SYNC_DEBOUNCE_MS)
@@ -505,8 +507,7 @@ describe('settings sync', () => {
     const storage = memoryStorage()
     const environment = new FakeEnvironment()
     const before = client(cloud, 'ada', { clock, storage, environment })
-    before.signIn()
-    await before.turnOn({ themeMode: 'system' })
+    await before.start({ themeMode: 'system' })
     environment.signal('offline')
     before.edit({ extraInstructions: 'Be brief.' })
     clock.advance(DOCUMENT_SYNC_DEBOUNCE_MS)
@@ -528,8 +529,7 @@ describe('settings sync', () => {
     const cloud = new FakeCloud(ORIGIN_A)
     const clock = new FakeClock()
     const device = client(cloud, 'ada', { clock })
-    device.signIn()
-    await device.turnOn({ themeMode: 'system' })
+    await device.start({ themeMode: 'system' })
     const confirmedAt = device.engine.current.lastSyncedAt
     expect(confirmedAt).not.toBeNull()
     clock.advance(10)
@@ -562,26 +562,26 @@ describe('settings sync', () => {
     const hub = new BroadcastHub()
     const tab = client(cloud, 'ada', { clock, storage, hub })
     const otherTab = client(cloud, 'ada', { clock, storage, hub })
-    tab.signIn()
-    otherTab.signIn()
-    await tab.turnOn({ themeMode: 'system' })
-    await settle(tab.engine, otherTab.engine)
+    await tab.start({ themeMode: 'system' })
+    // The other tab finds the record the first one wrote: no second start.
+    await otherTab.start()
     expect(otherTab.engine.current.state).toBe('synced')
+    expect(otherTab.profile.themeMode).toBe('system')
+    expect(cloud.writes()).toBe(1)
 
     Object.assign(cloud.document('ada'), { revision: 2, settings: { themeMode: 'dark' } })
     await tab.engine.refresh()
     await settle(tab.engine, otherTab.engine)
     expect(tab.profile.themeMode).toBe('dark')
     expect(otherTab.profile.themeMode).toBe('dark')
-    expect(cloud.log.filter((entry) => entry.method === 'GET').length).toBe(2) // the offer and one refresh
+    expect(cloud.log.filter((entry) => entry.method === 'GET').length).toBe(3) // the start, the other tab's read, one refresh
   })
 
   test('a revoked session stops sync until the same account signs in again', async () => {
     const cloud = new FakeCloud(ORIGIN_A)
     const clock = new FakeClock()
     const device = client(cloud, 'ada', { clock })
-    device.signIn()
-    await device.turnOn({ themeMode: 'system' })
+    await device.start({ themeMode: 'system' })
     device.edit({ fontSize: 15 })
     cloud.failNext = 401
     clock.advance(DOCUMENT_SYNC_DEBOUNCE_MS)
@@ -599,8 +599,7 @@ describe('settings sync', () => {
     const cloud = new FakeCloud(ORIGIN_A)
     const clock = new FakeClock()
     const device = client(cloud, 'ada', { clock })
-    device.signIn()
-    await device.turnOn({ themeMode: 'system' })
+    await device.start({ themeMode: 'system' })
     const reads = () => cloud.log.filter((entry) => entry.method === 'GET').length
     const start = reads()
     clock.advance(DOCUMENT_SYNC_POLL_MS)
@@ -616,42 +615,18 @@ describe('settings sync', () => {
   })
 })
 
-// ─── Off and clear ───
+// ─── Clear and sign-out ───
 
-describe('turning sync off and clearing synced settings', () => {
-  test('turning off on this device stops every transfer and leaves the cloud and local values alone', async () => {
-    const cloud = new FakeCloud(ORIGIN_A)
-    const clock = new FakeClock()
-    const device = client(cloud, 'ada', { clock })
-    device.signIn()
-    await device.turnOn({ themeMode: 'dark' })
-    device.edit({ fontSize: 20 })
-    const requests = cloud.log.length
-
-    device.engine.turnOff()
-    expect(device.engine.current.state).toBe('off')
-    expect(device.edit({ fontSize: 22 })).toBe('ignored')
-    clock.advance(DOCUMENT_SYNC_POLL_MS * 3)
-    device.environment.signal('foreground')
-    await device.engine.refresh()
-    await settle(device.engine)
-
-    expect(cloud.log.length).toBe(requests)
-    expect(cloud.document('ada').settings).toEqual({ themeMode: 'dark' })
-    expect(device.profile).toEqual({ themeMode: 'dark', fontSize: 22 })
-    expect(device.applied).toEqual([])
-  })
-
-  test('a clear advances the generation; a stale client turns off, cannot restore the old settings, and must be turned on again', async () => {
+describe('clearing synced settings', () => {
+  test('a clear advances the generation and starts again from this device; a stale client starts again on the new copy and cannot restore the old settings', async () => {
     const cloud = new FakeCloud(ORIGIN_A)
     const clock = new FakeClock()
     const laptop = client(cloud, 'ada', { clock })
     const phone = client(cloud, 'ada', { clock })
     const tablet = client(cloud, 'ada', { clock })
-    for (const device of [laptop, phone, tablet]) device.signIn()
-    await laptop.turnOn({ themeMode: 'dark' })
-    await phone.turnOn()
-    await tablet.turnOn()
+    await laptop.start({ themeMode: 'dark' })
+    await phone.start()
+    await tablet.start()
 
     // The phone is offline with an unsent edit; the tablet edits but has not sent yet.
     phone.environment.signal('offline')
@@ -665,45 +640,49 @@ describe('turning sync off and clearing synced settings', () => {
     expect(await laptop.engine.clearCloud({ discardUnsent: true })).toEqual({ kind: 'offline' })
     laptop.environment.online = true
     expect(await laptop.engine.clearCloud({ discardUnsent: true })).toEqual({ kind: 'cleared', generation: 1 })
-    expect(laptop.engine.current.state).toBe('off')
-    expect(laptop.profile.themeMode).toBe('dark')
-    expect(cloud.document('ada')).toMatchObject({ generation: 1, revision: null, settings: {} })
+    // The clearing device starts the document again from its own copy, as it is now.
+    expect(laptop.engine.current.state).toBe('synced')
+    expect(cloud.document('ada')).toMatchObject({ generation: 1, revision: 1, settings: { themeMode: 'dark', showToolCalls: false } })
 
-    // The tablet's patch carries the old generation and is refused.
+    // The tablet's patch carries the old generation and is refused: it takes the new copy, and its edit goes.
     clock.advance(DOCUMENT_SYNC_DEBOUNCE_MS)
     await settle(tablet.engine, laptop.engine)
-    expect(tablet.engine.current.state).toBe('off')
-    expect(tablet.engine.current.stoppedReason).toBe('generation-changed')
+    expect(tablet.engine.current).toMatchObject({ state: 'synced', pendingKeys: [], conflicts: [] })
+    expect(tablet.profile).toEqual({ themeMode: 'dark', showToolCalls: false })
 
-    // The phone reconnects: it reads the new generation and drops its old edit.
+    // The phone reconnects: it reads the new generation, drops its old edit, and takes the new copy.
     phone.environment.signal('online')
     await settle(phone.engine)
-    expect(phone.engine.current.state).toBe('off')
-    expect(phone.engine.current.stoppedReason).toBe('generation-changed')
-    expect(phone.engine.current.pendingKeys).toEqual([])
-    expect(cloud.document('ada')).toMatchObject({ generation: 1, revision: null, settings: {} })
+    expect(phone.engine.current).toMatchObject({ state: 'synced', pendingKeys: [] })
+    expect(phone.profile).toEqual({ themeMode: 'dark', showToolCalls: false })
+    expect(cloud.document('ada')).toMatchObject({ generation: 1, revision: 1 })
 
-    // Nothing resumes on its own.
-    expect(phone.edit({ fontSize: 12 })).toBe('ignored')
-    clock.advance(DOCUMENT_SYNC_POLL_MS * 2)
-    await phone.engine.refresh()
-    await settle(phone.engine, tablet.engine)
-    expect(cloud.document('ada').revision).toBeNull()
-
-    // Turning on again starts from the new generation.
-    const prepared = await phone.engine.prepareEnable()
-    expect(prepared).toEqual({ kind: 'offer', offer: { kind: 'absent', generation: 1 } })
-    expect(await phone.engine.enable({ kind: 'seed', document: { themeMode: 'light' } })).toEqual({ kind: 'enabled' })
-    expect(cloud.document('ada')).toMatchObject({ generation: 1, revision: 1, settings: { themeMode: 'light' } })
+    // Edits go on against the new generation.
+    phone.edit({ fontSize: 12 })
+    clock.advance(DOCUMENT_SYNC_DEBOUNCE_MS)
+    await settle(phone.engine)
+    expect(cloud.document('ada')).toMatchObject({ generation: 1, revision: 2, settings: { themeMode: 'dark', showToolCalls: false, fontSize: 12 } })
   })
 
-  test('sign-out drops the account’s consent and queue; signing in again starts off', async () => {
+  test('a clear on a device whose copy is empty leaves the account empty until an edit', async () => {
+    const cloud = new FakeCloud(ORIGIN_A)
+    const clock = new FakeClock()
+    const laptop = client(cloud, 'ada', { clock })
+    const phone = client(cloud, 'ada', { clock })
+    await laptop.start({ themeMode: 'dark' })
+    await phone.start()
+    for (const key of Object.keys(phone.profile)) delete phone.profile[key as keyof PersonalSettingsDocument]
+    expect(await phone.engine.clearCloud()).toEqual({ kind: 'cleared', generation: 1 })
+    expect(cloud.document('ada')).toMatchObject({ generation: 1, revision: null, settings: {} })
+    expect(phone.engine.current.state).toBe('synced')
+  })
+
+  test('sign-out drops the account’s queue; signing in again reads the account anew and it wins', async () => {
     const cloud = new FakeCloud(ORIGIN_A)
     const clock = new FakeClock()
     const storage = memoryStorage()
     const device = client(cloud, 'ada', { clock, storage })
-    device.signIn()
-    await device.turnOn({ themeMode: 'dark' })
+    await device.start({ themeMode: 'dark' })
     device.environment.online = false
     device.edit({ fontSize: 19 })
 
@@ -713,11 +692,12 @@ describe('turning sync off and clearing synced settings', () => {
 
     device.environment.online = true
     device.signIn()
-    expect(device.engine.current.state).toBe('off')
+    expect(device.engine.current.state).toBe('loading')
     expect(device.engine.current.pendingKeys).toEqual([])
-    clock.advance(DOCUMENT_SYNC_POLL_MS * 2)
     await settle(device.engine)
     expect(cloud.document('ada').settings).toEqual({ themeMode: 'dark' })
+    expect(device.profile).toEqual({ themeMode: 'dark' })
+    expect(device.engine.current.state).toBe('synced')
   })
 })
 

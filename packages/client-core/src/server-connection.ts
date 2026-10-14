@@ -1,17 +1,15 @@
 import { installWindowSolusApi, mergeNativeOnlySolusApi } from './native-api-overlay'
 import {
   dialableRoutes,
-  getActiveServerId,
   loadServers,
   LOCAL_SERVER_ID,
   savedServerRoutes,
-  setActiveServerId,
-  touchLastConnected,
   upsertServer,
   type SavedServer,
   type SavedServerUplink,
 } from './server-registry'
-import { WsTransport, type ConnectionStatus } from './ws-transport'
+import { WsTransport, type ConnectionStatus, type GrantRefusal, type WsTransportOptions } from './ws-transport'
+import { isLastingRefusal, type ResourceRefusal } from './oauth-session'
 import { withBrowserCapabilities } from './ws-browser-api'
 import type { HostEventSubscriber } from './host-event-subscriber'
 import { asHostApi, type HostApi } from './host-api'
@@ -19,7 +17,7 @@ import type { NativeSolusAPI } from '@solus/contracts/host-api'
 import { organizationIdOfSolusApiId, type HostRoute } from '@solus/contracts/uplink'
 import type { ConnectionTokenResource } from '@solus/contracts/auth/clients'
 import { uplinkAccountSource } from './uplink-account'
-import { organizationIdFor } from './uplink-session'
+import { organizationIdFor, type UplinkAccountSource } from './uplink-session'
 import { activeOrganizationId } from './workspace-registry'
 
 export interface LocalConnectionInfoLike {
@@ -80,21 +78,6 @@ export function localServerTarget(local: LocalConnectionInfoLike): SolusServerTa
   }
 }
 
-export function resolveActiveServerTarget(local: LocalConnectionInfoLike): SolusServerTarget {
-  const localTarget = localServerTarget(local)
-  const activeId = getActiveServerId()
-  if (activeId === LOCAL_SERVER_ID) return localTarget
-
-  const saved = loadServers().find((server) => server.id === activeId)
-  if (!saved || saved.installationId === local.installationId) {
-    setActiveServerId(LOCAL_SERVER_ID)
-    return localTarget
-  }
-
-  touchLastConnected(saved.id)
-  return savedServerTarget(saved)
-}
-
 export function savedServerTarget(server: SavedServer): SolusServerTarget {
   const clientOrigin = globalThis.location?.origin ?? ''
   const target: SolusServerTarget = {
@@ -135,6 +118,23 @@ export function connectionTokenResource(uplinkHostId: string): ConnectionTokenRe
   return organizationIdOfSolusApiId(uplinkHostId) ? { kind: 'api' } : { kind: 'host', hostId: uplinkHostId }
 }
 
+/** The account plane's refusal, as the transport acts on it and logs it. */
+function grantRefusalOf(refusal: ResourceRefusal | null): GrantRefusal | null {
+  if (!refusal) return null
+  const reason = [refusal.code, refusal.rule, refusal.description].filter(Boolean).join(': ')
+  return { lasting: isLastingRefusal(refusal), reason: `${reason} (HTTP ${refusal.status})` }
+}
+
+/** A dial's access token from the account's sign-in, and why there was none when it was refused. None without an account or a resource (a guest, a paired host). */
+function grantSource(account: UplinkAccountSource | null, resource: ConnectionTokenResource | null): Pick<WsTransportOptions, 'acquireGrant' | 'grantRefusal'> {
+  const source: Pick<WsTransportOptions, 'acquireGrant' | 'grantRefusal'> = {}
+  if (!account || !resource) return source
+  source.acquireGrant = (grantOptions) => account.accessToken(resource, grantOptions)
+  const refusal = account.accessTokenRefusal?.bind(account)
+  if (refusal) source.grantRefusal = () => grantRefusalOf(refusal(resource))
+  return source
+}
+
 export function createSolusConnection(
   target: SolusServerTarget,
   options: CreateSolusConnectionOptions = {},
@@ -150,14 +150,17 @@ export function createSolusConnection(
   // window's when the host is shared with it, else the host's first share.
   const dialOrganizationId = () => organizationIdOfSolusApiId(target.id) ?? organizationIdFor(null, target.uplink, activeOrganizationId())
   const guest = options.guest
+  // A registered host dialed without the account token (paired, or a trusted network)
+  // is still shown the signed-in person's token, so it keeps their delegation (ADR 0001 §6 item 5).
+  const presentedHostId = !guest && !uplinkHostId && target.uplink && !organizationIdOfSolusApiId(target.uplink.hostId) ? target.uplink.hostId : null
+  const presentingAccount = presentedHostId ? uplinkAccountSource() : null
   const transport = new WsTransport({
     serverUrl: target.url,
     serverId: target.id,
     sessionToken: target.sessionToken,
-    acquireGrant: guest || !account || !resource
-      ? undefined
-      : (grantOptions) => account.accessToken(resource, grantOptions),
+    ...grantSource(guest ? null : account, resource),
     dialOrganizationId: account && resource ? dialOrganizationId : undefined,
+    accountToken: presentingAccount && presentedHostId ? () => presentingAccount.accessToken({ kind: 'host', hostId: presentedHostId }) : undefined,
     shareSecret: guest?.shareSecret,
     guestIdentity: guest?.identity,
     onStatusChange: options.onStatusChange,

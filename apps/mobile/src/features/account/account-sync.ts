@@ -132,14 +132,20 @@ export class AccountSync {
     const lastSyncedAt = settings.lastSyncedAt === null || profile.lastSyncedAt === null
       ? settings.lastSyncedAt ?? profile.lastSyncedAt
       : Math.min(settings.lastSyncedAt, profile.lastSyncedAt)
-    return {
+    const next: AccountSyncStatus = {
       state: worseSyncState(settings.state, profile.state),
       lastSyncedAt,
       pendingCount: settings.pendingKeys.length + profile.pendingKeys.length,
       conflictCount: settings.conflicts.length + profile.conflicts.length,
       error: settings.error ?? profile.error,
     }
+    const last = this.status
+    if (last && last.state === next.state && last.lastSyncedAt === next.lastSyncedAt && last.pendingCount === next.pendingCount
+      && last.conflictCount === next.conflictCount && last.error === next.error) return last
+    this.status = next
+    return next
   }
+  private status: AccountSyncStatus | null = null
 
   currentSettings = (): SettingsSyncStatus => this.settings
 

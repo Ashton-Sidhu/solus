@@ -3,7 +3,6 @@
     Camera as CameraIcon,
     FolderPlus as FolderPlusIcon,
     HardDrive as HostIcon,
-    MousePointerClick as DesignModeIcon,
     Paperclip as PaperclipIcon,
     Plus as PlusIcon,
   } from "@lucide/svelte";
@@ -15,7 +14,6 @@
   interface Props {
     onAttachFile: () => void;
     onScreenshot?: (() => void) | null;
-    onDesignMode?: (() => void) | null;
     /** Only a chat that has not started offers this: a chat has no project
      *  strip, so its project list opens from here, anchored to this button. */
     onAddProject?: ((anchor: HTMLElement) => void) | null;
@@ -33,7 +31,6 @@
   let {
     onAttachFile,
     onScreenshot,
-    onDesignMode,
     onAddProject,
     onRunOn,
     runOnLabel = null,
@@ -135,15 +132,6 @@
         <CameraIcon class="size-4 text-(--solus-text-tertiary)" />
         <span class="flex-1">Take screenshot</span>
         <DropdownMenu.Shortcut>{comboHint("global.screenshot")}</DropdownMenu.Shortcut>
-      </DropdownMenu.Item>
-    {/if}
-    {#if onDesignMode}
-      <DropdownMenu.Item onSelect={() => choose(onDesignMode)}>
-        <DesignModeIcon class="size-4 text-(--solus-text-tertiary)" />
-        <span class="flex-1">Design mode</span>
-        {#if comboHint("global.design-mode")}
-          <DropdownMenu.Shortcut>{comboHint("global.design-mode")}</DropdownMenu.Shortcut>
-        {/if}
       </DropdownMenu.Item>
     {/if}
     {#if onAddProject || (onRunOn && runOnLabel)}

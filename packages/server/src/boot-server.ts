@@ -25,8 +25,10 @@ import { SolusServer } from './transport/server'
 import { buildHttpServer, type HttpServerOptions } from './transport/http'
 import { AccessTokenVerifier, type TokenVerdict } from './admission/access-tokens'
 import { CloudflaredConnector, resolveCloudflaredBinary } from './transport/uplink/connector'
-import { readStoredLink, UplinkLinkManager } from './transport/uplink/link'
+import { readStoredTunnel, splitLegacyLinkRecord, UplinkLinkManager } from './transport/uplink/link'
+import { HostRegistrar, readStoredRegistration } from './host/host-registration'
 import { RunnerDelivery } from './sync/runner-delivery'
+import type { TurnOrganizationDeps } from './execution/sessions/turn-organization'
 import { Delegations, establishWith } from './sync/delegations'
 import { remoteWorkspaceOperations } from './sync/remote-operations'
 import { useOrganizationAttachment } from './host/organization-attachment'
@@ -35,8 +37,9 @@ import { insightsEligible, useInsightsPolicy } from './sync/mirror/insight-mirro
 import { HostOrganizations } from './host/organizations'
 import { hasLeftOrganization, removeDepartedMembers } from './host/departed-members'
 import { ManagedHostActivity } from './host/managed-host-activity'
+import { LiveActivityRelay } from './host/live-activity-relay'
 import { activityLeases } from './execution/activity-leases'
-import { adoptProvisionedLink, applyHostCategory, hostCategory, provisionedOrganizationId } from './host/host-category'
+import { adoptProvisionedRegistration, applyHostCategory, hostCategory, provisionedOrganizationId } from './host/host-category'
 import { getInsightsOptIn, hostUserSettings } from './host/settings'
 import { adoptHostUser, followHostAccount } from './host/host-user-rows'
 import { registerOrganizationHandlers } from './transport/handlers/organization-handlers'
@@ -44,12 +47,12 @@ import { enrollHostCategorySchema, type EnrollHostCategory } from '@solus/contra
 import { TranscriptMirror, listOwnInterruptedSessions } from './sync/mirror/transcript-mirror'
 import { applyApiMode, isApiMode, apiModeConfig, apiModeCredential } from './host/api-mode'
 import type { HostCredential } from './host/host-credential'
-import { SOLUS_API_AUDIENCE, hostAudience, type HostKind, type UplinkLinkConfig } from '@solus/contracts/uplink'
+import { SOLUS_API_AUDIENCE, directoryResponseSchema, hostAudience, hostReachAudience, type HostKind, type HostRegistration } from '@solus/contracts/uplink'
 import { registerUplinkHandlers } from './transport/handlers/uplink-handlers'
 import { registerSharingHandlers } from './transport/handlers/sharing-handlers'
 import { registerCloudUploadHandlers } from './transport/solus-api/cloud-uploads'
 import { ShareManager } from './sharing/share-manager'
-import { registerSeatHandlers } from './transport/handlers/seat-handlers'
+import { profileTargetFor, registerSeatHandlers } from './transport/handlers/seat-handlers'
 import { registerIntegrationHandlers } from './transport/handlers/integration-handlers'
 import { IntegrationStore } from './integrations/integration-store'
 import { IntegrationCatalog } from './integrations/catalog'
@@ -114,6 +117,9 @@ import { registerHistoryHandlers } from './transport/handlers/history-handlers'
 import { ensureBackgroundSessionTitle, type BackgroundSessionTitleRequest } from './execution/sessions/background-session-title'
 import { registerFolioHandlers } from './transport/handlers/folio-handlers'
 import { registerReviewHandlers } from './transport/handlers/review-handlers'
+import { ReviewGuideJobs } from './review/guide-jobs'
+import { publishGuideStatus } from './review/guide-events'
+import { localGuideSource, prGuideSource } from './review/guide-sources'
 import { registerAutomationHandlers } from './transport/handlers/automation-handlers'
 import { startAutomationScheduler, stopAutomationScheduler } from './execution/automations/automation-scheduler'
 import { hasAutomationWork, setAutomationUpdatesPaused, setAutomationBackgroundSessionDispatcher, setAutomationWorktreeCreator } from './execution/automations/automation-runner'
@@ -121,7 +127,9 @@ import { nextAutomationDueAt, onAutomationsChanged, pauseAutomationsOf } from '.
 import { setRemoteHosts, setSessionController, setSessionOrchestration } from './execution/agents/tools/session-tools'
 import { RemoteHosts } from './execution/orchestration/remote-hosts'
 import { LocalClientDoor, type LocalClient } from './transport/local-client'
-import { PairedHosts } from './execution/orchestration/paired-hosts'
+import { IntroducedHosts } from './execution/orchestration/introduced-hosts'
+import type { AccountReach, ReachActor, ReachRequest } from './execution/orchestration/remote-hosts'
+import { reachableUrls } from './transport/endpoints'
 import { orchestrateSessions } from './execution/orchestration/orchestrate-sessions'
 import { onAnnotationsChanged } from './annotations/annotation-events'
 import { onWorkDeleted, onWorksChanged } from './data/works/work-events'
@@ -153,13 +161,14 @@ import { registerUsageHandlers } from './transport/handlers/usage-handlers'
 import { registerSkillsHandlers } from './transport/handlers/skills-handlers'
 import { registerPinnedSessionsHandlers } from './transport/handlers/pinned-sessions-handlers'
 import { registerSessionReadStateHandlers } from './transport/handlers/session-read-state-handlers'
+import { registerLiveActivityHandlers } from './transport/handlers/live-activity-handlers'
 import { registerProjectConfigHandlers } from './transport/handlers/project-config-handlers'
 import { onWorkspaceProjectsChanged } from './projects/workspace-projects'
 import { onProjectsChanged } from './project-config/projects-manifest'
 import { registerTasksHandlers } from './transport/handlers/tasks-handlers'
 import { setVoiceModelStatusListener } from './model-downloader'
 import { createLogger, isDebugEnabled } from './logger'
-import { getInstallationId } from './admission/auth'
+import { getInstallationId, issueSessionToken, revokeDevice } from './admission/auth'
 import { probeHostCapabilities, registerSetupHandlers } from './transport/handlers/setup-handlers'
 import packageJson from '../../../package.json'
 import { dataDir, solusDir } from './platform/paths'
@@ -167,7 +176,7 @@ import { onTasksChanged } from './data/tasks/task-store'
 import { emitSessionTasksChanged } from './data/tasks/task-sessions'
 import { onSessionPullRequestsChanged } from './data/sessions/session-pull-requests'
 import { onPullRequestWatchesChanged, stopSessionPullRequestWatches } from './data/sessions/pull-request-watches'
-import { onSessionStateChanged } from './data/sessions/session-states'
+import { onSessionReadStateChanged, onSessionStateChanged } from './data/sessions/session-states'
 import { deliveryBacklog, dropQueuedFor, onOutboxChanged } from './sync/outbox/outbox-store'
 import { registerOutboxHandlers } from './transport/handlers/outbox-handlers'
 import { registerTaskOutboxApplier } from './data/tasks/task-applier'
@@ -310,10 +319,11 @@ export function acquireLock(host: string, port: number): { release(): void } | n
   }
 }
 
-/** The link this machine starts with: the environment's, which is read once and stripped, else the one stored on disk. */
-function adoptStartupLink(): void {
+/** The registration this machine starts with: the environment's, which is read once and stripped, else the one stored on disk. */
+function adoptStartupRegistration(): void {
+  splitLegacyLinkRecord()
   const provisioned = readHostLinkEnv()
-  adoptProvisionedLink(provisioned ? provisioned.link : readStoredLink())
+  adoptProvisionedRegistration(provisioned ? provisioned.registration : readStoredRegistration())
 }
 
 /** What this process is to its clients: a person's machine, one the cloud provisioned, or the cloud's own workspace service. */
@@ -327,34 +337,38 @@ function resolveServerRoles(apiMode: boolean): ReadonlySet<SolusRole> {
   return apiMode ? new Set<SolusRole>(['collaboration']) : resolveRoles()
 }
 
-/** One verifier per link: a host with no link treats every token as a stranger's. */
-function tokenVerifierForLink(link: UplinkLinkConfig | null): AccessTokenVerifier | null {
-  return link ? new AccessTokenVerifier({ issuer: link.issuer, jwksUrl: link.jwksUrl, audience: hostAudience(link.hostId) }) : null
+/** One verifier per registration: a host with none treats every token as a stranger's. */
+function tokenVerifierFor(registration: HostRegistration | null): AccessTokenVerifier | null {
+  return registration ? new AccessTokenVerifier({ issuer: registration.issuer, jwksUrl: registration.jwksUrl, audience: hostAudience(registration.hostId), reachAudience: hostReachAudience(registration.hostId) }) : null
 }
 
-/** The Solus API's one verifier: the account plane's issuer, for `SOLUS_API_AUDIENCE`; null on a host, whose verifier follows its link. */
+/** The Solus API's one verifier: the account plane's issuer, for `SOLUS_API_AUDIENCE`; null on a host, whose verifier follows its registration. */
 function workspaceTokenVerifier(apiMode: boolean): AccessTokenVerifier | null {
   return apiMode ? new AccessTokenVerifier({ ...apiModeConfig(), audience: SOLUS_API_AUDIENCE }) : null
 }
 
 /**
- * What a host does for its organization's Solus API once it is linked
+ * What a host does for its organization's Solus API once it is registered
  * (cloud-service-model.md §4–§6, §16; plans/010-standard-oauth.md): the delivery of
  * its streams, each with the delegated token of the person whose work it is, and
  * the mirror of turns its previous process left unsettled. Those rows wait in the
  * log until their person's token can carry them.
  */
 function startRunnerCloud(deps: {
-  uplinkManager: UplinkLinkManager
+  registrar: HostRegistrar
   delegations: Delegations
-  linker: () => string | null
+  owner: () => string | null
   transcriptMirror: TranscriptMirror
-  interruptSweep: Promise<unknown>
+  interruptSweep: Promise<string[] | void>
 }): RunnerDelivery {
   const delivery = new RunnerDelivery({
-    link: () => deps.uplinkManager.currentLink(),
+    registration: () => deps.registrar.current(),
     delegations: deps.delegations,
-    linker: deps.linker,
+    owner: deps.owner,
+  })
+  // The sweep's `interrupted` reaches the Solus API as any record change does.
+  void deps.interruptSweep.then((sessionIds) => delivery.reportStoredSessions(sessionIds ?? [])).catch((error) => {
+    log.warn('session_records_interrupt_report_failed', { error: String(error) })
   })
   void deps.interruptSweep.then(listOwnInterruptedSessions).then((sessions) => {
     for (const session of sessions) deps.transcriptMirror.touch(session.sessionId, session)
@@ -415,7 +429,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // machine's link leaves the environment first (managed-hosts.md §1, §2), and the
   // link — that one, or the one stored since — says whether Solus provisioned this
   // machine, which decides that no credential-free door opens on it.
-  adoptStartupLink()
+  adoptStartupRegistration()
   // The environment may name the category for a test run of the standalone server; the boot's own declaration otherwise.
   const declaredCategory = enrollHostCategorySchema.safeParse(process.env.SOLUS_HOST_CATEGORY)
   applyHostCategory(declaredCategory.success ? declaredCategory.data : opts.hostCategory ?? 'personal')
@@ -457,8 +471,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       ? (await assignSessionOrganization(resource.id, organizationId))?.organizationId ?? null
       : organizationOfResource(resource),
     hasLeftOrganization: (organizationId, userId) => hasLeftOrganization(hostOrganizations.current(), organizationId, userId),
-    // A member reaches this host through the cloud app with a host access token, which needs the link (host-sharing.md §4.3).
-    membersReachable: () => apiMode || uplinkManager.currentLink() !== null,
+    // A member reaches this host with a host access token, which needs the registration (host-sharing.md §4.3), never the link.
+    membersReachable: () => apiMode || registrar.current() !== null,
   })
   server.useResourceAccess(shares)
   /** The host's share rows for a mirrored session, appended for its organization; nothing for a session nobody mirrors. */
@@ -476,8 +490,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // place a policy is held against — by the Insights producer, the turn
   // admission, and the clients.
   useSessionIndexState(sessionIndexComplete)
-  const hostOrganizationsDeps: { link: () => UplinkLinkConfig | null; credential: () => HostCredential | null } = { link: () => null, credential: () => null }
-  const hostOrganizations = new HostOrganizations({ link: () => hostOrganizationsDeps.link(), credential: () => hostOrganizationsDeps.credential() })
+  const hostOrganizationsDeps: { registration: () => HostRegistration | null; credential: () => HostCredential | null } = { registration: () => null, credential: () => null }
+  const hostOrganizations = new HostOrganizations({ registration: () => hostOrganizationsDeps.registration(), credential: () => hostOrganizationsDeps.credential() })
   useInsightsPolicy({
     syncAllInsights: (organizationId) => hostOrganizations.organization(organizationId)?.policy.syncAllInsights ?? null,
     optedIn: (organizationId) => getInsightsOptIn().includes(organizationId),
@@ -584,6 +598,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // A task reads the pull requests of its sessions, so a session's change is
     // also a change of each task the session belongs to.
     onSessionStateChanged((sessionId) => events.broadcast('session.stateChanged', { sessionId })),
+    onSessionReadStateChanged((sessionId, viewedAt) => events.broadcast('session.readStateChanged', { sessionId, viewedAt })),
     // A link carries whether it is watched (docs/plans/pr-watch.md).
     onPullRequestWatchesChanged((sessionId) => events.broadcast('session.pullRequestsChanged', { sessionId })),
     onSessionPullRequestsChanged((sessionId) => {
@@ -627,12 +642,18 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Every exchange between sessions — agent tools, a person answering from a
   // card, delivery of results — goes through the one orchestrator.
   const orchestrator = orchestrateSessions(opts.sessionRuntime)
+  // Every turn and every new session, from a client or an agent, passes one admission
+  // (`PromptDispatch.admitTurn`). The delegations join it once the link exists.
+  const turnAdmission: TurnOrganizationDeps = {
+    hostOrganizations,
+    adoptSession: (sessionId, organizationId, ownerUserId, options) => shares.adoptForOrganization({ kind: 'session', id: sessionId }, organizationId, ownerUserId, options),
+  }
+  opts.sessionRuntime.dispatch.admission = turnAdmission
   const sessionDeps: SessionDeps = {
     sessionRuntime: opts.sessionRuntime,
     orchestrator,
     agentIdFromContext: opts.agentIdFromContext,
     shares,
-    hostOrganizations,
   }
   registerSessionHandlers(server, sessionDeps)
   registerSettingsHandlers(server, {
@@ -717,7 +738,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // the Solus API's in API mode. A person's connection may live in their account
   // (plans/020 §5): this host reads an access token per call, and holds nothing else.
   const accountReadsOfServer = new AccountReads({
-    origin: () => apiMode ? apiModeConfig().issuer : hostOrganizationsDeps.link()?.directoryUrl ?? null,
+    origin: () => apiMode ? apiModeConfig().issuer : hostOrganizationsDeps.registration()?.directoryUrl ?? null,
     delegations: () => delegations,
   })
   useAccountReads(accountReadsOfServer)
@@ -769,12 +790,23 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     oauth: integrationOAuth,
     secrets: hostIntegrationSecrets,
     getServerInfo: () => ({ host, port: actualPort }),
+    profile: {
+      saved: async (principal, integration) => {
+        const target = profileTargetFor(principal)
+        if (target) await profiles.integrationSaved(target, integration).catch((error) => log.warn('agent_profile_publish_failed', { error: error instanceof Error ? error.message : String(error) }))
+      },
+      removing: async (principal, integration) => {
+        const target = profileTargetFor(principal)
+        if (target) await profiles.integrationRemoving(target, integration)
+      },
+    },
   })
   withActorScope(HOST_ACTOR, () => {
     for (const integration of integrations.all(ANY_ORGANIZATION)) void integrationGateway.warm(integration.id)
   })
   registerPresenceHandlers(server, { presence, onHostChanged: (clientId) => publishHostPresence(presence.organizationOf(clientId)), onSessionChanged: publishSessionPresence })
-  registerReviewHandlers(server, opts.sessionRuntime, events)
+  const guides = new ReviewGuideJobs((event) => publishGuideStatus(events, event), { pr: prGuideSource, local: localGuideSource })
+  registerReviewHandlers(server, opts.sessionRuntime, events, guides)
   registerAutomationHandlers(server)
   // Isolated automations use the same headless SessionRuntime lifecycle as normal
   // background sessions, so their live transcript can be opened mid-run.
@@ -785,22 +817,64 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Push every automation mutation (saves, deletes, run transitions — incl.
   // background scheduler fires) to all connected clients so the UI stays live.
   setSessionOrchestration(orchestrator)
-  const pairedHosts = new PairedHosts()
+  const introducedHosts = new IntroducedHosts(fetch, Date.now, {
+    installationId: getInstallationId,
+    name: hostDisplayName,
+    // The introduced host keeps the first one that answers as this host.
+    urls: () => reachableUrls(host, actualPort),
+    issueToken: issueSessionToken,
+    revokeDevice,
+  })
   // An account client in this process (the desktop) presents its token here; the host acts from what it presents.
   const localClient = new LocalClientDoor({
-    hostId: () => uplinkManager.currentLink()?.hostId ?? null,
+    hostId: () => registrar.current()?.hostId ?? null,
+    needsRegistration: () => !apiMode && registrar.needsRegistration(),
+    register: async (request) => { await registrar.register(request) },
     verify: (token) => verifyHostAccessToken(token),
     delegations: () => apiMode ? null : delegations,
     organizationIds: () => hostOrganizations.organizations().map((entry) => entry.organizationId),
     onEstablished: () => runnerDelivery?.retryWaiting(),
+    // The signed-in account is the host's user; signed out, the local user is (ADR 0001 rule 8).
+    onOwnerIdentity: (owner) => { if (!apiMode) void followHostAccount(getDatabase(), owner) },
   })
-  const remoteHosts = new RemoteHosts(() => localClient.hostAccess(), pairedHosts, () => uplinkManager.currentLink()?.hostId ?? null)
+  // A registered host that is not linked is reached on the local network (ADR 0001 §2.2 rule 9).
+  // Account reach (docs/plans/host-reach.md §3): the person's directory, and an
+  // eight-hour host-reach token for one host, both with this host's delegation for them.
+  const accountReach = (actor: ReachActor): AccountReach | null => {
+    const held = delegations
+    if (apiMode || !held) return null
+    return {
+      hosts: async () => {
+        const response = await accountReadsOfServer.fetch(actor.userId, actor.scope, '/v1/hosts')
+        if ('refused' in response || !response.ok) return null
+        const parsed = directoryResponseSchema.safeParse(await response.json().catch(() => null))
+        return parsed.success ? parsed.data.hosts : null
+      },
+      accessToken: async (hostId) => {
+        try {
+          return await held.accessToken(actor.userId, actor.scope, { kind: 'host-reach', hostId })
+        } catch (error) {
+          log.info('host_reach_token_unavailable', { hostId, error: error instanceof Error ? error.message : String(error) })
+          return null
+        }
+      },
+    }
+  }
+  const remoteHosts = new RemoteHosts(accountReach, introducedHosts, () => registrar.current()?.hostId ?? null, () => lanDiscovery.discoverServers())
   setRemoteHosts(remoteHosts)
   setSessionController({
-    // The owner's account session acts only for the owner: a member's turn here never borrows it.
-    actsForHostOwner: (sessionId) => {
+    // A turn reaches other hosts for its own person (host-reach.md §3.2): the owner through
+    // their personal delegation and the introduced hosts; a member only through the
+    // organization they work in here; anyone else not at all.
+    reachRequestFor: (sessionId): ReachRequest | null => {
       const actor = opts.sessionRuntime.activeRunRequests.get(sessionId)?.actor
-      return !actor?.user || actor.principal.kind === 'local-owner' || actor.principal.kind === 'remote-owner'
+      const principal = actor?.principal
+      if (!actor?.user || principal?.kind === 'local-owner' || principal?.kind === 'remote-owner') {
+        const owner = delegations?.holders().find((holder) => holder.scope === 'personal')
+        return { account: owner ? { userId: owner.userId, scope: 'personal' } : null, isOwner: true }
+      }
+      if (principal?.kind === 'org-member') return { account: { userId: principal.userId, scope: { organizationId: principal.organizationId } }, isOwner: false }
+      return null
     },
     listAgentTargets: async () => Promise.all(
       opts.sessionRuntime
@@ -867,6 +941,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     isWorktreeInUse: (path) => opts.sessionRuntime.sessionCheckouts.listGitContexts().some((context) => context.worktreePath === path),
     isSessionBusy: (sessionId) => opts.sessionRuntime.statuses.isSessionBusy(sessionId),
     prSync,
+    guides,
   })
   registerChecksHandlers(server)
   // The clients that run on one seat; a seat's facts go to them and nobody else.
@@ -880,7 +955,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   registerSkillsHandlers(server, { sessionRuntime: opts.sessionRuntime, seats })
   registerPinnedSessionsHandlers(server)
-  registerSessionReadStateHandlers(server, { events })
+  registerSessionReadStateHandlers(server)
   phaseDone('domain_handlers_registered')
   const hostUpdates = new UpdateStatusService({
     currentVersion: packageJson.version,
@@ -1021,62 +1096,82 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   let tunnelPort = 0
   const isTunnelRequest = (incoming: IncomingMessage): boolean =>
     tunnelPort !== 0 && incoming.socket.localPort === tunnelPort
-  // One verifier per link: it follows the link record, and a host with no link
-  // treats every grant as a stranger's.
+  // One verifier per registration: it follows the registration record, and a host
+  // with none treats every grant as a stranger's. The link plays no part.
   let tokenVerifier: AccessTokenVerifier | null = workspaceTokenVerifier(apiMode)
   const verifyHostAccessToken = (token: string): Promise<TokenVerdict> => tokenVerifier
     ? tokenVerifier.verify(token)
     : Promise.resolve({ ok: false, reason: 'not-linked' })
   let runnerDelivery: RunnerDelivery | null = null
   let delegations: Delegations | null = null
-  // A link again under the same host id is a new generation with a new OAuth client.
-  const linkKey = (link: UplinkLinkConfig | null) => link ? `${link.hostId}:${link.connectionGeneration}` : null
-  let linkedKey = linkKey(readStoredLink())
-  const followLink = (link: UplinkLinkConfig | null): void => {
-    if (apiMode) return
-    tokenVerifier = tokenVerifierForLink(link)
-    // A provisioned machine's link names the organization it was made for (organization-scope §3, R9).
-    adoptProvisionedLink(link)
-    // Another link is another OAuth client: nothing the old one held acts for anyone now.
-    if (linkKey(link) !== linkedKey) delegations?.clear()
-    linkedKey = linkKey(link)
-    // Unlinked: the owner's Local rows go back to the host's `local` user (U5).
-    if (!link) void followHostAccount(getDatabase(), null)
-    runnerDelivery?.linkChanged()
-    hostOrganizations.linkChanged()
-  }
+  // A registration again under the same host id is a new generation with a new OAuth client.
+  const registrationKey = (registration: HostRegistration | null) => registration ? `${registration.hostId}:${registration.generation}` : null
+  let registeredKey = registrationKey(readStoredRegistration())
   let uplinkManager: UplinkLinkManager
+  const followRegistration = (registration: HostRegistration | null): void => {
+    if (apiMode) return
+    tokenVerifier = tokenVerifierFor(registration)
+    // A provisioned machine's registration names the organization it was made for (organization-scope §3, R9).
+    adoptProvisionedRegistration(registration)
+    // Another registration is another OAuth client: nothing the old one held acts for anyone now.
+    if (registrationKey(registration) !== registeredKey) delegations?.clear()
+    registeredKey = registrationKey(registration)
+    runnerDelivery?.registrationChanged()
+    hostOrganizations.registrationChanged()
+    // A tunnel belongs to the registration it was made for.
+    uplinkManager?.registrationChanged(registration)
+    // The owner's client in this process presents a token for the new registration, or registers the host again.
+    localClient.registrationChanged()
+  }
+  // What `uplinkStatus` answers: the registration, and apart from it, the link.
+  const uplinkStatus = () => ({ registration: registrar.status(), link: uplinkManager.status() })
+  const broadcastUplinkStatus = () => { if (uplinkManager) events.broadcast('host.uplinkStatusChanged', uplinkStatus()) }
+  const registrar = new HostRegistrar({
+    installationId: getInstallationId,
+    hostLabel: hostDisplayName,
+    os: hostOperatingSystem,
+    owner: () => hostOrganizations.owner(),
+    onRegistrationChanged: followRegistration,
+    onStatusChanged: broadcastUplinkStatus,
+    provisionedLink: readHostLinkEnv,
+  })
   const uplinkConnector = new CloudflaredConnector({
     resolveBinary: resolveCloudflaredBinary,
     onObservation: (observation) => uplinkManager.handleConnectorObservation(observation),
   })
   uplinkManager = new UplinkLinkManager({
-    installationId: getInstallationId,
-    hostLabel: hostDisplayName,
-    os: hostOperatingSystem,
+    registration: () => registrar.current(),
+    controlToken: () => registrar.controlToken(),
     proxiedPort: () => tunnelPort,
     connector: uplinkConnector,
-    onLinkChanged: followLink,
     // The connector registers after `uplinkLink` has answered: the Access tab's
     // status line follows this instead of waiting for a reload.
-    onStatusChanged: (status) => events.broadcast('host.uplinkStatusChanged', status),
+    onStatusChanged: broadcastUplinkStatus,
     provisionedLink: readHostLinkEnv,
   })
-  followLink(uplinkManager.currentLink())
-  // The attachment is stored with the link (organization-vms §4): an unlink resets the machine to personal.
-  useOrganizationAttachment(() => uplinkManager.attachedAt())
-  // A linked host shared with an organization delivers its cloud-owned writes and
+  followRegistration(registrar.current())
+  // The attachment is stored with the registration (organization-vms §4): a deleted host is personal again.
+  useOrganizationAttachment(() => registrar.attachedAt())
+  // A registered host shared with an organization delivers its cloud-owned writes and
   // its session records to the organization's workspace service (§16).
-  hostOrganizationsDeps.link = () => uplinkManager.currentLink()
-  hostOrganizationsDeps.credential = () => uplinkManager.credential()
+  hostOrganizationsDeps.registration = () => registrar.current()
+  hostOrganizationsDeps.credential = () => registrar.credential()
   // A managed machine holds itself awake while it has work, and tells the control plane when to wake it (plan 004 item 3).
   const managedHostActivity = new ManagedHostActivity({
     isBusy: () => opts.sessionRuntime.statuses.hasWorkToKeepAwake(),
     nextDueAt: nextAutomationDueAt,
     lastForegroundAt: () => activityLeases.lastForegroundAt(),
-    link: () => uplinkManager.currentLink(),
-    credential: () => uplinkManager.credential(),
+    registration: () => registrar.current(),
+    credential: () => registrar.credential(),
   })
+  // The phone's Live Activity while the phone is suspended: this host reports its rows to the control plane.
+  const liveActivityRelay = new LiveActivityRelay({
+    statusOf: (sessionId) => opts.sessionRuntime.statuses.liveSessionStatus(sessionId),
+    registration: () => registrar.current(),
+    credential: () => registrar.credential(),
+  })
+  registerLiveActivityHandlers(server, liveActivityRelay)
+  opts.sessionRuntime.on('session-status', (event: HostEventMap['session.statusChanged']) => liveActivityRelay.sessionStatusChanged(event))
   if (!apiMode) {
     // The host's user (plans/012 §1): its `local` id is minted once, and the rows
     // written before it had one move to it, before any client connects. The Solus
@@ -1089,9 +1184,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // undelivered is dropped. A personal delegation carries only account reads; the
     // owner's own work runs on none, so nothing else stops.
     const hostDelegations = new Delegations({
-      link: () => uplinkManager.currentLink(),
-      credential: () => uplinkManager.credential(),
+      registration: () => registrar.current(),
+      credential: () => registrar.credential(),
       onRevoked: (userId, scope, refusal) => {
+        // The owner's client in this process presents again once the delegation is gone: another grant of theirs that is still signed in makes it again.
+        queueMicrotask(() => localClient.standingChanged(hostOrganizations.owner()?.userId ?? null))
+        // Credentials the delegation brought, and sessions opened with them, end with it (ADR 0001 rule 5).
+        cloudCredentials.clear()
+        void integrationGateway.close()
         if (scope === 'personal') {
           log.info('delegation_revoked', { userId, scope, refusal })
           return
@@ -1110,7 +1210,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // Insights across hosts (docs/plans/insights-across-hosts.md): the owner's turns other hosts ran.
     insightPull = new InsightPull({
       userId: () => hostOrganizations.owner()?.userId ?? null,
-      hostId: () => uplinkManager.currentLink()?.hostId ?? null,
+      hostId: () => registrar.current()?.hostId ?? null,
       organizations: () => hostOrganizations.organizations().map((entry) => entry.organizationId).filter(insightsEligible),
       onChange: (state) => events.broadcast('metrics.insightPullChanged', state),
       source: async (userId, organizationId) => {
@@ -1122,9 +1222,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       },
     })
     runnerDelivery = startRunnerCloud({
-      uplinkManager,
+      registrar,
       delegations: hostDelegations,
-      linker: () => hostOrganizations.owner()?.userId ?? null,
+      owner: () => hostOrganizations.owner()?.userId ?? null,
       transcriptMirror,
       interruptSweep,
     })
@@ -1132,17 +1232,19 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // again; a standing that shows the machine attached is recorded before the next
     // organization work is admitted (organization-vms §4).
     domainEventUnsubscribes.push(hostOrganizations.onChanged((standing) => {
-      // Linked: the host's user becomes the owner's account, and its rows follow (U5).
+      // Registered: the host's user becomes the owner's account, and its rows follow (U5).
       if (standing?.owner) void followHostAccount(getDatabase(), standing.owner)
-      if (standing?.organizations.some((entry) => entry.shared)) uplinkManager.markAttached()
+      if (standing?.organizations.some((entry) => entry.shared)) registrar.markAttached()
+      // The registration status names the account it belongs to.
+      broadcastUplinkStatus()
       // The owner's client in this process presents its token again when a delegation is missing.
       localClient.standingChanged(standing?.owner?.userId ?? null)
     }))
     // Organization runs on an attached machine (organization-vms §3, §4): the host acts
     // for the person behind each turn, and its tools use the Solus API as them.
     const delivery = runnerDelivery
-    sessionDeps.delegations = hostDelegations
-    sessionDeps.markAttached = () => { uplinkManager.markAttached() }
+    turnAdmission.delegations = hostDelegations
+    turnAdmission.markAttached = () => { registrar.markAttached() }
     remoteToolOperations = (sessionId) => {
       const actor = hostDelegations.actorOf(sessionId)
       if (!actor) return null
@@ -1156,7 +1258,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     const credential = apiModeCredential()
     if (credential) {
       delegations = new Delegations({
-        link: () => null,
+        registration: () => null,
         credential: () => credential,
         onRevoked: (userId, scope, refusal) => log.info('delegation_revoked', { userId, scope: scope === 'personal' ? scope : scope.organizationId, refusal }),
       })
@@ -1168,8 +1270,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     hostOrganizations,
     forgetResource: (resource) => shares.forget(resource),
     events,
-    linkHostId: () => uplinkManager.currentLink()?.hostId ?? null,
-    apiUrl: () => uplinkManager.currentLink()?.apiUrl ?? null,
+    registeredHostId: () => registrar.current()?.hostId ?? null,
+    apiUrl: () => registrar.current()?.apiUrl ?? null,
     delivery: () => ({ backlog: deliveryBacklog(), error: runnerDelivery?.currentStatus().error ?? null }),
   })
 
@@ -1401,8 +1503,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   // The workspace service has no tunnel and no link to resume (cloud-service-model.md §15).
   if (!apiMode) {
-    tunnelPort = await bindTunnelListener(tunnelHttp, uplinkManager.currentLink()?.proxiedPort ?? DEFAULT_TUNNEL_LISTENER_PORT)
-    void uplinkManager.resume().catch((err) => {
+    tunnelPort = await bindTunnelListener(tunnelHttp, readStoredTunnel()?.proxiedPort ?? DEFAULT_TUNNEL_LISTENER_PORT)
+    void registrar.resume().then((remote) => uplinkManager.resume(remote)).catch((err) => {
       log.warn('uplink_resume_failed', { error: err instanceof Error ? err.message : String(err) })
     }).finally(() => {
       runnerDelivery?.start()
@@ -1474,7 +1576,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     log.info('server_rebound', { host, port: actualPort, requireAuth })
   }
 
-  registerAuthHandlers(server)
+  // Every admitted socket may present the person's account token: renewal and `accountPresent` keep their delegation (ADR 0001 §6 item 5).
+  registerAuthHandlers(server, delegations ? { verify: verifyHostAccessToken, establish: establishWith(delegations, apiMode) } : null)
   registerConnectionsHandlers(server, {
     getServerInfo: () => ({
       host,
@@ -1488,11 +1591,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     }),
     tunnelUrl: () => {
       const status = uplinkManager.status()
-      return status.linked && status.state.observed === 'online' ? `https://${status.link.hostname}` : null
+      return status.linked && status.state.observed === 'online' ? `https://${status.tunnel.hostname}` : null
     },
     mirrorOrigin: async (resource) => {
       if (resource.kind !== 'session' || !(await transcriptDestination(resource.id))) return null
-      return uplinkManager.currentLink()?.directoryUrl ?? null
+      return registrar.current()?.directoryUrl ?? null
     },
     getActiveSessions: () => [...ws.sessions.values()].map(s => ({
       id: s.id,
@@ -1501,7 +1604,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       connectedAt: s.connectedAt,
     })),
     discoverLanServers: () => lanDiscovery.discoverServers(),
-    pairedHosts,
+    introducedHosts,
     disconnectRemoteHost: (hostId) => remoteHosts.disconnect(hostId),
     setRemoteAccess: async (remoteAccess) => {
       const next = setRemoteAccess(remoteAccess)
@@ -1514,7 +1617,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       trustLocalNetwork: setTrustLocalNetwork(trustLocalNetwork).trustLocalNetwork,
     }),
   })
-  registerUplinkHandlers(server, { manager: uplinkManager })
+  registerUplinkHandlers(server, { registrar, manager: uplinkManager, status: uplinkStatus })
 
   log.info('server_listening', { host, port: actualPort })
   console.log(`\n  Solus web UI → http://localhost:${actualPort}\n`)
@@ -1555,6 +1658,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         transcriptMirror.dispose()
         hostOrganizations.stop()
         await managedHostActivity.stop()
+        liveActivityRelay.stop()
         await runnerDelivery?.stop()
         await uplinkConnector.stop()
         prSync.dropClients()

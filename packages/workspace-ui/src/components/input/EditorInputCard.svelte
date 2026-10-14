@@ -18,7 +18,6 @@
     paneId?: string;
     onAttachFile: () => void | Promise<void>;
     onScreenshot?: (() => void | Promise<void>) | null;
-    onDesignMode?: (() => void | Promise<void>) | null;
     trailingActions?: Snippet;
     /** This client may only read the conversation (a viewer on a shared
      *  session): the bar says so in place of a prompt and the toolbar goes
@@ -33,7 +32,6 @@
     paneId,
     onAttachFile,
     onScreenshot,
-    onDesignMode,
     trailingActions,
     readOnlyReason = null,
   }: Props = $props();
@@ -120,7 +118,6 @@
           readOnly={!!effectiveReadOnlyReason}
           {onAttachFile}
           {onScreenshot}
-          {onDesignMode}
           {trailingActions}
           chatSourceId={!started && isChat(sess?.run.workingDirectory) ? targetTabId : null}
         />

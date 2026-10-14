@@ -1,12 +1,14 @@
 // Adapted from T3 Code apps/mobile/src/components/MediaImagePreview.tsx (MIT, see UPSTREAM.md).
-import { createContext, useContext } from "react";
+import { createContext, useContext, useMemo, useState } from "react";
 import { Platform, Pressable, View } from "react-native";
 import ImageViewing from "react-native-image-viewing";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useMediaActions } from "../lib/mediaActions";
 import { AppText } from "./AppText";
 import { SymbolView } from "./AppSymbol";
-import type { ResolvedFilePreviewSource } from "./FilePreview";
+import type { ResolvedFilePreviewSource } from "./FilePreview.types";
+import { MediaActionsMenu } from "./MediaActionsMenu";
 import { MediaSourceCaption } from "./MediaSourceCaption";
 
 type MediaImagePreviewProps = {
@@ -19,12 +21,14 @@ const ImagePreviewContext = createContext<MediaImagePreviewProps | null>(null);
 function ImagePreviewHeader() {
   const props = useContext(ImagePreviewContext)!;
   const insets = useSafeAreaInsets();
+  const mediaActions = useMediaActions(props.source.actionsSource, props.onRequestClose);
   return (
     <View className="bg-black/70" style={{ paddingTop: insets.top }}>
       <View className="flex-row items-center gap-2 px-3">
         <AppText className="flex-1 text-base text-white" numberOfLines={2}>
           {props.source.name ?? "Image"}
         </AppText>
+        <MediaActionsMenu media={mediaActions} inModal />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Close image"
@@ -34,18 +38,28 @@ function ImagePreviewHeader() {
           <SymbolView name="xmark" size={20} tintColor="#ffffff" type="monochrome" />
         </Pressable>
       </View>
-      <MediaSourceCaption source={props.source.caption} />
+      <MediaSourceCaption source={mediaActions.title} />
     </View>
   );
 }
 
-/** A full-screen image with its name and the reference it came from. */
+/** A full-screen image gallery with the name, source, and media actions of the image shown. */
 export function MediaImagePreview(props: MediaImagePreviewProps) {
+  const gallery = props.source.gallery ?? [props.source];
+  const [index, setIndex] = useState(() =>
+    Math.max(
+      0,
+      gallery.findIndex((item) => item.uri === props.source.uri),
+    ),
+  );
+  const selected = gallery[index] ?? props.source;
+  const context = useMemo(() => ({ ...props, source: selected }), [props, selected]);
   return (
-    <ImagePreviewContext value={props}>
+    <ImagePreviewContext value={context}>
       <ImageViewing
-        images={[{ uri: props.source.uri }]}
-        imageIndex={0}
+        images={gallery.map((item) => ({ uri: item.uri }))}
+        imageIndex={index}
+        onImageIndexChange={setIndex}
         visible
         presentationStyle="fullScreen"
         onRequestClose={props.onRequestClose}

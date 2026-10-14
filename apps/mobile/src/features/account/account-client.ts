@@ -31,7 +31,11 @@ export class AccountUnauthorizedError extends Error {
 }
 
 /** The account website did not answer or answered with something unreadable. */
-export class AccountUnavailableError extends Error {}
+export class AccountUnavailableError extends Error {
+  constructor(message: string, readonly status?: number) {
+    super(message)
+  }
+}
 
 export class CloudAccountClient {
   constructor(
@@ -53,6 +57,16 @@ export class CloudAccountClient {
   async startManagedHost(accessToken: string, hostId: string): Promise<ManagedHostLifecycle | null> {
     const response = await this.call(accessToken, `/v1/hosts/${encodeURIComponent(hostId)}/start`, { method: 'POST' })
     return (await parseResponse(managedHostStartResponseSchema, response, 'host start')).lifecycle
+  }
+
+  /** Ends the registration of a host this account owns, on every device. A 404 means
+   *  the account does not list it, which is the state asked for, so removing twice succeeds. */
+  async removeHost(accessToken: string, hostId: string): Promise<void> {
+    try {
+      await this.call(accessToken, `/v1/hosts/${encodeURIComponent(hostId)}`, { method: 'DELETE' })
+    } catch (error) {
+      if (!(error instanceof AccountUnavailableError && error.status === 404)) throw error
+    }
   }
 
   /** A one-use ticket a host redeems with `uplinkLink` to link itself to this account. */
@@ -109,7 +123,7 @@ export class CloudAccountClient {
       throw new AccountUnavailableError('The account website did not answer.')
     }
     if (response.status === 401) throw new AccountUnauthorizedError()
-    if (!response.ok) throw new AccountUnavailableError(`The account website answered ${response.status}.`)
+    if (!response.ok) throw new AccountUnavailableError(`The account website answered ${response.status}.`, response.status)
     return response
   }
 }

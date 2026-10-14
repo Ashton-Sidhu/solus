@@ -348,7 +348,7 @@ export class SessionOpening {
         return openTabId
       }
     }
-    const defaultDir = meta.cwd || hosts.find(meta.serverId)?.machineInfo?.homePath || '~'
+    const defaultDir = meta.cwd || hosts.get(meta.serverId)?.machineInfo?.homePath || '~'
     const workingDirectory = worktreeProjectRoot(defaultDir)
     const title = meta.customTitle
       ? meta.customTitle
@@ -392,6 +392,7 @@ export class SessionOpening {
       session.title = title
       session.titleCustom = !!meta.customTitle
       session.startedBy = meta.startedBy
+      session.organizationId = meta.organizationId ?? null
       if (shouldActivate) {
         if (this.workspace.settings.activeAgent !== provider) {
           this.workspace.config.followActiveSessionAgent(provider)
@@ -414,6 +415,7 @@ export class SessionOpening {
       session.title = title
       session.titleCustom = !!meta.customTitle
       session.startedBy = meta.startedBy
+      session.organizationId = meta.organizationId ?? null
 
       if (!background && !intoTabId) {
         this.workspace.setActiveTab(targetTab!.id)

@@ -10,7 +10,6 @@
   import { downloadPayload } from "../work/lib/work-export";
   import type { TaskLinkContext } from "../tasks/link-control/lib/task-link-control";
   import ArtifactRail from "./ArtifactRail.svelte";
-  import ArtifactSkeleton from "./ArtifactSkeleton.svelte";
   import SandboxFrame from "./SandboxFrame.svelte";
 
   /**
@@ -23,7 +22,6 @@
     kind: "html" | "image";
     html?: string;
     path?: string;
-    pending?: boolean;
   }
 
   interface Props {
@@ -141,104 +139,100 @@
   }
 </script>
 
-{#if artifact.pending}
-  <ArtifactSkeleton {skipMotion} />
-{:else}
-  <div
-    class="artifact-root {skipMotion ? '' : 'animate-msg-in-side'}"
-    class:fill-available={fillAvailable}
-  >
-    {#if workRef}
-      <ArtifactRail workId={workRef.workId} title={workRef.title} contentVersion={workRef.contentVersion} {linkContext} />
-    {/if}
-    {#if artifactError}
-      <div
-        class="flex min-h-28 flex-col items-center justify-center gap-3 rounded-2xl border border-(--solus-status-error)/20 bg-(--solus-status-error)/5 px-5 py-4 text-center text-sm text-(--solus-text-secondary)"
-        role="alert"
-        data-testid="artifact-error"
-      >
-        <span>{artifactError}</span>
-        <div class="flex flex-wrap justify-center gap-2">
-          {#if artifact.kind === "html" || imageRequest}
-            <button
-              type="button"
-              class="min-h-10 rounded-lg border border-(--solus-container-border) bg-(--solus-container-bg) px-3.5 text-sm font-medium text-(--solus-text-primary)"
-              onclick={retryArtifact}
-            >
-              Try again
-            </button>
-          {/if}
-          {#if artifact.kind === "html"}
-            <button
-              type="button"
-              class="min-h-10 rounded-lg border border-(--solus-container-border) bg-(--solus-container-bg) px-3.5 text-sm font-medium text-(--solus-text-primary)"
-              onclick={downloadHtml}
-            >
-              Download HTML
-            </button>
-          {/if}
-        </div>
+<div
+  class="artifact-root {skipMotion ? '' : 'animate-msg-in-side'}"
+  class:fill-available={fillAvailable}
+>
+  {#if workRef}
+    <ArtifactRail workId={workRef.workId} title={workRef.title} contentVersion={workRef.contentVersion} {linkContext} />
+  {/if}
+  {#if artifactError}
+    <div
+      class="flex min-h-28 flex-col items-center justify-center gap-3 rounded-2xl border border-(--solus-status-error)/20 bg-(--solus-status-error)/5 px-5 py-4 text-center text-sm text-(--solus-text-secondary)"
+      role="alert"
+      data-testid="artifact-error"
+    >
+      <span>{artifactError}</span>
+      <div class="flex flex-wrap justify-center gap-2">
+        {#if artifact.kind === "html" || imageRequest}
+          <button
+            type="button"
+            class="min-h-10 rounded-lg border border-(--solus-container-border) bg-(--solus-container-bg) px-3.5 text-sm font-medium text-(--solus-text-primary)"
+            onclick={retryArtifact}
+          >
+            Try again
+          </button>
+        {/if}
+        {#if artifact.kind === "html"}
+          <button
+            type="button"
+            class="min-h-10 rounded-lg border border-(--solus-container-border) bg-(--solus-container-bg) px-3.5 text-sm font-medium text-(--solus-text-primary)"
+            onclick={downloadHtml}
+          >
+            Download HTML
+          </button>
+        {/if}
       </div>
-    {:else if isRaster && artifactUrl}
-      <!-- The one render that is not HTML. It reuses the frame's chrome
-           (expand, overlay, action cluster) rather than growing a second one. -->
-      <SandboxFrame {fillAvailable} expandable={!fillAvailable && !workRef} reloadKey={retryAttempt + reloadKey}>
-        <img
-          class="artifact-img"
-          src={artifactUrl}
-          alt="Rendered artifact"
-          data-testid="artifact-image"
-          onerror={() => (renderError = "This artifact image is unavailable.")}
-        />
-        {#snippet actions()}
-          {#if artifactUrl}
-            <TooltipUI.Root>
-              <TooltipUI.Trigger>
-                {#snippet child({ props: tooltipProps })}
-                  <button
-                    {...tooltipProps}
-                    class="artifact-action"
-                    class:is-copied={copiedImage}
-                    data-testid="artifact-copy-image"
-                    onclick={copyImage}
-                    aria-label="Copy image"
-                  >
-                    <span class="artifact-icon-swap">
-                      <CopyIcon
-                        size={14}
-                        weight="bold"
-                        class={copiedImage ? "icon-hidden" : ""}
-                      />
-                      <CheckIcon
-                        size={14}
-                        weight="bold"
-                        class={copiedImage ? "" : "icon-hidden"}
-                      />
-                    </span>
-                  </button>
-                {/snippet}
-              </TooltipUI.Trigger>
-              <TooltipUI.Content
-                value={copiedImage ? "Copied image" : "Copy image"}
-              />
-            </TooltipUI.Root>
-          {/if}
-        {/snippet}
-      </SandboxFrame>
-    {:else if frameHtml !== undefined}
-      <SandboxFrame
-        html={frameHtml}
-        {fillAvailable}
-        reloadKey={retryAttempt + reloadKey}
-        lazy={!fillAvailable}
-        expandable={!fillAvailable && !workRef}
-        onError={() => (renderError = "This artifact could not be rendered.")}
+    </div>
+  {:else if isRaster && artifactUrl}
+    <!-- The one render that is not HTML. It reuses the frame's chrome
+         (expand, overlay, action cluster) rather than growing a second one. -->
+    <SandboxFrame {fillAvailable} expandable={!fillAvailable && !workRef} reloadKey={retryAttempt + reloadKey}>
+      <img
+        class="artifact-img"
+        src={artifactUrl}
+        alt="Rendered artifact"
+        data-testid="artifact-image"
+        onerror={() => (renderError = "This artifact image is unavailable.")}
       />
-    {:else}
-      <ContentSkeleton label="Loading artifact" preview />
-    {/if}
-  </div>
-{/if}
+      {#snippet actions()}
+        {#if artifactUrl}
+          <TooltipUI.Root>
+            <TooltipUI.Trigger>
+              {#snippet child({ props: tooltipProps })}
+                <button
+                  {...tooltipProps}
+                  class="artifact-action"
+                  class:is-copied={copiedImage}
+                  data-testid="artifact-copy-image"
+                  onclick={copyImage}
+                  aria-label="Copy image"
+                >
+                  <span class="artifact-icon-swap">
+                    <CopyIcon
+                      size={14}
+                      weight="bold"
+                      class={copiedImage ? "icon-hidden" : ""}
+                    />
+                    <CheckIcon
+                      size={14}
+                      weight="bold"
+                      class={copiedImage ? "" : "icon-hidden"}
+                    />
+                  </span>
+                </button>
+              {/snippet}
+            </TooltipUI.Trigger>
+            <TooltipUI.Content
+              value={copiedImage ? "Copied image" : "Copy image"}
+            />
+          </TooltipUI.Root>
+        {/if}
+      {/snippet}
+    </SandboxFrame>
+  {:else if frameHtml !== undefined}
+    <SandboxFrame
+      html={frameHtml}
+      {fillAvailable}
+      reloadKey={retryAttempt + reloadKey}
+      lazy={!fillAvailable}
+      expandable={!fillAvailable && !workRef}
+      onError={() => (renderError = "This artifact could not be rendered.")}
+    />
+  {:else}
+    <ContentSkeleton label="Loading artifact" preview />
+  {/if}
+</div>
 
 <style>
   .artifact-root {

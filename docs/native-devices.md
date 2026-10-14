@@ -2,7 +2,8 @@
 
 Show an iOS Simulator or Android Emulator beside a conversation, use it with
 the mouse, keyboard or touch, and let the agent drive and screenshot the same
-device. Desktop, web and mobile clients show the same devices and state.
+device. Desktop and web clients show the devices; the mobile app shows the
+screenshots an agent takes (see [Agents](#agents)).
 
 ## Set up
 
@@ -102,171 +103,73 @@ app permissions, open URL, launch and terminate, and a test push (iOS).
 Controls a platform cannot do are not shown. A missing helper says so instead
 of pretending to work.
 
-## Put a build on a phone or iPad
+## Run app
 
-Ask the agent to build the app and put it on your phone. The agent builds
-the app itself (`xcodebuild`, Gradle, `expo run`), then calls
-`device_install` with the build output: an iOS `.app` bundle or an Android
-`.apk`. Solus records the build, installs it and opens it. Solus does not
-build or sign apps.
+Open **Run app** from the Devices pane, the command palette, or the
+project panel. The mobile app does not have Run app.
+Choose **Dev server** or **Production build**, then a project and a device.
 
-**Connected devices.** An iPhone or iPad connected to the Solus host by cable
-or on the same network, and an Android phone with USB debugging, appear in
-the device list. Solus can install builds on them, but it cannot show their
-screen, so they are not offered as device tabs. When a device cannot take an
-install, Solus says why: not connected, does not trust this Mac, Developer
-Mode off, or USB debugging not allowed.
+- **Dev server** opens the app on a simulator or emulator with the
+  project's Metro dev server, for live reload. It builds nothing: the
+  simulator must already have a debug build of the app (for example from
+  `npx expo run:ios` once). If Metro for this project already runs on port
+  8081, Solus joins it. If the port is free, Solus starts Metro in the
+  project folder and stops it when you stop the run. Solus never adopts a
+  dev server that serves another project. It uses the project as it is on
+  disk, uncommitted changes included. An Expo app with `expo-dev-client`
+  opens through its `exp+<slug>` link; other debug builds restart and load
+  from Metro. Android uses an adb connection to the server.
+- **Production build** builds a Release app with its JavaScript included
+  from the chosen branch, installs it, and opens it. It works on
+  simulators and connected phones.
 
-**iOS signing.** A build for an iPhone or iPad must be signed for
-development by your own team, as Xcode does it. The agent can build with
-automatic signing (`xcodebuild -allowProvisioningUpdates` and your team in
-the project). A simulator build cannot go on a device, and a device build
-cannot go on a simulator; Solus refuses the wrong one and says which build
-to make. If an install fails for signing, Solus says what to change.
+For an Android phone that is not connected to the host, choose **Android
+phone (download)** and **Build APK**, then install the downloaded APK
+yourself.
 
-**Build & run.** Build the app from the Devices pane, without the agent:
+A production build uses the newest commit of the chosen branch in a
+separate checkout that Solus owns. It does not switch your conversation's
+checkout. Uncommitted changes are not built.
 
-1. Open a conversation in the project and show a device in the Devices pane.
-2. Select **Set up Build & run** in the device toolbar (or **Edit build
-   profiles…** in its arrow menu). Add a profile for what it builds for:
-   **iOS Simulator**, **iPhone or iPad**, or **Android**. Solus fits the
-   folder, the Xcode workspace and its scheme to the project. A profile
-   builds **Debug** or **Release**: a Debug build of an Expo or React Native
-   app loads its JavaScript from Metro (start it with `npx expo start`); a
-   Release build has the JavaScript bundled in. Changing **Builds for**
-   replaces the command, folder and output with those for the new choice;
-   changing the configuration changes the command and the output path
-   together. Under **Build details** are the folder, the command, the
-   output path (`*` matches within one folder name; the newest match wins),
-   and the app id. Save writes the profiles to the project's
-   `.solus/config.json`, so they can be committed and shared.
-3. Select **Build & run**. Solus builds in the conversation's own checkout
-   (its worktree, if it has one), finds the output, records it under
-   Builds, installs it on the device on screen and opens it. A stopped
-   simulator boots first.
+**Cancel** stops only the processes Solus started. Stop a running app run
+before you start another one.
 
-The log shows **Steps**, **Issues** (only the errors and warnings), or
-**Raw output**. A failed build with errors opens on its issues.
+Solus detects standard Xcode and Gradle commands from the project.
+Solus prepares an Expo native project when its native folder is absent.
+Other projects must have their native project folder. When detection is
+not sufficient, add `deviceRuns` to the project's `.solus/config.json` with
+the command, folder, output path, and app id. iPhone and iPad builds need
+an Apple signing certificate and a development team. Configure these in
+Xcode and the project. The host asks before it runs a new repository
+command, and before it starts a dev server for the first time.
 
-While it builds, the toolbar shows the stage; select it to open the log, or
-**×** to cancel. Cancel stops only the build process Solus started. A failed
-build stays in the toolbar with its log until the next run. The arrow menu
-lists the other profiles that fit the device, the builds that fit it, and
-**Show the last build log**.
+The current stage and error appear on the page. **Log** opens the
+bounded log as Steps, Issues, or Raw output. Run app copies iOS output
+into its own cache, so a failed retry cannot replace the last useful app.
+It removes only its own cached outputs. Agent and project app folders stay
+intact. A host restart stops a live run; its state then asks you to run it
+again. Solus does not claim that a dev server survived a restart.
 
-The command runs without a shell, so pipes and variables are not expanded.
-The first time a command runs on a host, Solus shows it and asks to run it;
-a changed command asks again. Builds stop after 30 minutes. Build & run
-works with devices connected to the Solus host itself, not with an SSH
-device host. Signing stays with the project: a device build must use your
-development team (`-allowProvisioningUpdates` in the Xcode preset).
+On an Android phone, **Download APK** opens a download.
+Install it from your downloads. A download is not a confirmed install;
+Solus cannot confirm the phone's own installer result.
 
-**Run a build.** One click runs a build where you can see it:
+App runs use devices connected to the selected Solus host. SSH device
+hosts remain available for device viewing and control, but app build and
+install does not transfer builds to them. Desktop and web
+use the same host RPC operations and device control leases. An install
+borrows a free lease and releases it afterward. It cannot take a device
+from an agent or another client.
 
-- **On the device you are looking at.** When the project has no build
-  profile for the device but a build fits it, the Devices toolbar shows
-  **Run <build>** for the newest one. One click installs it there and opens it. While it
-  installs, the button shows **Installing <build> on <device>…**. The arrow lists the
-  other builds that fit, and **All builds**.
-- **Devices pane → Builds.** The builds are one card, a row each: the
-  build's name, and what it runs on and how old it is. **Run** on the right
-  uses the best device (its name is in the button's tooltip): a connected
-  phone first, then a running simulator or emulator, then a stopped one,
-  which boots. While it installs, the button shows **Installing…**. A
-  simulator or emulator then shows in the Devices tab; on a phone, the app
-  opens on the phone. The **…** menu shows the app id, size, project,
-  conversation and last install, runs the build on another device,
-  downloads an APK, and deletes the build from the host (see below).
-  Builds opens without a conversation too. **New build** builds one of a
-  project's Build & run profiles and adds the output under Builds; it
-  installs nothing, so it needs no open simulator. It builds in the
-  conversation's checkout, or asks **Build which project?** when there is
-  none and then opens again on that project's profiles; **Other project**
-  in its menu changes it. The menu names the project it builds. The menu says what each
-  profile builds for: **iPhone or iPad**, **iOS Simulator** or
-  **Android**. Use an iPhone or iPad profile for a phone, then **Run** puts
-  the build on it. With no profile saved, **Set up a build profile…** opens
-  the profile editor, which shows the presets as the first step. Each
-  profile is one row that says what it builds for, its folder, and who signs
-  it (or that a phone build needs a signing team). A row opens to edit its
-  name, what it builds for, Debug or Release, and its signing team; the
-  folder, command, output and app id are under **Build details**. After
-  **Save profiles**, New build opens again on the saved profiles. A preset starts in the folder detection found the app in
-  (an Expo app in `apps/mobile` builds in `apps/mobile/ios`) and names the
-  Xcode workspace there and its scheme. Save needs at least one profile.
-  When a build has nowhere to run, its row says why: for example, a
-  simulator build with only a phone connected.
-  While it builds, a card above the list shows the stage, the current step,
-  the issue count, the time, **Cancel**, and the log; a failed build stays
-  there until closed. **Add existing…**
-  opens the host's folder browser at the conversation's folder instead. It
-  lists folders and build outputs; an `.app` bundle or an `.apk` is chosen
-  with a click, not opened.
-- **Project panel → Environment → Devices.** The row shows how many builds
-  the host has, and opens Builds when there is at least one.
+Agents can still build an app and call `device_install` with its `.app`
+or `.apk` output. A simulator opened by the agent appears beside the
+conversation. Connected phones can take builds, but Solus cannot show
+their screens.
 
-When the agent installs a build on a simulator or emulator, that device also
-opens beside the conversation.
-
-A window has one Devices pane. Opening Devices again, from a run or from
-the agent, shows the device in that pane and keeps the conversation beside it.
-
-To watch another device in its own tab, choose **+ → Devices** in the tab
-strip when a Devices tab is already open. The new tab starts on the device
-picker and shows only the device you choose in it. Runs and the agent
-continue to use the first Devices tab.
-
-The Devices row shows only for projects that build a mobile app, at the root
-or in a subfolder up to four levels down: an Xcode project or workspace, an
-`android/` Gradle project, an `AndroidManifest.xml`, a `package.json` that
-depends on `expo` or `react-native`, a Flutter `pubspec.yaml`, or a Capacitor
-config. Dependency and build folders (`node_modules`, `Pods`, `build`, and
-hidden folders) are skipped. It also shows when the conversation already has
-a device open. **Open Devices** in the command palette works in any project.
-
-**Builds.** Each build shows its kind, app id, size, age and where it was
-last installed.
-
-- **Install on…** lists the devices that can take the build now: connected
-  phones first, then running simulators and emulators. The install needs
-  control of the device. If you do not have it, Solus takes control for the
-  install and gives it back. Solus never takes a device from an agent that
-  is using it.
-- **Download** (Android) downloads the APK through a link that expires
-  after an hour. Open the web client in your phone's browser to download it
-  straight to the phone.
-
-**Mobile app.** Open a host, then **App builds**. On an Android phone,
-**Install here** downloads the APK and Android installs it; the first time,
-Android asks you to allow installs from the browser. On any phone,
-**Install on…** puts the build on a device connected to the host.
-
-The host keeps the 20 newest builds. An APK is copied into the host's
-assets, so a newer build does not change one that was already offered. An
-iOS build refers to the build output on the host; building again at the same
-path replaces it. When a build's output is no longer on the host, the build
-is not listed, and the host drops its entry.
-
-Deleting a build deletes the output it names and nothing around it: the
-`.app` bundle (only the link, when the path is a symbolic link), or the copy
-of an APK in the host's assets. The APK that the project built stays.
-Adding and deleting builds is for the host's administrator, like device
-setup. On mobile, **Run** opens the device choice, the **…** menu says what
-the build is and has **Install on this phone** (Android, APK builds) and
-**Delete**, and **Add existing** browses the host's folders the same way.
-On mobile, **New build** asks which of the host's projects to build, then
-which of its saved profiles (each says what it builds for). The build
-shows on the Builds screen with **Log** and **Cancel**, and a failed one
-stays until **Dismiss**. **Log** opens the build log screen: the stage, the
-current step and the time, then **Steps**, **Issues** or **Raw**, read
-again every second while it builds. With no profile saved, **Set up a build profile** opens
-the project's build profiles; **Edit build profiles** opens them too. The
-phone edits the same profiles as the Devices pane: add one from the same
-choices (**Simulator**, **iPhone or iPad**, **Android**), then edit its
-name, what it builds for, Debug or Release, and its signing team; the
-folder, command, output and app id are under **Build details**. Each profile shows as one card that opens on tap. **Save** checks them the same way and writes them to the
-project's `.solus/config.json`. Builds install only on devices connected to the Solus host
-itself, not on an SSH device host.
+The Devices pane can show more than one simulator in separate device
+tabs. Open another with **+ → Devices**. Device support appears in the
+project panel for a mobile app or for a conversation with an open device.
+**Open Devices** in the palette opens device viewing in any project.
 
 ## Control
 
@@ -291,6 +194,10 @@ With agent access on, Claude and Codex sessions get five tools:
 `device_open` boots the device if needed, shows it beside the conversation
 and returns the exact `agent-device` command and flags to drive it. The
 screenshot reaches the agent as an image and is saved as a host asset.
+
+The mobile app has no Devices pane. When you ask the agent to show you
+something on a device, it calls `device_screenshot`, and the screenshot
+appears in the conversation on every client, the phone included.
 
 The agent's CLI talks to the device through Solus, never directly. Solus
 checks control before each command that changes the device, keeps each
@@ -325,7 +232,7 @@ nobody watches it.
 These parts of plan 016 are not built: the floating preview, imported 3D
 hardware models and folding-device controls, Run on device with saved build profiles (agents
 build, and `device_install` installs), installs on an SSH device host,
-build-and-run on mobile, outdated-build labels,
+outdated-build labels,
 frozen-screen annotations, native
 recordings and before/after evidence, saved test conditions and checks, and
 control arbitration between two Solus hosts that share one SSH Mac.

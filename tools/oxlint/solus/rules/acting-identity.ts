@@ -34,6 +34,7 @@ const hostNameFiles = new Map([
   ['packages/server/src/transport/server.ts', 'internal calls with no principal'],
   ['packages/server/src/execution/session-runtime.ts', 'turns with no actor are the host’s'],
   ['packages/server/src/execution/sessions/run-launcher.ts', 'turns with no actor are the host’s'],
+  ['packages/server/src/execution/sessions/prompt-dispatch.ts', 'a new session no person starts is admitted as the host’s'],
   ['packages/server/src/execution/sessions/run-scheduler.ts', 'turns with no actor are the host’s'],
   ['packages/server/src/execution/sessions/restart-recovery.ts', 'recovery of the host’s own runs'],
   ['packages/server/src/execution/orchestration/orchestrate-sessions.ts', 'the orchestrator stops and answers as the host'],

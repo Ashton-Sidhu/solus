@@ -1,5 +1,5 @@
+import { AGENT_ACTIVITY_STALE_AFTER_MS, type AgentActivityCard } from '@solus/contracts/uplink'
 import type { KeyValueStore } from '../../platform/ports'
-import type { AgentActivityProps } from '../../widgets/AgentActivity'
 import { deriveAgentActivity, type AgentActivityInput } from './agent-activity-model'
 
 /**
@@ -7,25 +7,39 @@ import { deriveAgentActivity, type AgentActivityInput } from './agent-activity-m
  * in step with the sessions this device knows, as T3 Code keeps its one
  * aggregate card per device.
  *
- * Solus has no push relay, so only the app updates the card: while it runs,
- * every change lands within a moment; once iOS suspends it, the card's stale
- * date (10 minutes, T3's window) marks it "Out of date" rather than letting it
- * claim work it cannot see. A card starts only while the app is in front, as
- * ActivityKit allows and as T3 does; it ends when nothing is left running.
+ * While the app runs, every change lands within a moment. Once iOS suspends
+ * it, the hosts update the card: each card the app shows goes to the relay
+ * with the card's push token, and each host reports its own rows to the
+ * control plane, which sends the card through APNs
+ * (docs/plans/live-activity-push.md). A host that cannot reach the control
+ * plane does not update it; the card's stale date (10 minutes, T3's window)
+ * then marks it "Out of date" rather than letting it claim work it cannot see.
+ * A card starts only while the app is in front, as ActivityKit allows and as
+ * T3 does; it ends when nothing is left running.
  */
 
 export interface LiveActivityHandle {
   /** The ActivityKit id: each read of the cards answers new handles for the same card. */
   getId(): string
-  update(props: AgentActivityProps, staleDate: Date): Promise<void>
-  end(policy: 'default' | 'immediate', props?: AgentActivityProps): Promise<void>
+  update(props: AgentActivityCard, staleDate: Date): Promise<void>
+  end(policy: 'default' | 'immediate', props?: AgentActivityCard): Promise<void>
+  /** The card's APNs push token: iOS issues it after the card starts and may replace it. */
+  onPushToken(listener: (pushToken: string) => void): () => void
 }
 
 export interface LiveActivityBridge {
   /** Cards that already exist: from an earlier run of the app, too. */
   instances(): LiveActivityHandle[]
   /** Null where Live Activities are not available or are turned off in iOS Settings. */
-  start(props: AgentActivityProps, staleDate: Date): LiveActivityHandle | null
+  start(props: AgentActivityCard, staleDate: Date): LiveActivityHandle | null
+}
+
+/** The hosts that update the card while the app is suspended. */
+export interface LiveActivityRelay {
+  /** The card as it shows now; `generation` orders the cards one push token carried. */
+  register(pushToken: string, generation: number, card: AgentActivityCard): void
+  /** The card ended, or this token no longer belongs to it. */
+  unregister(pushToken: string): void
 }
 
 export interface AgentLiveActivityDeps {
@@ -38,10 +52,10 @@ export interface AgentLiveActivityDeps {
   readonly now: () => number
   /** Keeps the card's sessions across a restart, so a card left running can show how its work ended. */
   readonly storage: Pick<KeyValueStore, 'getItem' | 'setItem' | 'removeItem'>
+  readonly relay: LiveActivityRelay
   readonly onError?: (error: unknown) => void
 }
 
-export const LIVE_ACTIVITY_STALE_AFTER_MS = 10 * 60_000
 const TRACKED_KEY = 'solus.liveActivities.tracked'
 
 export class AgentLiveActivityController {
@@ -50,6 +64,11 @@ export class AgentLiveActivityController {
   private tracked: ReadonlyMap<string, number | null> = new Map()
   /** The last content sent, without its timestamps, so a repeat is not sent again. */
   private sent = ''
+  /** The card as last sent, for the relay when the push token arrives later. */
+  private card: AgentActivityCard | null = null
+  private pushToken: string | null = null
+  private stopPushToken: (() => void) | null = null
+  private generation = 0
 
   constructor(private readonly deps: AgentLiveActivityDeps) {}
 
@@ -75,19 +94,20 @@ export class AgentLiveActivityController {
       // All work settled: the card shows the outcome, and iOS keeps it on the
       // Lock Screen for a while before removing it.
       const finished = this.activity
-      this.activity = null
+      this.setActivity(null)
       this.track(new Map())
       this.sent = ''
       if (finished) this.guard(finished.end('default', state.props))
       return
     }
-    const staleDate = new Date(this.deps.now() + LIVE_ACTIVITY_STALE_AFTER_MS)
+    const staleDate = new Date(this.deps.now() + AGENT_ACTIVITY_STALE_AFTER_MS)
     const content = JSON.stringify({ ...state.props, updatedAt: '', activities: state.props.activities.map((row) => ({ ...row, updatedAt: '' })) })
     if (!this.activity) {
       if (!this.deps.foreground()) return
       try {
-        this.activity = this.deps.bridge.start(state.props, staleDate)
+        this.setActivity(this.deps.bridge.start(state.props, staleDate))
         this.sent = content
+        this.sendToRelay(state.props)
       } catch (error) {
         this.deps.onError?.(error)
       }
@@ -95,6 +115,7 @@ export class AgentLiveActivityController {
     }
     if (content === this.sent) return
     this.sent = content
+    this.sendToRelay(state.props)
     const card = this.activity
     card.update(state.props, staleDate).catch((error: unknown) => {
       // The card is gone: the next change starts a new one.
@@ -121,7 +142,7 @@ export class AgentLiveActivityController {
     const [first, ...extra] = existing
     // One card per device; extras from a race end now.
     for (const card of extra) this.guard(card.end('immediate'))
-    this.activity = first ?? null
+    this.setActivity(first ?? null)
     // The sessions the earlier run's card showed: the ones that finished
     // since then stay on it as Done or Failed.
     if (first) this.tracked = new Map(this.savedKeys().map((key) => [key, null]))
@@ -131,7 +152,7 @@ export class AgentLiveActivityController {
   private endAll(policy: 'default' | 'immediate'): void {
     this.adopt()
     const card = this.activity
-    this.activity = null
+    this.setActivity(null)
     this.track(new Map())
     this.sent = ''
     if (card) this.guard(card.end(policy))
@@ -150,8 +171,41 @@ export class AgentLiveActivityController {
 
   private drop(card: LiveActivityHandle): void {
     if (this.activity !== card) return
-    this.activity = null
+    this.setActivity(null)
     this.sent = ''
+  }
+
+  /** The one place the card changes: its push token follows it. */
+  private setActivity(next: LiveActivityHandle | null): void {
+    if (next === this.activity) return
+    this.stopPushToken?.()
+    this.stopPushToken = null
+    this.forgetPushToken()
+    this.card = null
+    this.activity = next
+    if (!next) return
+    this.stopPushToken = next.onPushToken((pushToken) => {
+      if (this.activity !== next || pushToken === this.pushToken) return
+      this.forgetPushToken()
+      this.pushToken = pushToken
+      if (this.card) this.register(pushToken, this.card)
+    })
+  }
+
+  private sendToRelay(card: AgentActivityCard): void {
+    this.card = card
+    if (this.pushToken) this.register(this.pushToken, card)
+  }
+
+  private register(pushToken: string, card: AgentActivityCard): void {
+    // Strictly increasing: the relay keeps the highest generation it was told.
+    this.generation = Math.max(this.deps.now(), this.generation + 1)
+    this.deps.relay.register(pushToken, this.generation, card)
+  }
+
+  private forgetPushToken(): void {
+    if (this.pushToken) this.deps.relay.unregister(this.pushToken)
+    this.pushToken = null
   }
 
   private track(next: ReadonlyMap<string, number | null>): void {

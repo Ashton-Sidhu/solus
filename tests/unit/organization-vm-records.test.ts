@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import type { IpcContext } from '@solus/contracts/types'
-import type { HostOrganizationsResponse, UplinkLinkConfig } from '@solus/contracts/uplink'
+import type { HostOrganizationsResponse, HostRegistration } from '@solus/contracts/uplink'
 import type { WorkspaceCreateTask, WorkspaceCreateWork, WorkspaceTask, WorkspaceWork } from '@solus/contracts/solus-api'
 import { resetTestDatabase } from './helpers/test-db'
 
@@ -46,7 +46,7 @@ let dataDir: string
 let hostOrganizations: InstanceType<typeof organizations.HostOrganizations>
 let shares: import('@solus/server/sharing/share-manager').ShareManager
 
-const LINK: UplinkLinkConfig = { hostId: 'VM', issuer: 'https://cloud.invalid', jwksUrl: 'https://cloud.invalid/jwks', directoryUrl: 'https://cloud.invalid', hostname: 'h-VM.lab.invalid', proxiedPort: 1, connectionGeneration: 1, apiUrl: 'https://api.invalid' }
+const LINK: HostRegistration = { hostId: 'VM', issuer: 'https://cloud.invalid', jwksUrl: 'https://cloud.invalid/jwks', directoryUrl: 'https://cloud.invalid', generation: 1, apiUrl: 'https://api.invalid' }
 const STANDING: HostOrganizationsResponse = {
   hostId: 'VM',
   category: 'self-hosted',
@@ -91,7 +91,7 @@ beforeAll(async () => {
   dbModule = await import('@solus/server/db')
   shares = new shareManager.ShareManager({ db: database.getDatabase() })
   hostOrganizations = new organizations.HostOrganizations({
-    link: () => LINK,
+    registration: () => LINK,
     credential: () => ({ hostAccessToken: async () => 'control-token' }),
     fetchImpl: async () => new Response(JSON.stringify(STANDING), { status: 200, headers: { 'content-type': 'application/json' } }),
     setTimeoutFn: (() => ({ unref() {} })) as unknown as typeof setTimeout,
@@ -204,6 +204,132 @@ describe('the link transition', () => {
     expect(attachment.isOrganizationAttached()).toBe(false)
     await localRecord('s-laptop')
     expect(await turnOrganization.admitTurnOrganization(ctx('s-laptop', 'B'), actorFor(PAIRED), { hostOrganizations, delegations: authorities })).toBe('local')
+  })
+})
+
+describe('every new session passes the turn admission', () => {
+  // N1 (verify-multiplayer TRIAGE): `createHeadlessSession` — a cross-host child, a
+  // client's background start — is a new root like a first prompt. A local child
+  // (`start_session` on this machine) is new work too. Both are admitted inside
+  // `PromptDispatch.createSession`, so an attached machine never starts a Local root,
+  // and a person whose authority was removed starts no new child run (organization-vms §4).
+  type Handler = (args: unknown[], handlerCtx: { principal: Principal; clientId?: string }) => Promise<unknown>
+  async function harness() {
+    const { registerSessionHandlers } = await import('@solus/server/transport/handlers/session-handlers')
+    const { PromptDispatch } = await import('@solus/server/execution/sessions/prompt-dispatch')
+    const { withActor } = await import('./helpers/actors')
+    const authorities = new FakeDelegations()
+    /** The runs that reached the provider: nothing before admission accepts them. */
+    const runs: Array<{ sessionId: string; actor?: { principal: Principal } }> = []
+    const prompted: string[] = []
+    const actors = new Map<string, ReturnType<typeof actorFor>>()
+    const activeSessions = new Map<string, { runInput?: { workingDirectory: string } }>()
+    const rt = {
+      activeSessions,
+      sessionPermissionModes: new Map([['parent-a', 'full-access'], ['parent-local', 'full-access']]),
+      actorOfSession: (sessionId: string) => actors.get(sessionId),
+      seatForTurn: async () => null,
+      turnOrganization: async (sessionId: string) => {
+        const organizationId = (await recordOf(sessionId))?.organizationId
+        return organizationId && organizationId !== 'local' ? organizationId : undefined
+      },
+      runTurn: async (request: { sessionId: string; actor?: { principal: Principal } }) => {
+        runs.push(request)
+        return { disposition: 'started', agentSessionId: Promise.resolve({ agentSessionId: `thread-${request.sessionId}` }) }
+      },
+      emit: () => {},
+    }
+    const dispatch = new PromptDispatch(rt as never)
+    dispatch.admission = {
+      hostOrganizations, delegations: authorities,
+      adoptSession: (sessionId, organizationId, ownerUserId, options) => shares.adoptForOrganization({ kind: 'session', id: sessionId }, organizationId, ownerUserId, options),
+    }
+    dispatch.promptSession = (async (sessionId: string) => { prompted.push(sessionId); return { disposition: 'started' } }) as never
+    const handlers = new Map<string, Handler>()
+    registerSessionHandlers(
+      { register: (name: string, handler: Handler) => handlers.set(name, (args, handlerCtx) => handler(args, withActor(handlerCtx))) } as never,
+      { sessionRuntime: { activeSessions, dispatch } as never, orchestrator: { mayAnswer: () => true }, agentIdFromContext: () => 'claude-code', shares },
+    )
+    const start = (principal: Principal, organizationId?: string) => handlers.get('createHeadlessSession')!([{ prompt: 'Go.', provider: 'claude-code', modelId: null, reasoningEffort: 'medium', contextWindow: null, cwd: dataDir, organizationId }], { principal })
+    const promptFromHost = (principal: Principal, sessionId: string) => handlers.get('promptHeadlessSession')!([{ sessionId, prompt: 'More.', delivery: 'queue', promptId: `p-${sessionId}` }], { principal })
+    /** `start_session` from a running parent on this machine, as the orchestrator calls it: no actor of its own. */
+    const startChild = (parentSessionId = 'parent-a') => dispatch.createSession({ prompt: 'Help.', provider: 'claude-code', modelId: 'opus', reasoningEffort: 'medium', contextWindow: null, cwd: dataDir, delegation: { parentSessionId, messageId: 'exchange-1', intent: 'delegate', createdAt: 1 } })
+    return { start, promptFromHost, startChild, runs, prompted, authorities, actors, activeSessions }
+  }
+
+  /** An organization session on the Solus API, run for Bob: its record is published in A. */
+  async function bobsParent(actors: Map<string, ReturnType<typeof actorFor>>) {
+    records.rememberSessionBirth('parent-a', { organizationId: 'A', published: true, ownerUserId: 'bob' })
+    await records.upsertOwnSessionRecord({ sessionId: 'parent-a', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
+    actors.set('parent-a', actorFor(BOB_IN_A))
+  }
+
+  test('a headless start with no organization is refused before anything starts, as a prompt would be', async () => {
+    const { start, runs, authorities } = await harness()
+    await expect(start(PAIRED)).rejects.toMatchObject({ code: 'ORGANIZATION_REQUIRED' })
+    await expect(start(ALICE)).rejects.toMatchObject({ code: 'ORGANIZATION_REQUIRED' })
+    expect(runs).toEqual([])
+    expect(authorities.calls).toEqual([])
+  })
+
+  test('a headless start with the requester\'s organization is admitted on the Solus API before its provider runs', async () => {
+    const { start, runs, authorities } = await harness()
+    const started = await start(ALICE, 'A') as { sessionId: string }
+    expect(authorities.calls).toEqual([{ sessionId: started.sessionId, userId: 'alice', organizationId: 'A', admit: true }])
+    expect(runs.map((run) => run.sessionId)).toEqual([started.sessionId])
+    expect(turnOrganization.pendingOrganizationFor(started.sessionId)).toBe('A')
+    expect(await shares.ownerOf({ kind: 'session', id: started.sessionId })).toBe('alice')
+  })
+
+  test('a local child is admitted on the Solus API in its parent\'s organization, for its parent\'s person', async () => {
+    const { startChild, runs, authorities, actors } = await harness()
+    await bobsParent(actors)
+    const child = await startChild()
+    expect(authorities.calls).toEqual([{ sessionId: child.sessionId, userId: 'bob', organizationId: 'A', admit: true }])
+    expect(runs.map((run) => run.sessionId)).toEqual([child.sessionId])
+    expect(turnOrganization.pendingOrganizationFor(child.sessionId)).toBe('A')
+    expect(await shares.ownerOf({ kind: 'session', id: child.sessionId })).toBe('bob')
+  })
+
+  test('a local child of a person whose authority was removed is refused before its provider starts', async () => {
+    const { startChild, runs, authorities, actors } = await harness()
+    await bobsParent(actors)
+    authorities.refusal = { code: 'ORGANIZATION_AUTHORITY_MISSING', message: 'Bob no longer holds authority in Acme.' }
+    await expect(startChild()).rejects.toMatchObject({ code: 'ORGANIZATION_AUTHORITY_MISSING' })
+    expect(runs).toEqual([])
+  })
+
+  test('a local child of a Local session stays Local, as a personal fork does (organization-vms §1: children inherit)', async () => {
+    const { startChild, runs, authorities, actors } = await harness()
+    await localRecord('parent-local')
+    actors.set('parent-local', actorFor(ALICE))
+    const child = await startChild('parent-local')
+    expect(authorities.calls).toEqual([])
+    expect(runs.map((run) => run.sessionId)).toEqual([child.sessionId])
+    expect(turnOrganization.pendingOrganizationFor(child.sessionId)).toBeNull()
+  })
+
+  test('a prompt from another host on an organization session checks the person\'s authority, as a prompt does', async () => {
+    const { promptFromHost, prompted, authorities, actors, activeSessions } = await harness()
+    await bobsParent(actors)
+    activeSessions.set('parent-a', { runInput: { workingDirectory: dataDir } })
+    await promptFromHost(BOB_IN_A, 'parent-a')
+    expect(authorities.calls).toEqual([{ sessionId: 'parent-a', userId: 'bob', organizationId: 'A', admit: false }])
+    authorities.refusal = { code: 'ORGANIZATION_AUTHORITY_MISSING', message: 'Bob no longer holds authority in Acme.' }
+    await expect(promptFromHost(BOB_IN_A, 'parent-a')).rejects.toMatchObject({ code: 'ORGANIZATION_AUTHORITY_MISSING' })
+    expect(prompted).toEqual(['parent-a'])
+  })
+
+  test('a link guest\'s prompt on an organization session runs for the person who shared it, while they hold authority (host-sharing.md §4.2 step 5)', async () => {
+    const { promptFromHost, prompted, authorities, actors, activeSessions } = await harness()
+    await bobsParent(actors)
+    activeSessions.set('parent-a', { runInput: { workingDirectory: dataDir } })
+    const maya: Principal = { kind: 'guest', guestId: 'maya', displayName: 'Maya', deviceId: 'maya', share: { resource: { kind: 'session', id: 'parent-a' }, role: 'editor', sharedByUserId: 'bob', linkSecretHash: 'h' }, expiresAt: Date.now() + 600_000, deviceLabel: 'Guest link' }
+    await promptFromHost(maya, 'parent-a')
+    expect(authorities.calls).toEqual([{ sessionId: 'parent-a', userId: 'bob', organizationId: 'A', admit: false }])
+    authorities.refusal = { code: 'ORGANIZATION_AUTHORITY_MISSING', message: 'Bob no longer holds authority in Acme.' }
+    await expect(promptFromHost(maya, 'parent-a')).rejects.toMatchObject({ code: 'ORGANIZATION_AUTHORITY_MISSING' })
+    expect(prompted).toEqual(['parent-a'])
   })
 })
 
@@ -351,6 +477,25 @@ describe('an agent\'s record tools follow its session\'s home', () => {
       uninstall()
     }
   })
+
+  test('a session the API admitted writes there from its first tool call, before its record is written on this machine', async () => {
+    // WHY: a fast agent calls a tool before the indexer writes the new session's record
+    // (the Lab's organization-work run). That write must still go to the Solus API, never
+    // into this machine's store.
+    expect(await turnOrganization.admitTurnOrganization(ctx('s-first', 'A'), actorFor(ALICE), { hostOrganizations, delegations: new FakeDelegations() })).toBe('A')
+    expect(await recordOf('s-first')).toBeNull()
+    const api = fakeOrganizationApi('A')
+    const uninstall = toolContext.installWorkspaceToolOperations(service.createWorkspaceOperations(shares), 'vm', () => api.operations)
+    try {
+      const created = await taskTools.createTaskAgentTool.execute({ title: 'First write' }, agentIn('s-first'))
+      expect(created.ok).toBe(true)
+      expect(api.calls).toEqual([`createTask:s-first:${dataDir}`])
+      expect((await taskStore.listTasks(principalModule.ANY_ORGANIZATION)).tasks.map((task) => task.title)).not.toContain('First write')
+    } finally {
+      uninstall()
+      turnOrganization.applyPendingAssignment('s-first')
+    }
+  })
 })
 
 describe('the Solus API takes a session\'s owner from its admission', () => {
@@ -394,5 +539,12 @@ describe('the Solus API takes a session\'s owner from its admission', () => {
     expect(await shares.ownerOf(chat)).toBe('alice')
     expect(await shares.roleFor({ ...BOB_IN_A, userId: 'carol' } as Principal, chat)).toBe('none')
     expect(await records.getSessionRecord('A', chat.id)).not.toHaveProperty('privateToOwner')
+  })
+
+  test('a record a runner report creates reads published to the organization\'s clients', async () => {
+    // WHY: a runner reports only published sessions; a client that reads `local` treats the session as not on the API.
+    await intake.applyRunnerSessionRecords(runner('alice'), { hostId: 'VM', reports: [{ seq: 20, record: { sessionId: 'thread-reported', provider: 'codex', projectPath: '-repo', lastActivityAt: 20 } }] }, shares)
+    const reader = { principal: { ...BOB_IN_A, userId: 'carol' } as Principal, home: { kind: 'organization' as const, serviceId: 'api', organizationId: 'A' }, scopes: ['sessions:read' as const] }
+    expect(await new sessionApi.SessionApiOperations(shares).get(reader, 'thread-reported')).toMatchObject({ id: 'thread-reported', organizationId: 'A', publication: 'published' })
   })
 })

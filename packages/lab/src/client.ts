@@ -39,12 +39,21 @@ export interface LabClientOptions {
   persona: Persona
   /** The proxied listener, or the ordinary one for a local-owner route. */
   hostUrl: string
-  issuer: LabIssuer
+  /** The Lab's fake issuer mints a grant per dial; absent in cloud mode, where `accessToken` gives one. */
+  issuer?: LabIssuer
+  /** A real sign-in's access token for this host (cloud mode: `OAuthSession.accessToken`). */
+  accessToken?: () => Promise<string | null>
   hostId: string
   hostKind: HostKind
   hostOwnerUserId?: string
   /** A guest presents the link secret alone, with the id and name it states (host-sharing.md §4.1). */
   shareSecret?: string
+  /**
+   * The organization a host owner's connection names: the ticket door then makes her
+   * delegation for it too, beside the personal one (ADR 0001 stage 4). A member always
+   * names their own.
+   */
+  organizationId?: string
   /** No grant at all: a trusted loopback caller, the local owner (personal hosts). */
   credentialFree?: boolean
   /** The paired token a credential-free caller presents to the record API, which admits no one without a bearer. */
@@ -85,9 +94,10 @@ export class LabClient {
     this.api = new SolusApiClient({
       baseUrl: () => options.hostUrl,
       contextKey: () => options.persona.id,
-      acquireSource: async () => options.credentialFree ? (await options.localOwnerToken?.()) ?? null : this.mintGrant(),
+      acquireSource: async () => options.credentialFree ? (await options.localOwnerToken?.()) ?? null : this.grant(),
       organizationId: () => options.persona.kind === 'org-member' ? options.persona.organizationId : null,
       shareSecret: options.shareSecret,
+      guestIdentity: options.persona.kind === 'guest' ? { guestId: options.persona.guestId, displayName: options.persona.displayName } : undefined,
     })
     this.records = workspaceRecordMethods(this.api, (id) => this.rpc('tasksReadExtras', id))
   }
@@ -97,9 +107,11 @@ export class LabClient {
   }
 
   /** The persona's access token; null for a guest, who holds none. */
-  private mintGrant(): string | null {
+  private async grant(): Promise<string | null> {
     const persona = this.persona
     if (persona.kind === 'guest') return null
+    if (this.options.accessToken) return this.options.accessToken()
+    if (!this.options.issuer) throw new Error('A LabClient needs an issuer or an access token source')
     return this.options.issuer.mint(persona, {
       hostId: this.options.hostId,
       hostKind: this.options.hostKind,
@@ -110,11 +122,12 @@ export class LabClient {
 
   /** Mints a grant (a guest: states who it is) and exchanges it for one ticket; null with the refusal status. */
   async fetchTicket(): Promise<{ ticket: string } | { status: number }> {
-    const grant = this.mintGrant()
+    const grant = await this.grant()
     const persona = this.persona
     const request = persona.kind === 'guest'
       ? { shareSecret: this.options.shareSecret, guestId: persona.guestId, displayName: persona.displayName }
-      : persona.kind === 'org-member' ? { organizationId: persona.organizationId } : {}
+      : persona.kind === 'org-member' ? { organizationId: persona.organizationId }
+      : this.options.organizationId ? { organizationId: this.options.organizationId } : {}
     const headers: { [name: string]: string } = { 'content-type': 'application/json' }
     if (grant) headers.authorization = `Bearer ${grant}`
     const response = await fetch(`${this.options.hostUrl}/auth/ws-ticket`, {

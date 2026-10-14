@@ -36,7 +36,8 @@ export function fakeAccountPlane(options: FakeAccountPlaneOptions = {}) {
   let serial = 0
   let now = Date.now()
   let isDown = false
-  const refusedResources = new Set<string>()
+  /** Each refused resource and the token endpoint's answer for it. */
+  const refusedResources = new Map<string, { [key: string]: string }>()
   let userinfoName = identity.name
 
   const issueIdToken = (nonce?: string) => jwt({ iss: ISSUER, aud: clientId, exp: Math.floor(now / 1000) + 300, iat: Math.floor(now / 1000), ...identity, ...(nonce ? { nonce } : {}) })
@@ -86,7 +87,8 @@ export function fakeAccountPlane(options: FakeAccountPlaneOptions = {}) {
             return json(400, { error: 'invalid_grant' })
           }
           const resource = form.get('resource') ?? ''
-          if (refusedResources.has(resource)) return json(400, { error: 'invalid_target' })
+          const refusal = refusedResources.get(resource)
+          if (refusal) return json(400, refusal)
           refreshTokens.set(presented, false)
           return json(200, { access_token: `at-${++serial}-${resource}`, expires_in: 300, refresh_token: newRefreshToken() })
         }
@@ -108,7 +110,8 @@ export function fakeAccountPlane(options: FakeAccountPlaneOptions = {}) {
     now: () => now,
     advance(ms: number) { now += ms },
     setDown(down: boolean) { isDown = down },
-    refuse(resource: string) { refusedResources.add(resource) },
+    refuse(resource: string, answer: { [key: string]: string } = { error: 'invalid_target' }) { refusedResources.set(resource, answer) },
+    allow(resource: string) { refusedResources.delete(resource) },
     renameInUserinfo(name: string) { userinfoName = name },
     isLive(token: string) { return refreshTokens.get(token) === true },
     liveTokens() { return [...refreshTokens].filter(([, live]) => live).map(([token]) => token) },

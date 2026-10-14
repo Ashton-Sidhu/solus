@@ -187,7 +187,7 @@ socket per endpoint, as today, and exposes the two concepts separately:
 ```ts
 defaultServerId(): string | null             // the window's own record home (the primary)
 defaultMachineId(): string | null            // where new work runs; never the Solus API
-isKnownServer(id: string): boolean           // see §6
+presenceOf(id: string): HostPresence         // 'present' | 'gone'; see §6
 ```
 
 - **The primary is the window's record home.** Boot registers it: the desktop's
@@ -286,46 +286,53 @@ A machine that has not answered yet reads as loading, not as missing.
 
 ## 6. Machine references
 
-A stored machine id is **known** when `serverConnections.isKnownServer(id)`
-says so: a registered target, a live connection, or a saved host — the ids
-`resolveTarget` answers for. Anything else names a machine that was deleted or
-was never listed at this origin.
+A stored host id can name a host that is gone: it was deleted, or it was never
+listed at this origin. Presence is a state of the host, not a precondition every
+caller checks.
 
-**Reads treat an unknown host as unusable, never as an error.** Nothing asks
-`apiFor` for it:
+**Presence.** `serverConnections.presenceOf(id)` is `present` for a registered
+target, a saved host or workspace service, or a live connection; anything else
+is `gone`. A host the directory dropped stays `present` while its connection
+lives (a refresh never cuts a working session). `HostFacts.presence` and
+`Host.presence` carry the same answer to readers.
 
-- `hostRolesStore` gives an unknown host no roles, so every gate that asks
-  `hasExecution` or `hasCollaboration` (the Run-on list, dispatch, the Git
-  environment read, plugin commands) skips it.
-- `defaultStartProject` treats a remembered project on an unknown host as down.
-- Saved prompts list nothing for it.
+**Resolution is total.** `ensure`, `apiFor`, `eventsFor`, `factsFor`,
+`httpOriginFor`, and `hosts.get` answer for every id and never throw. A gone id
+gets a gone connection: it opens no socket, every call rejects with
+`HostGoneError` (a `TransportDisconnectedError`, so a reader that handles a host
+that is away handles it too), and its events never fire. Its `Host` has no roles
+and no grants, so no gate offers work on it, and `me.may` refuses every action.
+When the id is listed again, the next `ensure` replaces the gone connection with
+a real one; when a host is released because it is gone, its readers rebind to a
+gone connection (`onConnectionCreated`). A send to a gone host fails as a
+refusal, not a retry (`classifySendFailure`).
 
-**Writes wait until the saved hosts are authoritative.** The saved list only
-loses a directory host on a successful directory read (`mergeDirectoryIntoSaved`),
-and a paired host that was unlinked keeps its direct route and stays known. A
-failed read changes nothing. `markDirectoryAnswered()` (`server-registry.ts`)
-marks a successful merge, at boot (`apps/client/src/main.ts`) and on every
-refresh (`serversStore.refreshDirectory`).
+**Readers need no guard.** A surface that shows a gone host differently reads
+`host.presence` (Settings tools fall back to the device; a remembered project on
+a gone host is down for `defaultStartProject`). A read that would only fail is
+skipped where it is cheap to know: startup prefetch, review-guide probes.
 
-**One owner for removal.** `reconcileMachineReferences`
-(`contexts/workspace/machine-references.ts`) updates every reference to an
-unknown host; readers do not each handle a ghost. It runs from
-`initializeRuntime` after restore, on every successful directory read, and when
-a machine connects — but only once a directory has answered this load, or when
-the client has no directory at all:
+**One owner moves references.** `reconcileMachineReferences`
+(`contexts/workspace/machine-references.ts`) makes the workspace stop pointing
+at a gone host. It runs from `initializeRuntime` after restore, on every
+successful directory read, and when a machine connects — but only once a
+directory has answered this load (`markDirectoryAnswered`), or when the client
+has no directory. Before that, a gone host's calls fail and nothing is moved:
 
-| Reference | When its machine is unknown |
+| Reference | When its machine is gone |
 |---|---|
 | `settings.lastProject` | cleared; `defaultRunConfig` falls to the default machine |
+| the kept project list (`projectsStore`) | dropped: its projects are not away, and their checkouts cannot be read |
 | an unstarted draft or tab | moved to where a new session starts (the default machine and its folder), as a fresh draft would be; with no machine, it stays until one connects |
-| a draft opened from a task | moves as above and keeps the task's home, unless that is unknown too |
-| a started tab | kept on its machine, since its conversation lives there, and made read-only (`GONE_MACHINE_READ_ONLY_REASON`, the composer's text); a restored one shows what the window's record home mirrored of it (`hydrateTabOnGoneMachine`, `session-bootstrap.ts`), and stays pending until the saved hosts are authoritative |
+| a draft opened from a task | moves as above and keeps the task's home, unless that is gone too |
+| a started tab | kept on its machine, since its conversation lives there, and made read-only (`GONE_MACHINE_READ_ONLY_REASON`, the composer's text); a restored one reads the transcript its record home mirrored: the workspace service of the session's organization (`recordHomeOf`, from `Session.organizationId`, which the host reports from the session record and the tab keeps), never the window's default host. Its older pages are read there too (`apiForSession`). A personal session, or one the service holds no copy of, says so in the composer (`GONE_MACHINE_NO_RECORD_REASON`) (`hydrateTabOnGoneMachine`, `session-bootstrap.ts`) |
 
-A live connection to a host the directory dropped is kept (a refresh never cuts
-a working session), and the host stays known while it is connected.
+Other kept data keyed by host is left alone: board order and view modes call no
+host, unsent work edits are the user's content (`askBeforeDiscardingUnsent`), and
+the send outbox drains only when a host comes online.
 
-A host that is not known reads "Removed host" (`serversStore.hostFor`); an
-unstarted run on one shows "Host removed — choose a machine" on its Run-on chip.
+A gone host reads "Removed host" (`serversStore.hostFor`); an unstarted run on
+one shows "Host removed — choose a machine" on its Run-on chip.
 
 ## 7. What stays the same
 
@@ -351,7 +358,7 @@ Each step ships alone and leaves the tree green.
    `start()` is read again when a machine connects; plugin commands are read
    only from a host that serves `execution` (§5.5). *Fixes the
    `PLANE_DISABLED` errors.*
-2. **Machine references** (client). `isKnownServer`, no roles for an unknown
+2. **Machine references** (client). Host presence (`presenceOf`), no roles for a gone
    host, `defaultStartProject` treating it as down, the Git and saved-prompt
    reads skipping it, `markDirectoryAnswered`, and
    `reconcileMachineReferences` (§6). *Fixes `Unknown Solus server`.*

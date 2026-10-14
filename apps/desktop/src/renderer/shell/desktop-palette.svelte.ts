@@ -2,6 +2,7 @@ import { deviceCommands } from "@solus/workspace-ui/components/devices/lib/devic
 import { settingsOwnerCommands } from "@solus/workspace-ui/components/settings/lib/settings-commands";
 import TaskIcon from "@solus/workspace-ui/components/ui/TaskIcon.svelte";
 import { checkAllUpdates } from "@solus/workspace-ui/contexts/updates/check-all-updates";
+import { updateAllPaletteCommands } from "@solus/workspace-ui/contexts/updates/update-all-commands";
 import { untrack } from "svelte";
 import {
   Plus as PlusIcon,
@@ -408,7 +409,7 @@ export function createDesktopPalette(
     !!settings.defaultEditor &&
       hostPolicy.isClientMachine(logsServerId) &&
       supportsEditor(
-        hosts.find(logsServerId)?.capabilityRecord,
+        hosts.get(logsServerId)?.capabilityRecord,
         settings.defaultEditor,
       ),
   );
@@ -455,6 +456,7 @@ export function createDesktopPalette(
         run: () => updatesStore.restart(),
       });
     }
+    commands.push(...updateAllPaletteCommands());
 
     if (canOpenHostLogs) {
       commands.push({
@@ -473,33 +475,6 @@ export function createDesktopPalette(
         run: () => void openHostLogs(),
       });
     }
-
-    // The new-work default must be a machine; the workspace service takes no session.
-    const switchServerChildren: Command[] = serversStore.executionServers.map(
-      (server) => ({
-        id: `switch-server:${server.id}`,
-        label: server.label,
-        group: "Servers",
-        icon: PlugsIcon,
-        hint: server.id === serversStore.activeServerId ? "Active" : undefined,
-        keywords: [
-          "server",
-          "remote",
-          "connect",
-          server.url,
-          server.installationId ?? "",
-        ],
-        run: () => serversStore.switchTo(server.id),
-      }),
-    );
-    commands.push({
-      id: "switch-server",
-      label: "Switch server…",
-      group: "Servers",
-      icon: PlugsIcon,
-      keywords: ["server", "remote", "connect", "host", "machine"],
-      children: switchServerChildren,
-    });
 
     commands.push(...switchOrganizationCommands());
 

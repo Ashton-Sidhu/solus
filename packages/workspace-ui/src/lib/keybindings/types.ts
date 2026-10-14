@@ -22,7 +22,6 @@ export type Scope =
   | 'tasks'
   | 'prs'
   | 'pr-review'
-  | 'design-annotation'
   | 'plan-action-bar'
   | 'attachment-preview'
   | 'diagram'

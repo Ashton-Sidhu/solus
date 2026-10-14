@@ -172,6 +172,20 @@ describe('a card rebuilt from its transcript', () => {
     expect(exchange).toMatchObject({ status: 'done', reply: 'checked' })
   })
 
+  test('a session started on another host keeps that host, so Open goes there and not to this host', () => {
+    const messages: Message[] = []
+    new TranscriptAgentConversations(messages)
+      .applyToolRow('start_session', JSON.stringify({ prompt: 'hostname?' }), { sessionId: child, messageId: first, serverId: 'install-omarchy' }, 1)
+    expect(messages[0]!.agentConversationRef!.serverId).toBe('install-omarchy')
+
+    const tab = session()
+    new AgentConversationCards().apply(tab, {
+      phase: 'dispatched', sessionId: child, messageId: first, origin: 'created', prompt: 'hostname?',
+      provider: 'claude-code', title: 'Hostname', cwd: '', serverId: 'install-omarchy', dispatchedAt: 1,
+    })
+    expect(tab.messages[0]!.agentConversationRef!.serverId).toBe('install-omarchy')
+  })
+
   test('one prompt that carried several reports settles every message it names', () => {
     const messages: Message[] = []
     const transcript = new TranscriptAgentConversations(messages)

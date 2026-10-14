@@ -56,6 +56,9 @@ export interface PersistedTab {
    *  would report an empty window until its next turn. Kept here and refreshed
    *  by the first usage report after resume. */
   contextUsage?: ContextUsage | null
+  /** The organization of the session's record. Kept so a tab whose machine is
+   *  later removed still knows where its record lives. */
+  organizationId: string | null
   /** Lightweight live state restored before transcripts. This lets every sidebar
    * row show its status and turn clock on the first frame. */
   status?: SessionStatus

@@ -77,12 +77,6 @@ export function parseLockFile(raw: string): ServerLock | null {
   }
 }
 
-export function parsePidFile(raw: string): number | null {
-  const pid = Number(raw.trim())
-  if (!Number.isInteger(pid) || pid <= 0) return null
-  return pid
-}
-
 export function readLockFile(lockFile: string): ServerLock | null {
   if (!existsSync(lockFile)) return null
   return parseLockFile(readFileSync(lockFile, 'utf-8'))

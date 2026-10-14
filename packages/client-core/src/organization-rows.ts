@@ -59,7 +59,7 @@ export function attachmentSummary(status: HostOrganizationsStatus): { label: str
 /** What waits to reach each organization's Solus API, in words; null when nothing waits and nothing failed. */
 export function deliverySummary(status: HostOrganizationsStatus): string | null {
   const waiting = status.delivery.filter((entry) => entry.pending > 0 || entry.failed > 0).map((entry) => {
-    const name = status.organizations.find((organization) => organization.organizationId === entry.organizationId)?.name ?? entry.organizationId
+    const name = status.organizations.find((organization) => organization.organizationId === entry.organizationId)?.name ?? 'Unknown organization'
     return `${name}: ${entry.pending} waiting${entry.failed ? `, ${entry.failed} refused` : ''}`
   })
   if (!waiting.length && !status.deliveryError) return null

@@ -14,7 +14,7 @@
   // out: the route is entered immediately so the click gets a real page, and the
   // router's payload cache fills this same mounted surface in place when the
   // fetch lands. Re-entering a PR already in the cache skips the fetch entirely.
-  let { params, paneId, onAttachFile, onScreenshot, onDesignMode }: RouteSurfaceProps<"prReview"> = $props();
+  let { params, paneId, onAttachFile, onScreenshot }: RouteSurfaceProps<"prReview"> = $props();
 
   const session = getWorkspaceContext();
   const pane = paneActions(() => paneId);
@@ -55,7 +55,6 @@
   {paneId}
   {onAttachFile}
   {onScreenshot}
-  {onDesignMode}
   {api}
   {serverId}
   target={{ number: params.number, title: params.title ?? "" }}

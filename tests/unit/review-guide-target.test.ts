@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { ReviewContext } from '@solus/contracts/review'
-import { fingerprintReviewPatch, guideKeyFor, guideKeyForTarget } from '@solus/server/review/review-target'
+import { fingerprintReviewPatch, guideKeyForTarget } from '@solus/server/review/review-target'
 
 const review: ReviewContext = {
   key: 'main-deadbeef',
@@ -13,17 +13,17 @@ const review: ReviewContext = {
 
 describe('review guide stable targets', () => {
   test('main guide identity does not include its point-in-time base SHA', () => {
-    expect(guideKeyFor(review, 'branch', 'session-a')).toBe('main')
-    expect(guideKeyFor({ ...review, key: 'main-newbase', baseSha: 'newbase' }, 'branch', 'session-b')).toBe('main')
+    expect(guideKeyForTarget(review, { kind: 'branch' }, 'session-a')).toBe('main')
+    expect(guideKeyForTarget({ ...review, key: 'main-newbase', baseSha: 'newbase' }, { kind: 'branch' }, 'session-b')).toBe('main')
   })
 
   test('feature branches use one slash-safe file per branch', () => {
-    expect(guideKeyFor({ ...review, branch: 'feature/reviews' }, 'branch', null)).toBe('feature__reviews')
+    expect(guideKeyForTarget({ ...review, branch: 'feature/reviews' }, { kind: 'branch' }, null)).toBe('feature__reviews')
   })
 
   test('session guides overwrite one file belonging only to that session', () => {
-    expect(guideKeyFor(review, 'session', 'session-a')).toBe('session-session-a')
-    expect(guideKeyFor({ ...review, branch: 'feature/reviews' }, 'session', 'session-a')).toBe('session-session-a')
+    expect(guideKeyForTarget(review, { kind: 'session' }, 'session-a')).toBe('session-session-a')
+    expect(guideKeyForTarget({ ...review, branch: 'feature/reviews' }, { kind: 'session' }, 'session-a')).toBe('session-session-a')
   })
 
   test('all typed targets have stable portable keys', () => {

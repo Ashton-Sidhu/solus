@@ -15,13 +15,16 @@ export interface SolusApiClientOptions {
   /** The organization the credential is for. A source token that lists several organizations admits only the one named. */
   organizationId?(): string | null
   shareSecret?: string
+  /** A link guest with no source token states who it is; with `shareSecret`, that is its whole credential (host-sharing.md §9.8). */
+  guestIdentity?: { guestId: string; displayName: string }
   /** What the credential may do; a client, the default set; an execution host's agent run, its run's operations. */
   scopes?: SolusApiScope[]
   /** The transport; defaults to the global `fetch`. */
   fetchImpl?: (input: string | URL, init?: RequestInit) => Promise<Response>
 }
 export class WorkspaceRequestError extends Error {
-  constructor(readonly status: number, readonly code: string, message: string) { super(message); this.name = 'WorkspaceRequestError' }
+  /** Seconds the server asked the caller to wait before it tries again (`Retry-After`). */
+  constructor(readonly status: number, readonly code: string, message: string, readonly retryAfter?: number) { super(message); this.name = 'WorkspaceRequestError' }
 }
 
 /** One client for desktop, web, mobile, external HTTP callers, and an execution host's agent runs. It needs no event socket. */
@@ -40,12 +43,17 @@ export class SolusApiClient {
     const promise = (async () => {
       const source = await this.options.acquireSource()
       this.assertContext(key)
-      if (!source) throw new WorkspaceRequestError(401, 'UNAUTHENTICATED', 'Sign in or pair with this host.')
-      const request: z.input<typeof solusApiOperations.exchangeCredential.body> = { scopes: this.options.scopes ?? ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'insights:read'], shareSecret: this.options.shareSecret }
+      const { shareSecret, guestIdentity } = this.options
+      const asGuest = !source && !!shareSecret && !!guestIdentity
+      if (!source && !asGuest) throw new WorkspaceRequestError(401, 'UNAUTHENTICATED', 'Sign in or pair with this host.')
+      const request: z.input<typeof solusApiOperations.exchangeCredential.body> = { scopes: this.options.scopes ?? ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'insights:read'], shareSecret }
+      if (asGuest) Object.assign(request, guestIdentity)
       const organizationId = this.options.organizationId?.()
       if (organizationId) request.organizationId = organizationId
+      const headers = new Headers({ 'Content-Type': 'application/json' })
+      if (source) headers.set('Authorization', 'Bearer ' + source)
       const response = await (this.options.fetchImpl ?? fetch)(new URL('/v1/auth/session', this.options.baseUrl()), {
-        method: 'POST', headers: { Authorization: 'Bearer ' + source, 'Content-Type': 'application/json' },
+        method: 'POST', headers,
         body: JSON.stringify(request),
         signal: AbortSignal.timeout(15_000),
       })
@@ -59,7 +67,9 @@ export class SolusApiClient {
 
   private async fail(response: Response): Promise<never> {
     const parsed = workspaceErrorSchema.safeParse(await response.json().catch(() => null))
-    throw new WorkspaceRequestError(response.status, parsed.success ? parsed.data.error.code : 'REQUEST_FAILED', parsed.success ? parsed.data.error.message : 'The workspace request failed.')
+    const retryAfter = Number(response.headers.get('Retry-After'))
+    throw new WorkspaceRequestError(response.status, parsed.success ? parsed.data.error.code : 'REQUEST_FAILED', parsed.success ? parsed.data.error.message : 'The workspace request failed.',
+      retryAfter > 0 ? retryAfter : undefined)
   }
 
   async request<K extends SolusApiOperation>(operationId: K, input: RequestInput<K> & { ifNoneMatch: string }): Promise<ResponseFor<K> | undefined>

@@ -176,23 +176,23 @@ tool prefix is unchanged.
 Every surface implements the same capability (CLAUDE.md "Multi-surface").
 
 - **Desktop and web**: Settings → Agent profile, one page, replacing the "Your
-  agent profile" row of Settings → Providers. It lists the three parts, the
-  sync state ("Synced", "Local only", a conflict per entry with both values),
-  the hosts the profile applies to with "Copy now" and "Remove", and on desktop
-  only "Import from this computer". The sync engine is a second
-  `SettingsSyncEngine` instance over the profile document, with its own
-  storage key and `SettingsCloudRequests`-shaped port. Nothing in the engine
-  changes.
+  agent profile" row of Settings → Providers. It lists the three parts, with a
+  conflict per entry resolved in place, and on desktop only "Import from this
+  computer". Sync status, the hosts the profile applies to, and "Clear synced
+  profile" are on Settings → Account & sync (§10, "One account, one policy"). The
+  sync engine is a second `DocumentSync` instance over the profile document,
+  with its own storage key and request port.
 - **Mobile**: the same page in React Native under Account, with
   `use-agent-profile.ts`. Mobile has no agent profile UI today; this is new.
-- **Not signed in, or sync off**: `AgentProfileStore.copyOnce` stays. The
-  push now carries integration entries.
-- **Signed in with sync on**: after a local write is confirmed by the account,
-  the client calls `agentProfilePull` on every connected host where
+- **Not signed in**: `AgentProfileStore.copyOnce` stays. The push now
+  carries integration entries.
+- **Signed in**: sync is on (§10). After a local write is confirmed by the
+  account, the client calls `agentProfilePull` on every connected host where
   `profileAppliesTo` is true. That is the nudge of decision 8.
-- **First copy**: when sync turns on and the account document is empty, offer
-  this computer's profile as the first copy. The same choice settings sync
-  makes.
+- **First copy**: at sign-in, an account document with content is adopted; an
+  absent or empty one is created from this computer's profile (desktop) or
+  this device's copy, with no prompt. The same rule personal settings follow
+  (plan 018 decision 9).
 
 ## 4. The pull
 
@@ -485,3 +485,87 @@ compatible:
   also the reconcile's subject, because a person's personal records and their
   connections share one owner key.
 - `AgentProfileCopy` is the one shape for a read and a push.
+
+### Signed in is synced (2026-10-12)
+
+Maintainer decision: signed in to Solus Cloud, the agent profile always syncs
+through the account, and the account is the one list of the person's MCP
+servers, skills, and instructions. It replaces the per-client opt-in of §3 for
+the profile. Personal settings followed on the same day (below).
+
+- **No toggle.** A client enables profile sync when the person signs in:
+  "use synced" when the account has a profile, else the computer's profile
+  (desktop) or the device's copy as the first copy.
+- **Write-through.** `integrationCreate`, `integrationUpdate`, and
+  `integrationRemove` on a host tell `AgentProfileManager` when the record is
+  the caller's own (the owner's host records, or a member's personal ones).
+  Saves merge into the account at `POST /v1/agent-profile/entries`; a removal
+  leaves the profile before the record goes, and is refused when the cloud is
+  unreachable, so the next pull cannot restore it.
+- **Adoption.** A pull writes the target's own records that no entry names,
+  and that no pull put there, into the profile. That is how a server added
+  before sign-in, such as PlanetScale, joins it. From the account, the
+  owner's own records are the profile's to manage, so a later removal or
+  disable reaches the host that first had them.
+- **Disable.** Every entry carries an optional `disabled`. A disabled entry
+  stays in the document and is on no host: apply skips it, and adoption does
+  not bring its record back because the profile still names its URL.
+
+### One account, one policy (2026-10-12, later the same day)
+
+Grilled with the maintainer; plan 018 decision 9 is the twin record.
+
+- **Policy.** Personal settings sync the same way the profile does: signed in
+  is synced, no switch per device. The settings switch guarded the theme and
+  the font while the profile, the more sensitive material, synced on sign-in;
+  that guarded nothing and made two models.
+- **Seed.** Both documents follow one silent rule at sign-in: an account
+  document with content is adopted; an absent or empty one is created from
+  this device. "Clear synced settings" and "Clear synced profile" stay two
+  actions, each the explicit "replace with this device" for its document: a
+  person who starts their instructions again keeps their theme.
+- **Two documents.** They stay apart. No host reads the settings document;
+  every host reads the profile with a delegated token, on each seat and every
+  five minutes. One document would make every host read the theme, and a font
+  change would bump the revision every host watches and re-apply the profile.
+  The 16 MB bound and the few-KB bound stay separate, as do the conflict
+  units (one entry, one field).
+- **Engine.** `DocumentSync` loses the opt-in: `prepareEnable`, `enable`, the
+  offer and choice types, `turnOff`, the `off` state, the stored `enabled`
+  flag, and `stoppedReason`. Its ports gain `localCopy(purpose)`: for `seed`,
+  this device's copy as the account's first (the desktop reads this computer's
+  profile); for `replace`, this client's own copy, which the account's replaces
+  key by key. `setAccount` starts sync by itself, and a generation another
+  device advanced is the same path again, not a stop. `clearCloud` stays and
+  reseeds from the clearing device. The status carries the `generation` this
+  device is on, so the owner knows when the device moved onto a copy.
+- **One owner per client.** One account sync owner holds the two engines and
+  gives Settings → Account & sync one status: the worst state of the two in the
+  order error, conflict, offline, pending, loading, synced; conflicts listed
+  with their document. `AccountSyncStore` (`contexts/account/
+  account-sync.store.svelte.ts`) on desktop and web, `AccountSync`
+  (`features/account/account-sync.ts`) on mobile; the per-document sync stores
+  went. The settings store and the profile store keep their content role and
+  read remote changes from their own engine. The hosts pull when the profile's
+  generation moves (a start, a clear here or elsewhere) and after a confirmed
+  write. The desktop main process's two request clients were already one
+  adapter each over the same requester, so they stay.
+- **Settings → Account & sync** (the tab's existing label; its component is renamed from Personal): who is signed in; one sync status
+  with both documents' conflicts, each resolved in place on its own tab, and
+  the two clear actions; one row per host with its account link (uplink) and
+  what it holds of the profile, with Pull, Copy when signed out, and Remove.
+  "This computer" is the first row on the desktop. The host detail Access page
+  keeps its link control. The Agent profile tab holds only content. Mobile
+  mirrors this as an Account screen; its Host access screen keeps its link
+  section. Extra instructions stay where they are; moving them under the
+  profile is out of scope.
+- **Cloud.** One account-document service (`account-document/document.ts`:
+  `AccountDocument`, given the table's rows, a schema, a byte bound, the
+  conflict codes, and the response's field name) behind the two unchanged
+  routes, with one HTTP helper (`account-document/http.ts`); `settings/http.ts`
+  keeps only the organization settings' errors. The console keeps its
+  sub-pages; the console is the account, so no sync status there. Route paths
+  and shapes do not move, so either side deploys first.
+- **Hosts.** Nothing changes: the pull, the write-through, the adoption, the
+  reconcile, and the vault stay.
+

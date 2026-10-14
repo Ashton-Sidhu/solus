@@ -11,6 +11,7 @@ import { PlaneDisabledError } from '../host/roles'
 import { GithubConnectionRequiredError } from '../providers/github/connection-required'
 import { RequestNotAnswerableError } from '../execution/sessions/pending-input'
 import { WorkMovedError } from '../data/works/work'
+import { ShareAccessError } from '../sharing/share-manager'
 import { SeatRequiredError } from '../execution/seats/seat-manager'
 import { TurnRefusedError } from '../execution/sessions/turn-refusal'
 import { principalExpiresAt, principalFor, principalSchema, renewalExpiry, type AdmissionEvidence, type Principal } from '../admission/principal'
@@ -433,6 +434,8 @@ function getCachedResponse(
       if (err instanceof WorkMovedError) return { error: { message: err.message, code: err.code } }
       // A permission or question the host no longer holds: the client closes the card.
       if (err instanceof RequestNotAnswerableError) return { error: { message: err.message, code: err.code } }
+      // A share rule refused the caller: the code tells a refusal from a failure, as an access-policy refusal does.
+      if (err instanceof ShareAccessError) return { error: { message: err.message, code: err.code } }
       const message = err instanceof Error ? err.message : String(err)
       log.warn('rpc_handler_error', { clientId, method: request.method, error: message })
       return { error: { message } }

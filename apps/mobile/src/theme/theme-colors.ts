@@ -11,8 +11,8 @@
  * Backgrounds are the app's own, in both appearances: the screen is the opaque
  * `--solus-container-bg` every web and desktop surface paints edge to edge
  * (the web boot style in `apps/client/index.html`), and the drawer is the side
- * panel's `--solus-sidebar-bg-left`. Grouped cards stand apart with the shared
- * tonal `--muted` fill, not a different page colour.
+ * panel's `--solus-sidebar-bg-left`. Grouped cards are a near-white fill with a
+ * hairline (`mobileTheme.ts`), not a different page colour.
  *
  * Mobile variants, on purpose (each marked `mobile:` below), for text only:
  * hairlines are a step stronger, the filled primary action is a deeper shade
@@ -86,7 +86,7 @@ export const SOLUS_LIGHT_THEME_COLORS = {
   messageAction: '#b85c39',
   messageActionForeground: '#ffffff',
   messageActionHover: '#ab5534', // one lightness step below, same hue
-  codeBackground: '#f4f2ec',
+  codeBackground: '#fcfaf5', // --solus-code-tint: desktop's chat code block panel
   codeForeground: '#2a2618',
   sidebar: '#fffdf8', // --solus-sidebar-bg-left: the side panel
   sidebarForeground: '#2a2618',
@@ -147,7 +147,7 @@ export const SOLUS_DARK_THEME_COLORS = {
   messageAction: '#e68e6b',
   messageActionForeground: '#2c1a12',
   messageActionHover: '#ef9c7b',
-  codeBackground: '#393834', // --solus-code-bg
+  codeBackground: '#3d3c38', // --solus-code-tint
   codeForeground: '#f0ede5',
   sidebar: '#262522', // --solus-sidebar-bg-left: the side panel
   sidebarForeground: '#f0ede5',

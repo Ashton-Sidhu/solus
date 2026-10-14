@@ -14,7 +14,7 @@ import { AccountStore } from './account-store'
 import { AccountSession } from './account-session'
 import { loopbackAuthorizer } from './loopback-authorizer'
 import { desktopSettingsRequests } from './settings-client'
-import { issueEnrollmentTicket, listDirectory, loadOrganizationDirectory, startManagedHost } from './uplink-client'
+import { issueEnrollmentTicket, listDirectory, loadOrganizationDirectory, removeHost, startManagedHost } from './uplink-client'
 
 export const ACCOUNT_CHANNELS = {
   state: 'solus:account-state',
@@ -26,6 +26,7 @@ export const ACCOUNT_CHANNELS = {
   uplinkDirectory: 'solus:uplink-directory',
   accountAccessToken: 'solus:account-access-token',
   uplinkStartManagedHost: 'solus:uplink-start-managed-host',
+  uplinkRemoveHost: 'solus:uplink-remove-host',
   uplinkTicket: 'solus:uplink-enrollment-ticket',
   uplinkOrganizationDirectory: 'solus:uplink-organization-directory',
   accountSettingsGet: 'solus:account-settings-get',
@@ -98,6 +99,10 @@ export function registerAccountIpc(broadcast: (channel: string, state: AccountSt
   ipcMain.handle(ACCOUNT_CHANNELS.uplinkStartManagedHost, (_event, rawHostId) => {
     const hostId = hostIdSchema.safeParse(rawHostId)
     return hostId.success ? startManagedHost(session, hostId.data) : null
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.uplinkRemoveHost, (_event, rawHostId) => {
+    const hostId = hostIdSchema.safeParse(rawHostId)
+    return hostId.success ? removeHost(session, hostId.data) : false
   })
   ipcMain.handle(ACCOUNT_CHANNELS.uplinkTicket, () => issueEnrollmentTicket(session))
   ipcMain.handle(ACCOUNT_CHANNELS.uplinkOrganizationDirectory, (_event, rawOrganizationId) => {

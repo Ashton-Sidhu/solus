@@ -54,6 +54,21 @@ export async function startManagedHost(client: CloudRequester, hostId: string): 
   return parsed.success ? parsed.data.lifecycle : null
 }
 
+/**
+ * End the registration of a host the account owns (website "Remove host"). The website
+ * answers 404 for a host this account does not list, which is the state asked for, so
+ * removing twice succeeds. False when signed out, refused, or unanswered.
+ */
+export async function removeHost(client: CloudRequester, hostId: string): Promise<boolean> {
+  const response = await client.cloudRequest(`/v1/hosts/${encodeURIComponent(hostId)}`, { method: 'DELETE' })
+  if (!response?.ok && response?.status !== 404) {
+    log.info('host_remove_refused', { hostId, status: response?.status ?? null })
+    return false
+  }
+  log.info('host_removed', { hostId, status: response.status })
+  return true
+}
+
 /** The share dialog's people and teams; null when signed out, not a member, or the website did not answer. */
 export async function loadOrganizationDirectory(client: CloudRequester, organizationId: string): Promise<OrganizationDirectory | null> {
   const response = await client.cloudRequest(`/v1/orgs/${encodeURIComponent(organizationId)}/directory`)

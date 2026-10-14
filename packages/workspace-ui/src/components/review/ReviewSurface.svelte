@@ -275,12 +275,15 @@
   });
 
   // A generation that finished — here or in the Git panel — while this pane sat
-  // on the empty state. Remembering the transition keeps a stale ready status
-  // from reloading forever.
+  // on the empty state: a ready guide, or one kept after the change moved
+  // during its run. Remembering the transition keeps a stale ready status from
+  // reloading forever.
   let handledReadyAt = 0;
   $effect(() => {
     const status = guideStatus;
-    if (status?.status !== "ready" || status.updatedAt === handledReadyAt) return;
+    const finished = status?.status === "ready"
+      || (status?.status === "outdated" && !!status.generatedAt && status.generatedAt !== loader.guide?.generatedAt);
+    if (!status || !finished || status.updatedAt === handledReadyAt) return;
     if (loader.loading) return;
     handledReadyAt = status.updatedAt;
     void loader.load(false, false).catch(() => {});
@@ -331,13 +334,13 @@
     present: !!loader.guide,
     stale: loader.stale,
     regenerating: loader.loading || generating,
-    onRegenerate: (mode: "full" | "new-commits") => {
+    onRegenerate: () => {
       if (target?.kind === "pr") {
         void generateGuide();
         return;
       }
       toasts.info("Started generating the review guide");
-      void loader.refresh(mode).catch((error) => {
+      void loader.refresh().catch((error) => {
         toasts.error("Couldn't generate the review guide", {
           description: error instanceof Error ? error.message : String(error),
         });

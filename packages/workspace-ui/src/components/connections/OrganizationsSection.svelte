@@ -35,9 +35,9 @@
   const delivery = $derived(status ? deliverySummary(status) : null);
   const description = $derived(
     status
-      ? status.linked
-        ? `${hostCategoryLabel(status.category)}${status.owner ? ` · linked by ${status.owner.name ?? status.owner.email ?? "its owner"}` : ""}`
-        : `${hostCategoryLabel(status.category)} · not linked to Solus Cloud, so it stands in no organization.`
+      ? status.registered
+        ? `${hostCategoryLabel(status.category)}${status.owner ? ` · registered to ${status.owner.name ?? status.owner.email ?? "its owner"}` : ""}`
+        : `${hostCategoryLabel(status.category)} · not registered to a Solus account, so it stands in no organization.`
       : error
         ? "This host cannot say which organizations it stands in."
         : "Reading this host's organizations…",
@@ -68,9 +68,9 @@
   {:else if status && rows.length === 0}
     <SettingsRow
       label="No organizations"
-      description={status.linked
+      description={status.registered
         ? "This host delivers to no organization yet. Join one on the Solus Cloud website, or share this host with one."
-        : "Link this host to Solus Cloud to see its organizations."}
+        : "Sign in to Solus Cloud to register this host and see its organizations."}
     />
   {:else}
     {#each rows as row (row.organizationId)}

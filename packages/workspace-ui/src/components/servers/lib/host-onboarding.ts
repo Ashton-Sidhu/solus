@@ -464,5 +464,5 @@ export function onboardingHeading(input: OnboardingHeadingInput): OnboardingHead
       return { title: `Couldn't reach ${hostName}`, subtitle: 'Check that it is on and reachable, then try again.' }
   }
   if (current) return { title: current.label, subtitle: current.why }
-  return { title: `${hostName} is ready`, subtitle: 'Start a session here now, or switch to it any time.' }
+  return { title: `${hostName} is ready`, subtitle: 'Choose it in Run on to start a session there.' }
 }

@@ -20,7 +20,7 @@ export const KEYBINDING_CATEGORIES: { key: string; label: string; scopes: Scope[
   { key: 'workspace', label: 'Workspace', scopes: ['workspace', 'attachment-preview', 'snapshot-lightbox', 'browser-pane'] },
   { key: 'editors', label: 'Editors', scopes: ['file-editor', 'files-pane', 'plan-modal', 'document-modal'] },
   { key: 'pages', label: 'Pages', scopes: ['automations', 'insights', 'tasks', 'prs'] },
-  { key: 'review', label: 'Review & Annotate', scopes: ['plan-action-bar', 'pr-review', 'design-annotation'] },
+  { key: 'review', label: 'Review & Annotate', scopes: ['plan-action-bar', 'pr-review'] },
   { key: 'diagram', label: 'Diagram', scopes: ['diagram'] },
   { key: 'overlays', label: 'Overlays', scopes: ['command-palette', 'task-picker', 'go-to-file', 'project-search', 'shortcuts-help'] },
 ]
@@ -44,7 +44,6 @@ export const SCOPE_LABELS = {
   prs: 'Pull requests',
   'plan-action-bar': 'Plan review',
   'pr-review': 'Pull request review',
-  'design-annotation': 'Design annotation',
   diagram: 'Diagram',
   'command-palette': 'Command palette',
   'task-picker': 'Task picker',

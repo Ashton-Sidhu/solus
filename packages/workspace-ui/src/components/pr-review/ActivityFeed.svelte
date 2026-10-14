@@ -1157,6 +1157,7 @@
     {variant}
     {part}
     {detail}
+    pullRequest={pullRequest(pr.number)}
     {reviewers}
     {reviewersLoading}
     reviewersLoadFailed={failedLoads.has("reviewers")}

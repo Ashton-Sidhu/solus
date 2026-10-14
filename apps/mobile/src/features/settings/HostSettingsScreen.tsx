@@ -76,10 +76,7 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
                   onToggle={() => setConnectionToggled(!connectionExpanded)}
                   onReconnect={(id) => app.connections.retry(id)}
                   onRemove={(target) =>
-                    confirmForgetHost(target, () => {
-                      void app.registry.forget(target.id);
-                      navigation.goBack();
-                    })
+                    confirmForgetHost(app, target, () => navigation.goBack())
                   }
                 />
               </SettingsSection>
@@ -92,14 +89,6 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
                 label="Access"
                 value="Solus Cloud, network, pairing, and devices"
                 onPress={() => navigation.navigate("HostAccess", { hostId })}
-              />
-            </SettingsSection>
-
-            <SettingsSection title="Devices">
-              <SettingsRow
-                icon="hammer"
-                label="Run app"
-                onPress={() => navigation.navigate("RunApp", { hostId })}
               />
             </SettingsSection>
 

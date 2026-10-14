@@ -293,7 +293,7 @@ a forwarding wrapper or a compatibility branch. Line numbers are from
 - `components/layout/lib/workspace-body.ts`: the `isPageRoute` and
   `isArtifactRoute` branches.
 - `SessionDraftPane.svelte`: its `movePane` call.
-- `.overlay` reads in `SubagentsSection.svelte`, `SubagentLink.svelte`,
+- `.overlay` reads in `AgentsSection.svelte`, `SubagentLink.svelte`,
   `DiffSummaryCard.svelte`, `presence.store.svelte.ts`,
   `work-review-commands.ts` and `apps/client/src/GuestApp.svelte`. Read the
   active surface instead.

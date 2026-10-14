@@ -28,7 +28,7 @@ export function SegmentedControl<Value extends number | string>(
         layout={LinearTransition.duration(200)
           .easing(Easing.out(Easing.cubic))
           .reduceMotion(ReduceMotion.System)}
-        className="absolute inset-y-0 rounded-full bg-secondary"
+        className={cn("absolute inset-y-0 rounded-full", props.indicatorClassName ?? "bg-secondary")}
         style={{
           width: `${100 / props.options.length}%`,
           start: `${

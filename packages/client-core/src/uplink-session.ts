@@ -9,8 +9,9 @@ import {
   type UplinkDirectory,
   type UplinkEnrollmentTicket,
 } from '@solus/contracts/uplink'
+import type { DiscoveredServer } from '@solus/contracts/types'
 import type { ConnectionTokenResource } from '@solus/contracts/auth/clients'
-import type { OAuthSession } from './oauth-session'
+import type { OAuthSession, ResourceRefusal } from './oauth-session'
 import { savedServerRoutes, type SavedServer, type SavedServerUplink } from './server-registry'
 
 /**
@@ -29,12 +30,18 @@ export interface UplinkAccountSource {
   listDirectory(): Promise<UplinkDirectory | null>
   /** A five-minute access token for one host or the Solus API; `fresh` after the resource refused the kept one. */
   accessToken(resource: ConnectionTokenResource, options?: { fresh?: boolean }): Promise<string | null>
+  /** Why the last `accessToken` for this resource gave none, when the account plane refused it.
+   *  Absent where the sign-in lives in another process (desktop). */
+  accessTokenRefusal?(resource: ConnectionTokenResource): ResourceRefusal | null
   issueEnrollmentTicket(): Promise<UplinkEnrollmentTicket | null>
   /** People and teams of one organization, for the share dialog; null when not a member. */
   loadOrganizationDirectory(organizationId: string): Promise<OrganizationDirectory | null>
   /** Ask an organization's managed host to run (docs/plans/project-model.md §6);
    *  the lifecycle it is in afterwards, or null when the call was refused. */
   startManagedHost(hostId: string): Promise<ManagedHostLifecycle | null>
+  /** End the registration of a host this account owns, on every device. A host the
+   *  account does not list is already removed, so this is idempotent. False when refused or unanswered. */
+  removeHost(hostId: string): Promise<boolean>
 }
 
 /**
@@ -46,7 +53,7 @@ export interface UplinkAccountSource {
  */
 export function oauthUplinkAccountSource(
   origin: string,
-  session: Pick<OAuthSession, 'accessToken'>,
+  session: Pick<OAuthSession, 'accessToken'> & Partial<Pick<OAuthSession, 'refusal'>>,
   fetchImpl: typeof fetch = fetch,
 ): UplinkAccountSource {
   const call = async (path: string, init: RequestInit = {}): Promise<Response | null> => {
@@ -71,6 +78,7 @@ export function oauthUplinkAccountSource(
       return parsed.success ? { directoryUrl: origin, ...parsed.data } : null
     },
     accessToken: (resource, options) => session.accessToken(resource, options),
+    accessTokenRefusal: (resource) => session.refusal?.(resource) ?? null,
     async issueEnrollmentTicket() {
       const response = await call('/v1/enrollment-tickets', { method: 'POST' })
       if (!response?.ok) return null
@@ -88,6 +96,11 @@ export function oauthUplinkAccountSource(
       if (!response?.ok) return null
       const parsed = managedHostStartResponseSchema.safeParse(await response.json().catch(() => null))
       return parsed.success ? parsed.data.lifecycle : null
+    },
+    async removeHost(hostId) {
+      const response = await call(`/v1/hosts/${encodeURIComponent(hostId)}`, { method: 'DELETE' })
+      // 404: the account does not list it, which is the state asked for.
+      return response?.ok === true || response?.status === 404
     },
   }
 }
@@ -182,8 +195,12 @@ export function mergeDirectoryIntoSaved(
       byInstallation.delete(server.installationId)
       // A host never paired keeps no address of its own: a kept one outlived the route it
       // came from and, read back as a direct route, was dialed before the directory's.
+      // A registered host the directory lists with no route keeps the address LAN
+      // discovery found for it (`withNearbyRoutes`): it is its only way in.
       const isDirectoryOnly = !server.sessionToken
-      const direct = isDirectoryOnly ? [] : savedServerRoutes(server).filter((route) => route.kind !== 'tunnel')
+      const direct = isDirectoryOnly
+        ? listed.routes.length === 0 ? (server.routes ?? []).filter((route) => route.kind === 'direct') : []
+        : savedServerRoutes(server).filter((route) => route.kind !== 'tunnel')
       merged.push({
         ...server,
         url: isDirectoryOnly ? '' : server.url,
@@ -209,4 +226,26 @@ export function mergeDirectoryIntoSaved(
     merged.push(savedServerFromDirectory(host, directoryUrl, now))
   }
   return merged
+}
+
+/**
+ * A registered host that is not linked has no route in the directory
+ * (docs/adr/0001-standard-authentication.md §2.2 rule 9): a client reaches it on its
+ * local network. A LAN discovery answer whose installation id is a host known only
+ * through the directory, and listed with no route, gives that host its address there
+ * as a direct route. A paired host keeps the address it paired at, and a linked host
+ * its tunnel. Null when nothing changed.
+ */
+export function withNearbyRoutes(saved: SavedServer[], discovered: readonly DiscoveredServer[]): SavedServer[] | null {
+  const nearby = new Map(discovered.map((server) => [server.installationId, `http://${server.host}:${server.port}`]))
+  let changed = false
+  const next = saved.map((server) => {
+    const url = nearby.get(server.installationId)
+    const routes = server.routes ?? []
+    if (!url || server.sessionToken || !server.uplink || routes.some((route) => route.kind === 'tunnel')) return server
+    if (routes.length === 1 && routes[0]?.url === url) return server
+    changed = true
+    return { ...server, routes: [{ kind: 'direct' as const, url }] }
+  })
+  return changed ? next : null
 }

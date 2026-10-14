@@ -15,7 +15,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import { preferredRouteUrl, type LocalConnectionInfoLike, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { onWakeSignal } from '@solus/client-core/wake-signals'
 import { uplinkAccountSource } from '@solus/client-core/uplink-account'
-import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
+import { mergeDirectoryIntoSaved, withNearbyRoutes } from '@solus/client-core/uplink-session'
 import { loadWorkspaces, saveDirectoryWorkspaces, workspaceTarget, type SavedWorkspace } from '@solus/client-core/workspace-registry'
 import { windowOrganizationSelection } from '@solus/client-core/organization-selection'
 import { organizationSelection } from './organization-selection.store.svelte'
@@ -192,7 +192,7 @@ class ServersStore {
       if (server.installationId === this.local?.installationId) continue
       const row: ServerItem = {
         id: server.id,
-        label: hostRowLabel(server, hosts.find(server.id)?.capabilityRecord?.name),
+        label: hostRowLabel(server, hosts.get(server.id)?.capabilityRecord?.name),
         // A directory host saves no address of its own; its row shows the route it is dialed on.
         url: preferredRouteUrl(server),
         installationId: server.installationId,
@@ -210,7 +210,7 @@ class ServersStore {
       if (!target || target.local) continue
       rows.push({
         id: serverId,
-        label: hostRowLabel(target, hosts.find(serverId)?.capabilityRecord?.name),
+        label: hostRowLabel(target, hosts.get(serverId)?.capabilityRecord?.name),
         url: target.url,
         installationId: target.installationId,
         os: this.connectionStatesByServer[serverId]?.os,
@@ -620,6 +620,12 @@ class ServersStore {
       const discoveryServerId = this.local ? LOCAL_SERVER_ID : serverConnections.defaultServerId()
       if (!discoveryServerId) return { newServers: 0 }
       const discovered = await serverConnections.apiFor(discoveryServerId).discoverServers()
+      // A registered host the directory lists with no route is reached here (ADR 0001 §2.2 rule 9).
+      const withNearby = withNearbyRoutes(loadServers(), discovered)
+      if (withNearby) {
+        saveServers(withNearby)
+        this.refreshServers()
+      }
       const filtered = filterUnsavedDiscoveredServers({
         discovered,
         savedServers: loadServers(),
@@ -660,35 +666,46 @@ class ServersStore {
     requestInputFocus()
   }
 
-  remove(serverId: string, options: { discardUnsent?: boolean } = {}): void {
+  /**
+   * Forgets a host. A host the account lists is listed on every device, so its
+   * registration ends first; forgetting it here alone would not last. Removing a
+   * host that is already gone, here or in the account, succeeds, so a second
+   * click or a retry does no harm.
+   */
+  async remove(serverId: string, options: { discardUnsent?: boolean } = {}): Promise<void> {
     if (serverId === LOCAL_SERVER_ID) return
     // Edits to live works that only this device holds are not deleted without asking.
-    if (!options.discardUnsent && askBeforeDiscardingUnsent(serverId, () => this.remove(serverId, { discardUnsent: true }))) return
-    if (serverId === this.activeServerId) {
-      // The active host is only the new-work default now: step aside to
-      // another catalog host in place, then forget as usual. Only the last
-      // host has nowhere to step to.
-      const fallbackId = this.local
-        ? LOCAL_SERVER_ID
-        : this.remotes.find((server) => server.id !== serverId)?.id
-      if (!fallbackId) {
-        const serverLabel = this.remotes.find((server) => server.id === serverId)?.label ?? 'this host'
-        toasts.error(`Pair another host before forgetting ${serverLabel}`)
-        requestInputFocus()
-        return
-      }
-      this.switchTo(fallbackId)
+    if (!options.discardUnsent && askBeforeDiscardingUnsent(serverId, () => void this.remove(serverId, { discardUnsent: true }))) return
+    const server = this.remotes.find((candidate) => candidate.id === serverId)
+    // The active host is only the new-work default now: step aside to another
+    // catalog host in place, then forget as usual. Only the last host has
+    // nowhere to step to.
+    const fallbackId = serverId !== this.activeServerId
+      ? null
+      : this.local ? LOCAL_SERVER_ID : this.remotes.find((candidate) => candidate.id !== serverId)?.id
+    if (serverId === this.activeServerId && !fallbackId) {
+      toasts.error(`Pair another host before forgetting ${server?.label ?? 'this host'}`)
+      requestInputFocus()
+      return
     }
-    const forgottenInstallationId = this.remotes.find((server) => server.id === serverId)?.installationId
+    if (server?.uplink && !(await uplinkAccountSource()?.removeHost(server.uplink.hostId))) {
+      toasts.error(`Could not remove ${server.label} from your account`)
+      requestInputFocus()
+      return
+    }
+    if (fallbackId && serverId === this.activeServerId) this.switchTo(fallbackId)
     removeServer(serverId)
-    // No longer a catalog entry, so the eager supervisor leaves with it.
+    // No longer a catalog entry, so the eager supervisor leaves with it. A tab
+    // on this host retains it, and a retained connection still lists the host
+    // as a connected row: forgetting overrides that hold.
+    serverConnections.unretain(serverId)
     serverConnections.release(serverId)
     this.refreshServers()
     requestInputFocus()
     // A forgotten host becomes discoverable again — rescan so it drops straight
     // back into Nearby instead of vanishing until the next sweep. Suppress its
     // toast: the user just dismissed this host, they don't need it announced.
-    if (forgottenInstallationId) this.announcedDiscoveredInstallationIds.add(forgottenInstallationId)
+    if (server?.installationId) this.announcedDiscoveredInstallationIds.add(server.installationId)
     void this.scanForServers()
   }
 

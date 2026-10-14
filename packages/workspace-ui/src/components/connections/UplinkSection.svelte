@@ -1,15 +1,17 @@
 <script lang="ts">
-  /** The host's link to the owner's Solus cloud account (personal Uplink, C4).
-   *  A local owner — the desktop on the machine or a paired device — changes it:
-   *  signed out it offers sign-in, signed in it links. Unlinking needs no account
-   *  (the host holds its own token for that), so a linked host always offers it.
-   *  An owner who arrived through the tunnel sees the link and cannot change it:
-   *  linking changes how the host is reached. A managed host never shows it: its
-   *  link is system-owned (managed-hosts.md §1). */
+  /** The host and Solus Cloud, as two facts (docs/adr/0001-standard-authentication.md
+   *  §2.2 rules 8 and 9). "Registered to your account" is the host's identity: it is
+   *  made by itself when a signed-in owner's client reaches the host, and it is what
+   *  the account, delegations, and organizations need. "Reachable from the internet"
+   *  is the link: a Cloudflare tunnel, and nothing else. A local owner — the desktop
+   *  on the machine or a paired device — changes them; an owner who arrived through
+   *  the tunnel sees them and cannot change them. A managed host never shows them:
+   *  Solus cloud owns them (managed-hosts.md §1). */
   import { localApi } from "@solus/client-core/local-api";
-  import { accountStore, uplinkStatusDescription, uplinkStore } from "../../contexts";
+  import { accountStore, linkDescription, registrationDescription, uplinkStore } from "../../contexts";
   import { hostWebsiteUrl } from "../../contexts/connections/host-routes";
   import { Button } from "../ui/button";
+  import { Switch } from "../ui/switch";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
 
@@ -20,70 +22,78 @@
 
   let { serverId, label = "Solus Cloud" }: Props = $props();
 
-  const linkControl = $derived(uplinkStore.controlFor(serverId));
-  // Linking takes an account to issue the ticket; a client without one (a web
-  // client served by a host, not by Solus cloud) can only say where to link.
-  const canChange = $derived(linkControl === "manage" && uplinkStore.accountAvailable);
+  const hostControl = $derived(uplinkStore.controlFor(serverId));
+  // Registering takes an account to issue the ticket; a client without one (a web
+  // client served by a host, not by Solus cloud) can only say where to do it.
+  const canChange = $derived(hostControl === "manage" && uplinkStore.accountAvailable);
   const uplink = $derived(uplinkStore.statusFor(serverId));
-  const uplinkBusy = $derived(uplinkStore.busyServerId === serverId);
+  const busy = $derived(uplinkStore.busyServerId === serverId);
   const account = $derived(accountStore.state);
+  const registration = $derived(uplink?.registration);
+  const isRegistered = $derived(registration?.registered === true);
+  const isLinked = $derived(uplink?.link.linked === true);
 
+  // Read again when the host changes, and when this client signs in: a signed-in
+  // owner's client registers a host that is not registered.
   $effect(() => {
+    void uplinkStore.canLink;
     void uplinkStore.refresh(serverId);
   });
 
-  const linked = $derived(uplink?.linked === true);
   // Sharing with a team is done on the website, not here: the site owns
   // organizations and their membership (plan Step 1.4).
   const websiteUrl = $derived(
-    uplink?.linked ? hostWebsiteUrl(uplink.link.directoryUrl, uplink.link.hostId) : null,
+    registration?.registered ? hostWebsiteUrl(registration.registration.directoryUrl, registration.registration.hostId) : null,
   );
-  const rowLabel = $derived(
-    linked
-      ? "Linked to your account"
+  const registrationLabel = $derived(
+    isRegistered
+      ? "Registered to your account"
       : !canChange || uplinkStore.canLink
-        ? "Link to Solus Cloud"
+        ? busy
+          ? "Registering…"
+          : "Not registered"
         : account.kind === "signing-in"
           ? "Confirm in your browser"
           : "Sign in to Solus Cloud",
   );
-  const rowDescription = $derived(
-    linkControl === "view"
-      ? `${uplinkStatusDescription(uplink)} Change the link from the host itself or from a paired device.`
-      : !canChange && !linked
-        ? "Open Solus from your Solus Cloud account or from the desktop app to link this host."
-        : linked || uplinkStore.canLink
-          ? uplinkStatusDescription(uplink)
+  const registrationText = $derived(
+    hostControl === "view"
+      ? `${registrationDescription(uplink)} Change it from the host itself or from a paired device.`
+      : !canChange && !isRegistered
+        ? "Open Solus from your Solus Cloud account or from the desktop app to register this host."
+        : isRegistered || uplinkStore.canLink
+          ? registrationDescription(uplink)
           : account.kind === "signing-in"
-            ? "Finish signing in in your browser to sign this Mac in."
+            ? "Finish signing in in your browser to sign this app in."
             : account.kind === "unavailable"
-              ? "The system keychain is unavailable, so an account cannot be stored on this Mac."
-              : "Sign in to reach this host from your other devices through your Solus account.",
+              ? "The system keychain is unavailable, so an account cannot be stored on this computer."
+              : "Sign in to register this host to your account. It stays on your local network.",
   );
+  const linkText = $derived(
+    hostControl === "view"
+      ? `${linkDescription(uplink)} Change it from the host itself or from a paired device.`
+      : linkDescription(uplink),
+  );
+
+  function toggleLink() {
+    if (busy || hostControl !== "manage") return;
+    void (isLinked ? uplinkStore.unlink(serverId) : uplinkStore.link(serverId));
+  }
 </script>
 
-{#if linkControl !== "none"}
+{#if hostControl !== "none"}
   <SettingsSection {label}>
-    <SettingsRow label={rowLabel} description={rowDescription}>
+    <SettingsRow label={registrationLabel} description={registrationText}>
       {#snippet control()}
-        <!-- Without a button, the description says where to change the link. -->
-        {#if linkControl !== "manage" || (!canChange && !linked)}{:else if linked}
+        <!-- Without a button, the description says where to change it. -->
+        {#if !canChange || isRegistered}{:else if uplinkStore.canLink}
           <Button
             variant="outline"
             size="sm"
-            disabled={uplinkBusy}
-            onclick={() => void uplinkStore.unlink(serverId)}
+            disabled={busy || !uplink}
+            onclick={() => void uplinkStore.register(serverId)}
           >
-            {uplinkBusy ? "Unlinking…" : "Unlink"}
-          </Button>
-        {:else if uplinkStore.canLink}
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={uplinkBusy || !uplink}
-            onclick={() => void uplinkStore.link(serverId)}
-          >
-            {uplinkBusy ? "Linking…" : "Link"}
+            {busy ? "Registering…" : "Register"}
           </Button>
         {:else if account.kind === "signing-in"}
           <Button variant="outline" size="sm" onclick={() => accountStore.cancelSignIn()}>
@@ -99,6 +109,17 @@
             Sign in
           </Button>
         {/if}
+      {/snippet}
+    </SettingsRow>
+    <SettingsRow label="Reachable from the internet" description={linkText} visible={isRegistered || isLinked}>
+      {#snippet control()}
+        <Switch
+          checked={isLinked}
+          onclick={toggleLink}
+          disabled={busy || hostControl !== "manage"}
+          size="default"
+          aria-label="Reachable from the internet"
+        />
       {/snippet}
     </SettingsRow>
     {#if websiteUrl}

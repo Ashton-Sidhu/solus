@@ -65,7 +65,7 @@
   import SettingsCloudProjects from "./SettingsCloudProjects.svelte";
   import SettingsTabSourceControl from "./SettingsTabSourceControl.svelte";
   import SettingsTabKeybindings from "./SettingsTabKeybindings.svelte";
-  import SettingsTabPersonal, { searchWords as personalSearch } from "./SettingsTabPersonal.svelte";
+  import SettingsTabAccount, { searchWords as accountSearch } from "./SettingsTabAccount.svelte";
   import SettingsTabAgentProfile, { searchWords as agentProfileSearch } from "./SettingsTabAgentProfile.svelte";
   import { agentProfileSearchWords } from "./agent-profile/lib/agent-profile-entries";
   import SettingsTabHost, { searchWords as hostSearch } from "./SettingsTabHost.svelte";
@@ -118,9 +118,9 @@
   // Account pages work with no host connected (plans/018 §7).
   const ALL_TABS: TabMeta[] = [
     {
-      id: "personal",
+      id: "account",
       label: "Account & sync",
-      description: "Your account, this computer's Solus Cloud link, and settings sync.",
+      description: "Your account, this computer's Solus Cloud link, your synced settings and agent profile, and your hosts.",
       icon: PersonIcon,
       group: "Account",
     },
@@ -286,7 +286,7 @@
   // (Projects, Providers, Skills, …) are found by their label alone.
   const keywordsOf = (items: { keywords: readonly string[] }[]) => items.flatMap((item) => item.keywords);
   const SEARCH_WORDS: Partial<Record<SettingsTab, readonly string[]>> = {
-    personal: personalSearch,
+    account: accountSearch,
     "agent-profile": agentProfileSearch,
     organization: organizationSearch,
     general: keywordsOf(generalSearch),
@@ -503,8 +503,8 @@
     />
   {:else if session.settingsTab === "tasks"}
     <SettingsTabTasks searchQuery={pageQuery} />
-  {:else if session.settingsTab === "personal"}
-    <SettingsTabPersonal searchQuery={pageQuery} />
+  {:else if session.settingsTab === "account"}
+    <SettingsTabAccount searchQuery={pageQuery} />
   {:else if session.settingsTab === "agent-profile"}
     <SettingsTabAgentProfile searchQuery={pageQuery} />
   {:else if session.settingsTab === "organization"}

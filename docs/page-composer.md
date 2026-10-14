@@ -30,7 +30,7 @@ it to start an agent on the page you are reading.
   composer. Its draft comes from `SessionDrafts.openDockedDraft`.
 - The composer is `session-draft/DraftComposer.svelte`, the same block the
   draft pane renders: the project and host strip, the seat notice, the input
-  bar, and the toolbar. The shell's attach, screenshot, and design-mode
+  bar, and the toolbar. The shell's attach and screenshot
   handlers reach it through the pane surface props, as they reach the draft
   pane.
 - `DraftComposer`'s `floating` mode is for a composer over a page: the strip

@@ -10,12 +10,12 @@ import type { SettingsTab } from '../../../contexts/workspace/routing/route-regi
  */
 export function settingsOwnerCommands(shell: { showSettings(tab: SettingsTab, via: Via): void }): Command[] {
   return [{
-    id: 'open-settings-sync',
-    label: 'Settings sync',
+    id: 'open-account-sync',
+    label: 'Account & sync',
     group: 'General',
     icon: RefreshCw,
-    keywords: ['sync', 'account', 'personal', 'devices', 'cloud', 'preferences'],
-    run: () => shell.showSettings('personal', 'palette'),
+    keywords: ['sync', 'account', 'personal', 'devices', 'cloud', 'preferences', 'profile', 'hosts'],
+    run: () => shell.showSettings('account', 'palette'),
   }, {
     id: 'open-organization-settings',
     label: 'Organization settings',

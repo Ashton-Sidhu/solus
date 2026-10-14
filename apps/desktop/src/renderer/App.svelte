@@ -21,7 +21,6 @@
   import { hostOnboardingStore } from "@solus/workspace-ui/components/servers/host-onboarding.store.svelte";
   import { skipsOnboarding } from "@solus/workspace-ui/components/onboarding/lib/skip-onboarding";
 
-  import DesignAnnotation from "@solus/workspace-ui/components/artifact/DesignAnnotation.svelte";
   import RenameSessionDialog from "@solus/workspace-ui/components/session/RenameSessionDialog.svelte";
   import SessionLinkPrompts from "@solus/workspace-ui/components/session/SessionLinkPrompts.svelte";
   import { Toaster } from "@solus/workspace-ui/components/ui/sonner/index.js";
@@ -67,10 +66,7 @@
   const {
     handleScreenshot,
     handleAttachFile,
-    handleDesignMode,
-    handleDesignConfirm,
-    handleDesignCancel,
-  } = createDesktopAttachments(core, ui);
+  } = createDesktopAttachments(core);
   const projectPicker = createProjectPicker(session);
   const { startOpenProject } = projectPicker;
   const palette = createDesktopPalette(core, ui, startOpenProject);
@@ -131,7 +127,6 @@
     startOpenProject,
     handleScreenshot,
     handleAttachFile,
-    handleDesignMode,
   });
 
   $effect(() => {
@@ -303,7 +298,6 @@
         <WorkspaceLayout
           onAttachFile={handleAttachFile}
           onScreenshot={desktopHandlersAvailable ? handleScreenshot : null}
-          onDesignMode={desktopHandlersAvailable ? handleDesignMode : null}
         />
       </div>
     {:else if workspaceLayoutComponent}
@@ -320,7 +314,6 @@
           <WorkspaceLayout
             onAttachFile={handleAttachFile}
             onScreenshot={desktopHandlersAvailable ? handleScreenshot : null}
-            onDesignMode={desktopHandlersAvailable ? handleDesignMode : null}
           />
         </div>
       {:catch}
@@ -520,14 +513,6 @@
           <p role="alert">Could not load the share dialog.</p>
         {/if}
       {/await}
-    {/if}
-
-    {#if ui.designModeScreenshot}
-      <DesignAnnotation
-        screenshotDataUrl={ui.designModeScreenshot}
-        onConfirm={handleDesignConfirm}
-        onCancel={handleDesignCancel}
-      />
     {/if}
 
     <!-- Every native browser surface in the app, mounted once and positioned over

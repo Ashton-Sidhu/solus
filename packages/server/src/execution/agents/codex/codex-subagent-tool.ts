@@ -9,12 +9,17 @@ import { sessionSettings } from '../../sessions/session-settings'
 import { resolveHomePath } from '../../../platform/paths'
 import { isSubagentTranscriptEvent, parentSubagentEvent } from '../subagent-events'
 import { SPAN_SERVICES } from '../../../data/insights/registries'
+import { resolveSubagentModel } from '../subagent-model'
+import { subagentResult } from '../subagent-result'
+
+const DEFAULT_CODEX_MODEL = 'gpt-6-sol'
 
 // Keys deliberately line up with the renderer's parseSubagentInput
 // (description / prompt / model / reasoning_effort) so the card's row renders.
 const codexSubagentFields = {
   prompt: z
     .string()
+    .refine((prompt) => prompt.trim().length > 0, 'Prompt must not be empty.')
     .describe(
       'The complete, self-contained task for the Codex subagent. Include all context it needs — it cannot see this conversation.',
     ),
@@ -26,10 +31,10 @@ const codexSubagentFields = {
     .string()
     .optional()
     .describe(
-      "Codex model id. Defaults to 'gpt-6-sol' — right for most delegated tasks; pick 'gpt-6-astra' for genuinely hard debugging or design work.",
+      `Codex model id from list_agent_targets. Defaults to '${DEFAULT_CODEX_MODEL}'. Unsupported explicit models are refused.`,
     ),
   reasoning_effort: z
-    .enum(['none', 'low', 'medium', 'high', 'xhigh'])
+    .enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode'])
     .optional()
     .describe(
       "Match to task difficulty: 'low' for mechanical edits and lookups, 'medium' for typical coding tasks, 'high'+ only for hard debugging or design. Omit to use the model's default.",
@@ -37,7 +42,7 @@ const codexSubagentFields = {
 }
 
 const CODEX_SUBAGENT_DESC =
-  "Delegate a task to a Codex subagent that runs headlessly in this session's working directory and returns its final answer. Runs unattended (no permission prompts). The result is the subagent's final text — it has no memory between calls."
+  "Use this for temporary work on Codex from another provider. Runs headlessly in this session's working directory and returns one final answer. No task fields, separate Solus conversation, or memory between calls. Runs unattended (no permission prompts). Use the built-in subagent tool for supported work on your current provider."
 
 /** `seatFor` is the turn author's own provider login, which the subagent uses. */
 export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher, seatFor?: SeatResolver): AgentTool {
@@ -46,17 +51,20 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher, seatFo
     description: CODEX_SUBAGENT_DESC,
     inputFields: codexSubagentFields,
     requiresApproval: false,
+    alwaysLoad: true,
     execute: async (args, context) => {
       // The session whose turn starts the subagent: its person's instructions apply.
       const parentSessionId = context.sessionId()
       const parentToolUseId = context.parentToolUseId()
+      const modelInput = resolveSubagentModel('codex', args.model, DEFAULT_CODEX_MODEL, args.reasoning_effort)
+      if ('error' in modelInput) return { ok: false, text: modelInput.error }
+      const { model, reasoningEffort } = modelInput
       let seat: TurnSeat | undefined
       try {
         seat = await seatFor?.('codex') ?? undefined
       } catch (error) {
         return { ok: false, text: `Codex subagent failed: ${error instanceof Error ? error.message : String(error)}` }
       }
-      const model = args.model ?? 'gpt-6-sol'
       const run = dispatcher.runAgent({
         provider: 'codex',
         prompt: args.prompt,
@@ -74,7 +82,7 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher, seatFo
           ...Object.values(solusToolbox.tasks),
         ],
         model,
-        reasoningEffort: args.reasoning_effort,
+        reasoningEffort,
         permissionMode: 'full-access',
         persistence: 'ephemeral',
         seat,
@@ -90,12 +98,7 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher, seatFo
       else context.abortSignal.addEventListener('abort', cancel, { once: true })
       try {
         const result = await run.done
-        return {
-          ok: result.signal !== 'SIGINT',
-          text: result.signal === 'SIGINT'
-            ? 'Codex subagent was interrupted.'
-            : result.output || '(Codex subagent returned no text.)',
-        }
+        return subagentResult(result, 'Codex', context.abortSignal.aborted)
       } catch (error) {
         return { ok: false, text: `Codex subagent failed: ${String(error)}` }
       } finally {

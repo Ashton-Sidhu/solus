@@ -3,10 +3,12 @@
    * Settings → Agent profile → Skills: registry skills (a reference the host
    * installs with the skills CLI) and hand-written skills (their files, by
    * name). Adding searches skills.sh through a host this client talks to.
+   * A skill can be removed, or turned off on every host and kept in the
+   * profile; a hand-written skill's files turn off and on together.
    */
   import { onDestroy, tick } from "svelte";
   import { ExternalLink, LoaderCircle, Plus } from "@lucide/svelte";
-  import { agentProfileKeyOf } from "@solus/contracts/agent-profile";
+  import { agentProfileKeyOf, type AgentProfileKey } from "@solus/contracts/agent-profile";
   import type { RemoteSkill } from "@solus/contracts/types";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -17,7 +19,7 @@
   import SettingsSection from "../SettingsSection.svelte";
   import SettingsRow from "../SettingsRow.svelte";
   import { SkillSearch } from "../skills.store.svelte";
-  import { providerLabel, skillEntryOf, type AgentProfileSections } from "./lib/agent-profile-entries";
+  import { entriesWithDisabled, providerLabel, skillEntryOf, type AgentProfileSections } from "./lib/agent-profile-entries";
 
   interface Props {
     registrySkills: AgentProfileSections["registrySkills"];
@@ -68,8 +70,13 @@
     searchEl?.focus();
   }
 
-  function remove(...keys: Parameters<typeof agentProfileLocalStore.removeKey>) {
+  function remove(...keys: AgentProfileKey[]) {
     agentProfileLocalStore.removeKey(...keys);
+    requestInputFocus();
+  }
+
+  function setDisabled(keys: AgentProfileKey[], disabled: boolean) {
+    agentProfileLocalStore.setEntry(...entriesWithDisabled(agentProfileLocalStore.storedEntries, keys, disabled));
     requestInputFocus();
   }
 </script>
@@ -127,8 +134,14 @@
     {/if}
     {#each registrySkills as skill (skill.name)}
       <SettingsRow label={skill.name} description="From skills.sh · {skill.source}" testId="agent-profile-registry-skill">
+        {#snippet labelExtra()}
+          {#if skill.disabled}<span class="ml-2 text-chrome-dense text-muted-foreground">Off on every host</span>{/if}
+        {/snippet}
         {#snippet control()}
-          <Button variant="ghost" size="sm" class="text-muted-foreground hover:text-destructive" onclick={() => remove(agentProfileKeyOf(skill))} aria-label="Remove {skill.name}">Remove</Button>
+          <span class="flex gap-1.5">
+            <Button variant="ghost" size="sm" onclick={() => setDisabled([agentProfileKeyOf(skill)], !skill.disabled)} aria-label="{skill.disabled ? 'Enable' : 'Disable'} {skill.name}">{skill.disabled ? "Enable" : "Disable"}</Button>
+            <Button variant="ghost" size="sm" class="text-muted-foreground hover:text-destructive" onclick={() => remove(agentProfileKeyOf(skill))} aria-label="Remove {skill.name}">Remove</Button>
+          </span>
         {/snippet}
       </SettingsRow>
     {/each}
@@ -138,8 +151,14 @@
         description="Hand-written · {skill.fileCount} {skill.fileCount === 1 ? 'file' : 'files'} · {skill.providers.map(providerLabel).join(', ')}"
         testId="agent-profile-written-skill"
       >
+        {#snippet labelExtra()}
+          {#if skill.disabled}<span class="ml-2 text-chrome-dense text-muted-foreground">Off on every host</span>{/if}
+        {/snippet}
         {#snippet control()}
-          <Button variant="ghost" size="sm" class="text-muted-foreground hover:text-destructive" onclick={() => remove(...skill.keys)} aria-label="Remove {skill.name}">Remove</Button>
+          <span class="flex gap-1.5">
+            <Button variant="ghost" size="sm" onclick={() => setDisabled(skill.keys, !skill.disabled)} aria-label="{skill.disabled ? 'Enable' : 'Disable'} {skill.name}">{skill.disabled ? "Enable" : "Disable"}</Button>
+            <Button variant="ghost" size="sm" class="text-muted-foreground hover:text-destructive" onclick={() => remove(...skill.keys)} aria-label="Remove {skill.name}">Remove</Button>
+          </span>
         {/snippet}
       </SettingsRow>
     {/each}

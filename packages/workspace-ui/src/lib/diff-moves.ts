@@ -1,4 +1,5 @@
 import { parsePatchFiles, type ChangeContent, type FileDiffMetadata, type Hunk } from '@pierre/diffs'
+import { withRealPaths } from './pierre-diff/metadata'
 
 export interface CharacterRange {
   start: number
@@ -365,7 +366,7 @@ export function detectMovedBlocksInPatches(patches: Map<string, string>): DiffMo
   const cached = patchMapCache.get(patches)
   if (cached) return cached
   const files = [...patches.values()].flatMap((patch) =>
-    parsePatchFiles(patch).flatMap((parsed) => parsed.files),
+    parsePatchFiles(patch).flatMap((parsed) => parsed.files.map(withRealPaths)),
   )
   const analysis = detectMovedBlocks(files)
   patchMapCache.set(patches, analysis)

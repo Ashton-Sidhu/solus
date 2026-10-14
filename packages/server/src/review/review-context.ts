@@ -1,5 +1,4 @@
-import { readdir, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { stat } from 'node:fs/promises'
 import type { IpcContext } from '@solus/contracts/types'
 import { worktreeProjectRoot } from '@solus/contracts/types'
 import type { ReviewContext, ReviewGuide } from '@solus/contracts/review'
@@ -8,20 +7,14 @@ import { gitCommitExists, runAsync } from '../git/exec'
 import { resolveRepoRoot } from '../git/git-helpers'
 import { getDefaultBranch, getHeadCommit, getWorkingBranch } from '../git/worktree-manager'
 import { getSessionBaseSha } from '../git/session-snapshots'
-import { artifactPath, readJson, reviewGuidePath, writeJsonAtomic } from './review-store'
+import { readJson, reviewGuidePath, writeJsonAtomic } from './review-store'
 
 const log = createLogger('review', 'review-context.ts')
-
-const GUIDE_SUBDIR = 'review'
 
 /** Branch names contain slashes (e.g. `feat/foo`); flatten them so the key is
  *  a single safe path segment. */
 export function sanitizeKey(branch: string): string {
   return branch.replace(/\//g, '__')
-}
-
-function legacyGuidePath(repoRoot: string, key: string): string {
-  return artifactPath(repoRoot, GUIDE_SUBDIR, key)
 }
 
 /**
@@ -145,15 +138,7 @@ export async function resolveReviewContext(
  *  (overwritten in place on regeneration), so there is never a stale pile to
  *  disambiguate. */
 export async function readGuideByKey(repoRoot: string, key: string): Promise<ReviewGuide | null> {
-  const current = await readGuideFile(reviewGuidePath(repoRoot, key))
-  if (current) return current
-
-  // Read old project-local guides during migration. New writes always go to
-  // host storage, so this fallback never changes the checkout.
-  return readGuideFile(legacyGuidePath(repoRoot, key))
-}
-
-async function readGuideFile(path: string): Promise<ReviewGuide | null> {
+  const path = reviewGuidePath(repoRoot, key)
   const guide = await readJson<ReviewGuide>(path)
   if (!guide || guide.generatedAt) return guide
   try {
@@ -163,46 +148,12 @@ async function readGuideFile(path: string): Promise<ReviewGuide | null> {
   }
 }
 
-/** Read the newest guide from the retired SHA-derived naming scheme. This is
- * migration-only: new writes always use stable branch/session keys. */
-export async function readLegacyGuide(
-  repoRoot: string,
-  stableKey: string,
-  onDefaultBranch: boolean,
-): Promise<ReviewGuide | null> {
-  const dirs = [
-    join(reviewGuidePath(repoRoot, stableKey), '..'),
-    join(repoRoot, '.solus', GUIDE_SUBDIR),
-  ]
-  const guides = await Promise.all(dirs.map((dir) => readLegacyGuideFromDirectory(dir, stableKey, onDefaultBranch)))
-  return guides
-    .filter((guide): guide is ReviewGuide => guide !== null)
-    .sort((a, b) => Date.parse(b.generatedAt ?? '') - Date.parse(a.generatedAt ?? ''))[0] ?? null
-}
-
-async function readLegacyGuideFromDirectory(
-  dir: string,
-  stableKey: string,
-  onDefaultBranch: boolean,
-): Promise<ReviewGuide | null> {
-  try {
-    const names = await readdir(dir)
-    const suffix = stableKey.startsWith('session-') ? `__${stableKey}.json` : null
-    const candidates = names.filter((name) =>
-      suffix ? name.endsWith(suffix) : onDefaultBranch && name.startsWith('main-') && name.endsWith('.json'),
-    )
-    const dated = await Promise.all(candidates.map(async (name) => ({ name, mtime: (await stat(join(dir, name))).mtimeMs })))
-    dated.sort((a, b) => b.mtime - a.mtime)
-    return dated[0] ? readGuideFile(join(dir, dated[0].name)) : null
-  } catch {
-    return null
-  }
-}
-
-/** Overwrite the cached review guide in host storage (atomic tmp + rename). */
+/** Overwrite the cached review guide in host storage (atomic tmp + rename).
+ *  Nothing is written when `canCommit` says no at the last moment. */
 export async function writeGuide(
   repoRoot: string,
   guide: ReviewGuide,
+  canCommit?: () => boolean,
 ): Promise<boolean> {
-  return writeJsonAtomic(reviewGuidePath(repoRoot, guide.key), guide, `guide ${guide.key}`)
+  return writeJsonAtomic(reviewGuidePath(repoRoot, guide.key), guide, `guide ${guide.key}`, canCommit)
 }

@@ -1,3 +1,4 @@
+import { WorkspaceRequestError } from '@solus/contracts/solus-api/client'
 import type { ProjectEntry, SessionRecord } from '@solus/contracts/types'
 import { Listeners } from '../../lib/listeners'
 import type { HostConnection } from '../hosts/host-connections'
@@ -57,12 +58,17 @@ export function threadKey(hostId: string, sessionId: string): string {
 /** How many sessions a host is asked for; the home list pages locally. */
 const SESSION_LIMIT = 500
 
+/** A host that is over its request budget keeps the list it showed; it is read again
+ *  after the wait the host asks for, this many times before the error shows. */
+const RATE_LIMIT_RETRIES = 3
+
 const IDLE = { kind: 'idle' } as const
 
 export class ThreadDirectory {
   readonly changes = new Listeners()
   private readonly hosts = new Map<string, HostThreadsState>()
   private readonly requests = new Map<string, number>()
+  private readonly retries = new Map<string, ReturnType<typeof setTimeout>>()
   private nextRequest = 0
   /** A stable snapshot, replaced only when a host's state changes. */
   private merged: MergedThreads = { threads: [], projects: [] }
@@ -98,7 +104,9 @@ export class ThreadDirectory {
     await Promise.all(this.registry.hosts().map((host) => this.load(host.id)))
   }
 
-  async load(hostId: string): Promise<void> {
+  async load(hostId: string, attempt = 0): Promise<void> {
+    clearTimeout(this.retries.get(hostId))
+    this.retries.delete(hostId)
     const host = this.registry.host(hostId)
     const connection = this.connectionFor(hostId)
     const current = this.stateOf(hostId)
@@ -112,6 +120,7 @@ export class ThreadDirectory {
     this.requests.set(hostId, request)
     this.set(hostId, { kind: 'loading', previous })
     let next: HostThreadsState
+    let retryAfterMs: number | null = null
     try {
       const [list, projects] = await Promise.all([
         connection.api.sessionRecordList({ includeWorktrees: true, limit: SESSION_LIMIT }),
@@ -128,15 +137,24 @@ export class ThreadDirectory {
         },
       }
     } catch (error) {
-      next = { kind: 'error', message: error instanceof Error ? error.message : String(error), previous }
+      if (error instanceof WorkspaceRequestError && error.status === 429 && attempt < RATE_LIMIT_RETRIES) {
+        retryAfterMs = (error.retryAfter ?? 1) * 1000
+        next = { kind: 'loading', previous }
+      } else {
+        next = { kind: 'error', message: error instanceof Error ? error.message : String(error), previous }
+      }
     }
     const isCurrent = this.requests.get(hostId) === request
       && this.connectionFor(hostId) === connection
       && connection.state.sessionGeneration === generation
-    if (isCurrent) this.set(hostId, next)
+    if (!isCurrent) return
+    this.set(hostId, next)
+    if (retryAfterMs !== null) this.retries.set(hostId, setTimeout(() => void this.load(hostId, attempt + 1), retryAfterMs))
   }
 
   forgetHost(hostId: string): void {
+    clearTimeout(this.retries.get(hostId))
+    this.retries.delete(hostId)
     this.hosts.delete(hostId)
     this.remerge()
   }

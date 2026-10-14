@@ -1,4 +1,4 @@
-import { GUEST_RESOURCE_KINDS } from '@solus/workspace-ui/contexts/app/resource-routes'
+import { GUEST_RESOURCE_KINDS, type ResourceRouteKind } from '@solus/workspace-ui/contexts/app/resource-routes'
 import { WebShell } from './web-shell.svelte'
 
 /**
@@ -8,5 +8,11 @@ import { WebShell } from './web-shell.svelte'
  * the shell only leaves out the pages a guest cannot read at all.
  */
 export class GuestShell extends WebShell {
-  protected override readonly resourceKinds = GUEST_RESOURCE_KINDS
+  protected override readonly resourceKinds: ReadonlySet<ResourceRouteKind>
+
+  /** A shared work opens alone in its pane: no workspace surrounds it, so there is no pane to close into. */
+  constructor(sharedKind: 'work' | 'session') {
+    super()
+    this.resourceKinds = sharedKind === 'work' ? new Set<ResourceRouteKind>(['work']) : GUEST_RESOURCE_KINDS
+  }
 }

@@ -24,7 +24,7 @@ import {
   type HostLinkEnv,
   type HostPublicJwk,
   type HostLinkResponse,
-  type UplinkLinkConfig,
+  type HostRegistration,
 } from '@solus/contracts/uplink'
 import { PERSONAS, type Persona } from './personas'
 
@@ -84,11 +84,16 @@ interface HostControlClaims {
 
 type OrganizationMember = Extract<Persona, { kind: 'org-member' }>
 
-/** Whom a refresh token acts for, and through which host. */
+/**
+ * Whom a refresh token acts for, through which host, in which scope, and from which
+ * client grant (ADR 0001 §2.2 rule 6): `personal` for the host's owner, else one
+ * organization.
+ */
 interface Delegation {
   hostId: string
   userId: string
-  organizationId: string
+  scope: 'personal' | { organizationId: string }
+  grantId: string
 }
 
 interface TokenAnswer {
@@ -110,7 +115,14 @@ type IssuerReply =
   | { error: string; message?: string; error_description?: string }
 
 const tokenRequestSchema = z.discriminatedUnion('grant_type', [
-  z.object({ grant_type: z.literal(TOKEN_EXCHANGE_GRANT_TYPE), subject_token: z.string().min(1), subject_token_type: z.literal(ACCESS_TOKEN_TYPE), organization_id: z.string().min(1) }),
+  z.object({
+    grant_type: z.literal(TOKEN_EXCHANGE_GRANT_TYPE),
+    subject_token: z.string().min(1),
+    subject_token_type: z.literal(ACCESS_TOKEN_TYPE),
+    // One scope: an organization, or the owner's own host (`delegation_scope=personal`).
+    organization_id: z.string().min(1).optional(),
+    delegation_scope: z.literal('personal').optional(),
+  }),
   z.object({ grant_type: z.literal('refresh_token'), refresh_token: z.string().min(1) }),
   z.object({ grant_type: z.literal('client_credentials'), resource: z.literal(CONTROL_AUDIENCE) }),
 ])
@@ -205,38 +217,35 @@ export class LabIssuer {
    * earlier one, as a recreated machine's would. A link that names the organization the
    * machine was provisioned for is a managed host's; a runner's names none.
    */
-  issueManagedLink(hostId: string, proxiedPort: number, connectionGeneration = 1, organizationId?: string): HostLinkEnv {
+  issueManagedLink(hostId: string, proxiedPort: number, generation = 1, organizationId?: string): HostLinkEnv {
     const credentialTicket = `hct_lab_${randomBytes(18).toString('base64url')}`
-    return { link: this.issueLink(hostId, proxiedPort, connectionGeneration, { publicJwk: null, credentialTicket, organizationId }), credentialTicket }
+    const registration = this.issueRegistration(hostId, proxiedPort, generation, { publicJwk: null, credentialTicket, organizationId })
+    return { registration, tunnel: { hostname: `h-${hostId}.lab.invalid`, proxiedPort }, credentialTicket }
   }
 
   /**
-   * What enrollment answers a host that sent the public half of its key: the link, and
-   * its OAuth client registered with that key. A Lab runner is written as if it had
-   * enrolled, so the key is the one the Lab put in its secret store.
+   * What registration answers a host that sent the public half of its key: the
+   * registration, and its OAuth client registered with that key. A Lab runner is written
+   * as if it had registered and linked, so the key is the one the Lab put in its secret store.
    */
   issueEnrolledLink(hostId: string, proxiedPort: number, publicJwk: HostPublicJwk): EnrollHostResponse {
-    const link = this.issueLink(hostId, proxiedPort, 1, { publicJwk, credentialTicket: null })
-    // The Lab runs no tunnel; the host's connector gets a token it can never use.
-    return { link, connectorToken: 'lab-connector-token', oauthClient: { clientId: hostClientId(hostId) } }
+    const registration = this.issueRegistration(hostId, proxiedPort, 1, { publicJwk, credentialTicket: null })
+    return { registration, oauthClient: { clientId: hostClientId(hostId) } }
   }
 
-  private issueLink(hostId: string, proxiedPort: number, connectionGeneration: number, credential: Pick<IssuedLink, 'publicJwk' | 'credentialTicket' | 'organizationId'>): UplinkLinkConfig {
+  private issueRegistration(hostId: string, proxiedPort: number, generation: number, credential: Pick<IssuedLink, 'publicJwk' | 'credentialTicket' | 'organizationId'>): HostRegistration {
     const link: HostLinkResponse = {
       hostId,
+      generation,
       desired: 'linked',
-      connectionGeneration,
-      hostname: `h-${hostId}.lab.invalid`,
-      proxiedPort,
+      tunnel: { hostname: `h-${hostId}.lab.invalid`, proxiedPort },
     }
-    const issued: UplinkLinkConfig = {
+    const issued: HostRegistration = {
       hostId,
       issuer: this.issuer,
       jwksUrl: this.jwksUrl,
       directoryUrl: this.issuer,
-      hostname: link.hostname,
-      proxiedPort,
-      connectionGeneration,
+      generation,
     }
     if (credential.organizationId) issued.organizationId = credential.organizationId
     if (this.workspaceUrl) issued.apiUrl = this.workspaceUrl
@@ -262,6 +271,11 @@ export class LabIssuer {
     this.workspaceUrl = url
   }
 
+  /** The Solus API the links issued now name; a scenario that replaces it puts it back. */
+  get workspaceRoute(): string | null {
+    return this.workspaceUrl
+  }
+
   /** A workspace access token for a member: `aud: urn:solus:api`, `hostKind: cloud`. */
   issueWorkspaceGrant(persona: SignedInPersona, ttlSeconds?: number): string {
     return this.mint(persona, { hostId: SOLUS_API_AUDIENCE, hostKind: 'cloud', ttlSeconds })
@@ -272,27 +286,31 @@ export class LabIssuer {
    * member in the organization. A scenario that seeds the Solus API as a host would
    * uses it directly.
    */
-  issueDelegatedToken(hostId: string, persona: OrganizationMember): string {
+  issueDelegatedToken(hostId: string, persona: OrganizationMember, grantId = `${persona.id}-grant`): string {
+    return this.signDelegated(hostId, persona, { organizationId: persona.organizationId }, grantId)
+  }
+
+  /** A delegated token: the acting host in `act`, the client grant it was made from, and its scope's standing. */
+  private signDelegated(hostId: string, persona: SignedInPersona, scope: Delegation['scope'], grantId: string): string {
     const nowSeconds = Math.floor(Date.now() / 1000)
     this.minted += 1
-    const clientId = `host_${hostId}`
-    return this.sign({
+    const clientId = hostClientId(hostId)
+    const base = {
       iss: this.issuer,
       aud: [SOLUS_API_AUDIENCE, ACCOUNT_AUDIENCE],
       sub: persona.userId,
-      grant_id: `lab-grant-${persona.userId}`,
+      grant_id: grantId,
       jti: `lab-${this.minted}-${nowSeconds}`,
       iat: nowSeconds,
       exp: nowSeconds + ACCESS_TOKEN_TTL_SECONDS,
       client_id: clientId,
       act: { sub: clientId, host_id: hostId },
-      access: 'org-member',
-      hostKind: 'cloud',
-      organizationId: persona.organizationId,
-      organizationRole: persona.organizationRole,
-      teamIds: [...persona.teamIds],
+      hostKind: 'cloud' as const,
       displayName: persona.displayName,
-    })
+    }
+    if (scope === 'personal') return this.sign({ ...base, access: 'owner' })
+    if (persona.kind !== 'org-member') throw new Error(`${persona.id} is in no organization`)
+    return this.sign({ ...base, access: 'org-member', organizationId: scope.organizationId, organizationRole: persona.organizationRole, teamIds: [...persona.teamIds] })
   }
 
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -329,7 +347,8 @@ export class LabIssuer {
       const issued = this.links.get(linkMatch[1]!)
       if (issued && this.controlCaller(linkMatch[1]!, request.headers.authorization)) {
         if (request.method === 'DELETE') {
-          this.links.delete(linkMatch[1]!)
+          // Unlink turns the tunnel off; the registration stays (ADR 0001 §2.2 rule 9).
+          issued.link = { ...issued.link, desired: 'unlinked', tunnel: null }
           response.statusCode = 204
           response.end()
           return
@@ -394,17 +413,28 @@ export class LabIssuer {
     } else {
       const subject = this.verified(form.subject_token)
       if (!subject || !tokenAudiences(subject).includes(hostAudience(client.hostId))) return refuse(400, 'invalid_grant', 'The subject token is not for this host.')
-      delegation = { hostId: client.hostId, userId: subject.sub, organizationId: form.organization_id }
+      // A person's own token only, never a delegated one; the delegation keeps its grant.
+      if (subject.act || !subject.grant_id) return refuse(400, 'invalid_grant', 'The subject is not a person\'s token.')
+      const scope = form.delegation_scope === 'personal' && !form.organization_id ? 'personal' as const
+        : form.organization_id && !form.delegation_scope ? { organizationId: form.organization_id } : null
+      if (!scope) return refuse(400, 'invalid_request', 'Name one scope: an organization or personal.')
+      // `personal` is the owner's alone (hostReach on the real account plane).
+      if (scope === 'personal' && subject.access !== 'owner') return refuse(400, 'invalid_grant', 'not_the_owner')
+      delegation = { hostId: client.hostId, userId: subject.sub, scope, grantId: subject.grant_id }
     }
     // The live check, at the exchange and at every refresh.
     const personas: readonly Persona[] = Object.values(PERSONAS)
-    const persona = personas.find((candidate): candidate is OrganizationMember => candidate.kind === 'org-member' && candidate.userId === delegation.userId)
-    if (!persona || persona.organizationId !== delegation.organizationId) return refuse(400, 'invalid_grant', 'The person is not a member of the organization.')
-    const hostOrganization = this.links.get(client.hostId)?.organizationId ?? this.hostOrganizations.get(client.hostId)
-    if (hostOrganization !== delegation.organizationId) return refuse(400, 'invalid_grant', 'The host does not work for the organization.')
+    const persona = personas.find((candidate): candidate is SignedInPersona => candidate.kind !== 'guest' && candidate.userId === delegation.userId)
+    if (!persona) return refuse(400, 'invalid_grant', 'Unknown person.')
+    const scope = delegation.scope
+    if (scope !== 'personal') {
+      if (persona.kind !== 'org-member' || persona.organizationId !== scope.organizationId) return refuse(400, 'invalid_grant', 'The person is not a member of the organization.')
+      const hostOrganization = this.links.get(client.hostId)?.organizationId ?? this.hostOrganizations.get(client.hostId)
+      if (hostOrganization !== scope.organizationId) return refuse(400, 'invalid_grant', 'The host does not work for the organization.')
+    }
     const refreshToken = `lab_rt_${randomBytes(18).toString('base64url')}`
     this.refreshTokens.set(refreshToken, delegation)
-    const answer: TokenAnswer = { access_token: this.issueDelegatedToken(client.hostId, persona), token_type: 'Bearer', expires_in: ACCESS_TOKEN_TTL_SECONDS, refresh_token: refreshToken }
+    const answer: TokenAnswer = { access_token: this.signDelegated(client.hostId, persona, scope, delegation.grantId), token_type: 'Bearer', expires_in: ACCESS_TOKEN_TTL_SECONDS, refresh_token: refreshToken }
     if (form.grant_type !== 'refresh_token') answer.issued_token_type = ACCESS_TOKEN_TYPE
     sendJson(response, 200, answer)
   }
@@ -421,7 +451,7 @@ export class LabIssuer {
       if (hostClientId(hostId) !== claims.data.sub || !issued.publicJwk) continue
       const key = createPublicKey({ key: { ...issued.publicJwk }, format: 'jwk' })
       const valid = verify('sha256', Buffer.from(`${header}.${body}`), { key, dsaEncoding: 'ieee-p1363' }, Buffer.from(signature, 'base64url'))
-      return valid ? { hostId, generation: issued.link.connectionGeneration } : null
+      return valid ? { hostId, generation: issued.link.generation } : null
     }
     return null
   }
@@ -434,7 +464,7 @@ export class LabIssuer {
     if (!header || !body || !signature || !issued?.publicJwk) return false
     if (!verify('sha256', Buffer.from(`${header}.${body}`), { key: createPublicKey(this.privateKey), dsaEncoding: 'ieee-p1363' }, Buffer.from(signature, 'base64url'))) return false
     const claims = controlClaimsSchema.safeParse(JSON.parse(Buffer.from(body, 'base64url').toString('utf8')))
-    return claims.success && claims.data.host_id === hostId && claims.data.host_generation === issued.link.connectionGeneration && claims.data.exp > Date.now() / 1000
+    return claims.success && claims.data.host_id === hostId && claims.data.host_generation === issued.link.generation && claims.data.exp > Date.now() / 1000
   }
 
   /** The claims of a token this issuer signed and that has not run out, or null. */

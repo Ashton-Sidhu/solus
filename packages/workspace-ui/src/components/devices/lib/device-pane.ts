@@ -81,21 +81,21 @@ export function screenshotFileName(device: DeviceSummary, capturedAt: number): s
   return `${device.name.replace(/[^a-zA-Z0-9-]+/g, '-')}-${stamp}.png`
 }
 
-export type DevicesPaneView = 'status' | 'builds' | 'picker' | 'device'
+export type DevicesPaneView = 'status' | 'runApp' | 'picker' | 'device'
 
 /**
- * What the Devices pane shows. Builds belong to the host, so they open
+ * What the Devices pane shows. Run app belongs to the host, so it opens
  * without a conversation (from the header, the palette or the project
  * panel); device tabs belong to a conversation and need one.
  */
-export function devicesPaneView(pane: { isReady: boolean; hasSession: boolean; showBuilds: boolean; adding: boolean; hasPreview: boolean }): DevicesPaneView {
+export function devicesPaneView(pane: { isReady: boolean; hasSession: boolean; showRunApp: boolean; adding: boolean; hasPreview: boolean }): DevicesPaneView {
   if (!pane.isReady) return 'status'
-  if (pane.showBuilds) return 'builds'
+  if (pane.showRunApp) return 'runApp'
   if (!pane.hasSession) return 'status'
   return pane.adding || !pane.hasPreview ? 'picker' : 'device'
 }
 
-/** The checkout a conversation builds in: its worktree, if it has one. A chat or an unchosen folder is none. */
+/** The explicit conversation branch source: its worktree, if it has one. A chat or an unchosen folder is none. */
 export function conversationCheckout(run: { workingDirectory: string; gitContext?: { worktreePath?: string | null } | null } | undefined): string | null {
   const path = run ? (run.gitContext?.worktreePath ?? run.workingDirectory) || null : null
   return path && path !== '~' && !isChat(path) ? path : null

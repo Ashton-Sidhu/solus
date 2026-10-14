@@ -18,6 +18,8 @@ export interface FeedSourceEntry {
   readonly kind: TranscriptItem['kind'] | 'device_snapshot'
   /** Notices only: an error notice marks its turn as failed, which never folds. */
   readonly tone?: 'error' | 'info'
+  /** Artifacts only: the work its revisions share. */
+  readonly workId?: string | null
 }
 
 export type ThreadFeedRow =
@@ -39,8 +41,11 @@ export type ThreadFeedRow =
   | { readonly type: 'compaction'; readonly id: string }
   | { readonly type: 'plan'; readonly id: string }
   | { readonly type: 'worktree-offer'; readonly id: string }
-  /** The picture a device_screenshot call returned, or the call while it has none. */
-  | { readonly type: 'device-snapshot'; readonly id: string }
+  /** The device_screenshot calls of a turn, as one card at the first call's
+   *  place: their pictures, or a call's own line while it has none. */
+  | { readonly type: 'device-snapshot'; readonly id: string; readonly itemIds: readonly string[] }
+  /** An HTML render. `superseded`: a later render in the feed revises the same work. */
+  | { readonly type: 'artifact'; readonly id: string; readonly superseded: boolean }
   /** Consecutive agents of one turn: other Solus sessions and provider subagents. */
   | { readonly type: 'agents'; readonly id: string; readonly groupId: string; readonly itemIds: readonly string[]; readonly expanded: boolean }
 
@@ -69,16 +74,26 @@ export function deriveThreadFeedPresentation(input: ThreadFeedPresentationInput)
   const turns = splitTurns(input.entries)
   const lastTurn = turns.at(-1)
   const rows: ThreadFeedRow[] = []
+  const latestRevisions = latestArtifactRevisions(input.entries)
   for (const { user, turn } of turns) {
     if (user) rows.push({ type: 'message', id: user.id, role: 'user', showMeta: true })
     const active = input.turnActive && turn === lastTurn?.turn
-    appendTurnRows(rows, turn, active, input)
+    appendTurnRows(rows, turn, active, input, latestRevisions)
   }
   const trailing = rows.at(-1)
   if (input.working && !(trailing?.type === 'work-toggle' && trailing.live)) {
     rows.push({ type: 'thinking', id: LIVE_ACTIVITY_ROW_ID, continuesWorkLog: false })
   }
   return markContinuedWorkLogs(rows)
+}
+
+/** The newest render of each artifact work, by work id. */
+function latestArtifactRevisions(entries: readonly FeedSourceEntry[]): ReadonlyMap<string, string> {
+  const latest = new Map<string, string>()
+  for (const entry of entries) {
+    if (entry.kind === 'artifact' && entry.workId) latest.set(entry.workId, entry.id)
+  }
+  return latest
 }
 
 function splitTurns(entries: readonly FeedSourceEntry[]): Array<{ user: FeedSourceEntry | null; turn: Turn }> {
@@ -99,24 +114,32 @@ function splitTurns(entries: readonly FeedSourceEntry[]): Array<{ user: FeedSour
   return turns
 }
 
-function appendTurnRows(rows: ThreadFeedRow[], turn: Turn, active: boolean, input: ThreadFeedPresentationInput): void {
+function appendTurnRows(
+  rows: ThreadFeedRow[],
+  turn: Turn,
+  active: boolean,
+  input: ThreadFeedPresentationInput,
+  latestRevisions: ReadonlyMap<string, string>,
+): void {
   const assistants = turn.entries.filter((entry) => entry.kind === 'assistant')
   const firstAssistantId = assistants[0]?.id ?? null
   const terminalAssistantId = assistants.at(-1)?.id ?? null
   const failed = turn.entries.some((entry) => entry.kind === 'notice' && entry.tone === 'error')
   // A finished turn folds its work behind one row, keeping the first and last
   // prose, anything that asks for attention (plans, notices, compaction
-  // dividers, worktree offers), and device screenshots: the picture is what the
-  // agent saw, not a step it took.
+  // dividers, worktree offers), device screenshots, and artifacts: the picture
+  // is what the agent saw or showed, not a step it took.
   const hidden = active || failed
     ? new Set<string>()
     : new Set(turn.entries
-        .filter((entry) => entry.id !== firstAssistantId && entry.id !== terminalAssistantId && entry.kind !== 'plan' && entry.kind !== 'notice' && entry.kind !== 'compaction' && entry.kind !== 'worktree_offer' && entry.kind !== 'device_snapshot')
+        .filter((entry) => entry.id !== firstAssistantId && entry.id !== terminalAssistantId && entry.kind !== 'plan' && entry.kind !== 'notice' && entry.kind !== 'compaction' && entry.kind !== 'worktree_offer' && entry.kind !== 'device_snapshot' && entry.kind !== 'artifact')
         .map((entry) => entry.id))
   const expandedFold = input.expandedTurnIds.has(turn.id)
   let foldPlaced = false
   let group: FeedSourceEntry[] = []
   let agents: FeedSourceEntry[] = []
+  // A turn's screenshots are one act, as on desktop: one card, grown in place.
+  let snapshotIds: string[] | null = null
   const flushAgents = () => {
     if (agents.length === 0) return
     const groupId = `agents:${agents[0]!.id}`
@@ -173,7 +196,14 @@ function appendTurnRows(rows: ThreadFeedRow[], turn: Turn, active: boolean, inpu
     } else if (entry.kind === 'worktree_offer') {
       rows.push({ type: 'worktree-offer', id: entry.id })
     } else if (entry.kind === 'device_snapshot') {
-      rows.push({ type: 'device-snapshot', id: entry.id })
+      if (snapshotIds) snapshotIds.push(entry.id)
+      else {
+        snapshotIds = [entry.id]
+        rows.push({ type: 'device-snapshot', id: entry.id, itemIds: snapshotIds })
+      }
+    } else if (entry.kind === 'artifact') {
+      const superseded = !!entry.workId && latestRevisions.get(entry.workId) !== entry.id
+      rows.push({ type: 'artifact', id: entry.id, superseded })
     }
   })
   flushAgents()

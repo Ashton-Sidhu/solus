@@ -18,6 +18,8 @@ export interface PrRowAction {
   menuLabel: string
   /** The letter that runs it with Shift on the highlighted row. */
   key: string
+  /** Why the row cannot run it, where it is shown but not available. */
+  disabledReason?: string
 }
 
 const ROW_ACTIONS = {
@@ -27,10 +29,15 @@ const ROW_ACTIONS = {
   ready: { label: 'Ready', menuLabel: 'Mark ready for review', key: 'R' },
 } satisfies Record<PrRowActionKind, Omit<PrRowAction, 'kind'>>
 
-type RowFacts = Pick<PullRequestFacts, 'state' | 'draft' | 'viewerPermissions' | 'capabilities'>
+type RowFacts = Pick<PullRequestFacts, 'state' | 'draft' | 'viewerPermissions' | 'capabilities' | 'stack'>
+
+/** A merge from the row would land one layer alone. A stack lands from its
+ *  base up, with the stack merge in the open pull request. */
+const STACKED_MERGE_REASON = 'Open this pull request to merge its stack'
 
 /** What this viewer may do to the row from the list. A merged pull request has
- *  nothing left to do; a draft offers "ready" in place of a merge it cannot make. */
+ *  nothing left to do; a draft offers "ready" in place of a merge it cannot make;
+ *  a layer of a stack shows its merge disabled, with the reason. */
 export function prRowActions(pr: RowFacts): PrRowAction[] {
   const kinds: PrRowActionKind[] =
     pr.state === 'closed' ? ['reopen']
@@ -39,7 +46,11 @@ export function prRowActions(pr: RowFacts): PrRowAction[] {
   return kinds
     .filter((kind) => pr.viewerPermissions.actions.includes(kind))
     .filter((kind) => kind !== 'merge' || pr.capabilities.mergeMethods.length > 0)
-    .map((kind) => ({ kind, ...ROW_ACTIONS[kind] }))
+    .map((kind) => {
+      const action: PrRowAction = { kind, ...ROW_ACTIONS[kind] }
+      if (kind === 'merge' && pr.stack) action.disabledReason = STACKED_MERGE_REASON
+      return action
+    })
 }
 
 /** The row action a Shift+letter keystroke names, or null. Any other modifier

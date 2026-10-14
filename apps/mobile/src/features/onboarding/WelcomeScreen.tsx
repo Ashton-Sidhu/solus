@@ -6,6 +6,7 @@ import { AppText as Text } from "../../components/AppText";
 import { cn } from "../../lib/cn";
 import type { ScreenProps } from "../../navigation/routes";
 import { ConnectOptionCard } from "../connection/ConnectOptionCard";
+import { ConnectPanel } from "../connection/ConnectPanel";
 import { NearbyHostsSection } from "../hosts/NearbyHostsSection";
 import { nearbyHostUrl, useNearbyHosts } from "../hosts/use-nearby-hosts";
 
@@ -28,7 +29,7 @@ export function WelcomeScreen({ navigation }: ScreenProps<"Welcome">) {
         )}
         style={{ paddingBottom: Math.max(insets.bottom, 24), paddingTop: insets.top }}
       >
-        <View className="w-full max-w-[520px]">
+        <ConnectPanel>
           <Text className="text-center text-2xl font-t3-medium tracking-tight text-foreground">
             Connect a host to start
           </Text>
@@ -55,7 +56,7 @@ export function WelcomeScreen({ navigation }: ScreenProps<"Welcome">) {
               />
             </View>
           </View>
-        </View>
+        </ConnectPanel>
       </View>
     </View>
   );

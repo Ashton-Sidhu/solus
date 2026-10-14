@@ -2,8 +2,9 @@ import { GIT_DIFF_FILE_BREAK_REGEX, parsePatchFiles, processFile, type FileDiffM
 import type { DiffResult, DiffScope, IpcContext } from '@solus/contracts/types'
 import type { WorkspaceContext } from '../contexts'
 import { loadDiffFiles as loadScopedDiffFiles } from './diff-file-loader'
-import { compactPartialHunkOffsets, patchCacheKey } from './pierre-diff'
+import { compactPartialHunkOffsets, patchCacheKey, withRealPaths } from './pierre-diff'
 import type { HostApi } from '@solus/client-core/host-api'
+import { decodeGitPath } from '@solus/client-core/git-path-name'
 
 interface DiffStateOptions {
   session: WorkspaceContext
@@ -35,7 +36,9 @@ type ParsedDiffScope = {
 // Paths flagged by git's `Binary files a/… and b/<path> differ` line. Kept as a
 // module-level compiled regex (reset before each scan) so a live refresh never
 // recompiles it. Mirrors the per-path check isBinaryFile used to build inline.
-const BINARY_FILE_LINE = /^Binary files (?:a\/[^\n]+|\/dev\/null) and b\/(.+) differ$/gm
+// Git quotes a path with special characters, so the new path is in group 1
+// (quoted, with escapes) or in group 2 (plain).
+const BINARY_FILE_LINE = /^Binary files (?:"?a\/[^\n]+|\/dev\/null) and (?:"b\/(.+)"|b\/(.+)) differ$/gm
 
 interface BinaryFiles { paths: Set<string>; hasGitBinaryPatch: boolean }
 
@@ -43,7 +46,7 @@ function collectBinaryFiles(patch: string): BinaryFiles {
   const paths = new Set<string>()
   BINARY_FILE_LINE.lastIndex = 0
   let match: RegExpExecArray | null
-  while ((match = BINARY_FILE_LINE.exec(patch)) !== null) paths.add(match[1])
+  while ((match = BINARY_FILE_LINE.exec(patch)) !== null) paths.add(match[2] ?? decodeGitPath(match[1]))
   return { paths, hasGitBinaryPatch: patch.includes('GIT binary patch') }
 }
 
@@ -278,7 +281,7 @@ export class DiffState {
     if (!patch.startsWith('diff --git')) {
       this.fileChunkCache = new Map()
       return parsePatchFiles(patch, patchCacheKey(patch)).flatMap((parsedPatch) =>
-        parsedPatch.files.map(compactPartialHunkOffsets),
+        parsedPatch.files.map((file) => compactPartialHunkOffsets(withRealPaths(file))),
       )
     }
     const nextCache = new Map<string, FileDiffMetadata>()
@@ -289,7 +292,7 @@ export class DiffState {
       if (!file) {
         const parsed = processFile(chunk, { isGitDiff: true, cacheKey: patchCacheKey(chunk) })
         if (!parsed) continue
-        file = compactPartialHunkOffsets(parsed)
+        file = compactPartialHunkOffsets(withRealPaths(parsed))
       }
       nextCache.set(chunk, file)
       files.push(file)

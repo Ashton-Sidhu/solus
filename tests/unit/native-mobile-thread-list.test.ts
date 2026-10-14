@@ -271,6 +271,11 @@ describe('thread list state', () => {
         },
         sessionSnooze: async () => {},
         setSessionTitle: async () => {},
+        setSessionReadState: async (sessionId, viewedAt) => {
+          calls.push(`read:${sessionId}:${viewedAt}`)
+          events.receive({ type: 'session.readStateChanged', payload: { sessionId, viewedAt }, occurredAt: NOW })
+          return viewedAt
+        },
       },
     }
     return { events, calls, connection }
@@ -290,6 +295,35 @@ describe('thread list state', () => {
     await list.setSettled('h', 's1', false)
     expect(host.calls).toEqual(['shelf:*', 'settle:s1:false', 'shelf:s1'])
     expect(list.facts().shelf.has(threadKey('h', 's1'))).toBe(false)
+  })
+
+  test('marking a session unread targets its host and opening it clears the indicator', async () => {
+    const first = fakeConnection()
+    const second = fakeConnection()
+    const list = new ThreadListState((hostId) => hostId === 'h1' ? first.connection : second.connection, memoryKeyValueStore())
+    await list.load('h1')
+    await list.load('h2')
+    await list.markRead('h2', 's1', false)
+    expect(first.calls.some((call) => call.startsWith('read:'))).toBe(false)
+    expect(second.calls).toContain('read:s1:null')
+    expect(list.facts().unread?.get(threadKey('h2', 's1'))).toBe(true)
+    expect(list.facts().unread?.get(threadKey('h1', 's1'))).toBeUndefined()
+    expect(list.facts().unread?.get(threadKey('h2', 's2'))).toBeUndefined()
+    await list.markRead('h2', 's1', true)
+    expect(list.facts().unread?.get(threadKey('h2', 's1'))).toBe(false)
+    // A read on another client must also update this list.
+    second.events.receive({ type: 'session.readStateChanged', payload: { sessionId: 's1', viewedAt: null }, occurredAt: NOW })
+    expect(list.facts().unread?.get(threadKey('h2', 's1'))).toBe(true)
+  })
+
+  test('unread changes invalidate only the session row that changed', () => {
+    const thread = shell('h', 's1')
+    const state = facts()
+    const build = () => buildThreadListV2ListItems({ items: [{ thread, variant: 'card', snoozed: false }], facts: state, now: NOW })
+    const read = build()
+    const unread = buildThreadListV2ListItems({ items: [{ thread, variant: 'card', snoozed: false }], facts: { ...state, unread: new Map([[thread.key, true]]) }, now: NOW })
+    expect(threadListV2ListItemsAreEqual(read[0]!, unread[0]!)).toBe(false)
+    expect(threadListV2ListItemsAreEqual(read[0]!, build()[0]!)).toBe(true)
   })
 
   test('shelf expansion survives a new app on the same device', () => {

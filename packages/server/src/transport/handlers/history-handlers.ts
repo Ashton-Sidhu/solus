@@ -53,12 +53,16 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   /** A session's activity for a history read (plans/012 §5). */
   const sessionActivityOf = (handlerCtx: HandlerCtx, sessionId: string) =>
     activityFor(recordScopeOf(handlerCtx.principal), { kind: 'session', id: sessionId })
-  const sessionInfoOf = async (handlerCtx: HandlerCtx, sessionId: string): Promise<SessionMeta | null> => {
-    const meta = await sessionRuntime.history.getSessionInfo(sessionId)
-    if (meta || !isApiMode()) return meta
+  /** A host's metadata with its record's organization, which tells a client
+   *  where the session's record lives once this machine is gone
+   *  (docs/plans/workspace-and-machines.md §6). The workspace service has only the record. */
+  const withRecord = async (handlerCtx: HandlerCtx, sessionId: string, meta: SessionMeta | null): Promise<SessionMeta | null> => {
     const record = await getSessionRecord(recordScopeOf(handlerCtx.principal), sessionId)
-    return record ? sessionMetaFromRecord(record) : null
+    if (meta) return record ? { ...meta, organizationId: record.organizationId } : meta
+    return isApiMode() && record ? sessionMetaFromRecord(record) : null
   }
+  const sessionInfoOf = async (handlerCtx: HandlerCtx, sessionId: string): Promise<SessionMeta | null> =>
+    withRecord(handlerCtx, sessionId, await sessionRuntime.history.getSessionInfo(sessionId))
 
   // The collaboration plane's session records (docs/plans/cloud-service-model.md).
 
@@ -205,8 +209,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const [sessionId] = args
     try {
       const description = await sessionRuntime.history.describeSession(sessionId)
-      if (description.meta || !isApiMode()) return description
-      return { ...description, meta: await sessionInfoOf(handlerCtx, sessionId) }
+      return { ...description, meta: await withRecord(handlerCtx, sessionId, description.meta) }
     } catch (err) {
       log.error('describe_session_failed', { error: String(err), sessionId })
       return { lineage: null, meta: null }

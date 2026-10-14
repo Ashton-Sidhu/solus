@@ -112,23 +112,30 @@ function PullRequestStackCard({ view }: { readonly view: PullRequestView }) {
   )
 }
 
-/** The changed files; a file opens the diff at that file. */
+/** The changed files; a file opens the diff at that file. The heading folds the list. */
 function ChangedFilesSummary({ view, onOpenFile }: { readonly view: PullRequestView; readonly onOpenFile: (path: string) => void }) {
+  const [expanded, setExpanded] = useState(true)
   const files = view.detail.files
   const count = view.pr.changedFiles ?? files.length
   return (
     <View className="gap-3 border-t border-border-subtle pt-4">
-      <View className="flex-row items-center gap-2">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Changed files, ${count} ${count === 1 ? 'file' : 'files'}`}
+        accessibilityState={{ expanded }}
+        onPress={() => setExpanded(!expanded)}
+        className="flex-row items-center gap-2 active:opacity-70"
+      >
         <View className="min-w-0 flex-1 gap-1">
           <PullRequestSectionHeading>Changed files</PullRequestSectionHeading>
           <Text className="text-2xs text-foreground-muted">{count} {count === 1 ? 'file' : 'files'}</Text>
         </View>
         <PullRequestDiffStats additions={view.pr.additions} deletions={view.pr.deletions} compact />
-      </View>
-      {files.length === 0 ? (
-        <Text className="text-sm text-foreground-muted">{view.detail.missing.includes('files') ? 'The host could not read the changed files.' : 'No changed files.'}</Text>
-      ) : null}
-      {files.map((file) => {
+        <SymbolView name={expanded ? 'chevron.up' : 'chevron.down'} size={11} tintColorClassName="accent-icon-muted" />
+      </Pressable>
+      {!expanded ? null : files.length === 0 ? (
+        <Text className="text-sm text-foreground-muted">{view.detail.reading?.includes('files') ? 'Reading the changed files…' : view.detail.missing.includes('files') ? 'The host could not read the changed files.' : 'No changed files.'}</Text>
+      ) : files.map((file) => {
         const slash = file.path.lastIndexOf('/')
         return (
           <Pressable

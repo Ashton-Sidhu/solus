@@ -2,49 +2,58 @@ import { asHostApi, type HostApi } from '@solus/client-core/host-api'
 import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { HostSupervisor } from '@solus/client-core/host-supervisor'
 import { WsTransport } from '@solus/client-core/ws-transport'
+import type { DiscoveredServer } from '@solus/contracts/types'
 import type { DirectoryHost } from '@solus/contracts/uplink'
 import { createLogger } from '../../logger'
-import type { PairedHosts } from './paired-hosts'
+import type { IntroducedHosts } from './introduced-hosts'
 
 const log = createLogger('orchestration', 'remote-hosts.ts')
 
-/**
- * What this host may do for its owner on the owner's other hosts
- * (docs/plans/cross-host-sessions.md §5.1). The owner's signed-in client in this
- * process lends it (`LocalClient.lendHostAccess`) and takes it back on sign-out; a
- * host with no such client has no host access.
- */
-export interface HostAccess {
-  /** The hosts the owner's account can reach; null when signed out or the account plane did not answer. */
+/** The person and scope a dial to another host acts for (docs/plans/host-reach.md §3.2). */
+export interface ReachActor {
+  userId: string
+  /** The delegation the dial uses: the person's own host, or one organization. */
+  scope: 'personal' | { organizationId: string }
+}
+
+/** What one turn may reach: through the account for a person, and the introduced hosts for the owner. */
+export interface ReachRequest {
+  /** Null when this host holds no delegation for the turn's person. */
+  account: ReachActor | null
+  /** Introduced hosts are the owner's local reach (§4): only the owner's turns use them. */
+  isOwner: boolean
+}
+
+/** Account reach for one person (§3): the hosts the account plane says they reach from here, and a token for one. */
+export interface AccountReach {
+  /** Null when the account plane did not answer. */
   hosts(): Promise<DirectoryHost[] | null>
-  /** A short-lived token for one host, for the owner; null when none could be had. */
+  /** An eight-hour host-reach token; null when none could be had. */
   accessToken(hostId: string): Promise<string | null>
 }
 
-/** The paired hosts as `RemoteHosts` reads them (§10). */
-export type PairedHostSource = Pick<PairedHosts, 'list' | 'credential'>
+/** The introduced hosts as `RemoteHosts` reads them (§4). */
+export type IntroducedHostSource = Pick<IntroducedHosts, 'list' | 'credential'>
 
-/**
- * A host work can start on, and how this host reaches it: a paired host with
- * its pairing token, or a host in the owner's directory with an account grant
- * (§10.3: one credential for each host, no fallback).
- */
+/** A host work can start on, and how this host reaches it (§5: account reach first, then an introduction). */
 export interface HostTarget {
-  /** The directory id; for a paired host, its installation id. */
+  /** The directory id; for an introduced host, its installation id. */
   hostId: string
   installationId: string
   label: string
   /** Managed hosts only; work starts only on a `ready` one. */
   managedState?: DirectoryHost['managedState']
   url: string
-  paired: boolean
+  source: 'account' | 'introduced'
+  /** One connection per person and host: two people never share a socket to another host. */
+  connectionKey: string
   /** The credential for one dial; null when none could be had. */
   credential(): Promise<string | null>
-  /** A directory host the person reaches as a member: the organization its ticket names (ADR 0001 §6.4). */
+  /** A dial for an organization delegation: the organization its ticket names (ADR 0001 §6.4). */
   organizationId?: string
 }
 
-/** One target host, reached as a client reaches it, with the owner's token. */
+/** One target host, reached as a client reaches it. */
 export interface RemoteHost {
   hostId: string
   /** The id clients know the host by, so a link opens the session there. */
@@ -61,6 +70,8 @@ export interface RemoteHost {
 /** How long one call to a target host may take before it fails. */
 const CALL_TIMEOUT_MS = 30_000
 
+const NO_REACH = 'This host reaches no other host for you. Link both hosts to your Solus account, or connect to both hosts from one of your devices so they are introduced.'
+
 interface Connection {
   host: RemoteHost
   transport: WsTransport
@@ -68,71 +79,83 @@ interface Connection {
 }
 
 /**
- * The connections this host keeps to the owner's other hosts: one per host,
- * opened on first use. A host is a paired host, or one in the owner's
- * directory; any other host is refused.
+ * The connections this host keeps to a person's other hosts: one per person and
+ * host, opened on first use. A host is one the account plane says the person
+ * reaches, or, for the owner, one this host was introduced to; any other is refused.
  */
 export class RemoteHosts {
   private readonly connections = new Map<string, Connection>()
 
   constructor(
-    /** The owner's account, as the signed-in client lends it; null with no signed-in client. */
-    private readonly access: () => HostAccess | null,
-    private readonly paired: PairedHostSource,
+    /** Account reach for one person; null when this host is not registered with the account plane. */
+    private readonly accountReach: (actor: ReachActor) => AccountReach | null,
+    private readonly introduced: IntroducedHostSource,
     /** This host's own id in the directory, so it is never its own target. */
     private readonly selfHostId: () => string | null,
+    /** Hosts on the local network: a registered host that is not linked is reached there (ADR 0001 §2.2 rule 9). */
+    private readonly discoverNearby: () => Promise<DiscoveredServer[]> = async () => [],
   ) {}
 
-  /** The hosts work can start on: the paired hosts, then each directory host with a route that is not paired and not this host. */
-  async list(): Promise<HostTarget[] | { error: string }> {
-    const paired: HostTarget[] = this.paired.list().map((host) => ({
-      hostId: host.installationId,
-      installationId: host.installationId,
-      label: host.label,
-      url: host.url,
-      paired: true,
-      credential: () => this.paired.credential(host.installationId),
-    }))
-    const access = this.access()
-    if (!access) {
-      return paired.length > 0 ? paired : { error: 'This host has no other hosts. Pair a host in Settings → Hosts → this host → Access, or sign in to your Solus account in the desktop app.' }
-    }
-    const directory = await access.hosts().catch(() => null)
+  /** The hosts work can start on: the account's first, then each introduced host the account does not list. */
+  async list(request: ReachRequest): Promise<HostTarget[] | { error: string }> {
+    const account = await this.accountTargets(request.account)
+    const listed = new Set(account.map((host) => host.installationId))
+    const introduced: HostTarget[] = request.isOwner
+      ? this.introduced.list().hosts.filter((host) => !listed.has(host.installationId)).map((host) => ({
+        hostId: host.installationId,
+        installationId: host.installationId,
+        label: host.label,
+        url: host.url,
+        source: 'introduced',
+        connectionKey: `introduced:${host.installationId}`,
+        credential: () => this.introduced.credential(host.installationId),
+      }))
+      : []
+    const hosts = [...account, ...introduced]
+    return hosts.length > 0 ? hosts : { error: NO_REACH }
+  }
+
+  private async accountTargets(actor: ReachActor | null): Promise<HostTarget[]> {
+    const reach = actor ? this.accountReach(actor) : null
+    if (!actor || !reach) return []
+    const [directory, nearby] = await Promise.all([reach.hosts().catch(() => null), this.discoverNearby().catch(() => [])])
     if (!directory) {
-      return paired.length > 0 ? paired : { error: 'Your Solus account did not answer. Sign in to Solus on this host and try again.' }
+      log.info('account_reach_unavailable', { userId: actor.userId })
+      return []
     }
     const self = this.selfHostId()
-    const pairedIds = new Set(paired.map((host) => host.installationId))
-    const reachable = directory.flatMap((host): HostTarget[] => {
-      // A `direct` route is dialed before the `tunnel`.
-      const route = host.routes.find((candidate) => candidate.kind === 'direct') ?? host.routes[0]
-      if (host.hostId === self || pairedIds.has(host.installationId) || !route) return []
+    const scopeKey = actor.scope === 'personal' ? 'personal' : actor.scope.organizationId
+    return directory.flatMap((host): HostTarget[] => {
+      // The local network first, then a `direct` route, then the `tunnel`.
+      const found = nearby.find((server) => server.installationId === host.installationId)
+      const url = found ? `http://${found.host}:${found.port}` : (host.routes.find((candidate) => candidate.kind === 'direct') ?? host.routes[0])?.url
+      if (host.hostId === self || !url) return []
       const target: HostTarget = {
         hostId: host.hostId,
         installationId: host.installationId,
         label: host.label,
         managedState: host.managedState,
-        url: route.url,
-        paired: false,
-        credential: () => access.accessToken(host.hostId),
+        url,
+        source: 'account',
+        connectionKey: `account:${actor.userId}:${scopeKey}:${host.hostId}`,
+        credential: () => reach.accessToken(host.hostId),
       }
-      const [organizationId] = host.organizationIds
-      if (organizationId) target.organizationId = organizationId
+      // The reach token states the person's standing there; only an organization's dial names it.
+      if (actor.scope !== 'personal') target.organizationId = actor.scope.organizationId
       return [target]
     })
-    return [...paired, ...reachable]
   }
 
   /** Finds one host by id, installation id, or label; the label match ignores case. */
-  async find(ref: string): Promise<HostTarget | { error: string }> {
-    const hosts = await this.list()
+  async find(request: ReachRequest, ref: string): Promise<HostTarget | { error: string }> {
+    const hosts = await this.list(request)
     if ('error' in hosts) return hosts
     const wanted = ref.trim().toLowerCase()
     const matches = hosts.filter((host) => [host.hostId, host.installationId, host.label.trim()].some((name) => name.toLowerCase() === wanted))
     if (matches.length === 1) return matches[0]!
     const names = hosts.map((host) => `${host.label} (${host.hostId})`).join(', ') || '(none)'
     if (matches.length > 1) return { error: `More than one host is named "${ref}". Use its id. Hosts: ${names}.` }
-    return { error: `No host "${ref}" is paired or in your Solus account. Hosts you can start work on: ${names}.` }
+    return { error: `You do not reach a host "${ref}" from here. Hosts you can start work on: ${names}.` }
   }
 
   /** The connection to `host`, opened on first use. */
@@ -140,7 +163,7 @@ export class RemoteHosts {
     if (host.managedState && host.managedState !== 'ready') {
       return { error: `${host.label} is ${host.managedState}. Start it first, then try again.` }
     }
-    const open = this.connections.get(host.hostId)
+    const open = this.connections.get(host.connectionKey)
     if (open) {
       if (open.transport.serverUrl !== host.url) open.transport.switchServerUrl(host.url)
       return open.host
@@ -150,8 +173,8 @@ export class RemoteHosts {
     const transport = new WsTransport({
       serverUrl: host.url,
       serverId: host.hostId,
-      // Every dial presents the credential again: a fresh account grant, or the
-      // pairing token after the paired host proves its identity.
+      // Every dial presents the credential again: the person's host-reach token, or
+      // the introduced token after the introduced host proves its identity.
       sessionToken: '',
       acquireGrant: () => host.credential(),
       dialOrganizationId: () => host.organizationId ?? null,
@@ -178,22 +201,23 @@ export class RemoteHosts {
         return () => { reconnected.delete(listener) }
       },
       call: (what, request) => withTimeout(request(), () => {
-        const refused = host.paired ? ' It refused this host\'s pairing. Pair it again.' : ' It refused the token from your Solus account.'
+        const refused = host.source === 'introduced' ? ' It refused this host\'s introduction. Connect to both hosts from one of your devices again.' : ' It refused the token from your Solus account.'
         const blocked = supervisor.blockedReason === 'auth' ? refused : ''
         return `${host.label} did not answer ${what} within ${CALL_TIMEOUT_MS / 1000} s.${blocked}`
       }),
     }
-    this.connections.set(host.hostId, { host: remote, transport, supervisor })
+    this.connections.set(host.connectionKey, { host: remote, transport, supervisor })
     return remote
   }
 
-  /** Closes the connection to one host, as when its pairing is forgotten. */
-  disconnect(hostId: string): void {
-    const open = this.connections.get(hostId)
-    if (!open) return
-    open.supervisor.destroy()
-    open.transport.destroy()
-    this.connections.delete(hostId)
+  /** Closes every connection to one host, as when its introduction is replaced or forgotten. */
+  disconnect(installationId: string): void {
+    for (const [key, open] of this.connections) {
+      if (open.host.installationId !== installationId) continue
+      open.supervisor.destroy()
+      open.transport.destroy()
+      this.connections.delete(key)
+    }
   }
 
   close(): void {

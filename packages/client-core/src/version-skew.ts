@@ -27,6 +27,7 @@ const FEATURE_WORDING = {
   browserRecording: 'browser recordings',
   promptImageRefs: null,
   assetUrls: 'artifact previews',
+  githubMediaUrls: 'images in private pull requests',
   skillsInstall: 'skills',
   skillsSearch: 'skills',
   skillsManage: 'global skill management',

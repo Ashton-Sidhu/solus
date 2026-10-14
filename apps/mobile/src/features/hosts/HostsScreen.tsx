@@ -80,7 +80,7 @@ export function HostsScreen({ navigation }: ScreenProps<"Hosts">) {
           onToggle={(hostId) => navigation.navigate("HostSettings", { hostId })}
           opensDetails
           onReconnect={(hostId) => app.connections.retry(hostId)}
-          onRemove={(host) => confirmForgetHost(host, () => void app.registry.forget(host.id))}
+          onRemove={(host) => confirmForgetHost(app, host)}
         />
 
         {/* Hosts the directory listed stay visible even after sign-out until

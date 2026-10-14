@@ -7,6 +7,7 @@ import {
   parseMarkdownFileLink,
 } from "./markdownLinkTargets";
 
+import { fileMentionPath } from "./fileMentions";
 import type { MARKDOWN_FILE_ICON_SOURCES } from "./markdownFileIcons.generated";
 
 const POSITION_SUFFIX_PATTERN = /:\d+(?::\d+)?$/;
@@ -266,7 +267,10 @@ export function resolveMarkdownFileIcon(value: string): MarkdownFileIcon {
 }
 
 export function resolveMarkdownLinkPresentation(href: string): MarkdownLinkPresentation {
-  const normalized = normalizeMarkdownLinkDestination(href);
+  // An `@path` mention that Enriched recognized in user text always names a
+  // file, also without an extension (`@Makefile`), as T3's mention chip does.
+  const mentionPath = fileMentionPath(href);
+  const normalized = normalizeMarkdownLinkDestination(mentionPath ?? href);
   try {
     const parsed = new URL(normalizeNativeMarkdownUrl(normalized));
     if (parsed.protocol === "http:" || parsed.protocol === "https:") {
@@ -280,7 +284,7 @@ export function resolveMarkdownLinkPresentation(href: string): MarkdownLinkPrese
     // Relative paths and non-URL link destinations are handled below.
   }
 
-  const target = parseMarkdownFileLink(normalized);
+  const target = parseMarkdownFileLink(normalized) ?? (mentionPath === null ? null : { path: normalized });
   if (target) {
     return {
       kind: "file",

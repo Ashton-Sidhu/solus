@@ -1,6 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/ThreadFeed.tsx
 // (MessageAttachmentImage, MessageAttachmentFile; MIT, see UPSTREAM.md).
-// Host files load through `useHostMediaUrl`; no share or Quick Look actions.
+// Host files load through `useHostMediaUrl`; a picture opens in `FilePreview` (Quick Look
+// on iOS) without the media actions menu.
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";

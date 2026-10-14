@@ -35,7 +35,8 @@ function unreachableMessage(url: string): string {
 export interface AddHostRequest {
   /** The smart field: a pairing link, or a bare address. */
   input: string
-  /** The 6-digit code, required only when `input` is an address. */
+  /** The 6-digit code, required only when `input` is an address the host
+   *  does not trust this device at. */
   code?: string
   /** Friendly name for the host; falls back to the name it reports. */
   serverLabel?: string
@@ -53,9 +54,6 @@ export async function addHostFromInput({
     throw new Error('Paste a pairing link or enter a server address')
   }
   const trimmedCode = code.trim()
-  if (classified.kind === 'address' && !/^\d{6}$/.test(trimmedCode)) {
-    throw new Error('Enter the 6-digit code from the server')
-  }
 
   const label = serverLabel.trim()
   const method = 'token'
@@ -71,9 +69,14 @@ export async function addHostFromInput({
     } else {
       const health = await probeServer(classified.url)
       if (!health.ok) throw new Error(unreachableMessage(classified.url))
+      // A host that trusts this device by network position pairs without a code.
+      const trusted = health.requireAuth === false
+      if (!trusted && !/^\d{6}$/.test(trimmedCode)) {
+        throw new Error('Enter the 6-digit code from the server')
+      }
       const result = await pairServer({
         url: classified.url,
-        pairToken: trimmedCode,
+        pairToken: trusted && !trimmedCode ? undefined : trimmedCode,
         deviceLabel: deviceLabel.trim() || defaultDeviceLabel(),
         serverLabel: label,
         reportedName: health.name,

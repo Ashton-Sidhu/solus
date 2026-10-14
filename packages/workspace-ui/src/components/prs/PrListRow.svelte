@@ -2,7 +2,7 @@
   import type { Snippet } from "svelte";
   import ListAvatar from "../ui/list-page/ListAvatar.svelte";
   import ListChip from "../ui/list-page/ListChip.svelte";
-  import { Layers as StackIcon, UserCheck as UserCheckIcon } from "@lucide/svelte";
+  import { UserCheck as UserCheckIcon } from "@lucide/svelte";
   import { checksChip, compactCount } from "../ui/list-page/list-page";
   import LabelChip from "../ui/labels/LabelChip.svelte";
   import { prStatusGlyph, type PrRowSpec } from "./lib/prs-list-view";
@@ -36,9 +36,11 @@
     onSelect?: () => void;
     onContextMenu?: (event: MouseEvent) => void;
     leading?: Snippet;
+    /** The row's place in a GitHub stack, and its menu of layers. */
+    stack?: Snippet;
     actions?: Snippet;
   }
-  let { row, split = false, selected = false, onSelect, onContextMenu, leading, actions }: Props = $props();
+  let { row, split = false, selected = false, onSelect, onContextMenu, leading, stack, actions }: Props = $props();
 
   const longPress = new TouchLongPress((event) => onContextMenu?.(event));
 
@@ -126,18 +128,6 @@
         class="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-xs text-muted-foreground"
       >
         <span class="shrink-0 tabular-nums">{row.ident}</span>
-        {#if row.stack}
-          <!-- Its place in a GitHub stack, counted from the base. The detail
-               panel's stack menu steps between the layers. -->
-          <span
-            class="flex shrink-0 items-center gap-1 tabular-nums"
-            title="Layer {row.stack.position} of {row.stack.size} in a stack on {row.stack.base}"
-          >
-            <StackIcon size={12} aria-hidden="true" />
-            <span class="sr-only">Stack layer</span>
-            {row.stack.position}/{row.stack.size}
-          </span>
-        {/if}
         {@render dot()}
         <!-- Across every project the project's own name says where the row
              lives; the repository stays one hover away. -->
@@ -175,5 +165,6 @@
     </span>
   </button>
 
+  {#if stack}{@render stack()}{/if}
   {#if actions}{@render actions()}{/if}
 </div>

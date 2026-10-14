@@ -23,10 +23,10 @@ import type { TokenVerdict } from '../admission/access-tokens'
 import { runnerPrincipalFor, type Principal } from '../admission/principal'
 import type { ResolvedLinkShare } from '../sharing/share-manager'
 import { SHARE_LINK_UNKNOWN, shareLinkRequestSchema, type ShareLinkTarget } from '@solus/contracts/sharing'
-import { normalizeDisplayName, type AccessTokenClaims, type DelegatedAccessTokenClaims, type PersonAccessTokenClaims } from '@solus/contracts/uplink'
+import { hostReachAudience, normalizeDisplayName, tokenAudiences, type AccessTokenClaims, type DelegatedAccessTokenClaims, type PersonAccessTokenClaims } from '@solus/contracts/uplink'
 import { RUNNER_OUTBOX_PATH, RUNNER_SESSION_RECORDS_PATH, runnerOutboxRequestSchema, runnerSessionRecordsRequestSchema, type RunnerOutboxRequest, type RunnerOutboxResponse, type RunnerSessionRecordsRequest, type RunnerSessionRecordsResponse } from '../sync/runner-protocol'
 import { RUNNER_MIRROR_PATH, runnerMirrorRequestSchema, type RunnerMirrorRequest, type RunnerMirrorResponse } from '../sync/runner-protocol'
-import { delegationScopesFor, type DelegationScope } from '../sync/delegations'
+import { delegateFromPresentedToken, type DelegationScope } from '../sync/delegations'
 import { createTokenBucketRateLimiter } from './rate-limit'
 import { filePathsToAttachments } from './attachment-utils'
 import { createLogger } from '../logger'
@@ -39,6 +39,8 @@ import { readWav } from '../transcription/wav'
 import { MAX_VOICE_WAV_BYTES } from '@solus/contracts/voice-audio'
 import { parseByteRange } from '../data/assets/byte-range'
 import { serveAssetToken } from '../data/assets/assets'
+import { getAssetSigningSecret } from '../admission/signed-token'
+import { readGithubMediaToken, serveGithubMedia } from '../providers/github/media'
 import { receiveAttachmentUpload } from './handlers/attachment-handlers'
 import { hostOperatingSystem } from '../platform/host-operating-system'
 import { hostDisplayName } from '../platform/host-display-name'
@@ -265,14 +267,17 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     const body = await readJson(c, pairRequestSchema)
     const pairToken = body?.pairToken ?? body?.code
     const deviceLabel = body?.deviceLabel?.slice(0, 64) || 'Unknown device'
+    // A device the host already trusts by network position (loopback, its
+    // tailnet, or the local network when the owner opted in) pairs without a
+    // code. It still gets its own session token, so it stays listed and
+    // revocable, and keeps working once it leaves that network.
     if (!pairToken) {
-      return c.json({ error: 'pairToken or code required' }, 400)
-    }
-    if (!consumePairToken(pairToken)) {
+      if (await authRequiredFor(c)) return c.json({ error: 'A pairing code is required' }, 401)
+    } else if (!consumePairToken(pairToken)) {
       return c.json({ error: 'Invalid or expired pair token' }, 401)
     }
     const { token: sessionToken } = issueSessionToken(deviceLabel)
-    log.info('pair_session_issued', { deviceLabel })
+    log.info('pair_session_issued', { deviceLabel, trusted: !pairToken })
     return c.json({ sessionToken, installationId: getInstallationId(), os: hostOperatingSystem() })
   })
 
@@ -383,6 +388,10 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   const serveSignedAsset = (c: Ctx) => {
     const token = c.req.param('token')
     if (!token) return new Response('Missing asset token', { status: 400 })
+    const githubMedia = readGithubMediaToken(token, getAssetSigningSecret())
+    if (githubMedia) {
+      return serveGithubMedia(githubMedia, { method: c.req.method, range: c.req.header('range'), ifRange: c.req.header('if-range') })
+    }
     return serveAssetToken(token, {
       method: c.req.method,
       range: c.req.header('range'),
@@ -432,13 +441,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
         if (outcome.ok) {
           ticket = outcome.ticket
           // The connection does not wait for the exchange; a turn that needs the delegation waits for it.
-          if (!verdict.claims.act && opts.establishDelegation) {
-            for (const scope of delegationScopesFor(verdict.claims, request?.organizationId)) {
-              opts.establishDelegation(bearer, scope).catch((error: unknown) => {
-                log.info('delegation_not_established', { userId: verdict.claims.sub, error: error instanceof Error ? error.message : String(error) })
-              })
-            }
-          }
+          if (opts.establishDelegation) void delegateFromPresentedToken(verdict, bearer, [request?.organizationId], opts.establishDelegation)
         }
         else log.info('access_token_rejected', { reason: outcome.reason })
       }
@@ -613,7 +616,7 @@ export async function ticketForShareSecret(
  * An owner's token needs none.
  */
 export async function ticketForGrant(claims: AccessTokenClaims, options: { workspace?: boolean; organizationId?: string } = {}): Promise<GrantTicketOutcome> {
-  if (claims.act) return runnerTicketFor(claims, options.workspace ?? false)
+  if (claims.act) return options.workspace ? runnerTicketFor(claims) : hostReachTicketFor(claims, options.organizationId)
   // The owner's Revoke on the Access tab is this host's own refusal of that client grant.
   if (isDeviceRevoked(claims.grant_id)) return { ok: false, reason: 'device-revoked' }
   const membership = grantMembership(claims, options.organizationId)
@@ -643,9 +646,27 @@ export function ticketForDelegatedMember(claims: DelegatedAccessTokenClaims): Gr
   }
 }
 
+/**
+ * Another host acting for a person here (docs/plans/host-reach.md §3): the verifier
+ * let a delegated token in only for this host's reach audience. The person enters
+ * with the standing the account plane stated for this host. The acting host is the
+ * device, so revoking it on the Access tab holds here too.
+ */
+function hostReachTicketFor(claims: DelegatedAccessTokenClaims, namedOrganizationId: string | undefined): GrantTicketOutcome {
+  if (!tokenAudiences(claims).some((audience) => audience.startsWith(hostReachAudience('')))) return { ok: false, reason: 'delegated-token' }
+  const deviceId = claims.act.host_id
+  if (!deviceId) return { ok: false, reason: 'no-acting-host' }
+  if (isDeviceRevoked(deviceId)) return { ok: false, reason: 'device-revoked' }
+  const membership = claims.access === 'org-member'
+    ? membershipOf(claims, { organizationId: claims.organizationId, organizationRole: claims.organizationRole, teamIds: claims.teamIds })
+    : undefined
+  if (namedOrganizationId && membership?.organizationId !== namedOrganizationId) return { ok: false, reason: 'organization-not-listed' }
+  const displayName = normalizeDisplayName(claims.displayName) ?? undefined
+  return { ok: true, ticket: issueGrantWsTicket({ userId: claims.sub, deviceId, expiresAt: claims.exp * 1000, membership, displayName }) }
+}
+
 /** A host acting for a person in one organization: its socket on the Solus API, and nowhere else. A personal delegation names no organization, so it opens nothing there. */
-function runnerTicketFor(claims: DelegatedAccessTokenClaims, workspace: boolean): GrantTicketOutcome {
-  if (!workspace) return { ok: false, reason: 'delegated-token' }
+function runnerTicketFor(claims: DelegatedAccessTokenClaims): GrantTicketOutcome {
   if (claims.access !== 'org-member') return { ok: false, reason: 'member-required' }
   if (!claims.act.host_id) return { ok: false, reason: 'no-acting-host' }
   return { ok: true, ticket: issueRunnerWsTicket({ hostId: claims.act.host_id, organizationId: claims.organizationId, ownerUserId: claims.sub, expiresAt: claims.exp * 1000 }) }

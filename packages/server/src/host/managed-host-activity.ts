@@ -1,6 +1,6 @@
 import { writeFile, rename } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
-import type { HostActivityReport, UplinkLinkConfig } from '@solus/contracts/uplink'
+import type { HostActivityReport, HostRegistration } from '@solus/contracts/uplink'
 import type { FetchLike } from '../admission/access-tokens'
 import type { HostCredential } from './host-credential'
 import { createLogger } from '../logger'
@@ -58,8 +58,8 @@ export interface ManagedHostActivityDeps {
   nextDueAt: () => number | null
   /** When a client last reported it was foregrounded (its activity lease). */
   lastForegroundAt: () => number | null
-  link:() => UplinkLinkConfig | null
-  /** The host credential of the current link; its control token authenticates the report. */
+  registration: () => HostRegistration | null
+  /** The host credential of the current registration; its control token authenticates the report. */
   credential: () => Pick<HostCredential, 'hostAccessToken'> | null
   fetchImpl?: FetchLike
   spriteTask?: SpriteTaskCall
@@ -144,13 +144,13 @@ export class ManagedHostActivity {
   private async report(next: HostActivityReport, now: number): Promise<void> {
     const unchanged = this.reported && this.reported.busy === next.busy && this.reported.nextWakeAt === next.nextWakeAt
     if (unchanged && now - this.reportedAt < REPORT_RENEW_MS) return
-    const link = this.deps.link()
-    const credential = link ? this.deps.credential() : null
-    if (!link || !credential) return
+    const registration = this.deps.registration()
+    const credential = registration ? this.deps.credential() : null
+    if (!registration || !credential) return
     const fetchImpl: FetchLike = this.deps.fetchImpl ?? fetch
     try {
       const token = await credential.hostAccessToken()
-      const response = await fetchImpl(`${link.directoryUrl}/v1/hosts/${link.hostId}/activity`, {
+      const response = await fetchImpl(`${registration.directoryUrl}/v1/hosts/${registration.hostId}/activity`, {
         method: 'PUT',
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
         body: JSON.stringify(next),

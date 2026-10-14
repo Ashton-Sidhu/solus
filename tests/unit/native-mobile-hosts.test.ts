@@ -83,6 +83,22 @@ describe('native host registry', () => {
     expect(registry.host('inst-cloud')?.routes).toEqual([{ kind: 'direct', url: 'http://10.0.0.9:51234' }])
     expect(removed).toEqual(['inst-only-cloud'])
   })
+
+  test('a registered host that is not linked is dialed on the local network once discovery finds it, and keeps that address through directory reads', async () => {
+    // WHY: docs/adr/0001-standard-authentication.md §2.2 rule 9 — such a host has no route in the directory.
+    const { registry } = createHostWorld()
+    await registry.load()
+    await registry.savePaired({ id: 'inst-paired', label: 'Paired', url: 'http://10.0.0.9:51234' }, 'tp')
+    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({ routes: [] })])
+    expect(registry.host('inst-cloud')?.routes).toEqual([])
+    const lan = (installationId: string, host: string) => ({ host, port: 7777, name: installationId, installationId, source: 'lan' as const })
+    registry.applyNearby([lan('inst-cloud', '192.168.1.20'), lan('inst-paired', '192.168.1.21')])
+    expect(registry.host('inst-cloud')?.routes).toEqual([{ kind: 'direct', url: 'http://192.168.1.20:7777' }])
+    // A paired host keeps the address it paired at.
+    expect(registry.host('inst-paired')?.routes).toEqual([{ kind: 'direct', url: 'http://10.0.0.9:51234' }])
+    registry.applyDirectory('user-1', 'https://app.solus.sh', [directoryHost({ routes: [] })])
+    expect(registry.host('inst-cloud')?.routes).toEqual([{ kind: 'direct', url: 'http://192.168.1.20:7777' }])
+  })
 })
 
 describe('native host connections', () => {
@@ -231,8 +247,17 @@ describe('pairing input', () => {
 
   test('the target is shown from its health answer before pairing', async () => {
     const result = await previewHost(healthFetch({ 'http://h:1': 'inst-h' }), 'http://h:1')
-    expect(result).toEqual({ kind: 'found', preview: { url: 'http://h:1', host: 'h:1', name: 'Studio Mac', installationId: 'inst-h', os: 'macos' } })
+    expect(result).toEqual({ kind: 'found', preview: { url: 'http://h:1', host: 'h:1', name: 'Studio Mac', installationId: 'inst-h', os: 'macos', trusted: false } })
     expect((await previewHost(healthFetch({}), 'http://gone:1')).kind).toBe('unreachable')
+  })
+
+  // A host that trusts its local network lets this phone join without a code;
+  // the preview is how the pairing screen knows not to ask for one.
+  test('a host that does not require auth from this device is trusted', async () => {
+    const trustingFetch: typeof fetch = async () =>
+      new Response(JSON.stringify({ ok: true, installationId: 'inst-h', name: 'Studio Mac', requireAuth: false }))
+    const result = await previewHost(trustingFetch, 'http://h:1')
+    expect(result.kind === 'found' && result.preview.trusted).toBe(true)
   })
 
   test('an expired code says so', () => {

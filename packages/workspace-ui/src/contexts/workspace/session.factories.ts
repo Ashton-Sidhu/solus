@@ -63,6 +63,7 @@ export function makeSession(
     sessionChangedFiles: [],
     additionalDirs: [],
     readOnlyReason: null,
+    organizationId: null,
     loadingHistory: false,
     historyTruncated: false,
     forkedFromSessionId: null,

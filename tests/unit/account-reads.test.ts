@@ -103,7 +103,7 @@ describe('the Solus API reads a person’s account as a host does', () => {
       reads.push({ url: String(url), method: init?.method ?? 'GET', authorization: new Headers(init?.headers).get('authorization'), body: null })
       return Response.json({ accessToken: 'gh', scope: 'repo' })
     }
-    const delegations = new Delegations({ link: () => null, credential: () => credential, onRevoked: () => {}, fetchImpl })
+    const delegations = new Delegations({ registration: () => null, credential: () => credential, onRevoked: () => {}, fetchImpl })
     const part = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url')
     const apiToken = `${part({ alg: 'ES256' })}.${part({ sub: 'bob', grant_id: 'grant_bob', aud: SOLUS_API_AUDIENCE })}.c2ln`
 

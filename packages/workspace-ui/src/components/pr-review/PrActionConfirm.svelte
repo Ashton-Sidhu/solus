@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import { AlertDialog } from "bits-ui";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
@@ -12,12 +13,16 @@
     description,
     confirmLabel,
     onConfirm,
+    details,
   }: {
     open?: boolean;
     title: string;
     description: string;
     confirmLabel: string;
     onConfirm: () => void;
+    /** What the action touches, under the description: the layers a stack
+     *  merge lands. */
+    details?: Snippet;
   } = $props();
 </script>
 
@@ -41,6 +46,7 @@
       <AlertDialog.Description class="text-(--solus-text-secondary)">
         {description}
       </AlertDialog.Description>
+      {#if details}{@render details()}{/if}
       <div class="flex items-center justify-end gap-1.5 pt-0.5">
         <AlertDialog.Cancel>
           {#snippet child({ props })}

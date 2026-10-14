@@ -59,3 +59,19 @@ describe('a session that switches provider', () => {
     expect(await records.getSessionRecord('local', 'thread-codex')).toBeNull()
   })
 })
+
+describe('a run that names no model', () => {
+  test('records no model, and keeps the model an earlier run recorded', async () => {
+    lineage.registerSessionLineage({ sessionId: 'session-b', provider: 'claude-code', providerSessionId: 'thread-b', cwd: '/repo' })
+    indexer.persistIndexedSessionStart('thread-b', 'claude-code', '/repo', '-repo', '', 'high', 'first')
+    await until(async () => !!await records.getSessionRecord('local', 'session-b'))
+    expect((await records.getSessionRecord('local', 'session-b'))?.model).toBeNull()
+
+    indexer.persistIndexedSessionStart('thread-b', 'claude-code', '/repo', '-repo', 'opus', 'high', 'second')
+    await until(async () => (await records.getSessionRecord('local', 'session-b'))?.model === 'opus')
+    indexer.persistIndexedSessionStart('thread-b', 'claude-code', '/repo', '-repo', '', 'low', 'third')
+    await until(async () => (await records.getSessionRecord('local', 'session-b'))?.reasoningEffort === 'low')
+    expect((await records.getSessionRecord('local', 'session-b'))?.model).toBe('opus')
+    expect(indexer.getIndexedSession('session-b')?.model).toBe('opus')
+  })
+})

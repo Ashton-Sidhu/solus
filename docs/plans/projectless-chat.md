@@ -93,7 +93,7 @@ Desktop and web (shared Svelte UI):
 - No destination strip for a chat. **Add project…** and, with more than one
   host, **Run on…** are in the composer's + menu. A project draft keeps
   its strip, and its project menu ends with **Switch to chat**.
-- The composer's + is a menu (Attach files, Take screenshot, Design mode, and
+- The composer's + is a menu (Attach files, Take screenshot, and
   Add project… and Run on… in a chat). It no longer widens on hover.
 - Sidebar, breadcrumb, status bar, and automations name a chat "Chat", with a
   chat icon. All chats file under one sidebar group.

@@ -32,7 +32,7 @@ const credentialKeyFor = (principal: Principal): string | null => {
   const user = credentialUserFor(actorFor(principal))
   return user ? userKey(user) : null
 }
-const { adoptProvisionedLink, resetHostCategoryForTests } = await import('@solus/server/host/host-category')
+const { adoptProvisionedRegistration, resetHostCategoryForTests } = await import('@solus/server/host/host-category')
 const { githubCredentialChain } = await import('@solus/server/providers/github/credentials')
 const token = z.object({ accessToken: z.string() })
 const localOwner = { kind: 'local-owner', deviceId: null, deviceLabel: 'This Mac' } as const
@@ -107,7 +107,7 @@ describe('account integration identity', () => {
   })
   test('a cloud-managed host keeps account connections for its remote owner and members', () => {
     expect(credentialKeyFor({ kind: 'org-member', userId: 'bob', organizationId: 'org', organizationRole: 'member', teamIds: [], hostKind: 'personal', displayName: 'Bob', deviceId: 'd', deviceLabel: 'Web', expiresAt: Date.now() + 60_000 })).toBe('bob')
-    adoptProvisionedLink({ organizationId: 'org' })
+    adoptProvisionedRegistration({ organizationId: 'org' })
     expect(credentialKeyFor(remoteOwner)).toBe('alice')
     expect(credentialKeyFor(localOwner)).toBeNull()
   })

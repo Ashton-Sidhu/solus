@@ -73,7 +73,7 @@
     surface: RouteRef;
   }
 
-  let { pane, surface: ref, surfaceVisible = true, onAttachFile, onScreenshot, onDesignMode }: Props = $props();
+  let { pane, surface: ref, surfaceVisible = true, onAttachFile, onScreenshot }: Props = $props();
 
   const session = getWorkspaceContext();
   const actions = paneActions(() => pane.id);
@@ -99,7 +99,6 @@
       {surfaceVisible}
       {onAttachFile}
       {onScreenshot}
-      {onDesignMode}
     />
   {:else if ref.name === "chat"}
     <ConversationPane
@@ -108,7 +107,6 @@
       {surfaceVisible}
       {onAttachFile}
       {onScreenshot}
-      {onDesignMode}
     />
   {:else if ref.name === "work"}
     <WorkPane
@@ -116,7 +114,6 @@
       paneId={pane.id}
       {onAttachFile}
       {onScreenshot}
-      {onDesignMode}
     />
   {:else if descriptor.component}
     <!-- An await block can keep its previous component until the next loader
@@ -201,7 +198,6 @@
         {surfaceVisible}
         {onAttachFile}
         {onScreenshot}
-        {onDesignMode}
       />
     {:catch error}
       <!-- Without this branch the pending skeleton above never leaves the

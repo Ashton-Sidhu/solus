@@ -98,6 +98,7 @@ export const SOLUS_TOOL_GROUPS = [
     'start_session',
     'send_session',
     'stop_session',
+    'organize_session',
     'worktree_status',
     'move_to_worktree',
     'claude_subagent',

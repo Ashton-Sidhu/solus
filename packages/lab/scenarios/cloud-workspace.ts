@@ -1,11 +1,13 @@
+import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { SOLUS_API_AUDIENCE } from '@solus/contracts/uplink'
+import type { IpcContext, SessionCtx, SettingsCtx, StatusBarCtx } from '@solus/contracts/types'
 import { LabClient } from '../src/client'
 import { bootLabHost, type LabHost } from '../src/host'
 import { ORGANIZATION_ID, personaForHost } from '../src/personas'
-import { expectOk, expectRefused, scenario, type ScenarioContext } from '../src/scenario'
+import { expectNotServed, expectOk, expectRefused, scenario, type ScenarioContext } from '../src/scenario'
 import { bootLabSolusApi, createLabDatabase, type SolusApiEngine, type LabSolusApi } from '../src/solus-api'
 
 /**
@@ -35,7 +37,21 @@ async function until<T>(read: () => Promise<T>, accept: (value: T) => boolean, t
 /** The runner's own log says when it traded a person's token for a delegation (plans/010-standard-oauth.md). */
 function runnerActsForSomeone(runner: LabHost): boolean {
   const logFile = join(runner.dataDir, 'dev.log')
-  return existsSync(logFile) && readFileSync(logFile, 'utf8').includes('"msg":"delegation_held"')
+  // The organization's delegation; the owner's personal one is not organization work.
+  return existsSync(logFile) && readFileSync(logFile, 'utf8').split('\n').some((line) => line.includes('"msg":"delegation_held"') && line.includes(`"scope":"organization:${ORGANIZATION_ID}"`))
+}
+
+/**
+ * The renderer's prompt context for a new session in the Lab's working directory, with
+ * the organization selected: on a machine attached for organization work a new root
+ * needs one (plans/009-organization-vms.md §1).
+ */
+function promptContext(ctx: ScenarioContext, sessionId: string): IpcContext {
+  const session: Partial<SessionCtx> = { sessionId, provider: 'claude-code', agentSessionId: null, status: 'idle', workingDirectory: ctx.cwd, projectPath: ctx.cwd, additionalDirs: [], gitContext: null, worktreeBaseBranch: null, sessionChangedFiles: [], contextWindow: null, permissionMode: 'full-access', preferredModel: null, reasoningEffort: 'medium', fastMode: false, readOnlyReason: null, organizationId: ORGANIZATION_ID }
+  const settings: Partial<SettingsCtx> = { activeAgent: 'claude-code', executionPreferences: { rateLimitBehavior: 'queue' } }
+  const statusBar: Partial<StatusBarCtx> = { model: 'mock-model', reasoningEffort: 'medium', fastMode: false }
+  // SAFETY: the host reads only the fields named here (run-input.ts), as the seats scenario also relies on.
+  return { session, settings, statusBar } as IpcContext
 }
 
 interface Proof {
@@ -84,11 +100,17 @@ async function runnerStep(proof: Proof, bob: LabClient): Promise<{ runner: LabHo
   ctx.step(`${tag} a runner linked to the organization runs a turn whose task and work land on the service`)
   const runner = await bootLabHost({ flavor: 'personal', issuer: ctx.issuer, hostId: RUNNER_HOST_ID, runnerOf: ORGANIZATION_ID })
   // The owner comes through the proxied listener with her access token: the runner acts for her with it.
-  const owner = new LabClient({ persona: personaForHost('alice', 'personal'), hostUrl: runner.tunnelUrl, issuer: ctx.issuer, hostId: runner.hostId, hostKind: 'personal' })
+  const owner = new LabClient({ persona: personaForHost('alice', 'personal'), hostUrl: runner.tunnelUrl, issuer: ctx.issuer, hostId: runner.hostId, hostKind: 'personal', organizationId: ORGANIZATION_ID })
   proof.clients.push(owner)
   ctx.check(`${tag} the owner reaches the runner`, (await owner.connect()).ok)
-  const started = await expectOk(ctx, `${tag} the owner starts a mock-agent turn on the runner`, owner.rpc('createHeadlessSession', { prompt: 'cloud __MOCK_AGENT_TOOLS__', provider: 'claude-code', modelId: null, reasoningEffort: 'medium', contextWindow: null, cwd: ctx.cwd }))
-  ctx.check(`${tag} the runner acts for the owner in the organization`, runnerActsForSomeone(runner))
+  // Agent tools follow the record home: only a session admitted to the organization
+  // writes to the Solus API (plans/009-organization-vms.md §9). The owner's window names
+  // the organization, so the runner admits her new root there before the provider starts.
+  const sessionId = randomUUID()
+  await expectOk(ctx, `${tag} the owner opens a new session on the runner`, owner.rpc('watchSession', { sessionId }))
+  await expectOk(ctx, `${tag} the owner starts a mock-agent turn in the organization on the runner`, owner.rpc('prompt', promptContext(ctx, sessionId), { prompt: 'cloud __MOCK_AGENT_TOOLS__', clientPromptId: `${sessionId}-1` }))
+  // The ticket door makes the delegation without waiting (ADR 0001 stage 4).
+  ctx.check(`${tag} the runner acts for the owner in the organization`, await until(async () => runnerActsForSomeone(runner), (acts) => acts, 10_000))
   const runnerTask = await until(() => bob.rpc('tasksSidebarSnapshot'), (result) => result.tasks.some((row) => row.title === RUNNER_TASK_TITLE), 15_000)
   ctx.check(`${tag} bob sees the task the agent created on the service`, runnerTask.tasks.some((row) => row.title === RUNNER_TASK_TITLE), JSON.stringify(runnerTask.tasks.map((row) => row.title)))
   const runnerWorks = await until(() => bob.records.listWorks(), (list) => list.some((row) => row.title === RUNNER_WORK_TITLE), 15_000)
@@ -97,7 +119,8 @@ async function runnerStep(proof: Proof, bob: LabClient): Promise<{ runner: LabHo
   ctx.check(`${tag} the runner's own tables hold no such task`, localTasks?.tasks.every((row) => row.title !== RUNNER_TASK_TITLE) === true)
   const localWorks = await expectOk(ctx, `${tag} the owner lists the runner's own works`, owner.records.listWorks())
   ctx.check(`${tag} nor such a work`, localWorks?.every((row) => row.title !== RUNNER_WORK_TITLE) === true)
-  return { runner, sessionId: started?.agentSessionId ?? '' }
+  // The session id names a session everywhere (docs/plans/session-identity.md).
+  return { runner, sessionId }
 }
 
 async function recordStep(proof: Proof, bob: LabClient, runner: LabHost, sessionId: string): Promise<void> {
@@ -134,12 +157,13 @@ async function otherOrganizationStep(proof: Proof, taskId: string): Promise<void
 async function executionStep(proof: Proof, alice: LabClient): Promise<void> {
   const { ctx, tag } = proof
   ctx.step(`${tag} execution methods do not exist on the service`)
-  await expectRefused(ctx, `${tag} git is refused with PLANE_DISABLED`, alice.rpc('gitRefreshState', ctx.cwd), 'PLANE_DISABLED')
-  await expectRefused(ctx, `${tag} a headless session is refused with PLANE_DISABLED`, alice.rpc('createHeadlessSession', { prompt: 'x', provider: 'claude-code', modelId: null, reasoningEffort: 'medium', contextWindow: null, cwd: ctx.cwd }), 'PLANE_DISABLED')
+  await expectNotServed(ctx, `${tag} git is refused: the service has no such method`, alice.rpc('gitRefreshState', ctx.cwd))
+  await expectNotServed(ctx, `${tag} a headless session is refused: the service has no such method`, alice.rpc('createHeadlessSession', { prompt: 'x', provider: 'claude-code', modelId: null, reasoningEffort: 'medium', contextWindow: null, cwd: ctx.cwd }))
 }
 
 async function proveWorkspace(ctx: ScenarioContext, engine: SolusApiEngine, databaseUrl?: string): Promise<void> {
   const service = await bootLabSolusApi({ issuer: ctx.issuer, engine, databaseUrl })
+  const previousRoute = ctx.issuer.workspaceRoute
   ctx.issuer.setWorkspaceRoute(service.url)
   const proof: Proof = { ctx, tag: `[${engine}]`, service, clients: [] }
   let runner: LabHost | null = null
@@ -154,7 +178,7 @@ async function proveWorkspace(ctx: ScenarioContext, engine: SolusApiEngine, data
   } finally {
     for (const client of proof.clients) client.close()
     await runner?.stop()
-    ctx.issuer.setWorkspaceRoute(null)
+    ctx.issuer.setWorkspaceRoute(previousRoute)
     await service.stop()
   }
 }

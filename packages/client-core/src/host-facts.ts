@@ -44,9 +44,15 @@ export type HostFactKey = keyof HostFactValues
  *  is a drop, a failed dial, or a block. */
 export type HostSessionChange = 'fresh' | 'recovered' | 'lost'
 
+/** Whether this client knows the host (docs/plans/workspace-and-machines.md §6).
+ *  A `gone` host was deleted or was never listed here; every call to it fails. */
+export type HostPresence = 'present' | 'gone'
+
 export interface HostFactsSource {
   readonly api: HostApi
   readonly events: HostEventSubscriber
+  /** Absent is `present`. */
+  readonly presence?: HostPresence
 }
 
 const LOADING: HostFact<never> = { state: 'loading' }
@@ -82,6 +88,10 @@ export class HostFacts {
       source.events.subscribe('usage.limitsChanged', ({ snapshots }) => this.set('usage', snapshots)),
       source.events.subscribe('voice.modelStatusChanged', (status) => this.set('voiceModel', status)),
     ]
+  }
+
+  get presence(): HostPresence {
+    return this.source.presence ?? 'present'
   }
 
   get<K extends HostFactKey>(key: K): HostFact<HostFactValues[K]> {

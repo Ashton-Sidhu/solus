@@ -155,6 +155,7 @@ function agentConversationProjection(
   if (tag.sessionId) agentConversationResult.sessionId = tag.sessionId
   if (tag.messageId) agentConversationResult.messageId = tag.messageId
   if (tag.provider) agentConversationResult.provider = tag.provider
+  if (tag.serverId) agentConversationResult.serverId = tag.serverId
   // A call that waited may carry the exchange's report: no report turn follows.
   const report = parseOrchestrationItems(content)?.find((item) => item.type === 'report' && item.report.messageId === tag.messageId)
   if (report?.type === 'report') agentConversationResult.report = report.report

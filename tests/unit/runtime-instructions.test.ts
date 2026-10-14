@@ -150,7 +150,7 @@ describe('runtime instructions', () => {
     const claude = await claudeAppend(tools)
     for (const prompt of [codex, claude]) {
       expect(prompt).toContain('## Solus orchestration')
-      expect(prompt).toContain('A native subagent tool may support fewer models than the host.')
+      expect(prompt).toContain('This catalog does not establish native subagent support')
       expect(prompt).toContain('An ended provider turn with open child work is not a final result.')
       expect(prompt).toContain('Use send_session to continue an existing session')
       expect(prompt).toContain('reuse it only when retrying that same work')
@@ -162,6 +162,31 @@ describe('runtime instructions', () => {
     expect(partial).not.toContain('call list_agent_targets')
     expect(partial).not.toContain('Use send_session')
     expect(partial).not.toContain('Use read_session_exchange')
+  })
+
+  test('delegation guidance keeps model changes and task mode separate from native subagents', async () => {
+    const tools = [tool('start_session'), tool('list_agent_targets')]
+    for (const prompt of [runtimeInstructions({ harness: 'Codex', ...codexRuntime }, tools), await claudeAppend(tools)]) {
+      expect(prompt).toContain('A different model alone does not require start_session')
+      expect(prompt).toContain('Native subagents need no Solus task fields')
+      expect(prompt).toContain("Use task='none' outside task mode")
+      expect(prompt).toContain('In task mode, follow the Working On Task packet')
+      expect(prompt).not.toContain('File related work as task=attempt')
+      expect(prompt).not.toContain('claude_subagent is available')
+      expect(prompt).not.toContain('codex_subagent is available')
+    }
+  })
+
+  test('only the available wrapper is named before tool selection', async () => {
+    for (const wrapper of ['claude_subagent', 'codex_subagent']) {
+      const tools = [tool('start_session'), tool(wrapper)]
+      for (const prompt of [runtimeInstructions({ harness: 'Codex', ...codexRuntime }, tools), await claudeAppend(tools)]) {
+        expect(prompt).toContain(`${wrapper} is available for temporary work`)
+        expect(prompt).toContain('no Solus report or task fields are needed')
+        const other = wrapper === 'claude_subagent' ? 'codex_subagent' : 'claude_subagent'
+        expect(prompt).not.toContain(`${other} is available`)
+      }
+    }
   })
 
   // WHY: a chat's folder is a scratch folder the person never sees. An agent

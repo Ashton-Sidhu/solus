@@ -60,6 +60,8 @@ describe('device agent tools', () => {
     expect(text).toContain("'/data/devices/a b.json'")
     expect(text).toContain('/data/bin/agent-device snapshot -i')
     expect(text).toContain('Studio Mac')
+    // A phone has no Devices pane: the agent shows the user a result with a screenshot.
+    expect(text).toContain('call device_screenshot once it is on screen')
     expect(agentDeviceTargetArgs({ ...device, platform: 'android', deviceId: 'emulator-5554' })).toEqual(['--platform', 'android', '--serial', 'emulator-5554'])
   })
 })

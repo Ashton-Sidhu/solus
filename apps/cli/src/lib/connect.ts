@@ -13,7 +13,7 @@ import {
   uplinkStatusSchema,
   type AccountOrganization,
   type EnrollmentTicketRequest,
-  type UplinkLinkRequest,
+  type HostRegistrationRequest,
   type UplinkStatus,
 } from '@solus/contracts/uplink'
 import { hostOrganizationsStatusSchema, type HostOrganizationsStatus } from '@solus/contracts/organization-scope'
@@ -25,11 +25,14 @@ export const CLI_DEVICE_CLIENT_ID = SOLUS_CLIENT_IDS.cli
 export const DEFAULT_CLOUD_ORIGIN = 'https://app.solus.sh'
 
 /**
- * How this server links to Solus (plans/009-organization-vms.md §5). A link code
- * carries its ticket and the account plane that issued it, so one string is
- * enough: an organization's "Add your own VM" code attaches the server to that
- * organization; a personal code links it for discovery and remote access. Without
- * a code, the person signs in on another device and chooses.
+ * How this server connects to Solus (plans/009-organization-vms.md §5;
+ * docs/adr/0001-standard-authentication.md §2.2 rules 8 and 9). The code registers the
+ * server to the account, and then `connect` links it, so it is reachable from the
+ * internet through a Cloudflare tunnel: a server set up from a shell is usually on
+ * another network. A link code carries its ticket and the account plane that issued
+ * it, so one string is enough: an organization's "Add your own VM" code attaches the
+ * server to that organization; a personal code registers it to the account. Without a
+ * code, the person signs in on another device and chooses.
  */
 export interface ConnectOptions {
   dataDir: string
@@ -62,10 +65,11 @@ export function resolveCloudOrigin(value: string | undefined): string {
   return url.origin
 }
 
-/** The server's own link and organization calls, over the trusted loopback socket. */
+/** The server's own registration, link, and organization calls, over the trusted loopback socket. */
 interface LocalHostApi {
   uplinkStatus(): Promise<UplinkStatus>
-  uplinkLink(request: UplinkLinkRequest): Promise<UplinkStatus>
+  uplinkRegister(request: HostRegistrationRequest): Promise<UplinkStatus>
+  uplinkLink(): Promise<UplinkStatus>
   uplinkUnlink(): Promise<UplinkStatus>
   uplinkDetachOrganization(organizationId: string): Promise<UplinkStatus>
   hostOrganizations(): Promise<HostOrganizationsStatus>
@@ -74,7 +78,8 @@ interface LocalHostApi {
 async function withLocalHost<T>(dataDir: string, run: (api: LocalHostApi) => Promise<T>): Promise<T> {
   return withLocalRpc(requireRunningServerUrl(runtimePaths(dataDir)), (call) => run({
     uplinkStatus: async () => uplinkStatusSchema.parse(await call('uplinkStatus')),
-    uplinkLink: async (request) => uplinkStatusSchema.parse(await call('uplinkLink', [request])),
+    uplinkRegister: async (request) => uplinkStatusSchema.parse(await call('uplinkRegister', [request])),
+    uplinkLink: async () => uplinkStatusSchema.parse(await call('uplinkLink')),
     uplinkUnlink: async () => uplinkStatusSchema.parse(await call('uplinkUnlink')),
     uplinkDetachOrganization: async (organizationId) => uplinkStatusSchema.parse(await call('uplinkDetachOrganization', [organizationId])),
     hostOrganizations: async () => hostOrganizationsStatusSchema.parse(await call('hostOrganizations')),
@@ -82,10 +87,10 @@ async function withLocalHost<T>(dataDir: string, run: (api: LocalHostApi) => Pro
 }
 
 /**
- * Links this server, or attaches it to an organization when it is already linked.
- * A code needs nothing else. Without one, the person signs in with the device flow
- * — whose URL and code they open on any device, so this works over SSH — and then
- * chooses a personal link or one of their organizations.
+ * Registers this server (or attaches it to an organization when it is registered
+ * already), then links it. A code needs nothing else. Without one, the person signs in
+ * with the device flow — whose URL and code they open on any device, so this works
+ * over SSH — and then chooses personal or one of their organizations.
  */
 export async function connectHost(options: ConnectOptions, reporter: ConnectReporter): Promise<UplinkStatus> {
   const current = await withLocalHost(options.dataDir, (api) => api.uplinkStatus())
@@ -95,34 +100,45 @@ export async function connectHost(options: ConnectOptions, reporter: ConnectRepo
 
   if (options.code) {
     const request = parseLinkCode(options.code, resolveCloudOrigin(options.cloudUrl))
-    return withLocalHost(options.dataDir, (api) => api.uplinkLink(request))
+    return withLocalHost(options.dataDir, (api) => registerAndLink(api, request))
   }
-  const cloudOrigin = current.linked ? current.link.directoryUrl : resolveCloudOrigin(options.cloudUrl)
+  const cloudOrigin = current.registration.registered ? current.registration.registration.directoryUrl : resolveCloudOrigin(options.cloudUrl)
   const session = await authorizeCli(cloudOrigin, options.noOpen, reporter)
   try {
     const choice = await reporter.choose(await accountOrganizations(cloudOrigin, await accountToken(session)), current)
-    if (choice.kind === 'personal' && current.linked) return current
-    const ticket = await issueEnrollmentTicket(cloudOrigin, await accountToken(session), choice.kind === 'organization' ? { organizationIds: [choice.organizationId] } : {})
-    return await withLocalHost(options.dataDir, (api) => api.uplinkLink({ ticket, directoryUrl: cloudOrigin }))
+    if (choice.kind === 'personal' && current.registration.registered) return withLocalHost(options.dataDir, (api) => current.link.linked ? Promise.resolve(current) : api.uplinkLink())
+    const organizationIds = choice.kind === 'organization' ? [choice.organizationId] : []
+    const ticket = await issueEnrollmentTicket(cloudOrigin, await accountToken(session), organizationIds.length ? { organizationIds } : {})
+    return await withLocalHost(options.dataDir, (api) => registerAndLink(api, { ticket, directoryUrl: cloudOrigin, organizationIds }))
   } finally {
     // The setup client keeps no copy: sign-out revokes its client grant (RFC 7009).
     await session.signOut()
   }
 }
 
-export async function connectStatus(dataDir: string): Promise<{ link: UplinkStatus; standing: HostOrganizationsStatus }> {
-  return withLocalHost(dataDir, async (api) => ({ link: await api.uplinkStatus(), standing: await api.hostOrganizations() }))
+/** Registers (or attaches) with the ticket, then turns the tunnel on when it is not on. */
+async function registerAndLink(api: LocalHostApi, request: HostRegistrationRequest): Promise<UplinkStatus> {
+  const registered = await api.uplinkRegister(request)
+  return registered.link.linked ? registered : api.uplinkLink()
 }
 
-/** Unlinks this server; an attached server becomes personal again, and its organizations' records stay on the Solus API. */
+export async function connectStatus(dataDir: string): Promise<{ uplink: UplinkStatus; standing: HostOrganizationsStatus }> {
+  return withLocalHost(dataDir, async (api) => ({ uplink: await api.uplinkStatus(), standing: await api.hostOrganizations() }))
+}
+
+/**
+ * Unlinks this server: the tunnel goes, and the internet no longer reaches it. Its
+ * registration and organizations stay; removing the host on the account's Devices
+ * page ends them.
+ */
 export async function disconnectHost(dataDir: string): Promise<UplinkStatus> {
   return withLocalHost(dataDir, async (api) => {
     const current = await api.uplinkStatus()
-    return current.linked ? api.uplinkUnlink() : current
+    return current.link.linked ? api.uplinkUnlink() : current
   })
 }
 
-/** Takes this server's attachment back for one organization; the link and its other organizations stay. */
+/** Takes this server's attachment back for one organization; the registration and its other organizations stay. */
 export async function removeOrganization(dataDir: string, organizationId: string): Promise<HostOrganizationsStatus> {
   return withLocalHost(dataDir, async (api) => {
     await api.uplinkDetachOrganization(organizationId)

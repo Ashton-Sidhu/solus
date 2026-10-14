@@ -1,10 +1,12 @@
-import type { IpcContext } from '@solus/contracts/types'
+import type { SessionCtx } from '@solus/contracts/types'
 import { isHostOwner, LOCAL_ORGANIZATION_ID, type Principal } from '../../admission/principal'
 import { ANY_ORGANIZATION } from '../../admission/principal'
 import { assignSessionOrganization, getSessionRecord, rememberSessionBirth, type SessionBirth } from '../../data/sessions/session-records'
 import { isOrganizationAttached } from '../../host/organization-attachment'
 import { sessionIdOfThread } from '../../data/sessions/session-lineage'
 import { isChat } from '@solus/contracts/chat'
+import { parseUserKey } from '@solus/contracts/user'
+import { isHostUserKey } from '../../host/host-user'
 import type { HostOrganizations } from '../../host/organizations'
 import { insightsEligible } from '../../sync/mirror/insight-mirror'
 import type { Actor } from '../../admission/actor'
@@ -60,14 +62,25 @@ export interface TurnOrganizationDeps {
   adoptSession?: (sessionId: string, organizationId: string, ownerUserId: string, options: { shareWithOrganization: boolean }) => Promise<void>
 }
 
+/**
+ * What admission reads of a turn: its session and the organization the sender
+ * works in. A prompt's `IpcContext` is one; a new session builds it from its
+ * request (`PromptDispatch.createSession`), so every turn passes the same admission.
+ */
+export interface TurnAdmissionContext {
+  session: Pick<SessionCtx, 'sessionId' | 'agentSessionId' | 'forked' | 'organizationId' | 'workingDirectory'>
+  /** The session that starts this one on this host (`start_session`): a child follows its record, as a fork follows its source. */
+  parentSessionId?: string
+}
+
 /** The organization the turn's session belongs to after admission, `local` included. */
-export async function admitTurnOrganization(ctx: IpcContext, actor: Actor, deps: TurnOrganizationDeps): Promise<string> {
+export async function admitTurnOrganization(ctx: TurnAdmissionContext, actor: Actor, deps: TurnOrganizationDeps): Promise<string> {
   const principal = actor.principal
   // A member reaches this machine only through a grant its attachment allows: the attachment is recorded before their work is admitted.
   if (principal.kind === 'org-member') deps.markAttached?.()
-  // A fork follows the record of the session it branches from.
+  // A fork follows the record of the session it branches from; a child, its parent's.
   const forkSource = ctx.session.forked && ctx.session.agentSessionId ? sessionIdOfThread(ctx.session.agentSessionId) : null
-  const record = await getSessionRecord(ANY_ORGANIZATION, forkSource ?? ctx.session.sessionId)
+  const record = await getSessionRecord(ANY_ORGANIZATION, forkSource ?? ctx.parentSessionId ?? ctx.session.sessionId)
   const organizationId = isOrganizationAttached()
     ? await admitOnAttachedMachine(ctx, principal, deps, record)
     : await admitOnPersonalMachine(ctx, principal, deps, record)
@@ -82,10 +95,11 @@ type StoredRecord = Awaited<ReturnType<typeof getSessionRecord>>
 /**
  * An attached machine (organization-vms §1): an existing session continues where
  * it lives; a new root starts in an organization on the Solus API, or not at all.
+ * A fork or a child is new work that follows the session it comes from.
  */
-async function admitOnAttachedMachine(ctx: IpcContext, principal: Principal, deps: TurnOrganizationDeps, record: StoredRecord): Promise<string> {
+async function admitOnAttachedMachine(ctx: TurnAdmissionContext, principal: Principal, deps: TurnOrganizationDeps, record: StoredRecord): Promise<string> {
   const sessionId = ctx.session.sessionId
-  const forked = ctx.session.forked === true
+  const forked = ctx.session.forked === true || ctx.parentSessionId !== undefined
   const pending = pendingAssignments.get(sessionId)
   if (pending) return pending.organizationId
   if (record && !forked) {
@@ -99,6 +113,7 @@ async function admitOnAttachedMachine(ctx: IpcContext, principal: Principal, dep
   }
   // A fork follows its source: a personal session forks into personal work, which
   // uploads nothing; an organization session forks into a new organization session.
+  // A child follows its parent the same way, for its parent's person.
   if (forked && record?.organizationId === LOCAL_ORGANIZATION_ID) return LOCAL_ORGANIZATION_ID
   const organizationId = forked && record ? record.organizationId : windowOrganization(ctx, principal)
   if (!organizationId) {
@@ -114,7 +129,7 @@ async function admitOnAttachedMachine(ctx: IpcContext, principal: Principal, dep
 }
 
 /** The organization a new root starts in on an attached machine: the member's own, or the owner's window selection. */
-function windowOrganization(ctx: IpcContext, principal: Principal): string | null {
+function windowOrganization(ctx: TurnAdmissionContext, principal: Principal): string | null {
   const selected = ctx.session.organizationId
   if (principal.kind === 'org-member') return !selected || selected === principal.organizationId ? principal.organizationId : null
   if (principal.kind !== 'remote-owner') return null
@@ -122,11 +137,26 @@ function windowOrganization(ctx: IpcContext, principal: Principal): string | nul
 }
 
 /**
+ * The account this host acts for in a turn: a member's or the owner's own. A link
+ * guest has none of its own: its turn on a session that exists runs for the person
+ * who shared the link, on their seat (host-sharing.md §4.2 step 5; `seatFor`), so
+ * it needs their authority. A guest never starts organization work.
+ */
+function accountActedFor(principal: Principal, deps: TurnOrganizationDeps, admit: boolean): string | null {
+  if (principal.kind === 'org-member' || principal.kind === 'remote-owner') return principal.userId
+  if (principal.kind !== 'guest' || admit) return null
+  const sharer = principal.share.sharedByUserId
+  if (isHostUserKey(sharer)) return deps.hostOrganizations.owner()?.userId ?? null
+  const sharerId = parseUserKey(sharer)
+  return sharerId.kind === 'account' ? sharerId.accountId : null
+}
+
+/**
  * This host acting for the person behind the turn. A pairing connection, a guest, or
  * the host itself has no account to act as, so it cannot start organization work.
  */
 async function actForPerson(principal: Principal, deps: TurnOrganizationDeps, input: { sessionId: string; organizationId: string; admit: boolean }): Promise<string> {
-  const userId = principal.kind === 'org-member' || principal.kind === 'remote-owner' ? principal.userId : null
+  const userId = accountActedFor(principal, deps, input.admit)
   if (!userId) {
     if (principal.kind === 'system' && !input.admit) return ''
     throw new TurnRefusedError('ORGANIZATION_REQUIRED', 'Organization work on this machine needs your Solus account. Connect through Solus with an organization selected.')
@@ -144,7 +174,7 @@ async function actForPerson(principal: Principal, deps: TurnOrganizationDeps, in
 }
 
 /** A person's own machine, and a server not attached: scratch stays Local unless its Insights assignment applies. */
-async function admitOnPersonalMachine(ctx: IpcContext, principal: Principal, deps: TurnOrganizationDeps, record: StoredRecord): Promise<string> {
+async function admitOnPersonalMachine(ctx: TurnAdmissionContext, principal: Principal, deps: TurnOrganizationDeps, record: StoredRecord): Promise<string> {
   const sessionId = ctx.session.sessionId
   let organizationId = record?.organizationId ?? pendingAssignments.get(sessionId)?.organizationId ?? LOCAL_ORGANIZATION_ID
   if (organizationId !== LOCAL_ORGANIZATION_ID) return organizationId
@@ -185,7 +215,7 @@ export async function mayAnswerFor(principal: Principal, sessionId: string, deps
  * it Local: the window's selection when the caller may name it and that
  * organization's Insights apply here.
  */
-function wantedOrganization(ctx: IpcContext, principal: Principal, deps: TurnOrganizationDeps): string | null {
+function wantedOrganization(ctx: TurnAdmissionContext, principal: Principal, deps: TurnOrganizationDeps): string | null {
   const selected = ctx.session.organizationId
   if (!selected || selected === LOCAL_ORGANIZATION_ID) return null
   if (principal.kind === 'org-member') return principal.organizationId === selected && insightsEligible(selected) ? selected : null

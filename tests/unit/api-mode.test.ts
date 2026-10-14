@@ -181,8 +181,8 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     folioHandlers.registerFolioHandlers(server, { shares })
     sharingHandlers.registerSharingHandlers(server, { shares })
     historyHandlers.registerHistoryHandlers(server, {
-      // SAFETY: the session-record handlers under test read only the record store; the control plane and publisher are captured, never called.
-      sessionRuntime: {} as SessionRuntime,
+      // SAFETY: the session-record handlers under test read only the record store and an empty provider history; the control plane and publisher are captured, never called.
+      sessionRuntime: { history: { getSessionInfo: async () => null, describeSession: async () => ({ lineage: null, meta: null }) } } as never as SessionRuntime,
       events: {} as HostEventPublisher,
       agentIdFromContext: () => 'claude-code',
       exchangeProgress: () => undefined,
@@ -256,6 +256,20 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     expect(page.indexing).toBe(false)
   })
 
+  test('a session read names the record\'s organization, so a client knows where it lives once its machine is gone', async () => {
+    // WHY: a removed machine takes its transcript with it; the client reads the
+    // mirrored copy from the workspace service of the organization this names.
+    const server = await bootServer()
+    await server.handle('sessionRecordUpsert', [{ sessionId: 's-home', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 5 }], ctx(runner1))
+    await resourceShares.claimOwner({ kind: 'session', id: 's-home' }, alice)
+
+    const [meta] = await server.handle('getSessionInfos', [['s-home']], ctx(alice))
+    const described = await server.handle('describeSession', ['s-home'], ctx(alice))
+
+    expect(meta?.organizationId).toBe('org1')
+    expect(described.meta?.organizationId).toBe('org1')
+  })
+
   test('while the index is still filling, a list and a search say so', async () => {
     // WHY: before a machine's first sweep ends its records are not every
     // session. A client that took that answer as final would say "no sessions"
@@ -297,6 +311,31 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     expect(positions).toEqual([0, 2])
     expect((await api.searchSessions(authority(bob), { q: 'canary' })).items.map(item => item.session.id)).toEqual(['s-said-2'])
 
+  })
+
+  test('a repository\'s sessions are listed and searched by its key, whatever machine ran them', async () => {
+    // WHY: docs/plans/project-model.md §1 — a project is its repository, not a
+    // path on one machine. The service holds every machine's sessions, a removed
+    // machine's included, so a project scope reaches it by repository.
+    const server = await bootServer()
+    const { getDatabase } = await import('@solus/server/db/database')
+    const { sql } = await import('drizzle-orm')
+    const upsert = (sessionId: string, projectPath: string, projectRemote: string | null) =>
+      server.handle('sessionRecordUpsert', [{ sessionId, provider: 'claude-code', projectPath, projectRemote, title: 'Wire the heron', lastActivityAt: 7 }], ctx(runner1))
+    await upsert('s-vm-a', '-data-projects-u-web', 'github.com/acme/web')
+    await upsert('s-laptop', '-Users-me-web', 'github.com/acme/web')
+    await upsert('s-other', '-data-projects-u-api', 'github.com/acme/api')
+    for (const id of ['s-vm-a', 's-laptop', 's-other']) await resourceShares.claimOwner({ kind: 'session', id }, alice)
+    for (const id of ['s-vm-a', 's-laptop', 's-other']) {
+      await getDatabase().run(sql`INSERT INTO session_transcripts (organization_id, session_id, position, runner_host_id, message, updated_at)
+        VALUES ('org1', ${id}, 0, 'runner-1', ${JSON.stringify({ role: 'user', content: 'heron', timestamp: 1 })}, 1)`)
+    }
+
+    const listed = await api.listSessions(authority(alice), { limit: 50, repositoryKey: 'github.com/acme/web' })
+    const searched = await api.searchSessions(authority(alice), { q: 'heron', repositoryKey: 'github.com/acme/web' })
+
+    expect(listed.items.map(item => item.id).sort()).toEqual(['s-laptop', 's-vm-a'])
+    expect(searched.items.map(item => item.session.id).sort()).toEqual(['s-laptop', 's-vm-a'])
   })
 
   test('a member finds a session by its title and by words said in different messages, a page at a time', async () => {

@@ -12,8 +12,8 @@ import type { DiscoveredServer } from '@solus/contracts/types'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import type { SolusServer } from '../server'
 import { hostUserKey } from '../../host/host-user'
-import type { PairedHosts } from '../../execution/orchestration/paired-hosts'
-import { hostDisplayName } from '../../platform/host-display-name'
+import type { IntroducedHosts } from '../../execution/orchestration/introduced-hosts'
+import { z } from 'zod'
 
 const log = createLogger('main', 'connections-handlers')
 
@@ -25,9 +25,9 @@ export interface ConnectionsDeps {
   discoverLanServers(): Promise<DiscoveredServer[]>
   setRemoteAccess(remoteAccess: boolean): Promise<{ remoteAccess: boolean; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
   setTrustLocalNetwork(trustLocalNetwork: boolean): { trustLocalNetwork: boolean }
-  /** The hosts this host paired with (docs/plans/cross-host-sessions.md §10). */
-  pairedHosts: Pick<PairedHosts, 'list' | 'pair' | 'forget'>
-  /** Closes an open connection to a host whose pairing was replaced or forgotten. */
+  /** The hosts this host was introduced to (docs/plans/host-reach.md §4). */
+  introducedHosts: Pick<IntroducedHosts, 'list' | 'issue' | 'accept' | 'forget' | 'allow'>
+  /** Closes an open connection to a host whose introduction was replaced or forgotten. */
   disconnectRemoteHost(hostId: string): void
   /** This host's tunnel origin while its connector is online; null otherwise. */
   tunnelUrl(): string | null
@@ -161,20 +161,39 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
     return deps.setTrustLocalNetwork(trustLocalNetwork === true)
   })
 
-  server.register('pairedHostsList', () => deps.pairedHosts.list())
+  server.register('hostIntroductionsList', () => deps.introducedHosts.list())
 
-  server.register('pairedHostsPair', async (args) => {
-    const [{ url, code }] = args
-    // The other host lists this one under this name in its Connections.
-    const paired = await deps.pairedHosts.pair({ url, code }, `${hostDisplayName()} (Solus host)`)
-    deps.disconnectRemoteHost(paired.installationId)
-    return paired
+  server.register('hostIntroductionIssue', (args) => {
+    const [forHost] = args
+    return deps.introducedHosts.issue(forHostSchema.parse(forHost))
   })
 
-  server.register('pairedHostsForget', (args) => {
+  server.register('hostIntroductionAccept', async (args) => {
+    const [{ introduction, grantedDeviceId }] = args
+    const parsed = introductionSchema.parse(introduction)
+    await deps.introducedHosts.accept(parsed, z.string().min(1).parse(grantedDeviceId))
+    deps.disconnectRemoteHost(parsed.installationId)
+    return { ok: true as const }
+  })
+
+  server.register('hostIntroductionForget', (args) => {
     const [{ installationId }] = args
-    const forgotten = deps.pairedHosts.forget(installationId)
+    const forgotten = deps.introducedHosts.forget(installationId)
     deps.disconnectRemoteHost(installationId)
     return { forgotten }
   })
+
+  server.register('hostIntroductionAllow', (args) => {
+    const [{ installationId }] = args
+    return { allowed: deps.introducedHosts.allow(installationId) }
+  })
 }
+
+const forHostSchema = z.object({ installationId: z.string().min(1), label: z.string().max(128) })
+const introductionSchema = z.object({
+  installationId: z.string().min(1),
+  label: z.string().max(128),
+  urls: z.array(z.string().min(1)).max(16),
+  sessionToken: z.string().min(1),
+  deviceId: z.string().min(1),
+})

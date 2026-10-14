@@ -1463,7 +1463,6 @@
         }}
         onStartRename={() => startRename({ taskId: menuTask.id })}
         onSetStatus={(status) => void setTaskStatus(menuTask.id, status)}
-        onMarkUnread={() => void sidebarStore.markTaskUnread(menuTask.id)}
         onSnoozeCustom={sidebarTask && sidebarStore.canSnooze(sidebarTask)
           ? () =>
               openSnooze(
@@ -1550,6 +1549,7 @@
       y={sessionContextMenu.y}
       tabId={sidebarStore.openTabIdForPinned(pin) ?? null}
       sessionId={pin.sessionId}
+      serverId={pin.serverId ?? null}
       showSplit
       onRegenerateTitle={() => sidebarStore.regeneratePinnedSessionTitle(pin)}
       onOpenInSplit={() => void openPinnedSessionInSplit(pin)}

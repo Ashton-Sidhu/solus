@@ -78,7 +78,7 @@ export function MaterialScrollComposeButton(props: {
                     fontWeight: "500",
                   }}
                 >
-                  New thread
+                  New session
                 </Text>
               </ExtendedFloatingActionButton.Text>
             </ExtendedFloatingActionButton>
@@ -89,7 +89,7 @@ export function MaterialScrollComposeButton(props: {
       <Pressable
         onPress={props.onPress}
         accessibilityRole="button"
-        accessibilityLabel="New thread"
+        accessibilityLabel="New session"
         android_ripple={{ foreground: true }}
         style={{
           position: "absolute",

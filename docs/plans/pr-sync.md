@@ -375,6 +375,14 @@ Tests: `pr-sync`, `github-pr-sync-reads`, `pr-checks-read`, `prs-store-sync`,
   the wire would drop that page.
 - **Interest is per connection and project**, as `connection#project`, so two
   checkouts of one repository on one client do not replace each other's set.
+- **The mobile app has its own store** (`apps/mobile/src/features/prs/
+  pull-request-directory.ts`), not `PrsStore`, because it does not share the
+  Svelte code. It follows the same rules: the Pull Requests tab sends
+  `repository` interest for each listed project while it has focus, and a pull
+  request screen sends `review` interest for its number. A `pr.changed` change
+  updates the list rows, the list checks, and an open detail in place, and an
+  accepted connection sends the interest again. A screen that gets focus again
+  within 30 seconds of a full read does not read again; a refresh always does.
 - **Only three columns** were added to `task_links` (`pr_state`, `pr_draft`,
   `pr_updated_at`). The existing `title` and `url` carry the rest, and the
   repository is parsed from the URL.

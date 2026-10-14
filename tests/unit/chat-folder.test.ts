@@ -130,6 +130,8 @@ describe('starting a chat', () => {
         bindRuntimeSession: () => null,
       },
       dispatch: {
+        // No organization admission on this host: the folder rule is the subject here.
+        admitTurn: async () => {},
         submitPrompt: async (ctx: IpcContext) => {
           prompted.push(ctx)
           return { disposition: 'started' }

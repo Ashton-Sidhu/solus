@@ -120,9 +120,12 @@ export class SessionApiOperations {
   async list(context: WorkspaceRequestContext, query: WorkspaceSessionQuery): Promise<WorkspaceSessionPage> {
     query = workspaceSessionQuerySchema.parse(query)
     requireScope(context, 'sessions:read')
+    const byActivity = query.order === 'activity'
+    const time = byActivity ? 'last_activity_at' : 'created_at'
     const filters = [...this.visible(context),
-      seekClause(sql`session_records.created_at`, sql`session_records.session_id`, readCursor(query.cursor))]
+      seekClause(sql`session_records.${sql.identifier(time)}`, sql`session_records.session_id`, readCursor(query.cursor))]
     if (query.projectId) filters.push(sql`project_remote = ${await projectKeyForId(context, query.projectId)}`)
+    if (query.repositoryKey) filters.push(sql`project_remote = ${query.repositoryKey}`)
     if (query.projectPath !== undefined) {
       const normalized = query.projectPath.replace(/\/$/, '')
       const encoded = encodePathAsFolder(normalized)
@@ -133,7 +136,8 @@ export class SessionApiOperations {
     // A chat's folder is `.solus-chats/<id>`, which the provider spells `--solus-chats-<id>`.
     if (query.chats === 'true') filters.push(sql`project_path LIKE ${`%${encodePathAsFolder(`/${CHAT_ROOT_NAME}/`)}%`}`)
     if (query.provider) filters.push(sql`provider = ${query.provider}`)
-    const page = pageOf(await this.records(context, await readSessionMetadataPage(sql.join(filters, sql` AND `), query.limit + 1)), query.limit, item => ({ time: Date.parse(item.createdAt), id: item.id }))
+    const page = pageOf(await this.records(context, await readSessionMetadataPage(sql.join(filters, sql` AND `), query.limit + 1, time)), query.limit,
+      item => ({ time: Date.parse(byActivity ? item.updatedAt : item.createdAt), id: item.id }))
     return { ...page, indexing: sessionRecordsIndexing() }
   }
 
@@ -168,6 +172,8 @@ export class SessionApiOperations {
   }
 
   private async indexedHits(context: WorkspaceRequestContext, query: SearchQuery): Promise<HitsPage> {
+    // A machine's index knows its checkouts, not their repositories: it is searched by `projectRoot`.
+    if (query.repositoryKey) throw new SolusApiError(400, 'INVALID_REQUEST', 'A machine searches one project by projectRoot; repositoryKey is answered by the workspace service.')
     const page = searchSessionIndex(query.q, {
       projectRoot: query.projectRoot,
       providers: query.provider ? [query.provider] : undefined,
@@ -191,6 +197,7 @@ export class SessionApiOperations {
   private async mirroredHits(context: WorkspaceRequestContext, query: SearchQuery): Promise<HitsPage> {
     const records = [...this.visible(context)]
     if (query.projectRoot) records.push(sql`session_records.project_root = ${query.projectRoot}`)
+    if (query.repositoryKey) records.push(sql`session_records.project_remote = ${query.repositoryKey}`)
     if (query.provider) records.push(sql`session_records.provider = ${query.provider}`)
     if (query.activeSince !== undefined) records.push(sql`session_records.last_activity_at >= ${query.activeSince}`)
     const db = getDatabase()

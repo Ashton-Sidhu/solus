@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import postgres from 'postgres'
+import { LAB_BUILD_ENTRY } from './build'
 import type { LabIssuer } from './issuer'
 
 /**
@@ -21,9 +22,15 @@ export interface LabSolusApiOptions {
   engine: SolusApiEngine
   /** Required for `postgres`: an empty database this service may migrate. */
   databaseUrl?: string
-  /** Path to `dist/main/standalone.js`; defaults to the worktree's build. */
+  /** Path to the standalone server; defaults to `SOLUS_LAB_ENTRY`, then the Lab build (`bun lab build`). */
   entry?: string
   tempRoot?: string
+  /** The listener's port; defaults to a free one. Cloud mode names it first, so the cloud's `SOLUS_API_URL` can name it. */
+  port?: number
+  /** `SOLUS_API_CLIENT_KEY`: the private JWK of the cloud's `solus-api` client, with which the service reads a person's account. */
+  clientKey?: string
+  /** Start the server in its own process group and do not wait for it at exit: `bun lab up` leaves it running. */
+  longLived?: boolean
 }
 
 export interface LabSolusApi {
@@ -53,16 +60,20 @@ async function waitFor(check: () => Promise<boolean>, timeoutMs: number, what: s
 }
 
 export async function bootLabSolusApi(options: LabSolusApiOptions): Promise<LabSolusApi> {
-  const entry = options.entry ?? process.env.SOLUS_LAB_ENTRY ?? resolve(process.cwd(), 'dist/main/standalone.js')
-  if (!existsSync(entry)) throw new Error(`No standalone build at ${entry}; run \`bun run build:test\` first.`)
+  const entry = options.entry ?? process.env.SOLUS_LAB_ENTRY ?? LAB_BUILD_ENTRY
+  if (!existsSync(entry)) throw new Error(`No standalone build at ${entry}; run \`bun lab build\` first.`)
   if (options.engine === 'postgres' && !options.databaseUrl) throw new Error('A Postgres workspace service needs databaseUrl')
   const dataDir = mkdtempSync(join(options.tempRoot ?? tmpdir(), `solus-lab-workspace-${options.engine}-`))
   assertTemporary(dataDir)
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     SOLUS_DATA_DIR: dataDir,
-    SOLUS_PORT: '0',
+    SOLUS_PORT: String(options.port ?? 0),
     SOLUS_NO_LAN_DISCOVERY: '1',
+    // Never the developer's own home (`~/.claude`, `~/.codex`) or dev.log.
+    HOME: dataDir,
+    CODEX_HOME: join(dataDir, '.codex'),
+    SOLUS_DEV_LOG: join(dataDir, 'dev.log'),
     SOLUS_API: '1',
     SOLUS_ROLES: 'collaboration',
     SOLUS_CLOUD_ISSUER: options.issuer.issuer,
@@ -71,6 +82,7 @@ export async function bootLabSolusApi(options: LabSolusApiOptions): Promise<LabS
     // One service, one run: a fresh key is the replicas' shared one.
     SOLUS_API_SIGNING_KEY: randomBytes(32).toString('base64'),
     DATABASE_URL: options.engine === 'postgres' ? options.databaseUrl : '',
+    SOLUS_API_CLIENT_KEY: options.clientKey ?? '',
   }
   // No managed link, no host token: a workspace service is nobody's machine.
   delete env.SOLUS_HOST_LINK
@@ -82,9 +94,11 @@ export async function bootLabSolusApi(options: LabSolusApiOptions): Promise<LabS
     cwd: dataDir,
     env,
     stdio: ['ignore', output, output],
+    detached: options.longLived ?? false,
   })
   const pid = child.pid
   if (!pid) throw new Error('The Lab workspace service did not start')
+  if (options.longLived) child.unref()
   let exited = false
   child.once('exit', () => { exited = true })
 

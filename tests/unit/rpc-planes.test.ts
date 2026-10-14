@@ -26,6 +26,11 @@ describe('the plane map', () => {
     // client whose only connection is the workspace service can still read it.
     expect(rpcPlaneOf('prGetDiff')).toBe('collaboration')
     expect(rpcPlaneOf('prInterdiff')).toBe('execution')
+    // Images in a private pull request load through the host's GitHub
+    // credential. A host that serves only pull request records signs them too;
+    // a local file stays behind the execution plane.
+    expect(rpcPlaneOf('prMediaUrl')).toBe('collaboration')
+    expect(rpcPlaneOf('assetCreateUrl')).toBe('execution')
     // Provider seat login runs on the execution host (seat-handlers.ts).
     expect(rpcPlaneOf('seatConnectStart')).toBe('execution')
   })

@@ -11,15 +11,17 @@ const info = (over: Partial<ConnectionsServerInfo>): HostFact<ConnectionsServerI
   value: { host: '127.0.0.1', port: 1, allowLan: false, installationId: 'i', remoteAccess: false, requireAuth: true, trustLocalNetwork: false, hostKind: 'personal', roles: ['execution'], principal: 'local-owner', grants: ['host'], ...over },
 })
 
+const notGone = () => false
+
 describe('host standing', () => {
   test('until the host answers, the client assumes the owner', () => {
-    const me = new HostStanding('h', () => ({ state: 'loading' }))
+    const me = new HostStanding('h', () => ({ state: 'loading' }), notGone)
     expect(me.may('host.git.write')).toBe(true)
     expect(me.isGuest).toBe(false)
   })
 
   test("a guest holds the host's few reads and nothing it could change", () => {
-    const me = new HostStanding('h', () => info({ principal: 'guest', grants: ['host.connect', 'host.git.read', 'host.models.read'] }))
+    const me = new HostStanding('h', () => info({ principal: 'guest', grants: ['host.connect', 'host.git.read', 'host.models.read'] }), notGone)
     expect(me.isGuest).toBe(true)
     expect(me.may('host.git.read')).toBe(true)
     expect(me.may('host.git.write')).toBe(false)
@@ -31,7 +33,7 @@ describe('host standing', () => {
     const olderInfo = info({ principal: 'guest' })
     if (olderInfo.state !== 'ready') throw new Error('Expected ready host info')
     delete (olderInfo.value as Partial<ConnectionsServerInfo>).grants
-    const me = new HostStanding('h', () => olderInfo)
+    const me = new HostStanding('h', () => olderInfo, notGone)
     expect(me.grants).toEqual([])
     expect(me.may('host.git.write')).toBe(false)
   })
@@ -40,15 +42,23 @@ describe('host standing', () => {
     const olderInfo = info({ principal: 'local-owner' })
     if (olderInfo.state !== 'ready') throw new Error('Expected ready host info')
     delete (olderInfo.value as Partial<ConnectionsServerInfo>).grants
-    const me = new HostStanding('h', () => olderInfo)
+    const me = new HostStanding('h', () => olderInfo, notGone)
     expect(me.may('host.git.write')).toBe(true)
   })
 
   test('a prefix covers what is under it, and a resource verb is asked of the resource', () => {
-    const me = new HostStanding('h', () => info({ grants: ['host.git', 'host.use'] }))
+    const me = new HostStanding('h', () => info({ grants: ['host.git', 'host.use'] }), notGone)
     expect(me.may('host.git.write')).toBe(true)
     expect(me.may('host.admin')).toBe(false)
     // No share list is known for this resource: the client's own.
     expect(me.may('drive', { kind: 'session', id: 's1' })).toBe(true)
+  })
+
+  test('a gone host allows nothing, though it never answered', () => {
+    // A gone host has no server info, and the owner's standing would offer
+    // actions whose calls can only fail.
+    const me = new HostStanding('h', () => ({ state: 'loading' }), () => true)
+    expect(me.may('host.git.write')).toBe(false)
+    expect(me.may('host.sessions.start')).toBe(false)
   })
 })

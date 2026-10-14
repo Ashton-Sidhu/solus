@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { DirectoryHost } from '@solus/contracts/uplink'
 import { dialableRoutes, loadServers, nextRouteUrl, savedServerRoutes, type SavedServer } from '@solus/client-core/server-registry'
-import { mergeDirectoryIntoSaved, organizationIdFor, savedServerFromDirectory } from '@solus/client-core/uplink-session'
+import { mergeDirectoryIntoSaved, organizationIdFor, savedServerFromDirectory, withNearbyRoutes } from '@solus/client-core/uplink-session'
 
 // docs/plans/personal-uplink.md C1: the account's directory is a fourth source of
 // hosts, merged by installation id into what this device already saved. A pairing
@@ -79,6 +79,29 @@ describe('saved hosts and their routes', () => {
   })
 })
 
+describe('a registered host that is not linked is reached on the local network (docs/adr/0001-standard-authentication.md §2.2 rule 9)', () => {
+  const nearby = { host: '192.168.1.50', port: 7777, name: 'Studio Mac', installationId: 'inst-1', source: 'lan' as const }
+
+  test('a directory host listed with no route gains the address LAN discovery found, and keeps it through the next directory read', () => {
+    const directoryOnly = mergeDirectoryIntoSaved([], [listed({ routes: [] })], DIRECTORY, 10)
+    expect(savedServerRoutes(directoryOnly[0]!)).toEqual([])
+    const found = withNearbyRoutes(directoryOnly, [nearby])
+    expect(found && savedServerRoutes(found[0]!)).toEqual([{ kind: 'direct', url: 'http://192.168.1.50:7777' }])
+    // Nothing new: nothing to save.
+    expect(withNearbyRoutes(found!, [nearby])).toBeNull()
+    const reread = mergeDirectoryIntoSaved(found!, [listed({ routes: [] })], DIRECTORY, 11)
+    expect(savedServerRoutes(reread[0]!)).toEqual([{ kind: 'direct', url: 'http://192.168.1.50:7777' }])
+    // Linked later: the tunnel is listed, and a kept address of a host never paired goes.
+    const linked = mergeDirectoryIntoSaved(reread, [listed()], DIRECTORY, 12)
+    expect(savedServerRoutes(linked[0]!)).toEqual([tunnel])
+  })
+
+  test('a paired host keeps the address it paired at, and a linked host its tunnel', () => {
+    expect(withNearbyRoutes([paired({ uplink: { hostId: 'abcdefghijklmnop', directoryUrl: DIRECTORY } })], [nearby])).toBeNull()
+    expect(withNearbyRoutes(mergeDirectoryIntoSaved([], [listed()], DIRECTORY, 10), [nearby])).toBeNull()
+  })
+})
+
 describe('merging the directory into saved hosts', () => {
   test('a paired host that is also listed keeps its pairing and gains the tunnel', () => {
     const merged = mergeDirectoryIntoSaved([paired()], [listed()], DIRECTORY, 10)
@@ -98,7 +121,7 @@ describe('merging the directory into saved hosts', () => {
     expect(merged[0].id).toBe('inst-1')
   })
 
-  test('unlinking on the cloud drops the tunnel, and the row too when it was never paired', () => {
+  test('a host the directory stops listing (removed from the account) drops the tunnel, and the row too when it was never paired', () => {
     const withPairing = mergeDirectoryIntoSaved([paired()], [listed()], DIRECTORY, 10)
     const afterUnlink = mergeDirectoryIntoSaved(withPairing, [], DIRECTORY, 11)
     expect(afterUnlink).toHaveLength(1)

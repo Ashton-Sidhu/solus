@@ -1,5 +1,6 @@
 <script lang="ts">
   import { hostUpdatesStore } from "../../contexts/updates/host-updates.store.svelte";
+  import { hostUpdater } from "../../contexts/updates/host-updater.svelte";
   import { providerUpdateRows } from "../connections/lib/host-update-rows";
   import SignInSteps from "../seats/SignInSteps.svelte";
   import ProviderChoiceCard from "./ProviderChoiceCard.svelte";
@@ -22,7 +23,7 @@
       readiness: setup.readiness,
       stages: setup.providerStages,
       add: (provider, opts) => void setup.addProvider(provider, opts),
-    }), hostUpdatesStore.providerUpdatesFor(setup.serverId), (agent) => void setup.updateProvider(agent)),
+    }), hostUpdatesStore.providerUpdatesFor(setup.serverId), (agent) => void hostUpdater.updateTarget(setup.serverId, agent)),
   );
 </script>
 

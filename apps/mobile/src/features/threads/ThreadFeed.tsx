@@ -25,6 +25,7 @@ import {
   type NativeSyntheticEvent,
 } from "react-native";
 import Animated, { FadeIn, FadeInUp, type SharedValue } from "react-native-reanimated";
+import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
@@ -60,12 +61,16 @@ import { MessageAttachments } from "./MessageAttachments";
 import { ThreadAgentGroup } from "./ThreadAgents";
 import { ThreadPlanCard } from "./ThreadPlanCard";
 import { WorktreeOfferCard } from "./WorktreeOfferCard";
-import { useTranscriptItem } from "./use-transcript-items";
+import { useTranscriptItem, useTranscriptItems } from "./use-transcript-items";
 import { CompactionDivider, SessionOriginDivider } from "./thread-context-divider";
 import type { SessionOrigin } from "@solus/contracts/types";
 import { solusAgentToolName } from "@solus/contracts/agent-tools";
 import { ToolResultImages } from "./ToolResultImages";
+import { ThreadArtifact } from "./ThreadArtifact";
 
+// A long prompt is cut here, as desktop cuts it (`.user-message-collapsed`: 13rem, 2.5rem fade).
+const USER_MESSAGE_COLLAPSED_HEIGHT = 208;
+const USER_MESSAGE_FADE_HEIGHT = 40;
 const TURN_FOLD_HEIGHT = 42; // min-h-11 (38.5) + mb-1 (3.5), with the mobile 14px rem
 // Let neighboring rows move out of the new rows' space before showing their text.
 const THREAD_FEED_DISCLOSURE_ENTER_TRANSITION = FadeIn.delay(
@@ -138,9 +143,15 @@ const UserMessageRow = memo(function UserMessageRow(props: {
   readonly iconSubtleColor: ColorValue;
 }) {
   const item = useTranscriptItem(props.store, props.id);
+  const [textHeight, setTextHeight] = useState(0);
+  const [expanded, setExpanded] = useState(false);
   if (item?.kind !== "user") return null;
   // Not yet confirmed by the host; "Queued" waits behind the running turn or the connection.
   const pending = item.delivery === "sending";
+  // A held prompt is shown whole, as on desktop.
+  const canCollapse =
+    !pending && item.delivery !== "queued" && textHeight > USER_MESSAGE_COLLAPSED_HEIGHT;
+  const collapsed = canCollapse && !expanded;
   return (
     <Animated.View
       className="mb-5 items-end"
@@ -157,7 +168,52 @@ const UserMessageRow = memo(function UserMessageRow(props: {
           width={props.userBubbleMaxWidth - 28}
           store={props.store}
         />
-        {item.text.trim().length > 0 ? <ThreadMarkdown markdown={item.text} tone="user" store={props.store} /> : null}
+        {item.text.trim().length > 0 ? (
+          <View>
+            <View style={collapsed ? { maxHeight: USER_MESSAGE_COLLAPSED_HEIGHT, overflow: "hidden" } : undefined}>
+              {/* Measured at full height; the cut is on the parent. The native
+                  markdown measures within the cut, so a collapsed height at the
+                  cut only says the text is still too tall: keep the full one. */}
+              <View
+                onLayout={(event) => {
+                  const height = event.nativeEvent.layout.height;
+                  if (collapsed && height >= USER_MESSAGE_COLLAPSED_HEIGHT) return;
+                  setTextHeight(height);
+                }}
+              >
+                <ThreadMarkdown markdown={item.text} tone="user" store={props.store} />
+              </View>
+            </View>
+            {collapsed ? (
+              <View
+                pointerEvents="none"
+                style={{ position: "absolute", left: 0, right: 0, top: USER_MESSAGE_COLLAPSED_HEIGHT - USER_MESSAGE_FADE_HEIGHT, height: USER_MESSAGE_FADE_HEIGHT }}
+              >
+                <Svg width="100%" height={USER_MESSAGE_FADE_HEIGHT}>
+                  <Defs>
+                    <LinearGradient id="user-message-fade" x1="0" y1="0" x2="0" y2={USER_MESSAGE_FADE_HEIGHT} gradientUnits="userSpaceOnUse">
+                      <Stop offset="0" stopColor={props.userBubbleColor} stopOpacity={0} />
+                      <Stop offset="1" stopColor={props.userBubbleColor} stopOpacity={1} />
+                    </LinearGradient>
+                  </Defs>
+                  <Rect width="100%" height="100%" fill="url(#user-message-fade)" />
+                </Svg>
+              </View>
+            ) : null}
+            {canCollapse ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded }}
+                onPress={() => setExpanded((value) => !value)}
+                className="-mb-2 min-h-11 flex-row items-center justify-end active:opacity-70"
+              >
+                <Text className="font-t3-medium text-xs text-foreground-secondary">
+                  {expanded ? "Show less" : "Read more"}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
       </View>
       <View className="mt-1 flex-row items-center justify-end gap-1 pr-0.5">
         {item.delivery === "queued" ? (
@@ -300,29 +356,45 @@ const WorktreeOfferRow = memo(function WorktreeOfferRow(props: { readonly store:
   return <WorktreeOfferCard store={props.store} offer={item} />;
 });
 
-/** The screen a device_screenshot call returned. Until it has one (running,
- *  or failed) it is the call's own work-log line. */
-const DeviceSnapshotRow = memo(function DeviceSnapshotRow(props: { readonly id: string; readonly context: FeedRowContext }) {
+/** The screens a turn's device_screenshot calls returned, as one group like
+ *  on desktop. A call with no picture yet (running, or failed) is its own
+ *  work-log line under the pictures. */
+const DeviceSnapshotRow = memo(function DeviceSnapshotRow(props: {
+  readonly id: string;
+  readonly itemIds: readonly string[];
+  readonly context: FeedRowContext;
+}) {
   const { context } = props;
-  const item = useTranscriptItem(context.store, props.id);
-  if (item?.kind !== "tool") return null;
-  if (item.images?.length) {
-    return <ToolResultImages images={item.images} label="Device screenshot" store={context.store} />;
-  }
+  const items = useTranscriptItems(context.store, props.itemIds);
+  const images = useMemo(
+    () => items.flatMap((item) => (item.kind === "tool" ? (item.images ?? []) : [])),
+    [items],
+  );
+  const pendingIds = useMemo(
+    () => items.flatMap((item) => (item.kind === "tool" && !item.images?.length ? [item.id] : [])),
+    [items],
+  );
   return (
-    <ThreadWorkLog
-      store={context.store}
-      toolIds={[props.id]}
-      continuesWorkLog={false}
-      anchorKey={props.id}
-      copiedRowId={context.copiedRowId}
-      expandedRows={context.expandedWorkRows}
-      rowSizing={context.workRowSizing}
-      iconSubtleColor={context.iconSubtleColor}
-      edgeFadeColor={context.screenColor}
-      onCopyRow={context.onCopyWorkRow}
-      onToggleRow={context.onToggleWorkRow}
-    />
+    <View>
+      {images.length > 0 ? (
+        <ToolResultImages images={images} label="Device screenshot" store={context.store} />
+      ) : null}
+      {pendingIds.length > 0 ? (
+        <ThreadWorkLog
+          store={context.store}
+          toolIds={pendingIds}
+          continuesWorkLog={false}
+          anchorKey={props.id}
+          copiedRowId={context.copiedRowId}
+          expandedRows={context.expandedWorkRows}
+          rowSizing={context.workRowSizing}
+          iconSubtleColor={context.iconSubtleColor}
+          edgeFadeColor={context.screenColor}
+          onCopyRow={context.onCopyWorkRow}
+          onToggleRow={context.onToggleWorkRow}
+        />
+      ) : null}
+    </View>
   );
 });
 
@@ -408,7 +480,11 @@ function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
   }
 
   if (row.type === "device-snapshot") {
-    return <DeviceSnapshotRow id={row.id} context={context} />;
+    return <DeviceSnapshotRow id={row.id} itemIds={row.itemIds} context={context} />;
+  }
+
+  if (row.type === "artifact") {
+    return <ThreadArtifact store={context.store} id={row.id} superseded={row.superseded} />;
   }
 
   if (row.type === "agents") {
@@ -564,7 +640,9 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             : item.kind === "tool" && solusAgentToolName(item.toolName) === "device_screenshot"
               ? "device_snapshot"
               : item.kind;
-        return [{ id, kind, ...(item.kind === "notice" ? { tone: item.tone } : {}) }];
+        if (item.kind === "notice") return [{ id, kind, tone: item.tone }];
+        if (item.kind === "artifact") return [{ id, kind, workId: item.workId }];
+        return [{ id, kind }];
       }),
     [order, store],
   );

@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path'
 import { z } from 'zod'
 import { HOST_LINK_ENV, hostPublicJwkSchema, type HostKind, type HostLinkEnv } from '@solus/contracts/uplink'
 import { ORGANIZATION_ID } from './personas'
+import { LAB_BUILD_ENTRY } from './build'
 import type { LabIssuer } from './issuer'
 
 /**
@@ -18,11 +19,14 @@ import type { LabIssuer } from './issuer'
 
 export interface LabHostOptions {
   flavor: HostKind
-  /** The Lab's own issuer, or a real control plane the host should trust instead. */
-  issuer: Pick<LabIssuer, 'issuer' | 'jwksUrl'> & Partial<Pick<LabIssuer, 'issueManagedLink' | 'issueEnrolledLink' | 'attachHostToOrganization'>>
+  /**
+   * The Lab's own issuer, or a real control plane the host should trust instead. Absent
+   * with `unregistered`: a real Solus cloud registers the host later (cloud mode).
+   */
+  issuer?: Pick<LabIssuer, 'issuer' | 'jwksUrl'> & Partial<Pick<LabIssuer, 'issueManagedLink' | 'issueEnrolledLink' | 'attachHostToOrganization'>>
   /** The host id the link names; defaults to the Lab's fixed id. A real cloud names its own. */
   hostId?: string
-  /** Path to `dist/main/standalone.js`; defaults to the worktree's build. */
+  /** Path to the standalone server; defaults to `SOLUS_LAB_ENTRY`, then the Lab build (`bun lab build`). */
   entry?: string
   /** Where the temporary data directory is made; must be a temp location. */
   tempRoot?: string
@@ -47,6 +51,17 @@ export interface LabHostOptions {
    * this Lab made earlier.
    */
   dataDir?: string
+  /**
+   * Boot with no registration and no link record, as a new install does (cloud mode).
+   * A signed-in owner then registers it with an enrollment ticket (`uplinkRegister`).
+   */
+  unregistered?: boolean
+  /** Start the server in its own process group and do not wait for it at exit: `bun lab up` leaves it running. */
+  longLived?: boolean
+  /** The proxied listener's port; a restarted host with no link record keeps the one it had. */
+  tunnelPort?: number
+  /** More environment for the server, e.g. the `SOLUS_HOST_LINK` a provisioner gives a managed machine. */
+  environment?: NodeJS.ProcessEnv
 }
 
 export interface LabHost {
@@ -78,6 +93,16 @@ function writeConnectorShim(dataDir: string): void {
 
 const HOST_ID = 'labhostabcdefghi'
 
+/**
+ * Every host this Lab process started and has not stopped. A scenario that fails part
+ * way may never stop the hosts it booted; when the Lab exits, they end with it. Only
+ * these PIDs, never a name match. A long-lived host (`bun lab up`) is not here.
+ */
+const runningHosts = new Set<ChildProcess>()
+process.once('exit', () => {
+  for (const child of runningHosts) child.kill('SIGKILL')
+})
+
 /** The server's own `auth-session-create` on the host's data directory: a paired token its keys verify. */
 function mintLocalOwnerToken(entry: string, dataDir: string, env: NodeJS.ProcessEnv): Promise<string> {
   return new Promise((resolveToken, reject) => {
@@ -87,13 +112,13 @@ function mintLocalOwnerToken(entry: string, dataDir: string, env: NodeJS.Process
     })
   })
 }
-const linkFileSchema = z.object({ link: z.object({ proxiedPort: z.number().int().positive() }) })
+const linkFileSchema = z.object({ tunnel: z.object({ proxiedPort: z.number().int().positive() }) })
 
 /** A restarted host must bind the proxied port its link names, or its record would be stale. */
 function restartProxiedPort(dataDir: string): number {
-  const parsed = linkFileSchema.safeParse(JSON.parse(readFileSync(join(dataDir, 'uplink-link.json'), 'utf8')))
+  const parsed = linkFileSchema.safeParse(JSON.parse(readFileSync(join(dataDir, 'host-link.json'), 'utf8')))
   if (!parsed.success) throw new Error(`The Lab cannot restart a host without a link record in ${dataDir}`)
-  return parsed.data.link.proxiedPort
+  return parsed.data.tunnel.proxiedPort
 }
 const lockFileSchema = z.object({ port: z.number().int().positive(), host: z.string() })
 const addressSchema = z.object({ port: z.number().int().positive() })
@@ -126,8 +151,8 @@ async function waitFor(check: () => Promise<boolean>, timeoutMs: number, what: s
 }
 
 export async function bootLabHost(options: LabHostOptions): Promise<LabHost> {
-  const entry = options.entry ?? process.env.SOLUS_LAB_ENTRY ?? resolve(process.cwd(), 'dist/main/standalone.js')
-  if (!existsSync(entry)) throw new Error(`No standalone build at ${entry}; run \`bun run build:test\` first.`)
+  const entry = options.entry ?? process.env.SOLUS_LAB_ENTRY ?? LAB_BUILD_ENTRY
+  if (!existsSync(entry)) throw new Error(`No standalone build at ${entry}; run \`bun lab build\` first.`)
   const tempRoot = options.tempRoot ?? tmpdir()
   const restarting = options.dataDir !== undefined
   const dataDir = options.dataDir ?? mkdtempSync(join(tempRoot, `solus-lab-${options.flavor}-`))
@@ -135,69 +160,87 @@ export async function bootLabHost(options: LabHostOptions): Promise<LabHost> {
   if (restarting && !existsSync(join(dataDir, 'server.lock')) && !existsSync(join(dataDir, 'solus.db'))) {
     throw new Error(`The Lab refuses to restart on a data directory no host used: ${dataDir}`)
   }
-  const proxiedPort = restarting ? restartProxiedPort(dataDir) : await freePort()
+  const proxiedPort = options.tunnelPort ?? (restarting ? restartProxiedPort(dataDir) : await freePort())
   const hostId = options.hostId ?? HOST_ID
-  const linkSource = options.managedLink ?? (options.flavor === 'managed' && options.issuer.issueManagedLink ? 'env' : 'record')
+  const issuer = options.issuer
+  const linkSource = options.managedLink ?? (options.flavor === 'managed' && issuer?.issueManagedLink ? 'env' : 'record')
   const managedMode = options.flavor === 'managed' && linkSource === 'env'
-  const linkFile = join(dataDir, 'uplink-link.json')
+  const registrationFile = join(dataDir, 'host-registration.json')
+  const linkFile = join(dataDir, 'host-link.json')
   let managedLink: HostLinkEnv | null = null
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     SOLUS_DATA_DIR: dataDir,
     SOLUS_PORT: '0',
     SOLUS_NO_LAN_DISCOVERY: '1',
+    // Never the default port, which the developer's own Solus holds.
+    SOLUS_TUNNEL_PORT: String(proxiedPort),
+    // The host's log stays in its temporary data directory, never the worktree's dev.log.
+    SOLUS_DEV_LOG: join(dataDir, 'dev.log'),
+    // The owner's homes are the host login's (`~/.claude`, `~/.codex`): an agent profile
+    // pull writes there. A Lab host must never write the developer's own.
+    HOME: join(dataDir, 'home'),
+    CODEX_HOME: join(dataDir, 'home', '.codex'),
+    ...options.environment,
   }
   if (restarting) {
     // The record, tokens, and connector shim are already on the directory; the
     // previous process's lock file must go so the wait below sees the new one.
     rmSync(join(dataDir, 'server.lock'), { force: true })
-    if (options.runnerOf && options.issuer.attachHostToOrganization) {
-      options.issuer.attachHostToOrganization(hostId, options.runnerOf)
+    if (options.runnerOf && issuer?.attachHostToOrganization) {
+      issuer.attachHostToOrganization(hostId, options.runnerOf)
     }
+  } else if (options.unregistered) {
+    // No record: the host is registered to no account yet. A link made later runs the
+    // shim, never a real `cloudflared` on the PATH.
+    writeConnectorShim(dataDir)
   } else if (managedMode) {
     // No record: the host boots as a Sprite does, with the provisioner's link in its
     // environment, and stores it (§2); the organization the link names makes it a
     // managed host. The proxied port is pinned so the link names the port the host bound.
-    if (!options.issuer.issueManagedLink) throw new Error('A managed host booted from its environment link needs an issuer that issues links')
-    managedLink = options.issuer.issueManagedLink(hostId, proxiedPort, 1, ORGANIZATION_ID)
+    if (!issuer?.issueManagedLink) throw new Error('A managed host booted from its environment link needs an issuer that issues links')
+    managedLink = issuer.issueManagedLink(hostId, proxiedPort, 1, ORGANIZATION_ID)
     env[HOST_LINK_ENV] = JSON.stringify(managedLink)
-    env.SOLUS_TUNNEL_PORT = String(proxiedPort)
     writeConnectorShim(dataDir)
   } else if (options.runnerOf) {
-    // A linked host with its credential, shared with an organization: the record, the
-    // connector token, and the key the real enrollment would have left, so the host's
-    // generation check passes and it can trade a person's token for a delegation.
+    // A registered and linked host with its credential, shared with an organization: the
+    // registration, the link, the connector token, and the key the real registration
+    // would have left, so the host's check passes and it can trade a person's token for
+    // a delegation.
     if (options.flavor !== 'personal') throw new Error('A runner is a personal host')
-    if (!options.issuer.issueEnrolledLink || !options.issuer.attachHostToOrganization) throw new Error('A runner needs the Lab issuer')
+    if (!issuer?.issueEnrolledLink || !issuer.attachHostToOrganization) throw new Error('A runner needs the Lab issuer')
     const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
     const privateJwk = privateKey.export({ format: 'jwk' })
     const publicJwk = hostPublicJwkSchema.parse({ kty: privateJwk.kty, crv: privateJwk.crv, x: privateJwk.x, y: privateJwk.y })
-    const enrolled = options.issuer.issueEnrolledLink(hostId, proxiedPort, publicJwk)
-    options.issuer.attachHostToOrganization(hostId, options.runnerOf)
-    writeFileSync(linkFile, JSON.stringify({ version: 1, desired: 'linked', link: enrolled.link }, null, 2), { mode: 0o600 })
+    const enrolled = issuer.issueEnrolledLink(hostId, proxiedPort, publicJwk)
+    issuer.attachHostToOrganization(hostId, options.runnerOf)
+    writeFileSync(registrationFile, JSON.stringify({ version: 1, registration: enrolled.registration }, null, 2), { mode: 0o600 })
+    writeFileSync(linkFile, JSON.stringify({ version: 2, hostId, desired: 'linked', tunnel: { hostname: `h-${hostId}.lab.invalid`, proxiedPort } }, null, 2), { mode: 0o600 })
     // The standalone server keeps secrets in files under the data directory.
     const secrets = join(dataDir, 'secrets')
     mkdirSync(secrets, { recursive: true, mode: 0o700 })
-    writeFileSync(join(secrets, 'uplink-tokens.json'), JSON.stringify({ connectorToken: enrolled.connectorToken }), { mode: 0o600 })
-    writeFileSync(join(secrets, 'host-credential.json'), JSON.stringify({ version: 1, clientId: enrolled.oauthClient.clientId, generation: enrolled.link.connectionGeneration, privateJwk }), { mode: 0o600 })
+    // The Lab runs no tunnel; the host's connector gets a token it can never use.
+    writeFileSync(join(secrets, 'uplink-tokens.json'), JSON.stringify({ connectorToken: 'lab-connector-token' }), { mode: 0o600 })
+    writeFileSync(join(secrets, 'host-credential.json'), JSON.stringify({ version: 1, clientId: enrolled.oauthClient.clientId, generation: enrolled.registration.generation, privateJwk }), { mode: 0o600 })
     writeConnectorShim(dataDir)
   } else {
-    // The link record the real cloud would have written at enrolment. No tokens: the
-    // host reports "credentials missing" for its connector and keeps verifying grants.
-    writeFileSync(linkFile, JSON.stringify({
+    // The registration and link records the real cloud would have answered. No key and
+    // no connector token: the host keeps verifying grants, makes no delegation, and
+    // reports its tunnel credential missing.
+    if (!issuer) throw new Error('A registered Lab host needs an issuer')
+    writeFileSync(linkFile, JSON.stringify({ version: 2, hostId, desired: 'linked', tunnel: { hostname: `h-${hostId}.lab.invalid`, proxiedPort } }, null, 2), { mode: 0o600 })
+    writeFileSync(registrationFile, JSON.stringify({
       version: 1,
-      desired: 'linked',
-      link: {
+      registration: {
         hostId,
-        issuer: options.issuer.issuer,
-        jwksUrl: options.issuer.jwksUrl,
-        directoryUrl: options.issuer.issuer,
-        hostname: `h-${hostId}.lab.invalid`,
-        proxiedPort,
-        connectionGeneration: 1,
+        issuer: issuer.issuer,
+        jwksUrl: issuer.jwksUrl,
+        directoryUrl: issuer.issuer,
+        generation: 1,
       },
     }, null, 2), { mode: 0o600 })
   }
+  mkdirSync(join(dataDir, 'home'), { recursive: true })
   const logDir = join(dataDir, 'lab')
   mkdirSync(logDir, { recursive: true })
   const logPath = join(logDir, 'host.log')
@@ -208,11 +251,14 @@ export async function bootLabHost(options: LabHostOptions): Promise<LabHost> {
     cwd: dataDir,
     env,
     stdio: ['ignore', output, output],
+    detached: options.longLived ?? false,
   })
   const pid = child.pid
   if (!pid) throw new Error('The Lab host did not start')
+  if (options.longLived) child.unref()
   let exited = false
-  child.once('exit', () => { exited = true })
+  if (!options.longLived) runningHosts.add(child)
+  child.once('exit', () => { exited = true; runningHosts.delete(child) })
 
   const lockFile = join(dataDir, 'server.lock')
   await waitFor(async () => existsSync(lockFile), 30_000, 'the host lock file')

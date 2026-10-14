@@ -41,7 +41,8 @@ export default scenario('ownership: the creator owns a work and a session; trans
   // A member's turn runs on their own seat (Step 2): bob needs one before he can start a session.
   await expectOk(ctx, 'bob connects a seat first', bob.rpc('seatConnectToken', { provider: 'claude-code', token: 'lab-token-bob' }))
   const created = await bob.rpc('createHeadlessSession', { prompt: 'hello from bob', provider: 'claude-code', modelId: null, reasoningEffort: 'medium', contextWindow: null, cwd: ctx.cwd })
-  const sessionId = created.agentSessionId
+  // The session id names a session everywhere; the provider thread id is a locator only (docs/plans/session-identity.md).
+  const sessionId = created.sessionId
   ctx.check('bob started a session', sessionId.length > 0, sessionId)
   const session = { kind: 'session', id: sessionId } as const
   if (ctx.hostKind === 'personal') {

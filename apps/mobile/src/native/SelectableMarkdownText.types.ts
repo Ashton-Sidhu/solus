@@ -13,6 +13,8 @@ export interface NativeMarkdownTextStyle {
   readonly codeColor: string;
   readonly codeBackgroundColor: string;
   readonly codeBlockBackgroundColor: string;
+  readonly codeBlockBorderColor: string;
+  readonly tableHeaderBackgroundColor: string;
   readonly fileTextColor: string;
   readonly quoteMarkerColor: string;
   readonly dividerColor: string;
@@ -21,6 +23,7 @@ export interface NativeMarkdownTextStyle {
   readonly fontFamily: string;
   readonly headingFontFamily: string;
   readonly boldFontFamily: string;
+  readonly tableHeaderFontFamily: string;
   readonly headingFontSizes?: ReadonlyArray<number>;
 }
 
@@ -47,6 +50,8 @@ export interface SelectableMarkdownTextProps {
   readonly markdown: string;
   readonly textStyle: NativeMarkdownTextStyle;
   readonly preserveSoftBreaks?: boolean;
+  /** Draws `@path` mentions as file chips (user message text only, as T3). */
+  readonly recognizeFileMentions?: boolean;
   readonly onLinkPress?: (href: string) => void;
   readonly renderImage?: MarkdownImageRenderer;
   readonly resolveImageSource?: MarkdownImageSourceResolver;

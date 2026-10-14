@@ -166,7 +166,7 @@ export class OpenProjectStore {
   }
 
   private get capabilities(): HostCapabilities | undefined {
-    return hosts.find(this.serverId)?.capabilityRecord
+    return hosts.get(this.serverId)?.capabilityRecord
   }
 
   get platform(): string | null {
@@ -413,7 +413,7 @@ export class OpenProjectStore {
     // The projects folder may have moved since the host's record was read.
     await Promise.all([
       setup.refreshReadiness(),
-      hosts.find(this.serverId)?.refresh('capabilities'),
+      hosts.get(this.serverId)?.refresh('capabilities'),
     ])
     if (this.hostEpoch !== issuedAt) return
     if (this.reposConnected === null && setup.readiness?.github?.solusToken) {

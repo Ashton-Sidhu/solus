@@ -4,14 +4,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useApp, useListened } from '../../app/app-context'
 import type { PullRequestListProject } from '../workspace/list-preferences'
 import { pullRequestRows } from './lib/pull-request-list'
-import type { HostPullRequests, PullRequestListFilter } from './pull-request-directory'
+import { FOCUS_FRESH_MS, type HostPullRequests, type PullRequestListFilter } from './pull-request-directory'
 import { shownValue, type LoadState } from './pull-request-reads'
 
 /**
  * The Pull Requests tab's reads: every host in `hostIds` with the host-side
- * filter, read when the tab shows, when the filter changes, and when a host
- * connects again. T3 keeps pages in atoms; Solus reads them from
- * `app.pullRequests`, which also keeps the device copy for offline use.
+ * filter, read when the filter changes, when a host connects again, and when
+ * the tab shows after `FOCUS_FRESH_MS`. While the tab shows, PR sync on each
+ * host keeps the listed projects fresh and pushes their changes. T3 keeps
+ * pages in atoms; Solus reads them from `app.pullRequests`, which also keeps
+ * the device copy for offline use.
  */
 export function usePullRequestList(hostIds: readonly string[], filter: PullRequestListFilter, project: PullRequestListProject | null) {
   const app = useApp()
@@ -21,11 +23,11 @@ export function usePullRequestList(hostIds: readonly string[], filter: PullReque
   // `hostKey` names the same hosts as `hostIds`, so a new array of the same hosts reads nothing again.
   const targets = useMemo(() => hostIds, [hostKey])
 
-  const load = useCallback(() => {
+  const load = useCallback((options: { freshFor?: number } = {}) => {
     directory.setListFilter({ state, query })
-    return directory.loadHosts(targets)
+    return directory.loadHosts(targets, options)
   }, [directory, state, query, targets])
-  useFocusEffect(useCallback(() => { void load() }, [load]))
+  useFocusEffect(useCallback(() => { void load({ freshFor: FOCUS_FRESH_MS }) }, [load]))
 
   // A host that connects again is read again; the others keep what they show.
   const connectedKey = useListened(app.connections.changes, () => targets.filter((hostId) => app.connections.state(hostId)?.phase === 'connected').join('\u0000'))
@@ -46,6 +48,19 @@ export function usePullRequestList(hostIds: readonly string[], filter: PullReque
     [directory, targets, revision],
   )
   const rows = useMemo(() => pullRequestRows(hosts.map(({ hostId, state: read }) => ({ hostId, listing: shownValue(read) }))), [hosts])
+
+  // The projects shown, as one string, so the interest changes only when they do.
+  const listedKey = hosts.flatMap(({ hostId, state: read }) => (shownValue(read)?.projects ?? [])
+    .filter((entry) => entry.kind === 'page')
+    .map((entry) => `${hostId}\u0000${entry.projectPath}`)).join('\u0001')
+  useFocusEffect(useCallback(() => {
+    if (!listedKey) return
+    const releases = listedKey.split('\u0001').map((entry) => {
+      const [hostId, projectPath] = entry.split('\u0000')
+      return directory.want(hostId!, projectPath!, [{ kind: 'repository' }])
+    })
+    return () => { for (const release of releases) release() }
+  }, [directory, listedKey]))
 
   const [refreshing, setRefreshing] = useState(false)
   const refresh = useCallback(async () => {

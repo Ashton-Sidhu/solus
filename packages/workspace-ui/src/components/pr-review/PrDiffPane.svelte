@@ -2,7 +2,7 @@
   import { tick } from "svelte";
   import type { PrReviewTarget } from "@solus/contracts/providers";
   import { projectScopeOf } from "@solus/contracts/types";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getPullRequestsContext, getWorkspaceContext } from "../../contexts";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import PaneChrome from "../ui/PaneChrome.svelte";
@@ -11,6 +11,7 @@
   import { existingPrReviewState } from "./lib/pr-review.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import ReviewLoadingSurface from "../review/ReviewLoadingSurface.svelte";
+  import { setGithubMediaHost } from "../github-markdown/lib/github-media.svelte";
 
   // The review's change, popped out beside it. Reading a diff is a two-handed
   // job — the conversation on one side, the code on the other — so this is a
@@ -38,6 +39,13 @@
       : undefined,
   );
   const pr = $derived<PrReviewTarget | null>(review?.pr ?? null);
+  // The review pane read the pull request and its viewed marks; this pane
+  // shows the same marks.
+  const pullRequests = getPullRequestsContext();
+  const detail = $derived(
+    reviewServerId ? pullRequests.projects.at(reviewServerId, params.cwd ?? "")?.prFor(params.number) : null,
+  );
+  setGithubMediaHost(() => reviewServerId);
   const checkout = $derived(review?.checkout ?? null);
 
   const reviewTabId = $derived(`pr-diff-${params.number}`);
@@ -131,6 +139,7 @@
             : review.threads}
         onThreadReply={(threadId, body) => review.replyToThread(threadId, body)}
         onThreadResolve={(threadId, resolved) => review.resolveThread(threadId, resolved)}
+        viewedFiles={!review.commitScope && detail?.capabilities.viewedFiles ? detail.viewedFiles : null}
       />
       {/if}
     </div>

@@ -188,8 +188,12 @@ function ThreadRouteContent(props: {
   );
   const window = useWindowDimensions();
   const layout = deriveLayout(window);
+  const hasLinkedPullRequests = useListened(
+    app.threadList.changes,
+    () => (app.threadList.facts().pullRequests.get(threadKey(hostId, props.sessionId))?.length ?? 0) > 0,
+  );
   const chat = isChat(props.projectPath);
-  const title = props.shellTitle || runTitle || "New thread";
+  const title = props.shellTitle || runTitle || "New session";
   const headerSubtitle = [chat ? null : lastFolderName(props.projectPath), props.hostLabel]
     .filter(Boolean)
     .join(" · ");
@@ -198,10 +202,9 @@ function ThreadRouteContent(props: {
     subtitle: headerSubtitle,
     usesNativeHeaderGlass: NATIVE_LIQUID_GLASS_SUPPORTED,
     hostId,
-    sessionId: props.sessionId,
-    conversationCheckoutPath: store.controller.run.workingDirectory,
     projectPath: chat || !props.projectPath ? null : props.projectPath,
     faviconRoot: props.faviconRoot,
+    hasLinkedPullRequests,
   });
 
   const historyControls = useMemo<ThreadFeedHistoryControls | undefined>(

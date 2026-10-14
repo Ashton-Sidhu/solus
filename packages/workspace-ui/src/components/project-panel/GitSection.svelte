@@ -103,7 +103,7 @@
   let resolvingConflicts = $state(false);
 
   // A checkout to act on, and the right to change it here (permissions.md): a guest reads git and changes nothing.
-  const canGit = $derived(!!env.branch && (hosts.find(detailServerId)?.me.may("host.git.write") ?? true));
+  const canGit = $derived(!!env.branch && (hosts.get(detailServerId)?.me.may("host.git.write") ?? true));
   const hasGitStatus = $derived(!!status);
   const prUrl = $derived(actions.prUrl || status?.prUrl || null);
 

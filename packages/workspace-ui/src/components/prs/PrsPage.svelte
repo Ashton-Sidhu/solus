@@ -494,7 +494,9 @@
   }
 
   function requestRowAction(pr: PullRequest, kind: PrRowActionKind) {
-    if (kind === "merge") {
+    const disabledReason = prRowActions(pr).find((action) => action.kind === kind)?.disabledReason;
+    if (disabledReason) toasts.info(disabledReason);
+    else if (kind === "merge") {
       mergeKey = keyOf(pr);
       mergeConfirmOpen = true;
     } else void runRowAction(pr, kind);
@@ -745,7 +747,15 @@
     if (target) store.get(target.api, target.serverId, target.ctx).get(pr.number).prefetch();
   }
 
-  /** Step from the open pull request to another layer of its stack. */
+  /** The row's pull request as the store holds it, which reads its stack.
+   *  A lookup only: it runs while the row renders, so it creates nothing. */
+  function storedPullRequest(pr: PullRequest) {
+    const owner = pageScope.allProjects ? qualified.byPr.get(pr) : undefined;
+    const project = owner ? store.at(owner.serverId, owner.projectRoot) : shown;
+    return project?.prFor(pr.number) ?? null;
+  }
+
+  /** Step from a pull request to another layer of its stack, in the panel. */
   async function openStackLayer(from: PullRequest, number: number) {
     const target = targetFor(from);
     const owner = pageScope.allProjects ? qualified.byPr.get(from) : undefined;
@@ -756,6 +766,8 @@
     const layer = store.get(target.api, target.serverId, target.ctx).get(number);
     const pr = await layer.loadDetail().catch(() => null);
     if (!pr) return void toasts.error(`Couldn't open PR #${number}`);
+    // With no workspace there is no panel; the layer opens on the code host.
+    if (!workspace) return void localApi.openExternal(pr.url);
     unlistedOpen = { key, pr, target };
     if (pageScope.allProjects) aggregateSelectedKey = aggregateOpenKey = key;
     else listView.selectedNumber = listView.openNumber = number;
@@ -1054,6 +1066,8 @@
             onContextMenu={openPrContextMenu}
             onToggleReview={(pr) => reviewSelection.toggle(pr)}
             onRowAction={requestRowAction}
+            {storedPullRequest}
+            onOpenStackLayer={(pr, number) => void openStackLayer(pr, number)}
             onLoadMore={loadMoreAll}
           />
         {/if}

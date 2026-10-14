@@ -20,6 +20,7 @@ import {
   connectCardClassName,
   SolusMarkIcon,
 } from "../connection/ConnectOptionCard";
+import { ConnectPanel } from "../connection/ConnectPanel";
 import { hostConnectionStatus, hostMachineKind } from "../connection/lib/host-connection-status";
 import type { NativeHost } from "../hosts/host-registry";
 import {
@@ -109,7 +110,7 @@ export function NewTaskConnectHost(props: {
       contentContainerClassName="items-center px-5"
       contentContainerStyle={{ flexGrow: 1, justifyContent: "center", paddingBottom: Math.max(insets.bottom, 18) + 18, paddingTop: 24 }}
     >
-      <View className="w-full max-w-[520px]">
+      <ConnectPanel>
         <Text className="text-center text-2xl font-t3-medium tracking-tight text-foreground">
           {connectHostHeadline(hosts, connectingHost?.label ?? null)}
         </Text>
@@ -178,7 +179,7 @@ export function NewTaskConnectHost(props: {
             </Text>
           </View>
         ) : null}
-      </View>
+      </ConnectPanel>
     </ScreenScrollView>
   );
 
@@ -186,7 +187,7 @@ export function NewTaskConnectHost(props: {
     return (
       <View className="flex-1 bg-sheet" collapsable={false}>
         <NativeStackScreenOptions options={{ headerShown: false }} />
-        <AndroidScreenHeader title="New thread" hideBottomBorder onBack={props.onClose} />
+        <AndroidScreenHeader title="New session" hideBottomBorder onBack={props.onClose} />
         {body}
       </View>
     );

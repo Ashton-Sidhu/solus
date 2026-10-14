@@ -11,7 +11,7 @@
   const error = $derived(modelProfilesStore.errors.get(host.id) ?? status?.error ?? null);
 </script>
 
-{#if hosts.find(host.id)?.supports('modelProfiles')}
+{#if hosts.get(host.id)?.supports('modelProfiles')}
   <SettingsRow label="Model list" description={modelProfilesLine(status)} bodyVisible={!!error}>
     {#snippet control()}
       <Button variant="outline" size="sm" disabled={host.status !== 'online' || busy} onclick={() => void modelProfilesStore.refresh(host.id)}>

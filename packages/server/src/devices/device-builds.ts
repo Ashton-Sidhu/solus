@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import { lstat, mkdir, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { z } from 'zod'
 import { DEVICE_PLATFORMS, type DeviceBuild, type DeviceSummary } from '@solus/contracts/device-types'
@@ -116,37 +116,12 @@ export class DeviceBuildStore {
     const evicted = this.builds.splice(MAX_BUILDS)
     await this.save()
     for (const old of evicted) {
-      if (old.assetId && !this.builds.some((candidate) => candidate.assetId === old.assetId)) await unlink(old.path).catch(() => {})
+      if (old.assetId && old.path === storedAssetPath(old.assetId, this.deps.assetsDir) && !this.builds.some((candidate) => candidate.assetId === old.assetId)) await unlink(old.path).catch(() => {})
+      const owned = ownedRunOutputDirectory(old.path, dirname(this.deps.path))
+      if (owned && !this.builds.some((candidate) => candidate.path === old.path)) await rm(owned, { recursive: true, force: true }).catch(() => {})
     }
     log.info('device_build_added', { sessionId, buildId: build.buildId, platform: build.platform, runsOn: build.runsOn, replaced: replaced.length })
     return build
-  }
-
-  /**
-   * Delete a build: the output it names, then its entry. Only that path is
-   * deleted — the `.app` bundle, or the APK copy in the host's assets — never
-   * the folder around it. An APK copy another entry still names is kept.
-   */
-  async remove(buildId: string): Promise<void> {
-    const build = this.get(buildId)
-    const others = this.builds.filter((candidate) => candidate.buildId !== buildId)
-    const failed = (cause: NodeJS.ErrnoException) => {
-      throw new DeviceDomainError('request_failed', `Couldn't delete ${build.name} (${cause.code ?? 'unknown error'}).`, cause)
-    }
-    if (build.assetId) {
-      if (build.path !== storedAssetPath(build.assetId, this.deps.assetsDir)) throw new DeviceDomainError('invalid_request', `${build.name} is not a stored build.`)
-      if (!others.some((candidate) => candidate.assetId === build.assetId)) await unlink(build.path).catch((cause: NodeJS.ErrnoException) => cause.code === 'ENOENT' || failed(cause))
-    } else {
-      const info = await lstat(build.path).catch(() => null)
-      if (!build.path.endsWith('.app') || (info && !info.isDirectory() && !info.isSymbolicLink())) {
-        throw new DeviceDomainError('invalid_request', `${build.name} is not an app bundle.`)
-      }
-      // `rm` removes a symbolic link itself, never what it points to.
-      await rm(build.path, { recursive: true, force: true }).catch(failed)
-    }
-    this.builds = others
-    await this.save()
-    log.info('device_build_deleted', { buildId, sessionId: build.sessionId, platform: build.platform })
   }
 
   async noteInstall(buildId: string, device: DeviceSummary): Promise<DeviceBuild> {
@@ -179,6 +154,14 @@ export class DeviceBuildStore {
     await writeFile(temporary, JSON.stringify(this.builds, null, 2), { mode: 0o600 })
     await rename(temporary, this.deps.path)
   }
+}
+
+/** Only copies created by Run app are removed. Agent and project outputs stay intact. */
+function ownedRunOutputDirectory(path: string, root: string): string | null {
+  const directory = dirname(path)
+  const runId = basename(directory)
+  if (!/^devrun_[a-f0-9-]{36}$/.test(runId) || !path.endsWith('.app')) return null
+  return directory === join(root, 'outputs', runId) ? directory : null
 }
 
 /** Whether the output a build names is still on this host. */

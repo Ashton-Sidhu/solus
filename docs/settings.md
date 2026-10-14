@@ -12,7 +12,7 @@ Each setting has one owner, and each owner has its own schema: `PersonalSettings
 
 | Owner | What it holds | Where it is stored |
 | --- | --- | --- |
-| Personal | The person's choices: theme, models, review, instructions, writing, task lead, and transcript and font presets | A local profile on each client. When sync is on, the same profile is also stored in the account. |
+| Personal | The person's choices: theme, models, review, instructions, writing, task lead, and transcript and font presets | A local profile on each client. Signed in, the same profile is also stored in the account. |
 | Device | This client only: voice, editor and terminal, font smoothing, installed-font overrides, client analytics consent, zoom, panes, keybindings | The client's local storage. It is never synced. |
 | Host | The machine: Solus tool availability, telemetry export, restart recovery, review warming by path, archived automation retention, host analytics consent | `server-settings.json` on the host |
 | Organization | Settings that the owners of an organization decide for all its work. Today this is only Sync all Insights. | The control plane, in the organization's host policy. A host reads it in its standing. |
@@ -30,27 +30,30 @@ the synced preset on that device, and "Use synced font" removes it.
 
 ## Personal sync
 
-- Sync is off by default. The person turns it on for each client install or browser
-  profile. Signing in does not turn it on.
-- The first time sync is turned on, the client reads the account first. If the account
-  has no settings yet, the client offers this device's settings as the first copy. If
-  the account has settings, the default is "Use synced settings". "Replace with this
-  device" is a separate, explicit choice.
+- Signed in to Solus Cloud, your settings sync through your account. There is no
+  switch per device (plan 018, decision 9). Device settings never sync.
+- At sign-in the client reads the account. An account with settings is used as it is.
+  An account with none starts from this device's settings. There is no prompt.
 - Edits apply at once on the device and are sent after a short pause. The status
   is "Synced" only after the account confirms the write.
 - Each top-level key is one conflict unit. Edits to different keys merge. If two clients
   change the same key, the client shows both values until the person picks one.
-- "Turn off on this device" stops transfers. The values stay on the device, and the
-  account and other devices do not change.
-- "Clear synced settings" removes the account copy and increases its generation. Other
-  clients turn sync off when they next connect. An old upload cannot restore the
-  cleared settings.
+- "Clear synced settings" removes the account copy and increases its generation, and the
+  device you clear on starts the settings again from its own copy. Other devices take
+  that copy when they next read. An old upload cannot restore the cleared settings.
 - Sign-out stops sync and removes that account's local view and pending uploads.
-- Engine: `packages/client-core/src/settings-sync.ts`. The web client calls the account
-  API with an access token from its own sign-in (`web-sign-in.ts`), not with the
-  website's cookie. Desktop calls the account API from the main process, so the
-  credential never reaches the renderer. Mobile calls it with an access token from its
-  own sign-in, got for each call (docs/adr/0001-standard-authentication.md).
+- Settings → Account & sync is the one place for the account: who is signed in, one sync
+  status for settings and the agent profile with both documents' conflicts and the two
+  clear actions, and one row per host with its account link and what it holds of the
+  agent profile. A conflict is resolved in place, on the tab that holds the value.
+- Engine: `packages/client-core/src/document-sync.ts`, bound to settings by
+  `settings-sync.ts`. One account sync owner per client holds this engine and the agent
+  profile's: `contexts/account/account-sync.store.svelte.ts` on desktop and web,
+  `features/account/account-sync.ts` on mobile. The web client calls the account API with an access token from its own
+  sign-in (`web-sign-in.ts`), not with the website's cookie. Desktop calls the account
+  API from the main process, so the credential never reaches the renderer. Mobile calls
+  it with an access token from its own sign-in, got for each call
+  (docs/adr/0001-standard-authentication.md).
 
 API (in the control plane, `solus-cloud`):
 
@@ -70,9 +73,10 @@ Settings → Agent profile holds the person's instructions, skills, and MCP
 servers as one document (`docs/agent-profile.md`, plans/020). It syncs with the
 same engine and the same rules as personal settings (`client-core/document-sync.ts`
 is the one engine; `settings-sync.ts` and `agent-profile-sync.ts` bind it to each
-document): opt-in per client, one entry per conflict unit, a first-copy offer,
-"Turn off on this device", and "Clear synced profile". A confirmed write makes
-every connected host the profile applies to pull it.
+document): synced when signed in, one entry per conflict unit, the same silent first
+copy at sign-in, and "Clear synced profile" as its own action on Settings → Account & sync.
+The two documents stay apart: no host reads settings, every host reads the profile.
+A confirmed write makes every connected host the profile applies to pull it.
 
 | Endpoint | Use |
 | --- | --- |
@@ -119,7 +123,7 @@ Settings → Hosts lists every host. Each host has its own page:
 - **Overview**: whether the host answers, its address, and a summary row for each
   setup step. Each row opens the tab that changes it.
 - **Access**: how the host is reached and who reaches it. It has the host's Solus
-  Cloud link, its organizations, its network (remote connections, local network
+  Cloud section, its organizations, its network (remote connections, local network
   trust, address), pairing, and the devices with access.
 - **Git**, **AI providers**, and **Environment**.
 
@@ -128,17 +132,32 @@ sections in the same order (`HostAccessScreen`). The pairing code shows as a cod
 a QR code, and a link to copy. The rules for the organization rows and the pairing
 link are shared in `@solus/client-core` (`organization-rows.ts`, `pairing.ts`).
 
-Settings → Account & sync also shows the Solus Cloud link of this computer, when the
-desktop app hosts a server here. A browser has no computer to link, so web does not
-show it.
+The Solus Cloud section shows two facts (docs/adr/0001-standard-authentication.md
+§2.2 rules 8 and 9):
 
-The host accepts `uplinkLink` and `uplinkUnlink` only from a local owner: the desktop
-on the machine or a paired device (`LOCAL_ONLY_RPC_METHODS`). Thus desktop, web, and
-mobile can link any host they are paired with. The ticket comes from the client's own
-account. A client that arrived through the Solus Cloud tunnel sees the link but
-cannot change it, because an unlink would cut its own connection. A managed host
-and the workspace service show no link: Solus Cloud owns how they are reached
-(`uplinkControl` in `packages/client-core/src/uplink-control.ts`).
+- **Registered to your account**: the host's identity at Solus Cloud, and the account
+  it belongs to. It is automatic. The desktop registers its own host when it signs in.
+  Desktop, web (on the account origin), and mobile register a host they are paired
+  with when they are signed in. The account, delegations, account reads, and
+  organizations need the registration only. If Solus Cloud refuses the registration
+  while the host runs (the host was removed from the account, or another copy of it
+  registered), the section says so and offers **Register**. Removing a host on the
+  account website ends its registration.
+- **Reachable from the internet**: the link. The switch exposes the host to the
+  internet through a Cloudflare tunnel, and does nothing else. Turning it off removes
+  only the tunnel. A registered host that is not linked is reached on the local
+  network (LAN discovery finds it by its installation id) or by pairing.
+
+Settings → Account & sync also shows this section for this computer, when the desktop
+app hosts a server here. A browser has no computer of its own, so web does not show it
+there.
+
+The host accepts `uplinkRegister`, `uplinkLink`, and `uplinkUnlink` only from a local
+owner: the desktop on the machine or a paired device (`LOCAL_ONLY_RPC_METHODS`). The
+ticket comes from the client's own account. A client that arrived through the Solus
+Cloud tunnel sees both facts but cannot change them, because an unlink would cut its
+own connection. A managed host and the workspace service show neither: Solus Cloud owns
+them (`uplinkControl` in `packages/client-core/src/uplink-control.ts`).
 
 ## Release order
 

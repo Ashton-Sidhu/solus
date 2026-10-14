@@ -36,7 +36,9 @@
   import type { User } from "@solus/contracts/user";
   import type { Component, Snippet } from "svelte";
 
-  const markdownRenderers = { link: MarkdownLink, codespan: CodeSpan, text: MarkdownText };
+  // `rawtext` is the leaf: a `text` token in a tight list item carries inline
+  // children (code, bold), and an override there would print them as source.
+  const markdownRenderers = { link: MarkdownLink, codespan: CodeSpan, rawtext: MarkdownText };
 
   interface Props {
     message?: Message;

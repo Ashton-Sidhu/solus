@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { IpcContext } from '@solus/contracts/types'
+import type { ReviewGuideRequestOptions, ReviewGuideStatusEvent } from '@solus/contracts/review'
 import type { AgentDispatcher, AgentRun, AgentRunRequest } from '@solus/server/execution/agents/agent-runner'
 import type { AgentToolContext } from '@solus/server/execution/agents/tools/agent-tool'
 
@@ -57,17 +58,18 @@ mock.module('@solus/server/git/session-snapshots', () => ({
   },
 }))
 
-type GuideProducerModule = typeof import('@solus/server/review/guide-producer')
-let generateGuide: GuideProducerModule['generateGuide']
-let cancelGenerateGuide: GuideProducerModule['cancelGenerateGuide']
-let getReviewGuideStatus: GuideProducerModule['getReviewGuideStatus']
-let getSessionGuideStatuses: GuideProducerModule['getSessionGuideStatuses']
+let jobs: InstanceType<typeof import('@solus/server/review/guide-jobs')['ReviewGuideJobs']>
 
 const temporaryDirectories: string[] = []
 const previousDataDir = process.env.SOLUS_DATA_DIR
 
 beforeAll(async () => {
-  ;({ generateGuide, cancelGenerateGuide, getReviewGuideStatus, getSessionGuideStatuses } = await import('@solus/server/review/guide-producer'))
+  const { ReviewGuideJobs } = await import('@solus/server/review/guide-jobs')
+  const { localGuideSource, prGuideSource } = await import('@solus/server/review/guide-sources')
+  jobs = new ReviewGuideJobs(() => {}, { pr: prGuideSource, local: localGuideSource })
+  // Guide runs and the git they start act for a caller; with none, the host (plans/019).
+  const { actAsHostForTests } = await import('@solus/server/execution/seats/acting-identity')
+  actAsHostForTests()
 })
 
 afterEach(() => {
@@ -76,6 +78,17 @@ afterEach(() => {
   for (const directory of temporaryDirectories) rmSync(directory, { recursive: true, force: true })
   temporaryDirectories.length = 0
 })
+
+/** Ask the job owner for a guide and wait for the run, as the `generateGuide` RPC does. */
+async function generateGuide(
+  dispatcher: AgentDispatcher,
+  ctx: IpcContext,
+  opts: ReviewGuideRequestOptions,
+  onStatus?: (event: ReviewGuideStatusEvent) => void,
+) {
+  const job = await jobs.request({ ctx, dispatcher, opts, onStatus })
+  return job ? job.completion : null
+}
 
 function git(cwd: string, args: string[]): string {
   const result = realSpawnSync('git', args, { cwd, encoding: 'utf8' })
@@ -247,9 +260,9 @@ describe('session review guide scope', () => {
       .toEqual(['fix.txt'])
   })
 
-  test('can regenerate from the previous guide head and keeps that guide current', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'solus-incremental-guide-'))
-    const dataDir = mkdtempSync(join(tmpdir(), 'solus-incremental-guide-data-'))
+  test('keeps a guide whose change moved during its run, and reports it outdated', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'solus-moved-guide-'))
+    const dataDir = mkdtempSync(join(tmpdir(), 'solus-moved-guide-data-'))
     temporaryDirectories.push(cwd, dataDir)
     process.env.SOLUS_DATA_DIR = dataDir
 
@@ -260,31 +273,26 @@ describe('session review guide scope', () => {
     git(cwd, ['add', '.'])
     git(cwd, ['commit', '-m', 'base'])
     git(cwd, ['checkout', '-b', 'feature'])
-    writeFileSync(join(cwd, 'change.txt'), 'base\nfirst commit\n')
+    writeFileSync(join(cwd, 'change.txt'), 'base\nreviewed change\n')
     git(cwd, ['add', '.'])
-    git(cwd, ['commit', '-m', 'first'])
-    const previousGuideHead = git(cwd, ['rev-parse', 'HEAD'])
-
-    writeFileSync(join(cwd, 'change.txt'), 'base\nfirst commit\nnew commit only\n')
-    git(cwd, ['add', '.'])
-    git(cwd, ['commit', '-m', 'second'])
+    git(cwd, ['commit', '-m', 'feature'])
 
     const dispatcher = new CapturingDispatcher()
-    const ctx = reviewContext(cwd, 'incremental-guide-session')
-    const generated = await generateGuide(dispatcher, ctx, {
-      target: { kind: 'branch', targetBranch: 'main' },
-      regenerationBaseSha: previousGuideHead,
-      agent: 'codex',
-    })
+    const runAgent = dispatcher.runAgent.bind(dispatcher)
+    dispatcher.runAgent = (request) => {
+      writeFileSync(join(cwd, 'change.txt'), 'base\nreviewed change\nedited during the run\n')
+      return runAgent(request)
+    }
+    const ctx = reviewContext(cwd, 'moved-guide-session')
+    const target = { kind: 'branch', targetBranch: 'main' } as const
+    const statuses: string[] = []
+    const generated = await generateGuide(dispatcher, ctx, { target, agent: 'codex' }, (event) => statuses.push(event.status))
 
-    // WHY: A reviewer who already read the old guide needs only the new commit,
-    // not a second explanation of the whole branch.
-    expect(dispatcher.request?.prompt).toContain('new commit only')
-    expect(dispatcher.request?.prompt).not.toContain('+first commit')
-    expect(generated?.guide.baseSha).toBe(previousGuideHead)
-    expect((await getReviewGuideStatus(ctx, {
-      target: { kind: 'branch', targetBranch: 'main' },
-    }))?.status).toBe('ready')
+    // WHY: the run cost a model call. A guide for the content it read is still
+    // worth reading, as long as the reader is told the change moved on.
+    expect(generated).toMatchObject({ persisted: true, outdated: true })
+    expect(statuses.at(-1)).toBe('outdated')
+    expect((await jobs.status(ctx, { target }))?.status).toBe('outdated')
   })
 
   test('authors from the captured session snapshot instead of the shared live worktree', async () => {
@@ -349,7 +357,7 @@ describe('session review guide scope', () => {
     // must land on the tab that asked, and a tab with no guide (or no
     // checkout at all) answers null instead of sinking the whole batch.
     syncSpawns = 0
-    const statuses = await getSessionGuideStatuses([
+    const statuses = await jobs.sessionStatuses([
       reviewContext(cwd, 'never-reviewed').session,
       reviewContext(cwd, sessionId).session,
       reviewContext('~', 'no-checkout').session,
@@ -382,7 +390,7 @@ describe('session review guide scope', () => {
     // default-branch lookup alone is up to three reads); a per-session cost
     // would put five sessions well past it.
     gitSpawns = 0
-    const statuses = await getSessionGuideStatuses(
+    const statuses = await jobs.sessionStatuses(
       ['one', 'two', 'three', 'four', 'five'].map((sessionId) => reviewContext(cwd, sessionId).session),
     )
     expect(statuses).toEqual([null, null, null, null, null])
@@ -410,13 +418,13 @@ describe('session review guide scope', () => {
     // full diff of the tree each time a file is saved.
     episodeDiffCalls = 0
     syncSpawns = 0
-    expect(await getReviewGuideStatus(ctx, { scope: 'branch' })).toBeNull()
+    expect(await jobs.status(ctx, { scope: 'branch' })).toBeNull()
     expect(episodeDiffCalls).toBe(0)
     expect(syncSpawns).toBe(0)
 
     await generateGuide(new CapturingDispatcher(), ctx, { scope: 'branch', agent: 'codex' })
     episodeDiffCalls = 0
-    expect((await getReviewGuideStatus(ctx, { scope: 'branch' }))?.status).toBe('ready')
+    expect((await jobs.status(ctx, { scope: 'branch' }))?.status).toBe('ready')
     expect(episodeDiffCalls).toBeGreaterThan(0)
   })
 
@@ -459,7 +467,7 @@ describe('session review guide scope', () => {
       sessionChangedFiles: ['session.txt'],
     })
 
-    expect(await cancelGenerateGuide(ctx, { target: { kind: 'session' } })).toBe(true)
+    expect(await jobs.cancel(ctx, { target: { kind: 'session' } })).toBe(true)
     expect(dispatcher.cancelled).toBe(true)
     expect(await generation).toBeNull()
   })

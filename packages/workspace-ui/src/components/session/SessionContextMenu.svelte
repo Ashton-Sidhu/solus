@@ -1,5 +1,6 @@
 <script lang="ts">
   import TaskIcon from "../ui/TaskIcon.svelte";
+  import UnreadDot from "./UnreadDot.svelte";
   import {
     ChartBar as ChartBarIcon,
     Check as CheckIcon,
@@ -107,12 +108,29 @@
   const canOpenInsights = $derived(
     !!insightsSessionId && (!!sess?.agentSessionId || !!sessionId),
   );
+  const unreadSessionId = $derived(sess?.id ?? sessionId);
+  const unreadServerId = $derived(tabId ? session.serverIdFor(tabId) : serverId);
   const splitTabId = $derived(session.chatSurfaceTabId);
   const isSplit = $derived(!!tabId && tabId === splitTabId);
   const canSplit = $derived(showSplit && (!!tabId || !!onOpenInSplit));
   const isContinuingWorktree = $derived(
     !!tabId && session.ui.isContinuingInWorktree(tabId),
   );
+
+  async function markUnread() {
+    const targetSessionId = unreadSessionId;
+    const targetServerId = unreadServerId;
+    onClose();
+    if (!targetSessionId || !targetServerId) return;
+    try {
+      await session.metadata.markSessionUnread(targetServerId, targetSessionId);
+    } catch (error) {
+      toasts.error("Couldn't mark session unread", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+    requestInputFocus();
+  }
 
   async function fork() {
     const targetTabId = tabId;
@@ -308,6 +326,12 @@
         {rowActions.done ? "Mark Not Done" : "Mark Done"}
       </ContextMenu.Item>
     {/if}
+    {#if unreadSessionId && unreadServerId}
+      <ContextMenu.Item onSelect={markUnread}>
+        <UnreadDot size={14} />
+        Mark Unread
+      </ContextMenu.Item>
+    {/if}
     {#if canDrive && rowActions?.onSnooze}
       <ContextMenu.Item
         onSelect={() => {
@@ -319,7 +343,7 @@
         Snooze…
       </ContextMenu.Item>
     {/if}
-    {#if canDrive && (rowActions?.onStop || rowActions?.onToggleDone || rowActions?.onSnooze)}
+    {#if (unreadSessionId && unreadServerId) || (canDrive && (rowActions?.onStop || rowActions?.onToggleDone || rowActions?.onSnooze))}
       <ContextMenu.Separator />
     {/if}
     {#if sess?.agentSessionId}

@@ -5,7 +5,7 @@ const transpiler = new Bun.Transpiler({ loader: 'ts' })
 const source = readFileSync(new URL('../../packages/workspace-ui/src/contexts/workspace/startup-transcript.ts', import.meta.url), 'utf8')
 const executable = transpiler.transformSync(source.replace(/^import .*\n/gm, '')).replaceAll('export ', '')
 
-function fixture(options: { fork?: boolean; missingHost?: boolean } = {}) {
+function fixture(options: { fork?: boolean; goneHost?: boolean } = {}) {
   const requests: Array<{ host: string; sessionId: string; projectPath: string; deferToolInputs: boolean }> = []
   const marks: string[] = []
   const frames = new Map<number, FrameRequestCallback>()
@@ -25,7 +25,7 @@ function fixture(options: { fork?: boolean; missingHost?: boolean } = {}) {
     (host: string, request: { sessionId: string; projectPath: string; deferToolInputs: boolean }) => {
       requests.push({ host, ...request }); return Promise.resolve({ messages: [], before: null })
     }, 200,
-    { apiFor(host: string) { if (options.missingHost) throw new Error('missing host'); return host } },
+    { apiFor: (host: string) => host, presenceOf: () => options.goneHost ? 'gone' : 'present' },
     () => [{ installationId: 'installation', id: 'repaired-host' }],
     () => ({ activeTabId: 'active', tabs: [tab, { ...tab, tabId: 'inactive', agentSessionId: 'other' }] }),
     { innerWidth: 1200, matchMedia: () => ({ matches: false }) },
@@ -75,8 +75,8 @@ test('startup selects only the active thread and resolves its repaired host and 
   expect(requests[0]).toMatchObject({ host: 'repaired-host', sessionId: 'stable-session', projectPath: '/checkout' })
 })
 
-test('forks and missing hosts do not block boot', () => {
-  for (const options of [{ fork: true }, { missingHost: true }]) {
+test('forks and tabs on a gone host are not prefetched', () => {
+  for (const options of [{ fork: true }, { goneHost: true }]) {
     const skipped = fixture(options)
     expect(() => skipped.api.prefetchStartupTranscript()).not.toThrow()
     expect(skipped.requests).toHaveLength(0)
@@ -156,7 +156,7 @@ test('restored history and live attachment finish before secondary metadata, wit
     const execute = new Function('serverConnections', 'afterPaint', 'requestSessionHistoryPage', 'loadRestoredSessionTranscript',
       'replaceHydratedMessages', 'markStartupTranscriptApplied', 'INITIAL_HISTORY_TURNS', 'isSessionBusyStatus',
       `${hydration}\nreturn hydrateTab;`)
-    const hydrate = execute({ isKnownServer: () => true }, () => paintPending, async () => ({ messages: [] }),
+    const hydrate = execute({ presenceOf: () => 'present' }, () => paintPending, async () => ({ messages: [] }),
       async () => { expect(session.loadingHistory).toBe(false); return { messages: [{ content: 'ready' }], planIds: [] } },
       (target: { messages: Array<{ content: string }> }, messages: Array<{ content: string }>) => { target.messages.push(...messages); events.push('history') },
       () => {}, 200, () => false)
@@ -172,14 +172,13 @@ test('restored history and live attachment finish before secondary metadata, wit
 
 
 function loadMaterializeStartupTranscript(dependencies: {
-  page: unknown; transcript: unknown; marks: string[]; isKnownServer?: (serverId: string) => boolean
+  page: unknown; transcript: unknown; marks: string[]
 }) {
   const source = readFileSync(new URL('../../packages/workspace-ui/src/contexts/workspace/startup-session.ts', import.meta.url), 'utf8')
   const compiled = transpiler.transformSync(source.replace(/^import .*\n/gm, '')).replaceAll('export ', '')
-  return new Function('serverConnections', 'readPrefetchedSessionHistoryPage', 'INITIAL_HISTORY_TURNS',
+  return new Function('readPrefetchedSessionHistoryPage', 'INITIAL_HISTORY_TURNS',
     'materializeSessionTranscript', 'markStartupTranscriptApplied',
     `${compiled}\nreturn materializeStartupTranscript;`)(
-      { isKnownServer: dependencies.isKnownServer ?? (() => true) },
       () => dependencies.page, 200, () => dependencies.transcript, (tabId: string) => dependencies.marks.push(tabId),
     )
 }
@@ -201,21 +200,4 @@ test.each([false, true])('first render keeps the loading state unless startup hi
   expect(session.loadingHistory).toBe(!isReady)
   expect(session.historyCursor).toBe(isReady ? 'older' : null)
   expect(marks).toEqual(isReady ? ['active'] : [])
-})
-
-test('first render leaves a tab on a deleted machine loading instead of failing the mount', () => {
-  const session = { run: { serverId: 'managed:gone', workingDirectory: '/repo' }, messages: [], loadingHistory: true, historyCursor: null }
-  const marks: string[] = []
-  const materialize = loadMaterializeStartupTranscript({
-    page: { messages: [], before: null }, transcript: { messages: [], before: null, truncated: false }, marks,
-    isKnownServer: (serverId) => serverId !== 'managed:gone',
-  })
-  const context = {
-    activeTabId: 'active', sessionFor: () => session, ctxFor: () => ({}),
-    apiFor: () => { throw new Error('Unknown Solus server: managed:gone') },
-    eventReducer: { rebuildAgentConversations() {} }, lifecycle: { recomputeChangedFiles() {}, reconcileQueuedPrompts() {} },
-  }
-  expect(() => materialize(context, { tabs: [{ tabId: 'active', agentSessionId: 'thread', provider: 'codex' }] })).not.toThrow()
-  expect(session.loadingHistory).toBe(true)
-  expect(marks).toEqual([])
 })

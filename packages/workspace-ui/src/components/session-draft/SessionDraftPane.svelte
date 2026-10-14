@@ -27,7 +27,6 @@
     surfaceVisible = true,
     onAttachFile,
     onScreenshot,
-    onDesignMode,
   }: RouteSurfaceProps<"draft"> = $props();
 
   const session = getWorkspaceContext();
@@ -240,7 +239,6 @@
         onDispatchInBackground={dispatchInBackground}
         {onAttachFile}
         {onScreenshot}
-        {onDesignMode}
       />
     </div>
 

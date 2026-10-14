@@ -97,6 +97,15 @@ export class SessionMetadata {
       .catch(() => {})
   }
 
+  /** Clear this session's read boundary on its host, then update its mounted
+   *  tabs. Task links and other sessions keep their own state. */
+  async markSessionUnread(serverId: string, sessionId: string): Promise<void> {
+    await serverConnections.apiFor(serverId).setSessionReadState(sessionId, null)
+    if (this.workspace.sessions.byId[sessionId]?.run.serverId === serverId) {
+      this.applySessionReadState(sessionId, null)
+    }
+  }
+
   applySessionTitleChanged(
     serverId: string,
     event: SessionTitleChangedEvent,

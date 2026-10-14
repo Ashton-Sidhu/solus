@@ -6,11 +6,14 @@
   import GuideView from "../pr-review/guide/GuideView.svelte";
   import ReviewProgress from "./ReviewProgress.svelte";
   import ReviewGuideGlyph from "./ReviewGuideGlyph.svelte";
+  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { Button } from "../ui/button";
+  import { describeGuideFailure } from "@solus/client-core/review-guide-failure";
   import type { GuideLoader } from "./lib/guide-loader.svelte";
 
-  // Presentation for a loaded guide: stepped progress while loading (cache read
-  // or generation), the native GuideView once data is ready, or an empty note.
+  // Presentation for a loaded guide: stepped progress while generating, a
+  // skeleton while reading the saved guide, the native GuideView once data is
+  // ready, or an empty note.
   // Owns no chrome and no data loading — the host supplies the loader.
   let {
     loader,
@@ -61,6 +64,7 @@
   const stale = $derived(loader.stale || status === "outdated");
   const failure = $derived(generationEvent?.error || loader.error);
   const failed = $derived(status === "failed" || !!failure);
+  const failureView = $derived(failure ? describeGuideFailure(failure) : null);
   const hasGuide = $derived(!!loader.guide);
   const step = $derived(generationEvent?.step ?? loader.progressStep);
   const phase = $derived(status === "queued" ? "Queued" : step === "analyzing" ? "Analyzing changes" : step === "writing" ? "Writing guide" : "Preparing changes");
@@ -89,8 +93,14 @@
   {:else if (failed || status === "cancelled") && hasGuide}
     <div role="status" class="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-1.5 border-b border-[var(--hairline)] bg-[var(--wash-1)] px-4 py-2 text-workspace-chrome text-muted-foreground">
       <CircleAlertIcon size={14} class="shrink-0 {failed ? 'text-(--solus-art-negative)' : 'opacity-70'}" aria-hidden="true" />
-      <span class="min-w-0 flex-1 break-words">{failed ? `Guide generation failed${failure ? `: ${failure}` : ""}` : "Guide generation cancelled"} · the saved guide is still available.</span>
+      <span class="min-w-0 flex-1 break-words">{failed ? `Guide generation failed${failureView ? `: ${failureView.summary}` : ""}` : "Guide generation cancelled"} · the saved guide is still available.</span>
       <Button variant="ghost" size="xs" class="-my-0.5 shrink-0" onclick={() => onGenerate ? onGenerate() : loader.refresh()}>Retry</Button>
+      {#if failed && failureView?.details}
+        <details class="w-full pl-6">
+          <summary class="w-fit cursor-pointer select-none hover:text-foreground">Details</summary>
+          <pre class="m-0 mt-1.5 max-h-48 overflow-auto rounded-md bg-(--solus-surface-hover) px-2.5 py-2 text-xs leading-relaxed break-words whitespace-pre-wrap select-text">{failureView.details}</pre>
+        </details>
+      {/if}
     </div>
   {/if}
   {#if loader.freshnessUnknown && hasGuide && !unavailable && !stale}
@@ -109,8 +119,11 @@
       <Button variant="ghost" size="xs" class="-my-0.5 shrink-0" disabled={generationInProgress || unavailable} onclick={() => onGenerate ? onGenerate() : loader.refresh()}>Regenerate</Button>
     </div>
   {/if}
-  {#if !hasGuide && !unavailable && (loader.loading || generationInProgress)}
+  {#if !hasGuide && !unavailable && (loader.generating || generationInProgress)}
     <ReviewProgress subject="guide" {step} queued={status === "queued"} onCancel={generationInProgress ? onCancel : undefined} />
+  {:else if !hasGuide && loader.loading}
+    <!-- Reading the saved guide is not a generation: no steps to show. -->
+    <ContentSkeleton label="Loading review guide" />
   {:else if loader.guide}
     <GuideView
       guide={loader.guide}
@@ -145,7 +158,7 @@
         <p
           class="mt-2  leading-[1.7] text-pretty text-muted-foreground"
         >
-          {failure ?? (status === "outdated" ? "Generate a new guide for the current PR changes." :
+          {failureView?.summary ?? (status === "outdated" ? "Generate a new guide for the current PR changes." :
             "Guides are opt-in. Generate one and the review companion reads the diff, orders the files into a narrative, and explains what each change is doing and why it matters.")}
         </p>
 
@@ -177,6 +190,13 @@
             <ClockIcon size={12} class="shrink-0" />
             {emptyHint}
           </p>
+        {/if}
+
+        {#if failureView?.details}
+          <details class="mt-4 w-full text-left">
+            <summary class="mx-auto w-fit cursor-pointer text-xs text-muted-foreground select-none hover:text-foreground">Show details</summary>
+            <pre class="m-0 mt-2 max-h-60 overflow-auto rounded-lg bg-(--solus-surface-hover) px-3 py-2.5 text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground select-text">{failureView.details}</pre>
+          </details>
         {/if}
       </div>
     </div>

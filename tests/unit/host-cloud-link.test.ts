@@ -4,25 +4,29 @@ import type { UplinkEnrollmentTicket, UplinkStatus } from '@solus/contracts/upli
 import { HostCloudLink } from '../../apps/mobile/src/features/settings/host-cloud-link'
 import { createHostWorld, FakeApi, flushPromises, healthFetch } from './helpers/native-mobile-fakes'
 
-// Every host page offers its Solus Cloud link. The host accepts a link change
-// only from a local owner (access-policy `local-only`), and a paired device is
-// one, so a phone or browser paired with a host links it. An owner who came in
-// through the tunnel must not get a control the host refuses — and an unlink
-// would cut the very connection it came in on.
+// Every host page shows the host and Solus Cloud as two facts
+// (docs/adr/0001-standard-authentication.md §2.2 rules 8 and 9): registered to an
+// account, which a signed-in owner's client makes by itself, and reachable from the
+// internet, the tunnel. The host accepts a change only from a local owner
+// (access-policy `local-only`), and a paired device is one. An owner who came in
+// through the tunnel must not get a control the host refuses — and an unlink would
+// cut the very connection it came in on.
 
-const UNLINKED: UplinkStatus = { linked: false }
+const REGISTRATION = {
+  hostId: 'host-a',
+  issuer: 'https://app.solus.sh',
+  jwksUrl: 'https://app.solus.sh/jwks',
+  directoryUrl: 'https://app.solus.sh',
+  generation: 1,
+}
+const UNREGISTERED: UplinkStatus = { registration: { registered: false }, link: { linked: false } }
+const REGISTERED: UplinkStatus = {
+  registration: { registered: true, registration: REGISTRATION, owner: { userId: 'user_a', email: 'a@example.test' } },
+  link: { linked: false },
+}
 const LINKED: UplinkStatus = {
-  linked: true,
-  link: {
-    hostId: 'host-a',
-    issuer: 'https://app.solus.sh',
-    jwksUrl: 'https://app.solus.sh/jwks',
-    directoryUrl: 'https://app.solus.sh',
-    hostname: 'h-host-a.solus.run',
-    proxiedPort: 4810,
-    connectionGeneration: 1,
-  },
-  state: { observed: 'online' },
+  registration: REGISTERED.registration,
+  link: { linked: true, tunnel: { hostname: 'h-host-a.solus.run', proxiedPort: 4810 }, state: { observed: 'online' } },
 }
 const TICKET: UplinkEnrollmentTicket = { ticket: 'tk-1', expiresAt: 0, directoryUrl: 'https://app.solus.sh' }
 
@@ -39,34 +43,48 @@ describe('who may change a host’s Solus Cloud link', () => {
   })
 })
 
-async function phoneWith(api: FakeApi, ticket: UplinkEnrollmentTicket | null = TICKET) {
+async function phoneWith(api: FakeApi, ticket: UplinkEnrollmentTicket | null = TICKET, isSignedIn = false) {
   const world = createHostWorld({ fetch: healthFetch({ 'http://a:1': 'inst-a' }), api: () => api })
   await world.registry.load()
   await world.registry.savePaired({ id: 'inst-a', label: 'A', url: 'http://a:1' }, 'ta')
-  const cloud = new HostCloudLink((hostId) => world.connections.connection(hostId), async () => ticket)
+  const cloud = new HostCloudLink((hostId) => world.connections.connection(hostId), async () => ticket, () => isSignedIn)
   await cloud.load('inst-a')
   return { world, cloud }
 }
 
-describe('a phone links a host it is paired with', () => {
-  test('links with a ticket from the phone’s own account', async () => {
+describe('a phone paired with a host registers it, and links it', () => {
+  test('signed in, the phone registers a host that is not registered by itself, with a ticket from its own account, and makes no tunnel', async () => {
     const api = new FakeApi()
       .on('connectionsGetServerInfo', () => ({ principal: 'local-owner', hostKind: 'personal' }))
-      .on('uplinkStatus', () => UNLINKED)
+      .on('uplinkStatus', () => UNREGISTERED)
+      .on('uplinkRegister', () => REGISTERED)
+    const { cloud } = await phoneWith(api, TICKET, true)
+    expect(api.callsOf('uplinkRegister')).toEqual([[{ ticket: 'tk-1', directoryUrl: 'https://app.solus.sh' }]])
+    expect(api.callsOf('uplinkLink')).toEqual([])
+    const state = cloud.stateOf('inst-a')
+    expect(state.kind === 'loaded' && state.status?.registration.registered).toBe(true)
+  })
+
+  test('linking a registered host only turns the tunnel on', async () => {
+    const api = new FakeApi()
+      .on('connectionsGetServerInfo', () => ({ principal: 'local-owner', hostKind: 'personal' }))
+      .on('uplinkStatus', () => REGISTERED)
       .on('uplinkLink', () => LINKED)
     const { cloud } = await phoneWith(api)
     await cloud.link('inst-a')
-    expect(api.callsOf('uplinkLink')).toEqual([[{ ticket: 'tk-1', directoryUrl: 'https://app.solus.sh' }]])
+    expect(api.callsOf('uplinkRegister')).toEqual([])
+    expect(api.callsOf('uplinkLink')).toEqual([[]])
     const state = cloud.stateOf('inst-a')
-    expect(state.kind === 'loaded' && state.status?.linked).toBe(true)
+    expect(state.kind === 'loaded' && state.status?.link.linked).toBe(true)
   })
 
   test('signed out, the host is not asked and the phone says to sign in', async () => {
     const api = new FakeApi()
       .on('connectionsGetServerInfo', () => ({ principal: 'local-owner', hostKind: 'personal' }))
-      .on('uplinkStatus', () => UNLINKED)
+      .on('uplinkStatus', () => UNREGISTERED)
     const { cloud } = await phoneWith(api, null)
     await expect(cloud.link('inst-a')).rejects.toThrow('Sign in')
+    expect(api.callsOf('uplinkRegister')).toEqual([])
     expect(api.callsOf('uplinkLink')).toEqual([])
   })
 
@@ -74,7 +92,7 @@ describe('a phone links a host it is paired with', () => {
     const api = new FakeApi()
       .on('connectionsGetServerInfo', () => ({ principal: 'remote-owner', hostKind: 'personal' }))
       .on('uplinkStatus', () => LINKED)
-    const { cloud } = await phoneWith(api)
+    const { cloud } = await phoneWith(api, TICKET, true)
     await cloud.unlink('inst-a')
     expect(api.callsOf('uplinkUnlink')).toEqual([])
     const state = cloud.stateOf('inst-a')
@@ -84,11 +102,11 @@ describe('a phone links a host it is paired with', () => {
   test('the tunnel coming online after the link shows without a reload', async () => {
     const api = new FakeApi()
       .on('connectionsGetServerInfo', () => ({ principal: 'local-owner', hostKind: 'personal' }))
-      .on('uplinkStatus', () => UNLINKED)
+      .on('uplinkStatus', () => REGISTERED)
     const { world, cloud } = await phoneWith(api)
     world.transports[0]!.emit('host.uplinkStatusChanged', LINKED)
     await flushPromises()
     const state = cloud.stateOf('inst-a')
-    expect(state.kind === 'loaded' && state.status?.linked).toBe(true)
+    expect(state.kind === 'loaded' && state.status?.link.linked).toBe(true)
   })
 })

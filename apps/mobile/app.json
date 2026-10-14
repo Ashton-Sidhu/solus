@@ -10,6 +10,7 @@
     "ios": {
       "icon": "./assets/icon-ios.png",
       "bundleIdentifier": "sh.solus.mobile",
+      "appleTeamId": "F4AQ9YJ7Q3",
       "supportsTablet": true,
       "requireFullScreen": false,
       "infoPlist": {
@@ -121,7 +122,7 @@
         {
           "bundleIdentifier": "sh.solus.mobile.widgets",
           "groupIdentifier": "group.sh.solus.mobile",
-          "enablePushNotifications": false,
+          "enablePushNotifications": true,
           "frequentUpdates": true,
           "widgets": []
         }

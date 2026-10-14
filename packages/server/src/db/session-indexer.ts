@@ -28,6 +28,8 @@ import {
   setSessionRecordGeneratedTitle,
   upsertOwnSessionRecord,
 } from '../data/sessions/session-records'
+import { resolveRepositoryKey } from '../git/git-helpers'
+import { withUserScope } from '../vault/acting-scope'
 import { getDb, withTx } from '.'
 
 const log = createLogger('main', 'session-indexer')
@@ -119,6 +121,21 @@ type SessionRow = z.infer<typeof sessionRowSchema>
  *  simple rule the whole index shares so a repo and its worktrees agree.) */
 function projectRootFor(cwd: string | null): string | null {
   return cwd ? worktreeProjectRoot(cwd) : null
+}
+
+/** The repository of a session's project (docs/plans/project-model.md §1). The
+ *  record carries it so the workspace service lists the session under its
+ *  repository whatever machine ran it, including one since removed. Reading a
+ *  checkout's remote is the host's own work, so it acts as the host. A remote
+ *  that cannot be read leaves the record without one; it never stops the write. */
+async function projectRemoteFor(projectRoot: string | null): Promise<string | undefined> {
+  if (!projectRoot) return undefined
+  try {
+    return (await withUserScope(null, () => resolveRepositoryKey(projectRoot))) ?? undefined
+  } catch (error) {
+    log.warn('session_project_remote_unread', { projectRoot, error: String(error) })
+    return undefined
+  }
 }
 
 interface IndexedMessage {
@@ -460,6 +477,7 @@ async function recordIndexedClaudeSession(
     slug: meta.slug ?? undefined,
     isWorktree,
     projectRoot: projectRootFor(meta.cwd) ?? undefined,
+    projectRemote: await projectRemoteFor(projectRootFor(meta.cwd)),
   })
 }
 
@@ -837,6 +855,9 @@ export function persistIndexedSessionStart(
   startedBy?: SessionOrigin,
 ): void {
   const parent = delegationRowValues(delegation)
+  // A run with no model leaves the provider to choose one, so the model is
+  // unknown: record nothing, and keep a model an earlier run recorded.
+  const knownModel = model || null
   getDb().prepare(`
     INSERT INTO sessions(
       session_id, provider, cwd, project_path, project_root, is_worktree,
@@ -867,7 +888,7 @@ export function persistIndexedSessionStart(
     projectPath.includes(SOLUS_WORKTREE_ENCODED_MARKER) ? 1 : 0,
     firstMessage,
     Date.now(),
-    model,
+    knownModel,
     reasoningEffort,
     branch,
     ...parent,
@@ -875,12 +896,15 @@ export function persistIndexedSessionStart(
   )
   const [parentSessionId, rootSessionId, messageId, depth, intent, createdAt] = parent
   const sessionId = sessionIdOfThread(threadId)
+  const projectRoot = projectRootFor(cwd)
+  // The start is written now, before the slow git lookup below: a turn that
+  // settles quickly writes its status after this write, never before it.
   void upsertOwnSessionRecord({
     sessionId,
     provider,
     projectPath,
     title: firstMessage ?? undefined,
-    model,
+    model: knownModel ?? undefined,
     reasoningEffort,
     status: 'running',
     lastActivityAt: Date.now(),
@@ -889,7 +913,7 @@ export function persistIndexedSessionStart(
     cwd,
     isWorktree: projectPath.includes(SOLUS_WORKTREE_ENCODED_MARKER),
     branch: branch ?? undefined,
-    projectRoot: projectRootFor(cwd) ?? undefined,
+    projectRoot: projectRoot ?? undefined,
     delegation: messageId !== null && depth !== null && createdAt !== null && (intent === 'delegate' || intent === 'fire_and_forget')
       ? { messageId, depth, intent, createdAt }
       : undefined,
@@ -901,6 +925,17 @@ export function persistIndexedSessionStart(
     }
   }).catch((error) => {
     log.warn('session_record_start_failed', { sessionId, threadId, error: String(error) })
+  })
+  // The remote comes later and carries no status, so it cannot undo a settle.
+  // lastActivityAt 0 keeps the stored time (the merge takes the larger one).
+  void projectRemoteFor(projectRoot).then((projectRemote) => upsertOwnSessionRecord({
+    sessionId,
+    provider,
+    projectPath,
+    projectRemote,
+    lastActivityAt: 0,
+  })).catch((error) => {
+    log.warn('session_record_remote_failed', { sessionId, threadId, error: String(error) })
   })
 }
 
@@ -1029,6 +1064,7 @@ export async function cacheIndexedSessions(sessions: SessionMeta[]): Promise<voi
       isWorktree: session.isWorktree ?? false,
       branch: session.branch,
       projectRoot: projectRootFor(session.cwd) ?? undefined,
+      projectRemote: await projectRemoteFor(projectRootFor(session.cwd)),
     })
   }
 }

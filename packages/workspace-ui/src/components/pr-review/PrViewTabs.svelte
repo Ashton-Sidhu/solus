@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { ReviewGuideStatus } from "@solus/contracts/review";
   import type { LensTabState } from "../review/lib/lens-surface";
-  import { LoaderCircle, BookOpenCheck, BookOpen, TriangleAlert } from "@lucide/svelte";
+  import { LoaderCircle, CircleCheck, BookOpen, TriangleAlert } from "@lucide/svelte";
   /**
    * Which view of the change you are reading: Activity · Map · Guide · Lens · Diff.
    *
@@ -89,7 +89,7 @@
         {#if guideStatus === "queued" || guideStatus === "generating"}
           <LoaderCircle size={12} aria-hidden="true" class="animate-spin motion-reduce:animate-none" />
         {:else if guideStatus === "ready"}
-          <BookOpenCheck size={15} aria-hidden="true" />
+          <CircleCheck size={13} aria-hidden="true" class="shrink-0 text-(--solus-status-complete)" />
         {:else if guideStatus === "outdated" || guideStatus === "failed" || guideStatus === "cancelled"}
           <BookOpen size={15} aria-hidden="true" /><TriangleAlert size={10} aria-hidden="true" />
         {/if}

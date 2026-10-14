@@ -21,20 +21,26 @@ import type { SolusProjectShell } from '../../apps/mobile/src/features/threads/t
 
 describe('native composer send button', () => {
   test('an idle thread sends, or queues while the host is away', () => {
-    expect(resolveComposerSendPresentation({ running: false, canSteer: false, followUpBehavior: 'steer', deliveryDeferred: false }))
+    expect(resolveComposerSendPresentation({ editingQueuedMessage: false, running: false, canSteer: false, followUpBehavior: 'steer', deliveryDeferred: false }))
       .toMatchObject({ label: 'Send', icon: 'arrow.up', action: null, offersFollowUpChoice: false })
-    expect(resolveComposerSendPresentation({ running: false, canSteer: false, followUpBehavior: 'steer', deliveryDeferred: true }).label).toBe('Queue')
+    expect(resolveComposerSendPresentation({ editingQueuedMessage: false, running: false, canSteer: false, followUpBehavior: 'steer', deliveryDeferred: true }).label).toBe('Queue')
   })
 
   test('a running turn steers by default and offers queue on long press', () => {
-    expect(resolveComposerSendPresentation({ running: true, canSteer: true, followUpBehavior: 'steer', deliveryDeferred: false }))
+    expect(resolveComposerSendPresentation({ editingQueuedMessage: false, running: true, canSteer: true, followUpBehavior: 'steer', deliveryDeferred: false }))
       .toEqual({ label: 'Steer', icon: 'arrow.turn.left.up', action: 'steer', alternate: 'queue', offersFollowUpChoice: true })
   })
 
   test('a turn that cannot be steered, or a waiting queue, only queues: no promise the host would break', () => {
-    expect(resolveComposerSendPresentation({ running: true, canSteer: false, followUpBehavior: 'steer', deliveryDeferred: false }))
+    expect(resolveComposerSendPresentation({ editingQueuedMessage: false, running: true, canSteer: false, followUpBehavior: 'steer', deliveryDeferred: false }))
       .toEqual({ label: 'Queue', icon: 'list.number', action: 'queue', alternate: null, offersFollowUpChoice: false })
-    expect(resolveComposerSendPresentation({ running: true, canSteer: true, followUpBehavior: 'steer', deliveryDeferred: true }).action).toBe('queue')
+    expect(resolveComposerSendPresentation({ editingQueuedMessage: false, running: true, canSteer: true, followUpBehavior: 'steer', deliveryDeferred: true }).action).toBe('queue')
+  })
+
+  test('an edit of a queued message saves it, never sends, steers, or offers a follow-up choice', () => {
+    // WHY: T3 edits a queued message in the composer; its button updates that message.
+    expect(resolveComposerSendPresentation({ editingQueuedMessage: true, running: true, canSteer: true, followUpBehavior: 'steer', deliveryDeferred: false }))
+      .toEqual({ label: 'Update queued message', icon: 'checkmark', action: null, alternate: null, offersFollowUpChoice: false })
   })
 })
 

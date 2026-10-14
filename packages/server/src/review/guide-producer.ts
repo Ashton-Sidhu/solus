@@ -1,10 +1,9 @@
-import type { IpcContext, AgentId, SessionCtx } from '@solus/contracts/types'
-import { runBounded } from '../lib/concurrency'
-import { type ReviewContext, type ReviewGuide, type ReviewGuideRequestOptions, type ReviewGuideStatus, type ReviewGuideStatusEvent, type ReviewProgressEvent, type ReviewProgressStep, type ReviewTarget } from '@solus/contracts/review'
+import type { IpcContext, AgentId } from '@solus/contracts/types'
+import { type ReviewContext, type ReviewGuide, type ReviewGuideRequestOptions, type ReviewProgressStep, type ReviewTarget } from '@solus/contracts/review'
 import { getDiff, getEpisodeDiff, getSessionSnapshotRange } from '../git/session-snapshots'
 import { getHeadCommit } from '../git/worktree-manager'
 import { createLogger } from '../logger'
-import { readGuideByKey, resolveReviewContext, reviewCheckout, writeGuide, type CheckoutFactsCache } from './review-context'
+import { resolveReviewContext, reviewCheckout } from './review-context'
 import { runReviewAgent } from './review-agent'
 import { contextPreferences } from '../execution/agents/run-input'
 import { normalizeGuide } from './review-guide-tool'
@@ -29,13 +28,12 @@ export interface GeneratedGuide {
   guide: ReviewGuide
   /** True only when this guide was atomically written to its stable target. */
   persisted: boolean
-  /** The guide finished, but the working tree moved on while it was authoring,
-   * so it was never persisted. Distinct from a failure: nothing went wrong and
-   * the content it describes simply is no longer the content on disk. Without
-   * this the status mapping reads every unpersisted guide as `failed`, and
-   * editing a file mid-run tells the user the review crashed. */
+  /** The guide finished, but the change moved on while it was authoring. It is
+   * still saved for the content it read. Distinct from a failure: nothing went
+   * wrong and the content it describes is no longer the live content. */
   outdated?: boolean
-  /** A validated model guide, ready for the PR job owner to commit. */
+  /** A validated model guide, ready for the job owner to commit. A fallback
+   * (nothing to review, agent failure) is shown but never saved. */
   authored?: boolean
 }
 
@@ -94,13 +92,12 @@ export async function resolveTargetBase(ctx: Pick<IpcContext, 'session'>, review
   const sessionId = reviewedSessionId(ctx)
   const target = normalizedReviewTarget(opts, sessionId)
   if (target.kind === 'session') return resolveSessionGuideTarget(review, target, sessionId)
-  let branchBase = opts.regenerationBaseSha
-    ?? (target.kind === 'working-tree'
+  let branchBase = target.kind === 'working-tree'
     ? 'HEAD'
     : target.kind === 'pr' && target.baseSha
       ? target.baseSha
-      : branchGuideBase(ctx, review, target))
-  if (target.kind === 'branch' && target.targetBranch && !opts.regenerationBaseSha) {
+      : branchGuideBase(ctx, review, target)
+  if (target.kind === 'branch' && target.targetBranch) {
     const workTree = reviewCheckout(ctx) ?? review.repoRoot
     // A target branch the user names is not guaranteed to exist locally — it may
     // be unfetched, deleted, or simply mistyped. Let it fall back to the branch
@@ -117,11 +114,11 @@ export async function resolveTargetBase(ctx: Pick<IpcContext, 'session'>, review
   return { guideKey: baseKey, scope: target.kind, target, base: branchBase, head: null, sessionId: null }
 }
 
-/** The live content identity for one base. Split out because the pre-persist
- * staleness check needs exactly this and nothing else: re-resolving the whole
- * target there would redo the branch/session base lookup — including a second
+/** The live content identity for one base. Split out because a status probe
+ * needs exactly this and nothing else: re-resolving the whole target there
+ * would redo the branch/session base lookup — including a second
  * `git merge-base` — to arrive at the base it was already handed. */
-async function changeSnapshotFor(
+export async function changeSnapshotFor(
   workTree: string,
   review: ReviewContext,
   target: Pick<GuideTarget, 'base' | 'guideKey' | 'scope' | 'sessionId' | 'head'>,
@@ -150,300 +147,30 @@ export async function resolveTarget(ctx: Pick<IpcContext, 'session'>, review: Re
   return { ...target, ...await changeSnapshotFor(workTree, review, target) }
 }
 
-/** Emits a phase transition for the in-flight generation. The key is attached by
- *  `generateGuide` once the review context resolves. */
+/** Emits a phase transition for the run that is authoring a guide. */
 export type EmitProgress = (step: ReviewProgressStep) => void
 
 /**
- * In-flight generations keyed by `repoRoot::key`. A guide takes a full agent run
- * to produce and isn't cached until it finishes, so without this a second caller
- * (re-entering the PR review, another tab, the regenerate button) would see no
- * cache and kick off a duplicate agent run that races to write the same file.
- * Coalescing onto the live promise means concurrent callers share one run.
+ * Author a guide for the change `opts` names in `ctx`. It never writes the
+ * guide: the job owner (`ReviewGuideJobs`) commits it. `onRead` hears the exact
+ * change before the model starts. Null when there is no checkout to review or
+ * the run was stopped.
  */
-type InFlightGuide = {
-  promise: Promise<GeneratedGuide | null>
-  abortController: AbortController
-  statusKey: string
-  target: GuideTarget
-}
-
-const inFlight = new Map<string, InFlightGuide>()
-const guideStatuses = new Map<string, ReviewGuideStatusEvent>()
-
-type EmitStatus = (event: ReviewGuideStatusEvent) => void
-
-function statusEvent(
-  review: ReviewContext,
-  target: GuideTarget,
-  status: ReviewGuideStatus,
-  details: Pick<ReviewGuideStatusEvent, 'step' | 'error'> = {},
-): ReviewGuideStatusEvent {
-  const event: ReviewGuideStatusEvent = {
-    repoRoot: review.repoRoot,
-    key: target.guideKey,
-    scope: target.scope,
-    target: target.target,
-    status,
-    headSha: review.headSha,
-    changeFingerprint: target.changeFingerprint,
-    updatedAt: Date.now(),
-  }
-  if (details.step) event.step = details.step
-  if (details.error) event.error = details.error
-  return event
-}
-
-function setGuideStatus(
-  dedupeKey: string,
-  event: ReviewGuideStatusEvent,
-  onStatus?: EmitStatus,
-): ReviewGuideStatusEvent {
-  guideStatuses.set(dedupeKey, event)
-  onStatus?.(event)
-  return event
-}
-
-/**
- * The producer. Always reviews the diff. The review agent authors a structured
- * guide via the `submit_review_guide` tool (no HTML, no template); the producer
- * checks it against the real change (coverage, and hunks cut from the patch at
- * the agent's line ranges), stamps the identity
- * fields, and overwrites the cached `review/<key>.json`. Returns null only when
- * there is no git episode to review.
- *
- * Deduped per (repoRoot, key): if a generation is already running for the same
- * branch, callers join it instead of starting another.
- */
-export async function generateGuide(
-  dispatcher: AgentDispatcher,
-  ctx: IpcContext,
-  opts: GenerateGuideOptions = {},
-  onProgress?: (event: ReviewProgressEvent) => void,
-  onStatus?: EmitStatus,
-  seatFor?: SeatResolver,
-): Promise<GeneratedGuide | null> {
-  // Resolve from the actual checkout (the worktree, for PR review / isolation) so
-  // the guide is keyed on that branch — matching the key the renderer reads.
-  // Storage still re-roots at the main project root (see ReviewContext.repoRoot).
-  const review = await resolveReviewContext(reviewCheckout(ctx), reviewedSessionId(ctx))
-  if (!review) return null
-
-  const target = await resolveTarget(ctx, review, opts)
-  const statusKey = `${review.repoRoot}::${target.guideKey}`
-  const dedupeKey = `${statusKey}::${target.changeFingerprint}`
-  const running = inFlight.get(dedupeKey)
-  if (running) {
-    log.info('review_generation_joined_inflight', { guideKey: target.guideKey })
-    const current = guideStatuses.get(statusKey)
-    if (current) onStatus?.(current)
-    return running.promise
-  }
-
-  // Stamp the (scope-resolved) key onto every phase event so the renderer can
-  // match it to the guide it asked for (events broadcast to all subscribers).
-  let entry: InFlightGuide | undefined
-  const emit: EmitProgress = (step) => {
-    if (entry && inFlight.get(dedupeKey) !== entry) return
-    onProgress?.({ key: target.guideKey, step })
-    setGuideStatus(statusKey, statusEvent(review, target, 'generating', { step }), onStatus)
-  }
-
-  const abortController = new AbortController()
-  setGuideStatus(statusKey, statusEvent(review, target, 'generating', { step: 'preparing' }), onStatus)
-  const run = produceGuide(dispatcher, ctx, opts, review, target, abortController.signal, seatFor, emit)
-    .then((generated) => {
-      if (inFlight.get(dedupeKey) !== entry) return generated
-      const latest = guideStatuses.get(statusKey)
-      if (latest?.changeFingerprint && latest.changeFingerprint !== target.changeFingerprint) return generated
-      const status: ReviewGuideStatus = abortController.signal.aborted
-        ? 'cancelled'
-        : generated?.persisted
-          ? 'ready'
-          : generated?.outdated
-            ? 'outdated'
-            : 'failed'
-      setGuideStatus(
-        statusKey,
-        statusEvent(
-          review,
-          target,
-          status,
-          status === 'failed' && generated?.guide.summary
-            ? { error: generated.guide.summary }
-            : {},
-        ),
-        onStatus,
-      )
-      return generated
-    })
-    .catch((error) => {
-      if (inFlight.get(dedupeKey) !== entry) throw error
-      const latest = guideStatuses.get(statusKey)
-      if (latest?.changeFingerprint && latest.changeFingerprint !== target.changeFingerprint) throw error
-      const status: ReviewGuideStatus = abortController.signal.aborted ? 'cancelled' : 'failed'
-      setGuideStatus(statusKey, statusEvent(review, target, status, {
-        error: error instanceof Error ? error.message : String(error),
-      }), onStatus)
-      throw error
-    })
-    .finally(() => {
-      if (entry && inFlight.get(dedupeKey) === entry) inFlight.delete(dedupeKey)
-    })
-  entry = { promise: run, abortController, statusKey, target }
-  inFlight.set(dedupeKey, entry)
-  return run
-}
-
-export async function requestReviewGuide(
-  dispatcher: AgentDispatcher,
-  ctx: IpcContext,
-  opts: GenerateGuideOptions = {},
-  onProgress?: (event: ReviewProgressEvent) => void,
-  onStatus?: EmitStatus,
-  seatFor?: SeatResolver,
-): Promise<ReviewGuideStatusEvent | null> {
-  const review = await resolveReviewContext(reviewCheckout(ctx), reviewedSessionId(ctx))
-  if (!review) return null
-  const target = await resolveTarget(ctx, review, opts)
-  const statusKey = `${review.repoRoot}::${target.guideKey}`
-  const dedupeKey = `${statusKey}::${target.changeFingerprint}`
-  const running = inFlight.get(dedupeKey)
-  if (running) {
-    const current = guideStatuses.get(statusKey)
-      ?? statusEvent(review, target, 'generating', { step: 'preparing' })
-    onStatus?.(current)
-    return current
-  }
-
-  const queued = setGuideStatus(
-    statusKey,
-    statusEvent(review, target, 'queued', { step: 'preparing' }),
-    onStatus,
-  )
-  void Promise.resolve()
-    .then(() => generateGuide(
-      dispatcher,
-      ctx,
-      opts,
-      onProgress,
-      onStatus,
-      seatFor,
-    ))
-    .catch((error) => {
-      log.warn('review_generation_failed', {
-        guideKey: target.guideKey,
-        error: error instanceof Error ? error.message : String(error),
-      })
-    })
-  return queued
-}
-
-export async function getReviewGuideStatus(
-  ctx: Pick<IpcContext, 'session'>,
-  opts: Pick<GenerateGuideOptions, 'scope' | 'target'> = {},
-  factsCache?: CheckoutFactsCache,
-): Promise<ReviewGuideStatusEvent | null> {
-  const review = await resolveReviewContext(reviewCheckout(ctx), reviewedSessionId(ctx), factsCache)
-  if (!review) return null
-  const base = await resolveTargetBase(ctx, review, opts)
-  const statusKey = `${review.repoRoot}::${base.guideKey}`
-  const current = guideStatuses.get(statusKey)
-  const runningForKey = [...inFlight.values()].find((running) => running.statusKey === statusKey)
-  // The renderer probes on every working-tree change. With no guide to compare
-  // against, the answer is null, and the diff that fingerprints the change set
-  // is not needed to say so.
-  const cached = await readGuideByKey(review.repoRoot, base.guideKey)
-  if (!current && !runningForKey && !cached) return null
-  const workTree = reviewCheckout(ctx) ?? review.repoRoot
-  const target: GuideTarget = { ...base, ...await changeSnapshotFor(workTree, review, base) }
-  const currentForHead = current?.changeFingerprint === target.changeFingerprint ? current : null
-  if (runningForKey || currentForHead?.status === 'queued' || currentForHead?.status === 'generating') {
-    return currentForHead ?? statusEvent(review, target, 'generating', { step: 'preparing' })
-  }
-  if (currentForHead) return currentForHead
-
-  const headSha = await getHeadCommit(workTree)
-  if (!cached) {
-    return current
-      ? setGuideStatus(statusKey, statusEvent(review, target, 'outdated'))
-      : null
-  }
-  // A "new commits only" regeneration records the previous guide's HEAD as
-  // its base. Compare that cached guide with the same range on later status
-  // reads; comparing it with the pull request's original base would mark the
-  // fresh incremental guide outdated immediately.
-  const cachedTarget = cached.baseSha && cached.baseSha !== target.base
-    ? { ...target, base: cached.baseSha }
-    : target
-  const cachedSnapshot = cachedTarget === target
-    ? target
-    : { ...cachedTarget, ...await changeSnapshotFor(workTree, review, cachedTarget) }
-  if (cached.changeFingerprint
-    ? cached.changeFingerprint !== cachedSnapshot.changeFingerprint
-    : headSha && cached.headSha !== headSha) {
-    return setGuideStatus(statusKey, statusEvent(review, target, 'outdated'))
-  }
-  return setGuideStatus(statusKey, statusEvent(review, target, 'ready'))
-}
-
-/** Each probe costs a few git spawns and a diff. A restored workspace sends
- * one probe per tab, so the batch is paced to leave the CPU to the transcript
- * that is loading at the same time. */
-const SESSION_GUIDE_PROBE_CONCURRENCY = 4
-
-/** Session-scope status for many sessions, in request order. One session's
- * failure answers null for that session and does not fail the batch. */
-export function getSessionGuideStatuses(sessions: SessionCtx[]): Promise<(ReviewGuideStatusEvent | null)[]> {
-  // Restored tabs mostly share one checkout. Its branch, target, and head are
-  // read once for the batch instead of once per session.
-  const factsCache: CheckoutFactsCache = new Map()
-  return runBounded(sessions.map((session) => async () => {
-    try {
-      return await getReviewGuideStatus({ session }, { scope: 'session' }, factsCache)
-    } catch (error) {
-      log.warn('session_guide_status_failed', { sessionId: session.sessionId, error: String(error) })
-      return null
-    }
-  }), SESSION_GUIDE_PROBE_CONCURRENCY)
-}
-
-export async function cancelGenerateGuide(
-  ctx: IpcContext,
-  opts: Pick<GenerateGuideOptions, 'scope' | 'target'> = {},
-  onStatus?: EmitStatus,
-): Promise<boolean> {
-  const review = await resolveReviewContext(reviewCheckout(ctx), reviewedSessionId(ctx))
-  if (!review) return false
-  const target = await resolveTargetBase(ctx, review, opts)
-  const statusKey = `${review.repoRoot}::${target.guideKey}`
-  const matches = [...inFlight].filter(([, running]) => running.statusKey === statusKey)
-  if (matches.length === 0) return false
-  for (const [dedupeKey, running] of matches) {
-    running.abortController.abort()
-    inFlight.delete(dedupeKey)
-  }
-  const latestTarget = matches.at(-1)?.[1].target
-  if (latestTarget) {
-    setGuideStatus(statusKey, statusEvent(review, latestTarget, 'cancelled'), onStatus)
-  }
-  return true
-}
-
-/** PR jobs own queueing, cancellation, freshness, and the atomic commit. */
-export async function authorPrGuide(
+export async function authorGuide(
   dispatcher: AgentDispatcher,
   ctx: IpcContext,
   opts: GenerateGuideOptions,
   signal: AbortSignal,
   emit: EmitProgress,
   seatFor?: SeatResolver,
+  onRead?: (target: GuideTarget, review: ReviewContext) => void,
 ): Promise<GeneratedGuide | null> {
   const review = await resolveReviewContext(reviewCheckout(ctx), reviewedSessionId(ctx))
   if (!review || signal.aborted) return null
   const target = await resolveTarget(ctx, review, opts)
   if (signal.aborted) return null
-  return produceGuide(dispatcher, ctx, opts, review, target, signal, seatFor, emit, false)
+  onRead?.(target, review)
+  return produceGuide(dispatcher, ctx, opts, review, target, signal, seatFor, emit)
 }
 
 async function produceGuide(
@@ -454,10 +181,9 @@ async function produceGuide(
   target: GuideTarget,
   abortSignal: AbortSignal,
   seatFor: SeatResolver | undefined,
-  emit?: EmitProgress,
-  persist = true,
+  emit: EmitProgress,
 ): Promise<GeneratedGuide | null> {
-  emit?.('preparing')
+  emit('preparing')
   // Gate on whether the target has anything to review. Branch-like targets use
   // their base versus the live tree. A session uses its captured base-to-head
   // snapshot, so changes from another session in the shared tree cannot leak in.
@@ -466,8 +192,8 @@ async function produceGuide(
   const base = target.base
   const headSha = await resolvedGuideHead(target, workTree, review)
 
-  // Target resolution computed the exact patch before dedupe, so every author
-  // run is tied to one content fingerprint.
+  // Target resolution computed the exact patch, so every author run is tied to
+  // one content fingerprint.
   if (target.patch === null) {
     return { key: target.guideKey, guide: fallbackGuide(target.guideKey, headSha, base, DIFF_FAILED, target.changeFingerprint), persisted: false }
   }
@@ -482,7 +208,7 @@ async function produceGuide(
   // the prompt and the agent gathers the exact base/head range itself.
   const inlineDiff = patch.length <= MAX_INLINE_DIFF_CHARS ? patch : null
 
-  if (patch) emit?.('analyzing')
+  if (patch) emit('analyzing')
   const draft = patch
     ? await runReviewAgent(dispatcher, {
       workTree,
@@ -520,6 +246,7 @@ async function produceGuide(
   const guide: ReviewGuide = {
     version: 1,
     key: target.guideKey,
+    target: target.target,
     headSha,
     baseSha: base,
     changeFingerprint: target.changeFingerprint,
@@ -527,25 +254,7 @@ async function produceGuide(
     ...normalizeGuide(draft, { patch }),
   }
 
-  return finishGuide(workTree, review, target, guide, persist)
-}
-
-async function finishGuide(workTree: string, review: ReviewContext, target: GuideTarget, guide: ReviewGuide, persist: boolean): Promise<GeneratedGuide> {
-  if (!persist) {
-    guide.target = target.target
-    return { key: target.guideKey, guide, persisted: false, authored: true }
-  }
-
-  // A slow author must not overwrite a guide for newer live content. The base is
-  // already resolved, so only the content identity under it has to be re-read.
-  const current = await changeSnapshotFor(workTree, review, target)
-  if (current.changeFingerprint !== target.changeFingerprint) {
-    log.info('review_generation_outdated_before_persist', { guideKey: target.guideKey })
-    return { key: target.guideKey, guide, persisted: false, outdated: true }
-  }
-  const ok = await writeGuide(review.repoRoot, guide)
-  if (!ok) log.warn('review_guide_cache_failed', { guideKey: target.guideKey })
-  return { key: target.guideKey, guide, persisted: ok }
+  return { key: target.guideKey, guide, persisted: false, authored: true }
 }
 
 export async function resolvedGuideHead(target: GuideTarget, workTree: string, review: ReviewContext): Promise<string> {

@@ -26,12 +26,26 @@ import type {
   PrRevertResult,
   PrStack,
   PrStackMembership,
+  PrStackMergeRequest,
   PrStateAction,
+  PrPendingWorkflowRun,
+  PrViewedFileChange,
+  PrViewedFiles,
   ProviderRepository,
   ProviderViewer,
 } from '@solus/contracts/providers'
 import { createLogger } from '../../logger'
-import { readPullRequestStack, stackMembershipOf, STACK_MEMBERSHIP_FIELDS, type GqlStackMembership } from './stacks'
+import {
+  GithubStackMergeRefusal,
+  mergeGithubPullRequestStack,
+  readPullRequestStack,
+  stackMembershipOf,
+  STACK_MEMBERSHIP_FIELDS,
+  type GithubStackMerge,
+  type GqlStackMembership,
+} from './stacks'
+import { approveGithubWorkflowRuns, listGithubPendingWorkflowRuns } from './workflow-approvals'
+import { readGithubViewedFiles, writeGithubViewedFiles } from './viewed-files'
 import { canonicalRepoRef } from './canonical-repo'
 import {
   buildChecksQuery,
@@ -1754,6 +1768,50 @@ export class GitHubProvider implements ReviewProvider {
         'GitHub could not update the branch',
         'Check that you can push to the head branch and that it does not conflict with the base.',
       )
+    }
+  }
+
+  async mergePullRequestStack(repo: RepoRef, request: PrStackMergeRequest): Promise<GithubStackMerge> {
+    try {
+      return await this.withClient('merge_pull_request_stack', repo.host, (client) =>
+        mergeGithubPullRequestStack(client, repo, request))
+    } catch (err) {
+      if (err instanceof GithubStackMergeRefusal) throw err
+      throw githubWriteRefusal(
+        err,
+        'GitHub could not merge the stack',
+        'Check that you have write access, that this repository has stacks, and that every layer to merge can merge.',
+      )
+    }
+  }
+
+  async listPendingWorkflowRuns(repo: RepoRef, pullRequest: PullRequest): Promise<PrPendingWorkflowRun[]> {
+    return this.withClient('list_pending_workflow_runs', repo.host, (client) =>
+      listGithubPendingWorkflowRuns(client, repo, pullRequest))
+  }
+
+  async approvePendingWorkflowRuns(repo: RepoRef, pullRequest: PullRequest): Promise<number> {
+    try {
+      return await this.withClient('approve_pending_workflow_runs', repo.host, (client) =>
+        approveGithubWorkflowRuns(client, repo, pullRequest))
+    } catch (err) {
+      throw githubWriteRefusal(
+        err,
+        'GitHub could not approve the workflow runs',
+        'Check that you have write access to this repository.',
+      )
+    }
+  }
+
+  async listViewedFiles(repo: RepoRef, number: number): Promise<PrViewedFiles> {
+    return this.withClient('list_viewed_files', repo.host, (client) => readGithubViewedFiles(client, repo, number))
+  }
+
+  async setFilesViewed(repo: RepoRef, number: number, changes: PrViewedFileChange[]): Promise<void> {
+    try {
+      await this.withClient('set_files_viewed', repo.host, (client) => writeGithubViewedFiles(client, repo, number, changes))
+    } catch (err) {
+      throw githubWriteRefusal(err, 'GitHub could not save which files you viewed', 'Refresh the pull request and try again.')
     }
   }
 

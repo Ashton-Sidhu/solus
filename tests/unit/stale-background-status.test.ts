@@ -29,7 +29,7 @@ test.each([
     'serverConnections', `${hydration}\nreturn hydrateTab;`)(
     () => new Promise(() => {}), async () => ({ messages: [] }),
     async () => ({ messages: [], planIds: [] }), () => {}, () => {}, 200, () => false,
-    { isKnownServer: () => true })
+    { presenceOf: () => 'present' })
   await hydrate(context, { tabId: 'tab', agentSessionId: 'thread', provider: 'claude-code', workingDirectory: '/repo' })
   expect(session.status).toBe(expected)
 })

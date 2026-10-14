@@ -134,11 +134,11 @@ export async function getSessionRecords(scope: RecordScope, sessionIds: readonly
   return records
 }
 
-/** Scoped, authorized seek predicate is applied before LIMIT. */
-export async function readSessionMetadataPage(where: SQL, limit: number): Promise<SessionRecord[]> {
+/** Scoped, authorized seek predicate is applied before LIMIT. The seek must use the same time column. */
+export async function readSessionMetadataPage(where: SQL, limit: number, time: 'created_at' | 'last_activity_at' = 'created_at'): Promise<SessionRecord[]> {
   const rows = recordRowSchema.array().parse(await getDatabase().all(sql`
     SELECT ${RECORD_COLUMNS} FROM ${sessionRecords}
-    WHERE ${where} ORDER BY created_at DESC, session_id DESC LIMIT ${limit}
+    WHERE ${where} ORDER BY ${sql.identifier(time)} DESC, session_id DESC LIMIT ${limit}
   `))
   return rows.map(recordFromRow)
 }
@@ -267,10 +267,11 @@ function mergeRecord(existing: SessionRecord | null, organizationId: string, inp
 /**
  * A report into one organization: a runner's on the Solus API, or a member's on
  * a host. A record that exists in another organization is not touched — a
- * session id names one record, and its organization never moves.
+ * session id names one record, and its organization never moves. `birth`
+ * applies only when the report creates the record.
  */
-export function upsertSessionRecord(organizationId: string, input: SessionRecordUpsert): Promise<SessionRecord> {
-  return serialized(input.sessionId, () => upsertRecordNow(organizationId, input))
+export function upsertSessionRecord(organizationId: string, input: SessionRecordUpsert, birth?: SessionBirth): Promise<SessionRecord> {
+  return serialized(input.sessionId, () => upsertRecordNow(organizationId, input, birth))
 }
 
 /**
@@ -298,23 +299,33 @@ export interface SessionBirth {
 
 /** Set once per session and consumed by the write that creates the record. */
 const bornInto = new Map<string, SessionBirth>()
-/** The admission each API-owned record's reports name; kept until the process ends, since the first report may wait for delivery. */
-const admissionByRecord = new Map<string, string>()
+/** The birth of each API-owned record, whose reports name its admission; kept until the process ends, since the first report may wait for delivery. */
+const admittedBirths = new Map<string, SessionBirth>()
 
 export function rememberSessionBirth(sessionId: string, birth: SessionBirth): void {
   bornInto.set(sessionId, birth)
-  if (birth.admissionId) admissionByRecord.set(sessionId, birth.admissionId)
+  if (birth.admissionId) admittedBirths.set(sessionId, birth)
 }
 
 /** The Solus API admission a record was born under, for its reports (organization-vms §3). */
 export function admissionIdFor(sessionId: string): string | undefined {
-  return admissionByRecord.get(sessionId)
+  return admittedBirths.get(sessionId)?.admissionId
 }
 
-async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert): Promise<SessionRecord> {
+/**
+ * The organization and owner of a session the Solus API admitted (organization-vms §3).
+ * It lives there from its admission, also while its record is not written yet or
+ * still reads Local here: the agent's first tool call can come before either write.
+ */
+export function admittedHomeOf(sessionId: string): { organizationId: string; ownerUserId: string | null } | null {
+  const birth = admittedBirths.get(sessionId)
+  return birth ? { organizationId: birth.organizationId, ownerUserId: birth.ownerUserId ?? null } : null
+}
+
+async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, birth?: SessionBirth): Promise<SessionRecord> {
   const merged = await getDatabase().transaction(async (db) => {
     const existing = await readRecord(db, scope, input.sessionId)
-    const born = existing ? null : bornInto.get(input.sessionId) ?? null
+    const born = existing ? null : birth ?? bornInto.get(input.sessionId) ?? null
     if (!existing) bornInto.delete(input.sessionId)
     const organizationId = isAnyOrganization(scope) ? born?.organizationId ?? machineOrganizationId() : scope
     const merged = mergeRecord(existing, organizationId, input, born)

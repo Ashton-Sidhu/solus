@@ -2,6 +2,7 @@ import { HostSupervisor, type BlockedReason, type DialOutcome, type HostPhase, t
 import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import { asHostApi, type HostApi } from '@solus/client-core/host-api'
 import { HostFacts } from '@solus/client-core/host-facts'
+import { HostIntroducer, type IntroducerHost } from '@solus/client-core/host-introducer'
 import { awaitsManagedCompute, dialableRoutes, installationIdDecision, nextRouteUrl } from '@solus/client-core/server-registry'
 import { classifyVisibilityReturn, type WakeSignal } from '@solus/client-core/wake-signals'
 import type { ConnectionStatus, WsTransportOptions } from '@solus/client-core/ws-transport'
@@ -101,6 +102,8 @@ export class HostConnections {
   private readonly idleStates = new Map<string, HostConnectionState>()
   readonly changes = new Listeners()
   private hiddenAt: number | null = null
+  /** Introduces the hosts this phone owns to each other (docs/plans/host-reach.md §4). */
+  private readonly introducer = new HostIntroducer(() => this.ownedHosts())
 
   constructor(private readonly deps: HostConnectionsDeps) {
     deps.registry.onHostRemoved((hostId) => this.dispose(hostId))
@@ -154,7 +157,10 @@ export class HostConnections {
     transport.attachDialOutcomeReporter((outcome) => {
       supervisor.report(outcome)
       created.state = { ...created.state, sessionGeneration: supervisor.sessionGeneration, blockedReason: supervisor.blockedReason }
-      if (outcome.kind === 'accepted') created.notifyAccepted()
+      if (outcome.kind === 'accepted') {
+        created.notifyAccepted()
+        this.introducer.run()
+      }
       // Direct routes come first; a phone away from the host's network reaches it
       // through the tunnel. The supervisor still owns when the next dial happens.
       if (outcome.kind === 'dial-failed') {
@@ -166,6 +172,17 @@ export class HostConnections {
     this.connections.set(host.id, created)
     supervisor.start()
     return created
+  }
+
+  /** The connected hosts where this phone is the local owner. */
+  private async ownedHosts(): Promise<IntroducerHost[]> {
+    const connected = [...this.connections.values()].filter((connection) => connection.state.phase === 'connected')
+    const hosts = await Promise.all(connected.map(async (connection): Promise<IntroducerHost | null> => {
+      const info = await connection.facts.when('serverInfo').catch(() => null)
+      const host = this.deps.registry.host(connection.hostId)
+      return info?.principal === 'local-owner' && host ? { installationId: host.id, label: host.label, api: connection.api } : null
+    }))
+    return hosts.filter((host): host is IntroducerHost => host !== null)
   }
 
   state(hostId: string): HostConnectionState | null {

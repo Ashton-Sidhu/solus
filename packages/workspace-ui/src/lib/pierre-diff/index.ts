@@ -15,4 +15,6 @@ export {
   patchCacheKey,
   patchMetadataCacheStats,
   type PatchMetadataCacheStats,
+  withRealPaths,
 } from './metadata'
+export { patchFileChunks, type PatchFileChunk } from './patch-files'

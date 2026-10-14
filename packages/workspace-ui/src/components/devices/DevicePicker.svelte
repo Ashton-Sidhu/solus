@@ -137,7 +137,7 @@
       {/if}
 
       {#if connected > 0}
-        <p class="mt-3 text-(--solus-text-tertiary)">{connected} connected device{connected === 1 ? "" : "s"}. Install builds on {connected === 1 ? "it" : "them"} from Builds.</p>
+        <p class="mt-3 text-(--solus-text-tertiary)">{connected} connected device{connected === 1 ? "" : "s"}. Install builds on {connected === 1 ? "it" : "them"} from Run app.</p>
       {/if}
       {#each reasons as reason (reason)}
         <p class="mt-1 text-(--solus-text-tertiary)">{reason}</p>

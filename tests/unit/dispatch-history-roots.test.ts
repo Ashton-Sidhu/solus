@@ -8,7 +8,7 @@ import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 const { dispatchCheckoutOwnerKey, dispatchCheckoutPath, resolveDispatchHistoryRoots } = await import('@solus/server/project-config/dispatch-checkouts')
-const { adoptProvisionedLink, resetHostCategoryForTests } = await import('@solus/server/host/host-category')
+const { adoptProvisionedRegistration, resetHostCategoryForTests } = await import('@solus/server/host/host-category')
 
 const roots: string[] = []
 
@@ -53,7 +53,7 @@ describe('dispatch checkout owner', () => {
   test('on a Solus-provisioned machine a member has one clone per repository, whatever device asks', async () => {
     // WHY: plan 004 item 8. A member who dispatches from a laptop and then a
     // phone must work in the same clone, and never in another member's.
-    adoptProvisionedLink({ organizationId: 'org1' })
+    adoptProvisionedRegistration({ organizationId: 'org1' })
     try {
       expect(dispatchCheckoutOwnerKey(member('alice', 'laptop'), 'laptop')).toBe('alice')
       expect(dispatchCheckoutOwnerKey(member('alice', 'phone'), 'phone')).toBe('alice')

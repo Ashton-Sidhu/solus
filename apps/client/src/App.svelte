@@ -1,6 +1,7 @@
 <script lang="ts">
   import LazyDialog from "@solus/workspace-ui/components/pickers/LazyDialog.svelte";
   import { hostUpdatesStore } from "@solus/workspace-ui/contexts/updates/host-updates.store.svelte";
+  import { updateAllPaletteCommands } from "@solus/workspace-ui/contexts/updates/update-all-commands";
   import { onMount, untrack } from "svelte";
   import SessionLinkPrompts from "@solus/workspace-ui/components/session/SessionLinkPrompts.svelte";
   import { Building2 as OrganizationIcon, Download as DownloadSimpleIcon } from "@lucide/svelte";
@@ -120,7 +121,7 @@
 
   $effect(() => {
     // The version of the host that served this client: the window's primary.
-    const appVersion = hosts.find(serverConnections.defaultServerId())?.capabilityRecord?.version;
+    const appVersion = hosts.get(serverConnections.defaultServerId())?.capabilityRecord?.version;
     if (appVersion) registerSuperProps({ app_version: appVersion });
   });
 
@@ -564,6 +565,7 @@
       hint: comboHint('global.check-for-updates'), keywords: ['update', 'version', 'provider'],
       run: () => void hostUpdatesStore.checkAll(),
     },
+    ...updateAllPaletteCommands(),
     {
       id: "open-project",
       label: "Open project…",

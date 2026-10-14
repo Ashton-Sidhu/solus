@@ -3,6 +3,7 @@ import type { PrCommit, PrConversationItem, ReviewThread } from '@solus/contract
 import {
   activityDiffPreview,
   buildActivityTimeline,
+  type ActivityEvent,
   filterActivityTimeline,
   prLabelActivityText,
   reviewThreadDiffHunks,
@@ -167,6 +168,85 @@ describe('PR activity inline diff preview', () => {
     }
 
     expect(reviewThreadDiffHunks(patch, [{ kind: 'thread', ts: 0, thread }]).get(thread.id)).toBe(hunk)
+  })
+
+  test('finds a thread hunk in a file late in a large multi-file patch, by its real path', () => {
+    // WHY: a pull request can change hundreds of files. The thread in the last
+    // file must get its full hunk, and a quoted path must still match.
+    const filler = Array.from({ length: 300 }, (_, index) => [
+      `diff --git a/src/file-${index}.ts b/src/file-${index}.ts`,
+      `--- a/src/file-${index}.ts`,
+      `+++ b/src/file-${index}.ts`,
+      '@@ -1,2 +1,2 @@',
+      ' keep',
+      '-old',
+      '+new',
+    ].join('\n')).join('\n')
+    const lateHunk = '@@ -40,3 +40,3 @@ menu()\n keep 40\n-old 41\n+new 41\n keep 42'
+    const patch = [
+      filler,
+      'diff --git "a/docs/caf\\303\\251 menu.md" "b/docs/caf\\303\\251 menu.md"',
+      '--- "a/docs/caf\\303\\251 menu.md"',
+      '+++ "b/docs/caf\\303\\251 menu.md"',
+      lateHunk,
+      'diff --git a/src/old.ts b/src/new.ts',
+      'similarity index 90%',
+      'rename from src/old.ts',
+      'rename to src/new.ts',
+      '--- a/src/old.ts',
+      '+++ b/src/new.ts',
+      '@@ -5,2 +5,2 @@',
+      ' same',
+      '-before',
+      '+after',
+      '\\ No newline at end of file',
+      '',
+    ].join('\n')
+    const thread = (id: string, filePath: string, line: number, side: 'LEFT' | 'RIGHT'): ActivityEvent => ({
+      kind: 'thread',
+      ts: 0,
+      thread: { id, filePath, line, side, isResolved: false, isOutdated: false, comments: [] },
+    })
+    const hunks = reviewThreadDiffHunks(patch, [
+      thread('late', 'docs/café menu.md', 41, 'RIGHT'),
+      thread('renamed', 'src/new.ts', 6, 'RIGHT'),
+      thread('outside', 'src/file-299.ts', 90, 'RIGHT'),
+    ])
+    expect(hunks.get('late')).toBe(lateHunk)
+    expect(hunks.get('renamed')).toBe('@@ -5,2 +5,2 @@\n same\n-before\n+after\n\\ No newline at end of file')
+    expect(hunks.has('outside')).toBe(false)
+  })
+
+  test('a no-newline marker is not a row of the preview', () => {
+    const hunk = [
+      '@@ -1,8 +1,8 @@',
+      ' one',
+      ' two',
+      ' three',
+      ' four',
+      ' five',
+      ' six',
+      ' seven',
+      '-eight',
+      '\\ No newline at end of file',
+      '+EIGHT',
+      '\\ No newline at end of file',
+    ].join('\n')
+    // Eight old rows and one added row: the anchor is the last row, so five
+    // rows are hidden before it and none after it.
+    expect(activityDiffPreview(hunk, 8, 'RIGHT')).toEqual({
+      hunk: [
+        '@@ -6,3 +6,3 @@',
+        ' six',
+        ' seven',
+        '-eight',
+        '\\ No newline at end of file',
+        '+EIGHT',
+        '\\ No newline at end of file',
+      ].join('\n'),
+      hiddenBeforeLineCount: 5,
+      hiddenAfterLineCount: 0,
+    })
   })
 
   test('leaves a short hunk unchanged without offering expansion', () => {

@@ -94,6 +94,7 @@ const nativeApi: NativeSolusAPI = {
   uplinkListDirectory: () => ipcRenderer.invoke('solus:uplink-directory'),
   accountAccessToken: (resource: ConnectionTokenResource, options?: { fresh?: boolean }) => ipcRenderer.invoke('solus:account-access-token', resource, options),
   uplinkStartManagedHost: (hostId: string) => ipcRenderer.invoke('solus:uplink-start-managed-host', hostId),
+  uplinkRemoveHost: (hostId: string) => ipcRenderer.invoke('solus:uplink-remove-host', hostId),
   accountSettingsGet: () => ipcRenderer.invoke('solus:account-settings-get'),
   accountSettingsPatch: (request: AccountSettingsPatchRequest) => ipcRenderer.invoke('solus:account-settings-patch', request),
   accountSettingsDelete: () => ipcRenderer.invoke('solus:account-settings-delete'),

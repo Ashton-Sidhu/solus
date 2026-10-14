@@ -8,11 +8,11 @@ import type { RemoteTarget } from '@solus/server/execution/orchestration/session
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-// WHY: `start_session` with `host` starts the work on another of the owner's
-// hosts as if the owner started it there (docs/plans/cross-host-sessions.md).
-// The tool must refuse what the first version cannot honour — no account or pairing on
-// this host, a task across hosts, a turn that is not the owner's — before it
-// reaches the other host; check the model against what that host offers, not
+// WHY: `start_session` with `host` starts the work on another host the turn's person
+// reaches, as if they started it there (docs/plans/cross-host-sessions.md,
+// docs/plans/host-reach.md). The tool must refuse what it cannot honour — no way to
+// reach other hosts here, a task across hosts, a turn whose person reaches no other
+// host — before it reaches the other host; it must look the host up for that person; check the model against what that host offers, not
 // this one; never resolve the other host's path here; and tell the other host
 // which session started it. A message to a session it started there goes to
 // that host, with its attachments; a read names the host rather than "not found".
@@ -24,7 +24,10 @@ let closeDb: typeof import('@solus/server/db')['closeDb']
 const spawned: unknown[][] = []
 const sentOrders: unknown[][] = []
 const stopped: unknown[][] = []
-let ownerTurn = true
+const OWNER_REACH = { account: { userId: 'alice', scope: 'personal' as const }, isOwner: true }
+/** What the current turn may reach; null for a person who reaches no other host from here. */
+let turnReach: typeof OWNER_REACH | null = OWNER_REACH
+const lookups: unknown[] = []
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir = ''
 
@@ -37,7 +40,10 @@ const remoteHost = {
 }
 const remoteHosts = {
   list: async () => [{ hostId: 'host-b', label: 'Host B', routes: [{ kind: 'tunnel', url: 'https://b.example' }] }],
-  find: async (ref: string) => ref === 'Host B' ? { hostId: 'host-b', label: 'Host B' } : { error: `No host "${ref}".` },
+  find: async (request: unknown, ref: string) => {
+    lookups.push(request)
+    return ref === 'Host B' ? { hostId: 'host-b', label: 'Host B' } : { error: `No host "${ref}".` }
+  },
   connect: () => remoteHost,
 }
 
@@ -52,7 +58,7 @@ beforeAll(async () => {
   ;({ closeDb } = await import('@solus/server/db'))
   sessionTools.setSessionController({
     getSessionInfo: async () => null,
-    actsForHostOwner: () => ownerTurn,
+    reachRequestFor: () => turnReach,
     listAgentTargets: async () => [{
       provider: 'codex', label: 'Codex', available: true, defaultModel: 'model-on-a',
       models: [{ id: 'model-on-a', label: 'A model', reasoningLevels: [], defaultReasoningEffort: 'medium', defaultContextWindow: null }],
@@ -76,21 +82,22 @@ afterAll(() => {
 })
 
 describe('start_session on another host', () => {
-  test('is refused on a host with no account session and no paired host', async () => {
+  test('is refused on a host that cannot reach other hosts', async () => {
     sessionTools.setRemoteHosts(null)
     const result = await start({})
-    expect(result).toEqual({ ok: false, text: expect.stringContaining('Pair a host in Settings → Hosts → this host → Access') })
+    expect(result).toEqual({ ok: false, text: 'This host cannot reach other hosts.' })
     expect(spawned).toHaveLength(0)
   })
 
-  test('refuses a task across hosts and a turn that is not the owner\'s', async () => {
+  test('refuses a task across hosts and a turn whose person reaches no other host', async () => {
     sessionTools.setRemoteHosts(remoteHosts as never)
     expect((await start({ task: 'attempt' })).text).toContain("Use task='none'")
-    ownerTurn = false
-    expect((await start({})).text).toContain("Only this host's owner")
-    ownerTurn = true
+    turnReach = null
+    expect((await start({})).text).toContain('Only a person with access to this host')
+    turnReach = OWNER_REACH
     expect(spawned).toHaveLength(0)
   })
+
 
   test('checks the model against the other host, not this one', async () => {
     sessionTools.setRemoteHosts(remoteHosts as never)
@@ -117,6 +124,12 @@ describe('start_session on another host', () => {
     sessionTools.setRemoteHosts(remoteHosts as never)
     await start({ cwd: '~/code/app' })
     expect(spawned.at(-1)![1]).toMatchObject({ cwd: '~/code/app' })
+  })
+  test('looks the host up for the turn\'s person', async () => {
+    sessionTools.setRemoteHosts(remoteHosts as never)
+    lookups.length = 0
+    await start({})
+    expect(lookups).toEqual([OWNER_REACH])
   })
 })
 
@@ -145,15 +158,15 @@ describe('a session on another host', () => {
     expect((remote as RemoteTarget).host.hostId).toBe('host-b')
   })
 
-  test('send_session to another host is refused for a turn that is not the owner\'s', async () => {
-    // WHY: host B is reached with the owner's token. In a shared session,
-    // another person's turn must not act as the owner there.
+  test('send_session to another host is refused for a turn whose person reaches no other host', async () => {
+    // WHY: host B is reached for the turn's person. In a shared session, a person
+    // with no reach must not act through anyone else's.
     sessionTools.setRemoteHosts(remoteHosts as never)
-    ownerTurn = false
+    turnReach = null
     const before = sentOrders.length
     const result = await sessionTools.executeSessionTool('send_session', { session_id: 'child-on-b', message: 'More work.' }, { ctx })
-    ownerTurn = true
-    expect(result).toEqual({ ok: false, text: "Only this host's owner can message sessions on their other hosts." })
+    turnReach = OWNER_REACH
+    expect(result).toEqual({ ok: false, text: 'Only a person with access to this host can reach their other hosts from it.' })
     expect(sentOrders).toHaveLength(before)
   })
 
@@ -161,7 +174,7 @@ describe('a session on another host', () => {
     sessionTools.setRemoteHosts(null)
     const before = sentOrders.length
     const result = await sessionTools.executeSessionTool('send_session', { session_id: 'child-on-b', message: 'More work.' }, { ctx })
-    expect(result).toEqual({ ok: false, text: expect.stringContaining('Pair a host in Settings → Hosts → this host → Access') })
+    expect(result).toEqual({ ok: false, text: 'This host cannot reach other hosts.' })
     expect(sentOrders).toHaveLength(before)
   })
 

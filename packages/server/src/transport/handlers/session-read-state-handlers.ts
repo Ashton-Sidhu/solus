@@ -1,5 +1,4 @@
 import { markSessionUnread, markSessionViewed } from '../../data/sessions/session-states'
-import type { HostEventPublisher } from '../events/host-event-publisher'
 import type { SolusServer } from '../server'
 
 /**
@@ -11,20 +10,17 @@ import type { SolusServer } from '../server'
  * The two directions differ only in their rule — a read is monotonic, clearing
  * is not — and that belongs in the decider, not in the wire surface.
  *
- * Broadcasts rather than answering only its caller: the point of moving this
- * off the client is that reading a session on the desktop clears its indicator
- * on the phone too.
+ * The host broadcasts `session.readStateChanged` for each move of the boundary
+ * (boot-server.ts), so reading a session on the desktop clears its indicator
+ * on the phone too, and an agent's mark_unread reaches every client.
  */
-export function registerSessionReadStateHandlers(
-  server: SolusServer,
-  deps: { events: HostEventPublisher },
-): void {
+export function registerSessionReadStateHandlers(server: SolusServer): void {
   server.register('setSessionReadState', async (args) => {
     const [sessionId, viewedAt] = args
-    let settled: number | null = null
-    if (viewedAt !== null) settled = await markSessionViewed(sessionId, viewedAt)
-    else await markSessionUnread(sessionId)
-    deps.events.broadcast('session.readStateChanged', { sessionId, viewedAt: settled })
-    return settled
+    if (viewedAt === null) {
+      await markSessionUnread(sessionId)
+      return null
+    }
+    return markSessionViewed(sessionId, viewedAt)
   })
 }

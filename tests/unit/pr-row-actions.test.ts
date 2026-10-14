@@ -73,6 +73,17 @@ describe('what a pull request row offers', () => {
     expect(await kindsFor({ capabilities: { ...capabilities, mergeMethods: [] } })).toEqual(['close'])
   })
 
+  test('a layer of a stack shows its merge, but disabled with the way to merge the stack', async () => {
+    // WHY: a merge from the row would land one layer alone, out of order. The
+    // stack lands from its base up, from the open pull request's stack menu.
+    const { prRowActions } = await import('@solus/workspace-ui/components/prs/lib/pr-row-actions')
+    const stacked = prRowActions(pullRequestFixture(7, { stack: { number: 4, position: 2, size: 3, base: 'main' } }))
+    const alone = prRowActions(pullRequestFixture(7, { stack: null }))
+    expect(stacked.find((action) => action.kind === 'merge')?.disabledReason).toBe('Open this pull request to merge its stack')
+    expect(stacked.find((action) => action.kind === 'close')?.disabledReason).toBeUndefined()
+    expect(alone.find((action) => action.kind === 'merge')?.disabledReason).toBeUndefined()
+  })
+
   test('Shift and a letter pick an offered action; any other modifier belongs to a global shortcut', async () => {
     const { prRowActionForKey, prRowActions } = await import('@solus/workspace-ui/components/prs/lib/pr-row-actions')
     const open = prRowActions(pullRequestFixture(7))

@@ -10,6 +10,7 @@ import type {
 } from "@solus/contracts/review";
 import type { AgentMetadata } from "@solus/contracts/types";
 import type { SettingsContext } from "../../../contexts";
+import { parsePatchMetadata, patchFileChunks } from "../../../lib/pierre-diff";
 import {
   clampReasoningEffort,
   defaultModelIdFor,
@@ -81,28 +82,11 @@ export function lensPickerSelection(
  */
 export function commentableNewLines(patch: string, path: string): Set<number> {
   const lines = new Set<number>();
-  let inFile = false;
-  let newLine = 0;
-  let inHunk = false;
-  for (const raw of patch.split("\n")) {
-    const header = raw.match(/^diff --git a\/.+ b\/(.+)$/);
-    if (header) {
-      inFile = header[1] === path;
-      inHunk = false;
-      continue;
-    }
-    if (!inFile) continue;
-    const hunk = raw.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-    if (hunk) {
-      newLine = Number(hunk[1]);
-      inHunk = true;
-      continue;
-    }
-    if (!inHunk) continue;
-    if (raw.startsWith("+")) lines.add(newLine++);
-    else if (raw.startsWith(" ")) lines.add(newLine++);
-    else if (raw.startsWith("-") || raw.startsWith("\\")) continue;
-    else inHunk = false;
+  const chunk = patchFileChunks(patch).find((file) => file.path === path);
+  const file = chunk ? parsePatchMetadata(chunk.text) : null;
+  // The added and context lines of a hunk are its new-side range, without gaps.
+  for (const hunk of file?.hunks ?? []) {
+    for (let offset = 0; offset < hunk.additionCount; offset++) lines.add(hunk.additionStart + offset);
   }
   return lines;
 }

@@ -30,6 +30,7 @@ public final class SolusKeyboardCommandsView: ExpoView {
   public override var keyCommands: [UIKeyCommand]? {
     [
       enabledCommand("send", input: "\r", modifiers: .command, action: #selector(send), title: "Send"),
+      enabledCommand("sendOnReturn", input: "\r", modifiers: [], action: #selector(sendOnReturn), title: "Send"),
       enabledCommand("newSession", input: "n", modifiers: .command, action: #selector(newSession), title: "New Session"),
       enabledCommand("toggleSidebar", input: "b", modifiers: .command, action: #selector(toggleSessionSidebar), title: "Toggle Sidebar"),
       enabledCommand("focusInput", input: "l", modifiers: .command, action: #selector(focusInput), title: "Focus Input"),
@@ -68,11 +69,23 @@ public final class SolusKeyboardCommandsView: ExpoView {
   }
 
   @objc private func send() { emit("send") }
+  @objc private func sendOnReturn() { emit("sendOnReturn") }
   @objc private func newSession() { emit("newSession") }
   @objc private func toggleSessionSidebar() { emit("toggleSidebar") }
   @objc private func focusInput() { emit("focusInput") }
   @objc private func stop() { emit("stop") }
   @objc private func goBack() { emit("back") }
+
+  /// Return confirms an input method's marked text (for example, Japanese)
+  /// before it can send.
+  public override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+    if action == #selector(sendOnReturn),
+       let input = window?.solusFirstResponder as? UITextInput,
+       input.markedTextRange != nil {
+      return false
+    }
+    return super.canPerformAction(action, withSender: sender)
+  }
 
   private func emit(_ command: String) {
     onCommand(["command": command])

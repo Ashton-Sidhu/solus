@@ -1,4 +1,5 @@
 // Adapted from T3 Code apps/mobile/src/components/ComposerEditor.tsx (MIT, see UPSTREAM.md).
+import { TextInputWrapper, type PasteEventPayload } from "expo-paste-input";
 import { useImperativeHandle, useRef, type Ref } from "react";
 import { Platform, TextInput, type StyleProp, type TextInputInstance, type TextStyle, type ViewStyle } from "react-native";
 
@@ -9,8 +10,9 @@ import { MOBILE_FONTS } from "../lib/typography";
  * which this app does not ship. This is the same surface on a React Native
  * TextInput: the props the thread and new-task composers pass and the
  * imperative handle they hold. A hardware Return sends through the app's
- * `send` keyboard command. Context chips, skills, and rich paste are not part
- * of it.
+ * `send` keyboard command. As in T3, `expo-paste-input` hands images pasted
+ * with the system Paste command to `onPasteImages`; text pastes natively.
+ * Context chips and skills are not part of it.
  */
 export interface ComposerEditorSelection {
   readonly start: number;
@@ -41,6 +43,8 @@ export interface ComposerEditorProps {
   readonly onSelectionChange?: (selection: ComposerEditorSelection) => void;
   readonly onFocus?: () => void;
   readonly onBlur?: () => void;
+  /** Local file URIs of images the user pasted. */
+  readonly onPasteImages?: (uris: string[]) => void;
   readonly style?: StyleProp<ViewStyle>;
   readonly textStyle?: TextStyle;
 }
@@ -59,37 +63,43 @@ export function ComposerEditor(props: ComposerEditorProps) {
     [],
   );
 
+  const onPaste = (payload: PasteEventPayload) => {
+    if (payload.type === "images" && payload.uris.length > 0) props.onPasteImages?.(payload.uris);
+  };
+
   return (
-    <TextInput
-      ref={inputRef}
-      accessibilityLabel={props.placeholder ?? "Message"}
-      autoFocus={props.autoFocus}
-      editable={props.editable !== false && props.readOnly !== true}
-      multiline={props.multiline}
-      scrollEnabled={props.scrollEnabled}
-      value={props.value}
-      onChangeText={props.onChangeText}
-      placeholder={props.placeholder}
-      placeholderTextColorClassName="accent-placeholder"
-      selectionColorClassName="accent-focus/32"
-      cursorColorClassName="accent-focus"
-      selectionHandleColorClassName={Platform.OS === "android" ? "accent-focus" : undefined}
-      selection={props.selection}
-      onSelectionChange={(event) => props.onSelectionChange?.(event.nativeEvent.selection)}
-      onFocus={props.onFocus}
-      onBlur={props.onBlur}
-      textAlignVertical={props.singleLineCentered ? "center" : "top"}
-      style={[
-        {
-          fontFamily: MOBILE_FONTS.regular,
-          paddingHorizontal: 0,
-          paddingTop: props.contentInsetVertical ?? 0,
-          paddingBottom: props.contentInsetVertical ?? 0,
-          ...(Platform.OS === "android" ? { includeFontPadding: false } : null),
-        },
-        props.textStyle,
-        props.style,
-      ]}
-    />
+    <TextInputWrapper onPaste={onPaste}>
+      <TextInput
+        ref={inputRef}
+        accessibilityLabel={props.placeholder ?? "Message"}
+        autoFocus={props.autoFocus}
+        editable={props.editable !== false && props.readOnly !== true}
+        multiline={props.multiline}
+        scrollEnabled={props.scrollEnabled}
+        value={props.value}
+        onChangeText={props.onChangeText}
+        placeholder={props.placeholder}
+        placeholderTextColorClassName="accent-placeholder"
+        selectionColorClassName="accent-focus/32"
+        cursorColorClassName="accent-focus"
+        selectionHandleColorClassName={Platform.OS === "android" ? "accent-focus" : undefined}
+        selection={props.selection}
+        onSelectionChange={(event) => props.onSelectionChange?.(event.nativeEvent.selection)}
+        onFocus={props.onFocus}
+        onBlur={props.onBlur}
+        textAlignVertical={props.singleLineCentered ? "center" : "top"}
+        style={[
+          {
+            fontFamily: MOBILE_FONTS.regular,
+            paddingHorizontal: 0,
+            paddingTop: props.contentInsetVertical ?? 0,
+            paddingBottom: props.contentInsetVertical ?? 0,
+            ...(Platform.OS === "android" ? { includeFontPadding: false } : null),
+          },
+          props.textStyle,
+          props.style,
+        ]}
+      />
+    </TextInputWrapper>
   );
 }

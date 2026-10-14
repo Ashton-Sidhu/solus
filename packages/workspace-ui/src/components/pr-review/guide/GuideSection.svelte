@@ -53,6 +53,10 @@
   const pageCount = $derived(Math.max(1, Math.ceil(section.files.length / 40)));
   const page = $derived(Math.min(requestedPage, pageCount - 1));
   const pageFiles = $derived(section.files.slice(page * 40, (page + 1) * 40));
+  // The file list in the "why" column stays short; the diffs on the right
+  // still show every file on the page.
+  let isFileListExpanded = $state(false);
+  const listedFiles = $derived(isFileListExpanded ? pageFiles : pageFiles.slice(0, 4));
 
   const moveAnalysis = $derived(detectMovedBlocksInPatches(patchByPath));
 
@@ -121,12 +125,29 @@
 >
   <!-- Left: the "why", pinned while the diffs scroll past. -->
   <div class="guide-why flex flex-col gap-5 lg:sticky lg:top-12 lg:self-start">
-    {#if index && total}
-      <span
-        class="tabular-nums text-chrome-shelf font-medium text-(--solus-text-tertiary)"
-      >
-        {String(index).padStart(2, "0")} / {String(total).padStart(2, "0")}
-      </span>
+    {#if (index && total) || onAsk}
+      <div class="flex min-h-8 items-center justify-between gap-3">
+        {#if index && total}
+          <span
+            class="tabular-nums text-chrome-shelf font-medium text-(--solus-text-tertiary)"
+          >
+            {String(index).padStart(2, "0")} / {String(total).padStart(2, "0")}
+          </span>
+        {/if}
+        {#if onAsk}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            class="-mr-2.5 ml-auto text-workspace-chrome text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
+            title="Ask about this section"
+            onclick={() => onAsk?.(section)}
+          >
+            <AskIcon size={16} />
+            Ask
+          </Button>
+        {/if}
+      </div>
     {/if}
 
     <h2
@@ -136,19 +157,6 @@
     </h2>
 
     <GuideExplanation {section} />
-
-    {#if onAsk}
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        class="-ml-2.5 self-start text-workspace-chrome text-(--solus-text-secondary)"
-        onclick={() => onAsk?.(section)}
-      >
-        <AskIcon size={16} />
-        Ask about this section
-      </Button>
-    {/if}
 
     {#if pageCount > 1}
       <nav aria-label={`Files in ${section.title}`} class="flex flex-wrap items-center gap-2 text-workspace-chrome">
@@ -160,7 +168,7 @@
 
     {#if section.files.length > 0}
       <ul class="mt-1 flex flex-col gap-0.5" role="list">
-        {#each pageFiles as file (file.path)}
+        {#each listedFiles as file (file.path)}
           <li>
             <button
               type="button"
@@ -194,6 +202,18 @@
           </li>
         {/each}
       </ul>
+      {#if pageFiles.length > 4}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          class="-mt-3 self-start text-chrome-shelf text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
+          aria-expanded={isFileListExpanded}
+          onclick={() => { isFileListExpanded = !isFileListExpanded; }}
+        >
+          {isFileListExpanded ? "Show fewer files" : `Show ${pageFiles.length - 4} more files`}
+        </Button>
+      {/if}
     {/if}
   </div>
 

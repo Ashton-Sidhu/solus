@@ -86,6 +86,17 @@ function readableTextColor(accent: string, surface: string | ReadonlyArray<strin
   return `#${readable.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
 }
 
+/** `color-mix(in srgb, first weight, second)` for two opaque hex colors. */
+function mixColors(first: string, second: string, weight: number): string {
+  const firstChannels = rgbChannels(first);
+  const secondChannels = rgbChannels(second);
+  if (!firstChannels || !secondChannels) return first;
+  return `#${firstChannels
+    .map((channel, index) => Math.round(channel * weight + secondChannels[index]! * (1 - weight)))
+    .map((channel) => channel.toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
 export function themeColorWithAlpha(color: string, alpha: number): string {
   const channels = rgbChannels(color);
   if (channels) {
@@ -137,7 +148,18 @@ export function createMobileThemeVariables(
     "--color-border-subtle": withAlpha(c.border, 0.7),
     "--color-separator": withAlpha(c.border, 0.55),
     "--color-subtle": c.muted,
-    "--color-subtle-strong": c.secondary,
+    // A neutral overlay, not a palette tone: it sits one step off any surface
+    // under it. The palette tone was beige on the light card and the card
+    // color itself in dark mode.
+    "--color-subtle-strong": appearance === "dark" ? "rgba(255, 255, 255, 0.07)" : "rgba(0, 0, 0, 0.05)",
+    // Pull request tabs and cards. The selected tab is the page color, so it
+    // is lighter than its track in light mode and darker in dark mode, as in
+    // T3 Code. In light mode a neutral hairline: the beige border reads as sand
+    // on the light card.
+    "--color-pr-tab-track": groupedCard,
+    "--color-pr-tab-selected": c.canvas,
+    "--color-pr-card": groupedCard,
+    "--color-pr-card-border": appearance === "light" ? "rgba(0, 0, 0, 0.06)" : withAlpha(c.border, 0.7),
     "--color-inline-skill-background": c.accentSurface,
     "--color-inline-skill-border": withAlpha(c.accent, 0.42),
     "--color-inline-skill-foreground": c.accentSurfaceForeground,
@@ -183,6 +205,10 @@ export function createMobileThemeVariables(
     "--color-md-blockquote-bg": c.muted,
     "--color-md-code-bg": c.codeBackground,
     "--color-md-code-text": c.codeForeground,
+    // Desktop's `.prose-cloud pre` and `.solus-code-block` border: the container border at 60%.
+    "--color-md-code-border": withAlpha(c.input, 0.6),
+    // Desktop's `.prose-cloud code`: the accent toned 72% toward the text color.
+    "--color-md-inline-code": mixColors(c.accent, c.text, 0.72),
     "--color-md-user-code-bg": withAlpha(c.messageForeground, 0.18),
     "--color-md-user-code-text": c.messageForeground,
     "--color-md-user-fence-bg": withAlpha("#000000", appearance === "dark" ? 0.28 : 0.16),
@@ -211,11 +237,15 @@ export function createMobileThemeVariables(
 export type MobileThemeVariable = keyof ReturnType<typeof createMobileThemeVariables>;
 export type MobileThemeVariables = Readonly<Record<MobileThemeVariable, string>>;
 
-/** The full token set for one appearance. The screen is the app background,
- *  so grouped settings cards take the shared tonal fill (`--muted`) in light,
- *  as T3's default theme does, and the raised card in dark. */
+/** The full token set for one appearance. The screen is the app background.
+ *  Grouped cards take a light neutral fill in light mode: desktop's `--muted`
+ *  is a see-through 6% ink wash for hover, and laid flat as an opaque card it
+ *  reads as grey. In dark mode they take the raised card. */
+/** mobile: the light grouped card, lighter than desktop's flattened `--muted` (#f2f2ef). */
+const LIGHT_GROUPED_CARD = "#fafaf9";
+
 export function getMobileThemeVariables(appearance: ThemeAppearance): MobileThemeVariables {
   const colors = themeColorsFor(appearance);
-  const groupedCard = appearance === "light" ? colors.toolbarControlHover : colors.sidebarRowActive;
+  const groupedCard = appearance === "light" ? LIGHT_GROUPED_CARD : colors.sidebarRowActive;
   return createMobileThemeVariables(colors, appearance, groupedCard);
 }

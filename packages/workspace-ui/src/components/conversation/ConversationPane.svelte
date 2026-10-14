@@ -12,7 +12,6 @@
     surfaceVisible = true,
     onAttachFile,
     onScreenshot,
-    onDesignMode,
   }: RouteSurfaceProps<"chat"> = $props();
 
   const session = getWorkspaceContext();
@@ -82,9 +81,6 @@
           onAttachFile={() => attachFile(conversationTabId)}
           onScreenshot={onScreenshot
             ? () => onScreenshot(conversationTabId)
-            : null}
-          onDesignMode={onDesignMode
-            ? () => onDesignMode(conversationTabId)
             : null}
         />
       </div>

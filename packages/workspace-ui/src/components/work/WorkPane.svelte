@@ -31,7 +31,7 @@
   import { liveCaretUser, type LiveEditorBinding } from "../editor/lib/live-editor";
   import { diagramReadOnlyReason } from "../diagram/lib/reader-mode";
 
-  let { params, paneId, onAttachFile, onScreenshot, onDesignMode }: RouteSurfaceProps<"work"> = $props();
+  let { params, paneId, onAttachFile, onScreenshot }: RouteSurfaceProps<"work"> = $props();
 
   const session = getSurfaceContext();
   const pane = paneActions(() => paneId);
@@ -416,7 +416,6 @@
         destinationFixed={!!work.cwd && work.cwd !== "~"}
         {onAttachFile}
         {onScreenshot}
-        {onDesignMode}
         label={work.type === "diagram"
           ? "Work with this diagram"
           : work.type === "artifact"

@@ -27,11 +27,11 @@ export type TurnRefusal = z.infer<typeof turnRefusalSchema>
 
 /** `hostOrganizations`: this machine's standing, as the control plane last answered and the host's own choices. */
 export const hostOrganizationsStatusSchema = z.object({
-  /** The host holds a cloud link; without one it stands in no organization. */
-  linked: z.boolean(),
+  /** The host is registered to an account (ADR 0001 §2.2 rule 8); without that it stands in no organization. Its link plays no part. */
+  registered: z.boolean(),
   hostId: z.string().nullable(),
   category: hostCategorySchema,
-  /** The account that linked this host; null on a managed host or before the control plane answered. */
+  /** The account this host is registered to; null on a managed host or before the control plane answered. */
   owner: hostOwnerIdentitySchema.nullable(),
   /** The organizations this host may deliver records to, each with its policy. */
   organizations: z.array(hostOrganizationSchema),
@@ -40,11 +40,11 @@ export const hostOrganizationsStatusSchema = z.object({
   /**
    * When this host was attached for organization work (organization-vms §4): new
    * root sessions, tasks, and works then start in a client's organization on the
-   * Solus API, and new personal ones are refused. Null on a personal host; an
-   * unlink resets it.
+   * Solus API, and new personal ones are refused. Null on a personal host; a
+   * deleted registration resets it.
    */
   attachedAt: z.number().nullable(),
-  /** The Solus API the link names for organization records; null while unlinked. */
+  /** The Solus API the registration names for organization records; null while unregistered. */
   apiUrl: z.string().nullable(),
   /** What waits to reach each organization's Solus API: queued items, and outbox operations the service refused for good. */
   delivery: z.array(z.object({ organizationId: z.string(), pending: z.number().int().nonnegative(), failed: z.number().int().nonnegative() })),

@@ -13,7 +13,7 @@ export function MaterialNewThreadButton(
     <MaterialFloatingActionButton
       {...props}
       icon="square.and.pencil"
-      label="New thread"
+      label="New session"
       tone="primary"
       variant={props.extended ? "extended" : "large"}
     />

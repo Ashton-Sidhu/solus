@@ -5,6 +5,7 @@
   import type { ServerItem } from '../../contexts/connections/servers.store.svelte';
   import { serversStore } from '../../contexts/connections/servers.store.svelte';
   import { hostUpdatesStore } from '../../contexts/updates/host-updates.store.svelte';
+  import { hostUpdater } from '../../contexts/updates/host-updater.svelte';
   import { updatesStore } from '../../contexts/updates/updates.store.svelte';
   import { hostUpdateLine } from './lib/host-update-rows';
   import { updateCommandFor, updateStatusLine } from '../settings/lib/update-status-text';
@@ -13,7 +14,7 @@
   let { host }: { host: ServerItem } = $props();
   const status = $derived(hostUpdatesStore.hostUpdateFor(host.id));
   const operation = $derived(hostUpdatesStore.operations.get(host.id));
-  const updating = $derived(isServerUpdateActive(operation));
+  const updating = $derived(isServerUpdateActive(operation) || hostUpdater.isUpdating(host.id, 'solus'));
   const desktop = $derived(host.local && updatesStore.isAvailable);
   const command = $derived(desktop ? updateCommandFor(updatesStore.state) : null);
   const skew = $derived(serversStore.versionSkewNoticeFor(host.id));
@@ -37,10 +38,10 @@
       {#if operation?.phase === 'waiting'}
         <Button variant="outline" size="sm" disabled={host.status !== 'online' || hostUpdatesStore.updateRequests.has(host.id)} onclick={() => void hostUpdatesStore.cancelUpdate(host.id)}>Cancel update</Button>
       {:else if status.check.kind === 'available' || updating}
-        <Button variant="outline" size="sm" disabled={host.status !== 'online' || updating || hostUpdatesStore.updateRequests.has(host.id)} onclick={() => void hostUpdatesStore.install(host.id)}>{updating ? 'Updating Solus…' : 'Update Solus'}</Button>
+        <Button variant="outline" size="sm" disabled={host.status !== 'online' || updating} onclick={() => void hostUpdater.updateTarget(host.id, 'solus')}>{updating ? 'Updating Solus…' : 'Update Solus'}</Button>
       {/if}
     {/if}
-    {#if hosts.find(host.id)?.supports('hostUpdates') && status?.install !== 'cloud'}
+    {#if hosts.get(host.id)?.supports('hostUpdates') && status?.install !== 'cloud'}
       <Button variant="outline" size="sm" disabled={host.status !== 'online' || updating || status?.check.kind === 'checking' || status?.providers.some((p) => p.check.kind === 'checking')} onclick={() => void checkHost()}>Check for updates</Button>
     {/if}
     </div>

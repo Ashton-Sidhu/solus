@@ -114,8 +114,9 @@ export function NotificationSettingsScreen(_props: ScreenProps<"NotificationSett
               />
             </SettingsSection>
             <SettingsNote>
-              Agent work on the Lock Screen and in the Dynamic Island: titles and status only. It
-              updates while Solus is open; after 10 minutes without an update it shows as out of date.
+              Agent work on the Lock Screen and in the Dynamic Island: titles and status only. Hosts
+              linked to your Solus account update it while Solus is closed; after 10 minutes without
+              an update it shows as out of date.
             </SettingsNote>
           </View>
         ) : null}

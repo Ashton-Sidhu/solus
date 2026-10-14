@@ -25,7 +25,7 @@ export function settledUpdate(
   return update
 }
 
-export function promptedUpdate(exchange: Exchange, meta: SessionMeta | null, message: { prompt: string; delivery: PromptDelivery }): AgentConversationUpdate {
+export function promptedUpdate(exchange: Exchange, meta: SessionMeta | null, message: { prompt: string; delivery: PromptDelivery }, serverId?: string): AgentConversationUpdate {
   const dispatched: AgentConversationUpdate = {
     phase: 'dispatched',
     sessionId: exchange.targetSessionId,
@@ -40,6 +40,7 @@ export function promptedUpdate(exchange: Exchange, meta: SessionMeta | null, mes
   }
   if (meta?.model) dispatched.model = meta.model
   if (meta?.reasoningEffort) dispatched.reasoningEffort = meta.reasoningEffort
+  if (serverId) dispatched.serverId = serverId
   return dispatched
 }
 

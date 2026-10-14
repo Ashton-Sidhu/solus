@@ -16,6 +16,8 @@
     disabled?: boolean;
     /** Quiet tabular metric or qualifier in the trailing slot ("28", "Ghostty"). */
     badge?: string;
+    /** Glyph in the badge slot, for a qualifier a word would overstate (a local host). */
+    badgeIcon?: ActionRowIcon;
     /** Added and removed line counts, tinted, before the badge. A zero count
      *  is left out. */
     diffStat?: { insertions: number; deletions: number };
@@ -95,6 +97,9 @@
             >{/if}
           {#if item.diffStat?.deletions}<span class="menu-trail stat-del"
               >−{item.diffStat.deletions}</span
+            >{/if}
+          {#if item.badgeIcon}{@const BadgeIcon = item.badgeIcon}<span class="menu-trail inline-flex"
+              ><BadgeIcon size={14} /></span
             >{/if}
           {#if item.badge}<span class="menu-trail">{item.badge}</span>{/if}
           {#if item.hint && !item.disclosure}<Kbd variant="inline"

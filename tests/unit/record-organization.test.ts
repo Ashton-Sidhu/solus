@@ -119,7 +119,7 @@ describe('a record\'s organization', () => {
     // A managed host was provisioned for A: its own work is A's, the host itself reads the
     // whole disk, and a pairing credential — which a managed host never issues — would keep
     // only Local records, as on any machine attached for organization work.
-    hostCategory.adoptProvisionedLink({ organizationId: 'A' })
+    hostCategory.adoptProvisionedRegistration({ organizationId: 'A' })
     try {
       expect(principal.organizationForNew(LOCAL_OWNER)).toBe('A')
       expect(principal.organizationForNew(principal.INTERNAL_PRINCIPAL)).toBe('A')
@@ -132,7 +132,7 @@ describe('a record\'s organization', () => {
   })
 
   test('on a managed host the host\'s own session records are born in its organization', async () => {
-    hostCategory.adoptProvisionedLink({ organizationId: 'A' })
+    hostCategory.adoptProvisionedRegistration({ organizationId: 'A' })
     try {
       expect(await own('s-managed')).toMatchObject({ organizationId: 'A', publication: 'local' })
       expect(await records.organizationOfSession('never')).toBe('A')

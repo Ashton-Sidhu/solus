@@ -430,7 +430,7 @@ describe('review guide metadata is scoped to one pull request', () => {
     const { ReviewGuideStore } = await import('@solus/workspace-ui/components/review/review-guide.store.svelte')
     const store = new PrsStore()
     const guides = new PrGuidesStore(store, new ReviewGuideStore(() => new HostEventSubscriber(), () => () => {}))
-    const batches: { number: number; headRef: string }[][] = []
+    const batches: number[][] = []
     let singleProbes = 0
     const api = asHostApi(listingFrom({
       prList: async (): Promise<PrListPage> => ({
@@ -443,7 +443,7 @@ describe('review guide metadata is scoped to one pull request', () => {
       // page of rows must never become a page of those.
       reviewGuideStatus: async () => { singleProbes++; return null },
       prGuideStatuses: async (_ctx, batch) => {
-        batches.push(batch.map(({ target, headRef }) => ({ number: target.number, headRef })))
+        batches.push(batch.map(({ target }) => target.number))
         return batch.map(() => null)
       },
     }))
@@ -453,7 +453,7 @@ describe('review guide metadata is scoped to one pull request', () => {
     await guides.loadListed(project)
 
     expect(singleProbes).toBe(0)
-    expect(batches).toEqual([[7, 8, 9, 10, 11].map((number) => ({ number, headRef: `feature/${number}` }))])
+    expect(batches).toEqual([[7, 8, 9, 10, 11]])
   })
 
   test('only an explicit PR guide shares its state with PR surfaces', async () => {

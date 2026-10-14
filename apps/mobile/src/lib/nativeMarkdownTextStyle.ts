@@ -4,8 +4,15 @@ import { useMemo } from "react";
 import { useAppearancePreferences } from "../features/settings/appearance/AppearancePreferencesProvider";
 import type { NativeMarkdownTextStyle } from "../native/SelectableMarkdownText";
 import { resolveNativeMarkdownTypography } from "./appearancePreferences";
-import { MOBILE_FONTS } from "./typography";
 import { useUniwindTheme } from "./useUniwindTheme";
+
+/** T3's DM Sans faces (`src/lib/useFontFamily.ts`), bundled through `expo-font` in app.json.
+ *  Each name is one weight, so the renderer asks for no `fontWeight`. */
+const MARKDOWN_FONTS = {
+  regular: "DMSans-Regular",
+  medium: "DMSans-Medium",
+  bold: "DMSans-Bold",
+} as const;
 
 /** `user` is text in the person's message bubble; `assistant` is everything else. */
 export type MarkdownTone = "assistant" | "user";
@@ -23,9 +30,11 @@ export function useNativeMarkdownTextStyle(tone: MarkdownTone): NativeMarkdownTe
       fontSize: typography.fontSize,
       lineHeight: typography.lineHeight,
       headingFontSizes: typography.headingFontSizes,
-      fontFamily: MOBILE_FONTS.regular,
-      headingFontFamily: MOBILE_FONTS.bold,
-      boldFontFamily: MOBILE_FONTS.bold,
+      fontFamily: MARKDOWN_FONTS.regular,
+      headingFontFamily: MARKDOWN_FONTS.bold,
+      boldFontFamily: MARKDOWN_FONTS.bold,
+      // Desktop sets table headers at weight 500, not bold.
+      tableHeaderFontFamily: MARKDOWN_FONTS.medium,
     };
     if (tone === "user") {
       const body = theme["--color-user-bubble-foreground"];
@@ -39,6 +48,8 @@ export function useNativeMarkdownTextStyle(tone: MarkdownTone): NativeMarkdownTe
         codeColor: theme["--color-md-user-code-text"],
         codeBackgroundColor: theme["--color-md-user-code-bg"],
         codeBlockBackgroundColor: theme["--color-md-user-fence-bg"],
+        codeBlockBorderColor: body,
+        tableHeaderBackgroundColor: theme["--color-md-user-fence-bg"],
         fileTextColor: body,
         quoteMarkerColor: body,
         dividerColor: body,
@@ -50,10 +61,13 @@ export function useNativeMarkdownTextStyle(tone: MarkdownTone): NativeMarkdownTe
       strongColor: theme["--color-md-strong"],
       mutedColor: theme["--color-md-body"],
       linkColor: theme["--color-md-link"],
-      inlineCodeColor: theme["--color-foreground-secondary"],
+      inlineCodeColor: theme["--color-md-inline-code"],
       codeColor: theme["--color-md-code-text"],
       codeBackgroundColor: theme["--color-md-code-bg"],
       codeBlockBackgroundColor: theme["--color-md-code-bg"],
+      codeBlockBorderColor: theme["--color-md-code-border"],
+      // Desktop's `.prose-cloud th` sits on a plain surface fill, not the code panel.
+      tableHeaderBackgroundColor: theme["--color-subtle"],
       fileTextColor: theme["--color-md-code-text"],
       quoteMarkerColor: theme["--color-md-blockquote-border"],
       dividerColor: theme["--color-md-hr"],

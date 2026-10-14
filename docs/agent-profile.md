@@ -17,8 +17,8 @@ Logins, settings, plugins, hooks, and transcripts are not part of it.
 
 | You are | The profile's home | How a host gets it |
 |---|---|---|
-| Not signed in to Solus Cloud, or profile sync off | Your computer | Solus on your computer pushes it to a host the first time it reaches one each run, and again when you ask |
-| Signed in with profile sync on | Your account | Every host you have a seat on pulls it: when your seat connects, when a client of yours changes it, and every few minutes |
+| Not signed in to Solus Cloud | Your computer | Solus on your computer pushes it to a host the first time it reaches one each run, and again when you ask |
+| Signed in | Your account | Every host you have a seat on pulls it: when your seat connects, when a client of yours changes it, and every few minutes |
 
 On a host that several people use, your profile goes into your own seats
 (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`), and your MCP servers become records only
@@ -32,28 +32,45 @@ and the account differ on one entry, Settings shows both and you pick.
 
 ## Sync
 
-Settings → Agent profile turns sync on for this client. The first time, the
-account is read first: when it is empty, your computer's profile is offered as
-the first copy; when it has one, "Use synced" is the default and "Replace with
-this device" is a separate choice. Edits apply at once and are sent after a
-short pause. Two clients that change different entries merge; one entry both
-changed is a conflict with "Keep mine" and "Take theirs".
+Signed in to Solus Cloud, your agent profile always syncs through your
+account, the same as your settings. There is no switch per device. The first
+time a client of yours signs in, it reads the account: an account with a
+profile is used as it is, and an empty one starts from this computer's profile
+on the desktop, or from this device's copy elsewhere. Settings → Account & sync shows
+the sync status, the conflicts, and each host with its account link and what it
+holds of the profile; the Agent profile tab holds the content. Edits apply at
+once and are sent after a short pause.
+Two clients that change different entries merge; one entry both changed is a
+conflict with "Keep mine" and "Take theirs". "Clear synced profile" resets the
+profile: the account copy and its MCP connections go, and the device you clear
+on starts the profile again from its own copy (this computer's profile on the
+desktop). Your other devices then take that new copy.
 
-"Turn off on this device" stops transfers here; the account and other devices
-do not change. "Clear synced profile" removes the account copy and its MCP
-connections, and other clients turn sync off when they next connect.
+Your account is the one list. A server you add, rename, or remove in Settings →
+MCP, on a host you own or as your own server on a shared host, changes your
+profile, and every host follows. A server a host already had before you signed
+in joins your profile on that host's next pull. A removal waits for Solus Cloud
+to confirm it, so no host brings the server back; when the cloud does not
+answer, the removal is refused with that reason.
+
+Each entry can be removed, which takes it out of your profile and off every
+host, or disabled, which keeps it in your profile and takes it off every host
+until you enable it again. Every host reconciles on its next pull: when your
+seat connects, when a client of yours changes the profile, and every few
+minutes. You can do both in Settings → Agent profile on every client and on
+your account page at app.solus.sh.
 
 ## MCP connections
 
-Signed in, you sign in to a server once, at app.solus.sh, whether or not sync
-is on and whether the server is yours or the host's. Solus Cloud is the OAuth
+Signed in, you sign in to a server once, at app.solus.sh, whether the server
+is yours or the host's. Solus Cloud is the OAuth
 client and the only refresher. A host reads an access token
 from your account for each call and holds it in memory until it expires. It
 never holds the refresh token or the client. A server row on a host then reads
 "Connected through Solus Cloud".
 
-A connection you made on a host before sync was on moves into your account by
-itself the next time that host pulls your profile. When the account already
+A connection you made on a host before you signed in moves into your account
+by itself the next time that host pulls your profile. When the account already
 holds one for that server, the account's wins and the host revokes its own
 token. Nothing on the host is deleted before the cloud confirmed the write.
 
