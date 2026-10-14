@@ -14,7 +14,6 @@
     Mic as MicrophoneIcon,
     Binoculars as BinocularsIcon,
     Cloud as CloudIcon,
-    NotebookPen as NotePencilIcon,
     Folder as FolderIcon,
     Radio as BroadcastIcon,
     FlaskConical as FlaskIcon,
@@ -46,7 +45,6 @@
   import SettingsTabGeneral, { settingItems as generalSearch } from "./SettingsTabGeneral.svelte";
   import SettingsTabAppearance, { settingItems as appearanceSearch } from "./SettingsTabAppearance.svelte";
   import SettingsTabNotifications from "./SettingsTabNotifications.svelte";
-  import SettingsTabInstructions, { settingItems as instructionsSearch } from "./SettingsTabInstructions.svelte";
   import SettingsTabTasks, { settingItems as tasksSearch } from "./SettingsTabTasks.svelte";
   import SettingsTabReview, { settingItems as reviewSearch } from "./SettingsTabReview.svelte";
   import ConnectionsPanel from "../connections/ConnectionsPanel.svelte";
@@ -157,13 +155,6 @@
       label: "Notifications",
       description: "Which events notify you, and how.",
       icon: BellIcon,
-      group: "Workspace",
-    },
-    {
-      id: "instructions",
-      label: "Custom Instructions",
-      description: "Text appended to the system prompt on every agent run.",
-      icon: NotePencilIcon,
       group: "Workspace",
     },
     {
@@ -292,7 +283,6 @@
     general: keywordsOf(generalSearch),
     appearance: keywordsOf(appearanceSearch),
     notifications: [...NOTIFICATION_CHANNEL_ROWS, ...SESSION_EVENT_ROWS, ...APP_NOTICE_ROWS].flatMap((row) => [row.label, ...row.keywords]),
-    instructions: keywordsOf(instructionsSearch),
     tasks: keywordsOf(tasksSearch),
     review: keywordsOf(reviewSearch),
     tools: keywordsOf(toolsSearch),
@@ -515,8 +505,6 @@
     <SettingsTabAppearance searchQuery={pageQuery} />
   {:else if session.settingsTab === "notifications"}
     <SettingsTabNotifications searchQuery={pageQuery} />
-  {:else if session.settingsTab === "instructions"}
-    <SettingsTabInstructions searchQuery={pageQuery} />
   {:else if session.settingsTab === "review"}
     <SettingsTabReview searchQuery={pageQuery} />
   {:else if session.settingsTab === "voice" && selectedSettingsHost && selectedSettingsApi}

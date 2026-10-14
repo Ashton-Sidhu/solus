@@ -1013,6 +1013,8 @@ export interface SolusAPI {
   deviceControlResume(target: DeviceTarget): Promise<void>
   /** Install a recorded build on a device under the caller's control lease, then open it. */
   deviceInstall(request: DeviceInstallRequest): Promise<DeviceBuild>
+  /** Remove a build from the host's list, and the copy Solus keeps of it. Agent and project outputs stay on disk. */
+  deviceBuildRemove(buildId: string): Promise<void>
   /** Whether the project at this host path builds a mobile app. Reads names only, to a fixed depth. */
   deviceProjectDetect(projectPath: string): Promise<DeviceProjectInfo>
   /** The Apple teams this host can sign iPhone and iPad builds for. Empty when it has no Apple certificate. */

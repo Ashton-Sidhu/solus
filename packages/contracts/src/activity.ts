@@ -45,6 +45,7 @@ export type ActivityKind =
   | { kind: 'rate_limit_decided'; action: RateLimitDecisionAction }
   /** `author` is whose held prompt it was, when the host knew. */
   | { kind: 'queued_prompt_changed'; queueId: string; change: 'removed' | 'edited'; author?: User }
+  /** No longer recorded; rows stored before still parse and are not drawn. */
   | { kind: 'seat_needed'; provider: AgentId }
   // any subject
   | { kind: 'renamed'; title: string }

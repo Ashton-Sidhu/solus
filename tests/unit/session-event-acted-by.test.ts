@@ -134,7 +134,6 @@ describe('one sentence per activity', () => {
     expect(text({ kind: 'rate_limit_decided', action: 'wait' })).toBe('Bob queued the prompt until the limit resets')
     expect(text({ kind: 'queued_prompt_changed', queueId: 'q', change: 'removed', author: ALICE })).toBe('Bob removed your held prompt')
     expect(text({ kind: 'queued_prompt_changed', queueId: 'q', change: 'edited', author: { id: { kind: 'account', accountId: 'cara' }, displayName: 'Cara' } })).toBe('Bob edited Cara\'s held prompt')
-    expect(text({ kind: 'seat_needed', provider: 'claude-code' })).toBe('Bob needs to connect a Claude seat on this host')
     expect(text({ kind: 'renamed', title: 'Deploy' })).toBe('Bob renamed this session')
     expect(text({ kind: 'shared', with: 'organization' })).toBe('Bob shared this session with the organization')
   })
@@ -148,6 +147,13 @@ describe('one sentence per activity', () => {
     expect(activityLine(activity({ kind: 'stopped' }, ALICE), null).text).toBe('Alice Moreau stopped the agent')
     expect(showsActivity(activity({ kind: 'renamed', title: 'x' }, ALICE), alice)).toBe(false)
     expect(showsActivity(activity({ kind: 'renamed', title: 'x' }), alice)).toBe(true)
+  })
+
+  // WHY: a seat row stored before Solus stopped recording it must not appear;
+  // the refused client already shows the connect card.
+  test('a stored seat request is never drawn', () => {
+    expect(showsActivity(activity({ kind: 'seat_needed', provider: 'claude-code' }), alice)).toBe(false)
+    expect(showsActivity(activity({ kind: 'seat_needed', provider: 'claude-code' }, ALICE), null)).toBe(false)
   })
 })
 

@@ -205,6 +205,28 @@ describe('build store', () => {
     expect(readFileSync(join(external, 'AppBinary'), 'utf8')).toBe('project output')
   })
 
+  test('deleting a build forgets it and frees only the copies Solus owns', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'solus-builds-'))
+    const external = join(dir, 'project', 'Agent.app')
+    mkdirSync(external, { recursive: true })
+    const ownedPath = join(dir, 'outputs', 'devrun_00000000-0000-0000-0000-000000000001', 'Demo.app')
+    mkdirSync(ownedPath, { recursive: true })
+    const apk = join(dir, 'app-release.apk')
+    writeFileSync(apk, 'apk')
+    const store = new DeviceBuildStore({ path: join(dir, 'builds.json'), run: plutilRunner('iPhoneSimulator'), assetsDir: join(dir, 'assets') })
+    const agentBuild = await store.add(external, 's1')
+    const runBuild = await store.add(ownedPath, 's1')
+    const apkBuild = await store.add(apk, 's1', 'dev.solus.demo')
+    const storedApk = store.get(apkBuild.buildId).path
+    for (const build of [agentBuild, runBuild, apkBuild]) await store.remove(build.buildId)
+    expect(store.list()).toEqual([])
+    // WHY: an agent's or project's output is not Solus's to delete.
+    expect(existsSync(external)).toBe(true)
+    expect(existsSync(ownedPath)).toBe(false)
+    expect(existsSync(storedApk)).toBe(false)
+    expect(new DeviceBuildStore({ path: join(dir, 'builds.json'), run: plutilRunner('iPhoneSimulator') }).list()).toEqual([])
+  })
+
   test('anything but an .app bundle or an .apk is refused', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'solus-builds-'))
     writeFileSync(join(dir, 'Demo.ipa'), 'x')

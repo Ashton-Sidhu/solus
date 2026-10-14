@@ -5,7 +5,8 @@ have a seat on:
 
 | Part | What it holds |
 |---|---|
-| Instructions | `CLAUDE.md`, `agents/`, `commands/` in `~/.claude`; `AGENTS.md`, `prompts/` in `~/.codex` |
+| Instructions | Your extra instructions: a setting every prompt carries, edited on the Agent profile page. A home's `CLAUDE.md` or `AGENTS.md` is not part of it: an instructions file belongs with a project. |
+| Files | `agents/`, `commands/` in `~/.claude`; `prompts/` in `~/.codex` |
 | Skills | Skills installed from skills.sh, as references the host installs itself; hand-written skills as their files |
 | MCP servers | The servers you added: name, address, and how they sign in. Never a key or a token. |
 

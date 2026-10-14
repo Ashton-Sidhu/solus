@@ -12,7 +12,7 @@ export function agentProfileCounts(counts: AgentProfileStatus['counts']): string
   return parts.length ? parts.join(', ') : 'nothing'
 }
 
-/** One line under "Instructions, skills, and MCP servers": what is on this host, and where it came from. */
+/** One line under a host's row: what is on this host, and where it came from. */
 export function agentProfileDescription(
   status: AgentProfileStatus | undefined,
   error: string | undefined,
@@ -20,8 +20,8 @@ export function agentProfileDescription(
 ): string {
   if (error) return error
   const source = canCopy
-    ? 'Your CLAUDE.md, AGENTS.md, skills, subagents, commands, and MCP servers from this computer or your account.'
-    : 'Your CLAUDE.md, AGENTS.md, skills, subagents, commands, and MCP servers, from your account or copied by Solus on your computer.'
+    ? 'Your skills, subagents, commands, prompts, and MCP servers from this computer or your account.'
+    : 'Your skills, subagents, commands, prompts, and MCP servers, from your account or copied by Solus on your computer.'
   if (!status || status.syncedAt === null) return `${source} Not on this host yet.`
   const from = status.source === 'account' ? 'from your account' : 'from your computer'
   const keptOnHost = status.skipped.filter((skip) => skip.reason === 'kept-on-host').length

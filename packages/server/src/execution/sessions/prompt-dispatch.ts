@@ -11,7 +11,6 @@ import { resolveSessionLineageById } from '../../data/sessions/session-lineage'
 import { type CreateSessionOrder } from '../orchestration/session-orchestrator'
 import type { AgentId, GitCheckout, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, SessionOrigin, SessionRunInput, ReasoningEffort } from '@solus/contracts/types'
 import { defaultContextWindowFor } from '@solus/contracts/types'
-import { SeatRequiredError } from '../seats/seat-manager'
 import { HOST_ACTOR, insightsAccountOf, type Actor } from '../../admission/actor'
 import { INTERNAL_PRINCIPAL } from '../../admission/principal'
 import { userKey } from '@solus/contracts/user'
@@ -95,15 +94,7 @@ export class PromptDispatch {
     // client can show the connect card instead of a bubble that never answers.
     const provider = ctx.session.provider ?? resolveSessionLineageById(proposedSessionId)?.active.provider
     if (provider && ctx.session.preferredModel !== AUTO_MODEL_ID) {
-      try {
-        await this.rt.seatForTurn(origin?.actor, provider)
-      } catch (error) {
-        // The room learns who waits on a seat; the refused client also has the card.
-        if (error instanceof SeatRequiredError && origin?.actor?.user) {
-          void this.rt.recordActivity({ kind: 'session', id: proposedSessionId }, origin.actor, { kind: 'seat_needed', provider })
-        }
-        throw error
-      }
+      await this.rt.seatForTurn(origin?.actor, provider)
     }
     if (options.clientPromptId) {
       const dedupeKey = `${proposedSessionId}:${options.clientPromptId}`

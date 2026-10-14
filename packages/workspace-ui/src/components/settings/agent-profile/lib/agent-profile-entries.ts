@@ -20,17 +20,10 @@ import type { AgentProfileConflict } from '@solus/client-core/agent-profile-sync
  * key, a side of a conflict, and the sync state.
  */
 
-/** The one instruction file of each provider home, editable in place. */
-export const INSTRUCTION_FILES = { 'claude-code': 'CLAUDE.md', codex: 'AGENTS.md' } as const satisfies Record<SeatProvider, string>
-
 const PROVIDER_LABELS = { 'claude-code': 'Claude Code', codex: 'Codex' } as const satisfies Record<SeatProvider, string>
 
 export function providerLabel(provider: SeatProvider): string {
   return PROVIDER_LABELS[provider]
-}
-
-export function isInstructionFile(entry: AgentProfileFileEntry): boolean {
-  return entry.path === INSTRUCTION_FILES[entry.provider]
 }
 
 /** `skills/<name>/…`: the name, or null for a file outside the skills folder. */
@@ -39,12 +32,10 @@ function writtenSkillName(entry: AgentProfileFileEntry): string | null {
   return folder === 'skills' && name ? name : null
 }
 
-export interface InstructionGroup {
+/** One provider's files that are not a skill: subagents, commands, and prompts, listed and not edited. */
+export interface FileGroup {
   provider: SeatProvider
-  /** The provider's instruction file, when the profile holds it. */
-  instructions: AgentProfileFileEntry | null
-  /** Subagents, commands, and prompts: listed, not edited here. */
-  otherFiles: AgentProfileFileEntry[]
+  files: AgentProfileFileEntry[]
 }
 
 export interface WrittenSkill {
@@ -58,7 +49,7 @@ export interface WrittenSkill {
 
 export interface AgentProfileSections {
   /** One group per provider, in the contract's order, even when empty. */
-  instructions: InstructionGroup[]
+  files: FileGroup[]
   registrySkills: AgentProfileSkillEntry[]
   writtenSkills: WrittenSkill[]
   integrations: AgentProfileIntegrationEntry[]
@@ -68,7 +59,7 @@ const PROVIDERS: readonly SeatProvider[] = ['claude-code', 'codex']
 
 /** The page's four sections, each sorted by name so the list is stable between edits. */
 export function sectionsOf(entries: AgentProfile): AgentProfileSections {
-  const instructions: InstructionGroup[] = PROVIDERS.map((provider) => ({ provider, instructions: null, otherFiles: [] }))
+  const files: FileGroup[] = PROVIDERS.map((provider) => ({ provider, files: [] }))
   const registrySkills: AgentProfileSkillEntry[] = []
   const writtenSkills = new Map<string, WrittenSkill>()
   const integrations: AgentProfileIntegrationEntry[] = []
@@ -87,56 +78,17 @@ export function sectionsOf(entries: AgentProfile): AgentProfileSections {
         writtenSkills.set(skillName, skill)
         continue
       }
-      const group = instructions.find((candidate) => candidate.provider === entry.provider)
-      if (!group) continue
-      if (isInstructionFile(entry)) group.instructions = entry
-      else group.otherFiles.push(entry)
+      files.find((candidate) => candidate.provider === entry.provider)?.files.push(entry)
     }
   }
   const byName = (left: { name: string }, right: { name: string }) => left.name.localeCompare(right.name)
-  for (const group of instructions) group.otherFiles.sort((left, right) => left.path.localeCompare(right.path))
+  for (const group of files) group.files.sort((left, right) => left.path.localeCompare(right.path))
   return {
-    instructions,
+    files,
     registrySkills: registrySkills.sort(byName),
     writtenSkills: [...writtenSkills.values()].sort(byName),
     integrations: integrations.sort(byName),
   }
-}
-
-// ─── File content ───
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = ''
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary)
-}
-
-function base64ToBytes(base64: string): Uint8Array {
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return bytes
-}
-
-/** The text of a file entry, for its editor. */
-export function decodeFileText(entry: AgentProfileFileEntry): string {
-  try {
-    return new TextDecoder().decode(base64ToBytes(entry.contentBase64))
-  } catch {
-    return ''
-  }
-}
-
-/** SHA-256 of the content, hex, as the contract hashes a file. */
-async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', bytes)
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
-}
-
-/** A file entry for edited text: its content encoded, and its hash as the host computes it. */
-export async function encodeFileEntry(provider: SeatProvider, path: string, text: string): Promise<AgentProfileFileEntry> {
-  const bytes = new TextEncoder().encode(text)
-  return { kind: 'file', provider, path, contentBase64: bytesToBase64(bytes), hash: await sha256Hex(bytes) }
 }
 
 // ─── Off and on ───

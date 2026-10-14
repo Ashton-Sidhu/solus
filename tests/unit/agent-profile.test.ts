@@ -38,8 +38,9 @@ function laptop() {
   const claude = join(root, '.claude')
   const codex = join(root, '.codex')
   const agents = join(root, '.agents')
+  // The home's own instructions file is not part of the profile.
   put(claude, 'CLAUDE.md', 'Be brief.')
-  put(claude, 'agents/reviewer.md')
+  put(claude, 'agents/reviewer.md', 'Review carefully.')
   put(claude, 'commands/ship.md')
   put(claude, 'settings.json', '{"secret":true}')
   put(claude, '.credentials.json', 'token')
@@ -160,12 +161,10 @@ test('a profile carries instructions, skills, subagents, commands, and MCP serve
   host.integrations.integrations.create({ organizationId: 'local', ownerUserId: null }, { kind: 'integration', slug: 'deepwiki', name: 'DeepWiki', url: 'https://mcp.deepwiki.com/mcp', auth: { kind: 'none' } })
   const read = await host.profiles.read()
   expect(Object.keys(read.profile).sort()).toEqual([
-    'file:claude-code/CLAUDE.md',
     'file:claude-code/agents/reviewer.md',
     'file:claude-code/commands/ship.md',
     'file:claude-code/skills/review/SKILL.md',
     'file:claude-code/skills/review/scripts/run.sh',
-    'file:codex/AGENTS.md',
     'file:codex/skills/review/SKILL.md',
     'file:codex/skills/review/scripts/run.sh',
     'integration:deepwiki',
@@ -187,9 +186,10 @@ test('copying again replaces the profile and leaves everything else in the seat 
   put(target.homeFor('claude-code'), '.credentials.json', 'member login')
   const read = await target.profiles.read()
   const first = await target.profiles.apply(MEMBER, read, PUSH)
-  expect(first).toMatchObject({ syncedAt: 1000, source: 'computer', revision: null, counts: { files: 9, skills: 0, integrations: 0 } })
+  expect(first).toMatchObject({ syncedAt: 1000, source: 'computer', revision: null, counts: { files: 7, skills: 0, integrations: 0 } })
   const claudeHome = target.homeFor('claude-code')
-  expect(readFileSync(join(claudeHome, 'CLAUDE.md'), 'utf8')).toBe('Be brief.')
+  expect(readFileSync(join(claudeHome, 'agents/reviewer.md'), 'utf8')).toBe('Review carefully.')
+  expect(existsSync(join(claudeHome, 'CLAUDE.md'))).toBe(false)
   expect(statSync(join(claudeHome, 'skills/review/scripts/run.sh')).mode & 0o100).toBeTruthy()
 
   const withoutReview: AgentProfileCopy = { profile: Object.fromEntries(Object.entries(read.profile).filter(([key]) => !key.includes('skills/review'))), skipped: read.skipped }
@@ -201,7 +201,7 @@ test('copying again replaces the profile and leaves everything else in the seat 
 
   const removed = await target.profiles.remove(MEMBER)
   expect(removed).toEqual({ syncedAt: null, source: null, revision: null, counts: { files: 0, skills: 0, integrations: 0 }, skipped: [] })
-  expect(existsSync(join(claudeHome, 'CLAUDE.md'))).toBe(false)
+  expect(existsSync(join(claudeHome, 'agents/reviewer.md'))).toBe(false)
   expect(target.profiles.status(MEMBER).syncedAt).toBeNull()
   expect(readFileSync(join(claudeHome, '.credentials.json'), 'utf8')).toBe('member login')
 })
@@ -211,7 +211,7 @@ test('a registry skill is installed into the target\'s homes, removed when it le
   // member's seats and nowhere else, and one bad skill must not stop the copy.
   const target = seat()
   const skill = (name: string, source = 'anthropics/skills'): AgentProfileEntry => ({ kind: 'skill', name, source, skillId: name })
-  const status = await target.profiles.apply(MEMBER, profile(text('CLAUDE.md', 'rules'), skill('frontend-design'), skill('broken', 'acme')), PUSH)
+  const status = await target.profiles.apply(MEMBER, profile(text('agents/rules.md', 'rules'), skill('frontend-design'), skill('broken', 'acme')), PUSH)
   expect(target.skills.log).toEqual(['install:anthropics/skills@frontend-design', 'install:acme@broken'])
   expect(status.counts).toEqual({ files: 1, skills: 1, integrations: 0 })
   expect(status.skipped).toEqual([{ path: 'broken', reason: 'install-failed' }])
@@ -220,9 +220,9 @@ test('a registry skill is installed into the target\'s homes, removed when it le
 
   // Installed already from the same source: no second install. Gone from the profile: removed.
   target.skills.log.length = 0
-  await target.profiles.apply(MEMBER, profile(text('CLAUDE.md', 'rules'), skill('frontend-design')), PUSH)
+  await target.profiles.apply(MEMBER, profile(text('agents/rules.md', 'rules'), skill('frontend-design')), PUSH)
   expect(target.skills.log).toEqual([])
-  await target.profiles.apply(MEMBER, profile(text('CLAUDE.md', 'rules')), PUSH)
+  await target.profiles.apply(MEMBER, profile(text('agents/rules.md', 'rules')), PUSH)
   expect(target.skills.log).toEqual(['remove:frontend-design'])
 })
 
@@ -254,7 +254,7 @@ test('an MCP server becomes the member\'s own record, matched by URL, and a host
 
 test('a pulled profile records its account revision, so a pull with the same revision does nothing', async () => {
   const target = seat()
-  const status = await target.profiles.apply(MEMBER, profile(text('CLAUDE.md', 'rules')), { kind: 'account', revision: 7 })
+  const status = await target.profiles.apply(MEMBER, profile(text('agents/rules.md', 'rules')), { kind: 'account', revision: 7 })
   expect(status).toMatchObject({ source: 'account', revision: 7 })
   expect(target.profiles.status(MEMBER)).toMatchObject({ source: 'account', revision: 7 })
 })
@@ -263,11 +263,11 @@ test('a path outside the profile is refused before anything is written', async (
   // WHY: the document comes over the network; it must not reach a login file or
   // climb out of the seat.
   const target = seat()
-  for (const path of ['.credentials.json', '../escape.md', 'skills/../../x', 'settings.json', '/etc/passwd', 'skills', 'CLAUDE.md/x']) {
+  for (const path of ['.credentials.json', '../escape.md', 'skills/../../x', 'settings.json', '/etc/passwd', 'skills', 'CLAUDE.md', 'agents']) {
     expect(isProfilePath('claude-code', path)).toBe(false)
   }
-  await expect(target.profiles.apply(MEMBER, profile(text('CLAUDE.md', 'ok'), text('.credentials.json', 'stolen')), PUSH)).rejects.toThrow('is not part of an agent profile')
-  expect(existsSync(join(target.homeFor('claude-code'), 'CLAUDE.md'))).toBe(false)
+  await expect(target.profiles.apply(MEMBER, profile(text('agents/ok.md', 'ok'), text('.credentials.json', 'stolen')), PUSH)).rejects.toThrow('is not part of an agent profile')
+  expect(existsSync(join(target.homeFor('claude-code'), 'agents/ok.md'))).toBe(false)
 })
 
 test('a registry skill and a hand-written skill of one name are refused before anything is written', async () => {
@@ -283,13 +283,13 @@ test('a file the laptop could not send keeps the copy already in the seat', asyn
   // the laptop no longer has may go from the seat.
   const target = seat()
   const claudeHome = target.homeFor('claude-code')
-  await target.profiles.apply(MEMBER, profile(text('CLAUDE.md', 'rules'), text('skills/big/SKILL.md', 'v1'), text('agents/old.md', 'old')), PUSH)
-  const status = await target.profiles.apply(MEMBER, { ...profile(text('CLAUDE.md', 'rules')), skipped: [{ provider: 'claude-code', path: 'skills/big/SKILL.md', reason: 'file-too-large' }] }, PUSH)
+  await target.profiles.apply(MEMBER, profile(text('agents/rules.md', 'rules'), text('skills/big/SKILL.md', 'v1'), text('agents/old.md', 'old')), PUSH)
+  const status = await target.profiles.apply(MEMBER, { ...profile(text('agents/rules.md', 'rules')), skipped: [{ provider: 'claude-code', path: 'skills/big/SKILL.md', reason: 'file-too-large' }] }, PUSH)
   expect(readFileSync(join(claudeHome, 'skills/big/SKILL.md'), 'utf8')).toBe('v1')
   expect(existsSync(join(claudeHome, 'agents/old.md'))).toBe(false)
   expect(status.skipped).toEqual([{ provider: 'claude-code', path: 'skills/big/SKILL.md', reason: 'file-too-large' }])
   // The kept copy is still the profile's, so a later copy without it removes it.
-  await target.profiles.apply(MEMBER, profile(text('CLAUDE.md', 'rules')), PUSH)
+  await target.profiles.apply(MEMBER, profile(text('agents/rules.md', 'rules')), PUSH)
   expect(existsSync(join(claudeHome, 'skills/big/SKILL.md'))).toBe(false)
 })
 
@@ -299,7 +299,7 @@ test('an oversized, duplicated, or self-contradicting document is refused before
   // not remove the copy already there.
   const target = seat()
   const claudeHome = target.homeFor('claude-code')
-  await target.profiles.apply(MEMBER, profile(text('CLAUDE.md', 'kept')), PUSH)
+  await target.profiles.apply(MEMBER, profile(text('agents/rules.md', 'kept')), PUSH)
   const oversized: AgentProfileEntry = { kind: 'file', provider: 'claude-code', path: 'skills/big/SKILL.md', contentBase64: Buffer.alloc(AGENT_PROFILE_MAX_FILE_BYTES + 1).toString('base64'), hash: 'a'.repeat(64) }
   const refused: [AgentProfileCopy, string][] = [
     [profile(oversized), 'larger than an agent profile file'],
@@ -307,7 +307,7 @@ test('an oversized, duplicated, or self-contradicting document is refused before
   ]
   for (const [bad, message] of refused) {
     await expect(target.profiles.apply(MEMBER, bad, PUSH)).rejects.toThrow(message)
-    expect(readFileSync(join(claudeHome, 'CLAUDE.md'), 'utf8')).toBe('kept')
+    expect(readFileSync(join(claudeHome, 'agents/rules.md'), 'utf8')).toBe('kept')
     expect(existsSync(join(claudeHome, 'skills'))).toBe(false)
   }
 })
@@ -319,14 +319,15 @@ test('a link in the seat is never written or removed through', async () => {
   const claudeHome = target.homeFor('claude-code')
   const outside = temporaryDirectory()
   put(outside, 'review/SKILL.md', 'host skill')
-  put(outside, 'CLAUDE.md', 'host rules')
+  put(outside, 'rules.md', 'host rules')
   mkdirSync(join(claudeHome, 'skills'))
+  mkdirSync(join(claudeHome, 'agents'))
   symlinkSync(join(outside, 'review'), join(claudeHome, 'skills/review'))
-  symlinkSync(join(outside, 'CLAUDE.md'), join(claudeHome, 'CLAUDE.md'))
+  symlinkSync(join(outside, 'rules.md'), join(claudeHome, 'agents/rules.md'))
   await expect(target.profiles.apply(MEMBER, profile(text('skills/review/SKILL.md', 'overwritten')), PUSH)).rejects.toThrow('is a link')
-  await expect(target.profiles.apply(MEMBER, profile(text('CLAUDE.md', 'overwritten')), PUSH)).rejects.toThrow('is a link')
+  await expect(target.profiles.apply(MEMBER, profile(text('agents/rules.md', 'overwritten')), PUSH)).rejects.toThrow('is a link')
   expect(readFileSync(join(outside, 'review/SKILL.md'), 'utf8')).toBe('host skill')
-  expect(readFileSync(join(outside, 'CLAUDE.md'), 'utf8')).toBe('host rules')
+  expect(readFileSync(join(outside, 'rules.md'), 'utf8')).toBe('host rules')
 })
 
 test('a copy updates the executable bit of a file already in the seat', async () => {
@@ -346,24 +347,25 @@ test('on a host the person owns, a copy never replaces or removes the host\'s ow
   const target = seat()
   const claudeHome = target.homeFor('claude-code')
   mkdirSync(join(claudeHome, 'skills/vm-only'), { recursive: true })
-  writeFileSync(join(claudeHome, 'CLAUDE.md'), 'VM rules')
+  mkdirSync(join(claudeHome, 'agents'))
+  writeFileSync(join(claudeHome, 'agents/rules.md'), 'VM rules')
   writeFileSync(join(claudeHome, 'skills/vm-only/SKILL.md'), 'VM skill')
   mkdirSync(join(target.root, 'store/linked'), { recursive: true })
   symlinkSync(join(target.root, 'store/linked'), join(claudeHome, 'skills/linked'))
 
-  const status = await target.profiles.apply(OWNER, profile(text('CLAUDE.md', 'laptop rules'), text('skills/laptop/SKILL.md', 'laptop skill'), text('skills/linked/SKILL.md', 'through a link')), PUSH)
-  expect(readFileSync(join(claudeHome, 'CLAUDE.md'), 'utf8')).toBe('VM rules')
+  const status = await target.profiles.apply(OWNER, profile(text('agents/rules.md', 'laptop rules'), text('skills/laptop/SKILL.md', 'laptop skill'), text('skills/linked/SKILL.md', 'through a link')), PUSH)
+  expect(readFileSync(join(claudeHome, 'agents/rules.md'), 'utf8')).toBe('VM rules')
   expect(readFileSync(join(claudeHome, 'skills/laptop/SKILL.md'), 'utf8')).toBe('laptop skill')
   expect(existsSync(join(target.root, 'store/linked/SKILL.md'))).toBe(false)
   expect(status.counts.files).toBe(1)
-  expect(status.skipped.map((skip) => `${skip.path}:${skip.reason}`).sort()).toEqual(['CLAUDE.md:kept-on-host', 'skills/linked/SKILL.md:kept-on-host'])
+  expect(status.skipped.map((skip) => `${skip.path}:${skip.reason}`).sort()).toEqual(['agents/rules.md:kept-on-host', 'skills/linked/SKILL.md:kept-on-host'])
 
   // What the copy put there is its own to update and remove; the VM's stay.
   await target.profiles.apply(OWNER, profile(text('skills/laptop/SKILL.md', 'v2')), PUSH)
   expect(readFileSync(join(claudeHome, 'skills/laptop/SKILL.md'), 'utf8')).toBe('v2')
   await target.profiles.remove(OWNER)
   expect(existsSync(join(claudeHome, 'skills/laptop'))).toBe(false)
-  expect(readFileSync(join(claudeHome, 'CLAUDE.md'), 'utf8')).toBe('VM rules')
+  expect(readFileSync(join(claudeHome, 'agents/rules.md'), 'utf8')).toBe('VM rules')
   expect(readFileSync(join(claudeHome, 'skills/vm-only/SKILL.md'), 'utf8')).toBe('VM skill')
 })
 
@@ -398,7 +400,7 @@ function linked(options: { answer?: (request: Request) => Promise<Response>; del
 }
 
 const accountProfile = (revision: number, connections: string[] = []) => Response.json({
-  profile: { schemaVersion: 1, generation: 0, revision, entries: { 'file:claude-code/CLAUDE.md': text('CLAUDE.md', `rules v${revision}`) }, updatedAt: 5 },
+  profile: { schemaVersion: 1, generation: 0, revision, entries: { 'file:claude-code/agents/rules.md': text('agents/rules.md', `rules v${revision}`) }, updatedAt: 5 },
   connections: connections.map((serverUrl) => ({ serverUrl, kind: 'bearer', status: 'connected', label: null, updatedAt: 1 })),
 })
 
@@ -410,7 +412,7 @@ test('a pull reads with the person\'s delegated token as the bearer and no body,
   expect(host.requests[0].headers.get('authorization')).toBe('Bearer delegated-member-1')
   expect(await host.requests[0].text()).toBe('')
   expect(status).toMatchObject({ source: 'account', revision: 3, counts: { files: 1 } })
-  expect(readFileSync(join(host.homeFor('claude-code'), 'CLAUDE.md'), 'utf8')).toBe('rules v3')
+  expect(readFileSync(join(host.homeFor('claude-code'), 'agents/rules.md'), 'utf8')).toBe('rules v3')
   expect(host.reconciled).toEqual([{ owner: { organizationId: 'org-a', ownerUserId: 'member-1' }, connections: ['https://linear.example/mcp'] }])
 })
 
@@ -426,7 +428,7 @@ test('a revision the host already applied is not applied again, and a person wit
   expect((await host.profiles.pull(MEMBER)).revision).toBe(4)
 
   const pushed = linked({ answer: async () => Response.json({ profile: null, connections: [] }) })
-  await pushed.profiles.apply(MEMBER, profile(text('CLAUDE.md', 'from the laptop')), PUSH)
+  await pushed.profiles.apply(MEMBER, profile(text('agents/rules.md', 'from the laptop')), PUSH)
   expect((await pushed.profiles.pull(MEMBER)).source).toBe('computer')
 })
 
@@ -520,8 +522,8 @@ test('removing or disabling a server in the profile takes it off the host on the
 
 test('a disabled file or skill stays in the profile and is on no host', async () => {
   const target = seat()
-  const status = await target.profiles.apply(MEMBER, profile({ ...text('CLAUDE.md', 'rules'), disabled: true }, { kind: 'skill', name: 'review', source: 'acme/skills', skillId: 'review', disabled: true }), { kind: 'account', revision: 2 })
-  expect(existsSync(join(target.homeFor('claude-code'), 'CLAUDE.md'))).toBe(false)
+  const status = await target.profiles.apply(MEMBER, profile({ ...text('agents/rules.md', 'rules'), disabled: true }, { kind: 'skill', name: 'review', source: 'acme/skills', skillId: 'review', disabled: true }), { kind: 'account', revision: 2 })
+  expect(existsSync(join(target.homeFor('claude-code'), 'agents/rules.md'))).toBe(false)
   expect(target.skills.log).toEqual([])
   expect(status.counts).toEqual({ files: 0, skills: 0, integrations: 0 })
 })

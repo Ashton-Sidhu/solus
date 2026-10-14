@@ -19,15 +19,10 @@ import { PersonalSettingsStore } from '../../apps/mobile/src/features/settings/p
 import type { SettingsCloudRequests } from '@solus/client-core/settings-requests'
 import {
   agentProfileParts,
-  decodeBase64,
-  encodeBase64,
   entryKeyLabel,
   entryValueText,
-  fileEntryFromText,
-  fileEntryText,
   hostProfileText,
   integrationEntryFromProbe,
-  sha256Hex,
   skillEntryFromRemote,
   withDisabled,
 } from '../../apps/mobile/src/features/settings/lib/agent-profile-entries'
@@ -36,9 +31,7 @@ import { FakeApi, FakeTransport, flushPromises, seedAccountGrant } from './helpe
 import { fakeAccountPlane, ISSUER } from './helpers/fake-account-plane'
 
 // plans/020-agent-profile.md §3 on the phone. The rules pinned here are the ones
-// a person would notice going wrong: an instruction typed here becomes the same
-// file entry a host would make, with the key and hash every other client
-// compares; signed in means synced, so signing in starts sync without a
+// a person would notice going wrong: signed in means synced, so signing in starts sync without a
 // choice; the cloud cannot push, so after this device's write is confirmed, and
 // when sync starts, every connected host is asked to pull; an entry turned off
 // stays in the profile with `disabled: true`, and a hand-written skill turns
@@ -113,39 +106,26 @@ function pullingHost(hostId: string): ReachableHost & { api: ReturnType<typeof a
   return { hostId, api: asHostApi(fake.surface()), fake }
 }
 
-const nodeSha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
+/** A file entry as a host reads it, for the fixtures: the phone makes none of its own. */
+function fileEntryFromText(provider: 'claude-code' | 'codex', path: string, text: string) {
+  const bytes = Buffer.from(text, 'utf8')
+  return { kind: 'file' as const, provider, path, contentBase64: bytes.toString('base64'), hash: createHash('sha256').update(bytes).digest('hex') }
+}
 
-describe('an instruction edit becomes a file entry', () => {
-  test('hashed and encoded as a host does it, for every block boundary', () => {
-    for (const text of ['', 'abc', 'a'.repeat(55), 'a'.repeat(56), 'a'.repeat(64), 'Be brief.\n', 'Ünïcödé — 日本語 🚀'.repeat(40)]) {
-      const bytes = new TextEncoder().encode(text)
-      expect(sha256Hex(bytes)).toBe(nodeSha256(bytes))
-      expect(encodeBase64(bytes)).toBe(Buffer.from(bytes).toString('base64'))
-      expect(new TextDecoder().decode(decodeBase64(encodeBase64(bytes)))).toBe(text)
-    }
-  })
-
-  test('with the key every client compares, and it round-trips to the text typed', () => {
-    const entry = fileEntryFromText('claude-code', 'CLAUDE.md', 'Be brief.\n')
-    expect(agentProfileKeyOf(entry)).toBe('file:claude-code/CLAUDE.md')
-    expect(entry.hash).toBe(nodeSha256(new TextEncoder().encode('Be brief.\n')))
-    expect(agentProfileEntrySchema.safeParse(entry).success).toBe(true)
-    expect(fileEntryText(entry)).toBe('Be brief.\n')
-  })
-
+describe('the local copy', () => {
   test('the local copy keeps it per account, reports it as a local change, and never reports a cloud change back', () => {
     const storage = memoryKeyValueStore()
     const local = new AgentProfileLocalStore(storage)
     local.setAccount(ACCOUNT)
     const reported: unknown[] = []
     local.onLocalChange((change) => reported.push(change))
-    const entry = fileEntryFromText('codex', 'AGENTS.md', 'Run the tests.')
+    const entry = fileEntryFromText('codex', 'prompts/test.md', 'Run the tests.')
     expect(local.setEntry(entry)).toBe('saved')
-    expect(reported).toEqual([{ set: { 'file:codex/AGENTS.md': entry }, reset: [] }])
-    expect(JSON.parse(storage.getItem('solus.agent-profile.v1:https://app.solus.sh|user-1')!)).toEqual({ entries: { 'file:codex/AGENTS.md': entry } })
+    expect(reported).toEqual([{ set: { 'file:codex/prompts/test.md': entry }, reset: [] }])
+    expect(JSON.parse(storage.getItem('solus.agent-profile.v1:https://app.solus.sh|user-1')!)).toEqual({ entries: { 'file:codex/prompts/test.md': entry } })
 
     const skill = skillEntryFromRemote({ id: 'acme/skills@review', name: 'review', repo: 'acme/skills', url: 'https://skills.sh/acme/skills/review' })
-    local.applyRemote({ set: { 'skill:review': skill }, reset: ['file:codex/AGENTS.md'] })
+    local.applyRemote({ set: { 'skill:review': skill }, reset: ['file:codex/prompts/test.md'] })
     expect(local.entries()).toEqual({ 'skill:review': skill })
     expect(reported).toHaveLength(1)
 
@@ -178,12 +158,12 @@ describe('signed in means synced, and hosts pull after this device writes', () =
   }
 
   test('signing in with no synced profile seeds it with this device’s copy, then every connected host pulls once', async () => {
-    const { cloud, sync, pulls, started } = device(fakeCloud(), (local) => local.setEntry(fileEntryFromText('claude-code', 'CLAUDE.md', 'Before sign-in.')))
+    const { cloud, sync, pulls, started } = device(fakeCloud(), (local) => local.setEntry(fileEntryFromText('claude-code', 'agents/rules.md', 'Before sign-in.')))
     // Signing in alone starts it; nothing asks the person.
     expect(sync.currentProfile().state).toBe('loading')
     await started()
-    expect(cloud.calls).toEqual(['get', 'patch:file:claude-code/CLAUDE.md'])
-    expect(Object.keys(cloud.document().entries)).toEqual(['file:claude-code/CLAUDE.md'])
+    expect(cloud.calls).toEqual(['get', 'patch:file:claude-code/agents/rules.md'])
+    expect(Object.keys(cloud.document().entries)).toEqual(['file:claude-code/agents/rules.md'])
     expect(sync.currentProfile().state).toBe('synced')
     expect(sync.current().state).toBe('synced')
     expect(pulls()).toEqual([1, 1])
@@ -196,8 +176,8 @@ describe('signed in means synced, and hosts pull after this device writes', () =
   })
 
   test('signing in with a synced profile takes it, never this device’s copy, then every connected host pulls once', async () => {
-    const synced = { 'file:codex/AGENTS.md': fileEntryFromText('codex', 'AGENTS.md', 'From the account.') }
-    const { cloud, local, sync, pulls, started } = device(fakeCloud(synced), (copy) => copy.setEntry(fileEntryFromText('claude-code', 'CLAUDE.md', 'Only here.')))
+    const synced = { 'file:codex/prompts/test.md': fileEntryFromText('codex', 'prompts/plan.md', 'From the account.') }
+    const { cloud, local, sync, pulls, started } = device(fakeCloud(synced), (copy) => copy.setEntry(fileEntryFromText('claude-code', 'agents/rules.md', 'Only here.')))
     await started()
     expect(cloud.calls.filter((call) => call.startsWith('patch'))).toEqual([])
     expect(cloud.document().entries).toEqual(synced)
@@ -223,32 +203,32 @@ describe('signed in means synced, and hosts pull after this device writes', () =
   })
 
   test('a confirmed write pulls each host; signed out, a change pulls none', async () => {
-    const { cloud, clock, local, sync, pulls, started } = device(fakeCloud(), (copy) => copy.setEntry(fileEntryFromText('codex', 'AGENTS.md', 'Start.')))
+    const { cloud, clock, local, sync, pulls, started } = device(fakeCloud(), (copy) => copy.setEntry(fileEntryFromText('codex', 'prompts/plan.md', 'Start.')))
     await started()
     expect(pulls()).toEqual([1, 1])
 
-    local.setEntry(fileEntryFromText('claude-code', 'CLAUDE.md', 'Be brief.'))
+    local.setEntry(fileEntryFromText('claude-code', 'agents/rules.md', 'Be brief.'))
     expect(sync.currentProfile().state).toBe('pending')
     expect(pulls()).toEqual([1, 1])
     clock.runAll()
     await started()
-    expect(cloud.calls.at(-1)).toBe('patch:file:claude-code/CLAUDE.md')
+    expect(cloud.calls.at(-1)).toBe('patch:file:claude-code/agents/rules.md')
     expect(sync.currentProfile().state).toBe('synced')
     expect(pulls()).toEqual([2, 2])
 
     // Signed out: local edits stay local, and no host is asked.
     sync.followAccount(null)
     local.setAccount(null)
-    local.setEntry(fileEntryFromText('codex', 'AGENTS.md', 'Local only.'))
+    local.setEntry(fileEntryFromText('codex', 'prompts/plan.md', 'Local only.'))
     clock.runAll()
     await started()
     expect(sync.currentProfile().state).toBe('signed-out')
-    expect(Object.keys(cloud.document().entries).sort()).toEqual(['file:claude-code/CLAUDE.md', 'file:codex/AGENTS.md'])
+    expect(Object.keys(cloud.document().entries).sort()).toEqual(['file:claude-code/agents/rules.md', 'file:codex/prompts/plan.md'])
     expect(pulls()).toEqual([2, 2])
   })
 
   test('a clear made here starts the synced profile again from this device’s copy at once', async () => {
-    const mine = fileEntryFromText('claude-code', 'CLAUDE.md', 'This device.')
+    const mine = fileEntryFromText('claude-code', 'agents/rules.md', 'This device.')
     const { cloud, sync, pulls, started } = device(fakeCloud(), (local) => local.setEntry(mine))
     await started()
     const generation = cloud.document().generation
@@ -257,14 +237,14 @@ describe('signed in means synced, and hosts pull after this device writes', () =
     expect((await sync.clearProfile()).kind).toBe('cleared')
     await started()
     expect(cloud.document().generation).toBe(generation + 1)
-    expect(cloud.calls.slice(-2)).toEqual(['delete', 'patch:file:claude-code/CLAUDE.md'])
-    expect(cloud.document().entries).toEqual({ 'file:claude-code/CLAUDE.md': mine })
+    expect(cloud.calls.slice(-2)).toEqual(['delete', 'patch:file:claude-code/agents/rules.md'])
+    expect(cloud.document().entries).toEqual({ 'file:claude-code/agents/rules.md': mine })
     expect(sync.currentProfile().state).toBe('synced')
     expect(pulls()).toEqual([2, 2])
   })
 
   test('a clear made elsewhere starts sync again at once: seeding when the account is empty, taking the new copy when one is there', async () => {
-    const mine = fileEntryFromText('claude-code', 'CLAUDE.md', 'This device.')
+    const mine = fileEntryFromText('claude-code', 'agents/rules.md', 'This device.')
     const { cloud, local, sync, pulls, started } = device(fakeCloud(), (copy) => copy.setEntry(mine))
     await started()
 
@@ -273,11 +253,11 @@ describe('signed in means synced, and hosts pull after this device writes', () =
     await sync.profileEngine.refresh()
     await started()
     expect(sync.currentProfile().state).toBe('synced')
-    expect(cloud.document().entries).toEqual({ 'file:claude-code/CLAUDE.md': mine })
+    expect(cloud.document().entries).toEqual({ 'file:claude-code/agents/rules.md': mine })
     expect(pulls()).toEqual([2, 2])
 
     // The clearing device already wrote its copy: this device takes it and sends nothing.
-    const theirs = { 'file:codex/AGENTS.md': fileEntryFromText('codex', 'AGENTS.md', 'Theirs.') }
+    const theirs = { 'file:codex/prompts/test.md': fileEntryFromText('codex', 'prompts/plan.md', 'Theirs.') }
     cloud.clearElsewhere(theirs)
     const patches = cloud.calls.filter((call) => call.startsWith('patch')).length
     await sync.profileEngine.refresh()
@@ -406,15 +386,15 @@ describe('signed in means synced, and hosts pull after this device writes', () =
 describe('the parts the screen shows', () => {
   test('files under skills/ group into one hand-written skill; a probe and a registry result become one entry each', () => {
     const parts = agentProfileParts({
-      'file:claude-code/CLAUDE.md': fileEntryFromText('claude-code', 'CLAUDE.md', 'Hi'),
+      'file:claude-code/agents/rules.md': fileEntryFromText('claude-code', 'agents/rules.md', 'Hi'),
       'file:claude-code/agents/reviewer.md': fileEntryFromText('claude-code', 'agents/reviewer.md', 'Review'),
       'file:claude-code/skills/deploy/SKILL.md': fileEntryFromText('claude-code', 'skills/deploy/SKILL.md', '# Deploy'),
       'file:claude-code/skills/deploy/scripts/run.sh': fileEntryFromText('claude-code', 'skills/deploy/scripts/run.sh', 'echo'),
-      'file:codex/AGENTS.md': fileEntryFromText('codex', 'AGENTS.md', 'Hi'),
+      'file:codex/prompts/test.md': fileEntryFromText('codex', 'prompts/plan.md', 'Hi'),
       'skill:review': skillEntryFromRemote({ id: 'acme/skills@review', name: 'review', repo: 'acme/skills', url: 'https://skills.sh/acme/skills/review' }),
       'integration:linear': { kind: 'integration', slug: 'linear', name: 'Linear', url: 'https://mcp.linear.app/mcp', auth: { kind: 'oauth', discover: 'https://mcp.linear.app/.well-known/oauth-protected-resource', registration: 'dynamic' } },
     })
-    expect(parts.files.map((entry) => entry.path)).toEqual(['CLAUDE.md', 'agents/reviewer.md', 'AGENTS.md'])
+    expect(parts.files.map((entry) => entry.path)).toEqual(['agents/reviewer.md', 'agents/rules.md', 'prompts/plan.md'])
     expect(parts.handWrittenSkills).toEqual([{ name: 'deploy', provider: 'claude-code', keys: ['file:claude-code/skills/deploy/SKILL.md', 'file:claude-code/skills/deploy/scripts/run.sh'], disabled: false }])
     expect(parts.registrySkills.map((skill) => `${skill.source}@${skill.skillId}`)).toEqual(['acme/skills@review'])
     expect(parts.integrations.map((integration) => integration.slug)).toEqual(['linear'])
@@ -426,11 +406,11 @@ describe('the parts the screen shows', () => {
   })
 
   test('a conflict row names the entry and each side; a host line says where its copy came from', () => {
-    const mine = { 'file:claude-code/CLAUDE.md': fileEntryFromText('claude-code', 'CLAUDE.md', 'Be  brief.\n') }
-    expect(entryKeyLabel('file:claude-code/CLAUDE.md')).toBe('CLAUDE.md (Claude Code)')
+    const mine = { 'file:claude-code/agents/rules.md': fileEntryFromText('claude-code', 'agents/rules.md', 'Be  brief.\n') }
+    expect(entryKeyLabel('file:claude-code/agents/rules.md')).toBe('agents/rules.md (Claude Code)')
     expect(entryKeyLabel('skill:review')).toBe('Skill review')
-    expect(entryValueText(mine, 'file:claude-code/CLAUDE.md')).toBe('Be brief.')
-    expect(entryValueText({}, 'file:claude-code/CLAUDE.md')).toBe('Removed')
+    expect(entryValueText(mine, 'file:claude-code/agents/rules.md')).toBe('Be brief.')
+    expect(entryValueText({}, 'file:claude-code/agents/rules.md')).toBe('Removed')
     expect(hostProfileText(PULLED, null, (ms) => `at ${ms}`)).toBe('Copied from your account at 5: 1 file.')
     expect(hostProfileText({ ...PULLED, syncedAt: null }, null, String)).toBe('Not on this host yet.')
     expect(hostProfileText(null, 'Refused.', String)).toBe('Refused.')

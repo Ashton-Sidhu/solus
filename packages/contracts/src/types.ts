@@ -2138,8 +2138,6 @@ export interface SessionRunInput {
   rateLimitBehavior: 'ask' | 'queue' | 'continue' | 'stop'
   /** App-wide user instructions added through the provider's instruction extension point. */
   extraInstructions: string
-  /** Extra instructions scoped to the model in use, resolved from the sender's execution preferences at dispatch time. */
-  modelInstructions?: string
   /** System-level context used only when starting a new provider session. */
   handoff?: {
     fromProvider: AgentId

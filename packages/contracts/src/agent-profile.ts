@@ -15,10 +15,15 @@ import { z } from 'zod'
 import { integrationAuthSchema } from './integration-types'
 import { seatProviderSchema, type SeatProvider } from './seats'
 
-/** What each provider home contributes, as the first segment of a file path. */
+/**
+ * What each provider home contributes, as the first segment of a file path.
+ * The home's `CLAUDE.md` and `AGENTS.md` are not part of it: an instructions
+ * file belongs with a project, and a person's own instructions are the extra
+ * instructions of their settings, which every prompt carries (plans/020 §10).
+ */
 export const AGENT_PROFILE_ENTRIES = {
-  'claude-code': ['CLAUDE.md', 'skills', 'agents', 'commands'],
-  codex: ['AGENTS.md', 'skills', 'prompts'],
+  'claude-code': ['skills', 'agents', 'commands'],
+  codex: ['skills', 'prompts'],
 } as const satisfies Record<SeatProvider, readonly string[]>
 
 /** A file larger than this is left out and reported. */

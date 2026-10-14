@@ -23,14 +23,3 @@ describe('Run app entry points', () => {
     expect(deviceViewState.isShowingRunApp('host-b')).toBe(false)
   })
 })
-
-test('Run app retains path, project, branch, target, and device selection for the same conversation', () => {
-  const selection = deviceViewState.runAppSelection('host-a', 'session-a')
-  selection.mode = 'device'
-  selection.projectPath = '/code/app'
-  selection.branch = 'feature/mobile'
-  selection.target = 'ios-device'
-  selection.installDeviceId = 'phone-a'
-  expect(deviceViewState.runAppSelection('host-a', 'session-a')).toBe(selection)
-  expect(deviceViewState.runAppSelection('host-a', 'session-b')).toEqual({ mode: 'dev', projectPath: null, branch: '', target: 'ios-simulator', simulatorId: '', installDeviceId: '' })
-})

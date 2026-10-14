@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { ChevronDown, Download, LoaderCircle } from "@lucide/svelte";
-  import { DEVICE_RUN_TARGETS, DEVICE_RUN_TARGET_LABELS, isDeviceRunActive, type DeviceRunStartRequest, type DeviceState, type DeviceSummary } from "@solus/contracts/device-types";
-  import { buildRunsOn } from "@solus/client-core/device-builds";
+  import { ChevronDown, LoaderCircle } from "@lucide/svelte";
+  import { DEVICE_RUN_MODES, DEVICE_RUN_TARGETS, DEVICE_RUN_TARGET_LABELS, isDeviceRunActive, type DeviceRunStartRequest, type DeviceState } from "@solus/contracts/device-types";
   import { isChat } from "@solus/contracts/chat";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { getWorkspaceContext } from "../../contexts";
@@ -11,37 +10,35 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import * as Tabs from "../ui/tabs";
   import DeviceRunLog from "./DeviceRunLog.svelte";
-  import { runDeviceBuild } from "./lib/run-build";
-  import { deviceViewState } from "./lib/device-view-state.svelte";
+  import DeviceBuildList from "./DeviceBuildList.svelte";
+  import { runApps } from "./lib/run-app.svelte";
 
   interface Props { serverId: string; sessionId: string | null; deviceState: DeviceState; onInstalled: () => void }
   let { serverId, sessionId, deviceState, onInstalled }: Props = $props();
   const workspace = getWorkspaceContext();
   const pickerId = $props.id();
   const conversation = $derived(sessionId ? workspace.sessions.byId[sessionId]?.run : undefined);
-  const selection = $derived(deviceViewState.runAppSelection(serverId, sessionId));
-  const projectPath = $derived(selection.projectPath ?? (conversation && conversation.workingDirectory !== '~' && !isChat(conversation.workingDirectory) ? conversation.workingDirectory : null));
+  // One Run app per host: builds and dev servers belong to the host, not to this conversation.
+  const runApp = $derived(runApps.for(serverId));
+  const conversationProjectPath = $derived(conversation && conversation.workingDirectory !== '~' && !isChat(conversation.workingDirectory) ? conversation.workingDirectory : null);
+  const view = $derived(runApp.view(devicesStore.runs(serverId), conversationProjectPath, (path) => devicesStore.branches.get(`${serverId}\u0000${path}`)?.defaultBranch ?? ''));
+  const projectPath = $derived(view.projectPath);
   const branchKey = $derived(`${serverId}\u0000${projectPath}`);
   const branchState = $derived(devicesStore.branches.get(branchKey));
   const branchError = $derived(devicesStore.branchErrors.get(branchKey));
-  const selectedBranch = $derived(selection.branch || branchState?.defaultBranch || '');
-  const isDev = $derived(selection.mode === 'dev');
+  const selectedBranch = $derived(view.branch || branchState?.defaultBranch || '');
+  const isDev = $derived(view.mode === 'dev');
   /** True until the host accepts the request. */
   let starting = $state(false);
-  let installing = $state(false);
-  let pairing = $state(false);
   let error = $state<string | null>(null);
   const projects = $derived(projectsStore.projectsFor(serverId).filter((project) => !isChat(project.path)));
   const localDevices = $derived(deviceState.devices.filter((device) => device.deviceHostId === 'local'));
   // A dev server reaches only simulators and emulators on this host.
   const simulators = $derived(localDevices.filter((device) => !device.physical));
-  const simulator = $derived(simulators.find((candidate) => candidate.deviceId === selection.simulatorId));
-  const latest = $derived(devicesStore.runs(serverId).find((run) => run.checkoutPath === projectPath && run.mode === selection.mode && (isDev || (run.branch === selectedBranch && run.target === selection.target))));
+  const simulator = $derived(simulators.find((candidate) => candidate.deviceId === runApp.simulatorId));
+  const latest = $derived(view.latest);
   const active = $derived(!!latest && isDeviceRunActive(latest));
   const devServerRunning = $derived(isDev && latest?.stage === 'running');
-  const output = $derived(isDev ? undefined : deviceState.builds.find((build) => build.buildId === latest?.buildId));
-  const installTargets = $derived(output ? localDevices.filter((device) => buildRunsOn(output, device)) : []);
-  const installDevice = $derived(installTargets.find((candidate) => candidate.deviceId === selection.installDeviceId));
 
   $effect(() => {
     void projectsStore.loadProjectsFor(serverId, serverConnections.apiFor(serverId));
@@ -76,73 +73,17 @@
 
   function build() {
     if (!projectPath || cannotBuild) return;
-    void start({ checkoutPath: projectPath, mode: 'device', target: selection.target, source: 'main', branch: selectedBranch });
-  }
-
-  async function install() {
-    if (!output || !installDevice || installing) return;
-    installing = true;
-    error = null;
-    try { await runDeviceBuild(workspace, serverId, sessionId, output, installDevice); onInstalled(); }
-    catch (cause) { error = deviceErrorMessage(cause); }
-    finally { installing = false; }
-  }
-
-  async function pair(device: DeviceSummary) {
-    if (pairing) return;
-    pairing = true;
-    try { await devicesStore.pair(serverId, device); }
-    catch (cause) { error = deviceErrorMessage(cause); }
-    finally { pairing = false; }
-  }
-
-  async function download() {
-    if (!output?.assetId) return;
-    try {
-      const link = document.createElement("a");
-      link.href = await devicesStore.buildDownloadUrl(serverId, output);
-      link.download = output.name;
-      link.click();
-    } catch (cause) { error = deviceErrorMessage(cause); }
+    void start({ checkoutPath: projectPath, mode: 'device', target: view.target, source: 'main', branch: selectedBranch });
   }
 </script>
-
-{#snippet devicePicker(id: string, label: string, choices: DeviceSummary[], chosen: DeviceSummary | undefined, empty: string, onChoose: (deviceId: string) => void)}
-  <div class="flex min-w-0 flex-col gap-1.5">
-    <span id="{id}-label" class="text-chrome-dense text-(--solus-text-secondary)">{label}</span>
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger>
-        {#snippet child({ props })}
-          <Button {...props} variant="outline" class="h-auto w-full justify-between px-3 py-2 font-normal pointer-coarse:py-3" aria-labelledby="{id}-label {id}-value" disabled={starting || installing}>
-            <span id="{id}-value" class="min-w-0 truncate">{chosen ? `${chosen.name} · ${chosen.platform === 'ios' ? 'iOS' : 'Android'}` : choices.length ? 'Choose a device' : empty}</span>
-            <ChevronDown class="size-4 text-(--solus-text-secondary)" />
-          </Button>
-        {/snippet}
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Content class="max-h-[min(20rem,var(--bits-dropdown-menu-content-available-height))]">
-        <DropdownMenu.RadioGroup value={chosen?.deviceId ?? ''} onValueChange={onChoose}>
-          {#each choices as target (target.deviceId)}<DropdownMenu.RadioItem value={target.deviceId}><span class="truncate">{target.name} · {target.platform === 'ios' ? 'iOS' : 'Android'}</span></DropdownMenu.RadioItem>{/each}
-        </DropdownMenu.RadioGroup>
-        {#if !choices.length}<DropdownMenu.Item disabled>{empty}</DropdownMenu.Item>{/if}
-      </DropdownMenu.Content>
-    </DropdownMenu.Root>
-    {#if chosen?.unavailableReason}
-      <div class="flex items-center gap-3 rounded-lg border border-border px-3 py-2" role="status">
-        <p class="text-chrome-dense min-w-0 flex-1 text-(--solus-text-secondary)">{pairing ? `Unlock ${chosen.name} and tap Trust.` : chosen.unavailableReason}</p>
-        {#if chosen.needsPairing}<Button size="sm" variant="outline" disabled={pairing} onclick={() => void pair(chosen)}>{pairing ? 'Waiting for Trust…' : 'Pair device'}</Button>
-        {:else}<Button size="sm" variant="outline" onclick={() => void devicesStore.refresh(serverId).catch((cause) => { error = deviceErrorMessage(cause); })}>Check again</Button>{/if}
-      </div>
-    {/if}
-  </div>
-{/snippet}
 
 <div class="@container flex flex-col gap-6 text-workspace-chrome" data-testid="device-run-app">
   <h2 class="font-medium text-(--solus-text-primary)">Run app</h2>
 
-  <Tabs.Root bind:value={selection.mode}>
+  <Tabs.Root value={view.mode} onValueChange={(value) => { runApp.mode = DEVICE_RUN_MODES.find((mode) => mode === value) ?? runApp.mode; }}>
     <Tabs.List class="w-full">
-      <Tabs.Trigger value="dev">Dev server</Tabs.Trigger>
-      <Tabs.Trigger value="device">Production build</Tabs.Trigger>
+      <Tabs.Trigger value="dev" disabled={active}>Dev server</Tabs.Trigger>
+      <Tabs.Trigger value="device" disabled={active}>Production build</Tabs.Trigger>
     </Tabs.List>
   </Tabs.Root>
 
@@ -159,7 +100,7 @@
           {/snippet}
         </DropdownMenu.Trigger>
         <DropdownMenu.Content class="max-h-[min(20rem,var(--bits-dropdown-menu-content-available-height))]">
-          <DropdownMenu.RadioGroup value={projectPath ?? ''} onValueChange={(value) => { selection.projectPath = value || null; selection.branch = ''; }}>
+          <DropdownMenu.RadioGroup value={projectPath ?? ''} onValueChange={(value) => runApp.chooseProject(value || null)}>
             {#if projectPath && !projects.some((project) => project.path === projectPath)}<DropdownMenu.RadioItem value={projectPath}><span class="truncate">{projectPath}</span></DropdownMenu.RadioItem>{/if}
             {#each projects as project (project.path)}<DropdownMenu.RadioItem value={project.path}><span class="truncate">{project.folderName}</span></DropdownMenu.RadioItem>{/each}
           </DropdownMenu.RadioGroup>
@@ -169,7 +110,25 @@
     </div>
 
     {#if isDev}
-      {@render devicePicker(`${pickerId}-simulator`, 'Simulator', simulators, simulator, 'No simulators or emulators on this host', (value) => { selection.simulatorId = value; })}
+      <div class="flex min-w-0 flex-col gap-1.5">
+        <span id="{pickerId}-simulator" class="text-chrome-dense text-(--solus-text-secondary)">Simulator</span>
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger>
+            {#snippet child({ props })}
+              <Button {...props} variant="outline" class="h-auto w-full justify-between px-3 py-2 font-normal pointer-coarse:py-3" aria-labelledby="{pickerId}-simulator {pickerId}-simulator-value" disabled={starting}>
+                <span id="{pickerId}-simulator-value" class="min-w-0 truncate">{simulator ? `${simulator.name} · ${simulator.platform === 'ios' ? 'iOS' : 'Android'}` : simulators.length ? 'Choose a simulator' : 'No simulators or emulators on this host'}</span>
+                <ChevronDown class="size-4 text-(--solus-text-secondary)" />
+              </Button>
+            {/snippet}
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Content class="max-h-[min(20rem,var(--bits-dropdown-menu-content-available-height))]">
+            <DropdownMenu.RadioGroup value={simulator?.deviceId ?? ''} onValueChange={(value) => { runApp.simulatorId = value; }}>
+              {#each simulators as target (target.deviceId)}<DropdownMenu.RadioItem value={target.deviceId}><span class="truncate">{target.name} · {target.platform === 'ios' ? 'iOS' : 'Android'}</span></DropdownMenu.RadioItem>{/each}
+            </DropdownMenu.RadioGroup>
+            {#if !simulators.length}<DropdownMenu.Item disabled>No simulators or emulators on this host</DropdownMenu.Item>{/if}
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
+      </div>
     {:else}
       <div class="flex min-w-0 flex-col gap-1.5">
         <span id="{pickerId}-branch" class="text-chrome-dense text-(--solus-text-secondary)">Branch</span>
@@ -189,7 +148,7 @@
             {/snippet}
           </DropdownMenu.Trigger>
           <DropdownMenu.Content class="max-h-[min(20rem,var(--bits-dropdown-menu-content-available-height))]">
-            <DropdownMenu.RadioGroup value={selectedBranch} onValueChange={(value) => { selection.branch = value; }}>
+            <DropdownMenu.RadioGroup value={selectedBranch} onValueChange={(value) => { runApp.branch = value; }}>
               {#each branchState?.branches ?? [] as branch (branch)}<DropdownMenu.RadioItem value={branch}><span class="truncate">{branch}</span></DropdownMenu.RadioItem>{/each}
             </DropdownMenu.RadioGroup>
           </DropdownMenu.Content>
@@ -202,13 +161,13 @@
           <DropdownMenu.Trigger>
             {#snippet child({ props })}
               <Button {...props} variant="outline" class="h-auto w-full justify-between px-3 py-2 font-normal pointer-coarse:py-3" aria-labelledby="{pickerId}-target {pickerId}-target-value" disabled={active || starting}>
-                <span id="{pickerId}-target-value" class="min-w-0 truncate">{DEVICE_RUN_TARGET_LABELS[selection.target]}</span>
+                <span id="{pickerId}-target-value" class="min-w-0 truncate">{DEVICE_RUN_TARGET_LABELS[view.target]}</span>
                 <ChevronDown class="size-4 text-(--solus-text-secondary)" />
               </Button>
             {/snippet}
           </DropdownMenu.Trigger>
           <DropdownMenu.Content>
-            <DropdownMenu.RadioGroup value={selection.target} onValueChange={(value) => { selection.target = DEVICE_RUN_TARGETS.find((target) => target === value) ?? selection.target; }}>
+            <DropdownMenu.RadioGroup value={view.target} onValueChange={(value) => { runApp.target = DEVICE_RUN_TARGETS.find((target) => target === value) ?? runApp.target; }}>
               {#each DEVICE_RUN_TARGETS as target (target)}<DropdownMenu.RadioItem value={target}>{DEVICE_RUN_TARGET_LABELS[target]}</DropdownMenu.RadioItem>{/each}
             </DropdownMenu.RadioGroup>
           </DropdownMenu.Content>
@@ -220,7 +179,7 @@
   <div class="flex flex-col gap-2">
     <p class="text-chrome-dense text-(--solus-text-tertiary)">
       {#if isDev}Opens the app's debug build on a simulator with this project's dev server. Solus uses the server on port 8081, or starts one. Open it on as many simulators as you like.
-      {:else}Builds a Release app from the branch once. Install it on as many devices as you like.{/if}
+      {:else}Builds a Release app from the branch. It joins the builds below, where you can install it on several devices at once.{/if}
     </p>
     {#if isDev}
       <Button class="self-start" disabled={cannotOpen} onclick={openOnSimulator}>
@@ -230,27 +189,18 @@
     {:else}
       <Button class="self-start" disabled={cannotBuild} onclick={build}>
         {#if starting}<LoaderCircle class="animate-spin motion-reduce:animate-none" />{/if}
-        {output ? 'Build again' : 'Build'}
+        Build
       </Button>
     {/if}
     {#if error}<p role="alert" class="text-chrome-dense text-destructive">{error}</p>{/if}
   </div>
 
-  {#if latest}
+  {#if latest && (isDev || latest.stage !== 'done')}
     <DeviceRunLog {serverId} runId={latest.runId} visible
       class="rounded-[var(--tx-card-radius)] bg-[var(--solus-tx-card-bg)] shadow-[shadow:var(--solus-tx-quiet-shadow)] data-failed:shadow-[shadow:0_0_0_0.03125rem_color-mix(in_oklch,var(--destructive)_26%,transparent),0_0.0625rem_0.125rem_rgba(60,45,30,0.04)]" />
   {/if}
 
-  {#if output}
-    <div class="flex flex-col gap-3 border-t border-[var(--hairline)] pt-4">
-      {@render devicePicker(`${pickerId}-install`, `Install ${output.name} on`, installTargets, installDevice, `No ${DEVICE_RUN_TARGET_LABELS[selection.target]} devices on this host`, (value) => { selection.installDeviceId = value; })}
-      <div class="flex flex-wrap gap-1">
-        <Button size="sm" disabled={!installDevice || !!installDevice.unavailableReason || installing} onclick={() => void install()}>
-          {#if installing}<LoaderCircle class="animate-spin motion-reduce:animate-none" />{/if}
-          Install
-        </Button>
-        {#if output.assetId}<Button size="sm" variant="ghost" class="text-(--solus-text-secondary)" onclick={() => void download()}><Download />Download APK</Button>{/if}
-      </div>
-    </div>
+  {#if !isDev}
+    <DeviceBuildList {serverId} {sessionId} {deviceState} {runApp} {onInstalled} />
   {/if}
 </div>

@@ -562,6 +562,7 @@ export const RPC_PLANES = {
   deviceControlRelease: 'execution',
   deviceControlResume: 'execution',
   deviceInstall: 'execution',
+  deviceBuildRemove: 'execution',
   deviceProjectDetect: 'execution',
   deviceSigningTeams: 'execution',
   deviceRunStart: 'execution',

@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useFocusEffect } from '@react-navigation/native'
 import type { AgentProfileKey } from '@solus/contracts/agent-profile'
-import type { SeatProvider } from '@solus/contracts/seats'
 import type { RemoteSkill } from '@solus/contracts/types'
 import { useApp, useListened } from '../../app/app-context'
 import type { AgentProfileSetOutcome } from './agent-profile-local'
@@ -9,9 +8,6 @@ import type { AgentProfileHostState } from '../account/account-sync'
 import { errorMessage, isIntegrationUrl, probeRefusal } from './integrations'
 import {
   agentProfileParts,
-  fileEntryFromText,
-  INSTRUCTION_FILES,
-  instructionKey,
   integrationEntryFromProbe,
   skillEntryFromRemote,
   withDisabled,
@@ -26,8 +22,8 @@ export interface AgentProfileHostRow {
 }
 
 /**
- * The agent profile screen's view (plans/020-agent-profile.md §3): the local
- * copy by part, and its sync status. The phone has no skills CLI
+ * The agent profile screen's view (plans/020-agent-profile.md §3): the person's
+ * instructions, the local copy by part, and its sync status. The phone has no skills CLI
  * and no MCP probe of its own, so a search of skills.sh and a check of a
  * server address go through one connected host, the first unless the person
  * picks another. Each add becomes one entry in the local copy; sync carries it
@@ -67,6 +63,7 @@ export function useAgentProfile() {
   const { sync, hosts } = useAgentProfileHosts()
   const status = useListened(sync.changes, sync.currentProfile)
   const entries = useListened(app.agentProfile.changes, app.agentProfile.entries)
+  const extraInstructions = useListened(app.personal.changes, () => app.personal.current().extraInstructions)
   const [chosenHostId, setChosenHostId] = useState<string | null>(null)
 
   const parts = useMemo(() => agentProfileParts(entries), [entries])
@@ -86,9 +83,8 @@ export function useAgentProfile() {
     return connection.api
   }
 
-  /** An edit keeps the file off when it was off. */
-  const saveInstruction = (provider: SeatProvider, text: string): AgentProfileSetOutcome =>
-    app.agentProfile.setEntry(withDisabled(fileEntryFromText(provider, INSTRUCTION_FILES[provider], text), entries[instructionKey(provider)]?.disabled === true))
+  /** The person's own instructions: a personal setting every prompt carries, synced like the rest of the profile. */
+  const saveExtraInstructions = (text: string) => app.personal.set({ extraInstructions: text })
 
   const removeKeys = (keys: readonly AgentProfileKey[]) => { app.agentProfile.removeKeys(keys) }
 
@@ -128,7 +124,8 @@ export function useAgentProfile() {
     connectedHosts,
     toolHost,
     chooseToolHost: setChosenHostId,
-    saveInstruction,
+    extraInstructions,
+    saveExtraInstructions,
     removeKeys,
     setDisabled,
     searchSkills,

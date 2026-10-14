@@ -121,13 +121,16 @@ Choose **Dev server** or **Production build**, then a project.
   changes included. An Expo app with `expo-dev-client` opens through its
   `exp+<slug>` link; other debug builds restart and load from Metro.
   Android uses an adb connection to the server.
-- **Production build** builds a Release app with its JavaScript included,
-  once, from the chosen branch. **Build for** chooses what it runs on:
-  iOS Simulator, iPhone or iPad, or Android. An iOS simulator build and an
-  iPhone build are different apps. When the build is ready, choose a device
-  under **Install on** and click **Install**; repeat it for every device
-  that should have the same build. An Android build can also be
-  downloaded as an APK to install on a phone that is not connected.
+- **Production build** builds a Release app with its JavaScript included
+  from the chosen branch. **Build for** chooses what it runs on: iOS
+  Simulator, iPhone or iPad, or Android. An iOS simulator build and an
+  iPhone build are different apps. **Builds** lists every app build on the
+  host, newest first, including builds that agents made, with its target,
+  branch and commit, age, and size. Open a build, check the devices it can
+  go on, and **Install on N devices** installs it on all of them at once.
+  Each device shows Installing, Installed, or why it failed, and one toast
+  sums up the result. An Android build can also be downloaded as an APK.
+  A toast also says when a build is ready or failed, wherever you are.
 
 A production build uses the newest commit of the chosen branch in a
 separate checkout that Solus owns. It does not switch your conversation's

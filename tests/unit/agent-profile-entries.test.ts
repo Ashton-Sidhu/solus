@@ -5,8 +5,6 @@ import { agentProfileChangeBetween } from '@solus/client-core/agent-profile-sync
 import {
   agentProfileKeyLabel,
   conflictRows,
-  decodeFileText,
-  encodeFileEntry,
   entriesWithDisabled,
   integrationEntryOf,
   sectionsOf,
@@ -14,10 +12,8 @@ import {
 } from '@solus/workspace-ui/components/settings/agent-profile/lib/agent-profile-entries'
 
 /**
- * Settings → Agent profile reads the flat document as four sections, edits an
- * instruction file as text, and sends only what changed (plans/020 §3). A file
- * it encodes must hash as the host does, or a host would see every saved
- * instruction file as a change from its own copy.
+ * Settings → Agent profile reads the flat document as four sections, and
+ * sends only what changed (plans/020 §3).
  */
 
 const file = (provider: 'claude-code' | 'codex', path: string, text: string) => ({
@@ -25,7 +21,7 @@ const file = (provider: 'claude-code' | 'codex', path: string, text: string) => 
 })
 
 const entries: AgentProfile = {
-  'file:claude-code/CLAUDE.md': file('claude-code', 'CLAUDE.md', 'Be brief.'),
+  'file:claude-code/commands/ship.md': file('claude-code', 'commands/ship.md', 'Ship.'),
   'file:claude-code/agents/reviewer.md': file('claude-code', 'agents/reviewer.md', 'Review.'),
   'file:claude-code/skills/review/SKILL.md': file('claude-code', 'skills/review/SKILL.md', '# Review'),
   'file:claude-code/skills/review/scripts/run.sh': { ...file('claude-code', 'skills/review/scripts/run.sh', 'echo'), executable: true },
@@ -36,14 +32,11 @@ const entries: AgentProfile = {
 }
 
 describe('sections', () => {
-  test('the entries sort into instructions per provider, registry skills, hand-written skills by name, and servers', () => {
+  test('the entries sort into files per provider, registry skills, hand-written skills by name, and servers', () => {
     const sections = sectionsOf(entries)
-    expect(sections.instructions.map((group) => group.provider)).toEqual(['claude-code', 'codex'])
-    expect(sections.instructions[0].instructions?.path).toBe('CLAUDE.md')
-    expect(sections.instructions[0].otherFiles.map((entry) => entry.path)).toEqual(['agents/reviewer.md'])
-    // Codex has no AGENTS.md here, so its group offers an empty editor rather than disappearing.
-    expect(sections.instructions[1].instructions).toBeNull()
-    expect(sections.instructions[1].otherFiles.map((entry) => entry.path)).toEqual(['prompts/plan.md'])
+    expect(sections.files.map((group) => group.provider)).toEqual(['claude-code', 'codex'])
+    expect(sections.files[0].files.map((entry) => entry.path)).toEqual(['agents/reviewer.md', 'commands/ship.md'])
+    expect(sections.files[1].files.map((entry) => entry.path)).toEqual(['prompts/plan.md'])
     expect(sections.registrySkills.map((skill) => skill.name)).toEqual(['deploy'])
     // WHY: a hand-written skill is removed as a whole, so its row must know every key it is made of.
     expect(sections.writtenSkills).toEqual([{
@@ -54,19 +47,6 @@ describe('sections', () => {
       disabled: false,
     }])
     expect(sections.integrations.map((integration) => integration.slug)).toEqual(['deepwiki'])
-  })
-})
-
-describe('instruction files', () => {
-  test('an edit encodes to a file entry whose hash is the host\'s SHA-256 of the content', async () => {
-    const text = 'Be brief.\n\nPrefer tests over prose. Ünïcödé too.'
-    const entry = await encodeFileEntry('codex', 'AGENTS.md', text)
-    expect(entry).toEqual({
-      kind: 'file', provider: 'codex', path: 'AGENTS.md',
-      contentBase64: Buffer.from(text, 'utf8').toString('base64'),
-      hash: createHash('sha256').update(text, 'utf8').digest('hex'),
-    })
-    expect(decodeFileText(entry)).toBe(text)
   })
 })
 
@@ -108,12 +88,12 @@ describe('new entries', () => {
 describe('changes', () => {
   test('a replaced document sets only the entries that differ and resets the keys that left', () => {
     const desired: AgentProfile = {
-      'file:claude-code/CLAUDE.md': file('claude-code', 'CLAUDE.md', 'Be brief.'),
-      'file:codex/AGENTS.md': file('codex', 'AGENTS.md', 'Plan first.'),
+      'file:claude-code/commands/ship.md': file('claude-code', 'commands/ship.md', 'Ship.'),
+      'file:codex/prompts/review.md': file('codex', 'prompts/review.md', 'Review first.'),
       'skill:deploy': { kind: 'skill', name: 'deploy', source: 'acme/skills', skillId: 'deploy' },
     }
     const change = agentProfileChangeBetween(entries, desired)
-    expect(Object.keys(change.set)).toEqual(['file:codex/AGENTS.md'])
+    expect(Object.keys(change.set)).toEqual(['file:codex/prompts/review.md'])
     expect(change.reset.sort()).toEqual([
       'file:claude-code/agents/reviewer.md',
       'file:claude-code/skills/review/SKILL.md',
@@ -125,7 +105,7 @@ describe('changes', () => {
   })
 
   test('a conflict row names the entry and says what each side holds', () => {
-    expect(agentProfileKeyLabel('file:claude-code/CLAUDE.md')).toBe('CLAUDE.md (Claude Code)')
+    expect(agentProfileKeyLabel('file:claude-code/agents/reviewer.md')).toBe('agents/reviewer.md (Claude Code)')
     expect(agentProfileKeyLabel('skill:deploy')).toBe('Skill deploy')
     expect(agentProfileKeyLabel('integration:deepwiki')).toBe('MCP server deepwiki')
     const [row] = conflictRows([{ key: 'integration:deepwiki', mine: {}, theirs: { 'integration:deepwiki': entries['integration:deepwiki'] } }])

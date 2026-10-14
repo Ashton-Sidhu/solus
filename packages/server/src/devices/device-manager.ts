@@ -600,6 +600,11 @@ export class DeviceManager {
     return build
   }
 
+  async removeBuild(buildId: string): Promise<void> {
+    await this.requireBuilds().remove(buildId)
+    this.publish()
+  }
+
   /** Ask a connected iPhone or iPad to pair with its device host, then discover it again. */
   async pairDevice(target: DeviceControlTarget): Promise<DeviceState> {
     const { ready, device } = await this.resolveDevice(target.deviceHostId, target.deviceId)

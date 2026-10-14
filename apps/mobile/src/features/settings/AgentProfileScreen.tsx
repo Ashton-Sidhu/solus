@@ -3,7 +3,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
 import type { ScreenProps } from "../../navigation/routes";
-import { InstructionsSection, ServersSection, SkillsSection } from "./AgentProfileSections";
+import { FilesSection, InstructionsSection, ServersSection, SkillsSection } from "./AgentProfileSections";
 import { SettingsActionRow } from "./components/SettingsActionRow";
 import { SettingsNote } from "./components/SettingsNote";
 import { SettingsRow } from "./components/SettingsRow";
@@ -14,7 +14,8 @@ import { useAgentProfile } from "./use-agent-profile";
 
 /**
  * The person's agent profile on this device (plans/020-agent-profile.md §3):
- * instructions, skills, and MCP servers. The same capability as Settings →
+ * the person's instructions (a personal setting every prompt carries), their
+ * skills, MCP servers, and copied files. The same capability as Settings →
  * Agent profile on desktop and web, without "Import from this computer": a
  * phone has none. The account's sync, the hosts, and the clear are on
  * Account & sync; an entry two devices changed is resolved here, beside the
@@ -66,6 +67,7 @@ export function AgentProfileScreen({ navigation }: ScreenProps<"AgentProfile">) 
         <InstructionsSection profile={profile} />
         <SkillsSection profile={profile} />
         <ServersSection profile={profile} />
+        <FilesSection profile={profile} />
       </ScrollView>
     </SettingsScreen>
   );

@@ -1,4 +1,4 @@
-import { parseDeviceError, type DeviceRunStartRequest, type DeviceRun, type DeviceRunProfile, type DeviceBuild, type DeviceControlState, type DeviceSummary, type DeviceTarget } from '@solus/contracts/device-types'
+import { isDeviceRunActive, parseDeviceError, type DeviceRunStartRequest, type DeviceRun, type DeviceRunProfile, type DeviceBuild, type DeviceControlState, type DeviceSummary, type DeviceTarget } from '@solus/contracts/device-types'
 import type { HostApi } from './host-api'
 
 /**
@@ -92,4 +92,10 @@ export async function loadDeviceRunBranches(api: Pick<HostApi, 'gitRefreshState'
   const state = await api.gitRefreshState(projectPath, { includeRefs: true, includeDetails: false })
   const branches = state?.refs?.branches ?? []
   return { branches, defaultBranch: branches.includes('main') ? 'main' : state?.branch ?? branches[0] ?? '' }
+}
+
+/** Runs that were going in the previous snapshot and have now ended, so a client can say how they ended. */
+export function finishedRuns(previous: readonly DeviceRun[], next: readonly DeviceRun[]): DeviceRun[] {
+  const wasActive = new Set(previous.filter(isDeviceRunActive).map((run) => run.runId))
+  return next.filter((run) => wasActive.has(run.runId) && (run.stage === 'done' || run.stage === 'failed'))
 }

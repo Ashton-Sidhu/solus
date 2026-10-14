@@ -69,7 +69,8 @@ A write with an old revision gets `409 settings_conflict` and the current docume
 
 ## Agent profile sync
 
-Settings → Agent profile holds the person's instructions, skills, and MCP
+Settings → Agent profile holds the person's instructions (the extra instructions, a
+personal setting), and their skills, files, and MCP
 servers as one document (`docs/agent-profile.md`, plans/020). It syncs with the
 same engine and the same rules as personal settings (`client-core/document-sync.ts`
 is the one engine; `settings-sync.ts` and `agent-profile-sync.ts` bind it to each

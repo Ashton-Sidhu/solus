@@ -16,6 +16,8 @@ import type { DeviceBuild, DeviceSummary } from '@solus/contracts/device-types'
  */
 
 const calls: string[] = []
+// The devices store reports finished builds with toasts; this test only installs.
+mock.module('@solus/workspace-ui/lib/toasts', () => ({ toasts: { show: () => {}, error: () => {}, success: () => {} } }))
 mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: {
     apiFor: () => ({

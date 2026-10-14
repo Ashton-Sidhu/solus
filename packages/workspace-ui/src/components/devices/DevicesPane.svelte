@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Monitor, Package, Plus, Settings2, X } from "@lucide/svelte";
+  import { LoaderCircle, Monitor, Package, Plus, Settings2, X } from "@lucide/svelte";
   import type { DeviceAction, DeviceButton, DeviceInput, DevicePreview, DeviceSummary } from "@solus/contracts/device-types";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { getWorkspaceContext } from "../../contexts";
@@ -22,6 +22,7 @@
   import DeviceTools from "./DeviceTools.svelte";
   import { deviceLiveState, devicesPaneView, liveStateLabel, previewGroups, screenshotFileName, selectedPreview, type DeviceLiveState } from "./lib/device-pane";
   import { deviceViewState } from "./lib/device-view-state.svelte";
+  import { hasActiveRun } from "./lib/run-app.svelte";
   import { pendingKey } from "./lib/device-tools";
 
   /**
@@ -49,6 +50,8 @@
 
   const deviceState = $derived(devicesStore.state(serverId));
   const showRunApp = $derived(deviceViewState.isShowingRunApp(serverId));
+  /** A build or dev server still going on this host, so the person can find it again. */
+  const runActive = $derived(hasActiveRun(devicesStore.runs(serverId)));
   const unavailable = $derived(devicesStore.unavailable.get(serverId));
   const previews = $derived(devicesStore.previewsFor(serverId, sessionId));
   // An extra Devices tab shows only the device chosen in it; until then, the picker.
@@ -289,7 +292,7 @@
       class="{PAGE_SOFT_ICON_BTN} text-workspace-chrome w-auto! gap-1.5 px-2.5 pointer-coarse:w-auto! disabled:cursor-not-allowed disabled:opacity-50 {showRunApp ? 'bg-[var(--wash-3)]! text-foreground!' : ''}"
       aria-pressed={showRunApp} disabled={!deviceState?.settings.enabled}
       onclick={() => deviceViewState.showRunApp(serverId, !showRunApp)}>
-      <Package size={15} strokeWidth={1.5} />Run app
+      {#if runActive}<LoaderCircle size={15} strokeWidth={1.5} class="animate-spin motion-reduce:animate-none" />{:else}<Package size={15} strokeWidth={1.5} />{/if}Run app{#if runActive}<span class="sr-only"> (running)</span>{/if}
     </button>
     <TooltipUI.Root>
       <TooltipUI.Trigger>

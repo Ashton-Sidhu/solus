@@ -22,6 +22,7 @@ import { untrack } from 'svelte'
 import type { PersonalSettingsStore } from '../app/personal-settings.store.svelte'
 import type { AgentProfileLocalStore } from '../seats/agent-profile-local.store.svelte'
 import { agentProfileStore, type AgentProfileStore } from '../seats/agent-profile.store.svelte'
+import { mergeComputerProfile } from '../seats/lib/agent-profile-local'
 import { browserSyncBroadcast, browserSyncClock, browserSyncEnvironment } from './lib/browser-sync-ports'
 
 /**
@@ -274,10 +275,15 @@ export class AccountSyncStore {
     }
   }
 
-  /** The account's first copy of the profile: this computer's, on the desktop, else this device's copy. */
+  /**
+   * The account's first copy of the profile: this device's copy, with this
+   * computer's profile joined to it on the desktop. The local copy is not
+   * written here: the engine applies the confirmed copy whole.
+   */
   private async profileSeed(local: AgentProfileLocalStore): Promise<AgentProfile> {
     try {
-      return (await this.hosts.readComputer()) ?? local.storedEntries
+      const computer = await this.hosts.readComputer()
+      return computer ? mergeComputerProfile(local.storedEntries, computer) : local.storedEntries
     } catch (error) {
       this.notice = { document: 'profile', kind: 'error', message: `Solus could not read this computer's profile: ${error instanceof Error ? error.message : String(error)}` }
       return local.storedEntries

@@ -893,19 +893,19 @@ describe('who stopped a turn', () => {
   })
 })
 
-// WHY: a seat request recorded after the answer (the next prompt found no seat)
+// WHY: an activity recorded after the answer (a teammate renamed the session)
 // is news about the session. It must not push the answer behind the fold, and it
 // must not hide the notice that ended the run.
 describe('an activity after the answer', () => {
-  const seatNeeded = () =>
-    msg({ role: 'system', activity: { kind: 'seat_needed', provider: 'claude-code', id: 'a-seat', subject: { kind: 'session', id: 's' }, at: 1, by: { kind: 'system' } } })
+  const renamed = () =>
+    msg({ role: 'system', activity: { kind: 'renamed', title: 'Hosts menu', id: 'a-rename', subject: { kind: 'session', id: 's' }, at: 1, by: { kind: 'system' } } })
 
   test('keeps the answer on screen', () => {
     const [turn] = turnsFor([
       msg({ role: 'user', content: 'fix the hosts menu' }),
       tool('Edit', '{"file_path":"host-list.svelte"}'),
       msg({ role: 'assistant', content: 'Fixed the menu and pushed it.' }),
-      seatNeeded(),
+      renamed(),
     ])
 
     expect(turn.body.map((item) => item.kind)).toEqual(['tool-group'])
@@ -917,7 +917,7 @@ describe('an activity after the answer', () => {
       msg({ role: 'user', content: 'fix the hosts menu' }),
       tool('Edit', '{"file_path":"host-list.svelte"}'),
       msg({ role: 'system', content: '[Request interrupted by user]' }),
-      seatNeeded(),
+      renamed(),
     ])
 
     expect(turn.end?.kind).toBe('stopped')

@@ -19,9 +19,11 @@ import type {
 } from '@solus/contracts/device-types'
 import { parseDeviceError } from '@solus/contracts/device-types'
 import { DeviceStreamEnded } from '@solus/client-core/device-hub-stream'
-import { buildDownloadName, installDeviceBuild, startDeviceRun, loadDeviceRunBranches, type DeviceRunBranches } from '@solus/client-core/device-builds'
+import { buildDownloadName, finishedRuns, installDeviceBuild, startDeviceRun, loadDeviceRunBranches, type DeviceRunBranches } from '@solus/client-core/device-builds'
 import type { DeviceRunStartRequest } from '@solus/contracts/device-types'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
+import { toasts } from '../../lib/toasts'
+import { runFinishedToast } from '../../components/devices/lib/build-list'
 import { serverConnections } from '@solus/client-core/server-connections'
 
 /**
@@ -90,6 +92,11 @@ export class DevicesStore {
   private adopt(serverId: string, state: DeviceState, authoritative: boolean): void {
     const current = this.states.get(serverId)
     if (!authoritative && current && state.revision <= current.revision) return
+    // Say how a build ended wherever the person is. A first snapshot has nothing to compare, so it says nothing.
+    if (current) for (const run of finishedRuns(current.runs, state.runs)) {
+      const toast = runFinishedToast(run)
+      if (toast) toasts.show(toast)
+    }
     this.states.set(serverId, state)
     this.unavailable.delete(serverId)
     // A grant whose lease is gone is not control any more.
@@ -316,6 +323,10 @@ export class DevicesStore {
   /** Install a build and open it. Uses this client's lease, or borrows a free device. */
   async installBuild(serverId: string, target: DeviceTargetRef, build: DeviceBuild): Promise<void> {
     await installDeviceBuild(serverConnections.apiFor(serverId), target, build, this.control(serverId, target), this.holdsControl(serverId, target))
+  }
+
+  removeBuild(serverId: string, buildId: string): Promise<void> {
+    return serverConnections.apiFor(serverId).deviceBuildRemove(buildId)
   }
 
   /** A short-lived link that downloads an APK build, for a phone's browser. */

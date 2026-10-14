@@ -31,7 +31,7 @@ function pairFetch(): typeof fetch {
 
 function createApp(storage = memoryKeyValueStore(), secrets = memorySecretStore()) {
   const api = new FakeApi()
-    .on('configGet', () => ({ config: { extraInstructions: '', modelInstructions: {}, defaultPermissionMode: 'supervised' }, seeded: true }))
+    .on('configGet', () => ({ config: { extraInstructions: '', defaultPermissionMode: 'supervised' }, seeded: true }))
     .on('watchSession', (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
     .on('unwatchSession', () => undefined)
   const transports: FakeTransport[] = []

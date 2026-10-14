@@ -47,6 +47,5 @@ describe('TextGenerator control-plane dispatch', () => {
     expect('gitContext' in request).toBe(false)
     expect('sessionChangedFiles' in request).toBe(false)
     expect('extraInstructions' in request).toBe(false)
-    expect('modelInstructions' in request).toBe(false)
   })
 })

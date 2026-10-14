@@ -212,7 +212,7 @@ describe.serial('SessionRuntime observability hooks', () => {
           reviewAgent: null, reviewModel: null, reviewReasoning: null, reviewGuideInstructions: '',
           reviewWarmingEnabled: false, rateLimitBehavior: 'ask',
           fontFamily: 'system', fontSize: 14, codeFontFamily: 'system-mono', codeFontSize: 12,
-          extraInstructions: '', modelInstructions: {},
+          extraInstructions: '',
         },
         statusBar: {
           workingDirectory: repository, activeAgent: 'codex', permissionMode: 'supervised', model: 'gpt-test',

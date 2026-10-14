@@ -358,24 +358,22 @@ describe('whose turn asks, and what was chosen', () => {
     expect(inputRequestsModule.permissionDecisionFor(request, 'nope')).toBeUndefined()
   })
 
-  test('a refused seat tells the room who waits on it, as an activity', async () => {
+  // WHY: the refused client shows the connect card; a row in the thread only
+  // repeats it, and to the person refused it read as news about someone else.
+  test('a refused seat records no activity in the thread', async () => {
     const { SeatRequiredError } = await import('@solus/server/execution/seats/seat-manager')
     const backend = holdingBackend()
     const plane = new sessionRuntimeModule.SessionRuntime(new Map([['claude-code', backend.value]]))
     plane.on('error', () => {})
     plane.useSeats({
-      resolveForTurn: async (seat: { userId?: { accountId: string } }) => { throw new SeatRequiredError(seat.userId?.accountId === 'dan' ? 'claude-code' : 'codex', 'none') },
+      resolveForTurn: async () => { throw new SeatRequiredError('claude-code', 'none') },
     } as unknown as Parameters<typeof plane.useSeats>[0])
     cleanups.push(() => { backend.releaseAll(); plane.shutdown() })
-    const sent: Array<{ event: NormalizedEvent; to?: { only?: string; except?: string } }> = []
-    plane.on('event', (_sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }) => { sent.push({ event, to }) })
+    const sent: NormalizedEvent[] = []
+    plane.on('event', (_sessionId: string, event: NormalizedEvent) => { sent.push(event) })
 
     await expect(plane.dispatch.submitPrompt(ctx('s1'), { prompt: 'start' }, { clientId: 'c-dan', actor: actors.memberActor('dan', 'Dan') })).rejects.toBeInstanceOf(SeatRequiredError)
-    const notice = () => sent.find(({ event }) => event.type === 'activity')
-    for (let i = 0; i < 20 && !notice(); i++) await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(notice()?.event).toMatchObject({ type: 'activity', activity: { kind: 'seat_needed', provider: 'claude-code', by: { kind: 'user', user: actors.accountUser('dan', 'Dan') } } })
-    // Everyone reads it; the refused client's own row names them "you" and is not drawn (showsActivity).
-    expect(notice()?.to).toBeUndefined()
+    expect(sent.filter((event) => event.type === 'activity')).toEqual([])
   })
 })
 

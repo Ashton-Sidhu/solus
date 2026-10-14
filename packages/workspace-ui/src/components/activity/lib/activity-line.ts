@@ -82,7 +82,6 @@ function sessionPredicate(activity: Activity, self: UserId | null): string | nul
     case 'queued_prompt_changed': return `${activity.change} ${heldPromptOwner(activity.author, self)} held prompt`
     case 'worktree_offered': return `found the agent working in worktree ${activity.branch || activity.path}`
     case 'worktree_offer_decided': return worktreeOfferPredicate(activity.resolution.decision)
-    case 'seat_needed': return `needs to connect a ${activity.provider === 'codex' ? 'Codex' : 'Claude'} seat on this host`
     default: return null
   }
 }
@@ -133,6 +132,8 @@ function taskLine(
  * reader never reads as "you".
  */
 export function showsActivity(activity: Activity, self: UserId | null): boolean {
+  // No longer recorded: the refused client shows the connect card instead.
+  if (activity.kind === 'seat_needed') return false
   if (activity.kind === 'stopped' || dividesThread(activity)) return true
   if (activity.by.kind !== 'user') return true
   return otherPerson(activity.by.user, self) !== null

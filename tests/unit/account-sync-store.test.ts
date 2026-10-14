@@ -24,7 +24,7 @@ import type { AccountSettingsPatchRequest, AccountSettingsResponse, PersonalSett
 let localServerId: string | null = 'laptop'
 const hostCalls: string[] = []
 const computer: AgentProfile = {
-  'file:claude-code/CLAUDE.md': { kind: 'file', provider: 'claude-code', path: 'CLAUDE.md', contentBase64: Buffer.from('Be brief.').toString('base64'), hash: 'a'.repeat(64) },
+  'file:claude-code/agents/rules.md': { kind: 'file', provider: 'claude-code', path: 'agents/rules.md', contentBase64: Buffer.from('Be brief.').toString('base64'), hash: 'a'.repeat(64) },
 }
 const hostStatus = (entries: number, source: AgentProfileStatus['source']): AgentProfileStatus => ({
   syncedAt: entries ? 1 : null, source: entries ? source : null, revision: source === 'account' ? 3 : null,
@@ -201,11 +201,21 @@ describe('signing in', () => {
     expect(cloud.sent).toHaveLength(1)
     // WHY: a seed creates the document only where none exists, so a device that signs in never overwrites another's copy.
     expect(cloud.sent[0].expectedRevision).toBeNull()
-    expect(Object.keys(cloud.profile.entries)).toEqual(['file:claude-code/CLAUDE.md'])
-    expect(Object.keys(local.entries)).toEqual(['file:claude-code/CLAUDE.md'])
+    expect(Object.keys(cloud.profile.entries)).toEqual(['file:claude-code/agents/rules.md'])
+    expect(Object.keys(local.entries)).toEqual(['file:claude-code/agents/rules.md'])
     // WHY: the laptop is the source, never a destination; the member's seats and the owned VM pull the account's copy.
     expect(hostCalls).toContain('read:laptop')
     expect(pulls()).toEqual(['pull:cloud', 'pull:vm'])
+  })
+
+  test('on a desktop, the first copy joins this computer\'s profile to what this device already holds', async () => {
+    // WHY: a skill added on the page while signed out must not be lost at sign-in, and the computer's own files must come along.
+    localServerId = 'laptop'
+    const deploy: AgentProfile = { 'skill:deploy': { kind: 'skill', name: 'deploy', source: 'acme/skills', skillId: 'deploy' } }
+    const { local, cloud, signIn } = await storesOn({ anonymous: deploy })
+    await signIn()
+    expect(Object.keys(cloud.profile.entries).sort()).toEqual(['file:claude-code/agents/rules.md', 'skill:deploy'])
+    expect(Object.keys(local.entries).sort()).toEqual(['file:claude-code/agents/rules.md', 'skill:deploy'])
   })
 
   test('on a client with no computer, the first copy is this device\'s local copy', async () => {
@@ -275,7 +285,7 @@ describe('signing in', () => {
     await settle()
     expect(sync.profile.state).toBe('synced')
     expect(sync.state).toBe('synced')
-    expect(Object.keys(cloud.profile.entries)).toEqual(['file:claude-code/CLAUDE.md'])
+    expect(Object.keys(cloud.profile.entries)).toEqual(['file:claude-code/agents/rules.md'])
   })
 })
 
@@ -302,15 +312,15 @@ describe('writes', () => {
     await signIn()
     hostCalls.length = 0
     const { entriesWithDisabled } = await import('@solus/workspace-ui/components/settings/agent-profile/lib/agent-profile-entries')
-    local.setEntry(...entriesWithDisabled(local.storedEntries, ['file:claude-code/CLAUDE.md'], true))
+    local.setEntry(...entriesWithDisabled(local.storedEntries, ['file:claude-code/agents/rules.md'], true))
     await settle()
     // WHY: a disabled entry stays in the profile, so the person can turn it on again; only the hosts drop it.
-    expect(cloud.profile.entries['file:claude-code/CLAUDE.md']).toMatchObject({ path: 'CLAUDE.md', disabled: true })
+    expect(cloud.profile.entries['file:claude-code/agents/rules.md']).toMatchObject({ path: 'agents/rules.md', disabled: true })
     expect(pulls()).toEqual(['pull:cloud', 'pull:vm'])
 
-    local.setEntry(...entriesWithDisabled(local.storedEntries, ['file:claude-code/CLAUDE.md'], false))
+    local.setEntry(...entriesWithDisabled(local.storedEntries, ['file:claude-code/agents/rules.md'], false))
     await settle()
-    expect(cloud.profile.entries['file:claude-code/CLAUDE.md']).toEqual(computer['file:claude-code/CLAUDE.md'])
+    expect(cloud.profile.entries['file:claude-code/agents/rules.md']).toEqual(computer['file:claude-code/agents/rules.md'])
   })
 
   test('signed in a host pulls on first sight; signed out this computer pushes', async () => {
@@ -338,7 +348,9 @@ describe('clearing', () => {
     expect(sync.profile.state).toBe('synced')
     expect(sync.notice).toEqual({ document: 'profile', kind: 'cleared' })
     expect(cloud.profile.generation).toBe(1)
-    expect(Object.keys(cloud.profile.entries)).toEqual(['file:claude-code/CLAUDE.md'])
+    // WHY: the new copy is what this device shows, with this computer's profile joined: a clear drops the account's
+    // connections and moves every device onto this one's list; it does not undo an entry the person added here.
+    expect(Object.keys(cloud.profile.entries).sort()).toEqual(['file:claude-code/agents/rules.md', 'skill:deploy'])
     // The hosts read the new copy now.
     expect(pulls()).toEqual(['pull:cloud', 'pull:vm'])
   })

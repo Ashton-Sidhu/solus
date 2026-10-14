@@ -127,6 +127,11 @@ export function registerDeviceHandlers(
     return build
   })
 
+  server.register('deviceBuildRemove', (args, ctx) => {
+    requirePerson(ctx)
+    return manager.removeBuild(parse(z.string().min(1).max(128), args[0]))
+  })
+
   server.register('deviceRunStart', (args, ctx) => {
     const request = parse(deviceRunStartRequestSchema, args[0])
     return deps.domain.runs.start(request, userHolder(ctx))

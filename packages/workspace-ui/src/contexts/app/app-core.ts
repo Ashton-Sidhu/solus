@@ -72,6 +72,8 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   const settings = new SettingsContext()
   // One account sync owner and one host-settings follower per client, not per tab.
   onDestroy(accountSyncStore.start(settings.personal, agentProfileLocalStore))
+  // The desktop's push sends this copy, and this computer's profile fills it (plans/020 §3).
+  agentProfileStore.attachLocalCopy(agentProfileLocalStore)
   onDestroy(accountSyncStore.followAccount(accountStore))
   // A signed-in person's MCP sign-ins run at the cloud (plans/020 §5.3); the store itself holds no account state.
   integrationsStore.useCloudSignIn({

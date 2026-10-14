@@ -2,7 +2,6 @@ import { useState } from "react";
 import { ActivityIndicator, Alert, Platform, Pressable, TextInput, View } from "react-native";
 
 import { agentProfileKeyOf, type AgentProfileFileEntry, type AgentProfileIntegrationEntry, type AgentProfileSkillEntry } from "@solus/contracts/agent-profile";
-import type { SeatProvider } from "@solus/contracts/seats";
 import type { RemoteSkill } from "@solus/contracts/types";
 import { AppText as Text } from "../../components/AppText";
 import { cn } from "../../lib/cn";
@@ -14,13 +13,8 @@ import { urlHost } from "./integrations";
 import {
   AUTH_LABELS,
   DISABLED_ENTRY_TEXT,
-  fileEntryText,
   hostProfileText,
-  INSTRUCTION_FILES,
-  instructionKey,
-  isInstructionFile,
   PROVIDER_LABELS,
-  SEAT_PROVIDERS,
   skillFileCountText,
   type HandWrittenSkill,
 } from "./lib/agent-profile-entries";
@@ -32,94 +26,77 @@ export const formatTime = (epochMs: number) => new Date(epochMs).toLocaleString(
 
 /**
  * The parts of the agent profile screen (plans/020-agent-profile.md §3): the
- * instruction files, the skills, and the MCP servers; and, on the account's
- * sync screen, the hosts. Each add, remove, and turn off or on goes through
+ * person's instructions, the skills, the MCP servers, and the copied files;
+ * and, on the account's sync screen, the hosts. Each add, remove, and turn off or on goes through
  * `useAgentProfile`. An entry turned off stays listed and leaves every host.
  */
 
 // ─── Instructions ───
 
 export function InstructionsSection({ profile }: { readonly profile: AgentProfileModel }) {
-  const otherFiles = profile.parts.files.filter((entry) => !isInstructionFile(entry));
   return (
     <View className="gap-3">
       <SettingsSection title="Instructions">
-        {SEAT_PROVIDERS.map((provider, index) => {
-          const entry = profile.parts.files.find((candidate) => candidate.provider === provider && isInstructionFile(candidate)) ?? null;
-          return (
-            <InstructionEditor
-              key={`${provider}:${entry?.hash ?? "none"}`}
-              provider={provider}
-              entry={entry}
-              first={index === 0}
-              onSave={(text) => profile.saveInstruction(provider, text)}
-              onToggle={() => profile.setDisabled([instructionKey(provider)], entry?.disabled !== true)}
-              onRemove={() => confirmRemove(`Remove ${INSTRUCTION_FILES[provider]}?`, () => profile.removeKeys([instructionKey(provider)]))}
-            />
-          );
-        })}
-        {otherFiles.map((entry) => (
-          <FileRow
-            key={agentProfileKeyOf(entry)}
-            entry={entry}
-            onToggle={() => profile.setDisabled([agentProfileKeyOf(entry)], entry.disabled !== true)}
-            onRemove={() => confirmRemove(`Remove ${entry.path}?`, () => profile.removeKeys([agentProfileKeyOf(entry)]))}
-          />
-        ))}
+        <ExtraInstructionsEditor key={profile.extraInstructions} stored={profile.extraInstructions} onSave={profile.saveExtraInstructions} />
       </SettingsSection>
-      <SettingsNote>What each agent reads first on every host: CLAUDE.md for Claude Code, AGENTS.md for Codex. Subagents, commands, and prompts copied from a computer are listed with them.</SettingsNote>
+      <SettingsNote>Your own instructions, sent with every prompt on every host. A project's CLAUDE.md or AGENTS.md stays with the project.</SettingsNote>
     </View>
   );
 }
 
-function InstructionEditor(props: {
-  readonly provider: SeatProvider;
-  readonly entry: AgentProfileFileEntry | null;
-  readonly first: boolean;
-  readonly onSave: (text: string) => "saved" | "invalid";
-  readonly onToggle: () => void;
-  readonly onRemove: () => void;
-}) {
-  const stored = props.entry ? fileEntryText(props.entry) : "";
-  const [draft, setDraft] = useState(stored);
+function ExtraInstructionsEditor(props: { readonly stored: string; readonly onSave: (text: string) => "saved" | "invalid" }) {
+  const [draft, setDraft] = useState(props.stored);
   const [failed, setFailed] = useState(false);
-  const changed = draft !== stored;
-  const label = `${INSTRUCTION_FILES[props.provider]} · ${PROVIDER_LABELS[props.provider]}`;
+  const changed = draft !== props.stored;
   return (
-    <View className={cn("gap-3 p-4", !props.first && "border-t border-border-subtle")}>
+    <View className="gap-3 p-4">
       <View className="flex-row items-center justify-between gap-3">
-        <View className="min-w-0 flex-1 gap-0.5">
-          <Text className={cn("text-lg android:text-base", props.entry?.disabled ? "text-foreground-muted" : "text-foreground")} numberOfLines={1}>{label}</Text>
-          {props.entry?.disabled && !changed ? <DisabledLine /> : null}
-        </View>
-        {changed ? (
-          <PillButton label="Save" accessibilityLabel={`Save ${label}`} onPress={() => setFailed(props.onSave(draft) !== "saved")} />
-        ) : props.entry ? (
-          <EntryActions name={label} disabled={props.entry.disabled === true} onToggle={props.onToggle} onRemove={props.onRemove} />
-        ) : null}
+        <Text className="min-w-0 flex-1 text-lg text-foreground android:text-base" numberOfLines={1}>Extra instructions</Text>
+        {changed ? <PillButton label="Save" accessibilityLabel="Save your extra instructions" onPress={() => setFailed(props.onSave(draft) !== "saved")} /> : null}
       </View>
       <TextInput
-        accessibilityLabel={label}
+        accessibilityLabel="Extra instructions"
         multiline
         autoCapitalize="none"
         autoCorrect={false}
         value={draft}
         onChangeText={(value) => { setDraft(value); setFailed(false); }}
-        placeholder={`Instructions for ${PROVIDER_LABELS[props.provider]}`}
+        placeholder="Prefer concise answers. Use specific libraries. Follow my writing style."
         placeholderTextColorClassName="accent-placeholder"
         selectionColorClassName="accent-focus/32"
         cursorColorClassName="accent-focus"
         className="min-h-24 rounded-2xl border border-border bg-input px-3.5 py-3 font-mono text-sm text-foreground"
       />
-      {failed ? <Text className="text-sm text-danger-foreground" accessibilityRole="alert">This file could not be saved: it is over the size limit.</Text> : null}
+      {failed ? <Text className="text-sm text-danger-foreground" accessibilityRole="alert">These instructions could not be saved: they are over the size limit.</Text> : null}
     </View>
   );
 }
 
-function FileRow(props: { readonly entry: AgentProfileFileEntry; readonly onToggle: () => void; readonly onRemove: () => void }) {
+/** Subagents, commands, and prompts copied from a computer: listed, not edited. Nothing when the profile holds none. */
+export function FilesSection({ profile }: { readonly profile: AgentProfileModel }) {
+  if (profile.parts.files.length === 0) return null;
+  return (
+    <View className="gap-3">
+      <SettingsSection title="Files">
+        {profile.parts.files.map((entry, index) => (
+          <FileRow
+            key={agentProfileKeyOf(entry)}
+            entry={entry}
+            first={index === 0}
+            onToggle={() => profile.setDisabled([agentProfileKeyOf(entry)], entry.disabled !== true)}
+            onRemove={() => confirmRemove(`Remove ${entry.path}?`, () => profile.removeKeys([agentProfileKeyOf(entry)]))}
+          />
+        ))}
+      </SettingsSection>
+      <SettingsNote>Subagents, commands, and prompts from a computer's home, on every host you work on.</SettingsNote>
+    </View>
+  );
+}
+
+function FileRow(props: { readonly entry: AgentProfileFileEntry; readonly first: boolean; readonly onToggle: () => void; readonly onRemove: () => void }) {
   const disabled = props.entry.disabled === true;
   return (
-    <View className="flex-row items-center gap-3 border-t border-border-subtle p-4">
+    <View className={cn("flex-row items-center gap-3 p-4", !props.first && "border-t border-border-subtle")}>
       <View className="min-w-0 flex-1 gap-0.5">
         <EntryTitle disabled={disabled} middle>{props.entry.path}</EntryTitle>
         <Text className="text-sm text-foreground-muted" numberOfLines={1}>{PROVIDER_LABELS[props.entry.provider]}</Text>

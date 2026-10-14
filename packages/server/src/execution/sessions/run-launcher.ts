@@ -776,10 +776,7 @@ export class RunLauncher {
           () => logNewSessionPrompt(effectiveInput, options, backend.id),
         )
       }
-      const userInstructions = buildSystemPrompt({
-        extraInstructions: effectiveInput.extraInstructions,
-        modelInstructions: effectiveInput.modelInstructions,
-      })
+      const userInstructions = buildSystemPrompt({ extraInstructions: effectiveInput.extraInstructions })
       const systemPrompt = [
         userInstructions,
         options.systemPrompt,

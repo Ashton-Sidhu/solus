@@ -173,8 +173,6 @@ export const PERSONAL_SETTING_SCHEMAS = {
   assistantTextOpacity: z.number().int().min(MIN_ASSISTANT_TEXT_OPACITY).max(100),
   /** Bounded because it is added to each agent run. */
   extraInstructions: z.string().max(MAX_INSTRUCTIONS),
-  /** Extra instructions keyed by resolved model id, appended when that model runs. */
-  modelInstructions: z.record(z.string().max(MAX_MODEL_ID), z.string().max(MAX_INSTRUCTIONS)).refine((value) => Object.keys(value).length <= 50),
   tabGroupMode: z.enum(TAB_GROUP_MODES),
   sidebarCompletedRetentionDays: z.number().int().min(1).max(365),
   sidebarMotionMs: z.number().int().min(0).max(MAX_SIDEBAR_MOTION_MS),
@@ -259,7 +257,6 @@ export const DEFAULT_PERSONAL_SETTINGS: PersonalSettings = {
   promptFontSize: 13,
   assistantTextOpacity: 100,
   extraInstructions: '',
-  modelInstructions: {},
   tabGroupMode: 'flat',
   sidebarCompletedRetentionDays: DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS,
   sidebarMotionMs: DEFAULT_SIDEBAR_MOTION_MS,
@@ -302,7 +299,6 @@ export const EXECUTION_PREFERENCE_KEYS = [
   'rateLimitBehavior',
   'autoRenameSessions',
   'extraInstructions',
-  'modelInstructions',
   'leadModel',
   'agentTaskLifecyclePolicy',
   'leadInstructions',

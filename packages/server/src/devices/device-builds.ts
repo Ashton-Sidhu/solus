@@ -115,13 +115,25 @@ export class DeviceBuildStore {
     this.builds = [build, ...this.builds.filter((candidate) => candidate.path !== build.path && hasOutput(candidate))]
     const evicted = this.builds.splice(MAX_BUILDS)
     await this.save()
-    for (const old of evicted) {
-      if (old.assetId && old.path === storedAssetPath(old.assetId, this.deps.assetsDir) && !this.builds.some((candidate) => candidate.assetId === old.assetId)) await unlink(old.path).catch(() => {})
-      const owned = ownedRunOutputDirectory(old.path, dirname(this.deps.path))
-      if (owned && !this.builds.some((candidate) => candidate.path === old.path)) await rm(owned, { recursive: true, force: true }).catch(() => {})
-    }
+    for (const old of evicted) await this.discardOutput(old)
     log.info('device_build_added', { sessionId, buildId: build.buildId, platform: build.platform, runsOn: build.runsOn, replaced: replaced.length })
     return build
+  }
+
+  /** Forget a build a person deleted, and the copies Solus owns. Agent and project outputs stay on disk. */
+  async remove(buildId: string): Promise<void> {
+    const build = this.get(buildId)
+    this.builds = this.builds.filter((candidate) => candidate.buildId !== buildId)
+    await this.save()
+    await this.discardOutput(build)
+    log.info('device_build_removed', { buildId })
+  }
+
+  /** Delete the stored APK or the Run app copy of an entry that left the list, unless another entry still uses it. */
+  private async discardOutput(old: StoredDeviceBuild): Promise<void> {
+    if (old.assetId && old.path === storedAssetPath(old.assetId, this.deps.assetsDir) && !this.builds.some((candidate) => candidate.assetId === old.assetId)) await unlink(old.path).catch(() => {})
+    const owned = ownedRunOutputDirectory(old.path, dirname(this.deps.path))
+    if (owned && !this.builds.some((candidate) => candidate.path === old.path)) await rm(owned, { recursive: true, force: true }).catch(() => {})
   }
 
   async noteInstall(buildId: string, device: DeviceSummary): Promise<DeviceBuild> {

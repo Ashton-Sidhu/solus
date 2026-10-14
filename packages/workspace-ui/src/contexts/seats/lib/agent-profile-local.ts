@@ -61,3 +61,20 @@ export function applyChange(entries: AgentProfile, change: AgentProfileChange): 
 export function isEmptyChange(change: AgentProfileChange): boolean {
   return Object.keys(change.set).length === 0 && change.reset.length === 0
 }
+
+/**
+ * This computer's profile joined to this client's copy: every entry the
+ * computer has, with the copy's `disabled` flag kept where the copy already
+ * held that key, and every entry only the copy has (added from skills.sh, or
+ * from another device). The computer wins the content of a shared key: its
+ * files and records are what it has now. Nothing is removed: the copy is the
+ * person's list, and the computer only fills it.
+ */
+export function mergeComputerProfile(current: AgentProfile, computer: AgentProfile): AgentProfile {
+  const merged: AgentProfile = { ...current }
+  for (const [key, entry] of Object.entries(computer)) {
+    const held = current[key]
+    merged[key] = held?.disabled ? { ...entry, disabled: true } : entry
+  }
+  return merged
+}

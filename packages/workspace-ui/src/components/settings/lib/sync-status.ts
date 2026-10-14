@@ -34,7 +34,6 @@ const KEY_LABELS = new Map<PersonalSettingKey, string>([
   ['defaultModels', 'Default models'],
   ['modelOptionsByProvider', 'Model options'],
   ['extraInstructions', 'Custom instructions'],
-  ['modelInstructions', 'Model instructions'],
   ['savedLenses', 'Saved review lenses'],
   ['fontFamily', 'Interface font'],
   ['fontSize', 'Interface font size'],

@@ -12,8 +12,7 @@ import { SEAT_PROVIDERS, type SeatProvider } from '@solus/contracts/seats'
 
 /**
  * The file part of an agent profile (plans/020-agent-profile.md §2): the
- * instruction files, subagents, commands, prompts, and hand-written skills in
- * a provider home. Read from the homes of the machine a person works on,
+ * subagents, commands, prompts, and hand-written skills in a provider home. Read from the homes of the machine a person works on,
  * written into their seats on another host. Every path, size, and link is
  * checked before anything changes; an I/O failure part way is repaired by the
  * next copy. There is no staging or rollback. `AgentProfileManager` owns the
@@ -211,9 +210,8 @@ export function isProfilePath(provider: SeatProvider, path: string): boolean {
   if (posix.normalize(path) !== path) return false
   const [entry] = segments
   const entries: readonly string[] = AGENT_PROFILE_ENTRIES[provider]
-  if (!entries.includes(entry)) return false
-  // An instruction file is one file, not a folder.
-  return entry.endsWith('.md') ? segments.length === 1 : segments.length > 1
+  // A file inside one of the entries' folders, never the entry itself.
+  return entries.includes(entry) && segments.length > 1
 }
 
 /** Remove the folders a deleted file leaves empty, up to its profile entry. */

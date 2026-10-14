@@ -569,3 +569,18 @@ Grilled with the maintainer; plan 018 decision 9 is the twin record.
 - **Hosts.** Nothing changes: the pull, the write-through, the adoption, the
   reconcile, and the vault stay.
 
+### Instructions are a setting; the home's instruction files are not profile (2026-10-14)
+
+Maintainer decision: `CLAUDE.md` and `AGENTS.md` leave the agent profile. An
+instructions file belongs with a project, not with a person, so a home's copy
+is not read, not carried, and refused as a profile path (`AGENT_PROFILE_ENTRIES`
+names only `skills`, `agents`, `commands`, and `prompts`). The person's own
+instructions are the extra instructions of their personal settings, which
+every prompt already carries and which sync with the account:
+they are edited on the Agent profile page on desktop, web, and mobile, and on
+the console's agent profile page, which writes `extraInstructions` to the
+settings document against the revision it read. The Settings → Instructions
+tab went; the Agent profile tab holds the editor. Clients list the copied
+`agents/`, `commands/`, and `prompts/` files under "Files". The per-model
+instructions (`modelInstructions`) went with it, from the settings contract,
+the run input, and the system prompt: one instruction text per person.

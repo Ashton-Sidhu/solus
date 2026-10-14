@@ -35,7 +35,8 @@
   let query = $state("");
   let searchEl = $state<HTMLInputElement | null>(null);
   let debounce: ReturnType<typeof setTimeout> | null = null;
-  const inProfile = $derived(new Set(registrySkills.map((skill) => skill.name)));
+  // A hand-written skill counts too: a host refuses a registry skill and a hand-written one of the same name.
+  const inProfile = $derived(new Set([...registrySkills, ...writtenSkills].map((skill) => skill.name)));
   const skillCount = $derived(registrySkills.length + writtenSkills.length);
 
   onDestroy(() => {

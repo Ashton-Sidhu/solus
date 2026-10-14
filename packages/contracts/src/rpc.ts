@@ -620,6 +620,7 @@ export const RPC_INVOKE_METHODS = [
   'deviceControlRelease',
   'deviceControlResume',
   'deviceInstall',
+  'deviceBuildRemove',
   'deviceProjectDetect',
   'deviceSigningTeams',
   'deviceRunStart',

@@ -1,18 +1,20 @@
 import { expect, mock, test } from 'bun:test'
-import type { AgentProfileCopy, AgentProfileCopy, AgentProfileStatus } from '@solus/contracts/agent-profile'
+import type { AgentProfileCopy, AgentProfileStatus } from '@solus/contracts/agent-profile'
 
 /**
  * Not signed in, the profile moves one way: read on this client's own machine,
  * written on the shared host. A client with no machine of its own copies
  * nothing, and the automatic copy happens once per host each run. With sync
  * on, a host pulls from the account instead, and this client never pushes.
+ * This computer's profile fills this client's copy (the page is never blank on
+ * a desktop), and a push sends that copy, so an edit on the page holds.
  */
 
 let localServerId: string | null = 'laptop'
 const calls: string[] = []
 const read: AgentProfileCopy = {
   profile: {
-    'file:claude-code/CLAUDE.md': { kind: 'file', provider: 'claude-code', path: 'CLAUDE.md', contentBase64: Buffer.from('Be brief.').toString('base64'), hash: 'a'.repeat(64) },
+    'file:claude-code/agents/rules.md': { kind: 'file', provider: 'claude-code', path: 'agents/rules.md', contentBase64: Buffer.from('Be brief.').toString('base64'), hash: 'a'.repeat(64) },
     'integration:deepwiki': { kind: 'integration', slug: 'deepwiki', name: 'DeepWiki', url: 'https://mcp.deepwiki.com/mcp', auth: { kind: 'none' } },
   },
   skipped: [],
@@ -35,7 +37,23 @@ mock.module('@solus/client-core/server-connections', () => ({
     }),
   },
 }))
+// The stores hold `$state` fields; outside a Svelte build the rune is a plain value.
+Object.assign(globalThis, { $state: Object.assign(<T>(value: T) => value, { snapshot: <T>(value: T) => structuredClone(value) }) })
 const { AgentProfileStore, profileAppliesTo } = await import('@solus/workspace-ui/contexts/seats/agent-profile.store.svelte')
+const { AgentProfileLocalStore } = await import('@solus/workspace-ui/contexts/seats/agent-profile-local.store.svelte')
+const { mergeComputerProfile } = await import('@solus/workspace-ui/contexts/seats/lib/agent-profile-local')
+
+function memoryStorage(): Storage {
+  const items = new Map<string, string>()
+  return {
+    get length() { return items.size },
+    key: (index: number) => [...items.keys()][index] ?? null,
+    clear: () => items.clear(),
+    getItem: (key: string) => items.get(key) ?? null,
+    setItem: (key: string, value: string) => void items.set(key, value),
+    removeItem: (key: string) => void items.delete(key),
+  }
+}
 
 const settle = () => new Promise((done) => setTimeout(done, 0))
 
@@ -94,4 +112,61 @@ test('a profile applies to a member\'s seats and to a host the person owns, neve
   expect(profileAppliesTo('local-owner', 'laptop', 'laptop')).toBe(false)
   expect(profileAppliesTo('guest', 'managed-vm', 'laptop')).toBe(false)
   expect(profileAppliesTo(null, 'managed-vm', 'laptop')).toBe(false)
+})
+
+test('this computer fills an empty copy by itself, and an import keeps what the person turned off and added', async () => {
+  // WHY: a desktop's page must start with the skills and servers the person
+  // already has; an import adds what is new and never undoes an edit here.
+  calls.length = 0
+  localServerId = 'laptop'
+  const local = new AgentProfileLocalStore(memoryStorage())
+  const store = new AgentProfileStore()
+  store.attachLocalCopy(local)
+  store.importComputerIfEmpty()
+  await settle()
+  expect(calls).toEqual(['read:laptop'])
+  expect(Object.keys(local.entries).sort()).toEqual(['file:claude-code/agents/rules.md', 'integration:deepwiki'])
+
+  // A full copy is not read again on its own.
+  store.importComputerIfEmpty()
+  await settle()
+  expect(calls).toEqual(['read:laptop'])
+
+  local.setEntry({ ...read.profile['integration:deepwiki'], disabled: true })
+  local.setEntry({ kind: 'skill', name: 'deploy', source: 'acme/skills', skillId: 'deploy' })
+  await store.importComputer()
+  expect(local.entries['integration:deepwiki']?.disabled).toBe(true)
+  expect(local.entries['skill:deploy']?.kind).toBe('skill')
+  expect(store.importError).toBeNull()
+})
+
+test('a push sends this client\'s copy, so an entry removed on the page stays off the host; an empty copy fills first', async () => {
+  // WHY: the page is the person's list. If a push read the computer again, "Remove" would undo itself on every push.
+  calls.length = 0
+  localServerId = 'laptop'
+  const local = new AgentProfileLocalStore(memoryStorage())
+  const store = new AgentProfileStore()
+  store.attachLocalCopy(local)
+  await store.copy('cloud')
+  expect(calls).toEqual(['read:laptop', 'apply:cloud:2'])
+
+  calls.length = 0
+  local.removeKey('integration:deepwiki')
+  await store.copy('cloud')
+  expect(calls).toEqual(['apply:cloud:1'])
+  expect(Object.keys(local.entries)).toEqual(['file:claude-code/agents/rules.md'])
+})
+
+test('merging this computer into the copy keeps the copy\'s disabled flag and its own entries, and takes the computer\'s content', () => {
+  const computerFile = read.profile['file:claude-code/agents/rules.md']
+  const merged = mergeComputerProfile(
+    {
+      'file:claude-code/agents/rules.md': { ...computerFile, contentBase64: Buffer.from('Old.').toString('base64'), hash: 'b'.repeat(64), disabled: true },
+      'skill:deploy': { kind: 'skill', name: 'deploy', source: 'acme/skills', skillId: 'deploy' },
+    },
+    read.profile,
+  )
+  expect(merged['file:claude-code/agents/rules.md']).toEqual({ ...computerFile, disabled: true })
+  expect(merged['skill:deploy']?.kind).toBe('skill')
+  expect(merged['integration:deepwiki']?.kind).toBe('integration')
 })

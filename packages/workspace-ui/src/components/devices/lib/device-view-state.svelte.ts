@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
-import type { DeviceRunMode, DeviceRunTarget } from '@solus/contracts/device-types'
 
 /**
  * What one client remembers about a session's device tabs: which preview is
@@ -52,39 +51,15 @@ function readPresentation(): DevicePresentation {
   }
 }
 
-interface RunAppSelection {
-  /** Open simulators on a dev server, or build for production and install. */
-  mode: DeviceRunMode
-  projectPath: string | null
-  branch: string
-  /** What a production build runs on. */
-  target: DeviceRunTarget
-  /** The simulator the dev server opens the app on next. */
-  simulatorId: string
-  /** The device a production build installs on next. */
-  installDeviceId: string
-}
-
 export class DeviceViewState {
   /** One choice for every device on this client, as in T3 Code. */
   presentation = $state<DevicePresentation>(readPresentation())
 
   private readonly views = new SvelteMap<string, SessionDeviceView>(readStorage())
   /** Hosts whose Devices pane shows Run app. Not stored: a new window starts on the devices. */
-  /** Not reactive: it is filled lazily from a `$derived`, and each selection is `$state` itself. */
-  private readonly appSelections = new Map<string, RunAppSelection>()
   private readonly runAppShown = new SvelteSet<string>()
   /** The preview each extra Devices tab shows, by its surface id. Not stored: a reloaded tab offers the picker. */
   private readonly surfaceSelections = new SvelteMap<string, string>()
-
-  runAppSelection(serverId: string, sessionId: string | null): RunAppSelection {
-    const key = `${serverId}\u0000${sessionId ?? ''}`
-    const existing = this.appSelections.get(key)
-    if (existing) return existing
-    const selection = $state<RunAppSelection>({ mode: 'dev', projectPath: null, branch: '', target: 'ios-simulator', simulatorId: '', installDeviceId: '' })
-    this.appSelections.set(key, selection)
-    return selection
-  }
 
   isShowingRunApp(serverId: string): boolean {
     return this.runAppShown.has(serverId)

@@ -204,7 +204,6 @@ function reviewContext(cwd: string, sessionId: string): IpcContext {
       codeFontFamily: 'sf-mono',
       codeFontSize: 13,
       extraInstructions: '',
-      modelInstructions: {},
     },
     statusBar: {
       workingDirectory: cwd,

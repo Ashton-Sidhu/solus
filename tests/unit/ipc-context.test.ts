@@ -88,7 +88,6 @@ describe('IPC context', () => {
           activeAgent: 'codex',
           rateLimitBehavior: 'queue',
           extraInstructions: '',
-          modelInstructions: {},
         },
       },
       statusBar: {

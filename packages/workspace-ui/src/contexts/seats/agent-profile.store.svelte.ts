@@ -1,7 +1,9 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
-import type { AgentProfile, AgentProfileStatus } from '@solus/contracts/agent-profile'
+import type { AgentProfile, AgentProfileCopy, AgentProfileSkip, AgentProfileStatus } from '@solus/contracts/agent-profile'
 import type { HostIdentity } from '../sharing/shares.store.svelte'
+import type { AgentProfileLocalStore } from './agent-profile-local.store.svelte'
+import { mergeComputerProfile } from './lib/agent-profile-local'
 
 /**
  * Whether the caller has a profile on a host: a member has their seats there,
@@ -22,6 +24,11 @@ export function profileAppliesTo(principal: HostIdentity['principal'] | null, se
  * pulls the profile from the account instead, and this client asks it to after
  * its own write. A client with no machine of its own (web, phone) shows the
  * copy there, can ask for a pull, and can remove it.
+ *
+ * On the desktop, this computer's own skills, files, and MCP servers join this
+ * client's copy of the profile (`importComputer`): when the copy is empty, by
+ * itself; later, when the person asks. A push sends that copy, so what the
+ * person removed or turned off on the Agent profile page holds on every host.
  */
 export class AgentProfileStore {
   /** serverId → whether the caller has a profile on that host (`profileAppliesTo`). */
@@ -32,6 +39,14 @@ export class AgentProfileStore {
   readonly errors = new SvelteMap<string, string>()
   /** Hosts a copy or removal is in flight for, so a row cannot be double-submitted. */
   readonly busy = new SvelteSet<string>()
+  /** A read of this computer's profile is in flight. */
+  importing = $state(false)
+  /** Why the last read of this computer's profile failed; null when it did not. */
+  importError = $state<string | null>(null)
+  /** This client's copy of the profile, which a computer's read fills and a push sends. Attached by the app core. */
+  private local: AgentProfileLocalStore | null = null
+  /** What the last read of this computer left out, carried with a push so the host's status says so. */
+  private computerSkipped: AgentProfileSkip[] = []
   private readonly copiedThisRun = new Set<string>()
   /** Whether the person's profile lives in their account now: then a host pulls, and this client does not push. */
   private syncOn = false
@@ -39,6 +54,11 @@ export class AgentProfileStore {
   /** Whether this client runs on a machine whose profile it can copy. */
   get canCopy(): boolean {
     return !!serverConnections.localServerId()
+  }
+
+  /** The copy this client edits: what `importComputer` fills and `copy` pushes. */
+  attachLocalCopy(local: AgentProfileLocalStore): void {
+    this.local = local
   }
 
   /** Told by the profile sync engine: on, a host pulls; off, this client pushes as before. */
@@ -73,13 +93,53 @@ export class AgentProfileStore {
     void this.copy(serverId)
   }
 
+  /**
+   * Push to a host: this client's copy, which is what the Agent profile page
+   * shows, so an entry the person removed or turned off there stays off the
+   * host. An empty copy fills from this computer first. Without a copy
+   * attached, the computer's profile goes as it is.
+   */
   async copy(serverId: string): Promise<void> {
     const localServerId = serverConnections.localServerId()
     if (!localServerId || localServerId === serverId) return
     await this.run(serverId, async () => {
-      const copy = await serverConnections.apiFor(localServerId).agentProfileRead()
+      const copy = this.local ? await this.localCopy(localServerId) : await serverConnections.apiFor(localServerId).agentProfileRead()
       this.statuses.set(serverId, await serverConnections.apiFor(serverId).agentProfileApply(copy))
     })
+  }
+
+  private async localCopy(localServerId: string): Promise<AgentProfileCopy> {
+    if (this.local!.entryCount === 0) {
+      await this.importComputer()
+      if (this.importError) throw new Error(this.importError)
+    }
+    return { profile: this.local!.storedEntries, skipped: this.computerSkipped }
+  }
+
+  /**
+   * This computer's skills, files, and MCP servers join this client's copy of
+   * the profile. Nothing leaves the copy. Nothing on a client with no machine
+   * of its own, and nothing while a read is in flight.
+   */
+  async importComputer(): Promise<void> {
+    const localServerId = serverConnections.localServerId()
+    if (!localServerId || !this.local || this.importing) return
+    this.importing = true
+    this.importError = null
+    try {
+      const computer = await serverConnections.apiFor(localServerId).agentProfileRead()
+      this.computerSkipped = computer.skipped
+      this.local.replaceAll(mergeComputerProfile(this.local.storedEntries, computer.profile))
+    } catch (error) {
+      this.importError = error instanceof Error ? error.message : String(error)
+    } finally {
+      this.importing = false
+    }
+  }
+
+  /** The first look: an empty copy on a client with a computer fills from it, so the page never starts blank. */
+  importComputerIfEmpty(): void {
+    if (this.local && this.local.entryCount === 0) void this.importComputer()
   }
 
   /** This machine's profile as it is now, for a first synced copy. Null on a client with no machine of its own. */
