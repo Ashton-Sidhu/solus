@@ -169,7 +169,7 @@ const ATTACHMENTS_FIELD = z
 const startSessionFields = {
   prompt: z.string().describe('The prompt the new session starts running immediately.'),
   attachments: ATTACHMENTS_FIELD,
-  host: HOST_FIELD.describe("Optional. Start the session on another of your hosts, by its id or name from list_agent_targets. Omit to start it on this host. On another host, task must be 'none', cwd is a path on that host (default: a new chat folder there), and the provider and model must be ones that host offers."),
+  host: HOST_FIELD.describe("Optional. Start the session on another of your hosts, by its id or name from list_agent_targets. Omit to start it on this host. On another host, task must be 'none'; cwd is a path on that host: pass a project path that list_agent_targets with this host returns, or omit cwd for a new chat folder there; and the provider and model must be ones that host offers."),
   task: z
     .enum(['attempt', 'none'])
     .describe("Required. Use 'none' outside task mode. In task mode, 'attempt' joins the existing task in task_id, or your current task when task_id is omitted. 'attempt' means task membership, not retrying a launch. Native and wrapper subagents do not use this field."),
@@ -205,7 +205,7 @@ const startSessionSchema = z.object(startSessionFields).refine(
 )
 
 const listAgentTargetsFields = {
-  host: HOST_FIELD.describe('Optional. List what another of your hosts offers, by its id or name. Omit for this host, which also lists the other hosts you can start sessions on.'),
+  host: HOST_FIELD.describe('Optional. List what another of your hosts offers, by its id or name, with its projects to use as start_session cwd. Omit for this host, which also lists the other hosts you can start sessions on.'),
 }
 
 const readTaskSessionsFields = {
@@ -268,10 +268,10 @@ const START_SESSION_DESC = [
   "Prefer async work: keep wait_seconds=0 and report=true, end your turn, and let the report wake you. A request stays open while its nested reported work or completion follow-up is pending. read_session_exchange reads the stored state and result by exchange id when needed mid-turn; do not poll in a loop.",
   "Use the built-in subagent tool for supported work on the current provider, including a different model when its schema permits it. Use an available provider wrapper subagent for temporary work on the other provider. A different model or provider alone does not require a separate session. Use send_session to continue an existing Solus session; each new request and review round has its own exchange. Include the full brief, prior findings, responses, and unresolved issues for each review round.",
   "Choose the workspace before starting: worktree_base_branch creates an isolated worktree, otherwise cwd selects the checkout. A shell command in the prompt does not change the session's workspace binding. Use request_id for safe retries. Start an unrelated conversation only when the user asks for it.",
-  "Use `host` only when the user asks for the work to run on another of their machines; list_agent_targets names them. A session on another host reports back here like any other, and stop_session stops it.",
+  "Use `host` only when the user asks for the work to run on another of their machines; list_agent_targets names them, and with `host` it names that host's projects to pass as cwd. A session on another host reports back here like any other, and stop_session stops it.",
 ].join(' ')
 const LIST_AGENT_TARGETS_DESC =
-  'List the agent providers and models currently configured on this Solus host for Solus sessions and wrapper subagents, including runtime availability and supported reasoning levels, and the other hosts you can start sessions on. This catalog does not establish native subagent model support; consult the built-in tool schema for that. With `host`, list what that host offers instead.'
+  'List the agent providers and models currently configured on this Solus host for Solus sessions and wrapper subagents, including runtime availability and supported reasoning levels, and the other hosts you can start sessions on. This catalog does not establish native subagent model support; consult the built-in tool schema for that. With `host`, list what that host offers instead, and the projects on that host.'
 const SEARCH_SESSIONS_DESC =
   "Full-text search over ALL your past Solus conversations (every project and its worktrees). Reach for it WHENEVER the user refers to a prior discussion — 'the X thread', 'when we talked about Y', 'like we decided before' — instead of answering from memory. Put the topic in `query` and leave `project` unset (topic and working directory routinely differ). Every result carries a clickable session link and a `session id`; call `read_session` with that id (pass your query as `match`) to load the conversation before you answer. When you cite one of these sessions, copy its link exactly as returned."
 const READ_SESSION_DESC =
@@ -576,7 +576,8 @@ async function listAgentTargetsTool(args: SessionToolArgs, deps: SessionToolDeps
     if ('error' in remote) return { ok: false, text: remote.error }
     const targets = await remoteAgentTargets(remote)
     if ('error' in targets) return { ok: false, text: targets.error }
-    return { ok: true, text: JSON.stringify({ host: remote.label, targets }, null, 2) }
+    const projects = await remoteProjects(remote)
+    return { ok: true, text: JSON.stringify({ host: remote.label, targets, ...(projects && { projects }) }, null, 2) }
   }
   const targets = await listAgentTargets()
   const request = deps.ctx?.sessionId ? reachRequestOf(deps.ctx.sessionId) : null
@@ -620,6 +621,17 @@ async function remoteAgentTargets(remote: RemoteHost): Promise<AgentTarget[] | {
     return info.agents.map(agentTargetFromMetadata)
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/** The projects on another host, so a session there can start in one; null when that host does not answer. */
+async function remoteProjects(remote: RemoteHost): Promise<{ name: string; path: string }[] | null> {
+  try {
+    const projects = await remote.call('the project list', () => remote.api.listProjects())
+    return projects.map((project) => ({ name: project.folderName, path: project.path }))
+  } catch (error) {
+    log.warn('remote_projects_unavailable', { host: remote.label, error: error instanceof Error ? error.message : String(error) })
+    return null
   }
 }
 
