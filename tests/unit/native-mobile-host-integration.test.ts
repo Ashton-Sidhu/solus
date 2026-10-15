@@ -74,7 +74,7 @@ beforeAll(async () => {
       if (bearer !== 'records-token') return json(401, { error: { code: 'UNAUTHENTICATED', message: 'no' } })
       return json(200, {
         items: [{
-          id: 'thread-1', home: { kind: 'local', hostId: INSTALLATION_ID }, organizationId: null, ownerUserId: 'local:owner',
+          id: 'thread-1', home: { kind: 'local', hostId: INSTALLATION_ID }, organizationId: null, ownerKey: 'local:owner', role: 'owner',
           version: 'v1', createdAt: '2026-10-01T10:00:00Z', updatedAt: '2026-10-01T11:00:00Z',
           provider: 'claude-code', title: 'Fix the build', customTitle: null, projectId: null, projectPath: '/work/app',
           projectRemote: null, runnerHostId: null, status: 'idle', model: null, reasoningEffort: null, parentSessionId: null,

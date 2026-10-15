@@ -2,18 +2,17 @@ import { bigint, defineTable, text } from '../db/schema/define-table'
 
 /**
  * The sharing domain's one table, declared once for both engines
- * (docs/plans/cloud-service-model.md; docs/plans/cloud-sharing.md §4c).
- * Every row of access to a resource: the owner (a `user` row with role `owner`,
- * at most one per resource), a person, a team, the organization, or everyone
- * with the link. Nothing else joins it. The hand-made SQLite tables carried
- * CHECK constraints on the enumerations; the row schemas in `share-manager.ts`
- * validate those on read instead, which is the one form both engines and the
- * builder share.
+ * (docs/plans/access-model.md §2.2; docs/plans/cloud-sharing.md §4c). One row
+ * is one ACL entry: what a resource's owner gave to someone else — a person, a
+ * team, the organization, or everyone with the link. The owner is never a row
+ * here: it is the resource's own `owner_key`. The row schemas in
+ * `share-manager.ts` validate the enumerations on read, which is the one form
+ * both engines and the builder share.
  */
 
 const ORGANIZATION = text({ notNull: true, default: 'local' })
 
-export const shareGrant = defineTable('share_grant', {
+export const aclEntry = defineTable('acl_entry', {
   id: text({ primaryKey: true }),
   resource_kind: text({ notNull: true }),
   resource_id: text({ notNull: true }),
@@ -28,11 +27,9 @@ export const shareGrant = defineTable('share_grant', {
   organization_id: ORGANIZATION,
 }, {
   indexes: [
-    { name: 'share_grant_subject', columns: ['resource_kind', 'resource_id', 'subject_kind', 'subject_id'], unique: true },
-    // One owner per resource.
-    { name: 'share_grant_owner', columns: ['resource_kind', 'resource_id'], unique: true, where: "role = 'owner'" },
-    { name: 'share_grant_secret_idx', columns: ['link_secret_hash'], where: 'link_secret_hash IS NOT NULL' },
+    { name: 'acl_entry_subject', columns: ['resource_kind', 'resource_id', 'subject_kind', 'subject_id'], unique: true },
+    { name: 'acl_entry_secret_idx', columns: ['link_secret_hash'], where: 'link_secret_hash IS NOT NULL' },
   ],
 })
 
-export const SHARING_TABLES = [shareGrant]
+export const SHARING_TABLES = [aclEntry]

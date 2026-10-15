@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { integrationToolName, type Integration, type IntegrationToolSummary } from '@solus/contracts/integration-types'
-import { personalRecordOwnerOf, recordScopeOf, type Principal } from '../admission/principal'
+import { ownerKeyOf, type Actor } from '../admission/actor'
+import { recordScopeOf } from '../admission/principal'
 import { createLogger } from '../logger'
 import { agentToolImage, type AgentTool, type AgentToolResult } from '../execution/agents/tools/agent-tool'
 import type { IntegrationGateway, UpstreamTool } from './gateway'
@@ -24,22 +25,44 @@ export function integrationGateway(): IntegrationGateway | null {
 /** Names already reported as taken, so a collision is logged once. */
 const reportedCollisions = new Set<string>()
 
+/** How long a run waits for one server's tool list before it starts without that server. */
+const RUN_LIST_TIMEOUT_MS = 10_000
+
+/** A server's tools for a run, or null when it did not list them in time; the list goes on and the next run reads it. */
+async function toolsForRun(source: IntegrationGateway, integration: Integration, personKey: string | null): Promise<UpstreamTool[] | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), RUN_LIST_TIMEOUT_MS) })
+  try {
+    const tools = await Promise.race([source.toolsFor(integration.id, personKey), late])
+    if (!tools) log.warn('integration_tools_late', { integrationId: integration.id, personKey })
+    return tools
+  } catch (error) {
+    log.warn('integration_tools_unavailable', { integrationId: integration.id, personKey, error: error instanceof Error ? error.message : String(error) })
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /**
- * The agent tools of every integration the principal may read (§5.2.1): the
- * shared ones of its scope and its own personal ones, from the gateway's cache,
- * less the tools the integration's owner turned off (§6.1).
- * An integration whose tools are not listed yet adds none: the cache is warmed
- * at boot and on create.
+ * The agent tools of a run (§5.2.1): every integration the run's person owns
+ * in their scope (docs/plans/access-model.md, D3), listed
+ * with that person's connection, less the tools the owner turned off (§6.1).
+ * A server that does not list its tools in time adds none to this run.
  */
-export function integrationAgentTools(principal: Principal): AgentTool[] {
-  if (!gateway) return []
+export async function integrationAgentTools(actor: Actor): Promise<AgentTool[]> {
+  const current = gateway
+  if (!current) return []
+  const personKey = ownerKeyOf(actor)
+  const integrations = current.store.list(recordScopeOf(actor.principal), personKey)
+  const listed = await Promise.all(integrations.map((integration) => toolsForRun(current, integration, personKey)))
   const tools: AgentTool[] = []
   const names = new Set<string>()
-  for (const integration of gateway.store.list(recordScopeOf(principal), personalRecordOwnerOf(principal))) {
+  integrations.forEach((integration, index) => {
     const disabled = new Set(integration.disabledTools)
-    for (const upstream of gateway.cachedUpstreamTools(integration.id) ?? []) {
+    for (const upstream of listed[index] ?? []) {
       if (disabled.has(upstream.name)) continue
-      const agentTool = upstreamToolToAgentTool(integration, upstream, gateway)
+      const agentTool = upstreamToolToAgentTool(integration, upstream, current)
       if (names.has(agentTool.name)) {
         if (!reportedCollisions.has(agentTool.name)) {
           reportedCollisions.add(agentTool.name)
@@ -50,7 +73,7 @@ export function integrationAgentTools(principal: Principal): AgentTool[] {
       names.add(agentTool.name)
       tools.push(agentTool)
     }
-  }
+  })
   return tools
 }
 

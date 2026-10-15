@@ -222,9 +222,24 @@ describe('native browser ownership', () => {
   test('uses a webview only for a URL page owned by the local server', () => {
     // WHY: a desktop can display a remote page, but that remote server cannot
     // adopt this process's webContents id. It must receive streamed frames.
-    expect(shouldUseNativeBrowser(true, 'local', 'local', 'url')).toBe(true)
-    expect(shouldUseNativeBrowser(true, 'remote', 'local', 'url')).toBe(false)
-    expect(shouldUseNativeBrowser(true, 'local', 'local', 'device')).toBe(false)
-    expect(shouldUseNativeBrowser(false, 'local', 'local', 'url')).toBe(false)
+    const url = { target: { kind: 'url' as const, url: 'http://localhost:5173/' }, ownerKey: 'local:me' }
+    const device = { target: { kind: 'device' as const, platform: 'ios' as const, deviceId: 'd' }, ownerKey: 'local:me' }
+    expect(shouldUseNativeBrowser(true, 'local', 'local', url, 'local:me')).toBe(true)
+    expect(shouldUseNativeBrowser(true, 'remote', 'local', url, 'local:me')).toBe(false)
+    expect(shouldUseNativeBrowser(true, 'local', 'local', device, 'local:me')).toBe(false)
+    expect(shouldUseNativeBrowser(false, 'local', 'local', url, 'local:me')).toBe(false)
+  })
+
+  test("streams a page in another person's jar, so only its owner hosts it", () => {
+    // WHY: a native guest takes this desktop's input straight into the page. A
+    // page signed in as bob must not be driven by the desktop's person; they
+    // watch its frames (member-isolation.md §6).
+    const bobs = { target: { kind: 'url' as const, url: 'http://localhost:5173/' }, ownerKey: 'acct_bob' }
+    const hosts = { target: { kind: 'url' as const, url: 'http://localhost:5173/' }, ownerKey: null }
+    expect(shouldUseNativeBrowser(true, 'local', 'local', bobs, 'local:me')).toBe(false)
+    expect(shouldUseNativeBrowser(true, 'local', 'local', hosts, 'local:me')).toBe(false)
+    // Until the host says who this client is, the page stays native; the host
+    // refuses the surface if it is not theirs.
+    expect(shouldUseNativeBrowser(true, 'local', 'local', bobs, undefined)).toBe(true)
   })
 })

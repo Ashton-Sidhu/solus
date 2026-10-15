@@ -134,6 +134,20 @@
       "when": 1791988483137,
       "tag": "0018_session_views",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792008984053,
+      "tag": "0019_resource_owners",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792011755376,
+      "tag": "0020_project_owners",
+      "breakpoints": true
     }
   ]
 }

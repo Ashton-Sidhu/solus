@@ -4,6 +4,7 @@ import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
 
 interface SolusToolsState {
+  /** The caller's own TypeSafe key on this host (access-model.md §2.6); unknown until read. */
   typeSafe?: TypeSafeKeyStatus
   preferences: SolusToolPreferences | null
   saving: boolean
@@ -18,9 +19,11 @@ class SolusToolsStore {
   watch(serverId: string): () => void {
     let watch = this.watches.get(serverId)
     if (!watch) {
-      const stopConfig = serverConnections.eventsFor(serverId).subscribe('config.changed', ({ config, typeSafe }) => {
+      const stopConfig = serverConnections.eventsFor(serverId).subscribe('config.changed', ({ config }) => {
         const state = this.states.get(serverId)
-        this.states.set(serverId, { typeSafe, preferences: config.solusTools ?? null, saving: state?.saving ?? false, error: config.solusTools ? '' : 'Update or restart this host to configure Solus tools.', revision: (state?.revision ?? 0) + 1 })
+        this.states.set(serverId, { typeSafe: state?.typeSafe, preferences: config.solusTools ?? null, saving: state?.saving ?? false, error: config.solusTools ? '' : 'Update or restart this host to configure Solus tools.', revision: (state?.revision ?? 0) + 1 })
+        // The event carries no person's key; a key saved from another window may be this person's.
+        void this.loadKeyStatus(serverId)
       })
       const stopStatus = serverConnections.onStatusChange((hostId, status) => {
         if (hostId !== serverId) return
@@ -38,8 +41,8 @@ class SolusToolsStore {
     return () => { if (--watch.count === 0) { watch.stop(); this.watches.delete(serverId) } }
   }
 
-  /** True only when the host has reported that it has no TypeSafe key. Unknown
-   *  (still loading, or an older host) is not missing, so nothing locks early. */
+  /** True only when the host has reported that the caller has no TypeSafe key.
+   *  Unknown (still loading, or an older host) is not missing, so nothing locks early. */
   isTypeSafeKeyMissing(serverId: string): boolean {
     const typeSafe = this.states.get(serverId)?.typeSafe
     return !!typeSafe && typeSafe.source === null
@@ -50,7 +53,7 @@ class SolusToolsStore {
     this.states.set(serverId, state)
     const revision = state.revision
     try {
-      const { config, typeSafe } = await serverConnections.apiFor(serverId).configGet()
+      const [{ config }, typeSafe] = await Promise.all([serverConnections.apiFor(serverId).configGet(), this.readKeyStatus(serverId)])
       if (this.states.get(serverId)?.revision !== revision) return
       this.states.set(serverId, { ...state, typeSafe, preferences: config.solusTools ?? null, error: config.solusTools ? '' : 'Update or restart this host to configure Solus tools.', revision: revision + 1 })
     } catch {
@@ -59,16 +62,30 @@ class SolusToolsStore {
     }
   }
 
+  /** The caller's key status; unknown when the host cannot say (an older host). */
+  private async readKeyStatus(serverId: string): Promise<TypeSafeKeyStatus | undefined> {
+    try {
+      return await serverConnections.apiFor(serverId).typeSafeKeyStatus()
+    } catch {
+      return undefined
+    }
+  }
+
+  /** Reads the caller's key status again: a key in the account can change on the website. */
+  async loadKeyStatus(serverId: string): Promise<void> {
+    const typeSafe = await this.readKeyStatus(serverId)
+    const state = this.states.get(serverId)
+    if (state && typeSafe && !state.saving) this.states.set(serverId, { ...state, typeSafe })
+  }
+
   async saveKey(serverId: string, apiKey: string | null): Promise<boolean> {
     const state = this.states.get(serverId)
-    if (!state?.typeSafe || state.saving || state.error) return false
+    if (state?.typeSafe?.location !== 'host' || state.saving || state.error) return false
     this.states.set(serverId, { ...state, saving: true, revision: state.revision + 1 })
     try {
-      const snapshot = await serverConnections.apiFor(serverId).typeSafeKeySet(apiKey)
+      const typeSafe = await serverConnections.apiFor(serverId).typeSafeKeySet(apiKey)
       const current = this.states.get(serverId)!
-      this.states.set(serverId, { ...current,
-        typeSafe: current.revision === state.revision + 1 ? snapshot.typeSafe : current.typeSafe,
-        saving: false })
+      this.states.set(serverId, { ...current, typeSafe, saving: false })
       return true
     } catch {
       const current = this.states.get(serverId)!

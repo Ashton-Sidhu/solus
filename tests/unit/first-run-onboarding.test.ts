@@ -33,8 +33,7 @@ describe('first-run onboarding stages', () => {
   })
 
   test('every stage runs forward into the next one', () => {
-    expect(nextStage('agents', 'pointer')).toBe('providers')
-    expect(nextStage('providers', 'pointer')).toBe('start')
+    expect(nextStage('agents', 'pointer')).toBe('start')
     expect(nextStage('intro', 'touch')).toBe('getting-around')
     expect(nextStage('getting-around', 'touch')).toBe('host')
     expect(nextStage('host', 'touch')).toBe('start')
@@ -56,7 +55,7 @@ describe('first-run onboarding stages', () => {
     // answer opens the workspace. An account step after it would hold the user
     // on onboarding after they had chosen where to work.
     const withCloud = { offersCloudConnect: true }
-    expect(nextStage('providers', 'pointer', 'host', withCloud)).toBe('cloud-connect')
+    expect(nextStage('agents', 'pointer', 'host', withCloud)).toBe('cloud-connect')
     expect(nextStage('cloud-connect', 'pointer', 'host', withCloud)).toBe('start')
     expect(previousStage('start', 'pointer', 'host', withCloud)).toBe('cloud-connect')
     expect(nextStage('host', 'touch', 'host', withCloud)).toBe('cloud-connect')
@@ -65,9 +64,19 @@ describe('first-run onboarding stages', () => {
   test('without an account to connect, the Solus Cloud offer is never shown', () => {
     // The web and mobile shells hold no account: the offer would be a dead end.
     for (const surface of SURFACES) {
-      const beforeStart = surface === 'touch' ? 'host' : 'providers'
+      const beforeStart = surface === 'touch' ? 'host' : 'agents'
       expect(nextStage(beforeStart, surface)).toBe('start')
       expect(previousStage('start', surface)).toBe(beforeStart)
+    }
+  })
+
+  test('no stage connects an account: GitHub, Google, and Atlassian are in Settings', () => {
+    // WHY: the maintainers removed the connections step from onboarding. A
+    // connection is made in Settings, or when an agent asks for one.
+    for (const surface of SURFACES) {
+      for (const flow of ['host', 'cloud'] as const) {
+        expect(stagesFor(surface, flow) as string[]).not.toContain('providers')
+      }
     }
   })
 

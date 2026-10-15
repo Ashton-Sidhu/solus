@@ -12,10 +12,7 @@ test('cloud connections stay correct with no host status, survive an outage, and
     if (String(input).endsWith('/v1/account')) return Response.json({ userId: 'ab', onboardingCompletedAt: null, activeOrganizationId: null, organizations: [] })
     seatReads++
     if (offline) return new Response(null, { status: 503 })
-    return Response.json({ seats: [
-      { provider: 'claude-code', connected, updatedAt: connected ? '2026-10-02T18:34:43.873Z' : null },
-      { provider: 'codex', connected: false, updatedAt: null },
-    ] })
+    return Response.json({ connections: connected ? [{ ref: { kind: 'seat', provider: 'claude-code' }, material: 'cli-login', status: 'connected', label: null, updatedAt: 5 }] : [] })
   }) as typeof fetch)
   configureCloudAccount(source)
   try {

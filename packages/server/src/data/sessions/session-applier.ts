@@ -21,7 +21,7 @@ const sessionPullRequestPayloadSchema = z.object({
  * that exists changes nothing.
  */
 export function registerSessionOutboxApplier(): void {
-  registerOutboxApplier('sessions', async (op: OutboxOp, organizationId: string) => {
+  registerOutboxApplier('sessions', async (op: OutboxOp, { organizationId }) => {
     if (op.name !== 'link-pull-request') {
       // An unknown verb is a version-skew problem a retry may fix once this
       // host updates, so it is deliberately not permanent.

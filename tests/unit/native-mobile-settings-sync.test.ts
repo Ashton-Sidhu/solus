@@ -261,9 +261,9 @@ async function hostWorld(api: FakeApi) {
 describe('a host holds only host settings', () => {
   test('a change goes to the host as sent, and the host\'s answer is what shows', async () => {
     const api = new FakeApi()
-      .on('configGet', () => ({ typeSafe: { source: null }, config: DEFAULT_HOST_CONFIG }))
+      .on('configGet', () => ({ config: DEFAULT_HOST_CONFIG }))
       // The host may hold a different value than the one sent; its answer wins.
-      .on('configUpdate', () => ({ typeSafe: { source: null }, config: { ...DEFAULT_HOST_CONFIG, continueSessionsAfterHostRestart: true } }))
+      .on('configUpdate', () => ({ config: { ...DEFAULT_HOST_CONFIG, continueSessionsAfterHostRestart: true } }))
     const world = await hostWorld(api)
     const settings = new HostSettings((hostId) => world.connections.connection(hostId))
     await settings.load('inst-a')

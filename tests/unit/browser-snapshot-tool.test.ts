@@ -54,6 +54,8 @@ beforeAll(async () => {
   tools = await import('@solus/server/browser/browser-tools')
   registry = await import('@solus/server/browser/browser-registry')
   surface = await import('@solus/server/browser/surface-driver')
+  const { actAsHostForTests } = await import('@solus/server/execution/seats/acting-identity')
+  actAsHostForTests()
 })
 
 afterEach(() => surface.setBrowserHeadlessHost(null))
@@ -67,7 +69,8 @@ afterAll(() => {
 async function snapshot() {
   surface.setBrowserHeadlessHost({ open: async () => new FakeDriver() })
   const pages = registry.initBrowserRegistry({ pageChanged: () => {}, pageClosed: () => {}, surfaceRequested: () => {} })
-  const page = pages.open({ target: { kind: 'url', url: 'http://localhost:5173/' } })
+  // The tool acts as the host's own work here, so the page is the host's own.
+  const page = pages.open({ target: { kind: 'url', url: 'http://localhost:5173/' } }, null)
   const emitted: NormalizedEvent[] = []
   const result = await tools.browserSnapshotAgentTool.execute({ browserPageId: page.browserPageId }, {
     provider: 'claude-code', cwd: dataDir, sessionId: () => 'session-1', abortSignal: new AbortController().signal,

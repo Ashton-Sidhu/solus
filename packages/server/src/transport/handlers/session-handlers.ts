@@ -241,12 +241,11 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   async function claimSession(sessionId: string | null | undefined, handlerCtx: HandlerCtx, workingDirectory: string): Promise<void> {
     const shares = deps.shares
     if (!sessionId || !shares) return
-    const resource = { kind: 'session', id: sessionId } as const
     const shareWithOrganization = !isChat(workingDirectory)
     if (!sessionsAwaitingFolder.delete(sessionId)) {
-      await shares.claimOwner(resource, handlerCtx.principal, { shareWithOrganization })
+      await shares.claimSession(sessionId, handlerCtx.principal, { shareWithOrganization })
     } else if (shareWithOrganization) {
-      await shares.shareWithOrganization(resource, handlerCtx.principal)
+      await shares.shareWithOrganization({ kind: 'session', id: sessionId }, handlerCtx.principal)
     }
   }
 
@@ -261,12 +260,11 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     // claim here never gives them one; it records the owner of a brand-new session.
     // The watch does not know the session's folder, so a new session waits for
     // the prompt that names it before the organization can see it.
-    const resource = { kind: 'session', id: sessionId } as const
     if (startsSession && deps.shares && isOrganizationSpace(handlerCtx.principal)) {
       sessionsAwaitingFolder.add(sessionId)
-      await deps.shares.claimOwner(resource, handlerCtx.principal, { shareWithOrganization: false })
+      await deps.shares.claimSession(sessionId, handlerCtx.principal, { shareWithOrganization: false })
     } else {
-      await deps.shares?.claimOwner(resource, handlerCtx.principal)
+      await deps.shares?.claimSession(sessionId, handlerCtx.principal)
     }
     return watched
   })
@@ -295,9 +293,9 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     // A new root, admitted as a prompt is, inside `createSession`: the admission names the session before its provider starts.
     request.sessionId ??= randomUUID()
     request.organizationId = z.string().min(1).max(256).optional().parse(request.organizationId)
-    const created = await sessionRuntime.dispatch.createSession(request, handlerCtx.actor)
-    await claimSession(created.sessionId, handlerCtx, request.cwd)
-    return created
+    // Its owner is claimed before the record is written, so the record is born theirs.
+    await claimSession(request.sessionId, handlerCtx, request.cwd)
+    return sessionRuntime.dispatch.createSession(request, handlerCtx.actor)
   })
 
   server.register('promptHeadlessSession', async (args, handlerCtx) => {

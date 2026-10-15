@@ -8,7 +8,7 @@ import type {
   IntegrationProbeResult,
   IntegrationToolSummary,
 } from '@solus/contracts/integration-types'
-import type { ProfileConnectStartResult } from '@solus/contracts/integrations/profile-credentials'
+import type { VaultConnectResult } from '@solus/contracts/vault'
 
 /**
  * The MCP servers of one host (docs/plans/mcp-integrations.md §7), as the
@@ -284,8 +284,8 @@ export function installedStatus(integration: Pick<Integration, 'id' | 'auth'>, c
   if (connections.kind !== 'loaded') return { text: 'Connection unknown', tone: 'muted', action: null }
   const connection = connections.byIntegration.get(integration.id)
   if (connection?.status === 'connected') {
-    if (connection.source === 'cloud') return { text: 'Connected through Solus Cloud', tone: 'muted', action: null }
     const label = connection.label ?? connection.info?.displayName ?? connection.info?.email ?? null
+    if (connection.source === 'cloud') return { text: label ? `Connected in your Solus account as ${label}` : 'Connected in your Solus account', tone: 'muted', action: null }
     return { text: label ? `Connected as ${label}` : 'Connected', tone: 'muted', action: null }
   }
   if (isMissingOAuthClient(integration)) return { text: 'Needs an OAuth client', tone: 'danger', action: null }
@@ -364,11 +364,11 @@ export function connectsThroughCloud(target: ConnectTarget, accountUserId: strin
 }
 
 /** What Solus Cloud answered to Connect. A `browser` flow ends when the account reports the server connected. */
-export function cloudConnectStarted(start: ProfileConnectStartResult, serverUrl: string, name: string): ConnectFlowState {
+export function cloudConnectStarted(start: VaultConnectResult, serverUrl: string, name: string): ConnectFlowState {
   switch (start.kind) {
     case 'browser':
       return { step: 'waiting', through: 'cloud', flowId: `cloud:${serverUrl}`, url: start.url, input: 'callback', expiresAt: '', submitted: false, busy: false, error: null }
-    case 'token':
+    case 'key':
       return { step: 'token', through: 'cloud', busy: false, error: null }
     case 'none':
       return { step: 'finished', ok: true, message: `${name} needs no sign-in.` }

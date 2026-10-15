@@ -381,7 +381,7 @@ applies to; the first-copy offer appears only for an empty account document.
   place), `IntegrationStore.list(scope, viewer)`, `getVisible`, `listOwned`,
   `findByUrl`, `all`; `personalRecordOwnerOf(principal)`; the handlers let a
   member write their own records and keep shared ones for the administrator.
-  `connections.ts` reads a `cloud` connection from `cloud-credentials.ts` with
+  `connections.ts` reads a `cloud` connection through the vault (`vault/vault.ts`) with
   the cache and the `cloud-unreachable` status, and its `reconcile` moves a
   host-local connection into the account after a pull. `oauth.ts` keeps the
   host's flows and secrets over `McpOAuth`, the one protocol class.
@@ -613,3 +613,30 @@ contract, the host's apply, every client, and the console (`toggle` action
 gone). A long list on the Agent profile page (skills, servers, files) shows
 eight rows, then "Show N more" and "Show fewer", on desktop, web, mobile, and
 the console.
+
+### Every person has a key; a run lists its own tools (2026-10-14)
+
+A member's PlanetScale server on a managed host had a `connected` cloud
+connection, but their runs got none of its tools. The gateway listed tools at
+boot as the host (`null`), which on a personal host meant the owner. A managed
+host has no owner, PlanetScale refuses an anonymous list, and a run read only
+that cache. Maintainer decision: an MCP server and its sign-in belong to a
+person on every host, the owner included.
+
+- `ownerKeyOf(actor)` (plans/012) is the one answer for whose MCP servers and
+  connections a call uses: a member's account, the owner as the host's user
+  (`local:<id>`, or their account once linked), and a guest their guest key. It
+  is `ActingScope.personKey`. `null` is only the host's own work.
+  `personalRecordOwnerOf` is gone. This supersedes the "the host's are theirs"
+  rule in §2.1: the owner's profile servers are their personal records, not
+  shared ones, and a member of a personal host does not see them.
+- `integrationCreate` takes `shared: boolean` (administrator only) in place of
+  `personal`. Left out, a server is the caller's own. Superseded the same day:
+  there are no shared MCP servers (`docs/plans/access-model.md` D3).
+- Nothing is listed at boot. `run-launcher.ts` lists the run's person's tools
+  when the run starts (`docs/plans/mcp-integrations.md` §5.1).
+- Linking and unlinking move the owner's integration records, connections, and
+  tokens with their key (`host-user-rows.ts`). There is no migration for the
+  old `''` owner rows: an owner signs in to such a server again.
+- GitHub, Google, and Atlassian are unchanged: `credentialUserId` `null` still
+  means the host's own logins.

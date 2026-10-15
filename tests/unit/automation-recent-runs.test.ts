@@ -51,7 +51,7 @@ describe('listRecentRuns', () => {
     const busyRuns = await runTimes(busy.id, 4)
     const quietRuns = await runTimes(quiet.id, 1)
 
-    const recent = await store.listRecentRuns(3)
+    const recent = await store.listRecentRuns(3, (await import('@solus/server/admission/actor')).HOST_ACTOR)
 
     expect(recent.filter((run) => run.automationId === busy.id).map((run) => run.id))
       .toEqual(busyRuns.slice(-3).reverse())

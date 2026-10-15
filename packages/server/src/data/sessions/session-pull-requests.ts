@@ -272,6 +272,17 @@ export async function readSessionPullRequestInterests(scope: RecordScope): Promi
   }))
 }
 
+/**
+ * The sessions a pull request is part of: those that link it. A dismissed link
+ * is a person's removal, so that session no longer holds it.
+ */
+export async function sessionsOfPullRequest(repository: string, number: number): Promise<string[]> {
+  return sessionIdRowSchema.array().parse(await getDatabase().all(sql`
+    SELECT DISTINCT session_id FROM ${sessionPullRequests}
+    WHERE repository = ${repository.toLowerCase()} AND number = ${number} AND source <> 'dismissed'
+  `)).map((row) => row.session_id)
+}
+
 /** Whether PR sync last saw this pull request merged, on any session link. */
 export async function sessionPullRequestIsMerged(repository: string, number: number): Promise<boolean> {
   const row = z.object({ pr_state: z.string().nullable() }).nullish().parse(await getDatabase().get(sql`

@@ -147,13 +147,19 @@ export function isAgentWritableHostConfigKey(key: string): key is HostConfigKey 
 /** The writable keys, for a tool that has to tell an agent what it may set. */
 export const AGENT_WRITABLE_HOST_CONFIG_KEYS: readonly string[] = [...AGENT_WRITABLE_KEYS].sort()
 
+/**
+ * The caller's own TypeSafe key (docs/plans/access-model.md §2.6). Contains no
+ * credential value.
+ */
 export interface TypeSafeKeyStatus {
+  /** `host`: this host keeps it (the host's user on their own machine).
+   *  `account`: it belongs in the caller's Solus account. `none`: a guest. */
+  location: 'host' | 'account' | 'none'
+  /** `environment` is the `TYPESAFE_API_KEY` the host's user launched it with. */
   source: 'saved' | 'environment' | null
 }
 
 export interface HostConfigSnapshot {
-  /** Contains no credential value. */
-  typeSafe: TypeSafeKeyStatus
   config: HostConfig
 }
 

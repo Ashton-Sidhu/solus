@@ -4,7 +4,8 @@
    *  machines that hold a checkout. Rendered only when the account holds a
    *  workspace; a host's own folders stay in the list below. */
   import { Trash2 as TrashIcon, Check as CheckIcon, X as XIcon } from "@lucide/svelte";
-  import { projectsStore, serversStore, workspaceProjectsStore } from "../../contexts";
+  import { hosts, projectsStore, serversStore, workspaceProjectsStore } from "../../contexts";
+  import { NOT_YOURS_REASON } from "../../contexts/sharing/resource-roles";
   import { toasts } from "../../lib/toasts";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
@@ -60,14 +61,17 @@
     <p class="px-4 py-3 text-sm text-muted-foreground">Solus Cloud is not connected. The list shows what it last said.</p>
   {/if}
   {#each projects as project (project.id)}
-    {@const hosts = checkoutHostsOf(project, projectsStore.entries)}
+    {@const checkoutHosts = checkoutHostsOf(project, projectsStore.entries)}
+    <!-- Every member lists the directory; rename, branch, and remove are the owner's or an administrator's (access-model.md §2.7). -->
+    {@const canEdit = hosts.get(cloudServerId)?.me.may("edit", { kind: "project", id: project.id, role: project.role }) ?? true}
     <div class="flex flex-col gap-2 px-4 py-3">
       <div class="flex items-center gap-2">
         <Input
           class="h-8 max-w-64"
           value={project.displayName}
           aria-label="Project name"
-          disabled={!online}
+          title={canEdit ? undefined : NOT_YOURS_REASON}
+          disabled={!online || !canEdit}
           onchange={(event) => save(project.id, { displayName: event.currentTarget.value })}
         />
         <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground">{project.repositoryKey}</span>
@@ -83,7 +87,8 @@
             variant="ghost"
             size="icon-sm"
             aria-label="Remove {project.displayName} from Solus Cloud"
-            disabled={!online}
+            title={canEdit ? undefined : NOT_YOURS_REASON}
+            disabled={!online || !canEdit}
             onclick={() => (confirmingRemoval = project.id)}
           >
             <TrashIcon size={14} />
@@ -97,13 +102,14 @@
           class="h-8 w-40"
           placeholder="the repository default"
           value={project.defaultBranch ?? ""}
-          disabled={!online}
+          title={canEdit ? undefined : NOT_YOURS_REASON}
+          disabled={!online || !canEdit}
           onchange={(event) => save(project.id, { defaultBranch: event.currentTarget.value || null })}
         />
       </div>
       <p class="text-xs text-muted-foreground">
-        {hosts.length > 0
-          ? `Checkouts on ${hosts.map(hostLabel).join(", ")}`
+        {checkoutHosts.length > 0
+          ? `Checkouts on ${checkoutHosts.map(hostLabel).join(", ")}`
           : "No machine you have connected holds a checkout. The Cloud host clones it when a session needs it."}
       </p>
     </div>

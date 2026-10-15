@@ -140,7 +140,7 @@ describe('an organization run on a VM, through the real Solus API', () => {
     const delegations = new Delegations({ registration: () => link, credential: () => credential, onRevoked: () => {} })
     await delegations.establish(bobsTokenForVm(), { organizationId: 'org_a' })
     await delegations.actFor({ sessionId: 'solus-flow', userId: 'bob', organizationId: 'org_a', admit: true })
-    expect(await admissions.readSessionAdmission('org_a', 'solus-flow')).toMatchObject({ hostId: VM, ownerUserId: 'bob' })
+    expect(await admissions.readSessionAdmission('org_a', 'solus-flow')).toMatchObject({ hostId: VM, ownerKey: 'bob' })
     // A retry answers the same admission; nobody else can take it.
     await delegations.actFor({ sessionId: 'solus-flow', userId: 'bob', organizationId: 'org_a', admit: true })
 
@@ -149,7 +149,7 @@ describe('an organization run on a VM, through the real Solus API', () => {
     delivery.start()
     try {
       // The record is keyed by the session id the admission accepted, not by the provider thread.
-      outbox.queueSessionReport({ organizationId: 'org_a', actorUserId: 'bob' }, { sessionId: 'solus-flow', provider: 'codex', projectPath: '-repo', lastActivityAt: Date.now(), title: 'Ship it', ownerUserId: 'mallory', admissionId: 'solus-flow' })
+      outbox.queueSessionReport({ organizationId: 'org_a', actorUserId: 'bob' }, { sessionId: 'solus-flow', provider: 'codex', projectPath: '-repo', lastActivityAt: Date.now(), title: 'Ship it', ownerKey: 'mallory', admissionId: 'solus-flow' })
       const actor = delegations.actorOf('solus-flow')
       expect(actor).toEqual({ userId: 'bob', organizationId: 'org_a' })
       const operations = remoteWorkspaceOperations(delegations.apiClient(actor!.userId, { organizationId: actor!.organizationId }), (recordId) => delivery.deliverSessionReport(recordId))
@@ -157,7 +157,7 @@ describe('an organization run on a VM, through the real Solus API', () => {
       // 3. The agent's writes go to the API as Bob, synchronously; the parent session is there by then.
       const context = { principal: { kind: 'system' as const }, home: { kind: 'local' as const, hostId: 'unused' }, scopes: [] }
       const task = await operations.createTask(context, { title: 'From the VM', originSessionId: 'solus-flow' }, randomUUID())
-      expect(task).toMatchObject({ title: 'From the VM', organizationId: 'org_a', ownerUserId: 'bob', source: 'agent', home: { kind: 'organization', organizationId: 'org_a' } })
+      expect(task).toMatchObject({ title: 'From the VM', organizationId: 'org_a', ownerKey: 'bob', source: 'agent', home: { kind: 'organization', organizationId: 'org_a' } })
       expect(await operations.getTask(context, task.id)).toMatchObject({ id: task.id })
       const moved = await operations.updateTask(context, task.id, { status: 'in_review' }, task.version)
       expect(moved.status).toBe('in_review')
@@ -174,10 +174,10 @@ describe('an organization run on a VM, through the real Solus API', () => {
       await expect(operations.pullWorkUpstream(context, work.id)).rejects.toMatchObject({ status: 400, message: expect.stringContaining('not linked to an upstream document') })
 
       // 4. The API's record of the session: owned by Bob from the admission, never by the report or the linker.
-      expect(await records.getSessionRecord('org_a', 'solus-flow')).toMatchObject({ ownerUserId: 'bob', runnerHostId: VM, title: 'Ship it' })
+      expect(await records.getSessionRecord('org_a', 'solus-flow')).toMatchObject({ ownerKey: 'bob', runnerHostId: VM, title: 'Ship it' })
       const shares = new shareManager.ShareManager({ db: database.getDatabase() })
-      expect(await shares.ownerOf({ kind: 'session', id: 'solus-flow' })).toBe('bob')
-      expect(await shares.ownerOf({ kind: 'task', id: task.id })).toBe('bob')
+      expect((await shares.homeOf({ kind: 'session', id: 'solus-flow' }))?.ownerKey).toBe('bob')
+      expect((await shares.homeOf({ kind: 'task', id: task.id }))?.ownerKey).toBe('bob')
       // WHY: nothing was asked of the account plane per prompt or per write — one exchange, no refresh yet.
       expect(tokenRequests).toEqual([{ grantType: TOKEN_EXCHANGE_GRANT_TYPE, organizationId: 'org_a' }])
     } finally {

@@ -6,6 +6,7 @@ import { loadServers } from '@solus/client-core/server-registry'
 import { sessionHomeId } from '@solus/client-core/session-home'
 import { isSolusApiId } from '@solus/contracts/uplink'
 import { sessionPullRequestsStore } from '../prs/session-pull-requests.store.svelte'
+import { rememberRoles } from '../sharing/resource-roles'
 
 /** A session in a person's list, as a row without a conversation draws it. */
 export interface ListedSession {
@@ -103,6 +104,8 @@ export class SessionListStore {
     }
     for (const record of records) {
       const runner = isCloud && record.runnerHostId ? this.hosts.connectedRunnerFor(record.runnerHostId) : null
+      // The composer and the cards ask "may I drive it" of the host it opens on (access-model.md §2.7).
+      rememberRoles(runner ?? serverId, [{ kind: 'session', id: record.sessionId, role: record.role }])
       this.listedBySession.set(record.sessionId, {
         serverId: runner ?? serverId,
         homeServerId: serverId,

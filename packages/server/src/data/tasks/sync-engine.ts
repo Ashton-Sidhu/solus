@@ -10,10 +10,8 @@ import type {
   TicketPatch,
 } from '@solus/contracts/task-types'
 import { TASKS_AUTH_ERROR_PREFIX } from '@solus/contracts/task-types'
-import { isHostUserKey } from '../../host/host-user'
 import { sql } from 'drizzle-orm'
 import { getDatabase } from '../../db/database'
-import { shareGrant } from '../../sharing/schema'
 import { withUserScope } from '../../vault/acting-scope'
 import { taskLinks, taskSessionLinks, tasks } from './schema'
 import { sessionPullRequests } from '../sessions/schema'
@@ -51,16 +49,14 @@ import { mentionsAsText } from '@solus/contracts/mentions'
 const log = createLogger('main', 'task-sync')
 const PUSH_DEBOUNCE_MS = 2_000
 
-const ownerRowSchema = z.object({ subject_id: z.string() })
+const ownerRowSchema = z.object({ owner_key: z.string() })
 
-/** Whose credential a task's link syncs with: its owner's; null (the host's own) for the host owner or a task nobody claimed. */
-async function taskOwnerCredentialUserId(organizationId: string, taskId: string): Promise<string | null> {
+/** Whose credentials a task's link syncs with: its owner's (docs/plans/access-model.md §2.2). */
+async function taskOwnerKey(organizationId: string, taskId: string): Promise<string | null> {
   const row = ownerRowSchema.nullish().parse(await getDatabase().get(sql`
-    SELECT subject_id FROM ${shareGrant}
-    WHERE organization_id = ${organizationId} AND resource_kind = 'task' AND resource_id = ${taskId} AND role = 'owner'
+    SELECT owner_key FROM ${tasks} WHERE organization_id = ${organizationId} AND id = ${taskId}
   `))
-  const ownerUserId = row?.subject_id ?? null
-  return ownerUserId === null || isHostUserKey(ownerUserId) ? null : ownerUserId
+  return row?.owner_key || null
 }
 const POLL_INTERVAL_MS = 5 * 60_000
 
@@ -327,7 +323,7 @@ export class TaskSyncEngine {
     const pending = TaskModel.byId(scope, taskId)
       .catch(() => null)
       .then((task) => task
-        ? taskOwnerCredentialUserId(task.organizationId, taskId)
+        ? taskOwnerKey(task.organizationId, taskId)
           .then((userId) => withUserScope(userId, () => this.performSync(task.organizationId, taskId, options)))
         : null)
       .finally(() => {
@@ -451,7 +447,8 @@ export class TaskSyncEngine {
     return target ? target.adapter.listCandidates(target.ref, options) : []
   }
 
-  async importTickets(organizationId: string, cwd: string, externalIds: string[]): Promise<TaskDetails[]> {
+  /** `ownerKey` is the person who imports; the tasks are theirs (the host's user's when absent). */
+  async importTickets(organizationId: string, cwd: string, externalIds: string[], ownerKey?: string): Promise<TaskDetails[]> {
     const target = await resolveTaskPublishTarget(cwd)
     if (!target) throw new Error('This project has no task publish target.')
     const projectKey = cwd
@@ -478,7 +475,7 @@ export class TaskSyncEngine {
         priority: ticket.priorityHint,
         assignee: ticket.assignee,
         source: 'import',
-      })
+      }, undefined, undefined, ownerKey)
       try {
         await getDatabase().transaction((db) => writeExternalLink(db, organizationId, task.id, ticket, this.now()))
         imported.push(await (await TaskModel.byId(organizationId, task.id)).details())
@@ -546,8 +543,8 @@ export function listTaskCandidates(cwd: string, options?: TaskCandidateOptions):
   return engine.listCandidates(cwd, options)
 }
 
-export function importTaskTickets(organizationId: string, cwd: string, externalIds: string[]): Promise<TaskDetails[]> {
-  return engine.importTickets(organizationId, cwd, externalIds)
+export function importTaskTickets(organizationId: string, cwd: string, externalIds: string[], ownerKey?: string): Promise<TaskDetails[]> {
+  return engine.importTickets(organizationId, cwd, externalIds, ownerKey)
 }
 
 export function publishTask(scope: RecordScope, taskId: string, cwd: string): Promise<TaskDetails> {

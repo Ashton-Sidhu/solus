@@ -18,6 +18,12 @@ cannot start another call to a disabled tool. Calls already running may finish.
 Start a new session after enabling a tool to ensure it appears in the provider's
 catalog. Explicit Claude and Codex subagents obey the same settings.
 
+A tool acts as the person whose turn calls it (docs/plans/access-model.md).
+The Automations tools reach only the automations that person may see: their
+own, or every one for a host administrator. `query_insights` runs SQL over every
+person's turns, so only a host administrator's turn may call it; another
+person's turn gets a refusal and can open Insights to see their own turns.
+
 These switches control Solus tools only. Provider-native tools and external MCP
 servers keep their own settings. The internal `submit_review_guide` output tool
 is required by review runs and is not a user-configurable tool.
@@ -74,7 +80,8 @@ and no `task_id` it links the pull request to the calling session.
 session with their last known state, so the agent can find one that it forgot
 to link. See [Session pull requests](plans/session-pull-requests.md).
 
-Ask Jev requires a TypeSafe API key. Add or remove the saved host key under
-Settings → Tools → Intelligence. Without a saved key or TYPESAFE_API_KEY in the
-host environment, its switch is disabled and both providers omit the tool.
+Ask Jev requires the TypeSafe key of the person the run acts for. The host's
+user adds or removes theirs under Settings → Tools → TypeSafe, or sets
+TYPESAFE_API_KEY in the host environment. A member's key belongs in their Solus
+account. A run whose person has no key does not get the tool.
 See [TypeSafe configuration](typesafe.md).

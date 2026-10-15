@@ -1,6 +1,10 @@
 import { z } from 'zod'
 import type { AgentTool } from './agent-tool'
 import { runGuardedSql } from '../../../data/insights/sql-guard'
+import { HOST_USE, permissionOf } from '@solus/contracts/permissions'
+import { authorize } from '../../../admission/access-policy'
+import { INTERNAL_PRINCIPAL } from '../../../admission/principal'
+import { workspaceToolAuthority } from '../../../admission/workspace-tool-authority'
 
 /** Agent tool responses share the model context, so keep exploratory listings
  * bounded below the Insights client limit. Aggregate queries are unaffected. */
@@ -35,6 +39,12 @@ export const queryInsightsAgentTool: AgentTool = {
       return { ok: false, text: 'query_insights requires `sql`: one read-only SELECT or WITH statement.' }
     }
     const { sql } = parsed.data
+    // Arbitrary SQL reads every person's turns, so it takes what `metricsRunSql` takes: a host
+    // administrator's turn, or the host's own work (docs/plans/access-model.md §4 D2).
+    const refusal = await authorize(workspaceToolAuthority() ?? INTERNAL_PRINCIPAL, permissionOf('metricsRunSql') ?? HOST_USE, null, { name: 'query_insights' })
+    if (refusal) {
+      return { ok: false, text: 'query_insights reads every person\'s turns, so only a host administrator\'s turn may use it. Open Insights to see your own turns.' }
+    }
     try {
       const result = runGuardedSql(sql, AGENT_INSIGHTS_ROW_CAP + 1)
       const truncated = result.rows.length > AGENT_INSIGHTS_ROW_CAP

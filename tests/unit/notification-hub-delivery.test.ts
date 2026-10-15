@@ -9,6 +9,7 @@ import type { WorkspaceRequestContext } from '@solus/server/admission/workspace-
 import type { WorkspaceOperations } from '@solus/server/data/workspace/operations'
 import type { SolusApiClient } from '@solus/contracts/solus-api/client'
 import { resetTestDatabase } from './helpers/test-db'
+import { notificationReader } from './helpers/actors'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -79,7 +80,7 @@ describe('organization records', () => {
     const request = { reviewerIds: ['bob'], expectedContentVersion: work.contentVersion, requestId: 'req-1' }
     await operations.requestWorkReview(alice, work.id, request)
     await operations.requestWorkReview(alice, work.id, request)
-    const inbox = (await store.listNotifications({ scope: 'org1', recipientKey: 'bob' }, {})).items
+    const inbox = (await store.listNotifications(notificationReader('bob', 'org1'), {})).items
     expect(inbox.map((row) => row.facts.kind)).toEqual(['work.review_requested'])
   })
 })
@@ -92,9 +93,9 @@ describe('host-owned results', () => {
       facts: { kind: 'automation.finished', status: 'succeeded' }, resource: { kind: 'automation', automationId: 'a1', runId: 'run-org' },
       by: { kind: 'automation', automationId: 'a1', name: 'Nightly' }, summary: { title: 'Nightly' },
     }))
-    const items = (await store.listNotifications({ scope: 'org1', recipientKey: 'bob' }, {})).items
+    const items = (await store.listNotifications(notificationReader('bob', 'org1'), {})).items
     expect(items.map((row) => [row.organizationId, row.resource.kind])).toEqual([['org1', 'automation']])
     // No other organization's reader sees it.
-    expect((await store.listNotifications({ scope: 'org2', recipientKey: 'bob' }, {})).items).toEqual([])
+    expect((await store.listNotifications(notificationReader('bob', 'org2'), {})).items).toEqual([])
   })
 })

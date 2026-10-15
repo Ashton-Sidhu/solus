@@ -565,11 +565,11 @@ describe("an organization's Solus API", () => {
     const provider = providers.get('org-branch')!
     const list = provider.review!.listRecentPullRequests.bind(provider.review)
     provider.review!.listRecentPullRequests = (async (...args: Parameters<typeof list>) => {
-      readers.push(requireActingScope('a test read').credentialUserId)
+      readers.push(requireActingScope('a test read').personKey)
       return list(...args)
     }) as typeof list
     const records = await import('@solus/server/data/sessions/session-records')
-    await records.upsertSessionRecord('A', { sessionId: 'org-s1', provider: 'codex', projectPath: '-repo', lastActivityAt: Date.now(), ownerUserId: 'alice', projectRemote: scope, branch: 'feat' }, { organizationId: 'A', published: true })
+    await records.upsertSessionRecord('A', { sessionId: 'org-s1', provider: 'codex', projectPath: '-repo', lastActivityAt: Date.now(), projectRemote: scope, branch: 'feat' }, { organizationId: 'A', published: true, ownerKey: 'alice' })
 
     const { organizationPrSync } = await import('@solus/server/prs/organization-pr-sync')
     await organizationPrSync(() => {}).tick()

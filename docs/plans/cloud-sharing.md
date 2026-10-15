@@ -218,8 +218,8 @@ with their own sign-in; anyone else signs in first and returns to it.
 ## 4b. A task is not shared
 
 A task has no Share, no share rows, and no guest link. Its organization sees
-it: the workspace service gives the organization the editor grant when the
-task is claimed there (`ShareManager.claimOwner`). The sessions and works
+it: the workspace service gives the organization the editor entry when the
+task is made there (`ShareManager.shareWithOrganization`). The sessions and works
 linked to it keep their own access: a link to a task shares nothing (decision
 2026-10-06). Each of them is shared on its own.
 
@@ -235,26 +235,24 @@ before this change admits nobody (`resolveLinkSecret`).
 
 ## 4c. One table of access
 
-Decision 2026-10-06, to make each access check one query.
+Decision 2026-10-06, to make each access check one query; changed 2026-10-14 by
+`access-model.md` §2.2: the owner is no longer a row of this table.
 
-- **One table.** `share_grant` holds all access to a resource. The owner is a
-  `user` row with role `owner`, at most one per resource (`share_grant_owner`).
-  The other rows name a person, a team, the organization, or everyone with
-  the link. A person has one row on a resource, so the owner has no named row:
-  a transfer removes the new owner's named row, and `shareSet` ignores a named
-  row for the owner.
-- **Organization on the rows.** Every row carries its resource's organization.
-  The owner row is written when the record is created (`claimOwner`,
-  `claimForRunner`, `adoptForOrganization`), with the record's organization.
-- **One read.** A role check reads the resource's rows once and computes the
-  role in memory. The host owner on the whole disk reads nothing. Two checks
-  still ask the record, because no row can answer them:
-  - a host owner whose scope is Local only (a pairing connection on an attached
-    machine), because a fork or an Insights assignment moves a session into an
-    organization without rewriting its rows;
-  - a resource with no owner on a managed host, which is the team's only in its
-    own organization.
-- **One write for a scope.** `shareSet` writes the named rows and, when the
+- **The owner is on the resource.** Every session record, work, and task has
+  `owner_key`, written when the record is created: its creator, or the host's
+  user for the host's own work. A transfer changes `owner_key`.
+- **One table of ACL entries.** `acl_entry` holds only what the owner gave
+  others: a person, a team, the organization, or everyone with the link. A
+  person has one entry on a resource, and the owner has none: a transfer
+  removes the new owner's entry, and `shareSet` ignores an entry for the owner.
+- **Organization on the entries.** Every entry carries its resource's
+  organization. A resource made in an organization's space gets the
+  organization's `editor` entry when it is created (`shareWithOrganization`,
+  `claimSession`, `shareRunnerWrite`, `adoptForOrganization`).
+- **One decision.** A role check reads the resource's row and its entries, and
+  `roleOf` (`admission/access.ts`) decides the role. A list filters with
+  `visibleTo`, the same rule in SQL.
+- **One write for a scope.** `shareSet` writes the named entries and, when the
   request has `link`, the link, in one transaction. `shareSetLink` stays for
   regenerating the link and for the review link.
 

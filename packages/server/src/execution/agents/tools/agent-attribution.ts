@@ -17,8 +17,8 @@ export async function toolAgentAttribution(ctx: { sessionId?: string; agentProvi
   if (agent.kind !== 'agent') return agent
   if (title) agent.title = title
   const record = ctx?.sessionId ? await getSessionRecord(ANY_ORGANIZATION, ctx.sessionId) : null
-  // A record nobody claimed belongs to the host's user (U4).
-  const user = record && (record.ownerUserId === null || isHostUserKey(record.ownerUserId)) ? hostUser() : null
+  // A record of the host's user names them (U4).
+  const user = record && isHostUserKey(record.ownerKey) ? hostUser() : null
   if (user) agent.for = user
   return agent
 }

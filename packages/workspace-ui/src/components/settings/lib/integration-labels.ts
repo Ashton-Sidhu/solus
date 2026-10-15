@@ -93,8 +93,8 @@ export function connectionStatusText(connection: IntegrationConnection | null): 
   if (!connection) return { text: 'Not connected', detail: null, action: 'Connect' }
   switch (connection.status) {
     case 'connected': {
-      if (connection.source === 'cloud') return { text: 'Connected through Solus Cloud', detail: null, action: 'Disconnect' }
       const account = connection.label?.trim() || connection.info?.displayName?.trim() || connection.info?.email?.trim()
+      if (connection.source === 'cloud') return { text: account ? `Connected in your Solus account as ${account}` : 'Connected in your Solus account', detail: null, action: 'Disconnect' }
       return { text: account ? `Connected as ${account}` : 'Connected', detail: null, action: 'Disconnect' }
     }
     case 'needs-sign-in':

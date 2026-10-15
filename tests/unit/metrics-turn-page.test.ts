@@ -17,6 +17,11 @@ let dataDir: string
 let metricsDb: MetricsDbModule
 let turnPageModule: TurnPageModule
 
+/** The host's own read: every turn (what `visibleInsights` gives the host itself). */
+const EVERY_TURN = { sql: '1 = 1', params: [] }
+const pageOf = (request: MetricsTurnPageRequest) => turnPageModule.turnPage(request, EVERY_TURN)
+const summaryOf = (request: MetricsTurnPageRequest) => turnPageModule.turnListingSummary(request, EVERY_TURN)
+
 const baseRequest: MetricsTurnPageRequest = {
   timeRange: { from: 0, to: 1_000 },
   pageIndex: 0,
@@ -65,11 +70,11 @@ afterAll(() => {
 
 describe.serial('Insights turn pagination', () => {
   test('pages rows without truncating the full-range count, chart, or statistics', () => {
-    const first = turnPageModule.turnPage(baseRequest)
+    const first = pageOf(baseRequest)
     expect(first.page.rows).toHaveLength(25)
     expect(first.pageIndex).toBe(0)
 
-    const summary = turnPageModule.turnListingSummary(baseRequest)
+    const summary = summaryOf(baseRequest)
     expect(summary.totalRows).toBe(120)
     expect(summary.statusCounts).toEqual({ ok: 80, error: 40, interrupted: 0 })
     expect(summary.stats).toMatchObject({
@@ -83,7 +88,7 @@ describe.serial('Insights turn pagination', () => {
     expect(summary.volume.reduce((sum, bucket) => sum + bucket.total, 0)).toBe(120)
     expect(summary.volume.reduce((sum, bucket) => sum + bucket.costUsd, 0)).toBe(60)
 
-    const last = turnPageModule.turnPage({ ...baseRequest, pageIndex: 4 })
+    const last = pageOf({ ...baseRequest, pageIndex: 4 })
     expect(last.page.rows).toHaveLength(20)
   })
 
@@ -97,8 +102,8 @@ describe.serial('Insights turn pagination', () => {
       search: 'turn 3',
       sort: { field: 'started_at', dir: 'asc' },
     }
-    const filtered = turnPageModule.turnPage(request)
-    const summary = turnPageModule.turnListingSummary(request)
+    const filtered = pageOf(request)
+    const summary = summaryOf(request)
     expect(summary.totalRows).toBe(4)
     expect(filtered.page.rows).toHaveLength(4)
     const startedAtIndex = filtered.page.columns.findIndex((column) => column.name === 'started_at')
@@ -111,7 +116,7 @@ describe.serial('Insights turn pagination', () => {
   })
 
   test('clamps page size and an out-of-range page safely', () => {
-    const result = turnPageModule.turnPage({ ...baseRequest, pageIndex: 99, pageSize: 1_000 })
+    const result = pageOf({ ...baseRequest, pageIndex: 99, pageSize: 1_000 })
     expect(result.pageSize).toBe(100)
     expect(result.pageIndex).toBe(1)
     expect(result.page.rows).toHaveLength(20)

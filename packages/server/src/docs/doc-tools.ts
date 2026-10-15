@@ -5,6 +5,7 @@ import { createLogger } from '../logger'
 import { importDocFromUrl, publishWork, pullWorkUpstream } from '../data/works/work-sync'
 import { loadWork } from '../data/works/works'
 import { ANY_ORGANIZATION, LOCAL_ORGANIZATION_ID } from '../admission/principal'
+import { actorFor, ownerKeyOf } from '../admission/actor'
 import { randomUUID } from 'node:crypto'
 import { workspaceToolContext } from '../data/workspace/tool-context'
 import { docProviderAdapter, docProviderIds, docProviderStatuses, resolveDocUrl } from './registry'
@@ -210,6 +211,7 @@ export const importExternalDocAgentTool = docTool(
       cwd: context.cwd,
       sessionId: context.sessionId(),
       agentProvider: context.provider,
+      ownerKey: ownerKeyOf(actorFor(home.principal)) ?? undefined,
     })
     const lossy = imported.lossyParts?.length
       ? ` Parts of the page could not be converted to markdown: ${imported.lossyParts.join(', ')}.`

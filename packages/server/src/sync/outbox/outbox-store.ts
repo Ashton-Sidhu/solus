@@ -3,6 +3,8 @@ import { getDatabase } from '../../db/database'
 import { ulid } from '@solus/contracts/ulid'
 import { createLogger } from '../../logger'
 import { LOCAL_ORGANIZATION_ID } from '../../admission/principal'
+import { hostUserId, hostUserKey, isHostUserKey } from '../../host/host-user'
+import { parseUserKey } from '@solus/contracts/user'
 import { z } from 'zod'
 import type { OutboxApplyResult, OutboxDomain, OutboxOp } from '@solus/contracts/outbox-types'
 import type { SessionRecordUpsert } from '@solus/contracts/types'
@@ -89,10 +91,16 @@ function emitChanged(change: OutboxChange): void {
 /**
  * An op's applier: performs the domain write on the owner host, in the
  * organization the caller names (`local` on a host; the runner's on the
- * workspace service). Runs inside the applied-ops guard, so it executes at most
+ * workspace service). A record an op creates belongs to `ownerKey`: the host's
+ * user on a host, the runner's person on the workspace service. Runs inside the applied-ops guard, so it executes at most
  * once per op id. Throw `PermanentApplyError` when retrying can never succeed.
  */
-export type OutboxApplier = (op: OutboxOp, organizationId: string) => Promise<void>
+export interface OutboxHome {
+  organizationId: string
+  ownerKey: string
+}
+
+export type OutboxApplier = (op: OutboxOp, home: OutboxHome) => Promise<void>
 
 export class PermanentApplyError extends Error {}
 
@@ -180,6 +188,16 @@ export interface SequencedOutboxOp {
 export interface DeliveryDestination {
   organizationId: string
   actorUserId: string
+}
+
+/**
+ * Who delivers a record's rows: its owner when they are an account, which a
+ * delegation names; else '' — the account that linked the host — for the host's
+ * own records, whose owner is a host user with no account.
+ */
+export function deliveryActorOf(ownerKey: string): string {
+  const hostUserWithoutAccount = isHostUserKey(ownerKey) && hostUserId()?.kind !== 'account'
+  return ownerKey === '' || hostUserWithoutAccount || parseUserKey(ownerKey).kind !== 'account' ? '' : ownerKey
 }
 
 const destinationRowSchema = z.object({ organization_id: z.string(), actor_user_id: z.string() })
@@ -274,10 +292,10 @@ export function markOutboxOpsFailed(failures: Array<{ id: string; error: string 
  * Runs one op's domain write with no guard of its own. The workspace service's
  * runner intake calls this under its sequence cursor, which is the guard there.
  */
-export async function applyOutboxOp(op: OutboxOp, organizationId: string): Promise<void> {
+export async function applyOutboxOp(op: OutboxOp, home: OutboxHome): Promise<void> {
   const applier = appliers.get(op.domain)
   if (!applier) throw new Error(`No applier registered for domain "${op.domain}".`)
-  await applier(op, organizationId)
+  await applier(op, home)
 }
 
 /**
@@ -296,7 +314,7 @@ export async function applyOutboxOps(ops: OutboxOp[]): Promise<OutboxApplyResult
         if (getDb().prepare('SELECT 1 FROM applied_ops WHERE op_id = ?').get(op.id)) return
         const applier = appliers.get(op.domain)
         if (!applier) throw new Error(`No applier registered for domain "${op.domain}".`)
-        await applier(op, LOCAL_ORGANIZATION_ID)
+        await applier(op, { organizationId: LOCAL_ORGANIZATION_ID, ownerKey: hostUserKey() })
         getDb().prepare('INSERT OR IGNORE INTO applied_ops(op_id, resource_id, applied_at) VALUES (?, ?, ?)')
           .run(op.id, op.resourceId, Date.now())
       })

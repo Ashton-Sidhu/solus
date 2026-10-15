@@ -4,6 +4,7 @@ import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CATALOG_CATEGORIES, toolAccess, type Integration, type IntegrationToolSummary } from "@solus/contracts/integration-types";
+import { resourceAllows } from "@solus/contracts/permissions";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { showTextInputDialog } from "../../components/ConfirmDialogHost";
@@ -222,6 +223,9 @@ function InstalledRow(props: {
   const connection = connections.kind === "loaded" ? connections.byIntegration.get(integration.id) : undefined;
   const flow = flows.flows.get(integration.id);
   const host = urlHost(integration.url);
+  // An integration is personal: only its owner changes it (docs/plans/access-model.md §2.7).
+  const canEdit = resourceAllows(integration, "edit");
+  const editable = busy === null && canEdit;
   const connect = () => {
     integrations.expand(integration.id);
     void flows.connect(integration);
@@ -279,7 +283,7 @@ function InstalledRow(props: {
               <IntegrationOAuthClientPanel
                 integration={integration}
                 saving={busy === `oauth-client:${integration.id}`}
-                enabled={integrations.connected && busy === null}
+                enabled={integrations.connected && editable}
                 onSave={(client) => integrations.setOAuthClient(integration.id, client)}
               />
             </View>
@@ -288,7 +292,7 @@ function InstalledRow(props: {
             <IntegrationTools
               integration={integration}
               tools={integrations.tools.get(integration.id)}
-              enabled={integrations.connected && busy === null}
+              enabled={integrations.connected && editable}
               onToggle={(toolName, isOn) => {
                 integrations.setToolEnabled(integration, toolName, isOn).catch((cause: unknown) => Alert.alert("Not saved", errorMessage(cause)));
               }}
@@ -298,7 +302,8 @@ function InstalledRow(props: {
               <SettingsNote>Connect to see its tools.</SettingsNote>
             </View>
           )}
-          <SettingsActionRow icon="pencil" label="Rename" loading={busy === `rename:${integration.id}`} disabled={busy !== null} onPress={props.onRename} />
+          <OwnerOnlyNote hidden={canEdit} />
+          <SettingsActionRow icon="pencil" label="Rename" loading={busy === `rename:${integration.id}`} disabled={!editable} onPress={props.onRename} />
           {connection ? (
             <SettingsActionRow
               icon="xmark.circle.fill"
@@ -309,9 +314,19 @@ function InstalledRow(props: {
               onPress={props.onDisconnect}
             />
           ) : null}
-          <SettingsActionRow icon="trash" label="Remove" tone="danger" loading={busy === `remove:${integration.id}`} disabled={busy !== null} onPress={props.onRemove} />
+          <SettingsActionRow icon="trash" label="Remove" tone="danger" loading={busy === `remove:${integration.id}`} disabled={!editable} onPress={props.onRemove} />
         </View>
       ) : null}
+    </View>
+  );
+}
+
+/** Why a server's changes are off: it is another person's (docs/plans/access-model.md §2.7). */
+function OwnerOnlyNote(props: { readonly hidden: boolean }) {
+  if (props.hidden) return null;
+  return (
+    <View className="px-4 pb-3 pl-[58px]">
+      <SettingsNote>Only its owner can change this server.</SettingsNote>
     </View>
   );
 }

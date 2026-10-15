@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { text } from 'node:stream/consumers'
 import { z } from 'zod'
 import { hostCliEnv } from '../../cli-env'
-import { readHostCredential } from '../../vault/provider-credentials'
+import { readHostCredential } from '../../vault/vault'
 import { delegatedGithubToken } from './credentials'
 import { githubStoredTokenSchema } from './token-store'
 

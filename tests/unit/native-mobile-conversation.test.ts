@@ -330,6 +330,18 @@ describe('native conversation: requests and plans', () => {
     expect(controller.model.permissions).toEqual([])
   })
 
+  test('a reader the session is shared with to view may not drive it, so its cards and Stop give way to a note', async () => {
+    // WHY: the host refuses a viewer's answer (`respondPermission` needs `drive`); the phone must not offer it.
+    const viewer = await open({ api: baseApi(), target: { hostId: 'inst-a', record: { ...record(), role: 'viewer' } } })
+    expect(viewer.controller.mayDrive).toBe(false)
+    const commenter = await open({ api: baseApi(), target: { hostId: 'inst-a', record: { ...record(), role: 'commenter' } } })
+    expect(commenter.controller.mayDrive).toBe(false)
+    const editor = await open({ api: baseApi(), target: { hostId: 'inst-a', record: { ...record(), role: 'editor' } } })
+    expect(editor.controller.mayDrive).toBe(true)
+    // A record from a host that sent no role, and a new session, are the reader's own; the host still decides.
+    expect((await open({ api: baseApi() })).controller.mayDrive).toBe(true)
+  })
+
   test('an answer this client may not give says so', async () => {
     const api = baseApi().on('respondQuestion', () => false)
     const { controller, transport } = await open({ api })

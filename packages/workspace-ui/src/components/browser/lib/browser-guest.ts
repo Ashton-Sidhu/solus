@@ -1,5 +1,5 @@
 import { BROWSER_BLANK_URL } from '@solus/contracts/browser-types'
-import type { BrowserLoadState, BrowserSurfaceReport } from '@solus/contracts/browser-types'
+import type { BrowserLoadState, BrowserPage, BrowserSurfaceReport } from '@solus/contracts/browser-types'
 
 /**
  * The native browser surface's wiring: what an Electron `<webview>` reports and
@@ -35,14 +35,20 @@ export function supportsNativeBrowser(): boolean {
 }
 
 /** A native guest can only be adopted by the server in this Electron process.
- * Remote hosts always send frames, even when the client is a desktop app. */
+ * Remote hosts always send frames, even when the client is a desktop app. A page
+ * in another person's jar is streamed too: only its owner hosts and drives it
+ * (docs/plans/member-isolation.md §6). `devicePersonKey` is undefined until the
+ * local host has said who this client is; the host refuses a surface it should
+ * not have in the meantime. */
 export function shouldUseNativeBrowser(
   canHostNatively: boolean,
   pageServerId: string,
   localServerId: string | null,
-  targetKind: 'url' | 'device',
+  page: Pick<BrowserPage, 'target' | 'ownerKey'>,
+  devicePersonKey: string | undefined,
 ): boolean {
-  return canHostNatively && pageServerId === localServerId && targetKind === 'url'
+  return canHostNatively && pageServerId === localServerId && page.target.kind === 'url'
+    && (devicePersonKey === undefined || page.ownerKey === devicePersonKey)
 }
 
 export interface BrowserGuestHandlers {

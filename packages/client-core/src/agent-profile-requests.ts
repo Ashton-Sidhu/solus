@@ -5,38 +5,40 @@ import {
   type AccountAgentProfilePatchRequest,
 } from '@solus/contracts/agent-profile'
 import {
-  PROFILE_CONNECTIONS_PATH,
-  profileConnectStartResultSchema,
-  profileConnectionListSchema,
-  type ProfileConnectKeyRequest,
-  type ProfileConnectStartRequest,
-  type ProfileDisconnectRequest,
-} from '@solus/contracts/integrations/profile-credentials'
-import type { AccountAgentProfileResult, AccountProfileConnectStartResult, AccountProfileConnectionsResult, NativeSolusAPI, SettingsRequestFailure } from '@solus/contracts/host-api'
+  ACCOUNT_VAULT_CONNECT_PATH,
+  ACCOUNT_VAULT_PATH,
+  vaultConnectResultSchema,
+  vaultConnectionListSchema,
+  type VaultSaveKeyRequest,
+  type VaultConnectRequest,
+  type VaultDisconnectRequest,
+} from '@solus/contracts/vault'
+import type { AccountAgentProfileResult, AccountVaultConnectResult, AccountVaultResult, NativeSolusAPI, SettingsRequestFailure } from '@solus/contracts/host-api'
 import { uplinkErrorBodySchema } from '@solus/contracts/uplink'
 import type { OAuthSession } from './oauth-session'
 
 /**
- * The account agent profile calls (plans/020-agent-profile.md §3, §5.3), one
- * typed method each, built over one authenticated `send` as the settings calls
- * are (`settings-requests.ts`): the document, and the person's MCP connections
- * in their account. Every client owns its credential differently, so each has
- * an adapter; all decode with the contract schemas here.
+ * The account agent profile calls (plans/020-agent-profile.md §3), one typed
+ * method each, built over one authenticated `send` as the settings calls are
+ * (`settings-requests.ts`): the document, and the person's account vault
+ * (docs/plans/cloud-vault.md §2.3): every connection's status, a sign-in, a
+ * pasted key, a disconnect. Every client owns its credential differently, so
+ * each has an adapter; all decode with the contract schemas here.
  */
 
 export type AgentProfileCloudRequests = Pick<NativeSolusAPI,
   | 'accountAgentProfileGet'
   | 'accountAgentProfilePatch'
   | 'accountAgentProfileDelete'
-  | 'accountAgentProfileConnections'
-  | 'accountAgentProfileConnectStart'
-  | 'accountAgentProfileConnectKey'
-  | 'accountAgentProfileDisconnect'>
+  | 'accountVault'
+  | 'accountVaultConnect'
+  | 'accountVaultSaveKey'
+  | 'accountVaultDisconnect'>
 
 export interface AgentProfileHttpRequest {
   method: 'GET' | 'PATCH' | 'PUT' | 'POST' | 'DELETE'
   path: string
-  body?: AccountAgentProfilePatchRequest | ProfileConnectStartRequest | ProfileConnectKeyRequest | ProfileDisconnectRequest
+  body?: AccountAgentProfilePatchRequest | VaultConnectRequest | VaultSaveKeyRequest | VaultDisconnectRequest
 }
 
 type Sent = Response | null | 'signed-out'
@@ -54,37 +56,46 @@ export function agentProfileCloudRequests(send: (request: AgentProfileHttpReques
     }
     return result
   }
-  const connections = async (request: AgentProfileHttpRequest): Promise<AccountProfileConnectionsResult> => {
-    const response = await send(request)
+  const vault = async (): Promise<AccountVaultResult> => {
+    const response = await send({ method: 'GET', path: ACCOUNT_VAULT_PATH })
     if (response === 'signed-out') return { kind: 'signed-out' }
     if (!response) return { kind: 'offline' }
     const body: unknown = await response.json().catch(() => null)
     if (response.status === 401) return { kind: 'signed-out' }
     if (!response.ok) return failure(response, uplinkErrorBodySchema.safeParse(body))
-    const parsed = profileConnectionListSchema.safeParse(body)
+    const parsed = vaultConnectionListSchema.safeParse(body)
     return parsed.success ? { kind: 'ok', connections: parsed.data.connections } : { kind: 'error', code: 'invalid_response', message: null }
+  }
+  /** A write to the vault, then its statuses as they are after it. */
+  const write = async (request: AgentProfileHttpRequest): Promise<AccountVaultResult> => {
+    const response = await send(request)
+    if (response === 'signed-out') return { kind: 'signed-out' }
+    if (!response) return { kind: 'offline' }
+    if (response.status === 401) return { kind: 'signed-out' }
+    if (!response.ok) return failure(response, uplinkErrorBodySchema.safeParse(await response.json().catch(() => null)))
+    return vault()
   }
   return {
     accountAgentProfileGet: () => document({ method: 'GET', path: AGENT_PROFILE_PATH }),
     accountAgentProfilePatch: (body) => document({ method: 'PATCH', path: AGENT_PROFILE_PATH, body }),
     accountAgentProfileDelete: () => document({ method: 'DELETE', path: AGENT_PROFILE_PATH }),
-    accountAgentProfileConnections: () => connections({ method: 'GET', path: PROFILE_CONNECTIONS_PATH }),
-    accountAgentProfileConnectStart: async (body): Promise<AccountProfileConnectStartResult> => {
-      const response = await send({ method: 'POST', path: PROFILE_CONNECTIONS_PATH, body })
+    accountVault: vault,
+    accountVaultConnect: async (body): Promise<AccountVaultConnectResult> => {
+      const response = await send({ method: 'POST', path: ACCOUNT_VAULT_CONNECT_PATH, body })
       if (response === 'signed-out') return { kind: 'signed-out' }
       if (!response) return { kind: 'offline' }
       const answer: unknown = await response.json().catch(() => null)
       if (response.status === 401) return { kind: 'signed-out' }
-      if (response.status === 404 || response.status === 422) {
+      if (response.status === 404 || response.status === 400 || response.status === 502) {
         const refused = uplinkErrorBodySchema.safeParse(answer)
         return { kind: 'refused', message: refused.success && refused.data.message ? refused.data.message : 'Solus Cloud cannot sign in to this server. It must be a public HTTPS address.' }
       }
       if (!response.ok) return failure(response, uplinkErrorBodySchema.safeParse(answer))
-      const parsed = profileConnectStartResultSchema.safeParse(answer)
+      const parsed = vaultConnectResultSchema.safeParse(answer)
       return parsed.success ? { kind: 'ok', start: parsed.data } : { kind: 'error', code: 'invalid_response', message: null }
     },
-    accountAgentProfileConnectKey: (body) => connections({ method: 'PUT', path: PROFILE_CONNECTIONS_PATH, body }),
-    accountAgentProfileDisconnect: (body) => connections({ method: 'DELETE', path: PROFILE_CONNECTIONS_PATH, body }),
+    accountVaultSaveKey: (body) => write({ method: 'PUT', path: ACCOUNT_VAULT_PATH, body }),
+    accountVaultDisconnect: (body) => write({ method: 'DELETE', path: ACCOUNT_VAULT_PATH, body }),
   }
 }
 

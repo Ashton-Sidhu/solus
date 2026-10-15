@@ -1,6 +1,6 @@
 import type { SolusServer } from '../server'
 import { parseExecutionPreferences } from '../../execution/agents/run-input'
-import { recordScopeOf, type RecordScope } from '../../admission/principal'
+import { organizationForNew, recordScopeOf, type RecordScope } from '../../admission/principal'
 import { attributionOf } from '../../admission/actor'
 import {
   createAutomation,
@@ -11,6 +11,7 @@ import {
   listRuns,
   listRecentRuns,
   loadRun,
+  withAutomationRole,
 } from '../../data/automations/automations-store'
 import { triggerAutomationRun, cancelAutomationRun } from '../../execution/automations/automation-runner'
 import { Task } from '../../data/tasks/task'
@@ -38,23 +39,25 @@ async function linkAutomationToSessionTask(
 }
 
 /** RPC surface for the renderer to drive the same automation operations the
- *  agent tools expose. Phase 1: run-now only (no scheduling). */
+ *  agent tools expose. A call that names an automation passed the gate with the
+ *  role it needs (`RESOURCE_VERB_OF_METHOD`); a list holds only what the caller
+ *  may see (docs/plans/access-model.md §4 D4). */
 export function registerAutomationHandlers(server: SolusServer): void {
   server.register('automationCreate', async (args, ctx) => {
     const [name, action, enabled, trigger, executionPreferences] = args
     // The creator comes from the verified caller, never from the request. Their
     // preferences choose behaviour, never authority.
     const preferences = parseExecutionPreferences(executionPreferences)
-    const automation = await createAutomation(name, action, attributionOf(ctx.actor), enabled ?? true, trigger ?? { type: 'manual' }, preferences)
+    const automation = await createAutomation(name, action, attributionOf(ctx.actor), enabled ?? true, trigger ?? { type: 'manual' }, preferences, organizationForNew(ctx.principal))
     await linkAutomationToSessionTask(recordScopeOf(ctx.principal), automation)
-    return automation
+    return withAutomationRole(ctx.actor, automation)
   })
 
-  server.register('automationList', async () => listAutomations())
+  server.register('automationList', async (_args, ctx) => listAutomations(ctx.actor))
 
-  server.register('automationRead', async (args) => {
+  server.register('automationRead', async (args, ctx) => {
     const [id] = args
-    return loadAutomation(id)
+    return withAutomationRole(ctx.actor, await loadAutomation(id))
   })
 
   server.register('automationUpdate', async (args, ctx) => {
@@ -62,7 +65,7 @@ export function registerAutomationHandlers(server: SolusServer): void {
     const { executionPreferences, ...rest } = patch
     const automation = await updateAutomation(id, executionPreferences === undefined ? rest : { ...rest, executionPreferences: parseExecutionPreferences(executionPreferences) })
     await linkAutomationToSessionTask(recordScopeOf(ctx.principal), automation)
-    return automation
+    return withAutomationRole(ctx.actor, automation)
   })
 
   server.register('automationDelete', async (args) => {
@@ -74,7 +77,7 @@ export function registerAutomationHandlers(server: SolusServer): void {
     const [id, enabled] = args
     const automation = await updateAutomation(id, { enabled })
     await linkAutomationToSessionTask(recordScopeOf(ctx.principal), automation)
-    return automation
+    return withAutomationRole(ctx.actor, automation)
   })
 
   server.register('automationRun', async (args) => {
@@ -95,9 +98,9 @@ export function registerAutomationHandlers(server: SolusServer): void {
     return listRuns(id)
   })
 
-  server.register('automationRecentRuns', async (args) => {
+  server.register('automationRecentRuns', async (args, ctx) => {
     const [perAutomation] = args
-    return listRecentRuns(perAutomation)
+    return listRecentRuns(perAutomation, ctx.actor)
   })
 
   server.register('automationReadRun', async (args) => {

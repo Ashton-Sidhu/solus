@@ -131,7 +131,8 @@ export interface HostEventMap {
   /** One project's named browser profiles changed. Whole set rather than a
    *  delta: the list is a handful of rows, and two mounted clients offering
    *  different identities for one project is the failure to avoid. */
-  'browser.profilesChanged': { profiles: BrowserProfileSet }
+  /** `ownerKey` is the person the profiles belong to: only their connections hear it. */
+  'browser.profilesChanged': { ownerKey: string; profiles: BrowserProfileSet }
   /** The whole device snapshot. Bounded: hosts, devices and previews are capped. A
    *  client that sees a revision lower than one it holds ignores it; after a
    *  reconnect it reads `deviceState`. Never carries frames or credentials. */
@@ -244,7 +245,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'browser.pageChanged': { owner: 'browser', category: 'delta', recovery: 'reload', description: 'A browser page changed target, viewport, host, or load state.' },
   'browser.pageClosed': { owner: 'browser', category: 'delta', recovery: 'reload', description: 'A browser page was closed.' },
   'browser.surfaceRequested': { owner: 'browser', category: 'targeted', recovery: 'reset', description: 'A browser page was explicitly asked to be given a client surface.' },
-  'browser.profilesChanged': { owner: 'browser', category: 'snapshot', recovery: 'reload', description: "A project's named browser profiles changed." },
+  'browser.profilesChanged': { owner: 'browser', category: 'snapshot', recovery: 'reload', description: "One person's named browser profiles in a project changed." },
   'device.stateChanged': { owner: 'devices', category: 'snapshot', recovery: 'reload', description: 'Device inventory, helper status, previews or control changed; the payload is the bounded snapshot.' },
   'device.surfaceRequested': { owner: 'devices', category: 'targeted', recovery: 'reset', description: 'A device was opened in a session and its surface may be revealed.' },
   'atlassian.oauthCompleted': { owner: 'atlassian', category: 'delta', recovery: 'reload', description: 'An Atlassian browser sign-in finished on this host.' },

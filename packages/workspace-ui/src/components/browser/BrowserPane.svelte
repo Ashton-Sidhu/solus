@@ -12,7 +12,6 @@
   import {
     BROWSER_DEFAULT_PROFILE_ID,
     browserProfileName,
-    browserProfilePartition,
   } from "@solus/contracts/browser-types";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -174,7 +173,8 @@
           canHostNatively,
           candidate.serverId,
           localServerId,
-          candidate.page.target.kind,
+          candidate.page,
+          browserStore.devicePersonKey,
         )
       ) {
         nativeSurfaces.mount(
@@ -230,7 +230,8 @@
       supportsNativeBrowser(),
       openingEntry.serverId,
       serverConnections.localServerId(),
-      openingEntry.page.target.kind,
+      openingEntry.page,
+      browserStore.devicePersonKey,
     );
     if (!usesNativeSurface) {
       // A streamed surface starts its host when the stage subscribes, so it
@@ -631,10 +632,7 @@
   function clearProfile() {
     if (!entry) return;
     void browserStore
-      .clearProfile(
-        entry.serverId,
-        browserProfilePartition(projectRootOf(entry.page), entry.page.profileId),
-      )
+      .clearProfile(entry.serverId, projectRootOf(entry.page), entry.page.profileId)
       .catch(failed("Couldn't clear the browser profile"));
   }
 

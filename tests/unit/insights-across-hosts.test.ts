@@ -117,17 +117,21 @@ describe('turn rows on the workspace service', () => {
     expect(alice?.attrs.promptTruncated).toBe(true)
   })
 
-  test('any member of the organization reads a turn\'s full tree, and no other organization does', async () => {
-    // WHY: the organization view shows what the Insights page shows today,
-    // for every member's turns; the organization is the boundary.
+  test('the person who ran a turn and an organization owner read its full tree; another member and another organization do not', async () => {
+    // WHY (docs/plans/access-model.md §4 D2): a person sees their own turns; an
+    // administrator sees all. The organization is still the outer boundary.
     await mirror('laptop', 'trace-alice', 'alice', now - HOUR, { children: 2 })
     const id = turns.insightIdentity('laptop', 'trace-alice')
-    for (const reader of ['alice', 'bob']) {
-      const tree = await read.readInsightTree(member(reader), id)
+    const owner: WorkspaceRequestContext = { ...member('olivia'), principal: { ...member('olivia').principal, organizationRole: 'owner' } as WorkspaceRequestContext['principal'] }
+    for (const reader of [member('alice'), owner]) {
+      const tree = await read.readInsightTree(reader, id)
       expect(tree.spans.map((span) => span.spanId).sort()).toEqual(['trace-alice', 'trace-alice-child-0', 'trace-alice-child-1'])
       expect(tree.spans.find((span) => span.spanId === 'trace-alice')?.attrs.response).toBe(longResponse)
       expect(tree.events).toHaveLength(2)
     }
+    await expect(read.readInsightTree(member('bob'), id)).rejects.toThrow('Resource not found')
+    const page = await read.readInsightPage(member('bob'), { limit: 50 } as Parameters<typeof read.readInsightPage>[1], now)
+    expect(page.items.map((item) => item.traceId)).not.toContain('trace-alice')
     const otherOrganization: WorkspaceRequestContext = { ...member('alice'), home: { kind: 'organization', organizationId: 'B', serviceId: 'api' } }
     await expect(read.readInsightTree(otherOrganization, id)).rejects.toThrow('Resource not found')
   })
@@ -247,7 +251,7 @@ describe('the listing by host', () => {
     await pull().request()
 
     const traces = (filter: Parameters<typeof turnPage.turnPage>[0]) => {
-      const page = turnPage.turnPage(filter).page
+      const page = turnPage.turnPage(filter, { sql: '1 = 1', params: [] }).page
       const at = page.columns.findIndex((column) => column.name === 'trace_id')
       return page.rows.map((row) => row[at])
     }
@@ -256,7 +260,7 @@ describe('the listing by host', () => {
     expect(traces({ ...request, hostId: 'desktop' })).toEqual(['trace-desktop-1', 'trace-desktop-2'])
     expect(traces({ ...request, hostId: null })).toEqual(['trace-own'])
 
-    const summary = turnPage.turnListingSummary({ ...window, hostId: 'laptop' })
+    const summary = turnPage.turnListingSummary({ ...window, hostId: 'laptop' }, { sql: '1 = 1', params: [] })
     expect(summary.totalRows).toBe(1)
     expect(summary.hosts).toEqual([
       { hostId: 'desktop', hostname: null, count: 2 },

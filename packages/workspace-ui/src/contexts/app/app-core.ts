@@ -9,6 +9,7 @@ import { accountAgentProfileRequests, accountSyncStore } from '../account/accoun
 import { browserSyncClock } from '../account/lib/browser-sync-ports'
 import { agentProfileStore } from '../seats/agent-profile.store.svelte'
 import { integrationsStore } from '../../components/settings/integrations.store.svelte'
+import { accountVaultStore } from '../../components/seats/account-vault.store.svelte'
 import { hostSettingsStore } from './host-settings.store.svelte'
 import { accountStore } from '../account/account.store.svelte'
 import { WorkspaceContext, setWorkspaceContext } from '../workspace/workspace.context.svelte'
@@ -85,6 +86,8 @@ export function createAppCore(shell: ClientShellContext): AppCore {
     },
     setTimer: browserSyncClock.setTimer,
   })
+  // The Settings rows that point to the account read its status through the same requests.
+  accountVaultStore.usePort({ requests: accountAgentProfileRequests })
   onDestroy(hostSettingsStore.start())
   const statusBar = new StatusBarContext(settings)
   const planStore = new PlanStore()

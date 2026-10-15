@@ -35,9 +35,8 @@ beforeAll(async () => {
   const router = createSolusApiRouter({ credentials, operations, capabilities: { serviceId: 'api', mode: 'solus-api', apiVersion: '1', capabilities: ['session-records'], events: { transport: 'socket.io', relativePath: '/ws', protocolVersion: 1 } }, openApi: () => JSON.stringify(solusApiOpenApi()) })
   app = new Hono().route('/v1', router)
   const { upsertSessionRecord } = await import('@solus/server/data/sessions/session-records')
-  await upsertSessionRecord('A', { sessionId: 's1', provider: 'codex', projectPath: '-repo', lastActivityAt: Date.now(), ownerUserId: 'alice' }, { organizationId: 'A', published: true })
-  // As runner intake does for the session a runner reports.
-  await shares.claimOwner({ kind: 'session', id: 's1' }, alice.principal)
+  // As runner intake does for the session a runner reports: born owned by its person.
+  await upsertSessionRecord('A', { sessionId: 's1', provider: 'codex', projectPath: '-repo', lastActivityAt: Date.now() }, { organizationId: 'A', published: true, ownerKey: 'alice' })
   const exchange = await app.request('/v1/auth/session', { method: 'POST', headers: { Authorization: 'Bearer alice', 'Content-Type': 'application/json' }, body: JSON.stringify({ scopes: ['sessions:read', 'sessions:write'] }) })
   token = (await exchange.json()).accessToken
 })

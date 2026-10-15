@@ -18,26 +18,34 @@ import type { InsightPull } from '../../sync/insight-pull'
 import { createLogger } from '../../logger'
 import { clearTurnFlag, listTurnFlags, setTurnFlag } from '../../data/insights/turn-flags'
 import { turnPage, turnListingSummary } from '../../data/insights/turn-page'
+import { traceVisible, visibleInsights, type InsightFilter } from '../../data/insights/visibility'
 import type { SolusServer } from '../server'
+import { RpcAccessError } from '../../admission/access-policy'
 
-/** Registered low-cardinality columns `metricsDistinctValues` may enumerate.
- *  `tool` scopes to tool_call spans so unrelated span names never pollute it. */
+/** Registered low-cardinality columns `metricsDistinctValues` may enumerate,
+ *  with the condition each reads under. `tool` scopes to tool_call spans so
+ *  unrelated span names never pollute it. */
 const DISTINCT_COLUMNS = {
-  tool: "SELECT DISTINCT name AS value FROM spans WHERE kind = 'tool_call' ORDER BY name LIMIT 200",
-  model: 'SELECT DISTINCT model AS value FROM spans WHERE model IS NOT NULL ORDER BY model LIMIT 200',
-  provider: 'SELECT DISTINCT provider AS value FROM spans WHERE provider IS NOT NULL ORDER BY provider LIMIT 200',
-  status: 'SELECT DISTINCT status AS value FROM spans ORDER BY status LIMIT 200',
-  service: 'SELECT DISTINCT service AS value FROM spans ORDER BY service LIMIT 200',
-  kind: 'SELECT DISTINCT kind AS value FROM spans ORDER BY kind LIMIT 200',
-  origin: 'SELECT DISTINCT origin AS value FROM spans WHERE origin IS NOT NULL ORDER BY origin LIMIT 200',
-  user_email: 'SELECT DISTINCT user_email AS value FROM spans WHERE user_email IS NOT NULL ORDER BY user_email LIMIT 200',
-  organization_id: 'SELECT DISTINCT organization_id AS value FROM spans WHERE organization_id IS NOT NULL ORDER BY organization_id LIMIT 200',
+  tool: { expression: 'name', where: "kind = 'tool_call'" },
+  model: { expression: 'model', where: 'model IS NOT NULL' },
+  provider: { expression: 'provider', where: 'provider IS NOT NULL' },
+  status: { expression: 'status', where: '1 = 1' },
+  service: { expression: 'service', where: '1 = 1' },
+  kind: { expression: 'kind', where: '1 = 1' },
+  origin: { expression: 'origin', where: 'origin IS NOT NULL' },
+  user_email: { expression: 'user_email', where: 'user_email IS NOT NULL' },
+  organization_id: { expression: 'organization_id', where: 'organization_id IS NOT NULL' },
 } as const
 
-function distinctValuesSql(column: string): string | undefined {
+/** The distinct values of a registered column among the spans the reader may see. */
+function distinctValuesSql(column: string, visible: InsightFilter): InsightFilter | undefined {
   if (!Object.hasOwn(DISTINCT_COLUMNS, column)) return undefined
   // SAFETY: the guard above accepted only keys `DISTINCT_COLUMNS` declares.
-  return DISTINCT_COLUMNS[column as keyof typeof DISTINCT_COLUMNS]
+  const { expression, where } = DISTINCT_COLUMNS[column as keyof typeof DISTINCT_COLUMNS]
+  return {
+    sql: `SELECT DISTINCT ${expression} AS value FROM spans WHERE ${where} AND (${visible.sql}) ORDER BY ${expression} LIMIT 200`,
+    params: visible.params,
+  }
 }
 
 const NL_TIMEOUT_MS = 60_000
@@ -50,9 +58,12 @@ export function registerObservabilityHandlers(server: SolusServer, deps: {
 }): void {
   const textGenerator = new TextGenerator(deps.sessionRuntime)
 
-  server.register('metricsQuery', (args) => {
+  // Insights reads hold the reader's own turns, or every turn for a host
+  // administrator (docs/plans/access-model.md §4 D2). Arbitrary SQL cannot be held
+  // to that, so `metricsRunSql` is an administrator's (`host.admin`).
+  server.register('metricsQuery', (args, ctx) => {
     const [spec] = args
-    const compiled = compileQuerySpec(spec)
+    const compiled = compileQuerySpec(spec, visibleInsights(ctx.actor))
     return runCompiledSql(compiled.sql, compiled.params, compiled.sourceView)
   })
 
@@ -64,17 +75,17 @@ export function registerObservabilityHandlers(server: SolusServer, deps: {
 
   // A list read starts a pull and answers from what is here; the turns it
   // writes arrive as `metrics.turnsChanged`, as a turn this host runs does.
-  server.register('metricsTurnPage', (args) => {
+  server.register('metricsTurnPage', (args, ctx) => {
     const [request] = args
     void deps.insightPull()?.request()
-    return turnPage(request)
+    return turnPage(request, visibleInsights(ctx.actor))
   })
 
-  server.register('metricsTurnListingSummary', (args) => {
+  server.register('metricsTurnListingSummary', (args, ctx) => {
     const [filter] = args
     const pull = deps.insightPull()
     void pull?.request()
-    return { ...turnListingSummary(filter), pull: pull?.state() ?? null }
+    return { ...turnListingSummary(filter, visibleInsights(ctx.actor)), pull: pull?.state() ?? null }
   })
 
   server.register('metricsValidateSql', (args) => {
@@ -114,11 +125,11 @@ export function registerObservabilityHandlers(server: SolusServer, deps: {
 
   server.register('metricsSchema', () => metricsSchema())
 
-  server.register('metricsDistinctValues', (args) => {
+  server.register('metricsDistinctValues', (args, ctx) => {
     const [columnName] = args
-    const sql = distinctValuesSql(columnName)
-    if (!sql) throw new Error(`metricsDistinctValues does not serve column: ${columnName}`)
-    return runCompiledSql(sql, []).rows.map((row) => row[0])
+    const query = distinctValuesSql(columnName, visibleInsights(ctx.actor))
+    if (!query) throw new Error(`metricsDistinctValues does not serve column: ${columnName}`)
+    return runCompiledSql(query.sql, query.params).rows.map((row) => row[0])
   })
 
   server.register('metricsListSavedQueries', () => listSavedMetricsQueries())
@@ -142,11 +153,13 @@ export function registerObservabilityHandlers(server: SolusServer, deps: {
     return sessionSummary(sessionId)
   })
 
-  server.register('metricsTurnTrace', async (args) => {
+  server.register('metricsTurnTrace', async (args, ctx) => {
     const [traceId] = args
     if (!traceId.trim()) {
       throw new Error('metricsTurnTrace requires a trace id')
     }
+    // The turn's own row is here before its tree: a list read pulled it.
+    if (!traceVisible(traceId, visibleInsights(ctx.actor))) throw new RpcAccessError('metricsTurnTrace', ctx.principal.kind, 'This turn is not yours to open.')
     // A turn another host ran holds only its row until it is opened.
     try {
       await deps.insightPull()?.fetchTree(traceId)

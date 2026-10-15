@@ -1,9 +1,9 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { serversStore, sharesStore, accountStore } from "../../contexts";
-  import CloudConnectionsPointer from "../seats/CloudConnectionsPointer.svelte";
+  import AccountConnectionRow from "../seats/AccountConnectionRow.svelte";
+  import { accountVaultStore } from "../seats/account-vault.store.svelte";
   import { cloudConnectionsPointerUrl } from "../seats/lib/cloud-connections";
-  import CloudflareProviderSettings from "../cloudflare/CloudflareProviderSettings.svelte";
   import AtlassianProviderSettings from "../atlassian/AtlassianProviderSettings.svelte";
   import GoogleProviderSettings from "../google/GoogleProviderSettings.svelte";
   import SettingsSection from "./SettingsSection.svelte";
@@ -14,14 +14,18 @@
 
   let { serverId }: Props = $props();
 
-  // A member admitted through an organization keeps their Google and Atlassian
-  // connections in Solus cloud, not on the runner; the row points there.
-  // GitHub is on the Source Control page.
+  // A signed-in person keeps their Google and Atlassian connections in their
+  // Solus account, not on the host; each row shows the account's status and
+  // points there. GitHub is on the Source Control page.
   $effect(() => {
     void accountStore.state;
     const targetServerId = serverId;
-    untrack(() => void sharesStore.identityFor(targetServerId, true).catch(() => {}));
+    untrack(() => {
+      void sharesStore.identityFor(targetServerId, true).catch(() => {});
+      void accountVaultStore.load();
+    });
   });
+  $effect(() => accountVaultStore.watch());
   const cloudConnectionsUrl = $derived(
     cloudConnectionsPointerUrl({
       identity: sharesStore.identities.get(serverId),
@@ -30,19 +34,23 @@
   );
 </script>
 
-<!-- The Integrations page: the accounts Solus acts on your behalf with. The
-     issue and document providers, then the deployment target. -->
+<!-- The Integrations page: the accounts Solus acts on your behalf with. -->
 {#if cloudConnectionsUrl}
   <SettingsSection label="Connections">
-    <CloudConnectionsPointer
+    <AccountConnectionRow
       url={cloudConnectionsUrl}
-      label="Your Google and Atlassian connections live in Solus cloud"
-      description="Solus uses your own accounts for integration actions."
-      testId="connections-row-cloud"
+      label="Google"
+      status={accountVaultStore.providerStatus("google")}
+      testId="connections-row-google-account"
+    />
+    <AccountConnectionRow
+      url={cloudConnectionsUrl}
+      label="Atlassian"
+      status={accountVaultStore.providerStatus("atlassian")}
+      testId="connections-row-atlassian-account"
     />
   </SettingsSection>
 {:else}
   <AtlassianProviderSettings {serverId} />
   <GoogleProviderSettings {serverId} />
 {/if}
-<CloudflareProviderSettings {serverId} />

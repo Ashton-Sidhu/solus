@@ -23,7 +23,7 @@ import {
   type AgentProfileStatus,
 } from '@solus/contracts/agent-profile'
 import type { Integration } from '@solus/contracts/integration-types'
-import { profileConnectionSchema, type ProfileConnection } from '@solus/contracts/integrations/profile-credentials'
+import { vaultConnectionSchema, type VaultConnection } from '@solus/contracts/vault'
 import { SEAT_PROVIDERS, type SeatProvider } from '@solus/contracts/seats'
 import type { AgentId, SkillInstallResult } from '@solus/contracts/types'
 import type { SkillListResult, SkillRemoveResult } from '@solus/contracts/skill-types'
@@ -66,15 +66,15 @@ const manifestSchema = z.object({
 })
 type Manifest = z.infer<typeof manifestSchema>
 
-/** A person's account as a pull reads it: the profile, null when never synced, and the servers the vault holds a connection for. */
+/** A person's account as a pull reads it: the profile, null when never synced, and the status of each connection in their vault. */
 interface AccountRead {
   profile: AccountAgentProfileResponse | null
-  connections: ProfileConnection[]
+  connections: VaultConnection[]
 }
 
-/** What the account plane answers a host's read: the document, or that the person has none, and the servers it holds a connection for. */
+/** What the account plane answers a host's read: the document, or that the person has none, and their vault's statuses (never the material). */
 const accountReadSchema = z.union([
-  z.object({ profile: accountAgentProfileResponseSchema.nullable(), connections: z.array(profileConnectionSchema) }).strict(),
+  z.object({ profile: accountAgentProfileResponseSchema.nullable(), connections: z.array(vaultConnectionSchema) }).strict(),
   z.object({ error: z.string() }),
 ])
 
@@ -110,21 +110,21 @@ export interface ProfileSkills {
 }
 
 /**
- * Whose integration records and connections a target's servers are: a member's
- * own, or the host's on a host the person owns. `ownerUserId` is also the key a
- * person's connections are under (null is the host owner).
+ * Whose integration records and connections a target's servers are: always the
+ * person's own, by user key (`ownerKeyOf`), the host's owner included.
+ * `ownerKey` is also the key the person's connections are under.
  */
 export interface ProfileIntegrationOwner {
   organizationId: string
-  ownerUserId: string | null
+  ownerKey: string
 }
 
 /** The integration records as the profile uses them (`integrations/profile-integrations.ts`). */
 export interface ProfileIntegrations {
   /** The owner's own records on this host, for a read. */
   list(owner: ProfileIntegrationOwner): Integration[]
-  /** A record with this URL the owner can see: their own (`own`), or a shared one of the host that a copy must not replace. */
-  findByUrl(owner: ProfileIntegrationOwner, url: string): { integration: Integration; own: boolean } | null
+  /** The owner's own record with this URL. */
+  findByUrl(owner: ProfileIntegrationOwner, url: string): Integration | null
   create(owner: ProfileIntegrationOwner, entry: AgentProfileIntegrationEntry): Integration
   update(id: string, entry: AgentProfileIntegrationEntry): void
   remove(id: string): void
@@ -137,7 +137,7 @@ export interface ProfileAccount {
   /** Whose account a target's profile is: a member's own, or the host owner's; null when the owner is not known yet. */
   userFor: (target: AgentProfileTarget) => string | null
   /** After a pull: the person's host-local MCP connections move into their account (§5.4). */
-  reconcile?: (owner: ProfileIntegrationOwner, cloudConnections: ProfileConnection[]) => Promise<void>
+  reconcile?: (owner: ProfileIntegrationOwner, cloudConnections: VaultConnection[]) => Promise<void>
 }
 
 export interface AgentProfileDeps {
@@ -381,7 +381,7 @@ export class AgentProfileManager {
 
   private isOwnRecord(target: AgentProfileTarget, integration: Integration): boolean {
     const owner = this.deps.integrationOwnerFor(target)
-    return integration.organizationId === owner.organizationId && integration.ownerUserId === owner.ownerUserId
+    return integration.organizationId === owner.organizationId && integration.ownerKey === owner.ownerKey
   }
 
   /**
@@ -468,7 +468,7 @@ export class AgentProfileManager {
    * record another host made is adopted, not duplicated. From the account, the
    * person's own records are the profile's to manage, so it adopts them too;
    * from a computer's push, a server a host the person owns already had is kept
-   * as it is. A shared record of the host is never the profile's.
+   * as it is.
    */
   private applyIntegrations(target: AgentProfileTarget, entries: AgentProfileIntegrationEntry[], previous: string[], origin: AgentProfileOrigin): IntegrationApplyOutcome {
     const owner = this.deps.integrationOwnerFor(target)
@@ -483,9 +483,9 @@ export class AgentProfileManager {
       }
       // A record this copy made is its own to update. A member's own record made
       // another way is adopted. Anything else the host already had stays as it is.
-      if (owned.has(found.integration.id) || (found.own && (target.kind === 'member' || origin.kind === 'account'))) {
-        this.deps.integrations.update(found.integration.id, entry)
-        ids.push(found.integration.id)
+      if (owned.has(found.id) || target.kind === 'member' || origin.kind === 'account') {
+        this.deps.integrations.update(found.id, entry)
+        ids.push(found.id)
       } else skipped.push({ path: entry.slug, reason: 'kept-on-host' })
     }
     for (const id of previous) if (!ids.includes(id)) this.deps.integrations.remove(id)

@@ -68,9 +68,11 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
 
   server.register('sessionRecordUpsert', async (args, ctx) => {
     const [record] = args
-    // A runner's report names the runner; it cannot speak for another host.
-    const report = ctx.principal.kind === 'runner' ? { ...record, runnerHostId: ctx.principal.hostId } : record
-    return upsertSessionRecord(organizationForNew(ctx.principal), report)
+    // A runner's report names the runner; it cannot speak for another host. Its new record is its person's.
+    const organizationId = organizationForNew(ctx.principal)
+    return ctx.principal.kind === 'runner'
+      ? upsertSessionRecord(organizationId, { ...record, runnerHostId: ctx.principal.hostId }, { organizationId, ownerKey: ctx.principal.ownerUserId })
+      : upsertSessionRecord(organizationId, record)
   })
 
   server.register('listRecentProjects', async (_args, ctx) => {

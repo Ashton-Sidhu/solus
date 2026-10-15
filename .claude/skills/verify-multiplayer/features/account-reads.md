@@ -20,7 +20,7 @@ Preconditions:
 
 - `DOCTOR OK`.
 
-- **Connection in the account.** Run `bun lab run account-reads --cloud`. alice's profile names a local fake MCP server that takes one bearer key; her vault holds the key (`PUT /v1/account/agent-profile/connections`).
+- **Connection in the account.** Run `bun lab run account-reads --cloud`. alice's profile names a local fake MCP server that takes one bearer key; her vault holds the key (`PUT /v1/account/vault`, the website's pasted key).
 - **Host adopts it.** After `agentProfilePull`, `integrationConnectionList` shows it `connected`, source `cloud`.
 - **Call goes through.** `integrationTools` lists `echo`, and every request the fake server received carried alice's key.
 - **Proof.** `summary.json` lists `account-reads` with 0 failed checks.

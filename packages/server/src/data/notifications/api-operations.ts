@@ -8,7 +8,7 @@ import {
 import type { WorkspaceRequestContext } from '../../admission/workspace-credentials'
 import { SolusApiError } from '../../admission/workspace-error'
 import type { ShareManager } from '../../sharing/share-manager'
-import { apiScope, requireResource } from '../workspace/context'
+import { requireResource } from '../workspace/context'
 import { notificationReaderFor } from './access'
 import {
   countNotifications, listNotifications, NotificationCursorError, setNotificationArchived, setNotificationRead,
@@ -49,7 +49,7 @@ export class NotificationApiOperations {
   }
 
   private async read<T>(context: WorkspaceRequestContext, run: (reader: NotificationReader) => Promise<T>): Promise<T> {
-    const reader = notificationReaderFor(context.principal, apiScope(context), (resource) => this.mayOpen(context, resource))
+    const reader = notificationReaderFor(context.principal, (resource) => this.mayOpen(context, resource))
     if (!reader) throw new SolusApiError(403, 'FORBIDDEN', 'Only a person has notifications.')
     try {
       return await run(reader)
@@ -62,7 +62,7 @@ export class NotificationApiOperations {
   private async mayOpen(context: WorkspaceRequestContext, resource: ShareResource): Promise<boolean> {
     if (!context.scopes.includes(READ_SCOPE[resource.kind])) return false
     try {
-      await requireResource(this.shares, context, resource, 'viewer')
+      await requireResource(this.shares, context, resource, 'read')
       return true
     } catch (error) {
       if (error instanceof SolusApiError && error.status === 404) return false

@@ -16,8 +16,10 @@
     enabled: boolean;
     onEnabledChange: (next: boolean) => void;
     onCommit: () => void;
+    /** The reader's role does not allow a change (docs/plans/access-model.md §2.7). */
+    disabled?: boolean;
   }
-  let { schedule, enabled, onEnabledChange, onCommit }: Props = $props();
+  let { schedule, enabled, onEnabledChange, onCommit, disabled = false }: Props = $props();
 
   const repeatOptions: { value: BuilderTriggerKind; label: string }[] = [
     { value: "manual", label: "Manual" },
@@ -58,6 +60,7 @@
     <Switch
       checked={enabled}
       onCheckedChange={onEnabledChange}
+      {disabled}
       size="default"
       class="data-checked:bg-chart-3"
       aria-label={enabled ? "Pause automation" : "Resume automation"}

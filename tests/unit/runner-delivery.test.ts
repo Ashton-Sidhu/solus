@@ -83,7 +83,7 @@ async function installOrganizationSession(sessionId: string, organizationId: str
   const { createWorkspaceOperations } = await import('@solus/server/data/workspace/service')
   const { ShareManager } = await import('@solus/server/sharing/share-manager')
   const { getDatabase } = await import('@solus/server/db/database')
-  records.rememberSessionBirth(sessionId, { organizationId, published: true, ownerUserId: 'user-alice', admissionId: sessionId })
+  records.rememberSessionBirth(sessionId, { organizationId, published: true, ownerKey: 'user-alice', admissionId: sessionId })
   await records.upsertOwnSessionRecord({ sessionId, provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
   useOrganizationAttachment(() => 1)
   const unreachable = new Proxy(createWorkspaceOperations(new ShareManager({ db: getDatabase() })), { get: () => () => Promise.reject(new Error('the test API is not called')) })
@@ -239,6 +239,19 @@ async function ownRecord(sessionId: string) {
   await records.upsertOwnSessionRecord({ sessionId, provider: 'claude-code', projectPath: '-repo', title: 'First words', lastActivityAt: 1 })
 }
 
+describe('who delivers a record', () => {
+  test('a person with an account delivers their own records; the host\'s own records go as the account that linked it', () => {
+    // WHY (docs/plans/access-model.md §2.2): every record has an owner now, and the host's own
+    // records are its `local` user's. No delegation names a local user, so those rows must
+    // travel with the linking account's token or they wait forever.
+    expect(outbox.deliveryActorOf('user-alice')).toBe('user-alice')
+    expect(outbox.deliveryActorOf('local:host-1')).toBe('')
+    // With no host user, a record of the host's own is the host-owner sentinel's: the linker carries it.
+    expect(outbox.deliveryActorOf('host-owner')).toBe('')
+    expect(outbox.deliveryActorOf('')).toBe('')
+  })
+})
+
 describe('runner delivery', () => {
   test('an organization session\'s queued comment and link reach its organization in order, with its owner\'s token; nothing is applied here', async () => {
     // WHY: an organization session's tasks and works are written on its Solus API
@@ -337,7 +350,7 @@ describe('runner delivery', () => {
     await api.start()
     const runner = startDelivery(api)
     try {
-      records.rememberSessionBirth('s-early', { organizationId: 'org1', published: true, ownerUserId: 'user-alice', admissionId: 's-early' })
+      records.rememberSessionBirth('s-early', { organizationId: 'org1', published: true, ownerKey: 'user-alice', admissionId: 's-early' })
       let settled = false
       const delivered = runner.deliverSessionReport('s-early', 5_000).then((value) => { settled = true; return value })
       await tick()

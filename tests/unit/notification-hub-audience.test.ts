@@ -1,4 +1,4 @@
-import { hostActionOf } from '@solus/contracts/permissions'
+import { permissionOf, isResourceMethod, resourceVerbOf } from '@solus/contracts/permissions'
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import type { Principal } from '@solus/server/admission/principal'
@@ -41,10 +41,15 @@ describe('notification event audience', () => {
     expect(notificationRecipientClients(['unknown'], () => null, { organizationId: 'org1', recipientKey: 'bob' })).toEqual([])
   })
 
-  test('the hub methods are collaboration-plane personal reads, refused to guests', () => {
+  test('the hub methods are collaboration-plane personal reads, refused to guests; a change names its notification', () => {
     for (const method of ['notificationsCapability', 'notificationsList', 'notificationsCount', 'notificationsSetRead', 'notificationsSetArchived'] as const) {
       expect(RPC_PLANES[method]).toBe('collaboration')
-      expect(hostActionOf(method)).toBe('host.use')
+    }
+    for (const method of ['notificationsCapability', 'notificationsList', 'notificationsCount'] as const) expect(permissionOf(method)).toBe('host.use')
+    // WHY (docs/plans/access-model.md §2.3.1): a notification is a personal resource; marking one takes its owner, the recipient.
+    for (const method of ['notificationsSetRead', 'notificationsSetArchived'] as const) {
+      expect(isResourceMethod(method)).toBe(true)
+      expect(resourceVerbOf(method)).toBe('edit')
     }
   })
 })

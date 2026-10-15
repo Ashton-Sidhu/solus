@@ -1,5 +1,7 @@
 import { z } from 'zod'
-import { clearProviderCredential, readProviderCredential, writeProviderCredential } from '../../vault/provider-credentials'
+import { currentPersonKey } from '../../vault/acting-scope'
+import { vault } from '../../vault/vault'
+import type { ProviderRef } from '@solus/contracts/vault'
 
 /**
  * Persisted GitHub OAuth App user token. No `expiresAt`/`refreshToken`: OAuth
@@ -7,7 +9,7 @@ import { clearProviderCredential, readProviderCredential, writeProviderCredentia
  * tokens, add those fields plus a refresh path (mirroring google/oauth.ts).
  *
  * Where it lives — the host's secret store, the scoped person's vault row, or a
- * runner's lease — is `provider-credentials`' choice (cloud-service-model.md §22).
+ * runner's lease — is the vault's choice (docs/plans/access-model.md §2.6).
  */
 export interface GithubStoredToken {
   accessToken: string
@@ -22,16 +24,18 @@ export const githubStoredTokenSchema = z.object({
   login: z.string().optional(),
 })
 
-export { EncryptionUnavailableError } from '../../vault/provider-credentials'
+export { EncryptionUnavailableError } from '../../vault/vault'
+
+const GITHUB: ProviderRef = { kind: 'provider', provider: 'github' }
 
 export function loadToken(): Promise<GithubStoredToken | null> {
-  return readProviderCredential('github', githubStoredTokenSchema)
+  return vault().read(currentPersonKey(), GITHUB, githubStoredTokenSchema)
 }
 
-export function persistToken(token: GithubStoredToken): Promise<void> {
-  return writeProviderCredential('github', token)
+export async function persistToken(token: GithubStoredToken): Promise<void> {
+  vault().save(currentPersonKey(), GITHUB, token)
 }
 
-export function clearToken(): Promise<void> {
-  return clearProviderCredential('github')
+export async function clearToken(): Promise<void> {
+  vault().remove(currentPersonKey(), GITHUB)
 }

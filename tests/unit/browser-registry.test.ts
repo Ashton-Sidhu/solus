@@ -15,7 +15,7 @@ import {
 } from '@solus/server/browser/surface-driver'
 import {
   BROWSER_MARK_TOOLS,
-  browserPartition,
+  browserProfilePartition,
   resolveViewport,
   type BrowserConsoleEntry,
   type BrowserNavigateOp,
@@ -192,7 +192,7 @@ describe('browser registry', () => {
     // WHY: the page exists on the host before any client offers a surface. If it
     // claimed to be ready, an agent would drive a page nothing is showing.
     const { registry, published } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     expect(page.hostKind).toBe('none')
     expect(page.problem?.kind).toBe('no-surface')
@@ -203,7 +203,7 @@ describe('browser registry', () => {
     // WHY: silence here reads to an agent as "the click worked". The whole
     // verification loop depends on the failure being loud.
     const { registry } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     await expect(registry.interact(page.browserPageId, { kind: 'click', ref: '#go' }))
       .rejects.toThrow(/no surface/i)
@@ -213,10 +213,10 @@ describe('browser registry', () => {
     // WHY: nothing renders without an explicit request — an agent asking is the
     // invocation, not a background auto-open.
     const { registry, requested } = harness()
-    registry.open({ target: TARGET })
+    registry.open({ target: TARGET }, 'local:owner')
     expect(requested).toHaveLength(0)
 
-    const asked = registry.open({ target: TARGET, requestSurface: true })
+    const asked = registry.open({ target: TARGET, requestSurface: true }, 'local:owner')
     expect(requested).toEqual([asked.browserPageId])
   })
 
@@ -224,7 +224,7 @@ describe('browser registry', () => {
     // WHY: emulation is the product. A viewport change that only moved a number
     // in the UI would give a browser that lies about the device.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET, presetId: 'iphone-15' })
+    const page = registry.open({ target: TARGET, presetId: 'iphone-15' }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     await registry.setViewport(page.browserPageId, {
@@ -244,7 +244,7 @@ describe('browser registry', () => {
     // WHY: overriding the agent with a fabricated desktop string would make the
     // browser differ from the browser the developer actually ships against.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET, presetId: 'laptop' })
+    const page = registry.open({ target: TARGET, presetId: 'laptop' }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     expect(driver.emulations.at(-1)?.userAgent).toBeUndefined()
@@ -256,7 +256,7 @@ describe('browser registry', () => {
     // at a preset would hand every user a viewport they have to undo first.
     const { registry } = harness()
 
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     expect(page.viewport.mode).toBe('fill')
     expect(page.viewport.presetId).toBeUndefined()
@@ -267,7 +267,7 @@ describe('browser registry', () => {
     // resizing the pane under a page must never quietly put it back to fill —
     // the viewport a check was set up at has to still be there afterwards.
     const { registry } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     await registry.setViewport(page.browserPageId, { mode: 'preset', presetId: 'iphone-15' })
 
@@ -289,7 +289,7 @@ describe('browser registry', () => {
     // ratio into an arbitrary width would make every agent-sniffing page report
     // a device the user is not looking at.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET, presetId: 'iphone-15' })
+    const page = registry.open({ target: TARGET, presetId: 'iphone-15' }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     await registry.setViewport(page.browserPageId, { mode: 'custom', width: 913, height: 640 })
@@ -309,7 +309,7 @@ describe('browser registry', () => {
     // place to tell the user the value was invalid — the page just stops at the
     // edge of what a viewport can be.
     const { registry } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     await registry.setViewport(page.browserPageId, { mode: 'custom', width: 40, height: 99_999 })
 
@@ -322,7 +322,7 @@ describe('browser registry', () => {
     // on. Re-applying an identical viewport would reload layout in the guest and
     // re-render the page in every client for nothing.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     const applied = driver.emulations.length
 
@@ -336,7 +336,7 @@ describe('browser registry', () => {
     // WHY: a screenshot alone cannot be acted on, and errors that happened
     // before anyone looked are exactly the ones worth reporting.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     driver.answers.set('data-solus-browser-ref', JSON.stringify({
       title: 'Solus',
@@ -363,7 +363,7 @@ describe('browser registry', () => {
     // WHY: the image is the expensive half; an agent checking whether a button
     // exists should not pay for it.
     const { registry } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     expect((await registry.snapshot(page.browserPageId, { screenshot: false })).screenshot).toBeUndefined()
@@ -373,7 +373,7 @@ describe('browser registry', () => {
     // WHY: the click is a real trusted event at real coordinates, not a
     // synthetic `.click()` that skips the browser's own hit testing.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     driver.answers.set('getBoundingClientRect', JSON.stringify({ x: 54, y: 28 }))
 
@@ -387,7 +387,7 @@ describe('browser registry', () => {
     // WHY: a tooltip or hover menu shows on pointer movement alone. A click
     // would also activate the element, and focus would show focus styles.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     driver.answers.set('getBoundingClientRect', JSON.stringify({ x: 40, y: 20 }))
 
@@ -403,7 +403,7 @@ describe('browser registry', () => {
     // moves some distance while the button is held. A jump from press to
     // release is a click to them.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     driver.answers.set('node.draggable', 'false')
     driver.answers.set('if (true)', JSON.stringify({ x: 0, y: 0 }))
@@ -422,7 +422,7 @@ describe('browser registry', () => {
     // WHY: mouse events from CDP do not start an HTML drag, so the mouse path
     // would report success for a drop that never happened.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     driver.answers.set('DataTransfer', 'false')
     driver.answers.set('node.draggable', 'true')
@@ -439,7 +439,7 @@ describe('browser registry', () => {
     // WHY: without this an agent sees "ok" after a click whose confirm was
     // dismissed, and cannot tell why nothing changed.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     driver.answers.set('getBoundingClientRect', JSON.stringify({ x: 5, y: 5 }))
     driver.clickAt = async () => { await driver.openDialog('confirm', 'Delete it?', { accept: false }) }
@@ -454,7 +454,7 @@ describe('browser registry', () => {
     // WHY: a dialog stops the page. With the answer given first, the action
     // that opens the dialog does not stop on it.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     expect(await registry.answerDialog(page.browserPageId, { accept: true, promptText: 'yes' })).toBeNull()
@@ -469,7 +469,7 @@ describe('browser registry', () => {
     // opened it times out. The error must say which dialog, so the agent can
     // answer it with browser_dialog.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     driver.answers.set('getBoundingClientRect', JSON.stringify({ x: 5, y: 5 }))
     driver.clickAt = async () => {
@@ -490,7 +490,7 @@ describe('browser registry', () => {
     // WHY: the page re-rendered between snapshot and click. Clicking anyway hits
     // whatever moved into that spot.
     const { registry } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     const result = await registry.interact(page.browserPageId, { kind: 'click', ref: '#gone' })
@@ -503,7 +503,7 @@ describe('browser registry', () => {
     // WHY: Solus does not own the dev server, so the pane has to say that in its
     // own words instead of showing ERR_CONNECTION_REFUSED.
     const { registry, published } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     registry.reportSurface(page.browserPageId, {
@@ -532,7 +532,7 @@ describe('browser registry', () => {
     })) as typeof fetch
     try {
       const { registry, published } = harness()
-      const page = registry.open({ target: TARGET })
+      const page = registry.open({ target: TARGET }, 'local:owner')
       await registry.attachSurface(page.browserPageId, 1)
       registry.reportSurface(page.browserPageId, {
         url: TARGET.url,
@@ -568,7 +568,7 @@ describe('browser registry', () => {
       throw new Error('Touch points must be between 1 and 16')
     }
     setBrowserWebviewHost({ attach: async () => broken })
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     await expect(registry.attachSurface(page.browserPageId, 1)).rejects.toThrow(/touch points/i)
 
@@ -583,7 +583,7 @@ describe('browser registry', () => {
     // WHY: closing the pane must not lose the page — an agent may still be
     // working against it, and the user expects it back where they left it.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     await registry.detachSurface(page.browserPageId)
@@ -598,7 +598,7 @@ describe('browser registry', () => {
     // waiting for the next pane. "Waiting for a browser pane" in front of a
     // dead guest would tell the user to do the one thing that cannot help.
     const { registry, published } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     await registry.detachSurface(page.browserPageId, 'crashed')
@@ -609,7 +609,7 @@ describe('browser registry', () => {
 
   test('closing a page disposes its driver and announces the close', async () => {
     const { registry, driver, closed } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     await registry.close(page.browserPageId)
@@ -625,14 +625,14 @@ describe('browser registry', () => {
     const { registry, driver, otherDriver, cleared } = harness()
     const page = registry.open({
       target: { ...TARGET, projectRoot: '/projects/alpha' },
-    })
+    }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     const otherPage = registry.open({
       target: { ...TARGET, projectRoot: '/projects/beta' },
-    })
+    }, 'local:owner')
     await registry.attachSurface(otherPage.browserPageId, 2)
 
-    const partition = browserPartition('/projects/alpha')
+    const partition = browserProfilePartition('/projects/alpha', undefined, 'local:owner')
     await registry.clearProfile(partition)
 
     expect(cleared).toEqual([partition])
@@ -646,7 +646,7 @@ describe('browser registry', () => {
     const { registry } = harness()
     const page = registry.open({
       target: { kind: 'url', url: 'http://localhost:5174/', branch: 'solus/visual-qa' },
-    })
+    }, 'local:owner')
     expect(page.label).toBe('solus/visual-qa')
   })
 
@@ -657,7 +657,7 @@ describe('browser registry', () => {
     // Emulate, then navigate: the page lays out once, at the size it was asked
     // for.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.setViewport(page.browserPageId, { mode: 'custom', width: 500, height: 900 })
 
     await registry.attachSurface(page.browserPageId, 1)
@@ -671,7 +671,7 @@ describe('browser registry', () => {
     // user had browsed to whenever a pane reopened or a crashed guest was
     // replaced.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     await registry.navigate(page.browserPageId, { kind: 'goto', url: 'http://localhost:5173/settings' })
 
@@ -685,7 +685,7 @@ describe('browser registry', () => {
     // about:blank in the toolbar of a page that is about to be somewhere else,
     // and announce a load state for a page that has not started loading.
     const { registry } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     registry.reportSurface(page.browserPageId, {
       url: 'about:blank',
@@ -704,7 +704,7 @@ describe('browser registry', () => {
     // subscribes, the guest starts a screencast, and its frames reach exactly
     // that client.
     const { registry, driver, frames } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     const got: number[] = []
@@ -722,7 +722,7 @@ describe('browser registry', () => {
     // WHY: a page nobody subscribed to must produce no frames for that client —
     // the "hidden panes stream nothing" rule, enforced at the source.
     const { registry, driver, frames } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     const watcher: number[] = []
@@ -740,7 +740,7 @@ describe('browser registry', () => {
   test('the last watcher leaving stops the guest painting', async () => {
     // WHY: a page returns to costing nothing the moment no pane shows it.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     await registry.subscribeFrames(page.browserPageId, 'a')
@@ -756,7 +756,7 @@ describe('browser registry', () => {
     // WHY: Multiple layouts can mount the same page. Hiding one must
     // not stop the stream that the other visible surface still uses.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     await registry.subscribeFrames(page.browserPageId, 'same-client')
@@ -772,7 +772,7 @@ describe('browser registry', () => {
     // WHY: a phone whose connection expired cannot unsubscribe. The transport
     // drops it, or a guest keeps painting frames into the void.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     await registry.subscribeFrames(page.browserPageId, 'phone')
 
@@ -785,7 +785,7 @@ describe('browser registry', () => {
     // WHY: the caps are derived from the viewport, so a resize that did not
     // restart the stream would leave a watcher receiving frames at the old size.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     await registry.subscribeFrames(page.browserPageId, 'a')
 
@@ -801,7 +801,7 @@ describe('browser registry', () => {
     // watching alone must not be sent a desktop's pixels. A larger pane joining
     // grows the stream, and the stream shrinks again when it leaves.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     await registry.subscribeFrames(page.browserPageId, 'phone', { maxWidth: 390, maxHeight: 600 })
@@ -818,7 +818,7 @@ describe('browser registry', () => {
     // WHY: every restart is a fresh keyframe on every viewer, so only a change
     // the stream can show is worth one.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     await registry.subscribeFrames(page.browserPageId, 'web', { maxWidth: 800, maxHeight: 600 })
     const started = driver.screencasts.length
@@ -834,7 +834,7 @@ describe('browser registry', () => {
     // WHY: caps cross the wire. A client from before pane sizes, or a bad
     // value, must still see a full picture rather than a thumbnail or an error.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     await registry.subscribeFrames(page.browserPageId, 'phone', { maxWidth: 390, maxHeight: 600 })
 
@@ -857,7 +857,7 @@ describe('browser registry', () => {
     // WHY: a streamed surface maps a pointer to a viewport coordinate; those go
     // to the guest without resolving a selector, so light interaction works.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     await registry.interact(page.browserPageId, { kind: 'clickAt', x: 40, y: 60 })
@@ -872,7 +872,7 @@ describe('browser registry', () => {
     // would leave the client's canvas blank with no reason; the reason is the
     // point.
     const { registry } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     await expect(registry.subscribeFrames(page.browserPageId, 'a')).rejects.toThrow(/no surface/i)
   })
@@ -882,7 +882,7 @@ describe('browser registry', () => {
     // request wants the accessibility tree, and walking the DOM for it would
     // make every capture pay for structure it never uses.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     driver.sequence.length = 0
 
@@ -901,7 +901,7 @@ describe('browser registry', () => {
     // silently not working at all. Both lists now come from one export, and a
     // box's selected element group crosses the parser too.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     driver.answers.set(

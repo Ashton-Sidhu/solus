@@ -8,17 +8,19 @@ import type { Principal } from '@solus/server/admission/principal'
 import type { ShareAccessError as ShareAccessErrorType, ShareChange, ShareManager as ShareManagerType } from '@solus/server/sharing/share-manager'
 import { hostUserKey } from '@solus/server/host/host-user'
 import { resetTestDatabase } from './helpers/test-db'
+import { seedResource } from './helpers/resource-rows'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-// docs/plans/multiplayer-sharing.md §3.4–§3.5: the creator owns a resource; the
-// personal host's owner has every role; a member holds what the rows give them —
-// their team, the organization, or the link (scope, decision 2026-09-16), and a
-// managed host's resources start shared with the organization; the link is one
-// `everyone` row whose secret the host keeps beside its hash and hands only to
-// whoever may share; and a change is announced so guests can be dropped.
-// The rows live in the ported schema (docs/plans/cloud-service-model.md), so the
-// suite runs on either engine.
+// docs/plans/access-model.md §2.2–§2.3 and multiplayer-sharing.md §3.4–§3.5: a
+// resource's owner is its own row's `owner_key`; the ACL entries hold only what
+// the owner gave others — a person, their team, the organization, or the link
+// (scope, decision 2026-09-16); a resource made in an organization's space starts
+// with the organization's editor entry; an administrator is an editor of what is
+// not theirs; the link is one `everyone` entry whose secret the host keeps beside
+// its hash and hands only to whoever may share; and a change is announced so
+// guests can be dropped. The rows live in the ported schema
+// (docs/plans/cloud-service-model.md), so the suite runs on either engine.
 
 type ShareManagerModule = typeof import('@solus/server/sharing/share-manager')
 type DbModule = typeof import('@solus/server/db')
@@ -60,6 +62,9 @@ const member = (userId: string, teamIds: string[] = [], organizationRole: 'owner
   kind: 'org-member', userId, organizationId, organizationRole, teamIds, hostKind, displayName: userId, deviceId: `d-${userId}`, expiresAt: 0, deviceLabel: 'Solus cloud',
 })
 
+const seed = (kind: 'session' | 'work' | 'task', id: string, ownerKey: string, organizationId = 'local') =>
+  seedResource(database.getDatabase(), kind, id, ownerKey, organizationId)
+
 function manager(): { shares: ShareManagerType; changes: ShareChange[] } {
   const changes: ShareChange[] = []
   const shares = new ShareManager({ db: database.getDatabase(), now: () => 1_000 })
@@ -74,52 +79,61 @@ describe('reach', () => {
     // the record into an organization nobody can open; the guest link needs no cloud.
     const shares = new ShareManager({ db: database.getDatabase(), membersReachable: () => false })
     const session = { kind: 'session', id: 's1' } as const
-    await shares.claimOwner(session, OWNER)
-    await expect(shares.setGrants({ resource: session, grants: [{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }] }, OWNER))
+    await seed('session', 's1', hostUserKey())
+    await expect(shares.setEntries({ resource: session, entries: [{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }] }, OWNER))
       .rejects.toMatchObject({ code: 'HOST_NOT_LINKED' })
-    await expect(shares.setGrants({ resource: session, grants: [], link: { role: 'viewer' } }, OWNER)).resolves.toMatchObject({ link: { role: 'viewer' } })
+    await expect(shares.setEntries({ resource: session, entries: [], link: { role: 'viewer' } }, OWNER)).resolves.toMatchObject({ link: { role: 'viewer' } })
     expect((await shares.setLink({ resource: session, role: 'editor' }, OWNER))?.role).toBe('editor')
   })
 })
 
 describe('ownership', () => {
-  test('the first principal to claim a resource owns it; later claims change nothing', async () => {
+  test('the creator owns a resource; another member of the organization edits it only through the organization entry', async () => {
     const { shares } = manager()
     const work = { kind: 'work', id: 'w1' } as const
-    expect(await shares.claimOwner(work, member('bob'))).toBe('bob')
-    expect(await shares.claimOwner(work, member('cara'))).toBe('bob')
+    await seed('work', 'w1', 'bob', 'org1')
     expect(await shares.roleFor(member('bob'), work)).toBe('owner')
-    // Cara is in the organization the managed host serves: an editor, never the owner.
+    expect(await shares.roleFor(member('cara'), work)).toBe('none')
+    // Only the owner gives the organization its entry; cara asking changes nothing.
+    await shares.shareWithOrganization(work, member('cara'))
+    expect(await shares.roleFor(member('cara'), work)).toBe('none')
+    await shares.shareWithOrganization(work, member('bob'))
     expect(await shares.roleFor(member('cara'), work)).toBe('editor')
+    expect(await shares.roleFor(member('bob'), work)).toBe('owner')
   })
 
-  test('a managed host starts a resource shared with the organization; a personal host starts it private', async () => {
+  test('a resource made in an organization space starts shared with the organization; one on a personal host starts private', async () => {
     // WHY: the cloud machine is the team's, so its work is the team's to see until the
     // owner narrows it; a person's own machine shares nothing until they say so.
     const { shares } = manager()
     const cloud = { kind: 'work', id: 'cloud' } as const
-    await shares.claimOwner(cloud, member('bob'))
-    expect((await shares.list(cloud, member('bob'))).grants).toEqual([
+    await seed('work', 'cloud', 'bob', 'org1')
+    await shares.shareWithOrganization(cloud, member('bob'))
+    expect((await shares.list(cloud, member('bob'))).entries).toEqual([
       { subject: { kind: 'organization', id: 'org1' }, role: 'editor', grantedByUserId: 'bob', createdAt: 1_000 },
     ])
     const personal = { kind: 'work', id: 'personal' } as const
-    await shares.claimOwner(personal, member('bob', [], 'member', 'personal'))
-    expect((await shares.list(personal, member('bob', [], 'member', 'personal'))).grants).toEqual([])
+    await seed('work', 'personal', 'bob', 'org1')
+    await shares.shareWithOrganization(personal, member('bob', [], 'member', 'personal'))
+    expect((await shares.list(personal, member('bob', [], 'member', 'personal'))).entries).toEqual([])
     expect(await shares.roleFor(member('cara', [], 'member', 'personal'), personal)).toBe('none')
     // The host owner's own work on their machine is theirs alone until shared.
     const mine = { kind: 'work', id: 'mine' } as const
-    await shares.claimOwner(mine, OWNER)
+    await seed('work', 'mine', hostUserKey())
+    expect(await shares.roleFor(OWNER, mine)).toBe('owner')
     expect(await shares.roleFor(member('cara', [], 'member', 'personal'), mine)).toBe('none')
   })
 
-  test('a chat starts private on a managed host; only its owner can give the organization its default grant later', async () => {
-    // WHY: decision S5 — a chat is its owner's own,
-    // so the team does not see it until the owner shares it. A session watched
-    // before its folder is known gets the grant only when its owner's prompt
-    // names a project folder.
+  test('a session is its starter\'s before its record exists; a chat starts private and only its owner gives the organization its entry later', async () => {
+    // WHY: decision S5 — a chat is its owner's own, so the team does not see it
+    // until the owner shares it. A session watched before its folder is known gets
+    // the entry only when its owner's prompt names a project folder. The claim is
+    // made before the record is written, and the record is born with that owner.
     const { shares } = manager()
-    const chat = { kind: 'session', id: 'chat' } as const
-    await shares.claimOwner(chat, member('bob'), { shareWithOrganization: false })
+    const chat = { kind: 'session', id: 'chat-claimed-before-record' } as const
+    await shares.claimSession(chat.id, member('bob'), { shareWithOrganization: false })
+    await shares.claimSession(chat.id, member('cara'))
+    expect(await shares.roleFor(member('bob'), chat)).toBe('owner')
     expect(await shares.roleFor(member('cara'), chat)).toBe('none')
 
     await shares.shareWithOrganization(chat, member('cara'))
@@ -128,189 +142,219 @@ describe('ownership', () => {
     expect(await shares.roleFor(member('cara'), chat)).toBe('editor')
   })
 
-  test('a resource made over a local connection is owned by the host owner, whom a remote owner also is', async () => {
-    const { shares } = manager()
-    const work = { kind: 'work', id: 'w1' } as const
-    expect(await shares.claimOwner(work, OWNER)).toBe(hostUserKey())
-    expect(await shares.roleFor(REMOTE_OWNER, work)).toBe('owner')
-    expect(await shares.roleFor(OWNER, work)).toBe('owner')
+  test('the host owner owns what is the host user\'s, local or over the tunnel', async () => {
+    const { useHostUser } = await import('@solus/server/host/host-user')
+    useHostUser({ localId: 'h1', account: { accountId: 'alice' } })
+    try {
+      const { shares } = manager()
+      const work = { kind: 'work', id: 'w1' } as const
+      await seed('work', 'w1', hostUserKey())
+      expect(await shares.roleFor(REMOTE_OWNER, work)).toBe('owner')
+      expect(await shares.roleFor(OWNER, work)).toBe('owner')
+    } finally {
+      useHostUser(null)
+    }
   })
 
-  test('the personal host owner has every role on a member-owned resource; a managed-host organization owner is an editor like any member', async () => {
-    // WHY: the owner owns the disk; on a managed host nobody does (§3.4, §13).
+  test('the personal host owner is an administrator: an editor of a member\'s resource, as a managed-host organization owner is', async () => {
+    // WHY (docs/plans/access-model.md §2.5): an administrator gets `editor` on every
+    // resource that is not personal, and `owner` only on what they own. This changes
+    // the earlier rule, where the host owner held `owner` on the whole disk.
     const { shares } = manager()
     const work = { kind: 'work', id: 'w1' } as const
-    await shares.claimOwner(work, member('bob'))
-    expect(await shares.roleFor(OWNER, work)).toBe('owner')
+    await seed('work', 'w1', 'bob', 'org1')
+    expect(await shares.roleFor(OWNER, work)).toBe('editor')
     expect(await shares.roleFor(member('admin', [], 'owner', 'managed'), work)).toBe('editor')
+    expect(await shares.roleFor(member('admin', [], 'owner', 'personal'), work)).toBe('none')
   })
 
-  test('only the owner transfers; the previous owner is named as removed', async () => {
+  test('only the owner transfers; the owner key moves and the previous owner is named as removed', async () => {
     const { shares, changes } = manager()
     const work = { kind: 'work', id: 'w1' } as const
-    await shares.claimOwner(work, member('bob'))
+    await seed('work', 'w1', 'bob', 'org1')
+    await shares.shareWithOrganization(work, member('bob'))
     await expect(shares.transfer({ resource: work, toUserId: 'cara' }, member('cara'))).rejects.toThrow(ShareAccessError)
     const list = await shares.transfer({ resource: work, toUserId: 'cara' }, member('bob'))
-    expect(list.ownerUserId).toBe('cara')
-    // The organization row from the claim still admits bob, as an editor now.
+    expect(list.ownerKey).toBe('cara')
+    expect(await database.getDatabase().all(sql`SELECT owner_key FROM works WHERE id = 'w1'`)).toEqual([{ owner_key: 'cara' }])
+    // The organization entry still admits bob, as an editor now.
     expect(await shares.roleFor(member('bob'), work)).toBe('editor')
     expect(changes.at(-1)?.removedUserIds).toEqual(['bob'])
   })
 
-  test('rows belong to the organization of the principal that wrote them; another organization in the cloud sees nothing', async () => {
+  test('a resource of one organization is nothing to a member of another', async () => {
     // WHY: one Postgres serves every organization (docs/plans/cloud-service-model.md).
-    // A cloud member reads the rows of the organization their grant names; a
-    // host's own rows are `local`, so a managed host's members and its owner agree.
+    // A member reads the records of the organization their grant names.
     const { shares } = manager()
     const work = { kind: 'work', id: 'w1' } as const
     const bob = member('bob', [], 'member', 'cloud', 'org1')
     const eve = member('eve', [], 'member', 'cloud', 'org2')
-    expect(await shares.claimOwner(work, bob)).toBe('bob')
-    await shares.setGrants({ resource: work, grants: [{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer' }] }, bob)
+    await seed('work', 'w1', 'bob', 'org1')
+    await shares.setEntries({ resource: work, entries: [{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer' }] }, bob)
     expect(await shares.roleFor(bob, work)).toBe('owner')
     expect(await shares.roleFor(eve, work)).toBe('none')
-    // A resource id names one row (ids are unique across the database): a claim
-    // from another organization changes nothing and gives it nothing.
-    expect(await shares.claimOwner(work, eve)).toBeNull()
-    expect(await shares.roleFor(eve, work)).toBe('none')
-    expect(await shares.visibleIds(eve, 'work')).toEqual(new Set())
-    expect(await shares.roleFor(bob, work)).toBe('owner')
-    // The rows are org1's wherever they are read (organization-scope §3): a member of
-    // org1 on a managed host holds what the organization row gives, and no more.
-    expect(await shares.ownerOf(work)).toBe('bob')
+    expect(await shares.filterVisible(eve, 'work', [{ id: 'w1' }], (row) => row.id)).toEqual([])
+    // A listed page carries each reader's role, the same answer `roleFor` gives (access-model.md §2.7).
+    expect(await shares.accessOf(bob, 'work', ['w1'])).toEqual(new Map([['w1', { ownerKey: 'bob', role: 'owner' }]]))
+    expect(await shares.accessOf(eve, 'work', ['w1'])).toEqual(new Map([['w1', { ownerKey: 'bob', role: 'none' }]]))
+    expect((await shares.accessOf(member('dan'), 'work', ['w1'])).get('w1')?.role).toBe('viewer')
+    // A member of org1 on a managed host holds what the organization entry gives, and no more.
     expect(await shares.roleFor(member('dan'), work)).toBe('viewer')
   })
 })
 
-describe('share rows', () => {
-  test('a member holds what the rows give: their team, the organization, or nothing', async () => {
+describe('ACL entries', () => {
+  test('a member holds what the entries give: their team, the organization, or nothing', async () => {
     // WHY: the dialog offers a scope (decision 2026-09-16). "Team A" must mean team A
     // and not the whole organization, or the choice would be a lie.
     const { shares } = manager()
     const doc = { kind: 'work', id: 'w1' } as const
-    await shares.claimOwner(doc, member('alice', [], 'member', 'personal'))
+    await seed('work', 'w1', 'alice', 'org1')
     expect(await shares.roleFor(member('bob'), doc)).toBe('none')
-    await shares.setGrants({ resource: doc, grants: [{ subject: { kind: 'team', id: 'team-a' }, role: 'editor' }] }, member('alice'))
+    await shares.setEntries({ resource: doc, entries: [{ subject: { kind: 'team', id: 'team-a' }, role: 'editor' }] }, member('alice'))
     expect(await shares.roleFor(member('cara', ['team-a']), doc)).toBe('editor')
     expect(await shares.roleFor(member('dan', ['team-b']), doc)).toBe('none')
-    await shares.setGrants({ resource: doc, grants: [
+    await shares.setEntries({ resource: doc, entries: [
       { subject: { kind: 'organization', id: 'org1' }, role: 'viewer' },
       { subject: { kind: 'team', id: 'team-a' }, role: 'editor' },
     ] }, member('alice'))
-    // The highest row wins; a member of another organization is admitted by none.
+    // The highest entry wins; a member of another organization is admitted by none.
     expect(await shares.roleFor(member('cara', ['team-a']), doc)).toBe('editor')
     expect(await shares.roleFor(member('dan', ['team-b']), doc)).toBe('viewer')
     expect(await shares.roleFor(member('eve', [], 'member', 'managed', 'org2'), doc)).toBe('none')
   })
 
-  test('the host\'s own unowned work on a managed host is the team\'s to edit; on a personal host it is the owner\'s alone', async () => {
+  test('the host\'s own work on a managed host is its user\'s: members reach it through entries, an administrator edits it', async () => {
+    // WHY (docs/plans/access-model.md §2.2): every resource has an owner, so the host's
+    // own work belongs to the host's user. This changes the earlier rule, where a
+    // resource nobody owned on a managed host was every member's to edit.
     const { shares } = manager()
     const doc = { kind: 'work', id: 'automation' } as const
-    expect(await shares.roleFor(member('bob'), doc)).toBe('editor')
-    expect(await shares.roleFor(member('bob', [], 'member', 'personal'), doc)).toBe('none')
+    await seed('work', 'automation', hostUserKey(), 'org1')
+    expect(await shares.roleFor(member('bob'), doc)).toBe('none')
+    expect(await shares.roleFor(member('admin', [], 'owner'), doc)).toBe('editor')
   })
 
-  test('an editor through a row may change the list, and removing a named row takes their standing with it', async () => {
+  test('an editor through an entry may change the list, and removing a named entry takes their standing with it', async () => {
     const { shares } = manager()
     const doc = { kind: 'work', id: 'w1' } as const
-    await shares.claimOwner(doc, member('alice'))
-    await shares.setGrants({ resource: doc, grants: [
+    await seed('work', 'w1', 'alice', 'org1')
+    await shares.setEntries({ resource: doc, entries: [
       { subject: { kind: 'user', id: 'bob' }, role: 'editor' },
       { subject: { kind: 'user', id: 'cara' }, role: 'viewer' },
     ] }, member('alice'))
-    const list = await shares.setGrants({ resource: doc, grants: [{ subject: { kind: 'user', id: 'cara' }, role: 'editor' }] }, member('bob'))
-    expect(list.grants.map((grant) => `${grant.subject.kind}:${'id' in grant.subject ? grant.subject.id : ''}=${grant.role}`)).toEqual(['user:cara=editor'])
-    // bob removed his own row: the write still answers, with the list as it now stands.
+    const list = await shares.setEntries({ resource: doc, entries: [{ subject: { kind: 'user', id: 'cara' }, role: 'editor' }] }, member('bob'))
+    expect(list.entries.map((grant) => `${grant.subject.kind}:${'id' in grant.subject ? grant.subject.id : ''}=${grant.role}`)).toEqual(['user:cara=editor'])
+    // bob removed his own entry: the write still answers, with the list as it now stands.
     expect(list.callerRole).toBe('none')
     expect(await shares.roleFor(member('bob'), doc)).toBe('none')
-    await expect(shares.setGrants({ resource: doc, grants: [] }, member('bob'))).rejects.toThrow(ShareAccessError)
+    await expect(shares.setEntries({ resource: doc, entries: [] }, member('bob'))).rejects.toThrow(ShareAccessError)
   })
 
-  test('removing a user row names them in the change so their client can show the notice', async () => {
+  test('removing a user entry names them in the change so their client can show the notice', async () => {
     const { shares, changes } = manager()
     const doc = { kind: 'work', id: 'w1' } as const
-    await shares.claimOwner(doc, member('alice'))
-    await shares.setGrants({ resource: doc, grants: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, member('alice'))
-    await shares.setGrants({ resource: doc, grants: [] }, member('alice'))
+    await seed('work', 'w1', 'alice', 'org1')
+    await shares.setEntries({ resource: doc, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, member('alice'))
+    await shares.setEntries({ resource: doc, entries: [] }, member('alice'))
     expect(changes.at(-1)).toMatchObject({ resource: doc, removedUserIds: ['bob'], guestsRevoked: false, changedBy: { id: { kind: 'account', accountId: 'alice' } } })
   })
 
-  test('a listing shows a member what they own, what a row names them on, and the host\'s own work on a managed host', async () => {
+  test('a listing shows a member what they own and what an entry names them on; an administrator sees everything', async () => {
     // WHY: a sidebar row the member cannot open is a broken promise; a resource they
     // may open must never be missing from it either.
     const { shares } = manager()
-    await shares.claimOwner({ kind: 'work', id: 'mine' }, member('bob', [], 'member', 'personal'))
-    await shares.claimOwner({ kind: 'work', id: 'theirs' }, member('alice', [], 'member', 'personal'))
-    await shares.claimOwner({ kind: 'work', id: 'team' }, member('alice', [], 'member', 'personal'))
-    await shares.setGrants({ resource: { kind: 'work', id: 'team' }, grants: [{ subject: { kind: 'team', id: 'team-a' }, role: 'viewer' }] }, member('alice', [], 'member', 'personal'))
-    const works = [{ id: 'mine' }, { id: 'theirs' }, { id: 'team' }, { id: 'unowned' }]
+    await seed('work', 'mine', 'bob', 'org1')
+    await seed('work', 'theirs', 'alice', 'org1')
+    await seed('work', 'team', 'alice', 'org1')
+    await seed('work', 'hosts', hostUserKey(), 'org1')
+    await shares.setEntries({ resource: { kind: 'work', id: 'team' }, entries: [{ subject: { kind: 'team', id: 'team-a' }, role: 'viewer' }] }, member('alice', [], 'member', 'personal'))
+    const works = [{ id: 'mine' }, { id: 'theirs' }, { id: 'team' }, { id: 'hosts' }]
     const idOf = (work: { id: string }) => work.id
     expect((await shares.filterVisible(member('bob', ['team-a'], 'member', 'personal'), 'work', works, idOf)).map(idOf)).toEqual(['mine', 'team'])
     expect((await shares.filterVisible(member('bob', [], 'member', 'personal'), 'work', works, idOf)).map(idOf)).toEqual(['mine'])
-    // On a managed host the unowned work is the host's own, and the team's to see.
-    expect((await shares.filterVisible(member('bob'), 'work', works, idOf)).map(idOf)).toEqual(['mine', 'unowned'])
+    expect((await shares.filterVisible(member('bob'), 'work', works, idOf)).map(idOf)).toEqual(['mine'])
     expect(await shares.filterVisible(OWNER, 'work', works, idOf)).toHaveLength(4)
+    expect(await shares.filterVisible(member('admin', [], 'owner'), 'work', works, idOf)).toHaveLength(4)
     await expect(shares.list({ kind: 'work', id: 'theirs' }, member('bob', [], 'member', 'personal'))).rejects.toThrow(ShareAccessError)
   })
 })
 
 describe('new sessions', () => {
-  test('a session the host has never seen is the starter\'s; one it knows stays closed until shared', async () => {
-    // WHY: the access check runs before the first prompt claims ownership, so a
-    // member could never start a session on a personal host otherwise.
+  test('a session the host has never seen is the starter\'s; one it knows is the host user\'s until shared', async () => {
+    // WHY: the access check runs before the first request claims ownership, so a
+    // member could never start a session on a personal host otherwise. A session
+    // the machine knows with no record yet is its own, as its record will say.
     const known = new Set(['old'])
     const shares = new ShareManager({ db: database.getDatabase(), now: () => 1_000, sessionExists: (id) => known.has(id) })
     const bob = member('bob', [], 'member', 'personal')
-    expect(await shares.roleFor(bob, { kind: 'session', id: 'fresh' })).toBe('owner')
+    expect(await shares.roleFor(bob, { kind: 'session', id: 'fresh-never-seen' })).toBe('owner')
     expect(await shares.roleFor(bob, { kind: 'session', id: 'old' })).toBe('none')
+    expect(await shares.roleFor(OWNER, { kind: 'session', id: 'old' })).toBe('owner')
     // Once someone has claimed it, a fresh id is theirs alone.
-    await shares.claimOwner({ kind: 'session', id: 'fresh' }, member('alice', [], 'member', 'personal'))
-    expect(await shares.roleFor(bob, { kind: 'session', id: 'fresh' })).toBe('none')
-    // Works are never started this way: a work is created, and creation claims it.
+    await shares.claimSession('fresh-never-seen', member('alice', [], 'member', 'personal'))
+    expect(await shares.roleFor(bob, { kind: 'session', id: 'fresh-never-seen' })).toBe('none')
+    // Works are never started this way: a work is created with its owner.
     expect(await shares.roleFor(bob, { kind: 'work', id: 'fresh' })).toBe('none')
+  })
+
+  test('a session with no owner yet has no share list and takes no entry; it is never made the host user\'s', async () => {
+    // WHY: every resource has one owner (docs/plans/access-model.md §2.2). Before
+    // its record, the starter may drive it, but a list would have to invent an
+    // owner, and an entry would outlive a session that is never recorded.
+    const shares = new ShareManager({ db: database.getDatabase(), now: () => 1_000, sessionExists: () => false })
+    const bob = member('bob', [], 'member', 'personal')
+    const fresh = { kind: 'session', id: 'fresh-unowned' } as const
+    expect(await shares.roleFor(bob, fresh)).toBe('owner')
+    await expect(shares.list(fresh, bob)).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    await expect(shares.setEntries({ resource: fresh, entries: [], link: { role: 'viewer' } }, bob)).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    await expect(shares.setLink({ resource: fresh, role: 'viewer' }, OWNER)).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    // Claimed, it has an owner, and the list names them.
+    await shares.claimSession(fresh.id, bob)
+    expect((await shares.list(fresh, bob)).ownerKey).toBe('bob')
   })
 })
 
-describe('one table of access', () => {
-  test('a role check reads the rows once, and the host owner reads nothing', async () => {
-    // WHY: every request through the access policy asks for a role. The owner
-    // lives in share_grant beside the other rows, and the organization is on the
-    // rows, so a member's check is one query; the host owner's is none.
+describe('one decision per check', () => {
+  test('a role check reads the resource row and its entries, for everyone', async () => {
+    // WHY: every request through the access policy asks for a role, and `roleOf`
+    // decides it from the owner on the row and the ACL entries. The host owner
+    // reads them too: they own only what is theirs.
     const { shares } = manager()
     const work = { kind: 'work', id: 'w1' } as const
-    await shares.claimOwner(work, member('alice'))
+    await seed('work', 'w1', 'alice', 'org1')
+    await shares.shareWithOrganization(work, member('alice'))
     const asMember = { queries: 0, queryMs: 0 }
     expect(await database.tallyQueries(asMember, () => shares.roleFor(member('bob'), work))).toBe('editor')
-    expect(asMember.queries).toBe(1)
+    expect(asMember.queries).toBe(2)
     const asOwner = { queries: 0, queryMs: 0 }
-    expect(await database.tallyQueries(asOwner, () => shares.roleFor(OWNER, work))).toBe('owner')
-    expect(asOwner.queries).toBe(0)
+    expect(await database.tallyQueries(asOwner, () => shares.roleFor(OWNER, work))).toBe('editor')
+    expect(asOwner.queries).toBe(2)
   })
 
-  test('a resource has one owner row; the owner is never also a named row', async () => {
-    // WHY: the owner and the named rows share one unique key per person. A named
-    // row for the owner would block the owner row, or leave two answers for one person.
+  test('the owner is never an ACL entry', async () => {
+    // WHY: the ACL holds only what the owner gave others. An entry for the owner
+    // would be a second answer for one person.
     const { shares } = manager()
     const work = { kind: 'work', id: 'w1' } as const
-    await shares.claimOwner(work, member('alice'))
-    await shares.claimOwner(work, member('bob'))
-    const list = await shares.setGrants({ resource: work, grants: [{ subject: { kind: 'user', id: 'alice' }, role: 'viewer' }, { subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, member('alice'))
-    expect(list.ownerUserId).toBe('alice')
-    expect(list.grants.map((grant) => grant.subject)).toEqual([{ kind: 'user', id: 'bob' }])
-    const owners = await database.getDatabase().all<{ subject_id: string }>(sql`SELECT subject_id FROM share_grant WHERE resource_id = 'w1' AND role = 'owner'`)
-    expect(owners).toEqual([{ subject_id: 'alice' }])
+    await seed('work', 'w1', 'alice', 'org1')
+    const list = await shares.setEntries({ resource: work, entries: [{ subject: { kind: 'user', id: 'alice' }, role: 'viewer' }, { subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, member('alice'))
+    expect(list.ownerKey).toBe('alice')
+    expect(list.entries.map((grant) => grant.subject)).toEqual([{ kind: 'user', id: 'bob' }])
+    const subjects = await database.getDatabase().all<{ subject_id: string }>(sql`SELECT subject_id FROM acl_entry WHERE resource_id = 'w1'`)
+    expect(subjects).toEqual([{ subject_id: 'bob' }])
   })
 
-  test('a transfer to a person with a named row makes them owner and drops that row', async () => {
+  test('a transfer to a person with a named entry makes them owner and drops that entry', async () => {
     const { shares } = manager()
     const work = { kind: 'work', id: 'w1' } as const
-    await shares.claimOwner(work, member('alice'))
-    await shares.setGrants({ resource: work, grants: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, member('alice'))
+    await seed('work', 'w1', 'alice', 'org1')
+    await shares.setEntries({ resource: work, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, member('alice'))
     const list = await shares.transfer({ resource: work, toUserId: 'bob' }, member('alice'))
-    expect(list.ownerUserId).toBe('bob')
-    expect(list.grants.some((grant) => grant.subject.kind === 'user' && grant.subject.id === 'bob')).toBe(false)
+    expect(list.ownerKey).toBe('bob')
+    expect(list.entries.some((grant) => grant.subject.kind === 'user' && grant.subject.id === 'bob')).toBe(false)
     expect(await shares.roleFor(member('bob'), work)).toBe('owner')
-    expect(await shares.ownerOf(work)).toBe('bob')
+    expect((await shares.homeOf(work))?.ownerKey).toBe('bob')
   })
 })
 
@@ -318,22 +362,24 @@ describe('tasks', () => {
   const cloud = (userId: string) => member(userId, [], 'member', 'cloud')
 
   test('a task is its organization\'s and is not shared on its own; what is linked to it keeps its own access', async () => {
-    // WHY: a task is born with its organization's grant. If a session or work took
+    // WHY: a task is born with its organization's entry. If a session or work took
     // access from a task it is linked to, linking it would silently open it to the
     // whole organization (decision 2026-10-06). Each resource is shared on its own.
     const { shares } = manager()
-    await shares.claimOwner({ kind: 'task', id: 't1' }, cloud('alice'))
-    await shares.claimOwner({ kind: 'session', id: 's1' }, cloud('alice'), { shareWithOrganization: false })
+    await seed('task', 't1', 'alice', 'org1')
+    await seed('session', 's1', 'alice', 'org1')
+    await shares.shareWithOrganization({ kind: 'task', id: 't1' }, cloud('alice'))
     expect(await shares.roleFor(cloud('bob'), { kind: 'task', id: 't1' })).toBe('editor')
     expect(await shares.roleFor(cloud('bob'), { kind: 'session', id: 's1' })).toBe('none')
     expect((await shares.filterVisible(cloud('bob'), 'session', [{ id: 's1' }], (session) => session.id))).toEqual([])
-    await expect(shares.setGrants({ resource: { kind: 'task', id: 't1' }, grants: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, cloud('alice'))).rejects.toThrow(ShareAccessError)
+    await expect(shares.setEntries({ resource: { kind: 'task', id: 't1' }, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, cloud('alice'))).rejects.toThrow(ShareAccessError)
     await expect(shares.setLink({ resource: { kind: 'task', id: 't1' }, role: 'viewer' }, cloud('alice'))).rejects.toThrow(ShareAccessError)
   })
 
   test('a guest bound to a task reaches nothing', async () => {
     const { shares } = manager()
-    await shares.claimOwner({ kind: 'task', id: 't1' }, cloud('alice'))
+    await seed('task', 't1', 'alice', 'org1')
+    await seed('session', 's1', 'alice', 'org1')
     // A guest from a task link made before tasks stopped being shared opens nothing.
     const maya: Principal = {
       kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1', organizationId: 'org1',
@@ -341,7 +387,7 @@ describe('tasks', () => {
       expiresAt: 0, deviceLabel: 'Guest link',
     }
     expect(await shares.roleFor(maya, { kind: 'task', id: 't1' })).toBe('none')
-    expect(await shares.visibleIds(maya, 'session')).toEqual(new Set())
+    expect(await shares.filterVisible(maya, 'session', [{ id: 's1' }], (session) => session.id)).toEqual([])
   })
 })
 
@@ -356,10 +402,10 @@ describe('the link and guests', () => {
   test('the secret admits by its hash and resolves to one resource and role', async () => {
     const { shares } = manager()
     const session = { kind: 'session', id: 's1' } as const
-    await shares.claimOwner(session, member('alice'))
+    await seed('session', 's1', 'alice', 'org1')
     const link = (await shares.setLink({ resource: session, role: 'viewer' }, member('alice')))!
     expect(link.secret.length).toBeGreaterThan(30)
-    // A member's rows are their organization's (organization-scope §3): the link a guest is admitted by names it.
+    // The entry carries its resource's organization (organization-scope §3): the link a guest is admitted by names it.
     expect(await shares.resolveLinkSecret(link.secret)).toEqual({ organizationId: 'org1', resource: session, role: 'viewer', sharedByUserId: 'alice', linkSecretHash: hashLinkSecret(link.secret) })
     expect(await shares.resolveLinkSecret('nope')).toBeNull()
     expect((await shares.list(session, member('alice'))).link).toEqual({ role: 'viewer', secret: link.secret })
@@ -371,13 +417,16 @@ describe('the link and guests', () => {
   test('a guest is bound to its resource and loses access the moment the link is regenerated or removed', async () => {
     const { shares, changes } = manager()
     const session = { kind: 'session', id: 's1' } as const
-    await shares.claimOwner(session, member('alice'))
+    await seed('session', 's1', 'alice', 'org1')
+    await seed('session', 's2', 'alice', 'org1')
+    await seed('work', 'w1', 'alice', 'org1')
     const link = (await shares.setLink({ resource: session, role: 'viewer' }, member('alice')))!
     const maya = guest(hashLinkSecret(link.secret))
     expect(await shares.roleFor(maya, session)).toBe('viewer')
-    expect(await shares.roleFor(maya, { kind: 'session', id: 'other' })).toBe('none')
-    expect(await shares.visibleIds(maya, 'session')).toEqual(new Set(['s1']))
-    expect(await shares.visibleIds(maya, 'work')).toEqual(new Set())
+    expect(await shares.roleFor(maya, { kind: 'session', id: 's2' })).toBe('none')
+    const idOf = (row: { id: string }) => row.id
+    expect((await shares.filterVisible(maya, 'session', [{ id: 's1' }, { id: 's2' }], idOf)).map(idOf)).toEqual(['s1'])
+    expect(await shares.filterVisible(maya, 'work', [{ id: 'w1' }], idOf)).toEqual([])
 
     const rotated = (await shares.setLink({ resource: session, role: 'viewer', regenerate: true }, member('alice')))!
     expect(rotated.secret).not.toBe(link.secret)
@@ -394,7 +443,8 @@ describe('the link and guests', () => {
     // viewer must never be handed the secret through the list.
     const { shares } = manager()
     const work = { kind: 'work', id: 'w1' } as const
-    await shares.claimOwner(work, member('alice'))
+    await seed('work', 'w1', 'alice', 'org1')
+    await shares.shareWithOrganization(work, member('alice'))
     const link = (await shares.setLink({ resource: work, role: 'viewer' }, member('alice')))!
     expect((await shares.list(work, member('alice'))).link).toEqual({ role: 'viewer', secret: link.secret })
     expect((await shares.list(work, member('bob'))).link).toEqual({ role: 'viewer', secret: link.secret })
@@ -406,21 +456,21 @@ describe('the link and guests', () => {
     expect((await shares.list(work, viewingGuest)).link).toEqual({ role: 'viewer' })
     expect(await shares.setLink({ resource: work, role: 'editor' }, member('alice'))).toEqual({ role: 'editor', secret: link.secret })
     expect((await shares.list(work, member('alice'))).link).toEqual({ role: 'editor', secret: link.secret })
-    // A row made before the host kept the secret answers that a link exists, and no more.
-    const { shareGrant } = await import('@solus/server/sharing/schema')
+    // An entry made before the host kept the secret answers that a link exists, and no more.
+    const { aclEntry } = await import('@solus/server/sharing/schema')
     await database.getDatabase().run(sql`
-      UPDATE ${shareGrant} SET link_secret = NULL WHERE resource_kind = 'work' AND resource_id = 'w1' AND subject_kind = 'everyone'
+      UPDATE ${aclEntry} SET link_secret = NULL WHERE resource_kind = 'work' AND resource_id = 'w1' AND subject_kind = 'everyone'
     `)
     expect((await shares.list(work, member('alice'))).link).toEqual({ role: 'editor' })
   })
 
-  test('a session is shared by its session id alone; a provider thread id names no shared session', async () => {
-    // WHY: one session id (docs/plans/session-identity.md). A grant keyed by a
+  test('a session is shared by its session id alone; a provider thread id names no session', async () => {
+    // WHY: one session id (docs/plans/session-identity.md). An entry keyed by a
     // thread id would give access to a session nobody shared under its own id.
     const { shares } = manager()
-    await shares.claimOwner({ kind: 'session', id: 's1' }, member('alice'))
+    await seed('session', 's1', 'alice', 'org1')
     expect(await shares.roleFor(member('alice'), { kind: 'session', id: 's1' })).toBe('owner')
-    expect(await shares.ownerOf({ kind: 'session', id: 'thread-1' })).toBeNull()
+    expect(await shares.homeOf({ kind: 'session', id: 'thread-1' })).toBeNull()
   })
 })
 
@@ -431,65 +481,67 @@ describe('sharing a Local record with an organization', () => {
   // open it. A record of another organization never moves.
   const session = { kind: 'session' as const, id: 's-local' }
   const orgOf = (rows: Array<{ organization_id: string }>) => [...new Set(rows.map((row) => row.organization_id))]
-  const rowsOf = async (id: string) => database.getDatabase().all<{ organization_id: string }>(sql`SELECT organization_id FROM share_grant WHERE resource_id = ${id}`)
+  const entriesOf = async (id: string) => database.getDatabase().all<{ organization_id: string }>(sql`SELECT organization_id FROM acl_entry WHERE resource_id = ${id}`)
 
-  function withRecords(records: Map<string, string>) {
+  function withAssignment() {
     const assigned: Array<[string, string]> = []
     const shares = new ShareManager({
       db: database.getDatabase(),
       now: () => 1_000,
-      organizationOfResource: async (resource) => records.get(resource.id) ?? null,
+      // The one-time move from Local, as `assignSessionOrganization` makes it.
       assignOrganization: async (resource, organizationId) => {
-        const current = records.get(resource.id)
-        if (current === undefined) return null
-        if (current !== 'local') return current
+        const home = await shares.homeOf(resource)
+        if (!home) return null
+        if (home.organizationId !== 'local') return home.organizationId
         assigned.push([resource.id, organizationId])
-        records.set(resource.id, organizationId)
+        await database.getDatabase().run(sql`UPDATE session_records SET organization_id = ${organizationId} WHERE session_id = ${resource.id}`)
         return organizationId
       },
     })
     return { shares, assigned }
   }
 
-  test('the record joins the organization, and its members can open it', async () => {
-    const { shares, assigned } = withRecords(new Map([['s-local', 'local']]))
-    await shares.claimOwner(session, OWNER)
-    expect(orgOf(await rowsOf('s-local'))).toEqual(['local'])
+  test('the record joins the organization, its Local entries follow, and its members can open it', async () => {
+    const { shares, assigned } = withAssignment()
+    await seed('session', 's-local', hostUserKey())
+    await shares.setLink({ resource: session, role: 'viewer' }, OWNER)
+    expect(orgOf(await entriesOf('s-local'))).toEqual(['local'])
 
-    await shares.setGrants({ resource: session, grants: [{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }] }, OWNER)
+    await shares.setEntries({ resource: session, entries: [{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }] }, OWNER)
 
     expect(assigned).toEqual([['s-local', 'org1']])
-    expect(orgOf(await rowsOf('s-local'))).toEqual(['org1'])
+    expect(orgOf(await entriesOf('s-local'))).toEqual(['org1'])
     expect(await shares.roleFor(member('bob', [], 'member', 'personal'), session)).toBe('editor')
     expect(await shares.roleFor(member('carol', [], 'member', 'personal', 'org2'), session)).toBe('none')
     expect(await shares.roleFor(OWNER, session)).toBe('owner')
   })
 
   test('a record of another organization is refused and nothing is written', async () => {
-    const { shares, assigned } = withRecords(new Map([['s-org2', 'org2']]))
+    const { shares, assigned } = withAssignment()
     const other = { kind: 'session' as const, id: 's-org2' }
-    await shares.claimOwner(other, OWNER)
-    const before = await rowsOf('s-org2')
+    await seed('session', 's-org2', hostUserKey(), 'org2')
 
-    await expect(shares.setGrants({ resource: other, grants: [{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }] }, OWNER)).rejects.toBeInstanceOf(ShareAccessError)
+    await expect(shares.setEntries({ resource: other, entries: [{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }] }, OWNER)).rejects.toBeInstanceOf(ShareAccessError)
 
     expect(assigned).toEqual([])
-    expect(await rowsOf('s-org2')).toEqual(before)
+    expect(await entriesOf('s-org2')).toEqual([])
   })
 
-  test('a host that cannot assign the record refuses instead of writing a row nobody can use', async () => {
+  test('a host that cannot assign the record refuses instead of writing an entry nobody can use', async () => {
     const { shares } = manager()
-    await shares.claimOwner(session, OWNER)
-    await expect(shares.setGrants({ resource: session, grants: [{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }] }, OWNER)).rejects.toBeInstanceOf(ShareAccessError)
-    expect(orgOf(await rowsOf('s-local'))).toEqual(['local'])
+    await seed('session', 's-local', hostUserKey())
+    await shares.setLink({ resource: session, role: 'viewer' }, OWNER)
+    await expect(shares.setEntries({ resource: session, entries: [{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }] }, OWNER)).rejects.toBeInstanceOf(ShareAccessError)
+    expect(orgOf(await entriesOf('s-local'))).toEqual(['local'])
   })
 
-  test('a record assigned by another path takes its Local rows with it, and no other organization\'s', async () => {
+  test('a record assigned by another path takes its Local entries with it, and no other organization\'s', async () => {
     const { shares } = manager()
-    await shares.claimOwner(session, OWNER)
+    await seed('session', 's-local', hostUserKey())
+    await shares.setLink({ resource: session, role: 'viewer' }, OWNER)
     await shares.followRecordOrganization(session, 'org1')
-    expect(orgOf(await rowsOf('s-local'))).toEqual(['org1'])
+    expect(orgOf(await entriesOf('s-local'))).toEqual(['org1'])
     await shares.followRecordOrganization(session, 'org2')
-    expect(orgOf(await rowsOf('s-local'))).toEqual(['org1'])
+    expect(orgOf(await entriesOf('s-local'))).toEqual(['org1'])
   })
 })

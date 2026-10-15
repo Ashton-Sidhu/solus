@@ -14,6 +14,7 @@ import {
 import { getDatabase, type Db } from '../../db/database'
 import { ANY_ORGANIZATION, isAnyOrganization, LOCAL_ORGANIZATION_ID, type RecordScope } from '../../admission/principal'
 import { provisionedOrganizationId } from '../../host/host-category'
+import { hostUserKey } from '../../host/host-user'
 import { scopeClause } from '../scope'
 import { SESSION_LIST_IDLE_MS } from '@solus/contracts/session-state'
 import { sessionPullRequests, sessionRecords, sessionStates, sessionViews } from './schema'
@@ -37,7 +38,7 @@ const recordRowSchema = z.object({
   session_id: z.string(),
   organization_id: z.string(),
   publication: publicationSchema.catch('local'),
-  owner_user_id: z.string().nullable(),
+  owner_key: z.string(),
   provider: agentIdSchema,
   project_path: z.string(),
   project_remote: z.string().nullable(),
@@ -66,7 +67,7 @@ const recordRowSchema = z.object({
 type RecordRow = z.infer<typeof recordRowSchema>
 
 const RECORD_COLUMN_NAMES = [
-  'session_id', 'organization_id', 'publication', 'owner_user_id', 'provider', 'project_path', 'project_remote', 'runner_host_id', 'title', 'custom_title',
+  'session_id', 'organization_id', 'publication', 'owner_key', 'provider', 'project_path', 'project_remote', 'runner_host_id', 'title', 'custom_title',
   'status', 'model', 'reasoning_effort', 'parent_session_id', 'root_session_id', 'created_at', 'last_activity_at', 'size',
   'cwd', 'slug', 'is_worktree', 'branch', 'project_root', 'delegation_message_id', 'delegation_depth', 'delegation_intent', 'delegation_created_at',
 ]
@@ -90,16 +91,15 @@ const recordWithStateRowSchema = recordRowSchema.extend({
 
 /**
  * Whether a session is in the reader's list (docs/plans/session-archive.md):
- * it is the reader's — they own it, they prompted it (a prompt leaves their
- * view row), or it has no owner, as a machine's personal sessions do — they
- * did not archive it, and it was active recently, they snoozed it, or it
+ * it is the reader's — they own it, or they prompted it (a prompt leaves their
+ * view row) — they did not archive it, and it was active recently, they snoozed it, or it
  * waits on an open pull request. Reads the `session_views` row the page
  * joins for the reader.
  */
 export function sessionListedClause(reader: SessionPageReader): SQL {
   const { personKey, now } = reader
   return sql`(session_views.archived_at IS NULL
-  AND (session_records.owner_user_id IS NULL OR session_records.owner_user_id = ${personKey ?? ''} OR session_views.person_key IS NOT NULL)
+  AND (session_records.owner_key = ${personKey ?? ''} OR session_views.person_key IS NOT NULL)
   AND (
     session_records.last_activity_at >= ${now - SESSION_LIST_IDLE_MS}
     OR session_views.snoozed_until IS NOT NULL
@@ -122,7 +122,7 @@ function recordFromRow(row: RecordRow): SessionRecord {
     sessionId: row.session_id,
     organizationId: row.organization_id,
     publication: row.publication,
-    ownerUserId: row.owner_user_id,
+    ownerKey: row.owner_key,
     provider: row.provider,
     projectPath: row.project_path,
     projectRemote: row.project_remote,
@@ -260,7 +260,7 @@ function firstRecord(organizationId: string, input: SessionRecordUpsert, birth: 
     sessionId: input.sessionId,
     organizationId,
     publication: birth?.published ? 'published' : 'local',
-    ownerUserId: birth?.ownerUserId ?? null,
+    ownerKey: birth?.ownerKey ?? claimedOwners.get(input.sessionId)?.ownerKey ?? hostUserKey(),
     provider: input.provider,
     projectPath: input.projectPath,
     projectRemote: null,
@@ -296,7 +296,7 @@ function mergeRecord(existing: SessionRecord | null, organizationId: string, inp
     sessionId: input.sessionId,
     organizationId: stored.organizationId,
     publication: stored.publication,
-    ownerUserId: reported(input.ownerUserId, stored.ownerUserId),
+    ownerKey: stored.ownerKey,
     provider: input.provider,
     projectPath: input.projectPath,
     projectRemote: reported(input.projectRemote, stored.projectRemote),
@@ -349,7 +349,7 @@ export function upsertOwnSessionRecord(input: SessionRecordUpsert): Promise<Sess
 export interface SessionBirth {
   organizationId: string
   published?: boolean
-  ownerUserId?: string
+  ownerKey?: string
   admissionId?: string
 }
 
@@ -373,9 +373,47 @@ export function admissionIdFor(sessionId: string): string | undefined {
  * It lives there from its admission, also while its record is not written yet or
  * still reads Local here: the agent's first tool call can come before either write.
  */
-export function admittedHomeOf(sessionId: string): { organizationId: string; ownerUserId: string | null } | null {
+export function admittedHomeOf(sessionId: string): { organizationId: string; ownerKey: string | null } | null {
   const birth = admittedBirths.get(sessionId)
-  return birth ? { organizationId: birth.organizationId, ownerUserId: birth.ownerUserId ?? null } : null
+  return birth ? { organizationId: birth.organizationId, ownerKey: birth.ownerKey ?? null } : null
+}
+
+/** The person who started a session no record holds yet, and the organization they started it in; consumed by the write that creates the record. */
+const claimedOwners = new Map<string, SessionHome>()
+
+/** Who a session belongs to and where, before or after its record exists (docs/plans/access-model.md §2.2). */
+export interface SessionHome {
+  ownerKey: string
+  organizationId: string
+}
+
+/**
+ * The person who starts a session owns it: the first claim before its record is
+ * written decides, and the record takes it as its owner. A claim on a session
+ * that already has a record or a claim changes nothing. Answers whether it claimed.
+ */
+export async function claimSessionOwner(sessionId: string, home: SessionHome): Promise<boolean> {
+  if (pendingSessionHome(sessionId) || await getSessionRecord(ANY_ORGANIZATION, sessionId)) return false
+  claimedOwners.set(sessionId, home)
+  return true
+}
+
+/**
+ * The home of a session no record holds yet: its admitted birth, else its claim.
+ * Null when nobody started it here. A session this machine knows but has not
+ * recorded yet is the machine's own (`machineSessionHome`).
+ */
+export function pendingSessionHome(sessionId: string): SessionHome | null {
+  const birth = bornInto.get(sessionId)
+  const claim = claimedOwners.get(sessionId)
+  const ownerKey = birth?.ownerKey ?? claim?.ownerKey
+  if (!ownerKey) return null
+  return { ownerKey, organizationId: birth?.organizationId ?? claim?.organizationId ?? machineOrganizationId() }
+}
+
+/** The home a record this machine writes for a session nobody started here gets: the host's user, in the machine's organization. */
+export function machineSessionHome(): SessionHome {
+  return { ownerKey: hostUserKey(), organizationId: machineOrganizationId() }
 }
 
 async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, birth?: SessionBirth): Promise<SessionRecord> {
@@ -385,14 +423,15 @@ async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, b
     if (!existing) bornInto.delete(input.sessionId)
     const organizationId = isAnyOrganization(scope) ? born?.organizationId ?? machineOrganizationId() : scope
     const merged = mergeRecord(existing, organizationId, input, born)
+    if (!existing) claimedOwners.delete(input.sessionId)
     await db.run(sql`
       INSERT INTO ${sessionRecords} (
-        session_id, organization_id, publication, owner_user_id, provider, project_path, project_remote, runner_host_id,
+        session_id, organization_id, publication, owner_key, provider, project_path, project_remote, runner_host_id,
         title, custom_title, status, model, reasoning_effort, parent_session_id, root_session_id,
         created_at, last_activity_at, size,
         cwd, slug, is_worktree, branch, project_root, delegation_message_id, delegation_depth, delegation_intent, delegation_created_at
       ) VALUES (
-        ${merged.sessionId}, ${merged.organizationId}, ${merged.publication}, ${merged.ownerUserId}, ${merged.provider}, ${merged.projectPath},
+        ${merged.sessionId}, ${merged.organizationId}, ${merged.publication}, ${merged.ownerKey}, ${merged.provider}, ${merged.projectPath},
         ${merged.projectRemote}, ${merged.runnerHostId}, ${merged.title}, ${merged.customTitle}, ${merged.status},
         ${merged.model}, ${merged.reasoningEffort}, ${merged.parentSessionId}, ${merged.rootSessionId},
         ${merged.createdAt}, ${merged.lastActivityAt}, ${merged.size},
@@ -400,7 +439,6 @@ async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, b
         ${merged.delegation?.messageId ?? null}, ${merged.delegation?.depth ?? null}, ${merged.delegation?.intent ?? null}, ${merged.delegation?.createdAt ?? null}
       )
       ON CONFLICT(session_id) DO UPDATE SET
-        owner_user_id = excluded.owner_user_id,
         provider = excluded.provider,
         project_path = excluded.project_path,
         project_remote = excluded.project_remote,
@@ -440,13 +478,13 @@ async function upsertRecordNow(scope: RecordScope, input: SessionRecordUpsert, b
  * the admission decided (organization-vms §3) is applied whole: a record the
  * indexer wrote first as Local takes its API home and owner too.
  */
-export function assignSessionOrganization(sessionId: string, organizationId: string, birth: Pick<SessionBirth, 'published' | 'ownerUserId'> = {}): Promise<SessionRecord | null> {
+export function assignSessionOrganization(sessionId: string, organizationId: string, birth: Pick<SessionBirth, 'published' | 'ownerKey'> = {}): Promise<SessionRecord | null> {
   return serialized(sessionId, async () => {
     if (organizationId === LOCAL_ORGANIZATION_ID) return getSessionRecord(LOCAL_ORGANIZATION_ID, sessionId)
     const result = await getDatabase().run(sql`
       UPDATE ${sessionRecords} SET organization_id = ${organizationId},
         publication = ${birth.published ? 'published' : sql`publication`},
-        owner_user_id = COALESCE(owner_user_id, ${birth.ownerUserId ?? null})
+        owner_key = ${birth.ownerKey ?? sql`owner_key`}
       WHERE session_id = ${sessionId} AND organization_id = ${LOCAL_ORGANIZATION_ID}
     `)
     const record = await getSessionRecord(organizationId, sessionId)
@@ -630,16 +668,16 @@ export interface LiveSessionBranch {
   /** The repository key (`host/owner/repo`) its runner reported. */
   repositoryKey: string
   branch: string
-  ownerUserId: string | null
+  ownerKey: string
   isRunning: boolean
 }
 
 /** The live organization sessions whose branches PR sync asks about (docs/plans/session-archive.md). */
 export async function liveSessionBranches(activeSince: number): Promise<LiveSessionBranch[]> {
   const rows = z.object({
-    session_id: z.string(), project_remote: z.string(), branch: z.string(), owner_user_id: z.string().nullable(), status: z.string(),
+    session_id: z.string(), project_remote: z.string(), branch: z.string(), owner_key: z.string(), status: z.string(),
   }).array().parse(await getDatabase().all(sql`
-    SELECT session_records.session_id, session_records.project_remote, session_records.branch, session_records.owner_user_id, session_records.status
+    SELECT session_records.session_id, session_records.project_remote, session_records.branch, session_records.owner_key, session_records.status
     FROM ${sessionRecords}
     LEFT JOIN ${sessionStates} ON session_states.session_id = session_records.session_id
     WHERE session_records.organization_id <> ${LOCAL_ORGANIZATION_ID}
@@ -648,7 +686,7 @@ export async function liveSessionBranches(activeSince: number): Promise<LiveSess
       AND session_states.settled_at IS NULL
   `))
   return rows.map((row) => ({
-    sessionId: row.session_id, repositoryKey: row.project_remote, branch: row.branch, ownerUserId: row.owner_user_id, isRunning: row.status === 'running',
+    sessionId: row.session_id, repositoryKey: row.project_remote, branch: row.branch, ownerKey: row.owner_key, isRunning: row.status === 'running',
   }))
 }
 

@@ -42,5 +42,7 @@ Status is the result of the last full run (2026-10-13). A failing scenario is th
 | [Presence](./presence.md) | `presence` | Lab issuer | PASS |
 | [Seats](./seats.md) | `seats`, `host-auth` | Lab issuer | PASS |
 | [Organization work](./organization-work.md) | `organization-work`; `cloud-workspace`, `cloud-sessions` | cloud; Lab issuer | PASS; PASS; PASS |
-| [Settings and profile sync](./settings-sync.md) | `settings-sync`, `account-reads` | cloud | PASS |
+| [Settings and profile sync](./settings-sync.md) | `settings-sync`, `account-reads`, `profile-across-hosts` | cloud | PASS (`profile-across-hosts` 2026-10-14) |
 | [Session home](./session-home.md) | `session-home`, `session-settle` | Lab issuer | PASS; PASS |
+| [Access roles](./access-roles.md) | `access-roles` | Lab issuer | PASS (2026-10-14) |
+| [Cloud vault](./vault.md) | `vault`, `account-reads`, `profile-across-hosts` | cloud | PASS (2026-10-14) |

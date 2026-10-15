@@ -22,10 +22,10 @@ Logins, settings, plugins, hooks, and transcripts are not part of it.
 | Signed in | Your account | Every host you have a seat on pulls it: when your seat connects, when a client of yours changes it, and every few minutes |
 
 On a host that several people use, your profile goes into your own seats
-(`CLAUDE_CONFIG_DIR`, `CODEX_HOME`), and your MCP servers become records only
-you see and use. On a host you own, such as a personal VM, it goes into the
-host's own homes, and a file or a server the host already had is never
-replaced: Settings counts what was kept.
+(`CLAUDE_CONFIG_DIR`, `CODEX_HOME`). On a host you own, such as a personal VM,
+it goes into the host's own homes, and a file or a shared server the host
+already had is never replaced: Settings counts what was kept. On every host,
+your MCP servers become records only you see and use.
 
 Your computer is never overwritten. The account document is the place the
 profile is sent from, not a copy that replaces `~/.claude`. When your computer
@@ -81,12 +81,16 @@ is yours or the host's. Solus Cloud is the OAuth
 client and the only refresher. A host reads an access token
 from your account for each call and holds it in memory until it expires. It
 never holds the refresh token or the client. A server row on a host then reads
-"Connected through Solus Cloud".
+"Connected in your Solus account".
 
-A connection you made on a host before you signed in moves into your account
-by itself the next time that host pulls your profile. When the account already
-holds one for that server, the account's wins and the host revokes its own
-token. Nothing on the host is deleted before the cloud confirmed the write.
+Signed in means your account (`docs/plans/cloud-vault.md` §2.5). A connection
+you made on a host before you signed in moves into your account by itself when
+you sign in on that host, and so does your TypeSafe key. When the account
+already holds one, the account's wins and the host revokes its own token.
+Nothing on the host is deleted before the cloud confirmed the write; after it,
+the host keeps no copy. Your GitHub, Google, and Atlassian logins are not moved:
+a token belongs to the app that issued it, so you connect each once on the
+account website's Connections page, and every host of yours reads it there.
 
 When Solus Cloud does not answer, a host uses the token it cached until that
 token expires, and then shows "Solus Cloud unreachable". That is not a sign-in
@@ -97,7 +101,8 @@ can give it one does the row show "Sign in to Solus".
 
 Not signed in, a connection stays on the host that made it. The push carries
 the server's record, and you sign in once on each host, as with a provider
-seat.
+seat. When a host stops being linked to you (the account removed it, or you
+signed out on the desktop), it keeps no connection of yours.
 
 ## What is not copied
 
@@ -116,7 +121,7 @@ connections. Your logins and anything else in your seats stay.
 
 - `agentProfileRead` runs on your computer's own host, for its administrator
   only. It reads the files, lists the registry skills with the skills CLI, and
-  adds the host's own MCP records.
+  adds the administrator's own MCP records.
 - `agentProfileApply` runs on the target host with a document from your
   computer. `agentProfilePull` makes the host read the document from your
   account with your delegated token.

@@ -1,5 +1,5 @@
 import { arg, optionalArg, textArg } from './args'
-import { DEFAULT_HOST_CONFIG, hostConfigPatchSchema, mergeHostConfig, type HostConfigSnapshot } from '@solus/contracts/host-config'
+import { DEFAULT_HOST_CONFIG, hostConfigPatchSchema, mergeHostConfig, type HostConfigSnapshot, type TypeSafeKeyStatus } from '@solus/contracts/host-config'
 import type {
   HostCapabilities,
   RuntimeSessionInfo,
@@ -34,10 +34,11 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     gitAuth: { github: false },
   }))
   backend.register('getPluginCommands', () => ({ global: [], project: [] }))
-  backend.register('configGet', (): HostConfigSnapshot => ({ typeSafe: { source: null }, config }))
+  backend.register('configGet', (): HostConfigSnapshot => ({ config }))
+  backend.register('typeSafeKeyStatus', (): TypeSafeKeyStatus => ({ location: 'host', source: null }))
   backend.register('configUpdate', (args): HostConfigSnapshot => {
     config = mergeHostConfig(config, hostConfigPatchSchema.parse(args[0]))
-    return { typeSafe: { source: null }, config }
+    return { config }
   })
   backend.register('voiceModelStatus', (): VoiceModelStatus => ({
     state: 'error',
@@ -54,7 +55,7 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     hostKind: 'personal',
     roles: ['execution'],
     principal: 'local-owner',
-    grants: ['host'],
+    permissions: ['host'],
     user: DEMO_USER,
   }))
   const runtimeInfo = (preferredModel?: string | null): RuntimeSessionInfo => ({

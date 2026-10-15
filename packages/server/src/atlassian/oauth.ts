@@ -1,10 +1,10 @@
-import { usesAccountIntegration } from '../vault/provider-credentials'
+import { usesAccountIntegration } from '../vault/vault'
 import { createHash, randomBytes } from 'crypto'
 import { createServer, type Server } from 'http'
 import { z } from 'zod'
 import type { AtlassianOAuthCompleted } from '@solus/contracts/atlassian'
 import { createLogger } from '../logger'
-import { currentCredentialUserId, requireActingScope, withActingScope, type ActingScope } from '../vault/acting-scope'
+import { currentPersonKey, requireActingScope, withActingScope, type ActingScope } from '../vault/acting-scope'
 import { ATLASSIAN_CLIENT_ID } from './client-id'
 import { ATLASSIAN_CLIENT_SECRET } from './client-secret'
 import {
@@ -269,9 +269,9 @@ function listenForCallback(): Promise<void> {
 /** Abandons the caller's in-flight sign-in and frees the port. */
 export function cancelOAuthFlow(): void {
   stopListening()
-  const userId = currentCredentialUserId()
+  const personKey = currentPersonKey()
   for (const [state, flow] of pendingFlows) {
-    if (flow.scope.credentialUserId === userId) dropFlow(state)
+    if (flow.scope.personKey === personKey) dropFlow(state)
   }
 }
 
@@ -527,7 +527,7 @@ export async function currentCredential(): Promise<AtlassianStoredCredential | n
   if (!credential) return null
   if (credential.expiresAt - REFRESH_MARGIN_MS > Date.now()) return credential
 
-  const key = currentCredentialUserId() ?? 'host'
+  const key = currentPersonKey() ?? 'host'
   const current = refreshInFlight.get(key)
   if (current) return current
   const pending = refreshCredential(credential).finally(() => {

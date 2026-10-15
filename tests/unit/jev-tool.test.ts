@@ -1,7 +1,7 @@
-import { describe, expect, mock, test } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 import { createJevAgentTool } from '../../packages/server/src/typesafe/jev-tool'
-import { createTypeSafe } from '../../packages/server/src/typesafe/index'
+import { createTypeSafe, TypeSafeKeyMissingError } from '../../packages/server/src/typesafe/index'
 import { executeAgentTool, type AgentToolContext } from '../../packages/server/src/execution/agents/tools/agent-tool'
 import { adaptCodexTools, CodexToolDispatcher } from '../../packages/server/src/execution/agents/codex/codex-tool-adapter'
 import { adaptClaudeTools } from '../../packages/server/src/execution/agents/claude/claude-tool-adapter'
@@ -60,7 +60,7 @@ describe('ask_jev', () => {
       })
       return Response.json(reply, { headers: { 'x-typesafe-request-id': 'jev-request-1' } })
     } })
-    const dispatcher = new CodexToolDispatcher([createJevAgentTool(() => client)], context)
+    const dispatcher = new CodexToolDispatcher([createJevAgentTool(async () => client)], context)
     const result = await dispatcher.execute('ask_jev', input)
     expect(result.ok).toBe(true)
     expect(JSON.parse(result.text)).toEqual({ ...reply, request_id: 'jev-request-1', elapsed_ms: expect.any(Number) })
@@ -69,7 +69,7 @@ describe('ask_jev', () => {
 
   test('rejects invalid or ambiguous batches before creating a client', async () => {
     let calls = 0
-    const tool = createJevAgentTool(() => { calls++; throw new Error('Unexpected client creation') })
+    const tool = createJevAgentTool(async () => { calls++; throw new Error('Unexpected client creation') })
     const invalidInputs = [
       { state: ' ', questions: input.questions },
       { state: 'Evidence', questions: [] },
@@ -86,21 +86,28 @@ describe('ask_jev', () => {
 
   test('cancellation and missing configuration produce terminal failures without network calls', async () => {
     let calls = 0
-    const tool = createJevAgentTool(() => { calls++; return createTypeSafe({ apiKey: '' }) })
+    const tool = createJevAgentTool(async () => { calls++; return createTypeSafe({ apiKey: '' }) })
     const cancelled = await executeAgentTool(tool, input, { ...context, abortSignal: AbortSignal.abort() })
     expect(cancelled).toEqual({ ok: false, text: 'Jev request cancelled.' })
     expect(calls).toBe(0)
     const unavailable = await executeAgentTool(tool, input, context)
     expect(unavailable.ok).toBe(false)
-    expect(unavailable.text).toContain('TYPESAFE_API_KEY')
+    expect(unavailable.text).toContain('TypeSafe configuration')
     expect(unavailable.text).toContain('normal process')
+  })
+
+  test('a person with no key of their own is told where to add it', async () => {
+    // WHY: the key is the run's person's (access-model.md §2.6); a member's is in their account.
+    const tool = createJevAgentTool(async () => { throw new TypeSafeKeyMissingError('Add your TypeSafe key in your Solus account.') })
+    const result = await executeAgentTool(tool, input, context)
+    expect(result).toEqual({ ok: false, text: 'Jev is unavailable. Add your TypeSafe key in your Solus account. Continue with your normal process.' })
   })
 
   test('does not expose an upstream error body as evidence or leak it in the result', async () => {
     const client = createTypeSafe({ apiKey: 'test-key', fetch: async () => Response.json(
       { error: 'SECRET copied from request state' }, { status: 401 },
     ) })
-    const result = await executeAgentTool(createJevAgentTool(() => client), input, context)
+    const result = await executeAgentTool(createJevAgentTool(async () => client), input, context)
     expect(result.ok).toBe(false)
     expect(result.text).toContain('401')
     expect(result.text).not.toContain('SECRET')
@@ -117,7 +124,7 @@ describe('ask_jev', () => {
         started.resolve()
       })
     } })
-    const pending = executeAgentTool(createJevAgentTool(() => client), input, {
+    const pending = executeAgentTool(createJevAgentTool(async () => client), input, {
       ...context, provider: 'claude-code', abortSignal: controller.signal,
     })
     await started.promise
@@ -126,10 +133,3 @@ describe('ask_jev', () => {
     expect(calls).toBe(1)
   })
 })
-
-// These tests exercise the SDK transport with synthetic keys. Credential gating
-// has separate tests against an isolated host secret store.
-mock.module('../../packages/server/src/typesafe/credentials', () => ({
-  typeSafeApiKey: () => 'test-key',
-  typeSafeKeyStatus: () => ({ source: 'environment' }),
-}))

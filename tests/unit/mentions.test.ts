@@ -119,14 +119,14 @@ describe('who the picker offers', () => {
 })
 
 describe('the access warning', () => {
-  const list = (grants: ShareList['grants'], link: ShareList['link'] = null): ShareList => ({
+  const list = (entries: ShareList['entries'], link: ShareList['link'] = null): ShareList => ({
     resource: { kind: 'work', id: 'w1' },
-    ownerUserId: 'u_zoe',
-    grants,
+    ownerKey: 'u_zoe',
+    entries,
     callerRole: 'owner',
     link,
   })
-  const grant = (subject: ShareList['grants'][number]['subject']) => ({ subject, role: 'viewer' as const, grantedByUserId: 'u_zoe', createdAt: 1 })
+  const grant = (subject: ShareList['entries'][number]['subject']) => ({ subject, role: 'viewer' as const, grantedByUserId: 'u_zoe', createdAt: 1 })
 
   test('warns only for a person with no role on the record', () => {
     const shared = list([grant({ kind: 'user', id: 'u_ann' }), grant({ kind: 'team', id: 't_ops' })], { role: 'viewer' })

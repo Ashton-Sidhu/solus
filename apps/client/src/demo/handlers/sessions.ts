@@ -8,7 +8,7 @@ import type { DemoStore } from '../store'
 function demoSessionRecord(meta: SessionMeta): SessionRecord {
   const lastActivityAt = Date.parse(meta.lastTimestamp)
   return {
-    sessionId: meta.sessionId, organizationId: 'local', publication: 'local', ownerUserId: null,
+    sessionId: meta.sessionId, organizationId: 'local', publication: 'local', ownerKey: 'local:demo',
     provider: meta.provider, projectPath: meta.projectPath, projectRemote: null, runnerHostId: null,
     title: meta.firstMessage ?? meta.slug, customTitle: meta.customTitle ?? null,
     status: 'idle', model: meta.model ?? null, reasoningEffort: meta.reasoningEffort ?? null,

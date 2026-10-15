@@ -334,7 +334,7 @@ export class SharesStore {
     this.dialog = null
   }
 
-  async setGrants(serverId: string, request: ShareSetRequest): Promise<void> {
+  async setEntries(serverId: string, request: ShareSetRequest): Promise<void> {
     await this.run(serverId, request.resource, () => serverConnections.apiFor(serverId).shareSet(request))
   }
 
@@ -347,16 +347,16 @@ export class SharesStore {
   async setScope(serverId: string, list: ShareList, scope: ShareScope): Promise<void> {
     if (sameScope(scopeOf(list), scope)) return
     const organizationId = serversStore.activeOrganizationId
-    await this.setGrants(serverId, scopeRequestFor(scope, list, organizationId))
+    await this.setEntries(serverId, scopeRequestFor(scope, list, organizationId))
   }
 
   /** One person's own row, added or changed; every other row and the link stay as they are. */
   async setPersonRole(serverId: string, list: ShareList, userId: string, role: ShareRole): Promise<void> {
-    await this.setGrants(serverId, withPersonRole(list, userId, role))
+    await this.setEntries(serverId, withPersonRole(list, userId, role))
   }
 
   async removePerson(serverId: string, list: ShareList, userId: string): Promise<void> {
-    await this.setGrants(serverId, withoutPerson(list, userId))
+    await this.setEntries(serverId, withoutPerson(list, userId))
   }
 
   /**

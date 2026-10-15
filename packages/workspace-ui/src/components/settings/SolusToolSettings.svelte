@@ -30,7 +30,10 @@
   }
 
   function describe(group: (typeof groups)[number]): string {
-    if (group.id === "intelligence" && !hasKey) return "Add a TypeSafe API key to enable Ask Jev.";
+    if (group.id === "intelligence" && !hasKey)
+      return state?.typeSafe?.location === "account"
+        ? "Add your TypeSafe key in your Solus account to enable Ask Jev."
+        : "Add a TypeSafe API key to enable Ask Jev.";
     return groupSummary(group.tools, state?.preferences);
   }
 </script>

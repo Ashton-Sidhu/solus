@@ -6,6 +6,7 @@ import { Database } from 'bun:sqlite'
 import { sql } from 'drizzle-orm'
 import type { AutomationAction } from '@solus/contracts/types'
 import { resetTestDatabase } from './helpers/test-db'
+import { notificationReader } from './helpers/actors'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -44,7 +45,7 @@ beforeEach(async () => {
 
 const action: AutomationAction = { prompt: 'Check CI.', agentProvider: 'codex', modelId: null, reasoningEffort: 'medium', cwd: '/repo' }
 const dana = { kind: 'user' as const, user: { id: { kind: 'account' as const, accountId: 'dana' }, displayName: 'Dana' } }
-const inbox = async (recipientKey: string) => (await store.listNotifications({ scope: 'local', recipientKey }, {})).items
+const inbox = async (recipientKey: string) => (await store.listNotifications(notificationReader(recipientKey, 'local'), {})).items
 
 // Automation runs live in the host's SQLite file; the hub row is written there atomically or not at all.
 describe.skipIf(Boolean(process.env.DATABASE_URL))('automation results', () => {

@@ -258,6 +258,7 @@ export const RPC_PLANES = {
   presenceSetEditing: 'collaboration',
 
   // Host config
+  typeSafeKeyStatus: 'collaboration',
   typeSafeKeySet: 'collaboration',
   configGet: 'collaboration',
   configUpdate: 'collaboration',
@@ -346,11 +347,6 @@ export const RPC_PLANES = {
   googleStatus: 'collaboration',
   googleConnect: 'collaboration',
   googleDisconnect: 'collaboration',
-
-  // Cloudflare deployment credentials
-  cloudflareStatus: 'execution',
-  cloudflareConnect: 'execution',
-  cloudflareDisconnect: 'execution',
 
   // Atlassian
   atlassianStatus: 'collaboration',

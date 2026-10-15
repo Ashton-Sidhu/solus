@@ -228,21 +228,19 @@ describe('access for reviewers', () => {
   test('a member asked to review who cannot open the work is given it as a commenter; a refused request gives nobody access', async () => {
     const { ShareManager } = await import('@solus/server/sharing/share-manager')
     const { getDatabase } = await import('@solus/server/db/database')
-    const shares = new ShareManager({ db: getDatabase(), organizationOfResource: async () => ORGANIZATION })
+    const shares = new ShareManager({ db: getDatabase() })
     const withShares = new Map<string, (args: unknown[], ctx: HandlerCtx) => unknown>()
     const server = { register: (method: string, handler: (args: unknown[], ctx: HandlerCtx) => unknown) => withShares.set(method, handler) } as unknown as SolusServer
     ;(await import('@solus/server/transport/handlers/work-review-handlers')).registerWorkReviewHandlers(server, { shares })
-    const work = await newWork()
+    // Alice's work, private to her: no entry names anyone else.
+    const work = await works.createWork(ORGANIZATION, 'Spec', 'doc', '# Spec\n\nFirst draft.', '', undefined, 'claude-code', '~', undefined, null, 'alice')
     const resource = { kind: 'work', id: work.id } as const
-    await shares.claimOwner(resource, ALICE)
-    // Private to Alice: a managed host shares a new work with its organization.
-    await shares.setGrants({ resource, grants: [] }, ALICE)
 
     await expect(withShares.get('workReviewRequest')!([work.id, { reviewers: [{ userId: 'carol', displayName: 'Carol' }], expectedContentVersion: 99 }], ctxOf(ALICE))).rejects.toThrow()
-    expect((await shares.list(resource, ALICE)).grants).toEqual([])
+    expect((await shares.list(resource, ALICE)).entries).toEqual([])
 
     await withShares.get('workReviewRequest')!([work.id, { reviewers: [{ userId: 'bob', displayName: 'Bob' }], expectedContentVersion: work.contentVersion }], ctxOf(ALICE))
-    expect((await shares.list(resource, ALICE)).grants.map((grant) => [grant.subject.id, grant.role])).toEqual([['bob', 'commenter']])
+    expect((await shares.list(resource, ALICE)).entries.map((grant) => [grant.subject.id, grant.role])).toEqual([['bob', 'commenter']])
     expect(await shares.roleFor(BOB, resource)).toBe('commenter')
   })
 })

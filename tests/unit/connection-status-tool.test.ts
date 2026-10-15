@@ -114,7 +114,7 @@ describe('connection_status', () => {
 
     const result = await runTool(
       tools.connectionStatusAgentTool,
-      { provider: 'cloudflare', reason: 'deploy' },
+      { provider: 'github', reason: 'issues' },
       contextFor(undefined),
     )
 
@@ -152,24 +152,6 @@ describe('connection_status', () => {
     expect(result.ok).toBe(false)
     expect(result.text).toContain('atlassian')
   })
-
-  test('an env-supplied Cloudflare token reads as connected and is never returned', async () => {
-    const previousToken = process.env.CLOUDFLARE_API_TOKEN
-    process.env.CLOUDFLARE_API_TOKEN = 'cf-secret-value'
-    try {
-      const result = await runTool(
-        tools.connectionStatusAgentTool,
-        { provider: 'cloudflare', reason: 'deploy' },
-        contextFor('session-d'),
-      )
-
-      expect(payloadOf(result.text).connected).toBe(true)
-      expect(result.text).not.toContain('cf-secret-value')
-    } finally {
-      if (previousToken === undefined) delete process.env.CLOUDFLARE_API_TOKEN
-      else process.env.CLOUDFLARE_API_TOKEN = previousToken
-    }
-  })
 })
 
 describe('connection_status for an integration', () => {
@@ -181,7 +163,7 @@ describe('connection_status for an integration', () => {
   const integration: Integration = {
     id: 'int-secure',
     organizationId: 'local',
-    ownerUserId: null,
+    ownerKey: 'local:test',
     kind: 'mcp',
     slug: 'secure',
     name: 'Secure',
@@ -191,8 +173,9 @@ describe('connection_status for an integration', () => {
     createdAt: '2026-10-08T00:00:00Z',
     updatedAt: '2026-10-08T00:00:00Z',
   }
-  const MEMBER = 'account:member-1'
-  const connections = new Map<string | null, IntegrationConnection>()
+  const OWNER = 'local:owner'
+  const MEMBER = 'member-1'
+  const connections = new Map<string, IntegrationConnection>()
   const cards: IntegrationConnectNeeded[] = []
 
   beforeAll(async () => {
@@ -202,7 +185,7 @@ describe('connection_status for an integration', () => {
     gateway.useCredentials({
       authorizationFor: async () => null,
       markNeedsSignIn: () => {},
-      statusFor: (_integrationId, credentialUserId) => connections.get(credentialUserId) ?? null,
+      statusFor: (_integrationId, personKey) => connections.get(personKey) ?? null,
     })
     gateway.onConnectNeeded((request) => cards.push(request))
     setIntegrationGateway(gateway)
@@ -213,17 +196,18 @@ describe('connection_status for an integration', () => {
     setIntegrationGateway(null)
   })
 
-  const memberScope = async () => {
+  /** A person's scope: the owner or a member, each by their key. */
+  const scopeOf = async (personKey: string) => {
     const { withActingScope } = await import('@solus/server/vault/acting-scope')
     const { HOST_IDENTITY } = await import('@solus/server/execution/seats/acting-identity')
-    return <T>(fn: () => T) => withActingScope({ identity: HOST_IDENTITY, credentialUserId: MEMBER }, fn)
+    return <T>(fn: () => T) => withActingScope({ identity: HOST_IDENTITY, personKey }, fn)
   }
 
   test('a member with no connection is asked to sign in, even when the owner is connected', async () => {
     connections.clear()
     cards.length = 0
-    connections.set(null, connection('connected', 'owner@example.com'))
-    const asMember = await memberScope()
+    connections.set(OWNER, connection('connected', 'owner@example.com'))
+    const asMember = await scopeOf(MEMBER)
     const result = await asMember(() => runTool(tools.connectionStatusAgentTool, { integration: 'secure' }, contextFor('session-i')))
     const payload = JSON.parse(result.text) as { status: string, askedUser: boolean, label?: string }
     // WHY: the owner's connection must not answer for the member, nor leak its label.
@@ -237,7 +221,7 @@ describe('connection_status for an integration', () => {
     connections.clear()
     cards.length = 0
     connections.set(MEMBER, connection('connected', 'member@example.com'))
-    const asMember = await memberScope()
+    const asMember = await scopeOf(MEMBER)
     const result = await asMember(() => runTool(tools.connectionStatusAgentTool, { integration: 'secure' }, contextFor('session-i')))
     expect(JSON.parse(result.text)).toEqual({ integration: 'secure', name: 'Secure', status: 'connected', label: 'member@example.com' })
     expect(cards).toEqual([])
@@ -246,8 +230,9 @@ describe('connection_status for an integration', () => {
   test('a refused sign-in reads as needs-sign-in and asks again', async () => {
     connections.clear()
     cards.length = 0
-    connections.set(null, connection('needs-sign-in', 'owner@example.com'))
-    const result = await runTool(tools.connectionStatusAgentTool, { integration: 'secure' }, contextFor('session-j'))
+    connections.set(OWNER, connection('needs-sign-in', 'owner@example.com'))
+    const asOwner = await scopeOf(OWNER)
+    const result = await asOwner(() => runTool(tools.connectionStatusAgentTool, { integration: 'secure' }, contextFor('session-j')))
     expect((JSON.parse(result.text) as { status: string }).status).toBe('needs-sign-in')
     expect(cards.map((card) => card.sessionId)).toEqual(['session-j'])
   })

@@ -3,8 +3,8 @@
  *
  * GitHub publishes a monochrome mark, so the `simple-icons:` glyph is used and
  * inherits the current text colour — it holds in both themes and on a filled
- * button, which the fixed-fill `logos:` variant does not. Cloudflare, Google and
- * Atlassian each own a colour, so they keep the full-colour `logos:` mark.
+ * button, which the fixed-fill `logos:` variant does not. Google and Atlassian
+ * each own a colour, so they keep the full-colour `logos:` mark.
  *
  * Google is marked by Drive and Atlassian by the corporate mark rather than Jira
  * or Confluence: one grant covers the whole site, so a single product's mark
@@ -14,7 +14,6 @@ export const PROVIDER_LOGOS = {
   github: 'simple-icons:github',
   google: 'logos:google-drive',
   confluence: 'logos:confluence',
-  cloudflare: 'logos:cloudflare-icon',
   atlassian: 'logos:atlassian',
 } as const
 

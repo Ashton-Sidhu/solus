@@ -318,6 +318,7 @@ export const RPC_INVOKE_METHODS = [
   'presenceSetEditing',
 
   // Host config — the tier that follows a user between clients
+  'typeSafeKeyStatus',
   'typeSafeKeySet',
   'configGet',
   'configUpdate',
@@ -408,11 +409,6 @@ export const RPC_INVOKE_METHODS = [
   'googleStatus',
   'googleConnect',
   'googleDisconnect',
-
-  // Cloudflare deployment credentials
-  'cloudflareStatus',
-  'cloudflareConnect',
-  'cloudflareDisconnect',
 
   // Atlassian site credentials (Confluence docs + Jira tasks)
   'atlassianStatus',

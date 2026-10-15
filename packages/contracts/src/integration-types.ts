@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod'
+import { resourceRoleSchema } from './sharing'
 
 /**
  * How an integration authenticates (§3.2). `none`: tools work for everyone; `oauth`
@@ -25,7 +26,7 @@ export const integrationAuthSchema = z.discriminatedUnion('kind', [
     registration: z.enum(['dynamic', 'metadata-document', 'client-required']),
     /** A saved public client ID for a `client-required` server. The secret stays on the host. */
     clientId: z.string().min(1).optional(),
-    /** True when the administrator also saved a client secret. The secret itself never leaves the host. */
+    /** True when the owner also saved a client secret. The secret itself never leaves the host. */
     hasClientSecret: z.boolean().optional(),
   }),
   z.object({
@@ -39,14 +40,14 @@ export const integrationKindSchema = z.literal('mcp')
 export type IntegrationKind = z.infer<typeof integrationKindSchema>
 
 /**
- * A root record (§3.3). `slug` is unique per organization and is the tool prefix.
- * A personal integration (plans/020-agent-profile.md §2.1) names its owner, is
- * seen and used by them alone, and its slug is unique among theirs.
+ * A root record (§3.3). Every integration is one person's (docs/plans/access-model.md,
+ * D3): its owner alone sees, uses, and changes it. `slug` is the tool prefix,
+ * unique among the owner's integrations in an organization.
  */
 export const integrationSchema = z.object({
   id: z.string().min(1),
   organizationId: z.string().min(1),
-  ownerUserId: z.string().nullable(),
+  ownerKey: z.string().min(1),
   kind: integrationKindSchema,
   slug: z.string().min(1),
   name: z.string().min(1),
@@ -61,6 +62,8 @@ export const integrationSchema = z.object({
   createdBy: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  /** The reader's resource role (docs/plans/access-model.md §2.7): `owner` on every one a host answers, since an integration is personal. Absent in the store. */
+  role: resourceRoleSchema.optional(),
 })
 export type Integration = z.infer<typeof integrationSchema>
 
@@ -165,13 +168,11 @@ export const integrationCreateRequestSchema = z.object({
   name: integrationNameSchema,
   url: integrationUrlSchema,
   slug: z.string().trim().min(1).max(40).optional(),
-  /** The caller's own, on a host they do not administer; on their own host every record is theirs already. */
-  personal: z.boolean().optional(),
 }).strict()
 export type IntegrationCreateRequest = z.infer<typeof integrationCreateRequestSchema>
 
 /**
- * An administrator's OAuth client for a server with no dynamic registration
+ * The owner's OAuth client for a server with no dynamic registration
  * (§4.3). The host stores the secret; the client sends it once and never reads it back.
  */
 export const integrationOAuthClientInputSchema = z.object({
@@ -180,7 +181,7 @@ export const integrationOAuthClientInputSchema = z.object({
 }).strict()
 export type IntegrationOAuthClientInput = z.infer<typeof integrationOAuthClientInputSchema>
 
-/** `oauthClient`: an object saves the administrator's client; `null` removes it. */
+/** `oauthClient`: an object saves the owner's client; `null` removes it. */
 export const integrationUpdateRequestSchema = z.object({
   id: z.string().min(1),
   name: integrationNameSchema.optional(),

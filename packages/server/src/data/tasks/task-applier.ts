@@ -59,7 +59,7 @@ function opActor(payload: { actor?: Attribution; actorLabel?: string }, op: Outb
  * resource id and skips when it exists, and a link upserts on its target.
  */
 export function registerTaskOutboxApplier(): void {
-  registerOutboxApplier('tasks', async (op: OutboxOp, organizationId: string) => {
+  registerOutboxApplier('tasks', async (op: OutboxOp, { organizationId, ownerKey }) => {
     if (op.name === 'create') {
       const payload = taskCreatePayloadSchema.parse(op.payload)
       const existing = await Task.byId(organizationId, op.resourceId).catch(() => null)
@@ -74,7 +74,7 @@ export function registerTaskOutboxApplier(): void {
         status: payload.status,
         source: 'agent',
         originSessionId: payload.originSessionId,
-      }, { id: op.resourceId, now: payload.createdAt })
+      }, { id: op.resourceId, now: payload.createdAt }, undefined, ownerKey)
       return
     }
     const task = await taskOrPermanentError(organizationId, op.resourceId)

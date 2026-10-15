@@ -12,11 +12,14 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
   import * as ContextMenu from "../ui/context-menu";
+  import { NOT_YOURS_REASON } from "../../contexts/sharing/resource-roles";
 
   let {
     x,
     y,
     automation,
+    canEdit,
+    canRun,
     onEdit,
     onRunNow,
     onCancelRun,
@@ -28,6 +31,9 @@
     x: number;
     y: number;
     automation: Automation;
+    /** The reader's role allows changing it and running it (docs/plans/access-model.md §2.7). */
+    canEdit: boolean;
+    canRun: boolean;
     onEdit: () => void;
     onRunNow: () => void;
     onCancelRun: () => void;
@@ -67,27 +73,27 @@
 <ContextMenu.Root onOpenChange={(open) => { if (!open) onClose(); }}>
   <ContextMenu.PointTrigger {x} {y} />
   <ContextMenu.Content class="min-w-48">
-    <ContextMenu.Item onSelect={() => select(onEdit)}>
+    <ContextMenu.Item disabled={!canEdit} onSelect={() => select(onEdit)}>
       <PencilSimpleIcon />
       {automation.archivedAt ? "Schedule again" : "Edit automation"}
     </ContextMenu.Item>
     {#if automation.lastRunStatus === "running"}
-      <ContextMenu.Item onSelect={() => select(onCancelRun)}>
+      <ContextMenu.Item disabled={!canRun} onSelect={() => select(onCancelRun)}>
         <StopIcon />
         Stop run
       </ContextMenu.Item>
     {:else}
-      <ContextMenu.Item disabled={!automation.enabled} onSelect={() => select(onRunNow)}>
+      <ContextMenu.Item disabled={!automation.enabled || !canRun} onSelect={() => select(onRunNow)}>
         <PlayIcon />
         Run now
       </ContextMenu.Item>
     {/if}
     {#if !automation.archivedAt}
-    <ContextMenu.Item onSelect={() => select(onToggleEnabled)}>
+    <ContextMenu.Item disabled={!canEdit} onSelect={() => select(onToggleEnabled)}>
       {#if automation.enabled}<PauseIcon /> Pause automation{:else}<PlayIcon /> Resume automation{/if}
     </ContextMenu.Item>
     {/if}
-    <ContextMenu.Item onSelect={() => select(onToggleFavorite)}>
+    <ContextMenu.Item disabled={!canEdit} onSelect={() => select(onToggleFavorite)}>
       <StarIcon weight={automation.favorite ? "fill" : "regular"} />
       {automation.favorite ? "Unstar" : "Star"}
     </ContextMenu.Item>
@@ -97,9 +103,12 @@
       <CopyIcon />
       Copy automation ID
     </ContextMenu.Item>
-    <ContextMenu.Item variant="destructive" onSelect={() => select(onDelete)}>
+    <ContextMenu.Item variant="destructive" disabled={!canEdit} onSelect={() => select(onDelete)}>
       <TrashIcon />
       Delete automation
     </ContextMenu.Item>
+    {#if !canEdit}
+      <p class="px-2 py-1.5 text-xs text-muted-foreground">{NOT_YOURS_REASON}</p>
+    {/if}
   </ContextMenu.Content>
 </ContextMenu.Root>

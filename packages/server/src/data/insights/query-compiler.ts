@@ -7,6 +7,7 @@ import type {
 } from '@solus/contracts/observability-types'
 import { fieldExpression, fieldsForKind, viewNameForKind } from './field-registry'
 import { SPAN_KINDS, type SpanKind } from './registries'
+import type { InsightFilter } from './visibility'
 
 // ─── QuerySpec → parameterized SQL ───
 //
@@ -97,9 +98,10 @@ interface WhereClause {
   params: Array<string | number>
 }
 
-function buildWhere(spec: MetricsQuerySpec, kind: SpanKind | undefined): WhereClause {
-  const conditions: string[] = []
-  const params: Array<string | number> = []
+/** The spec's conditions, inside what the reader may see (`visibleInsights`). */
+function buildWhere(spec: MetricsQuerySpec, kind: SpanKind | undefined, visible: InsightFilter): WhereClause {
+  const conditions: string[] = [`(${visible.sql})`]
+  const params: Array<string | number> = [...visible.params]
 
   if (spec.timeRange?.from !== undefined) {
     conditions.push('started_at >= ?')
@@ -191,8 +193,8 @@ function buildOrderBy(spec: MetricsQuerySpec, outputColumns: string[]): string {
   return `ORDER BY ${terms.join(', ')}`
 }
 
-function compileListing(spec: MetricsQuerySpec, kind: SpanKind | undefined): CompiledQuery {
-  const where = buildWhere(spec, kind)
+function compileListing(spec: MetricsQuerySpec, kind: SpanKind | undefined, visible: InsightFilter): CompiledQuery {
+  const where = buildWhere(spec, kind, visible)
   const orderBy = spec.orderBy?.length
     ? buildOrderBy(spec, LISTING_COLUMNS)
     : 'ORDER BY started_at DESC'
@@ -303,7 +305,7 @@ function compileWithPercentiles(
   return { sql, params: [...where.params, clampLimit(spec.limit)] }
 }
 
-export function compileQuerySpec(spec: MetricsQuerySpec): CompiledQuery {
+export function compileQuerySpec(spec: MetricsQuerySpec, visible: InsightFilter): CompiledQuery {
   const kind = pinnedKind(spec.filters ?? [])
   const groups = groupItems(spec.groupBy ?? [], kind)
   const aggregates = aggregateItems(spec.aggregates ?? [], kind)
@@ -314,10 +316,10 @@ export function compileQuerySpec(spec: MetricsQuerySpec): CompiledQuery {
 
   if (aggregates.length === 0) {
     if (groups.length > 0) throw new Error('groupBy needs at least one aggregate')
-    return withGrain(compileListing(spec, kind))
+    return withGrain(compileListing(spec, kind, visible))
   }
 
-  const where = buildWhere(spec, kind)
+  const where = buildWhere(spec, kind, visible)
   const hasPercentile = aggregates.some((aggregate) => PERCENTILES.get(aggregate.fn) !== undefined)
   return withGrain(hasPercentile
     ? compileWithPercentiles(spec, groups, aggregates, where)

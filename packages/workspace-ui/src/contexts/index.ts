@@ -88,14 +88,6 @@ export { activeSessionShareTarget } from './sharing/share-target'
 export type { ShareDialogTarget } from './sharing/shares.store.svelte'
 export { linkDescription, registrationDescription } from './connections/host-routes'
 
-/** Cloudflare deployment profile: status, connect/disconnect, connect requests. */
-export {
-  cloudflareStore,
-  CLOUDFLARE_SIGNUP_URL,
-  CLOUDFLARE_TOKEN_PERMISSIONS,
-  CLOUDFLARE_TOKEN_URL,
-} from './cloudflare/cloudflare.store.svelte'
-
 /** The Solus account this client shell is signed in to (desktop only today). */
 export { accountStore } from './account/account.store.svelte'
 export { notificationHubStore } from './notifications/notification-hub.store.svelte'
@@ -133,11 +125,6 @@ export type { AgentContext } from './app/agent.context.svelte'
 export type { SessionEnvironmentStore } from './git/session-environment.store.svelte'
 export type { PlanStore } from './plans/plan.store.svelte'
 export type { ConnectionEndpoint } from './connections/connections.store.svelte'
-export type {
-  CloudflareAccountOption,
-  CloudflareConnectFailure,
-  CloudflareStatus,
-} from './cloudflare/cloudflare.store.svelte'
 export type { AtlassianConnectFailure } from './atlassian/atlassian.store.svelte'
 export type { DiscoveryFilterInput, NearbyHost } from './connections/discovery'
 export type { HostAffinityGlyph, HostAffinityTarget } from './connections/host-affinity'

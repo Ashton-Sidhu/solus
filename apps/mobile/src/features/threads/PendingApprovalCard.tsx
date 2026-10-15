@@ -1,5 +1,5 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/PendingApprovalCard.tsx (MIT, see UPSTREAM.md).
-import { RequestActionButton } from "./RequestActionButton";
+import { RequestActionButton, WaitingForEditor } from "./RequestActionButton";
 import { requestExpiryText, type PermissionOption } from "@solus/contracts/types";
 import { View } from "react-native";
 
@@ -9,6 +9,8 @@ import type { PendingPermission } from "../conversation/lib/transcript-model";
 export interface PendingApprovalCardProps {
   readonly approval: PendingPermission;
   readonly respondingApprovalId: string | null;
+  /** False for a reader who may only view the session: the options give way to a note. */
+  readonly mayDrive: boolean;
   readonly onRespond: (questionId: string, optionId: string) => Promise<unknown>;
 }
 
@@ -47,7 +49,8 @@ export function PendingApprovalCard(props: PendingApprovalCardProps) {
           {requestExpiryText(props.approval.expired)}
         </Text>
       ) : null}
-      {canRespond ? (
+      {canRespond && !props.mayDrive ? <WaitingForEditor /> : null}
+      {canRespond && props.mayDrive ? (
         <View className="flex-row flex-wrap gap-2.5">
           {props.approval.options.map((option) => (
             <RequestActionButton

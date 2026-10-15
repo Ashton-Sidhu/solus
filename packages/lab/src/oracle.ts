@@ -21,12 +21,12 @@ export async function checkNoLocalOwnerOnManaged(ctx: ScenarioContext, personaId
 }
 
 /** Ownership: exactly one owner, and the share list agrees with who may open it (§3.4). */
-export async function checkOwnership(ctx: ScenarioContext, resource: { kind: 'session' | 'work' | 'task'; id: string }, expectedOwnerUserId: string, readers: Record<string, boolean>): Promise<void> {
+export async function checkOwnership(ctx: ScenarioContext, resource: { kind: 'session' | 'work' | 'task'; id: string }, expectedOwnerKey: string, readers: Record<string, boolean>): Promise<void> {
   for (const [personaId, mayOpen] of Object.entries(readers)) {
     const client = await ctx.as(personaId)
     try {
       const list = await client.rpc('shareGet', { resource })
-      ctx.check(`oracle/ownership: ${personaId} sees ${resource.kind} ${resource.id} owned by ${expectedOwnerUserId}`, mayOpen && list.ownerUserId === expectedOwnerUserId, `owner=${list.ownerUserId} callerRole=${list.callerRole}`)
+      ctx.check(`oracle/ownership: ${personaId} sees ${resource.kind} ${resource.id} owned by ${expectedOwnerKey}`, mayOpen && list.ownerKey === expectedOwnerKey, `owner=${list.ownerKey} callerRole=${list.callerRole}`)
     } catch (error) {
       ctx.check(`oracle/ownership: ${personaId} cannot open ${resource.kind} ${resource.id}`, !mayOpen, error instanceof Error ? error.message : String(error))
     }
@@ -45,11 +45,13 @@ const recordedRunSchema = z.object({
   }).nullable(),
   /** The credential material the run saw (`.credentials.json`, or `token:<value>`); null for the host login or a run before the field existed. */
   credential: z.string().nullable().optional(),
+  /** The names of the tools the run was handed; absent on a run before the field existed. */
+  tools: z.array(z.string()).optional(),
 })
 export type RecordedRun = z.infer<typeof recordedRunSchema>
 
 /** Every run the host's mock backend has started, oldest first. */
-export function recordedRuns(ctx: ScenarioContext): RecordedRun[] {
+export function recordedRuns(ctx: Pick<ScenarioContext, 'host'>): RecordedRun[] {
   const file = join(ctx.host.dataDir, 'lab', 'mock-runs.ndjson')
   if (!existsSync(file)) return []
   return readFileSync(file, 'utf8').split('\n').filter(Boolean).map((line) => recordedRunSchema.parse(JSON.parse(line)))

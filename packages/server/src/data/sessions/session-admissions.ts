@@ -16,7 +16,7 @@ export interface SessionAdmission {
   organizationId: string
   admissionId: string
   hostId: string
-  ownerUserId: string
+  ownerKey: string
   createdAt: number
 }
 
@@ -24,7 +24,7 @@ const rowSchema = z.object({
   organization_id: z.string(),
   admission_id: z.string(),
   host_id: z.string(),
-  owner_user_id: z.string(),
+  owner_key: z.string(),
   created_at: z.number(),
 })
 
@@ -37,20 +37,20 @@ export class SessionAdmissionConflict extends Error {
 
 export async function readSessionAdmission(organizationId: string, admissionId: string): Promise<SessionAdmission | null> {
   const row = rowSchema.nullish().parse(await getDatabase().get(sql`
-    SELECT organization_id, admission_id, host_id, owner_user_id, created_at FROM ${sessionAdmissions}
+    SELECT organization_id, admission_id, host_id, owner_key, created_at FROM ${sessionAdmissions}
     WHERE organization_id = ${organizationId} AND admission_id = ${admissionId}
   `))
-  return row ? { organizationId: row.organization_id, admissionId: row.admission_id, hostId: row.host_id, ownerUserId: row.owner_user_id, createdAt: row.created_at } : null
+  return row ? { organizationId: row.organization_id, admissionId: row.admission_id, hostId: row.host_id, ownerKey: row.owner_key, createdAt: row.created_at } : null
 }
 
 export async function admitSessionRecord(admission: Omit<SessionAdmission, 'createdAt'>): Promise<SessionAdmission> {
   await getDatabase().run(sql`
-    INSERT INTO ${sessionAdmissions} (organization_id, admission_id, host_id, owner_user_id, created_at)
-    VALUES (${admission.organizationId}, ${admission.admissionId}, ${admission.hostId}, ${admission.ownerUserId}, ${Date.now()})
+    INSERT INTO ${sessionAdmissions} (organization_id, admission_id, host_id, owner_key, created_at)
+    VALUES (${admission.organizationId}, ${admission.admissionId}, ${admission.hostId}, ${admission.ownerKey}, ${Date.now()})
     ON CONFLICT (organization_id, admission_id) DO NOTHING
   `)
   const stored = await readSessionAdmission(admission.organizationId, admission.admissionId)
   if (!stored) throw new Error('The session admission was not stored.')
-  if (stored.ownerUserId !== admission.ownerUserId || stored.hostId !== admission.hostId) throw new SessionAdmissionConflict()
+  if (stored.ownerKey !== admission.ownerKey || stored.hostId !== admission.hostId) throw new SessionAdmissionConflict()
   return stored
 }

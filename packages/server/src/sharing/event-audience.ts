@@ -1,6 +1,7 @@
 import type { AttentionEntry } from '@solus/contracts/attention-types'
 import type { HostEvent } from '@solus/contracts/host-events'
 import type { ShareResource } from '@solus/contracts/sharing'
+import { actorFor, ownerKeyOf } from '../admission/actor'
 import { isHostOwner, type Principal } from '../admission/principal'
 import type { ShareManager } from './share-manager'
 
@@ -16,6 +17,9 @@ import type { ShareManager } from './share-manager'
  * in the room, and again after any share or task change, not on every event.
  */
 export async function eventVisibleTo(principal: Principal, event: HostEvent, shares: ShareManager): Promise<boolean> {
+  // A browser profile is personal (docs/plans/access-model.md §2.3): its owner's
+  // connections alone hear of it, the host owner's included only for their own.
+  if (event.type === 'browser.profilesChanged') return principal.kind !== 'system' && ownerKeyOf(actorFor(principal)) === event.payload.ownerKey
   if (principal.kind === 'system' || isHostOwner(principal)) return true
   // A runner writes; it reads nothing back from the people's side.
   if (principal.kind === 'runner') return false
@@ -35,6 +39,11 @@ export async function eventVisibleTo(principal: Principal, event: HostEvent, sha
       return !resource || await shares.roleFor(principal, resource) !== 'none'
     }
     return resource !== null && await shares.roleFor(principal, resource) !== 'none'
+  }
+  // An automation is its owner's and the administrators' (docs/plans/access-model.md §4 D4).
+  // A deletion names only an id, which tells nothing; a client that listed it drops it.
+  if (event.type === 'automation.changed' && event.payload.kind !== 'deleted') {
+    return await shares.roleFor(principal, { kind: 'automation', id: event.payload.automation.id }) !== 'none'
   }
   if (!resource) return !GUEST_ONLY_HIDDEN.has(event.type) || principal.kind === 'org-member'
   return await shares.roleFor(principal, resource) !== 'none'

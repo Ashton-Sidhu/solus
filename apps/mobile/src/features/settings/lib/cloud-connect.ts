@@ -1,8 +1,8 @@
 import type { AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
 import type { DocumentSyncClock } from '@solus/client-core/document-sync'
-import type { AccountProfileConnectStartResult, AccountProfileConnectionsResult } from '@solus/contracts/host-api'
+import type { AccountVaultConnectResult, AccountVaultResult } from '@solus/contracts/host-api'
 import type { IntegrationAuth } from '@solus/contracts/integration-types'
-import type { ProfileConnectKeyRequest } from '@solus/contracts/integrations/profile-credentials'
+import type { VaultSaveKeyRequest } from '@solus/contracts/vault'
 import { cloudConnectStarted, connectFailed, connectRefused, connectSubmitting, errorMessage, type ConnectFlowState } from '../integrations'
 
 /**
@@ -19,7 +19,7 @@ import { cloudConnectStarted, connectFailed, connectRefused, connectSubmitting, 
 export const CLOUD_CONNECT_POLL_MS = 3_000
 export const CLOUD_CONNECT_TIMEOUT_MS = 10 * 60_000
 
-export type CloudConnectRequests = Pick<AgentProfileCloudRequests, 'accountAgentProfileConnections' | 'accountAgentProfileConnectStart' | 'accountAgentProfileConnectKey' | 'accountAgentProfileDisconnect'>
+export type CloudConnectRequests = Pick<AgentProfileCloudRequests, 'accountVault' | 'accountVaultConnect' | 'accountVaultSaveKey' | 'accountVaultDisconnect'>
 
 export interface CloudConnectDeps {
   requests: CloudConnectRequests
@@ -53,7 +53,7 @@ export class CloudConnect {
     const flow: Flow = { serverUrl, name, auth, state: { step: 'starting' }, cancelPoll: null }
     this.flows.set(key, flow)
     this.onChange(key, flow.state)
-    const result = await this.deps.requests.accountAgentProfileConnectStart({ serverUrl, auth })
+    const result = await this.deps.requests.accountVaultConnect({ ref: { kind: 'mcp', serverUrl }, auth })
     if (this.flows.get(key) !== flow) return
     if (result.kind !== 'ok') return this.finish(key, flow, connectRefused(unavailableMessage(result)))
     const state = cloudConnectStarted(result.start, serverUrl, name)
@@ -80,9 +80,9 @@ export class CloudConnect {
     const trimmed = value.trim()
     if (flow?.state.step !== 'token' || flow.state.busy || !trimmed) return
     this.set(key, flow, connectSubmitting(flow.state))
-    const request: ProfileConnectKeyRequest = { serverUrl: flow.serverUrl, key: trimmed }
+    const request: VaultSaveKeyRequest = { ref: { kind: 'mcp', serverUrl: flow.serverUrl }, key: trimmed }
     if (flow.auth.kind === 'bearer') request.scheme = flow.auth.scheme
-    const result = await this.deps.requests.accountAgentProfileConnectKey(request)
+    const result = await this.deps.requests.accountVaultSaveKey(request)
     if (this.flows.get(key) !== flow) return
     if (isConnected(result, flow.serverUrl)) return this.connected(key, flow)
     this.set(key, flow, connectFailed(flow.state, result.kind === 'ok' ? 'The server did not accept the key.' : unavailableMessage(result)))
@@ -96,7 +96,7 @@ export class CloudConnect {
 
   /** Removes the person's credential from their account; hosts stop using it on their next pull. */
   async disconnect(serverUrl: string): Promise<void> {
-    const result = await this.deps.requests.accountAgentProfileDisconnect({ serverUrl })
+    const result = await this.deps.requests.accountVaultDisconnect({ ref: { kind: 'mcp', serverUrl } })
     if (result.kind !== 'ok') throw new Error(unavailableMessage(result))
     this.deps.pullEverywhere()
   }
@@ -108,7 +108,7 @@ export class CloudConnect {
   private poll(key: string, flow: Flow, deadline: number): void {
     flow.cancelPoll = this.deps.clock.setTimer(() => {
       flow.cancelPoll = null
-      void this.deps.requests.accountAgentProfileConnections().then((result) => {
+      void this.deps.requests.accountVault().then((result) => {
         if (this.flows.get(key) !== flow) return
         if (isConnected(result, flow.serverUrl)) return this.connected(key, flow)
         if (this.deps.clock.now() >= deadline) return this.finish(key, flow, connectRefused('The sign-in did not finish in time. Connect again.'))
@@ -143,11 +143,11 @@ export class CloudConnect {
   }
 }
 
-function isConnected(result: AccountProfileConnectionsResult, serverUrl: string): boolean {
-  return result.kind === 'ok' && result.connections.some((connection) => connection.serverUrl === serverUrl && connection.status === 'connected')
+function isConnected(result: AccountVaultResult, serverUrl: string): boolean {
+  return result.kind === 'ok' && result.connections.some((connection) => connection.ref.kind === 'mcp' && connection.ref.serverUrl === serverUrl && connection.status === 'connected')
 }
 
-function unavailableMessage(result: Exclude<AccountProfileConnectStartResult | AccountProfileConnectionsResult, { kind: 'ok' }>): string {
+function unavailableMessage(result: Exclude<AccountVaultConnectResult | AccountVaultResult, { kind: 'ok' }>): string {
   switch (result.kind) {
     case 'refused': return result.message
     case 'signed-out': return 'Sign in to Solus Cloud again to connect.'

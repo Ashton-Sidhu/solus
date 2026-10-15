@@ -11,7 +11,8 @@ import {
   type BrowserSurfaceDriver,
 } from '@solus/server/browser/surface-driver'
 import {
-  browserPartition,
+  BROWSER_UNSAVED_PARTITION_PREFIX,
+  browserProfilePartition,
   type BrowserConsoleEntry,
   type BrowserNavigateOp,
   type BrowserNetworkEntry,
@@ -168,7 +169,7 @@ describe('the headless browser host', () => {
     // headless host the page is merely waiting for someone to need it, and
     // saying otherwise would send them after a fix that is not required.
     const { registry } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     expect(page.hostKind).toBe('none')
     expect(page.problem).toBeUndefined()
@@ -179,7 +180,7 @@ describe('the headless browser host', () => {
     // user on a phone, must be able to click through a page with no desktop
     // client attached anywhere.
     const { registry, headlessDrivers } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     const result = await registry.interact(page.browserPageId, { kind: 'click', ref: '#submit' })
 
@@ -193,7 +194,7 @@ describe('the headless browser host', () => {
     // guest that opened at its window's own metrics would report a passing
     // layout the user can never see.
     const { registry, headlessOpens } = harness()
-    const page = registry.open({ target: TARGET, presetId: 'iphone-15' })
+    const page = registry.open({ target: TARGET, presetId: 'iphone-15' }, 'local:owner')
 
     await registry.snapshot(page.browserPageId, { screenshot: false })
 
@@ -205,12 +206,22 @@ describe('the headless browser host', () => {
     // WHY: profiles carry the login. A headless guest with its own profile would
     // land on a sign-in wall for every page the user can already see.
     const { registry, headlessOpens } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     await registry.snapshot(page.browserPageId, { screenshot: false })
 
-    expect(headlessOpens[0]?.partition).toBe(browserPartition('/Users/dev/app'))
+    expect(headlessOpens[0]?.partition).toBe(browserProfilePartition('/Users/dev/app', undefined, 'local:owner'))
     expect(headlessOpens[0]?.url).toBe('http://localhost:5173/')
+  })
+
+  test("the host's own page opens in an unsaved jar, not a person's", async () => {
+    // WHY: work for nobody must not sign in as somebody (member-isolation.md §6).
+    const { registry, headlessOpens } = harness()
+    const page = registry.open({ target: TARGET }, null)
+
+    await registry.snapshot(page.browserPageId, { screenshot: false })
+
+    expect(headlessOpens[0]?.partition.startsWith(BROWSER_UNSAVED_PARTITION_PREFIX)).toBe(true)
   })
 
   test('two drive ops arriving together share one guest', async () => {
@@ -219,7 +230,7 @@ describe('the headless browser host', () => {
     // its snapshot never sees.
     const { registry, headlessDrivers, headlessOpens, holdOpen, releaseOpen } = harness()
     holdOpen()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     const both = Promise.all([
       registry.interact(page.browserPageId, { kind: 'click', ref: '#a' }),
@@ -240,7 +251,7 @@ describe('the headless browser host', () => {
     // snapshot or leave the late headless guest as the page owner.
     const { registry, headlessDrivers, holdOpen, releaseOpen } = harness()
     holdOpen()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     const snapshot = registry.snapshot(page.browserPageId, { screenshot: false })
     await Promise.resolve()
@@ -258,7 +269,7 @@ describe('the headless browser host', () => {
     // its result, or an invisible renderer survives after the page is gone.
     const { registry, headlessDrivers, holdOpen, releaseOpen } = harness()
     holdOpen()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     const drive = registry.interact(page.browserPageId, { kind: 'click', ref: '#a' })
     await Promise.resolve()
@@ -276,7 +287,7 @@ describe('the headless browser host', () => {
     // recheck demand before it starts producing frames into the void.
     const { registry, headlessDrivers, holdOpen, releaseOpen } = harness()
     holdOpen()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     const subscribe = registry.subscribeFrames(page.browserPageId, 'phone')
     await Promise.resolve()
@@ -292,7 +303,7 @@ describe('the headless browser host', () => {
     // verify a page the user is not looking at — the exact failure the whole
     // design exists to prevent.
     const { registry, headlessDrivers } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.snapshot(page.browserPageId, { screenshot: false })
 
     await registry.attachSurface(page.browserPageId, 42)
@@ -306,7 +317,7 @@ describe('the headless browser host', () => {
     // page. Migration reloads at the same URL — in-page state does not cross —
     // so the page is re-hosted when something needs it, not held open forever.
     const { registry, headlessDrivers, webviewDriver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 42)
 
     await registry.detachSurface(page.browserPageId)
@@ -322,7 +333,7 @@ describe('the headless browser host', () => {
     // WHY: a crash is the user's to see. Re-hosting it silently would hide a
     // reproducible failure behind a page that looks fine.
     const { registry } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 42)
 
     await registry.detachSurface(page.browserPageId, 'crashed')
@@ -342,7 +353,7 @@ describe('the headless browser host', () => {
         return driver
       },
     })
-    const page = registry.open({ target: TARGET, presetId: 'iphone-15' })
+    const page = registry.open({ target: TARGET, presetId: 'iphone-15' }, 'local:owner')
 
     await expect(registry.snapshot(page.browserPageId)).rejects.toThrow('cannot be emulated')
     expect(registry.get(page.browserPageId)?.hostKind).toBe('none')
@@ -353,7 +364,7 @@ describe('the headless browser host', () => {
     // WHY: a host that cannot render must say so. Silence reads to an agent as
     // "the click worked", and the verification loop depends on that being loud.
     const { registry } = harness({ headless: false })
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     expect(page.problem?.kind).toBe('no-surface')
     await expect(registry.interact(page.browserPageId, { kind: 'click', ref: '#x' }))

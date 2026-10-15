@@ -15,7 +15,7 @@ import { z } from 'zod'
 const REQUEST_TIMEOUT_MS = 15_000
 /** A token with less than this left is refreshed before use. */
 export const OAUTH_REFRESH_MARGIN_MS = 60_000
-export const OAUTH_CLIENT_REQUIRED_MESSAGE = 'This server needs an OAuth client. Ask the host administrator to add one.'
+export const OAUTH_CLIENT_REQUIRED_MESSAGE = 'This server needs an OAuth client. Its owner adds one in the server settings.'
 
 export type OAuthAuthMethod = 'none' | 'client_secret_post' | 'client_secret_basic'
 

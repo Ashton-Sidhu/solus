@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { HOST_LOGIN_SEAT } from '@solus/contracts/seats'
-import { actorFor, attributionOf, credentialUserFor, HOST_ACTOR, insightsAccountOf, seatFor } from '@solus/server/admission/actor'
+import { actorFor, attributionOf, HOST_ACTOR, insightsAccountOf, ownerKeyOf, seatFor } from '@solus/server/admission/actor'
 import type { Principal } from '@solus/server/admission/principal'
 import { useHostUser } from '@solus/server/host/host-user'
+import { credentialLocationOf } from '@solus/server/vault/vault'
 import { SolusServer, type HandlerCtx } from '@solus/server/transport/server'
 import { memberPrincipal } from './helpers/actors'
 import { installTestIdentities } from './helpers/acting-identities'
@@ -34,7 +35,7 @@ describe('actorFor', () => {
     // WHY: the host names its owner; "Host owner" is not a name anyone gave them.
     expect(actor.user?.displayName).not.toBe('')
     expect(seatFor(actor)).toEqual(HOST_LOGIN_SEAT)
-    expect(credentialUserFor(actor)).toBeNull()
+    expect(credentialLocationOf(ownerKeyOf(actor))).toEqual({ kind: 'host' })
     // An unlinked host knows no account: the owner's turn is attributed to nobody in Insights.
     expect(insightsAccountOf(actor)).toBeNull()
   })
@@ -48,9 +49,9 @@ describe('actorFor', () => {
     expect(remote.user).toEqual({ id: { kind: 'account', accountId: 'acct-ashton' }, displayName: 'Ashton Sidhu', email: 'a@example.com' })
     expect(seatFor(local)).toEqual(HOST_LOGIN_SEAT)
     expect(seatFor(remote)).toEqual(HOST_LOGIN_SEAT)
-    // A personal host keeps the owner's connections on the host, signed in or not.
-    expect(credentialUserFor(local)).toBeNull()
-    expect(credentialUserFor(remote)).toBeNull()
+    // WHY: signed in means the account (docs/plans/cloud-vault.md §2.5): the linked owner's connections are their account's.
+    expect(credentialLocationOf(ownerKeyOf(local))).toEqual({ kind: 'account', accountId: 'acct-ashton' })
+    expect(credentialLocationOf(ownerKeyOf(remote))).toEqual({ kind: 'account', accountId: 'acct-ashton' })
     // Insights attribute the owner's turn to the account that linked the host (organization-scope §6.1).
     expect(insightsAccountOf(local)?.id).toEqual({ kind: 'account', accountId: 'acct-ashton' })
   })
@@ -59,7 +60,7 @@ describe('actorFor', () => {
     const actor = actorFor(BOB)
     expect(actor.user).toEqual({ id: { kind: 'account', accountId: 'bob' }, displayName: 'Bob', email: 'bob@example.com', avatarUrl: 'https://x/bob.png' })
     expect(seatFor(actor)).toEqual({ kind: 'user', userId: { kind: 'account', accountId: 'bob' }, name: 'Bob' })
-    expect(credentialUserFor(actor)).toEqual({ kind: 'account', accountId: 'bob' })
+    expect(credentialLocationOf(ownerKeyOf(actor))).toEqual({ kind: 'account', accountId: 'bob' })
     expect(insightsAccountOf(actor)?.email).toBe('bob@example.com')
   })
 
@@ -67,10 +68,11 @@ describe('actorFor', () => {
     const anonymous = actorFor(guestOf('bob'))
     expect(anonymous.user).toEqual({ id: { kind: 'guest', guestId: 'g1' }, displayName: 'Maya' })
     expect(seatFor(anonymous)).toEqual({ kind: 'user', userId: { kind: 'account', accountId: 'bob' } })
-    expect(credentialUserFor(anonymous)).toEqual({ kind: 'account', accountId: 'bob' })
+    // D1: a guest runs on the sharer's seat but has no logins of their own or the sharer's.
+    expect(credentialLocationOf(ownerKeyOf(anonymous))).toEqual({ kind: 'none' })
     expect(insightsAccountOf(anonymous)).toBeNull()
     const signedIn = actorFor(guestOf('bob', 'acct-maya'))
-    expect(credentialUserFor(signedIn)).toEqual({ kind: 'account', accountId: 'acct-maya' })
+    expect(credentialLocationOf(ownerKeyOf(signedIn))).toEqual({ kind: 'none' })
     // A guest of the host's own user runs on the host login.
     useHostUser({ localId: 'mac-1' })
     expect(seatFor(actorFor(guestOf('local:mac-1')))).toEqual(HOST_LOGIN_SEAT)
@@ -81,7 +83,7 @@ describe('actorFor', () => {
     for (const actor of [actorFor(RUNNER), actorFor({ kind: 'system' }), HOST_ACTOR]) {
       expect(actor.user).toBeNull()
       expect(seatFor(actor)).toEqual(HOST_LOGIN_SEAT)
-      expect(credentialUserFor(actor)).toBeNull()
+      expect(ownerKeyOf(actor)).toBeNull()
     }
     // The host's own admitted work is attributed to the account that linked it; a runner's is not.
     expect(insightsAccountOf(HOST_ACTOR)?.id).toEqual({ kind: 'account', accountId: 'acct-ashton' })
@@ -89,28 +91,23 @@ describe('actorFor', () => {
   })
 })
 
-describe('attributionOf', () => {
-  test('a person\'s own action names them; an agent or an automation names itself and the person it worked for', () => {
-    const bob = actorFor(BOB)
-    expect(attributionOf(bob)).toEqual({ kind: 'user', user: bob.user! })
-    expect(attributionOf(bob, { sessionId: 's1', provider: 'codex' })).toEqual({ kind: 'agent', sessionId: 's1', provider: 'codex', for: bob.user! })
-    expect(attributionOf(bob, { automationId: 'a1' })).toEqual({ kind: 'automation', automationId: 'a1', for: bob.user! })
-    expect(attributionOf(HOST_ACTOR)).toEqual({ kind: 'system' })
-    expect(attributionOf(HOST_ACTOR, { sessionId: 's1', provider: 'claude-code' })).toEqual({ kind: 'agent', sessionId: 's1', provider: 'claude-code' })
+describe('ownerKeyOf as the person behind MCP servers and sign-ins', () => {
+  // WHY: an MCP server and its sign-in belong to a person on every host. The owner is
+  // a person like a member: their key, never "no one", or a host with no owner (a
+  // managed host) has no way to name whose server a run should list.
+  test('every person is their user key: the owner by the host\'s user, a member by their account, a guest by their guest id', () => {
+    useHostUser({ localId: 'mac-1' })
+    expect(ownerKeyOf(actorFor(LOCAL_OWNER))).toBe('local:mac-1')
+    useHostUser({ localId: 'mac-1', account: { accountId: 'acct-ashton' } })
+    expect(ownerKeyOf(actorFor(LOCAL_OWNER))).toBe('acct-ashton')
+    expect(ownerKeyOf(actorFor(REMOTE_OWNER))).toBe('acct-ashton')
+    expect(ownerKeyOf(actorFor(BOB))).toBe('bob')
+    // A guest never borrows the sharer's sign-ins: they have their own key and no connections.
+    expect(ownerKeyOf(actorFor(guestOf('bob')))).toBe('guest:g1')
   })
-})
 
-describe('SolusServer.handle', () => {
-  test('resolves the actor once, before the handler runs, for every call', async () => {
-    const server = new SolusServer()
-    const seen: HandlerCtx[] = []
-    server.register('listAttention', (_args, ctx) => {
-      seen.push(ctx)
-      return []
-    })
-    await server.handle('listAttention', [], { clientId: 'ws:bob', principal: BOB })
-    await server.handle('listAttention', [], { clientId: 'internal', principal: { kind: 'system' } })
-    expect(seen.map((ctx) => ctx.actor.user?.displayName ?? null)).toEqual(['Bob', null])
-    expect(seen[0]?.actor.principal).toBe(BOB)
+  test('the host itself and a runner are nobody', () => {
+    useHostUser({ localId: 'mac-1' })
+    for (const actor of [actorFor(RUNNER), actorFor({ kind: 'system' }), HOST_ACTOR]) expect(ownerKeyOf(actor)).toBeNull()
   })
 })

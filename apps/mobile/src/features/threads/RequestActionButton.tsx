@@ -5,6 +5,14 @@ import { Pressable } from "react-native";
 import { AppText as Text } from "../../components/AppText";
 import { cn } from "../../lib/cn";
 
+/**
+ * What a card shows in place of its actions when the reader may only view the
+ * session: an editor answers it (docs/plans/access-model.md §2.7). Desktop says the same.
+ */
+export function WaitingForEditor() {
+  return <Text className="font-sans text-sm leading-5 text-foreground-muted">Waiting for an editor</Text>;
+}
+
 /** Primary actions in the cards that replace the thread composer. */
 export function RequestActionButton({
   label,

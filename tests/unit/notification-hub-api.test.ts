@@ -125,7 +125,7 @@ describe('the record API feed', () => {
     const snapshot = await operations.listMyNotifications(bob, {})
     expect(snapshot.items).toHaveLength(1)
     // Alice takes the work back from the organization.
-    await shares.setGrants({ resource: { kind: 'work', id: shared.id }, grants: [] }, { ...memberPrincipal('alice'), hostKind: 'cloud' })
+    await shares.setEntries({ resource: { kind: 'work', id: shared.id }, entries: [] }, { ...memberPrincipal('alice'), hostKind: 'cloud' })
     expect((await operations.listMyNotifications(bob, {})).items).toEqual([])
     expect(await operations.countMyNotifications(bob)).toEqual({ unread: 0, isCapped: false })
     await expect(operations.setMyNotificationRead(bob, snapshot.items[0]!.id, { read: true })).rejects.toMatchObject({ status: 404 })

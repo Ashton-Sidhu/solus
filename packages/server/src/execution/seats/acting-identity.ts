@@ -2,8 +2,9 @@ import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:
 import { dirname, join } from 'node:path'
 import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
 import { parseUserKey, userKey } from '@solus/contracts/user'
-import { credentialUserFor, seatFor, type Actor } from '../../admission/actor'
+import { ownerKeyOf, seatFor, type Actor } from '../../admission/actor'
 import { getCliPath, hostCliEnv } from '../../cli-env'
+import { hostUserKey, isHostUserKey } from '../../host/host-user'
 import { createLogger } from '../../logger'
 import { MEMBER_GITHUB_FILE } from '../../providers/github/git-credential'
 import { useActingScopeSource, useDefaultActingScopeForTests, withActingScope, type ActingScope, type ActingScopeSource } from '../../vault/acting-scope'
@@ -37,7 +38,7 @@ export type MemberGithub =
 
 export interface ActingIdentitiesDeps {
   /** The member's GitHub token through their account connection; null when they have not connected GitHub. */
-  memberToken: (credentialUserId: string) => Promise<{ accessToken: string; login?: string } | null>
+  memberToken: (memberKey: string) => Promise<{ accessToken: string; login?: string } | null>
   fetchLogin: (accessToken: string) => Promise<string>
   /** The folder that is `HOME` for a member's processes. */
   memberHome: (seat: Extract<Seat, { kind: 'user' }>) => string
@@ -139,10 +140,10 @@ export class ActingIdentity {
   }
 
   private async readGithub(seat: Extract<Seat, { kind: 'user' }>, deps: ActingIdentitiesDeps): Promise<MemberGithub> {
-    const credentialUserId = userKey(seat.userId)
+    const memberKey = userKey(seat.userId)
     let github: MemberGithub
     try {
-      const token = await withActingScope({ identity: this, credentialUserId }, () => deps.memberToken(credentialUserId))
+      const token = await withActingScope({ identity: this, personKey: memberKey }, () => deps.memberToken(memberKey))
       github = token
         ? { kind: 'connected', token: token.accessToken, login: token.login ?? await deps.fetchLogin(token.accessToken) }
         : { kind: 'unavailable', reason: 'Connect GitHub to your Solus account to commit and push on this host.' }
@@ -155,7 +156,7 @@ export class ActingIdentity {
     if (github.kind === 'connected') writeMemberCredentials(home, github)
     else {
       removeMemberCredentials(home)
-      log.warn('member_github_unavailable', { userId: credentialUserId, reason: github.reason })
+      log.warn('member_github_unavailable', { userId: memberKey, reason: github.reason })
     }
     this.settled = github
     return github
@@ -166,7 +167,7 @@ export class ActingIdentity {
 export const HOST_IDENTITY = new ActingIdentity(HOST_LOGIN_SEAT, null)
 
 /** The host acting for itself, with its own account connections. */
-export const HOST_SCOPE: ActingScope = { identity: HOST_IDENTITY, credentialUserId: null }
+export const HOST_SCOPE: ActingScope = { identity: HOST_IDENTITY, personKey: null }
 
 /** One identity object for each seat, for the life of the server. */
 export class ActingIdentities implements ActingScopeSource {
@@ -199,10 +200,9 @@ export class ActingIdentities implements ActingScopeSource {
     log.info('acting_identity_revoked', { userId: memberUserKey })
   }
 
-  /** A person named by user key runs on their own seat with their own connections; null is the host. */
-  scopeForUser(memberUserKey: string | null): ActingScope {
-    if (memberUserKey === null) return { identity: this.host, credentialUserId: null }
-    return { identity: this.for({ kind: 'user', userId: parseUserKey(memberUserKey) }), credentialUserId: memberUserKey }
+  /** A person named by user key: the host's user on the host login, anyone else on their own seat; null is the host. */
+  scopeForUser(personKey: string | null): ActingScope {
+    return scopeFor(personKey, (key) => this.for({ kind: 'user', userId: parseUserKey(key) }))
   }
 }
 
@@ -210,7 +210,14 @@ let current: ActingIdentities | null = null
 
 /** Before identities are installed, only the host has a scope: a member's needs their home. */
 const hostOnlySource: ActingScopeSource = {
-  scopeForUser: (memberUserKey) => memberUserKey === null ? HOST_SCOPE : { identity: installedIdentities().for({ kind: 'user', userId: parseUserKey(memberUserKey) }), credentialUserId: memberUserKey },
+  scopeForUser: (personKey) => scopeFor(personKey, (key) => installedIdentities().for({ kind: 'user', userId: parseUserKey(key) })),
+}
+
+/** The scope of a person named by key: the host's user acts on the host login, as `seatFor` puts the owner. */
+function scopeFor(personKey: string | null, memberIdentity: (key: string) => ActingIdentity): ActingScope {
+  if (personKey === null) return HOST_SCOPE
+  if (isHostUserKey(personKey)) return { identity: HOST_IDENTITY, personKey: hostUserKey() }
+  return { identity: memberIdentity(personKey), personKey }
 }
 
 /** Installed once at boot, as `useMemberFolders` is; a test installs its own. */
@@ -228,11 +235,7 @@ useActingScopeSource(hostOnlySource)
 
 /** Runs `fn` as an actor: their seat's processes and their account connections. */
 export function withActorScope<T>(actor: Actor, fn: () => T): T {
-  const credentialUser = credentialUserFor(actor)
-  return withActingScope({
-    identity: identityFor(seatFor(actor)),
-    credentialUserId: credentialUser ? userKey(credentialUser) : null,
-  }, fn)
+  return withActingScope({ identity: identityFor(seatFor(actor)), personKey: ownerKeyOf(actor) }, fn)
 }
 
 /** Runs `fn` as the host itself: work no person asked for. */

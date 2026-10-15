@@ -83,6 +83,8 @@ function server(): SolusServer {
     dispatcher: {} as AgentDispatcher,
     events: { broadcast: () => 1, publish: () => 1 } as unknown as HostEventPublisher,
     prSync: { apply: async (_target: object, pullRequest: PullRequest) => { applied.push(pullRequest.number) } } as unknown as PrSync,
+
+    resources: { roleFor: async () => 'owner' },
   })
   return solus
 }

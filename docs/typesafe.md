@@ -5,20 +5,35 @@ Server features import this module. The lint configuration rejects direct SDK
 imports elsewhere. The dependency is `@typesafe-ai/sdk` (installed with Bun to
 keep the repository's lockfile).
 
-Add a key in **Settings → Tools → Intelligence → TypeSafe API key**, or set
-`TYPESAFE_API_KEY` in the host process environment. The saved key takes priority.
-Remove the saved key to fall back to the environment key. Remove both to make
-`ask_jev` unavailable. The tool's switch remains an independent user choice.
+A TypeSafe key is a person's own credential, not the host's. The vault reads it
+for the person the work acts for (`docs/plans/access-model.md` §2.6,
+`docs/plans/cloud-vault.md` §2.5). Signed in means your account:
 
-Keys use the host secret store: Electron safe storage on desktop, or a file with
-mode 0600 under the standalone host's data directory. Only host administrators can
-save or remove a key. The typed RPC returns key status, never the key value, and
-does not log the submitted key. The field is shared by desktop, web, and mobile.
+- **Signed in to Solus** (the owner of a linked host, and every member): the key
+  is in your Solus account. Add it on the account website's Connections page;
+  Settings shows whether your account holds one and links there. Every host you
+  use reads the same key. When you sign in on a host that held a key of yours,
+  the host moves it into your account (a key your account holds already wins)
+  and keeps no copy.
+- **The owner of a host that is not linked:** add a key in **Settings → Tools →
+  TypeSafe**, or set `TYPESAFE_API_KEY` in the environment that starts the host.
+  The saved key takes priority. The environment key counts only for this person,
+  like a `gh` login, and never once you are signed in.
+- **A guest:** no key.
 
-The shared client is created on first use and replaced when its effective key
-changes. Key removal blocks new calls from existing sessions. Start a new session
-after adding a key so the provider can see the tool. Calls already in progress
-can finish. Changing the host process environment normally requires a restart.
+When the host stops being linked to you (the account removed it, or you signed
+out on the desktop), the host keeps no key of yours.
+
+On the host, the saved key uses the host secret store: Electron safe storage on desktop, or a
+file with mode 0600 under the standalone host's data directory. `typeSafeKeyStatus`
+returns where the caller's key is and what holds it, never the key value.
+`typeSafeKeySet` changes only the caller's key and is not logged.
+
+`getTypeSafe()` reads the acting person's key on each call, so `ask_jev` in a run
+uses the run's person. A run whose person has no key is not offered `ask_jev`,
+and a call without a key answers where to add one. Key removal blocks new calls
+from existing sessions. Changing the host process environment normally requires a
+restart.
 
 `TYPESAFE_DEFAULT_MODEL` selects the default model (SDK fallback: `jev-latest`).
 `TYPESAFE_BASE_URL` can select a different API root. `systemOne` accepts a model
@@ -27,7 +42,7 @@ override per request. `models.list()` discovers the models available to the acco
 ```ts
 import { getTypeSafe, choice, noul, score } from '@solus/server/typesafe/index'
 
-const client = getTypeSafe()
+const client = await getTypeSafe()
 const result = await client.systemOne({
   state: { message: 'The app crashes when I open a project.' },
   questions: {

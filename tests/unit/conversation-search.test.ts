@@ -30,7 +30,7 @@ const SERVICE = solusApiId('org1')
 
 function record(sessionId: string, runnerHostId: string | null = null): SessionRecord {
   return {
-    sessionId, organizationId: 'local', publication: 'local', ownerUserId: null, provider: 'claude-code', projectPath: '-repo',
+    sessionId, organizationId: 'local', publication: 'local', ownerKey: 'local:test', provider: 'claude-code', projectPath: '-repo',
     projectRemote: null, runnerHostId, title: sessionId, customTitle: null, status: 'idle', model: null, reasoningEffort: null,
     parentSessionId: null, rootSessionId: null, createdAt: 1, lastActivityAt: 1, size: 0,
     cwd: '/repo', slug: null, isWorktree: false, branch: null, projectRoot: '/repo', delegation: null,

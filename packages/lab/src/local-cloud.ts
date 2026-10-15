@@ -121,6 +121,11 @@ function envFileKeys(cloudDir: string): string[] {
  * so a sign-out reaches it within 30 s, not four minutes. Host tokens keep five minutes.
  */
 const LAB_ACCESS_TOKEN_TTL_SECONDS = 90
+/**
+ * The OAuth app credentials the cloud's provider fixture accepts, and the code its
+ * token endpoint takes; the fixture answers GitHub's `/user` as `proof-alice`.
+ */
+export const LAB_PROVIDER_CLIENT = { id: 'proof-client', secret: 'proof-secret', code: 'proof-code', githubLogin: 'proof-alice' } as const
 
 /** Stops the PIDs, as process groups, that a stack recorded. Only those. */
 export function stopProcesses(processes: ReadonlyArray<{ name: string; pid: number }>): void {
@@ -197,9 +202,18 @@ export async function startLocalCloud(): Promise<LocalCloudStack> {
       SPRITES_API_TOKEN: '',
       // Managed hosts need a named release; the in-memory provider never downloads it.
       MANAGED_HOST_RELEASE: '0.33.0',
+      // The cloud's own fake of the GitHub, Google, and Atlassian OAuth apps (solus-cloud
+      // `scripts/e2e/integration-provider-fixture.mjs`, loaded below): a website sign-in
+      // to a provider completes with no real provider and no real credential.
+      SOLUS_INTEGRATION_PROOF: '1',
+      ...Object.fromEntries(['GITHUB', 'GOOGLE', 'ATLASSIAN'].flatMap((provider) => [
+        [`INTEGRATION_${provider}_CLIENT_ID`, LAB_PROVIDER_CLIENT.id],
+        [`INTEGRATION_${provider}_CLIENT_SECRET`, LAB_PROVIDER_CLIENT.secret],
+      ])),
       VITE_CONFIG_NATIVE_IGNORE_WARNING: 'true',
     })
-    const cloud = startDetached('cloud', 'node', [join(cloudDir, 'node_modules/vite/bin/vite.js'), 'dev', '--port', String(cloudPort), '--strictPort'], {
+    const providerFixture = join(cloudDir, 'scripts/e2e/integration-provider-fixture.mjs')
+    const cloud = startDetached('cloud', 'node', ['--import', providerFixture, join(cloudDir, 'node_modules/vite/bin/vite.js'), 'dev', '--port', String(cloudPort), '--strictPort'], {
       cwd: cloudDir, env, log: join(evidenceDir, 'cloud.log'),
     })
     processes.push(cloud)

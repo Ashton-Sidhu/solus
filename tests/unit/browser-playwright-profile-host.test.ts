@@ -112,7 +112,8 @@ mock.module('playwright-core', () => ({
         throw new Error("browserType.launchPersistentContext: Executable doesn't exist at /home/dev/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell\n╔══╗\n║ Looks like Playwright was just installed or updated. ║\n╚══╝")
       }
       // Playwright creates the directory on launch; the profile is its contents.
-      mkdirSync(userDataDir, { recursive: true })
+      // An empty name is Playwright's own temporary directory.
+      if (userDataDir) mkdirSync(userDataDir, { recursive: true })
       const context = new FakeContext(userDataDir)
       contexts.push(context)
       return context
@@ -172,7 +173,7 @@ test('resizing a streamed Playwright page replaces the active screencast', async
   // WHY: opening or resizing a remote pane changes the frame caps. Chromium
   // refuses a second active stream, leaving the client with stale frame sizing.
   const { registry } = await harness()
-  const page = registry.open({ target: TARGET })
+  const page = registry.open({ target: TARGET }, 'local:owner')
   try {
     await registry.subscribeFrames(page.browserPageId, 'remote-client')
     await registry.setViewport(page.browserPageId, { mode: 'fill', width: 390, height: 844 })
@@ -192,7 +193,7 @@ test('a host without Chromium says so in one line, not as a terminal banner', as
   // install banner wraps into broken box-drawing characters there.
   chromiumMissing = true
   const { registry, published } = await harness()
-  const page = registry.open({ target: TARGET })
+  const page = registry.open({ target: TARGET }, 'local:owner')
   try {
     await registry.navigate(page.browserPageId, { kind: 'reload' }).catch(() => {})
     const problem = published.findLast((entry) => entry.browserPageId === page.browserPageId)?.problem
@@ -210,7 +211,7 @@ describe('clearing a profile on a Playwright host', () => {
     // against a dead session and the pane would keep showing the signed-in app
     // with a driver nothing can drive.
     const { registry } = await harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.navigate(page.browserPageId, { kind: 'reload' })
     const [context] = contexts
     if (!context) throw new Error('no context was launched')
@@ -218,7 +219,7 @@ describe('clearing a profile on a Playwright host', () => {
     if (!guest) throw new Error('no page was opened')
     const reloadsBefore = guest.reloads
 
-    await registry.clearProfile(browserProfilePartition(PROJECT, 'default'))
+    await registry.clearProfile(browserProfilePartition(PROJECT, 'default', 'local:owner'))
 
     expect(context.closed).toBe(false)
     expect(guest.closed).toBe(false)
@@ -235,7 +236,7 @@ describe('clearing a profile on a Playwright host', () => {
     // WHY: with no page to keep alive, the directory is the whole profile, and
     // the next guest on the partition should start from an empty one.
     const { registry } = await harness()
-    const partition = browserProfilePartition(PROJECT, 'admin')
+    const partition = browserProfilePartition(PROJECT, 'admin', 'local:owner')
     const profileHost = surface.browserProfileHost()
     if (!profileHost) throw new Error('no profile host registered')
     // Importing opens the context without opening a page on it.
@@ -247,6 +248,32 @@ describe('clearing a profile on a Playwright host', () => {
 
     expect(context.closed).toBe(true)
     expect(existsSync(context.userDataDir)).toBe(false)
+  })
+
+  test("the host's own work gets a temporary jar, and nothing can import into it", async () => {
+    // WHY: a page opened for nobody must not sign in as somebody, and must not
+    // leave a jar on disk that a later page could find (member-isolation.md §6).
+    const { registry } = await harness()
+    const page = registry.open({ target: TARGET }, null)
+    await registry.navigate(page.browserPageId, { kind: 'reload' })
+
+    expect(contexts.map((context) => context.userDataDir)).toEqual([''])
+    const profileHost = surface.browserProfileHost()
+    if (!profileHost) throw new Error('no profile host registered')
+    await expect(profileHost.importCookies(registry.partitionOf(page), [])).rejects.toThrow('Refusing')
+    await expect(registry.clearProfile(registry.partitionOf(page))).rejects.toThrow('Refusing')
+  })
+
+  test("two people in one project get two directories", async () => {
+    const { registry } = await harness()
+    const alice = registry.open({ target: TARGET }, 'acct_alice')
+    const bob = registry.open({ target: TARGET }, 'acct_bob')
+    await registry.navigate(alice.browserPageId, { kind: 'reload' })
+    await registry.navigate(bob.browserPageId, { kind: 'reload' })
+
+    const [aliceDir, bobDir] = contexts.map((context) => context.userDataDir)
+    expect(aliceDir).toBeDefined()
+    expect(aliceDir).not.toBe(bobDir)
   })
 
   test('a partition that could escape the profiles directory is refused', async () => {

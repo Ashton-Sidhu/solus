@@ -12,17 +12,15 @@ import { type CreateSessionOrder } from '../orchestration/session-orchestrator'
 import type { AgentId, GitCheckout, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, SessionOrigin, SessionRunInput, ReasoningEffort } from '@solus/contracts/types'
 import { defaultContextWindowFor } from '@solus/contracts/types'
 import { HOST_ACTOR, insightsAccountOf, type Actor } from '../../admission/actor'
-import { INTERNAL_PRINCIPAL } from '../../admission/principal'
 import { userKey } from '@solus/contracts/user'
 import { admitTurnOrganization, type TurnAdmissionContext, type TurnOrganizationDeps } from './turn-organization'
-import { integrationAgentTools } from '../../integrations/integration-tools'
 import type { SessionRuntime, SessionRunRequest, SessionRunLifecycle, DispatchTarget } from '../session-runtime'
 
 const log = createLogger('SessionRuntime', 'prompt-dispatch.ts')
 
-/** A run's Solus tools, then the tools of every integration the run's person may read; a run with no actor is the host's. */
-function selectAgentTools(actor: Actor | undefined, ...groups: Array<Record<string, AgentTool>>): AgentTool[] {
-  return [...groups.flatMap((group) => Object.values(group)), ...integrationAgentTools(actor?.principal ?? INTERNAL_PRINCIPAL)]
+/** A run's Solus tools. Its MCP servers' tools join at launch, listed for the run's person (`run-launcher.ts`). */
+function selectAgentTools(...groups: Array<Record<string, AgentTool>>): AgentTool[] {
+  return groups.flatMap((group) => Object.values(group))
 }
 
 export interface CreateSessionRequest extends Omit<CreateSessionOrder, 'modelId'> {
@@ -142,7 +140,6 @@ export class PromptDispatch {
           promptSource: ctx.session.origin === 'dispatch' ? 'dispatch' : 'typed',
         },
         tools: selectAgentTools(
-          origin?.actor,
           solusToolbox.works,
           solusToolbox.docs,
           solusToolbox.artifact,
@@ -249,7 +246,6 @@ export class PromptDispatch {
       exchangeIds,
       reportExchangeIds,
       tools: selectAgentTools(
-        actor,
         solusToolbox.works,
         solusToolbox.docs,
         solusToolbox.artifact,
@@ -341,7 +337,6 @@ export class PromptDispatch {
       delegation,
       startedBy: req.startedBy,
       tools: selectAgentTools(
-        runActor,
         solusToolbox.works,
         solusToolbox.docs,
         solusToolbox.artifact,
@@ -413,7 +408,6 @@ export class PromptDispatch {
       sessionId,
       actor: req.actor,
       tools: selectAgentTools(
-        req.actor,
         solusToolbox.works,
         solusToolbox.docs,
         solusToolbox.artifact,
@@ -480,7 +474,6 @@ export class PromptDispatch {
     let request: SessionRunRequest
     const input = runInputFromContext(ctx)
     const tools = selectAgentTools(
-      actor,
       solusToolbox.works,
       solusToolbox.docs,
       solusToolbox.artifact,

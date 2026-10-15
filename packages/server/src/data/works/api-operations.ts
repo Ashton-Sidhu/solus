@@ -10,7 +10,6 @@ import type { WorkspaceCreateWork, WorkspaceImportWork, WorkspacePublishWork, Wo
 import { requestAttribution, workspaceAuthorityKey, type WorkspaceRequestContext } from '../../admission/workspace-credentials'
 import { SolusApiError } from '../../admission/workspace-error'
 import { getDatabase } from '../../db/database'
-import { hostUserKey } from '../../host/host-user'
 import type { ShareManager } from '../../sharing/share-manager'
 import { scopeClause } from '../scope'
 import { apiOrganization, apiScope, projectIdsForKeys, projectKeyForId, requireResource, requireScope } from '../workspace/context'
@@ -24,7 +23,7 @@ import { Work, WorkContentInvalidError, WorkMovedError, WorkVersionConflictError
 import { workLocation } from './work-rows'
 import { announceWorkDeleted } from './work-events'
 import { requestWorkReview, shareWithReviewers } from './work-reviews'
-import { actorFor } from '../../admission/actor'
+import { actorFor, ownerKeyOf } from '../../admission/actor'
 
 /** The domain's refusals, as the API answers them. */
 async function domainAnswer<T>(write: () => Promise<T>): Promise<T> {
@@ -51,16 +50,21 @@ export class WorkApiOperations {
   constructor(private readonly shares: ShareManager) {}
 
   private async summaries(context: WorkspaceRequestContext, records: (WorkMeta & { id: string })[]): Promise<WorkspaceWorkSummary[]> {
-    const owners = await this.shares.ownersOf('work', records.map(work => work.id))
+    const access = await this.shares.accessOf(context.principal, 'work', records.map(work => work.id))
     const projects = await projectIdsForKeys(context, records.map(work => work.cwd))
-    return records.map(work => ({
-      id: work.id, home: context.home, organizationId: work.organizationId === 'local' ? null : work.organizationId,
-      ownerUserId: owners.get(work.id) ?? hostUserKey(), version: work.updatedAt,
-      createdAt: work.createdAt, updatedAt: work.updatedAt, title: work.title, type: work.type,
-      preview: work.preview, sessionIds: work.sessionIds ?? (work.sessionId ? [work.sessionId] : []),
-      projectId: projects.get(work.organizationId)?.get(work.cwd) ?? null, pinned: work.pinned ?? false,
-      editable: work.mirroredDoc?.provider !== 'gdrive', cwd: work.cwd, agentProvider: work.agentProvider, mirroredDoc: work.mirroredDoc,
-    }))
+    return records.map(work => {
+      // The page was read from the same rows a moment ago: a row gone now is a work that was deleted.
+      const owned = access.get(work.id)
+      if (!owned) throw new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
+      return {
+        id: work.id, home: context.home, organizationId: work.organizationId === 'local' ? null : work.organizationId,
+        ownerKey: owned.ownerKey, role: owned.role, version: work.updatedAt,
+        createdAt: work.createdAt, updatedAt: work.updatedAt, title: work.title, type: work.type,
+        preview: work.preview, sessionIds: work.sessionIds ?? (work.sessionId ? [work.sessionId] : []),
+        projectId: projects.get(work.organizationId)?.get(work.cwd) ?? null, pinned: work.pinned ?? false,
+        editable: work.mirroredDoc?.provider !== 'gdrive', cwd: work.cwd, agentProvider: work.agentProvider, mirroredDoc: work.mirroredDoc,
+      }
+    })
   }
 
   /** `version` is the record's ETag; `contentVersion` is the body's own version. */
@@ -80,7 +84,7 @@ export class WorkApiOperations {
 
   async version(context: WorkspaceRequestContext, workId: string): Promise<string> {
     requireScope(context, 'works:read')
-    await requireResource(this.shares, context, { kind: 'work', id: workId }, 'viewer')
+    await requireResource(this.shares, context, { kind: 'work', id: workId }, 'read')
     const work = await Work.find(apiScope(context), workId)
     if (!work) throw await notHere(context, workId)
     return work.updatedAt
@@ -88,7 +92,7 @@ export class WorkApiOperations {
 
   async get(context: WorkspaceRequestContext, workId: string): Promise<WorkspaceWork> {
     requireScope(context, 'works:read')
-    await requireResource(this.shares, context, { kind: 'work', id: workId }, 'viewer')
+    await requireResource(this.shares, context, { kind: 'work', id: workId }, 'read')
     return (await this.records(context, [await this.read(context, workId)]))[0]
   }
 
@@ -96,12 +100,12 @@ export class WorkApiOperations {
     query = workspaceWorkQuerySchema.parse(query)
     requireScope(context, 'works:read')
     const filters = [scopeClause(apiScope(context), sql`works.organization_id`),
-      workspaceResourceVisibility(context.principal, 'work', sql`works.id`, sql`works.organization_id`),
+      workspaceResourceVisibility(context.principal, 'work', { id: sql`works.id`, organization: sql`works.organization_id`, owner: sql`works.owner_key` }),
       seekClause(sql`works.created_at`, sql`works.id`, readCursor(query.cursor))]
     if (query.projectId) filters.push(sql`cwd = ${await projectKeyForId(context, query.projectId)}`)
     if (query.type) filters.push(sql`type = ${query.type}`)
     if (query.sessionId) {
-      await requireResource(this.shares, context, { kind: 'session', id: query.sessionId }, 'viewer')
+      await requireResource(this.shares, context, { kind: 'session', id: query.sessionId }, 'read')
       // Additional session links are stored in the portable JSON metadata.
       const db = getDatabase()
       filters.push(db.engine === 'postgres'
@@ -130,12 +134,13 @@ export class WorkApiOperations {
     return createWithReceipt(workspaceAuthorityKey(context), 'work', key, canonicalRequest(input), async () => {
       if (input.id && await loadWork(apiScope(context), input.id)) throw new SolusApiError(409, 'CONFLICT', 'This work already exists.')
       const work = await domainAnswer(() => createWork(apiOrganization(context), input.title, input.type, input.content,
-        workPreview(input.type, input.content), input.originSessionId ?? undefined, session?.provider ?? input.agentProvider ?? 'claude-code', projectKey ?? '~', input.id, requestAttribution(context)))
-      await this.shares.claimOwner({ kind: 'work', id: work.id }, context.principal)
+        workPreview(input.type, input.content), input.originSessionId ?? undefined, session?.provider ?? input.agentProvider ?? 'claude-code', projectKey ?? '~', input.id, requestAttribution(context),
+        ownerKeyOf(actorFor(context.principal)) ?? undefined))
+      await this.shares.shareWithOrganization({ kind: 'work', id: work.id }, context.principal)
       if (context.actingAgent?.linkWorkToTask !== false) await linkWorkToSessionTasks(apiScope(context), work)
       return (await this.records(context, [work]))[0]
     }, async workId => {
-      await requireResource(this.shares, context, { kind: 'work', id: workId }, 'editor')
+      await requireResource(this.shares, context, { kind: 'work', id: workId }, 'edit')
       return (await this.records(context, [await this.read(context, workId)]))[0]
     })
   }
@@ -143,7 +148,7 @@ export class WorkApiOperations {
   /** The session a new work names, which the caller must be able to edit; an agent's own session may not have reached this service yet. */
   private async parentSession(context: WorkspaceRequestContext, originSessionId: string | null | undefined) {
     if (!originSessionId) return null
-    await requireResource(this.shares, context, { kind: 'session', id: originSessionId }, 'editor')
+    await requireResource(this.shares, context, { kind: 'session', id: originSessionId }, 'edit')
     const session = await getSessionRecord(apiScope(context), originSessionId)
     if (!session && !context.actingAgent) throw new SolusApiError(404, 'NOT_FOUND', 'Parent session not found.')
     return session
@@ -162,16 +167,16 @@ export class WorkApiOperations {
     return createWithReceipt(workspaceAuthorityKey(context), 'work', key, canonicalRequest(input), async () => {
       let imported
       try {
-        imported = await importDocFromUrl(apiOrganization(context), input.url, { cwd: input.projectKey ?? '~', sessionId: input.originSessionId ?? undefined, agentProvider: session?.provider })
+        imported = await importDocFromUrl(apiOrganization(context), input.url, { cwd: input.projectKey ?? '~', sessionId: input.originSessionId ?? undefined, agentProvider: session?.provider, ownerKey: ownerKeyOf(actorFor(context.principal)) ?? undefined })
       } catch (error) {
         // The link cannot be read: not a supported document, or the person's connection is missing or refused.
         throw new SolusApiError(400, 'INVALID_REQUEST', (error instanceof Error ? error.message : String(error)).slice(0, 1000))
       }
-      await this.shares.claimOwner({ kind: 'work', id: imported.work.id }, context.principal)
+      await this.shares.shareWithOrganization({ kind: 'work', id: imported.work.id }, context.principal)
       if (context.actingAgent?.linkWorkToTask !== false) await linkWorkToSessionTasks(apiScope(context), imported.work)
       return (await this.records(context, [imported.work]))[0]
     }, async workId => {
-      await requireResource(this.shares, context, { kind: 'work', id: workId }, 'editor')
+      await requireResource(this.shares, context, { kind: 'work', id: workId }, 'edit')
       return (await this.records(context, [await this.read(context, workId)]))[0]
     })
   }
@@ -185,7 +190,7 @@ export class WorkApiOperations {
   async publish(context: WorkspaceRequestContext, workId: string, input: WorkspacePublishWork): Promise<WorkspaceWorkUpstream> {
     input = workspacePublishWorkSchema.parse(input)
     requireScope(context, 'works:write')
-    await requireResource(this.shares, context, { kind: 'work', id: workId }, 'editor')
+    await requireResource(this.shares, context, { kind: 'work', id: workId }, 'edit')
     const work = await this.read(context, workId)
     const options: PublishWorkOptions = {}
     if (input.overwrite) options.force = true
@@ -205,7 +210,7 @@ export class WorkApiOperations {
   /** Replaces the work's content with its upstream document's, read with the caller's own connection; the previous content stays as a revision. */
   async pullUpstream(context: WorkspaceRequestContext, workId: string): Promise<WorkspaceWorkUpstream> {
     requireScope(context, 'works:write')
-    await requireResource(this.shares, context, { kind: 'work', id: workId }, 'editor')
+    await requireResource(this.shares, context, { kind: 'work', id: workId }, 'edit')
     const result = await pullWorkUpstream(apiScope(context), workId)
     if (!result.ok) throw new SolusApiError(400, 'INVALID_REQUEST', result.error.slice(0, 1000))
     return { outcome: 'pulled', title: result.title, url: result.link.url, lossyParts: result.lossyParts ?? [] }
@@ -216,7 +221,7 @@ export class WorkApiOperations {
   async requestReview(context: WorkspaceRequestContext, workId: string, input: WorkspaceRequestWorkReview): Promise<WorkspaceWorkReview> {
     input = workspaceRequestWorkReviewSchema.parse(input)
     requireScope(context, 'works:write')
-    await requireResource(this.shares, context, { kind: 'work', id: workId }, 'editor')
+    await requireResource(this.shares, context, { kind: 'work', id: workId }, 'edit')
     // One transaction: a refused request gives nobody access.
     const review = await getDatabase().transaction(async () => {
       const requested = await domainAnswer(() => requestWorkReview(apiScope(context), workId, {
@@ -247,7 +252,7 @@ export class WorkApiOperations {
     input = workspaceUpdateWorkSchema.parse(input)
     requireScope(context, 'works:write')
     return getDatabase().transaction(async () => {
-      await requireResource(this.shares, context, { kind: 'work', id: workId }, 'editor')
+      await requireResource(this.shares, context, { kind: 'work', id: workId }, 'edit')
       const work = await this.locked(context, workId, version)
       if (work.mirroredDoc?.provider === 'gdrive') throw new SolusApiError(409, 'READ_ONLY_RESOURCE', 'Edit this work in Google Docs, then pull the latest content.')
       // The record version is checked again inside the domain transaction,
@@ -268,7 +273,7 @@ export class WorkApiOperations {
   async delete(context: WorkspaceRequestContext, workId: string, version: string): Promise<void> {
     requireScope(context, 'works:write')
     await getDatabase().transaction(async () => {
-      await requireResource(this.shares, context, { kind: 'work', id: workId }, 'owner')
+      await requireResource(this.shares, context, { kind: 'work', id: workId }, 'own')
       await this.locked(context, workId, version)
       const work = await Work.byId(apiScope(context), workId)
       // A person's delete, not a Share's removal of the source: an open reader

@@ -168,8 +168,10 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
     : Math.max(insets.bottom, 12);
   const contentPresentationKind = props.contentPresentation.kind;
   const turnActive = isSessionBusyStatus(meta.status);
+  // A reader the session is shared with to view cannot prompt or stop it (docs/plans/access-model.md §2.7).
+  const mayDrive = store.controller.mayDrive;
   // A settled turn can leave background work running; Stop ends it too.
-  const canStop = turnActive || meta.status === "background";
+  const canStop = mayDrive && (turnActive || meta.status === "background");
   const working = isWorkingStatus(meta.status);
   const activeWorkStartedAt = workStartedAt(store, working);
   const activePendingApproval = meta.permissions[0] ?? null;
@@ -547,6 +549,7 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                     <PendingApprovalCard
                       approval={activePendingApproval}
                       respondingApprovalId={respondingRequestId}
+                      mayDrive={mayDrive}
                       onRespond={answerPermission}
                     />
                   ) : null}
@@ -557,8 +560,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                       maxHeight={pendingUserInputMaxHeight}
                       collapsed={userInputCollapsed}
                       onToggleCollapsed={handleToggleUserInputCollapsed}
-                      onStopThread={stopThread}
+                      onStopThread={canStop ? stopThread : undefined}
                       responding={respondingRequestId === activePendingUserInput.questionId}
+                      mayDrive={mayDrive}
                       onSubmit={answerQuestion}
                     />
                   ) : null}
@@ -583,7 +587,9 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                       ? "Loading conversation"
                       : props.connectionState === "blocked"
                         ? "Host unavailable"
-                        : null
+                        : mayDrive
+                          ? null
+                          : "Shared with you to view"
                 }
                 canStopThread={canStop}
                 bottomInset={composerBottomInset}

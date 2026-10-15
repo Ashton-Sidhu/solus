@@ -4,8 +4,9 @@ import { z } from 'zod'
 import { createLogger } from '../logger'
 import { GOOGLE_CLIENT_ID } from './client-id'
 import { GOOGLE_CLIENT_SECRET } from './client-secret'
-import { requireActingScope, withActingScope, type ActingScope } from '../vault/acting-scope'
-import { clearProviderCredential, usesAccountIntegration, EncryptionUnavailableError, readProviderCredential, writeProviderCredential } from '../vault/provider-credentials'
+import { currentPersonKey, requireActingScope, withActingScope, type ActingScope } from '../vault/acting-scope'
+import { usesAccountIntegration, EncryptionUnavailableError, vault } from '../vault/vault'
+import type { ProviderRef } from '@solus/contracts/vault'
 import { hostForUrl } from '@solus/contracts/entrypoint'
 import { GOOGLE_DRIVE_FILE_SCOPE, GOOGLE_OAUTH_SCOPES, parseGoogleScopes } from '@solus/contracts/google-auth'
 
@@ -64,15 +65,17 @@ export interface GoogleOAuthCallbackResult {
 
 const pendingFlows = new Map<string, PendingOAuthFlow>()
 
-/** Where the grant is kept — the host's store, the scoped person's vault row, or a runner's lease — is `provider-credentials`' choice (§22). */
+const GOOGLE: ProviderRef = { kind: 'provider', provider: 'google' }
+
+/** Where the grant is kept — the host's store or the person's account — is the vault's choice (docs/plans/access-model.md §2.6). */
 function loadStored(): Promise<StoredToken | null> {
-  return readProviderCredential('google', storedTokenSchema)
+  return vault().read(currentPersonKey(), GOOGLE, storedTokenSchema)
 }
 
 /** Never writes a token in plaintext: an unusable keyring fails the connect
  *  rather than degrading storage, as GitHub and Atlassian already do. */
-function persist(token: StoredToken): Promise<void> {
-  return writeProviderCredential('google', token)
+async function persist(token: StoredToken): Promise<void> {
+  vault().save(currentPersonKey(), GOOGLE, token)
 }
 
 /** A refresh cannot ask the user anything, so a write failure there is logged
@@ -156,7 +159,7 @@ export async function startGoogleOAuthFlow(opts: GoogleOAuthStartOptions): Promi
   const redirectUri = buildRedirectUri(opts)
   const scope = requireActingScope('a Google connection')
   // One flow per person and callback: two people on the service must not share a URL.
-  const existing = [...pendingFlows.values()].find(flow => flow.redirectUri === redirectUri && flow.scope.credentialUserId === scope.credentialUserId)
+  const existing = [...pendingFlows.values()].find(flow => flow.redirectUri === redirectUri && flow.scope.personKey === scope.personKey)
   if (existing) return { authUrl: existing.authUrl, expiresAt: existing.expiresAt }
 
   const client = oauthClient(redirectUri)
@@ -311,5 +314,5 @@ export async function getAccessToken(): Promise<string | null> {
 }
 
 export async function disconnect(): Promise<void> {
-  await clearProviderCredential('google')
+  vault().remove(currentPersonKey(), GOOGLE)
 }

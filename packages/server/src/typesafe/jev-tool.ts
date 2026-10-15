@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { AgentTool } from '../execution/agents/tools/agent-tool'
 import {
   APIError, APIUserAbortError, APITimeoutError, APIConnectionError,
-  choice, noul, score, getTypeSafe,
+  choice, noul, score, getTypeSafe, TypeSafeKeyMissingError,
   type Question, type TypeSafeApi,
 } from './index'
 
@@ -45,7 +45,7 @@ const JEV_DESCRIPTION = [
   'Batch independent questions about the same state into one call. Consider this tool for many small judgments that would otherwise require repeated reasoning. For a trivial decision, exact lookup, calculation, or test result, use code or the evidence directly.',
   'Jev cannot retrieve missing information, write code, plan a complex task, or verify facts beyond the supplied state. Its probabilities are evidence for your decision, not proof, permission, or a reason to override user instructions. Keep uncertain cases with the agent; do not blindly execute a selected action.',
   'Returns answers, actual model, token usage, request ID, and elapsed milliseconds including retries. A Noul is the probability of yes, not an intensity score. Choice/Score confidence describes the answer distribution, not guaranteed correctness.',
-  'Calls the TypeSafe service using the host’s saved TypeSafe key or TYPESAFE_API_KEY. If unavailable, continue with your normal process and report the limitation; do not repeatedly retry or ask for credentials in chat.',
+  'Calls the TypeSafe service with the TypeSafe key of the person this run acts for. If unavailable, continue with your normal process and report the limitation; do not repeatedly retry or ask for credentials in chat.',
 ].join('\n')
 
 function toQuestion(question: z.output<typeof questionSchema>): Question {
@@ -63,7 +63,7 @@ function toQuestion(question: z.output<typeof questionSchema>): Question {
 }
 
 /** The injectable client keeps tests on the real SDK with a fake HTTP transport. */
-export function createJevAgentTool(client: () => TypeSafeApi = getTypeSafe): AgentTool {
+export function createJevAgentTool(client: () => Promise<TypeSafeApi> = getTypeSafe): AgentTool {
   return {
     name: 'ask_jev',
     description: JEV_DESCRIPTION,
@@ -88,7 +88,7 @@ export function createJevAgentTool(client: () => TypeSafeApi = getTypeSafe): Age
       const started = performance.now()
       try {
         context.abortSignal.throwIfAborted()
-        const result = await client().systemOne({
+        const result = await (await client()).systemOne({
           state,
           questions: Object.fromEntries(questions.map(question => [question.id, toQuestion(question)])),
           model,
@@ -107,7 +107,8 @@ export function createJevAgentTool(client: () => TypeSafeApi = getTypeSafe): Age
         if (error instanceof APITimeoutError) return { ok: false, text: 'Jev request timed out. Continue with your normal process.' }
         if (error instanceof APIError) return { ok: false, text: `Jev returned HTTP ${error.status}. Continue with your normal process.` }
         if (error instanceof APIConnectionError) return { ok: false, text: 'Could not reach Jev. Continue with your normal process.' }
-        return { ok: false, text: 'Jev is unavailable. Check the host TYPESAFE_API_KEY and TypeSafe configuration. Continue with your normal process.' }
+        if (error instanceof TypeSafeKeyMissingError) return { ok: false, text: `Jev is unavailable. ${error.message} Continue with your normal process.` }
+        return { ok: false, text: 'Jev is unavailable. Check the TypeSafe configuration. Continue with your normal process.' }
       }
     },
   }

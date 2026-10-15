@@ -22,7 +22,6 @@ export interface ConnectCardCopy {
 }
 
 const PURPOSE: Record<ConnectionReason, string> = {
-  deploy: 'Needed to put this online. Free — no credit card.',
   'pull-requests': 'Needed to read and write pull requests on your behalf.',
   issues: 'Needed to read and write issues on your behalf.',
   confluence: 'Needed to read and publish Confluence pages.',
@@ -32,7 +31,6 @@ const PURPOSE: Record<ConnectionReason, string> = {
 }
 
 const REASON = {
-  deploy: 'to deploy',
   'pull-requests': 'for pull requests',
   issues: 'for issues',
   confluence: 'for Confluence pages',

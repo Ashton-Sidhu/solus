@@ -15,7 +15,7 @@ describe('connect card copy', () => {
   })
 
   test('the reason is a lowercase phrase, never a kicker', () => {
-    expect(connectCardCopy('cloudflare', 'deploy').reason).toBe('to deploy')
+    expect(connectCardCopy('google', 'drive').reason).toBe('for Google Docs')
     expect(connectCardCopy('github', 'pull-requests').reason).toBe('for pull requests')
   })
 })

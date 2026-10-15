@@ -54,7 +54,7 @@ async function permanentOnRefusal<T>(write: () => Promise<T>): Promise<T> {
 }
 
 export function registerWorkOutboxApplier(): void {
-  registerOutboxApplier('works', async (op: OutboxOp, organizationId: string) => {
+  registerOutboxApplier('works', async (op: OutboxOp, { organizationId, ownerKey }) => {
     if (op.name === 'create') {
       const payload = workCreatePayloadSchema.parse(op.payload)
       const existing = await loadWork(organizationId, op.resourceId)
@@ -70,6 +70,7 @@ export function registerWorkOutboxApplier(): void {
           payload.cwd ?? '~',
           op.resourceId,
           agentAttribution(payload.originSessionId ?? op.sessionId, payload.agentProvider),
+          ownerKey,
         ))
       }
       const originSessionId = payload.originSessionId ?? op.sessionId

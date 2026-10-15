@@ -18,7 +18,7 @@ export function registerSharingHandlers(server: SolusServer, deps: { shares: Sha
   // The three writes below answer the share manager's own promise.
   server.register('shareSet', (args, ctx) => {
     const request = shareSetRequestSchema.parse(args[0])
-    return timeShareCall('shareSet', request.resource, () => deps.shares.setGrants(request, ctx.principal))
+    return timeShareCall('shareSet', request.resource, () => deps.shares.setEntries(request, ctx.principal))
   })
   server.register('shareSetLink', (args, ctx) => {
     const request = shareSetLinkRequestSchema.parse(args[0])

@@ -3,16 +3,16 @@ import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import type { Integration, IntegrationConnectionChangedEvent } from '@solus/contracts/integration-types'
-import type { IntegrationSecrets } from '@solus/server/integrations/connection-store'
-import type { OAuthClient, OAuthToken } from '@solus/contracts/integrations/oauth-protocol'
 import { resetTestDatabase } from '../helpers/test-db'
 import { startFakeServers, type FakeServers } from './fake-servers'
+import { memoryClients, memorySecretStore } from './memory-secrets'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 const { IntegrationOAuth } = await import('@solus/server/integrations/oauth')
 const { IntegrationConnections } = await import('@solus/server/integrations/connections')
 const { IntegrationConnectionStore } = await import('@solus/server/integrations/connection-store')
+const { Vault } = await import('@solus/server/vault/vault')
 const { dataDir } = await import('@solus/server/platform/paths')
 const db = await import('@solus/server/db')
 
@@ -26,32 +26,20 @@ const ALICE = 'account:alice'
 
 let fake: FakeServers
 
-function memorySecrets(): IntegrationSecrets {
-  const tokens = new Map<string, OAuthToken>()
-  const clients = new Map<string, OAuthClient>()
-  const key = (id: string, user: string | null) => `${id}/${user ?? 'host'}`
-  return {
-    token: (id, user) => tokens.get(key(id, user)) ?? null,
-    saveToken: (id, user, token) => { tokens.set(key(id, user), token) },
-    removeToken: (id, user) => { tokens.delete(key(id, user)) },
-    client: (id) => clients.get(id) ?? null,
-    saveClient: (id, client) => { clients.set(id, client) },
-    removeClient: (id) => { clients.delete(id) },
-  }
-}
-
 function record(id: string, auth: Integration['auth']): Integration {
-  return { id, organizationId: 'local', ownerUserId: null, kind: 'mcp', slug: id, name: id, url: fake.mcpUrl, auth, createdBy: null, createdAt: '2026-10-08T00:00:00Z', updatedAt: '2026-10-08T00:00:00Z' }
+  return { id, organizationId: 'local', ownerKey: 'local:test', kind: 'mcp', slug: id, name: id, url: fake.mcpUrl, auth, createdBy: null, createdAt: '2026-10-08T00:00:00Z', updatedAt: '2026-10-08T00:00:00Z' }
 }
 
 function setup(integrations: Integration[]) {
-  const secrets = memorySecrets()
   const store = new IntegrationConnectionStore()
+  const secrets = memorySecretStore()
+  const vault = new Vault({ secrets })
+  const clients = memoryClients()
   const changed: Array<{ user: string | null; event: IntegrationConnectionChangedEvent }> = []
   const events = { connectionChanged: (user: string | null, event: IntegrationConnectionChangedEvent) => { changed.push({ user, event }) }, authFinished: () => {} }
   const lookup = { get: (id: string) => integrations.find((each) => each.id === id) ?? null }
-  const oauth = new IntegrationOAuth({ connections: store, integrations: lookup, secrets, events })
-  return { secrets, store, changed, connections: new IntegrationConnections({ store, integrations: lookup, secrets, oauth, events }) }
+  const oauth = new IntegrationOAuth({ connections: store, integrations: lookup, vault, clients, events })
+  return { secrets, store, changed, connections: new IntegrationConnections({ store, integrations: lookup, vault, clients, oauth, events }) }
 }
 
 beforeAll(async () => {
@@ -119,5 +107,18 @@ describe('integration connections', () => {
     expect(store.get(keyed.id, ALICE)).toMatchObject({ status: 'needs-sign-in', error: 'The server answered 401.' })
     expect(changed.at(-1)).toMatchObject({ user: ALICE, event: { integrationId: keyed.id, connection: { status: 'needs-sign-in' } } })
     expect(await connections.authorizationFor(keyed.id, ALICE)).toBeNull()
+  })
+
+  test('a guest has no MCP credentials: nothing is kept for them, and nothing is sent', async () => {
+    // WHY (docs/plans/access-model.md D1): a guest's turn runs on the sharer's seat
+    // and must never act with a credential, theirs or the sharer's.
+    fake.accepted.add('Bearer good-key')
+    const keyed = record('keyed', { kind: 'bearer', scheme: 'bearer' })
+    const { connections, secrets } = setup([keyed])
+    await expect(connections.submitKey(keyed, 'guest:maya', 'good-key')).rejects.toThrow('not a guest')
+    expect(secrets.values.size).toBe(0)
+    // A token left under a guest key from before is not read either.
+    secrets.values.set(`integration-token-keyed-${Buffer.from('guest:maya').toString('base64url')}`, JSON.stringify({ accessToken: 'good-key', tokenType: 'api-key' }))
+    expect(await connections.authorizationFor(keyed.id, 'guest:maya')).toBeNull()
   })
 })

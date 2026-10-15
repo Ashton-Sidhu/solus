@@ -95,8 +95,8 @@ export function registerCloudUploadHandlers(server: SolusServer, deps: { shares:
     return timeShareCall('workUpload', { kind: 'work', id: transfer.work.id }, async () => {
       const existing = await Work.find(ANY_ORGANIZATION, transfer.work.id)
       if (existing && existing.organizationId !== organizationId) throw new Error('This work already belongs to another organization.')
-      const work = await importWorkFromHost(organizationId, transfer)
-      await deps.shares.claimOwner({ kind: 'work', id: work.id }, principal)
+      const work = await importWorkFromHost(organizationId, transfer, principal.userId)
+      await deps.shares.shareWithOrganization({ kind: 'work', id: work.id }, principal)
       await linkWorkToSessionTasks(organizationId, work)
       log.info('work_uploaded', { organizationId, workId: work.id, userId: principal.userId, alreadyThere: existing !== null, revisions: transfer.revisions.length })
       return { workId: work.id, organizationId }
@@ -111,8 +111,8 @@ export function registerCloudUploadHandlers(server: SolusServer, deps: { shares:
     return timeShareCall('taskUpload', { kind: 'task', id: transfer.task.id }, async () => {
       const existing = await Task.byId(ANY_ORGANIZATION, transfer.task.id).catch(() => null)
       if (existing && existing.organizationId !== organizationId) throw new Error('This task already belongs to another organization.')
-      const task = await importTaskFromHost(organizationId, transfer, attributionOf(actor))
-      await deps.shares.claimOwner({ kind: 'task', id: task.id }, principal)
+      const task = await importTaskFromHost(organizationId, transfer, attributionOf(actor), principal.userId)
+      await deps.shares.shareWithOrganization({ kind: 'task', id: task.id }, principal)
       log.info('task_uploaded', { organizationId, taskId: task.id, userId: principal.userId, works: transfer.workIds.length, sessions: transfer.sessions.length, alreadyThere: existing !== null })
       return { taskId: task.id, organizationId }
     })

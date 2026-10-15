@@ -6,10 +6,8 @@
    * permission and question cards, not in a chrome banner of its own. Once the
    * account is connected, it collapses to a quiet line that offers Continue.
    *
-   * One card for every provider. What genuinely differs is the body and the
-   * completion signal: Cloudflare is a token pasted here, and the rest are
-   * browser sign-ins whose answer arrives on a host event. The shell, the
-   * dismissal, and the continue are the same either way.
+   * One card for every provider. Each is a browser sign-in whose answer
+   * arrives on a host event; the body is the part that differs.
    *
    * An integration (docs/plans/mcp-integrations.md §7) uses the same shell; its
    * body is the Settings row's own connect form, so a sign-in started here
@@ -20,7 +18,6 @@
   import { Plug } from "@lucide/svelte";
   import {
     atlassianStore,
-    cloudflareStore,
     connectionsStore,
     connectRequestStore,
     getWorkspaceContext,
@@ -30,7 +27,6 @@
   import TranscriptCardAction from "../conversation/TranscriptCardAction.svelte";
   import { ensureIconCollections } from "../diagram/iconify";
   import { PROVIDER_LOGOS } from "../settings/lib/provider-logos";
-  import CloudflareConnectForm from "../cloudflare/CloudflareConnectForm.svelte";
   import AtlassianConnectForm from "../atlassian/AtlassianConnectForm.svelte";
   import GitHubConnectForm from "./GitHubConnectForm.svelte";
   import IntegrationConnectForm from "../settings/IntegrationConnectForm.svelte";
@@ -59,7 +55,6 @@
     if (!request || !serverId || accountConnectionsUrl) return false;
     if (request.kind === "integration")
       return integrationsStore.connection(serverId, request.integrationId)?.status === "connected";
-    if (request.provider === "cloudflare") return cloudflareStore.connected;
     if (request.provider === "atlassian") return atlassianStore.connected(serverId);
     if (request.provider === "github")
       return (
@@ -130,8 +125,6 @@
                   Open account connections
                 </TranscriptCardAction>
                 <TranscriptCardAction onclick={continueRun}>Continue</TranscriptCardAction>
-              {:else if request.provider === "cloudflare"}
-                <div class="min-w-0 flex-1"><CloudflareConnectForm {serverId} autofocus /></div>
               {:else if request.provider === "atlassian"}
                 <AtlassianConnectForm {serverId} />
               {:else if request.provider === "github"}
@@ -154,11 +147,6 @@
       {/if}
       {#if copy.note}
         <p class="m-0 text-xs text-(--muted-foreground) opacity-80">{copy.note}</p>
-      {/if}
-      {#if request.kind === "account" && request.provider === "cloudflare"}
-        <p class="m-0 text-xs text-(--muted-foreground) opacity-80">
-          Paste the token here, not into the chat.
-        </p>
       {/if}
     </AttentionCard>
   </div>

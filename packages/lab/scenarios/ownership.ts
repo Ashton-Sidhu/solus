@@ -19,7 +19,7 @@ export default scenario('ownership: the creator owns a work and a session; trans
   const work = await bob.records.createWork('Bob\'s doc', 'doc', 'mine', 'mine', undefined, 'claude-code', ctx.cwd)
   const resource = { kind: 'work', id: work.id } as const
   if (ctx.hostKind === 'personal') {
-    await bob.rpc('shareSet', { resource, grants: [{ subject: { kind: 'organization', id: ORGANIZATION_ID }, role: 'editor' }] })
+    await bob.rpc('shareSet', { resource, entries: [{ subject: { kind: 'organization', id: ORGANIZATION_ID }, role: 'editor' }] })
   }
   await checkOwnership(ctx, resource, bobUserId, { bob: true, cara: true, alice: true })
   await expectOk(ctx, 'the organization owner opens it on either flavor', alice.api.request('getWork', { id: work.id }))
@@ -32,7 +32,7 @@ export default scenario('ownership: the creator owns a work and a session; trans
   await expectRefused(ctx, 'cara, an editor through membership, cannot transfer', cara.rpc('shareTransfer', { resource, toUserId: caraUserId }))
   await expectRefused(ctx, 'nor delete', cara.records.deleteWork(work.id), 'NOT_FOUND')
   const transferred = await bob.rpc('shareTransfer', { resource, toUserId: caraUserId })
-  ctx.check('cara owns it now', transferred.ownerUserId === caraUserId)
+  ctx.check('cara owns it now', transferred.ownerKey === caraUserId)
   await checkOwnership(ctx, resource, caraUserId, { cara: true, bob: true, alice: true })
   await expectOk(ctx, 'bob, no longer owner, still opens it as a member', bob.api.request('getWork', { id: work.id }))
   await expectRefused(ctx, 'but bob can no longer transfer it', bob.rpc('shareTransfer', { resource, toUserId: bobUserId }))
@@ -46,7 +46,7 @@ export default scenario('ownership: the creator owns a work and a session; trans
   ctx.check('bob started a session', sessionId.length > 0, sessionId)
   const session = { kind: 'session', id: sessionId } as const
   if (ctx.hostKind === 'personal') {
-    await bob.rpc('shareSet', { resource: session, grants: [{ subject: { kind: 'organization', id: ORGANIZATION_ID }, role: 'editor' }] })
+    await bob.rpc('shareSet', { resource: session, entries: [{ subject: { kind: 'organization', id: ORGANIZATION_ID }, role: 'editor' }] })
   }
   await checkOwnership(ctx, session, bobUserId, { bob: true, cara: true, alice: true })
   await expectOk(ctx, 'cara watches bob\'s session', cara.rpc('watchSession', { sessionId }))

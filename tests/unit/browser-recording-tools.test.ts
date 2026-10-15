@@ -58,6 +58,8 @@ const { initBrowserRecorder } = await import('@solus/server/browser/browser-reco
 const { recordingRetention, UNFILED_RECORDING_TTL_MS } = await import('@solus/server/browser/recording-retention')
 const surface = await import('@solus/server/browser/surface-driver')
 const tools = await import('@solus/server/browser/browser-tools')
+const { actAsHostForTests } = await import('@solus/server/execution/seats/acting-identity')
+actAsHostForTests()
 
 afterAll(() => {
   surface.setBrowserWebviewHost(null)
@@ -129,7 +131,8 @@ async function recordingPage(): Promise<string> {
   surface.setBrowserRecordingEncoderHost({ open: async () => fakeEncoder() })
   const registry = initBrowserRegistry({ pageChanged: () => {}, pageClosed: () => {}, surfaceRequested: () => {} })
   initBrowserRecorder(registry)
-  const page = registry.open({ target: { kind: 'url', url: 'http://localhost:5173/' } })
+  // The tools act as the host's own work here, so the page is the host's own.
+  const page = registry.open({ target: { kind: 'url', url: 'http://localhost:5173/' } }, null)
   await registry.attachSurface(page.browserPageId, 1)
   return page.browserPageId
 }

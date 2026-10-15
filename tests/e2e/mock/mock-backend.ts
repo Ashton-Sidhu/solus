@@ -39,8 +39,9 @@ function mockToolCall(prompt: string): { name: string; input: MockToolInput } | 
 /**
  * Every run this backend is handed, one JSON line each, under the host's data
  * directory. The Lab runs the host in another process, so this file is how a
- * scenario proves what the provider would have been spawned with: the prompt and
- * the seat (Step 2 plan §5). Nothing else about the request is recorded.
+ * scenario proves what the provider would have been spawned with: the prompt, the
+ * seat (Step 2 plan §5), and the names of the tools the run was handed (an MCP
+ * server's tools join a run for its person only). Nothing else is recorded.
  */
 const MOCK_RUNS_FILE = join(solusDir(), 'lab', 'mock-runs.ndjson')
 
@@ -50,6 +51,8 @@ export interface MockRunRecord {
   seat: AgentRunRequest['seat'] | null
   /** What the provider CLI would have read: the seat's `.credentials.json`, or the env token; null for the host login. */
   credential: string | null
+  /** The names of the tools the run was handed. */
+  tools: string[]
 }
 
 /** The Lab's cloud proofs (docs/plans/cloud-service-model.md §5): the credential material a run saw. */
@@ -66,7 +69,7 @@ function credentialSeenBy(request: AgentRunRequest): string | null {
 }
 
 function recordRun(request: AgentRunRequest): void {
-  const record: MockRunRecord = { at: Date.now(), prompt: request.prompt, seat: request.seat ?? null, credential: credentialSeenBy(request) }
+  const record: MockRunRecord = { at: Date.now(), prompt: request.prompt, seat: request.seat ?? null, credential: credentialSeenBy(request), tools: request.tools.map((tool) => tool.name) }
   try {
     mkdirSync(join(solusDir(), 'lab'), { recursive: true })
     appendFileSync(MOCK_RUNS_FILE, `${JSON.stringify(record)}\n`)

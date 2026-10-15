@@ -3,9 +3,11 @@
   import { tick, untrack } from "svelte";
   import { Star as StarIcon } from "@lucide/svelte";
   import type { Automation } from "@solus/contracts/types";
+  import type { ResourceVerb } from "@solus/contracts/permissions";
   import {
     getWorkspaceContext,
     getClientShellContext,
+    hosts,
     runtime,
     serversStore,
     projectsStore,
@@ -422,13 +424,20 @@
     if (scopeKey) selectProject(null);
   }
 
+  /** Whether the reader's role on an automation allows `verb` (docs/plans/access-model.md §2.7). */
+  function may(a: Automation, verb: ResourceVerb): boolean {
+    return hosts.get(store.hostFor(a.id))?.me.may(verb, { kind: "automation", id: a.id, role: a.role }) ?? true;
+  }
+
   async function toggleEnabled(a: Automation, e?: Event) {
     e?.stopPropagation();
+    if (!may(a, "edit")) return;
     await store.setEnabled(a.id, !a.enabled);
   }
 
   async function runNow(a: Automation, e?: Event) {
     e?.stopPropagation();
+    if (!may(a, "drive")) return;
     await store.runNow(a.id);
   }
 
@@ -439,11 +448,13 @@
 
   async function toggleFavorite(a: Automation, e?: Event) {
     e?.stopPropagation();
+    if (!may(a, "edit")) return;
     await store.setFavorite(a.id, !a.favorite);
   }
 
   function deleteAutomation(a: Automation, e?: Event) {
     e?.stopPropagation();
+    if (!may(a, "edit")) return;
     // Hide the row immediately, then offer a brief undo window. The on-disk
     // delete is deferred until the toast commits (matches document delete).
     if (!store.softRemove(a.id)) return;
@@ -485,7 +496,7 @@
       startEdit(selected);
     } else if (e.key === " " && selected && !inField) {
       e.preventDefault();
-      void store.setEnabled(selected.id, !selected.enabled);
+      void toggleEnabled(selected);
     }
   }
 </script>
@@ -593,6 +604,8 @@
                           folderLabel(a.action.cwd)}
                         projectPath={normalizeProjectRoot(a.action.cwd)}
                         serverId={store.hostFor(a.id)}
+                        canEdit={may(a, "edit")}
+                        canRun={may(a, "drive")}
                         recentRuns={store.recentRuns.get(a.id) ?? []}
                         {now}
                         selected={selectedId === a.id}
@@ -635,6 +648,8 @@
           x={automationContextMenu.x}
           y={automationContextMenu.y}
           automation={menuAutomation}
+          canEdit={may(menuAutomation, "edit")}
+          canRun={may(menuAutomation, "drive")}
           onEdit={() => startEdit(menuAutomation)}
           onRunNow={() => void runNow(menuAutomation)}
           onCancelRun={() => void cancelRun(menuAutomation)}

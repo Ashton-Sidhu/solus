@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Principal } from '@solus/server/admission/principal'
+import { seedResource } from './helpers/resource-rows'
 
 const dataDir = mkdtempSync(join(tmpdir(), 'solus-notify-test-'))
 process.env.SOLUS_DATA_DIR = dataDir
@@ -24,7 +25,8 @@ const principal: Principal = { kind: 'local-owner', deviceId: null, deviceLabel:
 test('share notifications cannot escape an outer rollback', async () => {
   const shares = new sharing.ShareManager({ db: database.getDatabase() })
   const resource = { kind: 'work' as const, id: 'rollback-share' }
-  await shares.claimOwner(resource, principal)
+  const { hostUserKey } = await import('@solus/server/host/host-user')
+  await seedResource(database.getDatabase(), 'work', resource.id, hostUserKey())
   const changes: string[] = []
   const stop = shares.onChanged(change => changes.push(change.resource.id))
   try {

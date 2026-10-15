@@ -89,23 +89,24 @@ function fakeSkills() {
   return { skills, log, bucket }
 }
 
+
+/** The host's owner as a person: their MCP records and connections are under this key, as a member's are under theirs. */
+const HOST_USER = 'local:owner'
+
+interface HostRecord { url: string; slug: string; ownerKey: string }
 /** The integration records as rows in memory. */
-function fakeIntegrations(hostHas: { url: string; slug: string }[] = []) {
+/** `hostHas`: records the host already has, each of its owner (docs/plans/access-model.md, D3). */
+function fakeIntegrations(hostHas: HostRecord[] = []) {
   const rows: Integration[] = []
   let next = 1
-  const record = (owner: ProfileIntegrationOwner, slug: string, name: string, url: string): Integration => ({
-    id: `int-${next++}`, organizationId: owner.organizationId, ownerUserId: owner.ownerUserId, kind: 'mcp', slug, name, url, auth: { kind: 'none' }, createdBy: owner.ownerUserId, createdAt: '', updatedAt: '',
+  const record = (owner: { organizationId: string; ownerKey: string }, slug: string, name: string, url: string): Integration => ({
+    id: `int-${next++}`, organizationId: owner.organizationId, ownerKey: owner.ownerKey, kind: 'mcp', slug, name, url, auth: { kind: 'none' }, disabledTools: [], createdBy: owner.ownerKey, createdAt: '', updatedAt: '',
   })
-  for (const had of hostHas) rows.push(record({ organizationId: 'local', ownerUserId: null }, had.slug, had.slug, had.url))
+  for (const had of hostHas) rows.push(record({ organizationId: 'local', ownerKey: had.ownerKey }, had.slug, had.slug, had.url))
   const log: string[] = []
   const integrations: ProfileIntegrations = {
-    list: (owner) => rows.filter((row) => row.ownerUserId === owner.ownerUserId && row.organizationId === owner.organizationId),
-    findByUrl: (owner, url) => {
-      const own = rows.find((row) => row.url === url && row.ownerUserId === owner.ownerUserId)
-      const shared = rows.find((row) => row.url === url && row.ownerUserId === null)
-      const found = own ?? shared
-      return found ? { integration: found, own: found.ownerUserId === owner.ownerUserId } : null
-    },
+    list: (owner) => rows.filter((row) => row.ownerKey === owner.ownerKey && row.organizationId === owner.organizationId),
+    findByUrl: (owner, url) => rows.find((row) => row.url === url && row.ownerKey === owner.ownerKey && row.organizationId === owner.organizationId) ?? null,
     create: (owner, entry) => { const created = record(owner, entry.slug, entry.name, entry.url); rows.push(created); log.push(`create:${entry.slug}`); return created },
     update: (id, entry) => { const row = rows.find((each) => each.id === id)!; row.name = entry.name; log.push(`update:${entry.slug}`) },
     remove: (id) => { const index = rows.findIndex((each) => each.id === id); log.push(`remove:${rows[index]?.slug}`); rows.splice(index, 1) },
@@ -114,7 +115,7 @@ function fakeIntegrations(hostHas: { url: string; slug: string }[] = []) {
 }
 
 /** A host with one member's seat homes, reading its own profile from `sourceHomes`. */
-function seat(sourceHomes: (provider: SeatProvider) => string[] = () => [], hostIntegrations: { url: string; slug: string }[] = [], account?: ProfileAccount) {
+function seat(sourceHomes: (provider: SeatProvider) => string[] = () => [], hostIntegrations: HostRecord[] = [], account?: ProfileAccount) {
   const root = temporaryDirectory()
   const homeFor = (provider: SeatProvider) => {
     const home = join(root, provider === 'claude-code' ? 'claude' : 'codex')
@@ -135,7 +136,7 @@ function seat(sourceHomes: (provider: SeatProvider) => string[] = () => [], host
     skillHomesFor: (target) => target.kind === 'member' ? { claudeHome: homeFor('claude-code'), codexHome: homeFor('codex') } : undefined,
     agentIds: () => ['claude-code', 'codex'],
     integrations: integrations.integrations,
-    integrationOwnerFor: (target) => target.kind === 'member' ? { organizationId: target.organizationId, ownerUserId: target.userId } : { organizationId: 'local', ownerUserId: null },
+    integrationOwnerFor: (target) => target.kind === 'member' ? { organizationId: target.organizationId, ownerKey: target.userId } : { organizationId: 'local', ownerKey: HOST_USER },
     account,
   })
   return { root, homeFor, profiles, skills, integrations, at: (time: number) => { now = time } }
@@ -158,7 +159,7 @@ test('a profile carries instructions, skills, subagents, commands, and MCP serve
   const { homes } = laptop()
   const host = seat(homes)
   host.skills.bucket().set('frontend-design', 'anthropics/skills')
-  host.integrations.integrations.create({ organizationId: 'local', ownerUserId: null }, { kind: 'integration', slug: 'deepwiki', name: 'DeepWiki', url: 'https://mcp.deepwiki.com/mcp', auth: { kind: 'none' } })
+  host.integrations.integrations.create({ organizationId: 'local', ownerKey: HOST_USER }, { kind: 'integration', slug: 'deepwiki', name: 'DeepWiki', url: 'https://mcp.deepwiki.com/mcp', auth: { kind: 'none' } })
   const read = await host.profiles.read()
   expect(Object.keys(read.profile).sort()).toEqual([
     'file:claude-code/agents/reviewer.md',
@@ -227,28 +228,29 @@ test('a registry skill is installed into the target\'s homes, removed when it le
 })
 
 test('an MCP server becomes the member\'s own record, matched by URL, and a host the person owns keeps its own', async () => {
-  // WHY: each host mints its own ids, so a record is found by its URL; a shared
-  // server the host already has is never replaced or re-owned by a copy.
+  // WHY: each host mints its own ids, so a record is found by its URL. Every record
+  // is one person's (D3): a copy never reaches another person's record.
   const server = (slug: string, url = `https://${slug}.example/mcp`): AgentProfileIntegrationEntry => ({ kind: 'integration', slug, name: slug.toUpperCase(), url, auth: { kind: 'none' } })
-  const member = seat(() => [], [{ slug: 'shared', url: 'https://shared.example/mcp' }])
+  const member = seat(() => [], [{ slug: 'shared', url: 'https://shared.example/mcp', ownerKey: HOST_USER }])
   const first = await member.profiles.apply(MEMBER, profile(server('linear'), server('shared')), PUSH)
-  expect(member.integrations.log).toEqual(['create:linear'])
-  expect(first.counts.integrations).toBe(1)
-  expect(first.skipped).toEqual([{ path: 'shared', reason: 'kept-on-host' }])
+  expect(member.integrations.log).toEqual(['create:linear', 'create:shared'])
+  expect(first.counts.integrations).toBe(2)
+  expect(first.skipped).toEqual([])
   const own = member.integrations.rows.find((row) => row.slug === 'linear')!
-  expect(own).toMatchObject({ ownerUserId: 'member-1', organizationId: 'org-a' })
+  expect(own).toMatchObject({ ownerKey: 'member-1', organizationId: 'org-a' })
 
   member.integrations.log.length = 0
   await member.profiles.apply(MEMBER, profile({ ...server('linear'), name: 'Linear issues' }, server('context7')), PUSH)
-  expect(member.integrations.log).toEqual(['update:linear', 'create:context7'])
+  expect(member.integrations.log).toEqual(['update:linear', 'create:context7', 'remove:shared'])
   await member.profiles.remove(MEMBER)
-  expect(member.integrations.log.slice(2).sort()).toEqual(['remove:context7', 'remove:linear'])
+  expect(member.integrations.log.slice(3).sort()).toEqual(['remove:context7', 'remove:linear'])
   expect(member.integrations.rows.map((row) => row.slug)).toEqual(['shared'])
 
-  const owned = seat(() => [], [{ slug: 'shared', url: 'https://shared.example/mcp' }])
+  // A server the host user already had on their own host, made another way, is kept as it is by a computer's push.
+  const owned = seat(() => [], [{ slug: 'shared', url: 'https://shared.example/mcp', ownerKey: HOST_USER }])
   const status = await owned.profiles.apply(OWNER, profile(server('linear'), server('shared')), PUSH)
   expect(owned.integrations.log).toEqual(['create:linear'])
-  expect(owned.integrations.rows.find((row) => row.slug === 'linear')?.ownerUserId).toBeNull()
+  expect(owned.integrations.rows.find((row) => row.slug === 'linear')?.ownerKey).toBe(HOST_USER)
   expect(status.skipped).toEqual([{ path: 'shared', reason: 'kept-on-host' }])
 })
 
@@ -376,7 +378,7 @@ test('on a host the person owns, a copy never replaces or removes the host\'s ow
  * It reads as the person with its delegation for them (ADR 0001 §3.4); `delegated:
  * false` is a person this host does not act for.
  */
-function linked(options: { answer?: (request: Request) => Promise<Response>; delegated?: boolean; linked?: boolean; hostHas?: { url: string; slug: string }[] } = {}) {
+function linked(options: { answer?: (request: Request) => Promise<Response>; delegated?: boolean; linked?: boolean; hostHas?: HostRecord[] } = {}) {
   const requests: Request[] = []
   const reconciled: Array<{ owner: ProfileIntegrationOwner; connections: string[] }> = []
   const reads = new AccountReads({
@@ -394,14 +396,14 @@ function linked(options: { answer?: (request: Request) => Promise<Response>; del
   const target = seat(() => [], options.hostHas ?? [], {
     reads,
     userFor: (profileTarget) => profileTarget.kind === 'member' ? profileTarget.userId : 'owner-1',
-    reconcile: async (owner, connections) => { reconciled.push({ owner, connections: connections.map((connection) => connection.serverUrl) }) },
+    reconcile: async (owner, connections) => { reconciled.push({ owner, connections: connections.flatMap((connection) => connection.ref.kind === 'mcp' ? [connection.ref.serverUrl] : []) }) },
   })
   return { ...target, requests, reconciled }
 }
 
 const accountProfile = (revision: number, connections: string[] = []) => Response.json({
   profile: { schemaVersion: 1, generation: 0, revision, entries: { 'file:claude-code/agents/rules.md': text('agents/rules.md', `rules v${revision}`) }, updatedAt: 5 },
-  connections: connections.map((serverUrl) => ({ serverUrl, kind: 'bearer', status: 'connected', label: null, updatedAt: 1 })),
+  connections: connections.map((serverUrl) => ({ ref: { kind: 'mcp', serverUrl }, material: 'key', status: 'connected', label: null, updatedAt: 1 })),
 })
 
 test('a pull reads with the person\'s delegated token as the bearer and no body, applies a moved revision as an account copy, and reconciles the connections', async () => {
@@ -413,7 +415,7 @@ test('a pull reads with the person\'s delegated token as the bearer and no body,
   expect(await host.requests[0].text()).toBe('')
   expect(status).toMatchObject({ source: 'account', revision: 3, counts: { files: 1 } })
   expect(readFileSync(join(host.homeFor('claude-code'), 'agents/rules.md'), 'utf8')).toBe('rules v3')
-  expect(host.reconciled).toEqual([{ owner: { organizationId: 'org-a', ownerUserId: 'member-1' }, connections: ['https://linear.example/mcp'] }])
+  expect(host.reconciled).toEqual([{ owner: { organizationId: 'org-a', ownerKey: 'member-1' }, connections: ['https://linear.example/mcp'] }])
 })
 
 test('a revision the host already applied is not applied again, and a person with no synced profile keeps the pushed copy', async () => {
@@ -434,9 +436,9 @@ test('a revision the host already applied is not applied again, and a person wit
 
 test('a person with no synced profile still has their account connections reconciled', async () => {
   // WHY: a signed-in person signs in at the cloud whether or not their profile syncs; the pull is how a host learns of it.
-  const host = linked({ answer: async () => Response.json({ profile: null, connections: [{ serverUrl: 'https://linear.example/mcp', kind: 'oauth', status: 'connected', label: null, updatedAt: 1 }] }) })
+  const host = linked({ answer: async () => Response.json({ profile: null, connections: [{ ref: { kind: 'mcp', serverUrl: 'https://linear.example/mcp' }, material: 'oauth', status: 'connected', label: null, updatedAt: 1 }] }) })
   await host.profiles.pull(MEMBER)
-  expect(host.reconciled).toEqual([{ owner: { organizationId: 'org-a', ownerUserId: 'member-1' }, connections: ['https://linear.example/mcp'] }])
+  expect(host.reconciled).toEqual([{ owner: { organizationId: 'org-a', ownerKey: 'member-1' }, connections: ['https://linear.example/mcp'] }])
 })
 
 test('an unlinked host, a person without a token, an unreachable cloud, and a refusal each name their reason, and a quiet pull never throws', async () => {
@@ -484,7 +486,7 @@ const serverEntry = (slug: string, url: string): AgentProfileIntegrationEntry =>
 test('a pull adopts the owner\'s own MCP servers the profile does not name, and creates the profile when there is none', async () => {
   // WHY: signed in, a server added on a host before sync, such as PlanetScale, must become part of the person's profile.
   const cloud = cloudOf(null)
-  const host = linked({ answer: cloud.answer, hostHas: [{ slug: 'planetscale', url: PLANETSCALE_URL }] })
+  const host = linked({ answer: cloud.answer, hostHas: [{ slug: 'planetscale', url: PLANETSCALE_URL, ownerKey: HOST_USER }] })
   const status = await host.profiles.pull(OWNER)
   expect(cloud.writes).toEqual([{ set: ['integration:planetscale'], reset: [] }])
   expect(cloud.entries()).toMatchObject({ 'integration:planetscale': { url: PLANETSCALE_URL } })
@@ -497,7 +499,7 @@ test('a pull adopts the owner\'s own MCP servers the profile does not name, and 
 
 test('removing a server from the profile takes it off the host on the next pull, and it is not adopted back', async () => {
   const cloud = cloudOf(null)
-  const host = linked({ answer: cloud.answer, hostHas: [{ slug: 'planetscale', url: PLANETSCALE_URL }, { slug: 'linear', url: 'https://mcp.linear.app/mcp' }] })
+  const host = linked({ answer: cloud.answer, hostHas: [{ slug: 'planetscale', url: PLANETSCALE_URL, ownerKey: HOST_USER }, { slug: 'linear', url: 'https://mcp.linear.app/mcp', ownerKey: HOST_USER }] })
   await host.profiles.pull(OWNER)
   expect(host.integrations.rows.map((row) => row.slug).sort()).toEqual(['linear', 'planetscale'])
 
@@ -520,26 +522,26 @@ test('removing a server from the profile takes it off the host on the next pull,
   expect(host.integrations.rows.map((row) => row.slug)).toEqual(['planetscale'])
 })
 
-test('a server saved or removed in Settings → MCP writes through to the profile; a shared server of the host does not', async () => {
+test('a server saved or removed in Settings → MCP writes through to the profile; another person\'s server does not', async () => {
   const cloud = cloudOf({})
   const host = linked({ answer: cloud.answer })
-  const own: Integration = { id: 'int-own', organizationId: 'local', ownerUserId: null, kind: 'mcp', slug: 'planetscale', name: 'PlanetScale', url: PLANETSCALE_URL, auth: { kind: 'none' }, createdBy: null, createdAt: '', updatedAt: '' }
+  const own: Integration = { id: 'int-own', organizationId: 'local', ownerKey: HOST_USER, kind: 'mcp', slug: 'planetscale', name: 'PlanetScale', url: PLANETSCALE_URL, auth: { kind: 'none' }, createdBy: null, createdAt: '', updatedAt: '' }
   await host.profiles.integrationSaved(OWNER, own)
   expect(cloud.writes[0]).toEqual({ set: ['integration:planetscale'], reset: [] })
 
   await host.profiles.integrationRemoving(OWNER, own)
   expect(cloud.writes.at(-1)).toEqual({ set: [], reset: ['integration:planetscale'] })
 
-  // A member's view of a shared record of the host is not their profile's.
+  // A record of another person is not this person's profile's.
   const writes = cloud.writes.length
-  await host.profiles.integrationSaved(MEMBER, { ...own, organizationId: 'org-a', ownerUserId: null })
+  await host.profiles.integrationSaved(MEMBER, { ...own, organizationId: 'org-a', ownerKey: 'someone-else' })
   expect(cloud.writes).toHaveLength(writes)
 })
 
 test('a removal is refused while the cloud is unreachable, so the next pull cannot bring the server back; not signed in, it is the host\'s alone', async () => {
   const cloud = cloudOf({})
   const host = linked({ answer: cloud.answer })
-  const own: Integration = { id: 'int-own', organizationId: 'local', ownerUserId: null, kind: 'mcp', slug: 'planetscale', name: 'PlanetScale', url: PLANETSCALE_URL, auth: { kind: 'none' }, createdBy: null, createdAt: '', updatedAt: '' }
+  const own: Integration = { id: 'int-own', organizationId: 'local', ownerKey: HOST_USER, kind: 'mcp', slug: 'planetscale', name: 'PlanetScale', url: PLANETSCALE_URL, auth: { kind: 'none' }, createdBy: null, createdAt: '', updatedAt: '' }
   cloud.down(true)
   await expect(host.profiles.integrationRemoving(OWNER, own)).rejects.toMatchObject({ code: 'UNREACHABLE' })
   await linked({ linked: false }).profiles.integrationRemoving(OWNER, own)

@@ -26,7 +26,7 @@ import type { AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus }
 import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest, CodeIntelInstallResult, CodeIntelReferencesRequest, CodeIntelReferencesResult, CodeIntelReindexRequest, CodeIntelReindexResult, CodeIntelStatus, CodeIntelStatusRequest, CodeIntelSymbolRequest, CodeIntelSymbolResult } from './code-intel'
 import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishRequest, WorkExternalLink, WorkPublishRequest, WorkPublishResult, WorkPullResult } from './docs'
 import type { GoogleAuthStatus } from './google-auth'
-import type { HostConfigPatch, HostConfigSnapshot } from './host-config'
+import type { HostConfigPatch, HostConfigSnapshot, TypeSafeKeyStatus } from './host-config'
 import type { AccountSettingsPatchRequest, AccountSettingsResponse, ExecutionPreferences, OrganizationSettingsPatchRequest, OrganizationSettingsResponse } from './settings'
 import type { InboxInvolvement, InboxUpstreamResult } from './inbox-types'
 
@@ -34,7 +34,7 @@ import type { AccountState, SignInEnd } from './account-types'
 import type { ConnectionTokenResource } from './auth/clients'
 import type { DesktopUpdateStatus } from './desktop-update-types'
 import type { HostUpdateStatus } from './host-update-types'
-import type { HostAction } from './permissions'
+import type { Permission } from './permissions'
 import type { LiveActivityRegistration } from './live-activity'
 import type { HostKind, ManagedHostLifecycle, OrganizationDirectory, UplinkDirectory, UplinkEnrollmentTicket, HostRegistrationRequest, UplinkStatus } from './uplink'
 import type { WorkLiveAwarenessRequest, WorkLiveCloseRequest, WorkLiveOpenRequest, WorkLiveOpenResult, WorkLivePushRequest, WorkLivePushResult } from './work-live'
@@ -46,7 +46,7 @@ import type { AgentAuthFlowRequest, AgentAuthMcpTarget, AgentAuthStartResult, Ag
 import type { CatalogPage, Integration, IntegrationCatalogListRequest, IntegrationConnectCancelRequest, IntegrationConnection, IntegrationConnectStartRequest, IntegrationConnectStartResult, IntegrationConnectSubmitRequest, IntegrationCreateRequest, IntegrationIdRequest, IntegrationProbeRequest, IntegrationProbeResult, IntegrationToolSummary, IntegrationUpdateRequest } from './integration-types'
 import type { SeatConnectCodeRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
 import type { AccountAgentProfilePatchRequest, AccountAgentProfileResponse, AgentProfileCopy, AgentProfileStatus } from './agent-profile'
-import type { ProfileConnectKeyRequest, ProfileConnectStartRequest, ProfileConnectStartResult, ProfileConnection, ProfileDisconnectRequest } from './integrations/profile-credentials'
+import type { VaultSaveKeyRequest, VaultConnectRequest, VaultConnectResult, VaultConnection, VaultDisconnectRequest } from './vault'
 import type { PresenceSetComposingRequest, PresenceSetEditingRequest, PresenceSetFocusRequest, PresenceSnapshotResult } from './presence'
 import type { User } from './user'
 import type { RpcPlane } from './rpc-planes'
@@ -106,8 +106,8 @@ export interface ConnectionsServerInfo {
   /** A guest's one resource and its role there; the guest shell renders nothing else.
    *  A task resource reaches the task page and every session and work linked to it. */
   share?: { resource: ShareResource; role: ShareRole }
-  /** The host actions this connection holds (docs/plans/permissions.md): prefixes, `['host']` for the owner. A control is disabled exactly when its action is not covered. */
-  grants: HostAction[]
+  /** The permissions this connection holds on the host (docs/plans/permissions.md): prefixes, `['host']` for the owner. A control is disabled exactly when its permission is not covered. */
+  permissions: Permission[]
 }
 
 export interface LocalConnectionInfo {
@@ -276,14 +276,6 @@ export interface SolusAPI {
   googleStatus(): Promise<GoogleAuthStatus>
   googleConnect(callbackBaseUrl?: string): Promise<{ authUrl: string; expiresAt: number }>
 
-  cloudflareStatus(): Promise<{ connected: boolean; accountName?: string; accountId?: string; source?: 'env' | 'stored'; expiresOn?: number }>
-  cloudflareConnect(args: { apiToken: string; accountId?: string }): Promise<
-    | { ok: true; accountName?: string }
-    | { ok: false; kind: 'invalid' | 'network' | 'accounts-forbidden' | 'encryption-unavailable'; error: string }
-    | { ok: false; kind: 'choose-account'; accounts: Array<{ id: string; name: string }> }
-  >
-  cloudflareDisconnect(): Promise<void>
-
   atlassianStatus(): Promise<AtlassianStatus>
   /** `callbackBaseUrl` is the origin the client reached the workspace service by; a host ignores it and uses its loopback listener. */
   atlassianStartOAuth(callbackBaseUrl?: string): Promise<AtlassianOAuthStartResult>
@@ -416,8 +408,11 @@ export interface SolusAPI {
   presenceSetComposing(request: PresenceSetComposingRequest): Promise<void>
   /** This client edits (or stopped editing) a work; the host roster hears it as `host.presenceChanged`. */
   presenceSetEditing(request: PresenceSetEditingRequest): Promise<void>
+  /** The caller's own TypeSafe key: where it is, never its value. */
+  typeSafeKeyStatus(): Promise<TypeSafeKeyStatus>
+  /** Saves or (with null) removes the caller's key, where this host keeps it. */
+  typeSafeKeySet(apiKey: string | null): Promise<TypeSafeKeyStatus>
   /** This host's durable config. */
-  typeSafeKeySet(apiKey: string | null): Promise<HostConfigSnapshot>
   configGet(): Promise<HostConfigSnapshot>
   /** Host administrator only. Refuses any key that is not host config. */
   configUpdate(patch: HostConfigPatch): Promise<HostConfigSnapshot>
@@ -923,10 +918,10 @@ export interface SolusAPI {
   browserAttachSurface(browserPageId: string, webContentsId: number): Promise<void>
   browserDetachSurface(browserPageId: string, reason?: BrowserDetachReason): Promise<void>
   browserReportSurface(browserPageId: string, report: BrowserSurfaceReport): Promise<void>
-  /** Forget a browser profile's cookies and storage — the way out of the
-   *  persistent per-project login. The client names the partition because the
-   *  client is what created it. */
-  browserClearProfile(partition: string): Promise<void>
+  /** Forget one of the caller's browser profiles: its cookies and storage. The
+   *  host takes the person from the connection, so a caller clears only their
+   *  own jar (docs/plans/member-isolation.md §6). */
+  browserClearProfile(projectRoot: string | undefined, profileId: string): Promise<void>
   /** Start receiving streamed frames for a page: how a client with no native
    *  surface (web, mobile) sees it. The host streams only while at least one
    *  client is subscribed, so a hidden pane costs no frames. The subscribing
@@ -1021,8 +1016,9 @@ export interface SolusAPI {
   deviceRunCancel(runId: string): Promise<void>
   deviceRunLog(runId: string): Promise<DeviceRunLog>
 
-  /** The named identities a project's browser pages can sign in as. Host-owned,
-   *  because the cookie jars live there. The built-in default is always first. */
+  /** The caller's named identities in a project. Host-owned, because the cookie
+   *  jars live there; personal, so a caller lists and changes only their own
+   *  profiles. The built-in default is always first. */
   browserListProfiles(projectRoot?: string): Promise<BrowserProfileSet>
   browserCreateProfile(projectRoot: string | undefined, name: string): Promise<BrowserProfileSet>
   browserRenameProfile(projectRoot: string | undefined, profileId: string, name: string): Promise<BrowserProfileSet>
@@ -1067,13 +1063,13 @@ export type AccountAgentProfileResult =
   | { kind: 'conflict'; reason: 'profile_conflict' | 'profile_generation_changed'; current: AccountAgentProfileResponse }
   | SettingsRequestFailure
 
-/** The person's MCP connections in their account (plans/020-agent-profile.md §5.3), read and started from a client. */
-export type AccountProfileConnectionsResult =
-  | { kind: 'ok'; connections: ProfileConnection[] }
+/** The person's account vault (docs/plans/cloud-vault.md §2.3): every connection's status, read and started from a client. */
+export type AccountVaultResult =
+  | { kind: 'ok'; connections: VaultConnection[] }
   | SettingsRequestFailure
-export type AccountProfileConnectStartResult =
-  | { kind: 'ok'; start: ProfileConnectStartResult }
-  /** The server is not in the person's profile, or the key was rejected by the server. */
+export type AccountVaultConnectResult =
+  | { kind: 'ok'; start: VaultConnectResult }
+  /** The server is not in the person's profile and is no usable public server, or its sign-in could not start. */
   | { kind: 'refused'; message: string }
   | SettingsRequestFailure
 
@@ -1159,11 +1155,11 @@ export interface NativeSolusAPI {
   accountAgentProfileGet(): Promise<AccountAgentProfileResult>
   accountAgentProfilePatch(request: AccountAgentProfilePatchRequest): Promise<AccountAgentProfileResult>
   accountAgentProfileDelete(): Promise<AccountAgentProfileResult>
-  /** The person's MCP connections in their account (plans/020 §5.3): list, start a sign-in, paste a key, disconnect. */
-  accountAgentProfileConnections(): Promise<AccountProfileConnectionsResult>
-  accountAgentProfileConnectStart(request: ProfileConnectStartRequest): Promise<AccountProfileConnectStartResult>
-  accountAgentProfileConnectKey(request: ProfileConnectKeyRequest): Promise<AccountProfileConnectionsResult>
-  accountAgentProfileDisconnect(request: ProfileDisconnectRequest): Promise<AccountProfileConnectionsResult>
+  /** The person's account vault (docs/plans/cloud-vault.md §2.3): every connection's status, start a sign-in, paste a key, disconnect. */
+  accountVault(): Promise<AccountVaultResult>
+  accountVaultConnect(request: VaultConnectRequest): Promise<AccountVaultConnectResult>
+  accountVaultSaveKey(request: VaultSaveKeyRequest): Promise<AccountVaultResult>
+  accountVaultDisconnect(request: VaultDisconnectRequest): Promise<AccountVaultResult>
   organizationSettingsGet(organizationId: string): Promise<OrganizationSettingsResult>
   organizationSettingsPatch(organizationId: string, request: OrganizationSettingsPatchRequest): Promise<OrganizationSettingsResult>
   /** The desktop update status. Owned by the main process, which runs the

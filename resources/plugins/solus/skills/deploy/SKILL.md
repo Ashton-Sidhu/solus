@@ -11,7 +11,7 @@ Follow this staged pipeline to prepare a project for Cloudflare's free tier.
 
 Skip a stage when it is already satisfied. Prefer free-tier-shaped designs: avoid heavy Queues fan-out and more than 10ms of CPU crunching when a free-shaped alternative exists.
 
-> **Never check Cloudflare authentication before stage 2.** The check has a user-visible side effect: it shows a Connect Cloudflare card. Showing that card while Cloudflare is still only a possibility asks the user for credentials they may never need.
+> **Never check Cloudflare authentication before stage 2.** Asking the user to sign in while Cloudflare is still only a possibility asks for credentials they may never need.
 
 ## 1. Audit
 
@@ -45,14 +45,14 @@ The filtered table is the port plan. Report either that plan, **"deployable as-i
 
 ## 2. Connect gate
 
-Run this stage **only after the audit decides Cloudflare is the direction** — the project is deployable as-is, has a port plan, the user accepted a rewrite option, or a Wrangler config already exists. If the audit ended in **"doesn't fit"** and the user has not accepted an alternative, the pipeline stops here: do not check authentication and do not show the Connect card.
+Run this stage **only after the audit decides Cloudflare is the direction** — the project is deployable as-is, has a port plan, the user accepted a rewrite option, or a Wrangler config already exists. If the audit ended in **"doesn't fit"** and the user has not accepted an alternative, the pipeline stops here: do not check authentication and do not ask the user to sign in.
 
-Once Cloudflare *is* the direction, this stage is mandatory. It is the only stage you may not skip for being inconvenient; skip it solely because the account is already connected.
+Once Cloudflare *is* the direction, this stage is mandatory. It is the only stage you may not skip for being inconvenient; skip it solely because Wrangler is already signed in.
 
-When Cloudflare is the direction, call the `cloudflare_status` agent tool before any other work. It returns `{ connected, accountName?, source }` and never exposes a token. `CLOUDFLARE_API_TOKEN` in the environment also counts as connected. This is a status check, not an authentication flow.
+When Cloudflare is the direction, run `npx wrangler whoami` before any other work. It reports whether Wrangler is signed in and never prints a token. `CLOUDFLARE_API_TOKEN` in the environment also counts as signed in. This is a status check, not an authentication flow.
 
-- **Connected** — continue to stage 3. Skip this stage on every later run in the same project.
-- **Disconnected** — the check itself displays a **Connect Cloudflare** card in the Solus conversation UI. **Stop and end the turn immediately.** Change no code and write no files. Tell the user to connect through that card (or **Settings → Providers → Cloudflare**), that it is free with no credit card, and that the token is pasted into the card — **not** into chat. Do not attempt a workaround, and do not continue the port under the assumption that they will connect later. When the user resumes, re-check and continue from stage 3.
+- **Signed in** — continue to stage 3. Skip this stage on every later run in the same project.
+- **Not signed in** — **Stop and end the turn immediately.** Change no code and write no files. Tell the user to run `npx wrangler login` in a terminal, or to set `CLOUDFLARE_API_TOKEN` in their shell, and that it is free with no credit card. A token never goes into chat. Do not attempt a workaround, and do not continue the port under the assumption that they will connect later. When the user resumes, re-check and continue from stage 3.
 
 ## 3. Port
 

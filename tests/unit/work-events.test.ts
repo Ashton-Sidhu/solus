@@ -155,7 +155,7 @@ describe('audience', () => {
     expect(await audience.eventVisibleTo(alice, changed(other.id), shares)).toBe(true)
     // No host-wide default: a member who cannot open a work does not hear it.
     expect(await audience.eventVisibleTo(bob, changed(other.id), shares)).toBe(false)
-    await shares.setGrants({ resource: { kind: 'work', id: other.id }, grants: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, alice)
+    await shares.setEntries({ resource: { kind: 'work', id: other.id }, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, alice)
     expect(await audience.eventVisibleTo(bob, changed(other.id), shares)).toBe(true)
     expect(await audience.eventVisibleTo(owner, changed(other.id), shares)).toBe(true)
     expect(await audience.eventVisibleTo(runner, changed(shared.id), shares)).toBe(false)
@@ -194,7 +194,7 @@ describe('audience', () => {
     const share = await shares.resolveLinkSecret(link!.secret)
     const guest: Principal = { kind: 'guest', guestId: 'g2', organizationId: 'A', displayName: 'Maya', deviceId: 'g2', share: share!, expiresAt: Date.now() + 300000, deviceLabel: 'Guest link' }
     const cara = { ...alice, userId: 'cara', displayName: 'Cara', deviceId: 'cara-device' } as const
-    await shares.setGrants({ resource: { kind: 'work', id: created.id }, grants: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, alice)
+    await shares.setEntries({ resource: { kind: 'work', id: created.id }, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer' }] }, alice)
     const principals = new Map<string, Principal>([['alice', alice], ['bob', bob], ['guest', guest], ['cara', cara]])
     const registry = new ClientEventRegistry((clientId, event) => audience.eventVisibleTo(principals.get(clientId)!, event, shares))
     const delivered = new Map<string, HostEvent[]>([...principals.keys()].map(clientId => [clientId, []]))

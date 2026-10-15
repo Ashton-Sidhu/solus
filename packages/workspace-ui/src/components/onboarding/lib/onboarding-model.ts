@@ -13,7 +13,6 @@ export type OnboardingStage =
   | 'intro'
   | 'getting-around'
   | 'agents'
-  | 'providers'
   | 'host'
   | 'start'
   | 'compute'
@@ -57,17 +56,19 @@ export function surfaceFor(input: { isTouchDevice: boolean; hasKeyboardPointer: 
 }
 
 /** The asking stages, in order. `intro` is not one: it cannot be returned to. */
-export const POINTER_STAGES: OnboardingStage[] = ['agents', 'providers', 'cloud-connect', 'start']
+export const POINTER_STAGES: OnboardingStage[] = ['agents', 'cloud-connect', 'start']
 
 /**
  * The touch flow, which is shorter because most of the pointer flow is about a
  * machine this client is not.
  *
  * It opens with `getting-around`, because a thumb has no keys to find the
- * drawers with. `agents` and `providers` collapse
- * into `host`, because from a phone they are both asking about a *remote*
- * machine's setup — usually one already set up from its own desktop — so they
- * are worth one stage that reports where that machine stands, not two that ask.
+ * drawers with. `agents` becomes `host`, because from a phone it asks about a
+ * *remote* machine's setup — usually one already set up from its own desktop —
+ * so the stage reports where that machine stands.
+ *
+ * No stage connects GitHub, Google, or Atlassian: those connections are in
+ * Settings, and an agent asks for one when it needs it.
  */
 export const TOUCH_STAGES: OnboardingStage[] = ['getting-around', 'host', 'cloud-connect', 'start']
 

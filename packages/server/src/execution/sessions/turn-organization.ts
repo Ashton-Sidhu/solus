@@ -1,7 +1,7 @@
 import type { SessionCtx } from '@solus/contracts/types'
 import { isHostOwner, LOCAL_ORGANIZATION_ID, type Principal } from '../../admission/principal'
 import { ANY_ORGANIZATION } from '../../admission/principal'
-import { assignSessionOrganization, getSessionRecord, rememberSessionBirth, type SessionBirth } from '../../data/sessions/session-records'
+import { assignSessionOrganization, claimSessionOwner, getSessionRecord, rememberSessionBirth, type SessionBirth } from '../../data/sessions/session-records'
 import { isOrganizationAttached } from '../../host/organization-attachment'
 import { sessionIdOfThread } from '../../data/sessions/session-lineage'
 import { isChat } from '@solus/contracts/chat'
@@ -9,7 +9,7 @@ import { parseUserKey } from '@solus/contracts/user'
 import { isHostUserKey } from '../../host/host-user'
 import type { HostOrganizations } from '../../host/organizations'
 import { insightsEligible } from '../../sync/mirror/insight-mirror'
-import type { Actor } from '../../admission/actor'
+import { ownerKeyOf, type Actor } from '../../admission/actor'
 import type { TurnRefusal } from '@solus/contracts/organization-scope'
 import { z } from 'zod'
 import { TurnRefusedError } from './turn-refusal'
@@ -59,7 +59,7 @@ export interface TurnOrganizationDeps {
   /** Persists the attachment the first time a member is admitted for organization work (organization-vms §4). */
   markAttached?: () => void
   /** Gives a new organization session its owner and, unless it is a chat, the organization's editor grant on this machine (organization-vms §1; plan 004 D14). */
-  adoptSession?: (sessionId: string, organizationId: string, ownerUserId: string, options: { shareWithOrganization: boolean }) => Promise<void>
+  adoptSession?: (sessionId: string, organizationId: string, ownerKey: string, options: { shareWithOrganization: boolean }) => Promise<void>
 }
 
 /**
@@ -87,6 +87,10 @@ export async function admitTurnOrganization(ctx: TurnAdmissionContext, actor: Ac
   if (organizationId !== LOCAL_ORGANIZATION_ID && !deps.hostOrganizations.mayExecute(organizationId)) {
     throw new TurnRefusedError('PERSONAL_HOSTS_NOT_ALLOWED', `${deps.hostOrganizations.organization(organizationId)?.name ?? 'This organization'} does not allow its work to run on a personal computer. Use a self-hosted server or a cloud host.`)
   }
+  // A new session belongs to the person its first turn is for (docs/plans/access-model.md §2.2):
+  // a child session, an automation's run, and a client's new session alike. A guest starts none.
+  const ownerKey = ownerKeyOf(actor)
+  if (ownerKey && principal.kind !== 'guest' && ctx.session.sessionId) await claimSessionOwner(ctx.session.sessionId, { ownerKey, organizationId })
   return organizationId
 }
 
@@ -122,7 +126,7 @@ async function admitOnAttachedMachine(ctx: TurnAdmissionContext, principal: Prin
   const userId = await actForPerson(principal, deps, { sessionId, organizationId, admit: true })
   // A chat is still organization work, but only its owner sees it until they share it (plan 004 D14).
   await deps.adoptSession?.(sessionId, organizationId, userId, { shareWithOrganization: !isChat(ctx.session.workingDirectory) })
-  const birth: SessionBirth = { organizationId, published: true, ownerUserId: userId, admissionId: sessionId }
+  const birth: SessionBirth = { organizationId, published: true, ownerKey: userId, admissionId: sessionId }
   pendingAssignments.set(sessionId, birth)
   rememberSessionBirth(sessionId, birth)
   return organizationId

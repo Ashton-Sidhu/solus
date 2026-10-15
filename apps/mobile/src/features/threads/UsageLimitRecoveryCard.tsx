@@ -5,6 +5,7 @@ import { Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
 import type { ConversationStore } from "../conversation/conversation-store";
+import { WaitingForEditor } from "./RequestActionButton";
 
 /**
  * The agent hit its usage limit. Solus holds the turn on the host and asks
@@ -35,32 +36,36 @@ export function UsageLimitRecoveryCard(props: {
           ? `Usage limit resets ${new Date(resetsAt * 1000).toLocaleString()}.`
           : "The provider did not report a reset time. Retry manually when your limit is available."}
       </Text>
-      <View className="flex-row flex-wrap gap-2">
-        <Pressable
-          accessibilityRole="button"
-          disabled={pending}
-          onPress={() => void decide("wait")}
-          className="self-start rounded-lg bg-subtle px-3 py-2 active:opacity-70"
-        >
-          <Text className="text-sm text-foreground">Resume at reset</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          disabled={pending}
-          onPress={() => void decide("send_now")}
-          className="self-start rounded-lg bg-subtle px-3 py-2 active:opacity-70"
-        >
-          <Text className="text-sm text-foreground">Send now</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          disabled={pending}
-          onPress={() => void decide("stop")}
-          className="self-start rounded-lg bg-subtle px-3 py-2 active:opacity-70"
-        >
-          <Text className="text-sm text-danger-foreground">Stop</Text>
-        </Pressable>
-      </View>
+      {props.store.controller.mayDrive ? (
+        <View className="flex-row flex-wrap gap-2">
+          <Pressable
+            accessibilityRole="button"
+            disabled={pending}
+            onPress={() => void decide("wait")}
+            className="self-start rounded-lg bg-subtle px-3 py-2 active:opacity-70"
+          >
+            <Text className="text-sm text-foreground">Resume at reset</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            disabled={pending}
+            onPress={() => void decide("send_now")}
+            className="self-start rounded-lg bg-subtle px-3 py-2 active:opacity-70"
+          >
+            <Text className="text-sm text-foreground">Send now</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            disabled={pending}
+            onPress={() => void decide("stop")}
+            className="self-start rounded-lg bg-subtle px-3 py-2 active:opacity-70"
+          >
+            <Text className="text-sm text-danger-foreground">Stop</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <WaitingForEditor />
+      )}
       {error ? <Text className="text-xs text-danger-foreground">{error}</Text> : null}
     </View>
   );

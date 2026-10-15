@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { SendOutbox } from '@solus/client-core/send-outbox'
 import type { AgentMetadata, IpcContext, PromptOptions } from '@solus/contracts/types'
-import type { HostConfigSnapshot } from '@solus/contracts/host-config'
 import { ConversationController, type ConversationTarget } from '../../apps/mobile/src/features/conversation/conversation-controller'
 import { DEFAULT_RUN_SETTINGS, type RunSettings } from '../../apps/mobile/src/features/conversation/lib/ipc-context'
 import { canChoosePermissionMode, canRouteAuto, modelChoices, offersPlanToggle, PERMISSION_MODE_ICON, rememberedFastMode, newSessionModel, permissionModesFor, savedSessionModel, selectModel, supportedPermissionMode, supportsFastMode } from '../../apps/mobile/src/features/conversation/lib/run-settings'
@@ -122,8 +121,7 @@ describe('native mode and model capability', () => {
   const agent = (id: AgentMetadata['id'], capabilities: AgentMetadata['capabilities']): AgentMetadata => ({ id, label: id, models: [], defaultModel: '', capabilities })
   const hostWith = (agents: AgentMetadata[], typeSafeSource: 'saved' | null = 'saved') => (api: FakeApi) => api
     .on('start', () => ({ version: '1', projectPath: '/w', homePath: '/h', agents }))
-    // SAFETY: the controller reads only `typeSafe.source` from the snapshot.
-    .on('configGet', () => ({ typeSafe: { source: typeSafeSource } } as unknown as HostConfigSnapshot))
+    .on('typeSafeKeyStatus', () => ({ location: 'host', source: typeSafeSource }))
   const newCodex = { hostId: 'inst-a', newSession: { sessionId: 'n', provider: 'codex' as const, workingDirectory: '/w' } }
 
   test('Plan is offered only where the agent has plan mode; unknown hosts keep it', () => {

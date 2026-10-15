@@ -6,7 +6,7 @@ import { AppText as Text } from "../../components/AppText";
 import type { ConversationStore } from "../conversation/conversation-store";
 import type { AgentPlanAwaiting } from "../conversation/lib/agent-plans";
 import type { TranscriptItem } from "../conversation/lib/transcript-model";
-import { RequestActionButton } from "./RequestActionButton";
+import { RequestActionButton, WaitingForEditor } from "./RequestActionButton";
 import { ThreadMarkdown } from "./ThreadMarkdown";
 
 type PlanItem = Extract<TranscriptItem, { kind: "plan" }>;
@@ -83,7 +83,8 @@ export function ThreadPlanCard(props: { readonly store: ConversationStore; reado
           {expanded ? "Show less" : "Show the whole plan"}
         </Text>
       </Pressable>
-      {pending ? (
+      {pending && !props.store.controller.mayDrive ? <WaitingForEditor /> : null}
+      {pending && props.store.controller.mayDrive ? (
         <>
           <PlanNoteInput value={note} onChangeText={setNote} placeholder="Notes for the agent (optional)" />
           <View className="flex-row flex-wrap gap-2.5">
@@ -124,7 +125,9 @@ export function AgentPlanCard(props: { readonly store: ConversationStore; readon
       </Text>
       <Text className="font-t3-bold text-lg text-foreground">{props.plan.planTitle}</Text>
       {props.plan.content ? <ThreadMarkdown markdown={props.plan.content} tone="assistant" store={props.store} /> : null}
-      {revising ? (
+      {!props.store.controller.mayDrive ? (
+        <WaitingForEditor />
+      ) : revising ? (
         <>
           <PlanNoteInput value={comment} onChangeText={setComment} placeholder="What should change?" autoFocus />
           <View className="flex-row flex-wrap gap-2.5">

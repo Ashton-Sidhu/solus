@@ -48,7 +48,7 @@ export async function workspaceToolContext(sessionId?: string): Promise<Workspac
   if (sessionId && home && isOrganizationAttached()) {
     const operations = installed.remote?.(sessionId)
     if (!operations) throw new SolusApiError(503, 'CAPABILITY_UNAVAILABLE', 'This organization session holds no authority for its Solus API right now. Send the next message from Solus to continue; nothing was saved on this machine.')
-    return { operations, remote: true, deliveryActor: home.ownerUserId ?? '', context: {
+    return { operations, remote: true, deliveryActor: home.ownerKey ?? '', context: {
       principal, home: { kind: 'organization', serviceId: 'remote', organizationId: home.organizationId },
       scopes: ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:write'],
       actingAgent: { sessionId, organizationId: home.organizationId },

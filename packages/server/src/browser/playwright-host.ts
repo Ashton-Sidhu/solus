@@ -5,6 +5,7 @@ import { z } from 'zod'
 import {
   BROWSER_PARTITION_PREFIX,
   BROWSER_RING_LIMIT,
+  BROWSER_UNSAVED_PARTITION_PREFIX,
   type BrowserConsoleEntry,
   type BrowserHostKind,
   type BrowserNavigateOp,
@@ -242,6 +243,8 @@ export async function registerPlaywrightBrowserHost(): Promise<(() => Promise<vo
       log.info('browser_profile_cleared', { partition })
     },
     importCookies: async (partition, cookies) => {
+      // Refuses a jar outside the saved profiles, the host's unsaved one included.
+      profileDirectory(partition)
       const context = await contextFor(chromium, contexts, partition)
       const converted = cookies.map(playwrightCookie)
       try {
@@ -328,9 +331,11 @@ async function loadChromium(): Promise<PlaywrightChromium | null> {
   }
 }
 
-/** One persistent context per project profile, so a login obtained once is the
- *  login every page in that project gets — the same rule the desktop hosts
- *  follow with their Electron partition. */
+/** One persistent context per person's profile in a project, so a login obtained
+ *  once is the login every page of that profile gets — the same rule the desktop
+ *  hosts follow with their Electron partition. The host's own work has an
+ *  unsaved jar: an empty directory name, which Playwright makes a temporary
+ *  directory that goes with the context (member-isolation.md §6). */
 function contextFor(
   chromium: PlaywrightChromium,
   contexts: Map<string, Promise<PlaywrightContext>>,
@@ -338,7 +343,8 @@ function contextFor(
 ): Promise<PlaywrightContext> {
   const existing = contexts.get(partition)
   if (existing) return existing
-  const opening = chromium.launchPersistentContext(profileDirectory(partition), {
+  const directory = partition.startsWith(BROWSER_UNSAVED_PARTITION_PREFIX) ? '' : profileDirectory(partition)
+  const opening = chromium.launchPersistentContext(directory, {
     headless: true,
     // Null, because the viewport is CDP's job here: emulation has to carry
     // touch, pixel ratio and user agent, which a Playwright viewport does not.

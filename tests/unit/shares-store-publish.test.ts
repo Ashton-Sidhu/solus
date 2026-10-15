@@ -86,7 +86,7 @@ const CLOUD = 'workspace:org-1'
 const resource: ShareResource = { kind: 'session', id: 's1' }
 const target = { serverId: 'local', resource, title: 'Release plan' }
 
-const cloudList: ShareList = { resource, ownerUserId: 'u1', grants: [], callerRole: 'owner', link: null }
+const cloudList: ShareList = { resource, ownerKey: 'u1', entries: [], callerRole: 'owner', link: null }
 
 /** The organization's workspace service, ready to list the resource's share. */
 function registerCloud(): void {

@@ -7,8 +7,9 @@ import { resetTestDatabase } from '../helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-// docs/plans/mcp-integrations.md §3.3: an integration is a root record of one
-// organization, and its slug is the tool prefix, unique per organization.
+// docs/plans/mcp-integrations.md §3.3 and docs/plans/access-model.md (D3): an
+// integration is a root record of one organization and of one person, its owner;
+// its slug is the tool prefix, unique among the owner's records in an organization.
 
 type StoreModule = typeof import('@solus/server/integrations/integration-store')
 type PrincipalModule = typeof import('@solus/server/admission/principal')
@@ -47,26 +48,26 @@ function input(name: string, slug = 'deepwiki') {
 }
 
 describe('integration store', () => {
-  test('a member reads only their organization; the host owner reads every one', () => {
+  test('a read names its organization and its owner; the host owner reads every organization', () => {
     // WHY: a member of A must never see, or call the tools of, an integration of B.
     const store = new storeModule.IntegrationStore()
     const a = store.create(input('DeepWiki'), 'org-a', 'alice')
-    const b = store.create(input('DeepWiki'), 'org-b', null)
+    const b = store.create(input('DeepWiki'), 'org-b', 'alice')
 
-    expect(store.list('org-a', null).map((each) => each.id)).toEqual([a.id])
+    expect(store.list('org-a', 'alice').map((each) => each.id)).toEqual([a.id])
     expect(store.get(b.id, 'org-a')).toBeNull()
-    expect(store.getBySlug('deepwiki', 'org-b', null)?.id).toBe(b.id)
-    expect(store.list(principal.ANY_ORGANIZATION, null).map((each) => each.id).sort()).toEqual([a.id, b.id].sort())
-    expect(a).toMatchObject({ organizationId: 'org-a', ownerUserId: null, kind: 'mcp', slug: 'deepwiki', createdBy: 'alice', auth: anonymous })
+    expect(store.getBySlug('deepwiki', 'org-b', 'alice')?.id).toBe(b.id)
+    expect(store.list(principal.ANY_ORGANIZATION, 'alice').map((each) => each.id).sort()).toEqual([a.id, b.id].sort())
+    expect(a).toMatchObject({ organizationId: 'org-a', ownerKey: 'alice', kind: 'mcp', slug: 'deepwiki', createdBy: 'alice', auth: anonymous })
   })
 
-  test('a second integration with a taken slug gets a numeric suffix in that organization only', () => {
+  test('a second integration of one owner with a taken slug gets a numeric suffix, in that organization only', () => {
     // WHY: the slug names the agent tools; two integrations with one prefix would collide.
     const store = new storeModule.IntegrationStore()
-    const first = store.create(input('DeepWiki'), 'org-a', null)
-    const second = store.create(input('DeepWiki again'), 'org-a', null)
-    const third = store.create(input('DeepWiki third'), 'org-a', null)
-    const other = store.create(input('DeepWiki'), 'org-b', null)
+    const first = store.create(input('DeepWiki'), 'org-a', 'alice')
+    const second = store.create(input('DeepWiki again'), 'org-a', 'alice')
+    const third = store.create(input('DeepWiki third'), 'org-a', 'alice')
+    const other = store.create(input('DeepWiki'), 'org-b', 'alice')
 
     expect([first.slug, second.slug, third.slug]).toEqual(['deepwiki', 'deepwiki-2', 'deepwiki-3'])
     expect(other.slug).toBe('deepwiki')
@@ -75,14 +76,14 @@ describe('integration store', () => {
   test('the suffix keeps the slug within 40 characters', () => {
     const store = new storeModule.IntegrationStore()
     const long = 'a'.repeat(40)
-    store.create(input('Long', long), 'org-a', null)
-    const second = store.create(input('Long', long), 'org-a', null)
+    store.create(input('Long', long), 'org-a', 'alice')
+    const second = store.create(input('Long', long), 'org-a', 'alice')
     expect(second.slug).toBe(`${'a'.repeat(38)}-2`)
   })
 
   test('update changes the record in scope and keeps its slug; outside the scope it is not found', () => {
     const store = new storeModule.IntegrationStore()
-    const created = store.create(input('DeepWiki'), 'org-a', null)
+    const created = store.create(input('DeepWiki'), 'org-a', 'alice')
     const oauth = { kind: 'oauth' as const, discover: 'https://example.com/.well-known/oauth-protected-resource', registration: 'dynamic' as const }
 
     expect(store.update(created.id, { name: 'Wiki' }, 'org-b')).toBeNull()
@@ -95,7 +96,7 @@ describe('integration store', () => {
   test('the tools turned off are kept on the record, and a rename keeps them', () => {
     // WHY: the list is what keeps a tool from agents; an unrelated edit must not turn it back on.
     const store = new storeModule.IntegrationStore()
-    const created = store.create(input('DeepWiki'), 'org-a', null)
+    const created = store.create(input('DeepWiki'), 'org-a', 'alice')
     expect(created.disabledTools).toEqual([])
     store.update(created.id, { disabledTools: ['write_page', 'delete_page', 'write_page'] }, 'org-a')
     store.update(created.id, { name: 'Wiki' }, 'org-a')
@@ -106,35 +107,31 @@ describe('integration store', () => {
 
   test('remove deletes only inside the scope', () => {
     const store = new storeModule.IntegrationStore()
-    const created = store.create(input('DeepWiki'), 'org-a', null)
+    const created = store.create(input('DeepWiki'), 'org-a', 'alice')
 
     expect(store.remove(created.id, 'org-b')).toBe(false)
     expect(store.get(created.id, 'org-a')).not.toBeNull()
     expect(store.remove(created.id, 'org-a')).toBe(true)
-    expect(store.list(principal.ANY_ORGANIZATION, null)).toEqual([])
+    expect(store.list(principal.ANY_ORGANIZATION, 'alice')).toEqual([])
     // The slug is free again.
-    expect(store.create(input('DeepWiki'), 'org-a', null).slug).toBe('deepwiki')
+    expect(store.create(input('DeepWiki'), 'org-a', 'alice').slug).toBe('deepwiki')
   })
 
-  test('a personal integration is seen by its owner alone, and its slug may equal a shared one\'s', () => {
-    // WHY (plans/020-agent-profile.md §2.1): a person's own MCP server follows
-    // them to a host, where another member must neither see it nor call its
-    // tools, and where the shared record of the same name keeps its tool prefix.
+  test('an integration is seen by its owner alone, and its slug may equal another person\'s', () => {
+    // WHY (D3): every MCP server is one person's. Another member must neither see it
+    // nor call its tools, and the host's own work (no person) reads none.
     const store = new storeModule.IntegrationStore()
-    const shared = store.create(input('DeepWiki'), 'org-a', null)
-    const alices = store.create(input('My DeepWiki'), 'org-a', 'alice', 'alice')
-    expect(alices).toMatchObject({ ownerUserId: 'alice', slug: 'deepwiki' })
-    expect(store.list('org-a', 'alice').map((each) => each.id).sort()).toEqual([shared.id, alices.id].sort())
-    expect(store.list('org-a', 'bob').map((each) => each.id)).toEqual([shared.id])
-    expect(store.list('org-a', null).map((each) => each.id)).toEqual([shared.id])
-    expect(store.getVisible(alices.id, 'org-a', 'bob')).toBeNull()
-    expect(store.getVisible(alices.id, 'org-a', 'alice')?.id).toBe(alices.id)
-    expect(store.listOwned('org-a', 'alice').map((each) => each.id)).toEqual([alices.id])
-    // Her own record before the shared one of the same URL; Bob finds the shared one.
+    const bobs = store.create(input('DeepWiki'), 'org-a', 'bob')
+    const alices = store.create(input('My DeepWiki'), 'org-a', 'alice')
+    expect(alices).toMatchObject({ ownerKey: 'alice', slug: 'deepwiki' })
+    expect(store.list('org-a', 'alice').map((each) => each.id)).toEqual([alices.id])
+    expect(store.list('org-a', 'bob').map((each) => each.id)).toEqual([bobs.id])
+    expect(store.list('org-a', null)).toEqual([])
+    expect(store.getOwned(alices.id, 'org-a', 'bob')).toBeNull()
+    expect(store.getOwned(alices.id, 'org-a', 'alice')?.id).toBe(alices.id)
     expect(store.findByUrl('https://mcp.deepwiki.com/mcp', 'org-a', 'alice')?.id).toBe(alices.id)
-    expect(store.findByUrl('https://mcp.deepwiki.com/mcp', 'org-a', 'bob')?.id).toBe(shared.id)
-    // A second personal record of hers with the same name gets the suffix among hers.
-    expect(store.create(input('Again'), 'org-a', 'alice', 'alice').slug).toBe('deepwiki-2')
-    expect(store.all('org-a')).toHaveLength(3)
+    expect(store.findByUrl('https://mcp.deepwiki.com/mcp', 'org-a', 'bob')?.id).toBe(bobs.id)
+    // A second record of hers with the same name gets the suffix among hers.
+    expect(store.create(input('Again'), 'org-a', 'alice').slug).toBe('deepwiki-2')
   })
 })

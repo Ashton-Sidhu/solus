@@ -5,7 +5,7 @@ import { join } from 'path'
 import { INTERNAL_HANDLER_CTX, SolusServer, type HandlerCtx } from '@solus/server/transport/server'
 import { principalFor, type Principal } from '@solus/server/admission/principal'
 import { RpcAccessError } from '@solus/server/admission/access-policy'
-import { hostActionOf } from '@solus/contracts/permissions'
+import { permissionOf } from '@solus/contracts/permissions'
 import { issueGrantWsTicket, issueSessionToken, issueWsTicket, resetAuthStateForTests, verifyWsTicket } from '@solus/server/admission/auth'
 
 // docs/plans/personal-uplink.md P1/P2: every call names who is calling, and the
@@ -102,9 +102,9 @@ describe('the local-only guard', () => {
       'connectionsBootstrapDiscoveredServer', 'uplinkLink', 'uplinkUnlink',
       'isVisible', 'getAppGlobalShortcuts', 'setAppGlobalShortcuts', 'restartApp',
     ]
-    for (const method of expected) expect(hostActionOf(method as never)?.startsWith('host.local')).toBe(true)
-    expect(hostActionOf('prompt')).toBeNull()
-    expect(hostActionOf('connectionsGetServerInfo')).toBe('host.connect')
+    for (const method of expected) expect(permissionOf(method as never)?.startsWith('host.local')).toBe(true)
+    expect(permissionOf('prompt')).toBeNull()
+    expect(permissionOf('connectionsGetServerInfo')).toBe('host.connect')
   })
 
   test('the system principal is never a local owner', () => {

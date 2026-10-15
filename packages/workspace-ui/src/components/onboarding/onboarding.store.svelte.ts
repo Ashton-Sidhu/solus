@@ -29,10 +29,10 @@ const LEAVE_MS = 560
  * The one place first-run onboarding keeps its own state: which stage is open,
  * how the greeting is doing, and what the last stage decided.
  *
- * Everything the stages report — agent installs, GitHub and Cloudflare — is
- * read off the stores that already own it, so onboarding
- * can never disagree with Settings about where the client stands. Completion
- * itself is a client preference and lives in settings, not here.
+ * Everything the stages report, such as agent installs, is read off the
+ * stores that already own it, so onboarding can never disagree with Settings
+ * about where the client stands. Completion itself is a client preference and
+ * lives in settings, not here.
  */
 class OnboardingStore {
   stage = $state<OnboardingStage>('intro')

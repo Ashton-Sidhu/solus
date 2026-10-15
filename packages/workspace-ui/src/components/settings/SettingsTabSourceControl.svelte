@@ -17,7 +17,8 @@
   } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import GitHubConnect from "../connections/GitHubConnect.svelte";
-  import CloudConnectionsPointer from "../seats/CloudConnectionsPointer.svelte";
+  import AccountConnectionRow from "../seats/AccountConnectionRow.svelte";
+  import { accountVaultStore } from "../seats/account-vault.store.svelte";
   import { cloudConnectionsPointerUrl } from "../seats/lib/cloud-connections";
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -44,13 +45,17 @@
   let customInstructionsDraft = $state("");
   let customInstructionsSource = $state<string | null>(null);
 
-  // A member admitted through an organization keeps their GitHub connection in
-  // Solus cloud, not on the runner; the row points there.
+  // A signed-in person keeps their GitHub connection in their Solus account,
+  // not on the host; the row shows the account's status and points there.
   $effect(() => {
     void accountStore.state;
     const targetServerId = serverId;
-    untrack(() => void sharesStore.identityFor(targetServerId, true).catch(() => {}));
+    untrack(() => {
+      void sharesStore.identityFor(targetServerId, true).catch(() => {});
+      void accountVaultStore.load();
+    });
   });
+  $effect(() => accountVaultStore.watch());
   const cloudConnectionsUrl = $derived(
     cloudConnectionsPointerUrl({
       identity: sharesStore.identities.get(serverId),
@@ -153,11 +158,11 @@
 
 {#if cloudConnectionsUrl}
   <SettingsSection label="Source control providers">
-    <CloudConnectionsPointer
+    <AccountConnectionRow
       url={cloudConnectionsUrl}
-      label="Your GitHub connection lives in Solus cloud"
-      description="Solus uses your own account for pull requests and project boards."
-      testId="source-control-row-cloud"
+      label="GitHub"
+      status={accountVaultStore.providerStatus("github")}
+      testId="source-control-row-github-account"
     />
   </SettingsSection>
 {:else}

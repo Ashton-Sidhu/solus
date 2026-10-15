@@ -38,7 +38,7 @@ test('the boot sweep queues an interrupted report for a published organization s
   const { RunnerDelivery } = await import('@solus/server/sync/runner-delivery')
 
   // The previous process: an organization session, published, mid-turn when it ended.
-  records.rememberSessionBirth('solus-killed', { organizationId: 'org_a', published: true, ownerUserId: 'bob', admissionId: 'solus-killed' })
+  records.rememberSessionBirth('solus-killed', { organizationId: 'org_a', published: true, ownerKey: 'bob', admissionId: 'solus-killed' })
   await records.upsertOwnSessionRecord({ sessionId: 'solus-killed', provider: 'codex', projectPath: '-repo', status: 'running', lastActivityAt: Date.now() })
   // A Local session left running is this machine's own: it is settled here and reported nowhere.
   await records.upsertOwnSessionRecord({ sessionId: 'solus-local', provider: 'codex', projectPath: '-repo', status: 'running', lastActivityAt: Date.now() })

@@ -9,6 +9,7 @@ import { appendActivity } from '../activity/activity'
 import { agentAttribution, hostAttribution, parseStoredAttribution } from '../stored-attribution'
 import { taskComments, taskCounters, taskExternalLinks, tasks } from './schema'
 import { scopeClause } from '../scope'
+import { hostUserKey } from '../../host/host-user'
 import type { RecordScope } from '../../admission/principal'
 import type {
   Task,
@@ -326,6 +327,8 @@ export async function writeTask(db: Db, organizationId: string, input: TaskCreat
   id?: string
   /** Who made it; read from `source` when absent. */
   by?: Attribution
+  /** The person the task belongs to (docs/plans/access-model.md §2.2). */
+  ownerKey: string
 }): Promise<Task> {
   assertTaskStatus(input.status)
   const title = input.title.trim()
@@ -342,14 +345,14 @@ export async function writeTask(db: Db, organizationId: string, input: TaskCreat
       id, short_id, project_key, title, title_source, body, status,
       assignee, assignee_user_id, due_date, priority, labels,
       source, origin_session_id, origin_automation_id, created_at, updated_at,
-      triaged_at, done_at, organization_id
+      triaged_at, done_at, organization_id, owner_key
     ) VALUES (
       ${id}, ${await nextShortId(db)}, ${projectKey}, ${title}, ${input.titleSource},
       ${input.body ?? ''}, ${input.status},
       ${normalizedOptional(input.assignee)}, ${normalizedOptional(input.assigneeUserId)}, ${normalizedOptional(input.dueDate)}, ${input.priority ?? null},
       ${JSON.stringify(input.labels ?? [])}, ${input.source}, ${normalizedOptional(input.originSessionId)},
       ${normalizedOptional(input.originAutomationId)}, ${input.now}, ${input.now}, ${triagedAt}, ${doneAt},
-      ${organizationId}
+      ${organizationId}, ${input.ownerKey}
     )
   `)
   const by = input.by ?? creatorBySource(input)
@@ -415,8 +418,12 @@ export async function commentsForTask(taskId: string, db: Db): Promise<TaskComme
   return rows.map(commentFromRow)
 }
 
-/** `origin` is the runner's own id and clock for a task it created before the op reached this database. */
-export async function createTask(organizationId: string, input: TaskCreateInput, origin?: { id: string; now: number }, by?: Attribution): Promise<Task> {
+/**
+ * `origin` is the runner's own id and clock for a task it created before the op
+ * reached this database. `ownerKey` is the person the task belongs to: its
+ * creator. The host's own work, which no person made, is the host's user's.
+ */
+export async function createTask(organizationId: string, input: TaskCreateInput, origin?: { id: string; now: number }, by?: Attribution, ownerKey: string = hostUserKey()): Promise<Task> {
   const task = await database().transaction((db) => {
     const projectKey = normalizedOptional(input.projectKey)
     const source = input.source ?? 'user'
@@ -430,6 +437,7 @@ export async function createTask(organizationId: string, input: TaskCreateInput,
       now: origin?.now ?? Date.now(),
       id: origin?.id,
       by,
+      ownerKey,
     })
   })
   emitChanged(task.id)

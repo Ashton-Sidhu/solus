@@ -93,7 +93,7 @@ class FakeHost {
   readonly review = {
     readWatchFingerprints: async (_repo: object, numbers: number[]) => {
       this.fingerprintReads++
-      this.readAs.push(actingScope.currentCredentialUserId())
+      this.readAs.push(actingScope.currentPersonKey())
       if (this.fingerprintFailure) throw this.fingerprintFailure
       return new Map(numbers.map((number) => [number, this.fingerprint()]))
     },

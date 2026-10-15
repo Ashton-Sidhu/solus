@@ -29,6 +29,8 @@ import { gitCheckoutFromState, projectScopeOf } from '@solus/contracts/types'
 import { annotateDispatch, dispatchStep, dispatchStepSync } from '../observability/session-emitter'
 import { SeatRequiredError } from '../seats/seat-manager'
 import { HOST_ACTOR, insightsAccountOf, ownerKeyOf, type Actor } from '../../admission/actor'
+import { integrationAgentTools } from '../../integrations/integration-tools'
+import { typeSafeKey } from '../../typesafe/credentials'
 import { withActorScope } from '../seats/acting-identity'
 import { userKey } from '@solus/contracts/user'
 import { SPAN_SERVICES } from '../../data/insights/registries'
@@ -793,6 +795,11 @@ export class RunLauncher {
       // Resolved again here, not only at submit: a queued prompt drains later, and
       // the author's seat may have been removed or expired in between.
       const seat = await this.rt.seatForTurn(request.actor, provider)
+      // The MCP servers' tools are listed here, for the run's person, so every run —
+      // typed, queued, restored, or started by an agent — gets that person's own.
+      const integrationTools = await integrationAgentTools(request.actor ?? HOST_ACTOR)
+      // Ask Jev uses the run's person's own TypeSafe key (access-model.md §2.6); without one it is not offered.
+      const hasTypeSafeKey = !!(await typeSafeKey()).apiKey
       if (this.rt.isShuttingDown) throw new Error('Interrupted')
       const savedRestart = this.rt.restarts.restartRuns?.get(sessionId)
       if (savedRestart && savedRestart.runId === request.runId) {
@@ -823,7 +830,8 @@ export class RunLauncher {
         prompt: options.prompt,
         cwd: effectiveCwd,
         tools: credentialScopedAgentTools([
-          ...request.tools,
+          ...request.tools.filter((tool) => hasTypeSafeKey || tool.name !== 'ask_jev'),
+          ...integrationTools,
           // The other backend's subagent runs on the turn author's own login.
           (provider === 'codex' ? createClaudeSubagentAgentTool : createCodexSubagentAgentTool)(
             this.rt,

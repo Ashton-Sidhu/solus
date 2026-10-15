@@ -1,4 +1,4 @@
-import { usesAccountIntegration } from '../../vault/provider-credentials'
+import { usesAccountIntegration } from '../../vault/vault'
 import { homedir } from 'node:os'
 import { runAsync } from '../../git/exec'
 import { createLogger } from '../../logger'

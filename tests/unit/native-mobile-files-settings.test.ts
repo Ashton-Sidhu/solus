@@ -71,7 +71,7 @@ describe('host settings', () => {
   test('a change the host refused shows what the host holds, not the change', async () => {
     const held = { ...DEFAULT_HOST_CONFIG, continueSessionsAfterHostRestart: true }
     const api = new FakeApi()
-      .on('configGet', () => ({ config: held, typeSafe: { source: null } }))
+      .on('configGet', () => ({ config: held }))
       .on('configUpdate', () => { throw new Error('not allowed') })
     const world = await hostWorld(api)
     const settings = new HostSettings((hostId) => world.connections.connection(hostId))
@@ -82,11 +82,11 @@ describe('host settings', () => {
   })
 
   test('a change made on another device shows here', async () => {
-    const api = new FakeApi().on('configGet', () => ({ config: DEFAULT_HOST_CONFIG, typeSafe: { source: null } }))
+    const api = new FakeApi().on('configGet', () => ({ config: DEFAULT_HOST_CONFIG }))
     const world = await hostWorld(api)
     const settings = new HostSettings((hostId) => world.connections.connection(hostId))
     await settings.load('inst-a')
-    world.transports[0]!.emit('config.changed', { config: { ...DEFAULT_HOST_CONFIG, continueSessionsAfterHostRestart: false }, typeSafe: { source: null } })
+    world.transports[0]!.emit('config.changed', { config: { ...DEFAULT_HOST_CONFIG, continueSessionsAfterHostRestart: false } })
     await flushPromises()
     const state = settings.stateOf('inst-a')
     expect(state.kind === 'loaded' && state.settings.continueSessionsAfterHostRestart).toBe(false)

@@ -14,8 +14,9 @@ let database: typeof import('@solus/server/db/database')
 let dataDir: string
 const previous = process.env.SOLUS_DATA_DIR
 const now = Date.parse('2026-09-28T12:00:00Z')
+// alice is the organization's owner, an administrator: she reads every member's turns (access-model.md §4 D2).
 const context: WorkspaceRequestContext = {
-  principal: { kind: 'org-member', userId: 'alice', organizationId: 'A', organizationRole: 'member', teamIds: [], hostKind: 'cloud', displayName: 'Alice', deviceId: 'device', deviceLabel: 'Browser', expiresAt: now + 300_000 },
+  principal: { kind: 'org-member', userId: 'alice', organizationId: 'A', organizationRole: 'owner', teamIds: [], hostKind: 'cloud', displayName: 'Alice', deviceId: 'device', deviceLabel: 'Browser', expiresAt: now + 300_000 },
   home: { kind: 'organization', organizationId: 'A', serviceId: 'api' }, scopes: ['insights:read'],
 }
 
@@ -54,6 +55,11 @@ describe('bounded organization Insights', () => {
       cursor = page.nextCursor ?? undefined
     } while (cursor)
     expect(seen.size).toBe(1500)
+    // A member reads their own turns only, whatever person the query names.
+    const asBob: WorkspaceRequestContext = { ...context, principal: { ...context.principal, userId: 'bob', organizationRole: 'member' } as WorkspaceRequestContext['principal'] }
+    const bobs = await read.readInsightPage(asBob, { limit: 200, userId: 'alice' }, now)
+    expect(bobs.items.length).toBeGreaterThan(0)
+    expect(bobs.items.every((item) => item.userId === 'bob')).toBe(true)
   })
 
   test('individual reads bind organization and complete stored identity', async () => {

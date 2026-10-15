@@ -5,7 +5,7 @@ import { AppText as Text } from "../../components/AppText";
 import type { ConversationStore } from "../conversation/conversation-store";
 import type { TranscriptItem } from "../conversation/lib/transcript-model";
 import { worktreeOfferText } from "../conversation/lib/worktree-offer";
-import { RequestActionButton } from "./RequestActionButton";
+import { RequestActionButton, WaitingForEditor } from "./RequestActionButton";
 
 type WorktreeOfferItem = Extract<TranscriptItem, { kind: "worktree_offer" }>;
 
@@ -34,7 +34,8 @@ export function WorktreeOfferCard(props: { readonly store: ConversationStore; re
           {text.detail}
         </Text>
       ) : null}
-      {text.canDecide ? (
+      {text.canDecide && !props.store.controller.mayDrive ? <WaitingForEditor /> : null}
+      {text.canDecide && props.store.controller.mayDrive ? (
         <View className="flex-row flex-wrap gap-2.5">
           <RequestActionButton label="Switch" tone="primary" disabled={busy} onPress={() => void decide("switch")} />
           <RequestActionButton label="Keep current" tone="secondary" disabled={busy} onPress={() => void decide("keep")} />

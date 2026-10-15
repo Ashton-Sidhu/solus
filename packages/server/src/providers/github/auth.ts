@@ -1,7 +1,7 @@
-import { usesAccountIntegration } from '../../vault/provider-credentials'
+import { usesAccountIntegration } from '../../vault/vault'
 import { createLogger } from '../../logger'
 import { GITHUB_OAUTH_SCOPES, parseGithubScopes } from '@solus/contracts/github-auth'
-import { currentCredentialUserId } from '../../vault/acting-scope'
+import { currentPersonKey } from '../../vault/acting-scope'
 import { GITHUB_CLIENT_ID } from './client-id'
 import { githubCredentialChain } from './credentials'
 import { loadToken, persistToken, clearToken, type GithubStoredToken } from './token-store'
@@ -175,7 +175,7 @@ export class GitHubAuth implements ProviderAuth {
     if (!GITHUB_CLIENT_ID) throw new Error('GitHub client ID not configured')
     // The scope set at dispatch carries through every await below, so the token
     // lands in the caller's own store; the key only serializes their attempts.
-    const who = currentCredentialUserId() ?? 'host'
+    const who = currentPersonKey() ?? 'host'
     if (this.connecting.has(who)) throw new Error('A GitHub connection is already in progress.')
     const abort = new AbortController()
     this.connecting.set(who, abort)
@@ -201,7 +201,7 @@ export class GitHubAuth implements ProviderAuth {
   }
 
   cancelConnect(): void {
-    this.connecting.get(currentCredentialUserId() ?? 'host')?.abort()
+    this.connecting.get(currentPersonKey() ?? 'host')?.abort()
   }
 
   async getAccessToken(): Promise<string> {

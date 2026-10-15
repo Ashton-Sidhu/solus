@@ -7,15 +7,13 @@ import { DEFAULT_SERVER_PORT } from '@solus/contracts/types'
 import { SOLUS_API_AUDIENCE, type HostRoute } from '@solus/contracts/uplink'
 import { getInstallationId } from './admission/auth'
 import { AccessTokenVerifier } from './admission/access-tokens'
-import { ANY_ORGANIZATION } from './admission/principal'
 import { applyApiMode, apiModeConfig } from './host/api-mode'
 import { solusApiSettings } from './host/solus-api-settings'
 import { closeDatabase, getDatabase } from './db/database'
 import { closeDb } from './db'
 import { ShareManager } from './sharing/share-manager'
 import { eventVisibleTo } from './sharing/event-audience'
-import { onTasksChanged, taskOrganizationId } from './data/tasks/task-store'
-import { workOrganizationId } from './data/works/works'
+import { onTasksChanged } from './data/tasks/task-store'
 import { onWorkDeleted, onWorksChanged } from './data/works/work-events'
 import { onWorkReviewsChanged } from './data/works/work-reviews'
 import { publishNotificationChanges } from './notifications/hub-events'
@@ -35,7 +33,7 @@ import { onSessionStateChanged } from './data/sessions/session-states'
 import { publishSessionViewChanges } from './transport/events/session-view-events'
 import { organizationPrSync } from './prs/organization-pr-sync'
 import type { PrSync } from './prs/pr-sync'
-import { useAccountCredentialSource, type AccountCredentialSource } from './vault/provider-credentials'
+import { useAccountCredentialSource, type AccountCredentialSource } from './vault/vault'
 import { registerTaskOutboxApplier } from './data/tasks/task-applier'
 import { registerSessionOutboxApplier } from './data/sessions/session-applier'
 import { registerWorkOutboxApplier } from './data/works/work-applier'
@@ -74,8 +72,8 @@ export interface SolusApiServiceOptions {
   /** The routes the directory knows for one host, for a share link's guest page (host-sharing.md §4.2); none when the caller keeps no directory. */
   hostRoutes?: (hostId: string) => Promise<HostRoute[]>
   /**
-   * A person's account connection, read where the account plane runs in the same
-   * process (solus-cloud), parsed with the schema it is given. With it, the service
+   * A person's credential, read from the cloud vault where the account plane runs
+   * in the same process (solus-cloud) by its ref. With it, the service
    * keeps its organization sessions' pull requests fresh as their owners
    * (docs/plans/session-archive.md); without it, it reads none.
    */
@@ -105,14 +103,7 @@ async function createSolusApiServiceAsHost(options: SolusApiServiceOptions): Pro
   } catch (error) {
     await closeDatabase(); closeDb(); throw error
   }
-  const shares = new ShareManager({
-    db,
-    organizationOfResource: async resource => {
-      if (resource.kind === 'task') return taskOrganizationId(resource.id)
-      if (resource.kind === 'work') return workOrganizationId(resource.id)
-      return (await getSessionRecord(ANY_ORGANIZATION, resource.id))?.organizationId ?? null
-    },
-  })
+  const shares = new ShareManager({ db })
   const server = new SolusServer()
   server.useRoles(new Set(['collaboration']))
   server.useResourceAccess(shares)

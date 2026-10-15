@@ -1,5 +1,5 @@
 // Adapted from T3 Code apps/mobile/src/features/threads/PendingUserInputCard.tsx (MIT, see UPSTREAM.md).
-import { RequestActionButton } from "./RequestActionButton";
+import { RequestActionButton, WaitingForEditor } from "./RequestActionButton";
 import { formatAnswer, questionKey } from "@solus/contracts/question-answer";
 import { requestExpiryText, type QuestionItem } from "@solus/contracts/types";
 import { useState } from "react";
@@ -29,6 +29,8 @@ export interface PendingUserInputCardProps {
   /** Renders a stop control on the collapsed bar, which replaces the composer. */
   readonly onStopThread?: () => void;
   readonly responding: boolean;
+  /** False for a reader who may only view the session: they read the questions; an editor answers. */
+  readonly mayDrive: boolean;
   readonly onSubmit: (answers: Record<string, string>) => Promise<unknown>;
 }
 
@@ -59,7 +61,7 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
   const questions = props.pendingUserInput.questions;
   const questionCount = questions.length;
   const canRespond = props.pendingUserInput.expired === undefined;
-  const responseDisabled = !canRespond || props.responding;
+  const responseDisabled = !canRespond || props.responding || !props.mayDrive;
   const [drafts, setDrafts] = useState<Partial<Record<string, PendingUserInputDraftAnswer>>>({});
   const answers = resolveAnswers(questions, drafts);
 
@@ -234,15 +236,19 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
           );
         })}
       </ScrollView>
-      <RequestActionButton
-        label="Submit answers"
-        size="large"
-        tone={answers ? "primary" : "secondary"}
-        disabled={responseDisabled || answers === null}
-        onPress={() => {
-          if (answers) void props.onSubmit(answers);
-        }}
-      />
+      {props.mayDrive ? (
+        <RequestActionButton
+          label="Submit answers"
+          size="large"
+          tone={answers ? "primary" : "secondary"}
+          disabled={responseDisabled || answers === null}
+          onPress={() => {
+            if (answers) void props.onSubmit(answers);
+          }}
+        />
+      ) : (
+        <WaitingForEditor />
+      )}
     </Animated.View>
   );
 }

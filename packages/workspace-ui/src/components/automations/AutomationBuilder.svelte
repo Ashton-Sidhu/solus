@@ -29,6 +29,7 @@
     serversStore,
   } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
+  import { NOT_YOURS_REASON } from "../../contexts/sharing/resource-roles";
   import { toasts } from "../../lib/toasts";
   import {
     useKeybinding,
@@ -171,6 +172,11 @@
   const current = $derived<Automation | null>(
     currentId ? (store.get(currentId) ?? savedSnapshot) : null,
   );
+  // A saved automation is changed by its owner or an administrator, and run by
+  // the same people (docs/plans/access-model.md §2.7). A new one is the reader's own.
+  const automationRef = $derived(current ? { kind: "automation" as const, id: current.id, role: current.role } : null);
+  const canEdit = $derived(!automationRef || (hosts.get(selectedServerId)?.me.may("edit", automationRef) ?? true));
+  const canRun = $derived(!automationRef || (hosts.get(selectedServerId)?.me.may("drive", automationRef) ?? true));
 
   const agentOptions = $derived(runnableAutomationAgents(agentContext.agents));
   const REASONING_OPTIONS: ReasoningEffort[] = [
@@ -416,6 +422,7 @@
     // (Run now still creates via ensureCreated: running IS an intent to keep it.)
     if (!current && !name.trim() && !prompt.trim()) return;
     if (!current && !canSaveNew) return;
+    if (!canEdit) return;
     isSaving = true;
     try {
       // First edit on a new automation: the lazy create already saved every draft.
@@ -631,6 +638,8 @@
           variant="outline"
           class="h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome gap-1.5 border-border/85 bg-transparent px-3 font-medium text-[color:color-mix(in_oklab,var(--foreground)_85%,var(--muted-foreground))] dark:bg-transparent"
           onclick={beginEdit}
+          disabled={!canEdit}
+          title={canEdit ? undefined : NOT_YOURS_REASON}
         >
           <PencilSimpleIcon size={12} />
           Edit
@@ -642,7 +651,8 @@
           variant="destructive"
           class="h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome gap-1.5 px-3.5 font-medium"
           onclick={cancelRun}
-          disabled={cancelling}
+          disabled={cancelling || !canRun}
+          title={canRun ? undefined : NOT_YOURS_REASON}
           aria-label="Stop run"
         >
           {#if cancelling}
@@ -657,7 +667,8 @@
         <Button
           class="h-[2.0625rem] shrink-0 rounded-full text-workspace-chrome gap-[0.4375rem] pr-[0.9375rem] pl-[0.8125rem] font-medium hover:bg-[color:color-mix(in_oklab,var(--primary)_89%,black)]"
           onclick={runNow}
-          disabled={!current && !canSaveNew}
+          disabled={(!current && !canSaveNew) || !canRun}
+          title={canRun ? undefined : NOT_YOURS_REASON}
           aria-label="Run now"
         >
           <PlayIcon size={11} weight="fill" />
@@ -750,6 +761,7 @@
         {enabled}
         onEnabledChange={setEnabled}
         onCommit={commitTrigger}
+        disabled={!canEdit}
       />
     </div>
 

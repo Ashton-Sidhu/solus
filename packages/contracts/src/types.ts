@@ -10,6 +10,7 @@ import type { DeviceRunProfile } from './device-types'
 import type { WorkExternalLink } from './docs'
 import type { Attribution, User } from './user'
 import type { Activity } from './activity'
+import type { ResourceRole } from './sharing'
 import type { SessionState, SessionView } from './session-state'
 import type { SessionPullRequestLink } from './session-pull-requests'
 import type { MediaType } from './media-types'
@@ -1455,6 +1456,8 @@ export interface WorkMeta {
   /** The upstream doc this work mirrors, when the user has published or
    *  imported it. Absent for the great majority of works, which are local only. */
   mirroredDoc?: WorkExternalLink
+  /** The reader's resource role (docs/plans/access-model.md §2.7), set on every read a host answers for a person; absent in a host's own store. */
+  role?: ResourceRole
 }
 
 export interface Work extends WorkMeta {
@@ -2465,8 +2468,8 @@ export interface SessionRecord {
   /** The canonical organization (§3, R10): `local` while unassigned, else an organization id that never changes. */
   organizationId: string
   publication: RecordPublication
-  /** The account that started the session, when one is known; null on a host's own sessions. */
-  ownerUserId: string | null
+  /** The person the session belongs to (docs/plans/access-model.md §2.2): who started it, or the host's user for the host's own sessions. */
+  ownerKey: string
   provider: AgentId
   projectPath: string
   /** The project's remote URL, when the runner knows one; how two runners name the same repository. */
@@ -2507,6 +2510,8 @@ export interface SessionRecord {
   listed?: boolean
   /** The pull requests the session works on, with what PR sync last saw. */
   pullRequests?: SessionPullRequestLink[]
+  /** The reader's resource role (docs/plans/access-model.md §2.7), set on every read a host answers for a person; absent in a host's own store. */
+  role?: ResourceRole
 }
 
 /** `SessionDelegation` less the two ids the record already carries. */
@@ -2514,7 +2519,7 @@ export type SessionRecordDelegation = Omit<SessionDelegation, 'parentSessionId' 
 
 /** `sessionRecordUpsert`: a field left out keeps the stored value; `lastActivityAt`
  *  is always the caller's. The organization is the caller's, never an argument. */
-export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'lastActivityAt' | 'organizationId' | 'publication' | 'state' | 'view' | 'listed' | 'pullRequests'>> {
+export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'lastActivityAt' | 'organizationId' | 'publication' | 'ownerKey' | 'state' | 'view' | 'listed' | 'pullRequests' | 'role'>> {
   sessionId: string
   provider: AgentId
   projectPath: string
@@ -3393,6 +3398,8 @@ export interface Automation {
   lastRunId?: string
   lastRunStatus?: AutomationRunStatus
   lastRunAt?: string
+  /** The reader's resource role (docs/plans/access-model.md §2.7), set on every read a host answers for a person; absent in the store. */
+  role?: ResourceRole
 }
 
 /** One execution instance of an automation. */

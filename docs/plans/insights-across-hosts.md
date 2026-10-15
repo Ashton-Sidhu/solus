@@ -61,6 +61,9 @@ organization.
 - The insight pull on a machine always passes `userId` = the signed-in user.
   Solus only ever pulls your own turns.
 - The organization view passes no `userId`. It reads every member's turns.
+  Since `access-model.md` §4 D2 (2026-10-14) the Solus API answers that only
+  to an organization owner, an administrator; a member's read holds their own
+  turns whatever `userId` it names (`data/insights/api-operations.ts`).
 - Add `insights:read` to `DELEGATED_SCOPES` (`sync/delegations.ts`), because
   the machine pulls with the person's delegated token.
 
@@ -76,8 +79,10 @@ Extend the existing endpoints. Do not add a sync endpoint.
 - `GET /v1/insights/:insightId/spans` (`getInsightSpans`, new) returns all
   spans and log events of one turn. Indexes on `(organization_id, host_id,
   trace_id)` serve it (`drizzle/*/0001_insight_trace_index.sql`).
-- **The organization sees what Insights shows today** (decided 2026-10-01).
-  Any member of the organization reads every member's rows, with a prompt
+- **The organization sees what Insights shows today** (decided 2026-10-01;
+  narrowed 2026-10-14 by `access-model.md` D2: a member reads their own rows,
+  an organization owner every member's).
+  The reader reads the rows, with a prompt
   preview, and every turn's full tree. The organization is the boundary. A
   row leaves out the response and the system prompt only to keep the pull
   small; the tree has them.

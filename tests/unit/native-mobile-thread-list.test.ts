@@ -29,7 +29,7 @@ const HOUR = 60 * 60 * 1000
 
 function record(sessionId: string, extra: Partial<SessionRecord> = {}): SessionRecord {
   return {
-    sessionId, organizationId: 'local', publication: 'local', ownerUserId: null, provider: 'claude-code',
+    sessionId, organizationId: 'local', publication: 'local', ownerKey: 'local:test', provider: 'claude-code',
     projectPath: '/repo', projectRemote: null, runnerHostId: null, title: `Session ${sessionId}`, customTitle: null,
     status: 'idle', model: null, reasoningEffort: null, parentSessionId: null, rootSessionId: null,
     createdAt: NOW - HOUR, lastActivityAt: NOW - HOUR, size: 0, cwd: '/repo', slug: null, isWorktree: false,

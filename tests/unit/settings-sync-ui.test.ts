@@ -212,7 +212,7 @@ describe('account isolation', () => {
 
 describe('client analytics', () => {
   test('the client analytics switch changes this device only', async () => {
-    hostConfigs.set('host-a', { typeSafe: { source: null }, config: DEFAULT_HOST_CONFIG })
+    hostConfigs.set('host-a', { config: DEFAULT_HOST_CONFIG })
     const settings = await settingsOn()
     settings.setClientAnalyticsEnabled(false)
     await flush()
@@ -226,8 +226,8 @@ describe('hosts', () => {
     const settings = await settingsOn()
     settings.setPersonal('themeMode', 'dark')
     settings.setPersonal('defaultPermissionMode', 'supervised')
-    hostConfigs.set('host-a', { typeSafe: { source: null }, config: { ...DEFAULT_HOST_CONFIG, reviewWarmingByProject: { '/repo': true } } })
-    hostConfigs.set('host-b', { typeSafe: { source: null }, config: { ...DEFAULT_HOST_CONFIG, reviewWarmingByProject: {} } })
+    hostConfigs.set('host-a', { config: { ...DEFAULT_HOST_CONFIG, reviewWarmingByProject: { '/repo': true } } })
+    hostConfigs.set('host-b', { config: { ...DEFAULT_HOST_CONFIG, reviewWarmingByProject: {} } })
     const { hostSettingsStore } = await import('@solus/workspace-ui/contexts/app/host-settings.store.svelte')
     await hostSettingsStore.load('host-a')
     await hostSettingsStore.load('host-b')
@@ -240,7 +240,7 @@ describe('hosts', () => {
   })
 
   test('the host analytics switch reads and writes only the host emitter’s consent', async () => {
-    hostConfigs.set('host-a', { typeSafe: { source: null }, config: { ...DEFAULT_HOST_CONFIG, analyticsEnabled: true } })
+    hostConfigs.set('host-a', { config: { ...DEFAULT_HOST_CONFIG, analyticsEnabled: true } })
     const settings = await settingsOn()
     const { hostSettingsStore } = await import('@solus/workspace-ui/contexts/app/host-settings.store.svelte')
     await hostSettingsStore.load('host-a')

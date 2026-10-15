@@ -581,7 +581,7 @@ type SecretTicketOutcome =
  * link this host made, with no bearer, earns a guest ticket bound to that one
  * resource. The visitor is whoever holds the link; the id and name are theirs to
  * state, and the role is the link's. Nothing about the host is reachable with it
- * beyond its grants (`GUEST_HOST_ACTIONS`) and the resource's own role.
+ * beyond its permissions (`GUEST_PERMISSIONS`) and the resource's own role.
  */
 export async function ticketForShareSecret(
   body: { shareSecret?: string; guestId?: string; displayName?: string } | null,

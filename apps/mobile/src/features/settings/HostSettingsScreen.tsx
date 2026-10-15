@@ -16,6 +16,7 @@ import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsValueRow } from "./components/SettingsValueRow";
+import { accountConnectionValue } from "./lib/account-connections";
 import { updateStatusText } from "./lib/update-status";
 import { useGithubConnection } from "./use-github-connection";
 import { useHostSettings } from "./use-host-settings";
@@ -44,15 +45,17 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
   const connectionExpanded = connectionToggled ?? connectionFailed;
 
   const githubValue =
-    github.view.kind === "connected"
-      ? (github.view.login ?? "Connected")
-      : github.view.kind === "disconnected"
-        ? "Not connected"
-        : github.view.kind === "error"
-          ? "Unavailable"
-          : github.view.kind === "connecting"
-            ? "Connecting…"
-            : undefined;
+    github.view.kind === "account"
+      ? accountConnectionValue(github.view.status)
+      : github.view.kind === "connected"
+        ? (github.view.login ?? "Connected")
+        : github.view.kind === "disconnected"
+          ? "Not connected"
+          : github.view.kind === "error"
+            ? "Unavailable"
+            : github.view.kind === "connecting"
+              ? "Connecting…"
+              : undefined;
 
   return (
     <SettingsScreen title={host?.label ?? "Host"}>
@@ -154,7 +157,11 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
                   onPress={() => navigation.navigate("GitHubConnection", { hostId })}
                 />
               </SettingsSection>
-              <SettingsNote>Pull requests on this host use its GitHub connection.</SettingsNote>
+              <SettingsNote>
+                {github.view.kind === "account"
+                  ? "Pull requests on this host use the GitHub connection in your Solus account."
+                  : "Pull requests on this host use its GitHub connection."}
+              </SettingsNote>
             </View>
           </>
         )}

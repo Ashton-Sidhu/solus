@@ -47,6 +47,8 @@ let platform: PlatformModule
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 const PROJECT = '/projects/alpha'
+const ALICE = 'acct_alice'
+const BOB = 'acct_bob'
 const FIREFOX_DIR = 'p7q2xk.default-release'
 const FIREFOX_ID = `firefox:${FIREFOX_DIR}`
 const CHROME_ID = 'chrome:Default'
@@ -636,15 +638,35 @@ describe('importing into a Solus profile', () => {
 
   test('cookies land in the destination profile’s own jar', async () => {
     const received = installProfileHost()
-    profiles.createBrowserProfile(PROJECT, 'Admin')
+    profiles.createBrowserProfile(ALICE, PROJECT, 'Admin')
 
     const result = await runImport({ profileId: 'admin' })
 
     const { browserProfilePartition } = await import('@solus/contracts/browser-types')
     expect(received).toEqual([
-      { partition: browserProfilePartition(PROJECT, 'admin'), names: ['sid', 'theme'] },
+      { partition: browserProfilePartition(PROJECT, 'admin', ALICE), names: ['sid', 'theme'] },
     ])
     expect(result.imported).toBe(2)
+  })
+
+  test("alice's imported cookies are not in bob's jar for the same project", async () => {
+    // WHY: the bug this guards. One project-wide jar meant bob's agent opened
+    // alice's import and was signed in as her.
+    const received = installProfileHost()
+    const { browserProfilePartition } = await import('@solus/contracts/browser-types')
+
+    await runImport({})
+
+    expect(received.map((entry) => entry.partition)).toEqual([browserProfilePartition(PROJECT, 'default', ALICE)])
+    expect(received.map((entry) => entry.partition)).not.toContain(browserProfilePartition(PROJECT, 'default', BOB))
+  })
+
+  test("bob cannot import into alice's named profile", async () => {
+    const received = installProfileHost()
+    profiles.createBrowserProfile(ALICE, PROJECT, 'Admin')
+
+    await expect(runImport({ profileId: 'admin' }, BOB)).rejects.toThrow('No browser profile admin')
+    expect(received).toEqual([])
   })
 
   test('what comes back is counts — never a cookie, a value, or a site', async () => {
@@ -669,8 +691,8 @@ describe('importing into a Solus profile', () => {
 
   /** One import, with the parts a test wants to vary. Firefox by default: it is
    *  the source that needs no key, so no test here can reach a keychain. */
-  function runImport(overrides: { consent?: boolean; profileId?: string; sourceId?: string }) {
-    return profiles.importBrowserCookies({
+  function runImport(overrides: { consent?: boolean; profileId?: string; sourceId?: string }, ownerKey = ALICE) {
+    return profiles.importBrowserCookies(ownerKey, {
       sourceId: overrides.sourceId ?? FIREFOX_ID,
       projectRoot: PROJECT,
       profileId: overrides.profileId ?? 'default',

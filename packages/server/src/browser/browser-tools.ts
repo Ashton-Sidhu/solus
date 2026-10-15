@@ -29,6 +29,7 @@ import { browserProfiles, profileForOpen } from './browser-profiles'
 import { browserRegistry } from './browser-registry'
 import type { BrowserDialogAnswer } from './surface-driver'
 import { discoverBrowserTargets } from './target-scanner'
+import { currentPersonKey } from '../vault/acting-scope'
 
 /**
  * The agent's half of the browser domain.
@@ -95,6 +96,9 @@ function browserTool<Fields extends BrowserToolFields>(spec: {
       let releaseAgentUse: (() => void) | null = null
       try {
         if (spec.pageOf) {
+          // The run acts as its person, so it drives only pages in that person's
+          // jar (docs/plans/member-isolation.md §6).
+          browserRegistry().assertDrivableBy(spec.pageOf(parsed), currentPersonKey())
           releaseAgentUse = browserRegistry()
             .beginAgentUse(spec.pageOf(parsed), spec.name, context.sessionId())
         }
@@ -178,7 +182,9 @@ export const browserStatusAgentTool = browserTool({
     + 'opens as one of them.',
   inputFields: {},
   execute: async () => {
-    const pages = browserRegistry().list()
+    // Only the pages this run can drive: those in its person's jar.
+    const personKey = currentPersonKey()
+    const pages = browserRegistry().list().filter((page) => page.ownerKey === personKey)
     const targets = await discoverBrowserTargets()
     return ok([
       pages.length
@@ -189,25 +195,25 @@ export const browserStatusAgentTool = browserTool({
           .map((target) => `  ${target.url}${target.branch ? ` — ${target.branch}` : ''}${target.title ? ` — ${target.title}` : ''}`)
           .join('\n')}`
         : 'No running dev servers were discovered. Solus does not start them; start one in your own shell first.',
-      describeProfiles(targets),
+      personKey === null ? '' : describeProfiles(personKey, targets),
       `Device presets: ${PRESET_IDS}`,
     ].filter(Boolean).join('\n\n'))
   },
 })
 
 /**
- * The profiles the projects behind the discovered targets have.
+ * The run's person's profiles in the projects behind the discovered targets.
  *
  * Taken off the scan rather than from a parameter, for the same reason
  * attribution is: the agent knows a URL, and the host knows which project serves
  * it and which identities that project has signed in. A project with only its
  * automatic profile is left out — there is nothing there to choose between.
  */
-function describeProfiles(targets: BrowserDiscoveredTarget[]): string {
+function describeProfiles(personKey: string, targets: BrowserDiscoveredTarget[]): string {
   const roots = [...new Set(targets.flatMap((target) => (target.projectRoot ? [target.projectRoot] : [])))]
   const lines: string[] = []
   for (const root of roots) {
-    const set = browserProfiles(root)
+    const set = browserProfiles(personKey, root)
     if (set.profiles.length <= 1) continue
     lines.push(
       `  ${root}: ${set.profiles
@@ -259,9 +265,11 @@ export const browserOpenAgentTool = browserTool({
     if (input.label) request.label = input.label
     // The project's chosen default when the agent named none, and a refusal when
     // it named one this project does not have — resolved before the page exists.
-    request.profileId = profileForOpen(target.projectRoot, input.profile)
+    // The page opens in the run's person's jar; the host's own work gets an unsaved one.
+    const personKey = currentPersonKey()
+    request.profileId = profileForOpen(personKey, target.projectRoot, input.profile)
 
-    const page = browserRegistry().open(request)
+    const page = browserRegistry().open(request, personKey)
     browserRegistry().noteAgentUse(page.browserPageId, 'browser_open', context.sessionId())
     return ok(`${describePage(page)}\n\nUse browser_snapshot with this browserPageId to see it.`)
   },
@@ -277,6 +285,7 @@ export const browserCloseAgentTool = browserTool({
     // cleanup would be a prompt about nothing — and refused when another
     // session is in the middle of driving it.
     const registry = browserRegistry()
+    registry.assertDrivableBy(input.browserPageId, currentPersonKey())
     const user = registry.get(input.browserPageId)?.agentUse?.sessionId
     const own = !user || user === context.sessionId()
     const result = await registry.close(input.browserPageId, { force: own })
@@ -665,6 +674,7 @@ export const browserDialogAgentTool = browserTool({
   execute: async (input) => {
     const answer: BrowserDialogAnswer = { accept: input.accept }
     if (input.promptText !== undefined) answer.promptText = input.promptText
+    browserRegistry().assertDrivableBy(input.browserPageId, currentPersonKey())
     const answered = await browserRegistry().answerDialog(input.browserPageId, answer)
     const verb = input.accept ? 'Accepted' : 'Dismissed'
     return ok(answered

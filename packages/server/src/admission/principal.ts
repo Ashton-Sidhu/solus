@@ -308,15 +308,6 @@ export function organizationForNew(principal: Principal): string {
   }
 }
 
-/**
- * Whose personal records a read includes beside the shared ones
- * (plans/020-agent-profile.md §2.1): a member's own. The owner of a personal
- * host, and the host itself, hold no personal records: the host's are theirs.
- */
-export function personalRecordOwnerOf(principal: Principal): string | null {
-  return principal.kind === 'org-member' ? principal.userId : null
-}
-
 /** Whether a record of `organizationId` is inside `scope`. */
 export function scopeAdmits(scope: RecordScope, organizationId: string): boolean {
   return isAnyOrganization(scope) || scope === organizationId

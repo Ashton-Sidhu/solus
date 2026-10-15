@@ -6,6 +6,7 @@
     BrowserViewportRequest,
   } from "@solus/contracts/browser-types";
   import { serverConnections } from "@solus/client-core/server-connections";
+  import { browserStore } from "../../contexts/browser/browser.store.svelte";
   import { Button } from "../ui/button";
   import { MiddleTruncate } from "../ui/middle-truncate";
   import StreamedSurface from "./StreamedSurface.svelte";
@@ -120,7 +121,8 @@
       canRenderHere,
       serverId,
       serverConnections.localServerId(),
-      page.target.kind,
+      page,
+      browserStore.devicePersonKey,
     ),
   );
 

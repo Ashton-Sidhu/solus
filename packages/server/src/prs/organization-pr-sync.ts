@@ -19,7 +19,7 @@ export function organizationPrSync(publish: (change: PrSyncChange) => void): PrS
     liveCheckouts: async (now) => {
       const live = await liveSessionBranches(now - SESSION_LIST_IDLE_MS)
       running = new Set(live.filter((session) => session.isRunning).map((session) => session.sessionId))
-      ownersByRepository = new Map(live.flatMap((session) => session.ownerUserId ? [[session.repositoryKey.toLowerCase(), session.ownerUserId] as const] : []))
+      ownersByRepository = new Map(live.map((session) => [session.repositoryKey.toLowerCase(), session.ownerKey] as const))
       return live.map((session) => ({ projectScope: session.repositoryKey, branch: session.branch, sessionId: session.sessionId }))
     },
     repositoryReader: (repositoryKey) => ownersByRepository.get(repositoryKey) ?? null,

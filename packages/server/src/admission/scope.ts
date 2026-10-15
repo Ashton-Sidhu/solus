@@ -6,11 +6,11 @@ import type { Principal } from './principal'
 import type { RpcMethod } from '@solus/contracts/rpc'
 
 /**
- * The bound on a grant (docs/plans/permissions.md §3). A guest's host actions
- * reach the shared session's checkout and nothing else: `host.git.read` on a
- * link to a session is that session's working directory, not the disk. Every
- * other principal's grants are unbounded, and a scope on a grant becomes data
- * the day a second bounded case appears.
+ * The bound on a permission (docs/plans/permissions.md §3). A guest's
+ * permissions reach the shared session's checkout and nothing else:
+ * `host.git.read` on a link to a session is that session's working directory,
+ * not the disk. Every other principal's permissions are unbounded, and a scope
+ * on a permission becomes data the day a second bounded case appears.
  */
 export function pathScopeOf(principal: Principal): string | null {
   if (principal.kind !== 'guest') return null

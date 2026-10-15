@@ -13,6 +13,7 @@
   import { compactRelativeTime } from "../ui/list-page";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import { groupKeyFor } from "../../contexts";
+  import { NOT_YOURS_REASON } from "../../contexts/sharing/resource-roles";
   import AutomationRunChart from "./AutomationRunChart.svelte";
   import { triggerSummary } from "./lib/automation-format";
 
@@ -27,6 +28,9 @@
     projectLabel: string;
     projectPath: string;
     serverId?: string | null;
+    /** The reader's role allows changing it (star, pause, delete) and running it (docs/plans/access-model.md §2.7). */
+    canEdit: boolean;
+    canRun: boolean;
     /** Newest first; drawn as the row's run graph. */
     recentRuns: readonly AutomationRunPoint[];
     /** Ticking clock from the page, so the age column counts up on its own. */
@@ -45,6 +49,8 @@
     projectLabel,
     projectPath,
     serverId,
+    canEdit,
+    canRun,
     recentRuns,
     now,
     selected = false,
@@ -165,9 +171,10 @@
       type="button"
       class="grid size-6 shrink-0 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-3)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40 {a.favorite ? 'text-[var(--warning)]' : ''}"
       onclick={(e) => onToggleFavorite(a, e)}
+      disabled={!canEdit}
       aria-label={a.favorite ? "Unstar" : "Star"}
       aria-pressed={a.favorite}
-      title={a.favorite ? "Unstar" : "Star"}
+      title={canEdit ? (a.favorite ? "Unstar" : "Star") : NOT_YOURS_REASON}
     >
       <StarIcon size={14} weight={a.favorite ? "fill" : "regular"} />
     </button>
@@ -175,9 +182,9 @@
       type="button"
       class="grid size-6 shrink-0 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-3)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
       onclick={(e) => onRunNow(a, e)}
-      disabled={!a.enabled || a.lastRunStatus === "running"}
+      disabled={!a.enabled || a.lastRunStatus === "running" || !canRun}
       aria-label="Run now"
-      title="Run now"
+      title={canRun ? "Run now" : NOT_YOURS_REASON}
     >
       <PlayIcon size={14} weight="fill" />
     </button>
@@ -198,8 +205,9 @@
         type="button"
         class="grid size-6 shrink-0 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-3)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40 text-[var(--failure)] hover:text-[var(--failure)]"
         onclick={(e) => onCancelRun(a, e)}
+        disabled={!canRun}
         aria-label="Stop run"
-        title="Stop this run"
+        title={canRun ? "Stop this run" : NOT_YOURS_REASON}
       >
         <StopIcon size={14} weight="fill" />
       </button>
@@ -208,8 +216,9 @@
         type="button"
         class="grid size-6 shrink-0 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-3)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
         onclick={(e) => onToggleEnabled(a, e)}
+        disabled={!canEdit}
         aria-label="Pause automation"
-        title="Pause — stop running on schedule"
+        title={canEdit ? "Pause — stop running on schedule" : NOT_YOURS_REASON}
       >
         <PauseIcon size={14} weight="fill" />
       </button>
@@ -218,8 +227,9 @@
         type="button"
         class="grid size-6 shrink-0 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-3)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40 text-[var(--running)] hover:text-[var(--running)]"
         onclick={(e) => onToggleEnabled(a, e)}
+        disabled={!canEdit}
         aria-label="Resume automation"
-        title="Resume — run on schedule again"
+        title={canEdit ? "Resume — run on schedule again" : NOT_YOURS_REASON}
       >
         <PlayIcon size={14} weight="fill" />
       </button>
@@ -228,8 +238,9 @@
       type="button"
       class="grid size-6 shrink-0 cursor-pointer place-items-center rounded-lg border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-3)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40 hover:bg-[color-mix(in_oklch,var(--failure)_13%,transparent)] hover:text-[var(--failure)]"
       onclick={(e) => onDelete(a, e)}
+      disabled={!canEdit}
       aria-label="Delete"
-      title="Delete"
+      title={canEdit ? "Delete" : NOT_YOURS_REASON}
     >
       <TrashIcon size={14} />
     </button>

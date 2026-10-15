@@ -5,6 +5,7 @@ import { join } from 'path'
 import { Database } from 'bun:sqlite'
 import { resetTestDatabase } from './helpers/test-db'
 import type { Principal } from '@solus/server/admission/principal'
+import { seedResource } from './helpers/resource-rows'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 const { ShareManager } = await import('@solus/server/sharing/share-manager')
@@ -34,7 +35,8 @@ describe('mirrored share rows', () => {
   test('the rows the host sends admit the same secret on the copy, and a regenerated link ends the old one', async () => {
     // One database stands in for both: the host writes the link, the copy receives the rows.
     const host = new ShareManager({ db: getDatabase() })
-    await host.claimOwner(session, owner)
+    const { hostUserKey } = await import('@solus/server/host/host-user')
+    await seedResource(getDatabase(), 'session', session.id, hostUserKey())
     const link = (await host.setLink({ resource: session, role: 'editor' }, owner))!
     const rows = await host.mirroredRows(session)
     // WHY: the secret itself never leaves the host; the copy admits by hash alone.

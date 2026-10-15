@@ -83,7 +83,7 @@ describe('what counts as an agent using a browser page', () => {
     // WHY: the warning has to be rare enough to mean something. A page the user
     // opened and looked at is the ordinary case, and it must not be gated.
     const { registry, closed } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     expect(page.agentUse).toBeUndefined()
     expect(await registry.close(page.browserPageId)).toEqual({ closed: true })
@@ -92,7 +92,7 @@ describe('what counts as an agent using a browser page', () => {
 
   test('a verb in flight names itself on the page, and refuses the close', async () => {
     const { registry } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     const release = registry.beginAgentUse(page.browserPageId, 'browser_click', 'session_7')
     const refused = await registry.close(page.browserPageId)
@@ -112,7 +112,7 @@ describe('what counts as an agent using a browser page', () => {
     // WHY: an agent that has opened a page but not yet snapshotted it has no verb
     // in flight, and closing it there is still an interruption.
     const { registry } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     registry.noteAgentUse(page.browserPageId, 'browser_open', 'session_7')
 
@@ -125,7 +125,7 @@ describe('what counts as an agent using a browser page', () => {
     // would be permanently unclosable without a prompt, and by the third warning
     // the user would be dismissing it without reading.
     const { registry } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     registry.beginAgentUse(page.browserPageId, 'browser_snapshot')()
 
     const live = registry.get(page.browserPageId)
@@ -142,7 +142,7 @@ describe('what counts as an agent using a browser page', () => {
     // WHY: every verb releases in a `finally`. If a thrown verb could strand its
     // hold, one failed snapshot would make the page unclosable for the session.
     const { registry } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     const release = registry.beginAgentUse(page.browserPageId, 'browser_snapshot')
     expect((await registry.close(page.browserPageId)).closed).toBe(false)
@@ -154,7 +154,7 @@ describe('what counts as an agent using a browser page', () => {
 
   test('releasing twice releases one hold, so a finally beside an explicit release is safe', async () => {
     const { registry } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     const first = registry.beginAgentUse(page.browserPageId, 'browser_click')
     const second = registry.beginAgentUse(page.browserPageId, 'browser_type')
@@ -172,7 +172,7 @@ describe('what counts as an agent using a browser page', () => {
     // still runs its `finally`, and it must not resurrect state for a page that
     // no longer exists.
     const { registry, closed } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     const release = registry.beginAgentUse(page.browserPageId, 'browser_wait_for')
     await registry.close(page.browserPageId, { force: true })
@@ -188,7 +188,7 @@ describe('the host decides, not the client', () => {
     // WHY: the refusal is a question, and the user is allowed to answer it. A
     // guard with no way past it is a page that can never be closed.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     registry.beginAgentUse(page.browserPageId, 'browser_snapshot')
 
@@ -201,7 +201,7 @@ describe('the host decides, not the client', () => {
     // Handing out the live object would let the sentence change under them as the
     // agent kept working.
     const { registry } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     registry.beginAgentUse(page.browserPageId, 'browser_click')
 
     const refused = await registry.close(page.browserPageId)
@@ -214,7 +214,7 @@ describe('the host decides, not the client', () => {
 
   test('closing a page that is already gone answers closed rather than asking about it', async () => {
     const { registry } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.close(page.browserPageId)
 
     expect(await registry.close(page.browserPageId)).toEqual({ closed: true })
@@ -226,7 +226,7 @@ describe('the host decides, not the client', () => {
     // per verb start and end would be two events to every client per click for
     // nothing a client renders.
     const { registry, published } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     const before = published.length
 
     const first = registry.beginAgentUse(page.browserPageId, 'browser_click')

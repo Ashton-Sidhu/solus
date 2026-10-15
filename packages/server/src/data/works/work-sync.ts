@@ -143,6 +143,8 @@ export interface ImportDocOptions {
   cwd?: string
   sessionId?: string
   agentProvider?: AgentId
+  /** The person the work belongs to; the host's user when absent (`createWork`). */
+  ownerKey?: string
 }
 
 /**
@@ -171,6 +173,7 @@ export async function importDocFromUrl(
     options.cwd ?? '~',
     undefined,
     { kind: 'upstream', provider: doc.ref.provider },
+    options.ownerKey,
   )
 
   const link: WorkExternalLink = {

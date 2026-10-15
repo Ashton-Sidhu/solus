@@ -267,15 +267,14 @@ export async function shareWithReviewers(shares: ShareManager | undefined, princ
   if (!shares) return
   const resource = { kind: 'work', id: workId } as const
   const list = await shares.list(resource, principal)
-  const owner = list.ownerUserId
-  if (list.grants.some((grant) => grant.subject.kind === 'organization')) return
-  const listed = new Set(list.grants.filter((grant) => grant.subject.kind === 'user').map((grant) => grant.subject.id))
-  const added = reviewerIds.filter((reviewerId) => reviewerId !== owner && !listed.has(reviewerId))
+  if (list.entries.some((entry) => entry.subject.kind === 'organization')) return
+  const listed = new Set(list.entries.filter((entry) => entry.subject.kind === 'user').map((entry) => entry.subject.id))
+  const added = reviewerIds.filter((reviewerId) => reviewerId !== list.ownerKey && !listed.has(reviewerId))
   if (added.length === 0) return
-  await shares.setGrants({
+  await shares.setEntries({
     resource,
-    grants: [
-      ...list.grants.map((grant) => ({ subject: grant.subject, role: grant.role })),
+    entries: [
+      ...list.entries.map((entry) => ({ subject: entry.subject, role: entry.role })),
       ...added.map((reviewerId) => ({ subject: { kind: 'user' as const, id: reviewerId }, role: 'commenter' as const })),
     ],
   }, principal)

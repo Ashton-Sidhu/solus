@@ -843,7 +843,7 @@
             <RateLimitCard tabId={tab.id} />
           {/if}
 
-          <!-- The request belongs to the session whose agent needs Cloudflare;
+          <!-- The request belongs to the session whose agent needs the account;
                a different active conversation must not receive its Continue. -->
           {#if connectRequestStore.visibleFor(sess.run.serverId, sess.id)}
             <ConnectCard tabId={tab.id} />

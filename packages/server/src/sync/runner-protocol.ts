@@ -61,7 +61,6 @@ const sessionRecordUpsertSchema: z.ZodType<SessionRecordUpsert> = z.object({
   provider: z.enum(['claude-code', 'codex', 'opencode']),
   projectPath: z.string(),
   lastActivityAt: z.number(),
-  ownerUserId: z.string().nullable().optional(),
   projectRemote: z.string().nullable().optional(),
   runnerHostId: z.string().nullable().optional(),
   title: z.string().nullable().optional(),

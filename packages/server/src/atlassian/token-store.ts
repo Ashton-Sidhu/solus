@@ -1,5 +1,7 @@
 import { z } from 'zod'
-import { clearProviderCredential, readProviderCredential, writeProviderCredential } from '../vault/provider-credentials'
+import { currentPersonKey } from '../vault/acting-scope'
+import { vault } from '../vault/vault'
+import type { ProviderRef } from '@solus/contracts/vault'
 
 /**
  * One account, one site, one grant approved in a browser.
@@ -9,7 +11,7 @@ import { clearProviderCredential, readProviderCredential, writeProviderCredentia
  * key persisted later is built from it, so a renamed site keeps working.
  *
  * Where it lives — the host's secret store, the scoped person's vault row, or a
- * runner's lease — is `provider-credentials`' choice (cloud-service-model.md §22).
+ * runner's lease — is the vault's choice (docs/plans/access-model.md §2.6).
  */
 export interface AtlassianStoredCredential {
   siteUrl: string
@@ -35,16 +37,18 @@ const atlassianStoredCredentialSchema = z.object({
   scopes: z.array(z.string()),
 })
 
+const ATLASSIAN: ProviderRef = { kind: 'provider', provider: 'atlassian' }
+
 export function loadCredential(): Promise<AtlassianStoredCredential | null> {
-  return readProviderCredential('atlassian', atlassianStoredCredentialSchema)
+  return vault().read(currentPersonKey(), ATLASSIAN, atlassianStoredCredentialSchema)
 }
 
-export function persistCredential(credential: AtlassianStoredCredential): Promise<void> {
-  return writeProviderCredential('atlassian', credential)
+export async function persistCredential(credential: AtlassianStoredCredential): Promise<void> {
+  vault().save(currentPersonKey(), ATLASSIAN, credential)
 }
 
-export function clearCredential(): Promise<void> {
-  return clearProviderCredential('atlassian')
+export async function clearCredential(): Promise<void> {
+  vault().remove(currentPersonKey(), ATLASSIAN)
 }
 
 // Consumers load through `currentCredential()` in oauth.ts, which refreshes

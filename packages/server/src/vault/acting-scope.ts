@@ -10,16 +10,21 @@ const log = createLogger('main', 'acting-scope')
  * once at the edge where work starts — an RPC from its actor, an agent tool call
  * or a turn from the turn's actor, an automation from its creator, a timer from
  * whoever it works for — and everything below it reads it: every process the
- * server starts takes its environment from `identity`, and every account
- * connection (GitHub, Google, Atlassian) is read as `credentialUserId`.
+ * server starts takes its environment from `identity`, and every credential
+ * (GitHub, Google, Atlassian, MCP) is read for `personKey`
+ * (docs/plans/access-model.md §2.1).
  *
  * A missing scope is an error, never the host. Work that is the host's own says
  * so with the host identity.
  */
 export interface ActingScope {
   readonly identity: ActingIdentity
-  /** Whose account connections the call reads; null for the host's own store. */
-  readonly credentialUserId: string | null
+  /**
+   * The person the call acts for (`ownerKeyOf`): their user key, the host's owner
+   * included. Their credentials are read as this key. Null only for the host's
+   * own work.
+   */
+  readonly personKey: string | null
 }
 
 export const NO_ACTING_SCOPE_CODE = 'NO_ACTING_SCOPE'
@@ -92,9 +97,16 @@ export function currentIdentity(what = 'a process'): ActingIdentity {
   return requireActingScope(what).identity
 }
 
-/** The person whose account connections the current call reads; null for the host's own. */
-export function currentCredentialUserId(): string | null {
-  return requireActingScope('an account connection read').credentialUserId
+/** The person the current call acts for; null for the host's own work. */
+export function currentPersonKey(): string | null {
+  return requireActingScope('an MCP connection read').personKey
+}
+
+/** The person a connection change is for. The host's own work has no connections to change. */
+export function requirePersonKey(): string {
+  const personKey = currentPersonKey()
+  if (personKey === null) throw new Error('Only a person connects an MCP server.')
+  return personKey
 }
 
 // Every `getCliEnv` caller takes the environment of the identity acting now.

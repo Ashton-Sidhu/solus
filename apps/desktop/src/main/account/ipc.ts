@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { AccountState } from '@solus/contracts/account-types'
 import type { SettingsRequestFailure } from '@solus/contracts/host-api'
 import { accountAgentProfilePatchRequestSchema } from '@solus/contracts/agent-profile'
-import { profileConnectKeyRequestSchema, profileConnectStartRequestSchema, profileDisconnectRequestSchema } from '@solus/contracts/integrations/profile-credentials'
+import { vaultSaveKeyRequestSchema, vaultConnectRequestSchema, vaultDisconnectRequestSchema } from '@solus/contracts/vault'
 import {
   accountSettingsPatchRequestSchema,
   organizationSettingsPatchRequestSchema,
@@ -35,10 +35,10 @@ export const ACCOUNT_CHANNELS = {
   accountAgentProfileGet: 'solus:account-agent-profile-get',
   accountAgentProfilePatch: 'solus:account-agent-profile-patch',
   accountAgentProfileDelete: 'solus:account-agent-profile-delete',
-  accountAgentProfileConnections: 'solus:account-agent-profile-connections',
-  accountAgentProfileConnectStart: 'solus:account-agent-profile-connect-start',
-  accountAgentProfileConnectKey: 'solus:account-agent-profile-connect-key',
-  accountAgentProfileDisconnect: 'solus:account-agent-profile-disconnect',
+  accountVault: 'solus:account-vault',
+  accountVaultConnect: 'solus:account-vault-connect',
+  accountVaultSaveKey: 'solus:account-vault-save-key',
+  accountVaultDisconnect: 'solus:account-vault-disconnect',
   organizationSettingsGet: 'solus:organization-settings-get',
   organizationSettingsPatch: 'solus:organization-settings-patch',
 } as const
@@ -126,18 +126,18 @@ export function registerAccountIpc(broadcast: (channel: string, state: AccountSt
     return request.success ? agentProfile.accountAgentProfilePatch(request.data) : INVALID_REQUEST
   })
   ipcMain.handle(ACCOUNT_CHANNELS.accountAgentProfileDelete, () => agentProfile.accountAgentProfileDelete())
-  ipcMain.handle(ACCOUNT_CHANNELS.accountAgentProfileConnections, () => agentProfile.accountAgentProfileConnections())
-  ipcMain.handle(ACCOUNT_CHANNELS.accountAgentProfileConnectStart, (_event, rawRequest) => {
-    const request = profileConnectStartRequestSchema.safeParse(rawRequest)
-    return request.success ? agentProfile.accountAgentProfileConnectStart(request.data) : INVALID_REQUEST
+  ipcMain.handle(ACCOUNT_CHANNELS.accountVault, () => agentProfile.accountVault())
+  ipcMain.handle(ACCOUNT_CHANNELS.accountVaultConnect, (_event, rawRequest) => {
+    const request = vaultConnectRequestSchema.safeParse(rawRequest)
+    return request.success ? agentProfile.accountVaultConnect(request.data) : INVALID_REQUEST
   })
-  ipcMain.handle(ACCOUNT_CHANNELS.accountAgentProfileConnectKey, (_event, rawRequest) => {
-    const request = profileConnectKeyRequestSchema.safeParse(rawRequest)
-    return request.success ? agentProfile.accountAgentProfileConnectKey(request.data) : INVALID_REQUEST
+  ipcMain.handle(ACCOUNT_CHANNELS.accountVaultSaveKey, (_event, rawRequest) => {
+    const request = vaultSaveKeyRequestSchema.safeParse(rawRequest)
+    return request.success ? agentProfile.accountVaultSaveKey(request.data) : INVALID_REQUEST
   })
-  ipcMain.handle(ACCOUNT_CHANNELS.accountAgentProfileDisconnect, (_event, rawRequest) => {
-    const request = profileDisconnectRequestSchema.safeParse(rawRequest)
-    return request.success ? agentProfile.accountAgentProfileDisconnect(request.data) : INVALID_REQUEST
+  ipcMain.handle(ACCOUNT_CHANNELS.accountVaultDisconnect, (_event, rawRequest) => {
+    const request = vaultDisconnectRequestSchema.safeParse(rawRequest)
+    return request.success ? agentProfile.accountVaultDisconnect(request.data) : INVALID_REQUEST
   })
   ipcMain.handle(ACCOUNT_CHANNELS.organizationSettingsGet, (_event, rawOrganizationId) => {
     const organizationId = organizationIdSchema.safeParse(rawOrganizationId)

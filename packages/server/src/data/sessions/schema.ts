@@ -11,7 +11,8 @@ export const sessionRecords = defineTable('session_records', {
   organization_id: text({ notNull: true, default: 'local' }),
   /** `local` or `published` (organization-scope §3): whether the transcript is available from the Solus API. */
   publication: text({ notNull: true, default: 'local' }),
-  owner_user_id: text(),
+  /** The person the session belongs to (docs/plans/access-model.md §2.2), never empty. */
+  owner_key: text({ notNull: true }),
   provider: text({ notNull: true }),
   project_path: text({ notNull: true }),
   project_remote: text(),
@@ -56,7 +57,7 @@ export const sessionAdmissions = defineTable('session_admissions', {
   organization_id: text({ notNull: true }),
   admission_id: text({ notNull: true }),
   host_id: text({ notNull: true }),
-  owner_user_id: text({ notNull: true }),
+  owner_key: text({ notNull: true }),
   created_at: bigint({ notNull: true }),
 }, { primaryKey: ['organization_id', 'admission_id'] })
 

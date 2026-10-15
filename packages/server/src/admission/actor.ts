@@ -1,10 +1,9 @@
 import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
-import { parseUserKey, userKey, type Attribution, type User, type UserId } from '@solus/contracts/user'
+import { parseUserKey, userKey, type Attribution, type User } from '@solus/contracts/user'
 import type { AgentId } from '@solus/contracts/types'
 import { INTERNAL_PRINCIPAL, type Principal } from './principal'
 import { hostCategory } from '../host/host-category'
 import { hostUser, hostUserKey, isHostUserKey } from '../host/host-user'
-import { isApiMode } from '../host/api-mode'
 
 /**
  * Who a request or a turn is for (plans/012-user-actor-and-activity.md §4): the
@@ -141,24 +140,6 @@ export function memberSeat(accountId: string, name?: string): Seat {
   const seat: Extract<Seat, { kind: 'user' }> = { kind: 'user', userId: { kind: 'account', accountId } }
   if (name) seat.name = name
   return seat
-}
-
-/**
- * Whose account connections an actor's call uses; null means the host's own
- * store. The owner of a personal host connects GitHub, Google, and Atlassian on
- * that host, signed in or not. Account connections are for cloud-managed hosts
- * (managed hosts and the Solus API) and for people who do not own the host.
- */
-export function credentialUserFor(actor: Actor): UserId | null {
-  const principal = actor.principal
-  switch (principal.kind) {
-    case 'local-owner': return null
-    case 'remote-owner': return isApiMode() || hostCategory() === 'managed' ? { kind: 'account', accountId: principal.userId } : null
-    case 'org-member': return { kind: 'account', accountId: principal.userId }
-    case 'guest': return principal.accountUserId ? { kind: 'account', accountId: principal.accountUserId } : parseUserKey(principal.share.sharedByUserId)
-    case 'runner':
-    case 'system': return null
-  }
 }
 
 /**

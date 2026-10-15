@@ -105,7 +105,7 @@ describe('browser DevTools', () => {
     // WHY: both are page state every surface reads. A page that started with an
     // undefined tool would have the pane guessing whether it is annotating.
     const { registry } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
 
     expect(page.devToolsOpen).toBe(false)
     expect(page.annotationTool).toBeNull()
@@ -116,7 +116,7 @@ describe('browser DevTools', () => {
     // every drive op. A phone watching the page has to be able to say why its
     // picture stopped, and it can only know from the page.
     const { registry, driver, published } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     await registry.openDevTools(page.browserPageId)
@@ -132,7 +132,7 @@ describe('browser DevTools', () => {
     // window's own metrics while still claiming to be a phone — the exact lie
     // the browser exists to avoid.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET, presetId: 'iphone-15' })
+    const page = registry.open({ target: TARGET, presetId: 'iphone-15' }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     await registry.openDevTools(page.browserPageId)
     const before = driver.emulations.length
@@ -153,7 +153,7 @@ describe('browser annotation', () => {
     // native webview and the streamed canvas. The page carries which tool is
     // armed because the pane is not the only thing that may be looking.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     await registry.setAnnotationTool(page.browserPageId, 'region')
@@ -167,7 +167,7 @@ describe('browser annotation', () => {
     // WHY: everything the guest returns is I/O from an arbitrary page. Losing
     // the whole set to one bad entry would throw away work the user did by hand.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     driver.answers.set('__solusBrowserAnnotations', JSON.stringify({
       annotations: [
@@ -186,7 +186,7 @@ describe('browser annotation', () => {
 
   test('a note is applied through the same guest state the marks live in', async () => {
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
 
     await registry.annotate(page.browserPageId, { kind: 'note', annotationId: 'an1', note: 'too tight' })
@@ -199,7 +199,7 @@ describe('browser annotation', () => {
 describe('browser web vitals', () => {
   test('a snapshot reports the timings the browser already measured', async () => {
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     driver.answers.set('elements', NO_ELEMENTS)
     driver.answers.set('first-contentful-paint', JSON.stringify({ fcpMs: 120, lcpMs: 400, cls: 0.02 }))
@@ -213,7 +213,7 @@ describe('browser web vitals', () => {
     // WHY: a page still loading has no load time. Reporting 0 would make a
     // cross-worktree average a fiction rather than a measurement.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     driver.answers.set('elements', NO_ELEMENTS)
     driver.answers.set('first-contentful-paint', JSON.stringify({ ttfbMs: 12 }))
@@ -229,7 +229,7 @@ describe('browser web vitals', () => {
     // page can paint between the two. Reading afterwards would describe a
     // different moment from the one the picture shows.
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     driver.answers.set('elements', NO_ELEMENTS)
 
@@ -244,7 +244,7 @@ describe('browser web vitals', () => {
 
   test('a caller that asked for structure only pays for no timings either', async () => {
     const { registry, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     driver.answers.set('elements', NO_ELEMENTS)
 
@@ -265,7 +265,7 @@ describe('browser web vitals', () => {
       const page = registry.open({
         target: { kind: 'url', url: TARGET.url, branch: 'feature/board', projectRoot: '/repo' },
         presetId: 'iphone-15',
-      })
+      }, 'local:owner')
       await registry.attachSurface(page.browserPageId, 1)
       driver.answers.set('elements', NO_ELEMENTS)
       driver.answers.set('first-contentful-paint', JSON.stringify({ lcpMs: 2400, cls: 0.11 }))
@@ -290,7 +290,7 @@ describe('browser web vitals', () => {
     setBrowserSpanRecorder((span) => recorded.push(span))
     try {
       const { registry, driver } = harness()
-      const page = registry.open({ target: TARGET })
+      const page = registry.open({ target: TARGET }, 'local:owner')
       await registry.attachSurface(page.browserPageId, 1)
       driver.answers.set('elements', NO_ELEMENTS)
       driver.answers.set('first-contentful-paint', JSON.stringify({ fcpMs: 90 }))

@@ -188,17 +188,17 @@ describe("an agent's link from an attached machine", () => {
     ;(await import('@solus/server/data/sessions/session-applier')).registerSessionOutboxApplier()
     ;(await import('@solus/server/data/tasks/task-applier')).registerTaskOutboxApplier()
 
-    await outbox.applyOutboxOp(op('sessions', 'solo', 'link-pull-request', { url: URL_7, actor: AGENT }), 'local')
+    await outbox.applyOutboxOp(op('sessions', 'solo', 'link-pull-request', { url: URL_7, actor: AGENT }), { organizationId: 'local', ownerKey: 'local:test' })
     expect((await linksOf('solo')).map((link) => [link.number, link.source])).toEqual([[7, 'agent']])
 
     const task = await taskStore.createTask('local', { title: 'Ship it', projectKey: '/workspace/solus' })
     await (await tasks.Task.byId('local', task.id)).linkSession('worker', 'working', {})
     const link = { kind: 'pr', targetScope: REPOSITORY, targetKey: '7', url: URL_7, actor: AGENT }
-    await outbox.applyOutboxOp(op('tasks', task.id, 'link', { ...link, originSessionId: 'worker' }), 'local')
+    await outbox.applyOutboxOp(op('tasks', task.id, 'link', { ...link, originSessionId: 'worker' }), { organizationId: 'local', ownerKey: 'local:test' })
     expect(await taskPrNumbers(task.id)).toEqual([[7, 'worker']])
 
     // A session that does not work on the task links the task itself.
-    await outbox.applyOutboxOp(op('tasks', task.id, 'link', { ...link, targetKey: '8', url: 'https://github.com/acme/solus/pull/8', originSessionId: 'visitor' }), 'local')
+    await outbox.applyOutboxOp(op('tasks', task.id, 'link', { ...link, targetKey: '8', url: 'https://github.com/acme/solus/pull/8', originSessionId: 'visitor' }), { organizationId: 'local', ownerKey: 'local:test' })
     expect((await taskPrNumbers(task.id)).sort()).toEqual([[7, 'worker'], [8, null]])
   })
 })

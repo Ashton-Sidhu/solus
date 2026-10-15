@@ -3,7 +3,7 @@ import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { localApi } from '@solus/client-core/local-api'
 import type { AgentProfileCloudRequests } from '@solus/client-core/agent-profile-requests'
-import type { ProfileConnectKeyRequest } from '@solus/contracts/integrations/profile-credentials'
+import type { VaultSaveKeyRequest } from '@solus/contracts/vault'
 import { oauthRedirectUrl } from './lib/integration-labels'
 
 /**
@@ -408,7 +408,7 @@ class IntegrationsStore {
     try {
       if (cloud && integration) {
         const requests = cloud.requests()
-        const result = requests ? await requests.accountAgentProfileDisconnect({ serverUrl: integration.url }) : { kind: 'signed-out' as const }
+        const result = requests ? await requests.accountVaultDisconnect({ ref: { kind: 'mcp', serverUrl: integration.url } }) : { kind: 'signed-out' as const }
         if (result.kind !== 'ok') throw new Error(cloudFailureText(result))
         await cloud.pullHosts(serverId)
       } else {
@@ -437,7 +437,7 @@ class IntegrationsStore {
     const attempt = this.nextAttempt(serverId, integrationId)
     this.setFlow(serverId, integrationId, { kind: 'starting' })
     const requests = cloud.requests()
-    const result = requests ? await requests.accountAgentProfileConnectStart({ serverUrl: integration.url, auth: integration.auth }) : { kind: 'signed-out' as const }
+    const result = requests ? await requests.accountVaultConnect({ ref: { kind: 'mcp', serverUrl: integration.url }, auth: integration.auth }) : { kind: 'signed-out' as const }
     if (!this.isCurrent(serverId, integrationId, attempt)) return
     if (result.kind !== 'ok') {
       this.setFlow(serverId, integrationId, { kind: 'failed', message: cloudFailureText(result) })
@@ -446,7 +446,7 @@ class IntegrationsStore {
     const start = result.start
     if (start.kind === 'none') {
       this.clearFlow(serverId, integrationId)
-    } else if (start.kind === 'token') {
+    } else if (start.kind === 'key') {
       this.setFlow(serverId, integrationId, { kind: 'token', through: 'cloud' })
     } else {
       const expiresAt = new Date(Date.now() + CLOUD_SIGN_IN_TIMEOUT_MS).toISOString()
@@ -465,9 +465,9 @@ class IntegrationsStore {
       this.cloudPolls.delete(key)
       if (!this.isCurrent(serverId, integrationId, attempt)) return
       const requests = cloud.requests()
-      const result = requests ? await requests.accountAgentProfileConnections() : null
+      const result = requests ? await requests.accountVault() : null
       if (!this.isCurrent(serverId, integrationId, attempt)) return
-      const connected = result?.kind === 'ok' && result.connections.some((connection) => connection.serverUrl === integration.url && connection.status === 'connected')
+      const connected = result?.kind === 'ok' && result.connections.some((connection) => connection.ref.kind === 'mcp' && connection.ref.serverUrl === integration.url && connection.status === 'connected')
       if (connected) {
         await this.settleCloudConnected(serverId, integrationId, cloud, attempt)
         return
@@ -489,11 +489,11 @@ class IntegrationsStore {
     const attempt = this.nextAttempt(serverId, integrationId)
     this.setFlow(serverId, integrationId, { kind: 'submitting', through: 'cloud' })
     const requests = cloud.requests()
-    const request: ProfileConnectKeyRequest = { serverUrl: integration.url, key }
+    const request: VaultSaveKeyRequest = { ref: { kind: 'mcp', serverUrl: integration.url }, key }
     if (integration.auth.kind === 'bearer') request.scheme = integration.auth.scheme
-    const result = requests ? await requests.accountAgentProfileConnectKey(request) : { kind: 'signed-out' as const }
+    const result = requests ? await requests.accountVaultSaveKey(request) : { kind: 'signed-out' as const }
     if (!this.isCurrent(serverId, integrationId, attempt)) return true
-    const connected = result.kind === 'ok' && result.connections.some((connection) => connection.serverUrl === integration.url && connection.status === 'connected')
+    const connected = result.kind === 'ok' && result.connections.some((connection) => connection.ref.kind === 'mcp' && connection.ref.serverUrl === integration.url && connection.status === 'connected')
     if (connected) {
       await this.settleCloudConnected(serverId, integrationId, cloud, attempt)
       return true

@@ -142,7 +142,7 @@ describe('the link transition', () => {
     expect(await turnOrganization.admitTurnOrganization(ctx('s-new', 'A'), actorFor(ALICE), { hostOrganizations, delegations: authorities })).toBe('A')
     expect(authorities.calls).toEqual([{ sessionId: 's-new', userId: 'alice', organizationId: 'A', admit: true }])
     // The record is keyed by the session id, so it is born in its API home whenever it is first written.
-    expect(await localRecord('s-new')).toMatchObject({ organizationId: 'A', publication: 'published', ownerUserId: 'alice' })
+    expect(await localRecord('s-new')).toMatchObject({ organizationId: 'A', publication: 'published', ownerKey: 'alice' })
     expect(records.admissionIdFor('s-new')).toBe('s-new')
     turnOrganization.applyPendingAssignment('s-new')
     expect(turnOrganization.pendingOrganizationFor('s-new')).toBeNull()
@@ -242,7 +242,7 @@ describe('every new session passes the turn admission', () => {
     const dispatch = new PromptDispatch(rt as never)
     dispatch.admission = {
       hostOrganizations, delegations: authorities,
-      adoptSession: (sessionId, organizationId, ownerUserId, options) => shares.adoptForOrganization({ kind: 'session', id: sessionId }, organizationId, ownerUserId, options),
+      adoptSession: (sessionId, organizationId, ownerKey, options) => shares.adoptForOrganization({ kind: 'session', id: sessionId }, organizationId, ownerKey, options),
     }
     dispatch.promptSession = (async (sessionId: string) => { prompted.push(sessionId); return { disposition: 'started' } }) as never
     const handlers = new Map<string, Handler>()
@@ -259,7 +259,7 @@ describe('every new session passes the turn admission', () => {
 
   /** An organization session on the Solus API, run for Bob: its record is published in A. */
   async function bobsParent(actors: Map<string, ReturnType<typeof actorFor>>) {
-    records.rememberSessionBirth('parent-a', { organizationId: 'A', published: true, ownerUserId: 'bob' })
+    records.rememberSessionBirth('parent-a', { organizationId: 'A', published: true, ownerKey: 'bob' })
     await records.upsertOwnSessionRecord({ sessionId: 'parent-a', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 1 })
     actors.set('parent-a', actorFor(BOB_IN_A))
   }
@@ -278,7 +278,7 @@ describe('every new session passes the turn admission', () => {
     expect(authorities.calls).toEqual([{ sessionId: started.sessionId, userId: 'alice', organizationId: 'A', admit: true }])
     expect(runs.map((run) => run.sessionId)).toEqual([started.sessionId])
     expect(turnOrganization.pendingOrganizationFor(started.sessionId)).toBe('A')
-    expect(await shares.ownerOf({ kind: 'session', id: started.sessionId })).toBe('alice')
+    expect((await shares.homeOf({ kind: 'session', id: started.sessionId }))?.ownerKey).toBe('alice')
   })
 
   test('a local child is admitted on the Solus API in its parent\'s organization, for its parent\'s person', async () => {
@@ -288,7 +288,7 @@ describe('every new session passes the turn admission', () => {
     expect(authorities.calls).toEqual([{ sessionId: child.sessionId, userId: 'bob', organizationId: 'A', admit: true }])
     expect(runs.map((run) => run.sessionId)).toEqual([child.sessionId])
     expect(turnOrganization.pendingOrganizationFor(child.sessionId)).toBe('A')
-    expect(await shares.ownerOf({ kind: 'session', id: child.sessionId })).toBe('bob')
+    expect((await shares.homeOf({ kind: 'session', id: child.sessionId }))?.ownerKey).toBe('bob')
   })
 
   test('a local child of a person whose authority was removed is refused before its provider starts', async () => {
@@ -335,17 +335,17 @@ describe('every new session passes the turn admission', () => {
 
 describe('shared compute, access on the record', () => {
   test('the organization\'s other members may open and watch an organization session on the VM, as on its API; the machine stays its owner\'s to administer', async () => {
-    const scoped = new shareManager.ShareManager({ db: database.getDatabase(), organizationOfResource: async (resource) => (await recordOf(resource.id))?.organizationId ?? null })
+    const scoped = new shareManager.ShareManager({ db: database.getDatabase() })
     // A watch claimed the not-yet-admitted session first, for the machine's owner, as Local.
-    await scoped.claimOwner({ kind: 'session', id: 's-live' }, ALICE)
+    await scoped.claimSession('s-live', ALICE)
     const authorities = new FakeDelegations()
     const admitted = await turnOrganization.admitTurnOrganization(ctx('s-live', 'A'), actorFor(ALICE), {
       hostOrganizations, delegations: authorities,
-      adoptSession: (sessionId, organizationId, ownerUserId, options) => scoped.adoptForOrganization({ kind: 'session', id: sessionId }, organizationId, ownerUserId, options),
+      adoptSession: (sessionId, organizationId, ownerKey, options) => scoped.adoptForOrganization({ kind: 'session', id: sessionId }, organizationId, ownerKey, options),
     })
     expect(admitted).toBe('A')
     // The verified person owns it, in the organization; a colleague in A may edit it; B's members see nothing.
-    expect(await scoped.ownerOf({ kind: 'session', id: 's-live' })).toBe('alice')
+    expect((await scoped.homeOf({ kind: 'session', id: 's-live' }))?.ownerKey).toBe('alice')
     const carolInA: Principal = { ...BOB_IN_A, userId: 'carol', organizationRole: 'owner' }
     expect(await scoped.roleFor(carolInA, { kind: 'session', id: 's-live' })).toBe('editor')
     const danInB: Principal = { ...BOB_IN_A, userId: 'dan', organizationId: 'B' }
@@ -354,17 +354,18 @@ describe('shared compute, access on the record', () => {
     expect(principalModule.isHostAdmin(carolInA)).toBe(false)
     // A resource of another organization is never taken over by a later admission.
     await scoped.adoptForOrganization({ kind: 'session', id: 's-live' }, 'B', 'mallory', { shareWithOrganization: true })
-    expect(await scoped.ownerOf({ kind: 'session', id: 's-live' })).toBe('alice')
+    expect((await scoped.homeOf({ kind: 'session', id: 's-live' }))?.ownerKey).toBe('alice')
+    expect(await scoped.roleFor({ ...danInB, organizationRole: 'owner' }, { kind: 'session', id: 's-live' })).toBe('none')
   })
 
   // plans/004-shared-host-collaboration.md D14: a project session starts shared with
   // the organization; a chat is organization work too, but private until shared.
   test('a member\'s new chat is theirs alone until they share it; their new project session is the organization\'s', async () => {
-    const scoped = new shareManager.ShareManager({ db: database.getDatabase(), organizationOfResource: async (resource) => (await recordOf(resource.id))?.organizationId ?? null })
+    const scoped = new shareManager.ShareManager({ db: database.getDatabase() })
     const deps = {
       hostOrganizations, delegations: new FakeDelegations(),
-      adoptSession: (sessionId: string, organizationId: string, ownerUserId: string, options: { shareWithOrganization: boolean }) =>
-        scoped.adoptForOrganization({ kind: 'session', id: sessionId }, organizationId, ownerUserId, options),
+      adoptSession: (sessionId: string, organizationId: string, ownerKey: string, options: { shareWithOrganization: boolean }) =>
+        scoped.adoptForOrganization({ kind: 'session', id: sessionId }, organizationId, ownerKey, options),
     }
     const carolInA: Principal = { ...BOB_IN_A, userId: 'carol' }
     const chat = { kind: 'session', id: 's-bob-chat' } as const
@@ -373,11 +374,11 @@ describe('shared compute, access on the record', () => {
     expect(await turnOrganization.admitTurnOrganization(ctx(chat.id, 'A', { workingDirectory: '/data/projects/bob/.solus-chats/s-bob-chat' }), actorFor(BOB_IN_A), deps)).toBe('A')
     expect(await turnOrganization.admitTurnOrganization(ctx(project.id, 'A', { workingDirectory: '/srv/repo' }), actorFor(BOB_IN_A), deps)).toBe('A')
 
-    expect(await scoped.ownerOf(chat)).toBe('bob')
+    expect((await scoped.homeOf(chat))?.ownerKey).toBe('bob')
     expect(await scoped.roleFor(carolInA, chat)).toBe('none')
     expect(await scoped.roleFor(carolInA, project)).toBe('editor')
 
-    await scoped.setGrants({ resource: chat, grants: [{ subject: { kind: 'organization', id: 'A' }, role: 'editor' }] }, BOB_IN_A)
+    await scoped.setEntries({ resource: chat, entries: [{ subject: { kind: 'organization', id: 'A' }, role: 'editor' }] }, BOB_IN_A)
     expect(await scoped.roleFor(carolInA, chat)).toBe('editor')
   })
 })
@@ -387,14 +388,15 @@ describe('record scope on an attached machine', () => {
     expect(principalModule.recordScopeOf(PAIRED)).toBe('local')
     expect(principalModule.recordScopeOf(ALICE)).toBe(principalModule.ANY_ORGANIZATION)
     expect(principalModule.recordScopeOf(principalModule.INTERNAL_PRINCIPAL)).toBe(principalModule.ANY_ORGANIZATION)
-    const scoped = new shareManager.ShareManager({ db: database.getDatabase(), organizationOfResource: async (resource) => (await recordOf(resource.id))?.organizationId ?? null })
+    const scoped = new shareManager.ShareManager({ db: database.getDatabase() })
     expect(await scoped.roleFor(PAIRED, { kind: 'session', id: 's-before' })).toBe('owner')
     expect(await scoped.roleFor(PAIRED, { kind: 'session', id: 's-new' })).toBe('none')
     expect(await scoped.roleFor(ALICE, { kind: 'session', id: 's-new' })).toBe('owner')
-    // An unattached machine keeps the old owner rule.
+    // On an unattached machine a pairing connection reads every organization again. It is the
+    // host's administrator there, so it edits Alice's session; she alone owns it (access-model.md §2.5).
     attachment.useOrganizationAttachment(() => null)
     expect(principalModule.recordScopeOf(PAIRED)).toBe(principalModule.ANY_ORGANIZATION)
-    expect(await scoped.roleFor(PAIRED, { kind: 'session', id: 's-new' })).toBe('owner')
+    expect(await scoped.roleFor(PAIRED, { kind: 'session', id: 's-new' })).toBe('editor')
   })
 })
 
@@ -409,7 +411,7 @@ function fakeOrganizationApi(organizationId: string) {
   const operations: Partial<WorkspaceOperations> = {
     createTask: async (_context, input: WorkspaceCreateTask) => {
       calls.push(`createTask:${input.originSessionId}:${input.projectKey}`)
-      const task: WorkspaceTask = { id: `task-${tasks.size + 1}`, home, organizationId, ownerUserId: 'alice', version: '1', createdAt: now, updatedAt: now, title: input.title, body: input.body ?? '', projectKey: input.projectKey ?? null, projectId: null, status: input.status ?? 'todo', assignee: null, priority: input.priority ?? null, labels: input.labels ?? [], dueDate: null, originSessionId: input.originSessionId ?? null, shortId: tasks.size + 1 }
+      const task: WorkspaceTask = { id: `task-${tasks.size + 1}`, home, organizationId, ownerKey: 'alice', role: 'owner', version: '1', createdAt: now, updatedAt: now, title: input.title, body: input.body ?? '', projectKey: input.projectKey ?? null, projectId: null, status: input.status ?? 'todo', assignee: null, priority: input.priority ?? null, labels: input.labels ?? [], dueDate: null, originSessionId: input.originSessionId ?? null, shortId: tasks.size + 1 }
       tasks.set(task.id, task)
       return task
     },
@@ -418,7 +420,7 @@ function fakeOrganizationApi(organizationId: string) {
     listTasks: async () => { calls.push('listTasks'); return { items: [...tasks.values()].map(({ body: _body, ...summary }) => summary), nextCursor: null } },
     createWork: async (_context, input: WorkspaceCreateWork) => {
       calls.push(`createWork:${input.originSessionId}`)
-      const work: WorkspaceWork = { id: `work-${createdWorks.size + 1}`, home, organizationId, ownerUserId: 'alice', version: '1', createdAt: now, updatedAt: now, title: input.title, type: input.type, preview: '', sessionIds: input.originSessionId ? [input.originSessionId] : [], projectId: null, pinned: false, editable: true, cwd: '~', agentProvider: 'claude-code', content: input.content }
+      const work: WorkspaceWork = { id: `work-${createdWorks.size + 1}`, home, organizationId, ownerKey: 'alice', role: 'owner', version: '1', createdAt: now, updatedAt: now, title: input.title, type: input.type, preview: '', sessionIds: input.originSessionId ? [input.originSessionId] : [], projectId: null, pinned: false, editable: true, cwd: '~', agentProvider: 'claude-code', content: input.content }
       createdWorks.set(work.id, work)
       return work
     },
@@ -511,7 +513,7 @@ describe('the Solus API takes a session\'s owner from its admission', () => {
     // WHY: the session's owner is the person the host's delegated token names (plans/010-standard-oauth.md).
     const operations = new sessionApi.SessionApiOperations(shares)
     const admitted = await operations.admit(delegatedContext(), { sessionId: 'solus-bob' })
-    expect(admitted).toMatchObject({ sessionId: 'solus-bob', organizationId: 'A', ownerUserId: 'bob', hostId: 'VM' })
+    expect(admitted).toMatchObject({ sessionId: 'solus-bob', organizationId: 'A', ownerKey: 'bob', hostId: 'VM' })
     expect(await operations.admit(delegatedContext(), { sessionId: 'solus-bob' })).toEqual(admitted)
     await expect(operations.admit(delegatedContext('mallory'), { sessionId: 'solus-bob' })).rejects.toMatchObject({ status: 409 })
     const { delegation: _delegation, ...withoutDelegation } = delegatedContext()
@@ -520,23 +522,23 @@ describe('the Solus API takes a session\'s owner from its admission', () => {
 
   test('the first report takes the admission\'s owner, not the linker\'s or the report\'s; later reports and replays cannot change it', async () => {
     const report = (seq: number, sessionId: string, extra: Record<string, string> = {}) => ({ seq, record: { sessionId, provider: 'claude-code' as const, projectPath: '-repo', lastActivityAt: seq, ...extra } })
-    await intake.applyRunnerSessionRecords(runner('alice'), { hostId: 'VM', reports: [report(1, 'thread-bob', { admissionId: 'solus-bob', ownerUserId: 'mallory' })] }, shares)
-    expect(await records.getSessionRecord('A', 'thread-bob')).toMatchObject({ ownerUserId: 'bob', runnerHostId: 'VM' })
-    expect(await shares.ownerOf({ kind: 'session', id: 'thread-bob' })).toBe('bob')
+    await intake.applyRunnerSessionRecords(runner('alice'), { hostId: 'VM', reports: [report(1, 'thread-bob', { admissionId: 'solus-bob', ownerKey: 'mallory' })] }, shares)
+    expect(await records.getSessionRecord('A', 'thread-bob')).toMatchObject({ ownerKey: 'bob', runnerHostId: 'VM' })
+    expect((await shares.homeOf({ kind: 'session', id: 'thread-bob' }))?.ownerKey).toBe('bob')
     // Existing organization access: the organization's members may open it (editor), as anything made in its space.
     expect(await shares.roleFor({ ...BOB_IN_A, userId: 'carol' } as Principal, { kind: 'session', id: 'thread-bob' })).toBe('editor')
-    await intake.applyRunnerSessionRecords(runner('alice'), { hostId: 'VM', reports: [report(2, 'thread-bob', { ownerUserId: 'mallory', title: 'Renamed' })] }, shares)
-    expect(await records.getSessionRecord('A', 'thread-bob')).toMatchObject({ ownerUserId: 'bob', title: 'Renamed' })
-    expect(await shares.ownerOf({ kind: 'session', id: 'thread-bob' })).toBe('bob')
+    await intake.applyRunnerSessionRecords(runner('alice'), { hostId: 'VM', reports: [report(2, 'thread-bob', { ownerKey: 'mallory', title: 'Renamed' })] }, shares)
+    expect(await records.getSessionRecord('A', 'thread-bob')).toMatchObject({ ownerKey: 'bob', title: 'Renamed' })
+    expect((await shares.homeOf({ kind: 'session', id: 'thread-bob' }))?.ownerKey).toBe('bob')
     // A record with no admission — a published Local session — belongs to the account that linked the runner.
-    await intake.applyRunnerSessionRecords(runner('alice'), { hostId: 'VM', reports: [report(3, 'thread-published', { ownerUserId: 'mallory' })] }, shares)
-    expect(await records.getSessionRecord('A', 'thread-published')).toMatchObject({ ownerUserId: 'alice' })
+    await intake.applyRunnerSessionRecords(runner('alice'), { hostId: 'VM', reports: [report(3, 'thread-published', { ownerKey: 'mallory' })] }, shares)
+    expect(await records.getSessionRecord('A', 'thread-published')).toMatchObject({ ownerKey: 'alice' })
   })
 
   test('a chat the runner reports is its owner\'s alone on the API until they share it (plan 004 D14)', async () => {
     const chat = { kind: 'session', id: 'thread-bob-chat' } as const
     await intake.applyRunnerSessionRecords(runner('alice'), { hostId: 'VM', reports: [{ seq: 10, record: { sessionId: chat.id, provider: 'claude-code', projectPath: '-chat', lastActivityAt: 10, privateToOwner: true } }] }, shares)
-    expect(await shares.ownerOf(chat)).toBe('alice')
+    expect((await shares.homeOf(chat))?.ownerKey).toBe('alice')
     expect(await shares.roleFor({ ...BOB_IN_A, userId: 'carol' } as Principal, chat)).toBe('none')
     expect(await records.getSessionRecord('A', chat.id)).not.toHaveProperty('privateToOwner')
   })

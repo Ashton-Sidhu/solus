@@ -18,7 +18,7 @@ const { withActingScope } = await import('@solus/server/vault/acting-scope')
 const { HOST_IDENTITY, HOST_SCOPE } = await import('@solus/server/execution/seats/acting-identity')
 const { InputRequests } = await import('@solus/server/execution/sessions/input-requests')
 const { integrationAgentTools, setIntegrationGateway } = await import('@solus/server/integrations/integration-tools')
-const { INTERNAL_PRINCIPAL } = await import('@solus/server/admission/principal')
+const { HOST_ACTOR } = await import('@solus/server/admission/actor')
 
 /**
  * The gateway (docs/plans/mcp-integrations.md §5.1) against a real streamable
@@ -26,7 +26,9 @@ const { INTERNAL_PRINCIPAL } = await import('@solus/server/admission/principal')
  * person), a cached tool list, and a list the server changes.
  */
 
-const MEMBER_SCOPE = { identity: HOST_IDENTITY, credentialUserId: 'account:member-1' }
+/** The host's owner and a member: each a person with a user key, as `ownerKeyOf` gives it. */
+const OWNER_SCOPE = { identity: HOST_IDENTITY, personKey: 'local:owner' }
+const MEMBER_SCOPE = { identity: HOST_IDENTITY, personKey: 'member-1' }
 
 /** The fake server: every MCP session it opened, so a test can count and change them. */
 const upstream: McpServer[] = []
@@ -98,7 +100,7 @@ beforeAll(async () => {
   integration = {
     id: 'int-1',
     organizationId: 'local',
-    ownerUserId: null,
+    ownerKey: 'local:test',
     kind: 'mcp',
     slug: 'fake',
     name: 'Fake',
@@ -121,15 +123,13 @@ describe('integration gateway', () => {
   test('lists the tools once, caches them, and calls one', async () => {
     const gateway = gatewayFor(integration)
     const opened = upstream.length
-    expect(gateway.cachedTools(integration.id)).toBeUndefined()
     const tools = await withActingScope(HOST_SCOPE, () => gateway.tools(integration.id))
     expect(tools.map((tool) => [tool.name, tool.readOnly, tool.destructive])).toEqual([
       ['echo', true, false],
       ['delete_all', false, true],
       ['confirm', false, false],
     ])
-    expect(gateway.cachedTools(integration.id)).toEqual(tools)
-    await withActingScope(HOST_SCOPE, () => gateway.tools(integration.id))
+    expect(await withActingScope(HOST_SCOPE, () => gateway.tools(integration.id))).toEqual(tools)
     const result = await withActingScope(HOST_SCOPE, () => gateway.call(integration.id, 'echo', { text: 'hi' }, context()))
     expect(result).toEqual({ ok: true, text: 'echo: hi' })
     // WHY: a second list and a call reuse the session the first list opened.
@@ -145,7 +145,7 @@ describe('integration gateway', () => {
     await withActingScope(HOST_SCOPE, () => gateway.tools(record.id))
     setIntegrationGateway(gateway)
     try {
-      expect(integrationAgentTools(INTERNAL_PRINCIPAL).map((tool) => tool.name).sort()).toEqual(['fake__confirm', 'fake__echo'])
+      expect((await integrationAgentTools(HOST_ACTOR)).map((tool) => tool.name).sort()).toEqual(['fake__confirm', 'fake__echo'])
       const refused = await withActingScope(HOST_SCOPE, () => gateway.call(record.id, 'delete_all', {}, context()))
       expect(refused.ok).toBe(false)
       expect(refused.text).toContain('turned off')
@@ -160,7 +160,7 @@ describe('integration gateway', () => {
   test('two people get two upstream sessions', async () => {
     const gateway = gatewayFor(integration)
     const opened = upstream.length
-    await withActingScope(HOST_SCOPE, () => gateway.call(integration.id, 'echo', { text: 'a' }, context()))
+    await withActingScope(OWNER_SCOPE, () => gateway.call(integration.id, 'echo', { text: 'a' }, context()))
     await withActingScope(MEMBER_SCOPE, () => gateway.call(integration.id, 'echo', { text: 'b' }, context()))
     await withActingScope(MEMBER_SCOPE, () => gateway.call(integration.id, 'echo', { text: 'c' }, context()))
     // WHY: a later sign-in puts each person's token on their own session (§4.1).
@@ -173,7 +173,6 @@ describe('integration gateway', () => {
     await withActingScope(HOST_SCOPE, () => gateway.tools(integration.id))
     const opened = upstream.length
     gateway.invalidate(integration.id)
-    expect(gateway.cachedTools(integration.id)).toBeUndefined()
     expect((await withActingScope(HOST_SCOPE, () => gateway.tools(integration.id))).length).toBe(3)
     expect(upstream.length - opened).toBe(1)
     await gateway.close()
@@ -186,7 +185,6 @@ describe('integration gateway', () => {
     const changed = new Promise<string>((resolve) => gateway.onToolsChanged(resolve))
     server.registerTool('added', { description: 'New.' }, async () => ({ content: [{ type: 'text', text: 'new' }] }))
     expect(await changed).toBe(integration.id)
-    expect(gateway.cachedTools(integration.id)).toBeUndefined()
     const names = (await withActingScope(HOST_SCOPE, () => gateway.tools(integration.id))).map((tool) => tool.name)
     expect(names).toContain('added')
     await gateway.close()
@@ -271,22 +269,22 @@ describe('integration gateway with sign-in', () => {
   })
 
   /** A credentials fake: one header per person, and every `markNeedsSignIn` it received. */
-  function credentialsFor(headers: Map<string | null, string>) {
-    const refused: Array<{ integrationId: string, credentialUserId: string | null }> = []
-    const asked: Array<string | null> = []
+  function credentialsFor(headers: Map<string, string>) {
+    const refused: Array<{ integrationId: string, personKey: string }> = []
+    const asked: string[] = []
     return {
       refused,
       asked,
-      authorizationFor: async (_integrationId: string, credentialUserId: string | null) => {
-        asked.push(credentialUserId)
-        return headers.get(credentialUserId) ?? null
+      authorizationFor: async (_integrationId: string, personKey: string) => {
+        asked.push(personKey)
+        return headers.get(personKey) ?? null
       },
-      markNeedsSignIn: (integrationId: string, credentialUserId: string | null) => { refused.push({ integrationId, credentialUserId }) },
+      markNeedsSignIn: (integrationId: string, personKey: string) => { refused.push({ integrationId, personKey }) },
     }
   }
 
-  function signedInGateway(headers: Map<string | null, string>) {
-    const gateway = gatewayFor(oauthIntegration)
+  function signedInGateway(headers: Map<string, string>, record: Integration = oauthIntegration) {
+    const gateway = gatewayFor(record)
     const credentials = credentialsFor(headers)
     gateway.useCredentials(credentials)
     const raised: IntegrationConnectNeeded[] = []
@@ -295,9 +293,9 @@ describe('integration gateway with sign-in', () => {
   }
 
   test('a person with a connection calls the tool, and their header reaches the server', async () => {
-    const { gateway, raised } = signedInGateway(new Map([[null, 'Bearer good']]))
+    const { gateway, raised } = signedInGateway(new Map([['local:owner', 'Bearer good']]))
     seen.length = 0
-    const result = await withActingScope(HOST_SCOPE, () => gateway.call(oauthIntegration.id, 'echo', { text: 'hi' }, context()))
+    const result = await withActingScope(OWNER_SCOPE, () => gateway.call(oauthIntegration.id, 'echo', { text: 'hi' }, context()))
     expect(result).toEqual({ ok: true, text: 'echo: hi' })
     // WHY: the token is sent to the integration's own server on every request (§4.1 rule 4).
     expect(seen.length).toBeGreaterThan(0)
@@ -319,36 +317,63 @@ describe('integration gateway with sign-in', () => {
   })
 
   test('a token the server refuses moves the connection to needs-sign-in', async () => {
-    const { gateway, credentials, raised } = signedInGateway(new Map([['account:member-1', 'Bearer bad']]))
+    const { gateway, credentials, raised } = signedInGateway(new Map([['member-1', 'Bearer bad']]))
     const result = await withActingScope(MEMBER_SCOPE, () => gateway.call(oauthIntegration.id, 'echo', { text: 'hi' }, context()))
     expect(result.text).toStartWith('CONNECTION_REQUIRED:')
-    expect(credentials.refused).toEqual([{ integrationId: oauthIntegration.id, credentialUserId: 'account:member-1' }])
+    expect(credentials.refused).toEqual([{ integrationId: oauthIntegration.id, personKey: 'member-1' }])
     expect(raised.map((request) => request.sessionId)).toEqual(['session-1'])
     // WHY: the next call asks for the header again instead of reusing the refused one.
     await withActingScope(MEMBER_SCOPE, () => gateway.call(oauthIntegration.id, 'echo', { text: 'again' }, context()))
-    expect(credentials.asked).toEqual(['account:member-1', 'account:member-1'])
+    expect(credentials.asked).toEqual(['member-1', 'member-1'])
     await gateway.close()
   })
 
   test('two people get two sessions, each with their own header', async () => {
-    const { gateway, credentials } = signedInGateway(new Map([[null, 'Bearer good'], ['account:member-1', 'Bearer bad']]))
+    const { gateway, credentials } = signedInGateway(new Map([['local:owner', 'Bearer good'], ['member-1', 'Bearer bad']]))
     const sessionsBefore = opened.length
-    const owner = await withActingScope(HOST_SCOPE, () => gateway.call(oauthIntegration.id, 'echo', { text: 'owner' }, context()))
+    const owner = await withActingScope(OWNER_SCOPE, () => gateway.call(oauthIntegration.id, 'echo', { text: 'owner' }, context()))
     const member = await withActingScope(MEMBER_SCOPE, () => gateway.call(oauthIntegration.id, 'echo', { text: 'member' }, context()))
     // WHY: the member's refused token never borrows the owner's session (§4.1 rule 1).
     expect(owner).toEqual({ ok: true, text: 'echo: owner' })
     expect(member.text).toStartWith('CONNECTION_REQUIRED:')
-    expect(credentials.refused.map((entry) => entry.credentialUserId)).toEqual(['account:member-1'])
+    expect(credentials.refused.map((entry) => entry.personKey)).toEqual(['member-1'])
     expect(opened.length - sessionsBefore).toBe(1)
     await gateway.close()
   })
 
-  test('a person with no connection still sees the tools the owner listed at warm', async () => {
-    const { gateway } = signedInGateway(new Map([[null, 'Bearer good']]))
-    await gateway.warm(oauthIntegration.id)
+  test('a person with no connection still sees the tools another person listed', async () => {
+    const { gateway } = signedInGateway(new Map([['local:owner', 'Bearer good']]))
+    await withActingScope(OWNER_SCOPE, () => gateway.tools(oauthIntegration.id))
     const tools = await withActingScope(MEMBER_SCOPE, () => gateway.tools(oauthIntegration.id))
     expect(tools.map((tool) => tool.name)).toEqual(['echo', 'delete_all', 'confirm'])
     await gateway.close()
+  })
+
+  test('a run lists a member\'s own server with their sign-in, on a host with no owner connection', async () => {
+    // WHY: a managed host has no owner. A member's personal server refuses an anonymous
+    // list, so its tools must be listed for the run's person when the run starts —
+    // not at boot as the host — or a run after a restart gets none of them.
+    const personal: Integration = { ...oauthIntegration, id: 'int-personal', ownerKey: 'member-1' }
+    const { gateway } = signedInGateway(new Map([['member-1', 'Bearer good']]), personal)
+    const memberActor = {
+      principal: { kind: 'org-member' as const, userId: 'member-1', organizationId: 'org-1', organizationRole: 'member' as const, teamIds: [], hostKind: 'managed' as const, displayName: 'Member', deviceId: 'member-device', deviceLabel: 'Browser', expiresAt: Date.now() + 300_000 },
+      user: { id: { kind: 'account' as const, accountId: 'member-1' }, displayName: 'Member' },
+    }
+    setIntegrationGateway(gateway)
+    try {
+      const names = (await integrationAgentTools(memberActor)).map((tool) => tool.name).sort()
+      expect(names).toEqual(['secure__confirm', 'secure__delete_all', 'secure__echo'])
+      // The host's own work has no person: the server refuses it, and nothing is cached as the member's.
+      seen.length = 0
+      const fresh = signedInGateway(new Map([['member-1', 'Bearer good']]), personal).gateway
+      setIntegrationGateway(fresh)
+      expect(await integrationAgentTools(HOST_ACTOR)).toEqual([])
+      expect(seen.every((header) => header === undefined)).toBe(true)
+      await fresh.close()
+    } finally {
+      setIntegrationGateway(null)
+      await gateway.close()
+    }
   })
 })
 

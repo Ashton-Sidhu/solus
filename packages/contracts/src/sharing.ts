@@ -58,19 +58,24 @@ export const shareSubjectSchema = z.discriminatedUnion('kind', [
 ])
 export type ShareSubject = z.infer<typeof shareSubjectSchema>
 
-/** A single named row as the dialog shows it; the link is reported apart from the rows. */
-export const shareGrantSchema = z.object({
+/**
+ * One ACL entry as the dialog shows it (docs/plans/access-model.md §1): a role
+ * the owner gave to a person, a team, or the organization. The link is
+ * reported apart from the entries.
+ */
+export const aclEntrySchema = z.object({
   subject: shareNamedSubjectSchema,
   role: shareRoleSchema,
   grantedByUserId: z.string().min(1),
   createdAt: z.number(),
 })
-export type ShareGrant = z.infer<typeof shareGrantSchema>
+export type AclEntry = z.infer<typeof aclEntrySchema>
 
 export const shareListSchema = z.object({
   resource: shareResourceSchema,
-  ownerUserId: z.string().min(1),
-  grants: z.array(shareGrantSchema),
+  /** The owner's person key. */
+  ownerKey: z.string().min(1),
+  entries: z.array(aclEntrySchema),
   /** The caller's own standing, so the client can hide what it cannot do. */
   callerRole: resourceRoleSchema,
   /** A link exists (an `everyone` row). Its secret is here for the owner and editors, so
@@ -86,7 +91,7 @@ export type ShareList = z.infer<typeof shareListSchema>
  */
 export const shareSetRequestSchema = z.object({
   resource: shareResourceSchema,
-  grants: z.array(z.object({
+  entries: z.array(z.object({
     subject: shareNamedSubjectSchema,
     role: shareRoleSchema,
   })).max(200),
@@ -118,7 +123,6 @@ export type ShareTransferRequest = z.infer<typeof shareTransferRequestSchema>
 /** Sent to everyone who can see the resource after any change; the list is re-read. */
 export interface ShareChangedEvent {
   resource: ShareResource
-  ownerUserId: string
   /** Who changed it, for "Access removed by <name>"; absent when the host itself changed it. */
   changedBy?: User
   /** Subjects whose access this change removed; a client that is one of them shows the notice. */

@@ -379,6 +379,13 @@ export interface BrowserPage {
   /** Which named identity this page signs in as. Fixed for the page's life,
    *  because both the renderer and the host mint the partition from it (ADR 0023). */
   profileId: string
+  /**
+   * The person whose cookie jar the page uses: the person who opened it, or the
+   * person of the agent run that opened it. Null for the host's own work, which
+   * uses an unsaved jar (docs/plans/member-isolation.md §6). Only this person
+   * drives the page; other people watch it.
+   */
+  ownerKey: string | null
   hostKind: BrowserHostKind
   loadState: BrowserLoadState
   /** Present while an agent is using the page, as the host judges it. The host
@@ -875,8 +882,8 @@ export function browserPartition(projectRoot: string | undefined): string {
 
 /**
  * Named browser profiles: several signed-in identities inside one project, each
- * a cookie jar of its own, chosen when a page opens (ADR 0023). The project's
- * automatic profile is unchanged and stays the default.
+ * a cookie jar of its own, chosen when a page opens (ADR 0023). Every profile is
+ * one person's, the automatic default included (member-isolation.md §6).
  */
 export const BROWSER_DEFAULT_PROFILE_ID = 'default'
 export const BROWSER_DEFAULT_PROFILE_NAME = 'Default'
@@ -913,33 +920,62 @@ export function browserProfileIdFor(name: string): string {
 }
 
 /**
- * The partition one page's guest runs in.
- *
- * The default profile resolves to the project's own partition byte for byte, so
- * every page that existed before this feature keeps the session it had.
+ * The segment that names the person inside a project's partition. It comes
+ * before the profile segment, so `…-u-<person>` and `…-u-<person>-p-<id>` are
+ * one person's default and named profiles.
+ */
+const BROWSER_PERSON_SEGMENT = 'u'
+
+/**
+ * The jar of the host's own work: no `persist:` prefix, so Electron keeps it in
+ * memory and a Playwright host gives it a temporary directory. Nothing is saved,
+ * and the hosts refuse to import into it or clear it.
+ */
+export const BROWSER_UNSAVED_PARTITION_PREFIX = 'solus-browser-unsaved'
+
+/**
+ * A person key as a partition segment: the hex of its UTF-8 bytes. Hex, not a
+ * hash, so two people can never share a jar; lowercase, so a case-insensitive
+ * file system cannot join two keys either.
+ */
+function personSegment(personKey: string): string {
+  let hex = ''
+  for (const byte of new TextEncoder().encode(personKey)) hex += byte.toString(16).padStart(2, '0')
+  return hex
+}
+
+/**
+ * The partition one page's guest runs in: one project, one person, one profile
+ * (docs/plans/member-isolation.md §6). A person's default profile is
+ * `…-u-<person>`, a named one `…-u-<person>-p-<id>`. The host's own work
+ * (`personKey` null) has no profiles and gets the project's unsaved jar.
  */
 export function browserProfilePartition(
   projectRoot: string | undefined,
   profileId: string | undefined,
+  personKey: string | null,
 ): string {
   const base = browserPartition(projectRoot)
-  if (!profileId || profileId === BROWSER_DEFAULT_PROFILE_ID) return base
-  return `${base}-${BROWSER_PROFILE_SEGMENT}-${profileId}`
+  if (personKey === null) return base.replace(BROWSER_PARTITION_PREFIX, BROWSER_UNSAVED_PARTITION_PREFIX)
+  const person = `${base}-${BROWSER_PERSON_SEGMENT}-${personSegment(personKey)}`
+  if (!profileId || profileId === BROWSER_DEFAULT_PROFILE_ID) return person
+  return `${person}-${BROWSER_PROFILE_SEGMENT}-${profileId}`
 }
 
-/** One identity inside a project. */
+/** One identity inside a project, for one person. */
 export interface BrowserProfile {
   id: string
   name: string
   /** Zero for the automatic default, which predates any record of it. */
   createdAt: number
-  /** The default profile is the project's own jar. It cannot be renamed away or
-   *  deleted; clearing its data is the existing "Clear browser data". */
+  /** The default profile is the person's own jar in the project. It cannot be
+   *  renamed away or deleted; clearing its data is "Clear browser data". */
   builtIn: boolean
 }
 
 /**
- * A project's profiles as one answer.
+ * One person's profiles in one project, as one answer. A browser profile is a
+ * personal resource (docs/plans/access-model.md §2.3): nobody else lists it.
  *
  * Always includes the built-in default first, so a client renders one uniform
  * list rather than special-casing the profile that has no row.
@@ -1004,7 +1040,8 @@ export interface BrowserCookieSourceScan {
  *  User-initiated only; deliberately not an agent tool (ADR 0025). */
 export interface BrowserCookieImportRequest {
   sourceId: string
-  /** The project whose profiles are the destination. */
+  /** The project whose profiles are the destination. The profile is always the
+   *  caller's own: the host takes the person from the connection. */
   projectRoot?: string
   profileId: string
   /** The user's explicit statement that agents driving this profile may act as

@@ -17,6 +17,7 @@
   import McpToolSwitches from "./McpToolSwitches.svelte";
   import IntegrationOAuthClientForm from "./IntegrationOAuthClientForm.svelte";
   import { integrationsStore } from "./integrations.store.svelte";
+  import { hosts } from "../../contexts";
   import { canListTools, integrationStatusText, urlHost } from "./lib/integration-labels";
 
   interface Props {
@@ -49,8 +50,11 @@
   const showConnect = $derived(status.canConnect && !isOpen && hostState?.connectionsStatus === "loaded");
   const needsOAuthClient = $derived(integration.auth.kind === "oauth" && integration.auth.registration === "client-required");
   const disabledTools = $derived(new Set(integration.disabledTools));
+  // An integration is personal: only its owner changes it (docs/plans/access-model.md §2.7).
+  const canEdit = $derived(hosts.get(serverId)?.me.may("edit", { kind: "integration", id: integration.id, role: integration.role }) ?? true);
 
   function setTool(toolName: string, isOn: boolean) {
+    if (!canEdit) return;
     const next = new Set(integration.disabledTools);
     if (isOn) next.delete(toolName);
     else next.add(toolName);
@@ -159,8 +163,11 @@
         {/snippet}
       </DropdownMenu.Trigger>
       <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-40">
-        <DropdownMenu.Item onSelect={startRename}>Rename</DropdownMenu.Item>
-        <DropdownMenu.Item variant="destructive" onSelect={startRemove}>Remove…</DropdownMenu.Item>
+        <DropdownMenu.Item disabled={!canEdit} onSelect={startRename}>Rename</DropdownMenu.Item>
+        <DropdownMenu.Item variant="destructive" disabled={!canEdit} onSelect={startRemove}>Remove…</DropdownMenu.Item>
+        {#if !canEdit}
+          <p class="px-2 py-1.5 text-xs text-muted-foreground">Only its owner can change this server.</p>
+        {/if}
       </DropdownMenu.Content>
     </DropdownMenu.Root>
     <Popover.Root bind:open={isConfirmingRemove}>

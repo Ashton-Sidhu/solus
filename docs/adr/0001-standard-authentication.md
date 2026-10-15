@@ -272,8 +272,8 @@ export interface AccountReads {
 ```
 
 Callers that change to `AccountReads`: the agent profile pull
-(`execution/seats/agent-profile.ts`), `CloudIntegrationCredentials`,
-`accountIntegrationCredential` (GitHub, Google, Atlassian), and the cross-host
+(`execution/seats/agent-profile.ts`), the vault's account reads (MCP
+connections and GitHub, Google, Atlassian; `vault/vault.ts`), and the cross-host
 directory read. The socket gains `authRenew` (`transport/websocket.ts`).
 `admission/auth.ts` keeps `revokeDevice` for local-mode devices only.
 
@@ -313,8 +313,8 @@ directory read. The socket gains `authRenew` (`transport/websocket.ts`).
   reads a person's connections by token exchange with the person's API token as
   the subject, through the same `Delegations` class as a host. `INTEGRATION_SERVICE_KEY`
   and `SOLUS_INTEGRATION_SERVICE_KEY` go.
-- Executor routes (`/v1/agent-profile/read`, `/v1/agent-profile/credential`,
-  `/v1/integrations/[provider]/credential`) take only
+- Executor routes (`/v1/agent-profile/read`, and since the cloud vault
+  `/v1/vault/read` and `/v1/vault/credential`, `docs/plans/cloud-vault.md`) take only
   `Authorization: Bearer <delegated token>` with audience `ACCOUNT_AUDIENCE`.
   `delegatedUser` becomes "verify the bearer and its grant".
 - Devices page: list a person's client grants and host delegations, and revoke one.

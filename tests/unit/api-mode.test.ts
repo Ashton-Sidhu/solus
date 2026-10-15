@@ -94,8 +94,9 @@ function member(userId: string, organizationId: string, organizationRole: 'owner
   return { kind: 'org-member', userId, organizationId, organizationRole, teamIds: [], hostKind: 'cloud', displayName: userId, deviceId: `d-${userId}`, expiresAt: Date.now() + 600_000, deviceLabel: 'Solus cloud' }
 }
 
-function runner(hostId: string, organizationId: string): Principal {
-  return principalModule.runnerPrincipalFor({ hostId, organizationId, ownerUserId: 'alice', expiresAt: Date.now() + 600_000 })
+/** A runner delivering for `ownerUserId`: the records it reports are that person's. */
+function runner(hostId: string, organizationId: string, ownerUserId = 'alice'): Principal {
+  return principalModule.runnerPrincipalFor({ hostId, organizationId, ownerUserId, expiresAt: Date.now() + 600_000 })
 }
 
 const ctx = (principal: Principal): HandlerCtx => ({ clientId: `ws:${principal.kind === 'system' ? 'system' : principal.deviceId}`, principal })
@@ -170,7 +171,7 @@ describe('organization isolation through HTTP operations and retained RPC', () =
 
   async function bootServer() {
     runner1 = runner('runner-1', 'org1')
-    runner2 = runner('runner-2', 'org2')
+    runner2 = runner('runner-2', 'org2', 'bob')
     const server = new serverModule.SolusServer()
     server.useRoles(new Set(['collaboration']))
     const shares = new shareManager.ShareManager({ db: database.getDatabase() })
@@ -221,13 +222,11 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     expect((await api.getWork(authority(alice), work.id)).id).toBe(work.id)
 
     const list = await server.handle('shareGet', [{ resource: { kind: 'task', id: task.id } }], ctx(alice))
-    expect(list.ownerUserId).toBe('alice')
+    expect(list.ownerKey).toBe('alice')
     await expect(server.handle('shareGet', [{ resource: { kind: 'task', id: task.id } }], ctx(bob))).rejects.toBeInstanceOf(accessPolicy.RpcAccessError)
 
     await server.handle('sessionRecordUpsert', [{ sessionId: 's-org1', provider: 'claude-code', projectPath: '-repo', title: 'Ours', lastActivityAt: 1 }], ctx(runner1))
     await server.handle('sessionRecordUpsert', [{ sessionId: 's-org2', provider: 'codex', projectPath: '-repo', title: 'Theirs', lastActivityAt: 2 }], ctx(runner2))
-    await resourceShares.claimOwner({ kind: 'session', id: 's-org1' }, alice)
-    await resourceShares.claimOwner({ kind: 'session', id: 's-org2' }, bob)
     const aliceRecords = await api.listSessions(authority(alice), { limit: 50 })
     expect(aliceRecords.items.map(record => [record.id, record.runnerHostId])).toEqual([['s-org1', 'runner-1']])
     expect((await api.listSessions(authority(bob), { limit: 50 })).items.map(record => record.id)).toEqual(['s-org2'])
@@ -245,7 +244,6 @@ describe('organization isolation through HTTP operations and retained RPC', () =
       delegation: { messageId: 'm-1', depth: 1, intent: 'delegate', createdAt: 2 },
     }], ctx(runner1))
     await server.handle('sessionRecordUpsert', [{ sessionId: 's-where', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 4 }], ctx(runner1))
-    await resourceShares.claimOwner({ kind: 'session', id: 's-where' }, alice)
 
     const page = await api.listSessions(authority(alice), { limit: 50 })
     expect(page.items.find(item => item.id === 's-where')).toMatchObject({
@@ -261,7 +259,6 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     // mirrored copy from the workspace service of the organization this names.
     const server = await bootServer()
     await server.handle('sessionRecordUpsert', [{ sessionId: 's-home', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 5 }], ctx(runner1))
-    await resourceShares.claimOwner({ kind: 'session', id: 's-home' }, alice)
 
     const [meta] = await server.handle('getSessionInfos', [['s-home']], ctx(alice))
     const described = await server.handle('describeSession', ['s-home'], ctx(alice))
@@ -294,8 +291,6 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     const { sql } = await import('drizzle-orm')
     await server.handle('sessionRecordUpsert', [{ sessionId: 's-said-1', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 5 }], ctx(runner1))
     await server.handle('sessionRecordUpsert', [{ sessionId: 's-said-2', provider: 'claude-code', projectPath: '-repo', lastActivityAt: 5 }], ctx(runner2))
-    await resourceShares.claimOwner({ kind: 'session', id: 's-said-1' }, alice)
-    await resourceShares.claimOwner({ kind: 'session', id: 's-said-2' }, bob)
     const mirror = async (organizationId: string, sessionId: string, runnerHostId: string, position: number, message: object) =>
       getDatabase().run(sql`INSERT INTO session_transcripts (organization_id, session_id, position, runner_host_id, message, updated_at)
         VALUES (${organizationId}, ${sessionId}, ${position}, ${runnerHostId}, ${JSON.stringify(message)}, 1)`)
@@ -325,7 +320,6 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     await upsert('s-vm-a', '-data-projects-u-web', 'github.com/acme/web')
     await upsert('s-laptop', '-Users-me-web', 'github.com/acme/web')
     await upsert('s-other', '-data-projects-u-api', 'github.com/acme/api')
-    for (const id of ['s-vm-a', 's-laptop', 's-other']) await resourceShares.claimOwner({ kind: 'session', id }, alice)
     for (const id of ['s-vm-a', 's-laptop', 's-other']) {
       await getDatabase().run(sql`INSERT INTO session_transcripts (organization_id, session_id, position, runner_host_id, message, updated_at)
         VALUES ('org1', ${id}, 0, 'runner-1', ${JSON.stringify({ role: 'user', content: 'heron', timestamp: 1 })}, 1)`)
@@ -350,7 +344,6 @@ describe('organization isolation through HTTP operations and retained RPC', () =
     await upsert('s-titled', { customTitle: 'Heron migration plan', lastActivityAt: 1 })
     await upsert('s-spread', { lastActivityAt: 2 })
     await upsert('s-half', { lastActivityAt: 3 })
-    for (const id of ['s-titled', 's-spread', 's-half']) await resourceShares.claimOwner({ kind: 'session', id }, alice)
     const mirror = (sessionId: string, position: number, content: string) =>
       getDatabase().run(sql`INSERT INTO session_transcripts (organization_id, session_id, position, runner_host_id, message, updated_at)
         VALUES ('org1', ${sessionId}, ${position}, 'runner-1', ${JSON.stringify({ role: 'user', content, timestamp: position })}, 1)`)

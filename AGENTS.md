@@ -538,7 +538,8 @@ dispatches to them; `tests/unit/server-module-boundaries.test.ts` names every ex
   personal ownership, the gateway, the host's OAuth flow over the shared
   protocol (`McpOAuth` in `contracts/src/integrations/oauth-protocol.ts`), and
   a person's connections on the host or in their account (`connections.ts`
-  with its reconcile, `cloud-credentials.ts`; plans/020 §5).
+  with its reconcile; the credentials themselves are read through the vault,
+  `vault/vault.ts`; docs/plans/cloud-vault.md).
 - `git/`, `review/`, `plans/`, `skills/`, `project-config/`, `providers/`, `browser/`,
   `sharing/`, `vault/`, and `google/` — focused domains.
 - `platform/` — injected host paths, opener, secrets, and operating-system behavior.

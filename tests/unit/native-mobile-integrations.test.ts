@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import type { DocumentSyncClock } from '@solus/client-core/document-sync'
-import type { AccountProfileConnectStartResult, AccountProfileConnectionsResult } from '@solus/contracts/host-api'
+import type { AccountVaultConnectResult, AccountVaultResult } from '@solus/contracts/host-api'
 import { integrationUrlSchema, type Integration, type IntegrationConnection } from '@solus/contracts/integration-types'
-import type { ProfileConnection } from '@solus/contracts/integrations/profile-credentials'
+import type { VaultConnection } from '@solus/contracts/vault'
 import {
   afterCreate,
   appendCatalogEntries,
@@ -47,7 +47,7 @@ import { CLOUD_CONNECT_POLL_MS, CLOUD_CONNECT_TIMEOUT_MS, CloudConnect, type Clo
 const signals: never[] = []
 
 const record = (id: string, name: string, patch: Partial<Integration> = {}): Integration => ({
-  id, organizationId: 'local', ownerUserId: null, kind: 'mcp', slug: id, name, url: `https://${id}.example/mcp`,
+  id, organizationId: 'local', ownerKey: 'local:test', kind: 'mcp', slug: id, name, url: `https://${id}.example/mcp`,
   auth: { kind: 'none' }, createdBy: null, createdAt: '', updatedAt: '', ...patch,
 })
 const oauthAuth = (registration: 'dynamic' | 'client-required', clientId?: string): Integration['auth'] =>
@@ -335,12 +335,12 @@ describe('administrator OAuth client', () => {
 
 describe('a sign-in through Solus Cloud', () => {
   const SERVER = 'https://mcp.linear.app/mcp'
-  const mine = record('linear', 'Linear', { ownerUserId: 'user-1', url: SERVER, auth: oauthAuth('dynamic') })
+  const mine = record('linear', 'Linear', { ownerKey: 'user-1', url: SERVER, auth: oauthAuth('dynamic') })
 
   test('whenever the person is signed in, shared server or own, unless only the host holds the OAuth client', () => {
     // WHY: signed in, the connection lives in the account and every host reads it from there.
     expect(connectsThroughCloud(mine, 'user-1')).toBe(true)
-    expect(connectsThroughCloud(record('shared', 'Shared', { ownerUserId: null, url: SERVER, auth: oauthAuth('dynamic') }), 'user-1')).toBe(true)
+    expect(connectsThroughCloud(record('shared', 'Shared', { ownerKey: 'local:test', url: SERVER, auth: oauthAuth('dynamic') }), 'user-1')).toBe(true)
     expect(connectsThroughCloud(mine, null)).toBe(false)
     expect(connectsThroughCloud(record('admin', 'Admin', { url: SERVER, auth: oauthAuth('client-required') }), 'user-1')).toBe(false)
     // Without the record's address and auth there is nothing to send the cloud.
@@ -348,7 +348,7 @@ describe('a sign-in through Solus Cloud', () => {
   })
 
   test('the labels: connected through the account, and a cloud the host could not reach offers no Reconnect', () => {
-    expect(installedStatus(mine, loaded(connectionOf('linear', { source: 'cloud', label: 'ada@example.com' })))).toEqual({ text: 'Connected through Solus Cloud', tone: 'muted', action: null })
+    expect(installedStatus(mine, loaded(connectionOf('linear', { source: 'cloud', label: 'ada@example.com' })))).toEqual({ text: 'Connected in your Solus account as ada@example.com', tone: 'muted', action: null })
     expect(installedStatus(mine, loaded(connectionOf('linear', { source: 'cloud', status: 'cloud-unreachable' })))).toEqual({ text: 'Solus Cloud unreachable', tone: 'danger', action: null })
     expect(installedStatus(mine, loaded(connectionOf('linear', { source: 'cloud', status: 'needs-solus-sign-in' })))).toEqual({ text: 'Sign in to Solus', tone: 'danger', action: null })
     expect(installedStatus(mine, loaded(connectionOf('linear', { source: 'cloud', status: 'needs-sign-in' })))).toMatchObject({ action: 'reconnect' })
@@ -359,19 +359,19 @@ describe('a sign-in through Solus Cloud', () => {
   })
 
   /** A fake account session: the connections it holds, and every call made. */
-  function fakeAccount(start: AccountProfileConnectStartResult, held: ProfileConnection[] = []) {
+  function fakeAccount(start: AccountVaultConnectResult, held: VaultConnection[] = []) {
     const calls: string[] = []
     const connections = held
-    const list = (): AccountProfileConnectionsResult => ({ kind: 'ok', connections: structuredClone(connections) })
+    const list = (): AccountVaultResult => ({ kind: 'ok', connections: structuredClone(connections) })
     const requests: CloudConnectRequests = {
-      accountAgentProfileConnections: async () => { calls.push('list'); return list() },
-      accountAgentProfileConnectStart: async (request) => { calls.push(`start:${request.serverUrl}`); return start },
-      accountAgentProfileConnectKey: async (request) => {
+      accountVault: async () => { calls.push('list'); return list() },
+      accountVaultConnect: async (request) => { calls.push(`start:${request.ref.kind === 'mcp' ? request.ref.serverUrl : request.ref.kind}`); return start },
+      accountVaultSaveKey: async (request) => {
         calls.push(`key:${request.key}`)
-        if (request.key === 'good') connections.push({ serverUrl: request.serverUrl, kind: 'bearer', status: 'connected', label: null, updatedAt: 1 })
+        if (request.key === 'good') connections.push({ ref: request.ref, material: 'key', status: 'connected', label: null, updatedAt: 1 })
         return list()
       },
-      accountAgentProfileDisconnect: async (request) => { calls.push(`disconnect:${request.serverUrl}`); return { kind: 'ok', connections: [] } },
+      accountVaultDisconnect: async (request) => { calls.push(`disconnect:${request.ref.kind === 'mcp' ? request.ref.serverUrl : request.ref.kind}`); return { kind: 'ok', connections: [] } },
     }
     return { requests, calls, connections }
   }
@@ -420,7 +420,7 @@ describe('a sign-in through Solus Cloud', () => {
     expect(account.calls.filter((call) => call === 'list')).toHaveLength(2)
     expect(last()).toMatchObject({ step: 'waiting' })
     expect(pulls()).toBe(0)
-    account.connections.push({ serverUrl: SERVER, kind: 'oauth', status: 'connected', label: 'ada', updatedAt: 1 })
+    account.connections.push({ ref: { kind: 'mcp', serverUrl: SERVER }, material: 'oauth', status: 'connected', label: 'ada', updatedAt: 1 })
     await clock.advance(CLOUD_CONNECT_POLL_MS)
     expect(last()).toEqual({ step: 'finished', ok: true, message: 'Connected to Linear through Solus Cloud.' })
     expect(pulls()).toBe(1)
@@ -448,7 +448,7 @@ describe('a sign-in through Solus Cloud', () => {
   })
 
   test('a pasted key goes to the account, and a refused start says why', async () => {
-    const account = fakeAccount({ kind: 'ok', start: { kind: 'token' } })
+    const account = fakeAccount({ kind: 'ok', start: { kind: 'key' } })
     const { cloud, pulls, last } = device(account)
     await cloud.start('linear', SERVER, 'Linear', oauthAuth('dynamic'))
     expect(last()).toEqual({ step: 'token', through: 'cloud', busy: false, error: null })
@@ -471,7 +471,7 @@ describe('a sign-in through Solus Cloud', () => {
     await cloud.disconnect(SERVER)
     expect(account.calls).toEqual([`disconnect:${SERVER}`])
     expect(pulls()).toBe(1)
-    const offline = device({ ...account, requests: { ...account.requests, accountAgentProfileDisconnect: async () => ({ kind: 'offline' }) } })
+    const offline = device({ ...account, requests: { ...account.requests, accountVaultDisconnect: async () => ({ kind: 'offline' }) } })
     await expect(offline.cloud.disconnect(SERVER)).rejects.toThrow('Solus Cloud did not answer')
     expect(offline.pulls()).toBe(0)
   })

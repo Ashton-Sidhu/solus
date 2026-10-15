@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import { sql } from 'drizzle-orm'
 import { parseUserKey, sameUser, userKey, type UserId } from '@solus/contracts/user'
+import { seedResource } from './helpers/resource-rows'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -77,15 +78,13 @@ describe('the host user rows', () => {
 
   async function seed(): Promise<void> {
     const db = database.getDatabase()
-    await db.run(sql`INSERT INTO share_grant (id, resource_kind, resource_id, subject_kind, subject_id, role, granted_by_user_id, created_at, organization_id) VALUES
-      ('o1', 'work', 'w-local', 'user', 'host-owner', 'owner', 'host-owner', 1, 'local'),
-      ('o2', 'session', 's-org', 'user', 'host-owner', 'owner', 'host-owner', 1, 'org1'),
-      ('o3', 'work', 'w-bob', 'user', 'bob', 'owner', 'bob', 1, 'local')`)
-    await db.run(sql`INSERT INTO share_grant (id, resource_kind, resource_id, subject_kind, subject_id, role, granted_by_user_id, created_at, organization_id) VALUES
+    await seedResource(db, 'work', 'w-local', 'host-owner')
+    await seedResource(db, 'session', 's-org', 'host-owner', 'org1')
+    await seedResource(db, 'work', 'w-bob', 'bob')
+    await db.run(sql`INSERT INTO acl_entry (id, resource_kind, resource_id, subject_kind, subject_id, role, granted_by_user_id, created_at, organization_id) VALUES
       ('g1', 'work', 'w-local', 'user', 'bob', 'viewer', 'host-owner', 1, 'local')`)
-    await db.run(sql`INSERT INTO session_records (session_id, organization_id, owner_user_id, provider, project_path, created_at, last_activity_at) VALUES
-      ('s-local', 'local', 'host-owner', 'codex', '/p', 1, 1)`)
-    await db.run(sql`INSERT INTO session_admissions (organization_id, admission_id, host_id, owner_user_id, created_at) VALUES
+    await seedResource(db, 'session', 's-local', 'host-owner')
+    await db.run(sql`INSERT INTO session_admissions (organization_id, admission_id, host_id, owner_key, created_at) VALUES
       ('org1', 'a1', 'h1', 'host-owner', 1)`)
     // The owner's notifications (plans/015): one Local, one of an organization, one read.
     await db.run(sql`INSERT INTO notifications (id, organization_id, recipient_key, event_id, kind, resource_key, facts, resource, by, summary, created_at, read_at) VALUES
@@ -114,9 +113,13 @@ describe('the host user rows', () => {
     return actors.ownerKeyOf(actors.actorFor({ kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }))
   }
 
+  /** The owner on the resource's own row (docs/plans/access-model.md §2.2). */
   async function ownerOf(resourceId: string): Promise<string | undefined> {
-    const row = await database.getDatabase().get<{ subject_id: string }>(sql`SELECT subject_id FROM share_grant WHERE resource_id = ${resourceId} AND role = 'owner'`)
-    return row?.subject_id
+    const row = await database.getDatabase().get<{ owner_key: string }>(sql`
+      SELECT owner_key FROM works WHERE id = ${resourceId}
+      UNION ALL SELECT owner_key FROM tasks WHERE id = ${resourceId}
+      UNION ALL SELECT owner_key FROM session_records WHERE session_id = ${resourceId}`)
+    return row?.owner_key
   }
 
   async function storedWorkThreads(): Promise<Array<{ id: string; author: unknown; person?: unknown; readBy?: Array<{ userId: string }> }>> {
@@ -131,10 +134,10 @@ describe('the host user rows', () => {
     expect(await ownerOf('w-local')).toBe('local:L1')
     expect(await ownerOf('s-org')).toBe('local:L1')
     expect(await ownerOf('w-bob')).toBe('bob')
-    const grant = await database.getDatabase().get<{ subject_id: string; granted_by_user_id: string }>(sql`SELECT subject_id, granted_by_user_id FROM share_grant WHERE id = 'g1'`)
+    const grant = await database.getDatabase().get<{ subject_id: string; granted_by_user_id: string }>(sql`SELECT subject_id, granted_by_user_id FROM acl_entry WHERE id = 'g1'`)
     expect(grant).toEqual({ subject_id: 'bob', granted_by_user_id: 'local:L1' })
-    expect((await database.getDatabase().get<{ owner_user_id: string }>(sql`SELECT owner_user_id FROM session_records WHERE session_id = 's-local'`))?.owner_user_id).toBe('local:L1')
-    expect((await database.getDatabase().get<{ owner_user_id: string }>(sql`SELECT owner_user_id FROM session_admissions WHERE admission_id = 'a1'`))?.owner_user_id).toBe('local:L1')
+    expect(await ownerOf('s-local')).toBe('local:L1')
+    expect((await database.getDatabase().get<{ owner_key: string }>(sql`SELECT owner_key FROM session_admissions WHERE admission_id = 'a1'`))?.owner_key).toBe('local:L1')
 
     // No `'you'` label and no separate person is stored any more.
     const stored = await storedWorkThreads()
@@ -164,19 +167,19 @@ describe('the host user rows', () => {
     expect(settings.getServerSettings().hostUser).toMatchObject({ localId: 'L1', adoptedAt: expect.any(Number) })
 
     // A second boot finds the mark and leaves a row written since alone.
-    await database.getDatabase().run(sql`INSERT INTO share_grant (id, resource_kind, resource_id, subject_kind, subject_id, role, granted_by_user_id, created_at, organization_id) VALUES ('o-late', 'task', 't-late', 'user', 'host-owner', 'owner', 'host-owner', 1, 'local')`)
+    await seedResource(database.getDatabase(), 'task', 't-late', 'host-owner')
     await rows.adoptHostUser(database.getDatabase(), settings.getServerSettings().hostUser!)
     expect(await ownerOf('t-late')).toBe('host-owner')
-    await database.getDatabase().run(sql`DELETE FROM share_grant WHERE resource_id = 't-late'`)
+    await database.getDatabase().run(sql`DELETE FROM tasks WHERE id = 't-late'`)
   })
 
   test('linking moves every row of the local user to the owner account', async () => {
-    // The account already holds a named row on a work the local user owns: the owner row wins.
-    await database.getDatabase().run(sql`INSERT INTO share_grant (id, resource_kind, resource_id, subject_kind, subject_id, role, granted_by_user_id, created_at, organization_id) VALUES ('g-acc', 'work', 'w-local', 'user', 'acc-1', 'viewer', 'bob', 1, 'local')`)
+    // The account already holds an entry on a work the local user owns: as its owner now, the entry would repeat the owner and goes.
+    await database.getDatabase().run(sql`INSERT INTO acl_entry (id, resource_kind, resource_id, subject_kind, subject_id, role, granted_by_user_id, created_at, organization_id) VALUES ('g-acc', 'work', 'w-local', 'user', 'acc-1', 'viewer', 'bob', 1, 'local')`)
     await rows.followHostAccount(database.getDatabase(), { userId: 'acc-1', name: 'Ashton', email: 'a@example.com' })
 
     expect(await ownerOf('w-local')).toBe('acc-1')
-    expect(await database.getDatabase().get(sql`SELECT id FROM share_grant WHERE id = 'g-acc'`)).toBeUndefined()
+    expect(await database.getDatabase().get(sql`SELECT id FROM acl_entry WHERE id = 'g-acc'`)).toBeUndefined()
     expect(await ownerOf('s-org')).toBe('acc-1')
     expect(await ownerOf('w-bob')).toBe('bob')
     expect(localOwnerKey()).toBe('acc-1')
@@ -191,12 +194,42 @@ describe('the host user rows', () => {
     await rows.followHostAccount(database.getDatabase(), null)
 
     expect(await ownerOf('w-local')).toBe('local:L1')
-    expect((await database.getDatabase().get<{ owner_user_id: string }>(sql`SELECT owner_user_id FROM session_records WHERE session_id = 's-local'`))?.owner_user_id).toBe('local:L1')
+    expect(await ownerOf('s-local')).toBe('local:L1')
     expect(await ownerOf('s-org')).toBe('acc-1')
-    expect((await database.getDatabase().get<{ owner_user_id: string }>(sql`SELECT owner_user_id FROM session_admissions WHERE admission_id = 'a1'`))?.owner_user_id).toBe('acc-1')
+    expect((await database.getDatabase().get<{ owner_key: string }>(sql`SELECT owner_key FROM session_admissions WHERE admission_id = 'a1'`))?.owner_key).toBe('acc-1')
     expect((await storedWorkThreads())[0]!.author).toMatchObject({ kind: 'user', user: { id: { kind: 'local', localId: 'L1' } } })
     expect(localOwnerKey()).toBe('local:L1')
     expect(settings.getServerSettings().hostUser?.account).toBeUndefined()
     expect(await notificationRows()).toEqual([['n-local', 'local:L1', 7], ['n-org', 'acc-1', null]])
+  })
+
+  test('the owner\'s MCP servers, connections, and tokens follow them to their account; at the unlink the servers come back and no credential does', async () => {
+    // WHY: the owner is a person with a user key like a member (docs/plans/mcp-integrations.md §4.1).
+    // Linking changes that key; a server or sign-in left under the old one is one nobody acts as.
+    // Unlinked, the host keeps nothing for the person (docs/plans/cloud-vault.md §2.5).
+    const { Vault } = await import('@solus/server/vault/vault')
+    // The host's own vault, reading the same secret store the move writes.
+    const vault = new Vault()
+    const own = { kind: 'mcp', integrationId: 'i-own', serverUrl: 'https://mcp.pscale.dev/mcp/planetscale' } as const
+    const db = database.getDatabase()
+    await db.run(sql`INSERT INTO integration (id, organization_id, owner_key, kind, slug, name, url, auth, created_by, created_at, updated_at) VALUES ('i-own', 'local', 'local:L1', 'mcp', 'planetscale', 'PlanetScale', 'https://mcp.pscale.dev/mcp/planetscale', '{"kind":"none"}', 'local:L1', '1', '1')`)
+    await db.run(sql`INSERT INTO integration (id, organization_id, owner_key, kind, slug, name, url, auth, created_by, created_at, updated_at) VALUES ('i-bobs', 'local', 'bob', 'mcp', 'linear', 'Linear', 'https://mcp.linear.app/mcp', '{"kind":"none"}', 'bob', '1', '1')`)
+    await db.run(sql`INSERT INTO integration_connection (integration_id, user_id, status, source, label, info, error, updated_at) VALUES ('i-own', 'local:L1', 'connected', 'host', NULL, NULL, NULL, '1'), ('i-bobs', 'bob', 'connected', 'host', NULL, NULL, NULL, '1')`)
+    vault.save('local:L1', own, { accessToken: 'owner-token', tokenType: 'Bearer' })
+    const owners = async () => (await db.all<{ id: string; owner_key: string }>(sql`SELECT id, owner_key FROM integration ORDER BY id`)).map((row) => [row.id, row.owner_key])
+    const connected = async () => (await db.all<{ integration_id: string; user_id: string }>(sql`SELECT integration_id, user_id FROM integration_connection ORDER BY integration_id`)).map((row) => [row.integration_id, row.user_id])
+
+    await rows.followHostAccount(db, { userId: 'acc-1', name: 'Ashton', email: 'a@example.com' })
+    // Another person's server and sign-in stay theirs.
+    expect(await owners()).toEqual([['i-bobs', 'bob'], ['i-own', 'acc-1']])
+    expect(await connected()).toEqual([['i-bobs', 'bob'], ['i-own', 'acc-1']])
+    expect(await vault.read('acc-1', own)).toMatchObject({ location: 'host', token: { accessToken: 'owner-token' } })
+    expect(await vault.read('local:L1', own)).toBeNull()
+
+    await rows.followHostAccount(db, null)
+    expect(await owners()).toEqual([['i-bobs', 'bob'], ['i-own', 'local:L1']])
+    expect(await connected()).toEqual([['i-bobs', 'bob']])
+    expect(await vault.read('local:L1', own)).toBeNull()
+    expect(await vault.read('acc-1', own)).toMatchObject({ location: 'account' })
   })
 })

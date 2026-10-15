@@ -49,11 +49,11 @@ and its decisions are in [`plans/mcp-integrations.md`](plans/mcp-integrations.md
 - **Disconnect** is in the open row. A server that needs an API key checks
   the key against the server before saving.
 - **A server without self-registration.** Some services, Zoom for one, do not
-  let Solus register an OAuth client for itself. Such a row asks the host
-  owner or an organization admin for a client ID and secret from an OAuth
-  app created at the service, and shows the redirect URL that app must list:
-  the host's `/oauth/integration/callback`. The client is per host; each
-  person still signs in with their own account.
+  let Solus register an OAuth client for itself. Such a row asks its owner
+  for a client ID and secret from an OAuth app created at the service, and
+  shows the redirect URL that app must list: the host's
+  `/oauth/integration/callback`. The client is on the server's record, per
+  host (docs/plans/access-model.md, D3).
 - **Your account is yours.** Each person signs in with their own account on
   each host, as with a provider seat. The token stays on the host in your own
   encrypted store, and only the integration's own server ever receives it.
@@ -85,37 +85,43 @@ input from the server during a call shows as a question card.
 
 ## Your own servers
 
-A server can be yours alone (plans/020-agent-profile.md §2.1). On a host you do
-not administer, Add makes a personal record: only you see it and its tools,
-and its tool prefix is yours, so it may equal a shared server's. Your personal
+A server you add is yours (plans/020-agent-profile.md; docs/plans/access-model.md,
+D3): only you see it, use its tools, and change it, and its tool prefix is
+yours, so it may equal another person's. This is the same on a host you own and
+on one you do not; a host administrator does not reach it. There are no shared
+servers. Your
 servers are part of your [agent profile](agent-profile.md), so they follow you
-to every host you have a seat on. On a host you own, every server is the
-host's, as before.
+to every host you have a seat on. When a run starts, the host lists the tools of
+your servers with your own sign-in, so a server that
+refuses an anonymous list, such as PlanetScale, still gives your agent its
+tools. A server that does not answer in 10 seconds adds no tools to that run.
 
 ## Connections through Solus Cloud
 
-When you are signed in to Solus, a sign-in to any server a host shows you,
-shared or your own, runs at app.solus.sh, once, and the connection lives in
-your account. Profile sync does not need to be on. A host reads an access
-token from your account for each call and keeps nothing else; its row reads
-"Connected through Solus Cloud". A connection you made on a host before moves
-into your account the next time that host pulls your profile. When Solus
-Cloud does not answer, the host uses the token it cached until it expires,
-then shows "Solus Cloud unreachable", which no sign-in fixes. When the host
-has no Solus sign-in to read your account with (you signed out of Solus on that
-host), the row shows "Sign in to Solus" instead.
+Signed in means your account (`docs/plans/cloud-vault.md` §2.5). When you are
+signed in to Solus, a sign-in to any of your servers on a host runs at Solus
+Cloud, which keeps the connection in your account vault. Profile sync does not
+need to be on. A host reads an access token from your account for each call and
+keeps nothing else; its row reads "Connected in your Solus account". A connection
+you made on a host before you signed in moves into your account when you sign in
+on that host (a connection your account holds already wins), and the host keeps
+no copy. When Solus Cloud does not answer, the host uses the token it cached
+until it expires, then shows "Solus Cloud unreachable", which no sign-in fixes.
+When the host has no Solus sign-in to read your account with, the row shows
+"Sign in to Solus" instead. When the host stops being linked to you, it keeps no
+connection of yours: you connect again on that machine.
 
 Two sign-ins stay on the host: any sign-in while you are signed out, and a
-server whose OAuth client only the host's administrator holds
-(`client-required`). The cloud signs in only to a public HTTPS server. A
+server whose OAuth client its owner saved on the host (`client-required`). The cloud signs in only to a public HTTPS server. A
 host's sign-in returns to the address the client reached the host on, so it
 also works through a host's tunnel URL.
 
 ## Who may change what
 
-The host owner and an organization owner add, rename, probe, and remove shared
-integrations. Any member sees them and uses their tools, and adds, renames,
-and removes their own personal ones. A guest sees none.
+Every person adds, renames, and removes their own servers, sets their OAuth
+client, and turns their tools on and off. Nobody else sees or changes them,
+the host owner and an organization owner included (docs/plans/access-model.md
+§2.3). A guest has none.
 
 ## Not in this release
 

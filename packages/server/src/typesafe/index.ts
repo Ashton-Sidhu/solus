@@ -1,4 +1,4 @@
-import { typeSafeApiKey } from './credentials'
+import { typeSafeKey } from './credentials'
 import { TypeSafeClient, TypeSafeError, type TypeSafeClientConfig } from '@typesafe-ai/sdk'
 
 // Keep SDK imports here. Features use this module for questions, calls, and errors.
@@ -23,8 +23,8 @@ export type TypeSafeApi = Pick<TypeSafeClient, 'systemOne' | 'models'>
 
 /** Create an isolated client for an explicit configuration or an injected test transport. */
 export function createTypeSafe(config: TypeSafeConfig = {}): TypeSafeApi {
-  const apiKey = (config.apiKey ?? process.env.TYPESAFE_API_KEY)?.trim()
-  if (!apiKey) throw new TypeSafeError('Set TYPESAFE_API_KEY on the host before using TypeSafe.')
+  const apiKey = config.apiKey?.trim()
+  if (!apiKey) throw new TypeSafeError('A TypeSafe client needs an API key.')
   return new TypeSafeClient({
     ...config,
     apiKey,
@@ -37,20 +37,18 @@ export function createTypeSafe(config: TypeSafeConfig = {}): TypeSafeApi {
   })
 }
 
-let sharedClient: TypeSafeApi | undefined
-let sharedKey: string | undefined
+/** The acting person has no TypeSafe key. Its message says where to add one and carries no credential. */
+export class TypeSafeKeyMissingError extends TypeSafeError {}
 
-/** Lazy host client: importing the module does not require a key or make a request. */
-export function getTypeSafe(): TypeSafeApi {
-  const apiKey = typeSafeApiKey()
-  if (!apiKey) {
-    sharedClient = undefined
-    sharedKey = undefined
-    throw new TypeSafeError('Add a TypeSafe API key in Settings → Tools.')
-  }
-  if (!sharedClient || sharedKey !== apiKey) {
-    sharedClient = createTypeSafe({ apiKey })
-    sharedKey = apiKey
-  }
-  return sharedClient
+const MISSING_KEY = {
+  host: 'Add a TypeSafe API key in Settings → Tools.',
+  account: 'Add your TypeSafe key in your Solus account.',
+  none: 'Ask Jev needs your own TypeSafe key, and a guest has none on this host.',
+} as const
+
+/** The acting person's client (docs/plans/access-model.md §2.6): their own key, never the host's. */
+export async function getTypeSafe(): Promise<TypeSafeApi> {
+  const key = await typeSafeKey()
+  if (!key.apiKey) throw new TypeSafeKeyMissingError(MISSING_KEY[key.location])
+  return createTypeSafe({ apiKey: key.apiKey })
 }

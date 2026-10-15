@@ -4,8 +4,8 @@ import type { Task as TaskRecord } from '@solus/contracts/task-types'
 import type { WorkspaceCreateTask, WorkspaceTask, WorkspaceTaskPage, WorkspaceTaskQuery, WorkspaceUpdateTask } from '@solus/contracts/solus-api'
 import { requestAttribution, workspaceAuthorityKey, type WorkspaceRequestContext } from '../../admission/workspace-credentials'
 import { SolusApiError } from '../../admission/workspace-error'
+import { actorFor, ownerKeyOf } from '../../admission/actor'
 import { getDatabase } from '../../db/database'
-import { hostUserKey } from '../../host/host-user'
 import type { ShareManager } from '../../sharing/share-manager'
 import { scopeClause } from '../scope'
 import { apiOrganization, apiScope, projectIdsForKeys, projectKeyForId, requireResource, requireScope } from '../workspace/context'
@@ -21,20 +21,25 @@ export class TaskApiOperations {
   constructor(private readonly shares: ShareManager) {}
 
   private async records(context: WorkspaceRequestContext, records: TaskRecord[]): Promise<WorkspaceTask[]> {
-    const owners = await this.shares.ownersOf('task', records.map(task => task.id))
+    const access = await this.shares.accessOf(context.principal, 'task', records.map(task => task.id))
     const projects = await projectIdsForKeys(context, records.flatMap(task => task.projectKey ? [task.projectKey] : []))
-    return records.map(task => ({
-      id: task.id, home: context.home, organizationId: task.organizationId === 'local' ? null : task.organizationId ?? null,
-      ownerUserId: owners.get(task.id) ?? hostUserKey(), version: String(task.updatedAt),
-      createdAt: new Date(task.createdAt ?? task.updatedAt).toISOString(), updatedAt: new Date(task.updatedAt).toISOString(),
-      title: task.title, body: task.body, projectKey: task.projectKey ?? null,
-      projectId: task.projectKey ? projects.get(task.organizationId ?? 'local')?.get(task.projectKey) ?? null : null,
-      status: task.status, assignee: task.assignee ?? null, assigneeUserId: task.assigneeUserId ?? null, priority: task.priority ?? null,
-      labels: task.labels ?? [], dueDate: task.dueDate ?? null, originSessionId: task.originSessionId ?? null,
-      shortId: task.shortId ?? null, titleSource: task.titleSource, source: task.source,
-      originAutomationId: task.originAutomationId, triagedAt: task.triagedAt, doneAt: task.doneAt,
-      lastReadAt: task.lastReadAt, pr: task.pr, mirroredTicket: task.mirroredTicket,
-    }))
+    return records.map(task => {
+      // The page was read from the same rows a moment ago: a row gone now is a task that was deleted.
+      const owned = access.get(task.id)
+      if (!owned) throw new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
+      return {
+        id: task.id, home: context.home, organizationId: task.organizationId === 'local' ? null : task.organizationId ?? null,
+        ownerKey: owned.ownerKey, role: owned.role, version: String(task.updatedAt),
+        createdAt: new Date(task.createdAt ?? task.updatedAt).toISOString(), updatedAt: new Date(task.updatedAt).toISOString(),
+        title: task.title, body: task.body, projectKey: task.projectKey ?? null,
+        projectId: task.projectKey ? projects.get(task.organizationId ?? 'local')?.get(task.projectKey) ?? null : null,
+        status: task.status, assignee: task.assignee ?? null, assigneeUserId: task.assigneeUserId ?? null, priority: task.priority ?? null,
+        labels: task.labels ?? [], dueDate: task.dueDate ?? null, originSessionId: task.originSessionId ?? null,
+        shortId: task.shortId ?? null, titleSource: task.titleSource, source: task.source,
+        originAutomationId: task.originAutomationId, triagedAt: task.triagedAt, doneAt: task.doneAt,
+        lastReadAt: task.lastReadAt, pr: task.pr, mirroredTicket: task.mirroredTicket,
+      }
+    })
   }
 
   private async read(context: WorkspaceRequestContext, taskId: string): Promise<WorkspaceTask> {
@@ -45,7 +50,7 @@ export class TaskApiOperations {
 
   async get(context: WorkspaceRequestContext, taskId: string): Promise<WorkspaceTask> {
     requireScope(context, 'tasks:read')
-    await requireResource(this.shares, context, { kind: 'task', id: taskId }, 'viewer')
+    await requireResource(this.shares, context, { kind: 'task', id: taskId }, 'read')
     return this.read(context, taskId)
   }
 
@@ -53,7 +58,7 @@ export class TaskApiOperations {
     query = workspaceTaskQuerySchema.parse(query)
     requireScope(context, 'tasks:read')
     const filters = [scopeClause(apiScope(context), sql`tasks.organization_id`),
-      workspaceResourceVisibility(context.principal, 'task', sql`tasks.id`, sql`tasks.organization_id`),
+      workspaceResourceVisibility(context.principal, 'task', { id: sql`tasks.id`, organization: sql`tasks.organization_id`, owner: sql`tasks.owner_key` }),
       seekClause(sql`tasks.created_at`, sql`tasks.id`, readCursor(query.cursor))]
     if (query.projectId) filters.push(sql`tasks.project_key = ${await projectKeyForId(context, query.projectId)}`)
     if (query.projectKey !== undefined) filters.push(sql`tasks.project_key = ${query.projectKey}`)
@@ -62,7 +67,7 @@ export class TaskApiOperations {
     if (query.scope === 'up_next') filters.push(sql`tasks.status IN ('todo', 'in_progress', 'in_review')`)
     if (query.status) filters.push(sql`tasks.status = ${query.status}`)
     if (query.sessionId) {
-      await requireResource(this.shares, context, { kind: 'session', id: query.sessionId }, 'viewer')
+      await requireResource(this.shares, context, { kind: 'session', id: query.sessionId }, 'read')
       filters.push(sql`EXISTS(SELECT 1 FROM ${taskSessionLinks} WHERE task_id = tasks.id AND session_id = ${query.sessionId})`)
     }
     const records = await readTaskMetadataPage(sql.join(filters, sql` AND `), query.limit + 1)
@@ -76,16 +81,16 @@ export class TaskApiOperations {
     if (context.principal.kind === 'guest') throw new SolusApiError(403, 'FORBIDDEN', 'Guests cannot create root tasks.')
     const projectKey = input.projectId ? await projectKeyForId(context, input.projectId) : input.projectKey ?? null
     if (input.originSessionId) {
-      await requireResource(this.shares, context, { kind: 'session', id: input.originSessionId }, 'editor')
+      await requireResource(this.shares, context, { kind: 'session', id: input.originSessionId }, 'edit')
       if (!await getSessionRecord(apiScope(context), input.originSessionId) && !context.actingAgent) throw new SolusApiError(404, 'NOT_FOUND', 'Parent session not found.')
     }
     return createWithReceipt(workspaceAuthorityKey(context), 'task', key, canonicalRequest(input), async () => {
       const { projectId: _projectId, ...fields } = input
-      const task = await createTask(apiOrganization(context), { ...fields, projectKey, source: context.actingAgent ? 'agent' : 'user' }, undefined, requestAttribution(context))
-      await this.shares.claimOwner({ kind: 'task', id: task.id }, context.principal)
+      const task = await createTask(apiOrganization(context), { ...fields, projectKey, source: context.actingAgent ? 'agent' : 'user' }, undefined, requestAttribution(context), ownerKeyOf(actorFor(context.principal)) ?? undefined)
+      await this.shares.shareWithOrganization({ kind: 'task', id: task.id }, context.principal)
       return (await this.records(context, [task]))[0]
     }, async taskId => {
-      await requireResource(this.shares, context, { kind: 'task', id: taskId }, 'editor')
+      await requireResource(this.shares, context, { kind: 'task', id: taskId }, 'edit')
       return this.read(context, taskId)
     })
   }
@@ -104,7 +109,7 @@ export class TaskApiOperations {
     input = workspaceUpdateTaskSchema.parse(input)
     requireScope(context, 'tasks:write')
     return getDatabase().transaction(async () => {
-      await requireResource(this.shares, context, { kind: 'task', id: taskId }, 'editor')
+      await requireResource(this.shares, context, { kind: 'task', id: taskId }, 'edit')
       const task = await this.locked(context, taskId, version)
       const { projectId, projectKey: suppliedProjectKey, ...patch } = input
       const projectKey = projectId === undefined ? suppliedProjectKey : await projectKeyForId(context, projectId)
@@ -116,7 +121,7 @@ export class TaskApiOperations {
   async delete(context: WorkspaceRequestContext, taskId: string, version: string): Promise<void> {
     requireScope(context, 'tasks:write')
     await getDatabase().transaction(async () => {
-      await requireResource(this.shares, context, { kind: 'task', id: taskId }, 'owner')
+      await requireResource(this.shares, context, { kind: 'task', id: taskId }, 'own')
       const task = await this.locked(context, taskId, version)
       await task.delete(); await this.shares.forget({ kind: 'task', id: taskId })
     })

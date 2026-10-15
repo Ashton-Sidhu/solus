@@ -25,7 +25,7 @@ export class ActivityApiOperations {
   async forRecord(context: WorkspaceRequestContext, subject: ActivitySubject, input: WorkspaceActivityQuery): Promise<WorkspaceActivityList> {
     const query = workspaceActivityQuerySchema.parse(input)
     requireScope(context, READ_SCOPE[subject.kind])
-    await requireResource(this.shares, context, subject, 'viewer')
+    await requireResource(this.shares, context, subject, 'read')
     return { items: await activityFor(apiScope(context), subject, { limit: query.limit }) }
   }
 
@@ -52,7 +52,7 @@ export class ActivityApiOperations {
   private async mayOpen(context: WorkspaceRequestContext, subject: ActivitySubject): Promise<boolean> {
     if (!context.scopes.includes(READ_SCOPE[subject.kind])) return false
     try {
-      await requireResource(this.shares, context, subject, 'viewer')
+      await requireResource(this.shares, context, subject, 'read')
       return true
     } catch (error) {
       if (error instanceof SolusApiError && error.status === 404) return false

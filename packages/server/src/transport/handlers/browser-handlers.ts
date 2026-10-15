@@ -10,6 +10,7 @@ import { captureEvidence, evidenceOptions, stopAndFileRecording } from '../../br
 import { initBrowserRecorder } from '../../browser/browser-recorder'
 import { startRecordingSweep } from '../../browser/recording-retention'
 import {
+  browserProfileExists,
   browserProfiles,
   createBrowserProfile,
   deleteBrowserProfileRow,
@@ -22,6 +23,7 @@ import { discoverCookieSources, requestCookieAccess } from '../../browser/cookie
 import { browserProfilePartition, type BrowserProfileSet } from '@solus/contracts/browser-types'
 import { setBrowserSpanRecorder } from '../../browser/browser-emitter'
 import { endSolusSpan, startSolusSpan } from '../../execution/observability/tracer'
+import { currentPersonKey } from '../../vault/acting-scope'
 
 /**
  * The browser domain's RPC surface.
@@ -33,6 +35,15 @@ import { endSolusSpan, startSolusSpan } from '../../execution/observability/trac
  * Returns the registry so the caller can drop a client's stream subscriptions
  * when its connection expires — the transport is the only side that learns of
  * that, and a disconnected phone must not keep a guest painting frames.
+ *
+ * People (docs/plans/member-isolation.md §6). Every handler runs in the caller's
+ * acting scope, so `currentPersonKey()` is the caller. A page opens in the
+ * caller's jar; only its owner drives it (`drives`), and anyone who may use the
+ * browser lists it and watches its frames. The profile methods name a project
+ * and a profile id, which is unique only per person, so the gate cannot find a
+ * profile from a call: each handler reads and writes the caller's own rows, and
+ * another person's profile cannot be named. They are not in
+ * `RESOURCE_VERB_OF_METHOD` for that reason.
  */
 export function registerBrowserHandlers(
   server: SolusServer,
@@ -71,6 +82,18 @@ export function registerBrowserHandlers(
     return ctx.clientId
   }
 
+  /** The page's owner may go on; anyone else is refused before the page is touched. */
+  function drives(browserPageId: string): void {
+    registry.assertDrivableBy(browserPageId, currentPersonKey())
+  }
+
+  /** The caller, for a profile method. The host's own work has no profiles. */
+  function profileOwner(): string {
+    const ownerKey = currentPersonKey()
+    if (ownerKey === null) throw new Error("The host's own work has no browser profiles.")
+    return ownerKey
+  }
+
   server.register('browserListTargets', async () => {
     forgetDiscoveredTargets()
     return discoverBrowserTargets()
@@ -88,27 +111,38 @@ export function registerBrowserHandlers(
     if (request.target.kind === 'url' && !request.target.url.trim()) {
       throw new Error('browserOpen requires a URL')
     }
+    const ownerKey = currentPersonKey()
     return registry.open({
       ...request,
       profileId: profileForOpen(
+        ownerKey,
         request.target.kind === 'url' ? request.target.projectRoot : undefined,
         request.profileId,
       ),
-    })
+    }, ownerKey)
   })
 
-  server.register('browserClose', async (args) => registry.close(args[0], { force: args[1] === true }))
-  server.register('browserNavigate', async (args) => registry.navigate(args[0], args[1]))
-  server.register('browserSetViewport', async (args) => registry.setViewport(args[0], args[1]))
-  server.register('browserSetAppearance', async (args) => registry.setAppearance(args[0], args[1]))
-  server.register('browserSnapshot', async (args) => registry.snapshot(args[0], args[1]))
-  server.register('browserInteract', async (args) => registry.interact(args[0], args[1]))
-  server.register('browserAttachSurface', async (args) => registry.attachSurface(args[0], args[1]))
-  server.register('browserDetachSurface', async (args) => registry.detachSurface(args[0], args[1]))
+  server.register('browserClose', async (args) => {
+    drives(args[0])
+    return registry.close(args[0], { force: args[1] === true })
+  })
+  server.register('browserNavigate', async (args) => { drives(args[0]); return registry.navigate(args[0], args[1]) })
+  server.register('browserSetViewport', async (args) => { drives(args[0]); return registry.setViewport(args[0], args[1]) })
+  server.register('browserSetAppearance', async (args) => { drives(args[0]); return registry.setAppearance(args[0], args[1]) })
+  server.register('browserSnapshot', async (args) => { drives(args[0]); return registry.snapshot(args[0], args[1]) })
+  server.register('browserInteract', async (args) => { drives(args[0]); return registry.interact(args[0], args[1]) })
+  server.register('browserAttachSurface', async (args) => { drives(args[0]); return registry.attachSurface(args[0], args[1]) })
+  server.register('browserDetachSurface', async (args) => { drives(args[0]); return registry.detachSurface(args[0], args[1]) })
   server.register('browserReportSurface', async (args) => {
+    drives(args[0])
     registry.reportSurface(args[0], args[1])
   })
-  server.register('browserClearProfile', async (args) => registry.clearProfile(args[0]))
+  server.register('browserClearProfile', async (args) => {
+    const [projectRoot, profileId] = args
+    const ownerKey = profileOwner()
+    if (!browserProfileExists(ownerKey, projectRoot, profileId)) throw new Error(`No browser profile ${profileId} in this project.`)
+    await registry.clearProfile(browserProfilePartition(projectRoot, profileId, ownerKey))
+  })
   server.register('browserSubscribeFrames', async (args, ctx) =>
     registry.subscribeFrames(args[0], requireClientId(ctx), args[1]),
   )
@@ -118,36 +152,49 @@ export function registerBrowserHandlers(
   server.register('browserSetFrameCaps', async (args, ctx) =>
     registry.setFrameCaps(args[0], requireClientId(ctx), args[1]),
   )
-  server.register('browserCaptureEvidence', async (args, ctx) => captureEvidence(args[0], attributionOf(ctx.actor)))
+  server.register('browserCaptureEvidence', async (args, ctx) => {
+    drives(args[0].browserPageId)
+    return captureEvidence(args[0], attributionOf(ctx.actor))
+  })
   server.register('browserEvidenceOptions', async (args) => evidenceOptions(args[0]))
-  server.register('browserRecordingStart', async (args) => recorder.start(args[0], 'user'))
-  server.register('browserRecordingStop', async (args, ctx) => stopAndFileRecording(recorder, args[0], attributionOf(ctx.actor)))
-  server.register('browserOpenDevTools', async (args) => registry.openDevTools(args[0]))
-  server.register('browserSetAnnotationTool', async (args) => registry.setAnnotationTool(args[0], args[1]))
-  server.register('browserAnnotationState', async (args) => registry.annotationState(args[0]))
-  server.register('browserAnnotate', async (args) => registry.annotate(args[0], args[1]))
+  server.register('browserRecordingStart', async (args) => { drives(args[0]); return recorder.start(args[0], 'user') })
+  server.register('browserRecordingStop', async (args, ctx) => {
+    drives(args[0].browserPageId)
+    return stopAndFileRecording(recorder, args[0], attributionOf(ctx.actor))
+  })
+  server.register('browserOpenDevTools', async (args) => { drives(args[0]); return registry.openDevTools(args[0]) })
+  server.register('browserSetAnnotationTool', async (args) => { drives(args[0]); return registry.setAnnotationTool(args[0], args[1]) })
+  server.register('browserAnnotationState', async (args) => { drives(args[0]); return registry.annotationState(args[0]) })
+  server.register('browserAnnotate', async (args) => { drives(args[0]); return registry.annotate(args[0], args[1]) })
 
-  /** Every profile mutation answers with the whole set and broadcasts the same
-   *  set, so the caller and every other mounted client land on one list rather
-   *  than on a request result and a stale mirror. */
-  function publishProfiles(profiles: BrowserProfileSet): BrowserProfileSet {
-    deps.events.broadcast('browser.profilesChanged', { profiles })
+  /** Every profile mutation answers with the whole set and sends the same set to
+   *  the owner's other clients (the event audience keeps it from everyone else),
+   *  so they land on one list rather than on a request result and a stale mirror. */
+  function publishProfiles(ownerKey: string, profiles: BrowserProfileSet): BrowserProfileSet {
+    deps.events.broadcast('browser.profilesChanged', { ownerKey, profiles })
     return profiles
   }
 
-  server.register('browserListProfiles', async (args) => browserProfiles(args[0]))
-  server.register('browserCreateProfile', async (args) =>
-    publishProfiles(createBrowserProfile(args[0], args[1])))
-  server.register('browserRenameProfile', async (args) =>
-    publishProfiles(renameBrowserProfile(args[0], args[1], args[2])))
-  server.register('browserSetDefaultProfile', async (args) =>
-    publishProfiles(setBrowserDefaultProfile(args[0], args[1])))
+  server.register('browserListProfiles', async (args) => browserProfiles(profileOwner(), args[0]))
+  server.register('browserCreateProfile', async (args) => {
+    const ownerKey = profileOwner()
+    return publishProfiles(ownerKey, createBrowserProfile(ownerKey, args[0], args[1]))
+  })
+  server.register('browserRenameProfile', async (args) => {
+    const ownerKey = profileOwner()
+    return publishProfiles(ownerKey, renameBrowserProfile(ownerKey, args[0], args[1], args[2]))
+  })
+  server.register('browserSetDefaultProfile', async (args) => {
+    const ownerKey = profileOwner()
+    return publishProfiles(ownerKey, setBrowserDefaultProfile(ownerKey, args[0], args[1]))
+  })
 
   /** Delete a named profile and everything signed in to it. Refused while a page
    *  is open on it: closing the page first is what makes the deletion deliberate. */
   server.register('browserDeleteProfile', async (args) => {
     const [projectRoot, profileId] = args
-    const partition = browserProfilePartition(projectRoot, profileId)
+    const ownerKey = profileOwner()
+    const partition = browserProfilePartition(projectRoot, profileId, ownerKey)
     const open = registry.pagesOnPartition(partition)
     if (open.length > 0) {
       throw new Error(
@@ -158,12 +205,12 @@ export function registerBrowserHandlers(
     // The jar goes before the row: a row removed while its cookies survived
     // would strand a signed-in partition nothing can reach or clear.
     await registry.clearProfile(partition)
-    return publishProfiles(deleteBrowserProfileRow(projectRoot, profileId))
+    return publishProfiles(ownerKey, deleteBrowserProfileRow(ownerKey, projectRoot, profileId))
   })
 
   server.register('browserListCookieSources', async () => discoverCookieSources())
   server.register('browserRequestCookieAccess', async (args) => requestCookieAccess(args[0]))
-  server.register('browserImportCookies', async (args) => importBrowserCookies(args[0]))
+  server.register('browserImportCookies', async (args) => importBrowserCookies(profileOwner(), args[0]))
 
   return registry
 }

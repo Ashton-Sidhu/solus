@@ -120,7 +120,7 @@ export function personCanOpen(userId: string, list: ShareList | undefined, direc
   if (!directory || !list) return null
   const teamIds = new Set(directory.teams.filter((team) => team.memberUserIds.includes(userId)).map((team) => team.teamId))
   const isMember = !!memberByKey(directory, userId)
-  return list.ownerUserId === userId || list.grants.some(({ subject }) =>
+  return list.ownerKey === userId || list.entries.some(({ subject }) =>
     (subject.kind === 'user' && subject.id === userId)
     || (subject.kind === 'team' && teamIds.has(subject.id))
     || (subject.kind === 'organization' && isMember && subject.id === directory.organizationId))

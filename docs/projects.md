@@ -40,7 +40,8 @@ opens in it. **Back** or Escape returns to the choices.
 
 "How do you want to start?" is the last step of first-run onboarding. On
 desktop, the optional **Connect to Solus Cloud** step comes immediately before
-it.
+it. Onboarding does not connect GitHub, Google, or Atlassian. Connect them in
+Settings, or when an agent asks for one in the conversation.
 
 **New project…** in the input header opens the main Open project screen,
 as `⌘⇧O` does. Select **New project…** in that dialog to create a project. It uses the current project host and keeps the prompt

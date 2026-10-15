@@ -5,6 +5,7 @@
 import type { AgentId, WorkType } from './types'
 import type { Attribution } from './user'
 import type { Activity } from './activity'
+import type { ResourceRole } from './sharing'
 
 export type TaskProviderId = 'github' | 'jira' | 'local'
 
@@ -253,6 +254,8 @@ export interface Task {
   snoozeNote?: string
   /** Full provider payload, kept for hydration / context injection at session start. */
   raw?: unknown
+  /** The reader's resource role (docs/plans/access-model.md §2.7), set on every read a host answers for a person; absent in a host's own store. */
+  role?: ResourceRole
 }
 
 /** One person's snooze of a task (docs/task-snooze.md). Only that person reads

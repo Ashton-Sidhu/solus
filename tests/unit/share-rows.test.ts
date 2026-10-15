@@ -35,10 +35,10 @@ const directory = organizationPeople({
 
 const base: ShareList = {
   resource: { kind: 'work', id: 'w1' },
-  ownerUserId: 'alice',
+  ownerKey: 'alice',
   callerRole: 'owner',
   link: null,
-  grants: [],
+  entries: [],
 }
 
 describe('scope', () => {
@@ -46,8 +46,8 @@ describe('scope', () => {
     // WHY: the dialog shows exactly one choice as on; a list with several rows must
     // resolve to the widest, or the reader would believe it narrower than it is.
     expect(scopeOf(base)).toEqual({ kind: 'private' })
-    expect(scopeOf({ ...base, grants: [{ subject: { kind: 'team', id: 'team-a' }, role: 'viewer', grantedByUserId: 'alice', createdAt: 1 }] })).toEqual({ kind: 'team', teamId: 'team-a', role: 'viewer' })
-    expect(scopeOf({ ...base, grants: [
+    expect(scopeOf({ ...base, entries: [{ subject: { kind: 'team', id: 'team-a' }, role: 'viewer', grantedByUserId: 'alice', createdAt: 1 }] })).toEqual({ kind: 'team', teamId: 'team-a', role: 'viewer' })
+    expect(scopeOf({ ...base, entries: [
       { subject: { kind: 'team', id: 'team-a' }, role: 'editor', grantedByUserId: 'alice', createdAt: 1 },
       { subject: { kind: 'organization', id: 'org1' }, role: 'editor', grantedByUserId: 'alice', createdAt: 2 },
     ] })).toEqual({ kind: 'organization', organizationId: 'org1', role: 'editor' })
@@ -63,7 +63,7 @@ describe('scope', () => {
       ['link', 'Anyone with the link', 'viewer', 'Anyone on the internet with the link can view'],
     ])
     // The row that is on carries the list's role; the others their starting role.
-    const viewing: ShareList = { ...base, grants: [{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer', grantedByUserId: 'alice', createdAt: 1 }] }
+    const viewing: ShareList = { ...base, entries: [{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer', grantedByUserId: 'alice', createdAt: 1 }] }
     expect(scopeOptions(viewing, directory, null, 'you').find((option) => option.key === 'organization:org1')).toMatchObject({ role: 'viewer', detail: 'Organization · everyone in it can view' })
     expect(scopeOptions(viewing, directory, null, 'you').find((option) => option.key === 'team:team-a')?.role).toBe('editor')
     // No account and no organization: the link is the only way out.
@@ -87,20 +87,20 @@ describe('scope', () => {
   })
 
   test('a current scope the directory cannot name is still offered, so the choice is never empty', () => {
-    const list: ShareList = { ...base, grants: [{ subject: { kind: 'team', id: 'team-z' }, role: 'editor', grantedByUserId: 'alice', createdAt: 1 }] }
+    const list: ShareList = { ...base, entries: [{ subject: { kind: 'team', id: 'team-z' }, role: 'editor', grantedByUserId: 'alice', createdAt: 1 }] }
     expect(scopeOptions(list, directory, null, 'you').map((option) => option.key)).toContain('team:team-z')
   })
 
   test('a scope becomes rows with its role, and the link keeps the organization as it was', () => {
     // WHY: the link is the widest scope. Dropping the organization row when the link
     // goes on would push teammates through the guest door as viewers.
-    expect(scopeRequestFor({ kind: 'private' }, base, 'org1').grants).toEqual([])
-    expect(scopeRequestFor({ kind: 'team', teamId: 'team-a', role: 'viewer' }, base, 'org1').grants).toEqual([{ subject: { kind: 'team', id: 'team-a' }, role: 'viewer' }])
-    expect(scopeRequestFor({ kind: 'organization', organizationId: 'org1', role: 'editor' }, base, null).grants).toEqual([{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }])
-    expect(scopeRequestFor({ kind: 'link', role: 'viewer' }, base, 'org1').grants).toEqual([{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer' }])
-    const viewing: ShareList = { ...base, grants: [{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer', grantedByUserId: 'alice', createdAt: 1 }] }
-    expect(scopeRequestFor({ kind: 'link', role: 'editor' }, viewing, 'org1').grants).toEqual([{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer' }])
-    expect(scopeRequestFor({ kind: 'link', role: 'viewer' }, base, null).grants).toEqual([])
+    expect(scopeRequestFor({ kind: 'private' }, base, 'org1').entries).toEqual([])
+    expect(scopeRequestFor({ kind: 'team', teamId: 'team-a', role: 'viewer' }, base, 'org1').entries).toEqual([{ subject: { kind: 'team', id: 'team-a' }, role: 'viewer' }])
+    expect(scopeRequestFor({ kind: 'organization', organizationId: 'org1', role: 'editor' }, base, null).entries).toEqual([{ subject: { kind: 'organization', id: 'org1' }, role: 'editor' }])
+    expect(scopeRequestFor({ kind: 'link', role: 'viewer' }, base, 'org1').entries).toEqual([{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer' }])
+    const viewing: ShareList = { ...base, entries: [{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer', grantedByUserId: 'alice', createdAt: 1 }] }
+    expect(scopeRequestFor({ kind: 'link', role: 'editor' }, viewing, 'org1').entries).toEqual([{ subject: { kind: 'organization', id: 'org1' }, role: 'viewer' }])
+    expect(scopeRequestFor({ kind: 'link', role: 'viewer' }, base, null).entries).toEqual([])
   })
 
   test('a scope change carries the link only when the link changes', () => {
@@ -119,17 +119,17 @@ describe('scope', () => {
     expect(ownerLabel(base, directory)).toBe('you')
     expect(ownerLabel({ ...base, callerRole: 'editor' }, directory)).toBe('Alice')
     // A host's owner outside the directory is "the owner"; the host no longer has a nameless "host owner" (plans/012 §1).
-    expect(ownerLabel({ ...base, ownerUserId: 'local:mac-1', callerRole: 'editor' }, null)).toBe('the owner')
-    expect(ownerLabel({ ...base, ownerUserId: 'gone', callerRole: 'viewer' }, directory)).toBe('the owner')
+    expect(ownerLabel({ ...base, ownerKey: 'local:mac-1', callerRole: 'editor' }, null)).toBe('the owner')
+    expect(ownerLabel({ ...base, ownerKey: 'gone', callerRole: 'viewer' }, directory)).toBe('the owner')
   })
 
   test('the badge says the scope in words, and counts the people named', () => {
     expect(shareSummary(undefined)).toEqual({ scope: null, people: 0, hasLink: false, label: 'Share' })
     expect(shareSummary(base).label).toBe('Share')
     expect(shareSummary({ ...base, callerRole: 'editor' }).label).toBe('Shared with you')
-    expect(shareSummary({ ...base, grants: [{ subject: { kind: 'organization', id: 'org1' }, role: 'editor', grantedByUserId: 'alice', createdAt: 1 }] }).label).toBe('Shared · the organization')
+    expect(shareSummary({ ...base, entries: [{ subject: { kind: 'organization', id: 'org1' }, role: 'editor', grantedByUserId: 'alice', createdAt: 1 }] }).label).toBe('Shared · the organization')
     expect(shareSummary({ ...base, link: { role: 'viewer' } })).toMatchObject({ hasLink: true, label: 'Shared · anyone with the link' })
-    expect(shareSummary({ ...base, grants: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer', grantedByUserId: 'alice', createdAt: 1 }] })).toMatchObject({ people: 1, label: 'Shared · 1 person' })
+    expect(shareSummary({ ...base, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'viewer', grantedByUserId: 'alice', createdAt: 1 }] })).toMatchObject({ people: 1, label: 'Shared · 1 person' })
   })
 })
 
@@ -139,25 +139,25 @@ describe('people named on the list', () => {
 
   test('the owner leads the rows, then each person with a row, named from the directory', () => {
     const alice = { id: { kind: 'account' as const, accountId: 'alice' }, displayName: 'Alice' }
-    const rows = personRows({ ...base, grants: [bobRow] }, directory, alice)
+    const rows = personRows({ ...base, entries: [bobRow] }, directory, alice)
     expect(rows.map((row) => [row.userId, row.user.displayName, row.role, row.isSelf])).toEqual([
       ['alice', 'Alice', 'owner', true],
       ['bob', 'Bob', 'viewer', false],
     ])
     const bob = { id: { kind: 'account' as const, accountId: 'bob' }, displayName: 'Bob' }
-    expect(personRows({ ...base, ownerUserId: 'gone-owner', callerRole: 'viewer', grants: [{ ...bobRow, subject: { kind: 'user', id: 'gone' } }] }, directory, bob).map((row) => row.user.displayName)).toEqual(['Former member', 'Former member'])
+    expect(personRows({ ...base, ownerKey: 'gone-owner', callerRole: 'viewer', entries: [{ ...bobRow, subject: { kind: 'user', id: 'gone' } }] }, directory, bob).map((row) => row.user.displayName)).toEqual(['Former member', 'Former member'])
   })
 
   test('the owner of a host with no account reads as themselves, by the name their host gave them', () => {
     // WHY (plans/012 §1): the owner's row is theirs; "Host owner" was a label, not a name.
     const owner = { id: { kind: 'local' as const, localId: 'mac-1' }, displayName: 'Ashton' }
-    const rows = personRows({ ...base, ownerUserId: 'local:mac-1', callerRole: 'owner' }, null, owner)
+    const rows = personRows({ ...base, ownerKey: 'local:mac-1', callerRole: 'owner' }, null, owner)
     expect(rows.map((row) => [row.userId, row.user.displayName, row.isSelf])).toEqual([['local:mac-1', 'Ashton', true]])
   })
 
   test('candidates are the directory minus the owner and the people already named, narrowed by the search', () => {
     expect(personCandidates(base, directory, '').map((c) => userKey(c.id))).toEqual(['bob'])
-    expect(personCandidates({ ...base, grants: [bobRow] }, directory, '').map((c) => userKey(c.id))).toEqual([])
+    expect(personCandidates({ ...base, entries: [bobRow] }, directory, '').map((c) => userKey(c.id))).toEqual([])
     expect(personCandidates(base, directory, 'acme').map((c) => userKey(c.id))).toEqual(['bob'])
     expect(personCandidates(base, directory, 'zzz')).toEqual([])
     expect(personCandidates(base, null, '')).toEqual([])
@@ -166,17 +166,17 @@ describe('people named on the list', () => {
   test('a person keeps their own row whatever the general access says, and the general access keeps the people', () => {
     // WHY: the two sections are independent choices; changing one must never
     // silently undo the other, or an invited person would vanish on a scope change.
-    const list: ShareList = { ...base, grants: [bobRow, orgRow] }
-    expect(withPersonRole(list, 'bob', 'editor').grants).toEqual([{ subject: orgRow.subject, role: 'editor' }, { subject: bobRow.subject, role: 'editor' }])
-    expect(withPersonRole(list, 'cara', 'viewer').grants).toHaveLength(3)
-    expect(withoutPerson(list, 'bob').grants).toEqual([{ subject: orgRow.subject, role: 'editor' }])
-    expect(scopeRequestFor({ kind: 'private' }, list, 'org1').grants).toEqual([{ subject: bobRow.subject, role: 'viewer' }])
-    expect(scopeRequestFor({ kind: 'team', teamId: 'team-a', role: 'editor' }, list, 'org1').grants).toEqual([
+    const list: ShareList = { ...base, entries: [bobRow, orgRow] }
+    expect(withPersonRole(list, 'bob', 'editor').entries).toEqual([{ subject: orgRow.subject, role: 'editor' }, { subject: bobRow.subject, role: 'editor' }])
+    expect(withPersonRole(list, 'cara', 'viewer').entries).toHaveLength(3)
+    expect(withoutPerson(list, 'bob').entries).toEqual([{ subject: orgRow.subject, role: 'editor' }])
+    expect(scopeRequestFor({ kind: 'private' }, list, 'org1').entries).toEqual([{ subject: bobRow.subject, role: 'viewer' }])
+    expect(scopeRequestFor({ kind: 'team', teamId: 'team-a', role: 'editor' }, list, 'org1').entries).toEqual([
       { subject: bobRow.subject, role: 'viewer' },
       { subject: { kind: 'team', id: 'team-a' }, role: 'editor' },
     ])
     // The scope still reads from the group rows alone: a named person is not a scope.
-    expect(scopeOf({ ...base, grants: [bobRow] })).toEqual({ kind: 'private' })
+    expect(scopeOf({ ...base, entries: [bobRow] })).toEqual({ kind: 'private' })
   })
 })
 
@@ -206,7 +206,7 @@ describe('the guest link', () => {
 })
 
 describe('the member link', () => {
-  const grant = (subject: ShareList['grants'][number]['subject']) => ({ subject, role: 'viewer' as const, grantedByUserId: 'alice', createdAt: 1 })
+  const grant = (subject: ShareList['entries'][number]['subject']) => ({ subject, role: 'viewer' as const, grantedByUserId: 'alice', createdAt: 1 })
 
   test('Copy link copies the link of the scope the list has, and never widens it', () => {
     // WHY: copying must not change who can open the resource; only the access
@@ -214,8 +214,8 @@ describe('the member link', () => {
     // member link, whatever its scope, so only people with access get in.
     const member = 'https://app.solus.sh/work/w1'
     const guest = { kind: 'url' as const, url: 'https://app.solus.sh/w/w1#secret' }
-    expect(linkToCopy({ ...base, grants: [grant({ kind: 'organization', id: 'org1' })] }, null, member)).toEqual({ kind: 'member', text: member })
-    expect(linkToCopy({ ...base, grants: [grant({ kind: 'user', id: 'bob' })] }, null, member)).toEqual({ kind: 'member', text: member })
+    expect(linkToCopy({ ...base, entries: [grant({ kind: 'organization', id: 'org1' })] }, null, member)).toEqual({ kind: 'member', text: member })
+    expect(linkToCopy({ ...base, entries: [grant({ kind: 'user', id: 'bob' })] }, null, member)).toEqual({ kind: 'member', text: member })
     expect(linkToCopy(base, null, member)).toEqual({ kind: 'member', text: member })
     // The link scope copies the guest link, never the member link.
     const withLink: ShareList = { ...base, link: { role: 'viewer', secret: 'secret' } }

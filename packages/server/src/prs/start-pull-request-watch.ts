@@ -3,7 +3,7 @@ import { readPullRequestWatches, startPullRequestWatch } from '../data/sessions/
 import { readSessionPullRequests } from '../data/sessions/session-pull-requests'
 import { settledSessionIds } from '../data/sessions/session-states'
 import { initialWatchState } from './pr-watch-rules'
-import { currentCredentialUserId } from '../vault/acting-scope'
+import { currentPersonKey } from '../vault/acting-scope'
 
 /** What starting a watch did (docs/plans/pr-watch.md §4). */
 export type WatchStartOutcome = 'started' | 'already-watching' | 'not-linked' | 'session-settled' | 'merged' | 'closed' | 'missing'
@@ -26,6 +26,6 @@ export async function startSessionPullRequestWatch(sessionId: string, repository
   if (link.snapshot?.state === 'merged' || link.snapshot?.state === 'closed') return link.snapshot.state
   // The person this call acts for reads the pull request later, from the
   // watcher's clock (plans/019-acting-identity.md).
-  await startPullRequestWatch(sessionId, repository, number, initialWatchState(Date.now()), currentCredentialUserId())
+  await startPullRequestWatch(sessionId, repository, number, initialWatchState(Date.now()), currentPersonKey())
   return 'started'
 }

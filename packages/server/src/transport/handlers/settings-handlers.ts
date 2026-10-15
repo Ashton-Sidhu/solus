@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { setTypeSafeApiKey } from '../../typesafe/credentials'
+import { setTypeSafeApiKey, typeSafeKeyStatus } from '../../typesafe/credentials'
 import {
   getHostConfig,
   resolveSourceControlWriterModel,
@@ -21,13 +21,16 @@ export function registerSettingsHandlers(
 ): void {
   server.register('configGet', () => getHostConfig())
 
-  server.register('typeSafeKeySet', ([apiKey]) => {
+  // The caller's own key (docs/plans/access-model.md §2.6), read and changed in their acting scope.
+  server.register('typeSafeKeyStatus', () => typeSafeKeyStatus())
+
+  server.register('typeSafeKeySet', async ([apiKey]) => {
     const parsed = z.string().trim().min(1).max(4096).nullable().safeParse(apiKey)
     if (!parsed.success) throw new Error('Enter a TypeSafe API key, or remove the saved key.')
     setTypeSafeApiKey(parsed.data)
-    const snapshot = getHostConfig()
-    deps.onHostConfigChanged(snapshot)
-    return snapshot
+    // The status is per person, so the event carries none: each client of this host reads its own again.
+    deps.onHostConfigChanged(getHostConfig())
+    return typeSafeKeyStatus()
   })
 
   server.register('configUpdate', async (args) => {

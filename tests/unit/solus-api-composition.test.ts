@@ -87,7 +87,7 @@ test('the record service applies the task, work, and session ops a runner sends'
   const op = (domain: 'tasks' | 'works' | 'sessions') => ({ id: `op-${domain}`, domain, resourceId: 'r1', name: 'from-the-future', payload: {}, sessionId: 's1', recordedAt: 1, state: 'pending' as const })
   try {
     for (const domain of ['tasks', 'works', 'sessions'] as const) {
-      const error = await applyOutboxOp(op(domain), 'org1').then(() => null, (failure: Error) => failure)
+      const error = await applyOutboxOp(op(domain), { organizationId: 'org1', ownerKey: 'alice' }).then(() => null, (failure: Error) => failure)
       expect(error?.message ?? '').not.toContain('No applier registered')
     }
   } finally {

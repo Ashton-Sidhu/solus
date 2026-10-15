@@ -49,7 +49,7 @@ tab is a different action: it changes nothing on the home.
    and the snooze, so a return puts the session back on its shelf.
 3. **A person's list holds their own sessions.** In an organization every
    member can read every session, but a list of everyone's work is no list.
-   The list keeps a session the person owns (`owner_user_id`), and one they
+   The list keeps a session the person owns (`owner_key`), and one they
    have a view row for: their first prompt writes an empty one
    (`SessionViewer.returnToList`), and so does an archive or a snooze. The
    picker and search still find every session they can read.

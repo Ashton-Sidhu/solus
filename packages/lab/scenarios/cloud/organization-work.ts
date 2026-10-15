@@ -108,7 +108,7 @@ export default cloudModeScenario('organization work: an attached host runs an or
   const records = await ctx.until(() => bobApi.records.sessionRecordList({ scope: 'all' }).then((list) => list.records), (list) => list.some((row) => row.sessionId === sessionId), 15_000)
   const record = records.find((row) => row.sessionId === sessionId)
   ctx.check('bob sees the session record, in the organization', record?.organizationId === lab, JSON.stringify(record?.organizationId))
-  ctx.check('the record names alice as its owner and her host as its runner', record?.ownerUserId === persona.userId && record.runnerHostId === hostId, JSON.stringify(record && { ownerUserId: record.ownerUserId, runnerHostId: record.runnerHostId }))
+  ctx.check('the record names alice as its owner and her host as its runner', record?.ownerKey === persona.userId && record.runnerHostId === hostId, JSON.stringify(record && { ownerKey: record.ownerKey, runnerHostId: record.runnerHostId }))
 
   ctx.step('the host\'s own tables hold none of it')
   const localTasks = await owner.rpc('tasksSidebarSnapshot')

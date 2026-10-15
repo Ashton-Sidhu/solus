@@ -9,7 +9,7 @@ import type { ConnectionProvider, ConnectionReason } from '@solus/contracts/conn
  * for which conversation, and about which account. No token passes through it.
  */
 
-/** An account Solus knows by name: GitHub, Atlassian, Cloudflare, Google. */
+/** An account Solus knows by name: GitHub, Atlassian, Google. */
 export interface AccountConnectRequest {
   kind: 'account'
   accountConnectionsUrl?: string

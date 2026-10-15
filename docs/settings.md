@@ -84,9 +84,9 @@ A confirmed write makes every connected host the profile applies to pull it.
 | Endpoint | Use |
 | --- | --- |
 | `GET`, `PATCH`, `DELETE /v1/account/agent-profile` | The caller's document, as for settings |
-| `GET`, `POST`, `PUT`, `DELETE /v1/account/agent-profile/connections` | The caller's MCP connections in their account: list, start a sign-in, paste a key, disconnect |
-| `POST /v1/agent-profile/read` | A host's read of a person's profile and connection statuses, with the person's delegated token as the bearer and nothing else |
-| `POST`, `PUT /v1/agent-profile/credential` | A host's read of an access token for one call, and its one-time upload of a connection it held |
+| `GET`, `PUT`, `DELETE /v1/account/vault`, `POST /v1/account/vault/connect` | The caller's account vault (`docs/plans/cloud-vault.md` §2.3): every connection's status, a pasted key, a disconnect, and the start of a sign-in |
+| `POST /v1/agent-profile/read` | A host's read of a person's profile and their vault's statuses, with the person's delegated token as the bearer and nothing else |
+| `POST /v1/vault/read`, `PUT /v1/vault/credential` | A host's read of a credential for one use, and its one-time upload of a credential it held |
 
 ## Organization settings
 

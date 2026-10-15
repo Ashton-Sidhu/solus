@@ -111,8 +111,6 @@ const LOGIN_ENV_NAMES = new Set([
   'NODE_EXTRA_CA_CERTS',
   'CODEX_HOME',
   'TYPESAFE_API_KEY',
-  'CLOUDFLARE_API_TOKEN',
-  'CLOUDFLARE_ACCOUNT_ID',
 ])
 
 function isLoginEnvName(name: string): boolean {

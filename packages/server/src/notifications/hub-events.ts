@@ -1,11 +1,14 @@
-import { actorFor, ownerKeyOf } from '../admission/actor'
-import { recordScopeOf, scopeAdmits, type Principal } from '../admission/principal'
+import { actorFor } from '../admission/actor'
+import { roleOf } from '../admission/access'
+import type { Principal } from '../admission/principal'
 import { onNotificationsChanged, type NotificationsChangedEvent } from '../data/notifications/store'
 import type { HostEventPublisher } from '../transport/events/host-event-publisher'
 
 /**
  * Who hears `notifications.changed` (plans/015-notifications-hub.md §3): only the
- * connections of the recipient, admitted to the organization the row is in. The
+ * connections of the recipient, admitted to the organization the row is in: a
+ * notification is a personal resource whose owner is its recipient
+ * (docs/plans/access-model.md §2.3.1). The host itself has no feed. The
  * payload names nothing; the client reads its first page again, which applies
  * current resource access.
  */
@@ -16,8 +19,8 @@ export function notificationRecipientClients(
 ): string[] {
   return clientIds.filter((clientId) => {
     const principal = principalOf(clientId)
-    if (!principal || principal.kind === 'guest' || principal.kind === 'runner' || principal.kind === 'system') return false
-    return ownerKeyOf(actorFor(principal)) === change.recipientKey && scopeAdmits(recordScopeOf(principal), change.organizationId)
+    if (!principal || principal.kind === 'system') return false
+    return roleOf(actorFor(principal), { kind: 'notification', id: '', organizationId: change.organizationId, ownerKey: change.recipientKey, acl: [] }) !== 'none'
   })
 }
 

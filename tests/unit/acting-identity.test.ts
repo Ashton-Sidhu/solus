@@ -81,7 +81,7 @@ const member = (accountId: string): Seat => ({ kind: 'user', userId: { kind: 'ac
 
 /** Runs `fn` as a member: their identity and their account connections, as an RPC from them would. */
 function asMember<T>(identities: ActingIdentities, accountId: string, fn: () => Promise<T>): Promise<T> {
-  return withActingScope({ identity: identities.for(member(accountId)), credentialUserId: accountId }, fn)
+  return withActingScope({ identity: identities.for(member(accountId)), personKey: accountId }, fn)
 }
 
 /** What git itself would send to GitHub, through the helpers a fresh git process finds, in the current scope. */
@@ -211,7 +211,7 @@ test('a caller’s chosen token is the host’s alone; a member’s git answers 
   expect(hostAuth.args.slice(0, 2)).toEqual(['-c', 'credential.helper='])
   expect(hostAuth.env.SOLUS_GIT_TOKEN).toBe('chosen')
   // For a member the override would clear their own helpers, so there is none.
-  const memberAuth = withActingScope({ identity: identities.for(member('alice')), credentialUserId: 'alice' }, () => gitCommandAuth({ isHttps: true, token: 'chosen' }))
+  const memberAuth = withActingScope({ identity: identities.for(member('alice')), personKey: 'alice' }, () => gitCommandAuth({ isHttps: true, token: 'chosen' }))
   expect(memberAuth).toEqual({ args: [], env: {} })
 })
 
@@ -229,7 +229,7 @@ test('two members never share a review checkout their own connections fetched; t
   const target = { kind: 'pr' as const, ...repo, number: 7, baseSha: 'base', headSha: 'head' }
   const pathAs = (accountId: string | null) => accountId === null
     ? withHostScope(() => managedPrCheckoutPath(repo, target, '/checkouts'))
-    : withActingScope({ identity: identities.for(member(accountId)), credentialUserId: accountId }, () => managedPrCheckoutPath(repo, target, '/checkouts'))
+    : withActingScope({ identity: identities.for(member(accountId)), personKey: accountId }, () => managedPrCheckoutPath(repo, target, '/checkouts'))
   expect(pathAs('alice')).not.toBe(pathAs('bob'))
   expect(pathAs('alice')).not.toBe(pathAs(null))
   expect(pathAs('alice')).toBe(pathAs('alice'))

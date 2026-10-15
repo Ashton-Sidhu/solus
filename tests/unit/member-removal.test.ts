@@ -12,6 +12,7 @@ import { hasLeftOrganization, removeDepartedMembers } from '@solus/server/host/d
 import type { HostStanding } from '@solus/server/host/organizations'
 import type { ShareManager as ShareManagerType } from '@solus/server/sharing/share-manager'
 import { resetTestDatabase } from './helpers/test-db'
+import { seedResource } from './helpers/resource-rows'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -143,16 +144,16 @@ describe('transferring a departed member\'s resources', () => {
 
   test('a host admin may transfer a departed member\'s session; a member may not', async () => {
     const shares = manager(standing([{ organizationId: 'org1', memberUserIds: ['alice', 'bob', 'cara'] }]))
-    await shares.claimOwner(session, member('dave'))
+    await seedResource(database.getDatabase(), 'session', session.id, 'dave', 'org1')
     await expect(shares.transfer({ resource: session, toUserId: 'bob' }, member('bob'))).rejects.toThrow(ShareAccessError)
     const list = await shares.transfer({ resource: session, toUserId: 'cara' }, member('alice', 'owner'))
-    expect(list.ownerUserId).toBe('cara')
+    expect(list.ownerKey).toBe('cara')
     expect(await shares.roleFor(member('cara'), session)).toBe('owner')
   })
 
   test('while the owner is still a member, only they transfer', async () => {
     const shares = manager(standing([{ organizationId: 'org1', memberUserIds: ['alice', 'dave'] }]))
-    await shares.claimOwner(session, member('dave'))
+    await seedResource(database.getDatabase(), 'session', session.id, 'dave', 'org1')
     await expect(shares.transfer({ resource: session, toUserId: 'alice' }, member('alice', 'owner'))).rejects.toThrow(ShareAccessError)
   })
 

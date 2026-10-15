@@ -502,6 +502,58 @@ CREATE UNIQUE INDEX integration_slug ON integration (organization_id, COALESCE(o
   `
 ALTER TABLE integration ADD COLUMN disabled_tools TEXT NOT NULL DEFAULT '[]';
 `,
+  // Every integration has one owner (docs/plans/access-model.md §2.2, D3): there
+  // are no shared servers, so a row with no owner and its connections are not
+  // kept. The table is rebuilt because SQLite cannot make a column NOT NULL in place.
+  `
+CREATE TABLE integration_next (
+  id TEXT PRIMARY KEY,
+  organization_id TEXT NOT NULL,
+  owner_key TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  name TEXT NOT NULL,
+  url TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  disabled_tools TEXT NOT NULL DEFAULT '[]',
+  created_by TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+INSERT INTO integration_next (id, organization_id, owner_key, kind, slug, name, url, auth, disabled_tools, created_by, created_at, updated_at)
+  SELECT id, organization_id, owner_user_id, kind, slug, name, url, auth, disabled_tools, created_by, created_at, updated_at FROM integration
+  WHERE owner_user_id IS NOT NULL;
+DELETE FROM integration_connection WHERE integration_id NOT IN (SELECT id FROM integration_next);
+DROP TABLE integration;
+ALTER TABLE integration_next RENAME TO integration;
+CREATE UNIQUE INDEX integration_slug ON integration (organization_id, owner_key, slug);
+`,
+  // Every automation has one owner, the person it runs for (docs/plans/access-model.md
+  // §2.2, D4). An old row keeps '', which no person holds: only an administrator reaches it.
+  `
+ALTER TABLE automations ADD COLUMN owner_key TEXT NOT NULL DEFAULT '';
+`,
+  // Every browser profile is one person's (docs/plans/member-isolation.md §6), the
+  // project's default choice included. Rows with no owner are not kept, and the
+  // jars of the old project-wide partitions are not read again.
+  `
+DROP TABLE browser_profiles;
+DROP TABLE browser_profile_defaults;
+CREATE TABLE browser_profiles (
+  owner_key TEXT NOT NULL,
+  project_root TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_key, project_root, profile_id)
+);
+CREATE TABLE browser_profile_defaults (
+  owner_key TEXT NOT NULL,
+  project_root TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  PRIMARY KEY (owner_key, project_root)
+);
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

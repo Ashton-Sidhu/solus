@@ -3,57 +3,47 @@ import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import type { IntegrationChangedEvent } from '@solus/contracts/integration-types'
-import type { IntegrationSecrets } from '@solus/server/integrations/connection-store'
-import type { OAuthClient, OAuthToken } from '@solus/contracts/integrations/oauth-protocol'
+import type { Principal } from '@solus/server/admission/principal'
 import { TEST_HANDLER_CTX } from '../helpers/handler-ctx'
 import { resetTestDatabase } from '../helpers/test-db'
+import { installTestIdentities } from '../helpers/acting-identities'
 import { startFakeServers, type FakeServers } from './fake-servers'
+import { memoryClients, memorySecretStore } from './memory-secrets'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 const { IntegrationOAuth } = await import('@solus/server/integrations/oauth')
 const { IntegrationConnectionStore } = await import('@solus/server/integrations/connection-store')
+const { Vault } = await import('@solus/server/vault/vault')
 const { IntegrationStore } = await import('@solus/server/integrations/integration-store')
 const { registerIntegrationHandlers } = await import('@solus/server/transport/handlers/integration-handlers')
 const { SolusServer } = await import('@solus/server/transport/server')
 const { ANY_ORGANIZATION } = await import('@solus/server/admission/principal')
+const { actorFor, ownerKeyOf } = await import('@solus/server/admission/actor')
 const { withActingScope } = await import('@solus/server/vault/acting-scope')
 const { HOST_IDENTITY } = await import('@solus/server/execution/seats/acting-identity')
 const { dataDir } = await import('@solus/server/platform/paths')
 const db = await import('@solus/server/db')
 
 /**
- * The administrator's OAuth client (docs/plans/mcp-integrations.md §4.3, phase 3):
- * a server with no dynamic registration (Zoom) signs in only with a client the
- * administrator saved through `integrationUpdate`. The secret stays on the host:
- * the record says only that one is stored.
+ * The owner's OAuth client (docs/plans/mcp-integrations.md §4.3, phase 3;
+ * docs/plans/access-model.md D3): a server with no dynamic registration (Zoom)
+ * signs in only with a client its owner saved through `integrationUpdate`. The
+ * secret stays on the host: the record says only that one is stored.
  */
 
-const ALICE = { identity: HOST_IDENTITY, credentialUserId: 'account:alice' }
+const ALICE = { identity: HOST_IDENTITY, personKey: 'account:alice' }
 const START = { callbackBaseUrl: 'https://host.example', fallbackHost: '127.0.0.1', fallbackPort: 4100 }
 
 let fake: FakeServers
 
-function memorySecrets(): IntegrationSecrets & { clients: Map<string, OAuthClient> } {
-  const tokens = new Map<string, OAuthToken>()
-  const clients = new Map<string, OAuthClient>()
-  const key = (id: string, user: string | null) => `${id}/${user ?? 'host'}`
-  return {
-    clients,
-    token: (id, user) => tokens.get(key(id, user)) ?? null,
-    saveToken: (id, user, token) => { tokens.set(key(id, user), token) },
-    removeToken: (id, user) => { tokens.delete(key(id, user)) },
-    client: (id) => clients.get(id) ?? null,
-    saveClient: (id, client) => { clients.set(id, client) },
-    removeClient: (id) => { clients.delete(id) },
-  }
-}
-
 function setup() {
-  const secrets = memorySecrets()
+  const secrets = memoryClients()
   const store = new IntegrationStore()
   const events = { connectionChanged: () => undefined, authFinished: () => undefined }
-  const oauth = new IntegrationOAuth({ connections: new IntegrationConnectionStore(), integrations: store, secrets, events })
+  const connections = new IntegrationConnectionStore()
+  const vault = new Vault({ secrets: memorySecretStore() })
+  const oauth = new IntegrationOAuth({ connections, integrations: store, vault, clients: secrets, events })
   const server = new SolusServer()
   const changed: IntegrationChangedEvent[] = []
   const invalidated: string[] = []
@@ -65,18 +55,20 @@ function setup() {
     connectionStore: {} as never,
     connections: {} as never,
     oauth,
-    secrets,
+    clients: secrets,
     getServerInfo: () => ({ host: '127.0.0.1', port: 4100 }),
   })
   const integration = store.create(
     { name: 'Zoom', url: fake.mcpUrl, slug: 'zoom', auth: { kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'client-required' } },
     'local',
-    null,
+    ownerKeyOf(TEST_HANDLER_CTX.actor)!,
   )
   const update = (oauthClient: { clientId: string; clientSecret?: string } | null) =>
     server.handle('integrationUpdate', [{ id: integration.id, oauthClient }], TEST_HANDLER_CTX)
   const start = () => withActingScope(ALICE, () => oauth.start(store.get(integration.id, ANY_ORGANIZATION) ?? integration, START))
-  return { secrets, store, oauth, integration, update, start, changed, invalidated }
+  const updateAs = (principal: Principal, oauthClient: { clientId: string }) =>
+    server.handle('integrationUpdate', [{ id: integration.id, oauthClient }], { clientId: 'other', principal, actor: actorFor(principal) })
+  return { secrets, store, oauth, integration, update, updateAs, start, changed, invalidated }
 }
 
 beforeAll(async () => {
@@ -94,11 +86,11 @@ afterAll(async () => {
   await fake.close()
 })
 
-describe('administrator OAuth client', () => {
+describe('the owner\'s OAuth client', () => {
   test('without registration or a saved client, the sign-in refuses plainly', async () => {
     fake.options.registration = false
     const { start } = setup()
-    await expect(start()).rejects.toThrow('This server needs an OAuth client. Ask the host administrator to add one.')
+    await expect(start()).rejects.toThrow('This server needs an OAuth client. Its owner adds one in the server settings.')
   })
 
   test('a saved client with a secret signs in and sends the secret as client_secret_post', async () => {
@@ -143,6 +135,17 @@ describe('administrator OAuth client', () => {
     expect(cleared.auth).toEqual({ kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'client-required' })
     expect(secrets.clients.has(integration.id)).toBe(false)
     await expect(start()).rejects.toThrow('This server needs an OAuth client.')
+  })
+
+  test('only the owner sets the client; an administrator of the host does not', async () => {
+    // WHY (D3): there are no shared MCP servers, so the OAuth client is the owner's
+    // setting like the rest of the record. This changes the earlier rule, where the
+    // host administrator set it for a shared server.
+    installTestIdentities()
+    const { updateAs, secrets, integration } = setup()
+    const admin: Principal = { kind: 'org-member', userId: 'adam', organizationId: 'local', organizationRole: 'owner', teamIds: [], hostKind: 'managed', displayName: 'Adam', deviceId: 'd-adam', expiresAt: 0, deviceLabel: 'Solus cloud' }
+    await expect(updateAs(admin, { clientId: 'stolen' })).rejects.toThrow('That integration is no longer on this host.')
+    expect(secrets.clients.has(integration.id)).toBe(false)
   })
 
   test('an integration that does not sign in with OAuth refuses a client', async () => {

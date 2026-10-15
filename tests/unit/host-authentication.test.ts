@@ -194,7 +194,7 @@ describe('the host acting for a person', () => {
       if (url === `${API}/v1/auth/session`) {
         return Response.json({ accessToken: 'api-credential', tokenType: 'Bearer', expiresAt: new Date(Date.now() + 300_000).toISOString(), scopes: ['tasks:read', 'tasks:write', 'works:read', 'works:write', 'sessions:read', 'sessions:admit'], home: { kind: 'organization', serviceId: 'solus-api', organizationId: 'org_a' }, subject: { kind: 'user', userId: 'bob', displayName: 'Bob', sessionId: null } })
       }
-      if (url === `${API}/v1/session-admissions`) return options.admit?.() ?? Response.json({ sessionId: 'solus-1', organizationId: 'org_a', ownerUserId: 'bob', hostId: HOST_ID, admittedAt: new Date(0).toISOString() }, { status: 201 })
+      if (url === `${API}/v1/session-admissions`) return options.admit?.() ?? Response.json({ sessionId: 'solus-1', organizationId: 'org_a', ownerKey: 'bob', hostId: HOST_ID, admittedAt: new Date(0).toISOString() }, { status: 201 })
       return new Response('not found', { status: 404 })
     }
     return { calls, fetchImpl }

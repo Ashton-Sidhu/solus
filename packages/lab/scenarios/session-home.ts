@@ -218,7 +218,7 @@ async function organizationHome(ctx: ScenarioContext): Promise<void> {
 
     // Bob can read every session of the organization; his list holds his own.
     const bobReads = await anyListing(bob, sessionId)
-    ctx.check(`${tag} bob reads alice's session, and it is not in his list`, bobReads?.listed === false && !(await listed(bob, sessionId)), JSON.stringify({ listed: bobReads?.listed, ownerUserId: bobReads?.ownerUserId }))
+    ctx.check(`${tag} bob reads alice's session, and it is not in his list`, bobReads?.listed === false && !(await listed(bob, sessionId)), JSON.stringify({ listed: bobReads?.listed, ownerKey: bobReads?.ownerKey }))
 
     const bobWake = await peopleStep(proof, alice, bob, sessionId)
     await pullRequestResource(ctx, tag, bob, alice, sessionId)

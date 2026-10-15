@@ -66,9 +66,9 @@ const viewer = (sessionId: string, personKey: string) => new states.SessionViewe
 const ALICE = 'user:alice'
 const BOB = 'user:bob'
 
-/** A session record last active at `lastActivityAt`. */
-async function recorded(sessionId: string, lastActivityAt: number, parentSessionId: string | null = null, ownerUserId?: string) {
-  await records.upsertSessionRecord('local', { sessionId, provider: 'codex', projectPath: '-repo', lastActivityAt, parentSessionId, ownerUserId })
+/** A session record last active at `lastActivityAt`, owned by `ownerKey` (docs/plans/access-model.md §2.2). */
+async function recorded(sessionId: string, lastActivityAt: number, parentSessionId: string | null = null, ownerKey = ALICE) {
+  await records.upsertSessionRecord('local', { sessionId, provider: 'codex', projectPath: '-repo', lastActivityAt, parentSessionId }, { organizationId: 'local', ownerKey })
 }
 
 /** Link a pull request and record what PR sync saw of it. */
@@ -237,7 +237,10 @@ describe("a person's session list", () => {
     expect(alice.size).toBe(522)
     expect(alice.has('old-snoozed') && alice.has('old-with-review')).toBe(true)
     expect(alice.has('archived-by-alice') || alice.has('old') || alice.has('child')).toBe(false)
-    // Bob did not archive it, and did not snooze the old one.
+    // Alice owns them, so they are not Bob's until he prompts them. Then her archive and her snooze are not his.
+    expect((await listedFor(BOB)).size).toBe(0)
+    await shelf('archived-by-alice').recordPrompt(BOB)
+    await shelf('old-snoozed').recordPrompt(BOB)
     const bob = await listedFor(BOB)
     expect(bob.has('archived-by-alice')).toBe(true)
     expect(bob.has('old-snoozed')).toBe(false)

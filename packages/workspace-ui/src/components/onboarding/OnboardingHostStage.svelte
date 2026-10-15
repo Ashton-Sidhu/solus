@@ -1,51 +1,31 @@
 <script lang="ts">
   /**
-   * The touch flow's one setup stage, in place of the pointer flow's `agents`
-   * and `providers`.
+   * The touch flow's one setup stage, in place of the pointer flow's `agents`.
    *
-   * A phone has no agents and no repositories of its own: everything those two
-   * stages ask about belongs to the machine this client is driving, and that
-   * machine has usually been set up already from its own desktop. So this stage
-   * reports where the machine stands and only asks about what is actually
-   * missing — a ready host is a sentence, not two screens of check marks.
-   *
-   * Cloudflare and Atlassian are deliberately absent, for different reasons.
-   * Cloudflare wants a scoped API token pasted in, which is a bad thing to ask
-   * of a thumb and is never blocking; Settings still has it. Atlassian cannot
-   * work here at all: its sign-in returns to the *host's* loopback address, and
-   * a phone driving a remote host has no route to it.
+   * A phone has no agents of its own: everything that stage asks about belongs
+   * to the machine this client is driving, and that machine has usually been
+   * set up already from its own desktop. So this stage reports where the
+   * machine stands and only asks about what is actually missing — a ready host
+   * is a sentence, not a screen of check marks. Connections such as GitHub are
+   * in Settings, not here.
    */
   import { HardDrive as DesktopTowerIcon } from "@lucide/svelte";
   import { onMount } from "svelte";
-  import {
-    connectionsStore,
-    getWorkspaceContext,
-    serversStore,
-  } from "../../contexts";
+  import { serversStore } from "../../contexts";
   import { codingProviderRows } from "../servers/lib/host-onboarding";
   import { onboardingStore as store } from "./onboarding.store.svelte";
   import OnboardingAgentRow from "./OnboardingAgentRow.svelte";
-  import OnboardingGithubRow from "./OnboardingGithubRow.svelte";
   import OnboardingRow from "./OnboardingRow.svelte";
   import OnboardingStageActions from "./OnboardingStageActions.svelte";
   import type { SetupAgent } from "@solus/contracts/types";
 
-  const session = getWorkspaceContext();
   const serverId = store.serverId;
 
   const setup = $derived(store.setup);
   const hostName = $derived(serversStore.hostFor(serverId)?.label ?? "your machine");
 
-  /**
-   * Nothing has been heard from the host yet, so there is nothing to report.
-   * GitHub counts: this stage hides the row once it is connected, so without
-   * waiting for the first answer a set-up host flashes a Connect row and then
-   * takes it away again.
-   */
-  const probing = $derived(
-    !setup.readinessError &&
-      (!setup.readiness || connectionsStore.providerStatus === null),
-  );
+  /** Nothing has been heard from the host yet, so there is nothing to report. */
+  const probing = $derived(!setup.readinessError && !setup.readiness);
 
   const agentRows = $derived(
     codingProviderRows({
@@ -62,14 +42,12 @@
   const unfinishedAgents = $derived(
     agentRows.filter((row) => row.state !== "done"),
   );
-  const hasSignedInAgent = $derived(
+  const ready = $derived(
     agentRows.some((row) => row.state === "done"),
   );
-  const githubConnected = $derived(!!connectionsStore.providerStatus?.connected);
-  const ready = $derived(hasSignedInAgent && githubConnected);
   /** What the one confirming row says a ready host already has. */
   const readyDetail = $derived(
-    [...agentRows.filter((row) => row.state === "done").map((row) => row.label), "GitHub"].join(" · "),
+    agentRows.filter((row) => row.state === "done").map((row) => row.label).join(" · "),
   );
 
   const title = $derived(
@@ -88,9 +66,6 @@
     if (!setup.readiness && !setup.readinessLoading) {
       void setup.refreshReadiness();
     }
-    // The GitHub row fetches this too, but it is only mounted when GitHub is
-    // *not* connected — which is the answer this is waiting for.
-    if (serverId) void connectionsStore.refreshProviderStatus(serverId, session.ctx);
     return () => setup.release();
   });
 </script>
@@ -154,9 +129,6 @@
           delay={index * 0.07}
         />
       {/each}
-      {#if !githubConnected}
-        <OnboardingGithubRow delay={unfinishedAgents.length * 0.07} />
-      {/if}
     {/if}
   </div>
 

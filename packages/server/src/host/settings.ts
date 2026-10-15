@@ -15,7 +15,6 @@ import {
 import type { HostConfig, HostConfigPatch, HostConfigSnapshot } from '@solus/contracts/host-config'
 import { z } from 'zod'
 import { DEFAULT_EXECUTION_PREFERENCES, DEFAULT_TEXT_GENERATION_MODELS, type ExecutionPreferences } from '@solus/contracts/settings'
-import { typeSafeKeyStatus } from '../typesafe/credentials'
 import { hostCategory } from './host-category'
 
 const log = createLogger('main', 'server-settings')
@@ -140,7 +139,7 @@ export function getHostConfig(): HostConfigSnapshot {
   const config = hostCategory() === 'managed' && stored.continueSessionsAfterHostRestart
     ? { ...stored, continueSessionsAfterHostRestart: false }
     : stored
-  return { config, typeSafe: typeSafeKeyStatus() }
+  return { config }
 }
 
 /** The organizations this machine's work is opted into for Insights while their policy is off (§6.1). */

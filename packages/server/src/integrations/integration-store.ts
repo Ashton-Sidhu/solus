@@ -11,11 +11,10 @@ import { getDb, withTx } from '../db'
 /**
  * The integrations this host knows (docs/plans/mcp-integrations.md §3.3). A host
  * table, read synchronously, whose reads name their scope through `scopeClause`
- * like every root record. A record is shared, or one person's
- * (plans/020-agent-profile.md §2.1): a read names the viewer whose personal
- * records it includes beside the shared ones. The slug is unique per
- * organization among the shared records, and among one person's; a second add
- * of one name gets a numeric suffix.
+ * like every root record. Every record is one person's
+ * (docs/plans/access-model.md §2.3, D3): nobody else reads or changes it, so a
+ * read names its owner. The slug is unique among one person's records in an
+ * organization; a second add of one name gets a numeric suffix.
  */
 
 const SLUG_MAX_LENGTH = 40
@@ -23,7 +22,7 @@ const SLUG_MAX_LENGTH = 40
 const integrationRowSchema = z.object({
   id: z.string(),
   organization_id: z.string(),
-  owner_user_id: z.string().nullable(),
+  owner_key: z.string(),
   kind: z.literal('mcp'),
   slug: z.string(),
   name: z.string(),
@@ -37,7 +36,7 @@ const integrationRowSchema = z.object({
 
 type IntegrationRow = z.infer<typeof integrationRowSchema>
 
-const INTEGRATION_COLUMNS = sql.raw('id, organization_id, owner_user_id, kind, slug, name, url, auth, disabled_tools, created_by, created_at, updated_at')
+const INTEGRATION_COLUMNS = sql.raw('id, organization_id, owner_key, kind, slug, name, url, auth, disabled_tools, created_by, created_at, updated_at')
 
 const dialect = new SQLiteSyncDialect()
 
@@ -56,14 +55,11 @@ export interface IntegrationPatch {
   disabledTools?: string[]
 }
 
-/** Whose personal records a read includes: null includes the shared records alone. */
-export type IntegrationViewer = string | null
-
 function integrationFromRow(row: IntegrationRow): Integration {
   return {
     id: row.id,
     organizationId: row.organization_id,
-    ownerUserId: row.owner_user_id,
+    ownerKey: row.owner_key,
     kind: row.kind,
     slug: row.slug,
     name: row.name,
@@ -97,14 +93,9 @@ function run(query: SQL): number {
   return Number(statement.run(...params).changes)
 }
 
-/** The shared records, and the viewer's own. */
-function viewerClause(viewer: IntegrationViewer): SQL {
-  return viewer === null ? sql`owner_user_id IS NULL` : sql`(owner_user_id IS NULL OR owner_user_id = ${viewer})`
-}
-
-/** Exactly one owner's records: the shared ones, or one person's. */
-function ownerClause(ownerUserId: string | null): SQL {
-  return ownerUserId === null ? sql`owner_user_id IS NULL` : sql`owner_user_id = ${ownerUserId}`
+/** One person's records. The host's own work and a runner (null) own none. */
+function ownerClause(ownerKey: string | null): SQL {
+  return ownerKey === null ? sql`1 = 0` : sql`owner_key = ${ownerKey}`
 }
 
 /** `base`, else `base-2`, `base-3`, … within the slug length. */
@@ -115,19 +106,9 @@ function slugCandidate(base: string, attempt: number): string {
 }
 
 export class IntegrationStore {
-  /** The shared records of `scope`, and the viewer's own personal ones there. */
-  list(scope: RecordScope, viewer: IntegrationViewer): Integration[] {
-    return all(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND ${viewerClause(viewer)} ORDER BY name, id`).map(integrationFromRow)
-  }
-
-  /** The records of exactly one owner in `scope`: the shared ones, or one person's. */
-  listOwned(scope: RecordScope, ownerUserId: string | null): Integration[] {
-    return all(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND ${ownerClause(ownerUserId)} ORDER BY name, id`).map(integrationFromRow)
-  }
-
-  /** Every record in `scope`, whoever owns it: for the boot warm. */
-  all(scope: RecordScope): Integration[] {
-    return all(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} ORDER BY name, id`).map(integrationFromRow)
+  /** One person's records in `scope`. */
+  list(scope: RecordScope, ownerKey: string | null): Integration[] {
+    return all(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND ${ownerClause(ownerKey)} ORDER BY name, id`).map(integrationFromRow)
   }
 
   /** Any record by id in `scope`, whoever owns it: for the gateway and the flows, which act on a record a person already reached. */
@@ -136,35 +117,36 @@ export class IntegrationStore {
     return row ? integrationFromRow(row) : null
   }
 
-  /** A record by id the viewer may see: shared, or their own. */
-  getVisible(id: string, scope: RecordScope, viewer: IntegrationViewer): Integration | null {
-    const row = one(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND ${viewerClause(viewer)} AND id = ${id}`)
+  /** A record by id, when it is this person's. */
+  getOwned(id: string, scope: RecordScope, ownerKey: string | null): Integration | null {
+    const row = one(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND ${ownerClause(ownerKey)} AND id = ${id}`)
     return row ? integrationFromRow(row) : null
   }
 
-  getBySlug(slug: string, scope: RecordScope, viewer: IntegrationViewer): Integration | null {
-    const row = one(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND ${viewerClause(viewer)} AND slug = ${slug} ORDER BY owner_user_id DESC, organization_id LIMIT 1`)
+  getBySlug(slug: string, scope: RecordScope, ownerKey: string | null): Integration | null {
+    const row = one(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND ${ownerClause(ownerKey)} AND slug = ${slug} ORDER BY organization_id LIMIT 1`)
     return row ? integrationFromRow(row) : null
   }
 
-  /** The first record with this URL the viewer may see; their own before a shared one. */
-  findByUrl(url: string, scope: RecordScope, viewer: IntegrationViewer): Integration | null {
-    const row = one(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND ${viewerClause(viewer)} AND url = ${url} ORDER BY owner_user_id DESC, created_at LIMIT 1`)
+  /** The person's first record with this URL. */
+  findByUrl(url: string, scope: RecordScope, ownerKey: string | null): Integration | null {
+    const row = one(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE ${scopeClause(scope)} AND ${ownerClause(ownerKey)} AND url = ${url} ORDER BY created_at LIMIT 1`)
     return row ? integrationFromRow(row) : null
   }
 
-  create(input: IntegrationCreateInput, organizationId: string, createdBy: string | null, ownerUserId: string | null = null): Integration {
+  /** A new record of `ownerKey`, who also made it. */
+  create(input: IntegrationCreateInput, organizationId: string, ownerKey: string): Integration {
     const now = new Date().toISOString()
     const id = ulid()
     const auth = JSON.stringify(integrationAuthSchema.parse(input.auth))
     withTx(() => {
       for (let attempt = 1; ; attempt++) {
         const slug = slugCandidate(input.slug, attempt)
-        const taken = one(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE organization_id = ${organizationId} AND ${ownerClause(ownerUserId)} AND slug = ${slug}`)
+        const taken = one(sql`SELECT ${INTEGRATION_COLUMNS} FROM integration WHERE organization_id = ${organizationId} AND ${ownerClause(ownerKey)} AND slug = ${slug}`)
         if (taken) continue
         run(sql`
-          INSERT INTO integration (id, organization_id, owner_user_id, kind, slug, name, url, auth, created_by, created_at, updated_at)
-          VALUES (${id}, ${organizationId}, ${ownerUserId}, 'mcp', ${slug}, ${input.name}, ${input.url}, ${auth}, ${createdBy}, ${now}, ${now})
+          INSERT INTO integration (id, organization_id, owner_key, kind, slug, name, url, auth, created_by, created_at, updated_at)
+          VALUES (${id}, ${organizationId}, ${ownerKey}, 'mcp', ${slug}, ${input.name}, ${input.url}, ${auth}, ${ownerKey}, ${now}, ${now})
         `)
         return
       }

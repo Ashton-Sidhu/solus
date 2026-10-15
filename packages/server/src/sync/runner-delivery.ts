@@ -15,6 +15,7 @@ import {
   sessionReportDestinations,
   sessionReportQueued,
   type DeliveryDestination,
+  deliveryActorOf,
 } from './outbox/outbox-store'
 import { ackMirrorThrough, listMirror, mirrorDestinations, onMirrorChanged } from './mirror/mirror-log'
 import { admissionIdFor, getSessionRecord, onSessionRecordChanged } from '../data/sessions/session-records'
@@ -251,7 +252,7 @@ export class RunnerDelivery {
     if (admissionId) report.admissionId = admissionId
     // A chat is organization work, but not the organization's to open until its owner shares it (plan 004 D14).
     if (isChat(record.cwd)) report.privateToOwner = true
-    queueSessionReport({ organizationId: record.organizationId, actorUserId: record.ownerUserId ?? '' }, report)
+    queueSessionReport({ organizationId: record.organizationId, actorUserId: deliveryActorOf(record.ownerKey) }, report)
     this.kick()
   }
 

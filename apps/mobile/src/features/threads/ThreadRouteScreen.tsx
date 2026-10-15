@@ -35,6 +35,7 @@ function recordOf(record: SessionRecord): ConversationRecord {
     reasoningEffort: record.reasoningEffort,
     title: record.title,
     customTitle: record.customTitle,
+    role: record.role,
   };
 }
 

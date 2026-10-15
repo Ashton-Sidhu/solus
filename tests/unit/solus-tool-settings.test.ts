@@ -16,7 +16,6 @@ let settings: typeof import('@solus/server/host/settings')
 let agentTools: typeof import('@solus/server/execution/agents/tools/agent-tool')
 let codex: typeof import('@solus/server/execution/agents/codex/codex-tool-adapter')
 let claude: typeof import('@solus/server/execution/agents/claude/claude-tool-adapter')
-let credentials: typeof import('@solus/server/typesafe/credentials')
 let calls = 0
 const tool: AgentTool = { name: 'read_work', description: 'Read a work', inputFields: {}, requiresApproval: false,
   execute: async () => { calls++; return { ok: true, text: 'work' } } }
@@ -25,7 +24,6 @@ const context: AgentToolContext = { provider: 'codex', cwd: dataDir,
 
 beforeAll(async () => {
   process.env.SOLUS_DATA_DIR = dataDir
-  credentials = await import('@solus/server/typesafe/credentials')
   settings = await import('@solus/server/host/settings')
   agentTools = await import('@solus/server/execution/agents/tools/agent-tool')
   codex = await import('@solus/server/execution/agents/codex/codex-tool-adapter')
@@ -69,38 +67,6 @@ describe('Solus tool settings', () => {
     settings.setHostConfig({ solusTools: { read_work: true } })
     expect((await dispatcher.execute('read_work', {})).ok).toBe(true)
     expect(calls).toBe(1)
-  })
-  test('Jev requires a key on both providers and rechecks removal for existing dispatchers', async () => {
-    const previousKey = process.env.TYPESAFE_API_KEY
-    delete process.env.TYPESAFE_API_KEY
-    const jev = { ...tool, name: 'ask_jev' }
-    try {
-      expect(credentials.typeSafeKeyStatus()).toEqual({ source: null })
-      expect(codex.adaptCodexTools([jev])).toHaveLength(0)
-      expect(claude.adaptClaudeTools([jev], context, 'auto').allowedTools).toEqual([])
-      process.env.TYPESAFE_API_KEY = 'environment-test-key'
-      expect(codex.adaptCodexTools([jev])).toHaveLength(1)
-      credentials.setTypeSafeApiKey('  saved-test-key  ')
-      expect(credentials.typeSafeApiKey()).toBe('saved-test-key')
-      expect(settings.getHostConfig().typeSafe).toEqual({ source: 'saved' })
-      expect(JSON.stringify(settings.getHostConfig())).not.toContain('saved-test-key')
-      expect(claude.adaptClaudeTools([jev], context, 'auto').allowedTools).toEqual(['mcp__solus__ask_jev'])
-      const dispatcher = new codex.CodexToolDispatcher([jev], context)
-      credentials.setTypeSafeApiKey('replacement-test-key')
-      expect(credentials.typeSafeApiKey()).toBe('replacement-test-key')
-      credentials.setTypeSafeApiKey(null)
-      expect(credentials.typeSafeKeyStatus()).toEqual({ source: 'environment' })
-      delete process.env.TYPESAFE_API_KEY
-      const before = calls
-      expect((await dispatcher.execute('ask_jev', {})).ok).toBe(false)
-      expect((await agentTools.executeAgentTool(jev, {}, context)).ok).toBe(false)
-      expect(calls).toBe(before)
-      expect(() => credentials.setTypeSafeApiKey('  ')).toThrow()
-    } finally {
-      credentials.setTypeSafeApiKey(null)
-      if (previousKey === undefined) delete process.env.TYPESAFE_API_KEY
-      else process.env.TYPESAFE_API_KEY = previousKey
-    }
   })
   test('search accepts group and tool names; group switches cover the full group', () => {
     expect(matchingToolGroups('works')[0].id).toBe('works')

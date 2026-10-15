@@ -2,7 +2,7 @@
   /**
    * First-run onboarding, over the whole client.
    *
-   * Four questions and a greeting, each on its own full-bleed stage. There is
+   * A few questions and a greeting, each on its own full-bleed stage. There is
    * no rail and no summary: the flow is short enough to hold in the head, and
    * every stage reports its own state as it goes.
    *
@@ -26,7 +26,6 @@
   import OnboardingAgentsStage from "./OnboardingAgentsStage.svelte";
   import OnboardingGesturesStage from "./OnboardingGesturesStage.svelte";
   import OnboardingHostStage from "./OnboardingHostStage.svelte";
-  import OnboardingProvidersStage from "./OnboardingProvidersStage.svelte";
   import OnboardingStartStage from "./OnboardingStartStage.svelte";
   import OnboardingComputeStage from "./OnboardingComputeStage.svelte";
   import OnboardingAccountGithubStage from "./OnboardingAccountGithubStage.svelte";
@@ -131,9 +130,8 @@
       target?.tagName === "TEXTAREA" ||
       target?.isContentEditable === true;
     if (event.key !== "Enter" || inField || target?.tagName === "BUTTON") return;
-    // Only the stages with nothing to satisfy answer to Enter. The agents and
-    // providers stages dim Continue until something is connected, and a
-    // keystroke that walks past a gate the button honours is worse than no
+    // Only the stages with nothing to satisfy answer to Enter. The agents
+    // stage dims Continue until an agent is ready, and a keystroke that walks past a gate the button honours is worse than no
     // shortcut at all.
     if (stage === "start") {
       event.preventDefault();
@@ -215,8 +213,6 @@
   <div class="min-h-0 flex-1 overflow-y-auto">
     {#if stage === "agents"}
       <OnboardingAgentsStage />
-    {:else if stage === "providers"}
-      <OnboardingProvidersStage />
     {:else if stage === "getting-around"}
       <OnboardingGesturesStage />
     {:else if stage === "host"}

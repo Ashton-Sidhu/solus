@@ -23,8 +23,12 @@ let registries: RegistriesModule
 
 const HOUR = 60 * 60 * 1000
 
+/** The host's own read: every turn (what `visibleInsights` gives the host itself). */
+const EVERY_TURN = { sql: '1 = 1', params: [] }
+const compile = (spec: MetricsQuerySpec) => compiler.compileQuerySpec(spec, EVERY_TURN)
+
 function run(spec: MetricsQuerySpec) {
-  const compiled = compiler.compileQuerySpec(spec)
+  const compiled = compile(spec)
   return sqlGuard.runCompiledSql(compiled.sql, compiled.params, compiled.sourceView)
 }
 
@@ -186,33 +190,33 @@ describe.serial('metrics query compiler', () => {
   })
 
   test('rejects malformed specs with clear errors', () => {
-    expect(() => compiler.compileQuerySpec({ filters: [{ field: 'nope', op: 'eq', value: 1 }] }))
+    expect(() => compile({ filters: [{ field: 'nope', op: 'eq', value: 1 }] }))
       .toThrow('Unknown query field: nope')
-    expect(() => compiler.compileQuerySpec({
+    expect(() => compile({
       filters: [{ field: 'command', op: 'eq', value: 'x' }],
     })).toThrow('registry fields need an eq filter on kind')
-    expect(() => compiler.compileQuerySpec({ groupBy: [{ field: 'model' }] }))
+    expect(() => compile({ groupBy: [{ field: 'model' }] }))
       .toThrow('groupBy needs at least one aggregate')
-    expect(() => compiler.compileQuerySpec({
+    expect(() => compile({
       aggregates: [{ fn: 'count' }],
       orderBy: [{ field: 'model', dir: 'asc' }],
     })).toThrow('not an output column')
-    expect(() => compiler.compileQuerySpec({
+    expect(() => compile({
       filters: [{ field: 'model', op: 'in', value: [] }],
     })).toThrow("'in' needs a non-empty array")
-    expect(() => compiler.compileQuerySpec({
+    expect(() => compile({
       aggregates: [{ fn: 'median' as never, field: 'duration_ms' }],
     })).toThrow('Unknown aggregate: median')
-    expect(() => compiler.compileQuerySpec({
+    expect(() => compile({
       filters: [{ field: 'attrs.bad path', op: 'eq', value: 1 }],
     })).toThrow('Invalid attrs path')
-    expect(() => compiler.compileQuerySpec({
+    expect(() => compile({
       aggregates: [{ fn: 'count', as: 'bad alias' }],
     })).toThrow('Invalid aggregate alias')
   })
 
   test('every value rides in a bind parameter, never in the SQL text', () => {
-    const compiled = compiler.compileQuerySpec({
+    const compiled = compile({
       timeRange: { from: 1, to: 2 },
       filters: [
         { field: 'kind', op: 'eq', value: 'tool_call' },
@@ -228,14 +232,14 @@ describe.serial('metrics query compiler', () => {
 
 describe.serial('declared grain (sourceView)', () => {
   test('a pinned kind declares its view; an unpinned spec declares nothing', () => {
-    expect(compiler.compileQuerySpec({
+    expect(compile({
       filters: [{ field: 'kind', op: 'eq', value: 'turn' }],
     }).sourceView).toBe('turns')
-    expect(compiler.compileQuerySpec({
+    expect(compile({
       filters: [{ field: 'kind', op: 'eq', value: 'tool_call' }],
       aggregates: [{ fn: 'p95', field: 'duration_ms' }],
     }).sourceView).toBe('events')
-    expect(compiler.compileQuerySpec({}).sourceView).toBeUndefined()
+    expect(compile({}).sourceView).toBeUndefined()
   })
 })
 

@@ -115,9 +115,8 @@ describe('starting a chat', () => {
 
   beforeAll(() => {
     const shares = {
-      claimOwner: async (resource: Resource, _principal: Principal, options: { shareWithOrganization?: boolean } = {}) => {
-        shareCalls.push(`claim ${resource.id}${options.shareWithOrganization === false ? ' private' : ''}`)
-        return null
+      claimSession: async (sessionId: string, _principal: Principal, options: { shareWithOrganization?: boolean } = {}) => {
+        shareCalls.push(`claim ${sessionId}${options.shareWithOrganization === false ? ' private' : ''}`)
       },
       shareWithOrganization: async (resource: Resource) => {
         shareCalls.push(`share ${resource.id}`)

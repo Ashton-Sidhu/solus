@@ -5,7 +5,7 @@ import type { DesktopUpdateStatus } from '@solus/contracts/desktop-update-types'
 import type { ClientNotificationRequest, NotificationSoundLog } from '@solus/contracts/notification-types'
 import type { AccountSettingsPatchRequest, OrganizationSettingsPatchRequest } from '@solus/contracts/settings'
 import type { AccountAgentProfilePatchRequest } from '@solus/contracts/agent-profile'
-import type { ProfileConnectKeyRequest, ProfileConnectStartRequest, ProfileDisconnectRequest } from '@solus/contracts/integrations/profile-credentials'
+import type { VaultSaveKeyRequest, VaultConnectRequest, VaultDisconnectRequest } from '@solus/contracts/vault'
 
 const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
 
@@ -101,10 +101,10 @@ const nativeApi: NativeSolusAPI = {
   accountAgentProfileGet: () => ipcRenderer.invoke('solus:account-agent-profile-get'),
   accountAgentProfilePatch: (request: AccountAgentProfilePatchRequest) => ipcRenderer.invoke('solus:account-agent-profile-patch', request),
   accountAgentProfileDelete: () => ipcRenderer.invoke('solus:account-agent-profile-delete'),
-  accountAgentProfileConnections: () => ipcRenderer.invoke('solus:account-agent-profile-connections'),
-  accountAgentProfileConnectStart: (request: ProfileConnectStartRequest) => ipcRenderer.invoke('solus:account-agent-profile-connect-start', request),
-  accountAgentProfileConnectKey: (request: ProfileConnectKeyRequest) => ipcRenderer.invoke('solus:account-agent-profile-connect-key', request),
-  accountAgentProfileDisconnect: (request: ProfileDisconnectRequest) => ipcRenderer.invoke('solus:account-agent-profile-disconnect', request),
+  accountVault: () => ipcRenderer.invoke('solus:account-vault'),
+  accountVaultConnect: (request: VaultConnectRequest) => ipcRenderer.invoke('solus:account-vault-connect', request),
+  accountVaultSaveKey: (request: VaultSaveKeyRequest) => ipcRenderer.invoke('solus:account-vault-save-key', request),
+  accountVaultDisconnect: (request: VaultDisconnectRequest) => ipcRenderer.invoke('solus:account-vault-disconnect', request),
   organizationSettingsGet: (organizationId: string) => ipcRenderer.invoke('solus:organization-settings-get', organizationId),
   organizationSettingsPatch: (organizationId: string, request: OrganizationSettingsPatchRequest) =>
     ipcRenderer.invoke('solus:organization-settings-patch', organizationId, request),

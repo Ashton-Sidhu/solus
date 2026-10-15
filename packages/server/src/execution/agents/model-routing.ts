@@ -14,7 +14,7 @@ export interface ModelRoute {
 
 /** One Choice is enough: general covers prompts that do not fit a specialist. */
 export async function classifyModelPrompt(prompt: string, signal: AbortSignal): Promise<RoutingCategory> {
-  const result = await getTypeSafe().systemOne({
+  const result = await (await getTypeSafe()).systemOne({
     model: 'jev-latest',
     state: { prompt: prompt.slice(0, 30_000) },
     questions: {

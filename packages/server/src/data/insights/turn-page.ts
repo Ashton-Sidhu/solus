@@ -12,6 +12,7 @@ import type {
 import { TURN_VOLUME_BUCKET_COUNT } from '@solus/contracts/observability-types'
 import { getReadOnlyMetricsDb } from './metrics-db'
 import { runCompiledSql } from './sql-guard'
+import type { InsightFilter } from './visibility'
 
 const MAX_PAGE_SIZE = 100
 
@@ -114,9 +115,10 @@ function normalizedRequest(input: MetricsTurnPageRequest): MetricsTurnPageReques
   return { ...request, pageSize: Math.min(request.pageSize, MAX_PAGE_SIZE) }
 }
 
-function whereClause(request: MetricsTurnFilter, includeStatus: boolean, includeHost = true): WhereClause {
-  const conditions = ['started_at >= ?', 'started_at < ?']
-  const params: Array<string | number> = [request.timeRange.from, request.timeRange.to]
+/** The filter's conditions, inside what the reader may see (`visibleInsights`). */
+function whereClause(request: MetricsTurnFilter, visible: InsightFilter, includeStatus: boolean, includeHost = true): WhereClause {
+  const conditions = [`(${visible.sql})`, 'started_at >= ?', 'started_at < ?']
+  const params: Array<string | number> = [...visible.params, request.timeRange.from, request.timeRange.to]
   if (includeHost && request.hostId === null) conditions.push('host_id IS NULL')
   if (includeHost && request.hostId) {
     conditions.push('host_id = ?')
@@ -259,9 +261,9 @@ function hosts(where: WhereClause): MetricsTurnHost[] {
 
 /** One bounded table page. It counts only to keep the page index in range;
  *  the aggregates are `turnListingSummary`'s, because paging does not change them. */
-export function turnPage(input: MetricsTurnPageRequest): MetricsTurnPageResult {
+export function turnPage(input: MetricsTurnPageRequest, visible: InsightFilter): MetricsTurnPageResult {
   const request = normalizedRequest(input)
-  const where = whereClause(request, true)
+  const where = whereClause(request, visible, true)
   const lastPage = Math.max(0, Math.ceil(countRows(where) / request.pageSize) - 1)
   const pageIndex = Math.min(request.pageIndex, lastPage)
   const sortSql = SORT_SQL[request.sort.field]
@@ -278,14 +280,14 @@ export function turnPage(input: MetricsTurnPageRequest): MetricsTurnPageResult {
 
 /** The aggregates over every turn the filter matches. The host choices
  *  ignore the host filter, so choosing one host still offers the others. */
-export function turnListingSummary(input: MetricsTurnFilter): Omit<MetricsTurnListingSummary, 'pull'> {
+export function turnListingSummary(input: MetricsTurnFilter, visible: InsightFilter): Omit<MetricsTurnListingSummary, 'pull'> {
   const filter = normalizedFilter(input)
-  const filteredWhere = whereClause(filter, true)
+  const filteredWhere = whereClause(filter, visible, true)
   return {
     totalRows: countRows(filteredWhere),
-    statusCounts: statusCounts(whereClause(filter, false)),
+    statusCounts: statusCounts(whereClause(filter, visible, false)),
     stats: stats(filteredWhere),
     volume: volume(filteredWhere, filter.timeRange.from, filter.timeRange.to),
-    hosts: hosts(whereClause(filter, false, false)),
+    hosts: hosts(whereClause(filter, visible, false, false)),
   }
 }

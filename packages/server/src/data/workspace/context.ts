@@ -1,11 +1,12 @@
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
-import type { ShareResource, ResourceRole } from '@solus/contracts/sharing'
+import type { ResourceVerb } from '@solus/contracts/permissions'
 import type { SolusApiScope } from '@solus/contracts/solus-api'
 import { recordScopeOf, organizationForNew, type RecordScope } from '../../admission/principal'
 import type { WorkspaceRequestContext } from '../../admission/workspace-credentials'
 import { SolusApiError } from '../../admission/workspace-error'
-import { ShareAccessError, type ShareManager } from '../../sharing/share-manager'
+import { authorize, type ResourceAccess } from '../../admission/access-policy'
+import type { AccessResource } from '../../admission/access'
 import { getDatabase } from '../../db/database'
 import { scopeClause } from '../scope'
 import { workspaceProjects } from '../../projects/schema'
@@ -20,12 +21,14 @@ export function apiOrganization(context: WorkspaceRequestContext): string {
 export function requireScope(context: WorkspaceRequestContext, scope: SolusApiScope): void {
   if (!context.scopes.includes(scope)) throw new SolusApiError(403, 'FORBIDDEN', 'This credential does not permit that operation.')
 }
-export async function requireResource(shares: ShareManager, context: WorkspaceRequestContext, resource: ShareResource, role: ResourceRole): Promise<void> {
-  try { await shares.assertRole(context.principal, resource, role) }
-  catch (error) {
-    if (error instanceof ShareAccessError) throw new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
-    throw error
-  }
+/**
+ * The Solus API's door to `authorize` (docs/plans/access-model.md §2.4), the
+ * same decision the RPC gate makes. A refusal is a resource that does not
+ * exist for this caller.
+ */
+export async function requireResource(resources: ResourceAccess, context: WorkspaceRequestContext, resource: AccessResource, verb: ResourceVerb): Promise<void> {
+  const refusal = await authorize(context.principal, verb, resource, { name: `${resource.kind}.${verb}`, resources })
+  if (refusal) throw new SolusApiError(404, 'NOT_FOUND', 'Resource not found.')
 }
 export async function projectKeyForId(context: WorkspaceRequestContext, projectId: string | null | undefined): Promise<string | null> {
   if (!projectId) return null

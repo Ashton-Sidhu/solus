@@ -256,12 +256,12 @@ describe('the real sequence: a phone keeps the account reads alive after the des
     desktop.signedOut()
     expect(plane.delegations.holders()).toEqual([])
     const reads = new AccountReads({ origin: () => ORIGIN, delegations: () => plane.delegations, fetchImpl: plane.fetchImpl })
-    expect(await reads.fetch('alice', null, '/v1/integrations/planetscale/credential', { method: 'POST' })).toMatchObject({ refused: 'NO_DELEGATION' })
+    expect(await reads.fetch('alice', null, '/v1/vault/read', { method: 'POST' })).toMatchObject({ refused: 'NO_DELEGATION' })
 
     // The phone's next presentation makes it again, from the phone's grant.
     await waitFor(() => plane.delegations.has('alice', 'personal'))
     expect(plane.exchanged).toEqual([desktopToken, phoneTokens[1]])
-    expect(await reads.fetch('alice', null, '/v1/integrations/planetscale/credential', { method: 'POST' })).toBeInstanceOf(Response)
+    expect(await reads.fetch('alice', null, '/v1/vault/read', { method: 'POST' })).toBeInstanceOf(Response)
     expect(plane.reads.at(-1)).toMatch(/^Bearer delegated-grant_phone-/)
   })
 })

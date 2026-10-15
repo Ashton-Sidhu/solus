@@ -265,7 +265,7 @@ describe('connection and access', () => {
     await host.answer(version(1))
     opened.draft.setDirty(true)
     connections.emit('machine', 'share.changed', {
-      resource: { kind: 'work', id: 'doc' }, ownerUserId: 'owner', changedBy: { id: { kind: 'account', accountId: 'owner' }, displayName: 'Owner' }, removedUserIds: ['me'],
+      resource: { kind: 'work', id: 'doc' }, changedBy: { id: { kind: 'account', accountId: 'owner' }, displayName: 'Owner' }, removedUserIds: ['me'],
     })
     await host.answer(new WorkspaceRequestError(403, 'FORBIDDEN', 'no'))
     expect(opened.work.status).toBe('unavailable')

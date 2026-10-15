@@ -29,11 +29,11 @@ export default cloudScenario('share matrix: rows decide, owner, guest, and a lin
   await checkWorkListing(ctx, 'alice', work.id, true)
 
   ctx.step('alice sets rows: organization = viewer, team A = editor')
-  const list = await alice.rpc('shareSet', { resource, grants: [
+  const list = await alice.rpc('shareSet', { resource, entries: [
     { subject: { kind: 'organization', id: ORGANIZATION_ID }, role: 'viewer' },
     { subject: { kind: 'team', id: TEAM_A }, role: 'editor' },
   ] })
-  ctx.check('the list has both rows and alice stays owner', list.grants.length === 2 && list.callerRole === 'owner')
+  ctx.check('the list has both rows and alice stays owner', list.entries.length === 2 && list.callerRole === 'owner')
   const bobChanged = await expectOk(ctx, 'bob receives share.changed', bob.waitForEvent('share.changed', (event) => event.payload.resource.id === work.id))
   ctx.check('the change names alice', bobChanged?.payload.changedBy?.displayName === 'Alice', bobChanged?.payload.changedBy?.displayName)
 
@@ -59,7 +59,7 @@ export default cloudScenario('share matrix: rows decide, owner, guest, and a lin
   ctx.check('dan is a viewer', danList?.callerRole === 'viewer', danList?.callerRole)
 
   ctx.step('alice widens to the organization as editors, the scope the dialog offers')
-  await alice.rpc('shareSet', { resource, grants: [{ subject: { kind: 'organization', id: ORGANIZATION_ID }, role: 'editor' }] })
+  await alice.rpc('shareSet', { resource, entries: [{ subject: { kind: 'organization', id: ORGANIZATION_ID }, role: 'editor' }] })
   await expectOk(ctx, 'bob saves now', bob.records.saveWork(work.id, { content: '# Plan\n\nBob was here.' }, (await bob.records.loadWork(work.id))!))
 
   const maya = await guestStep(ctx, resource, alice)
@@ -69,7 +69,7 @@ export default cloudScenario('share matrix: rows decide, owner, guest, and a lin
   ctx.step('owner: alice transfers to bob; bob becomes owner, alice keeps only what the rows give her')
   const bobUserId = PERSONAS.bob.kind === 'org-member' ? PERSONAS.bob.userId : ''
   const transferred = await alice.rpc('shareTransfer', { resource, toUserId: bobUserId })
-  ctx.check('bob is the owner now', transferred.ownerUserId === bobUserId)
+  ctx.check('bob is the owner now', transferred.ownerKey === bobUserId)
   const bobNow = await bob.rpc('shareGet', { resource })
   ctx.check('bob reads himself as owner', bobNow.callerRole === 'owner', bobNow.callerRole)
   const aliceNow = await alice.rpc('shareGet', { resource })

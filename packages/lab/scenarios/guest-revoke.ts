@@ -15,7 +15,7 @@ export default cloudScenario('guest revoke: regenerate and remove the link; remo
   ctx.step('alice shares a work by link and to bob')
   const work = await alice.records.createWork('Notes', 'doc', 'hello', 'hello', undefined, 'claude-code', ctx.cwd)
   const resource = { kind: 'work', id: work.id } as const
-  await alice.rpc('shareSet', { resource, grants: [{ subject: { kind: 'user', id: bobUserId }, role: 'editor' }] })
+  await alice.rpc('shareSet', { resource, entries: [{ subject: { kind: 'user', id: bobUserId }, role: 'editor' }] })
   const link = (await alice.rpc('shareSetLink', { resource, role: 'editor' }))!
   const maya = ctx.client('maya', { shareSecret: link.secret })
   ctx.check('maya joins as an editor', (await maya.connect()).ok)
@@ -60,7 +60,7 @@ export default cloudScenario('guest revoke: regenerate and remove the link; remo
 
   ctx.step('removing bob\'s named row keeps his socket but takes the work from him')
   await expectOk(ctx, 'bob edits while named', bob.records.saveWork(work.id, { content: 'bob was here' }, (await bob.records.loadWork(work.id))!))
-  await alice.rpc('shareSet', { resource, grants: [] })
+  await alice.rpc('shareSet', { resource, entries: [] })
   const notice = await expectOk(ctx, 'bob receives the change that removed his row', bob.waitForEvent('share.changed', (event) => event.payload.resource.id === work.id && event.payload.removedUserIds.includes(bobUserId)))
   ctx.check('the notice names alice', notice?.payload.changedBy?.displayName === 'Alice')
   ctx.check('bob\'s socket stays open', bob.connected)

@@ -10,40 +10,37 @@ import type { IntegrationStore } from './integration-store'
 /**
  * The integration records as the agent profile writes them
  * (plans/020-agent-profile.md §2): a person's MCP servers become their own
- * personal records on a shared host, or the host's own on a host they own.
+ * records on every host (docs/plans/access-model.md, D3).
  * Every write tells the gateway and the clients, as the handlers do, so a
  * profile copy and a Settings edit leave the host in one state.
  */
 export function profileIntegrations(deps: {
   store: IntegrationStore
-  gateway: Pick<IntegrationGateway, 'warm' | 'invalidate'>
+  gateway: Pick<IntegrationGateway, 'invalidate'>
   connections: Pick<IntegrationConnections, 'removeAllFor'>
   events: Pick<HostEventPublisher, 'broadcast'>
 }): ProfileIntegrations {
   const { store, gateway, connections, events } = deps
   return {
-    list: (owner: ProfileIntegrationOwner) => store.listOwned(owner.organizationId, owner.ownerUserId),
-    findByUrl: (owner, url) => {
-      const integration = store.findByUrl(url, owner.organizationId, owner.ownerUserId)
-      return integration ? { integration, own: integration.ownerUserId === owner.ownerUserId } : null
-    },
+    list: (owner: ProfileIntegrationOwner) => store.list(owner.organizationId, owner.ownerKey),
+    findByUrl: (owner, url) => store.findByUrl(url, owner.organizationId, owner.ownerKey),
     create: (owner, entry: AgentProfileIntegrationEntry): Integration => {
-      const integration = store.create({ name: entry.name, url: entry.url, slug: entry.slug, auth: entry.auth }, owner.organizationId, owner.ownerUserId, owner.ownerUserId)
+      const integration = store.create({ name: entry.name, url: entry.url, slug: entry.slug, auth: entry.auth }, owner.organizationId, owner.ownerKey)
       void events.broadcast('integration.changed', { integrationId: integration.id, change: 'created' })
-      void gateway.warm(integration.id)
       return integration
     },
     update: (id, entry) => {
       const integration = store.update(id, { name: entry.name, url: entry.url, auth: entry.auth }, organizationOf(id, store))
       if (!integration) return
       gateway.invalidate(id)
-      void gateway.warm(id)
       void events.broadcast('integration.changed', { integrationId: id, change: 'updated' })
     },
     remove: (id) => {
       gateway.invalidate(id)
-      if (!store.remove(id, organizationOf(id, store))) return
-      connections.removeAllFor(id)
+      const integration = store.get(id, ANY_ORGANIZATION)
+      if (!integration) throw new Error('That integration is no longer on this host.')
+      if (!store.remove(id, integration.organizationId)) return
+      connections.removeAllFor(integration)
       void events.broadcast('integration.changed', { integrationId: id, change: 'removed' })
     },
   }

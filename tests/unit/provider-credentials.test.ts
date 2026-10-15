@@ -21,17 +21,16 @@ const { withUserScope } = await import('@solus/server/vault/acting-scope')
 const { installTestIdentities } = await import('./helpers/acting-identities')
 // Members act from homes of their own, as on a booted server (plans/019).
 installTestIdentities()
-const { readProviderCredential, writeProviderCredential, clearProviderCredential } = await import('@solus/server/vault/provider-credentials')
+const { credentialLocationOf, vault } = await import('@solus/server/vault/vault')
+const GITHUB = { kind: 'provider', provider: 'github' } as const
+const GOOGLE = { kind: 'provider', provider: 'google' } as const
+const { useHostUser } = await import('@solus/server/host/host-user')
 const { AccountReads, useAccountReads } = await import('@solus/server/vault/account-reads')
 type DelegationScope = import('@solus/server/sync/delegations').DelegationScope
-const { actorFor, credentialUserFor } = await import('@solus/server/admission/actor')
-const { userKey } = await import('@solus/contracts/user')
+const { actorFor, ownerKeyOf } = await import('@solus/server/admission/actor')
 type Principal = import('@solus/server/admission/principal').Principal
-/** The credential scope `SolusServer.handle()` sets for a caller (plans/012 §4). */
-const credentialKeyFor = (principal: Principal): string | null => {
-  const user = credentialUserFor(actorFor(principal))
-  return user ? userKey(user) : null
-}
+/** The person `SolusServer.handle()` puts in a caller's scope (docs/plans/access-model.md §2.1). */
+const credentialKeyFor = (principal: Principal): string | null => ownerKeyOf(actorFor(principal))
 const { adoptProvisionedRegistration, resetHostCategoryForTests } = await import('@solus/server/host/host-category')
 const { githubCredentialChain } = await import('@solus/server/providers/github/credentials')
 const token = z.object({ accessToken: z.string() })
@@ -84,52 +83,76 @@ describe('account integration identity', () => {
     expect(calls).toEqual([])
     const withCarol = linkAccount(() => Response.json({ accessToken: 'carol-only', scope: 'repo', login: 'carol' }), ['carol'])
     expect(await withUserScope('carol', () => githubCredentialChain('github.com'))).toEqual([{ source: 'account', token: 'carol-only' }])
-    expect(withCarol).toEqual([{ path: '/v1/integrations/github/credential', authorization: 'Bearer delegated-carol', body: null }])
+    expect(withCarol).toEqual([{ path: '/v1/vault/read', authorization: 'Bearer delegated-carol', body: JSON.stringify({ ref: GITHUB }) }])
     // Another person's call does not borrow it.
     await expect(withUserScope('dave', () => githubCredentialChain('github.com'))).rejects.toThrow('Reconnect')
     expect(withCarol).toHaveLength(1)
   })
   test('host-scoped calls keep their host connection', async () => {
-    await withUserScope(null, () => writeProviderCredential('github', { accessToken: 'host-only' }))
-    expect(await withUserScope(null, () => readProviderCredential('github', token))).toEqual({ accessToken: 'host-only' })
+    vault().save(null, GITHUB, { accessToken: 'host-only' })
+    expect(await vault().read(null, GITHUB, token)).toEqual({ accessToken: 'host-only' })
   })
-  test('the owner of a personal host connects on that host, not on the account website', async () => {
-    // Signed in or not, locally or remotely: each host keeps its owner's own
-    // GitHub, Google, and Atlassian connections.
-    const calls = linkAccount(() => Response.json({ accessToken: 'account-copy' }))
-    values.set('google-oauth', JSON.stringify({ accessToken: 'host-only' }))
-    for (const owner of [localOwner, remoteOwner]) {
-      const userId = credentialKeyFor(owner)
-      expect(userId).toBeNull()
-      expect(await withUserScope(userId, () => readProviderCredential('google', token))).toEqual({ accessToken: 'host-only' })
+  test('the owner of a personal host connects on that host until it is linked, and on the account once it is', async () => {
+    // WHY: signed in means the account (docs/plans/cloud-vault.md §2.5): the linked
+    // owner's logins are their account's, so every host of theirs reads the same ones.
+    useHostUser({ localId: 'mac' })
+    try {
+      const calls = linkAccount(() => Response.json({ accessToken: 'account-copy' }))
+      values.set('google-oauth', JSON.stringify({ accessToken: 'host-only' }))
+      expect(credentialKeyFor(localOwner)).toBe('local:mac')
+      expect(credentialLocationOf('local:mac')).toEqual({ kind: 'host' })
+      expect(await vault().read('local:mac', GOOGLE, token)).toEqual({ accessToken: 'host-only' })
+      expect(calls).toEqual([])
+      useHostUser({ localId: 'mac', account: { accountId: 'alice' } })
+      for (const owner of [localOwner, remoteOwner]) {
+        const personKey = credentialKeyFor(owner)
+        expect(personKey).toBe('alice')
+        expect(credentialLocationOf(personKey)).toEqual({ kind: 'account', accountId: 'alice' })
+        expect(await vault().read(personKey, GOOGLE, token)).toEqual({ accessToken: 'account-copy' })
+      }
+      expect(calls.map((call) => call.path)).toEqual(['/v1/vault/read', '/v1/vault/read'])
+    } finally {
+      useHostUser(null)
     }
-    expect(calls).toEqual([])
   })
   test('a cloud-managed host keeps account connections for its remote owner and members', () => {
-    expect(credentialKeyFor({ kind: 'org-member', userId: 'bob', organizationId: 'org', organizationRole: 'member', teamIds: [], hostKind: 'personal', displayName: 'Bob', deviceId: 'd', deviceLabel: 'Web', expiresAt: Date.now() + 60_000 })).toBe('bob')
+    expect(credentialLocationOf(credentialKeyFor({ kind: 'org-member', userId: 'bob', organizationId: 'org', organizationRole: 'member', teamIds: [], hostKind: 'personal', displayName: 'Bob', deviceId: 'd', deviceLabel: 'Web', expiresAt: Date.now() + 60_000 }))).toEqual({ kind: 'account', accountId: 'bob' })
     adoptProvisionedRegistration({ organizationId: 'org' })
-    expect(credentialKeyFor(remoteOwner)).toBe('alice')
-    expect(credentialKeyFor(localOwner)).toBeNull()
+    useHostUser({ localId: 'vm', account: { accountId: 'alice' } })
+    try {
+      // WHY: a managed host is nobody's machine, so even its owner's logins are their account's.
+      expect(credentialLocationOf(credentialKeyFor(remoteOwner))).toEqual({ kind: 'account', accountId: 'alice' })
+    } finally {
+      useHostUser(null)
+    }
+  })
+  test('a guest has no logins at all (docs/plans/access-model.md D1)', async () => {
+    const calls = linkAccount(() => Response.json({ accessToken: 'sharer-copy' }), ['alice', 'bob'])
+    values.set('github-oauth', JSON.stringify({ accessToken: 'host-only' }))
+    expect(credentialLocationOf('guest:maya')).toEqual({ kind: 'none' })
+    expect(await vault().read('guest:maya', GITHUB, token)).toBeNull()
+    expect(() => vault().save('guest:maya', GITHUB, { accessToken: 'x' })).toThrow('account website')
+    expect(calls).toEqual([])
   })
   test('missing account authority never falls back to another local login', async () => {
     values.set('github-oauth', JSON.stringify({ accessToken: 'host-only' }))
     // Unlinked: there is no account plane to ask, and the host's own login is not bob's.
-    await expect(withUserScope('bob', () => readProviderCredential('github', token))).rejects.toThrow('not linked')
+    await expect(vault().read('bob', GITHUB, token)).rejects.toThrow('not linked')
     expect(touches).toEqual([])
   })
   test('an account-scoped call never writes or clears the host store', async () => {
-    await expect(withUserScope('bob', () => writeProviderCredential('google', { accessToken: 'x' }))).rejects.toThrow('account website')
-    await expect(withUserScope('bob', () => clearProviderCredential('google'))).rejects.toThrow('account website')
+    expect(() => vault().save('bob', GOOGLE, { accessToken: 'x' })).toThrow('account website')
+    expect(() => vault().remove('bob', GOOGLE)).toThrow('account website')
     expect(touches).toEqual([])
   })
   test('disconnect and outage are checked on the next call without a stale token cache', async () => {
     let status = 200
     const calls = linkAccount(() => Response.json({ accessToken: 'alice' }, { status }))
-    expect(await withUserScope('alice', () => readProviderCredential('github', token))).toEqual({ accessToken: 'alice' })
+    expect(await vault().read('alice', GITHUB, token)).toEqual({ accessToken: 'alice' })
     status = 404
-    expect(await withUserScope('alice', () => readProviderCredential('github', token))).toBeNull()
+    expect(await vault().read('alice', GITHUB, token)).toBeNull()
     status = 503
-    await expect(withUserScope('alice', () => readProviderCredential('github', token))).rejects.toThrow('unavailable')
-    expect(calls.map((call) => call.path)).toEqual(Array(3).fill('/v1/integrations/github/credential'))
+    await expect(vault().read('alice', GITHUB, token)).rejects.toThrow('unavailable')
+    expect(calls.map((call) => call.path)).toEqual(Array(3).fill('/v1/vault/read'))
   })
 })

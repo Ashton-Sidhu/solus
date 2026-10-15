@@ -185,7 +185,12 @@ export class BrowserRegistry {
     return browserPageForCheckout(page, cwd ? this.checkouts?.get(cwd) : undefined)
   }
 
-  open(request: BrowserOpenRequest): BrowserPage {
+  /**
+   * Open a page for one person: the page uses their jar for its whole life
+   * (docs/plans/member-isolation.md §6). `ownerKey` null is the host's own work,
+   * which gets an unsaved jar.
+   */
+  open(request: BrowserOpenRequest, ownerKey: string | null): BrowserPage {
     // A page opens at the size of the pane. A preset is only ever chosen
     // deliberately — by the caller here, or by the user later — and once chosen
     // it stays until somebody chooses again.
@@ -204,6 +209,7 @@ export class BrowserRegistry {
       viewport: preset ? viewportFor(preset, request.orientation ?? 'portrait') : defaultViewport(),
       appearance: request.appearance ?? 'system',
       profileId,
+      ownerKey,
       hostKind: 'none',
       loadState: 'idle',
       canGoBack: false,
@@ -1109,12 +1115,27 @@ export class BrowserRegistry {
     })
   }
 
-  /** The cookie jar one page's guest runs in. */
+  /** The cookie jar one page's guest runs in: its owner's profile in its project. */
   partitionOf(page: BrowserPage): string {
     return browserProfilePartition(
       page.target.kind === 'url' ? page.target.projectRoot : undefined,
       page.profileId,
+      page.ownerKey,
     )
+  }
+
+  /**
+   * Refuse a person who is not the page's owner. A page acts with its owner's
+   * cookies, so driving it, reading it through the guest, or handing it a
+   * surface is the owner's alone; other people watch its frames
+   * (docs/plans/member-isolation.md §6). The host's own page (owner null) is
+   * driven only by the host's own work.
+   */
+  assertDrivableBy(browserPageId: string, personKey: string | null): void {
+    const page = this.records.get(browserPageId)?.page
+    // An unknown page is the verb's own error to report.
+    if (!page || page.ownerKey === personKey) return
+    throw new Error('This browser page is signed in as another person. You can watch it, but only they can use it.')
   }
 
   /** The open pages signed in to one jar. What a profile deletion has to name

@@ -40,34 +40,34 @@ function reads(options: { held?: Array<{ userId: string; scope: DelegationScope 
 describe('reading a person’s account', () => {
   test('the delegated token is the bearer and the body is only what the route reads', async () => {
     const { accountReads, sent } = reads({ held: [{ userId: 'bob', scope: { organizationId: 'org_a' } }] })
-    const response = await accountReads.fetch('bob', null, '/v1/agent-profile/credential', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ serverUrl: 'https://mcp.test' }) })
+    const response = await accountReads.fetch('bob', null, '/v1/vault/read', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ref: { kind: 'mcp', serverUrl: 'https://mcp.test' } }) })
     expect(response).toBeInstanceOf(Response)
-    expect(sent).toEqual([{ url: `${ORIGIN}/v1/agent-profile/credential`, method: 'POST', authorization: 'Bearer delegated-bob', body: '{"serverUrl":"https://mcp.test"}' }])
+    expect(sent).toEqual([{ url: `${ORIGIN}/v1/vault/read`, method: 'POST', authorization: 'Bearer delegated-bob', body: '{"ref":{"kind":"mcp","serverUrl":"https://mcp.test"}}' }])
   })
 
   test('with no scope named, the person’s personal delegation is used first, else one of an organization; a named scope is used as named', async () => {
     const { accountReads, asked } = reads({ held: [{ userId: 'alice', scope: { organizationId: 'org_a' } }, { userId: 'alice', scope: 'personal' }, { userId: 'bob', scope: { organizationId: 'org_b' } }] })
-    await accountReads.fetch('alice', null, '/v1/integrations/github/credential', { method: 'POST' })
-    await accountReads.fetch('bob', null, '/v1/integrations/github/credential', { method: 'POST' })
+    await accountReads.fetch('alice', null, '/v1/vault/read', { method: 'POST' })
+    await accountReads.fetch('bob', null, '/v1/vault/read', { method: 'POST' })
     await accountReads.fetch('alice', { organizationId: 'org_a' }, '/v1/agent-profile/read', { method: 'POST' })
     expect(asked).toEqual([['alice', 'personal'], ['bob', { organizationId: 'org_b' }], ['alice', { organizationId: 'org_a' }]])
   })
 
   test('nothing is sent for a person this host does not act for, on an unlinked host, or when the delegation is refused; each says why', async () => {
     const none = reads()
-    expect(await none.accountReads.fetch('carol', null, '/v1/integrations/github/credential')).toMatchObject({ refused: 'NO_DELEGATION', message: expect.stringContaining('Reconnect') })
+    expect(await none.accountReads.fetch('carol', null, '/v1/vault/read')).toMatchObject({ refused: 'NO_DELEGATION', message: expect.stringContaining('Reconnect') })
     expect(none.sent).toEqual([])
 
     const unlinked = reads({ origin: null, held: [{ userId: 'carol', scope: 'personal' }] })
-    expect(await unlinked.accountReads.fetch('carol', null, '/v1/integrations/github/credential')).toMatchObject({ refused: 'NOT_LINKED' })
+    expect(await unlinked.accountReads.fetch('carol', null, '/v1/vault/read')).toMatchObject({ refused: 'NOT_LINKED' })
     expect(unlinked.sent).toEqual([])
 
     const signedOut = reads({ held: [{ userId: 'carol', scope: 'personal' }], token: async () => { throw new DelegationError('GRANT_REVOKED', 'The sign-in that let this machine act for you has ended. Sign in to Solus again.') } })
-    expect(await signedOut.accountReads.fetch('carol', null, '/v1/integrations/github/credential')).toMatchObject({ refused: 'NO_DELEGATION', message: expect.stringContaining('Sign in') })
+    expect(await signedOut.accountReads.fetch('carol', null, '/v1/vault/read')).toMatchObject({ refused: 'NO_DELEGATION', message: expect.stringContaining('Sign in') })
     expect(signedOut.sent).toEqual([])
 
     const outage = reads({ held: [{ userId: 'carol', scope: 'personal' }], token: async () => { throw new DelegationError('ORGANIZATION_API_UNAVAILABLE', 'Solus is not reachable.') } })
-    expect(await outage.accountReads.fetch('carol', null, '/v1/integrations/github/credential')).toMatchObject({ refused: 'UNREACHABLE' })
+    expect(await outage.accountReads.fetch('carol', null, '/v1/vault/read')).toMatchObject({ refused: 'UNREACHABLE' })
   })
 
   test('the connections page is on the account plane this process reads', () => {
@@ -119,8 +119,8 @@ describe('the Solus API reads a person’s account as a host does', () => {
     expect(delegations.holders()).toEqual([{ userId: 'bob', scope: { organizationId: 'org_a' } }])
 
     const accountReads = new AccountReads({ origin: () => ORIGIN, delegations: () => delegations, fetchImpl })
-    expect(await accountReads.fetch('bob', null, '/v1/integrations/github/credential', { method: 'POST' })).toBeInstanceOf(Response)
-    expect(reads).toEqual([{ url: `${ORIGIN}/v1/integrations/github/credential`, method: 'POST', authorization: 'Bearer bob-account-delegated', body: null }])
+    expect(await accountReads.fetch('bob', null, '/v1/vault/read', { method: 'POST' })).toBeInstanceOf(Response)
+    expect(reads).toEqual([{ url: `${ORIGIN}/v1/vault/read`, method: 'POST', authorization: 'Bearer bob-account-delegated', body: null }])
     expect(await delegations.accessToken('bob', { organizationId: 'org_a' }, { kind: 'account' })).toBe('bob-account-delegated')
     delegations.clear()
   })

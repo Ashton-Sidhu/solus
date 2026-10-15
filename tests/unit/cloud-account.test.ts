@@ -33,21 +33,26 @@ function fakeSession(token: string | null = 'account-token') {
 const signedInAccount = (origin: string, fetchImpl: typeof fetch) => oauthCloudAccount(origin, fakeSession().session, fetchImpl)
 
 describe('the cloud account source', () => {
-  test('cloud agent status reads the account database endpoint, never an execution host', async () => {
-    const seats = [
-      { provider: 'claude-code', connected: true, updatedAt: '2026-10-02T18:34:43.873Z' },
-      { provider: 'codex', connected: false, updatedAt: null },
+  test('cloud agent status reads the seat refs of the account vault, never an execution host', async () => {
+    const connections = [
+      { ref: { kind: 'seat', provider: 'claude-code' }, material: 'cli-login', status: 'connected', label: null, updatedAt: 5 },
+      { ref: { kind: 'seat', provider: 'codex' }, material: 'cli-login', status: 'needs-sign-in', label: null, updatedAt: 6 },
+      { ref: { kind: 'typesafe' }, material: 'key', status: 'connected', label: null, updatedAt: 7 },
     ]
     const good = recordingFetch((_url, init) => {
       // The website's cookie is not the credential: an account-plane access token is.
       expect(init.credentials).toBe('omit')
       expect(new Headers(init.headers).get('authorization')).toBe('Bearer account-token')
       expect(init.cache).toBe('no-store')
-      return Response.json({ seats })
+      return Response.json({ connections })
     })
-    expect(await signedInAccount(ORIGIN, good.fetchImpl).readAgentSeats()).toEqual(seats)
-    expect(good.calls).toEqual([{ url: `${ORIGIN}/v1/account/agent-seats`, method: 'GET', body: null }])
-    for (const response of [Response.json({ seats: [{ provider: 'claude-code', connected: 'yes' }] }), new Response(null, { status: 503 })]) {
+    // WHY: a seat whose CLI was signed out is in the vault but cannot run anything.
+    expect(await signedInAccount(ORIGIN, good.fetchImpl).readAgentSeats()).toEqual([
+      { provider: 'claude-code', connected: true, updatedAt: 5 },
+      { provider: 'codex', connected: false, updatedAt: 6 },
+    ])
+    expect(good.calls).toEqual([{ url: `${ORIGIN}/v1/account/vault`, method: 'GET', body: null }])
+    for (const response of [Response.json({ connections: [{ ref: { kind: 'seat', provider: 'claude-code' }, status: 'yes' }] }), new Response(null, { status: 503 })]) {
       expect(await signedInAccount(ORIGIN, recordingFetch(() => response).fetchImpl).readAgentSeats()).toBeNull()
     }
   })

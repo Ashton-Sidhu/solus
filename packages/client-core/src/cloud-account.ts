@@ -7,8 +7,8 @@ import {
   type HostShareRequest,
   type ManagedHostSpecRequest,
 } from '@solus/contracts/uplink'
-import { seatProviderSchema } from '@solus/contracts/seats'
-import { z } from 'zod'
+import type { SeatProvider } from '@solus/contracts/seats'
+import { ACCOUNT_VAULT_PATH, vaultConnectionListSchema } from '@solus/contracts/vault'
 import type { OAuthSession } from './oauth-session'
 
 /**
@@ -26,7 +26,7 @@ export interface CloudAccount {
   readonly session: CloudAccountSession
   /** Null when signed out or the account origin could not be reached. */
   readAccount(): Promise<AccountResponse | null>
-  /** Account logins stored in the cloud vault; null means the check failed. */
+  /** The agent seat logins (`seat:*` refs) in the account vault; null means the check failed. */
   readAgentSeats(): Promise<CloudAgentSeat[] | null>
   /**
    * Ends this client grant (revocation), then the website's cookie session: on the
@@ -61,14 +61,12 @@ export type CreateManagedHostOutcome =
   | { ok: true; hostId: string }
   | { ok: false; code: string | null; message: string | null }
 
-const agentSeatsResponseSchema = z.object({
-  seats: z.array(z.object({
-    provider: seatProviderSchema,
-    connected: z.boolean(),
-    updatedAt: z.string().nullable(),
-  })),
-})
-export type CloudAgentSeat = z.infer<typeof agentSeatsResponseSchema>['seats'][number]
+/** One agent seat login in the account vault. A seat whose CLI was signed out is not connected. */
+export interface CloudAgentSeat {
+  provider: SeatProvider
+  connected: boolean
+  updatedAt: number
+}
 
 export function oauthCloudAccount(origin: string, session: CloudAccountSession, fetchImpl: typeof fetch = fetch): CloudAccount {
   const call = async (path: string, init: RequestInit = {}): Promise<Response | null> => {
@@ -98,10 +96,13 @@ export function oauthCloudAccount(origin: string, session: CloudAccountSession, 
       return parsed.success ? parsed.data : null
     },
     async readAgentSeats() {
-      const response = await call('/v1/account/agent-seats', { cache: 'no-store' })
+      const response = await call(ACCOUNT_VAULT_PATH, { cache: 'no-store' })
       if (!response?.ok) return null
-      const parsed = agentSeatsResponseSchema.safeParse(await response.json().catch(() => null))
-      return parsed.success ? parsed.data.seats : null
+      const parsed = vaultConnectionListSchema.safeParse(await response.json().catch(() => null))
+      if (!parsed.success) return null
+      return parsed.data.connections.flatMap((connection) => connection.ref.kind === 'seat'
+        ? [{ provider: connection.ref.provider, connected: connection.status === 'connected', updatedAt: connection.updatedAt }]
+        : [])
     },
     async signOut() {
       await session.signOut()

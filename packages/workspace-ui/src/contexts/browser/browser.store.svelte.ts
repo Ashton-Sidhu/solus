@@ -36,6 +36,7 @@ import type { BrowserFrameListener } from '@solus/client-core/browser-frame-subs
 import { hostKey, splitHostKey } from '@solus/client-core/host-key'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { hosts } from '../hosts/hosts.svelte'
 
 /**
  * The renderer's mirror of the server-owned browser registry.
@@ -159,6 +160,7 @@ export class BrowserStore {
       }),
       // Whole set rather than a delta: two mounted clients offering different
       // identities for one project is the failure this prevents.
+      // The host sends it only to the profiles' owner.
       subscribeAllHosts('browser.profilesChanged', (serverId, { profiles }) => {
         this.adopt(serverId, profiles)
       }),
@@ -333,14 +335,21 @@ export class BrowserStore {
     return serverConnections.apiFor(serverId).browserReportSurface(path, report)
   }
 
-  /** Forget the persistent login this project's browser pages share. The way
+  /** Forget the caller's persistent login in one profile of a project. The way
    *  out of the profile that survives restarts.
    *
-   *  Addressed by host rather than by page: a profile belongs to a project, not
-   *  to whichever page happens to be open, and the project panel offers this
-   *  with no browser page open at all. */
-  clearProfile(serverId: string, partition: string): Promise<void> {
-    return serverConnections.apiFor(serverId).browserClearProfile(partition)
+   *  Addressed by project and profile rather than by page: a profile belongs to
+   *  a person in a project, not to whichever page happens to be open. The host
+   *  takes the person from the connection, so this clears only the caller's jar. */
+  clearProfile(serverId: string, projectRoot: string | undefined, profileId: string): Promise<void> {
+    return serverConnections.apiFor(serverId).browserClearProfile(projectRoot, profileId)
+  }
+
+  /** Who this client is on its own desktop host: the person whose pages it may
+   *  host natively. Undefined until the host says, and on web and mobile. */
+  get devicePersonKey(): string | undefined {
+    const info = hosts.device?.serverInfo
+    return info?.state === 'ready' ? info.value.userId : undefined
   }
 
   /** A project's named browser identities, mirrored per host: the same

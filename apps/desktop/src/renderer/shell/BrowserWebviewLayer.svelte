@@ -48,7 +48,8 @@
           canHostNatively,
           entry.serverId,
           serverConnections.localServerId(),
-          entry.page.target.kind,
+          entry.page,
+          browserStore.devicePersonKey,
         )
           ? [key]
           : [];
@@ -69,7 +70,8 @@
           canHostNatively,
           entry.serverId,
           serverConnections.localServerId(),
-          entry.page.target.kind,
+          entry.page,
+          browserStore.devicePersonKey,
         )
       );
     }),
@@ -132,6 +134,7 @@
                 ? entry.page.target.projectRoot
                 : undefined,
               entry.page.profileId,
+              entry.page.ownerKey,
             )}
             class="absolute top-0 left-0 flex origin-top-left"
             style:width="{entry.page.viewport.width}px"

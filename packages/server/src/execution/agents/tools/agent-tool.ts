@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { isSolusToolEnabled } from '@solus/contracts/agent-tools'
-import { typeSafeApiKey } from '../../../typesafe/credentials'
 import { getHostConfig } from '../../../host/settings'
 import type { AgentId, NormalizedEvent } from '@solus/contracts/types'
 import { downscalePng } from './bounded-png'
@@ -87,9 +86,6 @@ export async function executeAgentTool<Input>(
   input: Input,
   context: AgentToolContext,
 ): Promise<AgentToolResult> {
-  if (agentTool.name === 'ask_jev' && !typeSafeApiKey()) {
-    return { ok: false, text: 'Ask Jev is disabled. Add a TypeSafe API key in Settings → Tools on this host.' }
-  }
   if (!isSolusToolEnabled(agentTool.name, getHostConfig().config.solusTools)) {
     return { ok: false, text: `${agentTool.name} is disabled in Settings → Tools on this host.` }
   }
@@ -103,5 +99,5 @@ export async function executeAgentTool<Input>(
 /** Apply host choices when a provider builds its tool catalog. Execution rechecks them. */
 export function enabledAgentTools(tools: AgentTool[]): AgentTool[] {
   const { solusTools } = getHostConfig().config
-  return tools.filter((tool) => (tool.name !== 'ask_jev' || !!typeSafeApiKey()) && isSolusToolEnabled(tool.name, solusTools))
+  return tools.filter((tool) => isSolusToolEnabled(tool.name, solusTools))
 }

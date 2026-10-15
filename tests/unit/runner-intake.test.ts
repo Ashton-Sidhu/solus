@@ -92,7 +92,7 @@ describe('runner intake', () => {
     expect(await shares.roleFor(colleague, { kind: 'work', id: 'work-a' })).toBe('editor')
     expect(await shares.roleFor({ ...colleague, organizationId: 'org2' }, { kind: 'task', id: 'task-a' })).toBe('none')
     // Owned by the person whose delegated token delivered it: a runner always acts for one.
-    expect(await shares.ownerOf({ kind: 'task', id: 'task-a' })).toBe('alice')
+    expect((await shares.homeOf({ kind: 'task', id: 'task-a' }))?.ownerKey).toBe('alice')
 
     // The runner lost the ack and sends the same batch again.
     expect(await intake.applyRunnerOutbox(runner(), batch, shares)).toEqual({ lastSeq: 3, failed: [] })
@@ -179,7 +179,7 @@ describe('runner intake', () => {
     const links = (await task.details()).links.filter((link) => link.targetKey === work.id)
     expect(links).toHaveLength(1)
     expect(links[0]).toMatchObject({ kind: 'work', title: 'Published', originSessionId: 'thread-1' })
-    expect(await shares.ownerOf({ kind: 'work', id: work.id })).toBe('alice')
+    expect((await shares.homeOf({ kind: 'work', id: work.id }))?.ownerKey).toBe('alice')
   })
 
 })

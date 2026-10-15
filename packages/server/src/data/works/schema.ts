@@ -37,6 +37,8 @@ export const works = defineTable('works', {
   /** `WorkLocation` JSON: where a shared work is now (cloud-sharing.md §3a).
    * Null while the work is on this host; a row with a location has no body. */
   location: json(),
+  /** The person the work belongs to (docs/plans/access-model.md §2.2): its creator, never empty. */
+  owner_key: text({ notNull: true }),
 }, {
   indexes: [
     { name: 'works_api_page', columns: ['organization_id', 'created_at', 'id'], descending: ['created_at', 'id'] },

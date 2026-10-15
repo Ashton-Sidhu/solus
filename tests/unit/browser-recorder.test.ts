@@ -158,7 +158,7 @@ afterEach(() => {
 describe('browser recorder', () => {
   test('a stop requested during encoder startup waits and saves that recording', async () => {
     const { registry, recorder, stored } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     const starting = recorder.start(page.browserPageId, 'user')
     const stopping = recorder.stop(page.browserPageId)
@@ -170,7 +170,7 @@ describe('browser recorder', () => {
 
   test('an encoder failure releases the page so recording can be retried', async () => {
     const { registry, recorder, encoders } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     await recorder.start(page.browserPageId, 'user')
     encoders[0]!.finish = async () => { throw new Error('encoder failed') }
@@ -188,7 +188,7 @@ describe('browser recorder', () => {
         if (page.recording === null) collected.push(recorder.stop(page.browserPageId))
       },
     })
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     await recorder.start(page.browserPageId, 'user')
     limits[0]!.run()
@@ -201,7 +201,7 @@ describe('browser recorder', () => {
   test('stop remains available and a new start waits until storage completes', async () => {
     const storage = Promise.withResolvers<void>()
     const { registry, recorder, encoders } = harness({ onStored: () => storage.promise })
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     await recorder.start(page.browserPageId, 'user')
     const stopped = recorder.stop(page.browserPageId)
@@ -221,7 +221,7 @@ describe('browser recorder', () => {
     // WHY: five minutes of someone's work must not be discarded because it
     // reached the limit. The file is kept and marked, so the caller can tell.
     const { registry, recorder, driver, encoders, limits, published, advance } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     await recorder.start(page.browserPageId, 'user')
     expect(limits[0]?.ms).toBe(5 * 60 * 1000)
@@ -243,7 +243,7 @@ describe('browser recorder', () => {
 
   test('the size limit stops and saves before the file is too large to upload', async () => {
     const { registry, recorder, driver, encoders } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     await recorder.start(page.browserPageId, 'agent')
 
@@ -261,7 +261,7 @@ describe('browser recorder', () => {
     // WHY: the user closing the pane moves the page to another host. The
     // recording is of the page, not of the guest that happened to render it.
     const { registry, recorder, driver, otherDriver, encoders, stored } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     await recorder.start(page.browserPageId, 'user')
     driver.emitFrame(new Uint8Array([1]))
@@ -281,7 +281,7 @@ describe('browser recorder', () => {
 
   test('the last client leaving does not stop a recording, and stopping it ends the stream', async () => {
     const { registry, recorder, driver, encoders } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     await registry.subscribeFrames(page.browserPageId, 'phone')
     expect(driver.screencasts.at(-1)?.quality).toBe(75)
@@ -303,7 +303,7 @@ describe('browser recorder', () => {
 
   test('a client still watching goes back to viewer caps when the recording stops', async () => {
     const { registry, recorder, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     await registry.subscribeFrames(page.browserPageId, 'phone')
     await recorder.start(page.browserPageId, 'user')
@@ -316,7 +316,7 @@ describe('browser recorder', () => {
 
   test('a host that cannot stream to clients can still record', async () => {
     const { registry, recorder, driver, encoders } = harness({ frames: false })
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     await recorder.start(page.browserPageId, 'agent')
     driver.emitFrame(new Uint8Array([9]))
@@ -330,7 +330,7 @@ describe('browser recorder', () => {
     // WHY: the user and an agent can both press record. A second recording
     // would need a second stream, which Chromium refuses.
     const { registry, recorder, encoders, published } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     const [first, second] = await Promise.all([
       recorder.start(page.browserPageId, 'user'),
@@ -347,7 +347,7 @@ describe('browser recorder', () => {
 
   test('closing the page stops and saves its recording', async () => {
     const { registry, recorder, driver, encoders } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     await recorder.start(page.browserPageId, 'agent')
     driver.emitFrame(new Uint8Array([4]))
@@ -364,7 +364,7 @@ describe('browser recorder', () => {
 
   test('the input overlay is shown while recording and removed on stop', async () => {
     const { registry, recorder, driver } = harness()
-    const page = registry.open({ target: TARGET })
+    const page = registry.open({ target: TARGET }, 'local:owner')
     await registry.attachSurface(page.browserPageId, 1)
     await recorder.start(page.browserPageId, 'user')
     await settle()

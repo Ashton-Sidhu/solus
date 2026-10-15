@@ -2,10 +2,10 @@ import { installWorkspaceToolOperations, type RemoteToolOperations } from './dat
 import { solusApiSettings } from './host/solus-api-settings'
 import { createWorkspaceOperations } from './data/workspace/service'
 import { AccountReads, useAccountReads } from './vault/account-reads'
+import { useVault, Vault } from './vault/vault'
 import { ANY_ORGANIZATION, principalFor, recordScopeOf, scopeAdmits } from './admission/principal'
 import type { ShareResource } from '@solus/contracts/sharing'
 import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
-import { userKey } from '@solus/contracts/user'
 import { workOrganizationId } from './data/works/works'
 import { taskOrganizationId } from './data/tasks/task-store'
 import { transcriptDestination } from './sync/mirror/transcript-mirror'
@@ -57,19 +57,19 @@ import { registerIntegrationHandlers } from './transport/handlers/integration-ha
 import { IntegrationStore } from './integrations/integration-store'
 import { IntegrationCatalog } from './integrations/catalog'
 import { IntegrationGateway } from './integrations/gateway'
-import { hostIntegrationSecrets, IntegrationConnectionStore } from './integrations/connection-store'
+import { hostIntegrationClients, IntegrationConnectionStore } from './integrations/connection-store'
 import { IntegrationConnections } from './integrations/connections'
 import { IntegrationOAuth, type IntegrationConnectionEvents } from './integrations/oauth'
 import { setIntegrationGateway } from './integrations/integration-tools'
 import { AgentProfileManager, hostProfileHomes, type AgentProfileTarget } from './execution/seats/agent-profile'
 import { profileIntegrations } from './integrations/profile-integrations'
-import { CloudIntegrationCredentials } from './integrations/cloud-credentials'
 import { installSkill, listInstalledSkills, removeSkill } from './skills/skills-provider'
 import { publishPresenceRoom, registerPresenceHandlers } from './transport/handlers/presence-handlers'
 import { PresenceManager } from './presence/presence-manager'
 import { SeatManager, memberHomeDirectory, seatKey } from './execution/seats/seat-manager'
-import { ActingIdentities, useActingIdentities, withActorScope } from './execution/seats/acting-identity'
-import { actorFor, credentialUserFor, HOST_ACTOR, memberSeat, seatFor } from './admission/actor'
+import { ActingIdentities, useActingIdentities } from './execution/seats/acting-identity'
+import { actorFor, HOST_ACTOR, memberSeat, ownerKeyOf, seatFor } from './admission/actor'
+import { currentHostUser, hostUserKey } from './host/host-user'
 import { MemberFolders, useMemberFolders } from './host/member-folders'
 import { setupProjectsRoot } from './workspace'
 import { fetchLogin } from './providers/github/auth'
@@ -80,7 +80,7 @@ import { AgentAuthFlows } from './execution/seats/agent-auth'
 import { attentionVisibleTo, eventVisibleTo } from './sharing/event-audience'
 import { getDb } from './db'
 import { closeDatabase, getDatabase } from './db/database'
-import { assignSessionOrganization, getSessionRecord, markOwnRunningSessionRecordsInterrupted, onSessionRecordChanged, useSessionIndexState } from './data/sessions/session-records'
+import { assignSessionOrganization, markOwnRunningSessionRecordsInterrupted, onSessionRecordChanged, useSessionIndexState } from './data/sessions/session-records'
 import { sessionIndexComplete } from './db/session-indexer'
 import { assertRpcAccess } from './admission/access-policy'
 import { LOCAL_ORGANIZATION_ID } from './admission/principal'
@@ -151,7 +151,6 @@ import { registerGoogleHandlers } from './transport/handlers/google-handlers'
 import { registerProviderHandlers } from './transport/handlers/provider-handlers'
 import { PrSync } from './prs/pr-sync'
 import { PrWatcher } from './prs/pr-watcher'
-import { registerCloudflareHandlers } from './transport/handlers/cloudflare-handlers'
 import { registerAtlassianHandlers } from './transport/handlers/atlassian-handlers'
 import { setOAuthCompletedListener as setAtlassianOAuthCompletedListener } from './atlassian/oauth'
 import { setConnectionConnectNeededListener } from './connections/connection-tools'
@@ -454,23 +453,17 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Ownership and share lists (docs/plans/multiplayer-sharing.md §3.4): the access
   // policy consults them on every resource call, and the event stream is filtered
   // to what each connected principal may see.
-  // A resource's canonical organization (organization-scope §3): what the share
-  // manager holds a member's scope against, and what its rows are written under.
-  const organizationOfResource = async (resource: ShareResource): Promise<string | null> => {
-    switch (resource.kind) {
-      case 'session': return (await getSessionRecord(ANY_ORGANIZATION, resource.id))?.organizationId ?? null
-      case 'work': return workOrganizationId(resource.id)
-      case 'task': return taskOrganizationId(resource.id)
-    }
-  }
   const shares = new ShareManager({
     db: getDatabase(),
     sessionExists: (sessionId) => opts.sessionRuntime.isKnownSession(sessionId),
-    organizationOfResource: organizationOfResource,
     // Only a session on this host moves from Local here; a Local work or task moves by its upload to the Solus API.
-    assignOrganization: async (resource, organizationId) => resource.kind === 'session'
-      ? (await assignSessionOrganization(resource.id, organizationId))?.organizationId ?? null
-      : organizationOfResource(resource),
+    assignOrganization: async (resource, organizationId) => {
+      switch (resource.kind) {
+        case 'session': return (await assignSessionOrganization(resource.id, organizationId))?.organizationId ?? null
+        case 'work': return workOrganizationId(resource.id)
+        case 'task': return taskOrganizationId(resource.id)
+      }
+    },
     hasLeftOrganization: (organizationId, userId) => hasLeftOrganization(hostOrganizations.current(), organizationId, userId),
     // A member reaches this host with a host access token, which needs the registration (host-sharing.md §4.3), never the link.
     membersReachable: () => apiMode || registrar.current() !== null,
@@ -539,10 +532,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   opts.sessionRuntime.useSeats(seats)
   const seatConnector = new SeatConnector({ seats })
   const agentAuth = new AgentAuthFlows({ seats })
-  const clientEvents = new ClientEventRegistry((clientId, event) => {
-    const principal = ws?.principalOf(clientId)
-    return !principal || eventVisibleTo(principal, event, shares)
-  })
+  // A client with no socket principal is the desktop's own IPC connection: the
+  // local owner, who still does not hear another person's personal events.
+  const clientEvents = new ClientEventRegistry((clientId, event) =>
+    eventVisibleTo(ws?.principalOf(clientId) ?? principalFor({ kind: 'credential-free' }), event, shares))
   const events = new HostEventPublisher(clientEvents)
   // Works people edit live (work review plan, phase 3b): a room per open work;
   // its updates go to that room only, never to everyone with access.
@@ -652,7 +645,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // (`PromptDispatch.admitTurn`). The delegations join it once the link exists.
   const turnAdmission: TurnOrganizationDeps = {
     hostOrganizations,
-    adoptSession: (sessionId, organizationId, ownerUserId, options) => shares.adoptForOrganization({ kind: 'session', id: sessionId }, organizationId, ownerUserId, options),
+    adoptSession: (sessionId, organizationId, ownerKey, options) => shares.adoptForOrganization({ kind: 'session', id: sessionId }, organizationId, ownerKey, options),
   }
   opts.sessionRuntime.dispatch.admission = turnAdmission
   const sessionDeps: SessionDeps = {
@@ -714,31 +707,28 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerWorkLiveHandlers(server, { live: workLive, shares })
   registerSharingHandlers(server, { shares })
   registerCloudUploadHandlers(server, { shares })
-  // Integrations (docs/plans/mcp-integrations.md): the gateway's tool cache is
-  // warmed at boot, without blocking it, because a run reads it synchronously.
+  // Integrations (docs/plans/mcp-integrations.md): a run lists its person's tools
+  // when it starts (`integrationAgentTools`), so nothing is listed at boot.
   const integrations = new IntegrationStore()
   const integrationGateway = new IntegrationGateway(integrations)
   setIntegrationGateway(integrationGateway)
   integrationGateway.onToolsChanged((integrationId) => { void events.broadcast('integration.changed', { integrationId, change: 'tools' }) })
   integrationGateway.onConnectNeeded((request) => { void events.broadcast('integration.connectNeeded', request) })
   // A connection is one person's (§4.1): its events go to the clients whose
-  // principal reads that person's credentials. A client with no socket principal
-  // is the desktop's own IPC connection, the local owner.
-  const clientsForCredentialUser = (credentialUserId: string | null): string[] => clientEvents.routableClientIds().filter((clientId) => {
-    const credentialUser = credentialUserFor(actorFor(ws?.principalOf(clientId) ?? principalFor({ kind: 'credential-free' })))
-    return (credentialUser ? userKey(credentialUser) : null) === credentialUserId
-  })
+  // principal is that person. A client with no socket principal is the desktop's
+  // own IPC connection, the local owner.
+  const clientsForIntegrationUser = (personKey: string): string[] => clientEvents.routableClientIds().filter((clientId) =>
+    ownerKeyOf(actorFor(ws?.principalOf(clientId) ?? principalFor({ kind: 'credential-free' }))) === personKey)
   const integrationConnectionEvents: IntegrationConnectionEvents = {
-    connectionChanged: (credentialUserId, event) => {
+    connectionChanged: (personKey, event) => {
       // A sign-in or a disconnect changes the header a session must send, and the tools it sees.
       integrationGateway.invalidate(event.integrationId)
-      if (event.connection?.status === 'connected') void integrationGateway.warmFor(event.integrationId, credentialUserId)
-      void events.publish(clientsForCredentialUser(credentialUserId), 'integration.connectionChanged', event)
+      if (event.connection?.status === 'connected') void integrationGateway.warmFor(event.integrationId, personKey)
+      void events.publish(clientsForIntegrationUser(personKey), 'integration.connectionChanged', event)
     },
-    authFinished: (credentialUserId, event) => { void events.publish(clientsForCredentialUser(credentialUserId), 'host.integrationAuthFinished', event) },
+    authFinished: (personKey, event) => { void events.publish(clientsForIntegrationUser(personKey), 'host.integrationAuthFinished', event) },
   }
   const integrationConnectionStore = new IntegrationConnectionStore()
-  const integrationOAuth = new IntegrationOAuth({ connections: integrationConnectionStore, integrations, secrets: hostIntegrationSecrets, events: integrationConnectionEvents })
   // Every read of a person's account (docs/adr/0001-standard-authentication.md §3.4):
   // with the person's delegated token as the bearer, from this host's delegations, or
   // the Solus API's in API mode. A person's connection may live in their account
@@ -748,11 +738,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     delegations: () => delegations,
   })
   useAccountReads(accountReadsOfServer)
-  const cloudCredentials = new CloudIntegrationCredentials({
-    reads: accountReadsOfServer,
-    userFor: (credentialUserId) => credentialUserId ?? hostOrganizations.owner()?.userId ?? null,
-  })
-  const integrationConnections = new IntegrationConnections({ store: integrationConnectionStore, integrations, secrets: hostIntegrationSecrets, oauth: integrationOAuth, events: integrationConnectionEvents, cloud: cloudCredentials })
+  // The one place a person's credentials are kept and read (docs/plans/access-model.md §2.6).
+  const credentialVault = new Vault({ reads: accountReadsOfServer })
+  useVault(credentialVault)
+  const integrationOAuth = new IntegrationOAuth({ connections: integrationConnectionStore, integrations, vault: credentialVault, clients: hostIntegrationClients, events: integrationConnectionEvents })
+  const integrationConnections = new IntegrationConnections({ store: integrationConnectionStore, integrations, vault: credentialVault, clients: hostIntegrationClients, oauth: integrationOAuth, events: integrationConnectionEvents })
   integrationGateway.useCredentials(integrationConnections)
   // The agent profile (plans/020-agent-profile.md): one owner applies a person's
   // files, registry skills, and MCP servers to their seats, or to the host's own
@@ -767,8 +757,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     agentIds: () => opts.sessionRuntime.getBackendIds(),
     integrations: profileIntegrations({ store: integrations, gateway: integrationGateway, connections: integrationConnections, events }),
     integrationOwnerFor: (target) => target.kind === 'member'
-      ? { organizationId: target.organizationId, ownerUserId: target.userId }
-      : { organizationId: provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID, ownerUserId: null },
+      ? { organizationId: target.organizationId, ownerKey: target.userId }
+      : { organizationId: provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID, ownerKey: hostUserKey() },
     account: {
       reads: accountReadsOfServer,
       userFor: (target) => target.kind === 'member' ? target.userId : hostOrganizations.owner()?.userId ?? null,
@@ -794,7 +784,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     connectionStore: integrationConnectionStore,
     connections: integrationConnections,
     oauth: integrationOAuth,
-    secrets: hostIntegrationSecrets,
+    clients: hostIntegrationClients,
     getServerInfo: () => ({ host, port: actualPort }),
     profile: {
       saved: async (principal, integration) => {
@@ -806,16 +796,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         if (target) await profiles.integrationRemoving(target, integration)
       },
     },
-  })
-  withActorScope(HOST_ACTOR, () => {
-    for (const integration of integrations.all(ANY_ORGANIZATION)) void integrationGateway.warm(integration.id)
-  })
-  // A cloud connection is read as the host's owner with their delegation, and at boot
-  // neither may be known yet: an integration with no tools listed is listed again when they are.
-  const warmUnlistedIntegrations = () => withActorScope(HOST_ACTOR, () => {
-    for (const integration of integrations.all(ANY_ORGANIZATION)) {
-      if (!integrationGateway.cachedTools(integration.id)) void integrationGateway.warm(integration.id)
-    }
   })
   registerPresenceHandlers(server, { presence, onHostChanged: (clientId) => publishHostPresence(presence.organizationOf(clientId)), onSessionChanged: publishSessionPresence })
   const guides = new ReviewGuideJobs((event) => publishGuideStatus(events, event), { pr: prGuideSource, local: localGuideSource })
@@ -940,7 +920,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerSessionOutboxApplier()
   registerWorkOutboxApplier()
   registerGoogleHandlers(server, { getServerInfo: () => ({ host, port: actualPort }) })
-  registerCloudflareHandlers(server)
   registerAtlassianHandlers(server)
   setAtlassianOAuthCompletedListener((event) => events.broadcast('atlassian.oauthCompleted', event))
   setConnectionConnectNeededListener((request) => events.broadcast('connection.connectNeeded', request))
@@ -955,6 +934,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     isSessionBusy: (sessionId) => opts.sessionRuntime.statuses.isSessionBusy(sessionId),
     prSync,
     guides,
+    resources: shares,
   })
   registerChecksHandlers(server)
   // The clients that run on one seat; a seat's facts go to them and nobody else.
@@ -1129,6 +1109,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // Another registration is another OAuth client: nothing the old one held acts for anyone now.
     if (registrationKey(registration) !== registeredKey) delegations?.clear()
     registeredKey = registrationKey(registration)
+    // The registration ended (removed from the account, or superseded): the host is linked to
+    // nobody, so its user is local again and it keeps nothing of theirs (docs/plans/cloud-vault.md §2.5).
+    if (!registration) void followHostAccount(getDatabase(), null)
     runnerDelivery?.registrationChanged()
     hostOrganizations.registrationChanged()
     // A tunnel belongs to the registration it was made for.
@@ -1204,7 +1187,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         // The owner's client in this process presents again once the delegation is gone: another grant of theirs that is still signed in makes it again.
         queueMicrotask(() => localClient.standingChanged(hostOrganizations.owner()?.userId ?? null))
         // Credentials the delegation brought, and sessions opened with them, end with it (ADR 0001 rule 5).
-        cloudCredentials.clear()
+        credentialVault.forgetAll()
         void integrationGateway.close()
         if (scope === 'personal') {
           log.info('delegation_revoked', { userId, scope, refusal })
@@ -1221,10 +1204,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       },
       onEstablished: (userId, scope) => {
         if (scope !== 'personal') return
-        warmUnlistedIntegrations()
-        // The owner's own rows are kept without a person (the host's), and read as the owner.
         void integrationConnections.recheckCloud(userId)
-        if (userId === hostOrganizations.owner()?.userId) void integrationConnections.recheckCloud(null)
+        // The owner's account can be read now: what the link could not upload yet moves into it (docs/plans/cloud-vault.md §2.5).
+        if (currentHostUser()?.account?.accountId === userId) {
+          void credentialVault.settleLinked(userId)
+          void profiles.pullQuietly({ kind: 'owner' })
+        }
       },
       // The owner's delegations derive from their sign-in in this process: a missing or refused one is made again from it.
       renew: (userId) => userId === hostOrganizations.owner()?.userId ? localClient.renew() : Promise.resolve(),
@@ -1258,7 +1243,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       // Registered: the host's user becomes the owner's account, and its rows follow (U5).
       if (standing?.owner) {
         void followHostAccount(getDatabase(), standing.owner)
-        warmUnlistedIntegrations()
       }
       if (standing?.organizations.some((entry) => entry.shared)) registrar.markAttached()
       // The registration status names the account it belongs to.

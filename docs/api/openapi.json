@@ -825,11 +825,21 @@
                               }
                             ]
                           },
-                          "ownerUserId": {
+                          "ownerKey": {
                             "type": "string",
                             "minLength": 1,
                             "maxLength": 256,
                             "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "none",
+                              "viewer",
+                              "commenter",
+                              "editor",
+                              "owner"
+                            ]
                           },
                           "version": {
                             "type": "string",
@@ -1059,7 +1069,8 @@
                           "id",
                           "home",
                           "organizationId",
-                          "ownerUserId",
+                          "ownerKey",
+                          "role",
                           "version",
                           "createdAt",
                           "updatedAt",
@@ -1084,7 +1095,8 @@
                               "hostId": "host_example"
                             },
                             "organizationId": null,
-                            "ownerUserId": "local:host_user_example",
+                            "ownerKey": "local:host_user_example",
+                            "role": "owner",
                             "version": "v1-example",
                             "createdAt": "2026-09-28T16:00:00Z",
                             "updatedAt": "2026-09-28T16:00:00Z",
@@ -1326,11 +1338,21 @@
                         }
                       ]
                     },
-                    "ownerUserId": {
+                    "ownerKey": {
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 256,
                       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "viewer",
+                        "commenter",
+                        "editor",
+                        "owner"
+                      ]
                     },
                     "version": {
                       "type": "string",
@@ -1564,7 +1586,8 @@
                     "id",
                     "home",
                     "organizationId",
-                    "ownerUserId",
+                    "ownerKey",
+                    "role",
                     "version",
                     "createdAt",
                     "updatedAt",
@@ -1590,7 +1613,8 @@
                         "hostId": "host_example"
                       },
                       "organizationId": null,
-                      "ownerUserId": "local:host_user_example",
+                      "ownerKey": "local:host_user_example",
+                      "role": "owner",
                       "version": "v1-example",
                       "createdAt": "2026-09-28T16:00:00Z",
                       "updatedAt": "2026-09-28T16:00:00Z",
@@ -1957,11 +1981,21 @@
                         }
                       ]
                     },
-                    "ownerUserId": {
+                    "ownerKey": {
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 256,
                       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "viewer",
+                        "commenter",
+                        "editor",
+                        "owner"
+                      ]
                     },
                     "version": {
                       "type": "string",
@@ -2195,7 +2229,8 @@
                     "id",
                     "home",
                     "organizationId",
-                    "ownerUserId",
+                    "ownerKey",
+                    "role",
                     "version",
                     "createdAt",
                     "updatedAt",
@@ -2221,7 +2256,8 @@
                         "hostId": "host_example"
                       },
                       "organizationId": null,
-                      "ownerUserId": "local:host_user_example",
+                      "ownerKey": "local:host_user_example",
+                      "role": "owner",
                       "version": "v1-example",
                       "createdAt": "2026-09-28T16:00:00Z",
                       "updatedAt": "2026-09-28T16:00:00Z",
@@ -2455,11 +2491,21 @@
                         }
                       ]
                     },
-                    "ownerUserId": {
+                    "ownerKey": {
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 256,
                       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "viewer",
+                        "commenter",
+                        "editor",
+                        "owner"
+                      ]
                     },
                     "version": {
                       "type": "string",
@@ -2693,7 +2739,8 @@
                     "id",
                     "home",
                     "organizationId",
-                    "ownerUserId",
+                    "ownerKey",
+                    "role",
                     "version",
                     "createdAt",
                     "updatedAt",
@@ -2719,7 +2766,8 @@
                         "hostId": "host_example"
                       },
                       "organizationId": null,
-                      "ownerUserId": "local:host_user_example",
+                      "ownerKey": "local:host_user_example",
+                      "role": "owner",
                       "version": "v1-example",
                       "createdAt": "2026-09-28T16:00:00Z",
                       "updatedAt": "2026-09-28T16:00:00Z",
@@ -3405,11 +3453,21 @@
                               }
                             ]
                           },
-                          "ownerUserId": {
+                          "ownerKey": {
                             "type": "string",
                             "minLength": 1,
                             "maxLength": 256,
                             "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "none",
+                              "viewer",
+                              "commenter",
+                              "editor",
+                              "owner"
+                            ]
                           },
                           "version": {
                             "type": "string",
@@ -3611,7 +3669,8 @@
                           "id",
                           "home",
                           "organizationId",
-                          "ownerUserId",
+                          "ownerKey",
+                          "role",
                           "version",
                           "createdAt",
                           "updatedAt",
@@ -3635,7 +3694,8 @@
                               "hostId": "host_example"
                             },
                             "organizationId": null,
-                            "ownerUserId": "local:host_user_example",
+                            "ownerKey": "local:host_user_example",
+                            "role": "owner",
                             "version": "v1-example",
                             "createdAt": "2026-09-28T16:00:00Z",
                             "updatedAt": "2026-09-28T16:00:00Z",
@@ -3874,11 +3934,21 @@
                         }
                       ]
                     },
-                    "ownerUserId": {
+                    "ownerKey": {
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 256,
                       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "viewer",
+                        "commenter",
+                        "editor",
+                        "owner"
+                      ]
                     },
                     "version": {
                       "type": "string",
@@ -4450,7 +4520,8 @@
                     "id",
                     "home",
                     "organizationId",
-                    "ownerUserId",
+                    "ownerKey",
+                    "role",
                     "version",
                     "createdAt",
                     "updatedAt",
@@ -4478,7 +4549,8 @@
                         "hostId": "host_example"
                       },
                       "organizationId": null,
-                      "ownerUserId": "local:host_user_example",
+                      "ownerKey": "local:host_user_example",
+                      "role": "owner",
                       "version": "v1-example",
                       "createdAt": "2026-09-28T16:00:00Z",
                       "updatedAt": "2026-09-28T16:00:00Z",
@@ -5463,11 +5535,21 @@
                         }
                       ]
                     },
-                    "ownerUserId": {
+                    "ownerKey": {
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 256,
                       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "viewer",
+                        "commenter",
+                        "editor",
+                        "owner"
+                      ]
                     },
                     "version": {
                       "type": "string",
@@ -6039,7 +6121,8 @@
                     "id",
                     "home",
                     "organizationId",
-                    "ownerUserId",
+                    "ownerKey",
+                    "role",
                     "version",
                     "createdAt",
                     "updatedAt",
@@ -6067,7 +6150,8 @@
                         "hostId": "host_example"
                       },
                       "organizationId": null,
-                      "ownerUserId": "local:host_user_example",
+                      "ownerKey": "local:host_user_example",
+                      "role": "owner",
                       "version": "v1-example",
                       "createdAt": "2026-09-28T16:00:00Z",
                       "updatedAt": "2026-09-28T16:00:00Z",
@@ -6578,11 +6662,21 @@
                         }
                       ]
                     },
-                    "ownerUserId": {
+                    "ownerKey": {
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 256,
                       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "viewer",
+                        "commenter",
+                        "editor",
+                        "owner"
+                      ]
                     },
                     "version": {
                       "type": "string",
@@ -7154,7 +7248,8 @@
                     "id",
                     "home",
                     "organizationId",
-                    "ownerUserId",
+                    "ownerKey",
+                    "role",
                     "version",
                     "createdAt",
                     "updatedAt",
@@ -7182,7 +7277,8 @@
                         "hostId": "host_example"
                       },
                       "organizationId": null,
-                      "ownerUserId": "local:host_user_example",
+                      "ownerKey": "local:host_user_example",
+                      "role": "owner",
                       "version": "v1-example",
                       "createdAt": "2026-09-28T16:00:00Z",
                       "updatedAt": "2026-09-28T16:00:00Z",
@@ -7419,11 +7515,21 @@
                         }
                       ]
                     },
-                    "ownerUserId": {
+                    "ownerKey": {
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 256,
                       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "viewer",
+                        "commenter",
+                        "editor",
+                        "owner"
+                      ]
                     },
                     "version": {
                       "type": "string",
@@ -7995,7 +8101,8 @@
                     "id",
                     "home",
                     "organizationId",
-                    "ownerUserId",
+                    "ownerKey",
+                    "role",
                     "version",
                     "createdAt",
                     "updatedAt",
@@ -8023,7 +8130,8 @@
                         "hostId": "host_example"
                       },
                       "organizationId": null,
-                      "ownerUserId": "local:host_user_example",
+                      "ownerKey": "local:host_user_example",
+                      "role": "owner",
                       "version": "v1-example",
                       "createdAt": "2026-09-28T16:00:00Z",
                       "updatedAt": "2026-09-28T16:00:00Z",
@@ -8682,11 +8790,21 @@
                               }
                             ]
                           },
-                          "ownerUserId": {
+                          "ownerKey": {
                             "type": "string",
                             "minLength": 1,
                             "maxLength": 256,
                             "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "none",
+                              "viewer",
+                              "commenter",
+                              "editor",
+                              "owner"
+                            ]
                           },
                           "version": {
                             "type": "string",
@@ -9536,7 +9654,8 @@
                           "id",
                           "home",
                           "organizationId",
-                          "ownerUserId",
+                          "ownerKey",
+                          "role",
                           "version",
                           "createdAt",
                           "updatedAt",
@@ -9576,7 +9695,8 @@
                               "organizationId": "org_example"
                             },
                             "organizationId": "org_example",
-                            "ownerUserId": "user_example",
+                            "ownerKey": "user_example",
+                            "role": "owner",
                             "version": "v1-example",
                             "createdAt": "2026-09-28T16:00:00Z",
                             "updatedAt": "2026-09-28T16:00:00Z",
@@ -9951,11 +10071,21 @@
                                   }
                                 ]
                               },
-                              "ownerUserId": {
+                              "ownerKey": {
                                 "type": "string",
                                 "minLength": 1,
                                 "maxLength": 256,
                                 "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                              },
+                              "role": {
+                                "type": "string",
+                                "enum": [
+                                  "none",
+                                  "viewer",
+                                  "commenter",
+                                  "editor",
+                                  "owner"
+                                ]
                               },
                               "version": {
                                 "type": "string",
@@ -10805,7 +10935,8 @@
                               "id",
                               "home",
                               "organizationId",
-                              "ownerUserId",
+                              "ownerKey",
+                              "role",
                               "version",
                               "createdAt",
                               "updatedAt",
@@ -10845,7 +10976,8 @@
                                   "organizationId": "org_example"
                                 },
                                 "organizationId": "org_example",
-                                "ownerUserId": "user_example",
+                                "ownerKey": "user_example",
+                                "role": "owner",
                                 "version": "v1-example",
                                 "createdAt": "2026-09-28T16:00:00Z",
                                 "updatedAt": "2026-09-28T16:00:00Z",
@@ -11144,11 +11276,21 @@
                         }
                       ]
                     },
-                    "ownerUserId": {
+                    "ownerKey": {
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 256,
                       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "viewer",
+                        "commenter",
+                        "editor",
+                        "owner"
+                      ]
                     },
                     "version": {
                       "type": "string",
@@ -11998,7 +12140,8 @@
                     "id",
                     "home",
                     "organizationId",
-                    "ownerUserId",
+                    "ownerKey",
+                    "role",
                     "version",
                     "createdAt",
                     "updatedAt",
@@ -12038,7 +12181,8 @@
                         "organizationId": "org_example"
                       },
                       "organizationId": "org_example",
-                      "ownerUserId": "user_example",
+                      "ownerKey": "user_example",
+                      "role": "owner",
                       "version": "v1-example",
                       "createdAt": "2026-09-28T16:00:00Z",
                       "updatedAt": "2026-09-28T16:00:00Z",
@@ -12274,11 +12418,21 @@
                         }
                       ]
                     },
-                    "ownerUserId": {
+                    "ownerKey": {
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 256,
                       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "viewer",
+                        "commenter",
+                        "editor",
+                        "owner"
+                      ]
                     },
                     "version": {
                       "type": "string",
@@ -13128,7 +13282,8 @@
                     "id",
                     "home",
                     "organizationId",
-                    "ownerUserId",
+                    "ownerKey",
+                    "role",
                     "version",
                     "createdAt",
                     "updatedAt",
@@ -13168,7 +13323,8 @@
                         "organizationId": "org_example"
                       },
                       "organizationId": "org_example",
-                      "ownerUserId": "user_example",
+                      "ownerKey": "user_example",
+                      "role": "owner",
                       "version": "v1-example",
                       "createdAt": "2026-09-28T16:00:00Z",
                       "updatedAt": "2026-09-28T16:00:00Z",
@@ -13373,7 +13529,7 @@
                       "maxLength": 256,
                       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
                     },
-                    "ownerUserId": {
+                    "ownerKey": {
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 256,
@@ -13394,7 +13550,7 @@
                   "required": [
                     "sessionId",
                     "organizationId",
-                    "ownerUserId",
+                    "ownerKey",
                     "hostId",
                     "admittedAt"
                   ],
@@ -13404,7 +13560,7 @@
                     {
                       "sessionId": "session_example",
                       "organizationId": "org_example",
-                      "ownerUserId": "user_example",
+                      "ownerKey": "user_example",
                       "hostId": "host_example",
                       "admittedAt": "2026-09-28T16:00:00Z"
                     }

@@ -6,6 +6,7 @@ import type { ExecutionPreferences } from '@solus/contracts/settings'
 import type { ModelOptions } from '@solus/contracts/settings'
 import { isSessionBusyStatus, REQUEST_NOT_ANSWERABLE_CODE, requestExpiryText } from '@solus/contracts/types'
 import { rpcErrorCode } from '@solus/client-core/rpc-error'
+import { resourceAllows } from '@solus/contracts/permissions'
 import type { HostConnection } from '../hosts/host-connections'
 import {
   conversationContext,
@@ -52,8 +53,9 @@ export type ConversationPhase =
 
 export interface ConversationTarget {
   hostId: string
-  /** A saved session to open, or a new one to start in `workingDirectory`. */
-  record?: Pick<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'cwd' | 'model' | 'reasoningEffort' | 'title' | 'customTitle'>
+  /** A saved session to open, or a new one to start in `workingDirectory`.
+   *  A record's `role` is the reader's, from the list (docs/plans/access-model.md §2.7). */
+  record?: Pick<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'cwd' | 'model' | 'reasoningEffort' | 'title' | 'customTitle' | 'role'>
   newSession?: { sessionId: string; provider: AgentId; workingDirectory: string }
 }
 
@@ -108,7 +110,7 @@ export class ConversationController {
   /** The host's agents, whether each is installed, and what each can do.
    *  Null until the host answers: unknown, not unavailable. */
   agents: readonly AgentMetadata[] | null = null
-  /** The host reported no TypeSafe key, so Auto cannot route a first prompt. */
+  /** The host reported no TypeSafe key for this person, so Auto cannot route a first prompt. */
   autoNeedsKey = false
   /** Settles when the host has answered what its agents offer; history does not wait on it. */
   runOptionsLoaded: Promise<void> = Promise.resolve()
@@ -164,10 +166,9 @@ export class ConversationController {
       this.openingPrompt = null
       this.flush(true)
     }))
-    this.cleanups.push(connection.events.subscribe('config.changed', (snapshot) => {
-      this.autoNeedsKey = snapshot.typeSafe?.source === null
-      this.settleRun()
-      this.flush(true)
+    // The event carries no person's key, so the person's own status is read again.
+    this.cleanups.push(connection.events.subscribe('config.changed', () => {
+      void this.loadKeyStatus()
     }))
     this.cleanups.push(connection.onReset(() => { void this.load() }))
     this.cleanups.push(connection.onAccepted(() => { void this.drainOutbox() }))
@@ -180,6 +181,14 @@ export class ConversationController {
 
   get hostId(): string {
     return this.target.hostId
+  }
+
+  /**
+   * Whether the reader may drive this session: prompt it, stop it, and answer
+   * its cards (docs/plans/access-model.md §2.7). A new session is the reader's own.
+   */
+  get mayDrive(): boolean {
+    return resourceAllows({ role: this.target.record?.role }, 'drive')
   }
 
   /** Auto can pick this session's model: nothing has started it yet. */
@@ -244,14 +253,22 @@ export class ConversationController {
   /** What the host's agents offer, and whether Auto can route here. A host
    *  that cannot answer leaves every choice open, as the desktop does. */
   private async loadRunOptions(generation: number): Promise<void> {
-    const [agents, config] = await Promise.all([
+    const [agents, typeSafe] = await Promise.all([
       hostAgents(this.deps.connection),
-      this.canRoute ? this.deps.connection.api.configGet().catch(() => null) : null,
+      this.canRoute ? this.deps.connection.api.typeSafeKeyStatus().catch(() => null) : null,
     ])
     if (generation !== this.loadGeneration || this.closed) return
     if (agents) this.agents = agents
     // An older host does not report the key; unknown is not missing, as on desktop.
-    if (config) this.autoNeedsKey = config.typeSafe?.source === null
+    if (typeSafe) this.autoNeedsKey = typeSafe.source === null
+    this.settleRun()
+    this.flush(true)
+  }
+
+  private async loadKeyStatus(): Promise<void> {
+    const typeSafe = await this.deps.connection.api.typeSafeKeyStatus().catch(() => null)
+    if (!typeSafe || this.closed) return
+    this.autoNeedsKey = typeSafe.source === null
     this.settleRun()
     this.flush(true)
   }

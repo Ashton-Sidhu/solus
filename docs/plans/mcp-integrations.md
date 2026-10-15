@@ -106,7 +106,7 @@ REST APIs. Solus does not wrap REST APIs. A server whose sign-in does not
 follow the specification gets `client-required` (an admin enters a client) or
 `bearer` (the person pastes a key). It does not get an adapter.
 
-The existing hand-written connections (GitHub, Google, Atlassian, Cloudflare)
+The existing hand-written connections (GitHub, Google, Atlassian)
 stay as they are. No new one is added for a service that has an MCP server or
 an OpenAPI document.
 
@@ -119,7 +119,7 @@ Use these words everywhere. Do not coin synonyms.
 | **Integration** | One remote MCP server or OpenAPI document a host knows: kind, name, slug, URL, and how it authenticates. A root record with an `organization_id` (`local` or an organization), as every root record (`organization-scope.md` §3). | `packages/server/src/integrations/` (new domain) |
 | **Catalog** | The list a person adds an integration from: the public integrations.sh feed, and a URL the person types. Read on demand; never stored. | same |
 | **Probe** | The anonymous check of a server: `initialize` and `tools/list` without credentials, then the OAuth metadata its challenge names. Decides `anonymous`, `oauth`, `credentials-required`, or `undetermined`. | same |
-| **Connection** | One person's sign-in to one integration. Reuses the word Solus already uses for GitHub, Google, Atlassian, and Cloudflare (`packages/contracts/src/connections.ts`). Status, label, and the identity the server reported. The token is in that person's store, never in the record. | same |
+| **Connection** | One person's sign-in to one integration. Reuses the word Solus already uses for GitHub, Google, and Atlassian (`packages/contracts/src/connections.ts`). Status, label, and the identity the server reported. The token is in that person's store, never in the record. | same |
 | **Policy** | The integration's rules: a default rule and per-tool overrides. A rule is `allow`, `ask`, or `block`. Later; not in the first release (§6). | same |
 | **Gateway** | The server-side MCP client. One upstream session per (integration, person), opened on first use. Lists tools, calls them, relays elicitation. | same |
 | **Integration tool** | One Solus agent tool the agent calls. For an MCP server, one per upstream tool, named `<slug>__<tool>`. For an OpenAPI document, one per document, named by its slug, whose input is a program (§5.2). | `execution/agents/tools/integrations/` |
@@ -206,8 +206,8 @@ A `policy` column is added with §6.2, not before.
 Table `integration_connection`:
 
 ```
-integration_id, user_id ('' = the host owner: SQLite NULLs are distinct in a
-composite primary key), status
+integration_id, user_id (the person's user key, the host's owner included),
+status
 ('connected' | 'needs-sign-in' | 'error'), label, info (json: display name,
 email, avatar as the server reported), updated_at
 ```
@@ -221,18 +221,28 @@ This is the property the plan exists for.
 
 ### 4.1 Rules
 
-1. **A connection belongs to one person.** `currentCredentialUserId()` from the
-   acting scope (`plans/019-acting-identity.md`) selects it: `null` is the host
-   owner's own store; a user ID is that member's. A guest uses their own account,
-   as `credentialUserFor` already decides.
+1. **A connection belongs to one person.** `currentPersonKey()` from the
+   acting scope (`plans/019-acting-identity.md`) selects it. It is always a
+   person's user key (`ownerKeyOf`, the acting scope's `personKey`): a member's account, and the host's
+   owner as the host's user (`local:<id>`, or their account once the host is
+   linked). There is no host-wide connection, so a host with no owner (a managed
+   host) works the same as a personal one. A guest is their own guest key,
+   so they hold no connections and get the connect card. `null` is only
+   the host's own work, which has no person: it lists a server anonymously and
+   holds no connection. Linking and unlinking the host move the owner's records,
+   connections, and tokens with their key (`host-user-rows.ts`).
+   These keys are separate from `currentCredentialUserId()`, where `null` still
+   means the host's own GitHub, Google, and Atlassian logins.
 2. **No connection, no call.** An integration tool called by a person with no
    connection returns `CONNECTION_REQUIRED` and raises the connect card, as
    `connection_status` does for GitHub today. The agent must not ask for a secret
    in chat.
-3. **The token stays on the host.** It is written with the host secret store
-   (`platform/secrets.ts`) under `integration-token-<id>-<userId or host>`, and a
-   registered client under `integration-client-<id>`, which the desktop
-   encrypts with `safeStorage`. It is read only inside the gateway, inside the
+3. **The token stays on the host.** The vault (`vault/vault.ts`,
+   `docs/plans/access-model.md` §2.6) writes it with the host secret store
+   (`platform/secrets.ts`) under `integration-token-<id>-<base64url(person key)>`,
+   unless the person's account holds the connection (plans/020 §5). A
+   registered client is under `integration-client-<id>`. The desktop
+   encrypts both with `safeStorage`. It is read only inside the gateway, inside the
    acting scope of the call. It is never sent to a client, never logged, and
    never put in a process environment.
 4. **The token goes only to its server.** The gateway sends it in
@@ -284,10 +294,15 @@ server unless the metadata names a revocation endpoint.
 
 `packages/server/src/integrations/gateway.ts` holds upstream sessions:
 
-- Key: `(integrationId, credentialUserId)`. Opened on first use with the
+- Key: `(integrationId, personKey)`. Opened on first use with the
   `@modelcontextprotocol/sdk` client over streamable HTTP. Closed after idle
   time and on disconnect.
 - `tools/list` is cached per key and invalidated on `notifications/tools/list_changed`.
+  Nothing is listed at boot. A run lists its person's tools when it starts
+  (`run-launcher.ts` → `integrationAgentTools(actor)`), with that person's
+  connection, so a typed, queued, restored, or agent-started run gets the same
+  tools. A server that does not list in 10 seconds adds no tools to that run;
+  the list goes on, and the next run reads it.
 - A call runs inside the acting scope of the turn (`run-launcher.ts` sets it).
   Its timeout is the call's own, separate from the turn.
 - `elicitation/create` from the server becomes a `question_request` with
@@ -297,8 +312,8 @@ server unless the metadata names a revocation endpoint.
 
 ### 5.2 Tools as the agent sees them
 
-Integration tools are Solus agent tools in the `solus` toolbox, selected in
-`prompt-dispatch.ts` and wrapped by `credentialScopedAgentTools` like every
+Integration tools are Solus agent tools in the `solus` toolbox, added at launch
+in `run-launcher.ts` and wrapped by `credentialScopedAgentTools` like every
 other Solus tool. There is no global entry point. The provider's own tool
 search is the discovery: Claude defers MCP tool descriptions until tool
 search, and Codex uses `deferLoading` (`docs/session-orchestration.md`).

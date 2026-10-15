@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import type { DatabaseSync } from 'node:sqlite'
+import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
+import { sql } from 'drizzle-orm'
+import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core'
 import { z } from 'zod'
 import { getDb, withTx } from '../../db'
 import { createLogger } from '../../logger'
@@ -7,6 +9,9 @@ import { nextRunFrom, validateTrigger } from './automation-schedule'
 import { LOCAL_ORGANIZATION_ID, provisionedOrganizationId } from '../../host/host-category'
 import { getSessionRecord, organizationOfSession } from '../sessions/session-records'
 import { ANY_ORGANIZATION } from '../../admission/principal'
+import { roleOf, visibleTo, type ResourceRow } from '../../admission/access'
+import type { Actor } from '../../admission/actor'
+import { hostUserKey } from '../../host/host-user'
 import type {
   AgentId,
   Automation,
@@ -103,6 +108,7 @@ const automationRunDataSchema = z.object({
 const automationRowSchema = z.object({
   id: z.string(),
   organization_id: z.string().catch('local'),
+  owner_key: z.string(),
   name: z.string(),
   enabled: z.number(),
   favorite: z.number().nullable(),
@@ -194,7 +200,11 @@ function runFromRow(row: AutomationRunRow): AutomationRun {
   return run
 }
 
-function writeAutomation(db: DatabaseSync, automation: Automation): void {
+/**
+ * Writes an automation. `ownerKey` is written once, when the row is made; an
+ * update never changes the owner.
+ */
+function writeAutomation(db: DatabaseSync, automation: Automation, ownerKey = ''): void {
   const {
     id,
     organizationId,
@@ -217,10 +227,10 @@ function writeAutomation(db: DatabaseSync, automation: Automation): void {
   if (lastRunAt !== undefined) lastRun.lastRunAt = lastRunAt
   db.prepare(`
     INSERT INTO automations(
-      id, organization_id, name, enabled, favorite, action, trigger_config, next_run_at,
+      id, organization_id, owner_key, name, enabled, favorite, action, trigger_config, next_run_at,
       last_run, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       enabled = excluded.enabled,
@@ -234,6 +244,7 @@ function writeAutomation(db: DatabaseSync, automation: Automation): void {
   `).run(
     id,
     organizationId ?? provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID,
+    ownerKey,
     name,
     enabled ? 1 : 0,
     favorite === undefined ? null : favorite ? 1 : 0,
@@ -317,17 +328,20 @@ export async function createAutomation(
   trigger: AutomationTrigger = { type: 'manual' },
   /** The creator's preferences it runs with (plans/018 §6); without them it runs with the built-in defaults. */
   executionPreferences?: ExecutionPreferences,
+  /** The organization a person made it in, as their connection names it; else this machine's, or its session's. */
+  organizationId?: string,
 ): Promise<Automation> {
   assertValidAction(action)
   assertValidTrigger(trigger)
   const now = new Date()
   const nowIso = now.toISOString()
-  // An automation is a root record of this machine's organization, or of the
-  // session that made it (organization-scope §3); the scheduler stays here (plan 004 C1).
+  // An automation is a root record of the organization its person made it in, of
+  // the session that made it, or of this machine's organization (organization-scope §3);
+  // the scheduler stays here (plan 004 C1). It must be in its owner's scope, or they could not reach it.
   const sessionId = createdBy.kind === 'agent' ? createdBy.sessionId : ''
   const automation: Automation = {
     id: randomUUID(),
-    organizationId: sessionId ? await organizationOfSession(sessionId) : provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID,
+    organizationId: organizationId ?? (sessionId ? await organizationOfSession(sessionId) : provisionedOrganizationId() ?? LOCAL_ORGANIZATION_ID),
     name,
     enabled,
     action,
@@ -340,18 +354,54 @@ export async function createAutomation(
     createdBy,
   }
   if (executionPreferences) automation.executionPreferences = { capturedAt: now.getTime(), preferences: executionPreferences }
-  writeAutomation(database(), automation)
+  // Its owner is the person it runs for; one made for nobody is the host's own work (access-model.md §2.3.1).
+  writeAutomation(database(), automation, await creatorKeyOf(createdBy) ?? hostUserKey())
   emitChanged({ kind: 'saved', automation })
   return automation
 }
 
-export async function listAutomations(): Promise<Automation[]> {
+const dialect = new SQLiteSyncDialect()
+
+/**
+ * The automations `actor` may see (docs/plans/access-model.md §4 D4): their own,
+ * and every one in their scope for an administrator. A WHERE condition on
+ * `automations`, with the values it binds.
+ */
+function visibleAutomations(actor: Actor) {
+  const { sql: text, params } = dialect.sqlToQuery(visibleTo(actor, 'automation', { id: sql`id`, organization: sql`organization_id`, owner: sql`owner_key` }))
+  // SAFETY: the predicate binds only person keys and organization ids, which are strings.
+  return { text, params: params as SQLInputValue[] }
+}
+
+export async function listAutomations(actor: Actor): Promise<Automation[]> {
+  const visible = visibleAutomations(actor)
   const rows = automationRowSchema.array().parse(database().prepare(`
     SELECT *
     FROM automations
+    WHERE ${visible.text}
     ORDER BY updated_at DESC
-  `).all())
-  return rows.map(automationFromRow)
+  `).all(...visible.params))
+  return rows.map((row) => ({ ...automationFromRow(row), role: roleOf(actor, automationResource(row.id, { ownerKey: row.owner_key, organizationId: row.organization_id })) }))
+}
+
+function automationResource(id: string, home: { ownerKey: string; organizationId: string }): ResourceRow {
+  return { kind: 'automation', id, ...home, acl: [] }
+}
+
+/** An automation as `actor` reads it: with their role on it (docs/plans/access-model.md §2.7). */
+export function withAutomationRole(actor: Actor, automation: Automation): Automation
+export function withAutomationRole(actor: Actor, automation: Automation | null): Automation | null
+export function withAutomationRole(actor: Actor, automation: Automation | null): Automation | null {
+  const home = automation && automationHomeOf(automation.id)
+  return automation && home ? { ...automation, role: roleOf(actor, automationResource(automation.id, home)) } : automation
+}
+
+/** The owner and organization of an automation, from its row; null when there is none. */
+export function automationHomeOf(id: string): { ownerKey: string; organizationId: string } | null {
+  const row = automationRowSchema.pick({ owner_key: true, organization_id: true }).nullish().parse(
+    database().prepare('SELECT owner_key, organization_id FROM automations WHERE id = ?').get(id),
+  )
+  return row ? { ownerKey: row.owner_key, organizationId: row.organization_id } : null
 }
 
 export async function loadAutomation(id: string): Promise<Automation | null> {
@@ -415,12 +465,22 @@ export async function updateAutomation(
  */
 export async function pauseAutomationsOf(userId: string, organizationId: string): Promise<Automation[]> {
   const paused: Automation[] = []
-  for (const automation of await listAutomations()) {
+  for (const automation of everyAutomation()) {
     if (!automation.enabled || automation.organizationId !== organizationId || await creatorKeyOf(automation.createdBy) !== userId) continue
     const updated = await updateAutomation(automation.id, { enabled: false })
     if (updated) paused.push(updated)
   }
   return paused
+}
+
+/** Every automation on this host, whoever owns it: for the host's own work, never for a person's read. */
+function everyAutomation(): Automation[] {
+  return automationRowSchema.array().parse(database().prepare('SELECT * FROM automations').all()).map(automationFromRow)
+}
+
+/** The automations an agent's session made: what that session brings to a task (docs/plans/session-outputs.md). */
+export function automationsOfSession(sessionId: string): Automation[] {
+  return everyAutomation().filter(({ createdBy }) => createdBy.kind === 'agent' && createdBy.sessionId === sessionId)
 }
 
 /**
@@ -430,7 +490,7 @@ export async function pauseAutomationsOf(userId: string, organizationId: string)
 export async function creatorKeyOf(createdBy: Attribution): Promise<string | null> {
   if (createdBy.kind === 'user') return userKey(createdBy.user.id)
   if ((createdBy.kind === 'agent' || createdBy.kind === 'automation') && createdBy.for) return userKey(createdBy.for.id)
-  if (createdBy.kind === 'agent' && createdBy.sessionId) return (await getSessionRecord(ANY_ORGANIZATION, createdBy.sessionId))?.ownerUserId ?? null
+  if (createdBy.kind === 'agent' && createdBy.sessionId) return (await getSessionRecord(ANY_ORGANIZATION, createdBy.sessionId))?.ownerKey ?? null
   return null
 }
 
@@ -517,18 +577,20 @@ export async function listRuns(id: string): Promise<AutomationRun[]> {
 
 const runPointRowSchema = automationRunRowSchema.pick({ id: true, automation_id: true, started_at: true, finished_at: true, status: true })
 
-/** The newest `perAutomation` runs of every automation, newest first within
- *  each — the list's run graphs. Output and run data stay on disk. */
-export async function listRecentRuns(perAutomation: number): Promise<AutomationRunPoint[]> {
+/** The newest `perAutomation` runs of every automation `actor` may see, newest
+ *  first within each — the list's run graphs. Output and run data stay on disk. */
+export async function listRecentRuns(perAutomation: number, actor: Actor): Promise<AutomationRunPoint[]> {
+  const visible = visibleAutomations(actor)
   const rows = runPointRowSchema.array().parse(database().prepare(`
     SELECT id, automation_id, started_at, finished_at, status
     FROM (
       SELECT *, ROW_NUMBER() OVER (PARTITION BY automation_id ORDER BY started_at DESC, rowid DESC) AS recency
       FROM automation_runs
+      WHERE automation_id IN (SELECT id FROM automations WHERE ${visible.text})
     )
     WHERE recency <= ?
     ORDER BY automation_id, recency
-  `).all(Math.max(0, Math.floor(perAutomation))))
+  `).all(...visible.params, Math.max(0, Math.floor(perAutomation))))
   return rows.map((row) => ({
     id: row.id,
     automationId: row.automation_id,

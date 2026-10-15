@@ -1,3 +1,5 @@
+import type { ResourceRole } from './sharing'
+
 /**
  * The organization's project directory in the workspace service
  * (docs/plans/project-model.md §2). A project is a repository; a member adds it
@@ -13,6 +15,8 @@ export interface WorkspaceProject {
   defaultBranch: string | null
   createdBy: string | null
   createdAt: number
+  /** The reader's resource role (docs/plans/access-model.md §2.7): rename and remove need `edit`, the owner's or an administrator's. */
+  role: ResourceRole
 }
 
 export interface WorkspaceProjectAddRequest {

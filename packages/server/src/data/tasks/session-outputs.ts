@@ -1,7 +1,7 @@
 import type { TaskLinkInput } from '@solus/contracts/task-types'
 import type { RecordScope } from '../../admission/principal'
 import { listPlanRefsForSessions } from '../../plans/plan-index'
-import { listAutomations } from '../automations/automations-store'
+import { automationsOfSession } from '../automations/automations-store'
 import { listWorkRefsForSessions } from '../works/works'
 
 /**
@@ -20,10 +20,9 @@ import { listWorkRefsForSessions } from '../works/works'
  * asked for that (`link_to_task`).
  */
 export async function readSessionOutputs(scope: RecordScope, sessionId: string): Promise<TaskLinkInput[]> {
-  const [works, plans, automations] = await Promise.all([
+  const [works, plans] = await Promise.all([
     listWorkRefsForSessions(scope, [sessionId]),
     listPlanRefsForSessions(scope, [sessionId]),
-    listAutomations(),
   ])
   return [
     ...works.filter((work) => work.type !== 'artifact')
@@ -31,8 +30,7 @@ export async function readSessionOutputs(scope: RecordScope, sessionId: string):
     ...plans.map((plan): TaskLinkInput => ({
       kind: 'plan', targetScope: plan.sessionId, targetKey: plan.planToolUseId, title: plan.title,
     })),
-    ...automations
-      .filter(({ createdBy }) => createdBy.kind === 'agent' && createdBy.sessionId === sessionId)
+    ...automationsOfSession(sessionId)
       .map((automation): TaskLinkInput => ({ kind: 'automation', targetKey: automation.id, title: automation.name })),
   ]
 }

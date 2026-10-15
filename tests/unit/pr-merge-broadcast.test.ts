@@ -9,6 +9,7 @@ import { SolusServer } from '@solus/server/transport/server'
 import type { HostEventPublisher } from '@solus/server/transport/events/host-event-publisher'
 import type { AgentDispatcher } from '@solus/server/execution/agents/agent-runner'
 import type { PrSync } from '@solus/server/prs/pr-sync'
+import type { ResourceRole } from '@solus/contracts/sharing'
 
 // The handlers reach the production database module, which imports node:sqlite
 // (absent under Bun's test runtime).
@@ -58,7 +59,7 @@ const { registerProviderHandlers, reviewTargetFor } = await import('@solus/serve
 
 const ctx = { session: { projectPath: '/repo', workingDirectory: '/repo' } } as IpcContext
 
-function serverWithEvents(): { server: SolusServer; broadcasts: { type: string; payload: unknown }[] } {
+function serverWithEvents(sessionRole: ResourceRole = 'owner'): { server: SolusServer; broadcasts: { type: string; payload: unknown }[]; applied: PullRequestFacts[] } {
   const broadcasts: { type: string; payload: unknown }[] = []
   const events = {
     broadcast: (type: string, payload: unknown) => {
@@ -76,6 +77,7 @@ function serverWithEvents(): { server: SolusServer; broadcasts: { type: string; 
     dispatcher: {} as AgentDispatcher,
     events,
     prSync,
+    resources: { roleFor: async () => sessionRole },
   })
   return { server, broadcasts, applied }
 }
@@ -110,5 +112,23 @@ describe('merging a pull request', () => {
     expect(broadcasts).toEqual([])
     expect(applied).toEqual([])
     expect(completedScopes).toEqual([])
+  })
+
+  test('a pull request a session links takes session.edit on it; a viewer of that session cannot merge it', async () => {
+    // WHY (docs/plans/access-model.md §2.3): a pull request is part of its session.
+    const { linkSessionPullRequest, unlinkSessionPullRequest } = await import('@solus/server/data/sessions/session-pull-requests')
+    await linkSessionPullRequest('s-pr', { url: 'https://github.com/owner/repo/pull/7', source: 'manual', by: { kind: 'system' } })
+    try {
+      mergedFacts = facts('merged')
+      mergeAnswer = { merged: true }
+      const viewer = serverWithEvents('viewer')
+      await expect(viewer.server.handle('prMerge', [ctx, 7, 'squash', HEAD_SHA], TEST_HANDLER_CTX)).rejects.toThrow(/session you cannot change/)
+      expect(viewer.applied).toEqual([])
+      const editor = serverWithEvents('editor')
+      await editor.server.handle('prMerge', [ctx, 7, 'squash', HEAD_SHA], TEST_HANDLER_CTX)
+      expect(editor.applied).toEqual([mergedFacts])
+    } finally {
+      await unlinkSessionPullRequest('s-pr', 'github.com/owner/repo', 7)
+    }
   })
 })

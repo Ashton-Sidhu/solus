@@ -65,9 +65,6 @@ function personKeyFor(actor: Actor): string {
 
 export function registerTasksHandlers(server: SolusServer, deps: { shares?: ShareManager; sync?: boolean } = {}): void {
   if (deps.sync !== false) startTaskSyncEngine()
-  const claim = async (task: TaskRecord | null, ctx: HandlerCtx): Promise<void> => {
-    if (task) await deps.shares?.claimOwner({ kind: 'task', id: task.id }, ctx.principal)
-  }
   const visibleTasks = async (ctx: HandlerCtx, tasks: TaskRecord[]): Promise<TaskRecord[]> =>
     deps.shares ? deps.shares.filterVisible(ctx.principal, 'task', tasks, (task) => task.id) : tasks
   server.register('tasksProviderStatus', (args) => {
@@ -110,9 +107,12 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
     return listTaskCandidates(cwd, options)
   })
 
-  server.register('tasksImport', (args, ctx) => {
+  server.register('tasksImport', async (args, ctx) => {
     const [cwd, externalIds] = args
-    return importTaskTickets(organizationForNew(ctx.principal), cwd, externalIds)
+    const imported = await importTaskTickets(organizationForNew(ctx.principal), cwd, externalIds, ownerKeyOf(ctx.actor) ?? undefined)
+    // An imported ticket is the importer's task, shared with the organization in its space as any new task is.
+    for (const { task } of imported) await deps.shares?.shareWithOrganization({ kind: 'task', id: task.id }, ctx.principal)
+    return imported
   })
 
   server.register('tasksPublish', (args, ctx) => {
@@ -289,7 +289,6 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
     const [input] = args
     const scope = recordScopeOf(ctx.principal)
     const task = await prepareSessionTask(scope, input)
-    await claim(task, ctx)
     // The snapshot rides the same round trip a dispatching client already makes
     // (docs/plans/dispatch-parity.md): the execution host cannot read this
     // host's store, so the client ships the state — including linked works and

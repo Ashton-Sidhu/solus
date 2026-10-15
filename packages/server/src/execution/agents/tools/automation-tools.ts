@@ -5,6 +5,7 @@ import type { AgentTool } from './agent-tool'
 import { toolAgentAttribution } from './agent-attribution'
 import type { AgentId, Automation, AutomationAction, AutomationTrigger, ReasoningEffort } from '@solus/contracts/types'
 import {
+  automationHomeOf,
   createAutomation,
   listAutomations,
   loadAutomation,
@@ -13,10 +14,14 @@ import {
   listRuns,
   loadRun,
 } from '../../../data/automations/automations-store'
+import { roleAllows, type ResourceVerb } from '@solus/contracts/permissions'
+import { roleOf } from '../../../admission/access'
+import { actorFor, type Actor } from '../../../admission/actor'
+import { ANY_ORGANIZATION, INTERNAL_PRINCIPAL } from '../../../admission/principal'
+import { workspaceToolAuthority } from '../../../admission/workspace-tool-authority'
 import { validateTrigger } from '../../../data/automations/automation-schedule'
 import { hasActiveRun, triggerAutomationRun } from '../../automations/automation-runner'
 import { Task } from '../../../data/tasks/task'
-import { ANY_ORGANIZATION } from '../../../admission/principal'
 import { foreignTaskLinksFor } from '../../../data/tasks/foreign-tasks'
 import { resolveAutomationCwd } from '../../automations/automation-cwd'
 
@@ -216,6 +221,21 @@ function foreignAutomationError(operation: string, automationId: string): string
   return `Automation ${automationId} lives on the task's host (this session was dispatched), and ${operation} cannot reach it from here. Manage it from the task's host, or note the request in a comment_task.`
 }
 
+/** The person whose turn calls the tool, as the run admitted them; the host's own work outside a turn. */
+function toolActor(): Actor {
+  return actorFor(workspaceToolAuthority() ?? INTERNAL_PRINCIPAL)
+}
+
+/**
+ * Whether the tool's person holds `verb` on the automation (docs/plans/access-model.md
+ * §4 D4): its owner, or an administrator. An automation they may not reach answers
+ * as one that does not exist, so its id tells nothing.
+ */
+function mayReach(id: string, verb: ResourceVerb): boolean {
+  const home = automationHomeOf(id)
+  return !!home && roleAllows(roleOf(toolActor(), { kind: 'automation', id, ...home, acl: [] }), verb)
+}
+
 export async function executeAutomationTool(
   name: string,
   args: AutomationToolArgs,
@@ -223,7 +243,7 @@ export async function executeAutomationTool(
 ): Promise<AutomationToolResult> {
   try {
     if (name === 'list_automations') {
-      const automations = await listAutomations()
+      const automations = await listAutomations(toolActor())
       if (automations.length === 0) return { ok: true, text: 'No automations exist yet.' }
       const lines = automations.map(
         (a) => `- ${a.id} — "${a.name}" (${a.archivedAt ? 'archived' : a.enabled ? 'enabled' : 'paused'})${a.lastRunStatus ? `, last run: ${a.lastRunStatus}` : ''}`,
@@ -234,7 +254,7 @@ export async function executeAutomationTool(
     if (name === 'read_automation') {
       const id = String(args.automation_id ?? '')
       if (!id) return { ok: false, text: 'read_automation requires an automation_id.' }
-      const a = await loadAutomation(id)
+      const a = mayReach(id, 'read') ? await loadAutomation(id) : null
       if (!a) {
         // A dispatched session's task may link an automation whose row lives
         // on the task's host; the link's snapshot facts are all this host has.
@@ -300,7 +320,7 @@ export async function executeAutomationTool(
     if (name === 'update_automation') {
       const id = String(args.automation_id ?? '')
       if (!id) return { ok: false, text: 'update_automation requires an automation_id.' }
-      const existing = await loadAutomation(id)
+      const existing = mayReach(id, 'edit') ? await loadAutomation(id) : null
       if (!existing) {
         if (foreignAutomationLink(deps.ctx?.sessionId, id)) {
           return { ok: false, text: foreignAutomationError('update_automation', id) }
@@ -356,7 +376,7 @@ export async function executeAutomationTool(
       if (foreignAutomationLink(deps.ctx?.sessionId, id)) {
         return { ok: false, text: foreignAutomationError('delete_automation', id) }
       }
-      const ok = await deleteAutomation(id)
+      const ok = mayReach(id, 'edit') && await deleteAutomation(id)
       return ok
         ? { ok: true, text: `Deleted automation ${id}.` }
         : { ok: false, text: `No automation found with id "${id}".` }
@@ -365,7 +385,7 @@ export async function executeAutomationTool(
     if (name === 'run_automation') {
       const id = String(args.automation_id ?? '')
       if (!id) return { ok: false, text: 'run_automation requires an automation_id.' }
-      const a = await loadAutomation(id)
+      const a = mayReach(id, 'drive') ? await loadAutomation(id) : null
       if (!a) {
         if (foreignAutomationLink(deps.ctx?.sessionId, id)) {
           return { ok: false, text: foreignAutomationError('run_automation', id) }
@@ -381,6 +401,7 @@ export async function executeAutomationTool(
     if (name === 'list_automation_runs') {
       const id = String(args.automation_id ?? '')
       if (!id) return { ok: false, text: 'list_automation_runs requires an automation_id.' }
+      if (!mayReach(id, 'read')) return { ok: false, text: `No automation found with id "${id}".` }
       const runs = await listRuns(id)
       if (runs.length === 0) return { ok: true, text: 'This automation has no runs yet.' }
       const lines = runs.map(
@@ -393,7 +414,7 @@ export async function executeAutomationTool(
       const id = String(args.automation_id ?? '')
       const runId = String(args.run_id ?? '')
       if (!id || !runId) return { ok: false, text: 'read_automation_run requires automation_id and run_id.' }
-      const run = await loadRun(id, runId)
+      const run = mayReach(id, 'read') ? await loadRun(id, runId) : null
       if (!run) return { ok: false, text: `No run "${runId}" found for automation "${id}".` }
       return { ok: true, text: describeRun(run) }
     }

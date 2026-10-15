@@ -76,7 +76,7 @@ describe.skipIf(!chromium)('headless page identity (Playwright Chromium)', () =>
   beforeAll(async () => {
     stopHost = await registerPlaywrightBrowserHost()
     registry = initBrowserRegistry({ pageChanged() {}, pageClosed() {}, surfaceRequested() {} })
-    browserPageId = registry.open({ target: { kind: 'url', url: `http://localhost:${server.port}/` } }).browserPageId
+    browserPageId = registry.open({ target: { kind: 'url', url: `http://localhost:${server.port}/` } }, 'local:owner').browserPageId
   })
 
   afterAll(async () => {

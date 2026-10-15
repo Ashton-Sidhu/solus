@@ -7,6 +7,7 @@ import { sql } from 'drizzle-orm'
 import type { HubNotification } from '@solus/contracts/notification-hub'
 import type { Attribution } from '@solus/contracts/user'
 import { resetTestDatabase } from './helpers/test-db'
+import { notificationReader } from './helpers/actors'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -55,7 +56,7 @@ function reviewRequest(eventId: string, recipients: string[], createdAt = 1_000)
   }
 }
 
-const reader = (recipientKey: string, scope: import('@solus/server/admission/principal').RecordScope = 'org1') => ({ scope, recipientKey })
+const reader = notificationReader
 
 async function record(input: ReturnType<typeof reviewRequest>) {
   return database.getDatabase().transaction((tx) => store.recordNotification(tx, input))

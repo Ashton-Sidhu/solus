@@ -296,7 +296,7 @@
     tasks: keywordsOf(tasksSearch),
     review: keywordsOf(reviewSearch),
     tools: keywordsOf(toolsSearch),
-    integrations: ["integration", "google", "drive", "atlassian", "jira", "confluence", "cloudflare", "account", "accounts"],
+    integrations: ["integration", "google", "drive", "atlassian", "jira", "confluence", "account", "accounts"],
     mcp: mcpSearch,
     providers: ["claude", "claude code", "codex", "agent", "harness", "seat", "sign in", "login", "cli"],
     telemetry: [...analyticsSearch, ...keywordsOf(telemetrySearch)],

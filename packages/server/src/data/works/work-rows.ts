@@ -166,17 +166,18 @@ export interface WorkBody {
   contentAuthor: Attribution | null
 }
 
-export async function insertWorkRow(db: Db, organizationId: string, id: string, meta: WorkMeta, body: WorkBody, previousRevisionId: number | null = null): Promise<void> {
+/** `ownerKey` is the person the new work belongs to (docs/plans/access-model.md §2.2). */
+export async function insertWorkRow(db: Db, organizationId: string, ownerKey: string, id: string, meta: WorkMeta, body: WorkBody, previousRevisionId: number | null = null): Promise<void> {
   await db.run(sql`
     INSERT INTO ${works} (
       id, title, preview, type, session_id, agent_provider, cwd,
       pinned, content, created_at, updated_at, meta, organization_id,
-      content_version, content_hash, content_author, previous_revision_id
+      content_version, content_hash, content_author, previous_revision_id, owner_key
     ) VALUES (
       ${id}, ${meta.title}, ${meta.preview}, ${meta.type}, ${meta.sessionId ?? null},
       ${meta.agentProvider}, ${meta.cwd}, ${meta.pinned === undefined ? null : meta.pinned ? 1 : 0},
       ${body.content}, ${epochMs(meta.createdAt)}, ${epochMs(meta.updatedAt)}, ${metaJson(meta)}, ${organizationId},
-      ${body.contentVersion}, ${body.contentHash}, ${authorJson(body.contentAuthor)}, ${previousRevisionId}
+      ${body.contentVersion}, ${body.contentHash}, ${authorJson(body.contentAuthor)}, ${previousRevisionId}, ${ownerKey}
     )
   `)
 }

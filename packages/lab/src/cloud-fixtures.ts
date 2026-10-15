@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { accountAgentProfileResponseSchema, type AgentProfileIntegrationEntry } from '@solus/contracts/agent-profile'
+import { ACCOUNT_VAULT_PATH, type CredentialRef, type McpRef, type VaultDisconnectRequest, type VaultSaveKeyRequest } from '@solus/contracts/vault'
 import type { RpcInvokeMethod } from '@solus/contracts/rpc'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import { uplinkStatusSchema, type UplinkStatus } from '@solus/contracts/uplink'
@@ -152,16 +153,17 @@ export interface AccountMcp {
   key: string
   slug: string
   url: string
+  /** The server's entry, as alice's agent profile holds it. */
+  entry: AgentProfileIntegrationEntry
 }
 
 /**
- * A local MCP server that needs a bearer key, put in alice's agent profile and her
- * account vault through the account's own routes (`PATCH /v1/account/agent-profile`,
- * `PUT /v1/account/agent-profile/connections`). The server is in her profile, so the
- * cloud takes its loopback address (`integrationOf` reads the profile first). Removed
- * from both at the end.
+ * A local MCP server that needs a bearer key, put in alice's agent profile through the
+ * account's own route (`PATCH /v1/account/agent-profile`). The server is in her
+ * profile, so the cloud takes its loopback address (`mcpServerOf` reads the profile
+ * first). No key is in her vault yet. Removed from the profile at the end.
  */
-export async function accountMcpServer(ctx: CloudScenarioContext, alice: SignedIn): Promise<AccountMcp> {
+export async function profileMcpServer(ctx: CloudScenarioContext, alice: SignedIn): Promise<AccountMcp> {
   const fake = await startFakeServers()
   ctx.defer('the fake MCP server stops', () => fake.close())
   const key = `lab-key-${randomBytes(12).toString('hex')}`
@@ -184,13 +186,31 @@ export async function accountMcpServer(ctx: CloudScenarioContext, alice: SignedI
     const reset = await accountApi(ctx.stack, as, '/v1/account/agent-profile', { method: 'PATCH', body: { generation: current.generation, expectedRevision: current.revision, set: {}, reset: [profileKey] } })
     if (!reset.ok) throw new Error(`Removing the server from the profile answered ${reset.status}`)
   }))
-  const connected = await accountApi(ctx.stack, alice, '/v1/account/agent-profile/connections', { method: 'PUT', body: { serverUrl: fake.mcpUrl, key } })
-  if (!connected.ok) throw new Error(`Connecting the key answered ${connected.status}: ${await connected.text()}`)
-  ctx.defer('alice\'s connection leaves her vault', () => asSignedIn(ctx, alice, async (as) => {
-    const removed = await accountApi(ctx.stack, as, '/v1/account/agent-profile/connections', { method: 'DELETE', body: { serverUrl: fake.mcpUrl } })
+  return { fake, key, slug, url: fake.mcpUrl, entry }
+}
+
+/** A credential ref leaves alice's vault at the end; one already gone is fine. */
+export function deferVaultRemoval(ctx: CloudScenarioContext, alice: SignedIn, label: string, ref: CredentialRef): void {
+  ctx.defer(label, () => asSignedIn(ctx, alice, async (as) => {
+    const disconnect: VaultDisconnectRequest = { ref }
+    const removed = await accountApi(ctx.stack, as, ACCOUNT_VAULT_PATH, { method: 'DELETE', body: disconnect })
     if (removed.status !== 204 && removed.status !== 404) throw new Error(`Removing the connection answered ${removed.status}`)
   }))
-  return { fake, key, slug, url: fake.mcpUrl }
+}
+
+/**
+ * `profileMcpServer`, and its key in alice's account vault through the account's own
+ * route (`PUT /v1/account/vault`, docs/plans/cloud-vault.md §2.3), as the website saves
+ * a pasted key. Removed from the vault at the end.
+ */
+export async function accountMcpServer(ctx: CloudScenarioContext, alice: SignedIn): Promise<AccountMcp> {
+  const mcp = await profileMcpServer(ctx, alice)
+  const ref: McpRef = { kind: 'mcp', serverUrl: mcp.url }
+  const saveKey: VaultSaveKeyRequest = { ref, key: mcp.key }
+  const connected = await accountApi(ctx.stack, alice, ACCOUNT_VAULT_PATH, { method: 'PUT', body: saveKey })
+  if (!connected.ok) throw new Error(`Connecting the key answered ${connected.status}: ${await connected.text()}`)
+  deferVaultRemoval(ctx, alice, 'alice\'s connection leaves her vault', ref)
+  return mcp
 }
 
 /** What the host shows of the account's MCP server after a pull: its record, its connection, and its tools. */

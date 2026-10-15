@@ -3,16 +3,16 @@ import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import type { Integration, IntegrationAuthFinishedEvent, IntegrationConnectionChangedEvent } from '@solus/contracts/integration-types'
-import type { IntegrationSecrets } from '@solus/server/integrations/connection-store'
-import type { OAuthClient, OAuthToken } from '@solus/contracts/integrations/oauth-protocol'
 import { resetTestDatabase } from '../helpers/test-db'
 import { startFakeServers, type FakeServers } from './fake-servers'
+import { memoryClients, memorySecretStore } from './memory-secrets'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 const { IntegrationOAuth } = await import('@solus/server/integrations/oauth')
 const { IntegrationConnections } = await import('@solus/server/integrations/connections')
 const { IntegrationConnectionStore } = await import('@solus/server/integrations/connection-store')
+const { Vault, mcpCredentialRef } = await import('@solus/server/vault/vault')
 const { withActingScope } = await import('@solus/server/vault/acting-scope')
 const { HOST_IDENTITY } = await import('@solus/server/execution/seats/acting-identity')
 const { dataDir } = await import('@solus/server/platform/paths')
@@ -25,41 +25,33 @@ const db = await import('@solus/server/db')
  * stored for the person who started, refresh, and the paste path.
  */
 
-const ALICE = { identity: HOST_IDENTITY, credentialUserId: 'account:alice' }
-const BOB = { identity: HOST_IDENTITY, credentialUserId: 'account:bob' }
+const ALICE = { identity: HOST_IDENTITY, personKey: 'account:alice' }
+const BOB = { identity: HOST_IDENTITY, personKey: 'account:bob' }
 const START = { callbackBaseUrl: 'https://host.example', fallbackHost: '127.0.0.1', fallbackPort: 4100 }
 
 let fake: FakeServers
 let integration: Integration
 
-function memorySecrets(): IntegrationSecrets & { tokens: Map<string, OAuthToken> } {
-  const tokens = new Map<string, OAuthToken>()
-  const clients = new Map<string, OAuthClient>()
-  const key = (id: string, user: string | null) => `${id}/${user ?? 'host'}`
-  return {
-    tokens,
-    token: (id, user) => tokens.get(key(id, user)) ?? null,
-    saveToken: (id, user, token) => { tokens.set(key(id, user), token) },
-    removeToken: (id, user) => { tokens.delete(key(id, user)) },
-    client: (id) => clients.get(id) ?? null,
-    saveClient: (id, client) => { clients.set(id, client) },
-    removeClient: (id) => { clients.delete(id) },
-  }
-}
-
 function setup(now = () => Date.now()) {
-  const secrets = memorySecrets()
   const store = new IntegrationConnectionStore()
-  const changed: Array<{ user: string | null; event: IntegrationConnectionChangedEvent }> = []
-  const finished: Array<{ user: string | null; event: IntegrationAuthFinishedEvent }> = []
+  const secrets = memorySecretStore()
+  const vault = new Vault({ secrets })
+  const clients = memoryClients()
+  /** The access token the vault holds on this host for a person. */
+  const hostToken = async (personKey: string) => {
+    const credential = await vault.read(personKey, mcpCredentialRef(integration))
+    return credential?.location === 'host' ? credential.token.accessToken : undefined
+  }
+  const changed: Array<{ user: string; event: IntegrationConnectionChangedEvent }> = []
+  const finished: Array<{ user: string; event: IntegrationAuthFinishedEvent }> = []
   const events = {
-    connectionChanged: (user: string | null, event: IntegrationConnectionChangedEvent) => { changed.push({ user, event }) },
-    authFinished: (user: string | null, event: IntegrationAuthFinishedEvent) => { finished.push({ user, event }) },
+    connectionChanged: (user: string, event: IntegrationConnectionChangedEvent) => { changed.push({ user, event }) },
+    authFinished: (user: string, event: IntegrationAuthFinishedEvent) => { finished.push({ user, event }) },
   }
   const integrations = { get: (id: string) => (id === integration.id ? integration : null) }
-  const oauth = new IntegrationOAuth({ connections: store, integrations, secrets, events, now })
-  const connections = new IntegrationConnections({ store, integrations, secrets, oauth, events })
-  return { secrets, store, oauth, connections, changed, finished }
+  const oauth = new IntegrationOAuth({ connections: store, integrations, vault, clients, events, now })
+  const connections = new IntegrationConnections({ store, integrations, vault, clients, oauth, events })
+  return { hostToken, store, oauth, connections, changed, finished }
 }
 
 /** What the authorization server would send the browser back with, for this authorization URL. */
@@ -80,7 +72,7 @@ beforeAll(async () => {
   integration = {
     id: 'int-oauth',
     organizationId: 'local',
-    ownerUserId: null,
+    ownerKey: 'local:test',
     kind: 'mcp',
     slug: 'fake',
     name: 'Fake',
@@ -136,13 +128,13 @@ describe('integration OAuth', () => {
     const page = await oauth.complete(approve(flow.url))
     expect(page.status).toBe(200)
     // The callback carries no principal: the flow's scope decides whose token it is.
-    const alice = await connections.authorizationFor(integration.id, ALICE.credentialUserId)
+    const alice = await connections.authorizationFor(integration.id, ALICE.personKey)
     expect(alice).toMatch(/^Bearer access-/)
-    expect(await connections.authorizationFor(integration.id, BOB.credentialUserId)).toBeNull()
-    expect(await connections.authorizationFor(integration.id, null)).toBeNull()
-    expect(store.get(integration.id, ALICE.credentialUserId)).toMatchObject({ status: 'connected', label: 'Fake MCP' })
-    expect(changed.map((each) => each.user)).toEqual([ALICE.credentialUserId])
-    expect(finished).toEqual([{ user: ALICE.credentialUserId, event: { flowId: flow.flowId, integrationId: integration.id, outcome: 'connected' } }])
+    expect(await connections.authorizationFor(integration.id, BOB.personKey)).toBeNull()
+    expect(await connections.authorizationFor(integration.id, 'local:owner')).toBeNull()
+    expect(store.get(integration.id, ALICE.personKey)).toMatchObject({ status: 'connected', label: 'Fake MCP' })
+    expect(changed.map((each) => each.user)).toEqual([ALICE.personKey])
+    expect(finished).toEqual([{ user: ALICE.personKey, event: { flowId: flow.flowId, integrationId: integration.id, outcome: 'connected' } }])
     // The token exchange carried the verifier and the resource.
     const exchange = fake.tokenRequests.at(-1)
     expect(exchange?.get('code_verifier')).toBeTruthy()
@@ -157,7 +149,7 @@ describe('integration OAuth', () => {
     // WHY: a flow id is not a credential; another person cannot finish someone else's sign-in.
     await expect(withActingScope(BOB, () => oauth.submitRedirect(flow.flowId, pasted))).rejects.toThrow(/expired/)
     await withActingScope(ALICE, () => oauth.submitRedirect(flow.flowId, pasted))
-    expect(await connections.authorizationFor(integration.id, ALICE.credentialUserId)).toMatch(/^Bearer access-/)
+    expect(await connections.authorizationFor(integration.id, ALICE.personKey)).toMatch(/^Bearer access-/)
   })
 
   test('an expired flow fails plainly', async () => {
@@ -172,15 +164,15 @@ describe('integration OAuth', () => {
 
   test('a token with under a minute left is refreshed before use', async () => {
     fake.options.expiresIn = 30
-    const { oauth, connections, secrets } = setup()
+    const { oauth, connections, hostToken } = setup()
     const flow = await startAs(ALICE, oauth)
     await oauth.complete(approve(flow.url))
-    const first = secrets.token(integration.id, ALICE.credentialUserId)?.accessToken
+    const first = await hostToken(ALICE.personKey)
     fake.options.expiresIn = 3600
-    const header = await connections.authorizationFor(integration.id, ALICE.credentialUserId)
+    const header = await connections.authorizationFor(integration.id, ALICE.personKey)
     expect(fake.tokenRequests.at(-1)?.get('grant_type')).toBe('refresh_token')
     expect(header).not.toBe(`Bearer ${first}`)
-    expect(header).toBe(`Bearer ${secrets.token(integration.id, ALICE.credentialUserId)?.accessToken}`)
+    expect(header).toBe(`Bearer ${await hostToken(ALICE.personKey)}`)
   })
 
   test('a refused refresh marks the connection needs-sign-in', async () => {
@@ -189,8 +181,8 @@ describe('integration OAuth', () => {
     const flow = await startAs(ALICE, oauth)
     await oauth.complete(approve(flow.url))
     fake.options.refuseRefresh = true
-    expect(await connections.authorizationFor(integration.id, ALICE.credentialUserId)).toBeNull()
-    expect(store.get(integration.id, ALICE.credentialUserId)?.status).toBe('needs-sign-in')
+    expect(await connections.authorizationFor(integration.id, ALICE.personKey)).toBeNull()
+    expect(store.get(integration.id, ALICE.personKey)?.status).toBe('needs-sign-in')
     expect(changed.at(-1)?.event.connection?.status).toBe('needs-sign-in')
   })
 
@@ -198,16 +190,16 @@ describe('integration OAuth', () => {
     fake.options.registration = false
     const { oauth } = setup()
     const other: Integration = { ...integration, id: 'int-no-client', auth: { kind: 'oauth', discover: fake.resourceMetadataUrl, registration: 'client-required' } }
-    await expect(withActingScope(ALICE, () => oauth.start(other, START))).rejects.toThrow('This server needs an OAuth client. Ask the host administrator to add one.')
+    await expect(withActingScope(ALICE, () => oauth.start(other, START))).rejects.toThrow('This server needs an OAuth client. Its owner adds one in the server settings.')
   })
 
   test('disconnect removes the token and revokes it at the server', async () => {
     const { oauth, connections, store, changed } = setup()
     const flow = await startAs(ALICE, oauth)
     await oauth.complete(approve(flow.url))
-    expect(await connections.disconnect(integration, ALICE.credentialUserId)).toBe(true)
-    expect(await connections.authorizationFor(integration.id, ALICE.credentialUserId)).toBeNull()
-    expect(store.get(integration.id, ALICE.credentialUserId)).toBeNull()
+    expect(await connections.disconnect(integration, ALICE.personKey)).toBe(true)
+    expect(await connections.authorizationFor(integration.id, ALICE.personKey)).toBeNull()
+    expect(store.get(integration.id, ALICE.personKey)).toBeNull()
     expect(changed.at(-1)?.event.connection).toBeNull()
     expect(fake.revoked.at(-1)).toMatch(/^refresh-/)
   })

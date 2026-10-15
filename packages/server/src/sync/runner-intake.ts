@@ -60,10 +60,10 @@ function ascending<T extends { seq: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => a.seq - b.seq)
 }
 
-/** A `create` op made a task or a work: the organization's, as anything made in its space is. */
-async function claimCreated(shares: ShareManager | undefined, runner: RunnerPrincipal, op: OutboxOp): Promise<void> {
-  if (!shares || op.name !== 'create') return
-  await shares.claimForRunner({ kind: op.domain === 'tasks' ? 'task' : 'work', id: op.resourceId }, runner)
+/** A `create` op made a task or a work: owned by the runner's person, and the organization's to open, as anything made in its space is. */
+async function shareCreated(shares: ShareManager | undefined, runner: RunnerPrincipal, op: OutboxOp): Promise<void> {
+  if (!shares || op.name !== 'create' || (op.domain !== 'tasks' && op.domain !== 'works')) return
+  await shares.shareRunnerWrite({ kind: op.domain === 'tasks' ? 'task' : 'work', id: op.resourceId }, runner, runner.ownerUserId)
 }
 
 export async function applyRunnerOutbox(runner: RunnerPrincipal, request: RunnerOutboxRequest, shares?: ShareManager): Promise<RunnerOutboxResponse> {
@@ -74,8 +74,8 @@ export async function applyRunnerOutbox(runner: RunnerPrincipal, request: Runner
     if (seq <= lastSeq) continue
     try {
       await database.transaction(async (db) => {
-        await applyOutboxOp(op, runner.organizationId)
-        await claimCreated(shares, runner, op)
+        await applyOutboxOp(op, { organizationId: runner.organizationId, ownerKey: runner.ownerUserId })
+        await shareCreated(shares, runner, op)
         await writeCursor(db, runner, 'outbox', seq)
       })
       lastSeq = seq
@@ -100,21 +100,20 @@ export async function applyRunnerSessionRecords(runner: RunnerPrincipal, request
     if (seq <= lastSeq) continue
     // The record names the runner that holds the transcript; a runner cannot speak for another.
     await database.transaction(async (db) => {
-      const { admissionId, privateToOwner, ownerUserId: _reportedOwner, ...facts } = record
+      const { admissionId, privateToOwner, ...facts } = record
       const existing = await getSessionRecord(runner.organizationId, record.sessionId)
       // The owner is established once, from verified authority (organization-vms §4): a
       // session admitted before its provider started belongs to the person whose run
       // authority admitted it; any other new record to the account that linked the
       // runner. A report never names or changes the owner, and a replay restores nothing.
       const admission = !existing && admissionId ? await readSessionAdmission(runner.organizationId, admissionId) : null
-      const owner = admission && admission.hostId === runner.hostId ? admission.ownerUserId : runner.ownerUserId
+      const owner = admission && admission.hostId === runner.hostId ? admission.ownerKey : runner.ownerUserId
       const report: SessionRecordUpsert = { ...facts, runnerHostId: runner.hostId }
-      if (!existing) report.ownerUserId = owner ?? null
-      // A runner reports only published sessions, so the record it creates is published.
-      await upsertSessionRecord(runner.organizationId, report, { organizationId: runner.organizationId, published: true })
-      // A session the runner reports is the organization's to open, like anything else it
+      // A runner reports only published sessions, so the record it creates is published, owned by `owner`.
+      await upsertSessionRecord(runner.organizationId, report, { organizationId: runner.organizationId, published: true, ownerKey: owner })
+      // A new session the runner reports is the organization's to open, like anything else it
       // writes here; a chat is its owner's alone until they share it (plan 004 D14).
-      if (shares) await shares.claimForRunner({ kind: 'session', id: record.sessionId }, owner ? { ...runner, ownerUserId: owner } : runner, { shareWithOrganization: !privateToOwner })
+      if (shares && !existing && !privateToOwner) await shares.shareRunnerWrite({ kind: 'session', id: record.sessionId }, runner, owner)
       await writeCursor(db, runner, 'session-records', seq)
     })
     lastSeq = seq

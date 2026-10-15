@@ -14,7 +14,7 @@ import type { Activity } from '@solus/contracts/activity'
 import { activityFor } from '../../data/activity/activity'
 import { sessionRecords } from '../../data/sessions/schema'
 import { appendMirror } from './mirror-log'
-import type { DeliveryDestination } from '../outbox/outbox-store'
+import { deliveryActorOf, type DeliveryDestination } from '../outbox/outbox-store'
 
 const log = createLogger('main', 'transcript-mirror')
 
@@ -76,7 +76,7 @@ export async function transcriptDestination(sessionId: string): Promise<Delivery
   const record = await getSessionRecord(ANY_ORGANIZATION, sessionId)
   if (!record || record.organizationId === LOCAL_ORGANIZATION_ID) return null
   // The session's owner delivers its transcript, with their delegated token (plans/010-standard-oauth.md).
-  const destination = { organizationId: record.organizationId, actorUserId: record.ownerUserId ?? '' }
+  const destination = { organizationId: record.organizationId, actorUserId: deliveryActorOf(record.ownerKey) }
   return record.publication === 'published' ? destination : null
 }
 

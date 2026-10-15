@@ -1,19 +1,21 @@
 import type { RpcMethod } from './rpc'
-import type { ResourceRole, ShareResource, ShareResourceKind } from './sharing'
+import type { ResourceRole, ShareResourceKind } from './sharing'
 
 /**
- * Permissions (docs/plans/permissions.md). What a person may do is an **action**,
- * a dotted path named for the person, never for the wire: `host.git.write`,
- * `session.drive`. A **grant** is a prefix: `host.git` covers `host.git.read`,
- * `host.git.write`, and anything added under it later; `host` covers everything.
- * Deny is absence. Splitting an action is one row here and one `may` call; every
- * grant of the parent keeps working.
+ * Permissions (docs/plans/permissions.md, docs/plans/access-model.md §1). What a
+ * person may do is named as a dotted path for the person, never for the wire:
+ * `host.git.write`, `session.drive`. Two kinds:
  *
- * Two kinds of action:
- * - a **host action** is held on the host as a whole. The host computes the
- *   grants once per connection (`grantsFor`) and sends them on the server info.
- * - a **resource action** is `<kind>.<verb>` on one session, work, or task, and
- *   follows the share role (`ROLE_VERBS`). It is never granted on the host.
+ * - a **permission** is held on the host as a whole and follows the host role.
+ *   A held permission is a prefix: `host.git` covers `host.git.read`,
+ *   `host.git.write`, and anything added under it later; `host` covers
+ *   everything. Deny is absence. The host computes a connection's permissions
+ *   once (`permissionsFor`) and sends them on the server info. Splitting a
+ *   permission is one row here and one `may` call; every holder of the parent
+ *   keeps it.
+ * - a **resource action** is `<kind>.<verb>` on one resource (a session, work,
+ *   task, automation, project, or notification), and follows the resource role
+ *   `roleOf` gives (`ROLE_VERBS`). It is never held on the host.
  *
  * This file is the one registry: the server's gate and every client's controls
  * read the same tables, so a control is disabled exactly when the host refuses.
@@ -23,11 +25,11 @@ import type { ResourceRole, ShareResource, ShareResourceKind } from './sharing'
 type Prefixes<S extends string> = S extends `${infer Head}.${infer Tail}` ? Head | `${Head}.${Prefixes<Tail>}` : S
 
 /**
- * The host-action leaves: each method not listed here is `host.use`, the
+ * The permission leaves: each method not listed here needs `host.use`, the
  * ordinary use of the host's catalog and tools. A method is listed only when a
  * principal must be able to hold it apart from `host.use`.
  */
-const HOST_ACTION_OF_METHOD = {
+const PERMISSION_OF_METHOD = {
   // Drives the window: a trusted local connection only.
   isVisible: 'host.local.window',
   getAppGlobalShortcuts: 'host.local.window',
@@ -52,7 +54,6 @@ const HOST_ACTION_OF_METHOD = {
   hostIntroductionAccept: 'host.local.reach',
   hostIntroductionForget: 'host.local.reach',
   hostIntroductionAllow: 'host.local.reach',
-  typeSafeKeySet: 'host.admin',
   configUpdate: 'host.admin',
   setProjectsBaseDirectory: 'host.admin',
   deleteProject: 'host.admin',
@@ -74,18 +75,19 @@ const HOST_ACTION_OF_METHOD = {
   browserRequestCookieAccess: 'host.admin',
   browserImportCookies: 'host.admin',
   hostSetInsightsOptIn: 'host.admin',
+  // Arbitrary SQL cannot be held to the caller's own turns, so it reads every turn: an administrator's (access-model.md §4 D2).
+  metricsRunSql: 'host.admin',
   deviceConfigure: 'host.admin',
   deviceHostSave: 'host.admin',
   deviceHostRemove: 'host.admin',
   deviceHostTest: 'host.admin',
   deviceToolUpdate: 'host.admin',
   deviceHostRetry: 'host.admin',
-  // The machine's one GitHub, Google, Atlassian, or Cloudflare credential on a host; each
+  // The machine's one GitHub, Google, Atlassian, or TypeSafe credential on a host; each
   // person's own row on the workspace service, where every member holds this leaf.
+  typeSafeKeySet: 'host.admin.connections',
   googleConnect: 'host.admin.connections',
   googleDisconnect: 'host.admin.connections',
-  cloudflareConnect: 'host.admin.connections',
-  cloudflareDisconnect: 'host.admin.connections',
   atlassianStartOAuth: 'host.admin.connections',
   atlassianCancelOAuth: 'host.admin.connections',
   atlassianDisconnect: 'host.admin.connections',
@@ -130,6 +132,27 @@ const HOST_ACTION_OF_METHOD = {
   gitRegisterEnvironment: 'host.git.write',
   gitInitRepository: 'host.git.write',
   githubPublishRepository: 'host.git.write',
+  // A change to a pull request is a repository write. When the pull request is
+  // part of sessions, the handler also asks for session.edit on one of them
+  // (access-model.md §2.3; `writePullRequest`).
+  prUpdate: 'host.git.write',
+  prRequestReviewers: 'host.git.write',
+  prRemoveRequestedReviewer: 'host.git.write',
+  prSetLabels: 'host.git.write',
+  prUpdateLifecycle: 'host.git.write',
+  prSubmitReview: 'host.git.write',
+  prAddIssueComment: 'host.git.write',
+  prDeleteIssueComment: 'host.git.write',
+  prReplyThread: 'host.git.write',
+  prResolveThread: 'host.git.write',
+  prUnresolveThread: 'host.git.write',
+  prMerge: 'host.git.write',
+  prEnableAutoMerge: 'host.git.write',
+  prDisableAutoMerge: 'host.git.write',
+  prUpdateBranch: 'host.git.write',
+  prRevert: 'host.git.write',
+  prMergeStack: 'host.git.write',
+  prApproveWorkflowRuns: 'host.git.write',
   openWorktreeTerminal: 'host.terminal',
   usageLimits: 'host.usage.read',
   // Project files: reading a checkout's files, and changing them.
@@ -148,14 +171,24 @@ const HOST_ACTION_OF_METHOD = {
 /** The ordinary use of the host: files, tasks, works, browser, devices, settings reads, and the rest. */
 export const HOST_USE = 'host.use'
 
-type HostActionLeaf = (typeof HOST_ACTION_OF_METHOD)[keyof typeof HOST_ACTION_OF_METHOD] | typeof HOST_USE
-/** A host action or any prefix of one: what a grant may name, and what a control may ask for. */
-export type HostAction = Prefixes<HostActionLeaf>
+type PermissionLeaf = (typeof PERMISSION_OF_METHOD)[keyof typeof PERMISSION_OF_METHOD] | typeof HOST_USE
+/** A permission leaf or any prefix of one: what a connection may hold, and what a control may ask for. */
+export type Permission = Prefixes<PermissionLeaf>
+
+/** Every kind of resource (docs/plans/access-model.md §1). An insight is one turn and its spans in Insights; a browserProfile is one person's cookie jar in a project (member-isolation.md §6). */
+export type ResourceKind = ShareResourceKind | 'integration' | 'notification' | 'automation' | 'project' | 'insight' | 'browserProfile'
+
+/** A resource a control acts on: its kind and id, and the reader's role on it when the host sent one (§2.7). */
+export interface ResourceRef {
+  kind: ResourceKind
+  id: string
+  role?: ResourceRole
+}
 
 /** The resource verbs, lowest first; a role holds a set of them on every kind. */
 export const RESOURCE_VERBS = ['read', 'comment', 'drive', 'edit', 'share', 'own'] as const
 export type ResourceVerb = (typeof RESOURCE_VERBS)[number]
-export type ResourceAction = `${ShareResourceKind}.${ResourceVerb}`
+export type ResourceAction = `${ResourceKind}.${ResourceVerb}`
 
 /**
  * What each share role holds on a resource. A commenter comments on a work; on a
@@ -175,6 +208,15 @@ export const ROLE_VERBS = {
 export function roleAllows(role: ResourceRole, verb: ResourceVerb): boolean {
   const verbs: readonly ResourceVerb[] = ROLE_VERBS[role]
   return verbs.includes(verb)
+}
+
+/**
+ * Whether the role a resource carries allows `verb` (docs/plans/access-model.md
+ * §2.7). A resource the host sent no role on is the reader's own until the host
+ * refuses, so an owner's controls never flicker off.
+ */
+export function resourceAllows(resource: Pick<ResourceRef, 'role'>, verb: ResourceVerb): boolean {
+  return resource.role === undefined || roleAllows(resource.role, verb)
 }
 
 export function isResourceVerb(value: string): value is ResourceVerb {
@@ -222,6 +264,15 @@ export const RESOURCE_VERB_OF_METHOD = {
   tasksSyncNow: 'edit', tasksLink: 'edit', tasksUnlink: 'edit', tasksAttachArtifact: 'edit',
   // Owner only: transfer, and taking the record off its host (docs/plans/cloud-sharing.md)
   shareTransfer: 'own', workExportForCloud: 'own', workMarkMoved: 'own', taskExportForCloud: 'own', taskMarkMoved: 'own',
+  // Automations (access-model.md §4 D4): the owner, or an administrator as an editor, reads,
+  // changes, runs, and deletes one. Listing and creating are host-wide; a list is filtered.
+  automationRead: 'read', automationListRuns: 'read', automationReadRun: 'read',
+  automationUpdate: 'edit', automationSetEnabled: 'edit', automationDelete: 'edit',
+  automationRun: 'drive', automationCancel: 'drive',
+  // Projects: every member lists the organization's projects; changing one is its owner's or an administrator's.
+  workspaceProjectUpdate: 'edit', workspaceProjectRemove: 'edit',
+  // Notifications are personal: only their recipient, the owner, marks one.
+  notificationsSetRead: 'edit', notificationsSetArchived: 'edit',
 } as const satisfies Partial<Record<RpcMethod, ResourceVerb>>
 
 export type ResourceMethod = keyof typeof RESOURCE_VERB_OF_METHOD
@@ -230,29 +281,29 @@ export function isResourceMethod(method: RpcMethod): method is ResourceMethod {
   return method in RESOURCE_VERB_OF_METHOD
 }
 
-const HOST_ACTION_BY_METHOD: ReadonlyMap<string, HostAction> = new Map(Object.entries(HOST_ACTION_OF_METHOD))
+const PERMISSION_BY_METHOD: ReadonlyMap<string, Permission> = new Map(Object.entries(PERMISSION_OF_METHOD))
 
-/** The host action a method needs; a resource method has none, it has a verb. */
-export function hostActionOf(method: RpcMethod): HostAction | null {
+/** The permission a method needs; a resource method has none, it has a verb. */
+export function permissionOf(method: RpcMethod): Permission | null {
   if (isResourceMethod(method)) return null
-  return HOST_ACTION_BY_METHOD.get(method) ?? HOST_USE
+  return PERMISSION_BY_METHOD.get(method) ?? HOST_USE
 }
 
 export function resourceVerbOf(method: ResourceMethod): ResourceVerb {
   return RESOURCE_VERB_OF_METHOD[method]
 }
 
-export function resourceActionOf(resource: Pick<ShareResource, 'kind'>, verb: ResourceVerb): ResourceAction {
+export function resourceActionOf(resource: Pick<ResourceRef, 'kind'>, verb: ResourceVerb): ResourceAction {
   return `${resource.kind}.${verb}`
 }
 
-/** Whether a grant list reaches an action: the action itself or any of its prefixes is granted. */
-export function grantsAllow(grants: readonly string[], action: string): boolean {
-  for (const grant of grants) {
-    if (action === grant || action.startsWith(`${grant}.`)) return true
+/** Whether held permissions reach one: it or any of its prefixes is held. */
+export function permissionsAllow(held: readonly string[], permission: string): boolean {
+  for (const prefix of held) {
+    if (permission === prefix || permission.startsWith(`${prefix}.`)) return true
   }
   return false
 }
 
-/** Every host action a grant list of `['host']` would cover; the owner's standing. */
-export const EVERY_HOST_ACTION: readonly HostAction[] = ['host']
+/** The owner's permissions: `['host']` covers every permission. */
+export const EVERY_PERMISSION: readonly Permission[] = ['host']

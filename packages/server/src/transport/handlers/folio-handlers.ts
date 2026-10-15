@@ -8,7 +8,7 @@ import { Work } from '../../data/works/work'
 import { expandHome } from '../../files/host-path'
 import { applyWorkComment, loadWorkAnnotations } from '../../data/works/work-annotations'
 import { workCommentCommandSchema, type CommentActor } from '@solus/contracts/comment-commands'
-import { attributionOf, type Actor } from '../../admission/actor'
+import { attributionOf, ownerKeyOf, type Actor } from '../../admission/actor'
 import { isHostAdmin, organizationForNew, recordScopeOf } from '../../admission/principal'
 import { importDocFromUrl, publishWork, pullWorkUpstream, refreshUpstreamState, unlinkWork } from '../../data/works/work-sync'
 import { docProviderAdapter, docProviderStatuses } from '../../docs/registry'
@@ -29,7 +29,9 @@ export function registerFolioHandlers(server: SolusServer, deps: { shares?: Shar
 
   server.register('duplicateWork', async (args, ctx) => {
     const [id] = args
-    return duplicateWork(recordScopeOf(ctx.principal), id)
+    const copy = await duplicateWork(recordScopeOf(ctx.principal), id, ownerKeyOf(ctx.actor) ?? undefined)
+    await deps.shares?.shareWithOrganization({ kind: 'work', id: copy.id }, ctx.principal)
+    return copy
   })
 
   server.register('linkWorkSession', async (args, ctx) => {
@@ -159,7 +161,8 @@ export function registerFolioHandlers(server: SolusServer, deps: { shares?: Shar
 
   server.register('importDocFromUrl', async (args, ctx) => {
     const [url, cwd] = args
-    const imported = await importDocFromUrl(organizationForNew(ctx.principal), url, { cwd })
+    const imported = await importDocFromUrl(organizationForNew(ctx.principal), url, { cwd, ownerKey: ownerKeyOf(ctx.actor) ?? undefined })
+    await deps.shares?.shareWithOrganization({ kind: 'work', id: imported.work.id }, ctx.principal)
     return imported.work
   })
 }

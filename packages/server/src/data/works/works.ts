@@ -16,6 +16,7 @@ import { workLiveBridge } from './work-live-bridge'
 import { emitWorkChanged } from './work-events'
 import { recordNewMentions } from '../activity/mentions'
 import { hostAttribution } from '../stored-attribution'
+import { hostUserKey } from '../../host/host-user'
 import {
   REVISION_COLUMNS,
   WORK_COLUMNS,
@@ -58,10 +59,10 @@ const workRefRowSchema = z.object({
 const database = getDatabase
 
 /** A new work row and its baseline checkpoint, in one transaction. */
-async function insertNewWork(organizationId: string, id: string, meta: WorkMeta, content: string, author: Attribution | null): Promise<Work> {
+async function insertNewWork(organizationId: string, ownerKey: string, id: string, meta: WorkMeta, content: string, author: Attribution | null): Promise<Work> {
   const body: WorkBody = { content, contentVersion: 1, contentHash: documentContentHash(content), contentAuthor: author }
   await database().transaction(async (db) => {
-    await insertWorkRow(db, organizationId, id, meta, body)
+    await insertWorkRow(db, organizationId, ownerKey, id, meta, body)
     await insertBaseline(db, organizationId, id, body, epochMs(meta.updatedAt))
     await recordNewMentions(db, organizationId, { kind: 'work', id, title: meta.title }, author ?? hostAttribution(), '', content)
     emitWorkChanged({ workId: id, version: meta.updatedAt, contentVersion: body.contentVersion })
@@ -81,6 +82,8 @@ export async function createWork(
   id: string = randomUUID(),
   /** From the admitted request that creates the work; null when nothing admitted names one. */
   author: Attribution | null = null,
+  /** The person the work belongs to: its creator. The host's own work, which no person made, is the host's user's. */
+  ownerKey: string = hostUserKey(),
 ): Promise<Work> {
   validateWorkContent(type, content)
   const now = new Date().toISOString()
@@ -96,11 +99,12 @@ export async function createWork(
     agentProvider,
     cwd,
   }
-  return insertNewWork(organizationId, id, meta, content, author)
+  return insertNewWork(organizationId, ownerKey, id, meta, content, author)
 }
 
 /** A copy is a new work: its own baseline at version 1, with the body's author kept. */
-export async function duplicateWork(scope: RecordScope, id: string): Promise<Work> {
+/** A copy is a new work of `ownerKey`, the person who made it. */
+export async function duplicateWork(scope: RecordScope, id: string, ownerKey: string = hostUserKey()): Promise<Work> {
   await workLiveBridge()?.flush(id)
   const row = await workRow(database(), scope, id)
   if (!row) throw new Error(`Work not found: ${id}`)
@@ -118,7 +122,7 @@ export async function duplicateWork(scope: RecordScope, id: string): Promise<Wor
     // doc would overwrite each other with no way to tell which won.
     mirroredDoc: undefined,
   }
-  return insertNewWork(row.organization_id, randomUUID(), meta, source.content, source.contentAuthor)
+  return insertNewWork(row.organization_id, ownerKey, randomUUID(), meta, source.content, source.contentAuthor)
 }
 
 /**
@@ -296,7 +300,7 @@ function verifySnapshot({ work, previousRevisionId, revisions, annotations }: Wo
  * different work is never overwritten; the same fingerprint is a retry and
  * answers the stored work without writing.
  */
-export async function importWorkFromHost(organizationId: string, transfer: WorkTransfer): Promise<Work> {
+export async function importWorkFromHost(organizationId: string, transfer: WorkTransfer, ownerKey: string): Promise<Work> {
   const { work, previousRevisionId, revisions, annotations, fingerprint } = transfer
   const snapshot: WorkSnapshot = { work, previousRevisionId, revisions, annotations }
   if (fingerprint !== workTransferFingerprint(snapshot)) throw new Error('The work snapshot is incomplete.')
@@ -308,7 +312,7 @@ export async function importWorkFromHost(organizationId: string, transfer: WorkT
       if ((await exportWorkForCloud(organizationId, work.id)).fingerprint !== fingerprint) throw new Error('The cloud already has a different version. Open it before sharing.')
       return imported
     }
-    await insertWorkRow(db, organizationId, work.id, imported, imported, previousRevisionId)
+    await insertWorkRow(db, organizationId, ownerKey, work.id, imported, imported, previousRevisionId)
     for (const revision of revisions) await copyRevision(db, organizationId, revision)
     if (annotations) await db.run(sql`INSERT INTO ${workAnnotations} (work_id, data, updated_at, organization_id) VALUES (${work.id}, ${JSON.stringify(annotations)}, ${annotations.updatedAt}, ${organizationId})`)
     emitWorkChanged({ workId: work.id, version: work.updatedAt, contentVersion: work.contentVersion })

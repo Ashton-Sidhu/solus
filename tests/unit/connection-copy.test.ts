@@ -2,11 +2,12 @@ import { describe, expect, test } from 'bun:test'
 import { cloudConnectionsPointerUrl } from '../../packages/workspace-ui/src/components/seats/lib/cloud-connections'
 import type { HostIdentity } from '../../packages/workspace-ui/src/contexts/sharing/shares.store.svelte'
 
-// docs/plans/cloud-service-model.md §26: the owner of a personal host connects GitHub,
-// Google, and Atlassian on that host, signed in or not. Account connections in Solus
-// cloud are for cloud-managed hosts and for members, so a member never overwrites
-// the host's own connections. The workspace service itself is never a settings host
-// (§15), so there is no cloud row to ask.
+// docs/plans/cloud-vault.md §2.5, "Signed in means the account": a signed-in
+// person's GitHub, Google, and Atlassian connections are in their Solus account,
+// and the host names that page (`accountConnectionsUrl`) for the owner of a linked
+// host and for every member. Only the owner of a host that is not linked keeps the
+// host's own connections. The workspace service itself is never a settings host
+// (cloud-service-model.md §15), so there is no cloud row to ask.
 
 const directoryUrl = 'https://app.solus.sh/'
 const member: HostIdentity = { principal: 'org-member', userId: 'u1', organizationId: 'org 1' }
@@ -29,7 +30,7 @@ describe('where a host row keeps a person’s connections', () => {
     expect(cloudConnectionsPointerUrl({ identity: undefined, directoryUrl })).toBeNull()
   })
 
-  test('the owner of a linked personal host keeps the host sections', () => {
+  test('with no account page from the host, an owner keeps the host sections', () => {
     const identity: HostIdentity = { principal: 'remote-owner', userId: 'alice', organizationId: null }
     expect(cloudConnectionsPointerUrl({ identity, directoryUrl })).toBeNull()
     expect(cloudConnectionsPointerUrl({ identity: member, directoryUrl: undefined })).toBeNull()

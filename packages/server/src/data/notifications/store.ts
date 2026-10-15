@@ -27,8 +27,9 @@ import {
 import { ulid } from '@solus/contracts/ulid'
 import { userKey, type Attribution } from '@solus/contracts/user'
 import { afterDatabaseCommit, getDatabase, type Db } from '../../db/database'
-import { isAnyOrganization, type RecordScope } from '../../admission/principal'
-import { scopeClause } from '../scope'
+import { isAnyOrganization, recordScopeOf } from '../../admission/principal'
+import { ownerKeyOf, type Actor } from '../../admission/actor'
+import { visibleTo } from '../../admission/access'
 import { attributionJson, hostAttribution, parseStoredAttribution } from '../stored-attribution'
 import { notifications } from './schema'
 
@@ -205,14 +206,19 @@ async function removeWhere(tx: Db, organizationId: string, where: SQL): Promise<
 // ─── Reads ───
 
 /**
- * The person and home a read is for. `recipientKey` comes from the admitted
- * principal; `mayOpen` is the source's current resource access check, applied
- * before page and count semantics.
+ * The person a read is for: the admitted actor. A notification is a personal
+ * resource whose owner is its recipient (docs/plans/access-model.md §2.3.1), so
+ * the actor reads only their own rows in their own scope. `mayOpen` is the
+ * source's current resource access check, applied before page and count semantics.
  */
 export interface NotificationReader {
-  scope: RecordScope
-  recipientKey: string
+  actor: Actor
   mayOpen?: (notification: HubNotification) => Promise<boolean>
+}
+
+/** The rows `reader` may reach: `visibleTo` with the recipient as the owner. */
+function visibleRows(reader: NotificationReader): SQL {
+  return visibleTo(reader.actor, 'notification', { id: sql`id`, organization: sql`organization_id`, owner: sql`recipient_key` })
 }
 
 const rowSchema = z.object({
@@ -268,13 +274,14 @@ function viewClause(filter: NotificationFilter): SQL {
   return filter.kinds?.length ? sql`${view} AND kind IN ${inList(filter.kinds)}` : view
 }
 
-function scopeKey(scope: RecordScope): string {
+function scopeKey(reader: NotificationReader): string {
+  const scope = recordScopeOf(reader.actor.principal)
   return isAnyOrganization(scope) ? '*' : `org:${scope}`
 }
 
 /** A short digest that ties a cursor to the recipient, home, and filter it was read for. */
 function binding(reader: NotificationReader, filter: NotificationFilter): string {
-  const parts = [reader.recipientKey, scopeKey(reader.scope), JSON.stringify([filter.view, [...(filter.kinds ?? [])].sort()])]
+  const parts = [ownerKeyOf(reader.actor) ?? '', scopeKey(reader), JSON.stringify([filter.view, [...(filter.kinds ?? [])].sort()])]
   return createHash('sha256').update(parts.join('\n')).digest('base64url').slice(0, 22)
 }
 
@@ -321,7 +328,7 @@ export async function listNotifications(reader: NotificationReader, input: Notif
   while (items.length <= request.limit && !exhausted) {
     const rows = z.array(rowSchema).parse(await db.all(sql`
       SELECT ${COLUMNS} FROM ${notifications}
-      WHERE recipient_key = ${reader.recipientKey} AND ${scopeClause(reader.scope)} AND ${viewClause(request.filter)}
+      WHERE ${visibleRows(reader)} AND ${viewClause(request.filter)}
         ${from ? sql`AND (created_at < ${from.at} OR (created_at = ${from.at} AND id < ${from.id}))` : sql``}
       ORDER BY created_at DESC, id DESC
       LIMIT ${batch}
@@ -343,7 +350,7 @@ export async function listNotifications(reader: NotificationReader, input: Notif
 export async function countNotifications(reader: NotificationReader, db: Db = getDatabase()): Promise<NotificationCount> {
   const rows = z.array(rowSchema).parse(await db.all(sql`
     SELECT ${COLUMNS} FROM ${notifications}
-    WHERE recipient_key = ${reader.recipientKey} AND ${scopeClause(reader.scope)} AND read_at IS NULL AND archived_at IS NULL
+    WHERE ${visibleRows(reader)} AND read_at IS NULL AND archived_at IS NULL
     ORDER BY created_at DESC, id DESC
     LIMIT ${NOTIFICATION_COUNT_CAP + 1}
   `))
@@ -354,7 +361,7 @@ export async function countNotifications(reader: NotificationReader, db: Db = ge
 /** One of the recipient's rows by id, if they may open it. */
 export async function getNotification(reader: NotificationReader, id: string, db: Db = getDatabase()): Promise<HubNotification | null> {
   const row = rowSchema.optional().parse(await db.get(sql`
-    SELECT ${COLUMNS} FROM ${notifications} WHERE id = ${id} AND recipient_key = ${reader.recipientKey} AND ${scopeClause(reader.scope)}
+    SELECT ${COLUMNS} FROM ${notifications} WHERE id = ${id} AND ${visibleRows(reader)}
   `))
   if (!row) return null
   return (await visible(reader, [row]))[0] ?? null
@@ -382,10 +389,11 @@ async function setState(reader: NotificationReader, id: string, assignment: SQL,
     // Access is checked before the write: a row the reader can no longer open is not theirs to change.
     const current = await getNotification(reader, id, tx)
     if (!current) return { ok: false, reason: 'not_found' }
-    await tx.run(sql`UPDATE ${notifications} SET ${assignment} WHERE id = ${id} AND recipient_key = ${reader.recipientKey}`)
+    await tx.run(sql`UPDATE ${notifications} SET ${assignment} WHERE id = ${id} AND ${visibleRows(reader)}`)
     const updated = await getNotification(reader, id, tx)
     if (!updated) return { ok: false, reason: 'not_found' }
-    announceNotifications(updated.organizationId, [reader.recipientKey])
+    const recipientKey = ownerKeyOf(reader.actor)
+    if (recipientKey) announceNotifications(updated.organizationId, [recipientKey])
     return { ok: true, notification: updated }
   })
 }

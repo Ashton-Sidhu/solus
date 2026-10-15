@@ -1,30 +1,35 @@
 import { z } from 'zod'
 import type { RpcMethod } from '@solus/contracts/rpc'
 import {
-  grantsAllow,
-  hostActionOf,
+  HOST_USE,
+  permissionsAllow,
+  permissionOf,
   isResourceMethod,
+  isResourceVerb,
   resourceVerbOf,
   roleAllows,
-  type HostAction,
+  type Permission,
+  type ResourceKind,
   type ResourceMethod,
+  type ResourceVerb,
 } from '@solus/contracts/permissions'
-import { shareResourceSchema, type ResourceRole, type ShareResource } from '@solus/contracts/sharing'
+import { shareResourceSchema, type ResourceRole } from '@solus/contracts/sharing'
 import { hostCategory } from '../host/host-category'
-import { isOrganizationAttached } from '../host/organization-attachment'
 import { isApiMode } from '../host/api-mode'
 import { isHostAdmin, isHostOwner, type Principal, type PrincipalKind } from './principal'
+import type { AccessResource } from './access'
 
 /**
  * The access gate of one host (docs/plans/permissions.md). Every method needs one
- * action, declared once in the contracts: a host action, held as a grant on the
- * whole host, or a resource verb, held through the share role on the session,
- * work, or task the call names. `grantsFor` is the one place a principal kind's
- * standing is written; `RESOURCE_LOCATORS` is the one place the server says where
- * a resource id sits in a call. Nothing else decides access.
+ * action, declared once in the contracts: a permission, held on the whole host,
+ * or a resource verb, held through the resource role `roleOf` gives on the
+ * resource the call names. `permissionsFor` is the one place a host role's
+ * permissions are written; `RESOURCE_LOCATORS` is the one place the server says
+ * where a resource id sits in a call; `authorize` is the one decision, which the
+ * RPC gate and the Solus API both call. Nothing else decides access.
  */
 
-type ArgLocator = (args: readonly unknown[]) => ShareResource | null
+type ArgLocator = (args: readonly unknown[]) => AccessResource | null
 
 // Call arguments are wire input: each locator parses only the id it needs.
 const idSchema = z.string().min(1)
@@ -61,6 +66,15 @@ const workFieldAt = (index: number): ArgLocator => (args) => {
 const taskIdAt = (index: number): ArgLocator => (args) => {
   const id = idSchema.safeParse(args[index])
   return id.success ? { kind: 'task', id: id.data } : null
+}
+/** The id of a resource that is not shared (an automation, a project), as a bare argument. */
+const ownedIdAt = (kind: ResourceKind, index: number): ArgLocator => (args) => {
+  const id = idSchema.safeParse(args[index])
+  return id.success ? { kind, id: id.data } : null
+}
+const notificationFieldAt = (index: number): ArgLocator => (args) => {
+  const request = fieldSchema('id').safeParse(args[index])
+  return request.success ? { kind: 'notification', id: request.data.id } : null
 }
 
 const shareRequestSchema = z.object({ resource: shareResourceSchema })
@@ -203,10 +217,23 @@ export const RESOURCE_LOCATORS = {
   // handler also refuses guests: a session share grants no host device access.
   deviceOpen: sessionFieldAt(0, 'sessionId'),
   deviceClose: sessionFieldAt(0, 'sessionId'),
+  // Automations, projects, and notifications have an owner and no ACL entries (docs/plans/access-model.md §2.3).
+  automationRead: ownedIdAt('automation', 0),
+  automationListRuns: ownedIdAt('automation', 0),
+  automationReadRun: ownedIdAt('automation', 0),
+  automationUpdate: ownedIdAt('automation', 0),
+  automationSetEnabled: ownedIdAt('automation', 0),
+  automationDelete: ownedIdAt('automation', 0),
+  automationRun: ownedIdAt('automation', 0),
+  automationCancel: ownedIdAt('automation', 0),
+  workspaceProjectUpdate: ownedIdAt('project', 0),
+  workspaceProjectRemove: ownedIdAt('project', 0),
+  notificationsSetRead: notificationFieldAt(0),
+  notificationsSetArchived: notificationFieldAt(0),
 } satisfies Record<ResourceMethod, ArgLocator>
 
-/** The host actions every person holds; `host.local` and `host.admin` are added by standing. */
-const PERSON_HOST_ACTIONS: readonly HostAction[] = [
+/** The permissions every person holds; `host.local` and `host.admin` are added by host role. */
+const PERSON_PERMISSIONS: readonly Permission[] = [
   'host.connect', 'host.agents', 'host.models', 'host.sessions', 'host.projects', 'host.git', 'host.files', 'host.terminal', 'host.usage', 'host.use',
 ]
 
@@ -216,28 +243,28 @@ const PERSON_HOST_ACTIONS: readonly HostAction[] = [
  * bounded to the shared session's checkout (`assertPathInScope`). The resource
  * itself follows the link's role.
  */
-export const GUEST_HOST_ACTIONS: readonly HostAction[] = [
+export const GUEST_PERMISSIONS: readonly Permission[] = [
   'host.connect', 'host.agents.read', 'host.models.read', 'host.sessions.read', 'host.git.read', 'host.files.read',
 ]
 
 /**
- * The host actions a principal holds on this host (permissions.md §2): the one
- * table a client's controls and this gate both read. A managed host never hands
- * out `host.local.reach`: Solus cloud owns how it is reached.
+ * The permissions a principal holds on this host (permissions.md §2): the one
+ * table a client's controls and this gate both read. A managed host never gives
+ * `host.local.reach`: Solus cloud owns how it is reached.
  */
-export function grantsFor(principal: Principal, managed = hostCategory() === 'managed' || isApiMode()): HostAction[] {
+export function permissionsFor(principal: Principal, managed = hostCategory() === 'managed' || isApiMode()): Permission[] {
   switch (principal.kind) {
     case 'system': return ['host']
     case 'runner': return ['host.system']
-    case 'guest': return [...GUEST_HOST_ACTIONS]
-    case 'local-owner': return [managed ? 'host.local.window' : 'host.local', 'host.admin', ...PERSON_HOST_ACTIONS]
-    case 'remote-owner': return ['host.admin', ...PERSON_HOST_ACTIONS]
+    case 'guest': return [...GUEST_PERMISSIONS]
+    case 'local-owner': return [managed ? 'host.local.window' : 'host.local', 'host.admin', ...PERSON_PERMISSIONS]
+    case 'remote-owner': return ['host.admin', ...PERSON_PERMISSIONS]
     case 'org-member': {
-      const grants: HostAction[] = [...PERSON_HOST_ACTIONS]
-      if (isHostAdmin(principal)) grants.push('host.admin')
+      const permissions: Permission[] = [...PERSON_PERMISSIONS]
+      if (isHostAdmin(principal)) permissions.push('host.admin')
       // On the workspace service a person's integration connections are their own rows (cloud-service-model.md §22).
-      else if (isApiMode()) grants.push('host.admin.connections')
-      return grants
+      else if (isApiMode()) permissions.push('host.admin.connections')
+      return permissions
     }
   }
 }
@@ -256,59 +283,75 @@ export class RpcAccessError extends Error {
 }
 
 export interface ResourceAccess {
-  roleFor(principal: Principal, resource: ShareResource): Promise<ResourceRole>
+  roleFor(principal: Principal, resource: AccessResource): Promise<ResourceRole>
+}
+
+/** Why `authorize` refused, in words a person can read. */
+export interface AccessRefusal {
+  code: 'FORBIDDEN' | 'MANAGED_HOST'
+  detail: string
+}
+
+/** What `authorize` reads beyond the call: the name the refusal shows, the role lookup, and the host's category. */
+export interface AuthorizeOptions {
+  /** The operation, for the refusal text: an RPC method or a Solus API operation. */
+  name: string
+  /** Absent only in the desktop's in-process path before the share manager exists. */
+  resources?: ResourceAccess
+  managed?: boolean
+}
+
+function refusedPermission(name: string, principal: Principal, permission: Permission): AccessRefusal {
+  const refuse = (detail: string): AccessRefusal => ({ code: 'FORBIDDEN', detail })
+  if (principal.kind === 'runner') return refuse(`"${name}" is not available to a runner`)
+  if (principal.kind === 'guest') return refuse(`"${name}" is not available to a guest`)
+  if (permission === 'host.system') return refuse(`"${name}" is only available to the host itself`)
+  if (permission.startsWith('host.local')) return refuse(`"${name}" is only available to a local connection`)
+  if (permission.startsWith('host.admin')) return refuse(`"${name}" is only available to the host administrator`)
+  return refuse(`"${name}" needs ${permission} on this host`)
 }
 
 /**
- * The personal host's owner has every role on every resource: they own the disk
- * (§3.4). A pairing connection to a machine attached for organization work keeps
- * only its Local records (organization-vms §1), which the share manager decides.
+ * The one access decision (docs/plans/access-model.md §2.4): may `principal` do
+ * `action`, a permission on the host or a verb on `resource`? Null when it may.
+ * The RPC gate and the Solus API both call it, so the order of the checks is
+ * written once: the managed-host bound, the host itself, then the permission or
+ * the resource role `roleOf` gives. A resource verb with no resource is a call
+ * that names nothing yet (a draft with no session): the host's ordinary use,
+ * refused to a guest. A Solus API token's scopes are a separate upper bound
+ * (`requireScope`).
  */
-function holdsEveryResource(principal: Principal): boolean {
-  return isHostOwner(principal) && !(principal.kind === 'local-owner' && isOrganizationAttached())
-}
-
-function refusedHostAction(method: RpcMethod, principal: Principal, action: HostAction): RpcAccessError {
-  if (principal.kind === 'runner') return new RpcAccessError(method, principal.kind, `"${method}" is not available to a runner`)
-  if (principal.kind === 'guest') return new RpcAccessError(method, principal.kind, `"${method}" is not available to a guest`)
-  if (action === 'host.system') return new RpcAccessError(method, principal.kind, `"${method}" is only available to the host itself`)
-  if (action.startsWith('host.local')) return new RpcAccessError(method, principal.kind, `"${method}" is only available to a local connection`)
-  if (action.startsWith('host.admin')) return new RpcAccessError(method, principal.kind, `"${method}" is only available to the host administrator`)
-  return new RpcAccessError(method, principal.kind, `"${method}" needs ${action} on this host`)
-}
-
-/**
- * The one gate every dispatch passes. `resources` is absent only in the desktop's
- * in-process path before the share manager exists; there every caller is the local
- * owner, for whom a resource verb is a no-op.
- */
-export async function assertRpcAccess(method: RpcMethod, principal: Principal, args: readonly unknown[] = [], resources?: ResourceAccess, managed = hostCategory() === 'managed' || isApiMode()): Promise<void> {
+export async function authorize(principal: Principal, action: Permission | ResourceVerb, resource: AccessResource | null, options: AuthorizeOptions): Promise<AccessRefusal | null> {
+  const { name, resources, managed = hostCategory() === 'managed' || isApiMode() } = options
   // Managed-hosts.md §1: how a managed host is reached is Solus cloud's, whoever calls, the host's own calls included.
-  if (managed && hostActionOf(method) === 'host.local.reach') {
-    throw new RpcAccessError(method, principal.kind, `"${method}" is not available on a managed host: Solus cloud owns how this host is reached`, 'MANAGED_HOST')
+  if (managed && action === 'host.local.reach') {
+    return { code: 'MANAGED_HOST', detail: `"${name}" is not available on a managed host: Solus cloud owns how this host is reached` }
   }
-  if (principal.kind === 'system') return
-  if (!isResourceMethod(method)) {
-    const action = hostActionOf(method)
-    if (action && !grantsAllow(grantsFor(principal, managed), action)) throw refusedHostAction(method, principal, action)
-    return
+  if (principal.kind === 'system') return null
+  if (!isResourceVerb(action)) {
+    return permissionsAllow(permissionsFor(principal, managed), action) ? null : refusedPermission(name, principal, action)
   }
-  if (principal.kind === 'runner') throw new RpcAccessError(method, principal.kind, `"${method}" is not available to a runner`)
-  const resource = RESOURCE_LOCATORS[method](args)
+  if (principal.kind === 'runner') return { code: 'FORBIDDEN', detail: `"${name}" is not available to a runner` }
   if (!resource) {
-    // A resource call that names nothing (a draft with no session yet) is the host's ordinary use.
-    if (principal.kind === 'guest') throw new RpcAccessError(method, principal.kind, `"${method}" needs a shared session or work`)
-    return
+    return principal.kind === 'guest' ? { code: 'FORBIDDEN', detail: `"${name}" needs a shared session or work` } : null
   }
-  if (holdsEveryResource(principal)) return
+  if (!resources) {
+    return isHostOwner(principal) ? null : { code: 'FORBIDDEN', detail: 'Sharing is not available on this host' }
+  }
+  const role = await resources.roleFor(principal, resource)
+  if (roleAllows(role, action)) return null
+  return {
+    code: 'FORBIDDEN',
+    detail: role === 'none' ? `This ${resource.kind} is not shared with you` : `"${name}" needs ${resource.kind}.${action} on this ${resource.kind}`,
+  }
+}
+
+/** The RPC door: the action and the resource of one call, decided by `authorize`. */
+export async function assertRpcAccess(method: RpcMethod, principal: Principal, args: readonly unknown[] = [], resources?: ResourceAccess, managed = hostCategory() === 'managed' || isApiMode()): Promise<void> {
   // A host admin may hand on what a departed member owned; the share manager decides (plan 004 item 10).
   if (method === 'shareTransfer' && isHostAdmin(principal)) return
-  if (!resources) throw new RpcAccessError(method, principal.kind, 'Sharing is not available on this host')
-  const verb = resourceVerbOf(method)
-  const role = await resources.roleFor(principal, resource)
-  if (!roleAllows(role, verb)) {
-    throw new RpcAccessError(method, principal.kind, role === 'none'
-      ? `This ${resource.kind} is not shared with you`
-      : `"${method}" needs ${resource.kind}.${verb} on this ${resource.kind}`)
-  }
+  const refusal = isResourceMethod(method)
+    ? await authorize(principal, resourceVerbOf(method), RESOURCE_LOCATORS[method](args), { name: method, resources, managed })
+    : await authorize(principal, permissionOf(method) ?? HOST_USE, null, { name: method, resources, managed })
+  if (refusal) throw new RpcAccessError(method, principal.kind, refusal.detail, refusal.code)
 }

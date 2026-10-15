@@ -17,12 +17,14 @@ import type { Provider } from '../../providers/types'
 import type { PrFilter, PrListPage, PrProjectListing, PrReviewTarget, PrStackMergeResult, DraftReview, PullRequest as PullRequestDetail, PullRequestUpdate, RepoRef } from '@solus/contracts/providers'
 import { projectScopeOf, type GithubDelegatedCredential, type IpcContext, type PrCheckoutContext, type PrConflictResolutionResult, type PrMergeResult } from '@solus/contracts/types'
 import { LOCAL_DEVICE_LABEL, type HandlerCtx, type SolusServer } from '../server'
-import { recordScopeOf } from '../../admission/principal'
+import { recordScopeOf, type Principal } from '../../admission/principal'
 import { attributionOf } from '../../admission/actor'
 import { attachReviewAttention } from './review-attention'
 import type { AgentDispatcher } from '../../execution/agents/agent-runner'
 import type { HostEventPublisher } from '../events/host-event-publisher'
-import { linkSessionPullRequest } from '../../data/sessions/session-pull-requests'
+import { linkSessionPullRequest, sessionsOfPullRequest } from '../../data/sessions/session-pull-requests'
+import { roleAllows } from '@solus/contracts/permissions'
+import type { ResourceAccess } from '../../admission/access-policy'
 import { completeTasksForMergedPullRequest } from '../../data/tasks/sync-engine'
 import { buildPrReviewTarget } from '../../providers/pr-review-target'
 import { emitPullRequestTasksChanged } from '../../data/tasks/task-links'
@@ -83,12 +85,35 @@ export async function reviewTargetFor(ctx: IpcContext): Promise<{ repo: RepoRef;
  * Handlers whose write answers with the pull request hand that answer to PR
  * sync, which is how every other surface and client hears of it.
  */
+/** Who changes a pull request, and where their resource roles are read. */
+interface PullRequestCaller {
+  principal: Principal
+  resources: ResourceAccess
+}
+
+/**
+ * A pull request is part of its sessions (docs/plans/access-model.md §2.3): a
+ * change to one that sessions link needs session.edit on one of them. One no
+ * session links is the repository's alone, and the gate already asked for
+ * host.git.write.
+ */
+async function assertMayChangePullRequest(caller: PullRequestCaller, repository: string, number: number): Promise<void> {
+  const sessionIds = await sessionsOfPullRequest(repository, number)
+  if (!sessionIds.length) return
+  const roles = await Promise.all(sessionIds.map((id) => caller.resources.roleFor(caller.principal, { kind: 'session', id })))
+  if (!roles.some((role) => roleAllows(role, 'edit'))) {
+    throw new Error('This pull request is part of a session you cannot change.')
+  }
+}
+
 async function writePullRequest<T>(
+  caller: PullRequestCaller,
   ctx: IpcContext,
   number: number,
   write: (target: { repo: RepoRef; provider: Provider; pullRequest: PullRequest }) => Promise<T>,
 ): Promise<T> {
   const { repo, provider } = await reviewTargetFor(ctx)
+  await assertMayChangePullRequest(caller, repoKeyOf(repo), number)
   const pullRequest = prIndex.pullRequest(repo, provider, number)
   const result = await write({ repo, provider, pullRequest })
   prIndex.invalidate(repo)
@@ -237,6 +262,8 @@ export interface ProviderHandlerDeps {
   prSync: PrSync
   /** The one owner of running review guides. */
   guides: ReviewGuideJobs
+  /** The resource roles a pull request change is checked against. */
+  resources: ResourceAccess
 }
 
 export function registerProviderHandlers(server: SolusServer, deps: ProviderHandlerDeps): void {
@@ -471,7 +498,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
 
   server.register('prMerge', async (args, handlerCtx): Promise<PrMergeResult> => {
     const [ctx, number, method, expectedHeadSha] = args
-    return writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
       const detail = await pullRequest.readFresh()
       if (detail.headSha !== expectedHeadSha) {
         throw new Error('This pull request changed. Refresh it before merging.')
@@ -579,7 +606,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     const updates: PullRequestUpdate = {}
     if (title !== undefined) updates.title = title
     if (patch.body !== undefined) updates.body = patch.body
-    const updated = await writePullRequest(ctx, number, async ({ repo, provider }) => {
+    const updated = await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider }) => {
       const detail = await provider.review.updatePullRequest(repo, number, updates)
       await deps.prSync.apply({ repo, provider }, detail)
       return detail
@@ -650,23 +677,23 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     return provider.review.listReviewerCandidates(repo, detail)
   })
 
-  server.register('prRequestReviewers', async (args) => {
+  server.register('prRequestReviewers', async (args, handlerCtx) => {
     const [ctx, number, requestedLogins] = args
     const logins = [...new Set(requestedLogins.map((login) => login.trim()).filter(Boolean))]
     if (logins.length === 0) throw new Error('Select at least one reviewer.')
-    return writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
       const detail = await pullRequest.readFresh()
       if (!detail.viewerPermissions.requestReviewers) throw new Error('You do not have permission to request reviewers.')
       return provider.review.requestReviewers(repo, number, logins)
     })
   })
 
-  server.register('prRemoveRequestedReviewer', async (args) => {
+  server.register('prRemoveRequestedReviewer', async (args, handlerCtx) => {
     const [ctx, number, requestedReviewerId, kind = 'user'] = args
     const reviewerId = requestedReviewerId.trim()
     if (!reviewerId) throw new Error('A reviewer is required.')
     if (kind !== 'user' && kind !== 'team') throw new Error('Invalid reviewer kind.')
-    return writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
       const detail = await pullRequest.readFresh()
       if (!detail.viewerPermissions.requestReviewers) throw new Error('You do not have permission to remove requested reviewers.')
       return provider.review.removeRequestedReviewer(repo, number, reviewerId, kind)
@@ -681,10 +708,10 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     return provider.review.listLabelCandidates(repo)
   })
 
-  server.register('prSetLabels', async (args) => {
+  server.register('prSetLabels', async (args, handlerCtx) => {
     const [ctx, number, requestedNames] = args
     const names = [...new Set(requestedNames.map((name) => name.trim()).filter(Boolean))]
-    return writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
       const detail = await pullRequest.readFresh()
       if (!detail.viewerPermissions.manageLabels) throw new Error('You do not have permission to manage labels.')
       await provider.review.setLabels(repo, number, names)
@@ -696,10 +723,10 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     })
   })
 
-  server.register('prUpdateLifecycle', async (args) => {
+  server.register('prUpdateLifecycle', async (args, handlerCtx) => {
     const [ctx, number, action, expectedHeadSha] = args
     if (!['close', 'reopen', 'ready', 'draft'].includes(action)) throw new Error('Unsupported pull request action.')
-    return writePullRequest(ctx, number, async ({ repo, provider }) => {
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider }) => {
       const detail = await provider.review.updatePullRequestLifecycle(repo, number, action, expectedHeadSha)
       await deps.prSync.apply({ repo, provider }, detail)
       return detail
@@ -708,9 +735,9 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
 
   // Auto-merge reaches every surface the same way as any lifecycle change:
   // the armed badge belongs wherever this pull request is drawn.
-  server.register('prEnableAutoMerge', async (args) => {
+  server.register('prEnableAutoMerge', async (args, handlerCtx) => {
     const [ctx, number, method, expectedHeadSha] = args
-    return writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
       const current = await pullRequest.readFresh()
       if (current.headSha !== expectedHeadSha) {
         throw new Error('This pull request changed. Refresh it before turning on auto-merge.')
@@ -730,9 +757,9 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     })
   })
 
-  server.register('prDisableAutoMerge', async (args) => {
+  server.register('prDisableAutoMerge', async (args, handlerCtx) => {
     const [ctx, number] = args
-    return writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
       const current = await pullRequest.readFresh()
       if (!current.viewerPermissions.actions.includes('disable-auto-merge')) {
         throw new Error('You do not have permission to turn off auto-merge for this pull request.')
@@ -745,9 +772,9 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
 
   // The host's "Update branch". A merge commit unless the base branch only
   // takes rebases, where a merge commit on the head could never land.
-  server.register('prUpdateBranch', async (args) => {
+  server.register('prUpdateBranch', async (args, handlerCtx) => {
     const [ctx, number, expectedHeadSha] = args
-    return writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
       const current = await pullRequest.readFresh()
       if (current.headSha !== expectedHeadSha) {
         throw new Error('This pull request changed. Refresh it before updating its branch.')
@@ -771,7 +798,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
 
   server.register('prRevert', async (args, handlerCtx) => {
     const [ctx, number] = args
-    const { repo, opened } = await writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
+    const { repo, opened } = await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
       const current = await pullRequest.readFresh()
       if (current.state !== 'merged') throw new Error('Only a merged pull request can be reverted.')
       if (!current.viewerPermissions.actions.includes('revert')) {
@@ -789,7 +816,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   // layer is then read again and handed to PR sync, like a single merge.
   server.register('prMergeStack', async (args, handlerCtx): Promise<PrStackMergeResult> => {
     const [ctx, request] = args
-    return writePullRequest(ctx, request.number, async ({ repo, provider, pullRequest }) => {
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, request.number, async ({ repo, provider, pullRequest }) => {
       const current = await pullRequest.readFresh()
       if (!current.capabilities.actions.includes('merge-stack')) throw new Error('This code host cannot merge a stack.')
       if (!current.viewerPermissions.actions.includes('merge-stack')) {
@@ -825,9 +852,9 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     return { headSha: detail.headSha, runs: await provider.review.listPendingWorkflowRuns(repo, detail) }
   })
 
-  server.register('prApproveWorkflowRuns', async (args) => {
+  server.register('prApproveWorkflowRuns', async (args, handlerCtx) => {
     const [ctx, number, expectedHeadSha] = args
-    return writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
       const current = await pullRequest.readFresh()
       if (current.headSha !== expectedHeadSha) {
         throw new Error('This pull request changed. Refresh it before you approve its workflow runs.')
@@ -868,9 +895,9 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     return prIndex.pullRequest(repo, provider, number).changedFiles()
   })
 
-  server.register('prSubmitReview', async (args) => {
+  server.register('prSubmitReview', async (args, handlerCtx) => {
     const [ctx, number, review] = args
-    await writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
+    await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
       const detail = await pullRequest.readFresh()
       if (detail.headSha !== review.commitId) {
         throw new Error('This pull request changed. Refresh the diff before submitting your review.')
@@ -898,16 +925,16 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     })
   })
 
-  server.register('prAddIssueComment', async (args) => {
+  server.register('prAddIssueComment', async (args, handlerCtx) => {
     const [ctx, number, body] = args
-    await writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
+    await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, async ({ repo, provider, pullRequest }) => {
       const detail = await pullRequest.readFresh()
       if (!detail.viewerPermissions.comment) throw new Error('You do not have permission to comment on this pull request.')
       await provider.review.addIssueComment(repo, number, body)
     })
   })
 
-  server.register('prDeleteIssueComment', async (args) => {
+  server.register('prDeleteIssueComment', async (args, handlerCtx) => {
     const [ctx, number, commentId] = args
     const { repo, provider } = await reviewTargetFor(ctx)
     const [comments, viewer] = await Promise.all([
@@ -919,7 +946,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     if (!viewer.login || comment.author.toLowerCase() !== viewer.login.toLowerCase()) {
       throw new Error('You can only delete your own pull request comments.')
     }
-    await writePullRequest(ctx, number, ({ repo: writeRepo, provider: writeProvider }) =>
+    await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, ({ repo: writeRepo, provider: writeProvider }) =>
       writeProvider.review.deleteIssueComment(writeRepo, commentId))
   })
 
@@ -945,21 +972,21 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     })
   })
 
-  server.register('prReplyThread', async (args) => {
+  server.register('prReplyThread', async (args, handlerCtx) => {
     const [ctx, number, threadId, body] = args
-    return writePullRequest(ctx, number, ({ repo, provider }) =>
+    return writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, ({ repo, provider }) =>
       provider.review.replyToThread(repo, threadId, body))
   })
 
-  server.register('prResolveThread', async (args) => {
+  server.register('prResolveThread', async (args, handlerCtx) => {
     const [ctx, number, threadId] = args
-    await writePullRequest(ctx, number, ({ repo, provider }) =>
+    await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, ({ repo, provider }) =>
       provider.review.resolveThread(repo, threadId))
   })
 
-  server.register('prUnresolveThread', async (args) => {
+  server.register('prUnresolveThread', async (args, handlerCtx) => {
     const [ctx, number, threadId] = args
-    await writePullRequest(ctx, number, ({ repo, provider }) =>
+    await writePullRequest({ principal: handlerCtx.principal, resources: deps.resources }, ctx, number, ({ repo, provider }) =>
       provider.review.unresolveThread(repo, threadId))
   })
 

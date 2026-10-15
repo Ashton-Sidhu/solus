@@ -51,7 +51,7 @@ test('private records are excluded before LIMIT and individual reads do not reve
   const alice = await operations.listTasks(context, { limit: 1 })
   await expect(operations.getTask(bob, alice.items[0].id)).rejects.toThrow('not found')
   const continued = await operations.listTasks(bob, { limit: 50, cursor: alice.nextCursor! })
-  expect(continued.items.every(item => item.ownerUserId === 'bob')).toBe(true)
+  expect(continued.items.every(item => item.ownerKey === 'bob')).toBe(true)
 })
 
 test('work writes preserve read-only provider rules and versions', async () => {
@@ -72,8 +72,7 @@ test('work writes preserve read-only provider rules and versions', async () => {
 
 test('transcript paging reconstructs Unicode text without loading an unbounded message', async () => {
   const db = database.getDatabase(), sessionId = 'text-session'
-  await db.run(sql`INSERT INTO session_records(session_id,organization_id,provider,project_path,status,created_at,last_activity_at,size) VALUES (${sessionId},'A','codex','/project','idle',1,2,100)`)
-  await shares.claimOwner({ kind: 'session', id: sessionId }, context.principal, { shareWithOrganization: false })
+  await db.run(sql`INSERT INTO session_records(session_id,organization_id,owner_key,provider,project_path,status,created_at,last_activity_at,size) VALUES (${sessionId},'A','alice','codex','/project','idle',1,2,100)`)
   const content = 'Hello 😃 '.repeat(14000)
   await db.run(sql`INSERT INTO session_transcripts(organization_id,session_id,position,runner_host_id,message,updated_at) VALUES ('A',${sessionId},0,'host',${JSON.stringify({ messageId: 'message-1', role: 'assistant', content, timestamp: 1000 })},1)`)
   let cursor: string | undefined, result = '', offset = 0
@@ -160,8 +159,12 @@ test('in-process callers cannot bypass request bounds', async () => {
 
 test('an editor can save a shared work but only its owner can delete it', async () => {
   const work = await operations.createWork(context, { title: 'Shared', type: 'doc', content: 'One' }, 'shared-work-key-001')
-  await shares.setGrants({ resource: { kind: 'work', id: work.id }, grants: [{ subject: { kind: 'user', id: 'bob' }, role: 'editor' }] }, context.principal)
+  await shares.setEntries({ resource: { kind: 'work', id: work.id }, entries: [{ subject: { kind: 'user', id: 'bob' }, role: 'editor' }] }, context.principal)
   expect((await operations.listWorks(bob, { limit: 50 })).items.map(item => item.id)).toContain(work.id)
+  // Every record carries the reader's role (access-model.md §2.7): the owner owns it, the editor edits it.
+  expect(work.role).toBe('owner')
+  expect((await operations.listWorks(bob, { limit: 50 })).items.find(item => item.id === work.id)?.role).toBe('editor')
+  expect((await operations.getWork(bob, work.id)).role).toBe('editor')
   const changed = await operations.updateWork(bob, work.id, { content: 'Two', expectedContentVersion: work.contentVersion }, work.version)
   await expect(operations.deleteWork(bob, work.id, changed.version)).rejects.toThrow('not found')
   await operations.deleteWork(context, work.id, changed.version)

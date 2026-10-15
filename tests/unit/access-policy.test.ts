@@ -1,15 +1,15 @@
 import { describe, expect, test } from 'bun:test'
 import { RPC_INVOKE_METHODS } from '@solus/contracts/rpc'
 import type { ResourceRole, ShareResource } from '@solus/contracts/sharing'
-import { GUEST_HOST_ACTIONS, RESOURCE_LOCATORS, RpcAccessError, assertRpcAccess, grantsFor } from '@solus/server/admission/access-policy'
-import { RESOURCE_VERB_OF_METHOD, grantsAllow, hostActionOf, isResourceMethod } from '@solus/contracts/permissions'
+import { GUEST_PERMISSIONS, RESOURCE_LOCATORS, RpcAccessError, assertRpcAccess, authorize, permissionsFor } from '@solus/server/admission/access-policy'
+import { RESOURCE_VERB_OF_METHOD, permissionsAllow, permissionOf, isResourceMethod } from '@solus/contracts/permissions'
 import type { Principal } from '@solus/server/admission/principal'
 import { resetApiModeForTests } from '@solus/server/host/api-mode'
 
 // docs/plans/permissions.md: every method needs one action, declared once in the
-// contracts. A host action is held as a grant on the whole host; a resource verb is
-// held through the share role on the session, work, or task the call names. A guest's
-// grants are a few reads; host administration is the host owner's (or, on a managed
+// contracts. A permission is held on the whole host; a resource verb is held
+// through the resource role on the resource the call names. A guest's permissions
+// are a few reads; host administration is the host owner's (or, on a managed
 // host, an organization owner's).
 
 const OWNER: Principal = { kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }
@@ -29,29 +29,58 @@ describe('the action tables', () => {
   test('every registered method needs exactly one action, and every session or work method a resource verb', async () => {
     for (const method of RPC_INVOKE_METHODS) {
       // A resource method has a verb and a locator; a host method has an action and neither.
-      expect(isResourceMethod(method) ? method in RESOURCE_LOCATORS && hostActionOf(method) === null : typeof hostActionOf(method) === 'string').toBe(true)
+      expect(isResourceMethod(method) ? method in RESOURCE_LOCATORS && permissionOf(method) === null : typeof permissionOf(method) === 'string').toBe(true)
     }
     expect(Object.keys(RESOURCE_LOCATORS).sort()).toEqual(Object.keys(RESOURCE_VERB_OF_METHOD).sort())
     // A method that names a session or a work in its name must carry a resource verb
-    // unless it is a catalog read (listSessions, listWorks) or a creation.
+    // unless it is a catalog read (listSessions, listWorks) or a creation. A workflow run is not a work.
     // `tasksPrepareForSession` binds a task before any session exists; the others list or create.
     const catalog = new Set(['sessionRecordList', 'sessionRecordUpsert', 'listWorks', 'createWork', 'createHeadlessSession', 'connectionsListSessions', 'pinnedSessionsList', 'tasksPrepareForSession', 'generateSessionMetadata', 'importDocFromUrl', 'docDestinations', 'docProviderStatuses', 'connectionsSetTrustLocalNetwork', 'sessionGuideStatuses', 'workReviewInbox', 'workReviewStates', 'workUpload'])
-    const unclassified = RPC_INVOKE_METHODS.filter((method) => /session|work(?!tree|space)/i.test(method) && !catalog.has(method) && !isResourceMethod(method))
+    const unclassified = RPC_INVOKE_METHODS.filter((method) => /session|work(?!tree|space|flow)/i.test(method) && !catalog.has(method) && !isResourceMethod(method))
     expect(unclassified).toEqual([])
   })
 
-  test('a grant is a prefix: splitting an action under it changes nothing for whoever holds the parent', async () => {
-    // WHY (permissions.md): adding or narrowing an action must be one row and one call,
+  test('a held permission is a prefix: splitting one under it changes nothing for whoever holds the parent', async () => {
+    // WHY (permissions.md): adding or narrowing a permission must be one row and one call,
     // never a change to every principal's standing.
-    expect(grantsAllow(['host'], 'host.git.write')).toBe(true)
-    expect(grantsAllow(['host.git'], 'host.git.push')).toBe(true)
-    expect(grantsAllow(['host.git.read'], 'host.git.write')).toBe(false)
-    expect(grantsAllow(['host.gitlab'], 'host.git.read')).toBe(false)
-    expect(grantsFor(OWNER, false)).toContain('host.local')
-    expect(grantsAllow(grantsFor(OWNER, true), 'host.local.reach')).toBe(false)
-    expect(grantsAllow(grantsFor(OWNER, true), 'host.local.window')).toBe(true)
-    expect(grantsFor(GUEST)).toEqual([...GUEST_HOST_ACTIONS])
-    for (const action of GUEST_HOST_ACTIONS) expect(grantsAllow(grantsFor(MEMBER), action)).toBe(true)
+    expect(permissionsAllow(['host'], 'host.git.write')).toBe(true)
+    expect(permissionsAllow(['host.git'], 'host.git.push')).toBe(true)
+    expect(permissionsAllow(['host.git.read'], 'host.git.write')).toBe(false)
+    expect(permissionsAllow(['host.gitlab'], 'host.git.read')).toBe(false)
+    expect(permissionsFor(OWNER, false)).toContain('host.local')
+    expect(permissionsAllow(permissionsFor(OWNER, true), 'host.local.reach')).toBe(false)
+    expect(permissionsAllow(permissionsFor(OWNER, true), 'host.local.window')).toBe(true)
+    expect(permissionsFor(GUEST)).toEqual([...GUEST_PERMISSIONS])
+    for (const permission of GUEST_PERMISSIONS) expect(permissionsAllow(permissionsFor(MEMBER), permission)).toBe(true)
+  })
+})
+
+describe('authorize, the one decision', () => {
+  test('the RPC gate refuses exactly what authorize refuses, for a permission and for a resource verb', async () => {
+    // WHY (access-model.md §2.4): the RPC gate and the Solus API both call
+    // authorize, so the order of the checks is written once and the two doors
+    // cannot disagree about the same person and resource.
+    const table = resources({ 'work:w1': 'viewer' })
+    const cases: Array<[Parameters<typeof assertRpcAccess>[0], Principal, unknown[], Parameters<typeof authorize>[1], ShareResource | null]> = [
+      ['loadWorkRevisions', MEMBER, ['w1'], 'read', { kind: 'work', id: 'w1' }],
+      ['agentSaveWork', MEMBER, ['w1'], 'edit', { kind: 'work', id: 'w1' }],
+      ['shareSet', MEMBER, [{ resource: { kind: 'work', id: 'w1' } }], 'share', { kind: 'work', id: 'w1' }],
+      ['configUpdate', MEMBER, [{}], 'host.admin', null],
+      ['configUpdate', OWNER, [{}], 'host.admin', null],
+      ['gitRunAction', GUEST, [ctx('s1')], 'host.git.write', null],
+      ['attachFiles', GUEST, [null], 'drive', null],
+    ]
+    for (const [method, principal, args, action, resource] of cases) {
+      const refusal = await authorize(principal, action, resource, { name: method, resources: table, managed: false })
+      const gate = await assertRpcAccess(method, principal, args, table, false).then(() => null, (error: unknown) => error)
+      expect(gate === null).toBe(refusal === null)
+      if (refusal && gate instanceof RpcAccessError) expect(gate.message).toBe(refusal.detail)
+    }
+  })
+
+  test('a managed host refuses how it is reached, whoever asks', async () => {
+    expect(await authorize(OWNER, 'host.local.reach', null, { name: 'uplinkLink', managed: true })).toMatchObject({ code: 'MANAGED_HOST' })
+    expect(await authorize(OWNER, 'host.local.reach', null, { name: 'uplinkLink', managed: false })).toBeNull()
   })
 })
 
@@ -88,7 +117,7 @@ describe('the host itself', () => {
     await expect(assertRpcAccess('sessionRecordUpsert', OWNER, report)).rejects.toThrow(/only available to the host itself/)
     await expect(assertRpcAccess('sessionRecordUpsert', MEMBER, report)).rejects.toThrow(RpcAccessError)
     await expect(assertRpcAccess('sessionRecordUpsert', GUEST, report)).rejects.toThrow(RpcAccessError)
-    expect(hostActionOf('sessionRecordUpsert')).toBe('host.system')
+    expect(permissionOf('sessionRecordUpsert')).toBe('host.system')
     // Stored record reads now use the authorized HTTP operations.
   })
 
@@ -121,8 +150,17 @@ describe('resource calls', () => {
     await expect(assertRpcAccess('shareTransfer', MEMBER, [{ resource: { kind: 'work', id: 'w2' }, toUserId: 'x' }], table)).resolves.toBeUndefined()
   })
 
-  test('the host owner passes every resource check without a share table', async () => {
-    await expect(assertRpcAccess('prompt', OWNER, [ctx('s1'), {}], resources({}))).resolves.toBeUndefined()
+  test('the host owner holds the role `roleOf` gives them, and passes only before the share manager exists', async () => {
+    // WHY (docs/plans/access-model.md §2.5): the host owner is an administrator, an
+    // editor of what is not theirs. The gate asks for their role like anyone's; it no
+    // longer lets them through every resource check. This changes the earlier rule.
+    await expect(assertRpcAccess('prompt', OWNER, [ctx('s1'), {}], resources({ 'session:s1': 'editor' }))).resolves.toBeUndefined()
+    await expect(assertRpcAccess('shareTransfer', OWNER, [{ resource: { kind: 'work', id: 'w1' }, toUserId: 'x' }], resources({ 'work:w1': 'editor' }))).resolves.toBeUndefined()
+    await expect(assertRpcAccess('workExportForCloud', OWNER, ['w1'], resources({ 'work:w1': 'editor' }), false)).rejects.toThrow(RpcAccessError)
+    await expect(assertRpcAccess('prompt', OWNER, [ctx('s1'), {}], resources({}))).rejects.toThrow(/not shared/)
+    // The desktop's in-process path, before the share manager exists, serves only its local owner.
+    await expect(assertRpcAccess('prompt', OWNER, [ctx('s1'), {}])).resolves.toBeUndefined()
+    await expect(assertRpcAccess('prompt', MEMBER, [ctx('s1'), {}])).rejects.toThrow(RpcAccessError)
   })
 
   test('a draft with no session yet is host-wide for a member and refused for a guest', async () => {
@@ -168,7 +206,7 @@ describe('tasks', () => {
     await expect(assertRpcAccess('tasksSessions', MEMBER, ['t1'], table)).resolves.toBeUndefined()
     await expect(assertRpcAccess('tasksComment', MEMBER, ['t2', 'hi'], table)).resolves.toBeUndefined()
     await expect(assertRpcAccess('tasksReadExtras', MEMBER, ['t9'], table)).rejects.toThrow(/not shared/)
-    expect(hostActionOf('tasksSidebarSnapshot')).toBe('host.sessions.read')
+    expect(permissionOf('tasksSidebarSnapshot')).toBe('host.sessions.read')
   })
 
   test('a guest reads the task listing only as the filter leaves it: nothing, since a link opens no task', async () => {
@@ -205,11 +243,11 @@ describe('provider seats', () => {
     // WHY (Step 2 plan §3.2): the seat handlers read the caller's identity from the
     // principal, so the class only has to keep guests out and reserve removal.
     for (const method of ['seatList', 'seatConnectStart', 'seatConnectSubmitCode', 'seatConnectCancel', 'seatConnectToken', 'seatDisconnect'] as const) {
-      expect(hostActionOf(method)).toBe('host.use')
+      expect(permissionOf(method)).toBe('host.use')
       await expect(assertRpcAccess(method, MEMBER, [{ provider: 'claude-code' }])).resolves.toBeUndefined()
       await expect(assertRpcAccess(method, GUEST, [{ provider: 'claude-code' }])).rejects.toThrow(/not available to a guest/)
     }
-    expect(hostActionOf('seatRemove')).toBe('host.admin')
+    expect(permissionOf('seatRemove')).toBe('host.admin')
     await expect(assertRpcAccess('seatRemove', MEMBER, [{ userId: 'bob' }])).rejects.toThrow(RpcAccessError)
     await expect(assertRpcAccess('seatRemove', ORG_OWNER_MANAGED, [{ userId: 'bob' }])).resolves.toBeUndefined()
   })
@@ -220,7 +258,7 @@ describe('integration connections', () => {
     // WHY (mcp-integrations.md §4.1): a connection belongs to the caller, and the
     // handler selects it from the principal, so the class only keeps guests out.
     for (const method of ['integrationConnectionList', 'integrationConnectStart', 'integrationConnectSubmit', 'integrationConnectCancel', 'integrationDisconnect'] as const) {
-      expect(hostActionOf(method)).toBe('host.use')
+      expect(permissionOf(method)).toBe('host.use')
       await expect(assertRpcAccess(method, MEMBER, [{ id: 'i1' }])).resolves.toBeUndefined()
       await expect(assertRpcAccess(method, GUEST, [{ id: 'i1' }])).rejects.toThrow(/not available to a guest/)
     }
@@ -234,7 +272,7 @@ describe('presence', () => {
     // beside the composer, which only an editor of that session has.
     const table = resources({ 'session:s1': 'viewer', 'session:s2': 'editor' })
     for (const method of ['presenceSnapshot', 'presenceSetFocus'] as const) {
-      expect(hostActionOf(method)).toBe('host.connect')
+      expect(permissionOf(method)).toBe('host.connect')
       await expect(assertRpcAccess(method, GUEST, [{ focus: { kind: 'none' } }], table)).resolves.toBeUndefined()
     }
     expect(isResourceMethod('presenceSetComposing')).toBe(true)
@@ -262,7 +300,7 @@ describe('host administration', () => {
     // WHY (cloud-service-model.md §22): on a host `providerConnect` replaces the
     // machine's one GitHub token, so only its administrator may; on the service
     // the handler writes the caller's own vault row, so every member may.
-    expect(hostActionOf('providerConnect')).toBe('host.admin.connections')
+    expect(permissionOf('providerConnect')).toBe('host.admin.connections')
     await expect(assertRpcAccess('providerConnect', OWNER, [ctx('s1')])).resolves.toBeUndefined()
     await expect(assertRpcAccess('providerConnect', MEMBER, [ctx('s1')])).rejects.toThrow(RpcAccessError)
     process.env.SOLUS_API = '1'
@@ -282,9 +320,67 @@ describe('host administration', () => {
   })
 })
 
-test('only host administrators can change the TypeSafe key', async () => {
-  expect(hostActionOf('typeSafeKeySet')).toBe('host.admin')
+test('a TypeSafe key is changed on a host like the machine\'s other connections; each person reads their own status', async () => {
+  // access-model.md §2.6: the host keeps a key only for its own user; a member's is in their account.
+  expect(permissionOf('typeSafeKeySet')).toBe('host.admin.connections')
   await expect(assertRpcAccess('typeSafeKeySet', OWNER, ['synthetic-key'])).resolves.toBeUndefined()
   await expect(assertRpcAccess('typeSafeKeySet', MEMBER, ['synthetic-key'])).rejects.toThrow(RpcAccessError)
   await expect(assertRpcAccess('typeSafeKeySet', GUEST, [null])).rejects.toThrow(RpcAccessError)
+  await expect(assertRpcAccess('typeSafeKeyStatus', MEMBER, [])).resolves.toBeUndefined()
+})
+
+describe('resources with an owner and no ACL entries (docs/plans/access-model.md §2.3, D2, D4)', () => {
+  test('an automation: its owner reads, changes, runs, and deletes it; an administrator as an editor too; anyone else nothing', async () => {
+    // WHY (D4): a member sees and changes their own automation; a host administrator sees and changes all.
+    const owner = resources({ 'automation:a1': 'owner' })
+    const admin = resources({ 'automation:a1': 'editor' })
+    const stranger = resources({})
+    const calls: Array<[Parameters<typeof assertRpcAccess>[0], unknown[]]> = [
+      ['automationRead', ['a1']], ['automationListRuns', ['a1']], ['automationReadRun', ['a1', 'r1']], ['automationUpdate', ['a1', {}]],
+      ['automationSetEnabled', ['a1', false]], ['automationDelete', ['a1']], ['automationRun', ['a1']], ['automationCancel', ['a1']],
+    ]
+    for (const [method, args] of calls) {
+      await expect(assertRpcAccess(method, MEMBER, args, owner)).resolves.toBeUndefined()
+      await expect(assertRpcAccess(method, ORG_OWNER_MANAGED, args, admin)).resolves.toBeUndefined()
+      await expect(assertRpcAccess(method, MEMBER, args, stranger)).rejects.toThrow(/not shared/)
+      await expect(assertRpcAccess(method, GUEST, args, stranger)).rejects.toThrow(RpcAccessError)
+    }
+    // Listing and creating are host-wide; the list holds only what the caller may see.
+    expect(permissionOf('automationList')).toBe('host.use')
+    expect(permissionOf('automationCreate')).toBe('host.use')
+  })
+
+  test('a project: every member lists the directory; changing or removing one takes its owner or an administrator', async () => {
+    expect(permissionOf('workspaceProjectList')).toBe('host.use')
+    for (const [method, args] of [['workspaceProjectUpdate', ['p1', { displayName: 'x' }]], ['workspaceProjectRemove', ['p1']]] as const) {
+      await expect(assertRpcAccess(method, MEMBER, [...args], resources({ 'project:p1': 'owner' }))).resolves.toBeUndefined()
+      await expect(assertRpcAccess(method, ORG_OWNER_MANAGED, [...args], resources({ 'project:p1': 'editor' }))).resolves.toBeUndefined()
+      await expect(assertRpcAccess(method, MEMBER, [...args], resources({}))).rejects.toThrow(RpcAccessError)
+    }
+  })
+
+  test('a notification: only its recipient marks it', async () => {
+    await expect(assertRpcAccess('notificationsSetRead', MEMBER, [{ id: 'n1', read: true }], resources({ 'notification:n1': 'owner' }))).resolves.toBeUndefined()
+    await expect(assertRpcAccess('notificationsSetArchived', ORG_OWNER_MANAGED, [{ id: 'n1', archived: true }], resources({}))).rejects.toThrow(RpcAccessError)
+  })
+
+  test('arbitrary Insights SQL is an administrator\'s; the filtered reads are everyone\'s', async () => {
+    // WHY (D2): SQL cannot be held to the caller's own turns, so it would read every person's.
+    await expect(assertRpcAccess('metricsRunSql', OWNER, ['SELECT 1'])).resolves.toBeUndefined()
+    await expect(assertRpcAccess('metricsRunSql', ORG_OWNER_MANAGED, ['SELECT 1'])).resolves.toBeUndefined()
+    await expect(assertRpcAccess('metricsRunSql', MEMBER, ['SELECT 1'])).rejects.toThrow(/host administrator/)
+    for (const method of ['metricsQuery', 'metricsTurnPage', 'metricsTurnListingSummary', 'metricsTurnTrace', 'metricsDistinctValues'] as const) {
+      expect(permissionOf(method)).toBe('host.use')
+    }
+  })
+
+  test('a pull request change is a repository write: a member may, a guest may not', async () => {
+    // WHY: one no session links is the repository's; the handler asks for session.edit on one that is.
+    for (const method of ['prUpdate', 'prMerge', 'prAddIssueComment', 'prSubmitReview', 'prApproveWorkflowRuns'] as const) {
+      expect(permissionOf(method)).toBe('host.git.write')
+      await expect(assertRpcAccess(method, MEMBER, [ctx(''), 1])).resolves.toBeUndefined()
+      await expect(assertRpcAccess(method, GUEST, [ctx('s1'), 1])).rejects.toThrow(RpcAccessError)
+    }
+    expect(permissionOf('prGetDetail')).toBe('host.use')
+  })
 })

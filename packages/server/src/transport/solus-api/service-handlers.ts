@@ -1,4 +1,4 @@
-import { grantsFor } from '../../admission/access-policy'
+import { permissionsFor } from '../../admission/access-policy'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import { z } from 'zod'
 import type { SolusServer } from '../server'
@@ -46,7 +46,7 @@ export function registerSolusApiHandlers(server: SolusServer, deps: {
   server.register('start', async () => ({ projectPath: '', homePath: '', version: appVersion(), agents: [] }))
   server.register('connectionsGetServerInfo', async (_args, { principal }): Promise<ConnectionsServerInfo> => {
     const info: ConnectionsServerInfo = { host: deps.host, port: deps.port(), allowLan: false,
-      installationId: deps.serviceId, remoteAccess: true, requireAuth: true, trustLocalNetwork: false, hostKind: 'cloud', roles: ['collaboration'], principal: principal.kind, grants: grantsFor(principal, true) }
+      installationId: deps.serviceId, remoteAccess: true, requireAuth: true, trustLocalNetwork: false, hostKind: 'cloud', roles: ['collaboration'], principal: principal.kind, permissions: permissionsFor(principal, true) }
     if (principal.kind === 'org-member') Object.assign(info, { userId: principal.userId, organizationId: principal.organizationId, displayName: principal.displayName })
     if (principal.kind === 'guest') Object.assign(info, { userId: principal.accountUserId, organizationId: principal.organizationId, displayName: principal.displayName, share: { resource: principal.share.resource, role: principal.share.role } })
     return info
@@ -60,7 +60,13 @@ export function registerSolusApiHandlers(server: SolusServer, deps: {
     return provider.review.listRepositories()
   })
   registerAssetHandlers(server)
-  server.register('sessionRecordUpsert', ([record], ctx) => upsertSessionRecord(organizationForNew(ctx.principal), ctx.principal.kind === 'runner' ? { ...record, runnerHostId: ctx.principal.hostId } : record))
+  server.register('sessionRecordUpsert', ([record], ctx) => {
+    const organizationId = organizationForNew(ctx.principal)
+    // A runner's new record is its person's (docs/plans/access-model.md §2.2).
+    return ctx.principal.kind === 'runner'
+      ? upsertSessionRecord(organizationId, { ...record, runnerHostId: ctx.principal.hostId }, { organizationId, ownerKey: ctx.principal.ownerUserId })
+      : upsertSessionRecord(organizationId, record)
+  })
   server.register('getSessionInfo', async ([sessionId], ctx) => {
     const record = await getSessionRecord(recordScopeOf(ctx.principal), sessionId)
     return record ? sessionMetaFromRecord(record) : null

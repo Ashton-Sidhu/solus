@@ -12,6 +12,7 @@ import type { WorkspaceRequestContext } from '@solus/server/admission/workspace-
 import type { WorkspaceOperations } from '@solus/server/data/workspace/operations'
 import type { HandlerCtx, SolusServer } from '@solus/server/transport/server'
 import { resetTestDatabase } from './helpers/test-db'
+import { notificationReader } from './helpers/actors'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -78,7 +79,7 @@ const user = (accountId: string): User => ({ id: { kind: 'account', accountId },
 const byAlice: Attribution = { kind: 'user', user: user('alice') }
 
 async function inbox(recipientKey: string, organizationId = 'org1'): Promise<HubNotification[]> {
-  return (await store.listNotifications({ scope: organizationId, recipientKey }, {})).items
+  return (await store.listNotifications(notificationReader(recipientKey, organizationId), {})).items
 }
 
 let workCounter = 0

@@ -8,7 +8,6 @@ import { CHAT_ROOT_NAME } from '@solus/contracts/chat'
 import { workspaceSessionAdmissionRequestSchema, workspaceSessionPullRequestPutSchema, workspaceUpdateSessionSchema } from '@solus/contracts/solus-api'
 import type { WorkspaceSession, WorkspaceSessionPullRequest, WorkspaceSessionPullRequestList, WorkspaceSessionPullRequestPut, WorkspaceUpdateSession, WorkspaceSessionAdmission, WorkspaceSessionAdmissionRequest, WorkspaceSessionPage, WorkspaceSessionQuery, WorkspaceSessionSearchQuery, WorkspaceSessionSearchResult, WorkspacePageQuery, WorkspaceTranscriptPage } from '@solus/contracts/solus-api'
 import { getDatabase } from '../../db/database'
-import { hostUserKey } from '../../host/host-user'
 import { searchIndexFor } from '../../db/search-index'
 import { sessionMessagesRebuilding } from '../../db/session-indexer'
 import { searchSessionIndex } from '../../db/session-search'
@@ -72,9 +71,10 @@ export class SessionApiOperations {
   private async records(context: WorkspaceRequestContext, records: SessionRecord[]): Promise<WorkspaceSession[]> {
     const projects = await projectIdsForKeys(context, records.flatMap(session => session.projectRemote ? [session.projectRemote] : []))
     const links = records.length ? await readSessionPullRequests(apiScope(context), records.map(session => session.sessionId)) : {}
+    const access = await this.shares.accessOf(context.principal, 'session', records.map(session => session.sessionId))
     return records.map(session => ({
       id: session.sessionId, home: context.home, organizationId: session.organizationId === 'local' ? null : session.organizationId,
-      ownerUserId: session.ownerUserId ?? hostUserKey(), version: String(session.lastActivityAt),
+      ownerKey: session.ownerKey, role: access.get(session.sessionId)?.role ?? 'none', version: String(session.lastActivityAt),
       createdAt: new Date(session.createdAt).toISOString(), updatedAt: new Date(session.lastActivityAt).toISOString(),
       provider: session.provider, title: withinNameLimit(session.title), customTitle: withinNameLimit(session.customTitle),
       projectId: session.projectRemote ? projects.get(session.organizationId)?.get(session.projectRemote) ?? null : null,
@@ -117,7 +117,7 @@ export class SessionApiOperations {
   async admitTurn(context: WorkspaceRequestContext, sessionId: string): Promise<void> {
     requireScope(context, 'sessions:admit')
     if (!context.delegation) throw new SolusApiError(403, 'FORBIDDEN', 'Only a host acting for a person reports a turn.')
-    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'editor')
+    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'edit')
     await new SessionShelf(sessionId).recordPrompt(this.personKey(context))
   }
 
@@ -131,7 +131,7 @@ export class SessionApiOperations {
     requireScope(context, 'sessions:write')
     await this.readOne(context, sessionId)
     const changesView = input.archived !== undefined || input.snoozedUntil !== undefined
-    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, input.settled === undefined ? 'viewer' : 'editor')
+    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, input.settled === undefined ? 'read' : 'edit')
     const viewer = changesView ? new SessionViewer(sessionId, this.personKey(context)) : null
     const shelf = new SessionShelf(sessionId)
     if (input.settled === true) await shelf.settle('person')
@@ -144,7 +144,7 @@ export class SessionApiOperations {
 
   async pullRequests(context: WorkspaceRequestContext, sessionId: string): Promise<WorkspaceSessionPullRequestList> {
     requireScope(context, 'sessions:read')
-    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'viewer')
+    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'read')
     return { items: (await readSessionPullRequests(apiScope(context), [sessionId]))[sessionId] ?? [] }
   }
 
@@ -152,7 +152,7 @@ export class SessionApiOperations {
   async linkPullRequest(context: WorkspaceRequestContext, sessionId: string, pullRequest: { repository: string; number: number }, input: WorkspaceSessionPullRequestPut): Promise<WorkspaceSessionPullRequest> {
     input = workspaceSessionPullRequestPutSchema.parse(input)
     requireScope(context, 'sessions:write')
-    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'editor')
+    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'edit')
     const identity = pullRequestIdentityOf(input.url)
     if (!identity || identity.repository !== pullRequest.repository || identity.number !== pullRequest.number) {
       throw new SolusApiError(400, 'INVALID_REQUEST', 'The URL must name the pull request in the path.')
@@ -166,14 +166,14 @@ export class SessionApiOperations {
 
   async unlinkPullRequest(context: WorkspaceRequestContext, sessionId: string, pullRequest: { repository: string; number: number }): Promise<void> {
     requireScope(context, 'sessions:write')
-    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'editor')
+    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'edit')
     await unlinkSessionPullRequest(sessionId, pullRequest.repository, pullRequest.number)
   }
 
   /** The records a caller may read: its scope, then what sharing and parentage let it see. */
   private visible(context: WorkspaceRequestContext): SQL[] {
     return [scopeClause(apiScope(context), sql`session_records.organization_id`),
-      workspaceResourceVisibility(context.principal, 'session', sql`session_records.session_id`, sql`session_records.organization_id`)]
+      workspaceResourceVisibility(context.principal, 'session', { id: sql`session_records.session_id`, organization: sql`session_records.organization_id`, owner: sql`session_records.owner_key` })]
   }
 
   /**
@@ -189,8 +189,8 @@ export class SessionApiOperations {
       throw new SolusApiError(403, 'FORBIDDEN', 'Only a host acting for a person admits a session.')
     }
     try {
-      const admission = await admitSessionRecord({ organizationId: context.home.organizationId, admissionId: input.sessionId, hostId: delegation.hostId, ownerUserId: context.principal.userId })
-      return { sessionId: admission.admissionId, organizationId: admission.organizationId, ownerUserId: admission.ownerUserId, hostId: admission.hostId, admittedAt: new Date(admission.createdAt).toISOString() }
+      const admission = await admitSessionRecord({ organizationId: context.home.organizationId, admissionId: input.sessionId, hostId: delegation.hostId, ownerKey: context.principal.userId })
+      return { sessionId: admission.admissionId, organizationId: admission.organizationId, ownerKey: admission.ownerKey, hostId: admission.hostId, admittedAt: new Date(admission.createdAt).toISOString() }
     } catch (error) {
       if (error instanceof SessionAdmissionConflict) throw new SolusApiError(409, 'CONFLICT', error.message)
       throw error
@@ -199,7 +199,7 @@ export class SessionApiOperations {
 
   async get(context: WorkspaceRequestContext, sessionId: string): Promise<WorkspaceSession> {
     requireScope(context, 'sessions:read')
-    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'viewer')
+    await requireResource(this.shares, context, { kind: 'session', id: sessionId }, 'read')
     return this.readOne(context, sessionId)
   }
 

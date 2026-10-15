@@ -63,8 +63,9 @@ an upload to the Solus API:
 
 What is sound and stays:
 
-- One table of access, `share_grant`, with the owner row, named rows, and the
-  link row (`cloud-sharing.md` §4c; `sharing/schema.ts`).
+- One table of ACL entries, `acl_entry`, with the named entries and the link
+  entry; the owner is the resource's own `owner_key` (`cloud-sharing.md` §4c;
+  `access-model.md` §2.2; `sharing/schema.ts`).
 - The roles `viewer`, `commenter`, `editor`, `owner`, and the role → RPC
   table in `admission/access-policy.ts`.
 - The `guest` principal, its ws ticket, and the guest shell
@@ -94,9 +95,9 @@ The origin a link names:
 
 | Where the resource is | Link origin | Who resolves the secret |
 |---|---|---|
-| Personal or self-hosted host, linked and tunnel up | the host's tunnel route, `https://h-<hostId>.<tunnelDomain>` | the host, from its own `share_grant` |
+| Personal or self-hosted host, linked and tunnel up | the host's tunnel route, `https://h-<hostId>.<tunnelDomain>` | the host, from its own `acl_entry` |
 | Personal or self-hosted host, not linked or tunnel down | the host's best direct route, `http://<lan ip>:<port>` (Tailscale address first when there is one) | the host |
-| Managed host or organization VM | the account origin, `https://app.solus.sh` | the control plane, from the organization's `share_grant`; it answers with the host's route and a signed guest grant |
+| Managed host or organization VM | the account origin, `https://app.solus.sh` | the control plane, from the organization's `acl_entry`; it answers with the host's route and a signed guest grant |
 | A work or a task in an organization (document model) | the account origin | the Solus API, as today |
 
 Sign-in is not required to share. It is required only for what needs an
@@ -226,9 +227,11 @@ Who may share: the owner and editors, as today (`callerRole`).
 
 ## 6. Roles and invites
 
-A visitor's role is the role of the row that admits them, computed as today
-(`roleIn`): the owner row, their own `user` row, a team row, the organization
-row, or the link row. The role → permission table does not change.
+A visitor's role is what `roleOf` gives them (`access-model.md` §2.3): `owner`
+when the resource's `owner_key` names them, else the best entry that admits
+them — their own `user` entry, a team entry, the organization entry, or the
+link entry — and at least `editor` for an administrator. The role → permission
+table does not change.
 
 An **invite** is a `user` row for a person who has not opened the resource
 yet. Two cases:
@@ -330,8 +333,8 @@ member is "Add people" by the owner.
    link.
 10. **One authority for a session's rows: the host that runs it.** The Solus
     API's copy exists for resolving a link and admitting a guest offline. The
-    owner row there still comes from `claimForRunner`, from verified admission
-    authority, never from the host's rows.
+    owner there is the record's `owner_key`, written by the runner intake from
+    verified admission authority, never from the host's rows.
 
 ## 10. The guest workspace
 

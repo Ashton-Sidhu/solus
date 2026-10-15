@@ -1,4 +1,4 @@
-import { usesAccountIntegration } from '../vault/provider-credentials'
+import { usesAccountIntegration } from '../vault/vault'
 import { accountConnectionsUrl } from '../vault/account-reads'
 import { z } from 'zod'
 import {
@@ -7,13 +7,13 @@ import {
   isConnectionProvider,
 } from '@solus/contracts/connections'
 import type { ConnectionConnectNeeded, ConnectionProvider, ConnectionReason } from '@solus/contracts/connections'
-import { loadToken as loadCloudflareToken } from '../cloudflare/token-store'
 import { loadCredential as loadAtlassianCredential } from '../atlassian/token-store'
 import { isOAuthConfigured as isAtlassianOAuthConfigured } from '../atlassian/oauth'
 import { GitHubAuth } from '../providers/github/auth'
 import { getAccessToken as getGoogleAccessToken, isGoogleOAuthConfigured } from '../google/oauth'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { integrationGateway } from '../integrations/integration-tools'
+import { currentPersonKey } from '../vault/acting-scope'
 import type { AgentTool, AgentToolResult } from '../execution/agents/tools/agent-tool'
 
 /**
@@ -37,19 +37,9 @@ interface ConnectionState {
   connected: boolean
   /** What the user would recognize the account by — never a credential. */
   account?: string
-  /** `env` means the machine supplied it and Solus cannot revoke it. */
-  source?: 'env' | 'stored'
+  source?: 'stored'
   /** Set when the build itself cannot connect this provider. */
   unavailableReason?: string
-}
-
-async function cloudflareState(): Promise<ConnectionState> {
-  if (process.env.CLOUDFLARE_API_TOKEN) return { connected: true, source: 'env' }
-  const token = loadCloudflareToken()
-  if (!token) return { connected: false }
-  const state: ConnectionState = { connected: true, source: 'stored' }
-  if (token.accountName) state.account = token.accountName
-  return state
 }
 
 async function atlassianState(): Promise<ConnectionState> {
@@ -82,7 +72,6 @@ async function googleState(): Promise<ConnectionState> {
 }
 
 const PROVIDER_STATE: Record<ConnectionProvider, () => Promise<ConnectionState>> = {
-  cloudflare: cloudflareState,
   github: githubState,
   atlassian: atlassianState,
   google: googleState,
@@ -94,7 +83,6 @@ const PROVIDER_STATE: Record<ConnectionProvider, () => Promise<ConnectionState>>
  * up Jira" must not answer with a word the user did not use.
  */
 const REASON_PROVIDER: Record<ConnectionReason, ConnectionProvider | null> = {
-  deploy: 'cloudflare',
   'pull-requests': 'github',
   issues: 'github',
   confluence: 'atlassian',
@@ -115,7 +103,7 @@ const connectionStatusArgsSchema = z.object({
  */
 async function integrationStatus(slug: string, sessionId: string | undefined): Promise<AgentToolResult> {
   const gateway = integrationGateway()
-  const integration = gateway?.store.list(ANY_ORGANIZATION).find((candidate) => candidate.slug === slug)
+  const integration = gateway?.store.list(ANY_ORGANIZATION, currentPersonKey()).find((candidate) => candidate.slug === slug)
   if (!gateway || !integration) return { ok: false, text: `No integration named '${slug}'. Use the slug before \`__\` in its tool names.` }
   const report = await gateway.connectionStatus(integration.id)
   const base = { integration: integration.slug, name: integration.name, status: report.status }
@@ -155,7 +143,7 @@ function resolveTarget(
 export const connectionStatusAgentTool: AgentTool = {
   name: 'connection_status',
   description:
-    'Check whether Solus can reach an external account — cloudflare, github, atlassian (Confluence and Jira share one Atlassian connection), or google — or whether the user is signed in to an integration (pass `integration`, the slug before `__` in its tool names). Returns connection metadata only, never a credential. When the account is not connected, this asks the user to connect it and they answer in the conversation; do not ask for a token or a password yourself. Pass `reason` to say what the connection is for: deploy, pull-requests, issues, confluence, jira, drive.',
+    'Check whether Solus can reach an external account — github, atlassian (Confluence and Jira share one Atlassian connection), or google — or whether the user is signed in to an integration (pass `integration`, the slug before `__` in its tool names). Returns connection metadata only, never a credential. When the account is not connected, this asks the user to connect it and they answer in the conversation; do not ask for a token or a password yourself. Pass `reason` to say what the connection is for: pull-requests, issues, confluence, jira, drive.',
   // Both optional, and either one is enough to identify the account: "set up
   // Jira" names a product, not a provider. Requiring both would reject the call
   // the description invites.
@@ -163,7 +151,7 @@ export const connectionStatusAgentTool: AgentTool = {
     provider: z.string().optional()
       .describe(`One of: ${CONNECTION_PROVIDERS.join(', ')}. Optional when reason names one.`),
     reason: z.string().optional()
-      .describe('What the connection is for: deploy, pull-requests, issues, confluence, jira, drive.'),
+      .describe('What the connection is for: pull-requests, issues, confluence, jira, drive.'),
     integration: z.string().optional()
       .describe('An integration slug, the part before `__` in its tool names. When given, provider and reason are ignored.'),
   } as const,
@@ -181,8 +169,8 @@ export const connectionStatusAgentTool: AgentTool = {
       }
     }
 
-    const accountUrl = target.provider !== 'cloudflare' && usesAccountIntegration() ? accountConnectionsUrl() : null
-    const state = await PROVIDER_STATE[target.provider]().catch((error) => {
+    const accountUrl = usesAccountIntegration() ? accountConnectionsUrl() : null
+    const state = await PROVIDER_STATE[target.provider]().catch((error): ConnectionState => {
       if (accountUrl) return { connected: false }
       throw error
     })

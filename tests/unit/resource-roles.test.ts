@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import type { ResourceRole, ShareList, ShareResource } from '@solus/contracts/sharing'
-import { canDriveSession, provideResourceRoles, resourceMay } from '@solus/workspace-ui/contexts/sharing/resource-roles'
+import { canDriveSession, provideResourceRoles, rememberRoles, resourceMay } from '@solus/workspace-ui/contexts/sharing/resource-roles'
 
 // A member who has a shared session as a viewer or a commenter reads it; the
 // host refuses them every editor write (admission/access-policy.ts: prompt,
@@ -19,8 +19,8 @@ provideResourceRoles({
 function shareAs(serverId: string, sessionId: string, callerRole: ResourceRole): void {
   lists.set(`${serverId}|${sessionId}`, {
     resource: { kind: 'session', id: sessionId },
-    ownerUserId: 'owner',
-    grants: [],
+    ownerKey: 'owner',
+    entries: [],
     callerRole,
     link: null,
   })
@@ -82,5 +82,32 @@ describe('canDriveSession', () => {
   test('a draft with no session or host drives', () => {
     expect(canDriveSession(null, 'session-1')).toBe(true)
     expect(canDriveSession('host-a', undefined)).toBe(true)
+  })
+})
+
+describe('the role a resource carries (access-model.md §2.7)', () => {
+  test('a kind that cannot be shared reads its own role, and never asks for a share list', async () => {
+    // WHY: every member lists the organization's projects and an administrator
+    // every automation; only the role the host sent says who may change one.
+    expect(resourceMay('host-a', { kind: 'project', id: 'p1', role: 'none' }, 'edit')).toBe(false)
+    expect(resourceMay('host-a', { kind: 'automation', id: 'a1', role: 'editor' }, 'edit')).toBe(true)
+    expect(resourceMay('host-a', { kind: 'automation', id: 'a2' }, 'edit')).toBe(true)
+    await Promise.resolve()
+    expect(loads).toEqual([])
+  })
+
+  test('a session listed with its role answers "may I drive it" without asking the host', async () => {
+    rememberRoles('host-c', [{ kind: 'session', id: 'listed', role: 'viewer' }])
+    expect(canDriveSession('host-c', 'listed')).toBe(false)
+    await Promise.resolve()
+    expect(loads).toEqual([])
+  })
+
+  test('a share list the host answered later wins over the role the list carried', () => {
+    // WHY: an owner who raises a viewer to an editor changes the ACL entries; the
+    // share list follows that change, the session list does not until it reloads.
+    rememberRoles('host-d', [{ kind: 'session', id: 'raised', role: 'viewer' }])
+    shareAs('host-d', 'raised', 'editor')
+    expect(canDriveSession('host-d', 'raised')).toBe(true)
   })
 })

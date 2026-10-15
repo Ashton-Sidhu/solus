@@ -45,9 +45,9 @@ export function sameScope(a: ShareScope, b: ShareScope): boolean {
 /** The scope a list stands for: the link if there is one, else the widest named row, with its role. */
 export function scopeOf(list: ShareList): ShareScope {
   if (list.link) return { kind: 'link', role: list.link.role }
-  const organization = list.grants.find((grant) => grant.subject.kind === 'organization')
+  const organization = list.entries.find((entry) => entry.subject.kind === 'organization')
   if (organization?.subject.kind === 'organization') return { kind: 'organization', organizationId: organization.subject.id, role: organization.role }
-  const team = list.grants.find((grant) => grant.subject.kind === 'team')
+  const team = list.entries.find((entry) => entry.subject.kind === 'team')
   if (team?.subject.kind === 'team') return { kind: 'team', teamId: team.subject.id, role: team.role }
   return { kind: 'private' }
 }
@@ -139,37 +139,37 @@ export function scopeOptions(list: ShareList, directory: OrganizationPeople | nu
  * kept as they are, and the link when the scope changes it.
  */
 export function scopeRequestFor(scope: ShareScope, list: ShareList, organizationId: string | null): ShareSetRequest {
-  const grants: ShareSetRequest['grants'] = list.grants
-    .filter((grant) => grant.subject.kind === 'user')
-    .map((grant) => ({ subject: grant.subject, role: grant.role }))
+  const entries: ShareSetRequest['entries'] = list.entries
+    .filter((entry) => entry.subject.kind === 'user')
+    .map((entry) => ({ subject: entry.subject, role: entry.role }))
   switch (scope.kind) {
     case 'private':
       break
     case 'team':
-      grants.push({ subject: { kind: 'team', id: scope.teamId }, role: scope.role })
+      entries.push({ subject: { kind: 'team', id: scope.teamId }, role: scope.role })
       break
     case 'organization':
-      grants.push({ subject: { kind: 'organization', id: scope.organizationId }, role: scope.role })
+      entries.push({ subject: { kind: 'organization', id: scope.organizationId }, role: scope.role })
       break
     case 'link': {
       // The link is the widest scope: the organization, when there is one, stays on
       // the list with the role it has; one it never had starts with the link's.
-      const existing = list.grants.find((grant) => grant.subject.kind === 'organization')
-      if (existing?.subject.kind === 'organization') grants.push({ subject: existing.subject, role: existing.role })
-      else if (organizationId) grants.push({ subject: { kind: 'organization', id: organizationId }, role: scope.role })
+      const existing = list.entries.find((entry) => entry.subject.kind === 'organization')
+      if (existing?.subject.kind === 'organization') entries.push({ subject: existing.subject, role: existing.role })
+      else if (organizationId) entries.push({ subject: { kind: 'organization', id: organizationId }, role: scope.role })
       break
     }
   }
-  const request: ShareSetRequest = { resource: list.resource, grants }
+  const request: ShareSetRequest = { resource: list.resource, entries }
   const linkRole = scope.kind === 'link' ? scope.role : null
   if (linkRole !== (list.link?.role ?? null)) request.link = { role: linkRole }
   return request
 }
 
 /** Who "Only …" names: the reader when they own it, else the owner by name. */
-export function ownerLabel(list: Pick<ShareList, 'ownerUserId' | 'callerRole'>, directory: OrganizationPeople | null): string {
+export function ownerLabel(list: Pick<ShareList, 'ownerKey' | 'callerRole'>, directory: OrganizationPeople | null): string {
   if (list.callerRole === 'owner') return 'you'
-  return memberByKey(directory, list.ownerUserId)?.displayName ?? 'the owner'
+  return memberByKey(directory, list.ownerKey)?.displayName ?? 'the owner'
 }
 
 // ── People named on the list ────────────────────────────────────────────────
@@ -197,24 +197,24 @@ function formerMember(key: string): User {
  */
 export function personRows(list: ShareList, directory: OrganizationPeople | null, self: User | null): PersonRow[] {
   const selfUserId = self ? userKey(self.id) : null
-  const ownerMember = memberByKey(directory, list.ownerUserId)
+  const ownerMember = memberByKey(directory, list.ownerKey)
   const ownerIsSelf = list.callerRole === 'owner'
   const rows: PersonRow[] = [{
-    userId: list.ownerUserId,
-    user: ownerMember ?? (ownerIsSelf && self ? self : formerMember(list.ownerUserId)),
+    userId: list.ownerKey,
+    user: ownerMember ?? (ownerIsSelf && self ? self : formerMember(list.ownerKey)),
     detail: ownerMember?.email ?? '',
     role: 'owner',
     isSelf: ownerIsSelf,
   }]
-  for (const grant of list.grants) {
-    if (grant.subject.kind !== 'user') continue
-    const member = memberByKey(directory, grant.subject.id)
+  for (const entry of list.entries) {
+    if (entry.subject.kind !== 'user') continue
+    const member = memberByKey(directory, entry.subject.id)
     rows.push({
-      userId: grant.subject.id,
-      user: member ?? formerMember(grant.subject.id),
+      userId: entry.subject.id,
+      user: member ?? formerMember(entry.subject.id),
       detail: member?.email ?? '',
-      role: grant.role,
-      isSelf: selfUserId !== null && grant.subject.id === selfUserId,
+      role: entry.role,
+      isSelf: selfUserId !== null && entry.subject.id === selfUserId,
     })
   }
   return rows
@@ -223,31 +223,31 @@ export function personRows(list: ShareList, directory: OrganizationPeople | null
 /** Everyone in the directory who is not the owner and not yet on the list, narrowed by the search. */
 export function personCandidates(list: ShareList, directory: OrganizationPeople | null, query: string): User[] {
   if (!directory) return []
-  const taken = new Set(list.grants.flatMap((grant) => (grant.subject.kind === 'user' ? [grant.subject.id] : [])))
+  const taken = new Set(list.entries.flatMap((entry) => (entry.subject.kind === 'user' ? [entry.subject.id] : [])))
   const needle = query.trim().toLowerCase()
   return directory.members.filter((member) => {
     const key = userKey(member.id)
-    if (key === list.ownerUserId || taken.has(key)) return false
+    if (key === list.ownerKey || taken.has(key)) return false
     return !needle || member.displayName.toLowerCase().includes(needle) || (member.email ?? '').toLowerCase().includes(needle)
   })
 }
 
 /** The whole list with one person set to a role (added when absent); every other row stays. */
 export function withPersonRole(list: ShareList, userId: string, role: ShareRole): ShareSetRequest {
-  const grants: ShareSetRequest['grants'] = list.grants
-    .filter((grant) => !(grant.subject.kind === 'user' && grant.subject.id === userId))
-    .map((grant) => ({ subject: grant.subject, role: grant.role }))
-  grants.push({ subject: { kind: 'user', id: userId }, role })
-  return { resource: list.resource, grants }
+  const entries: ShareSetRequest['entries'] = list.entries
+    .filter((entry) => !(entry.subject.kind === 'user' && entry.subject.id === userId))
+    .map((entry) => ({ subject: entry.subject, role: entry.role }))
+  entries.push({ subject: { kind: 'user', id: userId }, role })
+  return { resource: list.resource, entries }
 }
 
 /** The whole list without one person. */
 export function withoutPerson(list: ShareList, userId: string): ShareSetRequest {
   return {
     resource: list.resource,
-    grants: list.grants
-      .filter((grant) => !(grant.subject.kind === 'user' && grant.subject.id === userId))
-      .map((grant) => ({ subject: grant.subject, role: grant.role })),
+    entries: list.entries
+      .filter((entry) => !(entry.subject.kind === 'user' && entry.subject.id === userId))
+      .map((entry) => ({ subject: entry.subject, role: entry.role })),
   }
 }
 
@@ -306,7 +306,7 @@ export interface ShareSummary {
 export function shareSummary(list: ShareList | undefined): ShareSummary {
   if (!list) return { scope: null, people: 0, hasLink: false, label: 'Share' }
   const scope = scopeOf(list)
-  const people = list.grants.filter((grant) => grant.subject.kind === 'user').length
+  const people = list.entries.filter((entry) => entry.subject.kind === 'user').length
   const prefix = list.callerRole === 'owner' ? 'Shared' : 'Shared with you'
   const named = people ? ` · ${people} ${people === 1 ? 'person' : 'people'}` : ''
   switch (scope.kind) {

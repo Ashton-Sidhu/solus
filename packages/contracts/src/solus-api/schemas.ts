@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { activitySchema } from '../activity'
 import { hubNotificationSchema } from '../notification-hub'
+import { resourceRoleSchema } from '../sharing'
 
 const datetime = z.iso.datetime({ offset: true })
 const nullableText = (max: number) => z.string().max(max).nullable()
@@ -55,7 +56,10 @@ const record = {
   id: workspaceIdSchema,
   home: workspaceRecordHomeSchema,
   organizationId: workspaceIdSchema.nullable(),
-  ownerUserId: workspaceIdSchema,
+  /** The owner's person key (docs/plans/access-model.md §1). */
+  ownerKey: workspaceIdSchema,
+  /** The caller's resource role on this record (docs/plans/access-model.md §2.7): what a client may offer. */
+  role: resourceRoleSchema,
   version: workspaceVersionSchema,
   createdAt: datetime,
   updatedAt: datetime,
@@ -97,7 +101,7 @@ export type WorkspaceCapabilities = z.infer<typeof workspaceCapabilitiesSchema>
 const taskStatus = z.enum(['inbox', 'todo', 'in_progress', 'in_review', 'done', 'dropped'])
 const taskPriority = z.enum(['urgent', 'high', 'medium', 'low'])
 const taskLabels = z.array(z.string().min(1).max(100)).max(100)
-const taskExample = { id: 'task_example', home: { kind: 'local', hostId: 'host_example' }, organizationId: null, ownerUserId: 'local:host_user_example', version: 'v1-example', createdAt: '2026-09-28T16:00:00Z', updatedAt: '2026-09-28T16:00:00Z', title: 'Review the API contract', projectKey: null, projectId: null, status: 'todo', assignee: null, priority: 'medium', labels: ['api'], dueDate: null, originSessionId: null, shortId: 1 }
+const taskExample = { id: 'task_example', home: { kind: 'local', hostId: 'host_example' }, organizationId: null, ownerKey: 'local:host_user_example', role: 'owner', version: 'v1-example', createdAt: '2026-09-28T16:00:00Z', updatedAt: '2026-09-28T16:00:00Z', title: 'Review the API contract', projectKey: null, projectId: null, status: 'todo', assignee: null, priority: 'medium', labels: ['api'], dueDate: null, originSessionId: null, shortId: 1 }
 
 export const workspaceTaskSummarySchema = z.strictObject({
   ...record,
@@ -156,7 +160,7 @@ export type WorkspaceTaskPage = z.infer<typeof workspaceTaskPageSchema>
 
 const workType = z.enum(['doc', 'slides', 'diagram', 'artifact'])
 const agentProvider = z.enum(['claude-code', 'codex', 'opencode'])
-const workExample = { id: 'work_example', home: { kind: 'local', hostId: 'host_example' }, organizationId: null, ownerUserId: 'local:host_user_example', version: 'v1-example', createdAt: '2026-09-28T16:00:00Z', updatedAt: '2026-09-28T16:00:00Z', title: 'API notes', type: 'doc', preview: 'Review notes', sessionIds: [], projectId: null, pinned: false, editable: true, cwd: '~', agentProvider: 'codex' }
+const workExample = { id: 'work_example', home: { kind: 'local', hostId: 'host_example' }, organizationId: null, ownerKey: 'local:host_user_example', role: 'owner', version: 'v1-example', createdAt: '2026-09-28T16:00:00Z', updatedAt: '2026-09-28T16:00:00Z', title: 'API notes', type: 'doc', preview: 'Review notes', sessionIds: [], projectId: null, pinned: false, editable: true, cwd: '~', agentProvider: 'codex' }
 
 export const workspaceLinkedDocumentSchema = z.strictObject({
   provider: z.enum(['gdrive', 'confluence']),
@@ -397,7 +401,7 @@ export const workspaceSessionSchema = z.strictObject({
   listed: z.boolean(),
   /** The pull requests the session works on. */
   pullRequests: z.array(workspaceSessionPullRequestSchema).max(500),
-}).meta({ description: 'Storage and organization do not grant visibility. Explicit sharing or a verified parent relationship may grant access. `updatedAt` is the last activity.', examples: [{ id: 'session_example', home: { kind: 'organization', serviceId: 'api_example', organizationId: 'org_example' }, organizationId: 'org_example', ownerUserId: 'user_example', version: 'v1-example', createdAt: '2026-09-28T16:00:00Z', updatedAt: '2026-09-28T16:00:00Z', provider: 'codex', title: 'Review the API', customTitle: null, projectId: 'project_example', projectPath: 'project-example', projectRemote: null, runnerHostId: 'host_example', status: 'idle', model: null, reasoningEffort: null, parentSessionId: null, rootSessionId: null, publication: 'published', size: 0, cwd: '/home/example/project', slug: null, isWorktree: false, branch: 'main', projectRoot: '/home/example/project', delegation: null, state: null, view: null, listed: true, pullRequests: [] }] })
+}).meta({ description: 'Storage and organization do not grant visibility. Explicit sharing or a verified parent relationship may grant access. `updatedAt` is the last activity.', examples: [{ id: 'session_example', home: { kind: 'organization', serviceId: 'api_example', organizationId: 'org_example' }, organizationId: 'org_example', ownerKey: 'user_example', role: 'owner', version: 'v1-example', createdAt: '2026-09-28T16:00:00Z', updatedAt: '2026-09-28T16:00:00Z', provider: 'codex', title: 'Review the API', customTitle: null, projectId: 'project_example', projectPath: 'project-example', projectRemote: null, runnerHostId: 'host_example', status: 'idle', model: null, reasoningEffort: null, parentSessionId: null, rootSessionId: null, publication: 'published', size: 0, cwd: '/home/example/project', slug: null, isWorktree: false, branch: 'main', projectRoot: '/home/example/project', delegation: null, state: null, view: null, listed: true, pullRequests: [] }] })
 export type WorkspaceSession = z.infer<typeof workspaceSessionSchema>
 
 export const workspaceSessionAdmissionRequestSchema = z.strictObject({
@@ -408,10 +412,10 @@ export type WorkspaceSessionAdmissionRequest = z.infer<typeof workspaceSessionAd
 export const workspaceSessionAdmissionSchema = z.strictObject({
   sessionId: workspaceIdSchema,
   organizationId: workspaceIdSchema,
-  ownerUserId: workspaceIdSchema,
+  ownerKey: workspaceIdSchema,
   hostId: workspaceIdSchema,
   admittedAt: datetime,
-}).meta({ description: 'The durable acceptance of a new organization session before its provider starts. The owner is the person whose run authority asked; the execution host reports the session record under this admission. Repeating the request answers the same admission.', examples: [{ sessionId: 'session_example', organizationId: 'org_example', ownerUserId: 'user_example', hostId: 'host_example', admittedAt: '2026-09-28T16:00:00Z' }] })
+}).meta({ description: 'The durable acceptance of a new organization session before its provider starts. The owner is the person whose run authority asked; the execution host reports the session record under this admission. Repeating the request answers the same admission.', examples: [{ sessionId: 'session_example', organizationId: 'org_example', ownerKey: 'user_example', hostId: 'host_example', admittedAt: '2026-09-28T16:00:00Z' }] })
 export type WorkspaceSessionAdmission = z.infer<typeof workspaceSessionAdmissionSchema>
 
 /** True while a machine's first index sweep runs: what it answers is not every session yet. Always false on the workspace service. */

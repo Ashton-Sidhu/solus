@@ -93,13 +93,13 @@ export async function markTaskMoved(scope: RecordScope, taskId: string, fingerpr
  * session is named and placed on the host that runs it; nothing of its content
  * is here. A task already there is the same upload again and is answered as it stands.
  */
-export async function importTaskFromHost(organizationId: string, transfer: TaskTransfer, by: Attribution): Promise<Task> {
+export async function importTaskFromHost(organizationId: string, transfer: TaskTransfer, by: Attribution, ownerKey: string): Promise<Task> {
   const { fingerprint, ...snapshot } = transfer
   if (taskTransferFingerprint(snapshot) !== fingerprint) throw new Error('The task snapshot is incomplete.')
   const existing = await Task.byId(organizationId, transfer.task.id).catch(() => null)
   if (existing) return existing
   const { id, createdAt, source, ...fields } = transfer.task
-  await createTask(organizationId, { ...fields, source: source ?? 'user' }, { id, now: createdAt }, by)
+  await createTask(organizationId, { ...fields, source: source ?? 'user' }, { id, now: createdAt }, by, ownerKey)
   const task = await Task.byId(organizationId, id)
   for (const comment of transfer.comments) {
     await task.comment(comment.body, { id: comment.id, by: comment.author ?? by, originSessionId: comment.originSessionId })

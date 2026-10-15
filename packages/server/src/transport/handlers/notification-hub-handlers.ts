@@ -1,5 +1,5 @@
 import { NOTIFICATION_HUB_VERSION } from '@solus/contracts/notification-hub'
-import { isHostOwner, recordScopeOf, type Principal } from '../../admission/principal'
+import { isHostOwner, type Principal } from '../../admission/principal'
 import { notificationReaderFor } from '../../data/notifications/access'
 import {
   countNotifications, listNotifications, setNotificationArchived, setNotificationRead, type NotificationReader,
@@ -15,7 +15,7 @@ import type { SolusServer } from '../server'
  */
 export function registerNotificationHubHandlers(server: SolusServer, deps: { shares?: ShareManager } = {}): void {
   const readerFor = (principal: Principal): NotificationReader => {
-    const reader = notificationReaderFor(principal, recordScopeOf(principal), async (resource) => {
+    const reader = notificationReaderFor(principal, async (resource) => {
       if (!deps.shares) return isHostOwner(principal)
       return await deps.shares.roleFor(principal, resource) !== 'none'
     })

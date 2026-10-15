@@ -6,6 +6,7 @@ import { Database } from 'bun:sqlite'
 import { sql } from 'drizzle-orm'
 import type { PullRequest } from '@solus/contracts/providers'
 import { resetTestDatabase } from './helpers/test-db'
+import { notificationReader } from './helpers/actors'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -62,7 +63,7 @@ function observer() {
   return { observe: (rows: PullRequest[]) => { clock += 60_000; return instance.observe(repo, 'Octo', rows) } }
 }
 
-const inbox = async () => (await store.listNotifications({ scope: 'local', recipientKey: 'local:owner' }, {})).items
+const inbox = async () => (await store.listNotifications(notificationReader('local:owner', 'local'), {})).items
 
 describe('pull request observation', () => {
   test('the first answer is a quiet baseline; a later new request is recorded once', async () => {
