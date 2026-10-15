@@ -2,7 +2,7 @@ import { createLogger } from '../../logger'
 import type { SessionRuntime } from '../../execution/session-runtime'
 import { getProvider, providerForRepo } from '../../providers/registry'
 import { ConnectCancelledError } from '../../providers/github/auth'
-import { loadToken } from '../../providers/github/token-store'
+import { githubCredentials } from '../../providers/github/credentials'
 import { computeGitState, resolveRepoRoot } from '../../git/git-helpers'
 import { repoRootOrScope } from '../../git/ctx-paths'
 import type { CheckoutService } from '../../git/checkout-service'
@@ -371,7 +371,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       throw new Error('Only this device can export its GitHub credential.')
     }
 
-    const token = await loadToken()
+    const token = await githubCredentials().accountToken()
     if (!token) throw new Error('Connect GitHub on this device first.')
 
     const login = token.login ?? await getProvider('github')?.review.getViewer()

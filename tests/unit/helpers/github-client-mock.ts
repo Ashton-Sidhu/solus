@@ -1,5 +1,7 @@
 import { mock } from 'bun:test'
 import { isGithubCredentialAccessFailure, type GitHubClient } from '@solus/server/providers/github/octokit'
+import { useGitHubCredentials } from '@solus/server/providers/github/credentials'
+import { fakeGithubCredentials } from './github-credentials'
 
 /**
  * Bun registers a module mock for the whole test run, not per file. Two files
@@ -43,17 +45,8 @@ export function mockedGithubClient(): GitHubClient {
 }
 
 export function installGithubClientMock(): void {
-  mock.module('@solus/server/providers/github/auth', () => ({
-    GitHubAuth: class {
-      async getAccessToken(): Promise<string> {
-        return githubClientState.accessToken
-      }
-
-      async status(): Promise<{ connected: boolean; scopes: string[] }> {
-        return { connected: true, scopes: [] }
-      }
-    },
-  }))
+  // Signed with the host's token: the host's own work is connected to GitHub.
+  useGitHubCredentials(fakeGithubCredentials({ hostToken: githubClientState.accessToken }).credentials)
 
   mock.module('@solus/server/providers/github/octokit', () => ({
     GitHubReauthRequiredError: class extends Error {},

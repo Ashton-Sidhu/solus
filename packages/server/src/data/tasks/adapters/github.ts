@@ -1,6 +1,7 @@
 import { canonicalRepoRef } from '../../../providers/github/canonical-repo'
 import type { GitHubClient } from '../../../providers/github/octokit'
-import { githubClients, runGithubRequest } from '../../../providers/github/request'
+import { githubCredentials } from '../../../providers/github/credentials'
+import { runGithubRequest } from '../../../providers/github/request'
 import { z } from 'zod'
 import type {
   CandidateTicket,
@@ -61,7 +62,7 @@ async function withGithubTaskClient<Result>(
   repo: GitHubRepositoryRef,
   run: (client: GitHubClient) => Promise<Result>,
 ): Promise<Result> {
-  return runGithubRequest(operation, repo.host, await githubClients(repo.host), run)
+  return runGithubRequest(operation, repo.host, await githubCredentials().clients(repo.host), run)
 }
 
 /** An issue is open or closed, and "in progress" only in the sense that the

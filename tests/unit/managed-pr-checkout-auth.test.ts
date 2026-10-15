@@ -14,12 +14,6 @@ let rejectAll = false
 let checkoutPath = ''
 let root = ''
 
-mock.module('@solus/server/providers/github/credentials', () => ({
-  githubCredentialChain: async () => [
-    { source: 'host', token: 'test-host-token' },
-    { source: 'gh-cli', token: 'test-gh-token' },
-  ],
-}))
 mock.module('@solus/server/git/exec', () => ({
   runAsync: async (_bin: string, args: string[], cwd: string, options?: GitExecOptions) => {
     // The chosen token's helper comes first: `-c credential.helper= -c credential.helper=<token helper>`.
@@ -57,6 +51,9 @@ mock.module('@solus/server/git/exec', () => ({
 }))
 
 const { ensureManagedPrCheckout } = await import('@solus/server/review/managed-pr-checkout')
+const { useGitHubCredentials } = await import('@solus/server/providers/github/credentials')
+const { fakeGithubCredentials } = await import('./helpers/github-credentials')
+useGitHubCredentials(fakeGithubCredentials({ hostToken: 'test-host-token', gh: new Map([['github.com', 'test-gh-token']]) }).credentials)
 
 afterEach(() => {
   if (root) rmSync(root, { recursive: true, force: true })

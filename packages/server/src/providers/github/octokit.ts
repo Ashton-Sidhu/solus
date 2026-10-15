@@ -2,12 +2,10 @@ import { Octokit } from '@octokit/rest'
 import { graphql as octokitGraphql } from '@octokit/graphql'
 import { z } from 'zod'
 import { createLogger } from '../../logger'
-import { clearToken } from './token-store'
 import { githubRateLimitOf } from './rate-limit'
 import { ConditionalReads } from './conditional-reads'
 import { RequestBudget, restResourceOf, withRequestSlot } from './request-budget'
-import type { GithubCredential } from './credentials'
-import type { GitHubAuth } from './auth'
+import { githubCredentials, type GithubCredential, type GitHubCredentials } from './credentials'
 
 const log = createLogger('main', 'github-octokit')
 
@@ -105,7 +103,7 @@ export function clientFor(credential: GithubCredential): GitHubClient {
 }
 
 /** The client for the account this host is connected as. */
-export async function buildClient(auth: GitHubAuth): Promise<GitHubClient> {
+export async function buildClient(auth: GitHubCredentials): Promise<GitHubClient> {
   return clientFor({ source: 'host', token: await auth.getAccessToken() })
 }
 
@@ -120,7 +118,7 @@ function createClient(credential: GithubCredential): GitHubClient {
     clientsByToken.delete(credential.token)
     if (credential.source === 'host') {
       log.warn('github_unauthorized_token_cleared')
-      void clearToken()
+      void githubCredentials().clear()
     } else {
       log.warn('github_unauthorized_credential', { source: credential.source })
     }

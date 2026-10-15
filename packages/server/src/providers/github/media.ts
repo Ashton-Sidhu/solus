@@ -5,7 +5,7 @@ import { mediaTypeFor } from '@solus/contracts/media-types'
 import { projectScopeOf, type IpcContext } from '@solus/contracts/types'
 import { getAssetSigningSecret, readSignedToken, signToken } from '../../admission/signed-token'
 import { createLogger } from '../../logger'
-import { githubCredentialChain } from './credentials'
+import { githubCredentials } from './credentials'
 
 /**
  * Media that a pull request body points at on GitHub, served from this host's
@@ -82,7 +82,7 @@ export interface GithubMediaFetchDeps {
 
 const DEFAULT_DEPS: GithubMediaFetchDeps = {
   fetch: (input, init) => fetch(input, init),
-  tokens: async (scope) => (await githubCredentialChain('github.com', scope)).map((credential) => credential.token),
+  tokens: async (scope) => (await githubCredentials().chain('github.com', scope)).map((credential) => credential.token),
   now: () => Date.now(),
 }
 

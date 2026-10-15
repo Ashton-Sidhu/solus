@@ -32,7 +32,7 @@ type Principal = import('@solus/server/admission/principal').Principal
 /** The person `SolusServer.handle()` puts in a caller's scope (docs/plans/access-model.md §2.1). */
 const credentialKeyFor = (principal: Principal): string | null => ownerKeyOf(actorFor(principal))
 const { adoptProvisionedRegistration, resetHostCategoryForTests } = await import('@solus/server/host/host-category')
-const { githubCredentialChain } = await import('@solus/server/providers/github/credentials')
+const { githubCredentials } = await import('@solus/server/providers/github/credentials')
 const token = z.object({ accessToken: z.string() })
 const localOwner = { kind: 'local-owner', deviceId: null, deviceLabel: 'This Mac' } as const
 const remoteOwner = { kind: 'remote-owner', userId: 'alice', deviceId: 'device', deviceLabel: 'Web', expiresAt: Date.now() + 60_000 } as const
@@ -68,10 +68,10 @@ describe('account integration identity', () => {
     values.set('github-oauth', JSON.stringify({ accessToken: 'wrong-host-user' }))
     let connected = true
     linkAccount(() => connected ? Response.json({ accessToken: 'alice-only', scope: 'repo', login: 'alice' }) : Response.json({}, { status: 404 }))
-    expect(await withUserScope('alice', () => githubCredentialChain('github.com', '/unrelated/checkout'))).toEqual([{ source: 'account', token: 'alice-only' }])
+    expect(await withUserScope('alice', () => githubCredentials().chain('github.com', '/unrelated/checkout'))).toEqual([{ source: 'account', token: 'alice-only' }])
     connected = false
-    expect(await withUserScope('alice', () => githubCredentialChain('github.com', '/unrelated/checkout'))).toEqual([])
-    expect(await withUserScope('alice', () => githubCredentialChain('enterprise.example'))).toEqual([])
+    expect(await withUserScope('alice', () => githubCredentials().chain('github.com', '/unrelated/checkout'))).toEqual([])
+    expect(await withUserScope('alice', () => githubCredentials().chain('enterprise.example'))).toEqual([])
     expect(touches).toEqual([])
   })
   test('a person\'s connection is read with the host\'s delegation for them as the bearer, never a token in a body, and nobody else\'s', async () => {
@@ -79,13 +79,13 @@ describe('account integration identity', () => {
     // still act as its person, and only as that person.
     const calls = linkAccount(() => Response.json({ accessToken: 'carol-only', scope: 'repo', login: 'carol' }), [])
     // No delegation for carol: nothing is sent, and the call says so.
-    await expect(withUserScope('carol', () => githubCredentialChain('github.com'))).rejects.toThrow('Reconnect')
+    await expect(withUserScope('carol', () => githubCredentials().chain('github.com'))).rejects.toThrow('Reconnect')
     expect(calls).toEqual([])
     const withCarol = linkAccount(() => Response.json({ accessToken: 'carol-only', scope: 'repo', login: 'carol' }), ['carol'])
-    expect(await withUserScope('carol', () => githubCredentialChain('github.com'))).toEqual([{ source: 'account', token: 'carol-only' }])
+    expect(await withUserScope('carol', () => githubCredentials().chain('github.com'))).toEqual([{ source: 'account', token: 'carol-only' }])
     expect(withCarol).toEqual([{ path: '/v1/vault/read', authorization: 'Bearer delegated-carol', body: JSON.stringify({ ref: GITHUB }) }])
     // Another person's call does not borrow it.
-    await expect(withUserScope('dave', () => githubCredentialChain('github.com'))).rejects.toThrow('Reconnect')
+    await expect(withUserScope('dave', () => githubCredentials().chain('github.com'))).rejects.toThrow('Reconnect')
     expect(withCarol).toHaveLength(1)
   })
   test('host-scoped calls keep their host connection', async () => {

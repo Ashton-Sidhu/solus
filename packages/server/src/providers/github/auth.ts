@@ -1,15 +1,8 @@
-import { usesAccountIntegration } from '../../vault/vault'
-import { createLogger } from '../../logger'
-import { GITHUB_OAUTH_SCOPES, parseGithubScopes } from '@solus/contracts/github-auth'
-import { currentPersonKey } from '../../vault/acting-scope'
+import { GITHUB_OAUTH_SCOPES } from '@solus/contracts/github-auth'
 import { GITHUB_CLIENT_ID } from './client-id'
-import { githubCredentialChain } from './credentials'
-import { loadToken, persistToken, clearToken, type GithubStoredToken } from './token-store'
-import type { ProviderAuth } from '../types'
-import type { AuthStatus, DeviceCodePrompt } from '@solus/contracts/types'
+import type { GithubStoredToken } from './credentials'
+import type { DeviceCodePrompt } from '@solus/contracts/types'
 import { z } from 'zod'
-
-const log = createLogger('main', 'github-auth')
 
 const DEVICE_CODE_URL = 'https://github.com/login/device/code'
 const ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token'
@@ -147,79 +140,27 @@ export async function fetchLogin(token: string): Promise<{ login: string; scopes
   return { login: user.login, scopes }
 }
 
-/** The actual granted scopes are the source of truth (the token exchange returns
- *  them in `scope`), so derive them from the stored token rather than the
- *  *requested* SCOPE constant — a user who connected before `project` existed has
- *  only `repo`, and the UI must reflect that to offer a reconnect. GitHub returns
- *  scopes comma-separated; tolerate whitespace too for safety. */
-function toStatus(token: GithubStoredToken | null): AuthStatus {
-  if (!token) return { connected: false }
-  return {
-    connected: true,
-    login: token.login,
-    scopes: token.scope ? parseGithubScopes(token.scope) : undefined,
-  }
-}
-
 /**
- * Device-flow auth for GitHub OAuth Apps. No client secret, no loopback server —
- * ideal for a distributed desktop binary. Tokens are non-expiring by default,
- * so getAccessToken() is just "load from disk, throw if absent".
+ * Device-flow sign-in for GitHub OAuth Apps. No client secret, no loopback
+ * server — ideal for a distributed desktop binary. Returns the token with its
+ * login and its real granted scopes; the caller keeps it.
  */
-export class GitHubAuth implements ProviderAuth {
-  /** One device flow per person: on the workspace service several people may be connecting at once (cloud-service-model.md §22). */
-  private readonly connecting = new Map<string, AbortController>()
+export async function authorizeWithDeviceFlow(
+  onUserCode: (c: DeviceCodePrompt) => void,
+  signal: AbortSignal,
+): Promise<GithubStoredToken> {
+  const device = await requestDeviceCode()
+  onUserCode({
+    userCode: device.user_code,
+    verificationUri: device.verification_uri,
+    expiresIn: device.expires_in,
+  })
 
-  async connect(onUserCode: (c: DeviceCodePrompt) => void): Promise<AuthStatus> {
-    if (usesAccountIntegration()) throw new Error('Connect GitHub on your account website.')
-    if (!GITHUB_CLIENT_ID) throw new Error('GitHub client ID not configured')
-    // The scope set at dispatch carries through every await below, so the token
-    // lands in the caller's own store; the key only serializes their attempts.
-    const who = currentPersonKey() ?? 'host'
-    if (this.connecting.has(who)) throw new Error('A GitHub connection is already in progress.')
-    const abort = new AbortController()
-    this.connecting.set(who, abort)
-    try {
-      const device = await requestDeviceCode()
-      onUserCode({
-        userCode: device.user_code,
-        verificationUri: device.verification_uri,
-        expiresIn: device.expires_in,
-      })
-
-      const token = await pollForToken(device.device_code, device.interval, device.expires_in, abort.signal)
-      const { login, scopes } = await fetchLogin(token.accessToken)
-      token.login = login
-      // Trust the token's real granted scopes (header) over the exchange echo, so
-      // the Projects-scope hint reflects what the token can actually do.
-      if (scopes) token.scope = scopes
-      await persistToken(token)
-      return toStatus(token)
-    } finally {
-      this.connecting.delete(who)
-    }
-  }
-
-  cancelConnect(): void {
-    this.connecting.get(currentPersonKey() ?? 'host')?.abort()
-  }
-
-  async getAccessToken(): Promise<string> {
-    const token = await loadToken()
-    if (!token) throw new Error('GitHub is not connected')
-    return token.accessToken
-  }
-
-  async status(): Promise<AuthStatus> {
-    return toStatus(await loadToken())
-  }
-
-  async hasCredential(host: string, cwd?: string): Promise<boolean> {
-    return (await githubCredentialChain(host, cwd)).length > 0
-  }
-
-  async disconnect(): Promise<void> {
-    await clearToken()
-    log.info('github_disconnected')
-  }
+  const token = await pollForToken(device.device_code, device.interval, device.expires_in, signal)
+  const { login, scopes } = await fetchLogin(token.accessToken)
+  token.login = login
+  // Trust the token's real granted scopes (header) over the exchange echo, so
+  // the Projects-scope hint reflects what the token can actually do.
+  if (scopes) token.scope = scopes
+  return token
 }

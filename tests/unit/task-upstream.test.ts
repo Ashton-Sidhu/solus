@@ -84,11 +84,10 @@ mock.module('@solus/server/project-config/project-config', () => ({
   resolveProjectKey: (cwd: string) => cwd,
 }))
 mock.module('@solus/server/git/git-helpers', () => ({ resolveRepoRef: async () => null }))
-mock.module('@solus/server/providers/github/auth', () => ({
-  GitHubAuth: class { async status() { return { connected: true, scopes: [] } } },
-}))
 mock.module('@solus/server/providers/github/octokit', () => ({
   GitHubReauthRequiredError: class extends Error {},
+  // The GitHub credentials import it; no case here reaches GitHub.
+  clientFor: () => { throw new Error('This test builds no GitHub client.') },
 }))
 const adapter = {
   id: 'github' as const,

@@ -1,6 +1,6 @@
-import { GitHubAuth } from './auth'
+import { githubCredentials } from './credentials'
 import { isGithubNotFound, type GitHubClient } from './octokit'
-import { githubClients, runGithubRequest } from './request'
+import { runGithubRequest } from './request'
 import { resolveUploadTarget, uploadGithubAsset } from './asset-upload'
 import type { ChangedFileStat, MergeMethod } from '@solus/contracts/types'
 import type { PrPageRequest, Provider, PullRequestWatchFingerprint, RepositoryPage, ReviewProvider } from '../types'
@@ -598,7 +598,7 @@ export class GitHubProvider implements ReviewProvider {
    * the provider's one seam: tests script GitHub's answers by replacing it.
    */
   protected async clients(host: string, credentialCwd?: string): Promise<GitHubClient[]> {
-    return githubClients(host, credentialCwd)
+    return githubCredentials().clients(host, credentialCwd)
   }
 
   /**
@@ -1398,5 +1398,6 @@ export class GitHubProvider implements ReviewProvider {
 }
 
 export function makeGitHubProvider(): Provider {
-  return { id: 'github', auth: new GitHubAuth(), review: new GitHubProvider() }
+  // Read at each use: tests install their own credentials after this registry is built.
+  return { id: 'github', get auth() { return githubCredentials() }, review: new GitHubProvider() }
 }

@@ -19,9 +19,7 @@ import { runAsync } from '../../git/exec'
 import { isGitUsable } from '../../git/git-availability'
 import { gitCommandAuth } from '../../git/git-auth-env'
 import { currentIdentity } from '../../vault/acting-scope'
-import { loadToken as loadGithubToken } from '../../providers/github/token-store'
-import { saveDelegation } from '../../providers/github/delegation-store'
-import { GitHubAuth } from '../../providers/github/auth'
+import { githubCredentials, type GithubStoredToken } from '../../providers/github/credentials'
 import { buildClient } from '../../providers/github/octokit'
 import { hasGithubCliScopes, parseGithubScopes } from '@solus/contracts/github-auth'
 import { PARAKEET_MODEL_DIR } from '../../model-downloader'
@@ -118,7 +116,7 @@ export interface SetupHandlerDeps extends AgentAuthProbeDeps {
   events?: HostEventPublisher
   spawnProcess?: SpawnProcess
   hasCommand?: (command: string) => boolean
-  loadGithubToken?: typeof loadGithubToken
+  loadGithubToken?: () => Promise<GithubStoredToken | null>
   registerProject?: (path: string) => Promise<string>
   projectsRoot?: () => string
   assertNewWorkAllowed?: () => void
@@ -317,7 +315,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
   const checkouts = deps.checkouts
   const spawnProcess = deps.spawnProcess ?? nodeSpawn
   const hasCommand = deps.hasCommand ?? commandExists
-  const loadStoredGithubToken = deps.loadGithubToken ?? loadGithubToken
+  const loadStoredGithubToken = deps.loadGithubToken ?? (() => githubCredentials().accountToken())
   const projectsRoot = deps.projectsRoot ?? setupProjectsRoot
   /** The caller's own member folder beneath the host root (managed-hosts.md §3). */
   const projectsRootOf = (ctx: HandlerCtx) => projectsRootFor(ctx.principal, projectsRoot())
@@ -403,7 +401,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
   server.register('setupListGithubRepos', async (): Promise<SetupGithubReposResult> => {
     if (!(await hasGithubAuth())) return { connected: false }
 
-    const client = await buildClient(new GitHubAuth())
+    const client = await buildClient(githubCredentials())
     const res = await client.rest.repos.listForAuthenticatedUser({
       affiliation: 'owner,collaborator,organization_member',
       sort: 'updated',
@@ -681,7 +679,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     ownerKey: string,
     credential: GithubDelegatedCredential,
   ): void {
-    saveDelegation(ownerKey, credential)
+    githubCredentials().delegate(ownerKey, credential)
     const helper = solusGitHelper(['--delegation', ownerKey])
     if (!helper) throw new Error('The Solus CLI was not found on this host, so git has nothing to ask for credentials.')
     const config = (key: string, value: string) => execFileSync(
@@ -897,8 +895,8 @@ function listSshPublicKeys(): string[] {
 }
 
 async function safeLoadGithubToken(
-  loader: typeof loadGithubToken = loadGithubToken,
-): ReturnType<typeof loadGithubToken> {
+  loader: () => Promise<GithubStoredToken | null> = () => githubCredentials().accountToken(),
+): Promise<GithubStoredToken | null> {
   try {
     return await loader()
   } catch {

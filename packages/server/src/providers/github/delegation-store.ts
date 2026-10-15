@@ -4,7 +4,11 @@ import type { GithubDelegatedCredential } from '@solus/contracts/types'
 import { createLogger } from '../../logger'
 import { dataDir } from '../../platform/paths'
 import { secretStore } from '../../platform/secrets'
-import { EncryptionUnavailableError } from './token-store'
+import { EncryptionUnavailableError } from '../../vault/vault'
+
+/**
+ * Paired devices' GitHub credentials on this host. Only `GitHubCredentials` reads or writes them.
+ */
 
 const log = createLogger('main', 'github-delegation-store')
 

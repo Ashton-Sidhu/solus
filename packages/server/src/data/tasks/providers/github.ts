@@ -1,5 +1,6 @@
 import type { GitHubClient } from '../../../providers/github/octokit'
-import { githubClients, runGithubRequest } from '../../../providers/github/request'
+import { githubCredentials } from '../../../providers/github/credentials'
+import { runGithubRequest } from '../../../providers/github/request'
 import type { RepoRef } from '@solus/contracts/providers'
 import type { Task, TaskAssigneeCandidate, TaskCommentData, TaskEpic, TaskList, TaskPriority, TaskStatus, TaskUpdatePatch } from '@solus/contracts/task-types'
 import { z } from 'zod'
@@ -420,7 +421,7 @@ export class GitHubTaskProvider {
 
   /** The clients to try, including `gh auth` as the final credential. */
   protected clients(): Promise<GitHubClient[]> {
-    return githubClients(this.repo.host)
+    return githubCredentials().clients(this.repo.host)
   }
 
   private async withClient<Result>(

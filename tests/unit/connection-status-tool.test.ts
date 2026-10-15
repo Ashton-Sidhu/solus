@@ -17,11 +17,6 @@ import { actAsHostForTests } from '@solus/server/execution/seats/acting-identity
 // The gateway's input requests open the session store, which Bun reads through its own SQLite.
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-// No connection is configured in a disposable data dir, which is the state
-// these cases are about.
-mock.module('@solus/server/providers/github/auth', () => ({
-  GitHubAuth: class { async status() { return { connected: false } } },
-}))
 
 // A build ships an Atlassian OAuth client or it does not, and the tool answers
 // differently for each. Both branches are exercised below.
@@ -63,6 +58,10 @@ const payloadOf = (text: string): ToolPayload => JSON.parse(text) as ToolPayload
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-connection-tool-'))
   process.env.SOLUS_DATA_DIR = dataDir
+  // No GitHub connection is configured, which is the state these cases are about.
+  const { useGitHubCredentials } = await import('@solus/server/providers/github/credentials')
+  const { fakeGithubCredentials } = await import('./helpers/github-credentials')
+  useGitHubCredentials(fakeGithubCredentials().credentials)
   tools = await import('@solus/server/connections/connection-tools')
   ;({ executeAgentTool: runTool } = await import('@solus/server/execution/agents/tools/agent-tool'))
   tools.setConnectionConnectNeededListener((request) => raised.push(request))

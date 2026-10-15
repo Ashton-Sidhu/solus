@@ -6,8 +6,7 @@ import { upstreamTaskCache } from './schema'
 import { loadProjectConfig, resolveProjectKey } from '../../project-config/project-config'
 import { linkedExternalIds } from './task-sync-store'
 import { resolveRepoRef } from '../../git/git-helpers'
-import { GitHubAuth } from '../../providers/github/auth'
-import { githubCredentialChain } from '../../providers/github/credentials'
+import { githubCredentials } from '../../providers/github/credentials'
 import { GitHubReauthRequiredError } from '../../providers/github/octokit'
 import type { RepoRef } from '@solus/contracts/providers'
 import type { InboxInvolvement } from '@solus/contracts/inbox-types'
@@ -377,8 +376,8 @@ export async function taskProviderStatus(
     }
   }
 
-  const auth = await new GitHubAuth().status()
-  const credentials = await githubCredentialChain(repo.host, cwd)
+  const auth = await githubCredentials().status()
+  const credentials = await githubCredentials().chain(repo.host, cwd)
   const hasProjectScope = auth.connected ? auth.scopes?.includes('project') === true : undefined
   if (credentials.length === 0) {
     return {

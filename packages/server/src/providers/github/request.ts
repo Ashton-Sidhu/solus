@@ -1,14 +1,8 @@
 import { createLogger, type Logger } from '../../logger'
-import { githubCredentialChain } from './credentials'
-import { clientFor, isGithubCredentialAccessFailure, type GitHubClient } from './octokit'
+import { isGithubCredentialAccessFailure, type GitHubClient } from './octokit'
 import { githubRateLimitOf } from './rate-limit'
 
 const log = createLogger('main', 'github-provider')
-
-/** REST and GraphQL clients in the one GitHub credential order. */
-export async function githubClients(host: string, credentialCwd?: string): Promise<GitHubClient[]> {
-  return (await githubCredentialChain(host, credentialCwd)).map(clientFor)
-}
 
 /**
  * Run one GitHub operation with the first credential GitHub accepts.

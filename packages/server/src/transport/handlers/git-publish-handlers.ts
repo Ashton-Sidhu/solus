@@ -6,7 +6,7 @@ import { createLogger } from '../../logger'
 import { computeGitRepositoryStatus, initRepository } from '../../git/git-init'
 import { publishRepositoryToGithub } from '../../git/github-publish'
 import { clientFor } from '../../providers/github/octokit'
-import { githubCredentialChain } from '../../providers/github/credentials'
+import { githubCredentials } from '../../providers/github/credentials'
 
 const log = createLogger('main', 'git-publish-handlers')
 
@@ -49,7 +49,7 @@ export function registerGitPublishHandlers(server: SolusServer): void {
     // pushes as the paired device. Creating the repository as the host owner
     // would file the client's work under the wrong account, so the checkout's
     // own credential leads the chain.
-    const [credential] = await githubCredentialChain('github.com', cwd)
+    const [credential] = await githubCredentials().chain('github.com', cwd)
     if (!credential) throw new Error('Connect GitHub on this host before publishing.')
 
     const result = await publishRepositoryToGithub({

@@ -6,7 +6,7 @@ import { hostKindSchema, organizationRoleSchema, type HostKind } from '@solus/co
 import { shareResourceSchema, shareRoleSchema, type ShareResource, type ShareRole } from '@solus/contracts/sharing'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
-import { clearDelegation } from '../providers/github/delegation-store'
+import { githubCredentials } from '../providers/github/credentials'
 
 const log = createLogger('main', 'auth')
 
@@ -468,7 +468,7 @@ export function revokeDevice(deviceId: string): void {
   persistRevokedDevices()
   try {
     // Revocation must remain recorded even when secure credential cleanup fails.
-    clearDelegation(deviceId)
+    githubCredentials().revokeDelegation(deviceId)
   } catch (err) {
     log.warn('delegated_credential_clear_failed', { error: err instanceof Error ? err.message : String(err) })
   }

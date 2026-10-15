@@ -74,7 +74,7 @@ import { currentHostUser, hostUserKey } from './host/host-user'
 import { MemberFolders, useMemberFolders } from './host/member-folders'
 import { setupProjectsRoot } from './workspace'
 import { fetchLogin } from './providers/github/auth'
-import { loadToken } from './providers/github/token-store'
+import { githubCredentials } from './providers/github/credentials'
 import { solusGitHelper } from './providers/github/git-credential'
 import { SeatConnector } from './execution/seats/seat-connect'
 import { AgentAuthFlows } from './execution/seats/agent-auth'
@@ -500,7 +500,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Who every process acts as (plans/019-acting-identity.md): a member's run in
   // their own home, with their own GitHub connection.
   const identities = new ActingIdentities({
-    memberToken: () => loadToken(),
+    memberToken: () => githubCredentials().accountToken(),
     fetchLogin: async (accessToken) => (await fetchLogin(accessToken)).login,
     memberHome: (seat) => memberHomeDirectory(seats.seatsRoot, seat),
     gitHelper: () => solusGitHelper(['--member-home']),

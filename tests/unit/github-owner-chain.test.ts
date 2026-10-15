@@ -1,88 +1,100 @@
-import { afterAll, afterEach, describe, expect, mock, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import type { SecretStore } from '@solus/server/platform/secrets'
+import { afterEach, describe, expect, test } from 'bun:test'
+import type { GithubCredentialSource } from '@solus/server/providers/github/credentials'
+import { useHostUser } from '@solus/server/host/host-user'
+import { withUserScope } from '@solus/server/vault/acting-scope'
+import { installTestIdentities } from './helpers/acting-identities'
+import { fakeGithubCredentials, type FakeGithubSources } from './helpers/github-credentials'
 
 /**
- * The GitHub credential chain of a person who is signed in (docs/plans/access-model.md §2.6):
- * the owner of this machine keeps their machine's own `gh` login behind their account,
- * because `gh` is a runtime login of the machine; anyone else has their account alone.
+ * Which GitHub credentials each kind of person may act with (docs/plans/access-model.md §2.6,
+ * `GitHubCredentials.sourcesFor`). The machine's `gh` and its paired devices are the
+ * runtime logins of this machine, so only the host's own work and the machine owner
+ * use them; anyone else has their own account alone.
  */
 
-const temp = mkdtempSync(join(tmpdir(), 'solus-github-owner-chain-'))
-const previousDataDir = process.env.SOLUS_DATA_DIR
-process.env.SOLUS_DATA_DIR = temp
-const values = new Map<string, string>()
-const secrets: SecretStore = {
-  canSave: () => true,
-  loadJson: (key, _path, schema) => { const value = values.get(key); return value ? schema.parse(JSON.parse(value)) : null },
-  saveJson: (key, _path, value) => { values.set(key, JSON.stringify(value)) },
-  remove: (key) => { values.delete(key) },
-}
-mock.module('@solus/server/platform/secrets', () => ({ secretStore: () => secrets }))
-// The machine's `gh` is never the real one in a test: it answers this token.
-const ghCalls: string[][] = []
-mock.module('@solus/server/git/exec', () => ({
-  runAsync: async (bin: string, args: string[]) => {
-    if (bin !== 'gh') throw new Error(`unexpected ${bin}`)
-    ghCalls.push(args)
-    return 'machine-gh-token'
-  },
-}))
-
-const { withUserScope } = await import('@solus/server/vault/acting-scope')
-const { installTestIdentities } = await import('./helpers/acting-identities')
 installTestIdentities()
-const { useHostUser } = await import('@solus/server/host/host-user')
-const { AccountReads, useAccountReads } = await import('@solus/server/vault/account-reads')
-const { githubCredentialChain } = await import('@solus/server/providers/github/credentials')
-type DelegationScope = import('@solus/server/sync/delegations').DelegationScope
+afterEach(() => useHostUser(null))
 
-/** The account plane, answering every read with `respond`, for a host acting for alice and bob. */
-function account(respond: () => Response): void {
-  useAccountReads(new AccountReads({
-    origin: () => 'https://account.test',
-    delegations: () => ({
-      holders: () => ['alice', 'bob'].map((userId): { userId: string; scope: DelegationScope } => ({ userId, scope: 'personal' })),
-      accessToken: async (userId) => `delegated-${userId}`,
-    }),
-    fetchImpl: async () => respond(),
-  }))
+const CHECKOUT = '/checkouts/device-1/app'
+
+/** Every source answers: the chain shows which ones the person may use. */
+const EVERY_SOURCE: FakeGithubSources = {
+  hostToken: 'host-token',
+  account: (accountId) => Response.json({ accessToken: `${accountId}-account`, scope: 'repo', login: accountId }),
+  gh: new Map([['github.com', 'gh-token']]),
+  delegations: new Map([['device-1', { accessToken: 'device-token', login: 'device' }]]),
+  checkoutOwner: 'device-1',
 }
 
-afterEach(() => { useAccountReads(null); useHostUser(null); values.clear(); ghCalls.length = 0 })
-afterAll(() => {
-  if (previousDataDir === undefined) delete process.env.SOLUS_DATA_DIR
-  else process.env.SOLUS_DATA_DIR = previousDataDir
-  rmSync(temp, { recursive: true, force: true })
+interface Person {
+  name: string
+  /** The host's user, as host settings name it. */
+  hostUser: { localId: string; account?: { accountId: string } } | null
+  personKey: string | null
+  every: GithubCredentialSource[]
+}
+
+const PEOPLE: Person[] = [
+  { name: 'the host\'s own work', hostUser: null, personKey: null, every: ['delegated', 'host', 'gh-cli'] },
+  { name: 'the machine owner, signed out', hostUser: { localId: 'mac' }, personKey: 'local:mac', every: ['delegated', 'host', 'gh-cli'] },
+  { name: 'the machine owner, signed in', hostUser: { localId: 'mac', account: { accountId: 'alice' } }, personKey: 'alice', every: ['delegated', 'account', 'gh-cli'] },
+  { name: 'a member', hostUser: { localId: 'mac', account: { accountId: 'alice' } }, personKey: 'bob', every: ['account'] },
+  { name: 'a guest', hostUser: { localId: 'mac', account: { accountId: 'alice' } }, personKey: 'guest:visitor', every: [] },
+]
+
+describe('the GitHub credential sources of each person', () => {
+  for (const person of PEOPLE) {
+    test(`${person.name}: every source answers`, async () => {
+      useHostUser(person.hostUser)
+      const { credentials } = fakeGithubCredentials(EVERY_SOURCE)
+      const chain = await withUserScope(person.personKey, () => credentials.chain('github.com', CHECKOUT))
+      expect(chain.map((credential) => credential.source)).toEqual(person.every)
+    })
+
+    test(`${person.name}: no source answers`, async () => {
+      useHostUser(person.hostUser)
+      const { credentials } = fakeGithubCredentials()
+      expect(await withUserScope(person.personKey, () => credentials.chain('github.com', CHECKOUT))).toEqual([])
+    })
+  }
 })
 
 describe('the GitHub chain of a signed-in person', () => {
   test('the machine owner gets their account, then their machine\'s gh', async () => {
     useHostUser({ localId: 'mac', account: { accountId: 'alice' } })
-    account(() => Response.json({ accessToken: 'alice-account', scope: 'repo', login: 'alice' }))
-    expect(await withUserScope('alice', () => githubCredentialChain('github.com'))).toEqual([
+    const { credentials } = fakeGithubCredentials({ ...EVERY_SOURCE, checkoutOwner: null })
+    expect(await withUserScope('alice', () => credentials.chain('github.com'))).toEqual([
       { source: 'account', token: 'alice-account' },
-      { source: 'gh-cli', token: 'machine-gh-token' },
+      { source: 'gh-cli', token: 'gh-token' },
     ])
   })
 
   test('when the account does not answer, the machine owner still has gh', async () => {
     // WHY: an account that is down or not deployed must not take the owner's pull requests away.
     useHostUser({ localId: 'mac', account: { accountId: 'alice' } })
-    account(() => new Response('unavailable', { status: 503 }))
-    expect(await withUserScope('alice', () => githubCredentialChain('github.com'))).toEqual([
-      { source: 'gh-cli', token: 'machine-gh-token' },
+    const { credentials } = fakeGithubCredentials({ ...EVERY_SOURCE, checkoutOwner: null, account: () => new Response('unavailable', { status: 503 }) })
+    expect(await withUserScope('alice', () => credentials.chain('github.com'))).toEqual([
+      { source: 'gh-cli', token: 'gh-token' },
     ])
   })
 
-  test('a member never gets the owner\'s gh', async () => {
+  test('a member with no delegation here is told to reconnect, not given an empty chain', async () => {
+    // WHY: an empty chain reads as "GitHub is not connected"; the member must learn what to fix.
     useHostUser({ localId: 'mac', account: { accountId: 'alice' } })
-    account(() => Response.json({ accessToken: 'bob-account', scope: 'repo', login: 'bob' }))
-    expect(await withUserScope('bob', () => githubCredentialChain('github.com'))).toEqual([
+    const { credentials } = fakeGithubCredentials({
+      ...EVERY_SOURCE,
+      account: () => ({ refused: 'NO_DELEGATION', message: 'Reconnect to your host to authorize your account connections.' }),
+    })
+    await expect(withUserScope('bob', () => credentials.chain('github.com'))).rejects.toThrow('Reconnect')
+  })
+
+  test('a member never gets the owner\'s gh or the paired devices', async () => {
+    useHostUser({ localId: 'mac', account: { accountId: 'alice' } })
+    const { credentials, ghCalls } = fakeGithubCredentials(EVERY_SOURCE)
+    expect(await withUserScope('bob', () => credentials.chain('github.com', CHECKOUT))).toEqual([
       { source: 'account', token: 'bob-account' },
     ])
+    expect(await withUserScope('bob', () => credentials.chain('enterprise.example', CHECKOUT))).toEqual([])
     expect(ghCalls).toEqual([])
   })
 })

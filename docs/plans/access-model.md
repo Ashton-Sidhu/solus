@@ -315,7 +315,15 @@ The vault owns the location rule (`credentialLocationOf`), which is written once
    machine's own `gh` login after the host store, and after their account when
    they are signed in. `gh` is a runtime login of the machine, so an account that
    does not answer only leaves the account out. A member never gets the owner's
-   `gh` (`providers/github/credentials.ts`).
+   `gh`. One list holds this rule: `GitHubCredentials.sourcesFor`
+   (`providers/github/credentials.ts`).
+
+   | Person | Sources, in order |
+   |---|---|
+   | The host's own work (`null`), and the machine owner signed out | paired device, host store, `gh` |
+   | The machine owner signed in | paired device, account (skipped if it fails), `gh` |
+   | A member | account (a failure is the member's error) |
+   | A guest | none |
 
 An MCP connection of a person with an account may still have a host copy: a
 sign-in made on this host, which the reconcile has not moved into the account

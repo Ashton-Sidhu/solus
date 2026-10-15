@@ -11,7 +11,7 @@ import { currentIdentity } from '../vault/acting-scope'
 import { PARTIAL_CLONE_ARGS } from '../git/partial-clone'
 import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
-import { githubCredentialChain } from '../providers/github/credentials'
+import { githubCredentials } from '../providers/github/credentials'
 
 const log = createLogger('review', 'managed-pr-checkout.ts')
 
@@ -110,7 +110,7 @@ async function materializeManagedPrCheckout(
 
   const cloneUrl = options.cloneUrl ?? githubCloneUrl(repo)
   const isHttps = cloneUrl.startsWith('https://')
-  const credentials = isHttps ? await githubCredentialChain(repo.host) : []
+  const credentials = isHttps ? await githubCredentials().chain(repo.host) : []
   for (let attempt = 0; ; attempt++) {
     const credential = credentials[attempt]
     const { args: authArgs, env } = gitCommandAuth({ isHttps, token: credential?.token ?? null })

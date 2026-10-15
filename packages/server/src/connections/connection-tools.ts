@@ -9,7 +9,7 @@ import {
 import type { ConnectionConnectNeeded, ConnectionProvider, ConnectionReason } from '@solus/contracts/connections'
 import { loadCredential as loadAtlassianCredential } from '../atlassian/token-store'
 import { isOAuthConfigured as isAtlassianOAuthConfigured } from '../atlassian/oauth'
-import { GitHubAuth } from '../providers/github/auth'
+import { githubCredentials } from '../providers/github/credentials'
 import { getAccessToken as getGoogleAccessToken, isGoogleOAuthConfigured } from '../google/oauth'
 import { ANY_ORGANIZATION } from '../admission/principal'
 import { integrationGateway } from '../integrations/integration-tools'
@@ -54,7 +54,7 @@ async function atlassianState(): Promise<ConnectionState> {
 }
 
 async function githubState(): Promise<ConnectionState> {
-  const status = await new GitHubAuth().status()
+  const status = await githubCredentials().status()
   if (!status.connected) return { connected: false }
   const state: ConnectionState = { connected: true, source: 'stored' }
   if (status.login) state.account = status.login

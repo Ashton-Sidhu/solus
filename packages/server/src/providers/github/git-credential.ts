@@ -6,8 +6,7 @@ import { text } from 'node:stream/consumers'
 import { z } from 'zod'
 import { hostCliEnv } from '../../cli-env'
 import { readHostCredential } from '../../vault/vault'
-import { delegatedGithubToken } from './credentials'
-import { githubStoredTokenSchema } from './token-store'
+import { githubCredentials, githubStoredTokenSchema } from './credentials'
 
 /**
  * `solus git-credential` speaks git's credential protocol so a host that cloned
@@ -130,7 +129,7 @@ export async function runGitCredentialHelper(
 
   const fields = parseCredentialRequest(await text(stdin))
   // A separate process with no principal: the source names whose credential it serves.
-  const token = source.kind === 'delegation' ? delegatedGithubToken(source.deviceId)
+  const token = source.kind === 'delegation' ? githubCredentials().delegated(source.deviceId)
     : source.kind === 'member-home' ? memberHomeToken()
     : readHostCredential('github', githubStoredTokenSchema)?.accessToken ?? null
   const credential = credentialFor(fields, token)
