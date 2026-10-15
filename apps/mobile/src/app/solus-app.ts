@@ -332,6 +332,14 @@ export class SolusApp {
     else this.platform.storage.removeItem(draftKey(hostId, conversationId))
   }
 
+  /** Ends this app object: its watches, sync, and host sockets. Saved state stays. */
+  dispose(): void {
+    for (const store of this.conversations.values()) store.close()
+    this.conversations.clear()
+    this.accountSync.dispose()
+    this.connections.disposeAll()
+  }
+
   newSessionId(): string {
     return this.platform.uuid()
   }

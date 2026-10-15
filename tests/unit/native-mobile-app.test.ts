@@ -103,6 +103,21 @@ describe('native app composition', () => {
     expect(store.controller.phase.kind).toBe('ready')
   })
 
+  test('disposing the app closes its host sockets and watches but keeps the saved host', async () => {
+    // A hot reload makes a new app; an old one left open stays a client on every host.
+    const { app, api, transports } = createApp()
+    await app.load()
+    await app.pair({ url: 'http://10.0.0.8:3000' }, 'ABC123')
+    const store = app.conversation('inst-a', { newSession: { sessionId: 's1', provider: 'claude-code', workingDirectory: '/w' } })!
+    await untilReady(store)
+
+    app.dispose()
+    expect(transports.length).toBeGreaterThan(0)
+    expect(transports.every((transport) => transport.destroyed)).toBe(true)
+    expect(api.callsOf('unwatchSession')).toEqual([['s1']])
+    expect(app.registry.host('inst-a')).not.toBeNull()
+  })
+
   test('a new conversation starts from the person\'s own defaults, not the host\'s config', async () => {
     // createApp's host answers configGet with 'supervised'; the person chose 'plan' on this device.
     const { app } = createApp()

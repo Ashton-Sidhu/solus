@@ -23,7 +23,13 @@ import { RootNavigator } from './navigation/RootNavigator'
 import { expoPlatform, watchAppLifecycle } from './platform/expo'
 import { ThemeProvider, usePalette } from './theme/theme'
 
+/** Metro's hot module API; present in development builds only. */
+declare const module: { hot?: { dispose(callback: () => void): void } }
+
 const app = new SolusApp(expoPlatform)
+// Fast Refresh runs this module again and makes a new app. The old one must
+// close its host sockets, or each edit leaves one more client on every host.
+module.hot?.dispose(() => app.dispose())
 
 /** Provider order adapted from T3 Code apps/mobile/src/App.tsx (MIT, see UPSTREAM.md);
  *  the appearance provider reads the app, so the app wraps it. */

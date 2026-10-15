@@ -49,12 +49,10 @@
   import {
     CONVERSATION_BREADCRUMB_OFFSET,
     conversationFindTopInset,
-    findConversationMatches,
-    type ConversationFindMatch,
   } from "./lib/find";
   import { createEndFollow, scrollConversationTo } from "./lib/response-scroll";
   import { questionAnchorScrollTop } from "./lib/question-scroll";
-  import { ConversationFindHighlighter } from "./lib/find-highlight";
+  import { ConversationFind } from "./lib/conversation-find.svelte";
   import {
     hasVisibleTurnBody,
     runIsLive,
@@ -218,12 +216,20 @@
     endFollow?.follow(settings.responseStreamingMode === "paragraph" && !!sess?.isStreamingText);
   }
   let hovered = $state(false);
-  let findOpen = $state(false);
-  let findQuery = $state("");
-  let findIndex = $state(0);
   let findBarRef: FindBar | null = $state(null);
-  const findHighlighter = new ConversationFindHighlighter();
-  $effect(() => () => findHighlighter.destroy());
+  const find = new ConversationFind(
+    () => sess?.messages ?? [],
+    async (match) => {
+      endFollow?.release();
+      await revealTranscriptMatch({
+        match, turns, turnId: messageTurns.get(match.messageId), virtualizer,
+        expand: (turn) => { turnExpansion.set(turn.id, true); void session.toolHistory.load(turn.tools); },
+        elements: () => ({ messages: messagesEl, scroll: scrollEl }),
+        highlight: (messages) => find.highlighter.update(messages, find.query, match),
+      });
+    },
+  );
+  $effect(() => () => find.destroy());
 
   // The conversation now runs flush to the project rail, so its own 2px track
   // would land exactly on the seam and read as a divider between the thread and
@@ -387,9 +393,6 @@
   });
 
   const hasOlderTurnsToLoad = $derived(sess?.historyTruncated ?? false);
-  const conversationFindMatches = $derived(
-    findConversationMatches(sess?.messages ?? [], findQuery),
-  );
 
   // The message navigator is a right-gutter rail in wide layouts only. The rail
   // itself hides when the gutter is too narrow.
@@ -458,19 +461,8 @@
     if (!expanded) void session.toolHistory.load(turns.find((turn) => turn.id === id)?.tools ?? []);
   }
 
-  async function revealFindMatch(match: ConversationFindMatch) {
-    endFollow?.release();
-    await revealTranscriptMatch({
-      match, turns, turnId: messageTurns.get(match.messageId), virtualizer,
-      expand: (turn) => { turnExpansion.set(turn.id, true); void session.toolHistory.load(turn.tools); },
-      elements: () => ({ messages: messagesEl, scroll: scrollEl }),
-      highlighter: findHighlighter, query: findQuery,
-    });
-    void findBarRef?.focusInput(false);
-  }
-
   async function openFind() {
-    findOpen = true;
+    find.isOpen = true;
     if (sess?.historyTruncated) {
       expandingHistory = true;
       try {
@@ -497,43 +489,33 @@
   }
 
   function closeFind() {
-    findOpen = false;
-    findQuery = "";
-    findIndex = 0;
-    findHighlighter.clear();
+    find.close();
     requestInputFocus({ tabId });
   }
 
   async function updateFindQuery(value: string) {
-    findQuery = value;
-    findIndex = 0;
+    find.setQuery(value);
     await tick();
-    const first = conversationFindMatches[0];
-    if (first) await revealFindMatch(first);
-    else findHighlighter.update(messagesEl, findQuery, null);
+    if (find.matches.length > 0) await find.step(1);
+    else find.paint(messagesEl);
+    void findBarRef?.focusInput(false);
   }
 
   async function navigateFind(direction: 1 | -1) {
-    const total = conversationFindMatches.length;
-    if (total === 0) return;
-    findIndex = (((findIndex + direction) % total) + total) % total;
-    await revealFindMatch(conversationFindMatches[findIndex]);
+    await find.step(direction);
+    void findBarRef?.focusInput(false);
   }
 
   $effect(() => {
-    if (!findOpen) {
-      findHighlighter.clear();
+    if (!find.isOpen) {
+      find.highlighter.clear();
       return;
     }
     void virtualizer.range;
     void virtualizer.pinnedKeys;
-    const query = findQuery;
-    const matches = conversationFindMatches;
-    if (findIndex >= matches.length)
-      findIndex = Math.max(0, matches.length - 1);
-    void tick().then(() =>
-      findHighlighter.update(messagesEl, query, matches[findIndex] ?? null),
-    );
+    void find.matches;
+    void find.active;
+    void tick().then(() => find.paint(messagesEl));
   });
 
   function handleRetry() {
@@ -567,7 +549,7 @@
   });
 
   useKeybinding("conversation.close-find", closeFind, {
-    enabled: () => findOpen && tabId === session.focusedChatTabId,
+    enabled: () => find.isOpen && tabId === session.focusedChatTabId,
   });
 
   useKeybinding(
@@ -725,16 +707,16 @@
     class="flex h-full min-h-0 flex-col"
   >
     <div class="cv-root relative min-h-0 flex-1">
-      {#if findOpen}
+      {#if find.isOpen}
         <div
           class="absolute right-3 z-20"
           style:top="{conversationFindTopInset(reservesBandRoom)}px"
         >
           <FindBar
             bind:this={findBarRef}
-            query={findQuery}
-            current={conversationFindMatches.length === 0 ? 0 : findIndex + 1}
-            total={conversationFindMatches.length}
+            query={find.query}
+            current={find.position}
+            total={find.matches.length}
             onQueryChange={updateFindQuery}
             onNext={() => navigateFind(1)}
             onPrev={() => navigateFind(-1)}

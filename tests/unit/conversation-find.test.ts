@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { Message } from "@solus/contracts/types";
-import { findConversationMatches, isSearchableConversationMessage } from "@solus/workspace-ui/components/conversation/lib/find";
+import {
+  findConversationMatches,
+  isSearchableConversationMessage,
+  stepConversationMatch,
+} from "@solus/workspace-ui/components/conversation/lib/find";
 
 function message(
   id: string,
@@ -49,5 +53,44 @@ describe("conversation find", () => {
       "[Request interrupted by user for tool use]",
     );
     expect(isSearchableConversationMessage(notice)).toBe(false);
+  });
+
+  test("a message seen on screen counts only the matches the reader can see", () => {
+    // The link target and the chip's hidden folders hold "plans/", but the
+    // screen shows it once: an active match on a hidden one is never on screen.
+    const content = "See [the plan](docs/plans/a.md) and `docs/plans/b.md`.";
+    const messages = [message("reply", "assistant", content)];
+
+    expect(findConversationMatches(messages, "plans/")).toHaveLength(2);
+    const seen = new Map([["reply", { content, count: 1 }]]);
+    expect(findConversationMatches(messages, "plans/", seen)).toEqual([
+      { messageId: "reply", occurrence: 0 },
+    ]);
+  });
+
+  test("a visible count stops applying once the message content changes", () => {
+    const messages = [message("reply", "assistant", "plans/ plans/")];
+    const stale = new Map([["reply", { content: "plans/", count: 1 }]]);
+    expect(findConversationMatches(messages, "plans/", stale)).toHaveLength(2);
+  });
+
+  test("steps on from a match that is no longer counted", () => {
+    const messages = [
+      message("first", "user", "x"),
+      message("second", "assistant", "x"),
+      message("third", "assistant", "x"),
+    ];
+    // "second" turned out to show no match on screen.
+    const matches = [
+      { messageId: "first", occurrence: 0 },
+      { messageId: "third", occurrence: 0 },
+    ];
+    const gone = { messageId: "second", occurrence: 0 };
+
+    expect(stepConversationMatch(matches, messages, gone, 1)).toEqual(matches[1]);
+    expect(stepConversationMatch(matches, messages, gone, -1)).toEqual(matches[0]);
+    expect(stepConversationMatch(matches, messages, matches[1], 1)).toEqual(matches[0]);
+    expect(stepConversationMatch(matches, messages, matches[0], -1)).toEqual(matches[1]);
+    expect(stepConversationMatch([], messages, gone, 1)).toBeUndefined();
   });
 });

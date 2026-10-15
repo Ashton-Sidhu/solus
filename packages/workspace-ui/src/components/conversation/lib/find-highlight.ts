@@ -51,9 +51,14 @@ function searchableTextNodes(root: HTMLElement): Text[] {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       const parent = node.parentElement;
+      // A file chip is a button, but its label is text the reader sees. The
+      // folders it hides are copy-only and are not.
       if (
         !node.data ||
-        parent?.closest("button, [data-solus-ui], [aria-hidden='true']")
+        parent?.closest(
+          ".solus-token__copy-only, [data-solus-ui], [aria-hidden='true']",
+        ) ||
+        (parent?.closest("button") && !parent.closest(".solus-token"))
       ) {
         return NodeFilter.FILTER_REJECT;
       }
@@ -131,6 +136,8 @@ export class ConversationFindHighlighter {
   private root: HTMLElement | null = null;
   private query = "";
   private active: ConversationFindMatch | null = null;
+  /** Matches on screen per mounted message, from the last paint. */
+  readonly visibleCounts = new Map<string, number>();
 
   constructor() {
     ensureRegistered();
@@ -149,6 +156,7 @@ export class ConversationFindHighlighter {
   }
 
   paintInto(all: Highlight, current: Highlight): Range | null {
+    this.visibleCounts.clear();
     if (!this.root || !this.query) return null;
     let activeRange: Range | null = null;
     const elements = this.root.querySelectorAll<HTMLElement>(
@@ -157,6 +165,7 @@ export class ConversationFindHighlighter {
     for (const element of elements) {
       const messageId = element.dataset.conversationMessageId;
       const ranges = rangesFor(element, this.query);
+      if (messageId) this.visibleCounts.set(messageId, ranges.length);
       for (let occurrence = 0; occurrence < ranges.length; occurrence++) {
         const range = ranges[occurrence];
         if (

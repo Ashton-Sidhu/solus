@@ -961,12 +961,14 @@
   }
   /* The card sits one step lighter than the workspace behind it. Its surfaces
      paint their own fill from these tokens, so the card restates them rather
-     than setting a background they would cover. `--background` resolves at
-     :root, so it has to be restated too. Maximized, the card is the window and
-     takes the workspace fill again. */
+     than setting a background they would cover. `--background` and the code
+     surface's `--solus-diff-surface` resolve at :root, so they have to be
+     restated too. Maximized, the card is the window and takes the workspace
+     fill again. */
   .secondary-pane-content:not(.secondary-pane-content--maximized) {
     --solus-container-bg: #ffffff;
     --background: var(--solus-container-bg);
+    --solus-diff-surface: var(--solus-container-bg);
   }
   :global(.dark) .secondary-pane-content:not(.secondary-pane-content--maximized) {
     --solus-container-bg: color-mix(in oklch, white 4%, #262522);

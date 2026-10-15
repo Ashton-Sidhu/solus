@@ -1,7 +1,6 @@
 import { tick } from 'svelte'
 import type { Turn } from './turns'
 import type { ConversationFindMatch } from './find'
-import type { ConversationFindHighlighter } from './find-highlight'
 import type { TranscriptVirtualizer } from './transcript-virtualizer.svelte'
 
 export function messageTurnIds(turns: Turn[]): Map<string, string> {
@@ -15,6 +14,11 @@ export function messageTurnIds(turns: Turn[]): Map<string, string> {
   return result
 }
 
+/*
+ * Mount the match's turn, then center the match, as browser find does. The
+ * composer floats over the bottom of the scroll area, so a match that is only
+ * inside the scroll area can still be hidden.
+ */
 export async function revealTranscriptMatch(options: {
   match: ConversationFindMatch
   turns: Turn[]
@@ -22,8 +26,8 @@ export async function revealTranscriptMatch(options: {
   expand: (turn: Turn) => void
   virtualizer: TranscriptVirtualizer
   elements: () => { messages: HTMLElement | null; scroll: HTMLElement | null }
-  highlighter: ConversationFindHighlighter
-  query: string
+  /** Paints the find highlights and returns the active match, when on screen. */
+  highlight: (messages: HTMLElement | null) => Range | null
 }): Promise<void> {
   const { match, turnId } = options
   if (!turnId) return
@@ -36,18 +40,12 @@ export async function revealTranscriptMatch(options: {
   }
   await options.virtualizer.reveal(turnId)
   const { messages, scroll } = options.elements()
-  const target = messages?.querySelector<HTMLElement>(
+  const target = options.highlight(messages) ?? messages?.querySelector<HTMLElement>(
     `[data-conversation-message-id="${CSS.escape(match.messageId)}"]`,
   )
-  target?.scrollIntoView({ block: 'center' })
-  await tick()
-  const activeRange = options.highlighter.update(messages, options.query, match)
-  const activeRect = activeRange?.getBoundingClientRect()
-  const scrollRect = scroll?.getBoundingClientRect()
-  if (!activeRect || !scrollRect || !scroll) return
-  const top = activeRect.top - scrollRect.top
-  const bottom = activeRect.bottom - scrollRect.bottom
-  const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'
-  if (top < 56) scroll.scrollBy({ top: top - 80, behavior })
-  else if (bottom > -24) scroll.scrollBy({ top: bottom + 48, behavior })
+  if (!target || !scroll) return
+  const rect = target.getBoundingClientRect()
+  const view = scroll.getBoundingClientRect()
+  const offset = rect.top + rect.height / 2 - (view.top + view.height / 2)
+  scroll.scrollBy({ top: offset, behavior: 'instant' })
 }
