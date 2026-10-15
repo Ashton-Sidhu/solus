@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { GitCheckout, RunLocation } from '@solus/contracts/types'
-import { chatFolderIn, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
+import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import {
   adoptGit,
   checkoutPlace,
@@ -111,6 +111,19 @@ describe('a Git answer', () => {
     expect(adoptGit(moved, { serverId: 'mac', path: '/Users/me/solus' }, main, null)).toBe(moved)
   })
 
+  test('that changes nothing keeps the same location', () => {
+    // WHY: callers assign the result to the run, and a new object re-runs every
+    // effect that reads it. A folder outside Git answered `null` on each read,
+    // so the draft re-read Git and plugin commands in a loop that never settled.
+    const place = { serverId: 'mac', path: '/Users/me/solus' }
+    const outsideGit = local(null)
+    expect(adoptGit(outsideGit, place, null, null)).toBe(outsideGit)
+    const onMain = local()
+    expect(adoptGit(onMain, place, { ...main }, null)).toBe(onMain)
+    expect(adoptGit(onMain, place, { ...main, branch: 'feature' }, null)).not.toBe(onMain)
+    expect(adoptGit(onMain, place, { ...main }, { baseBranch: 'main' })).not.toBe(onMain)
+  })
+
   test('names the project by Git root, but never a dispatched run’s home', () => {
     const subfolder = folderLocation({ serverId: 'mac', path: '/Users/me/solus/app' })
     expect(projectRoot(run(adoptGit(subfolder, { serverId: 'mac', path: '/Users/me/solus/app' }, main)))).toBe('/Users/me/solus')
@@ -135,7 +148,7 @@ describe('a new session from another', () => {
   })
 
   test('from a chat is a new chat', () => {
-    const chat = folderLocation({ serverId: 'mac', path: chatFolderIn('/Users/me/projects', 'abc') })
+    const chat = folderLocation({ serverId: 'mac', path: '/Users/me/.solus/solus-chats/abc' })
     expect(checkoutPlace(run(inheritedLocation(chat))).path).toBe(NEW_CHAT_DIRECTORY)
   })
 })

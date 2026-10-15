@@ -152,11 +152,9 @@ describe('a capture in the transcript', () => {
     expect(grouped[0]?.kind).toBe('browser-snapshot')
   })
 
-  test('gathers a whole capture pass into one item, across the tool rows between frames', () => {
-    // WHY: every capture is a tool call followed by its snapshot message, so
-    // the frames of one pass are never adjacent in the raw transcript. Grouping
-    // that stopped at a tool row would leave a pass of three as three cards
-    // repeating the same header, viewport and footer down the conversation.
+  test('keeps captures separate for the bottom card row', () => {
+    // Each capture is a separate card in the turn's image row, even when tool
+    // calls separate them. Grouping must not merge their identities.
     const messages: Message[] = [
       { id: 'u1', role: 'user', content: 'Compare the three pages', timestamp: 1 },
       { id: 't1', role: 'tool', content: 'browser_snapshot', timestamp: 2 },
@@ -169,15 +167,13 @@ describe('a capture in the transcript', () => {
 
     const plates = groupMessages(messages).filter((item) => item.kind === 'browser-snapshot')
 
-    expect(plates).toHaveLength(1)
-    expect(plates[0]?.kind === 'browser-snapshot' && plates[0].messages.map((m) => m.id))
+    expect(plates).toHaveLength(3)
+    expect(plates.flatMap((item) => item.kind === 'browser-snapshot' ? item.messages.map((m) => m.id) : []))
       .toEqual(['s1', 's2', 's3'])
   })
 
-  test('keeps one plate for the turn when the agent speaks between captures', () => {
-    // WHY: like the sub-agent card, a turn's captures are one card. The agent's
-    // commentary between frames must not cut the turn's captures into a row of
-    // separate cards down the conversation; the prose renders below the plate.
+  test('keeps capture order when the agent speaks between captures', () => {
+    // Prose and other outcomes must not change the order of image cards.
     const messages: Message[] = [
       { id: 'u1', role: 'user', content: 'Check the pages', timestamp: 0 },
       { id: 's1', role: 'assistant', content: '', browserSnapshot: snapshot(), timestamp: 1 },
@@ -190,10 +186,10 @@ describe('a capture in the transcript', () => {
     const grouped = groupMessages(messages)
     const plates = grouped.filter((item) => item.kind === 'browser-snapshot')
 
-    expect(plates).toHaveLength(1)
-    expect(plates[0]?.kind === 'browser-snapshot' && plates[0].messages.map((m) => m.id))
+    expect(plates).toHaveLength(3)
+    expect(plates.flatMap((item) => item.kind === 'browser-snapshot' ? item.messages.map((m) => m.id) : []))
       .toEqual(['s1', 's2', 's3'])
-    expect(grouped.map((item) => item.kind)).toEqual(['user', 'browser-snapshot', 'assistant', 'document'])
+    expect(grouped.map((item) => item.kind)).toEqual(['user', 'browser-snapshot', 'assistant', 'browser-snapshot', 'document', 'browser-snapshot'])
   })
 
   test('starts a new plate for a new turn', () => {
@@ -211,10 +207,8 @@ describe('a capture in the transcript', () => {
     expect(plates).toHaveLength(2)
   })
 
-  test('renders the plate at the position of the first frame, not the last', () => {
-    // WHY: the tool rows between captures are flushed as the pass proceeds. If
-    // the plate were pushed on the last frame it would land below rows that
-    // describe work it is the result of.
+  test('preserves capture order before turn building moves cards below the reply', () => {
+    // Grouping preserves the source order; the turn owns image placement.
     const messages: Message[] = [
       { id: 't1', role: 'tool', content: 'browser_snapshot', timestamp: 1 },
       { id: 's1', role: 'assistant', content: '', browserSnapshot: snapshot(), timestamp: 2 },
@@ -226,6 +220,7 @@ describe('a capture in the transcript', () => {
       'tool-group',
       'browser-snapshot',
       'tool-group',
+      'browser-snapshot',
     ])
   })
 
@@ -247,7 +242,9 @@ describe('a capture in the transcript', () => {
 
     const [turn] = buildTurns(groupMessages(messages), { running: false })
 
-    expect(turn?.body.map((item) => item.kind)).toContain('browser-snapshot')
-    expect(turn?.visibleWhenCollapsed.map((item) => item.kind)).toContain('browser-snapshot')
+    expect(turn?.body).toEqual([])
+    expect(turn?.visibleWhenCollapsed).toEqual([])
+    expect(turn?.images.filter((message) => message.browserSnapshot).map((message) => message.id)).toEqual(['s1'])
+    expect(turn?.tail.map((item) => item.kind)).toEqual(['assistant'])
   })
 })

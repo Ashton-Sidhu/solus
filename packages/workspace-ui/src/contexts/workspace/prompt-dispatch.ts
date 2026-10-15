@@ -13,7 +13,6 @@ import { nextMsgId } from './session.utils'
 import { uuid } from '@solus/contracts/uuid'
 import { isSessionBusyStatus, isSteerableStatus, worktreeProjectRoot } from '@solus/contracts/types'
 import { requestConversationScrollToBottom } from './session-plan-operations'
-import { chatFolderIn, isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -394,7 +393,7 @@ export class PromptDispatch {
       return false
     }
 
-    const resolvedPath = projectPath || chatFolderOnSend(session) || checkoutPlace(session.run).path
+    const resolvedPath = projectPath || checkoutPlace(session.run).path
     if (
       !pendingClone(session.run)
       && runHost(session.run) !== LOCAL_SERVER_ID
@@ -687,19 +686,6 @@ export class PromptDispatch {
       this.workspace.eventReducer.handleError(session.id, { message: err.message, stderrTail: [], exitCode: null, elapsedMs: 0, toolCallCount: 0 })
     })
   }
-}
-
-/**
- * The folder a new chat runs in, named when its first prompt is sent: the chat's
- * own folder in its host's projects root. Null when the session is not a new
- * chat, or the host has not said where its projects are yet; the host then names
- * the same folder itself, and the next send learns it.
- */
-function chatFolderOnSend(session: Session): string | null {
-  if (checkoutPlace(session.run).path !== NEW_CHAT_DIRECTORY) return null
-  // Reading the host's capabilities asks for them when they are not read yet.
-  const projectsRoot = hosts.get(runHost(session.run))?.capabilityRecord?.projectsBaseDirectory
-  return projectsRoot ? chatFolderIn(projectsRoot, session.id) : null
 }
 
 /**

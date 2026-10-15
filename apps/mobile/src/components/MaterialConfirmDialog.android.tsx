@@ -60,7 +60,6 @@ export function MaterialConfirmDialog(props: MaterialConfirmDialogProps) {
                 unfocusedTextColor: colors["--color-foreground"],
                 focusedIndicatorColor: colors["--color-focus"],
                 unfocusedIndicatorColor: colors["--color-border"],
-                cursorColor: colors["--color-focus"],
               }}
             >
               <OutlinedTextField.Label>

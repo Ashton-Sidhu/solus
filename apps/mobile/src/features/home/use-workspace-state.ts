@@ -29,6 +29,7 @@ export function useWorkspaceState(): WorkspaceState {
         label: host.label,
         phase: app.connections.state(host.id)?.phase,
         threads: app.threads.stateOf(host.id),
+        isPreparing: app.connections.isPreparing(host.id),
       })),
     );
     const signature = JSON.stringify(state);

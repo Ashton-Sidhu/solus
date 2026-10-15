@@ -1,12 +1,13 @@
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { HOST_LOGIN_SEAT, type Seat } from '@solus/contracts/seats'
 import { parseUserKey, userKey } from '@solus/contracts/user'
 import { ownerKeyOf, seatFor, type Actor } from '../../admission/actor'
-import { getCliPath, hostCliEnv } from '../../cli-env'
+import { getCliPath, hostCliEnv, type LaunchOptions, type ProcessUser } from '../../cli-env'
 import { hostUserKey, isHostUserKey } from '../../host/host-user'
 import { createLogger } from '../../logger'
 import { MEMBER_GITHUB_FILE } from '../../providers/github/git-credential'
+import { applyMemberFiles, type MemberFileChange } from './member-files'
 import { useActingScopeSource, useDefaultActingScopeForTests, withActingScope, type ActingScope, type ActingScopeSource } from '../../vault/acting-scope'
 
 const log = createLogger('main', 'acting-identity')
@@ -42,8 +43,20 @@ export interface ActingIdentitiesDeps {
   fetchLogin: (accessToken: string) => Promise<string>
   /** The folder that is `HOME` for a member's processes. */
   memberHome: (seat: Extract<Seat, { kind: 'user' }>) => string
+  /**
+   * Where a member's GitHub login files are kept apart from their home, in memory,
+   * so a backup of the home never holds them (docs/plans/member-isolation.md §5).
+   * Absent: they live in the home, as on every host but a managed one.
+   */
+  memberSecrets?: (seat: Extract<Seat, { kind: 'user' }>) => string
   /** The Solus git helper as a git `credential.helper` value, or null when this host has none to offer. */
   gitHelper: () => string | null
+  /**
+   * The OS user a member's processes run as on a shared host
+   * (docs/plans/member-isolation.md §4); null where they run as the server's
+   * own user, as on every host today.
+   */
+  memberUser?: (seat: Extract<Seat, { kind: 'user' }>) => ProcessUser | null
   now: () => number
 }
 
@@ -91,6 +104,32 @@ export class ActingIdentity {
   }
 
   /**
+   * The launch point (docs/plans/member-isolation.md §3): the environment and,
+   * on a shared host, the member's user for every process started for this
+   * identity. Waits for a member's GitHub connection, so their commits name them.
+   */
+  async launchOptions(extra?: NodeJS.ProcessEnv): Promise<LaunchOptions> {
+    return this.withUser(await this.env(extra))
+  }
+
+  /** `launchOptions` without waiting: until the GitHub connection is read once, a commit has no author. */
+  launchOptionsSync(extra?: NodeJS.ProcessEnv): LaunchOptions {
+    return this.withUser(this.envSync(extra))
+  }
+
+  private withUser(env: NodeJS.ProcessEnv): LaunchOptions {
+    const user = this.processUser()
+    return user ? { env, user } : { env }
+  }
+
+  /** The member's OS user on a shared host; null for the host and wherever members share the server's user. */
+  processUser(): ProcessUser | null {
+    const { seat, deps } = this
+    if (seat.kind === 'host-login' || !deps?.memberUser) return null
+    return deps.memberUser(seat)
+  }
+
+  /**
    * The child environment without waiting. A member's home is written first, so
    * git never reaches a host helper; until their GitHub connection has been
    * read once, the author is absent and a commit fails rather than borrowing
@@ -100,8 +139,10 @@ export class ActingIdentity {
     const { seat, deps } = this
     if (seat.kind === 'host-login' || !deps) return hostCliEnv(extra)
     const home = deps.memberHome(seat)
-    if (!this.homeWritten) {
-      writeMemberGitConfig(home, deps.gitHelper())
+    // Written again when it is gone: a member who deletes it gets it back at their next process.
+    if (!this.homeWritten || !existsSync(join(home, '.gitconfig'))) {
+      const user = this.processUser()
+      applyMemberFiles(user, [{ kind: 'write', path: join(home, '.gitconfig'), content: memberGitConfig(deps.gitHelper(), { sharedRepositories: user !== null }), mode: 0o600 }])
       this.homeWritten = true
     }
     const env: NodeJS.ProcessEnv = {}
@@ -111,6 +152,8 @@ export class ActingIdentity {
     }
     env.PATH = getCliPath()
     env.HOME = home
+    // Where each member is their own user, their temporary files stay in their home: `/tmp` is shared.
+    if (deps.memberSecrets) env.TMPDIR = join(home, 'tmp')
     // The system config can name a keychain helper that answers with the host's credentials.
     env.GIT_CONFIG_NOSYSTEM = '1'
     env.GIT_TERMINAL_PROMPT = '0'
@@ -130,13 +173,22 @@ export class ActingIdentity {
     this.answer = null
   }
 
-  /** The member may no longer act here: their credentials leave the disk now. */
+  /**
+   * The member may no longer act here: their credentials leave the disk now. Where
+   * the host object removed their user, it removed their home with it.
+   */
   revoke(): void {
     this.answer = null
     this.settled = null
     const { seat, deps } = this
     if (seat.kind === 'host-login' || !deps) return
-    removeMemberCredentials(deps.memberHome(seat))
+    let user: ProcessUser | null
+    try {
+      user = this.processUser()
+    } catch {
+      return
+    }
+    applyMemberFiles(user, credentialRemovals(githubFiles(seat, deps)))
   }
 
   private async readGithub(seat: Extract<Seat, { kind: 'user' }>, deps: ActingIdentitiesDeps): Promise<MemberGithub> {
@@ -152,10 +204,10 @@ export class ActingIdentity {
       this.answer = null
       github = { kind: 'unavailable', reason: `Your GitHub connection could not be read: ${error instanceof Error ? error.message : String(error)}` }
     }
-    const home = deps.memberHome(seat)
-    if (github.kind === 'connected') writeMemberCredentials(home, github)
+    const files = githubFiles(seat, deps)
+    if (github.kind === 'connected') applyMemberFiles(this.processUser(), credentialWrites(files, github))
     else {
-      removeMemberCredentials(home)
+      applyMemberFiles(this.processUser(), credentialRemovals(files))
       log.warn('member_github_unavailable', { userId: memberKey, reason: github.reason })
     }
     this.settled = github
@@ -268,7 +320,7 @@ const GH_HOSTS_FILE = ['.config', 'gh', 'hosts.yml'] as const
  * `quit`, so git never asks a helper from the checkout's own config, such as a
  * paired device's in a dispatch checkout.
  */
-export function memberGitConfig(gitHelper: string | null): string {
+export function memberGitConfig(gitHelper: string | null, options: { sharedRepositories?: boolean } = {}): string {
   const helpers = [
     '\thelper =',
     ...(gitHelper ? [`\thelper = ${gitConfigValue(gitHelper)}`] : []),
@@ -282,6 +334,9 @@ export function memberGitConfig(gitHelper: string | null): string {
     '[url "https://github.com/"]',
     '\tinsteadOf = git@github.com:',
     '\tinsteadOf = ssh://git@github.com/',
+    // Where each member is their own user, members share repositories that another
+    // member's user owns, which git refuses without this (docs/plans/member-isolation.md §5).
+    ...(options.sharedRepositories ? ['[safe]', '\tdirectory = *'] : []),
     '',
   ].join('\n')
 }
@@ -291,38 +346,47 @@ function gitConfigValue(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 }
 
-function writeMemberGitConfig(home: string, gitHelper: string | null): void {
-  mkdirSync(home, { recursive: true, mode: 0o700 })
-  writeIfChanged(join(home, '.gitconfig'), memberGitConfig(gitHelper), 0o600)
+/** Where a member's GitHub login files are written: the Solus git helper reads the first, `gh` the second. */
+interface GithubFiles {
+  token: string
+  hosts: string
 }
 
-/** The Solus git helper reads the first file; `gh` an agent runs reads the second. */
-function writeMemberCredentials(home: string, github: Extract<MemberGithub, { kind: 'connected' }>): void {
-  writeIfChanged(join(home, ...MEMBER_GITHUB_FILE), `${JSON.stringify({ token: github.token, login: github.login })}\n`, 0o600)
-  writeIfChanged(join(home, ...GH_HOSTS_FILE), [
-    'github.com:',
-    '    users:',
-    `        ${github.login}:`,
-    `            oauth_token: ${github.token}`,
-    '    git_protocol: https',
-    `    user: ${github.login}`,
-    `    oauth_token: ${github.token}`,
-    '',
-  ].join('\n'), 0o600)
-}
-
-function removeMemberCredentials(home: string): void {
-  rmSync(join(home, ...MEMBER_GITHUB_FILE), { force: true })
-  rmSync(join(home, ...GH_HOSTS_FILE), { force: true })
-}
-
-function writeIfChanged(path: string, content: string, mode: number): void {
-  try {
-    if (readFileSync(path, 'utf8') === content) return
-  } catch {
-    // Not written yet.
+function githubFiles(seat: Extract<Seat, { kind: 'user' }>, deps: ActingIdentitiesDeps): GithubFiles {
+  const secrets = deps.memberSecrets?.(seat)
+  if (!secrets) {
+    const home = deps.memberHome(seat)
+    return { token: join(home, ...MEMBER_GITHUB_FILE), hosts: join(home, ...GH_HOSTS_FILE) }
   }
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
-  writeFileSync(path, content, { mode })
-  chmodSync(path, mode)
+  // Written to memory; the home's `~/.config/solus/github.json` and `~/.config/gh/hosts.yml`
+  // link here (the host object's users script), so gh and the git helper keep their defaults.
+  return { token: join(secrets, 'github.json'), hosts: join(secrets, 'gh', 'hosts.yml') }
+}
+
+function credentialWrites(files: GithubFiles, github: Extract<MemberGithub, { kind: 'connected' }>): MemberFileChange[] {
+  return [
+    { kind: 'write', path: files.token, content: `${JSON.stringify({ token: github.token, login: github.login })}\n`, mode: 0o600 },
+    {
+      kind: 'write',
+      path: files.hosts,
+      content: [
+        'github.com:',
+        '    users:',
+        `        ${github.login}:`,
+        `            oauth_token: ${github.token}`,
+        '    git_protocol: https',
+        `    user: ${github.login}`,
+        `    oauth_token: ${github.token}`,
+        '',
+      ].join('\n'),
+      mode: 0o600,
+    },
+  ]
+}
+
+function credentialRemovals(files: GithubFiles): MemberFileChange[] {
+  return [
+    { kind: 'remove', path: files.token },
+    { kind: 'remove', path: files.hosts },
+  ]
 }

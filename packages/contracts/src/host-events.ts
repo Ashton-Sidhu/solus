@@ -120,6 +120,8 @@ export interface HostEventMap {
    *  One event for every provider: the card, the dismissal, and the continue
    *  are the same work regardless of which account is missing. */
   'connection.connectNeeded': ConnectionConnectNeeded
+  /** The host finished making this member's Linux user and folders (docs/plans/member-isolation.md §8.1): only their connections hear it. */
+  'connection.memberWorkspaceReady': { userId: string }
   /** One browser page's server-owned state changed. Per-page rather than a full
    *  list: a page changes on every navigation, and the list is unbounded. */
   'browser.pageChanged': { page: BrowserPage }
@@ -242,6 +244,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'metrics.turnsChanged': { owner: 'metrics', category: 'delta', recovery: 'reload', description: "A turn's Insights row was written: started or finished." },
   'metrics.insightPullChanged': { owner: 'metrics', category: 'snapshot', recovery: 'reload', description: 'A pull of turns other hosts ran started or ended.' },
   'connection.connectNeeded': { owner: 'connections', category: 'delta', recovery: 'reset', description: 'An agent tool needs the user to connect an external account.' },
+  'connection.memberWorkspaceReady': { owner: 'connections', category: 'delta', recovery: 'reload', description: "A member's workspace on this host is ready: their Linux user and folders exist." },
   'browser.pageChanged': { owner: 'browser', category: 'delta', recovery: 'reload', description: 'A browser page changed target, viewport, host, or load state.' },
   'browser.pageClosed': { owner: 'browser', category: 'delta', recovery: 'reload', description: 'A browser page was closed.' },
   'browser.surfaceRequested': { owner: 'browser', category: 'targeted', recovery: 'reset', description: 'A browser page was explicitly asked to be given a client surface.' },

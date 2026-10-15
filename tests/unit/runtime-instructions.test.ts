@@ -193,7 +193,7 @@ describe('runtime instructions', () => {
   // that names its path or runs Git there turns a plain chat back into a
   // technical tool (docs/plans/projectless-chat.md).
   test('both providers learn a chat is a chat, and a project session does not', async () => {
-    const chatFolder = '/Users/me/projects/.solus-chats/session-1'
+    const chatFolder = '/Users/me/.solus/solus-chats/session-1'
     const codex = runtimeInstructions({ harness: 'Codex', ...codexRuntime, workingDirectory: chatFolder }, [])
     const claude = await claudeAppend([], undefined, chatFolder)
     for (const prompt of [codex, claude]) {

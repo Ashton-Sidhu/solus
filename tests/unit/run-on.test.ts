@@ -197,7 +197,7 @@ describe('what each Run on row does for the project', () => {
   test('a chat is no project: every host can run it, in a new chat there', () => {
     // WHY: a chat has no checkout to find or copy. Asking for a folder, or hiding
     // hosts, would turn a plain chat back into a project choice.
-    const chat = located(folderLocation({ serverId: 'local', path: '/home/dev/projects/.solus-chats/abc' }))
+    const chat = located(folderLocation({ serverId: 'local', path: '/home/dev/.solus/solus-chats/abc' }))
     expect(runHasProject(checkoutPlace(chat).path, true)).toBe(false)
     expect(runHasProject(NEW_CHAT_DIRECTORY, true)).toBe(false)
     expect(action('studio', { run: chat })).toEqual({ kind: 'chat' })

@@ -84,8 +84,8 @@ function harness(options: { platform?: 'ios' | 'android'; format?: 'h264' | 'jpe
   stream.start()
   const kinds = () => packets.map((packet) => packet.kind)
   const touches = (socket: FakeHub['sockets'][number]) => socket.sent
-    .filter((message): message is Uint8Array => message instanceof Uint8Array)
-    .map((message) => JSON.parse(new TextDecoder().decode(message.subarray(1))) as { type?: string; x?: number; y?: number })
+    .map((message) => JSON.parse(typeof message === 'string' ? message : new TextDecoder().decode(message.subarray(1))) as { type?: string; action?: string; x?: number; y?: number })
+    .map((message) => message.type === 'touch' ? { ...message, type: message.action === 'down' ? 'begin' : message.action === 'up' ? 'end' : message.action } : message)
     .filter((message) => message.type === 'begin' || message.type === 'move' || message.type === 'end')
   return { hub, stream, packets, kinds, touches, elapse, retries: () => retries }
 }
@@ -218,13 +218,103 @@ describe('keyframe requests', () => {
   })
 })
 
-describe('wheel scrolling', () => {
+describe('iOS wheel scrolling', () => {
+  test('wheel bursts use native scroll and never hold a row for its context menu', async () => {
+    // WHY: raw begin/move packets bypass the helper's native drag timing.
+    // The scroll command lets the helper register and release its own finger.
+    const { hub, stream, touches, elapse } = harness()
+    await hub.prime()
+    const socket = hub.sockets[0]!
+    const initial = socket.sent.length
+    for (let i = 0; i < 8; i++) {
+      await stream.send([{ kind: 'scroll', x: 0.4, y: 0.6, deltaX: 0, deltaY: i % 2 ? -0.05 : 0.05 }])
+    }
+    elapse()
+    const messages = socket.sent.slice(initial)
+    expect(messages).toHaveLength(8)
+    for (const [index, message] of messages.entries()) {
+      expect(message).toBeInstanceOf(Uint8Array)
+      if (!(message instanceof Uint8Array)) throw new Error('Expected native iOS input')
+      expect(message[0]).toBe(0x0b)
+      const payload = JSON.parse(new TextDecoder().decode(message.subarray(1)))
+      expect(payload).toMatchObject({ x: 0.4, y: 0.6, dx: 0 })
+      expect(payload.dy).toBeCloseTo(index % 2 ? -0.05 : 0.05)
+    }
+    expect(touches(socket)).toEqual([])
+  })
+
+  test.each([
+    ['portrait', 0.25, 0.75, 0.1, 0.2],
+    ['landscape_left', 0.75, 0.75, 0.2, -0.1],
+    ['landscape_right', 0.25, 0.25, -0.2, 0.1],
+    ['portrait_upside_down', 0.75, 0.25, -0.1, -0.2],
+  ] as const)('scroll anchor and direction follow %s orientation', async (orientation, x, y, dx, dy) => {
+    const { hub, stream } = harness()
+    await hub.prime()
+    const socket = hub.sockets[0]!
+    socket.handlers.onMessage(screenConfig({ width: 100, height: 200, orientation }))
+    await stream.send([{ kind: 'scroll', x: 0.25, y: 0.75, deltaX: 0.1, deltaY: 0.2 }])
+    const message = socket.sent.at(-1)!
+    if (!(message instanceof Uint8Array)) throw new Error('Expected native iOS input')
+    expect(message[0]).toBe(0x0b)
+    const payload = JSON.parse(new TextDecoder().decode(message.subarray(1)))
+    expect(payload.x).toBeCloseTo(x)
+    expect(payload.y).toBeCloseTo(y)
+    expect(payload.dx).toBeCloseTo(dx)
+    expect(payload.dy).toBeCloseTo(dy)
+  })
+
+  test('wheel input does not interrupt a finger held by the pointer', async () => {
+    const { hub, stream, touches } = harness()
+    await hub.prime()
+    const socket = hub.sockets[0]!
+    await stream.send([{ kind: 'pointer', phase: 'down', x: 0.5, y: 0.5 }])
+    const initial = socket.sent.length
+    await stream.send([{ kind: 'scroll', x: 0.5, y: 0.5, deltaX: 0, deltaY: 0.1 }])
+    expect(socket.sent).toHaveLength(initial)
+    await stream.send([{ kind: 'pointer', phase: 'up', x: 0.5, y: 0.5 }])
+    expect(touches(socket).map((touch) => touch.type)).toEqual(['begin', 'end'])
+  })
+})
+
+describe('iOS held keys', () => {
+  const keys = (sent: (string | Uint8Array)[]) => sent
+    .filter((message): message is Uint8Array => message instanceof Uint8Array && message[0] === 0x06)
+    .map((message) => JSON.parse(new TextDecoder().decode(message.subarray(1))) as { type: string; usage: number })
+  const command = { kind: 'key' as const, code: 'MetaRight', key: 'Meta', hasModifier: true }
+
+  test('a new socket releases every modifier a lost client left held down', async () => {
+    // WHY: a held Control turns each tap into a secondary click, so every tap opens a
+    // context menu. A reload during Cmd+R never sends the key up; the next client must clear it.
+    const { hub } = harness()
+    await hub.prime()
+    expect(keys(hub.sockets[0]!.sent)).toEqual([0xe0, 0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7].map((usage) => ({ type: 'up', usage })))
+  })
+
+  test('losing focus or closing releases only the keys still held', async () => {
+    const { hub, stream } = harness()
+    await hub.prime()
+    const socket = hub.sockets[0]!
+    const initial = socket.sent.length
+    await stream.send([{ ...command, phase: 'down' }, { kind: 'key', phase: 'down', code: 'KeyA', key: 'a' }, { kind: 'key', phase: 'up', code: 'KeyA', key: 'a' }])
+    stream.releaseKeys()
+    stream.releaseKeys()
+    expect(keys(socket.sent.slice(initial))).toEqual([
+      { type: 'down', usage: 0xe7 }, { type: 'down', usage: 0x04 }, { type: 'up', usage: 0x04 }, { type: 'up', usage: 0xe7 },
+    ])
+    await stream.send([{ ...command, phase: 'down' }])
+    stream.close()
+    expect(keys(socket.sent).at(-1)).toEqual({ type: 'up', usage: 0xe7 })
+  })
+})
+
+describe('Android wheel scrolling', () => {
   const scroll = (deltaY: number) => ({ kind: 'scroll' as const, x: 0.5, y: 0.5, deltaX: 0, deltaY })
 
   test('a wheel burst is one finger drag, lifted when the wheel stops', async () => {
-    // WHY: a down and up for each wheel event reached iOS as quick taps at one
-    // spot. Repeated taps select text, and the moves then drag the selection.
-    const { hub, stream, touches, elapse } = harness()
+    // WHY: each wheel event must move the same finger, so the list receives
+    // a continuous drag rather than repeated taps on its rows.
+    const { hub, stream, touches, elapse } = harness({ platform: 'android' })
     await hub.prime()
     const socket = hub.sockets[0]!
     for (let i = 0; i < 5; i++) await stream.send([scroll(0.05)])
@@ -237,7 +327,7 @@ describe('wheel scrolling', () => {
   })
 
   test('a tiny wheel nudge never reaches the device as a tap', async () => {
-    const { hub, stream, touches, elapse } = harness()
+    const { hub, stream, touches, elapse } = harness({ platform: 'android' })
     await hub.prime()
     await stream.send([scroll(0.005)])
     elapse()
@@ -245,7 +335,7 @@ describe('wheel scrolling', () => {
   })
 
   test('a click during a wheel drag lifts the wheel finger first', async () => {
-    const { hub, stream, touches } = harness()
+    const { hub, stream, touches } = harness({ platform: 'android' })
     await hub.prime()
     await stream.send([scroll(0.1)])
     await stream.send([{ kind: 'pointer', phase: 'down', x: 0.2, y: 0.2 }, { kind: 'pointer', phase: 'up', x: 0.2, y: 0.2 }])
@@ -253,7 +343,7 @@ describe('wheel scrolling', () => {
   })
 
   test('a drag that reaches the screen edge lifts, and the next wheel starts a new one', async () => {
-    const { hub, stream, touches } = harness()
+    const { hub, stream, touches } = harness({ platform: 'android' })
     await hub.prime()
     await stream.send([scroll(0.8)])
     await stream.send([scroll(0.1)])

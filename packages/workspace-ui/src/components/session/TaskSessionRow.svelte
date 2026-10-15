@@ -36,6 +36,8 @@
     /** The project of the task this session belongs to (`SidebarTask.groupKey`). */
     groupKey: string;
     projectLabel: string;
+    /** A share link's guest is not told which host runs the session (host-sharing.md §10). */
+    isGuest: boolean;
     /** True while this row's name is being edited in place. */
     renaming: boolean;
     onSelect: () => void;
@@ -50,6 +52,7 @@
     session,
     groupKey,
     projectLabel,
+    isGuest,
     renaming,
     onSelect,
     onStartRename,
@@ -211,32 +214,35 @@
              never omitted: a session list mixes hosts freely, so "here" has to
              be stated rather than inferred from the absence of a mark. A local
              session states it with the laptop alone; only a remote one needs
-             the name, to say which of the other machines it is. -->
-        <span
-          class="flex min-w-0 max-w-[55%] items-center gap-1"
-          title={hostLabel}
-        >
-          {#if session.runnerOffline}
-            <!-- The cloud record of a session whose runner is not connected:
-                 it opens read-only until that machine is back. -->
-            <CloudOffIcon size={11} class="shrink-0 text-(--solus-text-quaternary)" aria-label="Runner offline" data-testid="session-runner-offline" />
-          {:else if isRemote}
-            <HostOperatingSystemIcon
-              os={remoteOs}
-              managed={hostIsManaged(host)}
-              size={11}
-              class="shrink-0"
-            />
-          {:else}
-            <LaptopIcon
-              size={11}
-              class="shrink-0"
-            />
-          {/if}
-          {#if isRemote || session.runnerOffline}
-            <span class="min-w-0 truncate">{hostLabel}</span>
-          {/if}
-        </span>
+             the name, to say which of the other machines it is. A share
+             link's guest is the one reader it is not stated to. -->
+        {#if !isGuest}
+          <span
+            class="flex min-w-0 max-w-[55%] items-center gap-1"
+            title={hostLabel}
+          >
+            {#if session.runnerOffline}
+              <!-- The cloud record of a session whose runner is not connected:
+                   it opens read-only until that machine is back. -->
+              <CloudOffIcon size={11} class="shrink-0 text-(--solus-text-quaternary)" aria-label="Runner offline" data-testid="session-runner-offline" />
+            {:else if isRemote}
+              <HostOperatingSystemIcon
+                os={remoteOs}
+                managed={hostIsManaged(host)}
+                size={11}
+                class="shrink-0"
+              />
+            {:else}
+              <LaptopIcon
+                size={11}
+                class="shrink-0"
+              />
+            {/if}
+            {#if isRemote || session.runnerOffline}
+              <span class="min-w-0 truncate">{hostLabel}</span>
+            {/if}
+          </span>
+        {/if}
         <!-- Who is in this session right now, at full ink: it is the one live
              fact on the line, and it reads even when the row has receded. -->
         <PresenceStack {people} size={14} max={2} class="opacity-100" />
@@ -382,6 +388,7 @@
     {projectLabel}
     branchName={session.branchName}
     serverId={session.serverId}
+    {isGuest}
     provider={session.provider}
     modelId={session.modelId}
     attention={session.attention}

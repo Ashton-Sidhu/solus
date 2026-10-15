@@ -1,8 +1,8 @@
 import { EventEmitter } from 'events'
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { join } from 'node:path'
-import { findOnPath, hostCliEnv, warmCliPath } from '../../../cli-env'
-import { SOLUS_PLUGINS_DIR } from '../plugins'
+import { findOnPath, hostCliEnv, warmCliPath, type LaunchOptions, launchedProcess } from '../../../cli-env'
+import { solusPluginsDir } from '../plugins'
 import { createLogger } from '../../../logger'
 import type {
   CodexResponseFor,
@@ -55,7 +55,7 @@ export class CodexAppServerClient extends EventEmitter {
    * acting identity. With neither, it is the host's own: it may start inside any
    * caller's scope, so it takes the host environment by name.
    */
-  constructor(private readonly options: { codexHome?: string; env?: NodeJS.ProcessEnv } = {}) {
+  constructor(private readonly options: { codexHome?: string; launch?: LaunchOptions } = {}) {
     super()
   }
 
@@ -132,21 +132,28 @@ export class CodexAppServerClient extends EventEmitter {
     this.stopped = false
     const codexHome = this.options.codexHome
     // A member's app-server never borrows the host's environment.
-    if (codexHome && !this.options.env) throw new Error('A Codex seat started without its member environment.')
+    if (codexHome && !this.options.launch) throw new Error('A Codex seat started without its member environment.')
     // The login-shell PATH, resolved off the main thread: a version-managed
     // codex lives on it, and asking synchronously here blocks every request.
     // Check it on every start so an install after boot works without a restart.
     if (!findOnPath('codex', await warmCliPath())) {
       throw new Error('Codex was not found on this host. Install it through Solus setup, then try again.')
     }
-    const proc = spawn('codex', [
+    // A member's app-server runs from their launch options: where they are their own Linux user, as
+    // them, with Codex's own `~/.codex`; elsewhere with their seat's directory as `CODEX_HOME`.
+    const memberLaunch = codexHome ? this.options.launch : undefined
+    const launch: LaunchOptions = memberLaunch
+      ? memberLaunch.user ? memberLaunch : { ...memberLaunch, env: { ...memberLaunch.env, CODEX_HOME: codexHome } }
+      : { env: hostCliEnv() }
+    const run = launchedProcess(launch, 'codex', [
       'app-server',
       '--listen',
       'stdio://',
       '--enable',
       'default_mode_request_user_input',
-    ], {
-      env: codexHome ? { ...this.options.env, CODEX_HOME: codexHome } : hostCliEnv(),
+    ])
+    const proc = spawn(run.file, run.args, {
+      env: run.env,
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     this.proc = proc
@@ -204,7 +211,7 @@ export class CodexAppServerClient extends EventEmitter {
     // so every turn sees the Solus plugin's skills directory.
     try {
       await this._send('skills/extraRoots/set', {
-        extraRoots: [join(SOLUS_PLUGINS_DIR, 'skills')],
+        extraRoots: [join(solusPluginsDir(), 'skills')],
       }, 15_000)
     } catch (err) {
       log.warn('skills_extra_roots_set_failed', { error: err instanceof Error ? err.message : String(err) })

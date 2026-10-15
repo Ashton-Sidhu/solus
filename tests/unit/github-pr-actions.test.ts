@@ -103,17 +103,15 @@ describe('GitHub repository merge methods', () => {
     expect(access.capabilities.mergeMethods).toEqual(['squash'])
   })
 
-  test('keeps the pull request readable when the host refuses the GraphQL query', async () => {
-    // WHY: the merge method is a label; the pull request is the feature. A host
-    // without this query must still open, and the merge handler re-checks the
-    // method against fresh detail before it merges.
+  test('does not invent merge settings when their read fails', async () => {
+    // WHY: an unsuccessful settings read must reach the request policy,
+    // not become a successful answer that permits every merge method.
     const client = {
       ...restForNonAdmin,
       graphql: async () => { throw new Error('GraphQL unavailable') },
     } as unknown as GitHubClient
 
-    const access = await githubPullRequestAccessFor(client, repo, 'viewer', 'author')
-    expect(access.capabilities.mergeMethods).toEqual(['merge', 'squash', 'rebase'])
+    await expect(githubPullRequestAccessFor(client, repo, 'viewer', 'author')).rejects.toThrow('GraphQL unavailable')
   })
 })
 

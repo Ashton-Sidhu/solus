@@ -78,6 +78,6 @@ describe('picker project keys', () => {
   })
 
   test('a chat is not a project to scope to', () => {
-    expect(pickerProjectKeys(null, [task('chat', '/Users/me/.solus-chats/abc')], (item) => item.projectKey ?? null, [])).toEqual([])
+    expect(pickerProjectKeys(null, [task('chat', '/Users/me/.solus/solus-chats/abc')], (item) => item.projectKey ?? null, [])).toEqual([])
   })
 })

@@ -23,7 +23,7 @@ import { emitSessionTasksChanged } from '../../data/tasks/task-sessions'
 import type { HostEventPublisher } from '../events/host-event-publisher'
 import { projectSessionHistory, serializedBytes, withExchangeProgress } from '../../data/sessions/result-projection'
 import { storePromptImages } from '../../data/assets/transcript-images'
-import { deferSessionToolInputs, selectSessionToolInputs } from '../../data/sessions/session-tool-inputs'
+import { deferSavedArtifactHtml, deferSessionToolInputs, selectSessionToolInputs } from '../../data/sessions/session-tool-inputs'
 import { MAX_SESSION_TOOL_INPUTS, type SessionHistoryPage, type WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { activityFor, mergePageActivity, mergeWindowActivity, readActivityPageCursor } from '../../data/activity/activity'
 
@@ -136,6 +136,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       projectPath: z.string().optional(),
       turnLimit: z.number().int().min(1).max(100),
       before: z.string().max(16384).optional(),
+      deferArtifactHtml: z.boolean().optional(),
     }).parse(input)
     const cursor = readActivityPageCursor(request.before)
     const pageRequest = { ...request, before: cursor.before }
@@ -148,8 +149,9 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       sessionId: request.sessionId, provider: request.provider, messageCount: messages.length,
       olderPage: !!request.before, hasMore: page.before !== null, durationMs: Date.now() - startedAt,
     })
+    const current = withExchangeProgress(messages, exchangeProgress)
     return {
-      messages: deferSessionToolInputs(withExchangeProgress(messages, exchangeProgress)),
+      messages: deferSessionToolInputs(request.deferArtifactHtml ? deferSavedArtifactHtml(current) : current),
       before,
     }
   })

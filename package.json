@@ -87,7 +87,7 @@
     "qs": "6.16.0",
     "socket.io-parser": "4.2.7",
     "react-native": "0.88.0-rc.3",
-    "react-native-screens": "file:./apps/mobile/deps/react-native-screens-5.0.0-t3.27.tgz",
+    "react-native-screens": "file:deps/react-native-screens-5.0.0-t3.27.tgz",
     "react-native-worklets": "0.13.0"
   },
   "build": {

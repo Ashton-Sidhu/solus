@@ -1,7 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/components/ComposerEditor.tsx (MIT, see UPSTREAM.md).
 import { TextInputWrapper, type PasteEventPayload } from "expo-paste-input";
 import { useImperativeHandle, useRef, type Ref } from "react";
-import { Platform, TextInput, type StyleProp, type TextInputInstance, type TextStyle, type ViewStyle } from "react-native";
+import { Platform, StyleSheet, Text, TextInput, View, type StyleProp, type TextInputInstance, type TextStyle, type ViewStyle } from "react-native";
 
 import { MOBILE_FONTS } from "../lib/typography";
 
@@ -51,6 +51,15 @@ export interface ComposerEditorProps {
 
 export function ComposerEditor(props: ComposerEditorProps) {
   const inputRef = useRef<TextInputInstance>(null);
+  const inputStyle = {
+    fontFamily: MOBILE_FONTS.regular,
+    paddingHorizontal: 0,
+    paddingTop: props.contentInsetVertical ?? 0,
+    paddingBottom: props.contentInsetVertical ?? 0,
+    ...(Platform.OS === "android" ? { includeFontPadding: false } : null),
+    ...props.textStyle,
+    ...StyleSheet.flatten(props.style),
+  };
 
   useImperativeHandle(
     props.ref,
@@ -69,37 +78,53 @@ export function ComposerEditor(props: ComposerEditorProps) {
 
   return (
     <TextInputWrapper onPaste={onPaste}>
-      <TextInput
-        ref={inputRef}
-        accessibilityLabel={props.placeholder ?? "Message"}
-        autoFocus={props.autoFocus}
-        editable={props.editable !== false && props.readOnly !== true}
-        multiline={props.multiline}
-        scrollEnabled={props.scrollEnabled}
-        value={props.value}
-        onChangeText={props.onChangeText}
-        placeholder={props.placeholder}
-        placeholderTextColorClassName="accent-placeholder"
-        selectionColorClassName="accent-focus/32"
-        cursorColorClassName="accent-focus"
-        selectionHandleColorClassName={Platform.OS === "android" ? "accent-focus" : undefined}
-        selection={props.selection}
-        onSelectionChange={(event) => props.onSelectionChange?.(event.nativeEvent.selection)}
-        onFocus={props.onFocus}
-        onBlur={props.onBlur}
-        textAlignVertical={props.singleLineCentered ? "center" : "top"}
-        style={[
-          {
-            fontFamily: MOBILE_FONTS.regular,
-            paddingHorizontal: 0,
-            paddingTop: props.contentInsetVertical ?? 0,
-            paddingBottom: props.contentInsetVertical ?? 0,
-            ...(Platform.OS === "android" ? { includeFontPadding: false } : null),
-          },
-          props.textStyle,
-          props.style,
-        ]}
-      />
+      <View>
+        <TextInput
+          ref={inputRef}
+          accessibilityLabel={props.placeholder ?? "Message"}
+          autoFocus={props.autoFocus}
+          editable={props.editable !== false && props.readOnly !== true}
+          multiline={props.multiline}
+          scrollEnabled={props.scrollEnabled}
+          value={props.value}
+          onChangeText={props.onChangeText}
+          selection={props.selection}
+          onSelectionChange={(event) => props.onSelectionChange?.(event.nativeEvent.selection)}
+          onFocus={props.onFocus}
+          onBlur={props.onBlur}
+          textAlignVertical={props.singleLineCentered ? "center" : "top"}
+          style={inputStyle}
+        />
+        {props.value.length === 0 && props.placeholder ? (
+          <View
+            pointerEvents="none"
+            accessible={false}
+            style={[StyleSheet.absoluteFill, {
+              justifyContent: props.singleLineCentered ? "center" : "flex-start",
+              paddingTop: inputStyle.paddingVertical ?? inputStyle.paddingTop,
+              paddingBottom: inputStyle.paddingVertical ?? inputStyle.paddingBottom,
+              paddingHorizontal: inputStyle.paddingHorizontal,
+            }]}
+          >
+            <Text
+              className="text-placeholder"
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              accessible={false}
+              style={{
+                fontFamily: inputStyle.fontFamily,
+                fontSize: inputStyle.fontSize,
+                fontWeight: inputStyle.fontWeight,
+                lineHeight: inputStyle.lineHeight,
+                letterSpacing: inputStyle.letterSpacing,
+                includeFontPadding: inputStyle.includeFontPadding,
+              }}
+            >
+              {props.placeholder}
+            </Text>
+          </View>
+        ) : null}
+      </View>
     </TextInputWrapper>
   );
 }

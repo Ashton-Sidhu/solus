@@ -318,6 +318,21 @@ The vault owns the location rule (`credentialLocationOf`), which is written once
    `gh`. One list holds this rule: `GitHubCredentials.sourcesFor`
    (`providers/github/credentials.ts`).
 
+   Pull request lists pass GraphQL access errors through to this credential
+   chain, including errors in partial answers, separate batch documents, and
+   search retries. An organization that blocks the Solus app can still be
+   read with the owner's permitted `gh` credential. Rate limits stop the read;
+   they do not cause a credential fallback.
+   The same rule applies to PR details (including branch rules and later commit
+   pages), merge settings, repository-name lookups, and check refreshes. A
+   GraphQL access error still triggers fallback when other errors accompany it.
+   A missing PR number in a visible repository remains a missing PR.
+   `runGithubRequest` owns this policy for the whole operation. Readers do not
+   classify access failures or suppress failed requests. Only explicit domain
+   answers, such as a missing PR or an invalid search for a renamed repository,
+   are handled within a reader. Other failures are reported instead of being
+   converted to incomplete data or default merge settings.
+
    | Person | Sources, in order |
    |---|---|
    | The host's own work (`null`), and the machine owner signed out | paired device, host store, `gh` |

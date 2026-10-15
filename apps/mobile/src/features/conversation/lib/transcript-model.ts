@@ -1,3 +1,4 @@
+import type { BrowserSnapshotRef } from '@solus/contracts/browser-types'
 import type { Activity, WorktreeOfferResolution } from '@solus/contracts/activity'
 import type { ContextCompaction, PermissionOption, QuestionItem, RateLimitInfo, RequestExpiry, SessionStatus, ToolResultImage, WireNormalizedEvent } from '@solus/contracts/types'
 import type { SessionHistoryPage, WireSessionLoadMessage } from '@solus/contracts/session-history'
@@ -21,6 +22,8 @@ export type Delivery = 'sending' | 'queued' | 'sent' | 'failed'
 export type TranscriptItem =
   | { kind: 'user'; id: string; text: string; delivery: Delivery; error: string | null; attachments: readonly MessageAttachment[] }
   | { kind: 'assistant'; id: string; text: string }
+  | { kind: 'browser_snapshot'; id: string; snapshot: BrowserSnapshotRef }
+  | { kind: 'image'; id: string; path: string }
   | {
       kind: 'tool'
       id: string
@@ -272,6 +275,11 @@ export class TranscriptModel {
       if (event.type === 'tool_call') this.countChild(event.parentToolUseId)
       return
     }
+    if (event.type === 'browser_snapshot_captured') {
+      this.streamTarget = null
+      this.append({ kind: 'browser_snapshot', id: this.mintId('snapshot'), snapshot: event.snapshot })
+      return
+    }
     // Each group answers whether it owned the event; anything else is not shown yet.
     if (this.applyStream(event) || this.applyArtifact(event) || this.applyTurn(event) || this.applyRequest(event)) return
     this.applyQueue(event)
@@ -342,6 +350,7 @@ export class TranscriptModel {
 
   private applyArtifact(event: WireNormalizedEvent): boolean {
     if (event.type === 'artifact_created') {
+      if (event.kind === 'image' && event.path) this.append({ kind: 'image', id: this.mintId('image'), path: event.path })
       const render = artifactFromCreated(event)
       if (render) this.append({ kind: 'artifact', id: this.mintId('r'), ...render })
       return true

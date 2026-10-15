@@ -3,6 +3,8 @@ import { dataDir } from './platform/paths'
 import { SessionRuntime } from './execution/session-runtime'
 import { createBackends } from './execution/agents/backend-registry'
 import { syncBundledPlugins } from './execution/agents/plugins'
+import { MemberUsers, memberUsersFilePath, useMemberUsers } from './host/member-users'
+import { useMemberSwitch } from './cli-env'
 import { bootServer, type BootOptions, type BootedServer } from './boot-server'
 import { configureOtel } from './otel'
 import { getHostConfig, getServerSettings } from './host/settings'
@@ -72,6 +74,13 @@ async function bootCoreAsHost(opts: BootCoreOptions): Promise<BootCore> {
   const phaseDone = (phase: 'plugins_synced' | 'otel_configured' | 'control_plane_ready' | 'server_booted'): void => {
     log.info('core_boot_phase', { phase, elapsedMs: Math.round(performance.now() - startedAt) })
   }
+  // On a managed host each member is their own Linux user. The users file names
+  // them and the folders shared with them, the plugin's among them, so it is read
+  // before anything is placed (docs/plans/member-isolation.md §4.1).
+  const usersFile = memberUsersFilePath()
+  const memberUsers = usersFile ? new MemberUsers(usersFile) : null
+  useMemberUsers(memberUsers)
+  useMemberSwitch(memberUsers?.layout()?.switch ?? null)
   // Link the app-bundled plugins into the state dir before any agent can run.
   // Both the desktop app and the standalone server boot through here, so the
   // headless host serves the same bundled skills as the desktop one.

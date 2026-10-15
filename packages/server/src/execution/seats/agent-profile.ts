@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
@@ -32,6 +32,8 @@ import type { SkillListResult, SkillRemoveResult } from '@solus/contracts/skill-
 import { createLogger } from '../../logger'
 import type { MemberSkillHomes } from '../../skills/skills-cli'
 import { planProfileFiles, readProfileFiles, resolvedHome, writeProfileFiles } from './profile-files'
+import { applyMemberFiles } from './member-files'
+import type { ProcessUser } from '../../cli-env'
 import { hostClaudeDir, hostCodexHome } from './seat-login'
 import type { AccountReads } from '../../vault/account-reads'
 
@@ -146,6 +148,8 @@ export interface AgentProfileDeps {
   sourceHomes: (provider: SeatProvider) => string[]
   /** The target's home for a provider (`SeatStore.homeFor`). */
   homeFor: (target: AgentProfileTarget, provider: SeatProvider) => string
+  /** The OS user a target's files are written as where each member is their own user; absent or null: the server's own. */
+  processUserFor?: (target: AgentProfileTarget) => ProcessUser | null
   now: () => number
   skills: ProfileSkills
   /** A member's seat homes for the skills CLI; undefined for the owner, whose skills are the host's. */
@@ -235,8 +239,9 @@ export class AgentProfileManager {
     const syncedAt = this.deps.now()
     const writtenFiles = new Map<SeatProvider, string[]>()
     const kept: AgentProfileSkip[] = []
+    const user = this.deps.processUserFor?.(target) ?? null
     for (const write of writes) {
-      writtenFiles.set(write.provider, writeProfileFiles(write))
+      writtenFiles.set(write.provider, writeProfileFiles(write, user))
       kept.push(...write.kept)
     }
     const skillOutcome = await this.applySkills(target, skills, previous?.skills ?? [])
@@ -248,7 +253,7 @@ export class AgentProfileManager {
       const manifestPath = join(home, MANIFEST_FILE)
       const ownFiles = writtenFiles.get(provider) ?? []
       if (empty && ownFiles.length === 0) {
-        rmSync(manifestPath, { force: true })
+        applyMemberFiles(user, [{ kind: 'remove', path: manifestPath }])
         continue
       }
       const manifest: Manifest = {
@@ -261,7 +266,7 @@ export class AgentProfileManager {
         integrations: integrationOutcome.ids,
         skipped: held.filter((skip) => !skip.provider || skip.provider === provider),
       }
-      writeFileSync(manifestPath, JSON.stringify(manifest), { mode: 0o600 })
+      applyMemberFiles(user, [{ kind: 'write', path: manifestPath, content: JSON.stringify(manifest), mode: 0o600 }])
     }
     log.info('agent_profile_applied', { target: target.kind, source: origin.kind, files: files.length, skills: skills.length, integrations: integrations.length })
     return this.status(target)

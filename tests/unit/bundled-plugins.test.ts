@@ -18,7 +18,7 @@ const originalInstallDir = process.env.SOLUS_INSTALL_DIR
 // The plugin module reads the state dir once at import time, so the override
 // has to be in place before it loads.
 process.env.SOLUS_DATA_DIR = dataDir
-const { syncBundledPlugins, PLUGINS_DIR, SOLUS_PLUGINS_DIR } = await import('@solus/server/execution/agents/plugins')
+const { syncBundledPlugins, pluginsDir, solusPluginsDir } = await import('@solus/server/execution/agents/plugins')
 const { bundledResourcesDir } = await import('@solus/server/platform/paths')
 const { configurePlatformServices } = await import('@solus/server/platform/services')
 
@@ -59,7 +59,7 @@ describe('bundled plugin sync', () => {
 
     await syncBundledPlugins()
 
-    expect(existsSync(PLUGINS_DIR)).toBe(false)
+    expect(existsSync(pluginsDir())).toBe(false)
   })
 
   /**
@@ -78,16 +78,16 @@ describe('bundled plugin sync', () => {
 
       await syncBundledPlugins()
 
-      expect(PLUGINS_DIR).toBe(join(dataDir, 'plugins'))
-      expect(lstatSync(PLUGINS_DIR).isSymbolicLink()).toBe(true)
-      expect(readlinkSync(PLUGINS_DIR)).toBe(source)
-      expect(existsSync(join(SOLUS_PLUGINS_DIR, 'skills', 'diagrams', 'SKILL.md'))).toBe(true)
+      expect(pluginsDir()).toBe(join(dataDir, 'plugins'))
+      expect(lstatSync(pluginsDir()).isSymbolicLink()).toBe(true)
+      expect(readlinkSync(pluginsDir())).toBe(source)
+      expect(existsSync(join(solusPluginsDir(), 'skills', 'diagrams', 'SKILL.md'))).toBe(true)
     })
 
     test('follows the source after a plugin edit, with no second sync', async () => {
       writeFileSync(join(source, 'solus', 'skills', 'diagrams', 'SKILL.md'), '# edited\n')
 
-      expect(readFileSync(join(SOLUS_PLUGINS_DIR, 'skills', 'diagrams', 'SKILL.md'), 'utf8')).toBe('# edited\n')
+      expect(readFileSync(join(solusPluginsDir(), 'skills', 'diagrams', 'SKILL.md'), 'utf8')).toBe('# edited\n')
     })
   })
 
@@ -116,15 +116,15 @@ describe('bundled plugin sync', () => {
 
       await syncBundledPlugins()
 
-      const copied = join(SOLUS_PLUGINS_DIR, 'skills', 'diagrams')
+      const copied = join(solusPluginsDir(), 'skills', 'diagrams')
       expect(readFileSync(join(copied, 'SKILL.md'), 'utf8')).toBe('# diagrams\n')
       expect(readFileSync(join(copied, 'references', 'nodes.md'), 'utf8')).toBe('# nodes\n')
-      expect(lstatSync(PLUGINS_DIR).isSymbolicLink()).toBe(false)
-      expect(existsSync(`${PLUGINS_DIR}.incoming`)).toBe(false)
+      expect(lstatSync(pluginsDir()).isSymbolicLink()).toBe(false)
+      expect(existsSync(`${pluginsDir()}.incoming`)).toBe(false)
     })
 
     test('leaves the installed copy alone on a warm launch', async () => {
-      const localEdit = join(PLUGINS_DIR, 'solus', 'skills', 'diagrams', 'SKILL.md')
+      const localEdit = join(pluginsDir(), 'solus', 'skills', 'diagrams', 'SKILL.md')
       writeFileSync(localEdit, '# stamped\n')
 
       await syncBundledPlugins()

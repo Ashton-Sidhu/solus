@@ -191,7 +191,7 @@ export function findOnPath(bin: string, path: string): string | null {
 /**
  * The host's own process environment with the login-shell PATH. Only the host
  * identity and work that is the host's by nature (installing tools, probing
- * the host) use it directly; everything else asks `getCliEnv`.
+ * the host) use it directly; everything else asks `launchOptions`.
  */
 export function hostCliEnv(extraEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
@@ -203,24 +203,77 @@ export function hostCliEnv(extraEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return env
 }
 
-let actingEnv: ((extraEnv?: NodeJS.ProcessEnv) => NodeJS.ProcessEnv) | null = null
-
 /**
- * The acting scope installs how a process environment is chosen
- * (`vault/acting-scope.ts`), so this module stays free of server imports and
- * loads on its own under Node.
+ * The member's Linux user a process runs as on a host where each member is one
+ * (docs/plans/member-isolation.md §4). Its group is always `solus-proj`, which the
+ * member switch sets.
  */
-export function useActingEnv(source: (extraEnv?: NodeJS.ProcessEnv) => NodeJS.ProcessEnv): void {
-  actingEnv = source
+export interface ProcessUser {
+  uid: number
 }
 
 /**
- * The environment for a process started in the current acting scope: the host's
- * for the host, a member's clean one for a member (plans/019-acting-identity.md).
- * Throws when no scope is set. A caller that can wait should prefer
- * `currentIdentity().env()`, which also names a member's commit author.
+ * What every process started for someone gets from the launch point
+ * (docs/plans/member-isolation.md §3): its environment and, on such a host, the
+ * member's user. Data, never `spawn` options: Node would ignore `user`, and the
+ * process would run as the server. `launchedProcess` turns it into the command
+ * line to run.
  */
-export function getCliEnv(extraEnv?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  if (!actingEnv) throw new Error('Solus started a process before its acting identities were loaded. This is a bug: report it with the server log.')
-  return actingEnv(extraEnv)
+export interface LaunchOptions {
+  env: NodeJS.ProcessEnv
+  user?: ProcessUser
+}
+
+/** One process as the launch point starts it: run `file` with `args` and `env`. */
+export interface LaunchedProcess {
+  file: string
+  args: string[]
+  env: NodeJS.ProcessEnv
+}
+
+/**
+ * The member switch (docs/plans/member-isolation.md §2 decision 1): the only
+ * program that changes a process's user. The users file names it
+ * (`layout.switch`); the server holds no capability.
+ */
+let memberSwitch: string | null = null
+
+/** Installed from the users file, and again when it names another switch. */
+export function useMemberSwitch(path: string | null): void {
+  memberSwitch = path
+}
+
+/** The command line that starts `file` for this launch: through the member switch when it runs as a member's user. */
+export function launchedProcess(launch: LaunchOptions, file: string, args: readonly string[]): LaunchedProcess {
+  if (!launch.user) return { file, args: [...args], env: launch.env }
+  // Never as the server: a member's process with no switch to start it does not start.
+  if (!memberSwitch) throw new Error('This host names no member switch, so it cannot start a process as you.')
+  return { file: memberSwitch, args: [String(launch.user.uid), '--', file, ...args], env: launch.env }
+}
+
+let actingLaunch: ((extraEnv?: NodeJS.ProcessEnv) => LaunchOptions) | null = null
+
+/**
+ * The acting scope installs how a process is launched (`vault/acting-scope.ts`),
+ * so this module stays free of server imports and loads on its own under Node.
+ */
+export function useActingLaunch(source: (extraEnv?: NodeJS.ProcessEnv) => LaunchOptions): void {
+  actingLaunch = source
+}
+
+/**
+ * The launch options for a process started in the current acting scope: the
+ * host's environment for the host, a member's clean one (and their user on a
+ * shared host) for a member (plans/019-acting-identity.md). Throws when no scope
+ * is set. A caller that can wait should prefer `currentIdentity().launchOptions()`,
+ * which also names a member's commit author.
+ */
+export function launchOptions(extraEnv?: NodeJS.ProcessEnv): LaunchOptions {
+  if (!actingLaunch) throw new Error('Solus started a process before its acting identities were loaded. This is a bug: report it with the server log.')
+  return actingLaunch(extraEnv)
+}
+
+/** `file` with `args`, started in the current acting scope (`launchOptions`). */
+export function launchProcess(file: string, args: readonly string[], extraEnv?: NodeJS.ProcessEnv): LaunchedProcess {
+  return launchedProcess(launchOptions(extraEnv), file, args)
 }

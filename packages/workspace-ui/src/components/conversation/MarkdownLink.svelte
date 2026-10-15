@@ -3,7 +3,7 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import { MessageCircleMore as ChatCircleDotsIcon, FileText as FileTextIcon, GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
   import { getClientShellContext, getSurfaceContext } from "../../contexts";
-  import { parseFileHref, requestFilePreview } from "../../lib/filePreview";
+  import { filePreviewMediaKind, parseFileHref, requestFilePreview } from "../../lib/filePreview";
   import { routeForHref } from "../../lib/agent-links";
   import { FILE_ICON_VIEWBOX, getFileIconPath } from "../editor/fileIcons";
   import { tokenClassName } from "../editor/tokenStyle";
@@ -21,9 +21,11 @@
     href?: string;
     title?: string;
     text?: string;
+    /** An image embed keeps file-chip styling for web URLs and stored assets too. */
+    fileChip?: boolean;
     children?: Snippet;
   }
-  let { href = "", title = undefined, text = undefined, children }: Props = $props();
+  let { href = "", title = undefined, text = undefined, children, fileChip = false }: Props = $props();
 
   type Status = "pending" | "accepted" | "rejected";
 
@@ -53,7 +55,7 @@
     const currentAssetId = assetId;
     const serverId = assetContext?.serverId();
     const api = assetContext?.api();
-    if (!currentAssetId || !serverId || !api) {
+    if (!currentAssetId || !serverId || !api || filePreviewMediaKind(href)) {
       assetHref = "";
       return;
     }
@@ -108,7 +110,16 @@
   }
 
   function handleClick(e: MouseEvent) {
-    if (assetId) {
+    const mediaKind = filePreviewMediaKind(fileRef?.path ?? href) ?? (fileChip ? "image" : null);
+    if (mediaKind && session) {
+      e.preventDefault();
+      requestFilePreview({
+        path: fileRef?.path ?? href,
+        mediaKind,
+        tabId: session.focusedChatTabId ?? session.activeTabId,
+        source: { serverId: assetContext?.serverId(), cwd: assetContext?.cwd(), ctx: assetContext?.ctx() },
+      });
+    } else if (assetId) {
       e.preventDefault();
       if (assetHref) localApi.openExternal(assetHref);
     } else if (linkRoute) {
@@ -187,19 +198,19 @@
       <ChatCircleDotsIcon size={12} />
 </span><span>{@render children?.()}</span>
   </button>
-{:else if fileRef}
+{:else if fileRef || fileChip}
   <button
     type="button"
     class={tokenClassName("file", true)}
-    title={fileLinkTooltip(fileRef.path, fileRef.line, fileLinkWorkingDirectory)}
+    title={fileRef ? fileLinkTooltip(fileRef.path, fileRef.line, fileLinkWorkingDirectory) : title ?? href}
     onclick={handleClick}
   ><span class="solus-token__icon">
-      {#if isMarkdownPath(fileRef.path)}
+      {#if isMarkdownPath(fileRef?.path ?? href)}
         <FileTextIcon size={12} />
       {:else}
-        <svg viewBox={FILE_ICON_VIEWBOX} fill="currentColor"><path d={getFileIconPath(basename(fileRef.path))} /></svg>
+        <svg viewBox={FILE_ICON_VIEWBOX} fill="currentColor"><path d={getFileIconPath(basename(fileRef?.path ?? text ?? href))} /></svg>
       {/if}
-</span><span>{#if codeFileLabel !== null}{codeFileLabel}{:else}{@render children?.()}{/if}{#if fileRef.line}<span class="solus-token__line-number">:{fileRef.line}</span>{/if}</span>
+</span><span>{#if codeFileLabel !== null}{codeFileLabel}{:else}{@render children?.()}{/if}{#if fileRef?.line}<span class="solus-token__line-number">:{fileRef.line}</span>{/if}</span>
   </button>
 {:else}
   {#snippet linkContents()}

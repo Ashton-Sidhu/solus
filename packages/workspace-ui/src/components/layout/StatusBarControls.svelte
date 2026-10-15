@@ -188,8 +188,8 @@
   /** Every destination choice this row offers lands on whichever the source is:
    *  a started session's run, or the draft's, where nothing starts until Send. */
   function applyRun(next: RunConfig) {
-    const target = sess ?? draft;
-    if (target) target.run = next;
+    if (sess) sess.run = next;
+    else draft?.applyRun(next);
   }
 
   function settleOnDestination() {

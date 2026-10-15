@@ -1,16 +1,11 @@
 <script lang="ts">
-  import { onDestroy, tick } from "svelte";
-  import { cubicOut } from "svelte/easing";
-  import { prefersReducedMotion } from "svelte/motion";
-  import { scale } from "svelte/transition";
-  import { MessageCircle as ChatCircleIcon } from "@lucide/svelte";
+  import { onDestroy } from "svelte";
   import { getWorkspaceContext } from "../../contexts";
   import type { SessionDraft } from "../../contexts/workspace/session-draft.svelte";
   import type { CreateTabOptions } from "../../contexts/workspace/workspace.context.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { cn } from "../../lib/utils";
-  import { Button } from "../ui/button";
   import type { PaneSurfaceProps } from "../ui/lib/pane-surface";
+  import FloatingComposer from "../ui/floating-composer/FloatingComposer.svelte";
   import DraftComposer from "../session-draft/DraftComposer.svelte";
 
   /**
@@ -59,21 +54,13 @@
   // one is held apart, the way the draft pane holds its `sent` draft.
   let shown = $state.raw<SessionDraft | null>(null);
   let expanded = $state(false);
-  let composerEl = $state<HTMLDivElement | null>(null);
   let composerInput = $state<ReturnType<typeof DraftComposer> | null>(null);
   // Folded with words still in it, the glyph says so.
   const hasUnsent = $derived(!!draft && !draft.isEmpty);
 
-  async function expand() {
+  function expand() {
     draft ??= session.drafts.openDockedDraft({ ...aim, via: "click" }, cwd);
     shown = draft;
-    expanded = true;
-    // The caret waits for the pop-out: one placed mid-scale is painted at the
-    // scaled size and can stay a filled block. Without the motion there is no
-    // scale to wait for.
-    if (!prefersReducedMotion.current) return;
-    await tick();
-    composerInput?.focus();
   }
 
   function fold() {
@@ -113,38 +100,18 @@
     const current = draft;
     return !!current && start(current, text) !== null;
   }
-
-  // A click on the page itself folds an empty composer back to its glyph.
-  // Menus portal out of the page, so a pick from one never reads as leaving.
-  $effect(() => {
-    const host = expanded ? composerEl?.parentElement : null;
-    if (!host) return;
-    const onPointerDown = (event: PointerEvent) => {
-      const target = event.target instanceof Node ? event.target : null;
-      if (!target || !host.contains(target) || composerEl?.contains(target)) return;
-      if (draft?.isEmpty) fold();
-    };
-    window.addEventListener("pointerdown", onPointerDown, true);
-    return () => window.removeEventListener("pointerdown", onPointerDown, true);
-  });
 </script>
 
-{#if expanded && shown}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div
-    bind:this={composerEl}
-    class="absolute right-3 bottom-[max(0.75rem,env(safe-area-inset-bottom,0px))] z-30 w-[min(44rem,calc(100%-1.5rem))] origin-bottom-right"
-    data-testid="page-composer"
-    in:scale={{ start: 0.08, opacity: 0, duration: prefersReducedMotion.current ? 0 : 200, easing: cubicOut }}
-    out:scale={{ start: 0.08, opacity: 0, duration: prefersReducedMotion.current ? 0 : 140, easing: cubicOut }}
-    onintroend={() => composerInput?.focus()}
-    onkeydown={(event) => {
-      if (event.key === "Escape" && !event.defaultPrevented) {
-        event.stopPropagation();
-        fold();
-      }
-    }}
-  >
+<FloatingComposer
+  bind:expanded
+  {label}
+  {hasUnsent}
+  class={glyphClass}
+  onExpand={expand}
+  onFold={fold}
+  onOpened={() => composerInput?.focus()}
+>
+  {#if shown}
     <DraftComposer
       bind:this={composerInput}
       draft={shown}
@@ -160,25 +127,5 @@
       {onAttachFile}
       {onScreenshot}
     />
-  </div>
-{:else}
-  <div
-    class={cn("absolute right-3 bottom-[max(0.75rem,env(safe-area-inset-bottom,0px))] z-30", glyphClass)}
-    in:scale={{ start: 0.6, opacity: 0, duration: prefersReducedMotion.current ? 0 : 140, delay: prefersReducedMotion.current ? 0 : 100, easing: cubicOut }}
-  >
-    <Button
-      variant="outline"
-      size="icon-lg"
-      class={cn(
-        "relative size-10 rounded-full shadow-[shadow:0_4px_16px_color-mix(in_oklch,var(--foreground)_10%,transparent)] pointer-coarse:size-12",
-        hasUnsent && "after:absolute after:top-1.5 after:right-1.5 after:size-2 after:rounded-full after:bg-(--solus-accent)",
-      )}
-      data-testid="open-page-composer"
-      title={hasUnsent ? `${label} — unsent message` : label}
-      aria-label={label}
-      onclick={() => void expand()}
-    >
-      <ChatCircleIcon size={18} strokeWidth={1.5} />
-    </Button>
-  </div>
-{/if}
+  {/if}
+</FloatingComposer>

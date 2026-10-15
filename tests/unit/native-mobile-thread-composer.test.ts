@@ -145,7 +145,7 @@ describe('native new-task project picker', () => {
     project('mac', '/Users/a/solus', 'github.com/solus/solus'),
     project('box', '/home/a/solus', 'github.com/solus/solus'),
     project('mac', '/Users/a/notes', null),
-    project('mac', '/Users/a/projects/.solus-chats/abc', null),
+    project('mac', '/Users/a/.solus/solus-chats/abc', null),
   ]
 
   test('one repository on two hosts is one project; chat folders are not projects', () => {

@@ -66,6 +66,7 @@ describe('host config', () => {
       'otel',
       'reviewWarmingByProject',
       'solusTools',
+      'unfiledRecordingRetentionDays',
     ])
   })
 
@@ -218,6 +219,7 @@ describe('the agent write policy', () => {
       'continueSessionsAfterHostRestart',
       'reviewWarmingByProject',
       'solusTools',
+      'unfiledRecordingRetentionDays',
     ])
   })
 })

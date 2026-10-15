@@ -53,6 +53,7 @@ function draftsBesideAWorkPage() {
     runFor: () => undefined,
     rootTaskIdFor: () => null,
     opening: { moveToRunOnHost: () => {} },
+    refreshStartTarget: async () => {},
     router: {
       focusedPaneId: pane.id,
       panes: [pane],

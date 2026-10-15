@@ -4,7 +4,7 @@ import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const connections = singleHostServerConnections()
 mock.module('@solus/client-core/server-connections', () => ({ serverConnections: connections }))
-const { automationRetentionStore: store } = await import('@solus/workspace-ui/contexts/automations/automation-retention.store.svelte')
+const { automationRetentionStore: store, recordingRetentionStore } = await import('@solus/workspace-ui/contexts/hosts/host-retention.store.svelte')
 const snapshot = (days: number): HostConfigSnapshot => ({ seeded: true, config: { ...DEFAULT_HOST_CONFIG, archivedAutomationRetentionDays: days } })
 
 describe('archive retention settings', () => {
@@ -42,6 +42,25 @@ describe('archive retention settings', () => {
     answer(snapshot(30))
     await Promise.resolve()
     expect(store.states.get('stale')?.days).toBe(60)
+    stop()
+  })
+
+  test('recording retention reads and writes its own key', async () => {
+    // WHY: two settings share one store class; each must change only its own key.
+    const patches: object[] = []
+    connections.registerHost('recordings', {
+      configGet: async () => ({ seeded: true, config: { ...DEFAULT_HOST_CONFIG, unfiledRecordingRetentionDays: 30 } }),
+      configUpdate: async (patch: { unfiledRecordingRetentionDays: number }) => {
+        patches.push(patch)
+        return { seeded: true, config: { ...DEFAULT_HOST_CONFIG, ...patch } }
+      },
+    })
+    const stop = recordingRetentionStore.watch('recordings')
+    await recordingRetentionStore.load('recordings')
+    expect(recordingRetentionStore.states.get('recordings')?.days).toBe(30)
+    await recordingRetentionStore.save('recordings', 3)
+    expect(patches).toEqual([{ unfiledRecordingRetentionDays: 3 }])
+    expect(recordingRetentionStore.states.get('recordings')?.days).toBe(3)
     stop()
   })
 })

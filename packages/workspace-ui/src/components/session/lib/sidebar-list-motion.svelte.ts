@@ -278,13 +278,24 @@ export function sidebarListMotion(
     // Derived, so a re-render that leaves the order as it was compares equal
     // and never reaches the effect below.
     const key = $derived(orderKey())
-    let isFirstPass = true
+    let hasRead = false
+    let frame = 0
     $effect(() => {
       void key
-      // Effects run after the DOM update, so the rows are in their new places.
-      motion.update(!isFirstPass)
-      isFirstPass = false
+      // The rows are read in the next frame, before it paints, so the slides
+      // still start from where each row was drawn. Read in this effect, they
+      // forced a layout in the middle of the DOM update — on a session open,
+      // the layout of the whole new transcript — and the frame laid out again.
+      if (frame) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        motion.update(hasRead)
+        hasRead = true
+      })
     })
-    return () => motion.dispose()
+    return () => {
+      cancelAnimationFrame(frame)
+      motion.dispose()
+    }
   }
 }

@@ -64,8 +64,6 @@ function ExtraInstructionsEditor(props: { readonly stored: string; readonly onSa
         onChangeText={(value) => { setDraft(value); setFailed(false); }}
         placeholder="Prefer concise answers. Use specific libraries. Follow my writing style."
         placeholderTextColorClassName="accent-placeholder"
-        selectionColorClassName="accent-focus/32"
-        cursorColorClassName="accent-focus"
         className="min-h-24 rounded-2xl border border-border bg-input px-3.5 py-3 font-mono text-sm text-foreground"
       />
       {failed ? <Text className="text-sm text-danger-foreground" accessibilityRole="alert">These instructions could not be saved: they are over the size limit.</Text> : null}

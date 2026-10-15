@@ -20,7 +20,8 @@ const { attachWebSocketTransport } = await import('@solus/server/transport/webso
 const { SolusServer } = await import('@solus/server/transport/server')
 const { ClientEventRegistry } = await import('@solus/server/transport/events/client-event-registry')
 const auth = await import('@solus/server/admission/auth')
-const { projectsRootFor, projectsVisibleTo } = await import('@solus/server/transport/handlers/setup-handlers')
+const { projectsVisibleTo } = await import('@solus/server/transport/handlers/setup-handlers')
+const { projectsRootFor } = await import('@solus/server/workspace')
 const { setupProjectsRoot } = await import('@solus/server/workspace')
 
 // docs/plans/managed-hosts.md §1: on a managed host nothing is trusted by network

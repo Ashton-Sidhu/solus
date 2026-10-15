@@ -292,7 +292,7 @@
       class="{PAGE_SOFT_ICON_BTN} text-workspace-chrome w-auto! gap-1.5 px-2.5 pointer-coarse:w-auto! disabled:cursor-not-allowed disabled:opacity-50 {showRunApp ? 'bg-[var(--wash-3)]! text-foreground!' : ''}"
       aria-pressed={showRunApp} disabled={!deviceState?.settings.enabled}
       onclick={() => deviceViewState.showRunApp(serverId, !showRunApp)}>
-      {#if runActive}<LoaderCircle size={15} strokeWidth={1.5} class="animate-spin motion-reduce:animate-none" />{:else}<Package size={15} strokeWidth={1.5} />{/if}Run app{#if runActive}<span class="sr-only"> (running)</span>{/if}
+      {#if runActive}<LoaderCircle size={15} strokeWidth={1.5} class="animate-spin motion-reduce:animate-none" />{:else}<Package size={15} strokeWidth={1.5} />{/if}Builds{#if runActive}<span class="sr-only"> (running)</span>{/if}
     </button>
     <TooltipUI.Root>
       <TooltipUI.Trigger>
@@ -317,7 +317,7 @@
     </div>
   {:else if view === "runApp" && deviceState}
     <div class="text-workspace-chrome flex min-h-0 flex-1 justify-center overflow-y-auto px-6 py-8">
-      <div class="w-full max-w-md">
+      <div class="w-full max-w-2xl">
         <DeviceRunApp {serverId} {sessionId} {deviceState} onInstalled={refocusComposer} />
       </div>
     </div>

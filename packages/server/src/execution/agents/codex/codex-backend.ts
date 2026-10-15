@@ -370,7 +370,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
     // The app-server outlives one turn. It runs in the member's own home, where
     // their GitHub connection is kept current on disk (plans/019-acting-identity.md).
-    const client = new CodexAppServerClient({ codexHome: seat.home, env: seat.env })
+    const client = new CodexAppServerClient({ codexHome: seat.home, launch: seat.launch })
     this.attachClient(client)
     const entry: SeatClient = { client, activeRuns: 0, idleTimer: null }
     this.seatClients.set(seatKey(seat.seat), entry)
@@ -490,6 +490,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     handle = {
       // The source is only a branch input; the fork has no provider id yet.
       agentSessionId: conversation.kind === 'resume' ? conversation.threadId : null,
+      sessionId: sessionState?.sessionId,
       persistence: request.persistence,
       client,
       threadId: conversation.kind === 'fork' ? conversation.sourceThreadId : conversation.kind === 'resume' ? conversation.threadId : null,

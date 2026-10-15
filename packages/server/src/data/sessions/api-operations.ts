@@ -219,7 +219,7 @@ export class SessionApiOperations {
         ? sql`(project_path = ${encoded} OR project_path LIKE ${encoded + SOLUS_WORKTREE_ENCODED_MARKER + '%'})`
         : sql`project_path = ${encoded}`)
     }
-    // A chat's folder is `.solus-chats/<id>`, which the provider spells `--solus-chats-<id>`.
+    // A chat's folder is `solus-chats/<id>`, which the provider spells `-solus-chats-<id>`.
     if (query.chats === 'true') filters.push(sql`project_path LIKE ${`%${encodePathAsFolder(`/${CHAT_ROOT_NAME}/`)}%`}`)
     if (query.provider) filters.push(sql`provider = ${query.provider}`)
     // Top-level sessions, or the ones one session started; the caller's session list

@@ -146,6 +146,8 @@ export async function scanPlanFile(
       } catch {}
     })
     rl.on('close', () => resolve())
+    // An unreadable transcript (another user's file) reads as empty; it never crashes the server.
+    rl.on('error', () => resolve())
   })
 
   const plans = Array.from(pending.values())

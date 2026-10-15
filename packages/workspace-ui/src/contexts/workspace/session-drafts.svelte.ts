@@ -1,4 +1,4 @@
-import type { SessionSpec } from '@solus/contracts/types'
+import type { RunConfig, SessionSpec } from '@solus/contracts/types'
 import type { Via } from '@solus/contracts/analytics-events'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serversStore } from '../connections/servers.store.svelte'
@@ -9,7 +9,7 @@ import { SessionDraft, requestedTaskTarget } from './session-draft.svelte'
 import { alignRunProvider, resolveNewRunConfig } from './run-config'
 import { disposeGitActions } from '../../lib/git-actions.svelte'
 import type { WorkspaceContext, PersistedSessionDrafts, CreateTabOptions } from './workspace.context.svelte'
-import { chooseStart, runHost } from './run-location'
+import { checkoutGit, checkoutPlace, chooseStart, pendingClone, runHost, startsWorktree } from './run-location'
 
 /** The workspace members this controller reads or calls, and no others. */
 type SessionDraftsWorkspace = Pick<WorkspaceContext,
@@ -19,6 +19,7 @@ type SessionDraftsWorkspace = Pick<WorkspaceContext,
   | 'dispatch'
   | 'focusedSourceId'
   | 'opening'
+  | 'refreshStartTarget'
   | 'rootTaskIdFor'
   | 'router'
   | 'runFor'
@@ -35,6 +36,56 @@ type SessionDraftsWorkspace = Pick<WorkspaceContext,
  */
 export class SessionDrafts {
   constructor(private readonly workspace: SessionDraftsWorkspace) {}
+
+  /** The place each draft's checkout was last asked for, so a move reads it
+   *  once and a Git answer, which keeps the place, reads nothing. */
+  private readonly startTargetReads = new Map<string, string>()
+
+  /** Every draft is made here, so every draft tells this store when it moves. */
+  private newDraft(inherit?: RunConfig | null, id?: string): SessionDraft {
+    return new SessionDraft(this.workspace.defaultRunConfig, inherit, this.workspace.settings.modelOptionsByProvider, {
+      id,
+      onMove: (draft) => this.readStartTarget(draft),
+    })
+  }
+
+  /**
+   * Ask the host that holds the draft's folder what checkout it will start in.
+   * A draft names a directory before anything has read it, and until the host
+   * answers the chips that describe the destination have nothing to show. A
+   * clone has no folder until Send, and a run whose Git is known needs nothing.
+   * A folder outside Git answers `null`, which keeps the place and so reads
+   * nothing more.
+   */
+  private readStartTarget(draft: SessionDraft): void {
+    // The read finds the run by the draft's id, so a draft not yet listed
+    // reads when it is.
+    if (this.sessionDrafts.get(draft.id) !== draft) return
+    const run = draft.run
+    // Git has answered for this place. A later move that drops the answer,
+    // even back to the same folder, has to ask again.
+    if (checkoutGit(run)) {
+      this.startTargetReads.delete(draft.id)
+      return
+    }
+    const place = checkoutPlace(run)
+    if (pendingClone(run) || !place.path || place.path === '~') return
+    const worktreeRequested = startsWorktree(run)
+    const key = `${place.serverId}\0${place.path}\0${worktreeRequested}`
+    if (this.startTargetReads.get(draft.id) === key) return
+    this.startTargetReads.set(draft.id, key)
+    void this.workspace.refreshStartTarget(draft.id, place.path, worktreeRequested)
+  }
+
+  /** A host connected: a read of a draft on it while it was away could not
+   *  answer, so the drafts there that still have no Git ask again. */
+  rereadStartTargets(serverId: string): void {
+    for (const draft of this.sessionDrafts.values()) {
+      if (runHost(draft.run) !== serverId) continue
+      this.startTargetReads.delete(draft.id)
+      this.readStartTarget(draft)
+    }
+  }
 
   /** Prompts being written that have no session and no tab. Keyed by the id the
    *  `draft` route carries; an entry is removed the moment it becomes a
@@ -135,11 +186,12 @@ export class SessionDrafts {
     if (options.freshTask && !options.serverId && serversStore.statusFor(runHost(run)) !== 'online') {
       this.workspace.opening.moveToRunOnHost(run)
     }
-    const draft = new SessionDraft(this.workspace.defaultRunConfig, run, this.workspace.settings.modelOptionsByProvider)
-    if (options.worktreeRequested) draft.run.location = chooseStart(draft.run.location, { kind: 'new-worktree' })
+    const draft = this.newDraft(run)
+    if (options.worktreeRequested) draft.moveTo(chooseStart(draft.run.location, { kind: 'new-worktree' }))
     draft.task = requestedTaskTarget(options, this.workspace.rootTaskIdFor(sourceId))
     draft.boundWorkId = options.workId ?? null
     this.sessionDrafts.set(draft.id, draft)
+    this.readStartTarget(draft)
     return draft
   }
 
@@ -216,7 +268,7 @@ export class SessionDrafts {
     // the sent text here so it is not left sitting in a background composer.
     if (started) started.prompt.text = ''
 
-    const next = new SessionDraft(this.workspace.defaultRunConfig, run, this.workspace.settings.modelOptionsByProvider)
+    const next = this.newDraft(run)
     // Every other new draft starts from app-level preferences, because it is a
     // new session started *from* somewhere else. This one is the same composing
     // act continued: the pane never moved, so the chips under it must not change
@@ -224,10 +276,11 @@ export class SessionDrafts {
     next.run.permissionMode = run.permissionMode
     next.run.modelConfig = { ...run.modelConfig }
     // Locations are replaced, never edited, so the two runs can share this one.
-    next.run.location = run.location
+    next.moveTo(run.location)
     next.task = task
     next.boundWorkId = boundWorkId
     this.sessionDrafts.set(next.id, next)
+    this.readStartTarget(next)
     this.workspace.router.navigate({ name: 'draft', params: { draftId: next.id } }, { via: 'keybinding', target, inPlace: true })
     toasts.success('Session started in the background')
     return true
@@ -253,6 +306,7 @@ export class SessionDrafts {
    *  a draft's project rail owns Git action state the same way a tab's does. */
   private dropDraft(draftId: string): void {
     this.sessionDrafts.delete(draftId)
+    this.startTargetReads.delete(draftId)
     this.dockedDraftIds.delete(draftId)
     this.workspace.router.dropStrip(`draft:${draftId}`)
     disposeGitActions(draftId)
@@ -265,18 +319,18 @@ export class SessionDrafts {
     for (const draftId of snapshot.order) {
       const spec = snapshot.drafts[draftId]
       if (!spec) continue
-      const draft = new SessionDraft(this.workspace.defaultRunConfig)
-      Object.assign(draft, { id: draftId })
-      draft.run = alignRunProvider(spec.run, this.workspace.defaultRunConfig.provider)
-      draft.task = spec.task
+      const draft = this.newDraft(undefined, draftId)
       draft.prompt = spec.prompt
-      draft.boundWorkId = spec.boundWorkId ?? null
-      draft.prReview = spec.prReview ?? null
       // Empty drafts are disposable UI state, not user work. Older snapshots
       // persisted the foreground empty composer and could therefore restore its
       // `draft/<id>` route over a real active session after reload.
       if (draft.isEmpty) continue
+      draft.task = spec.task
+      draft.boundWorkId = spec.boundWorkId ?? null
+      draft.prReview = spec.prReview ?? null
+      draft.applyRun(alignRunProvider(spec.run, this.workspace.defaultRunConfig.provider))
       this.sessionDrafts.set(draftId, draft)
+      this.readStartTarget(draft)
     }
   }
 

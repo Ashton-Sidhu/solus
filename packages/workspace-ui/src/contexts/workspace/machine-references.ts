@@ -1,4 +1,4 @@
-import type { RunConfig, Session } from '@solus/contracts/types'
+import type { RunConfig, RunLocation, Session } from '@solus/contracts/types'
 import type { HostPresence } from '@solus/client-core/host-facts'
 import { hasDirectoryAnswered } from '@solus/client-core/server-registry'
 import { uplinkAccountSource } from '@solus/client-core/uplink-account'
@@ -35,7 +35,9 @@ export function recordHomeOf(session: Pick<Session, 'organizationId'>): string |
 /** What the pass reads and writes on the workspace. */
 export interface MachineReferenceOwner {
   settings: { lastProject: ProjectLocation | null; setLayout(key: 'lastProject', value: null): void }
-  unstartedRuns(): RunConfig[]
+  /** Runs nothing has happened in yet, each with the command that moves it
+   *  through its owner, so a moved draft reads its new checkout. */
+  unstartedRuns(): { run: RunConfig; moveTo(next: RunLocation): void }[]
   /** Sessions something has happened in: their machine is where their conversation lives. */
   startedSessions(): Pick<Session, 'run' | 'readOnlyReason'>[]
   /** Where a new session starts once the remembered project is cleared. */
@@ -84,14 +86,14 @@ export function reconcileMachineReferences(
     if (!session.readOnlyReason && isGone(runHost(session.run))) session.readOnlyReason = GONE_MACHINE_READ_ONLY_REASON
   }
 
-  const orphaned = owner.unstartedRuns().filter((run) => isGone(runHost(run)))
+  const orphaned = owner.unstartedRuns().filter(({ run }) => isGone(runHost(run)))
   if (orphaned.length === 0 || !hasMachine()) return
   const fallback = owner.defaultRunConfig
-  for (const run of orphaned) {
+  for (const { run, moveTo } of orphaned) {
     // A draft opened from a task keeps filing on the task's home unless that
     // host is gone too; otherwise the fallback folder is its own project.
     const home = projectHome(run)
-    run.location = openFolder(run.location, checkoutPlace(fallback))
-    if (!isGone(home.serverId)) run.location = fileTasksOn(run.location, home.serverId)
+    const moved = openFolder(run.location, checkoutPlace(fallback))
+    moveTo(isGone(home.serverId) ? moved : fileTasksOn(moved, home.serverId))
   }
 }

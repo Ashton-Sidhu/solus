@@ -429,6 +429,9 @@
 
   export function focus() {
     if (!view) return;
+    // Already where focus would put it. Focusing again still dispatched a
+    // selection and a scroll, and each made the editor measure the page.
+    if (view.hasFocus && view.state.selection.main.head === view.state.doc.length) return;
     view.focus();
     const end = view.state.doc.length;
     view.dispatch({ selection: { anchor: end }, scrollIntoView: true });

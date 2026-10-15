@@ -555,9 +555,6 @@ function ThreadSettingsMainContent(props: {
                 onChangeText={session.setSearchQuery}
                 placeholder="Find a model"
                 placeholderTextColorClassName="accent-placeholder"
-                selectionColorClassName="accent-focus/32"
-                cursorColorClassName="accent-focus"
-                selectionHandleColorClassName="accent-focus"
                 value={session.searchQuery}
               />
               {session.searchQuery.length > 0 ? (

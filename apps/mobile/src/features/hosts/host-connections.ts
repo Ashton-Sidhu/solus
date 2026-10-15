@@ -154,6 +154,8 @@ export class HostConnections {
     })
     const created = new HostConnection(host.id, transport, supervisor)
     connection = created
+    // Whether the host is still setting this person up is in its server info (docs/plans/member-isolation.md §8.1).
+    created.facts.subscribe((key) => { if (key === 'serverInfo') this.changes.notify() })
     transport.attachDialOutcomeReporter((outcome) => {
       supervisor.report(outcome)
       created.state = { ...created.state, sessionGeneration: supervisor.sessionGeneration, blockedReason: supervisor.blockedReason }
@@ -183,6 +185,15 @@ export class HostConnections {
       return info?.principal === 'local-owner' && host ? { installationId: host.id, label: host.label, api: connection.api } : null
     }))
     return hosts.filter((host): host is IntroducerHost => host !== null)
+  }
+
+  /** The connected host is still making this person's Linux user and folders (docs/plans/member-isolation.md §8.1). */
+  isPreparing(hostId: string): boolean {
+    const connection = this.connections.get(hostId)
+    if (connection?.state.phase !== 'connected') return false
+    connection.facts.ensure('serverInfo')
+    const fact = connection.facts.get('serverInfo')
+    return fact.state === 'ready' && fact.value.memberWorkspace === 'preparing'
   }
 
   state(hostId: string): HostConnectionState | null {

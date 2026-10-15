@@ -20,12 +20,16 @@ export interface WorkspaceState {
   readonly hasLoadedShellSnapshot: boolean;
   /** A connected host's session list is being read. */
   readonly hasPendingShellSnapshot: boolean;
+  /** No connected host can run work yet, and one is setting this person's workspace up (docs/plans/member-isolation.md §8.1). */
+  readonly isSettingUpWorkspace: boolean;
 }
 
 export interface WorkspaceHostState {
   readonly label: string;
   readonly phase: HostConnectionPhase | undefined;
   readonly threads: HostThreadsState;
+  /** The host is still making this person's Linux user and folders; absent: it is not. */
+  readonly isPreparing?: boolean;
 }
 
 export function deriveWorkspaceState(hosts: ReadonlyArray<WorkspaceHostState>): WorkspaceState {
@@ -49,13 +53,14 @@ export function deriveWorkspaceState(hosts: ReadonlyArray<WorkspaceHostState>): 
     hasPendingShellSnapshot: connected.some(
       (host) => host.threads.kind === "idle" || host.threads.kind === "loading",
     ),
+    isSettingUpWorkspace:
+      connected.some((host) => host.isPreparing === true) && !connected.some((host) => host.isPreparing !== true),
   };
 }
 
 export interface WorkspaceConnectionStatusPresentation {
   readonly label: string;
-  /** True while actively working (connecting/syncing) — render a spinner. False for offline/error/idle states — render a wifi-slash icon. */
-  readonly showsProgress: boolean;
+  readonly kind: "progress" | "load-error" | "offline";
 }
 
 function shouldShowWorkspaceConnectionStatus(state: WorkspaceState): boolean {
@@ -74,7 +79,7 @@ function workspaceConnectionStatusLabel(state: WorkspaceState): string {
   if (state.connectingEnvironments.length > 1) {
     return `Reconnecting ${state.connectingEnvironments.length} hosts`;
   }
-  if (state.connectionError !== null) return state.connectionError;
+  if (state.connectionError !== null) return "Could not load threads";
   if (state.hasPendingShellSnapshot) {
     return state.hasLoadedShellSnapshot ? "Syncing threads..." : "Loading threads...";
   }
@@ -88,8 +93,13 @@ export function workspaceConnectionStatusPresentation(
   if (!shouldShowWorkspaceConnectionStatus(state)) return null;
   return {
     label: workspaceConnectionStatusLabel(state),
-    showsProgress:
-      state.connectionError === null &&
-      (state.connectingEnvironments.length > 0 || state.hasPendingShellSnapshot),
+    kind:
+      state.connectingEnvironments.length > 0
+        ? "progress"
+        : state.connectionError !== null
+          ? "load-error"
+          : state.hasPendingShellSnapshot
+            ? "progress"
+            : "offline",
   };
 }

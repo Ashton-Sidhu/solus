@@ -67,3 +67,30 @@ export function createIncrementalHighlight(highlighter: Highlighter, language: B
 export function plainCodeLines(code: string): string[] {
   return code.split('\n').map(line => line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'))
 }
+
+/** Highlighting a block that mounted with its text waits for the frame to
+ *  paint, then runs block by block in slices that leave room for input. A
+ *  transcript that mounts many code blocks paints plain code first; colours
+ *  follow without a long task. */
+const SLICE_MS = 8
+const waiting: Array<() => void> = []
+let isScheduled = false
+
+export function highlightAfterPaint(task: () => void): () => void {
+  waiting.push(task)
+  if (!isScheduled) {
+    isScheduled = true
+    requestAnimationFrame(() => setTimeout(runSlice, 0))
+  }
+  return () => {
+    const index = waiting.indexOf(task)
+    if (index !== -1) waiting.splice(index, 1)
+  }
+}
+
+function runSlice(): void {
+  const until = performance.now() + SLICE_MS
+  while (waiting.length && performance.now() < until) waiting.shift()!()
+  if (waiting.length) setTimeout(runSlice, 0)
+  else isScheduled = false
+}

@@ -5,7 +5,8 @@ import { join } from 'node:path'
 import { initBrowserRegistry, type BrowserEventSink } from '@solus/server/browser/browser-registry'
 import { BrowserFrameChannel } from '@solus/server/browser/browser-frame-channel'
 import { BrowserRecorder } from '@solus/server/browser/browser-recorder'
-import { RecordingRetention, UNFILED_RECORDING_TTL_MS } from '@solus/server/browser/recording-retention'
+import { RecordingRetention, DAY_MS, startRecordingSweep } from '@solus/server/browser/recording-retention'
+import { setHostConfig } from '@solus/server/host/settings'
 import {
   setBrowserWebviewHost,
   type BrowserEmulation,
@@ -17,6 +18,9 @@ import {
 } from '@solus/server/browser/surface-driver'
 import type { BrowserConsoleEntry, BrowserNetworkEntry, BrowserPage } from '@solus/contracts/browser-types'
 import { MAX_VIDEO_UPLOAD_BYTES } from '@solus/contracts/media-types'
+import { DEFAULT_HOST_CONFIG } from '@solus/contracts/host-config'
+
+const TTL_MS = 30 * DAY_MS
 
 /**
  * Recordings are a frame watcher the host holds on a page. These tests pin the
@@ -408,10 +412,10 @@ describe('recording retention', () => {
 
     await retention.noteRecording(filed, 0)
     await retention.noteRecording(unfiled, 0)
-    await retention.noteRecording(recent, UNFILED_RECORDING_TTL_MS)
+    await retention.noteRecording(recent, TTL_MS)
     await retention.markFiled(filed)
 
-    const deleted = await retention.sweep(UNFILED_RECORDING_TTL_MS + 1)
+    const deleted = await retention.sweep(TTL_MS + 1, TTL_MS)
     expect(deleted).toEqual([unfiled])
     expect(existsSync(join(assetsDir, unfiled))).toBe(false)
     expect(existsSync(join(assetsDir, filed))).toBe(true)
@@ -421,8 +425,31 @@ describe('recording retention', () => {
 
     // The filed mark outlives the process.
     const restarted = new RecordingRetention({ statePath, assetsDir })
-    expect(await restarted.sweep(10 * UNFILED_RECORDING_TTL_MS)).toEqual([recent])
+    expect(await restarted.sweep(10 * TTL_MS, TTL_MS)).toEqual([recent])
     expect(existsSync(join(assetsDir, filed))).toBe(true)
+  })
+
+  test('the host sweep keeps an unfiled recording for the configured number of days', async () => {
+    // WHY: the user chooses how long unfiled recordings stay; 30 days unless they change it.
+    expect(DEFAULT_HOST_CONFIG.unfiledRecordingRetentionDays).toBe(30)
+    const root = mkdtempSync(join(tmpdir(), 'solus-recording-retention-'))
+    directories.push(root)
+    const retention = new RecordingRetention({ statePath: join(root, 'state', 'index.json'), assetsDir: root })
+    const older = asset(root, '1')
+    const newer = asset(root, '2')
+    await retention.noteRecording(older, Date.now() - 3 * DAY_MS)
+    await retention.noteRecording(newer, Date.now() - DAY_MS / 2)
+
+    setHostConfig({ unfiledRecordingRetentionDays: 2 })
+    try {
+      startRecordingSweep(retention)()
+      // Changes run in order, so this resolves after the sweep the start ran.
+      await retention.markFiled(newer)
+      expect(existsSync(join(root, older))).toBe(false)
+      expect(existsSync(join(root, newer))).toBe(true)
+    } finally {
+      setHostConfig({ unfiledRecordingRetentionDays: DEFAULT_HOST_CONFIG.unfiledRecordingRetentionDays })
+    }
   })
 
   test('a recording sent in a prompt is kept, and a path outside the asset store is ignored', async () => {
@@ -440,7 +467,7 @@ describe('recording retention', () => {
       `[Attached file: ${join(root, sent)}]\n[Attached file: /tmp/elsewhere/${lookAlike}]\n\nWhy does this flicker?`,
     )
 
-    expect(await retention.sweep(UNFILED_RECORDING_TTL_MS + 1)).toEqual([lookAlike])
+    expect(await retention.sweep(TTL_MS + 1, TTL_MS)).toEqual([lookAlike])
     expect(existsSync(join(root, sent))).toBe(true)
   })
 })

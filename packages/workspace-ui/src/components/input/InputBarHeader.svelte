@@ -367,14 +367,14 @@
   /** Every destination choice this strip offers lands here. Nothing starts or
    *  clones until Send, which is what makes changing your mind free. */
   function applyRun(next: RunConfig) {
-    const target = sess ?? draft;
-    if (target) target.run = next;
+    if (sess) sess.run = next;
+    else draft?.applyRun(next);
   }
 
   /** A branch or worktree choice: only where the run works changes. */
   function applyLocation(next: RunLocation) {
-    const target = sess ?? draft;
-    if (target) target.run.location = next;
+    if (sess) sess.run.location = next;
+    else draft?.moveTo(next);
   }
 
   function settleOnDestination() {

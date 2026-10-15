@@ -31,6 +31,7 @@ export const plan_annotations = plansSchema.planAnnotations.pg
 export const indexed_plans = plansSchema.indexedPlans.pg
 export const plan_index_providers = plansSchema.planIndexProviders.pg
 export const acl_entry = sharingSchema.aclEntry.pg
+export const session_links = sessionsSchema.sessionLinks.pg
 export const session_records = sessionsSchema.sessionRecords.pg
 export const session_admissions = sessionsSchema.sessionAdmissions.pg
 export const session_pull_requests = sessionsSchema.sessionPullRequests.pg

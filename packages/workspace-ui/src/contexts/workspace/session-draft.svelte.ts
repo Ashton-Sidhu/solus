@@ -1,8 +1,19 @@
-import type { PrReviewContext, Prompt, RunConfig, Session, SessionSpec, TaskTarget } from '@solus/contracts/types'
+import type { PrReviewContext, Prompt, RunConfig, RunLocation, Session, SessionSpec, TaskTarget } from '@solus/contracts/types'
 import type { ModelOptionsByProvider } from '@solus/contracts/settings'
 import { inheritRunConfig } from './run-config'
 import { uuid } from '@solus/contracts/uuid'
 import { makePrompt } from './session.factories'
+
+/** A draft's run as everyone but the draft sees it: the location moves only
+ *  through `moveTo`, so the draft sees every move. */
+export type DraftRun = Omit<RunConfig, 'location'> & { readonly location: RunLocation }
+
+export interface SessionDraftOptions {
+  /** The id a restored draft keeps, so its `draft/<id>` route still resolves. */
+  id?: string
+  /** Called after the draft moves. The drafts store reads the new checkout. */
+  onMove?: (draft: SessionDraft) => void
+}
 
 /**
  * A prompt being written that has no session and no tab.
@@ -12,17 +23,19 @@ import { makePrompt } from './session.factories'
  * makes a session — which is the only way one comes into existence from the UI,
  * and the reason nothing lists a draft until then.
  *
- * Everything here is mutated in place. Pointing a draft at another task is
- * `draft.task = …`; changing its project is `draft.run.workingDirectory = …`.
- * There is no rebuild, so nothing has to be carried across one.
+ * The text, task, model and mode are mutated in place: `draft.task = …`,
+ * `draft.run.permissionMode = …`. Where it runs is the one thing it owns:
+ * `draft.moveTo(next)` changes it, and tells the owner, which reads the new
+ * checkout (docs/plans/run-location.md §10).
  */
 export class SessionDraft {
-  readonly id: string = uuid()
+  readonly id: string
   prompt = $state<Prompt>(makePrompt())
-  run: RunConfig
+  #run: RunConfig
   task = $state<TaskTarget>({ kind: 'none' })
   boundWorkId = $state<string | null>(null)
   prReview = $state<PrReviewContext | null>(null)
+  readonly #onMove: (draft: SessionDraft) => void
 
   /**
    * @param defaults where a session starts when there is nothing to carry over.
@@ -30,15 +43,41 @@ export class SessionDraft {
    *   `null` is the whole meaning of "start fresh" — there is no separate flag,
    *   because starting fresh *is* having nothing to inherit.
    */
-  constructor(defaults: RunConfig, inherit?: RunConfig | null, remembered: ModelOptionsByProvider = {}) {
-    this.run = $state(inheritRunConfig(defaults, inherit, remembered))
+  constructor(
+    defaults: RunConfig,
+    inherit?: RunConfig | null,
+    remembered: ModelOptionsByProvider = {},
+    options: SessionDraftOptions = {},
+  ) {
+    this.id = options.id ?? uuid()
+    this.#run = $state(inheritRunConfig(defaults, inherit, remembered))
+    this.#onMove = options.onMove ?? (() => {})
+  }
+
+  get run(): DraftRun {
+    return this.#run
+  }
+
+  /** Point the draft somewhere else. The one way its location changes. */
+  moveTo(next: RunLocation): void {
+    if (next === this.#run.location) return
+    this.#run.location = next
+    this.#onMove(this)
+  }
+
+  /** Take a whole run a picker built: its fields in place, and its location
+   *  through `moveTo`. */
+  applyRun(next: RunConfig): void {
+    const { location, ...fields } = next
+    Object.assign(this.#run, fields)
+    this.moveTo(location)
   }
 
   /** The plain, serializable shape — what persists and what dispatch consumes. */
   get spec(): SessionSpec {
     return {
       prompt: this.prompt,
-      run: this.run,
+      run: this.#run,
       task: this.task,
       boundWorkId: this.boundWorkId,
       prReview: this.prReview,

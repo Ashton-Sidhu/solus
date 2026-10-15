@@ -236,6 +236,7 @@ keeps every invariant.
    `location.project`. A lint rule enforces this (§6).
 2. **One write per change: `owner.run.location = next`.** That invalidates only
    the derivations that read the location, not the model or permission fields.
+   A draft moves with `draft.moveTo(next)` instead (§10).
 3. **An async writer reads the owner again when it writes.** It passes the place
    it read to `adoptGit`, which drops a stale answer.
 4. **Location commands stop at the first send.** Not done: see §9.
@@ -309,3 +310,53 @@ not connected connects before the prompt goes out.
 - `CloneCheckout` carries `defaultBranch`, the branch the checkout it copies
   names, so a clone's chip can name it before Send.
 - §4.4 rule 4 is not enforced (§8.2).
+
+## 10. A draft owns its location (2026-10-15)
+
+### 10.1 Why
+
+A draft's run was public, mutable state. About twenty writers, in stores and
+components, wrote `draft.run.location = next`, and some replaced the whole run
+with `draft.run = next`. No owner saw a move, so an `$effect` in
+`draft-preflight.svelte.ts` watched the run and asked the host for the draft's
+checkout (`refreshStartTarget`) when it had none. The answer landed as a new
+location object, which woke the effect again. In a folder outside Git the
+answer is always `null`, so it never settled, and the plugin-command read in
+the same file followed every pass. Some writers (`setBaseDirectory`,
+`createWorktreeTab`) also asked for the checkout themselves, so a move could
+read it twice.
+
+### 10.2 The shape
+
+- `SessionDraft` keeps its run private. `draft.run` is a getter whose
+  `location` is `readonly`, so the compiler rejects `draft.run.location = …`
+  and `draft.run = …`. The other fields (model, permission mode, provider,
+  skills) are still edited in place, which is cheap and owns no side effect.
+- `draft.moveTo(next)` is the one way a draft's location changes. It calls the
+  owner's `onMove` hook when the location object changes.
+- `draft.applyRun(next)` takes a whole `RunConfig` from a picker (`onRun`): it
+  copies the fields in place and moves through `moveTo`.
+- `SessionDrafts` passes `onMove` to every draft it makes and owns the read:
+  `readStartTarget(draft)` asks for the checkout when the draft names a folder
+  (not a clone, not `~`) whose Git the run does not know, once per place and
+  worktree choice. The last key per draft is kept, so moving away and back
+  reads again, and a Git answer — which keeps the place — reads nothing.
+- A restored draft reads when it is restored. A host that connects re-reads
+  the drafts on it that still have no Git, because a read while it was away
+  failed.
+- Generic code that holds only a source id or a run (the environment store
+  landing a Git answer, the gone-machine pass) moves a run through
+  `workspace.moveRun(sourceId, next)`: a draft moves itself, a tab's session
+  takes the location as before.
+
+### 10.3 What is deleted
+
+- The start-target `$effect` in `draft-preflight.svelte.ts`.
+- The draft-only explicit reads in `setBaseDirectory` and `createWorktreeTab`;
+  they now wait for the read the move started.
+- `Object.assign(draft, { id })` in restore; the id is a constructor option.
+
+### 10.4 Out of scope
+
+Unstarted tabs keep writing `session.run.location` directly. Their reads are
+explicit at each command, and no effect watches them.

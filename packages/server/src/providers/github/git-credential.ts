@@ -52,7 +52,11 @@ export function solusGitHelper(flags: string[]): string | null {
   return `!${[...command.map((part) => shellArgument(part!)), 'git-credential', ...flags.map(shellArgument)].join(' ')}`
 }
 
-/** Where a member's GitHub connection is written in their home, for `--member-home` to read. */
+/**
+ * Where a member's GitHub connection is in their home, for `--member-home` to read.
+ * Where each member is their own user, it is a link to the copy in memory
+ * (docs/plans/member-isolation.md §5).
+ */
 export const MEMBER_GITHUB_FILE = ['.config', 'solus', 'github.json'] as const
 
 const memberGithubSchema = z.object({ token: z.string().min(1), login: z.string() })

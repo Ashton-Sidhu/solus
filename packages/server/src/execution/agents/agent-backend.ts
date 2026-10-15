@@ -27,8 +27,9 @@ export interface PermissionResponder {
 export interface RunHandle {
   /** The provider's thread id, promoted from its session_init. Null until then. */
   agentSessionId: string | null
-  /** Solus's id for the conversation this run belongs to. Attached by
-   *  SessionRuntime, and the only address a pre-session_init run has. */
+  /** Solus's id for the conversation this run belongs to. Given by
+   *  SessionRuntime in `AgentRunSessionState`, and the only address a
+   *  pre-session_init run has. */
   sessionId?: string
   persistence: 'session' | 'ephemeral'
   startedAt: number

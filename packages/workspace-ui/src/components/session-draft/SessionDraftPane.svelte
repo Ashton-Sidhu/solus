@@ -4,6 +4,7 @@
     runtime,
     serversStore,
     groupKeyFor,
+    hosts,
   } from "../../contexts";
   import { projectDirLabel } from "../../lib/paths";
   import { isChat } from "@solus/contracts/chat";
@@ -62,6 +63,7 @@
     serversStore.executionServers.map((server) => ({
       ...server,
       offlineSince: serversStore.offlineSinceFor(server.id),
+      isPreparing: hosts.get(server.id).me.isPreparing,
     })),
   );
   const hasOnlineHost = $derived(gatedHosts.some((host) => host.status === "online"));

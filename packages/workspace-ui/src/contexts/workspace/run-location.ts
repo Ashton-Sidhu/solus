@@ -1,5 +1,5 @@
 import type { CloneCheckout, CloneStart, FolderCheckout, GitCheckout, Place, RunConfig, RunLocation } from '@solus/contracts/types'
-import { worktreeProjectRoot } from '@solus/contracts/types'
+import { sameGitCheckout, worktreeProjectRoot } from '@solus/contracts/types'
 import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 
 /**
@@ -7,7 +7,8 @@ import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
  *
  * Answers read a run; commands take a `RunLocation` and return the next one.
  * Every function is pure, so a draft and a started session share them, and a
- * caller writes the result back in one assignment: `owner.run.location = next`.
+ * caller writes the result back in one assignment: `session.run.location = next`
+ * for a tab, `draft.moveTo(next)` for a draft, which reads the new checkout.
  * Code outside this module does not reach into `location.checkout` or
  * `location.project`.
  */
@@ -284,9 +285,16 @@ export function adoptGit(
   // A folder that is its own project is named by Git's root once Git answers.
   // A dispatch's project is the home checkout, which this answer does not describe.
   const ownsProject = project.serverId === checkout.serverId
+  const nextProject = ownsProject && git?.repoRoot ? { serverId: project.serverId, path: git.repoRoot } : project
+  // An answer that changes nothing keeps the same location. Callers assign the
+  // result to the run, and a new object wakes every effect that reads it.
+  if (sameGitCheckout(checkout.git, git)
+    && checkout.newWorktree?.baseBranch === newWorktree?.baseBranch
+    && !checkout.newWorktree === !newWorktree
+    && samePlace(nextProject, project)) return location
   return {
     checkout: { ...checkout, git, newWorktree },
-    project: ownsProject && git?.repoRoot ? { serverId: project.serverId, path: git.repoRoot } : project,
+    project: nextProject,
   }
 }
 

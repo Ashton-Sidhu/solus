@@ -106,6 +106,7 @@ You can embed images and videos in your response with Markdown and absolute file
         : PULL_REQUEST_LINKING_INSTRUCTIONS,
       PULL_REQUEST_WRITING_INSTRUCTION,
     ].join('\n\n'),
+    has('link') && 'Use link without task_id to attach works, automations, PRs, and project files to the current session. Markdown plan files use kind=file and path. Relative paths use the calling session’s working directory.',
     has('watch_pull_request') && PULL_REQUEST_WATCH_INSTRUCTIONS,
   ].filter(Boolean).join('\n\n')
 }

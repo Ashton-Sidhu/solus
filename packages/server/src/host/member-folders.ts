@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { z } from 'zod'
 import { createLogger } from '../logger'
+import { memberUsers, WorkspacePreparingError } from './member-users'
 
 const log = createLogger('main', 'member-folders')
 
@@ -145,7 +146,18 @@ export function useMemberFolders(folders: MemberFolders | null): void {
   current = folders
 }
 
+/**
+ * On a host with member users (docs/plans/member-isolation.md §4) the folder is the
+ * member's username, which the host object named; until it has made their user,
+ * the member has no folder and `WorkspacePreparingError` says why.
+ */
 export function memberFolderFor(userId: string, name?: string): string {
+  const users = memberUsers()
+  if (users) {
+    const user = users.userOf(memberFolderSegmentSchema.parse(userId))
+    if (!user) throw new WorkspacePreparingError()
+    return user.username
+  }
   return current ? current.folderOf(userId, name) : memberFolderSegmentSchema.parse(userId)
 }
 
@@ -155,10 +167,14 @@ export function memberFolderFor(userId: string, name?: string): string {
  * device's, is returned as it is.
  */
 export function recordedMemberFolder(key: string): string {
+  const users = memberUsers()
+  if (users) return users.userOf(key)?.username ?? key
   return current?.recordedFolderOf(key) ?? key
 }
 
 /** The inverse of `memberFolderFor`: a folder no member holds reads back as itself. */
 export function memberUserIdOf(folder: string): string {
+  const users = memberUsers()
+  if (users) return users.userNamed(folder)?.userId ?? folder
   return current?.userIdOf(folder) ?? folder
 }

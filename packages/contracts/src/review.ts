@@ -399,6 +399,8 @@ export interface ReviewLensSnapshot extends ReviewLensAddress {
  * no pane open for the review (the PR list, a toast) name it. */
 export interface ReviewLensChangedEvent extends ReviewLensAddress {
   target: ReviewTarget
+  /** The source name of the completed lens, for a ready notification. */
+  lensName?: string
   job: ReviewLensJob | null
   revision: number
 }

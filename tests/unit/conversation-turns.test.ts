@@ -348,7 +348,7 @@ describe('turn collapse', () => {
     expect(turn.tail.map((item) => item.kind)).toEqual(['assistant'])
   })
 
-  test('keeps a device screenshot on screen when the turn folds', () => {
+  test('excludes raw device tool images from the reply gallery', () => {
     const shot = (completed: boolean): Message => ({
       ...tool('mcp__solus__device_screenshot', '{}', completed),
       ...(completed ? { toolImages: [{ assetId: 'asset-1', mimeType: 'image/png', width: 390, height: 844 }] } : {}),
@@ -361,10 +361,11 @@ describe('turn collapse', () => {
       msg({ role: 'assistant', content: 'The login screen renders correctly.' }),
     ])
 
-    // WHY: the picture is what the agent saw on the device. Folding it leaves
-    // the reader with only the agent's prose about what the screen looked like.
-    expect(turn.visibleWhenCollapsed.map((item) => item.kind)).toEqual(['device-snapshot'])
-    expect(turn.body.map((item) => item.kind)).toEqual(['tool-group', 'device-snapshot', 'tool-group'])
+    // Raw tool images are work history, not reply output.
+    expect(turn.visibleWhenCollapsed).toEqual([])
+    expect(turn.images.flatMap((message) => message.toolImages ?? [])).toEqual([])
+    expect(turn.body.map((item) => item.kind)).toEqual(['tool-group'])
+    expect(turn.tail.map((item) => item.kind)).toEqual(['assistant'])
 
     // A capture still running has no picture yet: it is a step like any other.
     const [running] = turnsFor([msg({ role: 'user', content: 'look' }), shot(false)], true)

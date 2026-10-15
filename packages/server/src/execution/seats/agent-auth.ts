@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import type { AgentAuthFinishedEvent, AgentAuthMcpTarget, AgentAuthStartResult, AgentAuthTarget } from '@solus/contracts/agent-auth'
 import type { Seat } from '@solus/contracts/seats'
-import { getCliEnv } from '../../cli-env'
+import { launchProcess, type LaunchedProcess } from '../../cli-env'
 import { createLogger } from '../../logger'
 import { resolveHomePath } from '../../platform/paths'
 import { claudeSeatOf } from '../agents/claude/claude-backend'
@@ -196,8 +196,10 @@ export class AgentAuthFlows {
     return seat.kind === 'host-login' ? null : this.deps.seats.homeFor(seat, 'codex')
   }
 
-  private childEnv(extra: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-    const env = getCliEnv({ FORCE_COLOR: '0', ...extra })
+  /** A sign-in CLI as the acting identity starts it, with nothing of the host's that could sign in for them. */
+  private childProcess(file: string, args: string[], extra: NodeJS.ProcessEnv): LaunchedProcess {
+    const run = launchProcess(file, args, { FORCE_COLOR: '0', ...extra })
+    const { env } = run
     env.PATH = `${this.deps.seats.shimBinDir()}:${env.PATH ?? ''}`
     // The CLI refuses a sign-in it believes a Claude Code session started.
     delete env.CLAUDE_CODE_CHILD_SESSION
@@ -205,7 +207,7 @@ export class AgentAuthFlows {
     delete env.CLAUDE_CODE_OAUTH_TOKEN
     delete env.ANTHROPIC_API_KEY
     delete env.OPENAI_API_KEY
-    return env
+    return run
   }
 
   /**
@@ -223,11 +225,12 @@ export class AgentAuthFlows {
     /** The message for a clean exit; null when the output already ended the flow. */
     successMessage: string | null
   }): Promise<AgentAuthStartResult> {
-    const child = this.spawnProcess(spec.command, spec.args, {
+    const run = this.childProcess(spec.command, spec.args, spec.env)
+    const child = this.spawnProcess(run.file, run.args, {
       cwd: spec.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
-      env: this.childEnv(spec.env),
+      env: run.env,
     })
     let output = ''
     let errorOutput = ''
@@ -295,10 +298,11 @@ export class AgentAuthFlows {
 
   /** A CLI command with no interaction, such as `codex mcp logout`. */
   private runToEnd(seat: Seat, target: AgentAuthMcpTarget, args: string[]): Promise<void> {
-    const child = this.spawnProcess('codex', args, {
+    const run = this.childProcess('codex', args, seatEnv('codex', this.codexHome(seat)))
+    const child = this.spawnProcess(run.file, run.args, {
       cwd: resolveHomePath(target.cwd),
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: this.childEnv(seatEnv('codex', this.codexHome(seat))),
+      env: run.env,
     })
     let output = ''
     const collect = (chunk: Buffer | string) => { output = `${output}${chunk.toString()}`.slice(-4_096) }

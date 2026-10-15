@@ -107,7 +107,7 @@ export function sessionOpenRpcFixture(tabCount = 1, options: { lineage?: Session
     reads, historyRequests, transcriptIdentities, environmentReads, session: sessions[0],
     prefetch: () => prefetchSessionHistoryPage(apis.get(runHost(tabs[0]))!, {
       sessionId: tabs[0].sessionId, projectPath: checkoutPlace(tabs[0]).path,
-      provider: tabs[0].provider, turnLimit: INITIAL_HISTORY_TURNS,
+      provider: tabs[0].provider, turnLimit: INITIAL_HISTORY_TURNS, deferArtifactHtml: true,
     }),
     close: () => { delete workspace.tabs[tabs[0].tabId]; sessions.splice(0, 1) },
     startMetadata: () => commands.startRestoredMetadataReads(workspace, tabs, { hasStartedMetadataReads: false }),

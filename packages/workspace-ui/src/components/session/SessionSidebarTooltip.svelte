@@ -34,6 +34,8 @@
     /** While rate limited: when the provider window reopens, in epoch ms. */
     limitResetsAt?: number;
     reviewGuideStatus?: ReviewGuideIndicatorStatus;
+    /** A share link's guest is not told which host runs the session (host-sharing.md §10). */
+    isGuest?: boolean;
   }
 
   let {
@@ -49,6 +51,7 @@
     attention,
     limitResetsAt,
     reviewGuideStatus,
+    isGuest = false,
   }: Props = $props();
 
   const host = $derived(serversStore.hostFor(serverId));
@@ -103,20 +106,22 @@
           <span class="min-w-0 truncate text-(--solus-text-secondary)">{modelLabel}</span>
         </div>
       {/if}
-      <div class="flex min-w-0 items-center gap-2">
-        {#if isRemote}
-          <HostOperatingSystemIcon
-            os={remoteOs}
-            managed={hostIsManaged(host)}
-            class="size-3.5 shrink-0"
-          />
-        {:else}
-          <LaptopIcon class="size-3.5 shrink-0" />
-        {/if}
-        <span class="min-w-0 truncate text-(--solus-text-secondary)">
-          {isRemote ? host?.label : "Local"}
-        </span>
-      </div>
+      {#if !isGuest}
+        <div class="flex min-w-0 items-center gap-2">
+          {#if isRemote}
+            <HostOperatingSystemIcon
+              os={remoteOs}
+              managed={hostIsManaged(host)}
+              class="size-3.5 shrink-0"
+            />
+          {:else}
+            <LaptopIcon class="size-3.5 shrink-0" />
+          {/if}
+          <span class="min-w-0 truncate text-(--solus-text-secondary)">
+            {isRemote ? host?.label : "Local"}
+          </span>
+        </div>
+      {/if}
       {#if resolvedBranchLabel}
         <div class="flex min-w-0 items-center gap-2">
           <GitBranchIcon class="size-3.5 shrink-0" />

@@ -76,6 +76,8 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import { readSessionMeta } from "@solus/client-core/session-meta";
   import { checkoutGit, checkoutPlace, runHost } from "../../contexts/workspace/run-location";
+  import { measureMount } from "../../lib/mount-timing";
+  measureMount("ConversationView");
 
   const session = getWorkspaceContext();
   const outerScrollbar = getOuterScrollbarContext();

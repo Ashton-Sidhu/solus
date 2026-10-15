@@ -22,7 +22,7 @@ test('restores persisted sessions without waiting for the host\'s machine facts'
   const loadPinnedSessions = mock(async () => {})
 
   const stop = initializeRuntime(
-    { lifecycle: { readRunOnAgents: () => agents }, settings: { lastProject: null }, unstartedRuns: () => [], tabOrder: [] } as never,
+    { lifecycle: { readRunOnAgents: () => agents }, settings: { lastProject: null }, unstartedSourceIds: () => [], tabOrder: [] } as never,
     { loadPinnedSessions } as never,
   )
 
@@ -41,7 +41,7 @@ test('reconnect refreshes do not register more app listeners, and unmount releas
   const phases = spyOn(serverConnections, 'onPhaseChange').mockReturnValue(stopPhases)
   // SAFETY: bootstrap is mocked above; these are the only workspace and sidebar
   // members this test reaches (the gone-machine pass reads the last two).
-  const workspace = { lifecycle: { readRunOnAgents: async () => {} }, settings: { lastProject: null }, unstartedRuns: () => [], tabOrder: [] } as unknown as Parameters<typeof initializeRuntime>[0]
+  const workspace = { lifecycle: { readRunOnAgents: async () => {} }, settings: { lastProject: null }, unstartedSourceIds: () => [], tabOrder: [] } as unknown as Parameters<typeof initializeRuntime>[0]
   // SAFETY: the fixture covers the one sidebar command called by initialization and refresh.
   const sidebar = { loadPinnedSessions: async () => {} } as Parameters<typeof initializeRuntime>[1]
   try {

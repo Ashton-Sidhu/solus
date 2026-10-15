@@ -281,11 +281,11 @@ describe('workspace connection status', () => {
   test('connected hosts with read lists show nothing; a reconnect names the host', () => {
     expect(workspaceConnectionStatusPresentation(deriveWorkspaceState([{ label: 'Mac', phase: 'connected', threads: loaded }]))).toBeNull()
     expect(workspaceConnectionStatusPresentation(deriveWorkspaceState([{ label: 'Mac', phase: 'reconnecting', threads: loaded }])))
-      .toEqual({ label: 'Reconnecting to Mac', showsProgress: true })
+      .toEqual({ label: 'Reconnecting to Mac', kind: 'progress' })
     expect(workspaceConnectionStatusPresentation(deriveWorkspaceState([{ label: 'Mac', phase: 'offline', threads: loaded }])))
-      .toEqual({ label: 'Not connected', showsProgress: false })
+      .toEqual({ label: 'Not connected', kind: 'offline' })
     expect(workspaceConnectionStatusPresentation(deriveWorkspaceState([{ label: 'Mac', phase: 'connected', threads: { kind: 'loading', previous: null } }])))
-      .toEqual({ label: 'Loading threads...', showsProgress: true })
+      .toEqual({ label: 'Loading threads...', kind: 'progress' })
   })
 })
 

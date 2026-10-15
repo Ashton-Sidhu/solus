@@ -27,6 +27,7 @@ import type { RunHandle } from '../agents/agent-backend'
 import type { BackendSession, SessionStatus, NormalizedEvent, GitCheckout, PromptOptions, PromptDelivery, SessionRunInput, StatusCardState, StatusCardStep } from '@solus/contracts/types'
 import { gitCheckoutFromState, projectScopeOf } from '@solus/contracts/types'
 import { annotateDispatch, dispatchStep, dispatchStepSync } from '../observability/session-emitter'
+import { shareTurnTranscripts } from '../seats/member-transcripts'
 import { SeatRequiredError } from '../seats/seat-manager'
 import { HOST_ACTOR, insightsAccountOf, ownerKeyOf, type Actor } from '../../admission/actor'
 import { integrationAgentTools } from '../../integrations/integration-tools'
@@ -795,6 +796,8 @@ export class RunLauncher {
       // Resolved again here, not only at submit: a queued prompt drains later, and
       // the author's seat may have been removed or expired in between.
       const seat = await this.rt.seatForTurn(request.actor, provider)
+      // A member's transcripts written from here on are shared with the server when the turn ends.
+      const turnStartedAt = Date.now()
       // The MCP servers' tools are listed here, for the run's person, so every run —
       // typed, queued, restored, or started by an agent — gets that person's own.
       const integrationTools = await integrationAgentTools(request.actor ?? HOST_ACTOR)
@@ -857,12 +860,17 @@ export class RunLauncher {
         maxBudgetUsd: options.maxBudgetUsd,
         seat: seat ?? undefined,
       }, {
+        sessionId,
         changedFiles: effectiveInput.sessionChangedFiles,
         // Empty when tracing is off; the snapshot then records no trace.
         turnTraceId: turnTraceId || undefined,
       }))
       handle = agentRun.handle
-      handle.sessionId = sessionId
+      const memberLaunch = seat?.launch?.user ? seat.launch : null
+      if (memberLaunch) {
+        const share = () => shareTurnTranscripts(memberLaunch, turnStartedAt)
+        void handle.runPromise.then(share, share)
+      }
       const launchedRestart = this.rt.restarts.restartRuns?.get(sessionId)
       if (launchedRestart && launchedRestart.runId === request.runId && handle.agentSessionId) {
         this.rt.restarts.restartRuns?.save({ ...launchedRestart, input: { ...launchedRestart.input, agentSessionId: handle.agentSessionId }, state: 'running' })

@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { useActingEnv } from '../cli-env'
+import { useActingLaunch } from '../cli-env'
 import { createLogger } from '../logger'
 import type { ActingIdentity } from '../execution/seats/acting-identity'
 
@@ -109,5 +109,5 @@ export function requirePersonKey(): string {
   return personKey
 }
 
-// Every `getCliEnv` caller takes the environment of the identity acting now.
-useActingEnv((extraEnv) => currentIdentity().envSync(extraEnv))
+// Every `launchOptions` caller takes the environment and user of the identity acting now.
+useActingLaunch((extraEnv) => currentIdentity().launchOptionsSync(extraEnv))

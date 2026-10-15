@@ -3,7 +3,7 @@ import type { SessionEnvironmentStore } from '../../../contexts/git/session-envi
 import type { WorkspaceContext } from '../../../contexts/workspace/workspace.context.svelte'
 import { openFolder, pendingClone, runHost, workingPlace } from '../../../contexts/workspace/run-location'
 
-type SelectionWorkspace = Pick<WorkspaceContext, 'runFor' | 'defaultRunConfig' | 'sessionFor' | 'drafts' | 'config'>
+type SelectionWorkspace = Pick<WorkspaceContext, 'runFor' | 'defaultRunConfig' | 'moveRun' | 'config'>
 
 /**
  * Open a project — or a new chat — in one checkout, for the tab or draft that
@@ -23,8 +23,7 @@ export async function aimRunAtCheckout(
   }
   // The run moves to the folder's host at once: a path is read on the host that
   // holds it. Send connects first if that host is not online yet.
-  const owner = workspace.sessionFor(sourceId) ?? workspace.drafts.sessionDrafts.get(sourceId)
-  if (owner) owner.run.location = openFolder(current.location, { serverId: checkout.serverId, path: checkout.projectRoot })
+  workspace.moveRun(sourceId, openFolder(current.location, { serverId: checkout.serverId, path: checkout.projectRoot }))
   const place = workingPlace(workspace.runFor(sourceId) ?? workspace.defaultRunConfig)
   if (place.path) void environment.refresh(place.serverId, place.path, { force: true })
 }

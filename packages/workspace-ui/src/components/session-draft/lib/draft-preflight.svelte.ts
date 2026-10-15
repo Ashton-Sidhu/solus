@@ -1,75 +1,63 @@
-import { untrack } from 'svelte'
 import type { PluginCommandsResult } from '@solus/contracts/types'
 import { getSettingsContext, getWorkspaceContext } from '../../../contexts'
 import type { SessionDraft } from '../../../contexts/workspace/session-draft.svelte'
-import { draftPluginCommandScope } from './plugin-command-scope'
-import { checkoutGit, checkoutPlace, pendingClone, startsWorktree } from '../../../contexts/workspace/run-location'
+import { draftPluginCommandIdentity, draftPluginCommandScope } from './plugin-command-scope'
+
+const NO_COMMANDS: PluginCommandsResult = { global: [], project: [] }
+
 /**
- * What a composer for a draft has to read before Send, since a draft has no
- * session to have read it already: the slash commands for the run its pickers
- * name, and the checkout behind the directory it points at. Every surface that
- * composes a draft — the draft pane and a page's docked composer — runs this.
+ * What a composer for a draft reads that a session would already have: the
+ * slash commands for the run its pickers name. Every surface that composes a
+ * draft — the draft pane and a page's docked composer — runs this. The
+ * checkout behind the draft's folder is read by the drafts store when the
+ * draft moves (docs/plans/run-location.md §10).
  */
 export function useDraftPreflight(getDraft: () => SessionDraft | null | undefined) {
   const session = getWorkspaceContext()
   const theme = getSettingsContext()
 
-  // A draft has no session command cache. Load against the run selected in its
-  // own model picker instead of borrowing commands from the active tab.
-  let pluginCommands = $state<PluginCommandsResult>({ global: [], project: [] })
-  let pluginCommandRequestSequence = 0
-  $effect(() => {
+  // A draft has no session command cache. Commands are read against the run
+  // selected in its own model picker, not borrowed from the active tab, and
+  // only when the composer asks for them. Each identity is read once: a read
+  // is keyed by a string, so a new run object with the same picks asks nothing.
+  const commandIdentity = $derived.by(() => {
     const current = getDraft()
-    if (!current) return
+    return current ? draftPluginCommandIdentity(current.run, theme.activeAgent) : null
+  })
+  let loadedCommands = $state<{ identity: string; commands: PluginCommandsResult } | null>(null)
+  let requestedIdentity: string | null = null
+
+  function readPluginCommands(identity: string): void {
+    const current = getDraft()
+    if (!current || draftPluginCommandIdentity(current.run, theme.activeAgent) !== identity) return
     const scope = draftPluginCommandScope(
       current.run,
       theme.activeAgent,
       current.id,
-      (workingDirectory, gitContext, sourceId) =>
-        untrack(() => session.ctxForEnvironment(workingDirectory, gitContext, sourceId)),
+      (workingDirectory, gitContext, sourceId) => session.ctxForEnvironment(workingDirectory, gitContext, sourceId),
     )
-    // Reading both values makes a picker change invalidate this request even
-    // when two models belong to the same provider.
-    const requestIdentity =
-      `${scope.provider}\0${scope.modelId ?? ''}\0${scope.workingDirectory}`
-    const requestSequence = ++pluginCommandRequestSequence
-    pluginCommands = { global: [], project: [] }
     void session
       .apiForRun(current.run)
       .getPluginCommands(scope.workingDirectory, scope.context)
-      .then((result) => {
-        if (requestSequence !== pluginCommandRequestSequence) return
-        const latest = getDraft()
-        if (!latest) return
-        const latestIdentity =
-          `${latest.run.provider ?? theme.activeAgent}\0${latest.run.modelConfig.modelId ?? ''}\0${checkoutPlace(latest.run).path}`
-        if (latestIdentity !== requestIdentity) return
-        pluginCommands = result
+      .then((commands) => {
+        if (requestedIdentity === identity) loadedCommands = { identity, commands }
       })
       .catch((error) => {
-        if (requestSequence === pluginCommandRequestSequence)
-          console.error('getPluginCommands failed', error)
+        if (requestedIdentity === identity) console.error('getPluginCommands failed', error)
       })
-    return () => {
-      if (requestSequence === pluginCommandRequestSequence)
-        pluginCommandRequestSequence++
-    }
-  })
+  }
 
-  // A draft names a directory before anything has read it — and when the
-  // project was opened on another host, only that host can read it. Until it
-  // answers there is no checkout, so the chips that describe the destination
-  // have nothing to show. Same step a tab takes when it moves to a project, so
-  // it goes through the same call. Re-runs whenever the draft is pointed
-  // somewhere new, because choosing a project clears the checkout it had.
-  $effect(() => {
-    const current = getDraft()
-    const cwd = checkoutPlace(current?.run)?.path
-    // A clone has no folder until Send; its branch list reads the checkout it copies.
-    if (!current || checkoutGit(current.run) || pendingClone(current.run) || !cwd || cwd === '~') return
-    const sourceId = current.id
-    const worktreeRequested = startsWorktree(current.run)
-    untrack(() => { void session.refreshStartTarget(sourceId, cwd, worktreeRequested) })
+  const pluginCommands = $derived.by(() => {
+    const identity = commandIdentity
+    if (!identity) return NO_COMMANDS
+    if (loadedCommands?.identity === identity) return loadedCommands.commands
+    if (requestedIdentity !== identity) {
+      requestedIdentity = identity
+      // Read after this derivation settles: a request may write state, which a
+      // derivation must not do.
+      queueMicrotask(() => readPluginCommands(identity))
+    }
+    return NO_COMMANDS
   })
 
   return {

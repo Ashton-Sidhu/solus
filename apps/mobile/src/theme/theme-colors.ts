@@ -10,14 +10,15 @@
  *
  * Backgrounds are the app's own, in both appearances: the screen is the opaque
  * `--solus-container-bg` every web and desktop surface paints edge to edge
- * (the web boot style in `apps/client/index.html`), and the drawer is the side
- * panel's `--solus-sidebar-bg-left`. Grouped cards are a near-white fill with a
+ * (the web boot style in `apps/client/index.html`). The mobile thread list uses
+ * that same canvas. Grouped cards are a near-white fill with a
  * hairline (`mobileTheme.ts`), not a different page colour.
  *
+ * Status hues (green, amber, blue, purple, red) are desktop's status tokens,
+ * not T3's Tailwind pairs, so a state wears the same colour on every client.
+ *
  * Mobile variants, on purpose (each marked `mobile:` below), for text only:
- * hairlines are a step stronger, the filled primary action is a deeper shade
- * of the accent so its white label reads at 4.5:1, and muted dark text clears
- * 4.5:1 on cards.
+ * hairlines are a step stronger, and muted dark text clears 4.5:1 on cards.
  */
 
 export const THEME_COLOR_ROLES = [
@@ -32,7 +33,7 @@ export const THEME_COLOR_ROLES = [
   'sidebarMutedForeground', 'sidebarControlSurface', 'sidebarRowHover', 'sidebarRowActive',
   'sidebarRowSelected', 'sidebarBorder', 'terminalBackground', 'terminalForeground',
   'terminalCursor', 'terminalSelection', 'terminalScrollbar', 'terminalScrollbarHover',
-  'composerSurface',
+  'composerSurface', 'green', 'amber', 'blue', 'purple', 'red',
 ] as const
 
 export type ThemeColorRole = (typeof THEME_COLOR_ROLES)[number]
@@ -66,10 +67,10 @@ export const SOLUS_LIGHT_THEME_COLORS = {
   secondaryLabel: '#7d7a6e',
   iconMuted: '#7d7a6e',
   error: '#c47060', // --solus-status-error
-  errorForeground: '#a8503f',
+  errorForeground: '#ef4444', // --failure (--solus-stop-bg), desktop's red
   errorSurface: '#f8ece8',
-  warning: '#d99a3d',
-  warningForeground: '#965f10',
+  warning: '#f59e0b', // --warning (--solus-art-2), desktop's amber
+  warningForeground: '#f59e0b',
   warningSurface: '#faf2e2',
   update: '#d97757',
   updateForeground: '#a45237', // mobile: 4.6:1 on the update surface (was #b85d3f, 3.8:1)
@@ -80,12 +81,11 @@ export const SOLUS_LIGHT_THEME_COLORS = {
   // 2% --foreground over the page. `--solus-user-bubble` is declared but unused.
   messageSurface: '#fbfbf8',
   messageForeground: '#2a2618',
-  // mobile: filled primary actions take the accent's hue (16.7°) and saturation
-  // at the lightest step where a white label reads 4.5:1 (4.54:1; #d97757 gives
-  // 3.1:1). The accent itself stays for focus and marks.
-  messageAction: '#b85c39',
+  // Filled primary actions are desktop's send button (--solus-send-bg,
+  // --solus-send-hover).
+  messageAction: '#d97757',
   messageActionForeground: '#ffffff',
-  messageActionHover: '#ab5534', // one lightness step below, same hue
+  messageActionHover: '#c96442',
   codeBackground: '#fcfaf5', // --solus-code-tint: desktop's chat code block panel
   codeForeground: '#2a2618',
   sidebar: '#fffdf8', // --solus-sidebar-bg-left: the side panel
@@ -103,6 +103,13 @@ export const SOLUS_LIGHT_THEME_COLORS = {
   terminalScrollbar: '#d6d2c8',
   terminalScrollbarHover: '#c9c5b9',
   composerSurface: '#ffffff', // --solus-input-pill-bg
+  // The status hues, as desktop paints them: --success, --warning, --running,
+  // --review (--solus-art-3, -2, -5, -6), and --failure (--solus-stop-bg).
+  green: '#34c26f',
+  amber: '#f59e0b',
+  blue: '#1b4ed8',
+  purple: '#9333ea',
+  red: '#ef4444',
 } as const satisfies ThemeColors
 
 export const SOLUS_DARK_THEME_COLORS = {
@@ -132,10 +139,10 @@ export const SOLUS_DARK_THEME_COLORS = {
   secondaryLabel: '#9a978f',
   iconMuted: '#9a978f',
   error: '#e3645e', // --solus-status-error
-  errorForeground: '#f08a84',
+  errorForeground: '#ef4444',
   errorSurface: '#3a1f1f',
-  warning: '#e0a03a',
-  warningForeground: '#f0c070',
+  warning: '#fbbf24',
+  warningForeground: '#fbbf24',
   warningSurface: '#3a2d18',
   update: '#e68e6b',
   updateForeground: '#f0a585',
@@ -146,7 +153,7 @@ export const SOLUS_DARK_THEME_COLORS = {
   messageForeground: '#f0ede5',
   messageAction: '#e68e6b',
   messageActionForeground: '#2c1a12',
-  messageActionHover: '#ef9c7b',
+  messageActionHover: '#d87f5c',
   codeBackground: '#3d3c38', // --solus-code-tint
   codeForeground: '#f0ede5',
   sidebar: '#262522', // --solus-sidebar-bg-left: the side panel
@@ -164,6 +171,11 @@ export const SOLUS_DARK_THEME_COLORS = {
   terminalScrollbar: '#3d3c38',
   terminalScrollbarHover: '#4a4945',
   composerSurface: '#222120', // --solus-input-pill-bg over the canvas
+  green: '#2ee07e',
+  amber: '#fbbf24',
+  blue: '#346bf1',
+  purple: '#c084fc',
+  red: '#ef4444',
 } as const satisfies ThemeColors
 
 export function themeColorsFor(appearance: ThemeAppearance): ThemeColors {

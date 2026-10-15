@@ -16,7 +16,7 @@ function present(entries: FeedSourceEntry[], options: { turnActive?: boolean; wo
   })
 }
 
-const shape = (rows: ThreadFeedRow[]) => rows.map((row) => row.type === 'message' ? `${row.role}:${row.id}` : row.type === 'work-toggle' ? `work:${row.toolIds.join(',')}${row.live ? ':live' : ''}` : row.type)
+const shape = (rows: ThreadFeedRow[]) => rows.filter((row) => row.type !== 'turn-images').map((row) => row.type === 'message' ? `${row.role}:${row.id}` : row.type === 'work-toggle' ? `work:${row.toolIds.join(',')}${row.live ? ':live' : ''}` : row.type)
 
 describe('native thread feed', () => {
   test('a finished turn folds its work behind "Worked", keeping the first and last prose', () => {
@@ -40,22 +40,21 @@ describe('native thread feed', () => {
     expect(shape(present([user('u1'), assistant('a1')], { turnActive: true, working: false }))).toEqual(['user:u1', 'assistant:a1'])
   })
 
-  test('a device screenshot stays on screen when its turn folds', () => {
-    // WHY: the picture is what the agent saw on the device; folding it leaves
-    // only the agent's prose about what the screen looked like.
-    const rows = present([user('u1'), assistant('a1'), tool('t1'), { id: 's1', kind: 'device_snapshot' }, tool('t2'), assistant('a2')])
-    expect(shape(rows)).toEqual(['user:u1', 'assistant:a1', 'run-fold', 'device-snapshot', 'assistant:a2'])
+  test('tool calls fold without adding their images to the reply gallery', () => {
+    // Raw tool image sources must not be promoted into reply output.
+    const rows = present([user('u1'), assistant('a1'), tool('t1'), tool('s1'), tool('t2'), assistant('a2')])
+    expect(shape(rows)).toEqual(['user:u1', 'assistant:a1', 'run-fold', 'assistant:a2'])
   })
 
-  test("a turn's device screenshots are one group at the first one's place, as on desktop", () => {
-    // WHY: several screenshots of one turn are one act of looking at the device.
-    // One row per picture stacks them down the phone; one group lays them out together.
-    const rows = present([user('u1'), assistant('a1'), { id: 's1', kind: 'device_snapshot' }, tool('t1'), { id: 's2', kind: 'device_snapshot' }, { id: 's3', kind: 'device_snapshot' }, assistant('a2')], { turnActive: true })
-    expect(shape(rows)).toEqual(['user:u1', 'assistant:a1', 'device-snapshot', 'work:t1', 'assistant:a2'])
-    expect(rows[2]?.type === 'device-snapshot' && rows[2].itemIds).toEqual(['s1', 's2', 's3'])
+  test("a turn's screenshots follow its reply, as on desktop", () => {
+    // The row keeps all image sources below the reply while the calls stay in
+    // the work log. Each source subscribes separately to its own images.
+    const rows = present([user('u1'), assistant('a1'), tool('s1'), tool('t1'), tool('s2'), tool('s3'), assistant('a2')], { turnActive: true })
+    expect(shape(rows)).toEqual(['user:u1', 'assistant:a1', 'work:s1,t1,s2,s3', 'assistant:a2'])
+    expect(rows[4]?.type === 'turn-images' && rows[4].itemIds).toEqual(['a1', 'a2'])
     // A new turn starts a new group.
-    const next = present([user('u1'), { id: 's1', kind: 'device_snapshot' }, user('u2'), { id: 's2', kind: 'device_snapshot' }])
-    expect(next.filter((row) => row.type === 'device-snapshot').map((row) => row.type === 'device-snapshot' && row.itemIds)).toEqual([['s1'], ['s2']])
+    const next = present([user('u1'), tool('s1'), user('u2'), tool('s2')])
+    expect(next.filter((row) => row.type === 'turn-images').map((row) => row.type === 'turn-images' && row.itemIds)).toEqual([])
   })
 
   test('a turn that failed stays open so its error is read in place', () => {
@@ -65,7 +64,7 @@ describe('native thread feed', () => {
 
   test('an expanded group lists its calls under the toggle, and adjacent work rows join one log', () => {
     const rows = present([user('u1'), tool('t1'), tool('t2')], { turnActive: true, expandedWorkGroupIds: ['work-group:t1'] })
-    expect(rows.map((row) => row.type)).toEqual(['message', 'work-toggle', 'work-details'])
+    expect(rows.filter((row) => row.type !== 'turn-images').map((row) => row.type)).toEqual(['message', 'work-toggle', 'work-details'])
     expect(rows[1]?.type === 'work-toggle' && rows[1].continuesWorkLog).toBe(true)
     expect(rows[2]?.type === 'work-details' && rows[2].continuesWorkLog).toBe(false)
   })

@@ -42,6 +42,8 @@ const recordedRunSchema = z.object({
     provider: z.string(),
     home: z.string(),
     envToken: z.string().optional(),
+    /** The launch point's answer for the run (docs/plans/member-isolation.md §3): its `HOME`, and the member's OS user where each member is one. */
+    launch: z.object({ user: z.object({ uid: z.number() }).optional(), env: z.object({ HOME: z.string().optional() }) }).optional(),
   }).nullable(),
   /** The credential material the run saw (`.credentials.json`, or `token:<value>`); null for the host login or a run before the field existed. */
   credential: z.string().nullable().optional(),

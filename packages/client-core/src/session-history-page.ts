@@ -16,13 +16,14 @@ interface PrefetchedHistory {
   page?: SessionHistoryPage
 }
 
-// One bounded startup read per connection. Consume once; never reuse it for a
-// reconnect or a later visit to a session whose history may have changed.
+// One bounded early read per connection: the startup tab's, or the session the
+// reader just clicked. Consume once; never reuse it for a reconnect or a later
+// visit to a session whose history may have changed.
 const prefetchedHistory = new WeakMap<HistoryApi, PrefetchedHistory>()
 
 function historyKey(request: SessionHistoryPageRequest): string {
   return JSON.stringify([request.sessionId, request.projectPath, request.provider,
-    request.turnLimit, request.before])
+    request.turnLimit, request.before, !!request.deferArtifactHtml])
 }
 
 export function prefetchSessionHistoryPage(api: HistoryApi, request: SessionHistoryPageRequest): Promise<SessionHistoryPage> {

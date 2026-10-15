@@ -57,9 +57,7 @@ export class ConditionalChecks {
         answers.set(number, last.summary)
         return
       }
-      // A REST failure only means that REST cannot tell; the GraphQL read can.
-      const validator = await validatorOf(client, repo, number).catch(() => null)
-      if (!validator) return
+      const validator = await validatorOf(client, repo, number)
       validators.set(number, validator)
       if (!last || validator.text !== last.validator) return
       if (!validator.merged && this.now() - last.readAt >= HELD_MS) return

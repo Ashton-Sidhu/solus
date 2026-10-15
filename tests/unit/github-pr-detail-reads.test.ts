@@ -157,10 +157,9 @@ describe('GitHub pull request detail', () => {
     expect(pullRequest.requiredApprovingReviewCount).toBe(2)
   })
 
-  test('a refusal under the base branch keeps the rest of the answer', async () => {
-    // WHY: a credential that may read the pull request but not its branch
-    // rules must still open the page. The rules then narrow nothing, and the
-    // approval count reads as unknown rather than as zero.
+  test('a refusal under the base branch retries with gh for complete rules', async () => {
+    // WHY: the account app can read the PR but lack access to branch rules.
+    // The gh credential can supply those rules instead of showing unknown.
     const answer = githubPullRequestDetailAnswer()
     const client = countingClient({
       detail: () => {
@@ -171,12 +170,13 @@ describe('GitHub pull request detail', () => {
       },
     })
     const fallback = countingClient()
+    fallback.credential.source = 'gh-cli'
     const provider = new CountingProvider([client, fallback])
 
     const pullRequest = await provider.getPullRequest(repo, 65)
 
-    expect(fallback.calls).toEqual([])
-    expect(pullRequest.requiredApprovingReviewCount).toBeNull()
+    expect(fallback.calls).toEqual(['graphql:PullRequestDetail'])
+    expect(pullRequest.requiredApprovingReviewCount).toBe(0)
     expect(pullRequest.capabilities.mergeMethods).toEqual(['merge', 'squash', 'rebase'])
   })
 
@@ -199,6 +199,36 @@ describe('GitHub pull request detail', () => {
     expect(hidden.calls).toEqual(['graphql:PullRequestDetail'])
     expect(visible.calls).toEqual(['graphql:PullRequestDetail'])
     expect(pullRequest.number).toBe(65)
+  })
+
+  test('an access error on a later commit page retries the whole overview with gh', async () => {
+    const account = countingClient({
+      detail: detailWith({ commits: { hasNextPage: true, endCursor: 'next', oids: ['account-only'] } }),
+      commitsPage: () => {
+        throw Object.assign(new Error('Organization blocks this app'), {
+          data: { repository: null }, errors: [{ type: 'FORBIDDEN', path: ['repository'] }],
+        })
+      },
+    })
+    const gh = countingClient()
+    gh.credential.source = 'gh-cli'
+    const overview = await new CountingProvider([account, gh]).getPullRequestOverview(repo, 65)
+    expect(account.calls).toEqual(['graphql:PullRequestDetail', 'graphql:PullRequestCommits'])
+    expect(gh.calls).toEqual(['graphql:PullRequestDetail'])
+    expect(overview.commits.map((commit) => commit.sha)).toEqual(['c1'])
+  })
+
+  test('a missing PR in a visible repository does not try another credential', async () => {
+    const answer = githubPullRequestDetailAnswer()
+    const account = countingClient({ detail: () => {
+      throw Object.assign(new Error('Missing pull request'), {
+        data: { ...answer, repository: { ...answer.repository, pullRequest: null } },
+        errors: [{ type: 'NOT_FOUND', path: ['repository', 'pullRequest'] }],
+      })
+    } })
+    const gh = countingClient()
+    await expect(new CountingProvider([account, gh]).getPullRequest(repo, 65)).rejects.toThrow('Pull request #65 was not found')
+    expect(gh.calls).toEqual([])
   })
 
   test('commits past the first hundred are read only when the pull request has them', async () => {

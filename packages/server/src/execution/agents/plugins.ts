@@ -3,6 +3,7 @@ import { copyFile, lstat, mkdir, readFile, readdir, readlink, rename, rm, symlin
 import { dirname, join } from 'node:path'
 import { createLogger } from '../../logger'
 import { appVersion, bundledResourcesDir, isPackagedRuntime, solusDir } from '../../platform/paths'
+import { memberUsers } from '../../host/member-users'
 
 const log = createLogger('Plugins', 'plugins.ts')
 
@@ -15,25 +16,36 @@ function bundledPluginsDir(): string {
 }
 
 /** Installed destination — co-located with the rest of Solus's config so the
- *  Claude Code and Codex CLIs can load plugins from a real filesystem path. */
-export const PLUGINS_DIR = join(solusDir(), 'plugins')
-export const SOLUS_PLUGINS_DIR = join(PLUGINS_DIR, 'solus')
+ *  Claude Code and Codex CLIs can load plugins from a real filesystem path. Where
+ *  each member is their own Linux user, the server's config folder is closed to
+ *  them, so the plugins go in the folder shared with members
+ *  (docs/plans/member-isolation.md §5). */
+export function pluginsDir(): string {
+  const shared = memberUsers()?.layout()?.shared
+  return shared ? join(shared, 'plugins') : join(solusDir(), 'plugins')
+}
+
+/** The bundled Solus plugin, as the agents are given it. */
+export function solusPluginsDir(): string {
+  return join(pluginsDir(), 'solus')
+}
 
 /** Marks a packaged copy with the app version that produced it, so a warm
  *  launch can skip the recursive copy when nothing changed. */
 const STAMP_NAME = '.solus-plugins-stamp'
-const STAMP_FILE = join(PLUGINS_DIR, STAMP_NAME)
 
 /** Packaged copies land here first and are renamed into place, so a partial
  *  copy never becomes the directory agents are pointed at. */
-const STAGING_DIR = `${PLUGINS_DIR}.incoming`
+function stagingDir(): string {
+  return `${pluginsDir()}.incoming`
+}
 
 /** Dev fast path: destination is already the symlink we'd re-create. */
 async function symlinkAlreadyCurrent(source: string): Promise<boolean> {
   try {
-    const stat = await lstat(PLUGINS_DIR)
+    const stat = await lstat(pluginsDir())
     if (!stat.isSymbolicLink()) return false
-    return (await readlink(PLUGINS_DIR)) === source
+    return (await readlink(pluginsDir())) === source
   } catch {
     return false
   }
@@ -42,7 +54,7 @@ async function symlinkAlreadyCurrent(source: string): Promise<boolean> {
 /** Packaged fast path: a prior copy stamped with the current app version. */
 async function copyAlreadyCurrent(): Promise<boolean> {
   try {
-    return (await readFile(STAMP_FILE, 'utf8')).trim() === appVersion()
+    return (await readFile(join(pluginsDir(), STAMP_NAME), 'utf8')).trim() === appVersion()
   } catch {
     return false
   }
@@ -87,7 +99,7 @@ async function copyTree(source: string, destination: string): Promise<void> {
 export async function syncBundledPlugins(): Promise<void> {
   const source = bundledPluginsDir()
   if (!existsSync(source)) {
-    // Never silent: agents still receive PLUGINS_DIR, so a missing source means
+    // Never silent: agents still receive the plugins dir, so a missing source means
     // every bundled skill disappears with no other symptom than the CLI
     // reporting an unknown plugin path.
     log.warn('bundled_plugins_source_missing', { source })
@@ -98,20 +110,23 @@ export async function syncBundledPlugins(): Promise<void> {
   const packaged = isPackagedRuntime()
   try {
     if (packaged ? await copyAlreadyCurrent() : await symlinkAlreadyCurrent(source)) return
-    await mkdir(dirname(PLUGINS_DIR), { recursive: true })
+    const destination = pluginsDir()
+    const staging = stagingDir()
+    await mkdir(dirname(destination), { recursive: true })
     if (packaged) {
       // Stage, stamp, then swap: the previous copy stays in place until a
       // complete one exists, so a failed sync degrades to a stale plugins dir
       // instead of no plugins at all.
-      await rm(STAGING_DIR, { recursive: true, force: true })
-      await copyTree(source, STAGING_DIR)
-      await writeFile(join(STAGING_DIR, STAMP_NAME), appVersion(), { mode: 0o600 })
-      await rm(PLUGINS_DIR, { recursive: true, force: true })
-      await rename(STAGING_DIR, PLUGINS_DIR)
+      await rm(staging, { recursive: true, force: true })
+      await copyTree(source, staging)
+      // Readable by members where the plugins are shared with them; it holds no secret.
+      await writeFile(join(staging, STAMP_NAME), appVersion(), { mode: 0o644 })
+      await rm(destination, { recursive: true, force: true })
+      await rename(staging, destination)
       return
     }
-    await rm(PLUGINS_DIR, { recursive: true, force: true })
-    await symlink(source, PLUGINS_DIR, 'dir')
+    await rm(destination, { recursive: true, force: true })
+    await symlink(source, destination, 'dir')
   } catch (err) {
     log.warn('bundled_plugins_sync_failed', { error: err instanceof Error ? err.message : String(err) })
   }

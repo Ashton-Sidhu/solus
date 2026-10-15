@@ -50,6 +50,38 @@ const hostNameFiles = new Map([
   ['packages/server/src/updates/provider-versions.ts', 'reads the host’s CLI versions'],
 ])
 
+/** The file that defines the launch point builds launch options from an identity's environment. */
+const launchPointFile = 'packages/server/src/execution/seats/acting-identity.ts'
+
+/** `currentIdentity(…)`, `identityFor(…)`, or a variable named for an identity. */
+function isIdentity(node: ESTree.Node): boolean {
+  if (node.type === 'Identifier') return /identity$/i.test(node.name)
+  return node.type === 'CallExpression'
+    && node.callee.type === 'Identifier'
+    && (node.callee.name === 'currentIdentity' || node.callee.name === 'identityFor')
+}
+
+/** `launchOptions(…)`, `identity.launchOptions(…)`, or `identity.launchOptionsSync(…)`, awaited or not. */
+function isLaunchOptionsCall(node: ESTree.Node): boolean {
+  const call = node.type === 'AwaitExpression' ? node.argument : node
+  if (call.type !== 'CallExpression') return false
+  const { callee } = call
+  if (callee.type === 'Identifier') return callee.name === 'launchOptions'
+  return callee.type === 'MemberExpression'
+    && callee.property.type === 'Identifier'
+    && (callee.property.name === 'launchOptions' || callee.property.name === 'launchOptionsSync')
+}
+
+/** `identity.env(…)`, `await identity.env(…)`, or `identity.envSync(…)`: an identity's environment without its user. */
+function isIdentityEnvCall(node: ESTree.Node): boolean {
+  const call = node.type === 'AwaitExpression' ? node.argument : node
+  return call.type === 'CallExpression'
+    && call.callee.type === 'MemberExpression'
+    && isIdentity(call.callee.object)
+    && call.callee.property.type === 'Identifier'
+    && (call.callee.property.name === 'env' || call.callee.property.name === 'envSync')
+}
+
 function repositoryPath(cwd: string, filename: string): string {
   return relative(cwd, filename).split(sep).join('/')
 }
@@ -69,7 +101,11 @@ export const actingIdentityRule = defineRule({
     },
     messages: {
       ambientEnv:
-        'Build this environment from the acting identity (getCliEnv or currentIdentity().env()). process.env carries the host’s keys and tokens into a member’s process (plans/019-acting-identity.md).',
+        'Start this process through the launch point (`launchProcess(file, args)`). process.env carries the host’s keys and tokens into a member’s process (plans/019-acting-identity.md).',
+      spreadLaunch:
+        'Launch options are data, not spawn options: Node ignores `user`, and the process would run as the server. Run `launchedProcess(launch, file, args)` (or `launchProcess(file, args)`) and pass its `file`, `args`, and `env` (docs/plans/member-isolation.md §3).',
+      envWithoutUser:
+        'Start this process through the launch point (`launchProcess(file, args)` or `launchedProcess(await currentIdentity().launchOptions(), file, args)`) instead of an identity’s environment alone: where each member is their own user, the process must run as them (docs/plans/member-isolation.md §3).',
       hostName:
         '{{name}} acts as the host. Use the acting scope for work done for a person, or add this file to the reviewed list in tools/oxlint/solus/rules/acting-identity.ts with its reason (plans/019-acting-identity.md).',
     },
@@ -82,10 +118,12 @@ export const actingIdentityRule = defineRule({
     return {
       SpreadElement(node) {
         if (!ambientAllowed && isProcessEnv(node.argument)) context.report({ node, messageId: 'ambientEnv' })
+        if (isLaunchOptionsCall(node.argument)) context.report({ node, messageId: 'spreadLaunch' })
       },
       Property(node) {
-        if (ambientAllowed || node.computed || node.key.type !== 'Identifier' || node.key.name !== 'env') return
-        if (isProcessEnv(node.value)) context.report({ node: node.value, messageId: 'ambientEnv' })
+        if (node.computed || node.key.type !== 'Identifier' || node.key.name !== 'env') return
+        if (path !== launchPointFile && isIdentityEnvCall(node.value)) context.report({ node: node.value, messageId: 'envWithoutUser' })
+        if (!ambientAllowed && isProcessEnv(node.value)) context.report({ node: node.value, messageId: 'ambientEnv' })
       },
       Identifier(node) {
         if (hostAllowed || !hostNames.has(node.name)) return

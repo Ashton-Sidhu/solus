@@ -2,6 +2,7 @@ import { serverUpdateText } from './server-update-text'
 import { untrack } from 'svelte'
 import { isSessionBusyStatus } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { updateCheckFailureText } from '@solus/client-core/host-update-text'
 import { hostUpdatesStore, type HostUpdateItem } from './host-updates.store.svelte'
 import { hostUpdater } from './host-updater.svelte'
 import { updateNoticeText, updateProgressText, updateSummaryText, type UpdateOutcome } from './host-update-text'
@@ -34,7 +35,10 @@ export function installHostUpdateNotices(session: ReturnType<typeof createAppCor
       untrack(() => {
         hostUpdatesStore.markManualCheckReported(serverId)
         if (outcome === 'up-to-date') toasts.success(`Checked software on ${hostLabel(serverId)} is up to date`)
-        else toasts.error(`Update check failed on ${hostLabel(serverId)}`, { description: hostUpdatesStore.errors.get(serverId) ?? 'Open the host to see which check failed.' })
+        else {
+          const status = hostUpdatesStore.hostUpdateFor(serverId)
+          toasts.error(`Update check failed on ${hostLabel(serverId)}`, { description: hostUpdatesStore.errors.get(serverId) ?? (status ? updateCheckFailureText(status) : null) ?? 'The host did not report a reason.' })
+        }
       })
     }
   })

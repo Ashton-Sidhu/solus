@@ -162,7 +162,7 @@ describe('isolated sandbox', () => {
   })
 
   test('a lens frame gets no network and answers anchor queries; other renders keep their policy', () => {
-    Object.defineProperty(globalThis, 'document', { configurable: true, value: { documentElement: {} } })
+    Object.defineProperty(globalThis, 'document', { configurable: true, value: { documentElement: { className: '', getAttribute: () => null } } })
     Object.defineProperty(globalThis, 'getComputedStyle', { configurable: true, value: () => ({ getPropertyValue: () => '' }) })
     const isolated = wrapSandboxSrcdoc('<p>lens</p>', false, true)
     const csp = isolated.match(/Content-Security-Policy" content="([^"]+)"/)?.[1] ?? ''

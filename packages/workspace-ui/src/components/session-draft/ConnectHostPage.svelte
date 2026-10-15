@@ -22,6 +22,7 @@
   import {
     connectHostHeadline,
     connectHostRow,
+    isSettingUpWorkspace,
     CONNECT_HOST_ACTION_LABELS,
     type ConnectHostRow,
     type GatedHost,
@@ -58,6 +59,8 @@
   const rows = $derived(hosts.map((host) => connectHostRow(host, now)));
   const nearby = $derived(serversStore.nearbyHosts);
   const headline = $derived(connectHostHeadline(hosts, connectingHost?.label ?? null));
+  /** A host is setting this person up (docs/plans/member-isolation.md §8.1): nothing to choose, only to wait. */
+  const isSettingUp = $derived(isSettingUpWorkspace(hosts));
 
   onMount(() => {
     // Opening the page is a refresh point, as opening Connections is.
@@ -178,7 +181,9 @@
       {headline}
     </h1>
     <p class="mt-2 mb-6 text-center text-workspace-chrome text-pretty text-(--solus-text-tertiary)">
-      {#if connectingHost}
+      {#if isSettingUp}
+        Solus opens the composer when it is ready. This takes a moment.
+      {:else if connectingHost}
         Solus opens the composer when {connectingHost.label} answers.
       {:else if hosts.length === 0}
         A host is a machine that has your code. Solus runs agents there.
@@ -187,7 +192,12 @@
       {/if}
     </p>
 
-    {#if connectingHost}
+    {#if isSettingUp}
+      <!-- Turns only while the host makes this person's user; the host's ready event ends it. -->
+      <div class="flex justify-center" role="status" aria-label="Setting up your workspace">
+        <SpinnerIcon size={18} class="animate-spin text-(--solus-text-tertiary) motion-reduce:animate-none" aria-hidden="true" />
+      </div>
+    {:else if connectingHost}
       <div class="mb-4">
         {@render option(null, connectingHost, connectingHost.label, "Connecting…", null, null, true)}
       </div>

@@ -9,7 +9,6 @@
     Copy as CopyIcon,
     PanelRight as PanelRightIcon,
     PenLine as PenLineIcon,
-    TriangleAlert as TriangleAlertIcon,
     X as XIcon,
   } from "@lucide/svelte";
   import { portal } from "../portal";
@@ -20,7 +19,6 @@
   import MarkdownImage from "../conversation/MarkdownImage.svelte";
   import {
     snapshotAddress,
-    snapshotErrorLabel,
     snapshotStamp,
     snapshotTitle,
     snapshotWidth,
@@ -95,7 +93,6 @@
   const snapshot = $derived(snapshots[selected]);
   const title = $derived(snapshotTitle(snapshot));
   const address = $derived(snapshotAddress(snapshot));
-  const errorLabel = $derived(snapshotErrorLabel(snapshot));
   /** The card is cut to the pass's shape, so a phone reel is a phone-shaped card
    *  and a desktop reel is a wide one. Taken from the pass rather than the frame
    *  so the card does not resize under the reader mid-step. */
@@ -240,14 +237,6 @@
       </span>
       <span class="flex-1"></span>
 
-      {#if errorLabel}
-        <span
-          class="text-review-meta @max-[28rem]:hidden flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_oklch,var(--destructive)_8%,transparent)] px-1.5 py-0.5 text-[color:color-mix(in_oklch,var(--destructive)_70%,var(--foreground))]"
-        >
-          <TriangleAlertIcon size={10} aria-hidden="true" />
-          {errorLabel}
-        </span>
-      {/if}
 
       <span
         class="@max-[24rem]:hidden shrink-0 text-(--solus-text-tertiary) tabular-nums opacity-70"

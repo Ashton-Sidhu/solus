@@ -24,6 +24,8 @@
  * header above the card stays where it is.
  */
 
+import { measureOpenStep } from '../../../lib/mount-timing'
+
 export const COMPOSER_FOLD_DURATION_MS = 280
 export const COMPOSER_FOLD_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)'
 /** How far the arriving toolbar travels as it fades in. */
@@ -68,6 +70,14 @@ export interface FoldGeometry {
  * padding is part of the slide instead of a jump inside it.
  */
 export function measureFold(surface: HTMLElement): FoldGeometry {
+  const start = performance.now()
+  const geometry = readFold(surface)
+  // Each read forces a layout; the session-open benchmark counts them.
+  measureOpenStep('composerFoldMeasure', start)
+  return geometry
+}
+
+function readFold(surface: HTMLElement): FoldGeometry {
   const well = surface.querySelector<HTMLElement>(`[${COMPOSER_PROMPT_ATTRIBUTE}]`)
   const line = well?.querySelector<HTMLElement>('.cm-content') ?? well
   const actions = surface.querySelector<HTMLElement>(`[${COMPOSER_ACTIONS_ATTRIBUTE}]`)

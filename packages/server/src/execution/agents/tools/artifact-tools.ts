@@ -4,6 +4,7 @@ import { serializeWorkEmbed } from '@solus/contracts/work-embed'
 import { join } from 'node:path'
 import { createLogger } from '../../../logger'
 import { writeAssetUpload } from '../../../data/assets/assets'
+import { agentReadablePath } from '../../../data/assets/attachment-store'
 import {
   HTML_PREVIEW_DEFAULT_WIDTH,
   inlineHostImages,
@@ -121,7 +122,8 @@ async function previewReport(title: string, preview: HtmlPreview): Promise<Agent
   if (image) lines.push('screenshot: attached to this result.')
   else {
     const stored = await writeAssetUpload({ name: 'html-preview.png', mime: 'image/png', dataUrl: preview.screenshot })
-    lines.push(`screenshot: ${join(dataDir(), 'assets', stored.id)}  (too large to attach; read this path to look at it)`)
+    const path = await agentReadablePath(join(dataDir(), 'assets', stored.id))
+    lines.push(`screenshot: ${path}  (too large to attach; read this path to look at it)`)
   }
   const logged = consoleLines(preview.console, ALL_LEVELS)
   lines.push(logged.length ? `console (${preview.console.length}):\n${logged.join('\n')}` : 'console: nothing logged.')

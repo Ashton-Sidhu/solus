@@ -17,3 +17,10 @@ test('still drops an id from a newer host rather than blanking the record', () =
 
   expect(normalized.editors).toEqual(['vscode'])
 })
+
+test('the client keeps the file manager a host advertises', () => {
+  // WHY: the schema strips keys it does not name. Without this field the host
+  // said "finder" and the project row's "Open in Finder" never appeared.
+  expect(normalizeHostCapabilities({ fileManager: 'finder' }).fileManager).toBe('finder')
+  expect(normalizeHostCapabilities({ fileManager: 'a-future-file-manager' }).fileManager).toBeUndefined()
+})

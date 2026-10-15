@@ -301,10 +301,10 @@ export class ReviewLensJobs {
     }
   }
 
-  private setJob({ address, target }: LocatedLens, job: ReviewLensJob, emit: EmitLens): void {
+  private setJob({ address, target }: LocatedLens, job: ReviewLensJob, emit: EmitLens, lensName?: string): void {
     const id = addressId(address)
     this.jobs.set(id, job)
-    emit({ ...address, target, job, revision: this.revisions.get(id) ?? 0 })
+    emit({ ...address, target, job, revision: this.revisions.get(id) ?? 0, lensName })
   }
 
   /** Run `task` after every earlier write to the same record. */
@@ -431,7 +431,7 @@ export class ReviewLensJobs {
       if (!committed || !isCurrent()) return
       this.running.delete(id)
       this.revisions.set(id, committed.updatedAt)
-      this.setJob(located, { kind, status: 'ready', updatedAt: this.deps.now() }, emit)
+      this.setJob(located, { kind, status: 'ready', updatedAt: this.deps.now() }, emit, committed.current.lens.source.name)
       log.info('review_lens_ready', { key: address.key, kind })
     } catch (error) {
       if (!isCurrent()) return

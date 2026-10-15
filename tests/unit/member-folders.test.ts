@@ -9,7 +9,7 @@ import type { Principal } from '@solus/server/admission/principal'
 // bun has no node:sqlite; the handlers' import chain reaches the db even though these tests never open it.
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 const { MemberFolders, memberFolderFor, memberFolderName, memberUserIdOf, recordedMemberFolder, useMemberFolders } = await import('@solus/server/host/member-folders')
-const { projectsRootFor } = await import('@solus/server/transport/handlers/setup-handlers')
+const { projectsRootFor } = await import('@solus/server/workspace')
 const { dispatchCheckoutOwnerKeyOf, dispatchCheckoutPath } = await import('@solus/server/project-config/dispatch-checkouts')
 
 // Every member folder on a host (projects, seats, dispatch checkouts, Git

@@ -355,16 +355,18 @@ describe('settings written against a draft composer', () => {
     expect(controller.globalDefaults.modelConfig.modelId).toBe('claude-opus-5-5')
   })
 
-  test('hand the draft a new run rather than editing the one it holds', async () => {
-    // WHY: the draft owns its run. Editing it in place crosses a Svelte
-    // ownership boundary, which is why every other draft write replaces it.
+  test('change the draft’s model without moving it', async () => {
+    // WHY: only a move reads the draft's checkout from its host
+    // (docs/plans/run-location.md §10). A model choice that replaced the run
+    // would hand the draft a new location and ask the host again.
     const draft = makeDraft()
     const controller = await makeController(makeSettings({}), null, undefined, draft)
-    const before = draft.run
+    const location = draft.run.location
 
     controller.updateModelConfig({ modelId: 'claude-sonnet-5' }, draft.id)
 
-    expect(draft.run).not.toBe(before)
+    expect(draft.run.modelConfig.modelId).toBe('claude-sonnet-5')
+    expect(draft.run.location).toBe(location)
   })
 })
 

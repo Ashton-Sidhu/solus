@@ -78,7 +78,7 @@ export function MaterialThreadListToolbar(props: {
       <View
         onLayout={props.onLayout}
         className={
-          props.sidebar ? "absolute inset-x-0 top-0 z-[4] bg-header px-2" : "bg-header px-2"
+          props.sidebar ? "absolute inset-x-0 top-0 z-[4] bg-drawer px-2" : "bg-drawer px-2"
         }
         style={headerPadding}
       >

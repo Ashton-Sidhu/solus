@@ -1,6 +1,7 @@
 // Adapted from T3 Code apps/mobile/src/native/useEnrichedLinkVariants.ts (MIT, see UPSTREAM.md).
 // File links, `@path` mentions, and GitHub links only: no link customization,
 // context chips, or skills. A mention wears T3's mention context chip.
+import { replyImage } from "@solus/client-core/reply-images";
 import { useMemo } from "react";
 import { Image, type ImageSourcePropType } from "react-native";
 import type {
@@ -35,7 +36,9 @@ const MENTION_CHIP_COLOR = "#0096af";
 export function enrichedLinkPresentation(
   url: string,
   textStyle: NativeMarkdownTextStyle,
+  fileChip = false,
 ): EnrichedLinkPresentation | undefined {
+  if (fileChip) return { color: textStyle.fileTextColor, label: replyImage(url).label, icon: markdownFileIconSource("image") };
   const mentionPath = fileMentionPath(url);
   if (mentionPath !== null)
     return {
@@ -63,16 +66,17 @@ export function enrichedLinkPresentation(
 export function useEnrichedLinkVariants(
   assets: ReadonlyArray<MarkdownDocumentAsset>,
   textStyle: NativeMarkdownTextStyle,
+  fileChipHrefs?: readonly string[],
 ) {
   const links = useMemo(() => {
     const byUrl = new Map<string, EnrichedLinkPresentation>();
     for (const asset of assets) {
       if (asset.kind !== "link" || byUrl.has(asset.url)) continue;
-      const value = enrichedLinkPresentation(asset.url, textStyle);
+      const value = enrichedLinkPresentation(asset.url, textStyle, fileChipHrefs?.includes(asset.url));
       if (value) byUrl.set(asset.url, value);
     }
     return byUrl;
-  }, [assets, textStyle]);
+  }, [assets, textStyle, fileChipHrefs]);
   const linkVariants = useMemo<MarkdownStyle["linkVariants"]>(
     () =>
       Object.fromEntries(

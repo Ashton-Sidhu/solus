@@ -219,7 +219,7 @@ export function createMobileThemeVariables(
     "--color-user-bubble-foreground-muted": withAlpha(c.messageForeground, 0.78),
     "--color-user-bubble-skill-foreground": readableTextColor(c.messageAction, c.messageSurface),
     "--color-backdrop": withAlpha("#000000", appearance === "dark" ? 0.48 : 0.22),
-    "--color-drawer": c.sidebar,
+    "--color-drawer": c.canvas,
     "--color-drawer-foreground": c.sidebarForeground,
     "--color-drawer-foreground-muted": readableTextColor(c.sidebarMutedForeground, [
       c.sidebar,
@@ -230,6 +230,15 @@ export function createMobileThemeVariables(
     "--color-dot-separator": withAlpha(c.textMuted, 0.35),
     "--color-wordmark": c.text,
     "--color-chevron": withAlpha(c.textMuted, 0.42),
+    // T3's adaptive status pairs (adaptive-colors.css) in desktop's status hues.
+    "--color-adaptive-emerald-600-400": c.green,
+    "--color-adaptive-amber-700-300": c.amber,
+    "--color-adaptive-amber-700-400": c.amber,
+    "--color-adaptive-amber-500-a10-400-a10": withAlpha(c.amber, 0.1),
+    "--color-adaptive-amber-500-a25-400-a25": withAlpha(c.amber, 0.25),
+    "--color-adaptive-sky-600-400": c.blue,
+    "--color-adaptive-violet-600-400": c.purple,
+    "--color-adaptive-rose-600-400": c.red,
   };
 }
 

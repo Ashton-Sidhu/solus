@@ -60,7 +60,7 @@ import {
   type ScannedPlan,
 } from './claude-plan-helpers'
 import { _pluginCmdCache, PLUGIN_CMD_TTL, resolvePluginCommands } from './claude-plugin-helpers'
-import { SOLUS_PLUGINS_DIR } from '../plugins'
+import { solusPluginsDir } from '../plugins'
 import { runBounded } from '../../../lib/concurrency'
 import { getIndexedSession } from '../../../db/session-indexer'
 import { ClaudeCommandDiscovery } from './claude-command-discovery'
@@ -138,7 +138,10 @@ export function claudeSeatOf(seat: TurnSeat): ClaudeSeat {
   const claudeSeat: ClaudeSeat = { home: seat.home }
   if (seat.seat.kind === 'host-login') claudeSeat.isHostLogin = true
   if (seat.envToken) claudeSeat.envToken = seat.envToken
-  if (seat.env) claudeSeat.env = seat.env
+  if (seat.launch) {
+    claudeSeat.env = seat.launch.env
+    if (seat.launch.user) claudeSeat.user = seat.launch.user
+  }
   return claudeSeat
 }
 
@@ -197,6 +200,8 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       const rl = createInterface({ input: createReadStream(filePath) })
       rl.on('line', (line: string) => lines.push(line))
       rl.on('close', () => resolve())
+      // An unreadable transcript (another user's file) reads as empty; it never crashes the server.
+      rl.on('error', () => resolve())
     })
     return findClaudeForkResumeId(lines)
   }
@@ -226,6 +231,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     const handle: ClaudeRunHandle = {
       // The source is only a branch input; the fork has no provider id yet.
       agentSessionId: conversation.kind === 'resume' ? sessionId : null,
+      sessionId: sessionState?.sessionId,
       persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,
@@ -374,8 +380,8 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         error: err?.message,
         cwd,
         cwdExists: existsSync(cwd),
-        pluginsDir: SOLUS_PLUGINS_DIR,
-        pluginsDirExists: existsSync(SOLUS_PLUGINS_DIR),
+        pluginsDir: solusPluginsDir(),
+        pluginsDirExists: existsSync(solusPluginsDir()),
       })
       // Emit before finishRun. With no session_init there is no agentSessionId,
       // so the SessionRuntime resolves the failed session through the backend's
@@ -441,6 +447,8 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         if (msg) messages.push(msg)
       })
       rl.on('close', () => resolve())
+      // An unreadable transcript (another user's file) reads as empty; it never crashes the server.
+      rl.on('error', () => resolve())
     })
     return messages
   }
@@ -662,6 +670,8 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         } catch {}
       })
       rl.on('close', () => resolve())
+      // An unreadable transcript (another user's file) reads as empty; it never crashes the server.
+      rl.on('error', () => resolve())
     })
     return content
   }
@@ -688,8 +698,8 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         // Every query passes this as a local plugin root, and in dev it is a
         // symlink into whichever build wrote it last. A dangling one raises the
         // same errno family the SDK renders as "the binary failed to launch".
-        pluginsDir: SOLUS_PLUGINS_DIR,
-        pluginsDirExists: existsSync(SOLUS_PLUGINS_DIR),
+        pluginsDir: solusPluginsDir(),
+        pluginsDirExists: existsSync(solusPluginsDir()),
       })
       return []
     })

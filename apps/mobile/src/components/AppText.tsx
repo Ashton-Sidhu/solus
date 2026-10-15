@@ -1,5 +1,4 @@
 import {
-  Platform,
   Text as RNText,
   TextInput as RNTextInput,
   type TextInputProps as RNTextInputProps,
@@ -19,7 +18,6 @@ export function AppText({ className, ...props }: AppTextProps) {
   return (
     <RNText
       className={cn("font-sans text-foreground", className)}
-      selectionColorClassName={Platform.OS === "android" ? "accent-focus/32" : undefined}
       {...props}
     />
   );
@@ -43,9 +41,6 @@ export function AppTextInput({ className, ref, ...props }: AppTextInputProps) {
         className,
       )}
       placeholderTextColorClassName="accent-placeholder"
-      selectionColorClassName={"accent-focus/32"}
-      cursorColorClassName={"accent-focus"}
-      selectionHandleColorClassName={Platform.OS === "android" ? "accent-focus" : undefined}
       {...props}
     />
   );

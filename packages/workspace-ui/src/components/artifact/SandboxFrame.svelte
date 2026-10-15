@@ -100,10 +100,12 @@
   // Theme updates are messages: assigning srcdoc would reset live state.
   const dark = $derived(isDark ?? settings!.isDark);
 
+  // Built when the frame mounts, not before: a frame still waiting for the
+  // viewport needs only its placeholder.
   const srcdoc = $derived(html === undefined ? null : wrapSandboxSrcdoc(html, untrack(() => dark), isolated));
 
   let frameResult = $state<{ srcdoc: string; reloadKey: number; failed: boolean } | null>(null);
-  const frameSettled = $derived(frameResult?.srcdoc === srcdoc && frameResult?.reloadKey === reloadKey);
+  const frameSettled = $derived(frameResult !== null && frameResult.srcdoc === srcdoc && frameResult.reloadKey === reloadKey);
   let iframeEl = $state<HTMLIFrameElement | null>(null);
   // A frame mounted outside the component tree (a Tiptap node view) has no
   // workspace and no keybindings: its links leave for the browser, and it
@@ -165,7 +167,9 @@
       // frame starts loading as its row mounts and has reported its height
       // before the reader reaches it. A frame that grows on screen moves what
       // the reader sees.
-      { root: scrollContainerOf(element), rootMargin: "1000px 0px" },
+      // A transcript frame names its scroller by marker: walking up with
+      // getComputedStyle forced a style recalculation for each frame mounted.
+      { root: element.closest("[data-conversation-tab-id]") ?? scrollContainerOf(element), rootMargin: "1000px 0px" },
     );
     observer.observe(element);
     return () => observer.disconnect();
@@ -297,7 +301,7 @@
 >
   {#if children}
     {@render children()}
-  {:else if srcdoc !== null && isNearViewport}
+  {:else if html !== undefined && isNearViewport && srcdoc !== null}
     {#key reloadKey}
       <iframe
         bind:this={iframeEl}
@@ -337,7 +341,7 @@
         This artifact could not be rendered.
       </div>
     {/if}
-  {:else if srcdoc !== null}
+  {:else if html !== undefined}
     <!-- Reserves the frame's resting height so a scroll past an unmounted
          render does not jump when the iframe lands. -->
     <div class="artifact-placeholder" style="height:{contentHeight}px"></div>

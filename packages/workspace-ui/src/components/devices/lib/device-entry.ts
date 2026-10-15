@@ -1,4 +1,4 @@
-import { Play, Settings, Smartphone } from '@lucide/svelte'
+import { Package, Settings, Smartphone } from '@lucide/svelte'
 import { openRunApp } from './device-view-state.svelte'
 import type { Via } from '@solus/contracts/analytics-events'
 import { devicesStore } from '../../../contexts/devices/devices.store.svelte'
@@ -24,10 +24,10 @@ interface DeviceShell {
 export function deviceCommands(shell: DeviceShell): Command[] {
   return [{
     id: 'run-app',
-    label: 'Run app',
+    label: 'Builds',
     group: 'View',
-    icon: Play,
-    keywords: ['test main', 'build install', 'native', 'ios', 'android'],
+    icon: Package,
+    keywords: ['production', 'release', 'run app', 'build install', 'native', 'ios', 'android'],
     run: () => {
       const sessionId = shell.focusedChatTabId ? shell.sessionFor(shell.focusedChatTabId)?.id : undefined
       const serverId = sessionId ? shell.serverIdForSession(sessionId) : shell.fallbackServerId

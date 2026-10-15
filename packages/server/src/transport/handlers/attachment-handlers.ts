@@ -6,7 +6,7 @@ import type { AttachmentUploadRequest, AttachmentUploadTokenRequest, AttachmentU
 import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
 import type { IpcContext } from '@solus/contracts/types'
 import { MAX_VIDEO_UPLOAD_BYTES, videoMimeType } from '@solus/contracts/media-types'
-import { assertAttachmentMime, attachmentUploadPath, reserveAttachmentSlot, storeAttachment } from '../../data/assets/attachment-store'
+import { assertAttachmentMime, attachmentFileMode, attachmentUploadPath, reserveAttachmentSlot, storeAttachment } from '../../data/assets/attachment-store'
 import type { SolusServer } from '../server'
 import { getAssetSigningSecret, readSignedToken, signToken } from '../../admission/signed-token'
 
@@ -125,7 +125,7 @@ async function writeStreamedAttachment(payload: AttachmentUploadTokenPayload, bo
   const partialPath = join(dirname(payload.path), `.${basename(payload.path)}.partial`)
   let handle: Awaited<ReturnType<typeof open>>
   try {
-    handle = await open(partialPath, 'wx', 0o600)
+    handle = await open(partialPath, 'wx', attachmentFileMode())
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'EEXIST') {
       return new Response('This upload is already in progress', { status: 409 })

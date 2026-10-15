@@ -73,7 +73,14 @@ function StatusFadeIn(props: {
   return (
     <Animated.View
       style={[
-        { alignItems: "center", flexDirection: "row", maxWidth: props.maxWidth, opacity },
+        {
+          alignItems: "center",
+          flexDirection: "row",
+          // UIKit needs a defined title width; maxWidth alone can collapse the label.
+          width: props.grow ? undefined : props.maxWidth,
+          maxWidth: props.maxWidth,
+          opacity,
+        },
         props.grow ? { flex: 1, minWidth: 0 } : null,
       ]}
     >
@@ -130,18 +137,18 @@ export function WorkspaceConnectionTitle(props: {
         onPress={props.onPress}
         className="flex-row items-center gap-2"
         style={[
-          { flexShrink: 1, marginLeft: props.statusOffset ?? 0 },
+          { flex: 1, minWidth: 0, marginLeft: props.statusOffset ?? 0 },
           Platform.OS === "android" && { gap: 7 * scale },
         ]}
       >
-        {status.showsProgress ? (
+        {status.kind === "progress" ? (
           <ActivityIndicator
             colorClassName={"accent-icon-muted"}
             size={Platform.OS === "android" ? Math.round(20 * scale) : "small"}
           />
         ) : (
           <SymbolView
-            name="wifi.slash"
+            name={status.kind === "load-error" ? "exclamationmark.triangle" : "wifi.slash"}
             size={Math.round((size === "pageTitle" ? 17 : 15) * scale)}
             tintColorClassName={"accent-icon-muted"}
             type="monochrome"

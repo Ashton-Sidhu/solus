@@ -175,6 +175,7 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
   const { linkVariants, linkPillContent } = useEnrichedLinkVariants(
     documentAssets,
     props.textStyle,
+    props.fileChipHrefs,
   );
   const linkContextMenuItems = useMemo(
     () =>
@@ -233,8 +234,6 @@ export function MobileEnrichedMarkdownText(props: SelectableMarkdownTextProps) {
         containerStyle={{ flexShrink: 1, minWidth: 0 }}
         flavor="github"
         selectable
-        selectionColor={props.textStyle.selectionColor}
-        selectionHandleColor={props.textStyle.selectionHandleColor}
         md4cFlags={{
           latexMath: false,
           hardSoftBreaks: props.preserveSoftBreaks ?? false,

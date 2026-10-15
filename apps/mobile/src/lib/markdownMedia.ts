@@ -28,6 +28,8 @@ export interface MarkdownHostFile {
 export interface MarkdownMediaContext {
   /** The host file a path names; null when this surface cannot read host files. */
   readonly hostFile: (path: string) => MarkdownHostFile | null;
+  /** The URL the host signs for a stored asset, requested when its modal opens. */
+  readonly assetUrl?: (assetId: string) => Promise<string | null>;
   /** The address to load a web address from: a pull request's GitHub media goes through its host. */
   readonly webUrl?: (url: string) => Promise<string>;
 }
@@ -38,6 +40,20 @@ export type MarkdownMediaPreview =
 
 function webName(url: URL): string {
   return decodeURIComponent(url.pathname.split("/").pop() ?? "") || url.hostname;
+}
+
+function assetMediaPreview(
+  href: string,
+  context: MarkdownMediaContext,
+  imageEmbed: boolean,
+): MarkdownMediaPreview | null {
+  const assetUrl = context.assetUrl;
+  if (!assetUrl) return null;
+  const assetId = href.slice(8);
+  const kind = mediaTypeFor(assetId)?.kind ?? (imageEmbed ? "image" : null);
+  if (!kind) return null;
+  const source = { key: href, name: assetId, resolveUri: () => assetUrl(assetId) };
+  return kind === "video" ? { kind, source } : { kind, source: { ...source, kind } };
 }
 
 /**
@@ -51,6 +67,7 @@ export function resolveMarkdownMediaPreview(
   context: MarkdownMediaContext,
   imageEmbed = false,
 ): MarkdownMediaPreview | null {
+  if (href.startsWith("asset://")) return assetMediaPreview(href, context, imageEmbed);
   const presentation = resolveMarkdownLinkPresentation(href);
   let reference: MediaReference;
   let name: string;

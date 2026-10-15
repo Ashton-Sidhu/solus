@@ -6,7 +6,8 @@ import type { PickerSelection } from '../../pickers/lib/picker-selection'
 /**
  * The model chip's detached selection over a draft's run. A draft has no
  * session for the chip to edit, so the agent, model, and effort picked before
- * Send are written straight into the run the session will start with.
+ * Send are written straight into the run the session will start with. Only its
+ * location is the draft's own to change (`moveTo`); these fields are not.
  *
  * Both composers a draft can appear in — the workspace draft pane and the mobile
  * composer — read the draft through a getter, so the selection follows whichever
@@ -26,7 +27,7 @@ export function draftModelSelection(
     },
     set provider(next) {
       const current = draft()
-      if (current) current.run = { ...current.run, provider: next }
+      if (current) current.run.provider = next
     },
     get modelId() {
       return draft()?.run.modelConfig?.modelId ?? null
@@ -34,10 +35,7 @@ export function draftModelSelection(
     set modelId(next) {
       const current = draft()
       if (!current) return
-      current.run = {
-        ...current.run,
-        modelConfig: { ...current.run.modelConfig, modelId: next },
-      }
+      current.run.modelConfig = { ...current.run.modelConfig, modelId: next }
     },
     get reasoningEffort() {
       return draft()?.run.modelConfig?.reasoningEffort ?? 'high'
@@ -45,10 +43,7 @@ export function draftModelSelection(
     set reasoningEffort(next) {
       const current = draft()
       if (!current) return
-      current.run = {
-        ...current.run,
-        modelConfig: { ...current.run.modelConfig, reasoningEffort: next },
-      }
+      current.run.modelConfig = { ...current.run.modelConfig, reasoningEffort: next }
     },
     get fastMode() {
       return draft()?.run.modelConfig?.fastMode ?? false
@@ -56,10 +51,7 @@ export function draftModelSelection(
     set fastMode(next) {
       const current = draft()
       if (!current) return
-      current.run = {
-        ...current.run,
-        modelConfig: { ...current.run.modelConfig, fastMode: next },
-      }
+      current.run.modelConfig = { ...current.run.modelConfig, fastMode: next }
     },
   }
 }

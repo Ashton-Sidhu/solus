@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    ChevronRight as CaretRightIcon,
     Folder as FolderIcon,
     Globe as GlobeIcon,
     Laptop as LaptopIcon,
@@ -71,8 +72,8 @@
   const runServer = $derived(host ?? serversStore.hostFor(detailServerId));
   const runHostLabel = $derived(runServer?.label);
 
-  // The project row opens a menu of the places that can show the folder: the
-  // files pane here, and the host's file manager. The file manager opens on
+  // The project row's caret opens a menu of the places that can show the
+  // folder: the files pane here, and the host's file manager. The file manager opens on
   // the host's own screen, so only a local connection is offered it.
   const fileManager = $derived(
     me?.may("host.local.window") ? hosts.get(detailServerId)?.capabilityRecord?.fileManager : undefined,
@@ -89,7 +90,7 @@
 
   // The Devices row is for projects that build a mobile app (at the root or
   // in a subfolder), or a conversation already showing a device. It counts
-  // Run app, before a simulator or phone is opened.
+  // Builds, before a simulator or phone is opened.
   const deviceProject = $derived(active && projectRoot ? devicesStore.project(detailServerId, projectRoot) : undefined);
   const sessionShowsDevice = $derived(devicesStore.previewsFor(detailServerId, session.sessionFor(sourceId)?.id).length > 0);
   const showsDevices = $derived(!!deviceProject?.isMobileApp || sessionShowsDevice);
@@ -133,7 +134,7 @@
       // App execution starts with the project and chosen device.
       ...(showsDevices ? [{
         key: "devices",
-        label: "Run app",
+        label: "Builds",
         icon: SmartphoneIcon,
         phase: "idle" as const,
         disabled: !(me?.may("host.use") ?? true),
@@ -151,33 +152,51 @@
        changes live in the Git card below. A chat has no project, but the row
        stays: it is the one place the panel names the host the chat runs on. -->
   {#if projectRoot}
-    <MenuRow
-      item={{
-        key: "project",
-        label: projectDirLabel(projectRoot),
-        icon: FolderIcon,
-        badge: runServer?.local ? undefined : runHostLabel,
-        badgeIcon: runServer?.local ? LaptopIcon : undefined,
-        phase: "idle",
-        // A new chat has no folder until its first prompt, so no files yet.
-        disabled: projectRoot === NEW_CHAT_DIRECTORY || !mayReadFiles || (!onOpenFiles && !fileManager),
-        tooltip: runHostLabel ? `Runs on ${runHostLabel}` : undefined,
-        disclosure: "open-in",
-      }}
-      menuOpen={openInMenuOpen}
-      onActivate={(event) => {
-        if (openInMenuOpen) {
-          openInMenuOpen = false;
-          return;
-        }
-        openInAnchor = event.currentTarget;
-        openInMenuOpen = true;
-      }}
-    >
-      {#snippet iconSnippet()}
-        <ProjectFavicon projectKey={groupKeyFor(detailServerId, projectRoot)} class="size-4" />
-      {/snippet}
-    </MenuRow>
+    <!-- Split row in the Git rows' language: the row opens the folder in
+         Solus, the caret offers the other places that can show it. -->
+    {@const hasNoFolder = projectRoot === NEW_CHAT_DIRECTORY || !mayReadFiles}
+    <div class="split-row">
+      <MenuRow
+        split
+        item={{
+          key: "project",
+          label: projectDirLabel(projectRoot),
+          icon: FolderIcon,
+          badge: runServer?.local ? undefined : runHostLabel,
+          badgeIcon: runServer?.local ? LaptopIcon : undefined,
+          hint: comboHint("global.toggle-files"),
+          phase: "idle",
+          // A new chat has no folder until its first prompt, so no files yet.
+          disabled: hasNoFolder || !onOpenFiles,
+          tooltip: runHostLabel ? `Runs on ${runHostLabel}` : undefined,
+        }}
+        onActivate={() => onOpenFiles?.()}
+      >
+        {#snippet iconSnippet()}
+          <ProjectFavicon projectKey={groupKeyFor(detailServerId, projectRoot)} class="size-4" />
+        {/snippet}
+      </MenuRow>
+      <button
+        type="button"
+        class="split-caret"
+        class:is-open={openInMenuOpen}
+        aria-label="Open in"
+        title="Open in"
+        aria-haspopup="menu"
+        aria-expanded={openInMenuOpen}
+        disabled={hasNoFolder || (!onOpenFiles && !fileManager)}
+        onclick={(event) => {
+          if (openInMenuOpen) {
+            openInMenuOpen = false;
+            return;
+          }
+          openInAnchor = event.currentTarget;
+          openInMenuOpen = true;
+        }}
+      >
+        <CaretRightIcon size={11} />
+      </button>
+    </div>
   {/if}
   <div class="menu-list">
     {#each actionRows as row (row.key)}
@@ -199,7 +218,7 @@
       alignOffset={-6}
       collisionPadding={8}
       onInteractOutside={(event) => {
-        // The row is the menu's trigger — let its click toggle the menu rather
+        // The caret is the menu's trigger — let its click toggle the menu rather
         // than closing here and immediately reopening.
         if (openInAnchor?.contains(event.target as Node | null)) event.preventDefault();
       }}
@@ -240,5 +259,44 @@
     display: flex;
     flex-direction: column;
     gap: 0.0625rem;
+  }
+  /* Split-button, as in GitSection: the row and its caret read as one unit. */
+  .split-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0.0625rem;
+  }
+  .split-caret {
+    flex-shrink: 0;
+    width: 1.625rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 0.4375rem;
+    background: transparent;
+    color: var(--solus-text-tertiary);
+    cursor: pointer;
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease;
+  }
+  .split-caret:hover,
+  .split-caret.is-open {
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+  .split-caret:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 0.125rem
+      color-mix(in srgb, var(--solus-accent) 35%, transparent);
+  }
+  .split-caret:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .split-caret:disabled:hover {
+    background: transparent;
+    color: var(--solus-text-tertiary);
   }
 </style>

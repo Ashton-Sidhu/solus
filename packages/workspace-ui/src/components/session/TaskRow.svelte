@@ -48,6 +48,8 @@
     bulkSelected?: boolean;
     /** Every session of the row, for the facts the row states about them. */
     sessions: SidebarSessionChild[];
+    /** A share link's guest is not told which host runs the session (host-sharing.md §10). */
+    isGuest: boolean;
     /** The session on screen, listed under the row when the row does not
      *  stand for it already. Null on every other row, so one click updates
      *  two rows and not the whole list. */
@@ -58,6 +60,11 @@
      *  rather than by whichever session happens to be open under them. */
     renamingTaskId: string | null;
     onSelect: (event?: MouseEvent) => void;
+    /** A click just opened a session and reordered the list under the resting
+     *  pointer: the tooltip stays shut until the pointer moves. */
+    isTooltipQuiet?: boolean;
+    /** The pointer went down on the row: its reads can start before the click lands. */
+    onPressStart?: () => void;
     /** Rename a row in place. `null` names the task row itself, matching
      *  `onRename` — a task row is named by its task, a session row by its tab. */
     onStartRename: (session: SidebarSessionChild | null) => void;
@@ -89,10 +96,13 @@
     onPath,
     bulkSelected = false,
     sessions,
+    isGuest,
     disclosedSession,
     renamingTabId,
     renamingTaskId,
     onSelect,
+    isTooltipQuiet = false,
+    onPressStart,
     onStartRename,
     onRename,
     onRenameCancel,
@@ -140,7 +150,7 @@
   // under the row there is a single answer and the row states it. Several
   // sessions can sit on different hosts, and no single mark is true of all of
   // them — so the question moves to the task page, where each can answer it.
-  const showsHost = $derived(sessions.length <= 1);
+  const showsHost = $derived(!isGuest && sessions.length <= 1);
   const host = $derived(serversStore.hostFor(task.serverId));
   // A task with no server on it has nothing open, and nothing open runs here.
   const isRemote = $derived(!!host && !host.local);
@@ -437,8 +447,11 @@
   legible rather than faded out. The hierarchy is a difference in emphasis,
   never a wall between "readable" and "invisible".
 -->
-<div class="group/task">
-  <TooltipUI.Root>
+<!-- Pointer down only starts the open's reads early; the row inside is the
+     control, and a keyboard open still starts them on its own. -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="group/task" onpointerdown={(event) => { if (event.button === 0) onPressStart?.(); }}>
+  <TooltipUI.Root disabled={isTooltipQuiet}>
     <TooltipUI.Trigger>
       {#snippet child({ props: tooltipProps })}
   <div
@@ -496,7 +509,7 @@
       >
         <ProjectFavicon
           projectKey={task.groupKey}
-          class="size-4 pointer-fine:[&_.lucide-folder]:size-[82%]"
+          class="size-4 pointer-fine:[&_.lucide-icon]:size-[82%]"
         />
       </span>
       {@render rowTitle()}
@@ -533,7 +546,7 @@
                  scoped. -->
             <ProjectFavicon
               projectKey={task.groupKey}
-              class="size-4 shrink-0 @max-[15rem]:size-[0.875rem] pointer-fine:[&_.lucide-folder]:size-[82%]"
+              class="size-4 shrink-0 @max-[15rem]:size-[0.875rem] pointer-fine:[&_.lucide-icon]:size-[82%]"
             />
             <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
               >{task.projectLabel}</span
@@ -647,6 +660,7 @@
       taskTitle={task.linkedTask?.title}
       {branchName}
       serverId={task.serverId}
+      {isGuest}
       provider={tooltipSession?.provider}
       modelId={tooltipSession?.modelId}
       attention={task.attention}
@@ -664,6 +678,7 @@
         session={disclosedSession}
         groupKey={task.groupKey}
         projectLabel={task.projectLabel}
+        {isGuest}
         renaming={!!disclosedSession.tabId && renamingTabId === disclosedSession.tabId}
         onRename={(next) => onRename(disclosedSession, next)}
         {onRenameCancel}

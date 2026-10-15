@@ -10,6 +10,9 @@ import { solusDir } from '../../platform/paths'
 import { memberFolderFor, recordedMemberFolder } from '../../host/member-folders'
 import { hostClaudeDir, hostCodexHome, providerLoginConnected } from './seat-login'
 import { identityFor } from './acting-identity'
+import { applyMemberFiles, type MemberFileChange } from './member-files'
+import { memberUsers } from '../../host/member-users'
+import type { LaunchOptions, ProcessUser } from '../../cli-env'
 
 const log = createLogger('main', 'seat-manager')
 
@@ -39,6 +42,11 @@ const log = createLogger('main', 'seat-manager')
  * than a separate shared tree: the session index reads the host's directories, so
  * this is what lets any member resume any thread on the host (proofs of
  * 2026-08-30 and 2026-09-04). Credentials are per member; transcripts are shared.
+ *
+ * Where each member is their own Linux user (docs/plans/member-isolation.md §5),
+ * a member's seat folders hold only their logins: the CLIs keep their defaults
+ * under the member's `HOME`, whose login files link here and whose transcript
+ * folders link to the host's one transcript folder (§5.1).
  *
  * The owner's seat has no row unless a token was pasted: its state is read from
  * the CLI, so a login made or removed in a terminal is reported truthfully.
@@ -121,8 +129,12 @@ export interface TurnSeat {
   home: string
   /** Set for a token seat: injected as `CLAUDE_CODE_OAUTH_TOKEN` for that turn only. */
   envToken?: string
-  /** A member's process environment from their acting identity; absent for the host login, which keeps the host's. */
-  env?: NodeJS.ProcessEnv
+  /**
+   * A member's launch options from their acting identity: their environment and,
+   * on a shared host, their OS user (docs/plans/member-isolation.md §3). Absent for
+   * the host login, which keeps the host's.
+   */
+  launch?: LaunchOptions
 }
 
 /**
@@ -254,7 +266,7 @@ export class SeatManager implements SeatStore {
     this.deps.db.prepare('UPDATE provider_seat SET last_used_at = ? WHERE user_id = ? AND provider = ?').run(usedAt, seatKey(seat), provider)
     this.rows.set(rowKey(seat, provider), { ...row, last_used_at: usedAt })
     // A turn waits for the member's GitHub connection, so their commits name them.
-    turnSeat.env = await identityFor(seat).env()
+    turnSeat.launch = await identityFor(seat).launchOptions()
     return turnSeat
   }
 
@@ -270,7 +282,7 @@ export class SeatManager implements SeatStore {
     if (row && row.state !== 'connected') return isHostLogin ? this.hostLoginSeat(provider) : null
     const turnSeat: TurnSeat = isHostLogin
       ? this.hostLoginSeat(provider)
-      : { seat, provider, home: this.userHome(seat, provider), env: identityFor(seat).envSync() }
+      : { seat, provider, home: this.userHome(seat, provider), launch: identityFor(seat).launchOptionsSync() }
     if (provider === 'claude-code' && row?.method === 'token') {
       const token = readFileOrNull(join(turnSeat.home, CLAUDE_TOKEN_FILE))?.trim()
       if (!token) return isHostLogin ? this.hostLoginSeat(provider) : null
@@ -330,15 +342,16 @@ export class SeatManager implements SeatStore {
   /** A credential the user made elsewhere (plan §3.2 `seatConnectToken`). */
   async storeToken(seat: Seat, provider: SeatProvider, token: string): Promise<SeatStatus> {
     const home = this.homeFor(seat, provider)
-    // The host's own provider home may not exist yet on a host that never ran the CLI.
-    mkdirSync(home, { recursive: true })
+    // The host's own provider home may not exist yet on a host that never ran the CLI; the write makes it.
+    let file: MemberFileChange
     if (provider === 'claude-code') {
-      writeFileSync(join(home, CLAUDE_TOKEN_FILE), `${token.trim()}\n`, { mode: 0o600 })
+      file = { kind: 'write', path: join(home, CLAUDE_TOKEN_FILE), content: `${token.trim()}\n`, mode: 0o600 }
     } else {
       const auth = parseCodexAuthJson(token)
       if (!auth) throw new Error('Paste the contents of your Codex auth.json file.')
-      writeFileSync(join(home, CODEX_AUTH_FILE), `${JSON.stringify(auth)}\n`, { mode: 0o600 })
+      file = { kind: 'write', path: join(home, CODEX_AUTH_FILE), content: `${JSON.stringify(auth)}\n`, mode: 0o600 }
     }
+    applyMemberFiles(processUserOf(seat), [file])
     return this.markConnected(seat, provider, 'token')
   }
 
@@ -350,23 +363,34 @@ export class SeatManager implements SeatStore {
   disconnect(seat: Seat, provider: SeatProvider): Promise<SeatStatus> {
     const home = this.homeFor(seat, provider)
     const files = seat.kind === 'host-login' ? [CLAUDE_TOKEN_FILE] : credentialFiles(provider)
-    for (const file of files) rmSync(join(home, file), { force: true })
+    applyMemberFiles(processUserOf(seat), files.map((file) => ({ kind: 'remove', path: join(home, file) })))
     this.deleteRow(seat, provider)
     log.info('seat_disconnected', { seat: seatKey(seat), provider })
     return this.announce(seat, provider)
   }
 
-  /** Deletes a user's seat directories and rows: on removal from the team (plan §3.7). The host login is not a user seat, so it is never removed. */
+  /**
+   * Deletes a user's seat directories and rows: on removal from the team (plan §3.7).
+   * The host login is not a user seat, so it is never removed. Where each member is
+   * their own user, their folders are the host object's: only the login goes, and
+   * nothing when the host object already removed the user and their folders.
+   */
   async remove(userId: UserId, provider?: SeatProvider): Promise<number> {
-    const seat: Seat = { kind: 'user', userId }
+    const seat: Extract<Seat, { kind: 'user' }> = { kind: 'user', userId }
     const safeUserId = seatUserIdSchema.parse(seatKey(seat))
-    const folder = this.folderOf(seat)
+    const isolated = memberUsers() !== null
+    const user = isolated ? memberUsers()?.userOf(safeUserId) ?? null : null
     const providers = provider ? [provider] : SEAT_PROVIDERS
     let removed = 0
     for (const each of providers) {
-      const home = join(this.seatsRoot, each === 'claude-code' ? 'claude' : 'codex', folder)
       const hadRow = !!this.row(seat, each)
-      if (existsSync(home)) rmSync(home, { recursive: true, force: true })
+      if (!isolated) {
+        const home = join(this.seatsRoot, each === 'claude-code' ? 'claude' : 'codex', this.folderOf(seat))
+        if (existsSync(home)) rmSync(home, { recursive: true, force: true })
+      } else if (user) {
+        const home = join(this.seatsRoot, each === 'claude-code' ? 'claude' : 'codex', user.username)
+        applyMemberFiles({ uid: user.uid }, credentialFiles(each).map((file) => ({ kind: 'remove', path: join(home, file) })))
+      }
       this.deleteRow(seat, each)
       if (hadRow) {
         removed += 1
@@ -407,8 +431,12 @@ export class SeatManager implements SeatStore {
     return { seat: HOST_LOGIN_SEAT, provider, home: this.hostHomeFor(provider) }
   }
 
-  /** A user's directory, created with its links on first use. */
+  /**
+   * A user's directory, created with its links on first use. Where each member is
+   * their own user, the host object made it and its links (docs/plans/member-isolation.md §5).
+   */
   private userHome(seat: Extract<Seat, { kind: 'user' }>, provider: SeatProvider): string {
+    if (memberUsers()) return join(this.seatsRoot, provider === 'claude-code' ? 'claude' : 'codex', this.folderOf(seat))
     const home = memberSeatDirectory(this.seatsRoot, this.folderOf(seat), provider)
     if (provider === 'claude-code') {
       ensureLink(join(home, 'projects'), join(this.hostClaudeDir, 'projects'))
@@ -538,11 +566,13 @@ export function memberSeatDirectory(seatsRoot: string, folder: string, provider:
 /** The `bin` beside the seats whose `open` and `xdg-open` fail: a relayed login prints its URL instead. */
 export function ensureSeatShims(seatsRoot: string): string {
   const bin = join(seatsRoot, 'bin')
-  ensureDir(bin, 0o700)
+  // Where each member is their own user, their relayed login runs as them and must run the shims too.
+  const mode = memberUsers() ? 0o755 : 0o700
+  ensureDir(bin, mode)
   for (const name of ['open', 'xdg-open']) {
     const path = join(bin, name)
-    if (existsSync(path)) continue
-    writeFileSync(path, '#!/bin/sh\n# Solus seat shim: a relayed login must not open a browser on the host.\nexit 1\n', { mode: 0o700 })
+    if (!existsSync(path)) writeFileSync(path, '#!/bin/sh\n# Solus seat shim: a relayed login must not open a browser on the host.\nexit 1\n', { mode })
+    chmodSync(path, mode)
   }
   return bin
 }
@@ -584,4 +614,9 @@ export function parseCodexAuthJson(text: string): CodexAuthJson | null {
   } catch {
     return null
   }
+}
+
+/** The OS user a seat's files are written as: the member's on a host where each member is a user; null elsewhere and for the host login. */
+function processUserOf(seat: Seat): ProcessUser | null {
+  return seat.kind === 'host-login' ? null : identityFor(seat).processUser()
 }

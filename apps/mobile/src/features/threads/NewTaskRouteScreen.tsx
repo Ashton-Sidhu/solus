@@ -2,7 +2,7 @@
 // NewTaskDraftScreen.tsx (MIT, see UPSTREAM.md).
 import { CommonActions, StackActions, useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { chatFolderIn, isChat, NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
+import { isChat, NEW_CHAT_DIRECTORY } from "@solus/contracts/chat";
 import { MAX_ATTACHMENT_UPLOAD_COUNT } from "@solus/contracts/rpc";
 import type { PermissionMode } from "@solus/contracts/types";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -40,7 +40,6 @@ import type { ConversationMeta, ConversationStore } from "../conversation/conver
 import type { PickedFile } from "../conversation/lib/attachments";
 import { modelLabel, offersPlanToggle, PERMISSION_MODE_ICON, PERMISSION_MODE_TEXT } from "../conversation/lib/run-settings";
 import { useKeyboardCommand } from "../keyboard/use-keyboard-command";
-import { useProjectsFolder } from "../projects/use-open-project";
 import { useScaledTextRole } from "../settings/appearance/useScaledTextRole";
 import { pastedComposerImages, pickComposerFiles, pickComposerMedia } from "./composer-attachment-pickers";
 import { rememberNewThreadTarget } from "./new-thread-targets";
@@ -438,17 +437,9 @@ function useDraftConversation(hostId: string, sessionId: string, workingDirector
 function NewTaskDraftScreen(props: { readonly hostId: string; readonly projectPath: string }) {
   const app = useApp();
   const chat = isChat(props.projectPath);
-  const projectsFolder = useProjectsFolder(props.hostId);
   const [sessionId] = useState(() => app.newSessionId());
-  // A chat runs in its own folder, named from the new session; the host names
-  // it itself when it has not said where its projects are.
-  const workingDirectory = !chat
-    ? props.projectPath
-    : projectsFolder === null
-      ? null
-      : projectsFolder !== "~"
-        ? chatFolderIn(projectsFolder, sessionId)
-        : NEW_CHAT_DIRECTORY;
+  // A chat runs in its own folder; the host names it from the new session.
+  const workingDirectory = chat ? NEW_CHAT_DIRECTORY : props.projectPath;
   const { store, startedRef } = useDraftConversation(props.hostId, sessionId, workingDirectory);
   if (!store) {
     return (

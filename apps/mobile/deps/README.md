@@ -18,6 +18,12 @@ the bar item axis behavior), and also the v5 `Stack`, `Split`, `Tabs`, and
 - **SHA-256:** `844610ae7a670426e49a66a10891129cf40985494b6ee9d7b4f488f1179139a3`
 - **License:** MIT (`LICENSE` in the archive, Software Mansion).
 
+The root `react-native-screens` override must use the same `file:deps/...`
+path as the mobile manifest. Bun 1.3.14 resolves this override from the mobile
+workspace. A root-relative `file:./apps/mobile/deps/...` override fails with
+`ENOENT extracting tarball` during a clean install. Keep the override so
+React Navigation's peer dependency uses this fork too.
+
 T3's procedure to build an archive is in its
 `docs/operations/mobile-screens-fork.md`. To replace this archive, copy the
 new archive from T3 Code, change the path in `apps/mobile/package.json`,

@@ -17,6 +17,7 @@ describe("file editor find", () => {
         metaKey: true,
         ctrlKey: false,
         altKey: false,
+        shiftKey: false,
       }),
     ).toBe(true);
     expect(
@@ -25,6 +26,7 @@ describe("file editor find", () => {
         metaKey: false,
         ctrlKey: true,
         altKey: false,
+        shiftKey: false,
       }),
     ).toBe(true);
     expect(
@@ -33,6 +35,19 @@ describe("file editor find", () => {
         metaKey: true,
         ctrlKey: false,
         altKey: true,
+        shiftKey: false,
+      }),
+    ).toBe(false);
+  });
+
+  test("leaves the project search shortcut to the global dispatcher", () => {
+    expect(
+      isFileFindShortcut({
+        code: "KeyF",
+        metaKey: true,
+        ctrlKey: false,
+        altKey: false,
+        shiftKey: true,
       }),
     ).toBe(false);
   });

@@ -38,6 +38,7 @@
     "solus/no-host-api-escapes": "error",
     "solus/no-pass-through-wrappers": "error",
     "solus/no-pierre-diff-escapes": "error",
+    "solus/no-private-path-to-member": "error",
     "solus/no-pr-context-escapes": "error",
     "solus/no-tailwind-class-variables": "error",
     "solus/require-resolved-cwd": "error",

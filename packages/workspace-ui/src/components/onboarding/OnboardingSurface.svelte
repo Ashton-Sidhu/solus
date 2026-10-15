@@ -104,7 +104,7 @@
       { freshTask: true, target: "leading" },
       project.path,
     );
-    draft.run.location = openFolder(draft.run.location, { serverId: project.serverId, path: project.path });
+    draft.moveTo(openFolder(draft.run.location, { serverId: project.serverId, path: project.path }));
     requestInputFocus();
   }
 

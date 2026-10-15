@@ -77,12 +77,12 @@
 
 <section class="flex flex-col gap-3" aria-labelledby="{listId}-title">
   <div class="flex min-h-7 items-center justify-between gap-4">
-    <h3 id="{listId}-title" class="text-sm font-medium text-foreground">Builds</h3>
+    <h3 id="{listId}-title" class="text-workspace-chrome font-medium text-foreground">Available builds</h3>
     {#if deviceState.builds.length}<span class="text-chrome-dense tabular-nums text-(--solus-text-tertiary)">{deviceState.builds.length}</span>{/if}
   </div>
   {#if !deviceState.builds.length}
     <RowCard>
-      <p class="px-4 py-6 text-center text-[13px] text-(--solus-text-secondary)">No builds yet. Build one above, or ask an agent to build the app.</p>
+      <p class="px-4 py-6 text-center text-[13px] text-(--solus-text-secondary)">No builds yet. Choose a project, branch, and target above to create a Release app.</p>
     </RowCard>
   {:else}
     <RowCard>
@@ -110,7 +110,7 @@
                   <Button {...props} size="icon-sm" variant="ghost" class="shrink-0 text-(--solus-text-tertiary)" aria-label="Actions for {build.name}"><Ellipsis /></Button>
                 {/snippet}
               </DropdownMenu.Trigger>
-              <DropdownMenu.Content align="end">
+              <DropdownMenu.Content align="end" class="w-max">
                 {#if build.assetId}<DropdownMenu.Item onSelect={() => void download(build)}><Download />Download APK</DropdownMenu.Item>{/if}
                 <DropdownMenu.Item variant="destructive" onSelect={() => void remove(build)}><Trash2 />Delete build</DropdownMenu.Item>
               </DropdownMenu.Content>

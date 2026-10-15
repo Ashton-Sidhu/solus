@@ -72,12 +72,14 @@
 
 		carouselState.scrollSnaps = carouselState.api.scrollSnapList();
 		carouselState.api.on("select", onSelect);
+		carouselState.api.on("reInit", onSelect);
 		onSelect();
 	}
 
 	$effect(() => {
 		return () => {
 			carouselState.api?.off("select", onSelect);
+			carouselState.api?.off("reInit", onSelect);
 		};
 	});
 </script>

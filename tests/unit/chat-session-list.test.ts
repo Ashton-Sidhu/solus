@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
-import { chatFolderIn } from '@solus/contracts/chat'
 import { encodePathAsFolder } from '@solus/contracts/types'
 
 // bun has no node:sqlite; the indexer's import chain reaches it.
@@ -36,11 +35,11 @@ test('the chats filter lists every chat on the host and no project session', asy
   const { ANY_ORGANIZATION } = await import('@solus/server/admission/principal')
 
   const sessions = [
-    { id: 'chat-owner', cwd: chatFolderIn('/Users/me/projects', 'chat-owner') },
-    { id: 'chat-member', cwd: chatFolderIn('/data/projects/ada-1', 'chat-member') },
+    { id: 'chat-owner', cwd: '/Users/me/.solus/solus-chats/chat-owner' },
+    { id: 'chat-member', cwd: '/data/projects/ada-1/solus-chats/chat-member' },
     { id: 'project', cwd: '/Users/me/projects/solus' },
-    // A project named like the chat root is not a chat: the root is a dot folder.
-    { id: 'look-alike', cwd: '/Users/me/projects/solus-chats' },
+    // A project whose name only contains the chat root's name is not a chat.
+    { id: 'look-alike', cwd: '/Users/me/projects/my-solus-chats' },
   ]
   for (const session of sessions) {
     indexer.persistIndexedSessionStart(session.id, 'codex', session.cwd, encodePathAsFolder(session.cwd), 'gpt-5.5', 'high', 'hello')

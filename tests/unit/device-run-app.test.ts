@@ -25,7 +25,6 @@ const defaultBranch = () => 'main'
 
 test('every conversation and window on a host shares one Run app', () => {
   const runApp = runApps.for('host-a')
-  runApp.mode = 'device'
   runApp.chooseProject('/code/app')
   expect(runApps.for('host-a')).toBe(runApp)
   expect(runApps.for('host-b')).not.toBe(runApp)
@@ -33,7 +32,7 @@ test('every conversation and window on a host shares one Run app', () => {
 
 test("a running build is shown from any conversation, even one in another project", () => {
   const view = new RunApp().view([build], '/code/other', defaultBranch)
-  expect(view).toMatchObject({ mode: 'device', projectPath: '/code/app', branch: 'release', target: 'android' })
+  expect(view).toMatchObject({ projectPath: '/code/app', branch: 'release', target: 'android' })
   expect(view.latest?.runId).toBe('r1')
   expect(hasActiveRun([build])).toBe(true)
 })
@@ -41,8 +40,7 @@ test("a running build is shown from any conversation, even one in another projec
 test('once the build ends, the choices apply again and find its finished run', () => {
   const done = { ...build, stage: 'done' as const, buildId: 'b1' }
   const runApp = new RunApp()
-  expect(runApp.view([done], '/code/other', defaultBranch)).toMatchObject({ mode: 'dev', projectPath: '/code/other' })
-  runApp.mode = 'device'
+  expect(runApp.view([done], '/code/other', defaultBranch)).toMatchObject({ projectPath: '/code/other' })
   runApp.target = 'android'
   runApp.chooseProject('/code/app')
   runApp.branch = 'release'
@@ -69,4 +67,22 @@ test('one install reaches every checked device, and each device reports on its o
   expect(results).toEqual([{ deviceName: 'Pixel 9', error: null }, { deviceName: 'Galaxy', error: 'unauthorized' }])
   expect(runApp.installStatus('b1', 'emulator-5554')).toEqual({ state: 'installed' })
   expect(runApp.installStatus('b1', 'R5CT')).toEqual({ state: 'failed', error: 'unauthorized' })
+})
+
+test('a finished dev run cannot replace the production build log', () => {
+  const runApp = new RunApp()
+  runApp.target = 'android'
+  runApp.branch = 'release'
+  const done = { ...build, stage: 'done' as const, buildId: 'b1' }
+  const dev = { ...done, runId: 'dev', mode: 'dev' as const, target: null }
+  expect(runApp.view([dev, done], '/code/app', defaultBranch).latest).toBe(done)
+  expect(runApp.view([dev], '/code/app', defaultBranch).latest).toBeUndefined()
+})
+
+test('an existing dev run remains reachable for cancellation without a dev mode choice', () => {
+  const dev = { ...build, mode: 'dev' as const, target: null, stage: 'running' as const }
+  const view = new RunApp().view([dev], '/code/other', defaultBranch)
+  expect(view.latest).toBe(dev)
+  expect(view.target).toBe('ios-simulator')
+  expect(hasActiveRun([dev])).toBe(true)
 })

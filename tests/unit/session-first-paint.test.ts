@@ -38,7 +38,7 @@ test('messages display while git identity and task binding are still pending', a
     const { projectHome, adoptGit, workingPlace } = runLocation;
     const defaultDir = '/repo', workingDirectory = '/repo', tabId = 'tab',
       resumedSessionId = 'session', provider = 'codex', meta = {}, background = false, intoTabId = undefined;
-    const runtimeAttach = Promise.resolve(null), INITIAL_HISTORY_TURNS = 10;
+    const runtimeAttach = Promise.resolve(null), INITIAL_HISTORY_TURNS = 10, firstPage = { projectPath: '/repo' };
     const isSolusWorktreePath = () => false, gitCheckoutFromState = () => null;
     const loadSessionTranscript = async () => transcript;
     const sessionGuideIdentity = () => null, requestConversationScrollToBottom = () => {}, track = () => {};
@@ -59,3 +59,4 @@ test('messages display while git identity and task binding are still pending', a
   expect(registered).toBe(false)
   expect(selected.run.location).toBe(replacementLocation)
 })
+

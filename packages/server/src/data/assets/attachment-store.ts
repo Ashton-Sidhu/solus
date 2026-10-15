@@ -1,11 +1,12 @@
 import { createHash, randomBytes } from 'crypto'
-import { mkdir, open, unlink } from 'fs/promises'
+import { chmod, copyFile, mkdir, open, unlink } from 'fs/promises'
 import { basename, dirname, join } from 'path'
 import { z } from 'zod'
 import type { AttachmentUploadRequest } from '@solus/contracts/rpc'
 import { MAX_ATTACHMENT_UPLOAD_BYTES, MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
 import { VIDEO_FILE_EXTENSIONS, videoMimeType } from '@solus/contracts/media-types'
 import { dataDir } from '../../platform/paths'
+import { memberUsers } from '../../host/member-users'
 
 /**
  * The host's attachment store: files a client or another host uploaded for a
@@ -14,7 +15,47 @@ import { dataDir } from '../../platform/paths'
  */
 
 export function attachmentsRoot(): string {
-  return join(dataDir(), 'attachments')
+  return sharedFilesRoot() ?? join(dataDir(), 'attachments')
+}
+
+/**
+ * Where each member is their own Linux user, the files the server hands to an
+ * agent by path (docs/plans/member-isolation.md §5): `<shared>/files`, which the
+ * host object made `solus:solus-proj` 2710. A member opens a path they were given
+ * but cannot list the folder. Null on every other host.
+ */
+function sharedFilesRoot(): string | null {
+  const shared = memberUsers()?.layout()?.shared
+  return shared ? join(shared, 'files') : null
+}
+
+/**
+ * A folder in it: its name or a path is the member's key, so they may enter, not
+ * list. Setgid, so the files in it keep the `solus-proj` group that lets members
+ * read them: a mode without it would give them the server's own group.
+ */
+const SHARED_FOLDER_MODE = 0o2710
+
+/** An uploaded file: the server's own, or, where it is handed to members, readable by their group. */
+export function attachmentFileMode(): number {
+  return sharedFilesRoot() ? 0o640 : 0o600
+}
+
+/**
+ * A file the server keeps (a large screenshot), as a path an agent can open:
+ * where each member is their own user, a copy in a new random folder of the
+ * shared files; elsewhere the file itself.
+ */
+export async function agentReadablePath(path: string): Promise<string> {
+  const root = sharedFilesRoot()
+  if (!root) return path
+  const folder = join(root, randomBytes(12).toString('hex'))
+  await mkdir(folder, { mode: SHARED_FOLDER_MODE })
+  await chmod(folder, SHARED_FOLDER_MODE)
+  const copy = join(folder, basename(path))
+  await copyFile(path, copy)
+  await chmod(copy, 0o640)
+  return copy
 }
 
 /** An image ref as it crosses a process or a host. */
@@ -59,6 +100,8 @@ export async function attachmentUploadPath(
 ): Promise<string> {
   const bucketDir = join(attachmentsDir, uploadFolderName(bucketId))
   await mkdir(bucketDir, { recursive: true })
+  // Its name follows from the conversation; each file in it has a random prefix that only its path tells.
+  if (sharedFilesRoot()) await chmod(bucketDir, SHARED_FOLDER_MODE)
 
   let leaf = safeFileName(name)
   const video = videoMimeType({ name, mimeType: mime })
@@ -100,7 +143,7 @@ export async function storeAttachment(
   const release = await reserveAttachmentSlot(dirname(filePath))
   let handle: Awaited<ReturnType<typeof open>> | undefined
   try {
-    handle = await open(filePath, 'wx', 0o600)
+    handle = await open(filePath, 'wx', attachmentFileMode())
     await handle.writeFile(buffer)
     await handle.close()
     return filePath

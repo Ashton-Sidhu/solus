@@ -68,10 +68,13 @@ import { installSkill, listInstalledSkills, removeSkill } from './skills/skills-
 import { publishPresenceRoom, registerPresenceHandlers } from './transport/handlers/presence-handlers'
 import { PresenceManager } from './presence/presence-manager'
 import { SeatManager, memberHomeDirectory, seatKey } from './execution/seats/seat-manager'
-import { ActingIdentities, useActingIdentities } from './execution/seats/acting-identity'
+import { ActingIdentities, identityFor, useActingIdentities } from './execution/seats/acting-identity'
 import { actorFor, HOST_ACTOR, memberSeat, ownerKeyOf, seatFor } from './admission/actor'
 import { currentHostUser, hostUserKey } from './host/host-user'
 import { MemberFolders, useMemberFolders } from './host/member-folders'
+import { memberUsers as installedMemberUsers, WorkspacePreparingError } from './host/member-users'
+import { useMemberSwitch } from './cli-env'
+import { syncBundledPlugins } from './execution/agents/plugins'
 import { setupProjectsRoot } from './workspace'
 import { fetchLogin } from './providers/github/auth'
 import { githubCredentials } from './providers/github/credentials'
@@ -497,13 +500,26 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // The workspace service
   // VAULT_NOT_CONFIGURED to every seat call.
   const seats = new SeatManager({ db: getDb() })
+  // On a managed host each member runs as their own Linux user, which the host
+  // object makes and lists in the users file (docs/plans/member-isolation.md §4);
+  // boot-core read it.
+  const memberUsers = installedMemberUsers()
+  // A member with no user yet starts nothing: never as the server's own user.
+  const memberUserOf = (seat: Parameters<typeof seatKey>[0]) => {
+    const user = memberUsers?.userOf(seatKey(seat))
+    if (!user) throw new WorkspacePreparingError()
+    return user
+  }
   // Who every process acts as (plans/019-acting-identity.md): a member's run in
   // their own home, with their own GitHub connection.
   const identities = new ActingIdentities({
     memberToken: () => githubCredentials().accountToken(),
     fetchLogin: async (accessToken) => (await fetchLogin(accessToken)).login,
-    memberHome: (seat) => memberHomeDirectory(seats.seatsRoot, seat),
+    // Where each member is their own user, the users file names their home (kept) and their secrets folder (memory).
+    memberHome: (seat) => memberUsers ? memberUserOf(seat).home : memberHomeDirectory(seats.seatsRoot, seat),
+    memberSecrets: memberUsers ? (seat) => memberUserOf(seat).secrets : undefined,
     gitHelper: () => solusGitHelper(['--member-home']),
+    memberUser: memberUsers ? (seat) => ({ uid: memberUserOf(seat).uid }) : undefined,
     now: Date.now,
   })
   useActingIdentities(identities)
@@ -750,6 +766,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const profiles = new AgentProfileManager({
     sourceHomes: hostProfileHomes,
     homeFor: (target, provider) => seats.homeFor(profileSeat(target), provider),
+    processUserFor: (target) => identityFor(profileSeat(target)).processUser(),
     now: Date.now,
     skills: { list: listInstalledSkills, install: installSkill, remove: removeSkill },
     skillHomesFor: (target) => target.kind === 'member' ? { claudeHome: seats.homeFor(profileSeat(target), 'claude-code'), codexHome: seats.homeFor(profileSeat(target), 'codex') } : undefined,
@@ -1219,6 +1236,25 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       renew: (userId) => userId === hostOrganizations.owner()?.userId ? localClient.renew() : Promise.resolve(),
     })
     delegations = hostDelegations
+    // A member the host object removed may act here no more: their credentials leave
+    // the disk and their sessions stop, as when their delegation ends.
+    memberUsers?.watch(({ added, removed, layoutChanged }) => {
+      // The folders were named after boot (the script ran late), or changed: start
+      // members with the switch it names, and give them the plugin where they can read it.
+      if (layoutChanged) {
+        useMemberSwitch(memberUsers.layout()?.switch ?? null)
+        void syncBundledPlugins()
+      }
+      // Their connections stop showing "Setting up your workspace" (docs/plans/member-isolation.md §8.1).
+      for (const { userId } of added) events.broadcast('connection.memberWorkspaceReady', { userId })
+      for (const { userId } of removed) {
+        identities.revoke(userId)
+        for (const held of hostDelegations.holders()) {
+          if (held.userId !== userId) continue
+          for (const sessionId of hostDelegations.sessionsActingFor(userId, held.scope)) opts.sessionRuntime.stopSession(sessionId, HOST_ACTOR)
+        }
+      }
+    })
     // Insights across hosts (docs/plans/insights-across-hosts.md): the owner's turns other hosts ran.
     insightPull = new InsightPull({
       userId: () => hostOrganizations.owner()?.userId ?? null,

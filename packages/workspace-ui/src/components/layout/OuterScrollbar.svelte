@@ -65,7 +65,9 @@
     resizeObserver.observe(track);
     for (const child of scrollElement.children) resizeObserver.observe(child);
     scrollElement.addEventListener("scroll", scheduleThumbUpdate, { passive: true });
-    updateThumb();
+    // In the frame, with the other reads: called here, it forced a layout in the
+    // middle of the update that mounted the transcript.
+    scheduleThumbUpdate();
 
     return () => {
       resizeObserver.disconnect();

@@ -10,6 +10,9 @@ export interface ArtifactRevision {
   html: string
   title: string
   workRef?: Message['workRef']
+  /** The message whose HTML is still on its host (`artifact.historyHtml`);
+   *  `html` is empty until the frame mounts and reads it. */
+  pendingHtml?: Message
 }
 
 interface FenceArtifact { identity: string; html: string }
@@ -48,11 +51,13 @@ export function artifactRevisions(messages: Message[]): ArtifactRevision[] {
   const revisions: ArtifactRevision[] = []
   for (const message of messages) {
     const artifact = message.artifact
-    if (artifact?.kind === 'html' && artifact.html && !artifact.streaming && message.workRef) {
-      revisions.push({
-        identity: `work:${message.workRef.workId}`, messageId: message.id, html: artifact.html,
+    if (artifact?.kind === 'html' && (artifact.html || artifact.historyHtml) && !artifact.streaming && message.workRef) {
+      const revision: ArtifactRevision = {
+        identity: `work:${message.workRef.workId}`, messageId: message.id, html: artifact.html ?? '',
         title: message.workRef.title, workRef: message.workRef,
-      })
+      }
+      if (artifact.historyHtml) revision.pendingHtml = message
+      revisions.push(revision)
     } else if (message.role === 'assistant' && !artifact) {
       for (const fence of fenceArtifacts(message)) revisions.push({
         identity: `fence:${fence.identity}`, messageId: message.id,
@@ -65,6 +70,7 @@ export function artifactRevisions(messages: Message[]): ArtifactRevision[] {
 
 function sameRevision(a: ArtifactRevision, b: ArtifactRevision): boolean {
   return a.identity === b.identity && a.messageId === b.messageId && a.html === b.html && a.title === b.title
+    && a.pendingHtml === b.pendingHtml
 }
 
 /** The previous list when a run's revisions did not change — what a streamed

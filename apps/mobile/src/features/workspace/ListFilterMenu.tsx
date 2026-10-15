@@ -1,21 +1,10 @@
 // Adapted from T3 Code apps/mobile/src/features/workspace/ListFilterMenu.tsx (MIT, see UPSTREAM.md).
-import { GlassView } from 'expo-glass-effect'
 import { Pressable, View } from 'react-native'
-import { withUniwind } from 'uniwind'
 import { AppText as Text } from '../../components/AppText'
 import { SymbolView } from '../../components/AppSymbol'
 import { ControlPillMenu } from '../../components/ControlPillMenu'
 import type { ControlPillMenuProps } from '../../components/ControlPillMenu.types'
 import { cn } from '../../lib/cn'
-import { NATIVE_LIQUID_GLASS_SUPPORTED } from '../../native/native-glass'
-import { useAppearancePreferences } from '../settings/appearance/AppearancePreferencesProvider'
-
-const FilterGlass = withUniwind(GlassView, {
-  style: { fromClassName: 'className' },
-  tintColor: { fromClassName: 'tintColorClassName', styleProperty: 'accentColor' },
-})
-
-const PILL = 'h-8 flex-row items-center gap-1.5 rounded-full px-3'
 
 /** A visible filter with a native menu containing only that filter's choices. */
 export function ListFilterMenu(props: {
@@ -26,7 +15,6 @@ export function ListFilterMenu(props: {
   readonly actions: ControlPillMenuProps['actions']
   readonly onSelect: (id: string) => void
 }) {
-  const { themeAppearance } = useAppearancePreferences()
   const content = (
     <>
       {props.icon ? (
@@ -43,13 +31,10 @@ export function ListFilterMenu(props: {
   return (
     <ControlPillMenu title={props.accessibilityLabel} actions={props.actions} onPressAction={({ nativeEvent }) => props.onSelect(nativeEvent.event)}>
       <Pressable accessibilityRole="button" accessibilityLabel={props.accessibilityLabel} hitSlop={6}>
-        {NATIVE_LIQUID_GLASS_SUPPORTED ? (
-          <FilterGlass isInteractive colorScheme={themeAppearance} tintColorClassName={props.active ? 'accent-primary' : undefined} className={PILL}>
-            {content}
-          </FilterGlass>
-        ) : (
-          <View className={cn(PILL, props.active ? 'bg-primary' : 'bg-subtle')}>{content}</View>
-        )}
+        {/* Native glass casts a shadow that is clipped into a gray strip by the filter scroll view. */}
+        <View className={cn('h-8 flex-row items-center gap-1.5 rounded-full px-3', props.active && 'bg-primary')}>
+          {content}
+        </View>
       </Pressable>
     </ControlPillMenu>
   )

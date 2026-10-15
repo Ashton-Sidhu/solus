@@ -1,6 +1,9 @@
 import { z } from 'zod'
-import type { Message, WorkMeta } from '@solus/contracts/types'
-import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
+import type { Message, Work, WorkMeta } from '@solus/contracts/types'
+import type { WorksStore } from '../works/works.store.svelte'
+import type { DeferredToolInput, WireSessionLoadMessage } from '@solus/contracts/session-history'
+import type { HostApi } from '@solus/client-core/host-api'
+import { serverConnections } from '@solus/client-core/server-connections'
 import { resolveArtifactTitle } from '@solus/contracts/work-preview'
 import { nextMsgId } from './session.utils'
 
@@ -87,4 +90,81 @@ export async function loadArtifactFileBodies(
 
 function namesHtmlPath(toolInput: string): boolean {
   try { return htmlPathInput.safeParse(JSON.parse(toolInput)).success } catch { return false }
+}
+
+const inputHtml = z.object({ html: z.string() })
+const htmlReads = new WeakMap<Message, Promise<void>>()
+
+interface ArtifactHtmlSources {
+  /** The work as it is now, one cached read: its body is the one a call wrote
+   *  when the version still matches. */
+  currentWork?(workId: string): Promise<Pick<Work, 'content' | 'contentVersion'> | null>
+  bodyAtVersion(workId: string, contentVersion: number, likelyServerId?: string): Promise<string | null>
+  apiFor?(serverId: string): Pick<HostApi, 'loadSessionToolInputs'>
+}
+
+/** The works store as the HTML sources of a transcript's artifacts. */
+export function worksArtifactHtmlSources(works: Pick<WorksStore, 'ensureContent' | 'history'>): ArtifactHtmlSources {
+  return {
+    currentWork: (workId) => works.ensureContent(workId, 'transcript-artifact'),
+    bodyAtVersion: (workId, contentVersion, serverId) => works.history.bodyAtVersion(workId, contentVersion, serverId),
+  }
+}
+
+/**
+ * Fill in the HTML a history page left on its host (`historyHtml`), on the
+ * reactive message, when its frame mounts. The work's revision at the version
+ * the receipt names comes first: it is a small read the works store caches.
+ * The call's own input, read from the transcript, answers when the work cannot
+ * (deleted, or moved to a host this client does not reach).
+ */
+export function loadArtifactHtml(message: Message, sources: ArtifactHtmlSources): Promise<void> {
+  const pending = htmlReads.get(message)
+  if (pending) return pending
+  const ref = message.artifact?.historyHtml
+  if (!ref) return Promise.resolve()
+  const read = (async () => {
+    ref.loading = true
+    delete ref.error
+    try {
+      const version = message.workRef?.contentVersion
+      let fromWork: string | null = null
+      if (message.workRef && version) {
+        const workId = message.workRef.workId
+        const current = await sources.currentWork?.(workId).catch(() => null)
+        fromWork = current?.contentVersion === version
+          ? current.content
+          : await sources.bodyAtVersion(workId, version, ref.serverId).catch(() => null)
+      }
+      const html = fromWork ?? await inputHtmlOf(ref, sources)
+      if (message.artifact?.historyHtml !== ref) return
+      if (html === null) {
+        ref.error = 'This artifact is no longer available.'
+        return
+      }
+      message.artifact.html = html
+      delete message.artifact.historyHtml
+    } catch {
+      ref.error = 'Could not load this artifact.'
+    } finally {
+      ref.loading = false
+      htmlReads.delete(message)
+    }
+  })()
+  htmlReads.set(message, read)
+  return read
+}
+
+async function inputHtmlOf(ref: DeferredToolInput, sources: ArtifactHtmlSources): Promise<string | null> {
+  const api = sources.apiFor ? sources.apiFor(ref.serverId) : serverConnections.apiFor(ref.serverId)
+  const [input] = await api.loadSessionToolInputs({
+    sessionId: ref.sessionId, projectPath: ref.projectPath, provider: ref.provider, keys: [ref.key],
+  })
+  if (!input) return null
+  try {
+    const parsed = inputHtml.safeParse(JSON.parse(input.toolInput))
+    return parsed.success ? parsed.data.html : null
+  } catch {
+    return null
+  }
 }

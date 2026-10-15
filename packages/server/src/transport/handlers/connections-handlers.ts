@@ -13,6 +13,7 @@ import type { DiscoveredServer } from '@solus/contracts/types'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import type { SolusServer } from '../server'
 import { hostUserKey } from '../../host/host-user'
+import { memberUsers } from '../../host/member-users'
 import type { IntroducedHosts } from '../../execution/orchestration/introduced-hosts'
 import { z } from 'zod'
 
@@ -91,6 +92,9 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
       answer.userId = principal.userId
       answer.organizationId = principal.organizationId
       answer.displayName = principal.displayName
+      // The host object has not made their Linux user yet (docs/plans/member-isolation.md §8.1).
+      const users = memberUsers()
+      if (users && !users.userOf(principal.userId)) answer.memberWorkspace = 'preparing'
     }
     if (principal.kind === 'guest') {
       // The one thing a guest client needs to know at boot: what it was let in to see.

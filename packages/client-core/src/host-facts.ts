@@ -87,6 +87,8 @@ export class HostFacts {
     this.stopEvents = [
       source.events.subscribe('usage.limitsChanged', ({ snapshots }) => this.set('usage', snapshots)),
       source.events.subscribe('voice.modelStatusChanged', (status) => this.set('voiceModel', status)),
+      // The host made this member's Linux user: its server info no longer says `preparing` (docs/plans/member-isolation.md §8.1).
+      source.events.subscribe('connection.memberWorkspaceReady', () => void this.refresh('serverInfo')),
     ]
   }
 

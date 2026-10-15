@@ -71,3 +71,14 @@ export function resolveMarkdownImageDisplaySize(input: {
     height: input.sourceHeight * scale,
   };
 }
+
+/** Thumbnail cards hold a fixed frame and name the image below the card. */
+export function resolveMarkdownImageFrame(input: {
+  thumbnail?: boolean;
+  displaySize: MarkdownImageDisplaySize | null;
+  placeholderWidth: number | "100%";
+  alt: string | null;
+}) {
+  if (input.thumbnail) return { style: { width: 110, height: 56 }, caption: null };
+  return { style: input.displaySize ?? { width: input.placeholderWidth, aspectRatio: 16 / 9 }, caption: input.alt };
+}

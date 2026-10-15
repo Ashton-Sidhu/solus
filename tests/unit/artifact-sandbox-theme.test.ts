@@ -12,7 +12,7 @@ afterEach(() => {
 function stubTheme(isDark: boolean): void {
   Object.defineProperty(globalThis, 'document', {
     configurable: true,
-    value: { documentElement: {} },
+    value: { documentElement: { className: isDark ? 'dark' : 'light', getAttribute: () => null } },
   })
   Object.defineProperty(globalThis, 'getComputedStyle', {
     configurable: true,
@@ -57,8 +57,22 @@ test('a render in the workspace has no background of its own', async () => {
   const { buildSandboxThemeCss } = await import('../../packages/workspace-ui/src/lib/artifactSandbox')
   for (const isDark of [false, true]) {
     stubTheme(isDark)
-    const rootBackgrounds = [...buildSandboxThemeCss(isDark).matchAll(/html\{[^}]*?background:([^;}]+)/g)].map((m) => m[1])
-    expect(rootBackgrounds.at(-1)).toBe('transparent')
+    const rootBackgrounds = [...buildSandboxThemeCss(isDark).matchAll(/html(?:,body)?\{[^}]*?background:([^;}]+)/g)].map((m) => m[1])
+    expect(rootBackgrounds.at(-1)).toBe('transparent!important')
+  }
+})
+
+test('lenses and artifacts share the transparent document surface', () => {
+  // WHY: the lens must show the same pane surface as an artifact, including
+  // saved HTML with a page background. Content panels keep their own surfaces.
+  const html = '<style>html,body{background:white}</style><main style="background:var(--card)">Panel</main>'
+  for (const isDark of [false, true]) {
+    stubTheme(isDark)
+    for (const isolated of [false, true]) {
+      const srcdoc = wrapSandboxSrcdoc(html, isDark, isolated)
+      expect(srcdoc).toContain('html,body{background:transparent!important}')
+      expect(srcdoc).toEndWith(html)
+    }
   }
 })
 

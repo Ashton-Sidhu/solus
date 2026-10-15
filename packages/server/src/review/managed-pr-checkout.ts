@@ -12,8 +12,18 @@ import { PARTIAL_CLONE_ARGS } from '../git/partial-clone'
 import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
 import { githubCredentials } from '../providers/github/credentials'
+import { memberUsers } from '../host/member-users'
 
 const log = createLogger('review', 'managed-pr-checkout.ts')
+
+/**
+ * Where review checkouts go: the server's data folder, or, where each member is
+ * their own Linux user, the folder the host object made for them, which members'
+ * git works in (`solus:solus-proj` 2775; docs/plans/member-isolation.md §5).
+ */
+function reviewCheckoutsRoot(): string {
+  return memberUsers()?.layout()?.reviews ?? join(dataDir(), 'review-checkouts')
+}
 
 type PrTarget = Extract<ReviewTarget, { kind: 'pr' }> & { baseSha: string; headSha: string }
 
@@ -30,7 +40,7 @@ export interface ManagedPrCheckoutOptions {
 export function managedPrCheckoutPath(
   repo: RepoRef,
   target: PrTarget,
-  root = join(dataDir(), 'review-checkouts'),
+  root = reviewCheckoutsRoot(),
 ): string {
   const acting = currentIdentity('a review checkout')
   const revision = `${repo.host.toLowerCase()}/${repo.owner.toLowerCase()}/${repo.repo.toLowerCase()}/${target.number}/${target.baseSha}/${target.headSha}`

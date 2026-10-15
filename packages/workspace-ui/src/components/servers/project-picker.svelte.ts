@@ -170,10 +170,11 @@ export function createProjectPicker(session: WorkspaceContext) {
       if (draft) {
         // A browse that started from a host row carries that host with it —
         // the picked folder is a path on that machine, not this one.
-        draft.run.location =
+        draft.moveTo(
           draftHostOverride && runHost(draft.run) !== draftHostOverride
             ? applyHostIntent(draft.run.location, draftHostOverride, dir, draftIntent)
-            : openFolder(draft.run.location, { serverId: checkoutPlace(draft.run).serverId, path: dir })
+            : openFolder(draft.run.location, { serverId: checkoutPlace(draft.run).serverId, path: dir }),
+        )
         if (draftIntent === 'open-project') draft.task = { kind: 'none' }
         void session.environment.refresh(runHost(draft.run), dir)
       }
@@ -191,7 +192,7 @@ export function createProjectPicker(session: WorkspaceContext) {
       // draft beside it. Choosing a host is part of that draft's run config —
       // there is no tab to move, because nothing has started.
       const draft = session.drafts.openSessionDraft({ freshTask: intent === 'open-project' }, dir)
-      if (overrideServerId) draft.run.location = applyHostIntent(draft.run.location, overrideServerId, dir, intent)
+      if (overrideServerId) draft.moveTo(applyHostIntent(draft.run.location, overrideServerId, dir, intent))
     } else if (
       targetTabId &&
       overrideServerId &&
@@ -300,7 +301,7 @@ export function createProjectPicker(session: WorkspaceContext) {
     if (onProjectOpened && project) {
       onProjectOpened(project)
     } else if (requesterDraft) {
-      requesterDraft.run.location = openFolder(requesterDraft.run.location, { serverId, path })
+      requesterDraft.moveTo(openFolder(requesterDraft.run.location, { serverId, path }))
       requesterDraft.task = { kind: 'none' }
       void session.environment.refresh(serverId, path)
       requestInputFocus()
@@ -309,7 +310,7 @@ export function createProjectPicker(session: WorkspaceContext) {
       requestInputFocus({ tabId: reusableTabId })
     } else {
       const draft = session.drafts.openSessionDraft({ freshTask: true }, path)
-      draft.run.location = openFolder(draft.run.location, { serverId, path })
+      draft.moveTo(openFolder(draft.run.location, { serverId, path }))
       requestInputFocus()
     }
 

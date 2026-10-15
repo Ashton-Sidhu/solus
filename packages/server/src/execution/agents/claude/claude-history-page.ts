@@ -8,7 +8,11 @@ const cursorSchema = z.object({
   offset: z.number().int().nonnegative(), inode: z.string(),
   anchorBytes: z.number().int().positive(), anchorHash: z.string(),
 })
-const BLOCK_BYTES = 64 * 1024
+/** Each read doubles from the first block to the largest. A short page stays
+ *  one small read; a page of many megabytes needs a few awaits, not hundreds,
+ *  and each await waits behind every other task on a busy host. */
+const FIRST_BLOCK_BYTES = 64 * 1024
+const MAX_BLOCK_BYTES = 2 * 1024 * 1024
 
 /** Read backwards from a byte boundary, decoding only complete UTF-8 lines,
  * until `turnLimit` user turns are complete. Appending live messages cannot
@@ -32,8 +36,10 @@ export async function loadClaudeHistoryPage(filePath: string, turnLimit: number,
     let fragments: Buffer[] = []
     const messages: SessionLoadMessage[] = []
     let turns = 0
+    let blockBytes = FIRST_BLOCK_BYTES
     while (position > 0) {
-      const start = Math.max(0, position - BLOCK_BYTES)
+      const start = Math.max(0, position - blockBytes)
+      blockBytes = Math.min(MAX_BLOCK_BYTES, blockBytes * 2)
       const block = Buffer.alloc(position - start)
       const { bytesRead } = await file.read(block, 0, block.length, start)
       if (bytesRead !== block.length) throw new Error('Session history changed during loading.')

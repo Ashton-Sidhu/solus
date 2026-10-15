@@ -18,7 +18,7 @@ mock.module('child_process', () => ({
     callback(reply instanceof Error ? reply : null, { stdout: typeof reply === 'string' ? reply : '' })
   },
 }))
-mock.module('@solus/server/cli-env', () => ({ getCliEnv: (extra?: NodeJS.ProcessEnv) => ({ ...extra }) }))
+mock.module('@solus/server/cli-env', () => ({ launchProcess: (file: string, args: readonly string[], extra?: NodeJS.ProcessEnv) => ({ file, args: [...args], env: { ...extra } }) }))
 mock.module('@solus/server/analytics', () => ({ captureServerEvent: () => {} }))
 mock.module('@solus/server/logger', () => ({ createLogger: () => ({ warn() {}, info() {}, error() {} }) }))
 const { listInstalledSkills, removeSkill, installSkill } = await import('@solus/server/skills/skills-cli')

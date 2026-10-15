@@ -43,6 +43,8 @@
     /** Bumping this re-creates the frame. The pane's Reload; a retry uses the
      *  same mechanism from inside. */
     reloadKey?: number;
+    /** What the frame's last height is remembered under; see `SandboxFrame`. */
+    heightKey?: string;
   }
 
   let {
@@ -53,6 +55,7 @@
     fillAvailable = false,
     skipMotion,
     reloadKey = 0,
+    heightKey,
   }: Props = $props();
 
   const session = getSurfaceContext();
@@ -224,6 +227,7 @@
   {:else if frameHtml !== undefined}
     <SandboxFrame
       html={frameHtml}
+      {heightKey}
       {fillAvailable}
       reloadKey={retryAttempt + reloadKey}
       lazy={!fillAvailable}

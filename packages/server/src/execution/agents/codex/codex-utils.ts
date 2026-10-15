@@ -351,6 +351,8 @@ export async function scanCodexPlans(thread: CodexThreadSummary, annotations: An
       } catch {}
     })
     rl.on('close', () => resolve())
+    // An unreadable transcript (another user's file) reads as empty; it never crashes the server.
+    rl.on('error', () => resolve())
   })
 
   const deduped = new Map<string, ScannedCodexPlan>()

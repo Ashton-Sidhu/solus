@@ -14,6 +14,8 @@ import { defaultContextWindowFor } from '@solus/contracts/types'
 import { HOST_ACTOR, insightsAccountOf, type Actor } from '../../admission/actor'
 import { userKey } from '@solus/contracts/user'
 import { admitTurnOrganization, type TurnAdmissionContext, type TurnOrganizationDeps } from './turn-organization'
+import { TurnRefusedError } from './turn-refusal'
+import { memberUsers, WorkspacePreparingError } from '../../host/member-users'
 import type { SessionRuntime, SessionRunRequest, SessionRunLifecycle, DispatchTarget } from '../session-runtime'
 
 const log = createLogger('SessionRuntime', 'prompt-dispatch.ts')
@@ -84,6 +86,11 @@ export class PromptDispatch {
     origin?: { clientId?: string; deviceId?: string; actor?: Actor },
   ): Promise<PromptDispatchResult> {
     this.rt.assertNewWorkAllowed()
+    // A member whose Linux user the host object has not made yet starts nothing (docs/plans/member-isolation.md §8.1).
+    const principal = origin?.actor?.principal
+    if (principal?.kind === 'org-member' && memberUsers() && !memberUsers()?.userOf(principal.userId)) {
+      throw new TurnRefusedError('WORKSPACE_PREPARING', new WorkspacePreparingError().message)
+    }
     const proposedSessionId = ctx.session.sessionId
     if (!proposedSessionId) {
       throw new Error('No sessionId provided — rejecting to prevent misrouting')

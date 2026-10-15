@@ -56,3 +56,56 @@ describe('host row: when Try again can help', () => {
     expect(hostConnectionStatus(saved, state('connected')).retryable).toBeFalsy()
   })
 })
+
+describe('native Home while a host sets this person up (docs/plans/member-isolation.md §8.1)', () => {
+  test('says it is setting up the workspace, and names no host', () => {
+    const state = empty([{ ...host('Studio', 'connected'), isPreparing: true }])
+    expect(state).toMatchObject({ title: 'Setting up your workspace for the first time', action: null, loading: true })
+    expect(state.detail).not.toContain('Studio')
+  })
+
+  test('a ready host wins over one still setting up', () => {
+    const state = empty([{ ...host('Studio', 'connected'), isPreparing: true }, host('Laptop', 'connected')])
+    expect(state.title).not.toBe('Setting up your workspace for the first time')
+  })
+})
+
+
+describe('native Home distinguishes a list failure from a lost connection', () => {
+  const message = '[RPC error] Could not read sessions'
+  const previous = { threads: [], projects: [], indexing: false } as const
+
+  test('a connected host with a failed read shows a warning and keeps the error out of the header', () => {
+    const catalog = deriveWorkspaceState([host('Studio', 'connected', { kind: 'error', message, previous: null })])
+    expect(catalog.hasReadyEnvironment).toBe(true)
+    expect(workspaceConnectionStatusPresentation(catalog)).toEqual({ label: 'Could not load threads', kind: 'load-error' })
+    expect(deriveHomeEmptyState({ catalogState: catalog, projectCount: 0 })).toMatchObject({
+      title: 'Could not load threads', loading: false, action: 'retry-hosts',
+    })
+    expect(deriveHomeEmptyState({ catalogState: catalog, projectCount: 0 }).detail).toContain(message)
+  })
+
+  test('a failed refresh of an empty list does not claim there are no threads or projects', () => {
+    for (const projectCount of [0, 2]) {
+      expect(empty([host('Studio', 'connected', { kind: 'error', message, previous })], projectCount))
+        .toMatchObject({ title: 'Could not load threads', action: 'retry-hosts' })
+    }
+  })
+
+  test('retrying and recovering clear the warning', () => {
+    const catalog = deriveWorkspaceState([host('Studio', 'connected', { kind: 'loading', previous: null })])
+    expect(workspaceConnectionStatusPresentation(catalog)).toEqual({ label: 'Loading threads...', kind: 'progress' })
+    expect(empty([host('Studio', 'connected', { kind: 'loading', previous: null })]).loading).toBe(true)
+    const recovered = deriveWorkspaceState([host('Studio', 'connected', { kind: 'loaded', value: previous })])
+    expect(workspaceConnectionStatusPresentation(recovered)).toBeNull()
+    expect(deriveHomeEmptyState({ catalogState: recovered, projectCount: 2 }).title).toBe('No threads yet')
+  })
+
+  test('reconnecting another host shows progress even when a connected host failed to load', () => {
+    const catalog = deriveWorkspaceState([
+      host('Studio', 'connected', { kind: 'error', message, previous: null }),
+      host('Laptop', 'reconnecting'),
+    ])
+    expect(workspaceConnectionStatusPresentation(catalog)).toEqual({ label: 'Reconnecting to Laptop', kind: 'progress' })
+  })
+})

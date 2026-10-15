@@ -4,6 +4,6 @@
   "type": "module",
   "exports": { "./*": "./src/*.ts" },
   "scripts": { "check": "tsc --noEmit -p tsconfig.json" },
-  "dependencies": { "@solus/contracts": "workspace:*" },
-  "devDependencies": { "typescript": "^5.9.3" }
+  "dependencies": { "@solus/contracts": "workspace:*", "unified": "^11.0.5", "remark-parse": "^11.0.0" },
+  "devDependencies": { "@types/mdast": "^4.0.4", "typescript": "^5.9.3" }
 }

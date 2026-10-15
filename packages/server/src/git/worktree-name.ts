@@ -28,6 +28,8 @@ function worktreeNameTool(capture: (name: string) => void): AgentTool {
       name: z.string().describe('Three to six short words that name the concrete requested outcome.'),
     },
     requiresApproval: false,
+    // A deferred tool costs a tool-search turn, and the run has only two.
+    alwaysLoad: true,
     execute: async (args) => {
       const { name } = worktreeNameSchema.parse(args)
       capture(name)
@@ -89,7 +91,9 @@ export async function generateWorktreeNameWith(
       model: selection.model,
       error: error instanceof Error ? error.message : String(error),
     })
-    return null
+    // A run that ends in error after the tool call, such as at its turn
+    // limit, still submitted a correct name.
+    if (!submitted.name?.trim()) return null
   }
 
   const name = submitted.name?.trim() ?? ''

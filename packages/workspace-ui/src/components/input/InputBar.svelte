@@ -815,7 +815,10 @@
         </div>
       </div>
     {/if}
-    <div style:display={showWaveform ? "none" : null}>
+    <div
+      class="[&_.cm-placeholder]:inline-block! [&_.cm-placeholder]:max-w-full [&_.cm-placeholder]:overflow-hidden [&_.cm-placeholder]:text-ellipsis [&_.cm-placeholder]:whitespace-nowrap [&_.cm-placeholder]:align-bottom"
+      style:display={showWaveform ? "none" : null}
+    >
       <PromptEditor
         bind:this={composerEl}
         value={editorValue}

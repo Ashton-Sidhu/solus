@@ -539,6 +539,23 @@ describe("createNativeReviewDiffTheme", () => {
   });
 
   it.each(["light", "dark"] as const)(
+    // WHY: desktop's diff (`--solus-diff-*-vivid`) is the status green and red,
+    // so an added line is the same colour on the phone as on desktop.
+    "paints additions and deletions in the status green and red in %s",
+    (appearance) => {
+      const variables = getMobileThemeVariables(appearance);
+      const theme = createNativeReviewDiffTheme(appearance, variables);
+      expect([theme.addText, theme.addBar]).toEqual([variables["--color-adaptive-emerald-600-400"], variables["--color-adaptive-emerald-600-400"]]);
+      expect([theme.deleteText, theme.deleteBar]).toEqual([variables["--color-adaptive-rose-600-400"], variables["--color-adaptive-rose-600-400"]]);
+      // A changed row is a wash of its hue over the page, between the page and the hue.
+      for (const [wash, hue] of [[theme.addBackground, theme.addText], [theme.deleteBackground, theme.deleteText]] as const) {
+        expect(contrastRatio(wash, theme.background)).toBeLessThan(contrastRatio(hue, theme.background));
+        expect(wash).not.toBe(theme.background);
+      }
+    },
+  );
+
+  it.each(["light", "dark"] as const)(
     // Desktop paints diffs on the page colour (`--solus-diff-surface`), not the code block tint.
     "paints the diff on the screen and composites translucent app colors onto it in %s",
     (appearance) => {

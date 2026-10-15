@@ -48,9 +48,10 @@ export function AgentActivity(
   const cardForeground: Foreground = "#f0ede5";
   const cardMutedForeground: Foreground = "#9a978f";
 
-  // Status tints are the app thread list's dark ones (thread-list-v2-items.tsx): the
-  // warning and danger foregrounds for approval, limits and failures, indigo
-  // for input, sky for working, and the workspace's complete green for done.
+  // Status tints are the app thread list's dark ones (thread-list-v2-items.tsx,
+  // the dark palette in theme-colors.ts): amber for approval and limits, the
+  // accent for input, red for failures, blue for working, and the workspace's
+  // complete green for done.
   const phaseTint = (phase: AgentActivityPhase | undefined): Foreground => {
     if (environment.isLuminanceReduced) {
       return cardMutedForeground;
@@ -61,11 +62,11 @@ export function AgentActivity(
     switch (phase) {
       case "waiting_for_approval":
       case "limited":
-        return "#f0c070"; // dark warningForeground
+        return "#fbbf24"; // dark amber
       case "waiting_for_input":
-        return "#a5b4fc"; // indigo-300
+        return "#e68e6b"; // dark accent
       case "failed":
-        return "#f08a84"; // dark errorForeground
+        return "#ef4444"; // dark red
       case "completed":
         return "#6fc884"; // dark --solus-status-complete
       case "stale":
@@ -73,7 +74,7 @@ export function AgentActivity(
       case "starting":
       case "running":
       default:
-        return "#38bdf8"; // sky-400
+        return "#346bf1"; // dark blue
     }
   };
 

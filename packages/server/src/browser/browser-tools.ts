@@ -23,6 +23,7 @@ import { agentToolImageFromDataUrl, type AgentTool, type AgentToolContext, type 
 import { createLogger } from '../logger'
 import { dataDir, resolveHomePath } from '../platform/paths'
 import { writeAssetUpload } from '../data/assets/assets'
+import { agentReadablePath } from '../data/assets/attachment-store'
 import { attachEvidence, stopAndFileRecording } from './browser-evidence'
 import { browserRecorder } from './browser-recorder'
 import { browserProfiles, profileForOpen } from './browser-profiles'
@@ -738,7 +739,7 @@ async function renderSnapshot(
     // The user gets the same capture as a card in the conversation, published
     // by the caller — so nothing here asks the model to remember to show it.
     image = await agentToolImageFromDataUrl(snapshot.screenshot)
-    const path = join(dataDir(), 'assets', stored.id)
+    const path = await agentReadablePath(join(dataDir(), 'assets', stored.id))
     lines.push(image ? `screenshot: attached to this result, scaled down; full resolution saved at ${path}` : `screenshot: ${path}  (too large to attach; read this path to look at it)`)
   }
 

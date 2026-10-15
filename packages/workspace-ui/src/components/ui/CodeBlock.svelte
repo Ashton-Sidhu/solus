@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack, type Snippet } from "svelte";
   import { Copy as CopyIcon, Check as CheckIcon } from "@lucide/svelte";
-  import { createIncrementalHighlight, loadCodeHighlighter, plainCodeLines } from "../../lib/incremental-highlight";
+  import { createIncrementalHighlight, highlightAfterPaint, loadCodeHighlighter, plainCodeLines } from "../../lib/incremental-highlight";
 
   interface Props {
     text: string;
@@ -32,8 +32,24 @@
 
   // Each completed line keeps its DOM. Async grammar loading and source changes
   // invalidate only this block; theme switches use the token CSS variables.
+  // The first colours wait for paint; a block that streams then stays live.
+  let hasColours = false;
   $effect(() => {
-    highlighted = highlight ? highlight(code) : plainCodeLines(code);
+    const next = highlight;
+    const source = code;
+    if (!next) {
+      hasColours = false;
+      highlighted = plainCodeLines(source);
+      return;
+    }
+    if (hasColours) {
+      highlighted = next(source);
+      return;
+    }
+    return highlightAfterPaint(() => {
+      highlighted = next(source);
+      hasColours = true;
+    });
   });
 
   let copied = $state(false);
@@ -56,7 +72,9 @@
         node.scrollLeft + node.clientWidth < node.scrollWidth - 1,
       );
     };
-    update();
+    // No read at mount: it forced a layout for each block as a transcript
+    // mounted. The observer's first report comes after the frame's layout and
+    // before it paints, so the fades are right in the first frame.
     node.addEventListener("scroll", update, { passive: true });
     const ro = new ResizeObserver(update);
     ro.observe(node);

@@ -52,13 +52,23 @@ function saveHeightsSoon(): void {
 /** FNV-1a and the length: markup can be megabytes, and storage wants a short key.
  *  A collision only costs one render its first-paint height. */
 function heightKeyOf(text: string): string {
+  // A frame asks again on every height it reports. The same string object
+  // hashes once: the map lookup reuses the hash the engine keeps on the string.
+  const known = hashedKeys.get(text);
+  if (known !== undefined) return known;
   let hash = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     hash ^= text.charCodeAt(i);
     hash = Math.imul(hash, 0x01000193);
   }
-  return `${(hash >>> 0).toString(36)}:${text.length.toString(36)}`;
+  const key = `${(hash >>> 0).toString(36)}:${text.length.toString(36)}`;
+  hashedKeys.set(text, key);
+  if (hashedKeys.size > HASHED_KEY_LIMIT) hashedKeys.delete(hashedKeys.keys().next().value!);
+  return key;
 }
+
+const HASHED_KEY_LIMIT = 64;
+const hashedKeys = new Map<string, string>();
 
 export function lastReportedHeight(html: string): number | undefined {
   return storedHeights().get(heightKeyOf(html));

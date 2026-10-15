@@ -966,7 +966,7 @@
      restated too. Maximized, the card is the window and takes the workspace
      fill again. */
   .secondary-pane-content:not(.secondary-pane-content--maximized) {
-    --solus-container-bg: #ffffff;
+    --solus-container-bg: #fffffe;
     --background: var(--solus-container-bg);
     --solus-diff-surface: var(--solus-container-bg);
   }

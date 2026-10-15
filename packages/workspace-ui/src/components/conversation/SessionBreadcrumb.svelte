@@ -411,7 +411,7 @@
     const host = draft ? checkoutPlace(draft.run).serverId : null;
     const nextPath = draft && host ? projectsStore.checkoutPathOn(host, nextGroupKey) : null;
     if (draft && host && nextPath) {
-      draft.run.location = openFolder(draft.run.location, { serverId: host, path: nextPath });
+      draft.moveTo(openFolder(draft.run.location, { serverId: host, path: nextPath }));
       void session.environment.refresh(host, nextPath);
     } else {
       const lead = sidebarStore.allTasks.find(

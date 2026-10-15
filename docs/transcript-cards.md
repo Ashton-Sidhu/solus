@@ -224,13 +224,21 @@ the thoughts around them. An empty assistant message does not close the row.
 Only prose, a card (a question, a sub-agent, an agent conversation, a document,
 and the other result cards), browser snapshots, or a notice closes it.
 
-Browser snapshots are not cards. They render inline as the pictures
-themselves, so the reader can read a capture without opening it. The frame
-takes the whole column at the capture's own shape, up to 36rem tall. Several
-captures show one frame at that size, with thumbnails under it; the arrows,
-← →, or a thumbnail change the frame. One line under the pictures carries the
-count, address, console errors, time, and Annotate and Open
-(`BrowserSnapshots.svelte`).
+Agent reply images, generated images, and browser captures appear in a compact
+image gallery below the final reply. Raw tool-result images, including device
+inspection screenshots, are excluded. Each preview shows a thumbnail, a file
+name or label, and the format. Image embeds in assistant replies render as file
+chips at their authored positions. A chip opens the file; the gallery below the reply provides image
+previews. Videos keep their existing presentation. Prompt attachments stay with the prompt.
+
+The gallery fills the conversation column on desktop, web, and mobile.
+Desktop and web use the shared carousel with previous and next controls instead
+of an overflow strip. Mobile shows a selected preview with previous and next
+controls, and uses the existing native file gallery for full-size viewing.
+Browser captures share their full-size capture gallery and retain page opening
+and annotation. Console error messages are not shown on previews or in the
+capture gallery. The gallery stays below the reply in either fold state.
+Images load through host-signed URLs. Reply image parsing is cached per message.
 
 An open thought scrolls inside a box of limited height. Its markdown renders
 only while it is open. Its open state belongs to the conversation, so it stays
@@ -289,3 +297,12 @@ restored from the successful tool receipt after a reload on every client and for
 both providers. Failed and unfinished saves do not add a completed card. Repeated
 writes to one work in a turn keep one card with the latest update. HTML artifacts
 keep their inline revision preview.
+
+Image and video file chips open the media modal on desktop, web, and mobile.
+This includes Markdown links, image embeds shown as chips, and file path chips.
+Host files and stored assets load through host-signed URLs. Other file types keep
+their existing file preview route. Escape or the close button closes the desktop
+and web modal and returns focus to the chip.
+
+The full image gallery card opens its preview, including the filename, file type,
+and padding. Each card has one keyboard and accessibility target.

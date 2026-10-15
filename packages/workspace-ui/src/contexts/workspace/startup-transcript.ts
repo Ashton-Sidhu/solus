@@ -44,6 +44,7 @@ export function prefetchStartupTranscript(): Promise<void> | undefined {
       projectPath: workingPlace(tab).path,
       provider: tab.provider,
       turnLimit: INITIAL_HISTORY_TURNS,
+      deferArtifactHtml: true,
     })
     return result.then(() => { performance.mark('solus.boot.transcript.received') }).catch(() => {})
   } catch {

@@ -74,8 +74,7 @@ interface MergeMethodsResponse {
  * filled for an admin — every other viewer reads `null`, which used to become
  * "all three allowed" and offered a merge commit on a squash-only repository.
  * GraphQL answers the same question for anyone who can read the repository, so
- * it is the source here and REST is only the fallback for a host that refuses
- * the query.
+ * it is the source here. A failed query reaches the shared request policy.
  */
 async function mergeMethodSettings(
   client: GitHubClient,
@@ -90,24 +89,20 @@ async function mergeMethodSettings(
   RepositorySettings,
   'allowMergeCommit' | 'allowSquashMerge' | 'allowRebaseMerge' | 'allowAutoMerge' | 'defaultMergeMethod'
 >> {
-  try {
-    const result = await client.graphql<MergeMethodsResponse>(MERGE_METHODS_QUERY, {
-      owner: repo.owner,
-      repo: repo.repo,
-    })
-    if (result.repository) {
-      return {
-        allowMergeCommit: result.repository.mergeCommitAllowed,
-        allowSquashMerge: result.repository.squashMergeAllowed,
-        allowRebaseMerge: result.repository.rebaseMergeAllowed,
-        allowAutoMerge: result.repository.autoMergeAllowed,
-        defaultMergeMethod: githubAutoMergeMethod(result.repository.viewerDefaultMergeMethod),
-      }
+  const result = await client.graphql<MergeMethodsResponse>(MERGE_METHODS_QUERY, {
+    owner: repo.owner,
+    repo: repo.repo,
+  })
+  if (result.repository) {
+    return {
+      allowMergeCommit: result.repository.mergeCommitAllowed,
+      allowSquashMerge: result.repository.squashMergeAllowed,
+      allowRebaseMerge: result.repository.rebaseMergeAllowed,
+      allowAutoMerge: result.repository.autoMergeAllowed,
+      defaultMergeMethod: githubAutoMergeMethod(result.repository.viewerDefaultMergeMethod),
     }
-  } catch {
-    // Fall through: a pull request that cannot name its merge methods is still
-    // worth showing, and the server re-checks the method before it merges.
   }
+
   return {
     allowMergeCommit: restFallback.merge ?? true,
     allowSquashMerge: restFallback.squash ?? true,

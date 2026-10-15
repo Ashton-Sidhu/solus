@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto'
-import { chmodSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { join } from 'node:path'
+import type { ProcessUser } from '../../cli-env'
+import { applyMemberFiles, type MemberFileChange } from './member-files'
 import {
   AGENT_PROFILE_ENTRIES,
   AGENT_PROFILE_MAX_FILE_BYTES,
@@ -148,26 +150,23 @@ export function planProfileFiles(options: {
  * transcript link, what the person made there — is left alone. Answers the
  * paths this copy now owns in the home.
  */
-export function writeProfileFiles(write: ProviderFileWrite): string[] {
+export function writeProfileFiles(write: ProviderFileWrite, user: ProcessUser | null): string[] {
   const { home, files, skipped, previous } = write
   const kept = new Set(files.map((file) => file.path))
   const retained = previous.filter((path) => !kept.has(path) && skipped.has(path))
+  const changes: MemberFileChange[] = []
   for (const stale of previous) {
     if (kept.has(stale) || skipped.has(stale)) continue
-    rmSync(join(home, stale), { force: true })
-    removeEmptyParents(home, stale)
+    changes.push({ kind: 'remove', path: join(home, stale) }, ...emptyParentRemovals(home, stale))
   }
   for (const file of files) {
-    const target = join(home, file.path)
-    const mode = file.executable ? 0o700 : 0o600
-    try {
-      mkdirSync(dirname(target), { recursive: true, mode: 0o700 })
-      writeFileSync(target, file.content, { mode })
-      // `mode` above applies only to a new file.
-      chmodSync(target, mode)
-    } catch (error) {
-      throw new Error(`Could not copy "${file.path}" into your seat: ${error instanceof Error ? error.message : String(error)}. Copy again to finish.`)
-    }
+    changes.push({ kind: 'write', path: join(home, file.path), content: file.content, mode: file.executable ? 0o700 : 0o600 })
+  }
+  // On a host where each member is their own user, the copy runs as the member (docs/plans/member-isolation.md §5).
+  try {
+    applyMemberFiles(user, changes)
+  } catch (error) {
+    throw new Error(`Could not copy your profile into your seat: ${error instanceof Error ? error.message : String(error)}. Copy again to finish.`)
   }
   return [...kept, ...retained]
 }
@@ -203,16 +202,12 @@ function walk(
   }
 }
 
-/** Remove the folders a deleted file leaves empty, up to its profile entry. */
-function removeEmptyParents(home: string, path: string): void {
+/** Remove the folders a deleted file leaves empty, up to its profile entry; a folder still in use stays, and so do its parents. */
+function emptyParentRemovals(home: string, path: string): MemberFileChange[] {
   const segments = path.split('/')
-  for (let depth = segments.length - 1; depth > 1; depth--) {
-    try {
-      rmdirSync(join(home, ...segments.slice(0, depth)))
-    } catch {
-      return
-    }
-  }
+  const removals: MemberFileChange[] = []
+  for (let depth = segments.length - 1; depth > 1; depth--) removals.push({ kind: 'removeEmptyFolder', path: join(home, ...segments.slice(0, depth)) })
+  return removals
 }
 
 export function resolvedHome(home: string): string {

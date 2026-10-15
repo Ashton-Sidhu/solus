@@ -22,9 +22,9 @@ mock.module('@anthropic-ai/claude-agent-sdk', () => ({
   ...realSdk,
   query: ({ options }: { options: Options }) => {
     capturedOptions = options
-    return (async function* () {
+    return Object.assign((async function* () {
       for (const msg of scriptedMessages) yield msg
-    })()
+    })(), { stopTask: async () => {} })
   },
 }))
 
@@ -195,6 +195,48 @@ describe('ClaudeAgent turn input lifetime', () => {
     // The continuation reports its own result; that is where the turn ends.
     while (!(await stream.next()).done) { /* drain the continuation */ }
     expect(input.closed).toBe(true)
+  })
+
+  test('closes the stream once the last task is stopped after the turn settled', async () => {
+    scriptedMessages = [
+      { type: 'system', subtype: 'task_started', task_id: 'task-1', tool_use_id: 'tool-1' },
+      { type: 'result', subtype: 'success', result: 'done' },
+      { type: 'system', subtype: 'task_notification', task_id: 'task-1', status: 'stopped' },
+    ]
+    const input = new TurnInputChannel(opening('Watch the CI run'), 'Watch the CI run')
+    const { events, stopTask } = new ClaudeAgent().run({ prompt: input, cwd: '/tmp' })
+    const stream = events[Symbol.asyncIterator]()
+
+    expect((await stream.next()).value).toMatchObject({ type: 'background_task_started' })
+    expect((await stream.next()).value).toMatchObject({ type: 'task_complete' })
+    expect(input.closed).toBe(false)
+
+    // WHY: a stopped task does not wake the agent, so no continuation result
+    // follows to close the stream. Held open, the query never exits and the
+    // session stays 'background' with nothing running.
+    await stopTask('task-1')
+    expect((await stream.next()).value).toMatchObject({ type: 'background_task_settled' })
+    expect(input.closed).toBe(true)
+  })
+
+  test('keeps the stream open when a task is stopped during a steered turn', async () => {
+    scriptedMessages = [
+      { type: 'system', subtype: 'task_started', task_id: 'task-1', tool_use_id: 'tool-1' },
+      { type: 'result', subtype: 'success', result: 'done' },
+      { type: 'assistant', message: { role: 'assistant', content: [] } },
+      { type: 'system', subtype: 'task_notification', task_id: 'task-1', status: 'stopped' },
+    ]
+    const input = new TurnInputChannel(opening('Watch the CI run'), 'Watch the CI run')
+    const { events, stopTask } = new ClaudeAgent().run({ prompt: input, cwd: '/tmp' })
+    const stream = events[Symbol.asyncIterator]()
+    expect((await stream.next()).value).toMatchObject({ type: 'background_task_started' })
+    await stopTask('task-1')
+
+    let event = await stream.next()
+    while (!event.done && event.value.type !== 'background_task_settled') event = await stream.next()
+    // The steered turn still owns the stream; its own result closes it.
+    expect(event.value).toMatchObject({ type: 'background_task_settled' })
+    expect(input.closed).toBe(false)
   })
 
   test('closes the stream at the result when nothing is backgrounded', async () => {

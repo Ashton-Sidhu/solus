@@ -12,6 +12,11 @@ const log = createLogger('main', 'github-provider')
  * `GitHubRateLimitedError`: the next credential is often the same account, and
  * a second request would only spend more of its quota. Validation and domain
  * failures remain final. `gh auth` is the last credential in the chain, not a second transport.
+ *
+ * Readers must let failed requests reach this boundary. They may handle a
+ * specific domain answer (such as a missing PR), but must not turn arbitrary
+ * failures into empty data or defaults. The entire operation is retried with
+ * one credential, so pages and permissions never mix credentials.
  */
 export async function runGithubRequest<Result>(
   operation: string,

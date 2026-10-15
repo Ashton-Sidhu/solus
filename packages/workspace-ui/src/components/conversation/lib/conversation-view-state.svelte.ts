@@ -12,9 +12,9 @@ import { TranscriptVirtualizer, type TranscriptPosition } from './transcript-vir
 export class ConversationViewState {
   readonly disclosure = new TranscriptDisclosure()
   readonly turnExpansion = new SvelteMap<string, boolean>()
-  readonly virtualizer = new TranscriptVirtualizer()
   /** The row and offset the reader was at; null while they follow the end. */
   position: TranscriptPosition | null = null
+  readonly virtualizer = new TranscriptVirtualizer(() => this.position === null)
 }
 
 interface ViewStateOwner {

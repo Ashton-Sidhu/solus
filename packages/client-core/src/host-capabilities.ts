@@ -57,6 +57,7 @@ const hostCapabilitiesSchema = z.object({
   gitAuth: z.object({ github: z.boolean() }).optional().catch(undefined),
   projectsBaseDirectory: z.string().optional().catch(undefined),
   projectsBaseDirectoryIsSet: tolerantBoolean,
+  fileManager: z.enum(['finder', 'file-explorer', 'files']).optional().catch(undefined),
 })
 
 /** Keep only protocol fields this client understands. This function is the

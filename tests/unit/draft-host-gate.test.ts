@@ -20,6 +20,7 @@ const host = (overrides: Partial<GatedHost>): GatedHost => ({
   status: 'offline',
   routes: [],
   offlineSince: NOW - 60_000,
+  isPreparing: false,
   ...overrides,
 })
 
@@ -95,5 +96,23 @@ describe('the connect page headline', () => {
 
   test('asks for a first host when none is saved', () => {
     expect(connectHostHeadline([], null)).toBe('Connect a host to start')
+  })
+})
+
+describe('a host still setting this person up (docs/plans/member-isolation.md §8.1)', () => {
+  const preparing = host({ status: 'online', offlineSince: null, isPreparing: true })
+
+  test('is not a host the draft can run on: the page shows, not the composer', () => {
+    // WHY: a turn there is refused with WORKSPACE_PREPARING; a composer would take text it cannot send.
+    expect(draftHostGate([preparing], NOW)).toBe('connect')
+    expect(connectHostHeadline([preparing], null)).toBe('Setting up your workspace for the first time')
+  })
+
+  test('another host that is ready is enough to compose', () => {
+    expect(draftHostGate([preparing, host({ id: 'mbp', status: 'online', offlineSince: null })], NOW)).toBe('compose')
+  })
+
+  test('the composer comes back once the host is ready', () => {
+    expect(draftHostGate([{ ...preparing, isPreparing: false }], NOW)).toBe('compose')
   })
 })

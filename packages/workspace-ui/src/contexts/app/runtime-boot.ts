@@ -9,7 +9,7 @@ import { onDirectoryAnswered } from '@solus/client-core/server-registry'
 import { reconcileMachineReferences, savedHostsAreAuthoritative } from '../workspace/machine-references'
 import { projectsStore } from '../projects/projects.store.svelte'
 import { hasSessionStarted } from '../../lib/sessionUtils'
-import type { Session } from '@solus/contracts/types'
+import type { RunLocation, Session } from '@solus/contracts/types'
 import { sendOutbox } from '@solus/client-core/send-outbox'
 import { startActivityLeaseHeartbeat } from '@solus/client-core/activity-lease'
 
@@ -53,7 +53,10 @@ function reconcileGoneMachines(session: WorkspaceContext): void {
   reconcileMachineReferences(
     {
       settings: session.settings,
-      unstartedRuns: () => session.unstartedRuns(),
+      unstartedRuns: () => session.unstartedSourceIds().flatMap((sourceId) => {
+        const run = session.runFor(sourceId)
+        return run ? [{ run, moveTo: (next: RunLocation) => session.moveRun(sourceId, next) }] : []
+      }),
       startedSessions: () => session.tabOrder
         .map((tabId) => session.sessionFor(tabId))
         .filter((tabSession): tabSession is Session => !!tabSession && hasSessionStarted(tabSession)),
@@ -94,6 +97,8 @@ export function initializeRuntime(
     // agents once one connects; a no-op while the Run on host is unchanged.
     void session.lifecycle.readRunOnAgents()
       .catch((error) => logConnectionReadError('agent list initialization', error))
+    // A draft's checkout read while this host was away could not answer.
+    session.drafts.rereadStartTargets(serverId)
     // Work left on a gone machine while there was nowhere to move it moves now.
     reconcileGoneMachines(session)
   })

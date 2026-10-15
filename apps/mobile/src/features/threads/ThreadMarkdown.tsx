@@ -7,11 +7,15 @@
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as Haptics from "expo-haptics";
-import { memo, useCallback, useMemo, useState } from "react";
+import { imageFileChips, replyImages } from "@solus/client-core/reply-images";
+import { Pressable, View } from "react-native";
+import { AppText as Text } from "../../components/AppText";
+import { memo, useCallback, useContext, useMemo, useState } from "react";
 import { Linking } from "react-native";
 
 import { useApp } from "../../app/app-context";
 import type { FilePreviewSource } from "../../components/FilePreview.types";
+import { FilePreviewGallery, useFilePreviewGallery } from "../../components/FilePreviewGallery";
 import { FilePreviewModal } from "../../components/FilePreviewModal";
 import { VideoPreviewModal, type VideoPreviewSource } from "../../components/VideoPreviewModal";
 import type { RootStackParamList } from "../../navigation/routes";
@@ -52,7 +56,14 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
   readonly markdown: string;
   readonly tone: MarkdownTone;
   readonly store: ConversationStore;
+  readonly imagesOnly?: boolean;
+  readonly imageLabel?: string;
 }) {
+  const markdown = useMemo(() => props.tone === "assistant" && !props.imagesOnly ? imageFileChips(props.markdown) : props.markdown, [props.markdown, props.tone, props.imagesOnly]);
+  const fileChipHrefs = useMemo(() => props.tone === "assistant" && !props.imagesOnly ? replyImages(props.markdown).map((image) => image.href) : [], [props.markdown, props.tone, props.imagesOnly]);
+  const images = useMemo(() => props.imagesOnly ? replyImages(props.markdown) : [], [props.markdown, props.imagesOnly]);
+  const gallery = useContext(FilePreviewGallery);
+  const withGallery = useFilePreviewGallery();
   const app = useApp();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const textStyle = useNativeMarkdownTextStyle(props.tone);
@@ -74,6 +85,10 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
 
   const media = useMemo<MarkdownMediaContext>(
     () => ({
+      assetUrl: async (assetId) => {
+        const connection = app.connections.connection(hostId);
+        return connection ? resolveHostMediaUrl(connection, { assetId }) : null;
+      },
       hostFile: (path) => {
         const request = hostRequest(path);
         if (!request) return null;
@@ -119,7 +134,7 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
     },
     [app, hostId, media, navigation, workingDirectory],
   );
-  const onLinkPress = useCallback((href: string) => openMarkdownLink(href, false), [openMarkdownLink]);
+  const onLinkPress = useCallback((href: string) => openMarkdownLink(href, fileChipHrefs.includes(href)), [openMarkdownLink, fileChipHrefs]);
   const onImagePress = useCallback((href: string) => openMarkdownLink(href, true), [openMarkdownLink]);
 
   /** An image Enriched draws itself: its own URL, or a URL the host signs for a host file. */
@@ -135,6 +150,9 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
 
   const renderImage = useCallback<MarkdownImageRenderer>(
     (image) => {
+      if (image.href.startsWith("asset://")) {
+        return <ThreadMarkdownImage connection={app.connections.connection(hostId)} request={{ assetId: image.href.slice(8) }} preview={gallery.find((item) => item.key === image.href)} alt={image.alt} thumbnail={props.imagesOnly} onPressPreview={setFilePreview} />;
+      }
       const preview = resolveMarkdownMediaPreview(image.href, media, true);
       const presentation = resolveMarkdownLinkPresentation(image.href);
       if (preview?.kind === "video") {
@@ -148,6 +166,7 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
       if (presentation.kind === "external") {
         return (
           <ThreadMarkdownImageView
+            thumbnail={props.imagesOnly}
             uri={presentation.href}
             sourceKey={presentation.href}
             unavailable={false}
@@ -163,6 +182,7 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
       if (!request || !preview) return <ThreadMarkdownImageUnavailable alt={image.alt} />;
       return (
         <ThreadMarkdownImage
+          thumbnail={props.imagesOnly}
           connection={app.connections.connection(hostId)}
           request={request}
           alt={image.alt}
@@ -171,21 +191,41 @@ export const ThreadMarkdown = memo(function ThreadMarkdown(props: {
         />
       );
     },
-    [app, hostId, hostRequest, media],
+    [app, gallery, hostId, hostRequest, media, props.imagesOnly],
   );
 
   return (
     <>
-      <SelectableMarkdownText
-        markdown={props.markdown}
+      {props.imagesOnly ? images.map((image, index) => (
+        <Pressable
+          key={index}
+          accessibilityRole="imagebutton"
+          accessibilityLabel={`Open ${props.imageLabel ?? image.label}`}
+          onPress={() => {
+            const resolved = resolveMarkdownMediaPreview(image.href, media, true);
+            const preview = gallery.find((item) => item.key === image.href) ?? (resolved?.kind === "image" ? resolved.source : undefined);
+            if (preview) setFilePreview(withGallery(preview));
+          }}
+          className="my-1 rounded-lg border border-border-subtle bg-subtle p-2"
+          style={{ width: 128 }}
+        >
+          <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          {renderImage({ href: image.href, alt: props.imageLabel ?? image.label, title: null })}
+          <Text numberOfLines={1} className="mt-1.5 text-xs text-foreground">{props.imageLabel ?? image.label}</Text>
+          <Text className="text-xs text-foreground-muted">{image.format}</Text>
+          </View>
+        </Pressable>
+      )) : <SelectableMarkdownText
+        markdown={markdown}
         textStyle={textStyle}
         preserveSoftBreaks={props.tone === "user"}
         recognizeFileMentions={props.tone === "user"}
+        fileChipHrefs={fileChipHrefs}
         onLinkPress={onLinkPress}
         renderImage={renderImage}
         resolveImageSource={resolveImageSource}
         onImagePress={onImagePress}
-      />
+      />}
       <FilePreviewModal source={filePreview} onRequestClose={() => setFilePreview(null)} />
       <VideoPreviewModal source={videoPreview} onRequestClose={() => setVideoPreview(null)} />
     </>

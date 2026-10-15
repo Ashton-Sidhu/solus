@@ -93,7 +93,9 @@ function scriptedClient(source: GithubCredentialSource, answer: Answer): Scripte
       getAuthenticated: async () =>
         respond('users.getAuthenticated', { login: 'sidhu', avatar_url: 'https://avatars.test/sidhu' }),
     },
+    checks: { listForRef: async () => respond('checks.listForRef', { total_count: 0, check_runs: [] }) },
     repos: {
+      getCombinedStatusForRef: async () => respond('repos.getCombinedStatusForRef', { statuses: [] }),
       get: async () => respond('repos.get', {
         permissions: { push: true },
         allow_merge_commit: true,

@@ -14,6 +14,12 @@ desktop_log="$(mktemp)"
 client_log="$(mktemp)"
 trap 'rm -f "$desktop_log" "$client_log"' EXIT
 
+# A build is a production bundle wherever it runs. Vite treats a build as
+# production only when NODE_ENV is unset or `production`, and a shell started
+# from the dev app inherits NODE_ENV=development: that build compiled Svelte in
+# dev mode, which mounts far more slowly (docs/plans/session-open-performance.md).
+export NODE_ENV=production
+
 bun run electron-vite build --logLevel warn "$@" >"$desktop_log" 2>&1 &
 desktop_pid=$!
 

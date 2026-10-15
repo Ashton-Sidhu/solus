@@ -1,7 +1,7 @@
 import { CheckoutStore } from './checkout.store.svelte'
 import { isChat } from '@solus/contracts/chat'
 import { createAppContext } from '../app/create-app-context'
-import { gitCheckoutFromState, sameGitCheckout, type GitCheckout, type GitProjectRefs, type GitState, type GitStateOptions, type IpcContext, type Place, type RunConfig, type Session, type WorktreeEntry } from '@solus/contracts/types'
+import { gitCheckoutFromState, sameGitCheckout, type GitCheckout, type GitProjectRefs, type GitState, type GitStateOptions, type IpcContext, type Place, type RunConfig, type RunLocation, type Session, type WorktreeEntry } from '@solus/contracts/types'
 import { formatBranchDisplayName } from '../../lib/git-context'
 import type { HostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
@@ -82,6 +82,8 @@ export interface SessionEnvironmentWorkspace {
   /** The run a source owns. A tab and a session draft both hold one in the same
    *  position, which is why neither needs its own environment refresh. */
   runFor(sourceId: string): RunConfig | undefined
+  /** Move a source's run through its owner, so a draft sees a Git answer land. */
+  moveRun(sourceId: string, next: RunLocation): void
   /** Only a started session has one — the answer to "is there something for the
    *  host to register this environment against". */
   sessionFor(sourceId: string): Session | undefined
@@ -292,7 +294,7 @@ export class SessionEnvironmentStore {
     // source owns when it arrives, not the one it owned when the read began.
     const land = (gitContext: GitCheckout | null, baseBranch: string | null): void => {
       const current = workspace.runFor(sourceId)
-      if (current) current.location = adoptGit(current.location, place, gitContext, worktreeRequested ? { baseBranch } : null)
+      if (current) workspace.moveRun(sourceId, adoptGit(current.location, place, gitContext, worktreeRequested ? { baseBranch } : null))
     }
 
     // On a genuinely cold load nothing can render a session's environment until

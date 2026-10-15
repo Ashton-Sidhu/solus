@@ -490,11 +490,10 @@ export function HomeScreen(props: HomeScreenProps) {
 
   if (!hasAnyThreads) {
     return (
-      <View className="flex-1 bg-screen android:bg-header">
+      <View className="flex-1 bg-drawer">
         <View
           className={cn(
-            "flex-1 items-center justify-center px-8",
-            primaryColumn ? "bg-drawer" : "bg-screen",
+            "flex-1 items-center justify-center bg-drawer px-8",
             Platform.OS === "android" && "overflow-hidden rounded-t-[28px]",
           )}
           style={{
@@ -580,9 +579,9 @@ export function HomeScreen(props: HomeScreenProps) {
 
   if (Platform.OS === "android" && threadListV2Items.length === 0) {
     return (
-      <View className="flex-1 bg-header">
+      <View className="flex-1 bg-drawer">
         <View
-          className="flex-1 items-center justify-center overflow-hidden rounded-t-[28px] bg-screen px-4"
+          className="flex-1 items-center justify-center overflow-hidden rounded-t-[28px] bg-drawer px-4"
           style={{ paddingBottom: insets.bottom }}
         >
           {v2ListEmpty}
@@ -592,14 +591,12 @@ export function HomeScreen(props: HomeScreenProps) {
   }
 
   return (
-    <View className="flex-1 bg-screen android:bg-header">
+    <View className="flex-1 bg-drawer">
       <View
         className={
           Platform.OS === "android"
-            ? "flex-1 overflow-hidden rounded-t-[28px] bg-screen"
-            : primaryColumn
-              ? "flex-1 bg-drawer"
-              : "flex-1 bg-screen"
+            ? "flex-1 overflow-hidden rounded-t-[28px] bg-drawer"
+            : "flex-1 bg-drawer"
         }
       >
         {/* Shared with the iPad sidebar: cells are reused across data

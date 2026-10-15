@@ -153,16 +153,13 @@ interface PullRequestCommitsResponse {
   repository: { pullRequest: { commits: GqlCommitPage } | null } | null
 }
 
-/** GitHub's answer when part of the query failed: the rest still carries data. */
-const partialAnswerSchema = z.object({
-  data: z.object({
-    viewer: z.object({ login: z.string() }),
-    repository: z.custom<PullRequestDetailResponse['repository']>(),
-  }),
+/** A missing PR in a repository GitHub did resolve is a domain result. */
+const missingPullRequestSchema = z.object({
+  data: z.object({ repository: z.object({ pullRequest: z.null() }) }),
   errors: z.array(z.object({
-    type: z.string().optional(),
-    path: z.array(z.union([z.string(), z.number()])).optional(),
-  })),
+    type: z.literal('NOT_FOUND'),
+    path: z.tuple([z.literal('repository'), z.literal('pullRequest')]),
+  })).nonempty(),
 })
 
 /** The detail read, with the commit page it stopped at. */
@@ -176,9 +173,8 @@ export interface GithubPullRequestDetail extends PullRequestOverview {
  *
  * A pull request missing from a repository this credential can see is final:
  * no other credential will find it. A repository this credential cannot see
- * stays GitHub's NOT_FOUND, so the credential chain tries the next one. A
- * refusal that only touches the base branch's rules leaves them unknown and
- * keeps the rest of the answer.
+ * stays GitHub's NOT_FOUND, so the credential chain tries the next one. All
+ * other failures reach the shared request policy, including branch rule errors.
  */
 export async function readGithubPullRequestDetail(
   client: GitHubClient,
@@ -189,7 +185,7 @@ export async function readGithubPullRequestDetail(
     owner: repo.owner,
     repo: repo.repo,
     number,
-  }).catch((error) => partialDetailAnswer(error, repo, number))
+  }).catch((error) => rethrowDetailFailure(error, repo, number))
   const repository = response.repository
   const pr = repository?.pullRequest
   if (!repository || !pr) throw new Error(`Pull request #${number} was not found in ${repo.owner}/${repo.repo}.`)
@@ -203,28 +199,12 @@ export async function readGithubPullRequestDetail(
   }
 }
 
-/**
- * What a failed detail read still answers. A pull request missing from a
- * repository this credential can see is final. A refusal that only touches
- * the base branch's rules keeps the rest, with the rules unknown. Anything
- * else is the failure, for the credential chain to judge.
- */
-function partialDetailAnswer<Failure>(error: Failure, repo: RepoRef, number: number): PullRequestDetailResponse {
-  const partial = partialAnswerSchema.safeParse(error)
-  const answered = partial.success ? partial.data.data : null
-  const pullRequest = answered?.repository?.pullRequest
-  if (!partial.success || !answered?.repository) throw error
-  if (!pullRequest) {
-    const missing = partial.data.errors.some(({ type, path }) =>
-      type === 'NOT_FOUND' && path?.length === 2 && path[0] === 'repository' && path[1] === 'pullRequest')
-    if (missing) throw new Error(`Pull request #${number} was not found in ${repo.owner}/${repo.repo}.`)
-    throw error
+/** Keep a missing PR distinct from a repository hidden from this credential. */
+function rethrowDetailFailure<Failure>(error: Failure, repo: RepoRef, number: number): never {
+  if (missingPullRequestSchema.safeParse(error).success) {
+    throw new Error(`Pull request #${number} was not found in ${repo.owner}/${repo.repo}.`)
   }
-  const onlyBaseRef = partial.data.errors.every(({ path }) =>
-    path?.[0] === 'repository' && path[1] === 'pullRequest' && path[2] === 'baseRef')
-  if (!onlyBaseRef) throw error
-  delete pullRequest.baseRef
-  return answered
+  throw error
 }
 
 /** The one mapping from the detail answer to the host-neutral pull request. */

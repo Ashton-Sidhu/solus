@@ -14,8 +14,7 @@ import type { TranscriptItem } from '../conversation/lib/transcript-model'
 
 export interface FeedSourceEntry {
   readonly id: string
-  /** `device_snapshot`: a device_screenshot call, which no fold hides. */
-  readonly kind: TranscriptItem['kind'] | 'device_snapshot'
+  readonly kind: TranscriptItem['kind']
   /** Notices only: an error notice marks its turn as failed, which never folds. */
   readonly tone?: 'error' | 'info'
   /** Artifacts only: the work its revisions share. */
@@ -45,9 +44,8 @@ export type ThreadFeedRow =
   | { readonly type: 'handoff'; readonly id: string }
   /** The composer picked another provider; the next prompt hands off (plans/021). */
   | { readonly type: 'handoff-pending'; readonly id: string }
-  /** The device_screenshot calls of a turn, as one card at the first call's
-   *  place: their pictures, or a call's own line while it has none. */
-  | { readonly type: 'device-snapshot'; readonly id: string; readonly itemIds: readonly string[] }
+  /** All image sources below the turn reply; each item subscribes independently. */
+  | { readonly type: 'turn-images'; readonly id: string; readonly itemIds: readonly string[] }
   /** An HTML render. `superseded`: a later render in the feed revises the same work. */
   | { readonly type: 'artifact'; readonly id: string; readonly superseded: boolean }
   /** Consecutive agents of one turn: other Solus sessions and provider subagents. */
@@ -88,7 +86,7 @@ export function deriveThreadFeedPresentation(input: ThreadFeedPresentationInput)
     const active = input.turnActive && turn === lastTurn?.turn
     appendTurnRows(rows, turn, active, input, latestRevisions)
   }
-  const trailing = rows.at(-1)
+  const trailing = rows.findLast((row) => row.type !== 'turn-images')
   if (input.working && !(trailing?.type === 'work-toggle' && trailing.live)) {
     rows.push({ type: 'thinking', id: LIVE_ACTIVITY_ROW_ID, continuesWorkLog: false })
   }
@@ -136,19 +134,18 @@ function appendTurnRows(
   const failed = turn.entries.some((entry) => entry.kind === 'notice' && entry.tone === 'error')
   // A finished turn folds its work behind one row, keeping the first and last
   // prose, anything that asks for attention (plans, notices, compaction and
-  // handoff dividers, worktree offers), device screenshots, and artifacts: the picture
-  // is what the agent saw or showed, not a step it took.
+  // handoff dividers, worktree offers), and artifacts. Images follow the reply.
   const hidden = active || failed
     ? new Set<string>()
     : new Set(turn.entries
-        .filter((entry) => entry.id !== firstAssistantId && entry.id !== terminalAssistantId && entry.kind !== 'plan' && entry.kind !== 'notice' && entry.kind !== 'compaction' && entry.kind !== 'handoff' && entry.kind !== 'worktree_offer' && entry.kind !== 'device_snapshot' && entry.kind !== 'artifact')
+        .filter((entry) => entry.id !== firstAssistantId && entry.id !== terminalAssistantId && entry.kind !== 'plan' && entry.kind !== 'notice' && entry.kind !== 'compaction' && entry.kind !== 'handoff' && entry.kind !== 'worktree_offer' && entry.kind !== 'image' && entry.kind !== 'browser_snapshot' && entry.kind !== 'artifact')
         .map((entry) => entry.id))
   const expandedFold = input.expandedTurnIds.has(turn.id)
   let foldPlaced = false
   let group: FeedSourceEntry[] = []
   let agents: FeedSourceEntry[] = []
-  // A turn's screenshots are one act, as on desktop: one card, grown in place.
-  let snapshotIds: string[] | null = null
+  // Image cards follow the reply, outside the work fold.
+  const imageIds = turn.entries.filter((entry) => entry.kind === 'assistant' || entry.kind === 'image' || entry.kind === 'browser_snapshot').map((entry) => entry.id)
   const flushAgents = () => {
     if (agents.length === 0) return
     const groupId = `agents:${agents[0]!.id}`
@@ -173,7 +170,8 @@ function appendTurnRows(
     if (expanded) rows.push({ type: 'work-details', id: `work-details:${groupId}`, groupId, toolIds, continuesWorkLog: false })
     group = []
   }
-  turn.entries.forEach((entry, index) => {
+  const entries = turn.entries.filter((entry) => entry.kind !== 'image' && entry.kind !== 'browser_snapshot')
+  entries.forEach((entry, index) => {
     if (hidden.has(entry.id)) {
       if (!foldPlaced) {
         flushGroup(false)
@@ -190,7 +188,7 @@ function appendTurnRows(
     flushAgents()
     if (entry.kind === 'tool') {
       group.push(entry)
-      if (index === turn.entries.length - 1) flushGroup(true)
+      if (index === entries.length - 1) flushGroup(true)
       return
     }
     flushGroup(false)
@@ -206,12 +204,6 @@ function appendTurnRows(
       rows.push({ type: 'worktree-offer', id: entry.id })
     } else if (entry.kind === 'handoff') {
       rows.push({ type: 'handoff', id: entry.id })
-    } else if (entry.kind === 'device_snapshot') {
-      if (snapshotIds) snapshotIds.push(entry.id)
-      else {
-        snapshotIds = [entry.id]
-        rows.push({ type: 'device-snapshot', id: entry.id, itemIds: snapshotIds })
-      }
     } else if (entry.kind === 'artifact') {
       const superseded = !!entry.workId && latestRevisions.get(entry.workId) !== entry.id
       rows.push({ type: 'artifact', id: entry.id, superseded })
@@ -219,6 +211,7 @@ function appendTurnRows(
   })
   flushAgents()
   flushGroup(false)
+  if (imageIds.length > 0) rows.push({ type: 'turn-images', id: `images:${turn.id}`, itemIds: imageIds })
 }
 
 function isWorkLogRow(row: ThreadFeedRow | undefined): boolean {
@@ -228,7 +221,8 @@ function isWorkLogRow(row: ThreadFeedRow | undefined): boolean {
 /** A work row followed by another drops its bottom margin, so the log reads as one block. */
 function markContinuedWorkLogs(rows: ThreadFeedRow[]): ThreadFeedRow[] {
   return rows.map((row, index) => {
-    if (!isWorkLogRow(row) || !isWorkLogRow(rows[index + 1])) return row
-    return { ...row, continuesWorkLog: true } as ThreadFeedRow
+    if (!isWorkLogRow(rows[index + 1])) return row
+    if (row.type !== 'work-toggle' && row.type !== 'work-details' && row.type !== 'thinking') return row
+    return { ...row, continuesWorkLog: true }
   })
 }

@@ -139,7 +139,7 @@ export async function loadSessionTranscript(ctx: SurfaceContext, args: SessionTr
   const loaded = await (args.history ?? (args.turnLimit
     ? requestSessionHistoryPage(api, {
         sessionId: args.sessionId, projectPath: args.loadPath, provider: args.provider,
-        turnLimit: args.turnLimit, before: args.before,
+        turnLimit: args.turnLimit, before: args.before, deferArtifactHtml: true,
       })
     : api.loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, undefined,
         { deferToolInputs: true })))
@@ -439,12 +439,16 @@ export function materializeSessionTranscript(
         // A call that named an html_path holds no HTML: it shows the revision it wrote, or no card.
         const html = input.html_path ? artifactFileBodies?.get(m.toolId ?? '') : input.html
         if (kind === 'html' && input.html_path && html === undefined) continue
+        // The host left a saved render's HTML out of the page; the frame reads it when it mounts.
+        const historyHtml = kind === 'html' && html === undefined && !input.html_path && m.toolInputKey && result.artifactWorkRef?.contentVersion
+          ? { serverId, sessionId: args.sessionId, projectPath: args.loadPath, provider: args.provider, key: m.toolInputKey }
+          : undefined
         let path = input.path
         // The stored path may be relative to the working directory; resolve it so
         // the host can sign a URL for the file on reload.
         if (path && !path.startsWith('/')) path = `${args.displayCwd.replace(/\/$/, '')}/${path}`
         let workRef: Message['workRef']
-        if (kind === 'html' && html) {
+        if (kind === 'html' && (html || historyHtml)) {
           // Never infer artifact identity from a title: two artifacts can share
           // a title, and a later rename must not break the revision chain.
           const ref = result.artifactWorkRef
@@ -454,7 +458,7 @@ export function materializeSessionTranscript(
           id: nextMsgId(),
           role: 'assistant' as const,
           content: '',
-          artifact: { kind, html, path },
+          artifact: historyHtml ? { kind, path, historyHtml } : { kind, html, path },
           workRef,
           timestamp: m.timestamp ?? Date.now(),
         })

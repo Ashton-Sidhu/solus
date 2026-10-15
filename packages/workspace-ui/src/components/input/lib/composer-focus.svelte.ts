@@ -127,6 +127,9 @@ export function useComposerFocus(options: ComposerFocusOptions) {
   });
 
   $effect(() => {
+    // One focus per frame: a session open asks several times before it paints.
+    let isFocusPending = false;
+    let focusFrame = 0;
     const handleFocusRequest = (event: Event) => {
       const detail = event instanceof CustomEvent ? event.detail : undefined;
       const requestedTabId = detail?.tabId;
@@ -137,15 +140,20 @@ export function useComposerFocus(options: ComposerFocusOptions) {
       )
         return;
       if (!options.active() || session.ui.unifiedPickerOpen || options.isReadOnly()) return;
-      requestAnimationFrame(() => {
+      if (isFocusPending) return;
+      isFocusPending = true;
+      focusFrame = requestAnimationFrame(() => {
+        isFocusPending = false;
         if (options.active() && !session.ui.unifiedPickerOpen && !options.isReadOnly()) {
           options.editor()?.focus();
         }
       });
     };
     window.addEventListener(FOCUS_INPUT_EVENT, handleFocusRequest);
-    return () =>
+    return () => {
+      if (isFocusPending) cancelAnimationFrame(focusFrame);
       window.removeEventListener(FOCUS_INPUT_EVENT, handleFocusRequest);
+    };
   });
 
 }

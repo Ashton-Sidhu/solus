@@ -163,12 +163,14 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   onDestroy(reviewLensStore.onReady((serverId, event) => {
     if (!notificationsStore.wants('review_lens_ready')) return
     const target = event.target
+    const lensName = event.lensName?.trim()
+    const message = lensName ? `Review lens “${lensName}” ready` : 'Review lens ready'
     if (target.kind !== 'pr') {
       // A local lens has no route to reopen it by; its Review tab shows it.
-      toasts.success(`Review lens ready for ${event.repoRoot.split('/').pop() || event.repoRoot}`, { duration: 10_000 })
+      toasts.success(message, { duration: 10_000 })
       return
     }
-    toasts.success(`Review lens ready for ${target.owner}/${target.repo} #${target.number}`, {
+    toasts.success(`${message} for ${target.owner}/${target.repo} #${target.number}`, {
       duration: 10_000,
       action: {
         label: 'Open lens',

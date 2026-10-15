@@ -1,6 +1,6 @@
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process'
 import type { Seat, SeatConnectStartResult, SeatProvider } from '@solus/contracts/seats'
-import { getCliEnv } from '../../cli-env'
+import { launchProcess } from '../../cli-env'
 import { createLogger } from '../../logger'
 import { providerLoginConnected, seatEnv } from './seat-login'
 import { seatKey, seatProviderLabel, type SeatStore } from './seat-manager'
@@ -50,14 +50,15 @@ export class SeatConnector {
     // The host login signs in where the CLI looks by default; a user's seat is named explicitly.
     const seatHome = seat.kind === 'host-login' ? null : home
     const spec = loginCommand(provider)
-    const env = getCliEnv({ FORCE_COLOR: '0', ...seatEnv(provider, seatHome) })
+    const run = launchProcess(spec.command, spec.args, { FORCE_COLOR: '0', ...seatEnv(provider, seatHome) })
+    const { env } = run
     env.PATH = `${this.deps.seats.shimBinDir()}:${env.PATH ?? ''}`
     // A login must be the person's own: nothing the host process carries may answer for it.
     delete env.CLAUDE_CODE_OAUTH_TOKEN
     delete env.ANTHROPIC_API_KEY
     delete env.OPENAI_API_KEY
 
-    const child = this.spawnProcess(spec.command, spec.args, {
+    const child = this.spawnProcess(run.file, run.args, {
       cwd: home,
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',

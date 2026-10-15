@@ -13,12 +13,14 @@ export function fileFindPosition(bounds: FileFindPaneBounds) {
 }
 
 export function isFileFindShortcut(
-  event: Pick<KeyboardEvent, "code" | "metaKey" | "ctrlKey" | "altKey">,
+  event: Pick<KeyboardEvent, "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">,
 ): boolean {
+  // ⇧ is excluded so ⌘⇧F still reaches the dispatcher as project search.
   return (
     event.code === "KeyF" &&
     (event.metaKey || event.ctrlKey) &&
-    !event.altKey
+    !event.altKey &&
+    !event.shiftKey
   );
 }
 

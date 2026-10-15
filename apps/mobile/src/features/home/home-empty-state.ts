@@ -26,6 +26,24 @@ export function deriveHomeEmptyState(props: {
     };
   }
 
+  if (catalogState.isSettingUpWorkspace) {
+    return {
+      title: "Setting up your workspace for the first time",
+      detail: "Solus opens your projects when it is ready. This takes a moment.",
+      loading: true,
+      action: null,
+    };
+  }
+
+  if (catalogState.connectionError !== null) {
+    return {
+      title: "Could not load threads",
+      detail: `The host is connected, but its projects and threads could not be loaded.\n\n${catalogState.connectionError}`,
+      loading: false,
+      action: "retry-hosts",
+    };
+  }
+
   if (
     !catalogState.hasReadyEnvironment &&
     !catalogState.hasConnectingEnvironment &&

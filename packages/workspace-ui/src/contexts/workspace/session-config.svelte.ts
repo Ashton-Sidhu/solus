@@ -27,7 +27,7 @@ interface RunOwner {
   run: RunConfig
   session?: Session
   /** Write where the run works next — one assignment, so nothing else on the
-   *  run is invalidated. */
+   *  run is invalidated. A draft moves itself, which reads its new checkout. */
   apply(next: RunLocation): void
   /** The run is moving to another project, so it leaves the task it was under. */
   leaveTask(): void
@@ -141,7 +141,7 @@ export class SessionConfigController {
       if (draft) return {
         id: sourceId,
         run: draft.run,
-        apply: (next) => { draft.run.location = next },
+        apply: (next) => draft.moveTo(next),
         leaveTask: () => { draft.task = { kind: 'none' } },
       }
       return null
@@ -180,9 +180,9 @@ export class SessionConfigController {
     const provider = session?.run.provider ?? draft?.run.provider ?? this.deps.settings.activeAgent
     const next = this.configureModel(current, patch, provider)
 
-    // A draft owns its run, so it is handed a new one rather than edited in
-    // place — the same write the model chip's detached selection makes.
-    if (draft) draft.run = { ...draft.run, modelConfig: next }
+    // A draft takes the new config in one write, as the model chip's detached
+    // selection does.
+    if (draft) draft.run.modelConfig = next
     else Object.assign(current, next)
   }
 
@@ -246,12 +246,9 @@ export class SessionConfigController {
     if (!draft) return false
     if (draft.run.provider === agentId) return true
     track('agent_switched', { from: draft.run.provider ?? this.deps.settings.activeAgent, to: agentId, via })
-    draft.run = {
-      ...draft.run,
-      provider: agentId,
-      modelConfig: this.defaultModelConfigFor(agentId),
-      sessionSkills: [],
-    }
+    draft.run.provider = agentId
+    draft.run.modelConfig = this.defaultModelConfigFor(agentId)
+    draft.run.sessionSkills = []
     this.deps.setPluginCommands({ global: [], project: [] })
     this.deps.refreshPluginCommands(checkoutPlace(draft.run).path)
     return true
@@ -343,7 +340,7 @@ export class SessionConfigController {
     // A mode picked before a session starts is a preference, not a one-off: the
     // draft on screen takes it, and so does every composer opened after it.
     const draft = tabId ? this.deps.draftFor(tabId) : undefined
-    if (draft) draft.run = { ...draft.run, permissionMode: mode }
+    if (draft) draft.run.permissionMode = mode
     this.globalDefaults.permissionMode = mode
   }
 
@@ -501,17 +498,19 @@ export class SessionConfigController {
     // works from — for a clone not yet made, the one it copies.
     owner.apply(openFolder(owner.run.location, { serverId: checkoutPlace(owner.run).serverId, path: dir }))
     // Detaching the provider thread and its plugin commands is session reset; a
-    // draft has neither, so it only re-resolves its checkout below.
-    if (owner.session) {
-      owner.session.agentSessionId = null
-      owner.session.run.provider = null
-      owner.session.threadProvider = null
-      owner.session.additionalDirs = []
-      owner.session.readOnlyReason = null
-      owner.session.pluginCommands = { global: [], project: [] }
-      api.resetSession(this.deps.ctx(owner.id))
-      this.deps.refreshPluginCommands(dir, owner.id)
+    // draft has neither, and its move above already reads its checkout.
+    if (!owner.session) {
+      await this.pendingSessionStartTarget(owner.id)
+      return
     }
+    owner.session.agentSessionId = null
+    owner.session.run.provider = null
+    owner.session.threadProvider = null
+    owner.session.additionalDirs = []
+    owner.session.readOnlyReason = null
+    owner.session.pluginCommands = { global: [], project: [] }
+    api.resetSession(this.deps.ctx(owner.id))
+    this.deps.refreshPluginCommands(dir, owner.id)
     await this.trackSessionStartTargetResolution(
       owner.id,
       this.deps.refreshGitState({

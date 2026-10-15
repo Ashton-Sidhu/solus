@@ -6,13 +6,11 @@ import {
 } from '../../layout/lib/workspace-body'
 
 /**
- * Narrowest conversation view that can still host the rail. Derived from the two
- * minimums rather than picked: at exactly this width the rail sits at its floor
- * and the conversation at `MIN_PRIMARY_PANE_WIDTH`, so the constants meet with no
- * gap and no overlap. Below it the rail minimizes to zero — which is also why
- * `MIN_PRIMARY_PANE_WIDTH` never has to grow to cover the rail.
+ * Hide the rail before it crowds the conversation and composer. Below 1200px,
+ * columns use their full width for the conversation. This applies to each pane
+ * separately.
  */
-export const PROJECT_RAIL_MIN_CONTAINER_WIDTH = MIN_PRIMARY_PANE_WIDTH + SIDEBAR_MIN_WIDTH
+export const PROJECT_RAIL_MIN_CONTAINER_WIDTH = 1200
 
 /**
  * Whether the rail is actually on screen: the user's persisted preference,

@@ -1,3 +1,5 @@
+import { sessionLinkOpSchema } from '@solus/contracts/session-links'
+import { linkSessionItem } from './session-links'
 import { z } from 'zod'
 import type { OutboxOp } from '@solus/contracts/outbox-types'
 import { attributionSchema } from '@solus/contracts/user'
@@ -14,7 +16,7 @@ const sessionPullRequestPayloadSchema = z.object({
 })
 
 /**
- * Owner-side writes for `sessions` outbox ops: the pull request links an agent
+ * Owner-side writes for `sessions` outbox ops: item and pull request links an agent
  * makes, and the ones Solus makes when it opens a pull request, on an attached
  * machine, applied by the organization's Solus API to the same session
  * (docs/plans/session-pull-requests.md). The verb survives redelivery: a link
@@ -22,6 +24,12 @@ const sessionPullRequestPayloadSchema = z.object({
  */
 export function registerSessionOutboxApplier(): void {
   registerOutboxApplier('sessions', async (op: OutboxOp, { organizationId }) => {
+    if (op.name === 'link-item') {
+      if (await organizationOfSession(op.resourceId) !== organizationId) throw new PermanentApplyError(`Session ${op.resourceId} does not belong to this organization.`)
+      const { actor, ...input } = sessionLinkOpSchema.parse(op.payload)
+      await linkSessionItem(op.resourceId, input, actor)
+      return
+    }
     if (op.name !== 'link-pull-request') {
       // An unknown verb is a version-skew problem a retry may fix once this
       // host updates, so it is deliberately not permanent.

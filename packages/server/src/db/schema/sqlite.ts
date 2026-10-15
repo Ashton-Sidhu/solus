@@ -31,6 +31,7 @@ export const plan_annotations = plansSchema.planAnnotations.sqlite
 export const indexed_plans = plansSchema.indexedPlans.sqlite
 export const plan_index_providers = plansSchema.planIndexProviders.sqlite
 export const acl_entry = sharingSchema.aclEntry.sqlite
+export const session_links = sessionsSchema.sessionLinks.sqlite
 export const session_records = sessionsSchema.sessionRecords.sqlite
 export const session_admissions = sessionsSchema.sessionAdmissions.sqlite
 export const session_pull_requests = sessionsSchema.sessionPullRequests.sqlite

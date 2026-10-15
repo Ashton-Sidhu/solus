@@ -55,7 +55,8 @@ process.env.SOLUS_DATA_DIR = dataDir
 
 const { initBrowserRegistry } = await import('@solus/server/browser/browser-registry')
 const { initBrowserRecorder } = await import('@solus/server/browser/browser-recorder')
-const { recordingRetention, UNFILED_RECORDING_TTL_MS } = await import('@solus/server/browser/recording-retention')
+const { recordingRetention, DAY_MS } = await import('@solus/server/browser/recording-retention')
+const TTL_MS = 30 * DAY_MS
 const surface = await import('@solus/server/browser/surface-driver')
 const tools = await import('@solus/server/browser/browser-tools')
 const { actAsHostForTests } = await import('@solus/server/execution/seats/acting-identity')
@@ -164,7 +165,7 @@ describe('browser recording tools', () => {
     expect(stop.text).toContain('Filed on pull request #42')
 
     // Filed recordings are kept by the retention sweep.
-    const deleted = await recordingRetention().sweep(Date.now() + 2 * UNFILED_RECORDING_TTL_MS)
+    const deleted = await recordingRetention().sweep(Date.now() + 2 * TTL_MS, TTL_MS)
     expect(deleted).not.toContain(recording.assetId)
     expect(existsSync(recording.hostPath)).toBe(true)
   })
@@ -186,7 +187,7 @@ describe('browser recording tools', () => {
       expect(stop.text).toContain('stored but not filed: GitHub refused the video')
       const captured = emitted.find((event) => event.type === 'browser_recording_captured')
       if (captured?.type !== 'browser_recording_captured') throw new Error('no recording event')
-      const deleted = await recordingRetention().sweep(Date.now() + 2 * UNFILED_RECORDING_TTL_MS)
+      const deleted = await recordingRetention().sweep(Date.now() + 2 * TTL_MS, TTL_MS)
       expect(deleted).toContain(captured.recording.assetId)
     } finally {
       provider.review.publishAsset = failing

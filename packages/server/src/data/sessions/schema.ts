@@ -164,4 +164,15 @@ export const sessionViews = defineTable('session_views', {
   indexes: [{ name: 'session_views_by_person', columns: ['person_key', 'session_id'] }],
 })
 
-export const SESSION_TABLES = [sessionRecords, sessionAdmissions, sessionPullRequests, sessionPullRequestWatches, sessionStates, sessionViews]
+/** Host-owned references. Works keep their existing session membership; PRs keep their lifecycle rows. */
+export const sessionLinks = defineTable('session_links', {
+  session_id: text({ notNull: true }),
+  link_id: text({ notNull: true }),
+  target: json({ notNull: true }),
+  title: text({ notNull: true }),
+  created_by: json({ notNull: true }),
+  linked_at: bigint({ notNull: true }),
+  organization_id: text({ notNull: true, default: 'local' }),
+}, { primaryKey: ['session_id', 'link_id'] })
+
+export const SESSION_TABLES = [sessionLinks, sessionRecords, sessionAdmissions, sessionPullRequests, sessionPullRequestWatches, sessionStates, sessionViews]

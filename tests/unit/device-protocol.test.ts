@@ -109,6 +109,12 @@ describe('input encoding', () => {
     expect(JSON.parse(new TextDecoder().decode(bytes.subarray(1)))).toEqual({ type: 'begin', x: 0.5, y: 0.25 })
   })
 
+  test('iOS scroll uses the helper scroll command with normalized deltas', () => {
+    const bytes = iosInput.scroll(0.5, 0.25, -0.1, 0.2)
+    expect(bytes[0]).toBe(0x0b)
+    expect(JSON.parse(new TextDecoder().decode(bytes.subarray(1)))).toEqual({ x: 0.5, y: 0.25, dx: -0.1, dy: 0.2 })
+  })
+
   test('iOS screen config is read back from the helper', () => {
     const json = new TextEncoder().encode(JSON.stringify({ width: 1179, height: 2556, orientation: 'portrait' }))
     const packet = concat(new Uint8Array([0x82]), json)

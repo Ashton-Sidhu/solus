@@ -30,10 +30,11 @@ for a session with no project. It had these problems:
 A chat is a kind of session, not a place.
 
 - A session has an optional project. A session with no project is a **chat**.
-- Each chat runs in its own folder: `<projects root>/.solus-chats/<session id>`.
-  The owner and the members of an organization use the same rule. A member's
-  projects root is their member folder, so every chat is outside the host's
-  data folder.
+- Each chat runs in its own folder: `<data folder>/solus-chats/<session id>`
+  (`solusDir()`, `~/.solus` by default). The data folder is never a Git
+  repository, so no chat runs inside one. A member of an organization keeps
+  their chats in their member folder (`<member folder>/solus-chats/<session id>`),
+  so other members' processes cannot reach them.
 - The folder's name marks a chat. `isChat` in `@solus/contracts/chat` answers
   from the path alone, on the server and on every client. No client fetches a
   chat folder, and no session record needs a new field.
@@ -51,7 +52,7 @@ longer chats.
 | New chat | The action that starts a chat |
 | Switch to chat | The project chip action that removes the project from a draft |
 | Add project… | The + menu item that adds a project to a chat before its first prompt |
-| Chat root | The folder that holds the chat folders (`.solus-chats` in a projects root) |
+| Chat root | The folder that holds the chat folders (`solus-chats` in the data folder or a member folder) |
 | New-chat marker | `NEW_CHAT_DIRECTORY`: the working directory of a chat that has no folder yet |
 
 Do not use "Scratchpad", "Just chat", "workspace folder", or "chat folder" in
@@ -60,18 +61,17 @@ user-visible text.
 ## How a chat gets its folder
 
 1. A draft for a new chat holds the new-chat marker as its working directory.
-2. When the first prompt is sent, the client names the folder with
-   `chatFolderIn(projectsRoot, sessionId)`. The projects root comes from the
-   host's capabilities (`projectsBaseDirectory`), which the client already
-   reads. The run then holds a real path, so files, links, and agent-file
-   features work as for any folder.
-3. The session handlers (`resolveChat`) make the folder. If the client sent the
-   marker (it did not know the projects root yet, or it is a headless or mobile
-   start), the host gives the chat `<projects root>/.solus-chats/<session id>`.
+2. The first prompt carries the marker. Only the host names a chat's folder.
+3. The session handlers (`resolveChat`) give the chat its folder
+   (`chatFolderFor`) and make it. The run then holds a real path, so files,
+   links, and agent-file features work as for any folder.
 4. `resolveHomePath` refuses the marker. A chat that reaches a process without
    its folder fails loudly; it never runs in another folder.
 
-A chat root inside a Git work tree is refused with `ChatUnavailableError`.
+When the folder that holds the chat root is itself a Git repository, the chat is
+refused with `ChatUnavailableError`, which names that folder. Only that folder is
+checked, not its parents: a repository in a parent folder (dotfiles in `~`) must
+not turn chats off. The check runs on each new chat, so a fix needs no restart.
 
 A session opened from a chat (⌘N, or a draft that inherits a run) is a new chat.
 It never reuses the chat's folder. A chat is never saved as the last project.
@@ -79,7 +79,7 @@ It never reuses the chat's folder. A chat is never saved as the last project.
 ## Contract
 
 - New: `packages/contracts/src/chat.ts` (`CHAT_ROOT_NAME`, `NEW_CHAT_DIRECTORY`,
-  `chatFolderIn`, `isChat`).
+  `isChat`).
 - Removed: `workspacePath` from `ServerCapabilities` and from `StartInfo`.
 - Removed: the `lastChatServerId` device setting.
 - New: the `chats` filter on `sessionRecordList` and on the Solus API

@@ -81,6 +81,7 @@ function draftsInOnePane(modelOptionsByProvider: import('@solus/contracts/host-c
     runFor: (sourceId: string) => drafts.sessionDrafts.get(sourceId)?.run,
     rootTaskIdFor: () => null,
     opening: { moveToRunOnHost: () => {} },
+    refreshStartTarget: async () => {},
     router: {
       focusedPaneId: pane.id,
       panes: [pane],

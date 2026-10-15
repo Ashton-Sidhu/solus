@@ -11,7 +11,6 @@
     Maximize as MaximizeIcon,
     MessageSquare as ChatIcon,
     Minimize as RestoreIcon,
-    PanelRightClose as HidePaneIcon,
     Smartphone as DevicesIcon,
     Target as GoalIcon,
     Workflow as AutomationIcon,
@@ -325,7 +324,7 @@
           class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground focus-visible:outline-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:size-9"
           onclick={hidePane}
         >
-          <HidePaneIcon size={14} strokeWidth={1.5} />
+          <XIcon size={14} strokeWidth={1.5} />
         </button>
       {/snippet}
     </TooltipUI.Trigger>

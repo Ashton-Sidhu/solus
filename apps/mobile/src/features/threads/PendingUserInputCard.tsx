@@ -228,8 +228,6 @@ export function PendingUserInputCard(props: PendingUserInputCardProps) {
                 onChangeText={(value) => changeCustomAnswer(question, value)}
                 placeholder="Add your own answer"
                 placeholderTextColorClassName="accent-placeholder"
-                selectionColorClassName="accent-focus/32"
-                cursorColorClassName="accent-focus"
                 className="min-h-12 rounded-2xl border border-border bg-input px-3.5 py-3 font-sans text-sm text-foreground"
               />
             </View>

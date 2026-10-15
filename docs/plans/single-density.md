@@ -52,6 +52,9 @@ had these problems:
 
 ## Known effects
 
+- The project panel collapses when its conversation column is narrower than
+  1200px, on desktop and web. Each split pane uses its own column width. The
+  panel returns when there is enough room if the user's preference is open.
 - A user who already has a saved 90% zoom from the old first-run seed keeps it.
   `mod+0` returns to 100%. There is no migration.
 - On a laptop, some surfaces now show the desktop geometry. Examples are menu

@@ -18,12 +18,10 @@ export async function canonicalRepoRef(client: GitHubClient, repo: RepoRef): Pro
   if (!resolving) {
     resolving = client.rest.repos.get({ owner: repo.owner, repo: repo.repo })
       .then(({ data }) => data.full_name)
-      // A lookup failure must not decide the search. It may be a rate limit or
-      // a blip, and a genuinely inaccessible repository is reported by the
-      // search itself rather than by this extra call.
-      .catch(() => {
+      // A failed lookup must not be cached or turned into an empty search.
+      .catch((error) => {
         canonicalSlugs.delete(slug)
-        return slug
+        throw error
       })
     canonicalSlugs.set(slug, resolving)
   }

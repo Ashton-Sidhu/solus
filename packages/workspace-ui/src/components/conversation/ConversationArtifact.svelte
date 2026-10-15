@@ -9,6 +9,10 @@
   import { getHtmlBlockOrigin } from "./lib/html-block-origin";
   import { getTranscriptDisclosure } from "./lib/transcript-disclosure.svelte";
   import type { ArtifactRevision } from "./lib/artifact-revisions";
+  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
+  import { lastReportedHeight } from "../artifact/lib/artifact-view";
+  import { getSurfaceContext } from "../../contexts";
+  import { loadArtifactHtml, worksArtifactHtmlSources } from "../../contexts/workspace/artifact-history";
 
   /**
    * One card in an artifact's revision chain: a completed `revision`, or an
@@ -32,6 +36,17 @@
   const selected = $derived(revisions.find((entry) => entry.messageId === disclosure.pickedId) ?? revision);
   const selectedIndex = $derived(selected ? revisions.indexOf(selected) : revisions.length);
   const title = $derived((selected ?? latest).title || "Artifact");
+  const surface = getSurfaceContext();
+  // A saved render remembers its height under its work and version: that is
+  // all a revision whose HTML is still on its host knows about itself.
+  const heightKey = $derived(selected?.workRef?.contentVersion ? `work:${selected.workRef.workId}:${selected.workRef.contentVersion}` : undefined);
+  const pendingHtml = $derived(expanded ? selected?.pendingHtml?.artifact?.historyHtml : undefined);
+
+  // An open card whose HTML the history page left on its host reads it now.
+  $effect(() => {
+    const message = expanded ? selected?.pendingHtml : undefined;
+    if (message) void loadArtifactHtml(message, worksArtifactHtmlSources(surface.worksStore));
+  });
 </script>
 
 <div class="my-2 min-w-0" data-testid="conversation-artifact" data-artifact-version={selectedIndex + 1}>
@@ -119,8 +134,14 @@
     <ArtifactView artifact={update} skipMotion />
   {:else if expanded && selected}
     {#key selected.messageId}
-    {#if selected.workRef}
-      <ArtifactView artifact={{ kind: "html", html: selected.html }} workRef={selected.workRef} tabId={origin?.().tabId} linkContext={origin?.().linkContext} skipMotion />
+    {#if pendingHtml?.error}
+      <div class="py-2 text-sm text-(--muted-foreground)" role="alert">{pendingHtml.error}</div>
+    {:else if pendingHtml}
+      <div class="overflow-hidden rounded-2xl" style="height:{(heightKey && lastReportedHeight(heightKey)) || 120}px">
+        <ContentSkeleton label="Loading artifact" preview />
+      </div>
+    {:else if selected.workRef}
+      <ArtifactView artifact={{ kind: "html", html: selected.html }} workRef={selected.workRef} {heightKey} tabId={origin?.().tabId} linkContext={origin?.().linkContext} skipMotion />
     {:else}
       <HtmlBlock html={selected.html} />
     {/if}

@@ -13,6 +13,17 @@ export interface DraftPluginCommandScope {
   context: IpcContext
 }
 
+/**
+ * What a draft's slash commands depend on: the host and folder they are read
+ * from, and the provider and model its pickers name. Two models of one
+ * provider are distinct, so a model change reads the commands again. Git state
+ * is not part of it — a Git answer landing on the draft is no reason to ask.
+ */
+export function draftPluginCommandIdentity(run: RunConfig, fallbackProvider: AgentId): string {
+  const place = checkoutPlace(run)
+  return `${place.serverId}\0${place.path}\0${run.provider ?? fallbackProvider}\0${run.modelConfig.modelId ?? ''}`
+}
+
 /** Build command discovery from the draft's picker selection, not the active tab. */
 export function draftPluginCommandScope(
   run: RunConfig,

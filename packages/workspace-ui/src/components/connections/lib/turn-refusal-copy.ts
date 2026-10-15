@@ -33,5 +33,7 @@ export function turnRefusalCopy(code: TurnRefusal, input: { signedIn: boolean; a
       return { title: `Cannot reach ${organization}`, hint: 'The organization’s Solus API did not answer. Send again in a moment.', action: 'none' }
     case 'ORGANIZATION_AUTHORITY_MISSING':
       return { title: 'This machine cannot act for you yet', hint: 'Sign in to Solus again so this machine can act for you, then send again.', action: 'sign-in' }
+    case 'WORKSPACE_PREPARING':
+      return { title: 'Setting up your workspace for the first time', hint: 'Send again in a moment.', action: 'none' }
   }
 }

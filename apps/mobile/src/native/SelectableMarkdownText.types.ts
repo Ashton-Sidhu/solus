@@ -3,8 +3,6 @@
 import type { ReactNode } from "react";
 
 export interface NativeMarkdownTextStyle {
-  readonly selectionColor?: string;
-  readonly selectionHandleColor?: string;
   readonly color: string;
   readonly strongColor: string;
   readonly mutedColor: string;
@@ -52,6 +50,8 @@ export interface SelectableMarkdownTextProps {
   readonly preserveSoftBreaks?: boolean;
   /** Draws `@path` mentions as file chips (user message text only, as T3). */
   readonly recognizeFileMentions?: boolean;
+  /** Image embeds shown as file chips, including hosted image URLs. */
+  readonly fileChipHrefs?: readonly string[];
   readonly onLinkPress?: (href: string) => void;
   readonly renderImage?: MarkdownImageRenderer;
   readonly resolveImageSource?: MarkdownImageSourceResolver;

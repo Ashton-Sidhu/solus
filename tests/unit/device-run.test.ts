@@ -105,7 +105,7 @@ function setup(expo = false, options: { devServer?: (checkout: string) => DevSer
   }
   const signals: [number, string][] = []
   const listeners = new Set<() => void>()
-  const runs = new DeviceRuns({ manager, approvalsPath: join(root, 'approvals.json'), changed: () => { for (const listener of listeners) listener() }, probeDevServer: async () => options.devServer?.(checkout) ?? { state: 'free' }, fetch: expoManifest, sources: { prepare: async () => ({ path: checkout, commit: 'a'.repeat(40), hasChangedCommit: false }) }, spawn, run, killGroup: (pid, signal) => { signals.push([pid, signal]) } })
+  const runs = new DeviceRuns({ manager, approvalsPath: join(root, 'approvals.json'), changed: () => { for (const listener of listeners) listener() }, probeDevServer: async () => options.devServer?.(checkout) ?? { state: 'free' }, fetch: expoManifest, sources: { prepare: async () => ({ path: checkout, commit: 'a'.repeat(40), hasChangedSource: false }) }, spawn, run, killGroup: (pid, signal) => { signals.push([pid, signal]) } })
   const user = { kind: 'user' as const, clientId: 'c1', label: 'Ash' }
   const request = { source: 'conversation' as const, mode: 'device' as const, target: 'ios-device' as const, checkoutPath: checkout, profileName: 'iOS device' }
   function waitStage(stage: string) {
@@ -130,7 +130,7 @@ describe('build and run', () => {
     await waitStage('building')
     expect(spawned).toEqual([{ command: 'xcodebuild', args: ['-scheme', 'App', '-configuration', 'Release', 'build'], cwd: join(checkout, 'ios') }])
     // Remembered on this host: a new runner reads the same approvals.
-    const again = new DeviceRuns({ manager, approvalsPath: join(root, 'approvals.json'), changed: () => {}, sources: { prepare: async () => ({ path: checkout, commit: 'a'.repeat(40), hasChangedCommit: false }) }, spawn: () => { throw new Error('spawned') }, run: async () => ({ code: 1, stdout: '', stderr: '' }), killGroup: () => {} })
+    const again = new DeviceRuns({ manager, approvalsPath: join(root, 'approvals.json'), changed: () => {}, sources: { prepare: async () => ({ path: checkout, commit: 'a'.repeat(40), hasChangedSource: false }) }, spawn: () => { throw new Error('spawned') }, run: async () => ({ code: 1, stdout: '', stderr: '' }), killGroup: () => {} })
     const second = await again.start(request, user).catch((cause: unknown) => cause)
     expect((second as DeviceDomainError | undefined)?.code).not.toBe('confirmation_required')
   })

@@ -183,6 +183,8 @@ function createDraftTool(capture: (draft: PullRequestDraft) => void): AgentTool 
       body: z.string().describe('The complete Markdown pull request body.'),
     },
     requiresApproval: false,
+    // A deferred tool costs a tool-search turn, and the run has only two.
+    alwaysLoad: true,
     execute: async (args) => {
       const title = sanitizeTitle(args.title)
       const body = sanitizeBody(args.body)

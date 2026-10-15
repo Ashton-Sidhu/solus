@@ -99,27 +99,31 @@
     );
   }
 
+  // One layout read per frame, taken in the frame: a read in the DOM update
+  // that mounts a transcript forced its layout before the update finished.
+  let recomputeFrame = 0;
+  function scheduleRecompute() {
+    if (recomputeFrame) return;
+    recomputeFrame = requestAnimationFrame(() => {
+      recomputeFrame = 0;
+      untrack(recompute);
+    });
+  }
+
   // Observe size + scroll on the container only (stable across streaming ticks).
   // Guard on isActive: a ResizeObserver + scroll listener on a hidden tab's
   // scroll container is wasted work that fires on every layout/scroll event.
   $effect(() => {
     const el = scrollEl;
     if (!el || !isActive) return;
-    let raf = 0;
-    const schedule = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        untrack(recompute);
-      });
-    };
-    const ro = new ResizeObserver(schedule);
+    const ro = new ResizeObserver(scheduleRecompute);
     ro.observe(el);
-    el.addEventListener("scroll", schedule, { passive: true });
+    el.addEventListener("scroll", scheduleRecompute, { passive: true });
     return () => {
-      if (raf) cancelAnimationFrame(raf);
+      if (recomputeFrame) cancelAnimationFrame(recomputeFrame);
+      recomputeFrame = 0;
       ro.disconnect();
-      el.removeEventListener("scroll", schedule);
+      el.removeEventListener("scroll", scheduleRecompute);
     };
   });
 
@@ -132,7 +136,7 @@
     void geometryRevision;
     untrack(() => {
       rebuildNodeMap();
-      recompute();
+      scheduleRecompute();
     });
   });
 

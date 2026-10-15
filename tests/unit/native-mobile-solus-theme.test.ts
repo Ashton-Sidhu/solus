@@ -5,8 +5,8 @@ import { getMobileThemeVariables, type MobileThemeVariable } from '../../apps/mo
 import { SOLUS_DARK_THEME_COLORS, SOLUS_LIGHT_THEME_COLORS } from '../../apps/mobile/src/theme/theme-colors'
 
 // The phone wears Solus's own theme, read from the workspace CSS, not T3
-// Code's defaults. Its identity and every background (screen, drawer, bubble)
-// are the workspace's exactly; a few text roles are deliberate mobile variants
+// Code's defaults. The screen and thread list share the workspace canvas;
+// a few text roles are deliberate mobile variants
 // for reading on a phone (`theme-colors.ts`), held here to their contrast.
 
 const workspaceCss = readFileSync(join(import.meta.dir, '../../packages/workspace-ui/src/workspace.css'), 'utf8')
@@ -16,7 +16,7 @@ const mobileCss = readFileSync(join(import.meta.dir, '../../apps/mobile/global.c
 function token(name: string, appearance: 'light' | 'dark'): string {
   const start = workspaceCss.indexOf(appearance === 'light' ? ':root {' : '.dark {')
   const block = workspaceCss.slice(start, workspaceCss.indexOf('\n}', start))
-  const match = new RegExp(`--${name}:\\s*([^;]+);`).exec(block)
+  const match = new RegExp(`^\\s*--${name}:\\s*([^;]+);`, "m").exec(block)
   if (!match) throw new Error(`${name} is not in the ${appearance} block`)
   return match[1]!.trim().toLowerCase()
 }
@@ -49,6 +49,28 @@ describe('native mobile Solus theme', () => {
     expect(SOLUS_DARK_THEME_COLORS.accent).toBe(token('solus-accent', 'dark'))
   })
 
+  test('status hues are desktop\'s, so a state wears the same colour on every client', () => {
+    // WHY: T3's Tailwind pairs (emerald-600, amber-700, …) painted mobile
+    // states darker and in other hues than desktop's --success, --warning,
+    // --running, --review, and --failure.
+    const desktop = { green: 'solus-art-3', amber: 'solus-art-2', blue: 'solus-art-5', purple: 'solus-art-6', red: 'solus-stop-bg' } as const
+    // T3's class names stay; the pairs the app paints status with carry these hues.
+    const adaptive = {
+      green: '--color-adaptive-emerald-600-400',
+      amber: '--color-adaptive-amber-700-400',
+      blue: '--color-adaptive-sky-600-400',
+      purple: '--color-adaptive-violet-600-400',
+      red: '--color-adaptive-rose-600-400',
+    } as const
+    for (const [appearance, colors] of [['light', SOLUS_LIGHT_THEME_COLORS], ['dark', SOLUS_DARK_THEME_COLORS]] as const) {
+      const variables = getMobileThemeVariables(appearance)
+      for (const [hue, name] of Object.entries(desktop) as Array<[keyof typeof desktop, string]>) {
+        expect({ appearance, hue, color: colors[hue] }).toEqual({ appearance, hue, color: token(name, appearance) })
+        expect(variables[adaptive[hue]]).toBe(colors[hue])
+      }
+    }
+  })
+
   test('the phone paints the app\'s own background, drawer, and bubble in both appearances', () => {
     // WHY: the web shell paints the opaque container colour edge to edge (its
     // boot style), so a native screen in any other colour reads as another app.
@@ -64,7 +86,8 @@ describe('native mobile Solus theme', () => {
       for (const role of ['--color-screen', '--color-thread-canvas', '--color-status-bar', '--color-sheet-solid'] as const) {
         expect({ appearance, role, color: variables[role] }).toEqual({ appearance, role, color: appBackground })
       }
-      expect(variables['--color-drawer']).toBe(token('solus-sidebar-bg-left', appearance))
+      // Moving between the thread list and conversation must keep the same background.
+      expect(variables['--color-drawer']).toBe(variables['--color-thread-canvas'])
     }
   })
 
@@ -103,8 +126,6 @@ describe('native mobile Solus theme', () => {
       ['--color-foreground-muted', '--color-grouped-card'],
       ['--color-foreground-secondary', '--color-card'],
       ['--color-placeholder', '--color-input'],
-      ['--color-danger-foreground', '--color-danger'],
-      ['--color-warning-foreground', '--color-warning'],
       ['--color-update-foreground', '--color-update'],
       ['--color-md-link', '--color-screen'],
     ]
@@ -115,21 +136,23 @@ describe('native mobile Solus theme', () => {
       }
     }
     expect(contrast(SOLUS_DARK_THEME_COLORS.textMuted, SOLUS_DARK_THEME_COLORS.surface)).toBeGreaterThanOrEqual(4.5)
+    // Error and warning text are desktop's red (--failure) and amber (--warning),
+    // as desktop paints them, not darker shades tuned for the tinted cards.
+    for (const appearance of ['light', 'dark'] as const) {
+      expect(getMobileThemeVariables(appearance)['--color-danger-foreground']).toBe(token('solus-stop-bg', appearance))
+      expect(getMobileThemeVariables(appearance)['--color-warning-foreground']).toBe(token('solus-art-2', appearance))
+    }
   })
 
-  test('a filled primary action is a deeper accent whose white label reads at 4.5:1', () => {
-    // WHY: the label is text, so it meets the text threshold; the brand accent
-    // stays for focus and marks, and the fill keeps the accent's warm hue.
-    for (const appearance of ['light', 'dark'] as const) {
-      const variables = getMobileThemeVariables(appearance)
-      expect(contrast(variables['--color-primary-foreground'], variables['--color-primary'])).toBeGreaterThanOrEqual(4.5)
-      expect(contrast(variables['--color-switch-active-thumb'], variables['--color-switch-active-track'])).toBeGreaterThanOrEqual(3)
+  test('a filled primary action is desktop\'s send button, in both appearances', () => {
+    // WHY: the send button is the brand's one filled mark; a deeper mobile
+    // shade made the phone's orange read as a different colour from desktop's.
+    for (const [appearance, colors] of [['light', SOLUS_LIGHT_THEME_COLORS], ['dark', SOLUS_DARK_THEME_COLORS]] as const) {
+      expect(colors.messageAction).toBe(token('solus-send-bg', appearance))
+      expect(colors.messageActionHover).toBe(token('solus-send-hover', appearance))
+      expect(colors.messageActionForeground).toBe(token('solus-text-on-accent', appearance))
+      expect(getMobileThemeVariables(appearance)['--color-primary']).toBe(colors.messageAction)
     }
-    expect(SOLUS_LIGHT_THEME_COLORS.focus).toBe(token('solus-accent', 'light'))
-    const [red, green, blue] = channels(SOLUS_LIGHT_THEME_COLORS.messageAction)
-    expect(red > green && green > blue).toBe(true)
-    // The palette's own pressed shade is deeper still, never lighter than the fill.
-    expect(contrast('#ffffff', SOLUS_LIGHT_THEME_COLORS.messageActionHover)).toBeGreaterThan(contrast('#ffffff', SOLUS_LIGHT_THEME_COLORS.messageAction))
   })
 
   test('a prominent action (merge) is the ink fill with a canvas label, as T3\'s default theme', () => {

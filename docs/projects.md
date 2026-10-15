@@ -132,25 +132,23 @@ show in project lists, and it has no branch, worktree, Git panel, or pull
 requests.
 
 Each chat runs in a folder of its own, so the files of two chats never mix. The
-folder is `.solus-chats/<session id>` in your projects folder on the host:
+folder is `solus-chats/<session id>` on the host:
 
 | Host | Chat folder |
 |---|---|
-| Your own machine, or a host you own | `<projects folder>/.solus-chats/<session id>`, for example `~/projects/.solus-chats/<session id>` |
-| A shared or cloud host, as a member of the organization | `/data/projects/<your folder>/.solus-chats/<session id>` |
+| Your own machine, or a host you own | `<Solus data folder>/solus-chats/<session id>`, for example `~/.solus/solus-chats/<session id>` |
+| A shared or cloud host, as a member of the organization | `/data/projects/<your folder>/solus-chats/<session id>` |
 
 Solus does not show this folder. Every client knows a chat from the folder name
 alone, so a chat reads **Chat** at once, before the host answers.
 
-A new chat has no folder until you send its first prompt. Then the client names
-the folder from the host's projects folder and the session id, and the host
-makes it. If the client does not know the projects folder yet, it sends the
-new-chat marker, and the host gives the chat the same folder. `~` is always the
-home folder. It never means a chat.
+A new chat has no folder until you send its first prompt. The client sends the
+new-chat marker, and the host makes the folder from the session id. `~` is
+always the home folder. It never means a chat.
 
-When the projects folder of a host is inside a Git work tree, the host refuses
-to start a chat and says why. An agent there would read and change that
-repository. This can occur in development.
+When the folder that holds the chats is itself a Git repository, the host
+refuses to start a chat and names that folder. An agent there would read and
+change that repository. Solus checks only that folder, not its parents.
 
 To start a chat:
 

@@ -76,7 +76,7 @@
       </span>
       <ProjectFavicon
         projectKey={row.groupKey}
-        class="size-4 @max-[15rem]:size-[0.875rem] pointer-fine:[&_.lucide-folder]:size-[82%]"
+        class="size-4 @max-[15rem]:size-[0.875rem] pointer-fine:[&_.lucide-icon]:size-[82%]"
       />
       <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
         >{row.projectLabel}</span

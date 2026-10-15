@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { PrFilter, PrListPage, PullRequest, RepoRef } from '@solus/contracts/providers'
 import type { GitHubClient } from '@solus/server/providers/github/octokit'
+import { GitHubRateLimitedError } from '@solus/server/providers/github/rate-limit'
 import { GitHubProvider } from '@solus/server/providers/github/provider'
 import type { PrPageRequest, Provider, RepositoryPage } from '@solus/server/providers/types'
 import { PrIndex } from '@solus/server/prs/pr-index'
@@ -62,6 +63,7 @@ interface World {
   renamed?: Map<string, string>
   /** Repositories this credential cannot see. */
   hidden?: Set<string>
+  hiddenError?: 'FORBIDDEN' | 'NOT_FOUND' | 'RATE_LIMITED'
   /** Pull requests the search index has not caught up with. */
   unindexed?: Set<number>
 }
@@ -141,7 +143,7 @@ function fakeGithub(world: World) {
       const name = variables[`${alias}n`]
       if (world.hidden?.has(name)) {
         data[alias] = null
-        errors.push({ type: 'NOT_FOUND', path: [alias] })
+        errors.push({ type: world.hiddenError ?? 'NOT_FOUND', path: [alias] })
         continue
       }
       const own = sorted.filter((row) => row.repo === oldName(currentName(name)))
@@ -188,12 +190,12 @@ function fakeGithub(world: World) {
 }
 
 class OneClientProvider extends GitHubProvider {
-  constructor(private readonly client: GitHubClient) {
+  constructor(private readonly client: GitHubClient, private readonly fallbacks: GitHubClient[] = []) {
     super()
   }
 
   protected override async clients(): Promise<GitHubClient[]> {
-    return [this.client]
+    return [this.client, ...this.fallbacks]
   }
 }
 
@@ -308,15 +310,78 @@ describe('one search lists many repositories', () => {
     expect(count(calls, 'graphql:PrListPages')).toBe(1)
   })
 
-  test('a repository this credential cannot see is null, and the others still answer', async () => {
+  test('a hidden repository reports an access error when no credential can read it', async () => {
     const names = ['a', 'hidden-one', 'c']
     const { client } = fakeGithub({ rows: rowsOf(names, 1), hidden: new Set(['hidden-one']) })
 
-    const pages = await new OneClientProvider(client).listPullRequestPages(firstPages(names), { state: 'open' }, 'sidhu', true)
+    await expect(new OneClientProvider(client).listPullRequestPages(firstPages(names), { state: 'open' }, 'sidhu', true))
+      .rejects.toThrow('Some aliases failed')
+  })
 
-    expect(pages[0]?.page.items).toHaveLength(1)
-    expect(pages[1]).toBeNull()
-    expect(pages[2]?.page.items).toHaveLength(1)
+  for (const hiddenError of ['FORBIDDEN', 'NOT_FOUND'] as const) {
+    test(`${hiddenError} in a partial answer falls back to gh for the complete list`, async () => {
+      const names = ['allowed', 'org-restricted']
+      const rows = rowsOf(names, 1)
+      const account = fakeGithub({ rows, hidden: new Set(['org-restricted']), hiddenError })
+      account.client.credential.source = 'account'
+      const gh = fakeGithub({ rows })
+      gh.client.credential.source = 'gh-cli'
+
+      const pages = await new OneClientProvider(account.client, [gh.client])
+        .listPullRequestPages(firstPages(names), undefined, 'sidhu', true)
+
+      expect(pages.map((page) => page?.page.items.map((item) => item.number))).toEqual([[1], [2]])
+      expect(count(gh.calls, 'graphql:PrListPages')).toBe(1)
+    })
+  }
+
+  test('an access failure in one document still falls back when another document succeeds', async () => {
+    const names = Array.from({ length: 101 }, (_, index) => `fallback-${index}`)
+    const rows = rowsOf(names, 1)
+    const account = fakeGithub({ rows, hidden: new Set([names[100]]), hiddenError: 'FORBIDDEN' })
+    const gh = fakeGithub({ rows })
+    gh.client.credential.source = 'gh-cli'
+
+    const pages = await new OneClientProvider(account.client, [gh.client])
+      .listPullRequestPages(firstPages(names), undefined, 'sidhu', false)
+
+    expect(pages.every((page) => page?.page.items.length === 1)).toBe(true)
+    expect(count(account.calls, 'graphql:PrListPages')).toBe(2)
+    expect(count(gh.calls, 'graphql:PrListPages')).toBe(2)
+  })
+
+  test('an access failure on the search retry reaches the next credential', async () => {
+    const names = ['retry-allowed', 'retry-restricted']
+    const rows = rowsOf(names, 1)
+    const account = fakeGithub({ rows, unindexed: new Set([2]) })
+    const read = account.client.graphql
+    let calls = 0
+    account.client.graphql = async (query, variables) => {
+      if (++calls === 2) throw Object.assign(new Error('Organization blocks this app'), {
+        data: { p0: null }, errors: [{ type: 'FORBIDDEN', path: ['p0'] }],
+      })
+      return read(query, variables)
+    }
+    const gh = fakeGithub({ rows })
+    gh.client.credential.source = 'gh-cli'
+
+    const pages = await new OneClientProvider(account.client, [gh.client])
+      .listPullRequestPages(firstPages(names), undefined, 'sidhu', false)
+
+    expect(calls).toBe(2)
+    expect(pages.map((page) => page?.page.items.map((item) => item.number))).toEqual([[1], [2]])
+    expect(count(gh.calls, 'graphql:PrListPages')).toBe(1)
+  })
+
+  test('a partial rate-limit error stops the read without spending the next credential', async () => {
+    const names = ['limited']
+    const rows = rowsOf(names, 1)
+    const account = fakeGithub({ rows, hidden: new Set(names), hiddenError: 'RATE_LIMITED' })
+    const gh = fakeGithub({ rows })
+
+    await expect(new OneClientProvider(account.client, [gh.client])
+      .listPullRequestPages(firstPages(names), undefined, 'sidhu', false)).rejects.toBeInstanceOf(GitHubRateLimitedError)
+    expect(gh.calls).toEqual([])
   })
 
   test('rows carry the head commit\'s combined check state', async () => {

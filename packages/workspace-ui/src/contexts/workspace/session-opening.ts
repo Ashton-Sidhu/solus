@@ -15,8 +15,10 @@ import { type Task } from '@solus/contracts/task-types'
 import { toasts } from '../../lib/toasts'
 import { makeSession, makeTab } from './session.factories'
 import { worktreeProjectRoot, gitCheckoutFromState, isSolusWorktreePath } from '@solus/contracts/types'
-import { INITIAL_HISTORY_TURNS } from '@solus/client-core/session-history-page'
+import { INITIAL_HISTORY_TURNS, prefetchSessionHistoryPage } from '@solus/client-core/session-history-page'
+import type { SessionHistoryPageRequest } from '@solus/contracts/session-history'
 import { loadSessionTranscript } from './session-transcript'
+import { measureOpenStep } from '../../lib/mount-timing'
 import { track } from '../../lib/analytics'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -86,6 +88,10 @@ type SessionOpeningWorkspace = Pick<WorkspaceContext,
  * conversation continued in its own worktree. Each creates the session and
  * then asks the workspace to show it.
  */
+/** What a session's first history page is read with: its metadata, or the
+ *  same facts a sidebar row already holds. */
+type FirstPageFacts = Pick<SessionMeta, 'sessionId' | 'serverId' | 'provider' | 'projectPath' | 'cwd'>
+
 export class SessionOpening {
   /** Counts task opens. A slow open checks it after each wait, so a task the
    *  reader clicked past cannot take the screen back when its reads land. */
@@ -106,13 +112,12 @@ export class SessionOpening {
     const draft = this.workspace.drafts.openSessionDraft({ worktreeRequested: true }, projectRoot)
     // Always branch off the project root, even when the source was itself inside
     // a worktree whose checkout the draft would otherwise inherit.
-    draft.run.location = folderLocation(checkoutPlace(draft.run), {
+    draft.moveTo(folderLocation(checkoutPlace(draft.run), {
       newWorktree: { baseBranch: null },
       project: projectHome(draft.run),
-    })
-    const dir = checkoutPlace(draft.run).path
-    if (!dir || dir === '~') return
-    await this.workspace.config.refreshSessionStartTarget(draft.id, dir, true)
+    }))
+    // The move reads the checkout; wait for it as the old explicit read did.
+    await this.workspace.config.pendingSessionStartTarget(draft.id)
   }
 
   /** Fork a session into a new tab. The fork inherits the transcript through the
@@ -287,6 +292,29 @@ export class SessionOpening {
     requestInputFocus()
   }
 
+  /** The first history page `resumeSession` reads for this metadata. */
+  private firstPageRequest(meta: FirstPageFacts): SessionHistoryPageRequest & { projectPath: string } {
+    const defaultDir = meta.cwd || hosts.get(meta.serverId)?.machineInfo?.homePath || '~'
+    return {
+      sessionId: meta.sessionId,
+      projectPath: meta.projectPath || defaultDir,
+      provider: meta.provider ?? this.workspace.settings.activeAgent,
+      turnLimit: INITIAL_HISTORY_TURNS,
+      deferArtifactHtml: true,
+    }
+  }
+
+  /** Ask the host for a session's first history page before its tab exists.
+   *  The read `resumeSession` makes for the same metadata takes this one, so
+   *  the page travels while the tab is created and mounted. */
+  prefetchFirstPage(meta: FirstPageFacts): void {
+    if (!meta.serverId || !hosts.hasExecution(meta.serverId)) return
+    const request = this.firstPageRequest(meta)
+    if (findOpenTabForSession(meta.sessionId, this.workspace.tabs, this.workspace.sessions.byId,
+      this.workspace.tabOrder, request.provider, meta.serverId)) return
+    void prefetchSessionHistoryPage(serverConnections.apiFor(meta.serverId), request).catch(() => null)
+  }
+
   async resumeSession(
     meta: SessionMeta,
     opts?: {
@@ -307,6 +335,7 @@ export class SessionOpening {
       return ''
     }
     const selectedApi = serverConnections.apiFor(meta.serverId)
+    if (!opts?.intoTabId) this.prefetchFirstPage(meta)
     // `meta.sessionId` is the session id; its lineage names the thread to read
     // (docs/plans/session-identity.md).
     const resumedSessionId = meta.sessionId
@@ -356,6 +385,8 @@ export class SessionOpening {
       }
     }
     const defaultDir = meta.cwd || hosts.get(meta.serverId)?.machineInfo?.homePath || '~'
+    // The same request the click's prefetch made, so the read below takes it.
+    const firstPage = this.firstPageRequest({ ...meta, provider })
     const workingDirectory = worktreeProjectRoot(defaultDir)
     const title = meta.customTitle
       ? meta.customTitle
@@ -376,6 +407,7 @@ export class SessionOpening {
     const shouldCreateNewTab = !intoTabId && (background || !canTakeOver)
     if (shouldCreateNewTab) {
       const shouldActivate = !background || !hadActiveTab
+      const createTabStart = performance.now()
       tabId = await this.workspace.createTab(workingDirectory, {
         activate: shouldActivate,
         gitContext: null,
@@ -388,6 +420,7 @@ export class SessionOpening {
         // on another host has to open against that host, not this client's.
         serverId: meta.serverId,
       })
+      measureOpenStep('createTab', createTabStart)
       const session = this.workspace.sessionFor(tabId)
       const tab = this.workspace.tabs[tabId]
       if (!session || !tab) throw new Error('The resumed session tab was not created')
@@ -484,7 +517,7 @@ export class SessionOpening {
       void this.workspace.tasksStore.ensureSessionBinding(resumedSessionId, projectHome(this.workspace.runFor(tabId))?.serverId).catch(() => null)
       const transcript = await loadSessionTranscript(this.workspace, {
         sessionId: resumedSessionId,
-        loadPath: meta.projectPath || defaultDir,
+        loadPath: firstPage.projectPath,
         displayCwd: workingDirectory,
         provider,
         ctx: this.workspace.ctxFor(tabId),
@@ -612,7 +645,7 @@ export class SessionOpening {
     // A lead starts on the lead model when the user set one. The draft's
     // chip still changes it before Send.
     const leadModel = this.workspace.settings.leadModel
-    if (role === 'lead' && leadModel) draft.run = runOnModel(draft.run, leadModel)
+    if (role === 'lead' && leadModel) draft.applyRun(runOnModel(draft.run, leadModel))
     return draft
   }
 
@@ -683,7 +716,7 @@ export class SessionOpening {
     if (choice?.path) return open({ ...task, serverId: choice.serverId }, choice.path)
     const draft = open({ ...task }, choice ? '~' : (projectKey ?? '~'))
     if (choice && projectKey && isRepositoryKey(projectKey)) {
-      draft.run.location = dispatchTo(draft.run.location, choice.serverId, projectKey)
+      draft.moveTo(dispatchTo(draft.run.location, choice.serverId, projectKey))
     }
     return draft
   }

@@ -116,7 +116,7 @@ Do not assume a GitHub size limit from the client alone. If GitHub refuses the u
 Create three recordings: leave one unsent and unfiled, send one in a message, and file one on a task.
 
 - [ ] Inspect `<test data dir>/state/browser-recordings.json`. The unsent/unfiled recording has `filed: false`; the other two have `filed: true`.
-- [ ] For a long-running test, wait until the unfiled recording is older than 24 hours, then allow the next sweep or restart the test host. Only the unfiled recording should be removed.
+- [ ] For a long-running test, wait until the unfiled recording is older than the host's recording retention (30 days by default; set it to 1 day for this test), then allow the next sweep or restart the test host. Only the unfiled recording should be removed.
 - [ ] The sent and filed recordings still play.
 
 The host sweeps at startup and every six hours. Reading the index confirms the retention mark; it does **not** prove deletion. The unit tests verify deletion without waiting or changing the system clock.

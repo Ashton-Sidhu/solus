@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { IpcContext, RunConfig } from '@solus/contracts/types'
-import { draftPluginCommandScope } from '@solus/workspace-ui/components/session-draft/lib/plugin-command-scope'
-import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
+import { draftPluginCommandIdentity, draftPluginCommandScope } from '@solus/workspace-ui/components/session-draft/lib/plugin-command-scope'
+import { adoptGit, folderLocation, openFolder } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 function run(provider: RunConfig['provider'], modelId: string): RunConfig {
   return {
@@ -64,5 +64,22 @@ describe('draft plugin command scope', () => {
 
     expect(scope.provider).toBe('codex')
     expect(scope.context.session.provider).toBe('codex')
+  })
+
+  test('reads again for a new place or pick, never for a Git answer', () => {
+    // WHY: the composer reads commands once per identity. A Git answer replaces
+    // the draft's location; if it changed the identity, every answer would send
+    // another getPluginCommands and a folder outside Git would never settle.
+    const draft = run('claude-code', 'claude-opus-4-1')
+    const identity = draftPluginCommandIdentity(draft, 'codex')
+    const answered = { ...draft, location: adoptGit(draft.location, { serverId: 'local', path: '/repo' }, null, null) }
+    expect(draftPluginCommandIdentity(answered, 'codex')).toBe(identity)
+    const onMain = { ...draft, location: adoptGit(draft.location, { serverId: 'local', path: '/repo' }, { repoRoot: '/repo', branch: 'main', targetBranch: 'main' }) }
+    expect(draftPluginCommandIdentity(onMain, 'codex')).toBe(identity)
+
+    expect(draftPluginCommandIdentity(run('claude-code', 'claude-sonnet-4-5'), 'codex')).not.toBe(identity)
+    expect(draftPluginCommandIdentity(run('codex', 'claude-opus-4-1'), 'codex')).not.toBe(identity)
+    const moved = { ...draft, location: openFolder(draft.location, { serverId: 'remote', path: '/repo' }) }
+    expect(draftPluginCommandIdentity(moved, 'codex')).not.toBe(identity)
   })
 })

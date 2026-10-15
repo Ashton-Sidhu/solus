@@ -10,6 +10,7 @@ import { ScreenScrollView } from "../../components/ScreenScrollView";
 import type { ScreenProps } from "../../navigation/routes";
 import { ConnectionEnvironmentRow } from "../connection/ConnectionEnvironmentRow";
 import { confirmForgetHost } from "../hosts/confirm-forget-host";
+import { SettingsChoiceRow } from "./components/SettingsChoiceRow";
 import { SettingsNote } from "./components/SettingsNote";
 import { SettingsRow } from "./components/SettingsRow";
 import { SettingsScreen } from "./components/SettingsScreen";
@@ -17,6 +18,7 @@ import { SettingsSection } from "./components/SettingsSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsValueRow } from "./components/SettingsValueRow";
 import { accountConnectionValue } from "./lib/account-connections";
+import { retentionDayChoices, retentionDaysLabel } from "./lib/retention-choices";
 import { updateStatusText } from "./lib/update-status";
 import { useGithubConnection } from "./use-github-connection";
 import { useHostSettings } from "./use-host-settings";
@@ -114,20 +116,39 @@ export function HostSettingsScreen({ navigation, route }: ScreenProps<"HostSetti
             </SettingsSection>
 
             {state.kind === "loaded" ? (
-              <View className="gap-3">
-                <SettingsSection title="Sessions">
-                  <SettingsSwitchRow
-                    icon="arrow.clockwise"
-                    label="Continue sessions after restart"
-                    value={state.settings.continueSessionsAfterHostRestart}
-                    onValueChange={(next) => update({ continueSessionsAfterHostRestart: next })}
-                  />
-                </SettingsSection>
-                <SettingsNote>
-                  When the host restarts, it resumes the turns that were running. Every device using
-                  this host shares this setting.
-                </SettingsNote>
-              </View>
+              <>
+                <View className="gap-3">
+                  <SettingsSection title="Sessions">
+                    <SettingsSwitchRow
+                      icon="arrow.clockwise"
+                      label="Continue sessions after restart"
+                      value={state.settings.continueSessionsAfterHostRestart}
+                      onValueChange={(next) => update({ continueSessionsAfterHostRestart: next })}
+                    />
+                  </SettingsSection>
+                  <SettingsNote>
+                    When the host restarts, it resumes the turns that were running. Every device using
+                    this host shares this setting.
+                  </SettingsNote>
+                </View>
+                <View className="gap-3">
+                  <SettingsSection title="Delete unfiled recordings after">
+                    {retentionDayChoices(state.settings.unfiledRecordingRetentionDays).map((days, index) => (
+                      <SettingsChoiceRow
+                        key={days}
+                        separated={index > 0}
+                        label={retentionDaysLabel(days)}
+                        selected={state.settings.unfiledRecordingRetentionDays === days}
+                        onPress={() => update({ unfiledRecordingRetentionDays: days })}
+                      />
+                    ))}
+                  </SettingsSection>
+                  <SettingsNote>
+                    The host keeps a browser recording that is filed on a task or pull request, or
+                    sent to an agent. It deletes other recordings after this time.
+                  </SettingsNote>
+                </View>
+              </>
             ) : state.kind === "error" ? (
               <View className="gap-3">
                 <ErrorBanner message={`Settings could not be read: ${state.message}`} />

@@ -17,9 +17,8 @@
   import DocumentStackCard from "../work/DocumentStackCard.svelte";
   import AutomationRefCard from "../automations/AutomationRefCard.svelte";
   import TaskRefCard from "./TaskRefCard.svelte";
-  import BrowserSnapshots from "../browser/BrowserSnapshots.svelte";
+  import TurnImageGallery from "./TurnImageGallery.svelte";
   import BrowserRecordingCard from "../browser/BrowserRecordingCard.svelte";
-  import ToolResultImages from "./ToolResultImages.svelte";
   import AgentConversationGroup from "./agent-conversation/AgentConversationGroup.svelte";
   import ArtifactView from "../artifact/ArtifactView.svelte";
   import ConversationArtifact from "./ConversationArtifact.svelte";
@@ -43,6 +42,10 @@
   import { Minimize2 as Minimize2Icon } from "@lucide/svelte";
   import type { DocumentStackEntry } from "../work/lib/document-stack";
   import { runHost } from "../../contexts/workspace/run-location";
+  import { measureMount } from "../../lib/mount-timing";
+  import SettledMarkdown from "./SettledMarkdown.svelte";
+  import { untrack } from "svelte";
+  measureMount("TranscriptItem");
 
   let { item, skipMotion, tabId, linkContext, activeHandoffDivider, activeHandoffTargetModel,
     navigateToSourceSession }: {
@@ -53,6 +56,9 @@
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
   const sess = $derived(session.sessionFor(tabId));
+  // Chosen once: the streaming flag is the session's, and switching renderers
+  // when it changes would mount every visible reply again, frames included.
+  const rendersSettled = untrack(() => !(!skipMotion && !!sess?.isStreamingText));
   const artifactRevisions = getArtifactRevisions();
   provideArtifactMessage(() => "message" in item ? item.message.id : undefined);
   const markdownRenderers = {
@@ -93,14 +99,24 @@
     class="prose-cloud prose-reading prose-transcript prose-transcript-main min-w-0 response-markdown"
     data-streaming={streaming ? "" : undefined}
   >
-    <SvelteMarkdown
-      source={displayContent}
-      streaming
-      options={assistantMarkdownOptions}
-      renderers={markdownRenderers}
-      extensions={assistantMarkdownExtensions(displayContent)}
-      sanitizeUrl={markdownSanitizeUrl}
-    />
+    {#if !rendersSettled}
+      <SvelteMarkdown
+        source={displayContent}
+        streaming
+        options={assistantMarkdownOptions}
+        renderers={markdownRenderers}
+        extensions={assistantMarkdownExtensions(displayContent)}
+        sanitizeUrl={markdownSanitizeUrl}
+      />
+    {:else}
+      <SettledMarkdown
+        source={displayContent}
+        options={assistantMarkdownOptions}
+        renderers={markdownRenderers}
+        extensions={assistantMarkdownExtensions(displayContent)}
+        sanitizeUrl={markdownSanitizeUrl}
+      />
+    {/if}
   </div>
 {/snippet}
 
@@ -108,7 +124,7 @@
   <UserMessageBubble message={item.message} {skipMotion} {tabId} />
 {:else if item.kind === "assistant"}
   {@const displayContent = item.message.content}
-  {#if displayContent}
+  {#if displayContent.trim()}
     <!-- The rail hangs in the column's left margin; its copy
          control aligns with the first line of assistant prose. -->
     <div
@@ -237,18 +253,7 @@
 {:else if item.kind === "task" && item.message.taskRef}
   <TaskRefCard ref={item.message.taskRef} {skipMotion} />
 {:else if item.kind === "browser-snapshot"}
-  {@const captures = item.messages
-    .map((message) => message.browserSnapshot)
-    .filter((snapshot) => !!snapshot)}
-  {#if captures.length > 0}
-    <BrowserSnapshots snapshots={captures} serverId={runHost(sess?.run)} />
-  {/if}
-{:else if item.kind === "device-snapshot"}
-  <ToolResultImages
-    images={item.messages.flatMap((message) => message.toolImages ?? [])}
-    label="Device screenshot"
-    inset={false}
-  />
+  <TurnImageGallery messages={item.messages} serverId={runHost(sess?.run)} />
 {:else if item.kind === "browser-recording" && item.message.browserRecording}
   <BrowserRecordingCard
     recording={item.message.browserRecording}

@@ -21,11 +21,13 @@
     screen: DeviceScreenConfig | null;
     onTouch: (phase: "down" | "move" | "up", point: ScreenPoint) => void;
     onKey: (event: KeyboardEvent, phase: "down" | "up") => void;
+    /** The device lost focus: keys still held will get no key up. */
+    onKeyFocusLost: () => void;
     /** WebGL is missing or its context was lost. The surface shows the flat view. */
     onUnavailable: () => void;
   }
 
-  let { source, profile, screen, onTouch, onKey, onUnavailable }: Props = $props();
+  let { source, profile, screen, onTouch, onKey, onKeyFocusLost, onUnavailable }: Props = $props();
 
   let host = $state<HTMLDivElement | null>(null);
   let canvas = $state<HTMLCanvasElement | null>(null);
@@ -129,5 +131,6 @@
     onlostpointercapture={(event) => interaction?.end(event.pointerId)}
     onkeydown={(event) => onKey(event, "down")}
     onkeyup={(event) => onKey(event, "up")}
+    onblur={onKeyFocusLost}
   ></canvas>
 </div>

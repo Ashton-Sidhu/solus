@@ -1,9 +1,9 @@
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
-import { isDeviceRunActive, type DeviceBuild, type DeviceRun, type DeviceRunMode, type DeviceRunTarget, type DeviceSummary } from '@solus/contracts/device-types'
+import { isDeviceRunActive, type DeviceBuild, type DeviceRun, type DeviceRunTarget, type DeviceSummary } from '@solus/contracts/device-types'
 import type { InstallResult } from './build-list'
 
 /**
- * Run app for one host. Builds and dev servers belong to the host, not to a
+ * Production builds for one host. Builds belong to the host, not to a
  * conversation or a window, so each host has one Run app: every conversation
  * and window shows the same choices and the same run. A run that is still
  * going on the host wins over the choices, whatever its project, until it
@@ -11,7 +11,6 @@ import type { InstallResult } from './build-list'
  */
 
 export interface RunAppView {
-  mode: DeviceRunMode
   projectPath: string | null
   branch: string
   target: DeviceRunTarget
@@ -22,16 +21,12 @@ export interface RunAppView {
 export type InstallStatus = { state: 'installing' } | { state: 'installed' } | { state: 'failed'; error: string }
 
 export class RunApp {
-  /** Open simulators on a dev server, or build for production and install. */
-  mode = $state<DeviceRunMode>('dev')
   /** Null follows the conversation's project. */
   projectPath = $state<string | null>(null)
   /** Empty uses the project's default branch. */
   branch = $state('')
   /** What a production build runs on. */
   target = $state<DeviceRunTarget>('ios-simulator')
-  /** The simulator the dev server opens the app on next. */
-  simulatorId = $state('')
   /** The build whose install list is open; one at a time. */
   openBuildId = $state<string | null>(null)
   /** Devices checked for the open build. */
@@ -77,7 +72,6 @@ export class RunApp {
     const active = runs.find(isDeviceRunActive)
     if (active) {
       return {
-        mode: active.mode,
         projectPath: active.checkoutPath,
         branch: active.mode === 'device' && active.branch ? active.branch : defaultBranchOf(active.checkoutPath),
         target: active.target ?? this.target,
@@ -86,9 +80,9 @@ export class RunApp {
     }
     const projectPath = this.projectPath ?? conversationProjectPath
     const branch = this.branch || (projectPath ? defaultBranchOf(projectPath) : '')
-    const latest = runs.find((run) => run.checkoutPath === projectPath && run.mode === this.mode
-      && (run.mode === 'dev' || (run.branch === branch && run.target === this.target)))
-    return { mode: this.mode, projectPath, branch, target: this.target, latest }
+    const latest = runs.find((run) => run.checkoutPath === projectPath && run.mode === 'device'
+      && run.branch === branch && run.target === this.target)
+    return { projectPath, branch, target: this.target, latest }
   }
 }
 

@@ -17,7 +17,6 @@ import { themeColorWithAlpha, type MobileThemeVariables } from "../../lib/mobile
 function statusDotTone(
   state: ConnectionStatusDotState,
   theme: MobileThemeVariables,
-  dark: boolean,
 ): {
   readonly dotColor: string;
   readonly haloColor: string;
@@ -33,20 +32,20 @@ function statusDotTone(
       };
     case "connected":
       return {
-        dotColor: dark ? "#34d399" : "#059669",
-        haloColor: themeColorWithAlpha(dark ? "#34d399" : "#059669", 0.48),
+        dotColor: theme["--color-adaptive-emerald-600-400"],
+        haloColor: themeColorWithAlpha(theme["--color-adaptive-emerald-600-400"], 0.48),
       };
     case "connecting":
     case "reconnecting":
       return {
-        dotColor: theme["--color-warning-foreground"],
-        haloColor: themeColorWithAlpha(theme["--color-warning-foreground"], 0.5),
+        dotColor: theme["--color-adaptive-amber-700-400"],
+        haloColor: themeColorWithAlpha(theme["--color-adaptive-amber-700-400"], 0.5),
       };
     case "offline":
     case "error":
       return {
-        dotColor: theme["--color-danger-foreground"],
-        haloColor: themeColorWithAlpha(theme["--color-danger-foreground"], 0.48),
+        dotColor: theme["--color-adaptive-rose-600-400"],
+        haloColor: themeColorWithAlpha(theme["--color-adaptive-rose-600-400"], 0.48),
       };
   }
 }
@@ -83,8 +82,8 @@ export function ConnectionStatusDot(props: {
   readonly size?: number;
 }) {
   const pulseProgress = usePulseAnimation(props.pulse);
-  const { themeAppearance, themeVariables } = useAppearancePreferences();
-  const tone = statusDotTone(props.state, themeVariables, themeAppearance === "dark");
+  const { themeVariables } = useAppearancePreferences();
+  const tone = statusDotTone(props.state, themeVariables);
   const dotSize = props.size ?? 10;
   const haloSize = dotSize + 4;
   const containerSize = haloSize + 4;

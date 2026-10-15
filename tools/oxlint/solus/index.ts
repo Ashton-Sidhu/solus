@@ -7,6 +7,7 @@ import { noGithubTaskEscapesRule } from './rules/no-github-task-escapes.ts'
 import { noHostApiEscapesRule } from './rules/no-host-api-escapes.ts'
 import { noPassThroughWrappersRule } from './rules/no-pass-through-wrappers.ts'
 import { noPierreDiffEscapesRule } from './rules/no-pierre-diff-escapes.ts'
+import { noPrivatePathToMemberRule } from './rules/no-private-path-to-member.ts'
 import { noPrContextEscapesRule } from './rules/no-pr-context-escapes.ts'
 import { noTailwindClassVariablesRule } from './rules/no-tailwind-class-variables.ts'
 import { requireResolvedCwdRule } from './rules/require-resolved-cwd.ts'
@@ -22,6 +23,7 @@ const solusPlugin = definePlugin({
     'no-host-api-escapes': noHostApiEscapesRule,
     'no-pass-through-wrappers': noPassThroughWrappersRule,
     'no-pierre-diff-escapes': noPierreDiffEscapesRule,
+    'no-private-path-to-member': noPrivatePathToMemberRule,
     'no-pr-context-escapes': noPrContextEscapesRule,
     'no-tailwind-class-variables': noTailwindClassVariablesRule,
     'require-resolved-cwd': requireResolvedCwdRule,

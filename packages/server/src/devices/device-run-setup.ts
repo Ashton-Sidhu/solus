@@ -11,7 +11,7 @@ export interface DeviceRunSetup {
   profile: DeviceRunProfile
   usesExpo: boolean
   automatic: boolean
-  hasChangedCommit: boolean
+  hasChangedSource: boolean
   cancelled: () => boolean
   command: (args: string[], cwd: string) => Promise<number>
 }
@@ -19,7 +19,7 @@ export interface DeviceRunSetup {
 async function dependencies(setup: DeviceRunSetup): Promise<void> {
   const packageFolder = setup.appFolder
   if (!(await stat(join(packageFolder, 'package.json')).catch(() => null))?.isFile()) return
-  if (!setup.hasChangedCommit && await stat(join(packageFolder, 'node_modules')).catch(() => null)) return
+  if (!setup.hasChangedSource && await stat(join(packageFolder, 'node_modules')).catch(() => null)) return
   let command = ['npm', 'install']
   if (await stat(join(setup.checkoutRoot, 'package-lock.json')).catch(() => null)) command = ['npm', 'ci']
   const bunLock = await stat(join(setup.checkoutRoot, 'bun.lock')).catch(() => null)
@@ -31,7 +31,7 @@ async function dependencies(setup: DeviceRunSetup): Promise<void> {
 
 async function nativeProject(setup: DeviceRunSetup): Promise<void> {
   let regenerate = false
-  if (setup.usesExpo && setup.automatic && setup.hasChangedCommit) {
+  if (setup.usesExpo && setup.hasChangedSource) {
     const ignored = await setup.command(['git', 'check-ignore', '-q', '--', relative(setup.checkoutRoot, setup.cwd)], setup.checkoutRoot)
     regenerate = ignored === 0
   }
@@ -43,7 +43,7 @@ async function nativeProject(setup: DeviceRunSetup): Promise<void> {
   if (setup.cancelled() || setup.profile.platform !== 'ios') return
   const podfile = await stat(join(setup.cwd, 'Podfile')).catch(() => null)
   const pods = await stat(join(setup.cwd, 'Pods')).catch(() => null)
-  if (podfile && (setup.hasChangedCommit || !pods)) {
+  if (podfile && (setup.hasChangedSource || !pods)) {
     const code = await setup.command(['pod', 'install'], setup.cwd)
     if (code !== 0 && !setup.cancelled()) throw new DeviceDomainError('command_failed', 'iOS dependency setup failed. Open Details to see why.')
   }

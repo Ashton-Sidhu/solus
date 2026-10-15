@@ -16,7 +16,7 @@ test('history starts beside lineage, but live events attach only after history i
   const fixture = sessionOpenRpcFixture(1)
   const opening = fixture.open()
   expect(fixture.reads.map((read) => read.method)).toEqual(['loadSessionPage', 'describeSession'])
-  expect(fixture.historyRequests).toEqual([{ sessionId: 'session-0', projectPath: '/fixture', provider: 'codex', turnLimit: 10 }])
+  expect(fixture.historyRequests).toEqual([{ sessionId: 'session-0', projectPath: '/fixture', provider: 'codex', turnLimit: 10, deferArtifactHtml: true }])
   fixture.reads[1].resolve()
   await flushRpcContinuations()
   expect(fixture.reads).toHaveLength(2)

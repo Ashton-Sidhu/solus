@@ -1,8 +1,8 @@
 import { query, type McpServerStatus, type Query } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { resolveHomePath } from '../../../platform/paths'
-import { SOLUS_PLUGINS_DIR } from '../plugins'
-import { claudeEnv, resolveClaudeExecutable, type ClaudeSeat } from './claude-agent'
+import { solusPluginsDir } from '../plugins'
+import { claudeLaunch, resolveClaudeExecutable, type ClaudeSeat } from './claude-agent'
 
 /**
  * The MCP sign-in control requests the SDK's Query sends but does not declare:
@@ -59,9 +59,9 @@ export async function openClaudeMcpAuthSession(opts: { cwd: string; seat: Claude
       abortController,
       settingSources: ['user', 'project'],
       pathToClaudeCodeExecutable: await resolveClaudeExecutable(),
-      plugins: [{ type: 'local', path: SOLUS_PLUGINS_DIR }],
+      plugins: [{ type: 'local', path: solusPluginsDir() }],
       extraArgs: { 'no-session-persistence': null },
-      env: claudeEnv(opts.seat),
+      ...claudeLaunch(opts.seat),
     },
   })
   const drain = (async () => { try { for await (const _ of session) { /* until aborted */ } } catch { /* aborted */ } })()

@@ -14,6 +14,7 @@ import { WorkMovedError } from '../data/works/work'
 import { ShareAccessError } from '../sharing/share-manager'
 import { SeatRequiredError } from '../execution/seats/seat-manager'
 import { TurnRefusedError } from '../execution/sessions/turn-refusal'
+import { WorkspacePreparingError } from '../host/member-users'
 import { principalExpiresAt, principalFor, principalSchema, renewalExpiry, type AdmissionEvidence, type Principal } from '../admission/principal'
 import type { TokenVerdict } from '../admission/access-tokens'
 import { createLogger } from '../logger'
@@ -424,6 +425,8 @@ function getCachedResponse(
       }
       // No seat, no turn: the code is what lets the client raise the connect card.
       if (err instanceof SeatRequiredError) return { error: { message: err.message, code: err.code } }
+      // A member the host has not made a user for yet: the client shows that it is setting up (member-isolation §8.1).
+      if (err instanceof WorkspacePreparingError) return { error: { message: err.message, code: err.code } }
       // A turn the organization model refused: the client keeps the draft and says why (organization-vms §4).
       if (err instanceof TurnRefusedError) return { error: { message: err.message, code: err.code } }
       // A plane this host does not serve: the client asks the host that does.

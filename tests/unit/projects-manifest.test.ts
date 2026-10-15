@@ -76,7 +76,7 @@ describe('host project list (project-model §2)', () => {
   })
 
   test('a chat and the home placeholder are never listed', async () => {
-    const chat = join(dataDir, 'repos', '.solus-chats')
+    const chat = join(dataDir, 'solus-chats')
     mkdirSync(chat, { recursive: true })
     await manifest.recordProject(chat)
     await manifest.recordProject('~')

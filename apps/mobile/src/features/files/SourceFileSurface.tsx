@@ -3,7 +3,6 @@
 import { memo, useCallback, useMemo } from "react";
 import {
   FlatList,
-  Platform,
   RefreshControl,
   ScrollView,
   Text as NativeText,
@@ -53,7 +52,6 @@ const HighlightedSourceLine = memo(function HighlightedSourceLine(props: {
       </NativeText>
       <NativeText
         selectable
-        selectionColorClassName={Platform.OS === "android" ? "accent-focus/32" : undefined}
         numberOfLines={props.wordBreak ? undefined : 1}
         className="flex-1 font-normal text-foreground"
         style={{
@@ -83,9 +81,6 @@ const HighlightedSourceLine = memo(function HighlightedSourceLine(props: {
                   <NativeText
                     key={`${start}:${token.content.length}:${token.color ?? ""}`}
                     selectable
-                    selectionColorClassName={
-                      Platform.OS === "android" ? "accent-focus/32" : undefined
-                    }
                     style={{
                       color: token.color ?? undefined,
                       fontFamily: CODE_FONT,

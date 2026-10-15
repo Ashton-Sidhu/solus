@@ -221,10 +221,11 @@
     onwheel={onWheel}
     onkeydown={(event) => onKey(event, "down")}
     onkeyup={(event) => onKey(event, "up")}
+    onblur={() => stream?.releaseKeys()}
   ></canvas>
   {#if showPhone && canvas && frame}
     <DevicePhoneView bind:this={phoneView} source={canvas} {profile} screen={screenConfig}
-      onTouch={onPhoneTouch} {onKey} onUnavailable={onPhoneUnavailable} />
+      onTouch={onPhoneTouch} {onKey} onKeyFocusLost={() => stream?.releaseKeys()} onUnavailable={onPhoneUnavailable} />
   {/if}
   {#if !frame || status.kind !== "streaming"}
     <div class="absolute inset-0 flex items-center justify-center p-6 text-center text-workspace-chrome text-(--solus-text-tertiary)" role="status">

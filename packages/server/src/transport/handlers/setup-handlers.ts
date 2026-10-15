@@ -14,7 +14,7 @@ import { usesAccountIntegration } from '../../vault/vault'
 import type { SolusServer, HandlerCtx } from '../server'
 import type { Principal } from '../../admission/principal'
 import type { HostEventPublisher } from '../events/host-event-publisher'
-import { getCliEnv } from '../../cli-env'
+import { launchedProcess, launchProcess } from '../../cli-env'
 import { runAsync } from '../../git/exec'
 import { isGitUsable } from '../../git/git-availability'
 import { gitCommandAuth } from '../../git/git-auth-env'
@@ -24,8 +24,7 @@ import { buildClient } from '../../providers/github/octokit'
 import { hasGithubCliScopes, parseGithubScopes } from '@solus/contracts/github-auth'
 import { PARAKEET_MODEL_DIR } from '../../model-downloader'
 import { getServerSettings, setProjectsBaseDirectory } from '../../host/settings'
-import { makeChatFolder, setupProjectsRoot } from '../../workspace'
-import { memberFolderFor } from '../../host/member-folders'
+import { projectsRootFor, setupProjectsRoot } from '../../workspace'
 import { listProjects, recordProject } from '../../project-config/projects-manifest'
 import { resolveProjectKey } from '../../project-config/project-config'
 import { expandHome } from '../../files/host-path'
@@ -179,7 +178,8 @@ function whichAgentBinary(agentId: AgentId): Promise<string | null> {
   const bin = AGENT_BIN[agentId]
   if (!bin) return Promise.resolve(null)
   return new Promise((resolve) => {
-    execFile('which', [bin], { encoding: 'utf8', env: getCliEnv(), timeout: 3000 }, (error, stdout) => {
+    const run = launchProcess('which', [bin])
+    execFile(run.file, run.args, { encoding: 'utf8', env: run.env, timeout: 3000 }, (error, stdout) => {
       resolve(error ? null : stdout.trim() || null)
     })
   })
@@ -271,30 +271,6 @@ export function projectsBaseDirectoryFor(
     projectsBaseDirectory: root,
     projectsBaseDirectoryIsSet: principal?.kind !== 'org-member' && !!getServerSettings().projectsBaseDirectory,
   }
-}
-
-/**
- * Where one person's projects land (managed-hosts.md §3). The host's root for its
- * owner and for the host's own work; a member of the organization gets a member
- * folder of their own beneath it, named after them (`host/member-folders.ts`), so each person clones
- * into a folder that is theirs and two people never share one main checkout. It is
- * a default and the member's view (`projectsVisibleTo`), not a boundary: a member
- * may still open a path a shared session names.
- */
-export function projectsRootFor(principal: Principal | undefined, hostRoot = setupProjectsRoot()): string {
-  if (principal?.kind !== 'org-member') return hostRoot
-  const memberFolder = join(hostRoot, memberFolderFor(principal.userId, principal.displayName))
-  mkdirSync(memberFolder, { recursive: true })
-  return memberFolder
-}
-
-/**
- * The folder one chat runs in: `.solus-chats/<chat id>` in the caller's projects
- * root (docs/plans/projectless-chat.md). The owner and every member use this one
- * rule, and every chat is outside the host's data folder.
- */
-export function chatFolderFor(chatId: string, principal: Principal | undefined, hostRoot = setupProjectsRoot()): string {
-  return makeChatFolder(projectsRootFor(principal, hostRoot), chatId)
 }
 
 /**
@@ -469,8 +445,10 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
       name: coerceConfigValue(name, 'Name'),
       email: coerceConfigValue(email, 'Email'),
     }
-    execFileSync('git', ['config', '--global', 'user.name', identity.name], { env: getCliEnv(), timeout: PROBE_TIMEOUT_MS })
-    execFileSync('git', ['config', '--global', 'user.email', identity.email], { env: getCliEnv(), timeout: PROBE_TIMEOUT_MS })
+    for (const [key, value] of [['user.name', identity.name], ['user.email', identity.email]]) {
+      const run = launchProcess('git', ['config', '--global', key, value])
+      execFileSync(run.file, run.args, { env: run.env, timeout: PROBE_TIMEOUT_MS })
+    }
     return identity
   })
 
@@ -484,10 +462,8 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     // so the greeting — not the exit code — is what says the key is accepted.
     let output = ''
     try {
-      output = execFileSync('ssh', [
-        ...sshConnectionOptions(),
-        '-T', `git@${target}`,
-      ], { encoding: 'utf8', env: getCliEnv(), timeout: SSH_COMMAND_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] })
+      const run = launchProcess('ssh', [...sshConnectionOptions(), '-T', `git@${target}`])
+      output = execFileSync(run.file, run.args, { encoding: 'utf8', env: run.env, timeout: SSH_COMMAND_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] })
       return { host: target, ok: true, message: output.trim() || `Connected to ${target}.` }
     } catch (err) {
       // SAFETY: Node adds captured stdout and stderr to the Error thrown by execFileSync.
@@ -507,9 +483,10 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     }
 
     // `--with-token` reads stdin, so the token never becomes an argument.
-    execFileSync('gh', ['auth', 'login', '--with-token'], {
+    const run = launchProcess('gh', ['auth', 'login', '--with-token'])
+    execFileSync(run.file, run.args, {
       input: `${token.accessToken}\n`,
-      env: getCliEnv(),
+      env: run.env,
       timeout: GH_AUTH_TIMEOUT_MS,
       stdio: ['pipe', 'pipe', 'pipe'],
     })
@@ -519,8 +496,9 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
   server.register('setupInstallGitCredentialHelper', () => {
     const helper = solusGitHelper([])
     if (!helper) throw new Error('The Solus CLI was not found on this host, so git has nothing to ask for credentials.')
-    execFileSync('git', ['config', '--global', GITHUB_CREDENTIAL_KEY, helper], {
-      env: getCliEnv(),
+    const run = launchProcess('git', ['config', '--global', GITHUB_CREDENTIAL_KEY, helper])
+    execFileSync(run.file, run.args, {
+      env: run.env,
       timeout: PROBE_TIMEOUT_MS,
     })
     return { ok: true } as const
@@ -682,11 +660,10 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     githubCredentials().delegate(ownerKey, credential)
     const helper = solusGitHelper(['--delegation', ownerKey])
     if (!helper) throw new Error('The Solus CLI was not found on this host, so git has nothing to ask for credentials.')
-    const config = (key: string, value: string) => execFileSync(
-      'git',
-      ['-C', checkoutPath, 'config', '--local', key, value],
-      { env: getCliEnv(), timeout: PROBE_TIMEOUT_MS },
-    )
+    const config = (key: string, value: string) => {
+      const run = launchProcess('git', ['-C', checkoutPath, 'config', '--local', key, value])
+      execFileSync(run.file, run.args, { env: run.env, timeout: PROBE_TIMEOUT_MS })
+    }
     // Local config is shared by linked worktrees, so every dispatched worktree inherits the caller's identity and helper.
     config(GITHUB_CREDENTIAL_KEY, helper)
     config('user.name', credential.login)
@@ -853,9 +830,10 @@ function cloneRepoKey(cloneUrl: string): string | null {
 /** Runs a short read-only command and returns its trimmed output, or null if it can't. */
 function runProbe(command: string, args: string[]): string | null {
   try {
-    const out = execFileSync(command, args, {
+    const run = launchProcess(command, args)
+    const out = execFileSync(run.file, run.args, {
       encoding: 'utf8',
-      env: getCliEnv(),
+      env: run.env,
       timeout: PROBE_TIMEOUT_MS,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -868,8 +846,9 @@ function runProbe(command: string, args: string[]): string | null {
 /** For probes whose answer is the exit code rather than anything they print. */
 function probeSucceeds(command: string, args: string[]): boolean {
   try {
-    execFileSync(command, args, {
-      env: getCliEnv(),
+    const run = launchProcess(command, args)
+    execFileSync(run.file, run.args, {
+      env: run.env,
       timeout: PROBE_TIMEOUT_MS,
       stdio: ['ignore', 'ignore', 'ignore'],
     })
@@ -998,11 +977,12 @@ async function runSetupProcess(opts: {
   } = opts
   emitStatus({ step, status: 'running' })
 
-  const child = spawnProcess(spec.command, spec.args, {
+  // Waits for a member's GitHub connection, so their home's helper can answer a clone.
+  const run = launchedProcess(await currentIdentity('a setup step').launchOptions({ FORCE_COLOR: '0', ...env }), spec.command, spec.args)
+  const child = spawnProcess(run.file, run.args, {
     cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
-    // Waits for a member's GitHub connection, so their home's helper can answer a clone.
-    env: await currentIdentity('a setup step').env({ FORCE_COLOR: '0', ...env }),
+    env: run.env,
   })
 
   let settled = false

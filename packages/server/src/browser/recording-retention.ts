@@ -5,13 +5,15 @@ import { z } from 'zod'
 import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
 import { ASSET_ID, storedAssetPath } from '../data/assets/asset-paths'
+import { getHostConfig } from '../host/settings'
 
 /**
  * Which recordings the host keeps.
  *
  * A recording is up to 50 MB, and most are made to look at once. Only a
- * recording filed on a task or a pull request is kept; the rest are deleted a
- * day after they were made, which gives the user time to file or send one.
+ * recording filed on a task or a pull request is kept; the rest are deleted
+ * after the host's `unfiledRecordingRetentionDays` (30 by default), which
+ * gives the user time to file or send one.
  *
  * The index is a small file of recording asset ids, because the asset store is
  * content-addressed and cannot say which of its files are recordings. The sweep
@@ -21,7 +23,7 @@ import { ASSET_ID, storedAssetPath } from '../data/assets/asset-paths'
 
 const log = createLogger('browser', 'recording-retention.ts')
 
-export const UNFILED_RECORDING_TTL_MS = 24 * 60 * 60 * 1000
+export const DAY_MS = 24 * 60 * 60 * 1000
 const SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000
 
 interface RecordingEntry {
@@ -86,13 +88,13 @@ export class RecordingRetention {
     })
   }
 
-  /** Delete every unfiled recording older than the TTL. Returns the ids it
+  /** Delete every unfiled recording older than `maxAgeMs`. Returns the ids it
    *  deleted. */
-  async sweep(now = Date.now()): Promise<string[]> {
+  async sweep(now: number, maxAgeMs: number): Promise<string[]> {
     const deleted: string[] = []
     await this.change(async (entries) => {
       for (const entry of entries.values()) {
-        if (entry.filed || now - entry.createdAt < UNFILED_RECORDING_TTL_MS) continue
+        if (entry.filed || now - entry.createdAt < maxAgeMs) continue
         await unlink(storedAssetPath(entry.assetId, this.options.assetsDir)).catch((error: NodeJS.ErrnoException) => {
           if (error.code !== 'ENOENT') throw error
         })
@@ -168,10 +170,12 @@ export function recordingRetention(): RecordingRetention {
   return retention
 }
 
-/** Sweep now and every six hours. Returns the stop. */
+/** Sweep now and every six hours. Each sweep reads the host's retention, so a
+ *  change applies at the next sweep. Returns the stop. */
 export function startRecordingSweep(target: RecordingRetention = recordingRetention()): () => void {
   const sweep = (): void => {
-    void target.sweep().catch((error) => {
+    const maxAgeMs = getHostConfig().config.unfiledRecordingRetentionDays * DAY_MS
+    void target.sweep(Date.now(), maxAgeMs).catch((error) => {
       log.warn('browser_recording_sweep_failed', { message: error instanceof Error ? error.message : String(error) })
     })
   }

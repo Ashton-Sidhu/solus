@@ -22,6 +22,8 @@ export const turnRefusalSchema = z.enum([
   'ORGANIZATION_ACCESS_REFUSED',
   'ORGANIZATION_API_UNAVAILABLE',
   'ORGANIZATION_AUTHORITY_MISSING',
+  /** The host is still making this member's Linux user and folders (docs/plans/member-isolation.md §8.1). */
+  'WORKSPACE_PREPARING',
 ])
 export type TurnRefusal = z.infer<typeof turnRefusalSchema>
 

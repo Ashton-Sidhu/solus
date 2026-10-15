@@ -3694,9 +3694,8 @@ button.solus-token {
 }
 
 /* ─── User bubble prose (§14, reduced set) ───
-   A bubble renders enough for a pasted sentence, not enough to become a
-   document: headings of every level flatten onto one 13.5px/600 line and
-   quotes lose their rule. */
+   Headings, paragraphs and lists keep the assistant's sizes and rhythm, so a
+   structured message reads the same on both sides of the conversation. */
 .prose-transcript-user,
 .prose-transcript-user h1,
 .prose-transcript-user h2,
@@ -3713,17 +3712,24 @@ button.solus-token {
   font-weight: 400;
   text-wrap: pretty;
 }
+/* Same values as `.prose-transcript` headings, paragraphs and lists. */
 .prose-transcript-user h1,
 .prose-transcript-user h2,
 .prose-transcript-user h3,
 .prose-transcript-user h4 {
-  margin: 0.35em 0 0.15em;
-  font-size: var(--text-body);
-  font-weight: 500;
+  margin: 1.25rem 0 0.5rem;
+  font-weight: 600;
+  line-height: 1.3;
 }
-.prose-transcript-user > * + * { margin-top: 0.35em; }
-.prose-transcript-user p { margin: 0.2em 0; }
-.prose-transcript-user ul, .prose-transcript-user ol { margin: 0.2em 0; }
+.prose-transcript-user h1 { font-size: calc(1.25rem * var(--solus-font-scale, 1)); }
+.prose-transcript-user h2 { font-size: calc(1.125rem * var(--solus-font-scale, 1)); }
+.prose-transcript-user h3 { font-size: calc(1rem * var(--solus-font-scale, 1)); }
+.prose-transcript-user h4 { font-size: var(--text-body); }
+.prose-transcript-user > * + * { margin-top: 0; }
+.prose-transcript-user p { margin: 0.65rem 0; }
+.prose-transcript-user ul, .prose-transcript-user ol { margin: 0.625rem 0; }
+.prose-transcript-user > :first-child { margin-top: 0; }
+.prose-transcript-user > :last-child { margin-bottom: 0; }
 /* A quoted reply is the main thing people paste into a bubble, so it keeps its
    rule rather than flattening to a plain line — just scaled to bubble type. */
 .prose-transcript-user blockquote {

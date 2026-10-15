@@ -91,8 +91,10 @@ Solus recordings remain MP4; uploaded WebM files are not converted.
 - Solus keeps a recording that is filed on a task or a pull request.
 - Solus keeps a recording that you send to an agent in a message, because the
   conversation refers to it.
-- Solus deletes any other recording 24 hours after you make it. The host checks
-  when it starts and every 6 hours.
+- Solus deletes any other recording 30 days after you make it. To change this,
+  set **Delete unfiled recordings after** in the host's settings (Settings → Host
+  → Retention on desktop and web; the host's screen on mobile). The value is
+  from 1 to 3650 days. The host checks when it starts and every 6 hours.
 
 ## Video attachments
 

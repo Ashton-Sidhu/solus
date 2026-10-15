@@ -1,7 +1,8 @@
 import { expect, test } from 'bun:test'
-import type { Work } from '@solus/contracts/types'
+import type { Message, Work } from '@solus/contracts/types'
 import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
-import { workUpdateFromHistory, loadArtifactFileBodies } from '../../packages/workspace-ui/src/contexts/workspace/artifact-history'
+import { workUpdateFromHistory, loadArtifactFileBodies, loadArtifactHtml } from '../../packages/workspace-ui/src/contexts/workspace/artifact-history'
+import { deferSavedArtifactHtml, selectSessionToolInputs } from '@solus/server/data/sessions/session-tool-inputs'
 
 test('known artifact updates rebuild from input without requiring a receipt, like new renders', () => {
   const tool: WireSessionLoadMessage = { role: 'tool', content: '', timestamp: 1, toolInput: JSON.stringify({ work_id: 'work', content: '<p>Historical</p>' }) }
@@ -41,3 +42,38 @@ for (const workType of ['doc', 'slides', 'diagram'] as const) {
     expect(workUpdateFromHistory(tool, { ...receipt, status: 'error' }, getWork)).toBeUndefined()
   })
 }
+
+test('a page asked without artifact HTML still shows the render each call saved', async () => {
+  // WHY: a compiled render is 100-300 KB and a page carries every revision, so
+  // the host leaves a saved render's HTML out of the page. The frame must still
+  // show what that call rendered: the work's revision at the receipt's version,
+  // or the call's own input when the work cannot answer.
+  const html = '<p>Dashboard v1</p>'
+  const tool: WireSessionLoadMessage = { role: 'tool', content: '', timestamp: 1, toolId: 'render-1', toolName: 'mcp__solus__render_artifact', toolInput: JSON.stringify({ title: 'Dashboard', html }) }
+  const saved: WireSessionLoadMessage = { role: 'tool_result', content: '', timestamp: 2, toolResultForId: 'render-1', artifactWorkRef: { workId: 'work', title: 'Dashboard', contentVersion: 1 } }
+  const unsaved: WireSessionLoadMessage = { ...tool, toolId: 'render-2' }
+  const [deferred, , kept] = deferSavedArtifactHtml([tool, saved, unsaved])
+  expect(JSON.parse(deferred.toolInput!)).toEqual({ title: 'Dashboard' })
+  expect(deferred.toolInputKey).toMatch(/^[a-f0-9]{64}$/)
+  // The full input stays loadable under the key the page names.
+  expect(selectSessionToolInputs([tool], [deferred.toolInputKey!])).toEqual([{ key: deferred.toolInputKey!, toolInput: tool.toolInput! }])
+  // A render the work did not save has nowhere else to read from.
+  expect(kept).toBe(unsaved)
+  // The newest render is the frame on screen when the conversation opens: its
+  // HTML stays in the page so it does not wait for a read.
+  const [newest] = deferSavedArtifactHtml([tool, saved])
+  expect(newest).toBe(tool)
+
+  const historyHtml = { serverId: 'host', sessionId: 'session', provider: 'claude-code' as const, key: deferred.toolInputKey! }
+  const fromWork: Message = { id: 'a', role: 'assistant', content: '', timestamp: 3, artifact: { kind: 'html', historyHtml }, workRef: { workId: 'work', title: 'Dashboard', workType: 'artifact', contentVersion: 1 } }
+  await loadArtifactHtml(fromWork, { bodyAtVersion: async (workId, version) => workId === 'work' && version === 1 ? html : null })
+  expect(fromWork.artifact).toEqual({ kind: 'html', html })
+
+  const fromInput: Message = { ...fromWork, id: 'b', artifact: { kind: 'html', historyHtml: { ...historyHtml } } }
+  await loadArtifactHtml(fromInput, {
+    bodyAtVersion: async () => null,
+    apiFor: () => ({ loadSessionToolInputs: async ({ keys }) => selectSessionToolInputs([tool], keys) }),
+  })
+  expect(fromInput.artifact).toEqual({ kind: 'html', html })
+})
+

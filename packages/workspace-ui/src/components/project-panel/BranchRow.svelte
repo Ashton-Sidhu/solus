@@ -94,12 +94,12 @@
       requestInputFocus();
       return;
     }
-    draft.run.location = chooseStart(draft.run.location, {
+    draft.moveTo(chooseStart(draft.run.location, {
       kind: "worktree",
       path: worktree.path,
       branch: worktree.branch,
       targetBranch,
-    });
+    }));
     settleOnDestination(draft.id);
   }
 

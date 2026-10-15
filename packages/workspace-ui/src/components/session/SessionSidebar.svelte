@@ -392,13 +392,32 @@
    *  conversation, the companion pane and the focused input, and for a row
    *  with nothing mounted it waits on an IPC round trip first. It runs two
    *  frames later, so the row answers the click before the app switches. */
-  function activateTask(task: SidebarTask) {
+  // A click that opens a session reorders the list under the resting pointer,
+  // and the row that lands there would open its tooltip unasked. Row tooltips
+  // stay shut until the pointer really moves: the browser replays a pointer
+  // that a layout change passed over at the same place.
+  let tooltipQuietAt = $state<{ x: number; y: number } | null>(null);
+  $effect(() => {
+    const from = tooltipQuietAt;
+    if (!from) return;
+    const move = (event: PointerEvent) => {
+      if (Math.abs(event.clientX - from.x) + Math.abs(event.clientY - from.y) > 4) tooltipQuietAt = null;
+    };
+    window.addEventListener("pointermove", move, { passive: true });
+    return () => window.removeEventListener("pointermove", move);
+  });
+
+  function activateTask(task: SidebarTask, event?: MouseEvent) {
     const serverId = task.serverId ?? session.serverIdForContext(session.ctx);
     const timing = new TaskOpenTrace(task.taskId ?? null, (report) =>
       serverConnections.apiFor(serverId).tasksLogOpenTiming(report),
     );
     sidebarStore.acknowledgeRow(task);
     timing.mark("row_acknowledged");
+    // The reads start now; only the switch waits for the two frames below.
+    sidebarStore.prepareOpen(task);
+    // `detail` is 0 for a click from the keyboard, which leaves no pointer here.
+    if (event && event.detail > 0) tooltipQuietAt = { x: event.clientX, y: event.clientY };
     // Asked for now, not after the deferred switch: the composer holds its
     // shape while the keyboard is on its way back, instead of folding for the
     // two frames the switch waits and growing again.
@@ -446,7 +465,7 @@
     }
     selectedTaskIds.clear();
     selectionAnchorId = null;
-    activateTask(task);
+    activateTask(task, event);
   }
 
   function selectedTasks(): SidebarTask[] {
@@ -835,12 +854,15 @@
     onPath={sidebarStore.onScreenTaskId === task.id}
     bulkSelected={selectedTaskIds.has(task.id)}
     sessions={sidebarStore.sessionsFor(task)}
+    {isGuest}
     disclosedSession={sidebarStore.disclosedSession?.rowId === task.id
       ? sidebarStore.disclosedSession.session
       : null}
     {renamingTabId}
     {renamingTaskId}
     onSelect={(event) => selectOrActivateTask(task, event)}
+    isTooltipQuiet={tooltipQuietAt !== null}
+    onPressStart={() => sidebarStore.prepareOpen(task)}
     onStartRename={(child) =>
       startRename(
         child

@@ -149,7 +149,7 @@ export class DeviceRuns {
     this.fetch = deps.fetch ?? fetch
     this.probeDevServer = deps.probeDevServer ?? (() => probeDevServer(this.fetch))
     this.approvals = this.loadApprovals()
-    this.sources = deps.sources ?? new DeviceRunSources(join(dirname(deps.approvalsPath), 'run-app'), this.run)
+    this.sources = deps.sources ?? new DeviceRunSources(join(dirname(deps.approvalsPath), 'run-app'), this.run, this.env)
     this.state = new DeviceRunState(join(dirname(deps.approvalsPath), 'run-app.json'))
     for (const stored of this.state.load()) {
       if (isDeviceRunActive(stored.run)) {
@@ -226,7 +226,7 @@ export class DeviceRuns {
     }
     this.remember(record)
     this.changed()
-    void this.execute(record, profile, cwd, request.sessionId, info.usesExpo ?? false, checkoutRoot, automatic, selected.hasChangedCommit, appFolder)
+    void this.execute(record, profile, cwd, request.sessionId, info.usesExpo ?? false, checkoutRoot, automatic, selected.hasChangedSource, appFolder)
     return { ...record.run }
   }
 
@@ -440,9 +440,9 @@ export class DeviceRuns {
     return record
   }
 
-  private async execute(record: RunRecord, profile: DeviceRunProfile, cwd: string, sessionId: string | undefined, usesExpo: boolean, checkoutRoot: string, automatic: boolean, hasChangedCommit: boolean, appFolder: string): Promise<void> {
+  private async execute(record: RunRecord, profile: DeviceRunProfile, cwd: string, sessionId: string | undefined, usesExpo: boolean, checkoutRoot: string, automatic: boolean, hasChangedSource: boolean, appFolder: string): Promise<void> {
     try {
-      profile = await prepareDeviceRun({ checkoutRoot, cwd, appFolder, profile, usesExpo, automatic, hasChangedCommit,
+      profile = await prepareDeviceRun({ checkoutRoot, cwd, appFolder, profile, usesExpo, automatic, hasChangedSource,
         cancelled: () => record.cancelled,
         command: (command, directory) => this.build(record, { ...profile, command }, directory),
       })

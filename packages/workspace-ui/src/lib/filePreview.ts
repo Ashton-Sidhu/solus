@@ -1,3 +1,5 @@
+import { mediaTypeFor } from "@solus/contracts/media-types";
+import type { IpcContext } from "@solus/contracts/types";
 import { requestInputFocus } from "./inputFocus";
 
 export const FILE_PREVIEW_EVENT = "solus:preview-file";
@@ -6,6 +8,16 @@ export interface FilePreviewRequest {
   path: string;
   line?: number;
   tabId?: string;
+  mediaKind?: "image" | "video";
+  source?: { serverId?: string; cwd?: string; ctx?: IpcContext };
+}
+
+/** Only images and videos use the media modal. Other files keep the file pane. */
+export function filePreviewMediaKind(path: string): "image" | "video" | null {
+  if (/^data:image\//i.test(path)) return "image";
+  if (/^data:video\//i.test(path)) return "video";
+  const kind = mediaTypeFor(path.split(/[?#]/, 1)[0])?.kind;
+  return kind === "image" || kind === "video" ? kind : null;
 }
 
 const LINE_SUFFIX_RE = /^(.+?):(\d+)(?::\d+)?$/;
@@ -52,5 +64,5 @@ export function requestFilePreview(request: FilePreviewRequest) {
       detail: request,
     }),
   );
-  requestInputFocus();
+  if (!request.mediaKind && !filePreviewMediaKind(request.path)) requestInputFocus();
 }

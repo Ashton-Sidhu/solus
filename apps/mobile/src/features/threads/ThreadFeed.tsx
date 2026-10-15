@@ -61,11 +61,10 @@ import { MessageAttachments } from "./MessageAttachments";
 import { ThreadAgentGroup } from "./ThreadAgents";
 import { ThreadPlanCard } from "./ThreadPlanCard";
 import { WorktreeOfferCard } from "./WorktreeOfferCard";
-import { useTranscriptItem, useTranscriptItems } from "./use-transcript-items";
+import { useTranscriptItem } from "./use-transcript-items";
 import { CompactionDivider, HandoffDivider, HandoffPendingDivider, SessionOriginDivider } from "./thread-context-divider";
 import type { SessionOrigin } from "@solus/contracts/types";
-import { solusAgentToolName } from "@solus/contracts/agent-tools";
-import { ToolResultImages } from "./ToolResultImages";
+import { ThreadTurnImages } from "./ThreadTurnImages";
 import { ThreadArtifact } from "./ThreadArtifact";
 
 // A long prompt is cut here, as desktop cuts it (`.user-message-collapsed`: 13rem, 2.5rem fade).
@@ -358,48 +357,6 @@ const WorktreeOfferRow = memo(function WorktreeOfferRow(props: { readonly store:
   return <WorktreeOfferCard store={props.store} offer={item} />;
 });
 
-/** The screens a turn's device_screenshot calls returned, as one group like
- *  on desktop. A call with no picture yet (running, or failed) is its own
- *  work-log line under the pictures. */
-const DeviceSnapshotRow = memo(function DeviceSnapshotRow(props: {
-  readonly id: string;
-  readonly itemIds: readonly string[];
-  readonly context: FeedRowContext;
-}) {
-  const { context } = props;
-  const items = useTranscriptItems(context.store, props.itemIds);
-  const images = useMemo(
-    () => items.flatMap((item) => (item.kind === "tool" ? (item.images ?? []) : [])),
-    [items],
-  );
-  const pendingIds = useMemo(
-    () => items.flatMap((item) => (item.kind === "tool" && !item.images?.length ? [item.id] : [])),
-    [items],
-  );
-  return (
-    <View>
-      {images.length > 0 ? (
-        <ToolResultImages images={images} label="Device screenshot" store={context.store} />
-      ) : null}
-      {pendingIds.length > 0 ? (
-        <ThreadWorkLog
-          store={context.store}
-          toolIds={pendingIds}
-          continuesWorkLog={false}
-          anchorKey={props.id}
-          copiedRowId={context.copiedRowId}
-          expandedRows={context.expandedWorkRows}
-          rowSizing={context.workRowSizing}
-          iconSubtleColor={context.iconSubtleColor}
-          edgeFadeColor={context.screenColor}
-          onCopyRow={context.onCopyWorkRow}
-          onToggleRow={context.onToggleWorkRow}
-        />
-      ) : null}
-    </View>
-  );
-});
-
 function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
   if (row.type === "run-fold") {
     return (
@@ -489,8 +446,8 @@ function renderFeedEntry(row: ThreadFeedRow, context: FeedRowContext) {
     return <WorktreeOfferRow store={context.store} id={row.id} />;
   }
 
-  if (row.type === "device-snapshot") {
-    return <DeviceSnapshotRow id={row.id} itemIds={row.itemIds} context={context} />;
+  if (row.type === "turn-images") {
+    return <ThreadTurnImages itemIds={row.itemIds} store={context.store} />;
   }
 
   if (row.type === "artifact") {
@@ -641,15 +598,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       order.flatMap((id) => {
         const item = store.item(id);
         if (!item) return [];
-        // A provider subagent's call is an agent in the feed, not a tool row.
-        // A device screenshot is a picture in the feed. Both are known from the
-        // call's name, which never changes for an id.
-        const kind =
-          item.kind === "tool" && item.subagent
-            ? "agent"
-            : item.kind === "tool" && solusAgentToolName(item.toolName) === "device_screenshot"
-              ? "device_snapshot"
-              : item.kind;
+        const kind = item.kind === "tool" && item.subagent ? "agent" : item.kind;
         if (item.kind === "notice") return [{ id, kind, tone: item.tone }];
         if (item.kind === "artifact") return [{ id, kind, workId: item.workId }];
         return [{ id, kind }];

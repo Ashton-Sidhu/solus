@@ -33,7 +33,7 @@ function owner(
   }
   return {
     settings,
-    unstartedRuns: () => runs,
+    unstartedRuns: () => runs.map((unstarted) => ({ run: unstarted, moveTo: (next) => { unstarted.location = next } })),
     startedSessions: () => started,
     // Once the remembered project is cleared, a new session starts on the default machine.
     get defaultRunConfig() { return run('laptop', { location: folderLocation({ serverId: 'laptop', path: '/home/me/workspace' }) }) },

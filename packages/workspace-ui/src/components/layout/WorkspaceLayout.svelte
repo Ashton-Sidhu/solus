@@ -4,9 +4,11 @@
   import WorkspaceBody from "./WorkspaceBody.svelte";
   import {
     FILE_PREVIEW_EVENT,
+    filePreviewMediaKind,
     type FilePreviewRequest,
   } from "../../lib/filePreview";
-  import type { DiffScope } from "@solus/contracts/types";
+  import { runHost, workingPlace } from "../../contexts/workspace/run-location";
+  import MediaFileModal from "../files/MediaFileModal.svelte";
   interface Props {
     onAttachFile: (tabId?: string) => void | Promise<void>;
     onScreenshot?: ((tabId?: string) => void | Promise<void>) | null;
@@ -14,6 +16,7 @@
   let { onAttachFile, onScreenshot }: Props = $props();
 
   const session = getWorkspaceContext();
+  let mediaPreview = $state<FilePreviewRequest | null>(null);
 
   $effect(() => {
     const handler = () => {
@@ -41,10 +44,24 @@
 
   $effect(() => {
     const handler = (e: Event) => {
-      const detail = e instanceof CustomEvent ? e.detail : undefined;
+      const detail: FilePreviewRequest | undefined = e instanceof CustomEvent ? e.detail : undefined;
       if (!detail?.path) return;
       const sourceTabId =
         detail.tabId ?? session.focusedChatTabId ?? session.activeTabId;
+      const mediaKind = detail.mediaKind ?? filePreviewMediaKind(detail.path);
+      if (mediaKind) {
+        const run = session.sessionFor(sourceTabId)?.run;
+        mediaPreview = {
+          ...detail,
+          mediaKind,
+          source: {
+            serverId: detail.source?.serverId ?? runHost(run),
+            cwd: detail.source?.cwd ?? workingPlace(run)?.path,
+            ctx: detail.source?.ctx ?? session.ctxFor(sourceTabId),
+          },
+        };
+        return;
+      }
       session.openFileInFiles(detail, sourceTabId);
     };
     window.addEventListener(FILE_PREVIEW_EVENT, handler);
@@ -71,6 +88,10 @@
     </WorkspaceBody>
   </div>
 </div>
+
+{#if mediaPreview}
+  <MediaFileModal request={mediaPreview} onclose={() => (mediaPreview = null)} />
+{/if}
 
 <style>
   .workspace-layout {

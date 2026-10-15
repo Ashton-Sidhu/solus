@@ -35,8 +35,8 @@ const unauthorizedSchema = z.object({ status: z.literal(401) })
 const credentialAccessFailureSchema = z.object({ status: z.union([z.literal(403), z.literal(404)]) })
 const graphqlCredentialAccessFailureSchema = z.object({
   errors: z.array(z.object({
-    type: z.union([z.literal('FORBIDDEN'), z.literal('NOT_FOUND')]),
-  })).nonempty(),
+    type: z.string().optional(),
+  })).refine((errors) => errors.some(({ type }) => type === 'FORBIDDEN' || type === 'NOT_FOUND')),
 })
 const githubFailureSchema = z.object({
   status: z.number().optional(),

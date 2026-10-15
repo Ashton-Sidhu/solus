@@ -24,6 +24,8 @@ import type { ThreadListShelfExpansion } from "../threads/thread-list-state";
 import { useReloadThreadLists, useThreadListState } from "../threads/use-thread-list";
 import { AndroidHomeFabLayout } from "./AndroidHomeFab";
 import { HomeScreen } from "./HomeScreen";
+import { useUniwindTheme } from "../../lib/useUniwindTheme";
+import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { HomeHeader } from "./HomeHeader";
 import { ThreadListFilters } from "./ThreadListFilters";
 import { useHomeListOptions } from "./home-list-options";
@@ -37,6 +39,7 @@ import { getConnectionAwareBrandHeaderOptions } from "./WorkspaceConnectionTitle
 
 export function HomeRouteScreen() {
   const app = useApp();
+  const theme = useUniwindTheme();
   const { width: windowWidth } = useWindowDimensions();
   const { layout, panes } = useAdaptiveWorkspaceLayout();
   const projects = useListened(app.threads.changes, app.threads.projects);
@@ -141,7 +144,10 @@ export function HomeRouteScreen() {
   const openEnvironments = () => navigation.navigate("Hosts");
   const addConnection = () => navigation.navigate("PairHost");
   const retryHosts = () => {
-    for (const host of app.registry.hosts()) app.connections.retry(host.id);
+    for (const host of app.registry.hosts()) {
+      if (app.connections.state(host.id)?.phase !== "connected") app.connections.retry(host.id);
+    }
+    reloadThreadLists();
   };
   const startNewTask = () => navigation.navigate("NewTask");
 
@@ -241,6 +247,14 @@ export function HomeRouteScreen() {
             onOpenEnvironments: openEnvironments,
           }),
           headerShown: true,
+          headerStyle: {
+            backgroundColor: NATIVE_LIQUID_GLASS_SUPPORTED
+              ? "transparent"
+              : theme["--color-drawer"],
+          },
+          contentStyle: {
+            backgroundColor: theme["--color-drawer"],
+          },
         }}
       />
       {workspaceToolbar}

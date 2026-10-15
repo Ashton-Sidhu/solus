@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick, untrack } from "svelte";
+  import { untrack } from "svelte";
   import {
     ArrowLeft as BackIcon,
     BookMarked as ManageLensesIcon,
@@ -10,12 +10,12 @@
     BookmarkPlus as SaveWorkIcon,
     Save as SavePromptIcon,
     ScrollText as PromptIcon,
-    WandSparkles as EditLensIcon,
   } from "@lucide/svelte";
   import type { ReviewLensComment, ReviewLensSource } from "@solus/contracts/review";
   import { getAgentContext, getSettingsContext, getWorkspaceContext } from "../../contexts";
   import type { ResolvedReviewAgent } from "../../lib/reviewAgent";
   import * as TooltipUI from "../ui/tooltip";
+  import FloatingComposer from "../ui/floating-composer/FloatingComposer.svelte";
   import SessionChip from "../pickers/SessionChip.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
@@ -79,13 +79,13 @@
   let openCommentId = $state<string | null>(null);
   let busy = $state(false);
   let applyComments = $state(true);
-  let editKey = $state(0);
+  let editDraft = $state("");
   let now = $state(Date.now());
   let frameWrapEl = $state<HTMLDivElement | null>(null);
   let dismissedFailureAt = $state(0);
   let showPrompt = $state(false);
   let editorOpen = $state(false);
-  let openEditorButton = $state<HTMLButtonElement | null>(null);
+  let floatingComposer = $state<ReturnType<typeof FloatingComposer> | null>(null);
   let composer = $state<ReturnType<typeof CommentComposer> | null>(null);
   /** The model and reasoning for edits and regenerations from this lens. It
    *  starts at the review companion in Settings; a change here is for this lens only. */
@@ -154,25 +154,13 @@
   function sendEdit(prompt: string) {
     const commentIds = applyComments ? openComments.map((comment) => comment.id) : [];
     if (!prompt.trim() && commentIds.length === 0) return;
-    editKey++;
+    editDraft = "";
     editorOpen = false;
     void command(
       "edit the lens",
       (target) => reviewLensStore.edit(target, { ...agent, prompt, commentIds }),
       false,
     );
-  }
-
-  async function openEditor() {
-    editorOpen = true;
-    await tick();
-    composer?.focusInput();
-  }
-
-  async function closeEditor() {
-    editorOpen = false;
-    await tick();
-    openEditorButton?.focus();
   }
 
   function savePrompt(prompt: string) {
@@ -477,93 +465,63 @@
         </div>
       </div>
 
-      <!-- The edit bar starts folded into a button, so the lens has the whole
-           height. Folded, the bar stays mounted and keeps its draft. -->
-      {#if !editorOpen}
-        <TooltipUI.Root>
-          <TooltipUI.Trigger>
-            {#snippet child({ props: tooltipProps })}
-              <button
-                {...tooltipProps}
-                bind:this={openEditorButton}
-                type="button"
-                class="absolute right-4 bottom-4 z-10 flex size-10 cursor-pointer items-center justify-center rounded-full bg-(--solus-popover-bg) text-(--solus-text-secondary) shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent),0_1px_2px_-1px_rgba(0,0,0,.05),0_12px_28px_-12px_rgba(0,0,0,.24)] transition-[color,scale] duration-100 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] active:scale-95 pointer-coarse:size-12"
-                aria-label="Ask for a change to the lens"
-                aria-expanded="false"
-                onclick={() => void openEditor()}
-              >
-                <EditLensIcon size={17} aria-hidden="true" />
+      <FloatingComposer
+        bind:this={floatingComposer}
+        bind:expanded={editorOpen}
+        label="Ask for a change to the lens"
+        hasUnsent={!!editDraft.trim()}
+        badgeCount={openComments.length}
+        onOpened={() => composer?.focusInput()}
+      >
+        <div class="rounded-2xl border border-(--solus-container-border) bg-(--solus-popover-bg) px-3 py-2.5 shadow-[0_0.75rem_2rem_-1.5rem_rgba(0,0,0,0.35)] transition-[border-color] focus-within:border-[color:color-mix(in_srgb,var(--solus-accent)_45%,transparent)]">
+          <CommentComposer
+            bind:this={composer}
+            initialValue={untrack(() => editDraft)}
+            onFormValueChange={(value) => (editDraft = value)}
+            surface="embedded"
+            placeholder={running ? "Wait for the lens to finish…" : "Ask for a change to the lens…"}
+            ariaLabel="Lens edit"
+            submitLabel="Send"
+            submitOn="enter"
+            cancelLabel="Hide"
+            autoFocus={false}
+            disabled={running || busy || reconnecting}
+            onSave={sendEdit}
+            onCancel={() => void floatingComposer?.fold()}
+          >
+            {#snippet secondaryActions()}
+              <div class="flex min-w-0 items-center gap-1">
+                <SessionChip
+                  bind:selection
+                  menuSide="top"
+                  allowFastMode={false}
+                  disabled={running || busy || reconnecting}
+                  ariaLabel="Lens model and reasoning"
+                  returnFocusOnClose
+                />
                 {#if openComments.length > 0}
-                  <span
-                    class="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-(--solus-accent) px-1 text-[0.625rem] font-medium text-white tabular-nums"
-                    aria-hidden="true"
-                  >
-                    {openComments.length}
-                  </span>
-                {/if}
-              </button>
-            {/snippet}
-          </TooltipUI.Trigger>
-          <TooltipUI.Content
-            value={openComments.length > 0
-              ? `Ask for a change · ${openComments.length} open comment${openComments.length === 1 ? "" : "s"}`
-              : "Ask for a change"}
-          />
-        </TooltipUI.Root>
-      {/if}
-      </div>
-
-      <div class="shrink-0 px-3 pt-2 pb-3" class:hidden={!editorOpen || showStart}>
-        <div
-          class="rounded-2xl border border-(--solus-container-border) bg-(--solus-popover-bg) px-3 py-2.5 shadow-[0_0.75rem_2rem_-1.5rem_rgba(0,0,0,0.35)] transition-[border-color] focus-within:border-[color:color-mix(in_srgb,var(--solus-accent)_45%,transparent)]"
-        >
-          {#key editKey}
-            <CommentComposer
-              bind:this={composer}
-              surface="embedded"
-              placeholder={running ? "Wait for the lens to finish…" : "Ask for a change to the lens…"}
-              ariaLabel="Lens edit"
-              submitLabel="Send"
-              submitOn="enter"
-              cancelLabel="Hide"
-              autoFocus={false}
-              disabled={running || busy || reconnecting}
-              onSave={sendEdit}
-              onCancel={() => void closeEditor()}
-            >
-              {#snippet secondaryActions()}
-                <div class="flex min-w-0 items-center gap-1">
-                  <SessionChip
-                    bind:selection
-                    menuSide="top"
-                    allowFastMode={false}
-                    disabled={running || busy || reconnecting}
-                    ariaLabel="Lens model and reasoning"
-                    returnFocusOnClose
-                  />
-                  {#if openComments.length > 0}
-                    <label class="flex shrink-0 cursor-pointer items-center gap-1.5 px-1.5 text-xs text-(--solus-text-secondary)">
-                      <input type="checkbox" bind:checked={applyComments} class="accent-(--solus-accent) pointer-coarse:size-5" />
-                      Apply {openComments.length} comment{openComments.length === 1 ? "" : "s"}
-                    </label>
-                    {#if applyComments}
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        class="shrink-0"
-                        disabled={running || busy || reconnecting}
-                        title="Edit the lens from the open comments alone"
-                        onclick={() => sendEdit("")}
-                      >
-                        Apply now
-                      </Button>
-                    {/if}
+                  <label class="flex shrink-0 cursor-pointer items-center gap-1.5 px-1.5 text-xs text-(--solus-text-secondary)">
+                    <input type="checkbox" bind:checked={applyComments} class="accent-(--solus-accent) pointer-coarse:size-5" />
+                    Apply {openComments.length} comment{openComments.length === 1 ? "" : "s"}
+                  </label>
+                  {#if applyComments}
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      class="shrink-0"
+                      disabled={running || busy || reconnecting}
+                      title="Edit the lens from the open comments alone"
+                      onclick={() => sendEdit("")}
+                    >
+                      Apply now
+                    </Button>
                   {/if}
-                </div>
-              {/snippet}
-            </CommentComposer>
-          {/key}
+                {/if}
+              </div>
+            {/snippet}
+          </CommentComposer>
         </div>
+      </FloatingComposer>
       </div>
     {/if}
   {/if}

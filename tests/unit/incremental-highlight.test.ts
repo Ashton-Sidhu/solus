@@ -1,6 +1,6 @@
 import { toHtml } from 'hast-util-to-html'
 import { describe, expect, test } from 'bun:test'
-import { createIncrementalHighlight, loadCodeHighlighter, plainCodeLines } from '@solus/workspace-ui/lib/incremental-highlight'
+import { createIncrementalHighlight, loadCodeHighlighter, plainCodeLines, highlightAfterPaint } from '@solus/workspace-ui/lib/incremental-highlight'
 
 describe('incremental code highlighting', () => {
   test('matches a full pass through multiline comments, strings, and source replacement', async () => {
@@ -35,4 +35,35 @@ describe('incremental code highlighting', () => {
     expect(await loadCodeHighlighter('not-a-language')).toBeNull()
     expect(plainCodeLines('<script>&\nend')).toEqual(['&lt;script&gt;&amp;', 'end'])
   })
+})
+
+test('blocks that mount with a transcript colour after it paints, in short slices', async () => {
+  // WHY: a session opens with many code blocks. Colouring them all in the
+  // mount was a long task before and after the first paint; plain code must
+  // paint first, and colouring must leave room for input between slices.
+  const frames: Array<() => void> = []
+  const previousFrame = globalThis.requestAnimationFrame
+  globalThis.requestAnimationFrame = (callback) => { frames.push(() => callback(0)); return frames.length }
+  try {
+    const ran: number[] = []
+    const cancelled = highlightAfterPaint(() => ran.push(-1))
+    for (let block = 0; block < 20; block++) {
+      highlightAfterPaint(() => {
+        const until = performance.now() + 3
+        while (performance.now() < until) { /* one block's highlight */ }
+        ran.push(block)
+      })
+    }
+    cancelled()
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(ran).toEqual([])
+    frames.shift()!()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(ran.length).toBeGreaterThan(0)
+    expect(ran.length).toBeLessThan(20)
+    while (ran.length < 20) await new Promise((resolve) => setTimeout(resolve, 1))
+    expect(ran).toEqual([...Array(20).keys()])
+  } finally {
+    globalThis.requestAnimationFrame = previousFrame
+  }
 })

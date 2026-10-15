@@ -1,0 +1,12 @@
+{
+  "plan": "docs/plans/session-open-performance.md",
+  "baseline": "session-open-baseline.json (cpu 1x) and session-open-baseline-cpu4.json (cpu 4x), recorded 2026-10-15",
+  "note": "Upper limits in milliseconds (KB for historyWireKB: the history reply deflated, as the socket sends it). Every fixture must meet every limit; artifactsLoaded applies only where a frame loads.",
+  "client": {
+    "1": { "historyRequested": 15, "contentPainted": 100, "artifactsLoaded": 150, "longestTask": 50, "totalBlocking": 0, "historyWireKB": 50 },
+    "4": { "historyRequested": 40, "contentPainted": 300, "artifactsLoaded": 500, "longestTask": 100, "totalBlocking": 150, "historyWireKB": 50 }
+  },
+  "server": {
+    "busyReadMs": { "agentic": 60, "heavy": 40 }
+  }
+}

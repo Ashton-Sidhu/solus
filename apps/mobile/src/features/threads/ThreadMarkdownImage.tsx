@@ -9,7 +9,6 @@ import {
   Pressable,
   StyleSheet,
   View,
-  type ViewStyle,
 } from "react-native";
 import { parse, SvgAst, type JsxAST } from "react-native-svg";
 
@@ -23,11 +22,12 @@ import {
 import { MediaActionsMenu } from "../../components/MediaActionsMenu";
 import { useMediaActions } from "../../lib/mediaActions";
 import type { HostConnection } from "../hosts/host-connections";
-import { useHostMediaUrl, type HostPathRequest } from "../files/host-media-url";
+import { useHostMediaUrl, type HostMediaRequest } from "../files/host-media-url";
 import {
   MARKDOWN_IMAGE_MAX_WIDTH,
   type MarkdownImageDisplaySize,
   resolveMarkdownImageDisplaySize,
+  resolveMarkdownImageFrame,
   resolveSvgImageSize,
 } from "./markdownImageSize";
 
@@ -48,6 +48,7 @@ export function isSvgImage(reference: string): boolean {
 
 export function ThreadMarkdownImageView(props: {
   readonly uri: string | null;
+  readonly thumbnail?: boolean;
   readonly sourceKey: string;
   readonly unavailable: boolean;
   readonly alt: string | null;
@@ -89,9 +90,9 @@ export function ThreadMarkdownImageView(props: {
           availableWidth,
         });
   const failed = props.unavailable || (props.uri !== null && failedUri === props.uri);
-  const placeholderWidth: ViewStyle["width"] =
+  const placeholderWidth: number | "100%" =
     availableWidth > 0 ? Math.min(availableWidth, MARKDOWN_IMAGE_MAX_WIDTH) : "100%";
-  const frameStyle: ViewStyle = displaySize ?? { width: placeholderWidth, aspectRatio: 16 / 9 };
+  const { style: frameStyle, caption } = resolveMarkdownImageFrame({ thumbnail: props.thumbnail, displaySize, placeholderWidth, alt: props.alt });
   const accessibilityHint =
     mediaActions.actions.length > 0 ? "Touch and hold for media actions" : undefined;
 
@@ -147,9 +148,9 @@ export function ThreadMarkdownImageView(props: {
           </Pressable>
         </MediaActionsMenu>
       )}
-      {props.alt ? (
+      {caption ? (
         <Text selectable className="text-xs text-foreground-muted">
-          {props.alt}
+          {caption}
         </Text>
       ) : null}
     </View>
@@ -245,7 +246,8 @@ function ThreadMarkdownSvg(props: {
 /** A host file image that loads through a URL the host signs. */
 export function ThreadMarkdownImage(props: {
   readonly connection: HostConnection | null;
-  readonly request: HostPathRequest;
+  readonly thumbnail?: boolean;
+  readonly request: HostMediaRequest;
   readonly alt: string | null;
   readonly preview?: FilePreviewItem;
   readonly onPressPreview: (source: FilePreviewSource) => void;
@@ -255,9 +257,10 @@ export function ThreadMarkdownImage(props: {
   return (
     <ThreadMarkdownImageView
       uri={state.kind === "ready" ? state.url : null}
-      sourceKey={`host:${props.request.path}`}
+      sourceKey={`host:${"path" in props.request ? props.request.path : "assetId" in props.request ? props.request.assetId : props.request.githubMediaUrl}`}
       unavailable={state.kind === "failed"}
-      format={isSvgImage(props.request.path) ? "svg" : undefined}
+      thumbnail={props.thumbnail}
+      format={"path" in props.request && isSvgImage(props.request.path) ? "svg" : undefined}
       alt={props.alt}
       {...(props.preview ? { preview: props.preview } : {})}
       onPressPreview={props.onPressPreview}

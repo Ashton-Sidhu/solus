@@ -18,7 +18,7 @@ checkout at build time.
 | --- | --- | --- |
 | `global.css`, `metro.config.js` (uniwind) | `global.css`, `metro.config.js` | Same styling system: uniwind, 14px rem, T3's type scale, `font-t3-*` utilities. The text is the system font, as Solus's `--solus-font-family`; the DM Sans files in app.json `expo-font` are used only by Markdown (see Enriched Markdown). |
 | `src/lib/mobileTheme.ts`, `scripts/generate-uniwind-theme.ts`, `generated-uniwind-theme.css` | `src/lib/mobileTheme.ts`, `scripts/generate-uniwind-themes.mts` | T3's token derivation run on the Solus palette (`src/theme/theme-colors.ts`); one theme in light and dark; no OKLCH input, no theme library. |
-| `adaptive-colors.css` | `generated-uniwind-themes.css` (adaptive tokens) | T3's Tailwind status pairs, unchanged. |
+| `adaptive-colors.css` | `generated-uniwind-themes.css` (adaptive tokens) | T3's Tailwind status pairs. The emerald, amber, rose, sky, and violet pairs the app uses carry desktop's status hues and are generated from `src/theme/theme-colors.ts`. |
 | `src/components/*` | `src/components/*` | Voice components are not ported yet; media and preview components are in the table below. A composer image opens full screen inside `ComposerAttachmentStrip` rather than through the caller. `ProjectFavicon` draws T3's folder fallback until Solus's favicon resolver moves to client-core. `ProviderIcon` maps `claude-code` to T3's `claudeAgent` mark. |
 | `src/lib/*` (appearancePreferences, mobileThemeRuntime, copyTextWithHaptic, layout helpers, …) | `src/lib/*` | Effect error classes replaced with plain `Error` subclasses; single theme. |
 | `src/native/*`, `src/features/layout/*` | `src/native/*`, `src/features/layout/*` | Unchanged, except the v5 navigation files in the table below. |

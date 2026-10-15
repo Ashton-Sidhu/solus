@@ -108,6 +108,8 @@ export interface ConnectionsServerInfo {
   share?: { resource: ShareResource; role: ShareRole }
   /** The permissions this connection holds on the host (docs/plans/permissions.md): prefixes, `['host']` for the owner. A control is disabled exactly when its permission is not covered. */
   permissions: Permission[]
+  /** `preparing` while the host is still making this member's Linux user and folders (docs/plans/member-isolation.md §8.1): their turns are refused until `connection.memberWorkspaceReady`. Absent when ready, and for everyone who is not such a member. */
+  memberWorkspace?: 'preparing'
 }
 
 export interface LocalConnectionInfo {

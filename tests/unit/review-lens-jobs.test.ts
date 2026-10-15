@@ -27,7 +27,7 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-const ctx = { session: { projectPath: '/repo', workingDirectory: '/repo' } } as IpcContext
+const ctx = { session: { projectPath: '/repo', workingDirectory: '/repo' }, settings: {} } as IpcContext
 const prTarget: ReviewTarget = { kind: 'pr', host: 'github.com', owner: 'acme', repo: 'app', number: 7, baseSha: 'base', headSha: 'head' }
 const address: ReviewLensAddress = { repoRoot: 'pr:github.com/acme/app', key: 'pr-7' }
 
@@ -92,6 +92,21 @@ async function generate(f: ReturnType<typeof fixture>, title: string) {
 }
 
 describe('review lens jobs', () => {
+  test('the ready event names the selected lens, not the generated title or repository', async () => {
+    const f = fixture()
+    await f.jobs.generate(ctx, { target: prTarget, source: { name: 'Data flow', prompt: 'Draw the data flow' } }, f.emit)
+    await settle()
+    f.agentRuns.at(-1)!.answer.resolve({ title: 'How requests reach storage', html: '<p>Flow</p>' })
+    await settle()
+    expect(f.events.at(-1)).toMatchObject({ lensName: 'Data flow', job: { status: 'ready' } })
+
+    await f.jobs.edit(ctx, { target: prTarget, prompt: 'Show the cache', commentIds: [] }, f.emit)
+    await settle()
+    f.agentRuns.at(-1)!.answer.resolve({ title: 'Requests and cache', html: '<p>Updated flow</p>' })
+    await settle()
+    expect(f.events.at(-1)).toMatchObject({ lensName: 'Data flow', job: { status: 'ready' } })
+  })
+
   test('a lens runs on the requester\'s own provider login, and says so when they have none', async () => {
     // WHY: on a cloud host each member signs in on their own seat; a lens run
     // on the host login fails for a member who is signed in only on their seat.
@@ -294,5 +309,8 @@ describe('review lens jobs', () => {
     expect(prompt).toContain('(a.ts:4)')
     expect(prompt).toContain('NO network access')
     expect(prompt).toContain('data-solus-file')
+    expect(prompt).toContain('React + TypeScript + Tailwind')
+    expect(prompt).toContain('Read the compiled HTML')
+    expect(prompt).toContain('Do NOT call render_artifact or create a work')
   })
 })

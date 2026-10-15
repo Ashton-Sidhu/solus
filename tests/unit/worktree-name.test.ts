@@ -3,7 +3,7 @@ import type { AgentRun, AgentRunRequest } from '@solus/server/execution/agents/a
 import { generateWorktreeNameWith } from '@solus/server/git/worktree-name'
 import { DEFAULT_WORKTREE_BRANCH_NAMING, generatedWorktreeBranchName } from '@solus/contracts/worktree-branch-naming'
 
-function dispatcherSubmitting(name?: string) {
+function dispatcherSubmitting(name?: string, failure?: Error) {
   const requests: AgentRunRequest[] = []
   return {
     requests,
@@ -15,6 +15,7 @@ function dispatcherSubmitting(name?: string) {
           const unusedContext = {} as never
           await request.tools[0].execute({ name }, unusedContext)
         }
+        if (failure) throw failure
         return {
           sessionId: null,
           output: '',
@@ -65,5 +66,25 @@ describe('worktree name generation', () => {
       '/repo',
       { provider: 'codex', model: 'gpt-5.6-luna' },
     )).toBeNull()
+  })
+
+  test('keeps a submitted name when the run then ends in an error', async () => {
+    // WHY: Claude ends a two-turn run with error_max_turns after the tool
+    // call. The name is already correct, so the branch must still be renamed.
+    const dispatcher = dispatcherSubmitting('Diagnose slow remote settling', new Error('Reached maximum number of turns (2)'))
+    expect(await generateWorktreeNameWith(
+      dispatcher,
+      'why does settling a remote session take so long',
+      '/repo',
+      { provider: 'claude-code', model: 'claude-haiku-5-5' },
+    )).toBe('Diagnose slow remote settling')
+  })
+
+  test('keeps the naming tool out of tool search', async () => {
+    // WHY: a deferred tool spends the first of the run's two turns on tool
+    // search, and the run then ends at its turn limit.
+    const dispatcher = dispatcherSubmitting('Stable Session Reconnect')
+    await generateWorktreeNameWith(dispatcher, 'repair reconnect handling', '/repo', { provider: 'claude-code', model: 'claude-haiku-5-5' })
+    expect(dispatcher.requests[0].tools[0].alwaysLoad).toBe(true)
   })
 })

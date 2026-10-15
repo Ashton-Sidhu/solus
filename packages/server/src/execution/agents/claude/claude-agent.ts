@@ -1,11 +1,12 @@
+import { spawn } from 'child_process'
 import { homedir } from 'os'
 import { Options, query, type CanUseTool, type PermissionMode as SdkPermissionMode, type Query } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeTurnNormalizer, isAbortSeamResult, isTaskNotificationResult } from './claude-event-normalizer'
 import { TurnInputChannel } from './claude-turn-input'
 import { createLogger } from '../../../logger'
 import { resolveHomePath } from '../../../platform/paths'
-import { findOnPath, warmCliPath } from '../../../cli-env'
-import { SOLUS_PLUGINS_DIR } from '../plugins'
+import { findOnPath, launchedProcess, warmCliPath, type ProcessUser } from '../../../cli-env'
+import { solusPluginsDir } from '../plugins'
 import { claudeUsageFromApi, parseClaudeUsageReport } from './claude-usage'
 import { toContextBreakdown } from './claude-context-usage'
 import type { ClaudeUsageReport, ClaudeUsageWindows } from './claude-usage'
@@ -137,6 +138,8 @@ export interface ClaudeSeat {
   envToken?: string
   /** A member's environment from their acting identity: their own home, and nothing of the host's. */
   env?: NodeJS.ProcessEnv
+  /** The member's OS user on a shared host (docs/plans/member-isolation.md §3): the CLI runs as them. */
+  user?: ProcessUser
 }
 
 /**
@@ -152,10 +155,34 @@ export function claudeEnv(seat?: ClaudeSeat): NodeJS.ProcessEnv {
   if (!seat.isHostLogin) {
     delete env.ANTHROPIC_API_KEY
     delete env.CLAUDE_CODE_OAUTH_TOKEN
-    env.CLAUDE_CONFIG_DIR = seat.home
+    // A member who is their own Linux user keeps the CLI's own `~/.claude`.
+    if (!seat.user) env.CLAUDE_CONFIG_DIR = seat.home
   }
   if (seat.envToken) env.CLAUDE_CODE_OAUTH_TOKEN = seat.envToken
   return env
+}
+
+/**
+ * How the SDK starts the CLI for a seat: its environment and, for a member who is
+ * their own Linux user, a start through the member switch. Elsewhere the SDK's own
+ * spawn stays, which waits for stderr before it reports an exit.
+ */
+export function claudeLaunch(seat?: ClaudeSeat): Pick<Options, 'env' | 'spawnClaudeCodeProcess'> {
+  const launch: Pick<Options, 'env' | 'spawnClaudeCodeProcess'> = { env: claudeEnv(seat) }
+  const user = seat?.user
+  if (user) {
+    launch.spawnClaudeCodeProcess = (options) => {
+      const run = launchedProcess({ env: options.env, user }, options.command, options.args)
+      const child = spawn(run.file, run.args, { cwd: resolveHomePath(options.cwd ?? homedir()), env: run.env, signal: options.signal, stdio: ['pipe', 'pipe', 'pipe'] })
+      child.stderr.setEncoding('utf8')
+      child.stderr.on('data', (chunk: string) => {
+        const text = chunk.trim()
+        if (text) log.warn('claude_cli_stderr', { uid: user.uid, text })
+      })
+      return child
+    }
+  }
+  return launch
 }
 
 export interface ClaudeRunOptions {
@@ -228,7 +255,7 @@ function usageQueryOptions(executable: string, seat: ClaudeSeat | undefined, abo
     abortController,
     pathToClaudeCodeExecutable: executable,
     extraArgs: { 'no-session-persistence': null },
-    env: claudeEnv(seat),
+    ...claudeLaunch(seat),
   }
 }
 
@@ -251,7 +278,7 @@ export class ClaudeAgent {
       disallowedTools: [...BLOCKED_TOOLS],
       cwd: resolveHomePath(opts.cwd),
       systemPrompt,
-      plugins: opts.bare ? [] : [{type: 'local', path: SOLUS_PLUGINS_DIR}],
+      plugins: opts.bare ? [] : [{type: 'local', path: solusPluginsDir()}],
       maxTurns: opts.maxTurns,
       maxBudgetUsd: opts.maxBudgetUsd,
       additionalDirectories: opts.additionalDirectories,
@@ -266,7 +293,7 @@ export class ClaudeAgent {
       fastMode: opts.fastMode ?? false,
       persistSession: opts.persistSession ?? true,
       extraArgs: { 'replay-user-messages': null },
-      env: claudeEnv(opts.seat),
+      ...claudeLaunch(opts.seat),
     }
     if (opts.mcpServers) claudeOptions.mcpServers = opts.mcpServers
     if (opts.bare) claudeOptions.tools = bareTools
@@ -300,6 +327,9 @@ export class ClaudeAgent {
     const promptInput = opts.prompt instanceof TurnInputChannel ? opts.prompt.stream : opts.prompt
     const userMessagePreview = (input?.previewText ?? String(opts.prompt)).slice(0, 200)
     let activeQuery: Query | null = null
+    // A task stopped here does not wake the main agent, so no continuation
+    // result follows its settle to close the stream.
+    const stoppedTasks = new Set<string>()
 
     const events = (async function* (): AsyncGenerator<NormalizedEvent> {
       // A turn is over once its result lands, but the SDK keeps the query open
@@ -311,6 +341,9 @@ export class ClaudeAgent {
       // `task_notification` both normalize to `background_task_settled`), so a
       // counter drains ahead of the real work and closes the stream mid-turn.
       const backgroundTasks = new Set<string>()
+      // Whether the main agent is between turns: a steered message starts a new
+      // turn on the same query, and closing under it would fail its tool calls.
+      let agentIdle = false
       try {
         const executable = await resolveClaudeExecutable()
         abortController.signal.throwIfAborted()
@@ -374,6 +407,12 @@ export class ClaudeAgent {
           // fail with "AbortError: Stream closed". That continuation reports its
           // own result, which is where the last task in flight gets to close.
           if (msg.type === 'result' && sawResult && backgroundTasks.size === 0) input?.close()
+          if (resultMessage && !isAbortSeamResult(resultMessage)) agentIdle = true
+          else if (msg.type === 'assistant' || msg.type === 'user' || msg.type === 'stream_event') agentIdle = false
+          // The last task was stopped here while the agent was idle: no result
+          // comes after it, so this settle is where the query ends.
+          const stoppedTaskSettled = normalized.some((evt) => evt.type === 'background_task_settled' && stoppedTasks.has(evt.taskId))
+          if (stoppedTaskSettled && sawResult && agentIdle && backgroundTasks.size === 0) input?.close()
           for (const evt of normalized) yield evt
         }
 
@@ -418,6 +457,7 @@ export class ClaudeAgent {
 
     const stopTask = async (taskId: string): Promise<boolean> => {
       if (!activeQuery) return false
+      stoppedTasks.add(taskId)
       await activeQuery.stopTask(taskId)
       return true
     }
@@ -450,7 +490,7 @@ export class ClaudeAgent {
         abortController,
         settingSources: ['user', 'project'],
         pathToClaudeCodeExecutable: await resolveClaudeExecutable(),
-        plugins: [{type: 'local', path: SOLUS_PLUGINS_DIR}],
+        plugins: [{type: 'local', path: solusPluginsDir()}],
         env: claudeEnv(),
       },
     })

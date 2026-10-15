@@ -1,3 +1,4 @@
+import { linkCallerItem } from './session-link-tools'
 import { workspaceToolContext } from '../../../data/workspace/tool-context'
 import { taskRecord } from '@solus/contracts/solus-api/records'
 import { z } from 'zod'
@@ -42,7 +43,7 @@ const log = createLogger('main', 'task-tools.ts')
 const STATUS_VALUES = ['inbox', 'todo', 'in_progress', 'in_review', 'done', 'dropped'] as const
 const LIST_STATUS_VALUES = [...STATUS_VALUES, 'all'] as const
 const PRIORITY_VALUES = ['urgent', 'high', 'medium', 'low'] as const
-const LINK_KIND_VALUES = ['work', 'plan', 'pr', 'automation', 'session'] as const
+const LINK_KIND_VALUES = ['work', 'plan', 'pr', 'automation', 'session', 'file'] as const
 
 // ─── Schemas ───
 
@@ -91,17 +92,18 @@ const commentTaskFields = {
 }
 
 const linkFields = {
+  path: z.string().optional().describe('For kind=file: a file path on the execution host, relative to the calling session’s working directory or absolute. Markdown plan files use kind=file.'),
   task_id: z
     .string()
     .optional()
-    .describe('The id of the task to link to. Omit it for kind=pr to link the pull request to the calling session. Required for every other kind.'),
+    .describe('The id of the task to link to. Omit it to link a work, automation, PR, or file to the calling session. Required for kind=plan and kind=session.'),
   kind: z
     .enum(LINK_KIND_VALUES)
-    .describe("What is being linked: 'work' (a Solus doc, slides or diagram), 'plan', 'pr', 'automation', or 'session' (a Solus agent session)."),
+    .describe("What is being linked: 'work' (a Solus doc, slides or diagram), 'plan', 'pr', 'automation', 'session' (a Solus agent session), or 'file' (including Markdown plan files)."),
   target_id: z
     .string()
     .optional()
-    .describe("The target's id: a work id, an automation id, a plan tool-use id, a PR number, or a GitHub PR URL. For kind=session, omit it to link the calling session. Required for every other kind."),
+    .describe("The target's id: a work id, an automation id, a plan tool-use id, a PR number, or a GitHub PR URL. For kind=session, omit it to link the calling session. Required for work, plan, PR, and automation; files use path."),
   session_id: z
     .string()
     .optional()
@@ -135,7 +137,7 @@ const CREATE_TASK_DESC =
 const COMMENT_TASK_DESC =
   "Add a local comment to a Solus task for durable findings, status, or handoff notes."
 const LINK_DESC =
-  "Link a pull request to this session, or attach a doc, plan, pull request, or automation to a Solus task. With kind='pr' and no task_id, the pull request is linked to the calling session: call this for each pull request that you create or work on. Solus shows it on the session and on the task the session works on, keeps its state current, and marks the session done when its pull requests are merged or closed. With a task_id, the item shows in the task's Linked list. Pass kind='session' to bind an agent session to the task instead — that one goes on the local task/session map, and defaults to the calling session. Linking a linked item is safe."
+  "Link a work, automation, pull request, or file to the calling session by omitting task_id. Markdown plan files use kind=file and path, relative to the calling session’s working directory or absolute on its host. Other items use target_id. Link each PR you create or work on immediately; Solus keeps its state current and settles the session when its PRs end. With task_id, existing task links for works, Solus plans, PRs, automations, and sessions retain their meaning. Repeated links are safe."
 const LIST_SESSION_PULL_REQUESTS_DESC =
   "List the pull requests linked to this session, with the state that Solus last saw for each. Before you finish pull request work, call this and link each pull request from your work that is missing."
 
@@ -175,6 +177,7 @@ interface TaskToolArgs {
   target_id?: unknown
   task_id?: unknown
   title?: unknown
+  path?: unknown
 }
 
 async function executeTaskTool(
@@ -330,9 +333,11 @@ async function executeTaskTool(
       // A pull request with no task is the calling session's own link, which
       // the task the session works on reads (docs/plans/session-pull-requests.md).
       if (!taskId) {
-        if (kind !== 'pr') return { ok: false, text: `link requires a task_id for kind=${kind}.` }
-        return await linkCallerPullRequest(deps.ctx, toolContext, projectKey, input)
+        if (kind === 'pr') return await linkCallerPullRequest(deps.ctx, toolContext, projectKey, input)
+        if (kind === 'work' || kind === 'automation' || kind === 'file') return await linkCallerItem(deps.ctx, { ...input, kind })
+        return { ok: false, text: `link requires a task_id for kind=${kind}. Use kind=file and path for a project plan file.` }
       }
+      if (kind === 'file') return { ok: false, text: 'File links belong to sessions. Omit task_id.' }
       if (foreignTaskFor(deps.ctx.sessionId, taskId)) {
         return { ok: false, text: foreignWriteUnsupported('link', taskId) }
       }

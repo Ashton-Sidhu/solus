@@ -272,7 +272,10 @@
   {enterInsertsNewline}
   {onPaste}
   onFocus={() => {
-    ac.updateCursorAnchor();
+    // Only an open menu sits at the caret. Reading the caret's box on every
+    // focus forced a layout each time a session opened; typing a trigger reads
+    // it when the menu opens.
+    if (ac.open) ac.updateCursorAnchor();
     onFocus?.();
   }}
   {onBlur}

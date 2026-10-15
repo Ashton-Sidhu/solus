@@ -10,7 +10,10 @@
   import TurnBody from "./TurnBody.svelte";
   import TurnEndDivider from "./TurnEndDivider.svelte";
   import ToolInputStatus from "./ToolInputStatus.svelte";
+  import TurnImageGallery from "./TurnImageGallery.svelte";
   import ToolGroupItem from "./ToolGroupItem.svelte";
+  import { measureMount } from "../../lib/mount-timing";
+  measureMount("ConversationTurn");
   let { turn, index, total, expanded, isAwaitingInput, activityLabel, turnStart, attempt,
     hasBackgroundWork = false, onStopBackgroundWork = async () => {}, history, onToggle, onRetry, transcriptItem, serverId, sessionId }: {
     turn: Turn; index: number; total: number; expanded: boolean; isAwaitingInput: boolean;
@@ -117,6 +120,7 @@
 {#each turn.tail as item (itemKey(item))}
   {@render transcriptItem(item, skipMotion)}
 {/each}
+<TurnImageGallery messages={turn.images} {serverId} />
 <!-- §17's transient endings, in the place they happened: after
    everything the turn produced, never in front of it. -->
 {#if !live && turn.end && turn.end.kind !== "failed"}

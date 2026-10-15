@@ -62,6 +62,11 @@ the hub protocols itself, through a proxy that passes bytes through.
   screen the helper reported. A screen change ends a held touch.
 - Each viewer opens its own hub stream. The hub never receives Solus
   credentials, and clients never receive the hub origin or its tokens.
+- iOS wheel input uses serve-sim's scroll command (`0x0b`), with the cursor
+  and deltas mapped into raw screen orientation. The native helper owns the
+  drag timing: it lets touch-down register before moving and lifts on idle.
+  Sending raw touch-down and move together can trigger a row's context menu.
+  Android wheel input uses a client-owned drag, lifted on idle or at an edge.
 - The route exists on the tunnel listener too, so remote clients use it
   unchanged. A client's proxied sockets close when its Solus connection
   expires.
@@ -149,22 +154,40 @@ installed on the host at runtime, not bundled with Solus.
 ## D4 — Run app owns app execution
 
 Changed 2026-10-13. Run app replaces the Builds archive and New build flow.
-Changed again 2026-10-13: Run app has two paths. **Dev server** (`mode: dev`)
-opens the debug app already on a simulator or emulator against the project's
-Metro; it builds nothing, and each request opens one more simulator against the
-same server. **Production build** (`mode: device`) builds Release once for a
-`target` (`ios-simulator`, `ios-device`, or `android`); the client then installs
-that one output on any number of matching devices through `deviceInstall`. The
-build itself installs nothing. The run `mode` is `dev` or `device`; every
+Changed 2026-10-15: the device page's **Builds** view focuses on production
+builds. There is no Dev server tab or simulator launcher in the build form.
+Choose a project, branch, and target, then select **Build Release app**.
+Branch and target share a row when the pane has room. Available builds always
+show below the form, with multi-device install, download, and delete actions.
+The latest matching production build keeps its log after completion; finished
+dev runs do not replace it. An active older dev run remains visible with its
+log and Stop action, so it can be ended before a build starts.
+
+Platform decision, approved 2026-10-15: this change applies to the shared
+desktop and web device page only. The native mobile app has no device-build
+page; adding one is outside this change.
+
+A production build (`mode: device`) builds Release once for a `target`
+(`ios-simulator`, `ios-device`, or `android`); the client then installs that
+one output on any number of matching devices through `deviceInstall`. The
+build itself installs nothing. The host still accepts `mode: dev` for older
+clients; the current build page sends only `mode: device`. Every
 run records its mode, source, delivery, branch, and commit. The Branch picker lists
 local and remote branches for the selected project. It starts on main when available,
 otherwise the current branch. Each named branch has its own owned build checkout.
-Builds use committed code and do not change the conversation checkout.
+Builds use the current state of the branch and do not change the conversation checkout.
 Profiles in `.solus/config.json` still apply to production builds, but the
 client has no editor for them. Each run checks out the newest commit of its source in an owned checkout.
 Changed 2026-10-13: the main commit pin and Update main were removed; users
 expect a build to contain the latest selected branch commit. Older clients can
 still request main or the conversation checkout through the source field.
+Changed 2026-10-15: when a worktree has the branch checked out, the build also
+contains that worktree's uncommitted and untracked files; ignored files stay out.
+The host records them as a snapshot commit on the branch commit through a copy of
+the worktree's index, so the person's files and staging stay as they are. A remote-only
+branch builds its commit. A changed snapshot counts as a changed source: dependency
+setup, `expo prebuild` of an ignored native folder, and `pod install` run again,
+for saved profiles too, so a change to a config plugin reaches the build.
 The selected device determines which target profiles match. Run app uses the first
 matching saved profile, or detects a default when none match. Profiles supply the
 build command, output path, app id, and signing settings; production builds
@@ -172,7 +195,7 @@ always use Release. Profiles are read from the selected project checkout.
 
 `DeviceRuns` owns command approval, dependency setup, build execution,
 dev server readiness, cancellation, and bounded run state.
-`DeviceRunSources` owns separate checkouts and commit selection.
+`DeviceRunSources` owns separate checkouts, commit selection, and working-tree snapshots.
 `DeviceRunState` writes the latest bounded state and log atomically.
 `DeviceManager` retains device discovery, preview, install, and control lease
 ownership. App execution uses the device RPC surface over IPC or WebSockets.

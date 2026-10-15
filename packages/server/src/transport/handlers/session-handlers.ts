@@ -11,7 +11,7 @@ import type { SessionOrchestrator } from '../../execution/orchestration/session-
 import { activityLeases } from '../../execution/activity-leases'
 import type { AgentId, AgentMetadata, IpcContext } from '@solus/contracts/types'
 import { AGENT_BIN } from '@solus/contracts/types'
-import { findOnPath, getCliEnv, warmCliPath } from '../../cli-env'
+import { findOnPath, launchProcess, warmCliPath } from '../../cli-env'
 import { createLogger } from '../../logger'
 import { appVersion, resolveHomePath, solusDir } from '../../platform/paths'
 import { warmFinder } from '../../files/file-finder'
@@ -21,7 +21,7 @@ import type { ShareManager } from '../../sharing/share-manager'
 import { mayAnswerFor } from '../../execution/sessions/turn-organization'
 import { isOrganizationSpace, type Principal } from '../../admission/principal'
 import { RequestNotAnswerableError } from '../../execution/sessions/pending-input'
-import { chatFolderFor, projectsRootFor } from './setup-handlers'
+import { chatFolderFor, projectsRootFor } from '../../workspace'
 import { parseExecutionPreferences } from '../../execution/agents/run-input'
 import { isChat, NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
 import { recordingRetention } from '../../browser/recording-retention'
@@ -97,11 +97,12 @@ function savePersistedBinaries(): void {
 async function probeAgentBinary(agentId: AgentId): Promise<string | null> {
   const bin = AGENT_BIN[agentId]
   if (!bin) return null
-  // Wait for the async PATH warmup instead of letting getCliEnv() fall back to
+  // Wait for the async PATH warmup instead of letting launchProcess() fall back to
   // the synchronous login-shell probes, which would block the main process.
   const path = await warmCliPath()
   try {
-    const { stdout } = await execFileAsync('which', [bin], { encoding: 'utf8', env: getCliEnv(), timeout: 3000 })
+    const run = launchProcess('which', [bin])
+    const { stdout } = await execFileAsync(run.file, run.args, { encoding: 'utf8', env: run.env, timeout: 3000 })
     const result = stdout.trim()
     if (result) {
       log.info('agent_binary_which_hit', { agentId, bin, result })
@@ -210,9 +211,8 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   }
 
   /**
-   * A chat runs in its own folder in the caller's projects root. The client names
-   * it when it sends the first prompt (`chatFolderIn`); the folder is made here.
-   * A new chat that has no folder yet gets one named by its session.
+   * A chat runs in its own folder, which the host names (`chatFolderFor`). A new
+   * chat gets one named by its session; a chat whose folder is gone gets it again.
    */
   function resolveChat(ctx: IpcContext, principal: Principal): void {
     const { session } = ctx

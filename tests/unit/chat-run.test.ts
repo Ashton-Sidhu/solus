@@ -9,7 +9,7 @@ import { checkoutPlace, folderLocation, runHost } from '@solus/workspace-ui/cont
 // folder is its own, so it never leaks into the next session, and every client
 // names it "Chat" from the path alone, before any host answers.
 
-const CHAT = '/data/projects/ada-1/.solus-chats/session-1'
+const CHAT = '/data/projects/ada-1/solus-chats/session-1'
 
 function run(path: string, serverId = 'studio'): RunConfig {
   return {

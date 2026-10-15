@@ -1,6 +1,6 @@
 import { SvelteMap } from 'svelte/reactivity'
 import type { SessionState, SessionView } from '@solus/contracts/session-state'
-import type { SessionRecord } from '@solus/contracts/types'
+import type { SessionMeta, SessionRecord } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { loadServers } from '@solus/client-core/server-registry'
 import { sessionHomeId } from '@solus/client-core/session-home'
@@ -24,6 +24,9 @@ export interface ListedSession {
   /** The project the session belongs to, as its host names it. */
   projectPath: string | null
   createdAt: number
+  /** What its first history page is read with, so a click can ask for the
+   *  page before the session's metadata arrives. */
+  opensWith: Pick<SessionMeta, 'provider' | 'projectPath' | 'cwd'>
 }
 
 /** Where a session is in this person's list: its shared settle, and their own
@@ -114,6 +117,7 @@ export class SessionListStore {
         title: record.customTitle ?? record.title ?? record.slug,
         projectPath: record.projectRoot ?? record.projectPath,
         createdAt: record.createdAt,
+        opensWith: { provider: record.provider, projectPath: record.projectPath, cwd: record.cwd ?? '' },
       })
       this.writeState(record.sessionId, record.state)
       this.writeView(record.sessionId, record.view)
@@ -170,6 +174,10 @@ export class SessionListStore {
   }
 
   /** Every session in this person's list. */
+  listed(sessionId: string): ListedSession | undefined {
+    return this.listedBySession.get(sessionId)
+  }
+
   get sessions(): ListedSession[] {
     return [...this.listedBySession.values()]
   }

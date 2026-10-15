@@ -58,7 +58,7 @@ describe('the theme the fence guidance names', () => {
     // resolves to nothing, and the agent's chart draws without colour.
     const previousDocument = globalThis.document
     const previousGetComputedStyle = globalThis.getComputedStyle
-    Object.defineProperty(globalThis, 'document', { configurable: true, value: { documentElement: {} } })
+    Object.defineProperty(globalThis, 'document', { configurable: true, value: { documentElement: { className: '', getAttribute: () => null } } })
     // Every Solus variable resolves, as it does in the app.
     Object.defineProperty(globalThis, 'getComputedStyle', {
       configurable: true,

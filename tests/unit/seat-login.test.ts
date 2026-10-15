@@ -32,8 +32,8 @@ test('the host login probe never spawns synchronously', async () => {
 
 test('an injected probe decides the answer', async () => {
   const probed: string[] = []
-  const connected = await providerLoginConnected('claude-code', '/seats/claude/bob', async (command, args, env) => {
-    probed.push(`${command} ${args.join(' ')} ${env.CLAUDE_CONFIG_DIR}`)
+  const connected = await providerLoginConnected('claude-code', '/seats/claude/bob', async (run) => {
+    probed.push(`${run.file} ${run.args.join(' ')} ${run.env.CLAUDE_CONFIG_DIR}`)
     return true
   })
   expect(connected).toBe(true)

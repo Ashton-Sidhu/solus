@@ -57,6 +57,33 @@ export function deferSessionToolInputs(messages: WireSessionLoadMessage[]): Wire
   })
 }
 
+const savedArtifactInput = z.object({ html: z.string() }).loose()
+
+/** A saved `render_artifact` call without its HTML, for a client that reads
+ *  the HTML from the work when the frame mounts. The receipt names the work and
+ *  its version; `toolInputKey` keeps the call's own input loadable when the
+ *  work cannot answer. A call the work did not save keeps its HTML, and so does
+ *  the newest render: a conversation opens at its end, so that frame is on
+ *  screen, and a read when it mounts only made it wait. */
+export function deferSavedArtifactHtml(messages: WireSessionLoadMessage[]): WireSessionLoadMessage[] {
+  const savedToolIds = new Set(messages.flatMap((message) =>
+    message.role === 'tool_result' && message.toolResultForId && message.artifactWorkRef?.contentVersion
+      ? [message.toolResultForId] : []))
+  const newest = messages.findLast((message) => message.role === 'tool' && message.toolName?.endsWith('render_artifact'))
+  return messages.map((message) => {
+    if (message === newest || message.role !== 'tool' || !message.toolInput || !message.toolId || !savedToolIds.has(message.toolId)
+      || !message.toolName?.endsWith('render_artifact') || !message.toolInput.includes('"html"')) return message
+    try {
+      const input = savedArtifactInput.safeParse(JSON.parse(message.toolInput))
+      if (!input.success) return message
+      const { html: _html, ...rest } = input.data
+      return { ...message, toolInput: JSON.stringify(rest), toolInputKey: inputKey(message) }
+    } catch {
+      return message
+    }
+  })
+}
+
 /** Keys include the input content: appended, rewound, or changed history cannot
  * silently return another tool's input. Only the requested inputs cross the wire. */
 export function selectSessionToolInputs(messages: SessionLoadMessage[], keys: string[]): SessionToolInput[] {

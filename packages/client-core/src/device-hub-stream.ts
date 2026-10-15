@@ -43,10 +43,13 @@ const KEYFRAME_REQUEST_INTERVAL_MS = 2_000
 const PRIME_TIMEOUT_MS = 2_000
 /** A signed URL opens connections for a minute; reuse it for half of that. */
 const URL_REUSE_MS = 30_000
-/** A wheel burst is one finger drag; the finger lifts when the wheel stops for this long. Well under iOS's long press. */
+/** Android wheel bursts use a finger drag, lifted shortly after the wheel stops. */
 const WHEEL_GESTURE_END_MS = 150
 /** Wheel travel, as a fraction of the screen, before the finger goes down. Less would reach the device as a tap. */
 const MIN_WHEEL_TRAVEL = 0.02
+/** HID usages of the eight modifier keys, left Control through right Command. */
+const IOS_FIRST_MODIFIER = 0xe0
+const IOS_LAST_MODIFIER = 0xe7
 
 export type DeviceVideoFormat = 'h264' | 'jpeg'
 
@@ -96,6 +99,8 @@ export class DeviceHubStream {
   private streamGeneration = 0
   private screen: DeviceScreenConfig | null = null
   private heldPointer: { x: number; y: number } | null = null
+  /** iOS HID usages this client pressed and has not released. */
+  private readonly heldKeys = new Set<number>()
   /** The finger a wheel burst moves: down where the burst began, lifted when it stops. */
   private wheel: { originX: number; originY: number; x: number; y: number; isDown: boolean; cancelEnd: () => void } | null = null
   private hasConfig = false
@@ -134,6 +139,7 @@ export class DeviceHubStream {
     this.closed = true
     this.wheel?.cancelEnd()
     this.wheel = null
+    this.releaseKeys()
     for (const abort of this.aborts) abort.abort()
     this.aborts.clear()
     const socket = this.socket
@@ -251,7 +257,12 @@ export class DeviceHubStream {
       onOpen: () => {
         if (this.socket !== socket) return
         this.socketOpen = true
-        if (this.options.platform === 'ios') socket.send(iosInput.hardwareKeyboard(false))
+        if (this.options.platform === 'ios') {
+          socket.send(iosInput.hardwareKeyboard(false))
+          // A client that reloaded or crashed mid-shortcut never sent its key up. A held
+          // Control turns every tap into a secondary click, so start with no modifier down.
+          for (let usage = IOS_FIRST_MODIFIER; usage <= IOS_LAST_MODIFIER; usage++) socket.send(iosInput.key('up', usage))
+        }
         for (const resolve of this.socketWaiters.splice(0)) resolve()
       },
       onMessage: (data) => {
@@ -407,14 +418,20 @@ export class DeviceHubStream {
   }
 
   /**
-   * Neither helper has a wheel event, so a wheel burst is one finger drag the
-   * other way: down where the burst began, a move per wheel batch, and up
-   * when the wheel stops or the finger reaches the screen edge. A finger put
-   * down and lifted at once for each wheel event would reach the device as
-   * taps at one spot, which iOS reads as double and triple taps that select.
+   * iOS owns wheel-to-drag timing in its native scroll command. Sending begin
+   * and move back to back bypasses its touch registration delay and can leave
+   * a row held for its context menu instead of starting a scroll.
+   * Android uses one finger drag per wheel burst: down where it began, a move
+   * per batch, and up when the wheel stops or the finger reaches the screen
+   * edge. Separate down/up pairs for each wheel event would arrive as taps.
    */
   private scrollMessages(input: Extract<DeviceInput, { kind: 'scroll' }>): UpstreamMessage[] {
     if (this.heldPointer && !this.wheel?.isDown) return []
+    if (this.options.platform === 'ios') {
+      const point = iosRawPoint(this.screen, input.x, input.y)
+      const end = iosRawPoint(this.screen, input.x + input.deltaX, input.y + input.deltaY)
+      return [iosInput.scroll(point.x, point.y, end.x - point.x, end.y - point.y)]
+    }
     const clamp = (value: number) => Math.min(1, Math.max(0, value))
     const wheel = this.wheel ?? { originX: input.x, originY: input.y, x: input.x, y: input.y, isDown: false, cancelEnd: () => {} }
     this.wheel = wheel
@@ -458,10 +475,19 @@ export class DeviceHubStream {
     ])
   }
 
+  /** Release every key this client holds down: the screen lost focus, so their key up will not come. */
+  releaseKeys(): void {
+    if (this.socketOpen) for (const usage of this.heldKeys) this.socket?.send(iosInput.key('up', usage))
+    this.heldKeys.clear()
+  }
+
   private keyMessages(input: Extract<DeviceInput, { kind: 'key' }>): UpstreamMessage[] {
     if (this.options.platform === 'ios') {
       const usage = hidUsageForCode(input.code)
-      return usage === null ? [] : [iosInput.key(input.phase, usage)]
+      if (usage === null) return []
+      if (input.phase === 'down') this.heldKeys.add(usage)
+      else this.heldKeys.delete(usage)
+      return [iosInput.key(input.phase, usage)]
     }
     if (input.phase !== 'down') return []
     const message = androidKeyMessage(input.key, input.hasModifier === true)

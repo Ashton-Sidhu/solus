@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { AgentId, RunConfig } from '@solus/contracts/types'
 import type { SessionDraft } from '@solus/workspace-ui/contexts/workspace/session-draft.svelte'
 import { draftModelSelection } from '@solus/workspace-ui/components/session-draft/lib/draft-selection'
+import { folderLocation } from '@solus/workspace-ui/contexts/workspace/run-location'
 
 function draft(provider: AgentId | null = null): SessionDraft {
   // SAFETY: This fixture supplies every RunConfig field read by draftModelSelection.
@@ -9,8 +10,7 @@ function draft(provider: AgentId | null = null): SessionDraft {
     id: 'draft-1',
     run: {
       provider,
-      workingDirectory: '/repo',
-      gitContext: null,
+      location: folderLocation({ serverId: 'local', path: '/repo' }),
       modelConfig: {
         modelId: 'claude-opus-5',
         reasoningEffort: 'high',
@@ -39,19 +39,21 @@ describe('draft model selection', () => {
     expect(composing.run.modelConfig.reasoningEffort).toBe('low')
   })
 
-  test('a write hands the draft a new run instead of editing the one it holds', () => {
-    // WHY: the draft owns its run. A chip that edits that object in place is
-    // writing through state it does not own — Svelte rejects it
-    // (ownership_invalid_mutation) and the owner never learns of the change.
+  test('a model write leaves where the draft runs alone', () => {
+    // WHY: only a move reads the draft's checkout from its host
+    // (docs/plans/run-location.md §10). A chip write that replaced the run
+    // would hand the draft a new location and ask the host again.
     const composing = draft()
-    const runBefore = composing.run
+    const location = composing.run.location
     const configBefore = composing.run.modelConfig
     const selection = draftModelSelection(() => composing, () => 'codex')
 
     selection.fastMode = true
 
     expect(composing.run.modelConfig.fastMode).toBe(true)
-    expect(composing.run).not.toBe(runBefore)
+    expect(composing.run.location).toBe(location)
+    // The config is replaced, not edited: a draft may share it with the run it
+    // was opened from.
     expect(configBefore.fastMode).toBe(false)
   })
 

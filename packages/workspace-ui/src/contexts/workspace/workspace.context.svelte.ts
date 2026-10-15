@@ -4,7 +4,7 @@ import { ToolHistoryStore } from './tool-history.store'
 import { recordHomeOf } from './machine-references'
 import { splitHostKey } from '@solus/client-core/host-key'
 import { browserStore } from '../browser/browser.store.svelte'
-import type { AgentId, PermissionMode, Tab, Prompt, Session, SessionSpec, RunConfig, Attachment, PlanDescriptor, SessionCtx, IpcContext, ModelConfig, RuntimeSessionInfo, GitCheckout, ThreadGoal, ThreadGoalSetRequest, QuestionRequest } from '@solus/contracts/types'
+import type { AgentId, PermissionMode, Tab, Prompt, Session, SessionSpec, RunConfig, RunLocation, Attachment, PlanDescriptor, SessionCtx, IpcContext, ModelConfig, RuntimeSessionInfo, GitCheckout, ThreadGoal, ThreadGoalSetRequest, QuestionRequest } from '@solus/contracts/types'
 import { type RepoRef } from '@solus/contracts/providers'
 import { type ReviewTarget } from '@solus/contracts/review'
 import type { SolusEventMap, Via } from '@solus/contracts/analytics-events'
@@ -764,6 +764,15 @@ export class WorkspaceContext implements SurfaceContext {
     return this.sessionFor(sourceId)?.run ?? this.drafts.sessionDrafts.get(sourceId)?.run
   }
 
+  /** Point a source's run at a new location, through whichever owns it: a
+   *  draft moves itself, which reads its new checkout; a tab's session takes
+   *  the location as written (docs/plans/run-location.md §10). */
+  moveRun(sourceId: string, next: RunLocation): void {
+    const session = this.sessionFor(sourceId)
+    if (session) session.run.location = next
+    else this.drafts.sessionDrafts.get(sourceId)?.moveTo(next)
+  }
+
   /** The host for deliberately session-less operations: the Run on host, and
    *  the window's own host only when there is none. */
   private defaultServerId(): string {
@@ -1184,13 +1193,17 @@ export class WorkspaceContext implements SurfaceContext {
   /** Every run nothing has happened in yet: the tabs that have not started, and
    *  the drafts, which by definition never have. */
   unstartedRuns(): RunConfig[] {
-    const runs: RunConfig[] = []
-    for (const tabId of this.tabOrder) {
+    return this.unstartedSourceIds().flatMap((sourceId) => this.runFor(sourceId) ?? [])
+  }
+
+  /** The tabs nothing has happened in yet, and every draft. */
+  unstartedSourceIds(): string[] {
+    const sourceIds = this.tabOrder.filter((tabId) => {
       const session = this.sessionFor(tabId)
-      if (session && !hasSessionStarted(session)) runs.push(session.run)
-    }
-    for (const draft of this.drafts.sessionDrafts.values()) runs.push(draft.run)
-    return runs
+      return session && !hasSessionStarted(session)
+    })
+    sourceIds.push(...this.drafts.sessionDrafts.keys())
+    return sourceIds
   }
 
   /** Author an automation in a low-reasoning session with no tab routing state. */
@@ -1769,7 +1782,7 @@ export class WorkspaceContext implements SurfaceContext {
       owningTask ? { taskId: owningTask.taskId, workId } : { withoutTask: true, workId },
       work.cwd,
     )
-    if (taskServerId) draft.run.location = fileTasksOn(draft.run.location, taskServerId)
+    if (taskServerId) draft.moveTo(fileTasksOn(draft.run.location, taskServerId))
     const tabId = this.drafts.startSessionDraft(draft.id, { via: 'click' })
     if (!tabId) return false
 

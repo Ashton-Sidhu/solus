@@ -1379,6 +1379,10 @@ export interface Message {
     streaming?: boolean
     /** Successful saved revision, used to ignore repeated update delivery. */
     updatedAt?: string
+    /** A history page left this saved render's HTML on its host. The frame
+     *  reads it when it mounts: the work's revision at `workRef.contentVersion`,
+     *  else this call's own input. */
+    historyHtml?: import('./session-history').DeferredToolInput
   }
   /** Reference to an automation the agent created or updated in this thread,
    *  rendered as a card with an Open action. */

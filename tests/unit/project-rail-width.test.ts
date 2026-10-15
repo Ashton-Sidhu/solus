@@ -20,7 +20,7 @@ describe('project rail width', () => {
     // WHY: sizing off the window alone breaks here. A 5K window with a narrow
     // split view would hand the rail 380px out of a 620px pane and leave the
     // conversation 240px.
-    const split = PROJECT_RAIL_MIN_CONTAINER_WIDTH + 40
+    const split = MIN_PRIMARY_PANE_WIDTH + SIDEBAR_MIN_WIDTH + 40
     expect(projectRailWidth(2560, split)).toBe(split - MIN_PRIMARY_PANE_WIDTH)
     expect(split - projectRailWidth(2560, split)).toBe(MIN_PRIMARY_PANE_WIDTH)
   })
@@ -36,21 +36,20 @@ describe('project rail width', () => {
     expect(projectRailWidth(2560, containerWidth, 380)).toBe(260)
   })
 
-  test('threshold leaves exactly the conversation minimum beside the rail', () => {
-    // The constants meet with no gap: at the threshold the rail sits at the
-    // sidebar's floor and the conversation at MIN_PRIMARY_PANE_WIDTH. This is why
-    // the pane's minimum never had to grow to cover the rail.
+  test('even the widest rail leaves 800px for the conversation when it first opens', () => {
     const atThreshold = projectRailWidth(
       PROJECT_RAIL_MIN_CONTAINER_WIDTH,
       PROJECT_RAIL_MIN_CONTAINER_WIDTH,
+      SIDEBAR_MAX_WIDTH,
     )
-    expect(atThreshold).toBe(SIDEBAR_MIN_WIDTH)
-    expect(PROJECT_RAIL_MIN_CONTAINER_WIDTH - atThreshold).toBe(MIN_PRIMARY_PANE_WIDTH)
+    expect(atThreshold).toBe(SIDEBAR_MAX_WIDTH)
+    expect(PROJECT_RAIL_MIN_CONTAINER_WIDTH - atThreshold).toBe(800)
   })
 
   test('minimizes below the threshold and opens at it', () => {
-    expect(isProjectRailOpen(true, PROJECT_RAIL_MIN_CONTAINER_WIDTH - 1)).toBe(false)
-    expect(isProjectRailOpen(true, PROJECT_RAIL_MIN_CONTAINER_WIDTH)).toBe(true)
+    expect(isProjectRailOpen(true, 600)).toBe(false)
+    expect(isProjectRailOpen(true, 1199)).toBe(false)
+    expect(isProjectRailOpen(true, 1200)).toBe(true)
   })
 
   test('room alone never overrides the user closing it', () => {
@@ -63,8 +62,8 @@ describe('project rail width', () => {
       { name: 'chat', params: { sessionId: 'companion-session' } },
     ] as const) {
       const minimized = companionMinimizesProjectPanel(companion)
-      expect(isProjectRailOpen(true, 800, minimized)).toBe(true)
-      expect(isProjectRailOpen(false, 800, minimized)).toBe(false)
+      expect(isProjectRailOpen(true, 1200, minimized)).toBe(true)
+      expect(isProjectRailOpen(false, 1200, minimized)).toBe(false)
       expect(isProjectRailOpen(true, PROJECT_RAIL_MIN_CONTAINER_WIDTH - 1, minimized)).toBe(false)
     }
   })

@@ -18,8 +18,8 @@ describe('native mobile theme', () => {
       expect(variables['--color-user-bubble']).toBe(colors.messageSurface)
       expect(variables['--color-foreground']).toBe(colors.text)
     }
-    // Light filled actions are the deeper mobile accent (theme-colors.ts); the brand accent stays the focus.
-    expect(getMobileThemeVariables('light')['--color-primary']).toBe('#b85c39')
+    // Filled actions are the brand accent, as desktop's send button.
+    expect(getMobileThemeVariables('light')['--color-primary']).toBe('#d97757')
     expect(getMobileThemeVariables('light')['--color-focus']).toBe('#d97757')
     expect(getMobileThemeVariables('dark')['--color-primary']).toBe('#e68e6b')
   })

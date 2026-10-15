@@ -8,11 +8,12 @@
  */
 
 import { execFile } from 'child_process'
-import { mkdtemp, rm } from 'fs/promises'
+import { chmod, mkdtemp, rm } from 'fs/promises'
 import { homedir, tmpdir } from 'os'
 import { join } from 'path'
 import { promisify } from 'util'
-import { getCliEnv } from '../cli-env'
+import { launchProcess } from '../cli-env'
+import { memberUsers } from '../host/member-users'
 import { createLogger } from '../logger'
 import { captureServerEvent } from '../analytics'
 import type { AgentId, RemoteSkill, SkillInstallResult } from '@solus/contracts/types'
@@ -42,7 +43,9 @@ export interface MemberSkillHomes {
 }
 
 function skillsEnv(member: MemberSkillHomes | undefined): NodeJS.ProcessEnv {
-  if (!member) return { DISABLE_TELEMETRY: '1' }
+  // Where each member is their own user, the launch gives them their own `HOME`, and the
+  // CLI's defaults under it are their agents' folders and their npm cache.
+  if (!member || memberUsers()) return { DISABLE_TELEMETRY: '1' }
   return {
     DISABLE_TELEMETRY: '1',
     CLAUDE_CONFIG_DIR: member.claudeHome,
@@ -56,10 +59,13 @@ function skillsEnv(member: MemberSkillHomes | undefined): NodeJS.ProcessEnv {
 /** Keep npm's project discovery out of the server's working directory. */
 async function runGlobalSkills(args: string[], member?: MemberSkillHomes): Promise<string> {
   const cwd = await mkdtemp(join(tmpdir(), 'solus-skills-'))
+  // Empty, and only a working folder: a member who is their own user must be able to enter it.
+  if (member && memberUsers()) await chmod(cwd, 0o755)
   try {
-    const { stdout } = await execFileAsync(NPX, [...BASE_ARGS, ...args], {
+    const run = launchProcess(NPX, [...BASE_ARGS, ...args], skillsEnv(member))
+    const { stdout } = await execFileAsync(run.file, run.args, {
       cwd,
-      env: getCliEnv(skillsEnv(member)),
+      env: run.env,
       timeout: CLI_TIMEOUT_MS,
       maxBuffer: 4 * 1024 * 1024,
     })

@@ -17,9 +17,8 @@ import type { ShareManager } from './share-manager'
  * in the room, and again after any share or task change, not on every event.
  */
 export async function eventVisibleTo(principal: Principal, event: HostEvent, shares: ShareManager): Promise<boolean> {
-  // A browser profile is personal (docs/plans/access-model.md §2.3): its owner's
-  // connections alone hear of it, the host owner's included only for their own.
-  if (event.type === 'browser.profilesChanged') return principal.kind !== 'system' && ownerKeyOf(actorFor(principal)) === event.payload.ownerKey
+  const personal = personalEventVisibleTo(principal, event)
+  if (personal !== null) return personal
   if (principal.kind === 'system' || isHostOwner(principal)) return true
   // A runner writes; it reads nothing back from the people's side.
   if (principal.kind === 'runner') return false
@@ -47,6 +46,16 @@ export async function eventVisibleTo(principal: Principal, event: HostEvent, sha
   }
   if (!resource) return !GUEST_ONLY_HIDDEN.has(event.type) || principal.kind === 'org-member'
   return await shares.roleFor(principal, resource) !== 'none'
+}
+
+/** For an event about one person only, whether this principal is that person; null for any other event. */
+function personalEventVisibleTo(principal: Principal, event: HostEvent): boolean | null {
+  // A browser profile is personal (docs/plans/access-model.md §2.3): its owner's
+  // connections alone hear of it, the host owner's included only for their own.
+  if (event.type === 'browser.profilesChanged') return principal.kind !== 'system' && ownerKeyOf(actorFor(principal)) === event.payload.ownerKey
+  // One member's workspace became ready (docs/plans/member-isolation.md §8.1): theirs alone to hear.
+  if (event.type === 'connection.memberWorkspaceReady') return principal.kind === 'org-member' && principal.userId === event.payload.userId
+  return null
 }
 
 /**

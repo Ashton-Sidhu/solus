@@ -2,7 +2,7 @@ import type { TaskOpenTrace } from '../../components/session/lib/task-open-timin
 import { createAppContext } from '../app/create-app-context'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { untrack } from 'svelte'
-import { worktreeProjectRoot, type AgentId, type PinnedSession, type RunConfig, type Session, type Tab } from '@solus/contracts/types'
+import { worktreeProjectRoot, type AgentId, type PinnedSession, type RunConfig, type Session, type SessionMeta, type Tab } from '@solus/contracts/types'
 import type { Task, TaskSessionLink } from '@solus/contracts/task-types'
 import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
 import { makePrompt } from './session.factories'
@@ -1472,9 +1472,33 @@ export class SessionSidebarStore {
   }
 
   /** Open a listed session that has no conversation here. */
+  /** The metadata read `prepareOpen` started for a row, taken by its open. */
+  private preparedOpen: { rowKey: string; at: number; meta: Promise<SessionMeta | null> } | null = null
+
+  /** Start the reads opening a listed session needs at the click, before the
+   *  deferred switch: its metadata, then its first history page. */
+  prepareOpen(row: SidebarTask): void {
+    if ((row.taskId && this.taskRecord(row.taskId)) || row.tabIds.length || !row.sessionId || !row.serverId) return
+    // Pointer down and the click both ask; one read serves both.
+    if (this.preparedOpen?.rowKey === row.key && Date.now() - this.preparedOpen.at < 2_000) return
+    // The list already holds what the page is read with: ask for it now, beside
+    // the metadata read rather than after it.
+    const listed = sessionListStore.listed(row.sessionId)
+    if (listed && !listed.runnerOffline) {
+      this.session.opening.prefetchFirstPage({ sessionId: row.sessionId, serverId: listed.serverId, ...listed.opensWith })
+    }
+    const meta = readSessionMeta(row.serverId, row.sessionId)
+    void meta.then((read) => { if (read) this.session.opening.prefetchFirstPage(read) })
+    this.preparedOpen = { rowKey: row.key, at: Date.now(), meta }
+  }
+
   private async openListedSession(row: SidebarTask): Promise<void> {
     if (!row.sessionId || !row.serverId) return
-    const meta = await readSessionMeta(row.serverId, row.sessionId)
+    const prepared = this.preparedOpen?.rowKey === row.key && Date.now() - this.preparedOpen.at < 2_000
+      ? this.preparedOpen.meta
+      : null
+    this.preparedOpen = null
+    const meta = await (prepared ?? readSessionMeta(row.serverId, row.sessionId))
     if (meta) await this.session.opening.resumeSession(meta)
   }
 

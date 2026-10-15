@@ -1,6 +1,5 @@
 import type { PrFilter, PrListPage, PullRequest, RepoRef } from '@solus/contracts/providers'
 import { z } from 'zod'
-import { createLogger } from '../../logger'
 import type { PrPageRequest, RepositoryPage } from '../types'
 import type { GitHubClient } from './octokit'
 import {
@@ -24,8 +23,6 @@ import { NEEDS_REVIEW_FIELDS, toNeedsReviewPullRequest, type GqlNeedsReviewPullR
 // new name, and the index can lag a new pull request. Each repository's facts
 // are read beside the search, and a repository search could not answer is read
 // on its own through `repository.pullRequests`.
-
-const log = createLogger('main', 'github-provider')
 
 /** Rows per search and per listing page. GitHub's largest page. */
 export const ROWS_PER_PAGE = 100
@@ -78,10 +75,11 @@ interface GqlRepository extends GithubRepositoryFacts {
 
 const answerSchema = z.record(z.string(), z.custom<GqlRepository | GqlRowConnection | null>())
 
-/** GitHub's answer when some aliases failed: the others still carry data. */
-const partialAnswerSchema = z.object({
+/** An invalid search can name a renamed repository. Keep the repository
+ * facts so that the search can retry with its current name. */
+const invalidSearchAnswerSchema = z.object({
   data: answerSchema,
-  errors: z.array(z.object({ path: z.array(z.union([z.string(), z.number()])).optional() })),
+  errors: z.array(z.object({ type: z.literal('INVALID'), path: z.array(z.union([z.string(), z.number()])).optional() })).nonempty(),
 })
 
 type Answer = z.infer<typeof answerSchema>
@@ -196,15 +194,15 @@ function documentOf(parts: Part[]) {
   }
 }
 
-/** The answer, or the part of it GitHub could give. An alias named by an
- *  error is dropped, so a failure there reads as "not answered". */
+/** Keep repository facts for an invalid search so it can retry by the current
+ * name. Every other failed request reaches the shared request policy. */
 async function readAnswer(client: GitHubClient, parts: Part[]): Promise<Slot[]> {
   const { query, variables } = documentOf(parts)
   let answer: Answer
   try {
     answer = answerSchema.parse(await client.graphql(query, variables))
   } catch (error) {
-    const partial = partialAnswerSchema.safeParse(error)
+    const partial = invalidSearchAnswerSchema.safeParse(error)
     if (!partial.success) throw error
     const failed = new Set(partial.data.errors.map((failure) => failure.path?.[0]))
     // An error with no alias is about the whole document.
@@ -475,33 +473,23 @@ function documentsOf(blocks: Block[]): Block[][] {
   return documents
 }
 
-/** Read every document of one round. Throws only when every document failed,
- *  so the credential chain can try the next credential. */
+/** Read every document of one round. Failures reach the shared request policy. */
 async function readRound(targets: Target[], request: Request, client: GitHubClient, accessFor: AccessFor): Promise<RoundOutcome> {
   const outcome: RoundOutcome = { pages: new Map(), retry: [] }
   const documents = documentsOf(blocksOf(targets, request, client, accessFor))
-  const failures: Array<{ blocks: Block[]; reason: unknown }> = []
   let next = 0
   const worker = async (): Promise<void> => {
     while (next < documents.length) {
       const blocks = documents[next++]
-      try {
-        const answers = await readAnswer(client, blocks.flatMap((block) => block.parts))
-        let offset = 0
-        for (const block of blocks) {
-          await block.settle(answers.slice(offset, offset + block.parts.length), outcome)
-          offset += block.parts.length
-        }
-      } catch (reason) {
-        failures.push({ blocks, reason })
+      const answers = await readAnswer(client, blocks.flatMap((block) => block.parts))
+      let offset = 0
+      for (const block of blocks) {
+        await block.settle(answers.slice(offset, offset + block.parts.length), outcome)
+        offset += block.parts.length
       }
     }
   }
   await Promise.all(Array.from({ length: Math.min(PARALLEL_REQUESTS, documents.length) }, worker))
-  if (failures.length > 0 && failures.length === documents.length) throw failures[0].reason
-  for (const { reason } of failures) {
-    log.warn('github_pr_list_document_failed', { error: reason instanceof Error ? reason.message : String(reason) })
-  }
   return outcome
 }
 
@@ -527,9 +515,7 @@ export async function readPullRequestPages(
   const first = await readRound(targets, request, client, accessFor)
   const pages = first.pages
   if (first.retry.length > 0) {
-    // A second round never throws: what the first answered stands.
     const second = await readRound(first.retry, { ...request, isRetry: true }, client, accessFor)
-      .catch(() => ({ pages: new Map<number, RepositoryPage>() }))
     for (const [index, page] of second.pages) pages.set(index, page)
   }
   return targets.map((target) => pages.get(target.index) ?? null)

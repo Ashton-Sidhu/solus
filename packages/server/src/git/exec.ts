@@ -1,6 +1,6 @@
 import { execFile as execFileCb, execFileSync } from 'child_process'
 import { promisify } from 'util'
-import { getCliEnv } from '../cli-env'
+import { launchedProcess, launchProcess } from '../cli-env'
 import { currentIdentity } from '../vault/acting-scope'
 import { GitUnavailableError, isGitUsable } from './git-availability'
 
@@ -34,12 +34,13 @@ export interface GitExecOptions {
 
 export function git(args: string[], cwd: string, opts: GitExecOptions = {}): string {
   if (!isGitUsable()) throw new GitUnavailableError()
-  return execFileSync('git', args, {
+  const run = launchProcess('git', args, { ...GIT_DEFAULT_ENV, ...opts.env })
+  return execFileSync(run.file, run.args, {
     cwd,
     encoding: 'utf-8',
     timeout: opts.timeout ?? DEFAULT_TIMEOUT,
     maxBuffer: opts.maxBuffer ?? DEFAULT_MAX_BUFFER,
-    env: getCliEnv({ ...GIT_DEFAULT_ENV, ...opts.env }),
+    env: run.env,
   }).trim()
 }
 
@@ -47,13 +48,14 @@ export async function runAsync(bin: string, args: string[], cwd: string, opts: G
   if (bin === 'git' && !isGitUsable()) throw new GitUnavailableError()
   // The acting identity's environment, with a member's author once known: a
   // partial clone can turn any git command into a fetch, so every one acts as someone.
-  const env = await currentIdentity(`${bin} ${args[0] ?? ''}`.trim()).env(bin === 'git' ? { ...GIT_DEFAULT_ENV, ...opts.env } : opts.env)
-  const { stdout } = await execFileAsync(bin, args, {
+  const launch = await currentIdentity(`${bin} ${args[0] ?? ''}`.trim()).launchOptions(bin === 'git' ? { ...GIT_DEFAULT_ENV, ...opts.env } : opts.env)
+  const run = launchedProcess(launch, bin, args)
+  const { stdout } = await execFileAsync(run.file, run.args, {
     cwd,
     encoding: 'utf-8',
     timeout: opts.timeout ?? DEFAULT_TIMEOUT,
     maxBuffer: opts.maxBuffer ?? DEFAULT_MAX_BUFFER,
-    env,
+    env: run.env,
     signal: opts.signal,
   })
   return opts.raw ? stdout : stdout.trim()

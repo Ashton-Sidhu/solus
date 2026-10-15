@@ -162,6 +162,7 @@ const IOS_MSG_TOUCH = 0x03
 const IOS_MSG_BUTTON = 0x04
 const IOS_MSG_KEY = 0x06
 const IOS_MSG_ORIENTATION = 0x07
+const IOS_MSG_SCROLL = 0x0b
 const IOS_MSG_HARDWARE_KEYBOARD = 0x0d
 // helper -> client.
 const IOS_TAG_SCREEN_CONFIG = 0x82
@@ -202,6 +203,7 @@ export const iosInput = {
   hardwareKeyboard: (enabled: boolean) => taggedJson(IOS_MSG_HARDWARE_KEYBOARD, { enabled }),
   touch: (phase: 'begin' | 'move' | 'end', x: number, y: number) =>
     taggedJson(IOS_MSG_TOUCH, { type: phase, x, y }),
+  scroll: (x: number, y: number, dx: number, dy: number) => taggedJson(IOS_MSG_SCROLL, { x, y, dx, dy }),
   key: (phase: 'down' | 'up', usage: number) => taggedJson(IOS_MSG_KEY, { type: phase, usage }),
   button: (button: 'home' | 'app_switcher' | 'lock') => taggedJson(IOS_MSG_BUTTON, { button }),
   orientation: (orientation: DeviceOrientation) => taggedJson(IOS_MSG_ORIENTATION, { orientation }),

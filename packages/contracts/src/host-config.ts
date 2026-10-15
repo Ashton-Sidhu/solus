@@ -2,8 +2,9 @@
 //
 // What a host owns about itself and serves to the clients that administer it:
 // which Solus tools its agents may use, where it exports telemetry, how long it
-// keeps archived automations, whether it continues sessions after a restart,
-// which projects warm review guides, and whether its own analytics emitter runs.
+// keeps archived automations and unfiled recordings, whether it continues
+// sessions after a restart, which projects warm review guides, and whether its
+// own analytics emitter runs.
 //
 // A person's choices are not here. They are personal settings
 // (`settings.ts`): a profile on each client, synced to the account when the
@@ -24,6 +25,9 @@ export interface HostConfig {
    */
   reviewWarmingByProject: Record<string, boolean>
   archivedAutomationRetentionDays: number
+  /** Days the host keeps a recording that is not filed on a task or a pull
+   *  request, and not sent to an agent. */
+  unfiledRecordingRetentionDays: number
   /** Where this host sends its own telemetry. `headers` carries collector credentials. */
   otel: OtelSettings
   /** This host's analytics emitter. A client's own emitter is a device setting. */
@@ -97,6 +101,7 @@ export const HOST_CONFIG_FIELDS = {
   continueSessionsAfterHostRestart: field(z.boolean().catch(true), true, true),
   reviewWarmingByProject: field(z.record(z.string(), z.boolean()).catch({}), {}, false),
   archivedAutomationRetentionDays: field(z.number().int().min(1).max(3650), 30, false),
+  unfiledRecordingRetentionDays: field(z.number().int().min(1).max(3650), 30, false),
   otel: field(otelPatchSchema.catch({}), DEFAULT_OTEL_SETTINGS, false),
   analyticsEnabled: field(z.boolean().catch(true), true, false),
 } satisfies HostConfigFieldTable

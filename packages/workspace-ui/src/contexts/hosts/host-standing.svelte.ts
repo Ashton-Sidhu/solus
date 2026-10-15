@@ -40,6 +40,12 @@ export class HostStanding {
     return this.principal === 'guest'
   }
 
+  /** The host is still making this member's Linux user and folders (docs/plans/member-isolation.md §8.1): no turn runs here yet. */
+  get isPreparing(): boolean {
+    const fact = this.serverInfo()
+    return fact.state === 'ready' && fact.value.memberWorkspace === 'preparing'
+  }
+
   /** Whether this client holds a permission here, or may do `verb` on one resource of this host. */
   may(permission: Permission): boolean
   may(verb: ResourceVerb, resource: ResourceRef): boolean

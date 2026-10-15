@@ -29,6 +29,21 @@ const hostContext: MarkdownMediaContext = {
 };
 
 describe("Markdown media routing", () => {
+  it("opens stored images and videos in the correct modal without loading until opened", async () => {
+    const resolved: string[] = [];
+    const context: MarkdownMediaContext = {
+      hostFile: () => null,
+      assetUrl: async (assetId) => { resolved.push(assetId); return `https://host.example/assets/${assetId}`; },
+    };
+    const image = resolveMarkdownMediaPreview(`asset://${"a".repeat(64)}.png`, context);
+    const video = resolveMarkdownMediaPreview(`asset://${"b".repeat(64)}.mp4`, context);
+    expect(image?.kind).toBe("image");
+    expect(video?.kind).toBe("video");
+    expect(resolved).toEqual([]);
+    expect(await video?.source.resolveUri()).toBe(`https://host.example/assets/${"b".repeat(64)}.mp4`);
+    expect(resolved).toEqual([`${"b".repeat(64)}.mp4`]);
+    expect(resolveMarkdownMediaPreview("asset://notes.txt", context)).toBeNull();
+  });
   it("routes media links to the viewers before ordinary file routing", () => {
     expect(resolveMarkdownMediaPreview("docs/spec.pdf", hostContext)?.kind).toBe("pdf");
     expect(resolveMarkdownMediaPreview("shots/home.png", hostContext)?.kind).toBe("image");

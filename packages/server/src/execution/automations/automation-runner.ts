@@ -1,5 +1,5 @@
 import { NEW_CHAT_DIRECTORY } from '@solus/contracts/chat'
-import { makeChatFolder, setupProjectsRoot } from '../../workspace'
+import { chatFolderFor } from '../../workspace'
 import { expandHome } from '../../files/host-path'
 import { createLogger } from '../../logger'
 import { captureServerEvent } from '../../analytics'
@@ -202,7 +202,7 @@ async function executeRunAs(automation: Automation, run: AutomationRun, entry: A
     // mutating the user's tree. Nobody waits on an unattended run, so the
     // name is generated first; without one the branch keeps its temporary name.
     // An automation with no project runs each time in a new chat of its own.
-    const cwd = action.cwd === NEW_CHAT_DIRECTORY ? makeChatFolder(setupProjectsRoot(), runId) : expandHome(action.cwd)
+    const cwd = action.cwd === NEW_CHAT_DIRECTORY ? chatFolderFor(runId, actor.principal) : expandHome(action.cwd)
     const preferences = automationPreferences(automation)
     let gitContext: GitCheckout | null = null
     if (action.useWorktree) {

@@ -134,7 +134,7 @@
     {isPrimary}
     {paneId}
     run={draft.run}
-    onRun={(next) => (draft.run = next)}
+    onRun={(next) => draft.applyRun(next)}
     draftId={draft.id}
     pluginCommands={preflight.pluginCommands}
     boundWorkId={draft.boundWorkId}
@@ -153,7 +153,7 @@
         showDestination={false}
         {isPrimary}
         run={draft.run}
-        onRun={(next) => (draft.run = next)}
+        onRun={(next) => draft.applyRun(next)}
         selection={modelSelection}
         onAttachFile={attachFile}
         {onScreenshot}

@@ -48,6 +48,15 @@ export class TranscriptVirtualizer {
    *  the main thread: a script write to `scrollTop` there stops the momentum
    *  and lands on a stale position, so the view stutters and jumps back. */
   private readerScrollUntil = 0
+  /** The scroll position and height the last DOM refresh read. */
+  private metrics: { scrollTop: number; clientHeight: number } | null = null
+  /** The first page came in for a view that opens at the end; the first
+   *  render scrolls there before it reads the scroll position. */
+  private isOpeningAtEnd = false
+
+  /** `opensAtEnd`: the view has no saved place and shows the end of the
+   *  conversation, as a session open does. */
+  constructor(private readonly opensAtEnd: () => boolean = () => false) {}
 
   connect(scroll: HTMLElement, content: HTMLElement): () => void {
     this.scroll = scroll
@@ -87,18 +96,41 @@ export class TranscriptVirtualizer {
       this.anchor = null
       this.pendingShift = 0
       this.readerScrollUntil = 0
+      this.metrics = null
     }
   }
 
   setKeys(keys: string[]): void {
     if (keys.length === this.geometry.keys.length && keys.every((key, index) => key === this.geometry.keys[index])) return
+    // The first page of a view that opens at the end: its rows are the ones
+    // at the end. Choosing them at the top mounted rows nobody sees, and the
+    // jump to the end mounted the rest.
+    if (!this.geometry.keys.length && keys.length && this.opensAtEnd()) this.isOpeningAtEnd = true
     const anchorKey = this.anchorKey()
     const before = anchorKey === undefined ? undefined : this.geometry.top(anchorKey)
     this.geometry.setKeys(keys)
     const after = anchorKey === undefined ? undefined : this.geometry.top(anchorKey)
     if (before !== undefined && after !== undefined) this.pendingShift += after - before
     this.revision++
-    this.refresh()
+    this.rangeFromLastRead()
+  }
+
+  /** Choose the rows from the last refresh's reading. This runs before the
+   *  DOM update; reading the DOM here forced a layout of the view the update
+   *  is about to replace. `rendered` reads it once the new rows are in. */
+  private rangeFromLastRead(): void {
+    if (!this.metrics) {
+      this.refresh()
+      return
+    }
+    const { scrollTop, clientHeight } = this.metrics
+    const top = this.isOpeningAtEnd
+      ? Math.max(0, this.geometry.total - clientHeight)
+      : scrollTop + this.pendingShift - this.origin
+    const next = this.geometry.range(top, clientHeight)
+    const current = this.range
+    if (next.start !== current.start || next.end !== current.end
+      || next.before !== current.before || next.after !== current.after) this.range = next
   }
 
   /** The list rendered new slots: mounted or unmounted rows and resized
@@ -118,7 +150,12 @@ export class TranscriptVirtualizer {
       this.geometry.rebuild()
       this.revision++
     }
-    this.holdAnchor(keysMoved)
+    if (this.isOpeningAtEnd && this.scroll) {
+      // Where the view's own jump to the end would put it a frame later.
+      this.isOpeningAtEnd = false
+      this.anchor = null
+      this.scroll.scrollTop = this.scroll.scrollHeight
+    } else this.holdAnchor(keysMoved)
     this.refresh()
   }
 
@@ -207,6 +244,7 @@ export class TranscriptVirtualizer {
     if (!this.scroll || !this.content || this.scroll.clientHeight === 0) return
     // One content rectangle, independent of history length.
     this.origin = this.content.getBoundingClientRect().top - this.scroll.getBoundingClientRect().top + this.scroll.scrollTop
+    this.metrics = { scrollTop: this.scroll.scrollTop, clientHeight: this.scroll.clientHeight }
     const next = this.geometry.range(this.scroll.scrollTop + this.pendingShift - this.origin, this.scroll.clientHeight)
     // A focused control pins only its own row, not every row between that
     // control and the viewport. Selected text pins its selected range.

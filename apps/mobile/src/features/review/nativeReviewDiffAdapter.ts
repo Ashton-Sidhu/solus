@@ -1,14 +1,14 @@
 // Adapted from T3 Code apps/mobile/src/features/review/nativeReviewDiffAdapter.ts (MIT, see UPSTREAM.md).
-// Plain arrays replace Effect. Solus has one theme and no terminal, so
-// `createNativeReviewDiffTheme` takes no theme id and the delete bar is the
-// red of T3's default terminal palette.
+// Plain arrays replace Effect. Solus has one theme, so
+// `createNativeReviewDiffTheme` takes no theme id, and the add and delete
+// colours are desktop's status green and red.
 import type { NativeReviewDiffRow, NativeReviewDiffTheme } from "../diffs/nativeReviewDiffSurface";
 import type {
   NativeReviewDiffFile,
   NativeReviewDiffLanguage,
 } from "../diffs/nativeReviewDiffTypes";
 import type { ResolvedMobileCodeSurface } from "../../lib/appearancePreferences";
-import type { MobileThemeAppearance, MobileThemeVariables } from "../../lib/mobileTheme";
+import { themeColorWithAlpha, type MobileThemeAppearance, type MobileThemeVariables } from "../../lib/mobileTheme";
 import { computeWordAltDiffRanges } from "./reviewWordDiffs";
 import {
   getReviewFilePreviewState,
@@ -19,7 +19,6 @@ import {
 import type { ReviewInlineComment } from "./reviewCommentSelection";
 
 const NATIVE_REVIEW_MAX_WORD_DIFF_RANGE_COUNT = 4;
-const NATIVE_REVIEW_DELETE_BAR = "#ff2e3f";
 const NATIVE_REVIEW_MAX_WORD_DIFF_COVERAGE = 0.45;
 const NATIVE_HEX_COLOR = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})([\da-f]{2})?$/i;
 const NATIVE_RGBA_COLOR =
@@ -185,24 +184,10 @@ export function createNativeReviewDiffTheme(
   const background = screen;
   const nativeColor = (color: string) => opaqueNativeHexColor(color, background);
 
-  if (scheme === "dark") {
-    return {
-      background,
-      text: nativeColor(appTheme["--color-md-code-text"]),
-      mutedText: nativeColor(appTheme["--color-foreground-muted"]),
-      headerBackground: background,
-      border: nativeColor(appTheme["--color-border"]),
-      hunkBackground: nativeColor(appTheme["--color-subtle-strong"]),
-      hunkText: nativeColor(appTheme["--color-foreground"]),
-      addBackground: "#0d2f28",
-      deleteBackground: "#391415",
-      addBar: "#00cab1",
-      deleteBar: NATIVE_REVIEW_DELETE_BAR,
-      addText: "#5ECC71",
-      deleteText: "#FF6762",
-    };
-  }
-
+  // Desktop's vivid diff tokens (`--solus-diff-*-vivid`): the status green and
+  // red for text and bars, and 18% / 14% of them for the changed rows.
+  const green = appTheme["--color-adaptive-emerald-600-400"];
+  const red = appTheme["--color-adaptive-rose-600-400"];
   return {
     background,
     text: nativeColor(appTheme["--color-md-code-text"]),
@@ -211,12 +196,12 @@ export function createNativeReviewDiffTheme(
     border: nativeColor(appTheme["--color-border"]),
     hunkBackground: nativeColor(appTheme["--color-subtle-strong"]),
     hunkText: nativeColor(appTheme["--color-foreground"]),
-    addBackground: "#e5f8f5",
-    deleteBackground: "#ffe6e7",
-    addBar: "#00cab1",
-    deleteBar: NATIVE_REVIEW_DELETE_BAR,
-    addText: "#199F43",
-    deleteText: "#D52C36",
+    addBackground: nativeColor(themeColorWithAlpha(green, 0.18)),
+    deleteBackground: nativeColor(themeColorWithAlpha(red, 0.14)),
+    addBar: green,
+    deleteBar: red,
+    addText: green,
+    deleteText: red,
   };
 }
 

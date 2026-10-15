@@ -1,5 +1,5 @@
-import { afterEach, expect, test } from 'bun:test'
-import { mkdtemp, writeFile, appendFile, rm } from 'node:fs/promises'
+import { afterEach, expect, spyOn, test } from 'bun:test'
+import { mkdtemp, open, writeFile, appendFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadClaudeHistoryPage } from '@solus/server/execution/agents/claude/claude-history-page'
@@ -112,4 +112,29 @@ test('a page is a number of user turns, however many rows each turn has', async 
   const codex = await loadCodexHistoryPage('thread', codexTurns, read, 2)
   expect(codex.messages).toHaveLength(60)
   expect(codex.before).toBe('b')
+})
+
+test('a page of many megabytes takes a few reads, not one per 64 KB', async () => {
+  // WHY: every awaited read waits behind the rest of a busy host's event loop.
+  // At 64 KB a block, a 6 MB page was about a hundred reads and a third of a
+  // second while agents streamed (docs/plans/session-open-performance.md).
+  const directory = await mkdtemp(join(tmpdir(), 'solus-history-page-'))
+  directories.push(directory)
+  const file = join(directory, 'session.jsonl')
+  const answer = 'x'.repeat(60_000)
+  let body = line('user', 'first', 1)
+  for (let step = 0; step < 100; step++) body += line('assistant', answer, 2 + step)
+  await writeFile(file, body + line('user', 'second', 200) + line('assistant', 'done', 201))
+  const handle = await open(file, 'r')
+  const prototype = Object.getPrototypeOf(handle)
+  await handle.close()
+  const reads = spyOn(prototype, 'read')
+  try {
+    const page = await loadClaudeHistoryPage(file, 2)
+    expect(page.messages).toHaveLength(103)
+    expect(page.messages[0].content).toBe('first')
+    expect(reads.mock.calls.length).toBeLessThanOrEqual(8)
+  } finally {
+    reads.mockRestore()
+  }
 })

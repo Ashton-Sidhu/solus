@@ -113,10 +113,13 @@ and cancelled.
   second Restore swaps them back, so Restore is its own reverse. The action is
   disabled when there is no previous version. The restored lens keeps its own
   fingerprint, so it can show as outdated.
-- **Edit bar.** A prompt bar under the lens: "Ask for a change…". A lens edit
-  sends the current HTML, the edit prompt, open lens comments, and the change to
-  the agent. The result replaces the lens. Focus goes back to the edit bar
-  after the user sends an edit.
+- **Edit bar.** “Ask for a change” uses the same floating composer control
+  as pull requests (`ui/floating-composer/FloatingComposer.svelte`). It opens
+  over the lens and keeps unsent text when folded. Escape or Hide returns
+  focus to its button. The model picker and Apply comments controls remain
+  in the lens editor. A lens edit sends the current HTML, the edit prompt,
+  open lens comments, and the change to the agent. The result replaces the
+  lens, and the composer folds after Send.
 - **Lens comments.** The user pins comments on the lens with
   `LensCommentLayer`. It reuses the pin geometry of the artifact comments
   (`artifact/lib/artifact-comments.ts`), but not `ArtifactCommentLayer`: a lens
@@ -147,6 +150,17 @@ and cancelled.
   - A line that already has a draft is refused as a draft line comment, so the
     user's own draft is never overwritten. The comment then posts as a
     conversation comment.
+
+### HTML authoring and surface
+
+Lenses use the `visual-artifacts` skill's React, TypeScript, and Tailwind
+workflow. The agent compiles one self-contained HTML file and sends its content
+to `submit_review_lens`. It does not call `render_artifact` or create a work.
+All dependencies and assets must be in the file: lens frames block network access.
+
+Lenses and artifacts use the same transparent document rule in the workspace
+sandbox CSS. This also applies to saved HTML and stays in place when the theme
+changes. Background transparency does not depend on agent instructions.
 
 ### Code anchors
 
@@ -188,7 +202,9 @@ as a conversation comment.
   version with its comments, `hasPrevious`, `outdated`, the live job, and
   `revision` (`ReviewLensRecord.updatedAt`).
 - `ReviewLensChangedEvent` on the `review.lensChanged` topic — address,
-  target, job, and revision. It never carries HTML. A client reads the
+  target, job, and revision. A completed job also carries `lensName`, the
+  source name shown in the ready toast. Local toasts name the lens; PR
+  toasts also name the pull request. It never carries HTML. A client reads the
   snapshot again only when the revision moves past the one it holds. The
   target lets a client with no pane open name the review: `app-core.ts` calls
   `reviewLensStore.follow()` once, the store keeps the last job per target on
@@ -270,9 +286,10 @@ navigation; a browser tab cannot). This is a known limit of v1.
 
 ## Clients, providers, and connections
 
-- **Desktop, web, and mobile** all show the Lens tab, the edit bar, and
-  comments: the web and mobile client mount the same `ReviewSurface` and
-  `PrReviewPane`. On a narrow pane, the header actions wrap and the meta line
+- **Desktop and web** show the Lens tab, the edit bar, and comments through
+  the shared `ReviewSurface` and `PrReviewPane`. The native mobile app does
+  not yet have a lens screen; it does not mount these Svelte components.
+  This is an existing capability gap. On a narrow pane, the header actions wrap and the meta line
   hides. The edit bar and its send button stay visible.
 - **Claude and Codex** are both supported.
 - **Local and remote hosts:** the lens is RPC data with a size limit. No local
