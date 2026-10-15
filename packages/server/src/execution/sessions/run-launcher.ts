@@ -799,7 +799,11 @@ export class RunLauncher {
       // typed, queued, restored, or started by an agent — gets that person's own.
       const integrationTools = await integrationAgentTools(request.actor ?? HOST_ACTOR)
       // Ask Jev uses the run's person's own TypeSafe key (access-model.md §2.6); without one it is not offered.
-      const hasTypeSafeKey = !!(await typeSafeKey()).apiKey
+      // A key that cannot be read (the account is unreachable) only leaves the tool out; it never stops the turn.
+      const hasTypeSafeKey = await typeSafeKey().then((key) => !!key.apiKey, (error: unknown) => {
+        log.warn('typesafe_key_unreadable', { sessionId, error: error instanceof Error ? error.message : String(error) })
+        return false
+      })
       if (this.rt.isShuttingDown) throw new Error('Interrupted')
       const savedRestart = this.rt.restarts.restartRuns?.get(sessionId)
       if (savedRestart && savedRestart.runId === request.runId) {

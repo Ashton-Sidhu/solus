@@ -84,10 +84,15 @@ export type CredentialLocation = { kind: 'host' } | { kind: 'account'; accountId
  * store; the Solus API has none. An MCP connection of the host's own work does not
  * exist (`hasMcpCredentials`).
  */
+/** The person is the owner of this machine: its host user, on a host that is somebody's machine (not a managed host or the Solus API). */
+export function isMachineOwner(personKey: string | null): boolean {
+  return personKey !== null && !isApiMode() && hostCategory() !== 'managed' && isHostUserKey(personKey)
+}
+
 export function credentialLocationOf(personKey: string | null): CredentialLocation {
   if (personKey === null) return isApiMode() ? { kind: 'none' } : { kind: 'host' }
-  // The host's user: this machine's store until the host is linked to their account. A managed host and the Solus API are nobody's machine.
-  if (!isApiMode() && hostCategory() !== 'managed' && isHostUserKey(personKey)) {
+  // The host's user: this machine's store until the host is linked to their account.
+  if (isMachineOwner(personKey)) {
     const account = currentHostUser()?.account
     return account ? { kind: 'account', accountId: account.accountId } : { kind: 'host' }
   }

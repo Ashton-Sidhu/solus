@@ -96,7 +96,9 @@ function docTool(
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         log.warn('doc_tool_failed', { tool: name, error: message })
-        return { ok: false, text: `${message}\n\n${await connectedProvidersHint()}` }
+        // The hint reads the connections too; when they cannot be read, the failure alone is the answer.
+        const hint = await connectedProvidersHint().catch(() => null)
+        return { ok: false, text: hint ? `${message}\n\n${hint}` : message }
       }
     },
   }

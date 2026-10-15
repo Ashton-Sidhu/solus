@@ -311,8 +311,11 @@ The vault owns the location rule (`credentialLocationOf`), which is written once
    The cloud refreshes; the host caches an MCP access token until a minute
    before it expires.
 3. A guest: `none` (D1). The Solus API has no `host` location.
-4. For a `provider` ref only, the host location falls back to `machine` (`gh
-   auth token`, the chain in `providers/github/credentials.ts`).
+4. GitHub only: the owner of this machine (`isMachineOwner`) falls back to the
+   machine's own `gh` login after the host store, and after their account when
+   they are signed in. `gh` is a runtime login of the machine, so an account that
+   does not answer only leaves the account out. A member never gets the owner's
+   `gh` (`providers/github/credentials.ts`).
 
 An MCP connection of a person with an account may still have a host copy: a
 sign-in made on this host, which the reconcile has not moved into the account

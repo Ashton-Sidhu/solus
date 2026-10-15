@@ -26,7 +26,13 @@ async function watchPullRequest(input: z.output<typeof inputSchema>, ctx: TaskTo
   const sessionId = ctx.sessionId
   if (!sessionId) return { ok: false, text: 'watch_pull_request needs a calling session, and this session has no id yet.' }
   const projectKey = await resolveRepoRoot(ctx.cwd) ?? ctx.cwd
-  const identity = await namedPullRequest(projectKey, input.pull_request)
+  // Finding a pull request by number reads GitHub as the caller; when that read fails, its reason is the answer.
+  let identity: Awaited<ReturnType<typeof namedPullRequest>>
+  try {
+    identity = await namedPullRequest(projectKey, input.pull_request)
+  } catch (error) {
+    return { ok: false, text: `watch_pull_request could not read pull request "${input.pull_request}": ${error instanceof Error ? error.message : String(error)}` }
+  }
   if (!identity) return { ok: false, text: `watch_pull_request could not find pull request "${input.pull_request}". Pass its number or URL.` }
   const label = `pull request #${identity.number} (${identity.repository})`
 

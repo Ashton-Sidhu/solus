@@ -1,4 +1,5 @@
-import { usesAccountIntegration } from '../../vault/vault'
+import { currentPersonKey } from '../../vault/acting-scope'
+import { isMachineOwner, usesAccountIntegration } from '../../vault/vault'
 import { homedir } from 'node:os'
 import { runAsync } from '../../git/exec'
 import { createLogger } from '../../logger'
@@ -89,7 +90,8 @@ function ghCliGithubToken(host: string): Promise<string | null> {
  *    the device's too. No delegation means no client identity was ever
  *    written — `configureDelegatedCheckout` stores both in one step — and the
  *    work is the host's.
- * 2. The account this host is connected as.
+ * 2. The account this host is connected as; for a person signed in, their
+ *    account. Only the owner of this machine goes on to the next step.
  * 3. Whatever `gh` is signed in as. `gh` is a credential, not a transport: its
  *    token drives the same REST and GraphQL client as the others, so a read
  *    answers identically whichever credential signed it.
@@ -100,6 +102,24 @@ function ghCliGithubToken(host: string): Promise<string | null> {
  */
 export async function githubCredentialChain(host: string, cwd?: string): Promise<GithubCredential[]> {
   if (usesAccountIntegration()) {
+    // The owner of this machine signed in: their account first, then their machine's own `gh` login,
+    // which is a runtime login and stays theirs (docs/plans/access-model.md §2.6). An account that does
+    // not answer only leaves the account out. Anyone else has their account alone: `gh` here is the owner's.
+    if (isMachineOwner(currentPersonKey())) {
+      const chain: GithubCredential[] = []
+      const delegated = cwd ? await delegatedCheckoutToken(cwd) : null
+      if (delegated) chain.push({ source: 'delegated', token: delegated })
+      const accountToken = host === 'github.com'
+        ? await loadToken().then((stored) => stored?.accessToken, (error: unknown) => {
+          log.warn('github_account_token_unreadable', { error: error instanceof Error ? error.message : String(error) })
+          return undefined
+        })
+        : undefined
+      if (accountToken) chain.push({ source: 'account', token: accountToken })
+      const cliToken = await ghCliGithubToken(host)
+      if (cliToken) chain.push({ source: 'gh-cli', token: cliToken })
+      return chain
+    }
     if (host !== 'github.com') return []
     const token = (await loadToken())?.accessToken
     return token ? [{ source: 'account', token }] : []
